@@ -2,7 +2,7 @@ import os
 import smartsheet
 import datetime
 from dateutil import parser
-from pdfrw import PdfReader, PdfWriter, PdfDict
+from pypdf import PdfReader, PdfWriter
 
 # Load API key and sheet ID from environment variables
 API_TOKEN = os.getenv("SMARTSHEET_API_TOKEN")
@@ -59,12 +59,12 @@ def fill_pdf(group_key, rows):
     first_row = rows[0][1]
     foreman, wr_num, week_end = group_key.split('_')
     output_path = f"WR_{wr_num}_WeekEnding_{week_end}.pdf"
-    
-    pdf = PdfReader(PDF_TEMPLATE_PATH)
-    annotations = pdf.pages[0]['/Annots']
 
-    # Header values
-    header_map = {
+    reader = PdfReader(PDF_TEMPLATE_PATH)
+    writer = PdfWriter()
+
+    # Fill header values
+    field_values = {
         'Week Ending Date': week_end,
         'Employee Name': foreman,
         'JobPhase Dept No': first_row.get(COLUMNS['Dept #'], ''),
@@ -74,17 +74,11 @@ def fill_pdf(group_key, rows):
         'LocationAddress': first_row.get(COLUMNS['Area'], ''),
     }
 
-    for annot in annotations:
-        key = annot['/T'][1:-1]
-        if key in header_map:
-            annot.update(PdfDict(V=str(header_map[key])))
-
-    # Table values
+    # Fill up to 38 rows of table data
     for i, (_, row_data) in enumerate(rows[:38]):
-        idx = i + 1
-        def field(k): return f"{k}Row{idx}"
-
-        row_fields = {
+        row_num = i + 1
+        def field(name): return f"{name}Row{row_num}"
+        field_values.update({
             field("Point Number"): row_data.get(COLUMNS['Pole #'], ''),
             field("Billable Unit Code"): row_data.get(COLUMNS['CU'], ''),
             field("Work Type"): row_data.get(COLUMNS['Work Type'], ''),
@@ -92,14 +86,14 @@ def fill_pdf(group_key, rows):
             field("Unit of Measure"): row_data.get(COLUMNS['Unit of Measure'], ''),
             field(" of Units Completed"): row_data.get(COLUMNS['Quantity'], ''),
             field("Pricing"): row_data.get(COLUMNS['Redlined Total Price'], '')
-        }
+        })
 
-        for annot in annotations:
-            key = annot['/T'][1:-1]
-            if key in row_fields:
-                annot.update(PdfDict(V=str(row_fields[key])))
+    writer.append(reader)
+    writer.update_page_form_field_values(writer.pages[0], field_values)
 
-    PdfWriter().write(output_path, pdf)
+    with open(output_path, "wb") as f:
+        writer.write(f)
+
     return output_path
 
 def attach_to_row(file_path, row_id):
