@@ -5,12 +5,18 @@ on:
     - cron: '0 */2 * * *'  # Every 2 hours
   workflow_dispatch:
 
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
 jobs:
-  build:
+  generate:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -18,8 +24,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
       - name: Run PDF generator
         env:
@@ -27,13 +32,15 @@ jobs:
           SOURCE_SHEET_ID: ${{ secrets.SOURCE_SHEET_ID }}
         run: python generate_weekly_pdfs.py
 
-      - name: Commit and push updated PDFs and metadata
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
+      - name: Recreate .nojekyll
+        run: echo "" > docs/.nojekyll
+
+      - name: Commit and push generated files
         run: |
-          git config user.name "JFlo21"
-          git config user.email "floresj5400@gmail.com"
-          git remote set-url origin https://x-access-token:${GH_PAT}@github.com/JFlo21/Generate-Weekly-PDFs-DSR-Resiliency.git
-          git add docs/assets/*.pdf docs/assets/metadata.json
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/assets/*.pdf docs/assets/metadata.json docs/.nojekyll
           git diff --cached --quiet || git commit -m "📄 Auto-update PDFs and metadata"
           git push origin HEAD:main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
