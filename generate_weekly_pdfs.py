@@ -3,6 +3,7 @@ import smartsheet
 import datetime
 from dateutil import parser
 from pypdf import PdfReader, PdfWriter
+from pypdf.generic import NameObject, BooleanObject
 
 # Load API key and sheet ID from environment variables
 API_TOKEN = os.getenv("SMARTSHEET_API_TOKEN")
@@ -31,9 +32,24 @@ COLUMNS = {
 client = smartsheet.Smartsheet(API_TOKEN)
 
 def get_week_ending(date_str):
-    date = parser.parse(date_str)
-    days_ahead = 6 - date.weekday()  # Sunday = 6
-    return (date + datetime.timedelta(days=days_ahead)).strftime("%m%d%y")
+    try:
+        date = parser.parse(date_str)
+        days_ahead = 6 - date.weekday()  # Sunday = 6
+        return (date + datetime.timedelta(days=days_ahead)).strftime("%m/%d/%y")
+    except Exception:
+        return ""
+
+def fmt_currency(val):
+    try:
+        return "${:,.2f}".format(float(val))
+    except:
+        return val
+
+def fmt_number(val):
+    try:
+        return str(int(float(val)))
+    except:
+        return val
 
 def get_sheet_rows():
     sheet = client.Sheets.get_sheet(SHEET_ID)
@@ -58,37 +74,42 @@ def group_rows_by_criteria(rows):
 def fill_pdf(group_key, rows):
     first_row = rows[0][1]
     foreman, wr_num, week_end = group_key.split('_')
-    output_path = f"WR_{wr_num}_WeekEnding_{week_end}.pdf"
+    output_path = f"WR_{wr_num}_WeekEnding_{week_end.replace('/', '')}.pdf"
 
     reader = PdfReader(PDF_TEMPLATE_PATH)
     writer = PdfWriter()
+    writer.append(reader)
 
-    # Fill header values
+    if "/AcroForm" in writer._root_object:
+        writer._root_object["/AcroForm"].update({
+            NameObject("/NeedAppearances"): BooleanObject(True)
+        })
+
+    # Header field values
     field_values = {
         'Week Ending Date': week_end,
         'Employee Name': foreman,
-        'JobPhase Dept No': first_row.get(COLUMNS['Dept #'], ''),
+        'JobPhase Dept No': fmt_number(first_row.get(COLUMNS['Dept #'], '')),
         'Customer Name': first_row.get(COLUMNS['Customer Name'], ''),
-        'Work Order': first_row.get(COLUMNS['Work Order #'], ''),
-        'Work Request': wr_num,
+        'Work Order': fmt_number(first_row.get(COLUMNS['Work Order #'], '')),
+        'Work Request': fmt_number(wr_num),
         'LocationAddress': first_row.get(COLUMNS['Area'], ''),
     }
 
-    # Fill up to 38 rows of table data
+    # Table fields (up to 38 rows)
     for i, (_, row_data) in enumerate(rows[:38]):
         row_num = i + 1
         def field(name): return f"{name}Row{row_num}"
         field_values.update({
-            field("Point Number"): row_data.get(COLUMNS['Pole #'], ''),
+            field("Point Number"): fmt_number(row_data.get(COLUMNS['Pole #'], '')),
             field("Billable Unit Code"): row_data.get(COLUMNS['CU'], ''),
             field("Work Type"): row_data.get(COLUMNS['Work Type'], ''),
             field("Unit Description"): row_data.get(COLUMNS['CU Description'], ''),
             field("Unit of Measure"): row_data.get(COLUMNS['Unit of Measure'], ''),
-            field(" of Units Completed"): row_data.get(COLUMNS['Quantity'], ''),
-            field("Pricing"): row_data.get(COLUMNS['Redlined Total Price'], '')
+            field(" of Units Completed"): fmt_number(row_data.get(COLUMNS['Quantity'], '')),
+            field("Pricing"): fmt_currency(row_data.get(COLUMNS['Redlined Total Price'], ''))
         })
 
-    writer.append(reader)
     writer.update_page_form_field_values(writer.pages[0], field_values)
 
     with open(output_path, "wb") as f:
