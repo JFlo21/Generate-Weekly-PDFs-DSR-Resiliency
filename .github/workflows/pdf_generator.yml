@@ -1,20 +1,14 @@
-name: Generate Weekly PDFs & Deploy to GitHub Pages
+name: Generate Weekly PDFs and Deploy to GitHub Pages
 
 on:
   schedule:
     - cron: '0 */2 * * *'  # Every 2 hours
   workflow_dispatch:
-  push:
-    branches: [master]
 
 permissions:
   contents: write
   pages: write
   id-token: write
-
-concurrency:
-  group: "pages"
-  cancel-in-progress: false
 
 jobs:
   build:
@@ -30,26 +24,25 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
 
-      - name: Run PDF generator
+      - name: Generate Weekly PDFs
         env:
           SMARTSHEET_API_TOKEN: ${{ secrets.SMARTSHEET_API_TOKEN }}
           SOURCE_SHEET_ID: ${{ secrets.SOURCE_SHEET_ID }}
         run: python generate_weekly_pdfs.py
 
-      - name: Create .nojekyll file
-        run: echo "" > docs/.nojekyll
+      - name: Upload artifact (optional diagnostics)
+        uses: actions/upload-artifact@v3
+        with:
+          name: site-docs
+          path: docs
 
-      - name: Commit and push changes
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/assets/*.pdf docs/assets/metadata.json docs/.nojekyll || true
-          git diff --cached --quiet || git commit -m "📄 Auto-update PDFs and metadata"
-          git push origin HEAD:master
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload GitHub Pages content
+        uses: actions/upload-pages-artifact@v2
+        with:
+          path: docs
 
   deploy:
     needs: build
@@ -59,17 +52,5 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v3
-
-      - name: Upload GitHub Pages content
-        uses: actions/upload-pages-artifact@v2
-        with:
-          path: ./docs
-
       - name: Deploy to GitHub Pages
-        id: deployment
         uses: actions/deploy-pages@v2
