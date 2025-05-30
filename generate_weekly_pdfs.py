@@ -4,12 +4,12 @@ import datetime
 from dateutil import parser
 from pdfrw import PdfReader, PdfWriter, PdfDict
 
-# Load env vars with fallback (optional for local testing)
+# Environment config (or hardcoded for testing)
 API_TOKEN = os.getenv("SMARTSHEET_API_TOKEN", "your-api-token")
 SHEET_ID = os.getenv("SOURCE_SHEET_ID", "your-sheet-id")
 PDF_TEMPLATE_PATH = "template.pdf"
 
-# Column mappings (Name: Column ID)
+# Column mappings
 COLUMNS = {
     'Foreman': 5476104938409860,
     'Work Request #': 3620163004092292,
@@ -32,7 +32,7 @@ client = smartsheet.Smartsheet(API_TOKEN)
 def get_week_ending(date_str):
     try:
         date = parser.parse(date_str)
-        days_ahead = 6 - date.weekday()  # Sunday = 6
+        days_ahead = 6 - date.weekday()
         return (date + datetime.timedelta(days=days_ahead)).strftime("%m%d%y")
     except Exception:
         return None
@@ -59,14 +59,14 @@ def group_rows_by_criteria(rows):
         groups.setdefault(key, []).append((row.id, cells))
     return groups
 
-def fill_pdf(group_key, rows):
+def fill_pdf(group_key, rows, template_path=PDF_TEMPLATE_PATH):
     first_row = rows[0][1]
     foreman, wr_num, week_end = group_key.split('_')
     pdf_output = f"WR_{wr_num.replace(' ', '_')}_WeekEnding_{week_end}.pdf"
-    template = PdfReader(PDF_TEMPLATE_PATH)
+
+    template = PdfReader(template_path)
     annotations = template.pages[0]['/Annots']
 
-    # Static fields
     field_map = {
         'Week Ending Date': week_end,
         'Employee Name': foreman,
@@ -82,11 +82,10 @@ def fill_pdf(group_key, rows):
         if key in field_map:
             annot.update(PdfDict(V=str(field_map[key])))
 
-    # Row-based fields
     for idx, (_, row_data) in enumerate(rows[:38]):
         row_num = idx + 1
         def field(k): return f"{k}Row{row_num}"
-        updates = {
+        row_fields = {
             field("Point Number"): row_data.get(COLUMNS['Pole #'], ''),
             field("Billable Unit Code"): row_data.get(COLUMNS['CU'], ''),
             field("Work Type"): row_data.get(COLUMNS['Work Type'], ''),
@@ -95,10 +94,11 @@ def fill_pdf(group_key, rows):
             field(" of Units Completed"): row_data.get(COLUMNS['Quantity'], ''),
             field("Pricing"): row_data.get(COLUMNS['Redlined Total Price'], ''),
         }
+
         for annot in annotations:
             key = annot['/T'][1:-1]
-            if key in updates:
-                annot.update(PdfDict(V=str(updates[key])))
+            if key in row_fields:
+                annot.update(PdfDict(V=str(row_fields[key])))
 
     PdfWriter().write(pdf_output, template)
     return pdf_output
