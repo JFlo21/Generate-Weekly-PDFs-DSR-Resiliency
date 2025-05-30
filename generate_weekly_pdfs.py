@@ -1,109 +1,114 @@
-
 import os
-import smartsheet
+import io
 import datetime
-from dateutil import parser, relativedelta
-from pdfrw import PdfReader, PdfWriter, PageMerge, PdfDict
+import requests
+from collections import defaultdict
+from dateutil import parser as date_parser
+from pdfrw import PdfReader, PdfWriter, PdfName, PdfObject
+import smartsheet
 
-API_TOKEN = os.getenv("SMARTSHEET_API_TOKEN")
-SHEET_ID = os.getenv("SOURCE_SHEET_ID")
-PDF_TEMPLATE_PATH = "template.pdf"
+# Load environment variables
+API_TOKEN = os.environ['SMARTSHEET_API_TOKEN']
+SHEET_ID = os.environ['SOURCE_SHEET_ID']
+PDF_TEMPLATE_PATH = 'template.pdf'
 
-# Column mappings
-COLUMNS = {
-    'Foreman': 5476104938409860,
-    'Work Request #': 3620163004092292,
-    'Weekly Referenced Logged Date': 2398418129080196,
-    'Dept #': 6997862724620164,
-    'Customer Name': 491507762810756,
-    'Work Order #': 3885814985740164,
-    'Area': 1634015172054916,
-    'Pole #': 3621340785102724,
-    'CU': 5574664846004100,
-    'Work Type': 5503286066761604,
-    'CU Description': 6727495535251332,
-    'Unit of Measure': 1672112936537988,
-    'Quantity': 3251486253076356,
-    'Redlined Total Price': 6339054112821124
+# Column IDs
+COLUMN_IDS = {
+    'foreman': 5476104938409860,
+    'work_request': 3620163004092292,
+    'logged_date': 2398418129080196,
+    'snapshot_date': 8278756118187908,
+    'dept_no': 6997862724620164,
+    'customer_name': 491507762810756,
+    'work_order': 3885814985740164,
+    'area': 1634015172054916,
+    'pole': 3621340785102724,
+    'cu': 5574664846004100,
+    'work_type': 5503286066761604,
+    'cu_description': 6727495535251332,
+    'unit_of_measure': 1672112936537988,
+    'quantity': 3251486253076356,
+    'price': 6339054112821124,
 }
 
 client = smartsheet.Smartsheet(API_TOKEN)
 
 def get_week_ending(date_str):
-    date = parser.parse(date_str)
-    days_ahead = 6 - date.weekday()  # Sunday = 6
-    return (date + datetime.timedelta(days=days_ahead)).strftime("%m%d%y")
+    dt = date_parser.parse(date_str)
+    return (dt + datetime.timedelta(days=(6 - dt.weekday()))).strftime('%m-%d-%Y')
 
-def get_sheet():
-    return client.Sheets.get_sheet(SHEET_ID).rows
+def load_rows():
+    sheet = client.Sheets.get_sheet(SHEET_ID).to_dict()
+    return sheet['rows']
 
-def group_rows_by_criteria(rows):
-    groups = {}
+def group_rows(rows):
+    grouped = defaultdict(list)
     for row in rows:
-        cells = {c.column_id: c.value for c in row.cells}
-        wr = cells.get(COLUMNS['Work Request #'])
-        week_date = cells.get(COLUMNS['Weekly Referenced Logged Date'])
-        foreman = cells.get(COLUMNS['Foreman'])
-        if not wr or not week_date or not foreman:
+        data = {cell['column_id']: cell.get('value') for cell in row['cells']}
+        if not all(k in data for k in [COLUMN_IDS['foreman'], COLUMN_IDS['work_request'], COLUMN_IDS['logged_date']]):
             continue
-        group_key = f"{foreman}_{wr}_{get_week_ending(week_date)}"
-        groups.setdefault(group_key, []).append((row.id, cells))
-    return groups
+        key = (
+            str(data[COLUMN_IDS['foreman']]).strip(),
+            str(data[COLUMN_IDS['work_request']]).strip(),
+            get_week_ending(data[COLUMN_IDS['logged_date']])
+        )
+        grouped[key].append((row['id'], data))
+    return grouped
 
-def fill_pdf(group_key, rows):
-    first_row = rows[0][1]
-    foreman, wr_num, week_end = group_key.split('_')
-    pdf_output = f"WR_{wr_num}_WeekEnding_{week_end}.pdf"
+def fill_pdf(data_rows, key, output_path):
     template = PdfReader(PDF_TEMPLATE_PATH)
-    annotations = template.pages[0]['/Annots']
+    fields = {}
 
-    field_map = {
-        'Week Ending Date': week_end,
-        'Employee Name': foreman,
-        'JobPhase Dept No': first_row.get(COLUMNS['Dept #'], ''),
-        'Customer Name': first_row.get(COLUMNS['Customer Name'], ''),
-        'Work Order': first_row.get(COLUMNS['Work Order #'], ''),
-        'Work Request': wr_num,
-        'LocationAddress': first_row.get(COLUMNS['Area'], ''),
-    }
+    # Static header fields
+    fields['Employee Name'] = key[0]
+    fields['Work Request'] = key[1]
+    fields['Week Ending Date'] = key[2]
 
-    for annot in annotations:
-        key = annot['/T'][1:-1]
-        if key in field_map:
-            annot.update(PdfDict(V='{}'.format(field_map[key])))
+    if data_rows:
+        first_row = data_rows[0][1]
+        fields['Work Order'] = first_row.get(COLUMN_IDS['work_order'], '')
+        fields['Customer Name'] = first_row.get(COLUMN_IDS['customer_name'], '')
+        fields['JobPhase Dept No'] = first_row.get(COLUMN_IDS['dept_no'], '')
 
-    for idx, (_, row_data) in enumerate(rows[:38]):
-        row_num = idx + 1
-        def field(k): return f"{k}Row{row_num}"
-        updates = {
-            field("Point Number"): row_data.get(COLUMNS['Pole #'], ''),
-            field("Billable Unit Code"): row_data.get(COLUMNS['CU'], ''),
-            field("Work Type"): row_data.get(COLUMNS['Work Type'], ''),
-            field("Unit Description"): row_data.get(COLUMNS['CU Description'], ''),
-            field("Unit of Measure"): row_data.get(COLUMNS['Unit of Measure'], ''),
-            field(" of Units Completed"): row_data.get(COLUMNS['Quantity'], ''),
-            field("Pricing"): row_data.get(COLUMNS['Redlined Total Price'], ''),
-        }
-        for annot in annotations:
-            key = annot['/T'][1:-1]
-            if key in updates:
-                annot.update(PdfDict(V='{}'.format(updates[key])))
+    # Fill per-row fields
+    for i, (row_id, data) in enumerate(data_rows[:38]):
+        n = i + 1
+        fields[f'LocationAddressRow{n}'] = data.get(COLUMN_IDS['area'], '')
+        fields[f'Point NumberRow{n}'] = data.get(COLUMN_IDS['pole'], '')
+        fields[f'Billable Unit CodeRow{n}'] = data.get(COLUMN_IDS['cu'], '')
+        fields[f'Work TypeRow{n}'] = data.get(COLUMN_IDS['work_type'], '')
+        fields[f'Unit DescriptionRow{n}'] = data.get(COLUMN_IDS['cu_description'], '')
+        fields[f'Unit of MeasureRow{n}'] = data.get(COLUMN_IDS['unit_of_measure'], '')
+        fields[f' of Units CompletedRow{n}'] = data.get(COLUMN_IDS['quantity'], '')
+        fields[f'PricingRow{n}'] = data.get(COLUMN_IDS['price'], '')
 
-    PdfWriter().write(pdf_output, template)
-    return pdf_output
+    # Fill into PDF
+    for page in template.pages:
+        annotations = page.Annots
+        if annotations:
+            for annot in annotations:
+                if annot.Subtype == PdfName.Widget and annot.T:
+                    key_name = annot.T[1:-1]
+                    if key_name in fields:
+                        annot.V = PdfObject(str(fields[key_name]))
+                        annot.AP = None
 
-def attach_to_row(file_path, row_id):
+    PdfWriter().write(output_path, template)
+    return output_path
+
+def upload_pdf(row_id, file_path):
     with open(file_path, 'rb') as f:
         client.Attachments.attach_file_to_row(
-            SHEET_ID, row_id, (file_path, f, 'application/pdf'))
+            SHEET_ID, row_id, (os.path.basename(file_path), f, 'application/pdf'))
 
 def main():
-    rows = get_sheet()
-    groups = group_rows_by_criteria(rows)
-    for group_key, group_rows in groups.items():
-        pdf = fill_pdf(group_key, group_rows)
-        attach_to_row(pdf, group_rows[0][0])
-        print(f"✅ Uploaded: {pdf}")
+    rows = load_rows()
+    grouped = group_rows(rows)
+    for key, data_rows in grouped.items():
+        output_filename = f"WR_{key[1]}_{key[2].replace('-', '')}.pdf"
+        filled_path = fill_pdf(data_rows, key, output_filename)
+        upload_pdf(data_rows[0][0], filled_path)
+        print(f"✅ Uploaded: {output_filename}")
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
