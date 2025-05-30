@@ -10,13 +10,20 @@ permissions:
   pages: write
   id-token: write
 
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+
+      - name: Setup GitHub Pages
+        uses: actions/configure-pages@v5
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -24,8 +31,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
       - name: Generate Weekly PDFs
         env:
@@ -33,14 +39,8 @@ jobs:
           SOURCE_SHEET_ID: ${{ secrets.SOURCE_SHEET_ID }}
         run: python generate_weekly_pdfs.py
 
-      - name: Upload artifact (optional diagnostics)
-        uses: actions/upload-artifact@v3
-        with:
-          name: site-docs
-          path: docs
-
-      - name: Upload GitHub Pages content
-        uses: actions/upload-pages-artifact@v2
+      - name: Upload artifact for GitHub Pages
+        uses: actions/upload-pages-artifact@v3
         with:
           path: docs
 
@@ -53,4 +53,5 @@ jobs:
 
     steps:
       - name: Deploy to GitHub Pages
-        uses: actions/deploy-pages@v2
+        id: deployment
+        uses: actions/deploy-pages@v4
