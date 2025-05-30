@@ -1,18 +1,16 @@
 import os
-import io
 import datetime
-import requests
 from collections import defaultdict
 from dateutil import parser as date_parser
 from pdfrw import PdfReader, PdfWriter, PdfName, PdfObject
 import smartsheet
 
-# Load environment variables
+# Load Smartsheet credentials and settings from environment
 API_TOKEN = os.environ['SMARTSHEET_API_TOKEN']
 SHEET_ID = os.environ['SOURCE_SHEET_ID']
 PDF_TEMPLATE_PATH = 'template.pdf'
 
-# Column IDs
+# Column ID mappings
 COLUMN_IDS = {
     'foreman': 5476104938409860,
     'work_request': 3620163004092292,
@@ -38,13 +36,13 @@ def get_week_ending(date_str):
     return (dt + datetime.timedelta(days=(6 - dt.weekday()))).strftime('%m-%d-%Y')
 
 def load_rows():
-    sheet = client.Sheets.get_sheet(SHEET_ID).to_dict()
-    return sheet['rows']
+    sheet = client.Sheets.get_sheet(SHEET_ID)
+    return sheet.rows
 
 def group_rows(rows):
     grouped = defaultdict(list)
     for row in rows:
-        data = {cell['column_id']: cell.get('value') for cell in row['cells']}
+        data = {cell.column_id: cell.value for cell in row.cells}
         if not all(k in data for k in [COLUMN_IDS['foreman'], COLUMN_IDS['work_request'], COLUMN_IDS['logged_date']]):
             continue
         key = (
@@ -52,14 +50,14 @@ def group_rows(rows):
             str(data[COLUMN_IDS['work_request']]).strip(),
             get_week_ending(data[COLUMN_IDS['logged_date']])
         )
-        grouped[key].append((row['id'], data))
+        grouped[key].append((row.id, data))
     return grouped
 
 def fill_pdf(data_rows, key, output_path):
     template = PdfReader(PDF_TEMPLATE_PATH)
     fields = {}
 
-    # Static header fields
+    # Header fields
     fields['Employee Name'] = key[0]
     fields['Work Request'] = key[1]
     fields['Week Ending Date'] = key[2]
@@ -70,7 +68,6 @@ def fill_pdf(data_rows, key, output_path):
         fields['Customer Name'] = first_row.get(COLUMN_IDS['customer_name'], '')
         fields['JobPhase Dept No'] = first_row.get(COLUMN_IDS['dept_no'], '')
 
-    # Fill per-row fields
     for i, (row_id, data) in enumerate(data_rows[:38]):
         n = i + 1
         fields[f'LocationAddressRow{n}'] = data.get(COLUMN_IDS['area'], '')
@@ -82,7 +79,6 @@ def fill_pdf(data_rows, key, output_path):
         fields[f' of Units CompletedRow{n}'] = data.get(COLUMN_IDS['quantity'], '')
         fields[f'PricingRow{n}'] = data.get(COLUMN_IDS['price'], '')
 
-    # Fill into PDF
     for page in template.pages:
         annotations = page.Annots
         if annotations:
