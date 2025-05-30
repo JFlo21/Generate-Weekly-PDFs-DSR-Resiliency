@@ -1,0 +1,28 @@
+
+name: Generate Weekly PDFs
+
+on:
+  schedule:
+    - cron: '0 */2 * * *'  # Every day at 9 AM UTC
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run PDF generator
+        env:
+          SMARTSHEET_API_TOKEN: ${{ secrets.SMARTSHEET_API_TOKEN }}
+          SOURCE_SHEET_ID: ${{ secrets.SOURCE_SHEET_ID }}
+        run: python generate_weekly_pdfs.py
