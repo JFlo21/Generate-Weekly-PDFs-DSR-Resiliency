@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Weekly PDF Reports</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 2rem;
+      background-color: #f8f9fa;
+    }
+    h1 {
+      color: #333;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 8px;
+      margin-bottom: 1rem;
+      font-size: 16px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+    }
+    th, td {
+      padding: 0.75rem;
+      border: 1px solid #ddd;
+      text-align: left;
+    }
+    th {
+      background-color: #007acc;
+      color: white;
+      cursor: pointer;
+    }
+    tr:hover {
+      background-color: #f1f1f1;
+    }
+    .download-link {
+      color: #007acc;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>📄 Weekly Generated PDFs</h1>
+  <input type="text" id="filterInput" placeholder="🔍 Search PDF name or description..." />
+
+  <table id="pdfTable">
+    <thead>
+      <tr>
+        <th onclick="sortTable(0)">File Name</th>
+        <th onclick="sortTable(1)">Description</th>
+        <th onclick="sortTable(2)">Link</th>
+      </tr>
+    </thead>
+    <tbody id="tableBody"></tbody>
+  </table>
+
+  <script>
+    async function loadPDFs() {
+      const response = await fetch('./assets/metadata.json');
+      const metadata = await response.json();
+      const tbody = document.getElementById('tableBody');
+      tbody.innerHTML = "";
+
+      metadata.forEach(item => {
+        const row = document.createElement('tr');
+
+        const nameCell = document.createElement('td');
+        nameCell.textContent = item.filename;
+        row.appendChild(nameCell);
+
+        const descCell = document.createElement('td');
+        descCell.textContent = item.description || '-';
+        row.appendChild(descCell);
+
+        const linkCell = document.createElement('td');
+        const link = document.createElement('a');
+        link.href = `assets/${item.filename}`;
+        link.target = "_blank";
+        link.className = "download-link";
+        link.textContent = "📥 View PDF";
+        linkCell.appendChild(link);
+        row.appendChild(linkCell);
+
+        tbody.appendChild(row);
+      });
+    }
+
+    function filterTable() {
+      const input = document.getElementById("filterInput").value.toLowerCase();
+      const rows = document.querySelectorAll("#pdfTable tbody tr");
+      rows.forEach(row => {
+        const match = [...row.children].some(td =>
+          td.textContent.toLowerCase().includes(input)
+        );
+        row.style.display = match ? "" : "none";
+      });
+    }
+
+    function sortTable(n) {
+      const table = document.getElementById("pdfTable");
+      let switching = true;
+      let dir = "asc";
+
+      while (switching) {
+        switching = false;
+        const rows = table.rows;
+        for (let i = 1; i < rows.length - 1; i++) {
+          let shouldSwitch = false;
+          const x = rows[i].getElementsByTagName("TD")[n];
+          const y = rows[i + 1].getElementsByTagName("TD")[n];
+          const cmpX = x.textContent.toLowerCase();
+          const cmpY = y.textContent.toLowerCase();
+
+          if ((dir === "asc" && cmpX > cmpY) || (dir === "desc" && cmpX < cmpY)) {
+            shouldSwitch = true;
+            break;
+          }
+        }
+        if (shouldSwitch) {
+          rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+          switching = true;
+        } else {
+          if (dir === "asc") {
+            dir = "desc";
+            switching = true;
+          }
+        }
+      }
+    }
+
+    document.getElementById("filterInput").addEventListener("keyup", filterTable);
+
+    loadPDFs();
+  </script>
+</body>
+</html>

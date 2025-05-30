@@ -1,4 +1,5 @@
 import os
+import json
 import smartsheet
 import datetime
 from dateutil import parser
@@ -9,6 +10,11 @@ from PyPDF2.generic import NameObject, BooleanObject
 API_TOKEN = os.getenv("SMARTSHEET_API_TOKEN")
 SHEET_ID = os.getenv("SOURCE_SHEET_ID")
 PDF_TEMPLATE_PATH = "template.pdf"
+
+# Output paths
+DOCS_FOLDER = "docs/assets"
+METADATA_PATH = "docs/assets/metadata.json"
+os.makedirs(DOCS_FOLDER, exist_ok=True)
 
 # Column ID mappings
 COLUMNS = {
@@ -29,6 +35,7 @@ COLUMNS = {
 }
 
 client = smartsheet.Smartsheet(API_TOKEN)
+metadata_entries = []
 
 def get_week_ending(date_str):
     date = parser.parse(date_str)
@@ -57,7 +64,8 @@ def fill_pdf(group_key, rows):
     first_row = rows[0][1]
     foreman, wr_num, week_end_raw = group_key.split('_')
     week_end = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
-    output_path = f"WR_{wr_num}_WeekEnding_{week_end_raw}.pdf"
+    output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.pdf"
+    output_path = os.path.join(DOCS_FOLDER, output_filename)
 
     reader = PdfReader(PDF_TEMPLATE_PATH)
     writer = PdfWriter()
@@ -114,7 +122,8 @@ def fill_pdf(group_key, rows):
 
     with open(output_path, "wb") as f:
         writer.write(f)
-    return output_path
+
+    return output_path, output_filename, foreman, week_end
 
 def should_upload(file_path, row_id):
     attachments = client.Attachments.list_row_attachments(SHEET_ID, row_id).data
@@ -129,16 +138,32 @@ def attach_to_row(file_path, row_id):
         client.Attachments.attach_file_to_row(
             SHEET_ID, row_id, (os.path.basename(file_path), f, 'application/pdf'))
 
+def write_metadata_file():
+    with open(METADATA_PATH, "w") as f:
+        json.dump(metadata_entries, f, indent=2)
+
 def main():
     rows = get_sheet_rows()
     groups = group_rows_by_criteria(rows)
+
     for group_key, group_rows in groups.items():
-        pdf_path = fill_pdf(group_key, group_rows)
+        pdf_path, filename, foreman, week_end = fill_pdf(group_key, group_rows)
+
+        metadata_entries.append({
+            "filename": filename,
+            "week_ending": week_end,
+            "foreman": foreman,
+            "work_request": group_key.split("_")[1]
+        })
+
         if should_upload(pdf_path, group_rows[0][0]):
             attach_to_row(pdf_path, group_rows[0][0])
-            print(f"✅ Uploaded: {pdf_path}")
+            print(f"✅ Uploaded: {filename}")
         else:
-            print(f"⏩ Skipped duplicate: {pdf_path}")
+            print(f"⏩ Skipped duplicate: {filename}")
+
+    write_metadata_file()
+    print("📁 Metadata updated.")
 
 if __name__ == "__main__":
     main()
