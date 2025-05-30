@@ -5,12 +5,12 @@ from dateutil import parser
 from PyPDF2 import PdfReader, PdfWriter
 from PyPDF2.generic import NameObject, BooleanObject
 
-# Env variables
+# Environment variables
 API_TOKEN = os.getenv("SMARTSHEET_API_TOKEN")
 SHEET_ID = os.getenv("SOURCE_SHEET_ID")
 PDF_TEMPLATE_PATH = "template.pdf"
 
-# Column ID mapping
+# Column ID mappings
 COLUMNS = {
     'Foreman': 5476104938409860,
     'Work Request #': 3620163004092292,
@@ -32,11 +32,11 @@ client = smartsheet.Smartsheet(API_TOKEN)
 
 def get_week_ending(date_str):
     date = parser.parse(date_str)
-    days_ahead = 6 - date.weekday()  # Sunday
+    days_ahead = 6 - date.weekday()
     return (date + datetime.timedelta(days=days_ahead)).strftime("%m/%d/%y")
 
 def get_sheet_rows():
-    sheet = client.Sheets.get_sheet(SHEET_ID, include=["attachments"])
+    sheet = client.Sheets.get_sheet(SHEET_ID)
     return sheet.rows
 
 def group_rows_by_criteria(rows):
@@ -46,69 +46,64 @@ def group_rows_by_criteria(rows):
         foreman = cells.get(COLUMNS['Foreman'])
         wr = cells.get(COLUMNS['Work Request #'])
         log_date = cells.get(COLUMNS['Weekly Referenced Logged Date'])
-
         if not foreman or not wr or not log_date:
             continue
-
         week_ending = get_week_ending(log_date)
-        key = f"{foreman}_{wr}_{week_ending}"
+        key = f"{foreman}_{wr}_{week_ending.replace('/', '')}"
         groups.setdefault(key, []).append((row.id, cells))
     return groups
 
-def format_value(value, field_name):
-    if value is None:
-        return ''
-    if field_name == "Pricing":
-        return f"${float(value):,.2f}"
-    if "Date" in field_name and "/" not in str(value):
-        try:
-            return datetime.datetime.strptime(str(value), "%m%d%y").strftime("%m/%d/%y")
-        except:
-            return str(value)
-    if isinstance(value, float) and value.is_integer():
-        return str(int(value))
-    return str(value)
-
 def fill_pdf(group_key, rows):
     first_row = rows[0][1]
-    foreman, wr_num, week_end = group_key.split('_')
-    week_end_fmt = datetime.datetime.strptime(week_end, "%m/%d/%y").strftime("%m%d%y")
-    output_path = f"WR_{wr_num}_WeekEnding_{week_end_fmt}.pdf"
+    foreman, wr_num, week_end_raw = group_key.split('_')
+    week_end = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
+    output_path = f"WR_{wr_num}_WeekEnding_{week_end_raw}.pdf"
 
-    # Build field data
-    header = {
-        "Week Ending Date": week_end,
-        "Employee Name": foreman,
-        "JobPhase Dept No": format_value(first_row.get(COLUMNS['Dept #']), "Dept"),
-        "Customer Name": format_value(first_row.get(COLUMNS['Customer Name']), "Customer"),
-        "Work Order": format_value(first_row.get(COLUMNS['Work Order #']), "Work Order"),
-        "Work Request": wr_num,
-        "LocationAddress": format_value(first_row.get(COLUMNS['Area']), "Address")
-    }
-
-    table = {}
-    for i, (_, row_data) in enumerate(rows[:38]):
-        idx = i + 1
-        def field(k): return f"{k}Row{idx}"
-        table.update({
-            field("Point Number"): format_value(row_data.get(COLUMNS['Pole #']), "Pole"),
-            field("Billable Unit Code"): format_value(row_data.get(COLUMNS['CU']), "CU"),
-            field("Work Type"): format_value(row_data.get(COLUMNS['Work Type']), "Work Type"),
-            field("Unit Description"): format_value(row_data.get(COLUMNS['CU Description']), "CU Description"),
-            field("Unit of Measure"): format_value(row_data.get(COLUMNS['Unit of Measure']), "UOM"),
-            field(" of Units Completed"): format_value(row_data.get(COLUMNS['Quantity']), "Quantity"),
-            field("Pricing"): format_value(row_data.get(COLUMNS['Redlined Total Price']), "Pricing")
-        })
-
-    form_fields = {**header, **table}
-
-    # Load and fill PDF
     reader = PdfReader(PDF_TEMPLATE_PATH)
     writer = PdfWriter()
     writer.add_page(reader.pages[0])
-    writer.update_page_form_field_values(writer.pages[0], form_fields)
 
-    # Fix visual appearance
+    form_data = {
+        "Week Ending Date": week_end,
+        "Employee Name": foreman,
+        "JobPhase Dept No": str(first_row.get(COLUMNS['Dept #'], '')).split('.')[0],
+        "Customer Name": first_row.get(COLUMNS['Customer Name'], ''),
+        "Work Order": str(first_row.get(COLUMNS['Work Order #'], '')).split('.')[0],
+        "Work Request": str(wr_num).split('.')[0],
+        "LocationAddress": first_row.get(COLUMNS['Area'], '')
+    }
+
+    total_price = 0.0
+    for i, (_, row_data) in enumerate(rows[:38]):
+        idx = i + 1
+        def f(k): return f"{k}Row{idx}"
+
+        raw_price = row_data.get(COLUMNS['Redlined Total Price'], '')
+        if raw_price:
+            try:
+                price_val = float(str(raw_price).replace('$', '').replace(',', ''))
+                total_price += price_val
+                price_formatted = f"${price_val:,.2f}"
+            except:
+                price_formatted = ''
+        else:
+            price_formatted = ''
+
+        row_fields = {
+            f("Point Number"): row_data.get(COLUMNS['Pole #'], ''),
+            f("Billable Unit Code"): row_data.get(COLUMNS['CU'], ''),
+            f("Work Type"): row_data.get(COLUMNS['Work Type'], ''),
+            f("Unit Description"): row_data.get(COLUMNS['CU Description'], ''),
+            f("Unit of Measure"): row_data.get(COLUMNS['Unit of Measure'], ''),
+            f(" of Units Completed"): str(row_data.get(COLUMNS['Quantity'], '')).split('.')[0],
+            f("Pricing"): price_formatted
+        }
+        form_data.update(row_fields)
+
+    form_data["PricingTOTAL"] = f"${total_price:,.2f}"
+
+    writer.update_page_form_field_values(writer.pages[0], form_data)
+
     if "/AcroForm" in reader.trailer["/Root"]:
         writer._root_object.update({
             NameObject("/AcroForm"): reader.trailer["/Root"]["/AcroForm"]
@@ -117,36 +112,33 @@ def fill_pdf(group_key, rows):
             NameObject("/NeedAppearances"): BooleanObject(True)
         })
 
-    with open(output_path, "wb") as out:
-        writer.write(out)
-
+    with open(output_path, "wb") as f:
+        writer.write(f)
     return output_path
 
-def pdf_exists(row_id, filename):
+def should_upload(file_path, row_id):
     attachments = client.Attachments.list_row_attachments(SHEET_ID, row_id).data
-    return any(att.name == filename for att in attachments)
+    base = os.path.basename(file_path)
+    for att in attachments:
+        if att.name == base:
+            return False
+    return True
 
-def attach_pdf(file_path, row_id):
-    file_name = os.path.basename(file_path)
-    if pdf_exists(row_id, file_name):
-        print(f"📎 PDF already exists: {file_name}. Uploading new version...")
-        attachments = client.Attachments.list_row_attachments(SHEET_ID, row_id).data
-        for att in attachments:
-            if att.name == file_name:
-                with open(file_path, 'rb') as f:
-                    client.Attachments.attach_new_version(SHEET_ID, att.id, (file_name, f, 'application/pdf'))
-                return
-    else:
-        with open(file_path, 'rb') as f:
-            client.Attachments.attach_file_to_row(SHEET_ID, row_id, (file_name, f, 'application/pdf'))
+def attach_to_row(file_path, row_id):
+    with open(file_path, 'rb') as f:
+        client.Attachments.attach_file_to_row(
+            SHEET_ID, row_id, (os.path.basename(file_path), f, 'application/pdf'))
 
 def main():
     rows = get_sheet_rows()
     groups = group_rows_by_criteria(rows)
     for group_key, group_rows in groups.items():
-        pdf = fill_pdf(group_key, group_rows)
-        attach_pdf(pdf, group_rows[0][0])
-        print(f"✅ Processed: {pdf}")
+        pdf_path = fill_pdf(group_key, group_rows)
+        if should_upload(pdf_path, group_rows[0][0]):
+            attach_to_row(pdf_path, group_rows[0][0])
+            print(f"✅ Uploaded: {pdf_path}")
+        else:
+            print(f"⏩ Skipped duplicate: {pdf_path}")
 
 if __name__ == "__main__":
     main()
