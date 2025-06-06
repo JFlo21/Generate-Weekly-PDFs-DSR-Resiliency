@@ -149,11 +149,14 @@ def main():
     for group_key, group_rows in groups.items():
         pdf_path, filename, foreman, week_end = fill_pdf(group_key, group_rows)
 
+        file_stats = os.stat(pdf_path)
         metadata_entries.append({
             "filename": filename,
             "week_ending": week_end,
             "foreman": foreman,
-            "work_request": group_key.split("_")[1]
+            "work_request": group_key.split("_")[1],
+            "size": file_stats.st_size,
+            "uploaded": datetime.date.today().isoformat()
         })
 
         if should_upload(pdf_path, group_rows[0][0]):
