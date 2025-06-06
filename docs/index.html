@@ -23,11 +23,12 @@
         const itemsPerPage = 10;
 
         // Load metadata on mount
-        React.useEffect(() => {
-          fetch('./assets/metadata.json')
-            .then(res => res.json())
-            .then(setFiles);
-        }, []);
+       React.useEffect(() => {
+    fetch('https://jflo21.github.io/Generate-Weekly-PDFs-DSR-Resiliency/assets/metadata.json')
+    .then(res => res.json())
+    .then(setFiles)
+    .catch(err => console.error('Failed to load metadata:', err));
+}, []);
 
         // Unique foreman list for sidebar filter
         const foremen = React.useMemo(
