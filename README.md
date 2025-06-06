@@ -24,3 +24,10 @@ This project automates the generation of **weekly PDF summaries** from Smartshee
 📄 template.pdf              # Fillable form used for PDF generation
 📄 requirements.txt          # Required Python packages
 📁 .github/workflows/        # GitHub Actions automation (optional)
+📁 docs/                     # React UI for browsing generated PDFs
+```
+
+The `docs` directory contains a small React application that loads the
+`metadata.json` file and presents the generated PDFs in an interactive table.
+The interface uses a Bootswatch theme for a clean look so billers and accountants
+can quickly filter and open the weekly PDF files.
