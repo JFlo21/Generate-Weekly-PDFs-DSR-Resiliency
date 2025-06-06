@@ -1,6 +1,9 @@
 name: Generate Weekly PDFs and Deploy to GitHub Pages
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     - cron: '0 */2 * * *'  # Every 2 hours
   workflow_dispatch:
@@ -32,6 +35,13 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements.txt
+
+      - name: Verify required secrets
+        run: |
+          if [ -z "${{ secrets.SMARTSHEET_API_TOKEN }}" ] || [ -z "${{ secrets.SOURCE_SHEET_ID }}" ]; then
+            echo "Required secrets SMARTSHEET_API_TOKEN or SOURCE_SHEET_ID are missing."
+            exit 1
+          fi
 
       - name: Generate Weekly PDFs
         env:
