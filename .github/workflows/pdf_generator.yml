@@ -1,6 +1,9 @@
-name: Generate Weekly PDFs
+name: Generate Weekly PDFs and Deploy to GitHub Pages
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     - cron: '0 */2 * * *'  # Every 2 hours
   workflow_dispatch:
@@ -10,13 +13,20 @@ permissions:
   pages: write
   id-token: write
 
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
 jobs:
-  generate:
+  build:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+
+      - name: Setup GitHub Pages
+        uses: actions/configure-pages@v5
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -26,7 +36,14 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run PDF generator
+      - name: Verify required secrets
+        run: |
+          if [ -z "${{ secrets.SMARTSHEET_API_TOKEN }}" ] || [ -z "${{ secrets.SOURCE_SHEET_ID }}" ]; then
+            echo "Required secrets SMARTSHEET_API_TOKEN or SOURCE_SHEET_ID are missing."
+            exit 1
+          fi
+
+      - name: Generate Weekly PDFs
         env:
           SMARTSHEET_API_TOKEN: ${{ secrets.SMARTSHEET_API_TOKEN }}
           SOURCE_SHEET_ID: ${{ secrets.SOURCE_SHEET_ID }}
@@ -44,3 +61,20 @@ jobs:
           git push origin HEAD:main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifact for GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

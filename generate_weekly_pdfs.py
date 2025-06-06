@@ -35,18 +35,23 @@ COLUMNS = {
 }
 
 client = smartsheet.Smartsheet(API_TOKEN)
+# Accumulates metadata for each generated PDF so the React
+# interface can display file details.
 metadata_entries = []
 
 def get_week_ending(date_str):
+    """Return Sunday of the week that contains the given date string."""
     date = parser.parse(date_str)
     days_ahead = 6 - date.weekday()
     return (date + datetime.timedelta(days=days_ahead)).strftime("%m/%d/%y")
 
 def get_sheet_rows():
+    """Fetch all rows from the source Smartsheet."""
     sheet = client.Sheets.get_sheet(SHEET_ID)
     return sheet.rows
 
 def group_rows_by_criteria(rows):
+    """Group sheet rows by foreman, work request and week ending."""
     groups = {}
     for row in rows:
         cells = {c.column_id: c.value for c in row.cells}
@@ -54,6 +59,7 @@ def group_rows_by_criteria(rows):
         wr = cells.get(COLUMNS['Work Request #'])
         log_date = cells.get(COLUMNS['Weekly Referenced Logged Date'])
         if not foreman or not wr or not log_date:
+            # Skip rows missing any of the grouping columns
             continue
         week_ending = get_week_ending(log_date)
         key = f"{foreman}_{wr}_{week_ending.replace('/', '')}"
@@ -61,6 +67,7 @@ def group_rows_by_criteria(rows):
     return groups
 
 def fill_pdf(group_key, rows):
+    """Fill a PDF template with the grouped row data."""
     first_row = rows[0][1]
     foreman, wr_num, week_end_raw = group_key.split('_')
     week_end = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
@@ -126,6 +133,7 @@ def fill_pdf(group_key, rows):
     return output_path, output_filename, foreman, week_end
 
 def should_upload(file_path, row_id):
+    """Return False if an attachment with the same name already exists."""
     attachments = client.Attachments.list_row_attachments(SHEET_ID, row_id).data
     base = os.path.basename(file_path)
     for att in attachments:
@@ -134,26 +142,32 @@ def should_upload(file_path, row_id):
     return True
 
 def attach_to_row(file_path, row_id):
+    """Upload the given PDF to the specified Smartsheet row."""
     with open(file_path, 'rb') as f:
         client.Attachments.attach_file_to_row(
             SHEET_ID, row_id, (os.path.basename(file_path), f, 'application/pdf'))
 
 def write_metadata_file():
+    """Persist collected metadata to disk for the web UI."""
     with open(METADATA_PATH, "w") as f:
         json.dump(metadata_entries, f, indent=2)
 
 def main():
+    """Generate PDFs from Smartsheet and write metadata for the web site."""
     rows = get_sheet_rows()
     groups = group_rows_by_criteria(rows)
 
     for group_key, group_rows in groups.items():
         pdf_path, filename, foreman, week_end = fill_pdf(group_key, group_rows)
 
+        file_stats = os.stat(pdf_path)
         metadata_entries.append({
             "filename": filename,
             "week_ending": week_end,
             "foreman": foreman,
-            "work_request": group_key.split("_")[1]
+            "work_request": group_key.split("_")[1],
+            "size": file_stats.st_size,
+            "uploaded": datetime.date.today().isoformat()
         })
 
         if should_upload(pdf_path, group_rows[0][0]):
