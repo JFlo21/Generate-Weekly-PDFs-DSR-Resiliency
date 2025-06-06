@@ -27,13 +27,15 @@ This project automates the generation of **weekly PDF summaries** from Smartshee
 📁 docs/                     # React UI for browsing generated PDFs
 ```
 
-The `docs` folder exposes a polished web app built with **React** and **Bootstrap 5**.
-It loads `metadata.json` and displays the PDFs in a responsive interface with:
+The `docs` folder hosts a web interface built with **React** and a
+**Bootswatch** theme.  Metadata in `assets/metadata.json` powers the listing so users can see:
 
 - a navigation bar with links and branding
-- an optional sidebar for filtering files
+- an optional sidebar to filter by foreman
 - search and pagination controls
 - download buttons for each PDF
+- file size and uploaded date information
 
-This makes it easy for billers and accountants to browse and retrieve weekly
-reports from any device.
+These pages are automatically deployed to **GitHub Pages** via the workflow in
+`.github/workflows/pdf_generator.yml`, making it easy for billers and
+accountants to browse and download weekly reports from any device.

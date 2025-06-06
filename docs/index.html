@@ -6,7 +6,7 @@
     <title>Weekly DSR Reports</title>
     <!-- Bootswatch theme for a professional look -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootswatch@5.3.2/dist/lux/bootstrap.min.css">
-    <!-- React -->
+    <!-- React via CDN for a lightweight build -->
     <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
     <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
@@ -54,6 +54,7 @@
         const totalPages = Math.ceil(filtered.length / itemsPerPage) || 1;
         const current = filtered.slice((page - 1) * itemsPerPage, page * itemsPerPage);
 
+        // Helper to show file sizes in human readable form
         const formatSize = bytes => {
           if (bytes >= 1048576) return (bytes / 1048576).toFixed(2) + ' MB';
           if (bytes >= 1024) return (bytes / 1024).toFixed(2) + ' KB';
@@ -62,6 +63,7 @@
 
         return (
           <>
+            {/* Top navigation bar */}
             <nav className="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
               <div className="container-fluid">
                 <a className="navbar-brand" href="#">DSR Reports</a>
@@ -82,7 +84,7 @@
               </div>
             </nav>
 
-            {/* Sidebar for foreman filter */}
+            {/* Sidebar for filtering by foreman */}
             <div className="offcanvas offcanvas-start" tabIndex="-1" id="sidebar" aria-labelledby="sidebarLabel">
               <div className="offcanvas-header">
                 <h5 id="sidebarLabel">Filter by Foreman</h5>
@@ -102,6 +104,7 @@
             </div>
 
             <div className="container">
+              {/* Search bar */}
               <div className="row mb-3">
                 <div className="col-md-6">
                   <input
@@ -113,6 +116,7 @@
                   />
                 </div>
               </div>
+              {/* Table of available PDFs */}
               <div className="table-responsive">
                 <table className="table table-striped align-middle">
                   <thead>
@@ -162,6 +166,7 @@
               </nav>
             </div>
 
+            {/* Simple footer */}
             <footer className="mt-auto bg-light text-center py-3 border-top">
               <small>&copy; 2025 DSR Resiliency Reports</small>
             </footer>
