@@ -12,6 +12,7 @@ import smartsheet
 API_TOKEN = os.getenv("SMARTSHEET_API_TOKEN")
 SHEET_ID = os.getenv("SOURCE_SHEET_ID")
 PDF_TEMPLATE_PATH = "template.pdf"
+PDF_TEMPLATE_LAST_PAGE_PATH = "template2.pdf"
 DOCS_FOLDER = "docs/assets"
 METADATA_PATH = os.path.join(DOCS_FOLDER, "metadata.json")
 os.makedirs(DOCS_FOLDER, exist_ok=True)
@@ -94,11 +95,15 @@ def fill_pdf(group_key, rows):
     output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.pdf"
     output_path = os.path.join(DOCS_FOLDER, output_filename)
 
-    reader = PdfReader(PDF_TEMPLATE_PATH)
     writer = PdfWriter()
     total_price = 0.0
+    chunks = list(chunk_rows(rows))
+    num_pages = len(chunks)
 
-    for page_idx, chunk in enumerate(chunk_rows(rows)):
+    for page_idx, chunk in enumerate(chunks):
+        is_last_page = page_idx == num_pages - 1
+        reader = PdfReader(PDF_TEMPLATE_LAST_PAGE_PATH if is_last_page else PDF_TEMPLATE_PATH)
+
         writer.add_page(deepcopy(reader.pages[0]))
         form_data = {}
 
@@ -114,6 +119,7 @@ def fill_pdf(group_key, rows):
                 "LocationAddress": first_row.get(COLUMNS['Area'], '')
             })
 
+        page_total = 0.0
         for i, (_, row_data) in enumerate(chunk):
             idx = i + 1
             def f(k): return f"{k}Row{idx}"
@@ -122,6 +128,7 @@ def fill_pdf(group_key, rows):
             if raw_price:
                 try:
                     price_val = float(str(raw_price).replace('$', '').replace(',', ''))
+                    page_total += price_val
                     total_price += price_val
                     price_formatted = f"${price_val:,.2f}"
                 except:
@@ -139,18 +146,19 @@ def fill_pdf(group_key, rows):
                 f("Pricing"): price_formatted
             })
 
-        if page_idx == 0:
-            form_data["PricingTOTAL"] = f"${total_price:,.2f}"
+        form_data["PricingTOTAL"] = f"${page_total:,.2f}"
+        if is_last_page:
+            form_data["PricingGRANDTOTAL"] = f"${total_price:,.2f}"
 
         writer.update_page_form_field_values(writer.pages[-1], form_data)
 
-    if "/AcroForm" in reader.trailer["/Root"]:
-        writer._root_object.update({
-            NameObject("/AcroForm"): reader.trailer["/Root"]["/AcroForm"]
-        })
-        writer._root_object["/AcroForm"].update({
-            NameObject("/NeedAppearances"): BooleanObject(True)
-        })
+        if "/AcroForm" in reader.trailer["/Root"]:
+            writer._root_object.update({
+                NameObject("/AcroForm"): reader.trailer["/Root"]["/AcroForm"]
+            })
+            writer._root_object["/AcroForm"].update({
+                NameObject("/NeedAppearances"): BooleanObject(True)
+            })
 
     with open(output_path, "wb") as f:
         writer.write(f)
