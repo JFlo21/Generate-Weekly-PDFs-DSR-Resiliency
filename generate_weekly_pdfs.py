@@ -154,7 +154,7 @@ def fill_pdf(group_key, rows):
 
         writer.update_page_form_field_values(writer.pages[-1], form_data)
 
-        # Preserve AcroForm settings
+        # Fix for field appearance and annotation update
         if "/AcroForm" in reader.trailer["/Root"]:
             writer._root_object.update({
                 NameObject("/AcroForm"): reader.trailer["/Root"]["/AcroForm"]
@@ -163,30 +163,21 @@ def fill_pdf(group_key, rows):
                 NameObject("/NeedAppearances"): BooleanObject(True)
             })
 
-    # Flatten form fields to preserve filled data
-    for page in writer.pages:
         annotations = page.get("/Annots")
         if annotations:
-            for annot in annotations:
-                obj = annot.get_object()
-                obj.update({NameObject("/Ff"): 1})  # Read-only
+            try:
+                annots_list = annotations.get_object()
+                if isinstance(annots_list, list):
+                    for annot in annots_list:
+                        obj = annot.get_object()
+                        obj.update({NameObject("/Ff"): 1})
+            except Exception as e:
+                print(f"⚠️ Annotation processing error: {e}")
 
     with open(output_path, "wb") as f:
         writer.write(f)
 
     return output_path, output_filename, foreman, week_end
-
-def needs_grand_total_fix(attachment):
-    try:
-        response = client.Attachments.get_attachment_as_file(SHEET_ID, attachment.id)
-        file_stream = BytesIO(response.read())
-        reader = PdfReader(file_stream)
-        fields = reader.get_fields()
-        grand_total = fields.get("PricingGRANDTOTAL", {}).get("/V", None)
-        return not grand_total
-    except Exception as e:
-        print(f"Error checking GRANDTOTAL: {e}")
-        return True
 
 def main():
     rows = get_sheet_rows()
@@ -203,16 +194,13 @@ def main():
         existing = next((a for a in attachments if a.name == filename), None)
 
         if not has_data_changed(group_key, group_hash, metadata):
-            if existing and not needs_grand_total_fix(existing):
-                print(f"⏩ No change: {group_key}")
-                updated_metadata.append({
-                    "key": group_key,
-                    "filename": filename,
-                    "hash": group_hash
-                })
-                continue
-            else:
-                print(f"🔁 Forcing reupload for missing GRANDTOTAL: {group_key}")
+            print(f"⏩ No change: {group_key}")
+            updated_metadata.append({
+                "key": group_key,
+                "filename": filename,
+                "hash": group_hash
+            })
+            continue
 
         pdf_path, filename, foreman, week_end = fill_pdf(group_key, group_rows)
 
