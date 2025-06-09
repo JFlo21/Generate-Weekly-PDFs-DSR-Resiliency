@@ -2,8 +2,7 @@ name: Generate Weekly PDFs and Deploy to GitHub Pages
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   schedule:
     - cron: '0 */2 * * *'  # Every 2 hours
   workflow_dispatch:
@@ -34,7 +33,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install python-dateutil PyPDF2 smartsheet-python-sdk
 
       - name: Verify required secrets
         run: |
@@ -56,6 +55,7 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git pull origin main --rebase
           git add docs/assets/*.pdf docs/assets/metadata.json docs/.nojekyll
           git diff --cached --quiet || git commit -m "📄 Auto-update PDFs and metadata"
           git push origin HEAD:main
