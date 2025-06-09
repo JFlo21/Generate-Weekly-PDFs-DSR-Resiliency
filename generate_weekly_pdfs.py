@@ -97,12 +97,11 @@ def fill_pdf(group_key, rows):
     output_path = os.path.join(DOCS_FOLDER, output_filename)
 
     writer = PdfWriter()
-    total_price = 0.0
     chunks = list(chunk_rows(rows))
-    num_pages = len(chunks)
+    page_totals = []
 
     for page_idx, chunk in enumerate(chunks):
-        is_last_page = page_idx == num_pages - 1
+        is_last_page = (page_idx == len(chunks) - 1)
         reader = PdfReader(PDF_TEMPLATE_LAST_PAGE_PATH if is_last_page else PDF_TEMPLATE_PATH)
 
         writer.add_page(deepcopy(reader.pages[0]))
@@ -130,7 +129,6 @@ def fill_pdf(group_key, rows):
                 try:
                     price_val = float(str(raw_price).replace('$', '').replace(',', ''))
                     page_total += price_val
-                    total_price += price_val
                     price_formatted = f"${price_val:,.2f}"
                 except:
                     price_formatted = ''
@@ -148,8 +146,10 @@ def fill_pdf(group_key, rows):
             })
 
         form_data["PricingTOTAL"] = f"${page_total:,.2f}"
+        page_totals.append(page_total)
+
         if is_last_page:
-            form_data["PricingGRANDTOTAL"] = f"${total_price:,.2f}"
+            form_data["PricingGRANDTOTAL"] = f"${sum(page_totals):,.2f}"
 
         writer.update_page_form_field_values(writer.pages[-1], form_data)
 
