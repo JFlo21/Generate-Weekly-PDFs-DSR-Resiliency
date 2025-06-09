@@ -2,7 +2,6 @@ import os
 import json
 import hashlib
 import datetime
-from io import BytesIO
 from dateutil import parser
 from PyPDF2 import PdfReader, PdfWriter
 from PyPDF2.generic import NameObject, BooleanObject
@@ -13,7 +12,6 @@ import smartsheet
 API_TOKEN = os.getenv("SMARTSHEET_API_TOKEN")
 SHEET_ID = os.getenv("SOURCE_SHEET_ID")
 PDF_TEMPLATE_PATH = "template.pdf"
-PDF_TEMPLATE_LAST_PAGE_PATH = "template2.pdf"
 DOCS_FOLDER = "docs/assets"
 METADATA_PATH = os.path.join(DOCS_FOLDER, "metadata.json")
 os.makedirs(DOCS_FOLDER, exist_ok=True)
@@ -100,14 +98,11 @@ def fill_pdf(group_key, rows):
     chunks = list(chunk_rows(rows))
     page_totals = []
 
-    # Track first template's AcroForm for later
+    # AcroForm from the template (set once after all pages)
     acroform_obj = None
 
     for page_idx, chunk in enumerate(chunks):
-        is_last_page = (page_idx == len(chunks) - 1)
-        reader = PdfReader(PDF_TEMPLATE_LAST_PAGE_PATH if is_last_page else PDF_TEMPLATE_PATH)
-
-        # Save AcroForm dictionary from first template (once)
+        reader = PdfReader(PDF_TEMPLATE_PATH)
         if acroform_obj is None and "/AcroForm" in reader.trailer["/Root"]:
             acroform_obj = reader.trailer["/Root"]["/AcroForm"]
 
@@ -156,12 +151,9 @@ def fill_pdf(group_key, rows):
         form_data["PricingTOTAL"] = f"${page_total:,.2f}"
         page_totals.append(page_total)
 
-        if is_last_page:
-            form_data["PricingGRANDTOTAL"] = f"${sum(page_totals):,.2f}"
-
         writer.update_page_form_field_values(writer.pages[-1], form_data)
 
-        # Optionally keep annotation update if needed
+        # Optionally set read-only flag
         annotations = page.get("/Annots")
         if annotations:
             try:
@@ -195,7 +187,6 @@ def main():
 
     for group_key, group_rows in groups.items():
         group_hash = generate_row_group_hash(group_rows)
-
         row_id = group_rows[0][0]
         filename = f"WR_{group_key.split('_')[1]}_WeekEnding_{group_key.split('_')[2]}.pdf"
 
@@ -218,13 +209,11 @@ def main():
 
         with open(pdf_path, 'rb') as f:
             if existing:
-                # If a matching PDF is already attached, upload as new version
                 client.Attachments.attach_new_version(
                     SHEET_ID, existing.id, (filename, f, 'application/pdf')
                 )
                 print(f"🔁 Uploaded new version: {filename}")
             else:
-                # If NO matching PDF is attached, attach as new file
                 client.Attachments.attach_file_to_row(
                     SHEET_ID, row_id, (filename, f, 'application/pdf')
                 )
