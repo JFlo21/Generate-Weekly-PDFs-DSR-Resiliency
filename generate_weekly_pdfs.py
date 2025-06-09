@@ -1,22 +1,24 @@
 import os
 import json
-import smartsheet
+import hashlib
 import datetime
 from dateutil import parser
 from PyPDF2 import PdfReader, PdfWriter
 from PyPDF2.generic import NameObject, BooleanObject
+import smartsheet
 
-# Environment variables
+# Environment setup
 API_TOKEN = os.getenv("SMARTSHEET_API_TOKEN")
 SHEET_ID = os.getenv("SOURCE_SHEET_ID")
 PDF_TEMPLATE_PATH = "template.pdf"
-
-# Output paths
 DOCS_FOLDER = "docs/assets"
-METADATA_PATH = "docs/assets/metadata.json"
+METADATA_PATH = os.path.join(DOCS_FOLDER, "metadata.json")
 os.makedirs(DOCS_FOLDER, exist_ok=True)
 
-# Column ID mappings
+# Smartsheet client
+client = smartsheet.Smartsheet(API_TOKEN)
+
+# Column IDs
 COLUMNS = {
     'Foreman': 5476104938409860,
     'Work Request #': 3620163004092292,
@@ -34,9 +36,7 @@ COLUMNS = {
     'Redlined Total Price': 6339054112821124
 }
 
-client = smartsheet.Smartsheet(API_TOKEN)
-metadata_entries = []
-
+# Utilities
 def get_week_ending(date_str):
     date = parser.parse(date_str)
     days_ahead = 6 - date.weekday()
@@ -60,8 +60,35 @@ def group_rows_by_criteria(rows):
         groups.setdefault(key, []).append((row.id, cells))
     return groups
 
+def chunk_rows(rows, chunk_size=38):
+    for i in range(0, len(rows), chunk_size):
+        yield rows[i:i + chunk_size]
+
+def generate_row_group_hash(rows):
+    hash_input = ''
+    for _, row_data in sorted(rows, key=lambda x: x[0]):
+        values = [str(v) for v in row_data.values()]
+        hash_input += '|'.join(values) + '\n'
+    return hashlib.sha256(hash_input.encode('utf-8')).hexdigest()
+
+def load_metadata():
+    if os.path.exists(METADATA_PATH):
+        with open(METADATA_PATH, 'r') as f:
+            return json.load(f)
+    return []
+
+def save_metadata(metadata):
+    with open(METADATA_PATH, 'w') as f:
+        json.dump(metadata, f, indent=2)
+
+def has_data_changed(group_key, new_hash, metadata):
+    for entry in metadata:
+        if entry['key'] == group_key:
+            return entry['hash'] != new_hash
+    return True
+
 def fill_pdf(group_key, rows):
-    first_row = rows[0][1]
+    from copy import deepcopy
     foreman, wr_num, week_end_raw = group_key.split('_')
     week_end = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
     output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.pdf"
@@ -69,48 +96,53 @@ def fill_pdf(group_key, rows):
 
     reader = PdfReader(PDF_TEMPLATE_PATH)
     writer = PdfWriter()
-    writer.add_page(reader.pages[0])
-
-    form_data = {
-        "Week Ending Date": week_end,
-        "Employee Name": foreman,
-        "JobPhase Dept No": str(first_row.get(COLUMNS['Dept #'], '')).split('.')[0],
-        "Customer Name": first_row.get(COLUMNS['Customer Name'], ''),
-        "Work Order": str(first_row.get(COLUMNS['Work Order #'], '')).split('.')[0],
-        "Work Request": str(wr_num).split('.')[0],
-        "LocationAddress": first_row.get(COLUMNS['Area'], '')
-    }
-
     total_price = 0.0
-    for i, (_, row_data) in enumerate(rows[:38]):
-        idx = i + 1
-        def f(k): return f"{k}Row{idx}"
 
-        raw_price = row_data.get(COLUMNS['Redlined Total Price'], '')
-        if raw_price:
-            try:
-                price_val = float(str(raw_price).replace('$', '').replace(',', ''))
-                total_price += price_val
-                price_formatted = f"${price_val:,.2f}"
-            except:
+    for page_idx, chunk in enumerate(chunk_rows(rows)):
+        writer.add_page(deepcopy(reader.pages[0]))
+        form_data = {}
+
+        if page_idx == 0:
+            first_row = chunk[0][1]
+            form_data.update({
+                "Week Ending Date": week_end,
+                "Employee Name": foreman,
+                "JobPhase Dept No": str(first_row.get(COLUMNS['Dept #'], '')).split('.')[0],
+                "Customer Name": first_row.get(COLUMNS['Customer Name'], ''),
+                "Work Order": str(first_row.get(COLUMNS['Work Order #'], '')).split('.')[0],
+                "Work Request": str(wr_num).split('.')[0],
+                "LocationAddress": first_row.get(COLUMNS['Area'], '')
+            })
+
+        for i, (_, row_data) in enumerate(chunk):
+            idx = i + 1
+            def f(k): return f"{k}Row{idx}"
+
+            raw_price = row_data.get(COLUMNS['Redlined Total Price'], '')
+            if raw_price:
+                try:
+                    price_val = float(str(raw_price).replace('$', '').replace(',', ''))
+                    total_price += price_val
+                    price_formatted = f"${price_val:,.2f}"
+                except:
+                    price_formatted = ''
+            else:
                 price_formatted = ''
-        else:
-            price_formatted = ''
 
-        row_fields = {
-            f("Point Number"): row_data.get(COLUMNS['Pole #'], ''),
-            f("Billable Unit Code"): row_data.get(COLUMNS['CU'], ''),
-            f("Work Type"): row_data.get(COLUMNS['Work Type'], ''),
-            f("Unit Description"): row_data.get(COLUMNS['CU Description'], ''),
-            f("Unit of Measure"): row_data.get(COLUMNS['Unit of Measure'], ''),
-            f(" of Units Completed"): str(row_data.get(COLUMNS['Quantity'], '')).split('.')[0],
-            f("Pricing"): price_formatted
-        }
-        form_data.update(row_fields)
+            form_data.update({
+                f("Point Number"): row_data.get(COLUMNS['Pole #'], ''),
+                f("Billable Unit Code"): row_data.get(COLUMNS['CU'], ''),
+                f("Work Type"): row_data.get(COLUMNS['Work Type'], ''),
+                f("Unit Description"): row_data.get(COLUMNS['CU Description'], ''),
+                f("Unit of Measure"): row_data.get(COLUMNS['Unit of Measure'], ''),
+                f(" of Units Completed"): str(row_data.get(COLUMNS['Quantity'], '')).split('.')[0],
+                f("Pricing"): price_formatted
+            })
 
-    form_data["PricingTOTAL"] = f"${total_price:,.2f}"
+        if page_idx == 0:
+            form_data["PricingTOTAL"] = f"${total_price:,.2f}"
 
-    writer.update_page_form_field_values(writer.pages[0], form_data)
+        writer.update_page_form_field_values(writer.pages[-1], form_data)
 
     if "/AcroForm" in reader.trailer["/Root"]:
         writer._root_object.update({
@@ -125,44 +157,40 @@ def fill_pdf(group_key, rows):
 
     return output_path, output_filename, foreman, week_end
 
-def should_upload(file_path, row_id):
-    attachments = client.Attachments.list_row_attachments(SHEET_ID, row_id).data
-    base = os.path.basename(file_path)
-    for att in attachments:
-        if att.name == base:
-            return False
-    return True
-
 def attach_to_row(file_path, row_id):
     with open(file_path, 'rb') as f:
         client.Attachments.attach_file_to_row(
             SHEET_ID, row_id, (os.path.basename(file_path), f, 'application/pdf'))
 
-def write_metadata_file():
-    with open(METADATA_PATH, "w") as f:
-        json.dump(metadata_entries, f, indent=2)
-
 def main():
     rows = get_sheet_rows()
     groups = group_rows_by_criteria(rows)
+    metadata = load_metadata()
+    updated_metadata = []
 
     for group_key, group_rows in groups.items():
-        pdf_path, filename, foreman, week_end = fill_pdf(group_key, group_rows)
+        group_hash = generate_row_group_hash(group_rows)
+        if not has_data_changed(group_key, group_hash, metadata):
+            print(f"⏩ No change: {group_key}")
+            updated_metadata.append({
+                "key": group_key,
+                "filename": f"WR_{group_key.split('_')[1]}_WeekEnding_{group_key.split('_')[2]}.pdf",
+                "hash": group_hash
+            })
+            continue
 
-        metadata_entries.append({
+        pdf_path, filename, foreman, week_end = fill_pdf(group_key, group_rows)
+        attach_to_row(pdf_path, group_rows[0][0])
+
+        updated_metadata.append({
+            "key": group_key,
             "filename": filename,
-            "week_ending": week_end,
-            "foreman": foreman,
-            "work_request": group_key.split("_")[1]
+            "hash": group_hash
         })
 
-        if should_upload(pdf_path, group_rows[0][0]):
-            attach_to_row(pdf_path, group_rows[0][0])
-            print(f"✅ Uploaded: {filename}")
-        else:
-            print(f"⏩ Skipped duplicate: {filename}")
+        print(f"✅ Uploaded: {filename}")
 
-    write_metadata_file()
+    save_metadata(updated_metadata)
     print("📁 Metadata updated.")
 
 if __name__ == "__main__":
