@@ -100,14 +100,14 @@ def fill_pdf(group_key, rows):
     chunks = list(chunk_rows(rows))
     page_totals = []
 
-    # ---- NEW: Track first template's AcroForm for later ----
+    # Track first template's AcroForm for later
     acroform_obj = None
 
     for page_idx, chunk in enumerate(chunks):
         is_last_page = (page_idx == len(chunks) - 1)
         reader = PdfReader(PDF_TEMPLATE_LAST_PAGE_PATH if is_last_page else PDF_TEMPLATE_PATH)
 
-        # ---- Save AcroForm dictionary from first template (once) ----
+        # Save AcroForm dictionary from first template (once)
         if acroform_obj is None and "/AcroForm" in reader.trailer["/Root"]:
             acroform_obj = reader.trailer["/Root"]["/AcroForm"]
 
@@ -173,7 +173,7 @@ def fill_pdf(group_key, rows):
             except Exception as e:
                 print(f"⚠️ Annotation processing error: {e}")
 
-    # ---- Set AcroForm and NeedAppearances ONCE (after all pages are added) ----
+    # Set AcroForm and NeedAppearances ONCE (after all pages are added)
     if acroform_obj is not None:
         writer._root_object.update({
             NameObject("/AcroForm"): acroform_obj
@@ -197,10 +197,14 @@ def main():
         group_hash = generate_row_group_hash(group_rows)
 
         row_id = group_rows[0][0]
-        attachments = client.Attachments.list_row_attachments(SHEET_ID, row_id).data
         filename = f"WR_{group_key.split('_')[1]}_WeekEnding_{group_key.split('_')[2]}.pdf"
+
+        # Get ALL attachments for the row
+        attachments = client.Attachments.list_row_attachments(SHEET_ID, row_id).data
+        # Find a PDF attachment with this filename
         existing = next((a for a in attachments if a.name == filename), None)
 
+        # Keep your change detection logic
         if not has_data_changed(group_key, group_hash, metadata):
             print(f"⏩ No change: {group_key}")
             updated_metadata.append({
@@ -214,15 +218,17 @@ def main():
 
         with open(pdf_path, 'rb') as f:
             if existing:
+                # If a matching PDF is already attached, upload as new version
                 client.Attachments.attach_new_version(
                     SHEET_ID, existing.id, (filename, f, 'application/pdf')
                 )
                 print(f"🔁 Uploaded new version: {filename}")
             else:
+                # If NO matching PDF is attached, attach as new file
                 client.Attachments.attach_file_to_row(
                     SHEET_ID, row_id, (filename, f, 'application/pdf')
                 )
-                print(f"✅ Uploaded: {filename}")
+                print(f"✅ Uploaded new attachment: {filename}")
 
         updated_metadata.append({
             "key": group_key,
