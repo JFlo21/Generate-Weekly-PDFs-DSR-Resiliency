@@ -2,6 +2,7 @@ import os
 import json
 import hashlib
 import datetime
+from io import BytesIO
 from dateutil import parser
 from PyPDF2 import PdfReader, PdfWriter
 from PyPDF2.generic import NameObject, BooleanObject
@@ -165,6 +166,18 @@ def fill_pdf(group_key, rows):
 
     return output_path, output_filename, foreman, week_end
 
+def needs_grand_total_fix(attachment):
+    try:
+        response = client.Attachments.get_attachment_as_file(SHEET_ID, attachment.id)
+        file_stream = BytesIO(response.read())
+        reader = PdfReader(file_stream)
+        fields = reader.get_fields()
+        grand_total = fields.get("PricingGRANDTOTAL", {}).get("/V", None)
+        return not grand_total
+    except Exception as e:
+        print(f"Error checking GRANDTOTAL: {e}")
+        return True
+
 def main():
     rows = get_sheet_rows()
     groups = group_rows_by_criteria(rows)
@@ -174,20 +187,24 @@ def main():
     for group_key, group_rows in groups.items():
         group_hash = generate_row_group_hash(group_rows)
 
-        if not has_data_changed(group_key, group_hash, metadata):
-            print(f"⏩ No change: {group_key}")
-            updated_metadata.append({
-                "key": group_key,
-                "filename": f"WR_{group_key.split('_')[1]}_WeekEnding_{group_key.split('_')[2]}.pdf",
-                "hash": group_hash
-            })
-            continue
-
-        pdf_path, filename, foreman, week_end = fill_pdf(group_key, group_rows)
-
         row_id = group_rows[0][0]
         attachments = client.Attachments.list_row_attachments(SHEET_ID, row_id).data
+        filename = f"WR_{group_key.split('_')[1]}_WeekEnding_{group_key.split('_')[2]}.pdf"
         existing = next((a for a in attachments if a.name == filename), None)
+
+        if not has_data_changed(group_key, group_hash, metadata):
+            if existing and not needs_grand_total_fix(existing):
+                print(f"⏩ No change: {group_key}")
+                updated_metadata.append({
+                    "key": group_key,
+                    "filename": filename,
+                    "hash": group_hash
+                })
+                continue
+            else:
+                print(f"🔁 Forcing reupload for missing GRANDTOTAL: {group_key}")
+
+        pdf_path, filename, foreman, week_end = fill_pdf(group_key, group_rows)
 
         with open(pdf_path, 'rb') as f:
             if existing:
