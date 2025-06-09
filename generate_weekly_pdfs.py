@@ -104,7 +104,8 @@ def fill_pdf(group_key, rows):
         is_last_page = (page_idx == len(chunks) - 1)
         reader = PdfReader(PDF_TEMPLATE_LAST_PAGE_PATH if is_last_page else PDF_TEMPLATE_PATH)
 
-        writer.add_page(deepcopy(reader.pages[0]))
+        page = deepcopy(reader.pages[0])
+        writer.add_page(page)
         form_data = {}
 
         if page_idx == 0:
@@ -153,6 +154,7 @@ def fill_pdf(group_key, rows):
 
         writer.update_page_form_field_values(writer.pages[-1], form_data)
 
+        # Force appearance generation for field rendering
         if "/AcroForm" in reader.trailer["/Root"]:
             writer._root_object.update({
                 NameObject("/AcroForm"): reader.trailer["/Root"]["/AcroForm"]
