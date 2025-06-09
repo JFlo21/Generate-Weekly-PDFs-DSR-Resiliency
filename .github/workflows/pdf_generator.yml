@@ -1,6 +1,9 @@
 name: Generate Weekly PDFs and Deploy to GitHub Pages
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     - cron: '0 */2 * * *'  # Every 2 hours
   workflow_dispatch:
@@ -33,11 +36,31 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Verify required secrets
+        run: |
+          if [ -z "${{ secrets.SMARTSHEET_API_TOKEN }}" ] || [ -z "${{ secrets.SOURCE_SHEET_ID }}" ]; then
+            echo "Required secrets SMARTSHEET_API_TOKEN or SOURCE_SHEET_ID are missing."
+            exit 1
+          fi
+
       - name: Generate Weekly PDFs
         env:
           SMARTSHEET_API_TOKEN: ${{ secrets.SMARTSHEET_API_TOKEN }}
           SOURCE_SHEET_ID: ${{ secrets.SOURCE_SHEET_ID }}
         run: python generate_weekly_pdfs.py
+
+      - name: Recreate .nojekyll
+        run: echo "" > docs/.nojekyll
+
+      - name: Commit and push generated files
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/assets/*.pdf docs/assets/metadata.json docs/.nojekyll
+          git diff --cached --quiet || git commit -m "📄 Auto-update PDFs and metadata"
+          git push origin HEAD:main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload artifact for GitHub Pages
         uses: actions/upload-pages-artifact@v3
