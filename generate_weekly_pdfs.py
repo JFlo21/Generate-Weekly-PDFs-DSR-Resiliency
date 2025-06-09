@@ -100,9 +100,16 @@ def fill_pdf(group_key, rows):
     chunks = list(chunk_rows(rows))
     page_totals = []
 
+    # ---- NEW: Track first template's AcroForm for later ----
+    acroform_obj = None
+
     for page_idx, chunk in enumerate(chunks):
         is_last_page = (page_idx == len(chunks) - 1)
         reader = PdfReader(PDF_TEMPLATE_LAST_PAGE_PATH if is_last_page else PDF_TEMPLATE_PATH)
+
+        # ---- Save AcroForm dictionary from first template (once) ----
+        if acroform_obj is None and "/AcroForm" in reader.trailer["/Root"]:
+            acroform_obj = reader.trailer["/Root"]["/AcroForm"]
 
         page = deepcopy(reader.pages[0])
         writer.add_page(page)
@@ -154,15 +161,7 @@ def fill_pdf(group_key, rows):
 
         writer.update_page_form_field_values(writer.pages[-1], form_data)
 
-        # Fix for field appearance and annotation update
-        if "/AcroForm" in reader.trailer["/Root"]:
-            writer._root_object.update({
-                NameObject("/AcroForm"): reader.trailer["/Root"]["/AcroForm"]
-            })
-            writer._root_object["/AcroForm"].update({
-                NameObject("/NeedAppearances"): BooleanObject(True)
-            })
-
+        # Optionally keep annotation update if needed
         annotations = page.get("/Annots")
         if annotations:
             try:
@@ -173,6 +172,15 @@ def fill_pdf(group_key, rows):
                         obj.update({NameObject("/Ff"): 1})
             except Exception as e:
                 print(f"⚠️ Annotation processing error: {e}")
+
+    # ---- Set AcroForm and NeedAppearances ONCE (after all pages are added) ----
+    if acroform_obj is not None:
+        writer._root_object.update({
+            NameObject("/AcroForm"): acroform_obj
+        })
+        writer._root_object["/AcroForm"].update({
+            NameObject("/NeedAppearances"): BooleanObject(True)
+        })
 
     with open(output_path, "wb") as f:
         writer.write(f)
