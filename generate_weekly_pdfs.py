@@ -157,11 +157,6 @@ def fill_pdf(group_key, rows):
 
     return output_path, output_filename, foreman, week_end
 
-def attach_to_row(file_path, row_id):
-    with open(file_path, 'rb') as f:
-        client.Attachments.attach_file_to_row(
-            SHEET_ID, row_id, (os.path.basename(file_path), f, 'application/pdf'))
-
 def main():
     rows = get_sheet_rows()
     groups = group_rows_by_criteria(rows)
@@ -170,6 +165,7 @@ def main():
 
     for group_key, group_rows in groups.items():
         group_hash = generate_row_group_hash(group_rows)
+
         if not has_data_changed(group_key, group_hash, metadata):
             print(f"⏩ No change: {group_key}")
             updated_metadata.append({
@@ -180,15 +176,28 @@ def main():
             continue
 
         pdf_path, filename, foreman, week_end = fill_pdf(group_key, group_rows)
-        attach_to_row(pdf_path, group_rows[0][0])
+
+        row_id = group_rows[0][0]
+        attachments = client.Attachments.list_row_attachments(SHEET_ID, row_id).data
+        existing = next((a for a in attachments if a.name == filename), None)
+
+        with open(pdf_path, 'rb') as f:
+            if existing:
+                client.Attachments.attach_new_version(
+                    SHEET_ID, existing.id, (filename, f, 'application/pdf')
+                )
+                print(f"🔁 Uploaded new version: {filename}")
+            else:
+                client.Attachments.attach_file_to_row(
+                    SHEET_ID, row_id, (filename, f, 'application/pdf')
+                )
+                print(f"✅ Uploaded: {filename}")
 
         updated_metadata.append({
             "key": group_key,
             "filename": filename,
             "hash": group_hash
         })
-
-        print(f"✅ Uploaded: {filename}")
 
     save_metadata(updated_metadata)
     print("📁 Metadata updated.")
