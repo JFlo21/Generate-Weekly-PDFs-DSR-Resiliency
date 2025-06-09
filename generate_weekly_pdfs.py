@@ -154,7 +154,7 @@ def fill_pdf(group_key, rows):
 
         writer.update_page_form_field_values(writer.pages[-1], form_data)
 
-        # Force appearance generation for field rendering
+        # Preserve AcroForm settings
         if "/AcroForm" in reader.trailer["/Root"]:
             writer._root_object.update({
                 NameObject("/AcroForm"): reader.trailer["/Root"]["/AcroForm"]
@@ -162,6 +162,14 @@ def fill_pdf(group_key, rows):
             writer._root_object["/AcroForm"].update({
                 NameObject("/NeedAppearances"): BooleanObject(True)
             })
+
+    # Flatten form fields to preserve filled data
+    for page in writer.pages:
+        annotations = page.get("/Annots")
+        if annotations:
+            for annot in annotations:
+                obj = annot.get_object()
+                obj.update({NameObject("/Ff"): 1})  # Read-only
 
     with open(output_path, "wb") as f:
         writer.write(f)
