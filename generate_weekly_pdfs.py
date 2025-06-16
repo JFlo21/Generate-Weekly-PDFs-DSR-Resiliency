@@ -44,18 +44,7 @@ COLUMNS = {
     'Redlined Total Price': 6339054112821124
 }
 
-
-def get_week_ending(date_str):
-    """Calculates the week-ending date (Saturday) for a given date string."""
-    try:
-        date = parser.parse(date_str)
-        days_ahead = 5 - date.weekday()
-        if days_ahead < 0:
-            days_ahead += 7
-        return (date + datetime.timedelta(days=days_ahead)).strftime("%m/%d/%y")
-    except (parser.ParserError, TypeError):
-        print(f"⚠️ Warning: Could not parse date '{date_str}'. Skipping.")
-        return None
+# **REMOVED**: The get_week_ending function is no longer needed, as we will use the date from Smartsheet directly.
 
 def get_sheet_rows():
     """Fetches all rows from the specified Smartsheet."""
@@ -71,17 +60,23 @@ def group_rows_by_criteria(rows):
         cells = {c.column_id: c.value for c in row.cells}
         foreman = cells.get(COLUMNS['Foreman'])
         wr = cells.get(COLUMNS['Work Request #'])
-        log_date = cells.get(COLUMNS['Weekly Referenced Logged Date'])
+        log_date_str = cells.get(COLUMNS['Weekly Referenced Logged Date'])
 
-        if not all([foreman, wr, log_date]):
+        if not all([foreman, wr, log_date_str]):
             continue
 
-        week_ending = get_week_ending(log_date)
-        if not week_ending:
+        # **FIX**: Use the date from Smartsheet directly instead of recalculating it.
+        try:
+            # Parse the date from the sheet to ensure it's a valid date.
+            date_obj = parser.parse(log_date_str)
+            # Format the date for the grouping key (e.g., 062125).
+            week_end_for_key = date_obj.strftime("%m%d%y")
+            key = f"{foreman}_{wr}_{week_end_for_key}"
+            groups.setdefault(key, []).append((row.id, cells))
+        except (parser.ParserError, TypeError):
+            print(f"⚠️ Warning: Could not parse date '{log_date_str}' for grouping. Skipping row.")
             continue
-
-        key = f"{foreman}_{wr}_{week_ending.replace('/', '')}"
-        groups.setdefault(key, []).append((row.id, cells))
+            
     print(f"✅ Grouped rows into {len(groups)} unique documents.")
     return groups
 
@@ -142,6 +137,7 @@ def fill_pdf(group_key, rows):
     first_row_tuple = rows[0]
     first_row_data = first_row_tuple[1]
     foreman, wr_num, week_end_raw = group_key.split('_')
+    # This logic correctly reconstructs the display date from the key (e.g., "062125" -> "06/21/25")
     week_end = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
     
     output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.pdf"
@@ -181,9 +177,6 @@ def fill_pdf(group_key, rows):
             price_val = parse_price(row_data.get(COLUMNS['Redlined Total Price']))
             page_total += price_val
             
-            # **FIX:** Pass the raw numerical value to the 'Pricing' field.
-            # The PDF's own settings should handle formatting it as currency.
-            # This avoids conflicts with calculated fields.
             form_data.update({
                 f("Point Number"): str(row_data.get(COLUMNS['Pole #'], '')),
                 f("Billable Unit Code"): str(row_data.get(COLUMNS['CU'], '')),
@@ -191,11 +184,9 @@ def fill_pdf(group_key, rows):
                 f("Unit Decription"): str(row_data.get(COLUMNS['CU Description'], '')), 
                 f("Unit of Measure"): str(row_data.get(COLUMNS['Unit of Measure'], '')),
                 f(" of Units Completed"): str(row_data.get(COLUMNS['Quantity'], '') or '').split('.')[0],
-                f("Pricing"): price_val if price_val else "" # Pass the raw number or an empty string
+                f("Pricing"): price_val if price_val else ""
             })
 
-        # We still set the TOTAL field manually to ensure it's correct,
-        # overriding any potentially faulty PDF calculation.
         form_data["PricingTOTAL"] = f"${page_total:,.2f}"
 
         final_writer.update_page_form_field_values(template_page, form_data)
