@@ -5,8 +5,7 @@ import datetime
 import shutil
 from dateutil import parser
 from PyPDF2 import PdfReader, PdfWriter
-from PyPDF2.generic import NameObject, NumberObject
-import smartsheet
+from PyPDF2.generic import NameObject, NumberObject, BooleanObject
 
 # --- Configuration ---
 # It's recommended to place configuration at the top for easy access.
@@ -130,10 +129,20 @@ def has_data_changed(group_key, new_hash, metadata):
     return True # If key not in metadata, it's new data.
 
 def _merge_pdfs(pdf_paths, output_path):
-    """Merges multiple PDF files into a single PDF file."""
+    """Merges multiple PDF files into a single PDF file and ensures field visibility."""
     pdf_writer = PdfWriter()
     for path in pdf_paths:
         pdf_writer.append(path)
+
+    # **FIX:** Set the NeedAppearances flag to ensure field values are visible.
+    # This is a critical step that tells the PDF viewer to render the appearance
+    # of form fields that have been programmatically filled. Without this,
+    # the data can be "hidden" until a field is clicked.
+    if pdf_writer._root_object and "/AcroForm" in pdf_writer._root_object:
+        pdf_writer._root_object["/AcroForm"].update(
+            {NameObject("/NeedAppearances"): BooleanObject(True)}
+        )
+
     with open(output_path, "wb") as out:
         pdf_writer.write(out)
 
@@ -207,7 +216,6 @@ def fill_pdf(group_key, rows):
         writer.update_page_form_field_values(writer.pages[0], form_data)
         if "/Annots" in writer.pages[0]:
             for annot in writer.pages[0]["/Annots"]:
-                # **FIX:** The read-only flag (/Ff) must be a NumberObject, not a Python int.
                 annot.get_object().update({NameObject("/Ff"): NumberObject(1)})
 
         temp_path = os.path.join(TEMP_FOLDER, f"temp_{group_key}_{page_idx}.pdf")
