@@ -147,22 +147,18 @@ def fill_pdf(group_key, rows):
     output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.pdf"
     final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
     
-    # 1. Initialize a single writer for the final document.
     final_writer = PdfWriter()
     
     chunks = list(chunk_rows(rows))
     num_pages = len(chunks)
 
-    # 2. Loop through each page of data.
     for page_idx, chunk in enumerate(chunks):
-        # Always read from the fresh, original template.
         template_reader = PdfReader(PDF_TEMPLATE_PATH)
         template_page = template_reader.pages[0]
         
         form_data = {}
         page_total = 0.0
 
-        # Fill header data for the first page
         if page_idx == 0:
             form_data.update({
                 "Week Ending Date": str(week_end),
@@ -178,15 +174,16 @@ def fill_pdf(group_key, rows):
         if num_pages > 1:
             form_data["PageNumber"] = f"Page {page_idx + 1} of {num_pages}"
 
-        # Fill row data for the current page
         for i, (_, row_data) in enumerate(chunk):
             idx = i + 1
             def f(k): return f"{k}Row{idx}"
 
             price_val = parse_price(row_data.get(COLUMNS['Redlined Total Price']))
             page_total += price_val
-            price_formatted = f"${price_val:,.2f}" if price_val else ""
             
+            # **FIX:** Pass the raw numerical value to the 'Pricing' field.
+            # The PDF's own settings should handle formatting it as currency.
+            # This avoids conflicts with calculated fields.
             form_data.update({
                 f("Point Number"): str(row_data.get(COLUMNS['Pole #'], '')),
                 f("Billable Unit Code"): str(row_data.get(COLUMNS['CU'], '')),
@@ -194,29 +191,26 @@ def fill_pdf(group_key, rows):
                 f("Unit Decription"): str(row_data.get(COLUMNS['CU Description'], '')), 
                 f("Unit of Measure"): str(row_data.get(COLUMNS['Unit of Measure'], '')),
                 f(" of Units Completed"): str(row_data.get(COLUMNS['Quantity'], '') or '').split('.')[0],
-                f("Pricing"): str(price_formatted)
+                f("Pricing"): price_val if price_val else "" # Pass the raw number or an empty string
             })
 
+        # We still set the TOTAL field manually to ensure it's correct,
+        # overriding any potentially faulty PDF calculation.
         form_data["PricingTOTAL"] = f"${page_total:,.2f}"
 
-        # 3. Update the fields on the fresh template page.
         final_writer.update_page_form_field_values(template_page, form_data)
         
-        # Set fields to read-only on the same page object.
         if template_page["/Annots"]:
             for annot in template_page["/Annots"]:
                 annot.get_object().update({NameObject("/Ff"): NumberObject(1)})
 
-        # 4. Add the fully processed page to the final writer.
         final_writer.add_page(template_page)
 
-    # 5. Set the critical NeedAppearances flag on the final document.
     if "/AcroForm" in final_writer._root_object:
         final_writer._root_object["/AcroForm"].update(
             {NameObject("/NeedAppearances"): BooleanObject(True)}
         )
 
-    # 6. Save the completed PDF.
     with open(final_output_path, "wb") as f:
         final_writer.write(f)
     
@@ -287,7 +281,6 @@ def main():
         print(f"🚨 An unexpected error occurred: {e}")
     finally:
         if os.path.exists(TEMP_FOLDER):
-            # No longer creating temp files, but good to keep for cleanup.
             shutil.rmtree(TEMP_FOLDER)
             print("🗑️ Temporary files cleaned up.")
 
