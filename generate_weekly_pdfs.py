@@ -9,13 +9,13 @@ from PyPDF2.generic import NameObject, NumberObject, BooleanObject
 import smartsheet
 
 # --- Configuration ---
-# It's recommended to place configuration at the top for easy access.
 API_TOKEN = os.getenv("SMARTSHEET_API_TOKEN")
 SHEET_ID = os.getenv("SOURCE_SHEET_ID")
 PDF_TEMPLATE_PATH = "template.pdf"
 OUTPUT_FOLDER = "generated_docs" # A dedicated folder for final PDFs
 TEMP_FOLDER = "temp_processing" # A folder for temporary files during PDF creation
 METADATA_PATH = os.path.join(OUTPUT_FOLDER, "metadata.json")
+
 
 # --- Setup Directories ---
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
@@ -27,7 +27,6 @@ client = smartsheet.Smartsheet(API_TOKEN)
 client.errors_as_exceptions(True) # Fail fast on API errors
 
 # --- Column IDs ---
-# Using a dictionary for column IDs is great practice.
 COLUMNS = {
     'Foreman': 5476104938409860,
     'Work Request #': 3620163004092292,
@@ -50,9 +49,8 @@ def get_week_ending(date_str):
     """Calculates the week-ending date (Saturday) for a given date string."""
     try:
         date = parser.parse(date_str)
-        # 5 represents Saturday in date.weekday() where Monday is 0
         days_ahead = 5 - date.weekday()
-        if days_ahead < 0: # If the day is Sunday
+        if days_ahead < 0:
             days_ahead += 7
         return (date + datetime.timedelta(days=days_ahead)).strftime("%m/%d/%y")
     except (parser.ParserError, TypeError):
@@ -94,13 +92,9 @@ def chunk_rows(rows, chunk_size=38):
 
 def generate_row_group_hash(rows):
     """Generates a SHA256 hash for a group of rows to detect changes."""
-    # Sorting ensures that row order doesn't affect the hash.
-    # We sort by the tuple's first element, which is the Smartsheet Row ID.
     sorted_rows = sorted(rows, key=lambda x: x[0])
     hasher = hashlib.sha256()
     for row_id, row_data in sorted_rows:
-        # Create a consistent string representation of the row data
-        # Sorting by column ID ensures field order doesn't affect the hash
         cell_data = sorted(row_data.items())
         row_string = f"row_id:{row_id}|" + '|'.join(f"{k}:{v}" for k, v in cell_data)
         hasher.update(row_string.encode('utf-8'))
@@ -127,24 +121,20 @@ def has_data_changed(group_key, new_hash, metadata):
     for entry in metadata:
         if entry.get('key') == group_key:
             return entry.get('hash') != new_hash
-    return True # If key not in metadata, it's new data.
+    return True
 
 def _merge_pdfs(pdf_paths, output_path):
     """Merges multiple PDF files into a single PDF file and ensures field visibility."""
     pdf_writer = PdfWriter()
     for path in pdf_paths:
-        # Re-open each temporary PDF to ensure it's a stable object
         reader = PdfReader(path)
         for page in reader.pages:
             pdf_writer.add_page(page)
 
-    # **FIX:** Set the NeedAppearances flag on the final merged object.
-    # This is a critical step that tells the PDF viewer to render the appearance
-    # of form fields that have been programmatically filled.
     if "/AcroForm" in pdf_writer._root_object:
         acroform = pdf_writer._root_object["/AcroForm"]
         if "/Fields" in acroform:
-             acroform.update(
+            acroform.update(
                 {NameObject("/NeedAppearances"): BooleanObject(True)}
             )
 
@@ -162,9 +152,7 @@ def parse_price(price_str):
         return 0.0
 
 def fill_pdf(group_key, rows):
-    """
-    Orchestrates the creation of a multi-page PDF, ensuring all data is string-formatted.
-    """
+    """Orchestrates the creation of a multi-page PDF."""
     first_row_tuple = rows[0]
     first_row_data = first_row_tuple[1]
     foreman, wr_num, week_end_raw = group_key.split('_')
@@ -197,34 +185,35 @@ def fill_pdf(group_key, rows):
                 "LocationAddress": str(first_row_data.get(COLUMNS['Area'], ''))
             })
         
-        form_data["PageNumber"] = f"Page {page_idx + 1} of {num_pages}"
+        if num_pages > 1:
+            form_data["PageNumber"] = f"Page {page_idx + 1} of {num_pages}"
 
         for i, (_, row_data) in enumerate(chunk):
             idx = i + 1
             
-            # **FIX:** Using the explicit field name from your description.
-            price_field_name = f"PricingRow{idx}"
-            
             price_val = parse_price(row_data.get(COLUMNS['Redlined Total Price']))
             page_total += price_val
-            price_formatted = f"${price_val:,.2f}" if price_val != 0 else ""
+            price_formatted = f"${price_val:,.2f}" if price_val else ""
 
+            # **FIX:** Standardizing field names to remove spaces. This is a common
+            # requirement for PDF forms. It's crucial that these names match your
+            # PDF template exactly. For example, "Point Number" becomes "PointNumber".
             form_data.update({
-                f"Point NumberRow{idx}": str(row_data.get(COLUMNS['Pole #'], '')),
-                f"Billable Unit CodeRow{idx}": str(row_data.get(COLUMNS['CU'], '')),
-                f"Work TypeRow{idx}": str(row_data.get(COLUMNS['Work Type'], '')),
-                f"Unit DescriptionRow{idx}": str(row_data.get(COLUMNS['CU Description'], '')),
-                f"Unit of MeasureRow{idx}": str(row_data.get(COLUMNS['Unit of Measure'], '')),
-                f" of Units CompletedRow{idx}": str(row_data.get(COLUMNS['Quantity'], '') or '').split('.')[0],
-                price_field_name: str(price_formatted)
+                f"PointNumberRow{idx}": str(row_data.get(COLUMNS['Pole #'], '')),
+                f"BillableUnitCodeRow{idx}": str(row_data.get(COLUMNS['CU'], '')),
+                f"WorkTypeRow{idx}": str(row_data.get(COLUMNS['Work Type'], '')),
+                f"UnitDescriptionRow{idx}": str(row_data.get(COLUMNS['CU Description'], '')),
+                f"UnitofMeasureRow{idx}": str(row_data.get(COLUMNS['Unit of Measure'], '')),
+                f"ofUnitsCompletedRow{idx}": str(row_data.get(COLUMNS['Quantity'], '') or '').split('.')[0],
+                f"PricingRow{idx}": str(price_formatted)
             })
 
         form_data["PricingTOTAL"] = f"${page_total:,.2f}"
 
-        writer.update_page_form_field_values(page, form_data)
+        writer.update_page_form_field_values(writer.pages[0], form_data)
         
-        if page["/Annots"]:
-            for annot in page["/Annots"]:
+        if writer.pages[0]["/Annots"]:
+            for annot in writer.pages[0]["/Annots"]:
                 writer_annot = annot.get_object()
                 writer_annot.update({NameObject("/Ff"): NumberObject(1)})
 
@@ -239,24 +228,26 @@ def fill_pdf(group_key, rows):
     return final_output_path, output_filename
 
 def main():
-    """Main execution function."""
+    """Main execution function: Generates a PDF if data has changed and uploads it,
+    creating new versions for existing attachments."""
     try:
         rows = get_sheet_rows()
         groups = group_rows_by_criteria(rows)
         metadata = load_metadata()
-        new_metadata = [m for m in metadata] 
-        
+        new_metadata = list(metadata) 
+
         for group_key, group_rows in groups.items():
             print(f"\nProcessing group: {group_key} ({len(group_rows)} rows)")
+            
             group_hash = generate_row_group_hash(group_rows)
-            primary_row_id = group_rows[0][0]
-
             if not has_data_changed(group_key, group_hash, metadata):
                 print(f"⏩ No changes detected for group {group_key}. Skipping.")
                 continue
 
             print("   Change detected, generating new PDF...")
             pdf_path, filename = fill_pdf(group_key, group_rows)
+            
+            primary_row_id = group_rows[0][0]
 
             print(f"   Uploading '{filename}' to row {primary_row_id}...")
             attachments = client.Attachments.list_row_attachments(SHEET_ID, primary_row_id).data
@@ -280,7 +271,6 @@ def main():
             for entry in new_metadata:
                 if entry.get('key') == group_key:
                     entry['hash'] = group_hash
-                    entry['filename'] = filename
                     entry_found = True
                     break
             if not entry_found:
