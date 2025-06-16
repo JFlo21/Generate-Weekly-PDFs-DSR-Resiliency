@@ -2,24 +2,32 @@ import os
 import json
 import hashlib
 import datetime
+import shutil
 from dateutil import parser
 from PyPDF2 import PdfReader, PdfWriter
-from PyPDF2.generic import NameObject, BooleanObject
-from copy import deepcopy
+from PyPDF2.generic import NameObject
 import smartsheet
 
-# Environment setup
+# --- Configuration ---
+# It's recommended to place configuration at the top for easy access.
 API_TOKEN = os.getenv("SMARTSHEET_API_TOKEN")
 SHEET_ID = os.getenv("SOURCE_SHEET_ID")
 PDF_TEMPLATE_PATH = "template.pdf"
-DOCS_FOLDER = "docs/assets"
-METADATA_PATH = os.path.join(DOCS_FOLDER, "metadata.json")
-os.makedirs(DOCS_FOLDER, exist_ok=True)
+OUTPUT_FOLDER = "generated_docs" # A dedicated folder for final PDFs
+TEMP_FOLDER = "temp_processing" # A folder for temporary files during PDF creation
+METADATA_PATH = os.path.join(OUTPUT_FOLDER, "metadata.json")
+
+# --- Setup Directories ---
+os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+os.makedirs(TEMP_FOLDER, exist_ok=True)
+
 
 # Smartsheet client
 client = smartsheet.Smartsheet(API_TOKEN)
+client.errors_as_exceptions(True) # Fail fast on API errors
 
-# Column IDs
+# --- Column IDs ---
+# Using a dictionary for column IDs is great practice.
 COLUMNS = {
     'Foreman': 5476104938409860,
     'Work Request #': 3620163004092292,
@@ -37,106 +45,169 @@ COLUMNS = {
     'Redlined Total Price': 6339054112821124
 }
 
+
 def get_week_ending(date_str):
-    date = parser.parse(date_str)
-    days_ahead = 6 - date.weekday()
-    return (date + datetime.timedelta(days=days_ahead)).strftime("%m/%d/%y")
+    """Calculates the week-ending date (Saturday) for a given date string."""
+    try:
+        date = parser.parse(date_str)
+        # 5 represents Saturday in date.weekday() where Monday is 0
+        days_ahead = 5 - date.weekday()
+        if days_ahead < 0: # If the day is Sunday
+            days_ahead += 7
+        return (date + datetime.timedelta(days=days_ahead)).strftime("%m/%d/%y")
+    except (parser.ParserError, TypeError):
+        print(f"⚠️ Warning: Could not parse date '{date_str}'. Skipping.")
+        return None
 
 def get_sheet_rows():
+    """Fetches all rows from the specified Smartsheet."""
+    print("Fetching rows from Smartsheet...")
     sheet = client.Sheets.get_sheet(SHEET_ID)
+    print(f"✅ Found {len(sheet.rows)} total rows.")
     return sheet.rows
 
 def group_rows_by_criteria(rows):
+    """Groups rows by Foreman, Work Request #, and Week Ending date."""
     groups = {}
     for row in rows:
         cells = {c.column_id: c.value for c in row.cells}
         foreman = cells.get(COLUMNS['Foreman'])
         wr = cells.get(COLUMNS['Work Request #'])
         log_date = cells.get(COLUMNS['Weekly Referenced Logged Date'])
-        if not foreman or not wr or not log_date:
+
+        if not all([foreman, wr, log_date]):
             continue
+
         week_ending = get_week_ending(log_date)
+        if not week_ending:
+            continue
+
         key = f"{foreman}_{wr}_{week_ending.replace('/', '')}"
         groups.setdefault(key, []).append((row.id, cells))
+    print(f"✅ Grouped rows into {len(groups)} unique documents.")
     return groups
 
 def chunk_rows(rows, chunk_size=38):
+    """Yields successive n-sized chunks from a list of rows."""
     for i in range(0, len(rows), chunk_size):
         yield rows[i:i + chunk_size]
 
 def generate_row_group_hash(rows):
-    hash_input = ''
-    for _, row_data in sorted(rows, key=lambda x: x[0]):
-        values = [str(v) for v in row_data.values()]
-        hash_input += '|'.join(values) + '\n'
-    return hashlib.sha256(hash_input.encode('utf-8')).hexdigest()
+    """Generates a SHA256 hash for a group of rows to detect changes."""
+    # Sorting ensures that row order doesn't affect the hash.
+    # We sort by the tuple's first element, which is the Smartsheet Row ID.
+    sorted_rows = sorted(rows, key=lambda x: x[0])
+    hasher = hashlib.sha256()
+    for row_id, row_data in sorted_rows:
+        # Create a consistent string representation of the row data
+        # Sorting by column ID ensures field order doesn't affect the hash
+        cell_data = sorted(row_data.items())
+        row_string = f"row_id:{row_id}|" + '|'.join(f"{k}:{v}" for k, v in cell_data)
+        hasher.update(row_string.encode('utf-8'))
+    return hasher.hexdigest()
 
 def load_metadata():
+    """Loads the metadata file that tracks generated PDFs and their data hashes."""
     if os.path.exists(METADATA_PATH):
-        with open(METADATA_PATH, 'r') as f:
-            return json.load(f)
+        try:
+            with open(METADATA_PATH, 'r') as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            print("⚠️ Warning: Metadata file is corrupted. Starting fresh.")
+            return []
     return []
 
 def save_metadata(metadata):
+    """Saves the updated metadata to the file."""
     with open(METADATA_PATH, 'w') as f:
-        json.dump(metadata, f, indent=2)
+        json.dump(metadata, f, indent=4)
 
 def has_data_changed(group_key, new_hash, metadata):
+    """Checks if the new data hash is different from the stored hash."""
     for entry in metadata:
-        if entry['key'] == group_key:
-            return entry['hash'] != new_hash
-    return True
+        if entry.get('key') == group_key:
+            return entry.get('hash') != new_hash
+    return True # If key not in metadata, it's new data.
+
+def _merge_pdfs(pdf_paths, output_path):
+    """Merges multiple PDF files into a single PDF file."""
+    pdf_writer = PdfWriter()
+    for path in pdf_paths:
+        pdf_reader = PdfReader(path)
+        for page in pdf_reader.pages:
+            pdf_writer.add_page(page)
+    with open(output_path, "wb") as out:
+        pdf_writer.write(out)
+
+def parse_price(price_str):
+    """Safely parses a string into a float, removing '$' and ','."""
+    if not price_str:
+        return 0.0
+    try:
+        return float(str(price_str).replace('$', '').replace(',', ''))
+    except (ValueError, TypeError):
+        print(f"⚠️ Warning: Could not parse price value '{price_str}'. Treating as 0.")
+        return 0.0
 
 def fill_pdf(group_key, rows):
-    first_row = rows[0][1]
+    """
+    Orchestrates the creation of a multi-page PDF without a grand total.
+    
+    This function implements a robust strategy to prevent page data from bleeding
+    over:
+    1. It splits the rows into chunks (one chunk per page).
+    2. It iterates through each chunk, creating a temporary, single-page PDF for it.
+    3. Each temporary PDF is correctly filled with its specific chunk of data and
+       its own page total.
+    4. Finally, all temporary PDFs are merged into the final document.
+    5. Temporary files are deleted.
+    """
+    first_row_tuple = rows[0]
+    first_row_data = first_row_tuple[1]
     foreman, wr_num, week_end_raw = group_key.split('_')
     week_end = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
+    
     output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.pdf"
-    output_path = os.path.join(DOCS_FOLDER, output_filename)
-
-    writer = PdfWriter()
+    final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
+    
     chunks = list(chunk_rows(rows))
-    page_totals = []
+    num_pages = len(chunks)
+    temp_pdf_paths = []
 
-    # AcroForm from the template (set once after all pages)
-    acroform_obj = None
-
+    # Loop through chunks to create one PDF per page.
     for page_idx, chunk in enumerate(chunks):
         reader = PdfReader(PDF_TEMPLATE_PATH)
-        if acroform_obj is None and "/AcroForm" in reader.trailer["/Root"]:
-            acroform_obj = reader.trailer["/Root"]["/AcroForm"]
+        writer = PdfWriter()
+        writer.add_page(reader.pages[0])
 
-        page = deepcopy(reader.pages[0])
-        writer.add_page(page)
         form_data = {}
+        page_total = 0.0
 
+        # Fill header data for the first page
         if page_idx == 0:
-            first_row = chunk[0][1]
             form_data.update({
                 "Week Ending Date": week_end,
                 "Employee Name": foreman,
-                "JobPhase Dept No": str(first_row.get(COLUMNS['Dept #'], '')).split('.')[0],
-                "Customer Name": first_row.get(COLUMNS['Customer Name'], ''),
-                "Work Order": str(first_row.get(COLUMNS['Work Order #'], '')).split('.')[0],
+                "JobPhase Dept No": str(first_row_data.get(COLUMNS['Dept #'], '') or '').split('.')[0],
+                "Customer Name": first_row_data.get(COLUMNS['Customer Name'], ''),
+                "Work Order": str(first_row_data.get(COLUMNS['Work Order #'], '') or '').split('.')[0],
                 "Work Request": str(wr_num).split('.')[0],
-                "LocationAddress": first_row.get(COLUMNS['Area'], '')
+                "LocationAddress": first_row_data.get(COLUMNS['Area'], '')
             })
+        
+        # Add Page X of Y to each page (assuming your PDF has a field for it)
+        # IMPORTANT: Verify the field name 'PageNumber' in your PDF template.
+        form_data["PageNumber"] = f"Page {page_idx + 1} of {num_pages}"
 
-        page_total = 0.0
+        # Fill in the data for each row in the current chunk
         for i, (_, row_data) in enumerate(chunk):
             idx = i + 1
             def f(k): return f"{k}Row{idx}"
 
-            raw_price = row_data.get(COLUMNS['Redlined Total Price'], '')
-            if raw_price:
-                try:
-                    price_val = float(str(raw_price).replace('$', '').replace(',', ''))
-                    page_total += price_val
-                    price_formatted = f"${price_val:,.2f}"
-                except:
-                    price_formatted = ''
-            else:
-                price_formatted = ''
+            price_val = parse_price(row_data.get(COLUMNS['Redlined Total Price']))
+            page_total += price_val
+            # Only format as currency if the value is not zero
+            price_formatted = f"${price_val:,.2f}" if price_val != 0 else ""
 
             form_data.update({
                 f("Point Number"): row_data.get(COLUMNS['Pole #'], ''),
@@ -144,89 +215,103 @@ def fill_pdf(group_key, rows):
                 f("Work Type"): row_data.get(COLUMNS['Work Type'], ''),
                 f("Unit Description"): row_data.get(COLUMNS['CU Description'], ''),
                 f("Unit of Measure"): row_data.get(COLUMNS['Unit of Measure'], ''),
-                f(" of Units Completed"): str(row_data.get(COLUMNS['Quantity'], '')).split('.')[0],
+                f(" of Units Completed"): str(row_data.get(COLUMNS['Quantity'], '') or '').split('.')[0],
                 f("Pricing"): price_formatted
             })
 
+        # Fill Page Total for the current page
+        # IMPORTANT: Verify the field name 'PricingTOTAL' in your PDF template.
         form_data["PricingTOTAL"] = f"${page_total:,.2f}"
-        page_totals.append(page_total)
 
-        writer.update_page_form_field_values(writer.pages[-1], form_data)
+        # Update the form fields and make them read-only
+        writer.update_page_form_field_values(writer.pages[0], form_data)
+        if "/Annots" in writer.pages[0]:
+            for annot in writer.pages[0]["/Annots"]:
+                annot.get_object().update({NameObject("/Ff"): 1}) # 1 = read-only
 
-        # Optionally set read-only flag
-        annotations = page.get("/Annots")
-        if annotations:
-            try:
-                annots_list = annotations.get_object()
-                if isinstance(annots_list, list):
-                    for annot in annots_list:
-                        obj = annot.get_object()
-                        obj.update({NameObject("/Ff"): 1})
-            except Exception as e:
-                print(f"⚠️ Annotation processing error: {e}")
+        # Save the single-page PDF to a temporary file
+        temp_path = os.path.join(TEMP_FOLDER, f"temp_{group_key}_{page_idx}.pdf")
+        with open(temp_path, "wb") as temp_file:
+            writer.write(temp_file)
+        temp_pdf_paths.append(temp_path)
 
-    # Set AcroForm and NeedAppearances ONCE (after all pages are added)
-    if acroform_obj is not None:
-        writer._root_object.update({
-            NameObject("/AcroForm"): acroform_obj
-        })
-        writer._root_object["/AcroForm"].update({
-            NameObject("/NeedAppearances"): BooleanObject(True)
-        })
+    # Merge all temporary PDFs into the final document
+    _merge_pdfs(temp_pdf_paths, final_output_path)
+    print(f"📄 Merged {num_pages} pages into '{output_filename}'.")
 
-    with open(output_path, "wb") as f:
-        writer.write(f)
-
-    return output_path, output_filename, foreman, week_end
+    return final_output_path, output_filename
 
 def main():
-    rows = get_sheet_rows()
-    groups = group_rows_by_criteria(rows)
-    metadata = load_metadata()
-    updated_metadata = []
+    """Main execution function."""
+    try:
+        rows = get_sheet_rows()
+        groups = group_rows_by_criteria(rows)
+        metadata = load_metadata()
+        # Create a copy to modify; we'll save it at the very end.
+        new_metadata = [m for m in metadata] 
+        
+        for group_key, group_rows in groups.items():
+            print(f"\nProcessing group: {group_key} ({len(group_rows)} rows)")
+            group_hash = generate_row_group_hash(group_rows)
+            
+            # Use the first row ID in the group for attachment purposes
+            primary_row_id = group_rows[0][0]
 
-    for group_key, group_rows in groups.items():
-        group_hash = generate_row_group_hash(group_rows)
-        row_id = group_rows[0][0]
-        filename = f"WR_{group_key.split('_')[1]}_WeekEnding_{group_key.split('_')[2]}.pdf"
+            if not has_data_changed(group_key, group_hash, metadata):
+                print(f"⏩ No changes detected for group {group_key}. Skipping.")
+                continue
 
-        # Get ALL attachments for the row
-        attachments = client.Attachments.list_row_attachments(SHEET_ID, row_id).data
-        # Find a PDF attachment with this filename
-        existing = next((a for a in attachments if a.name == filename), None)
+            print("   Change detected, generating new PDF...")
+            pdf_path, filename = fill_pdf(group_key, group_rows)
 
-        # Keep your change detection logic
-        if not has_data_changed(group_key, group_hash, metadata):
-            print(f"⏩ No change: {group_key}")
-            updated_metadata.append({
-                "key": group_key,
-                "filename": filename,
-                "hash": group_hash
-            })
-            continue
-
-        pdf_path, filename, foreman, week_end = fill_pdf(group_key, group_rows)
-
-        with open(pdf_path, 'rb') as f:
-            if existing:
+            print(f"   Uploading '{filename}' to row {primary_row_id}...")
+            # Check for an existing attachment with the same name on that row
+            attachments = client.Attachments.list_row_attachments(SHEET_ID, primary_row_id).data
+            existing_attachment = next((a for a in attachments if a.name == filename), None)
+            
+            if existing_attachment:
+                print(f"   Found existing attachment. Uploading as new version...")
                 client.Attachments.attach_new_version(
-                    SHEET_ID, existing.id, (filename, f, 'application/pdf')
+                    SHEET_ID, existing_attachment.id, (filename, open(pdf_path, 'rb'), 'application/pdf')
                 )
-                print(f"🔁 Uploaded new version: {filename}")
+                print(f"   ✅ Uploaded new version: {filename}")
             else:
+                print(f"   No existing attachment found. Uploading as new file...")
                 client.Attachments.attach_file_to_row(
-                    SHEET_ID, row_id, (filename, f, 'application/pdf')
+                    SHEET_ID, primary_row_id, (filename, open(pdf_path, 'rb'), 'application/pdf')
                 )
-                print(f"✅ Uploaded new attachment: {filename}")
+                print(f"   ✅ Uploaded new attachment: {filename}")
 
-        updated_metadata.append({
-            "key": group_key,
-            "filename": filename,
-            "hash": group_hash
-        })
+            # Update metadata entry for this group
+            entry_found = False
+            for entry in new_metadata:
+                if entry.get('key') == group_key:
+                    entry['hash'] = group_hash
+                    entry['filename'] = filename
+                    entry_found = True
+                    break
+            if not entry_found:
+                new_metadata.append({
+                    "key": group_key,
+                    "filename": filename,
+                    "hash": group_hash
+                })
+        
+        save_metadata(new_metadata)
+        print("\n\n✅ Processing complete. Metadata updated.")
 
-    save_metadata(updated_metadata)
-    print("📁 Metadata updated.")
+    except smartsheet.exceptions.ApiError as e:
+        print(f"🚨 An error occurred with the Smartsheet API: {e}")
+    except FileNotFoundError:
+        print(f"🚨 Error: The PDF template '{PDF_TEMPLATE_PATH}' was not found.")
+    except Exception as e:
+        print(f"🚨 An unexpected error occurred: {e}")
+    finally:
+        # Clean up the temporary folder
+        if os.path.exists(TEMP_FOLDER):
+            shutil.rmtree(TEMP_FOLDER)
+            print("🗑️ Temporary files cleaned up.")
+
 
 if __name__ == "__main__":
     main()
