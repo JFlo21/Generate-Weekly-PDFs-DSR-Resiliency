@@ -6,7 +6,6 @@ import shutil
 from dateutil import parser
 from PyPDF2 import PdfReader, PdfWriter
 from PyPDF2.generic import NameObject, NumberObject, BooleanObject
-import smartsheet
 
 # --- Configuration ---
 # It's recommended to place configuration at the top for easy access.
@@ -133,16 +132,20 @@ def _merge_pdfs(pdf_paths, output_path):
     """Merges multiple PDF files into a single PDF file and ensures field visibility."""
     pdf_writer = PdfWriter()
     for path in pdf_paths:
-        pdf_writer.append(path)
+        # Re-open each temporary PDF to ensure it's a stable object
+        reader = PdfReader(path)
+        for page in reader.pages:
+            pdf_writer.add_page(page)
 
-    # **FIX:** Set the NeedAppearances flag to ensure field values are visible.
+    # **FIX:** Set the NeedAppearances flag on the final merged object.
     # This is a critical step that tells the PDF viewer to render the appearance
-    # of form fields that have been programmatically filled. Without this,
-    # the data can be "hidden" until a field is clicked.
-    if pdf_writer._root_object and "/AcroForm" in pdf_writer._root_object:
-        pdf_writer._root_object["/AcroForm"].update(
-            {NameObject("/NeedAppearances"): BooleanObject(True)}
-        )
+    # of form fields that have been programmatically filled.
+    if "/AcroForm" in pdf_writer._root_object:
+        acroform = pdf_writer._root_object["/AcroForm"]
+        if "/Fields" in acroform:
+             acroform.update(
+                {NameObject("/NeedAppearances"): BooleanObject(True)}
+            )
 
     with open(output_path, "wb") as out:
         pdf_writer.write(out)
@@ -176,7 +179,8 @@ def fill_pdf(group_key, rows):
     for page_idx, chunk in enumerate(chunks):
         reader = PdfReader(PDF_TEMPLATE_PATH)
         writer = PdfWriter()
-        writer.add_page(reader.pages[0])
+        page = reader.pages[0]
+        writer.add_page(page)
 
         form_data = {}
         page_total = 0.0
@@ -196,28 +200,32 @@ def fill_pdf(group_key, rows):
 
         for i, (_, row_data) in enumerate(chunk):
             idx = i + 1
-            def f(k): return f"{k}Row{idx}"
-
+            
+            # **FIX:** Using the explicit field name from your description.
+            price_field_name = f"PricingRow{idx}"
+            
             price_val = parse_price(row_data.get(COLUMNS['Redlined Total Price']))
             page_total += price_val
             price_formatted = f"${price_val:,.2f}" if price_val != 0 else ""
 
             form_data.update({
-                f("Point Number"): str(row_data.get(COLUMNS['Pole #'], '')),
-                f("Billable Unit Code"): str(row_data.get(COLUMNS['CU'], '')),
-                f("Work Type"): str(row_data.get(COLUMNS['Work Type'], '')),
-                f("Unit Description"): str(row_data.get(COLUMNS['CU Description'], '')),
-                f("Unit of Measure"): str(row_data.get(COLUMNS['Unit of Measure'], '')),
-                f(" of Units Completed"): str(row_data.get(COLUMNS['Quantity'], '') or '').split('.')[0],
-                f("Pricing"): str(price_formatted)
+                f"Point NumberRow{idx}": str(row_data.get(COLUMNS['Pole #'], '')),
+                f"Billable Unit CodeRow{idx}": str(row_data.get(COLUMNS['CU'], '')),
+                f"Work TypeRow{idx}": str(row_data.get(COLUMNS['Work Type'], '')),
+                f"Unit DescriptionRow{idx}": str(row_data.get(COLUMNS['CU Description'], '')),
+                f"Unit of MeasureRow{idx}": str(row_data.get(COLUMNS['Unit of Measure'], '')),
+                f" of Units CompletedRow{idx}": str(row_data.get(COLUMNS['Quantity'], '') or '').split('.')[0],
+                price_field_name: str(price_formatted)
             })
 
         form_data["PricingTOTAL"] = f"${page_total:,.2f}"
 
-        writer.update_page_form_field_values(writer.pages[0], form_data)
-        if "/Annots" in writer.pages[0]:
-            for annot in writer.pages[0]["/Annots"]:
-                annot.get_object().update({NameObject("/Ff"): NumberObject(1)})
+        writer.update_page_form_field_values(page, form_data)
+        
+        if page["/Annots"]:
+            for annot in page["/Annots"]:
+                writer_annot = annot.get_object()
+                writer_annot.update({NameObject("/Ff"): NumberObject(1)})
 
         temp_path = os.path.join(TEMP_FOLDER, f"temp_{group_key}_{page_idx}.pdf")
         with open(temp_path, "wb") as temp_file:
