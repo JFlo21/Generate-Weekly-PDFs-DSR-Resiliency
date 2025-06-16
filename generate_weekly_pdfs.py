@@ -133,9 +133,7 @@ def _merge_pdfs(pdf_paths, output_path):
     """Merges multiple PDF files into a single PDF file."""
     pdf_writer = PdfWriter()
     for path in pdf_paths:
-        pdf_reader = PdfReader(path)
-        for page in pdf_reader.pages:
-            pdf_writer.add_page(page)
+        pdf_writer.append(path)
     with open(output_path, "wb") as out:
         pdf_writer.write(out)
 
@@ -151,16 +149,7 @@ def parse_price(price_str):
 
 def fill_pdf(group_key, rows):
     """
-    Orchestrates the creation of a multi-page PDF without a grand total.
-    
-    This function implements a robust strategy to prevent page data from bleeding
-    over:
-    1. It splits the rows into chunks (one chunk per page).
-    2. It iterates through each chunk, creating a temporary, single-page PDF for it.
-    3. Each temporary PDF is correctly filled with its specific chunk of data and
-       its own page total.
-    4. Finally, all temporary PDFs are merged into the final document.
-    5. Temporary files are deleted.
+    Orchestrates the creation of a multi-page PDF, ensuring all data is string-formatted.
     """
     first_row_tuple = rows[0]
     first_row_data = first_row_tuple[1]
@@ -174,7 +163,6 @@ def fill_pdf(group_key, rows):
     num_pages = len(chunks)
     temp_pdf_paths = []
 
-    # Loop through chunks to create one PDF per page.
     for page_idx, chunk in enumerate(chunks):
         reader = PdfReader(PDF_TEMPLATE_PATH)
         writer = PdfWriter()
@@ -183,59 +171,50 @@ def fill_pdf(group_key, rows):
         form_data = {}
         page_total = 0.0
 
-        # Fill header data for the first page
         if page_idx == 0:
             form_data.update({
-                "Week Ending Date": week_end,
-                "Employee Name": foreman,
+                "Week Ending Date": str(week_end),
+                "Employee Name": str(foreman),
                 "JobPhase Dept No": str(first_row_data.get(COLUMNS['Dept #'], '') or '').split('.')[0],
-                "Customer Name": first_row_data.get(COLUMNS['Customer Name'], ''),
+                "Customer Name": str(first_row_data.get(COLUMNS['Customer Name'], '')),
                 "Work Order": str(first_row_data.get(COLUMNS['Work Order #'], '') or '').split('.')[0],
                 "Work Request": str(wr_num).split('.')[0],
-                "LocationAddress": first_row_data.get(COLUMNS['Area'], '')
+                "LocationAddress": str(first_row_data.get(COLUMNS['Area'], ''))
             })
         
-        # Add Page X of Y to each page (assuming your PDF has a field for it)
-        # IMPORTANT: Verify the field name 'PageNumber' in your PDF template.
         form_data["PageNumber"] = f"Page {page_idx + 1} of {num_pages}"
 
-        # Fill in the data for each row in the current chunk
         for i, (_, row_data) in enumerate(chunk):
             idx = i + 1
             def f(k): return f"{k}Row{idx}"
 
             price_val = parse_price(row_data.get(COLUMNS['Redlined Total Price']))
             page_total += price_val
-            # Only format as currency if the value is not zero
             price_formatted = f"${price_val:,.2f}" if price_val != 0 else ""
 
+            # **FIX:** Ensure all values passed to the form are strings.
             form_data.update({
-                f("Point Number"): row_data.get(COLUMNS['Pole #'], ''),
-                f("Billable Unit Code"): row_data.get(COLUMNS['CU'], ''),
-                f("Work Type"): row_data.get(COLUMNS['Work Type'], ''),
-                f("Unit Description"): row_data.get(COLUMNS['CU Description'], ''),
-                f("Unit of Measure"): row_data.get(COLUMNS['Unit of Measure'], ''),
+                f("Point Number"): str(row_data.get(COLUMNS['Pole #'], '')),
+                f("Billable Unit Code"): str(row_data.get(COLUMNS['CU'], '')),
+                f("Work Type"): str(row_data.get(COLUMNS['Work Type'], '')),
+                f("Unit Description"): str(row_data.get(COLUMNS['CU Description'], '')),
+                f("Unit of Measure"): str(row_data.get(COLUMNS['Unit of Measure'], '')),
                 f(" of Units Completed"): str(row_data.get(COLUMNS['Quantity'], '') or '').split('.')[0],
-                f("Pricing"): price_formatted
+                f("Pricing"): str(price_formatted)
             })
 
-        # Fill Page Total for the current page
-        # IMPORTANT: Verify the field name 'PricingTOTAL' in your PDF template.
         form_data["PricingTOTAL"] = f"${page_total:,.2f}"
 
-        # Update the form fields and make them read-only
         writer.update_page_form_field_values(writer.pages[0], form_data)
         if "/Annots" in writer.pages[0]:
             for annot in writer.pages[0]["/Annots"]:
-                annot.get_object().update({NameObject("/Ff"): 1}) # 1 = read-only
+                annot.get_object().update({NameObject("/Ff"): 1})
 
-        # Save the single-page PDF to a temporary file
         temp_path = os.path.join(TEMP_FOLDER, f"temp_{group_key}_{page_idx}.pdf")
         with open(temp_path, "wb") as temp_file:
             writer.write(temp_file)
         temp_pdf_paths.append(temp_path)
 
-    # Merge all temporary PDFs into the final document
     _merge_pdfs(temp_pdf_paths, final_output_path)
     print(f"📄 Merged {num_pages} pages into '{output_filename}'.")
 
@@ -247,14 +226,11 @@ def main():
         rows = get_sheet_rows()
         groups = group_rows_by_criteria(rows)
         metadata = load_metadata()
-        # Create a copy to modify; we'll save it at the very end.
         new_metadata = [m for m in metadata] 
         
         for group_key, group_rows in groups.items():
             print(f"\nProcessing group: {group_key} ({len(group_rows)} rows)")
             group_hash = generate_row_group_hash(group_rows)
-            
-            # Use the first row ID in the group for attachment purposes
             primary_row_id = group_rows[0][0]
 
             if not has_data_changed(group_key, group_hash, metadata):
@@ -265,24 +241,24 @@ def main():
             pdf_path, filename = fill_pdf(group_key, group_rows)
 
             print(f"   Uploading '{filename}' to row {primary_row_id}...")
-            # Check for an existing attachment with the same name on that row
             attachments = client.Attachments.list_row_attachments(SHEET_ID, primary_row_id).data
             existing_attachment = next((a for a in attachments if a.name == filename), None)
             
-            if existing_attachment:
-                print(f"   Found existing attachment. Uploading as new version...")
-                client.Attachments.attach_new_version(
-                    SHEET_ID, existing_attachment.id, (filename, open(pdf_path, 'rb'), 'application/pdf')
-                )
-                print(f"   ✅ Uploaded new version: {filename}")
-            else:
-                print(f"   No existing attachment found. Uploading as new file...")
-                client.Attachments.attach_file_to_row(
-                    SHEET_ID, primary_row_id, (filename, open(pdf_path, 'rb'), 'application/pdf')
-                )
-                print(f"   ✅ Uploaded new attachment: {filename}")
+            # **FIX:** Use 'with open' for safer file handling during upload.
+            with open(pdf_path, 'rb') as f:
+                if existing_attachment:
+                    print(f"   Found existing attachment. Uploading as new version...")
+                    client.Attachments.attach_new_version(
+                        SHEET_ID, existing_attachment.id, (filename, f, 'application/pdf')
+                    )
+                    print(f"   ✅ Uploaded new version: {filename}")
+                else:
+                    print(f"   No existing attachment found. Uploading as new file...")
+                    client.Attachments.attach_file_to_row(
+                        SHEET_ID, primary_row_id, (filename, f, 'application/pdf')
+                    )
+                    print(f"   ✅ Uploaded new attachment: {filename}")
 
-            # Update metadata entry for this group
             entry_found = False
             for entry in new_metadata:
                 if entry.get('key') == group_key:
@@ -307,7 +283,6 @@ def main():
     except Exception as e:
         print(f"🚨 An unexpected error occurred: {e}")
     finally:
-        # Clean up the temporary folder
         if os.path.exists(TEMP_FOLDER):
             shutil.rmtree(TEMP_FOLDER)
             print("🗑️ Temporary files cleaned up.")
