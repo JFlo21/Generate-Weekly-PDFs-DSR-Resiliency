@@ -12,8 +12,8 @@ import smartsheet
 API_TOKEN = os.getenv("SMARTSHEET_API_TOKEN")
 SHEET_ID = os.getenv("SOURCE_SHEET_ID")
 PDF_TEMPLATE_PATH = "template.pdf"
-OUTPUT_FOLDER = "generated_docs" # A dedicated folder for final PDFs
-TEMP_FOLDER = "temp_processing" # A folder for temporary files during PDF creation
+OUTPUT_FOLDER = "generated_docs"
+TEMP_FOLDER = "temp_processing" # Kept for future use, but not used in new PDF logic
 METADATA_PATH = os.path.join(OUTPUT_FOLDER, "metadata.json")
 
 
@@ -24,7 +24,7 @@ os.makedirs(TEMP_FOLDER, exist_ok=True)
 
 # Smartsheet client
 client = smartsheet.Smartsheet(API_TOKEN)
-client.errors_as_exceptions(True) # Fail fast on API errors
+client.errors_as_exceptions(True)
 
 # --- Column IDs ---
 COLUMNS = {
@@ -123,24 +123,6 @@ def has_data_changed(group_key, new_hash, metadata):
             return entry.get('hash') != new_hash
     return True
 
-def _merge_pdfs(pdf_paths, output_path):
-    """Merges multiple PDF files into a single PDF file and ensures field visibility."""
-    pdf_writer = PdfWriter()
-    for path in pdf_paths:
-        reader = PdfReader(path)
-        for page in reader.pages:
-            pdf_writer.add_page(page)
-
-    if "/AcroForm" in pdf_writer._root_object:
-        acroform = pdf_writer._root_object["/AcroForm"]
-        if "/Fields" in acroform:
-            acroform.update(
-                {NameObject("/NeedAppearances"): BooleanObject(True)}
-            )
-
-    with open(output_path, "wb") as out:
-        pdf_writer.write(out)
-
 def parse_price(price_str):
     """Safely parses a string into a float, removing '$' and ','."""
     if not price_str:
@@ -152,7 +134,11 @@ def parse_price(price_str):
         return 0.0
 
 def fill_pdf(group_key, rows):
-    """Orchestrates the creation of a multi-page PDF."""
+    """
+    **REFACTORED PDF GENERATION LOGIC**
+    This function builds the PDF in a single pass to ensure data visibility.
+    It no longer uses temporary files for each page, which is a more robust method.
+    """
     first_row_tuple = rows[0]
     first_row_data = first_row_tuple[1]
     foreman, wr_num, week_end_raw = group_key.split('_')
@@ -161,25 +147,28 @@ def fill_pdf(group_key, rows):
     output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.pdf"
     final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
     
+    # 1. Initialize a single writer for the final document.
+    final_writer = PdfWriter()
+    
     chunks = list(chunk_rows(rows))
     num_pages = len(chunks)
-    temp_pdf_paths = []
 
+    # 2. Loop through each page of data.
     for page_idx, chunk in enumerate(chunks):
-        reader = PdfReader(PDF_TEMPLATE_PATH)
-        writer = PdfWriter()
-        page = reader.pages[0]
-        writer.add_page(page)
-
+        # Always read from the fresh, original template.
+        template_reader = PdfReader(PDF_TEMPLATE_PATH)
+        template_page = template_reader.pages[0]
+        
         form_data = {}
         page_total = 0.0
 
+        # Fill header data for the first page
         if page_idx == 0:
             form_data.update({
                 "Week Ending Date": str(week_end),
                 "Employee Name": str(foreman),
                 "JobPhase Dept No": str(first_row_data.get(COLUMNS['Dept #'], '') or '').split('.')[0],
-                "Date": datetime.date.today().strftime("%m/%d/%y"), # Fill current date
+                "Date": datetime.date.today().strftime("%m/%d/%y"),
                 "Customer Name": str(first_row_data.get(COLUMNS['Customer Name'], '')),
                 "Work Order": str(first_row_data.get(COLUMNS['Work Order #'], '') or '').split('.')[0],
                 "Work Request": str(wr_num).split('.')[0],
@@ -189,6 +178,7 @@ def fill_pdf(group_key, rows):
         if num_pages > 1:
             form_data["PageNumber"] = f"Page {page_idx + 1} of {num_pages}"
 
+        # Fill row data for the current page
         for i, (_, row_data) in enumerate(chunk):
             idx = i + 1
             def f(k): return f"{k}Row{idx}"
@@ -197,12 +187,10 @@ def fill_pdf(group_key, rows):
             page_total += price_val
             price_formatted = f"${price_val:,.2f}" if price_val else ""
             
-            # **FIX:** Using the exact field names provided by the user.
             form_data.update({
                 f("Point Number"): str(row_data.get(COLUMNS['Pole #'], '')),
                 f("Billable Unit Code"): str(row_data.get(COLUMNS['CU'], '')),
                 f("Work Type"): str(row_data.get(COLUMNS['Work Type'], '')),
-                # Corrected "Description" to "Decription" to match the PDF form field name
                 f("Unit Decription"): str(row_data.get(COLUMNS['CU Description'], '')), 
                 f("Unit of Measure"): str(row_data.get(COLUMNS['Unit of Measure'], '')),
                 f(" of Units Completed"): str(row_data.get(COLUMNS['Quantity'], '') or '').split('.')[0],
@@ -211,21 +199,28 @@ def fill_pdf(group_key, rows):
 
         form_data["PricingTOTAL"] = f"${page_total:,.2f}"
 
-        writer.update_page_form_field_values(writer.pages[0], form_data)
+        # 3. Update the fields on the fresh template page.
+        final_writer.update_page_form_field_values(template_page, form_data)
         
-        if writer.pages[0]["/Annots"]:
-            for annot in writer.pages[0]["/Annots"]:
-                writer_annot = annot.get_object()
-                writer_annot.update({NameObject("/Ff"): NumberObject(1)})
+        # Set fields to read-only on the same page object.
+        if template_page["/Annots"]:
+            for annot in template_page["/Annots"]:
+                annot.get_object().update({NameObject("/Ff"): NumberObject(1)})
 
-        temp_path = os.path.join(TEMP_FOLDER, f"temp_{group_key}_{page_idx}.pdf")
-        with open(temp_path, "wb") as temp_file:
-            writer.write(temp_file)
-        temp_pdf_paths.append(temp_path)
+        # 4. Add the fully processed page to the final writer.
+        final_writer.add_page(template_page)
 
-    _merge_pdfs(temp_pdf_paths, final_output_path)
-    print(f"📄 Merged {num_pages} pages into '{output_filename}'.")
+    # 5. Set the critical NeedAppearances flag on the final document.
+    if "/AcroForm" in final_writer._root_object:
+        final_writer._root_object["/AcroForm"].update(
+            {NameObject("/NeedAppearances"): BooleanObject(True)}
+        )
 
+    # 6. Save the completed PDF.
+    with open(final_output_path, "wb") as f:
+        final_writer.write(f)
+    
+    print(f"📄 Generated {num_pages} pages for '{output_filename}'.")
     return final_output_path, output_filename
 
 def main():
@@ -292,6 +287,7 @@ def main():
         print(f"🚨 An unexpected error occurred: {e}")
     finally:
         if os.path.exists(TEMP_FOLDER):
+            # No longer creating temp files, but good to keep for cleanup.
             shutil.rmtree(TEMP_FOLDER)
             print("🗑️ Temporary files cleaned up.")
 
