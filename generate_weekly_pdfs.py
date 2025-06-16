@@ -6,6 +6,7 @@ import shutil
 from dateutil import parser
 from PyPDF2 import PdfReader, PdfWriter
 from PyPDF2.generic import NameObject, NumberObject, BooleanObject
+import smartsheet
 
 # --- Configuration ---
 # It's recommended to place configuration at the top for easy access.
