@@ -179,6 +179,7 @@ def fill_pdf(group_key, rows):
                 "Week Ending Date": str(week_end),
                 "Employee Name": str(foreman),
                 "JobPhase Dept No": str(first_row_data.get(COLUMNS['Dept #'], '') or '').split('.')[0],
+                "Date": datetime.date.today().strftime("%m/%d/%y"), # Fill current date
                 "Customer Name": str(first_row_data.get(COLUMNS['Customer Name'], '')),
                 "Work Order": str(first_row_data.get(COLUMNS['Work Order #'], '') or '').split('.')[0],
                 "Work Request": str(wr_num).split('.')[0],
@@ -190,22 +191,22 @@ def fill_pdf(group_key, rows):
 
         for i, (_, row_data) in enumerate(chunk):
             idx = i + 1
-            
+            def f(k): return f"{k}Row{idx}"
+
             price_val = parse_price(row_data.get(COLUMNS['Redlined Total Price']))
             page_total += price_val
             price_formatted = f"${price_val:,.2f}" if price_val else ""
-
-            # **FIX:** Standardizing field names to remove spaces. This is a common
-            # requirement for PDF forms. It's crucial that these names match your
-            # PDF template exactly. For example, "Point Number" becomes "PointNumber".
+            
+            # **FIX:** Using the exact field names provided by the user.
             form_data.update({
-                f"PointNumberRow{idx}": str(row_data.get(COLUMNS['Pole #'], '')),
-                f"BillableUnitCodeRow{idx}": str(row_data.get(COLUMNS['CU'], '')),
-                f"WorkTypeRow{idx}": str(row_data.get(COLUMNS['Work Type'], '')),
-                f"UnitDescriptionRow{idx}": str(row_data.get(COLUMNS['CU Description'], '')),
-                f"UnitofMeasureRow{idx}": str(row_data.get(COLUMNS['Unit of Measure'], '')),
-                f"ofUnitsCompletedRow{idx}": str(row_data.get(COLUMNS['Quantity'], '') or '').split('.')[0],
-                f"PricingRow{idx}": str(price_formatted)
+                f("Point Number"): str(row_data.get(COLUMNS['Pole #'], '')),
+                f("Billable Unit Code"): str(row_data.get(COLUMNS['CU'], '')),
+                f("Work Type"): str(row_data.get(COLUMNS['Work Type'], '')),
+                # Corrected "Description" to "Decription" to match the PDF form field name
+                f("Unit Decription"): str(row_data.get(COLUMNS['CU Description'], '')), 
+                f("Unit of Measure"): str(row_data.get(COLUMNS['Unit of Measure'], '')),
+                f(" of Units Completed"): str(row_data.get(COLUMNS['Quantity'], '') or '').split('.')[0],
+                f("Pricing"): str(price_formatted)
             })
 
         form_data["PricingTOTAL"] = f"${page_total:,.2f}"
