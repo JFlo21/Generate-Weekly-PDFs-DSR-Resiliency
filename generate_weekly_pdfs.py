@@ -5,7 +5,7 @@ import datetime
 import shutil
 from dateutil import parser
 from PyPDF2 import PdfReader, PdfWriter
-from PyPDF2.generic import NameObject
+from PyPDF2.generic import NameObject, NumberObject
 import smartsheet
 
 # --- Configuration ---
@@ -192,7 +192,6 @@ def fill_pdf(group_key, rows):
             page_total += price_val
             price_formatted = f"${price_val:,.2f}" if price_val != 0 else ""
 
-            # **FIX:** Ensure all values passed to the form are strings.
             form_data.update({
                 f("Point Number"): str(row_data.get(COLUMNS['Pole #'], '')),
                 f("Billable Unit Code"): str(row_data.get(COLUMNS['CU'], '')),
@@ -208,7 +207,8 @@ def fill_pdf(group_key, rows):
         writer.update_page_form_field_values(writer.pages[0], form_data)
         if "/Annots" in writer.pages[0]:
             for annot in writer.pages[0]["/Annots"]:
-                annot.get_object().update({NameObject("/Ff"): 1})
+                # **FIX:** The read-only flag (/Ff) must be a NumberObject, not a Python int.
+                annot.get_object().update({NameObject("/Ff"): NumberObject(1)})
 
         temp_path = os.path.join(TEMP_FOLDER, f"temp_{group_key}_{page_idx}.pdf")
         with open(temp_path, "wb") as temp_file:
@@ -244,7 +244,6 @@ def main():
             attachments = client.Attachments.list_row_attachments(SHEET_ID, primary_row_id).data
             existing_attachment = next((a for a in attachments if a.name == filename), None)
             
-            # **FIX:** Use 'with open' for safer file handling during upload.
             with open(pdf_path, 'rb') as f:
                 if existing_attachment:
                     print(f"   Found existing attachment. Uploading as new version...")
