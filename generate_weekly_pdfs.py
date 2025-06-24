@@ -7,6 +7,9 @@ from PyPDF2 import PdfReader, PdfWriter
 from PyPDF2.generic import NameObject, NumberObject, BooleanObject
 import smartsheet
 import pandas as pd
+# --- FIX: Import styling tools directly from openpyxl ---
+from openpyxl.styles import Font, numbers
+
 
 # --- Configuration ---
 # IMPORTANT: Set your Smartsheet API token in your environment variables.
@@ -48,8 +51,6 @@ def create_target_sheet_map(client):
     target_sheet = client.Sheets.get_sheet(TARGET_SHEET_ID, include=['attachments'])
     target_map = {}
     for row in target_sheet.rows:
-        # --- FIX: The Smartsheet Row object does not have a `get_cell` method. ---
-        # The correct way is to iterate through the `row.cells` list to find the desired cell.
         wr_num_cell = next((cell for cell in row.cells if cell.column_id == TARGET_WR_COLUMN_ID), None)
         if wr_num_cell and wr_num_cell.value:
             target_map[str(wr_num_cell.value).split('.')[0]] = row
@@ -63,7 +64,6 @@ def group_source_rows(client):
     logging.info(f"✅ Found {len(source_sheet.rows)} total rows in source.")
     groups = {}
     for row in source_sheet.rows:
-        # --- REFACTOR: Create a direct map of column IDs to cell values for cleaner access. ---
         cells_map = {c.column_id: c.value for c in row.cells}
         
         foreman = cells_map.get(SOURCE_COLUMNS['Foreman'])
@@ -77,7 +77,6 @@ def group_source_rows(client):
             week_end_for_key = date_obj.strftime("%m%d%y")
             wr_key = str(wr).split('.')[0]
             key = f"{foreman}_{wr_key}_{week_end_for_key}"
-            # We append the entire row object to access its `modified_at` property later.
             groups.setdefault(key, []).append(row)
         except (parser.ParserError, TypeError):
             logging.warning(f"⚠️ Could not parse date '{log_date_str}' for grouping. Skipping row.")
@@ -198,8 +197,9 @@ def generate_excel(group_key, group_rows):
         worksheet.cell(row=total_row_idx, column=6).value = "Total:"
         worksheet.cell(row=total_row_idx, column=7).value = total_price
         
-        bold_font = pd.io.excel._openpyxl.styles.Font(bold=True)
-        currency_format = pd.io.excel._openpyxl.styles.numbers.FORMAT_CURRENCY_USD_SIMPLE
+        # --- FIX: Create styling objects directly from openpyxl classes. ---
+        bold_font = Font(bold=True)
+        currency_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
 
         for i in range(1, 8, 2):
              worksheet.cell(row=2, column=i).font = bold_font
@@ -270,7 +270,6 @@ def main():
             
             if pdf_action != "NONE":
                 logging.info(f"   Uploading PDF '{pdf_filename}'...")
-                # The 'with' statement ensures the file is properly closed after reading.
                 with open(pdf_path, 'rb') as f:
                     client.Attachments.attach_file_to_row(TARGET_SHEET_ID, target_row.id, (pdf_filename, f, 'application/pdf'))
                 if pdf_action == "UPDATE": pdf_updated += 1
@@ -290,7 +289,6 @@ def main():
 
             if excel_action != "NONE":
                 logging.info(f"   Uploading Excel '{excel_filename}'...")
-                # The 'with' statement ensures the file is properly closed after reading.
                 with open(excel_path, 'rb') as f:
                     client.Attachments.attach_file_to_row(TARGET_SHEET_ID, target_row.id, (excel_filename, f, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'))
                 if excel_action == "UPDATE": excel_updated += 1
