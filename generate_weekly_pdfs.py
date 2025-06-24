@@ -6,8 +6,7 @@ from dateutil import parser
 from PyPDF2 import PdfReader, PdfWriter
 from PyPDF2.generic import NameObject, NumberObject, BooleanObject
 import smartsheet
-import pandas as pd
-# --- FIX: Import styling tools directly from openpyxl ---
+import openpyxl
 from openpyxl.styles import Font, numbers
 
 
@@ -39,6 +38,8 @@ TARGET_WR_COLUMN_ID = 7941607783092100
 
 # --- File Paths ---
 PDF_TEMPLATE_PATH = "template.pdf"
+# --- NEW: Path for the Excel template ---
+EXCEL_TEMPLATE_PATH = "Smartsheet - Fillable PDF.xlsx"
 OUTPUT_FOLDER = "generated_docs"
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
@@ -154,77 +155,62 @@ def generate_pdf(group_key, group_rows):
     logging.info(f"📄 Generated PDF: '{output_filename}'.")
     return final_output_path, output_filename, wr_num
 
+# --- REFACTORED FUNCTION ---
 def generate_excel(group_key, group_rows):
-    """Builds a formatted Excel file from scratch with the data."""
+    """Fills the provided Excel template with data from a group of rows."""
     first_row_cells = {c.column_id: c.value for c in group_rows[0].cells}
     foreman, wr_num, week_end_raw = group_key.split('_')
     week_end_display = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
     output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.xlsx"
     final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
 
-    table_data = []
+    # Load the Excel template workbook
+    workbook = openpyxl.load_workbook(EXCEL_TEMPLATE_PATH)
+    worksheet = workbook.active  # Get the active sheet
+
+    # --- Map and fill header data into specific cells ---
+    # NOTE: These cell locations are based on a standard layout.
+    # Adjust these if your template has a different structure.
+    worksheet['H4'] = week_end_display
+    worksheet['C4'] = foreman
+    worksheet['C6'] = first_row_cells.get(SOURCE_COLUMNS['Dept #'], '')
+    worksheet['H5'] = datetime.date.today().strftime("%m/%d/%y")
+    worksheet['C5'] = first_row_cells.get(SOURCE_COLUMNS['Customer Name'], '')
+    worksheet['C7'] = first_row_cells.get(SOURCE_COLUMNS['Work Order #'], '')
+    worksheet['H6'] = wr_num
+    worksheet['C8'] = first_row_cells.get(SOURCE_COLUMNS['Area'], '')
+
+    # --- Fill line item data into the table ---
+    start_row = 11  # The first row of the data table in the template
     total_price = 0
-    for row in group_rows:
+    
+    for i, row in enumerate(group_rows):
+        current_row = start_row + i
         row_cells = {c.column_id: c.value for c in row.cells}
         price = parse_price(row_cells.get(SOURCE_COLUMNS['Redlined Total Price']))
         total_price += price
-        table_data.append({
-            'Pole #': row_cells.get(SOURCE_COLUMNS['Pole #'], ''),
-            'CU': row_cells.get(SOURCE_COLUMNS['CU'], ''),
-            'Work Type': row_cells.get(SOURCE_COLUMNS['Work Type'], ''),
-            'CU Description': row_cells.get(SOURCE_COLUMNS['CU Description'], ''),
-            'Unit of Measure': row_cells.get(SOURCE_COLUMNS['Unit of Measure'], ''),
-            'Quantity': (str(row_cells.get(SOURCE_COLUMNS['Quantity'], '')).split('.')[0]),
-            'Redlined Total Price': price
-        })
+        
+        # NOTE: Adjust column letters if your template is different (A, B, C...)
+        worksheet[f'A{current_row}'] = row_cells.get(SOURCE_COLUMNS['Pole #'], '')
+        worksheet[f'B{current_row}'] = row_cells.get(SOURCE_COLUMNS['CU'], '')
+        worksheet[f'C{current_row}'] = row_cells.get(SOURCE_COLUMNS['Work Type'], '')
+        worksheet[f'D{current_row}'] = row_cells.get(SOURCE_COLUMNS['CU Description'], '')
+        worksheet[f'E{current_row}'] = row_cells.get(SOURCE_COLUMNS['Unit of Measure'], '')
+        worksheet[f'F{current_row}'] = int(str(row_cells.get(SOURCE_COLUMNS['Quantity'], '')).split('.')[0])
+        
+        price_cell = worksheet[f'H{current_row}']
+        price_cell.value = price
+        price_cell.number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
+
+    # --- Fill the total price at the bottom ---
+    # This assumes the total is in cell H49 in your template. Adjust if necessary.
+    total_cell = worksheet['H49']
+    total_cell.value = total_price
+    total_cell.number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
     
-    df = pd.DataFrame(table_data)
-
-    with pd.ExcelWriter(final_output_path, engine='openpyxl') as writer:
-        header_data = {
-            "Employee Name:": [foreman], "Week Ending Date:": [week_end_display],
-            "Work Request #:": [wr_num], "Work Order #:": [str(first_row_cells.get(SOURCE_COLUMNS['Work Order #'], '')).split('.')[0]],
-            "Customer Name:": [first_row_cells.get(SOURCE_COLUMNS['Customer Name'], '')], "Location/Address:": [first_row_cells.get(SOURCE_COLUMNS['Area'], '')],
-        }
-        header_df = pd.DataFrame(header_data)
-        header_df.to_excel(writer, sheet_name='Work Report', index=False, startrow=0)
-        
-        df.to_excel(writer, sheet_name='Work Report', index=False, startrow=4)
-        
-        workbook = writer.book
-        worksheet = writer.sheets['Work Report']
-        total_row_idx = len(df) + 6
-        worksheet.cell(row=total_row_idx, column=6).value = "Total:"
-        worksheet.cell(row=total_row_idx, column=7).value = total_price
-        
-        # --- FIX: Create styling objects directly from openpyxl classes. ---
-        bold_font = Font(bold=True)
-        currency_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
-
-        for i in range(1, 8, 2):
-             worksheet.cell(row=2, column=i).font = bold_font
-        
-        for col_num, value in enumerate(df.columns.values, 1):
-            worksheet.cell(row=5, column=col_num).font = bold_font
-
-        for row in range(6, total_row_idx):
-            worksheet.cell(row=row, column=7).number_format = currency_format
-        worksheet.cell(row=total_row_idx, column=6).font = bold_font
-        worksheet.cell(row=total_row_idx, column=7).number_format = currency_format
-
-        for column in worksheet.columns:
-            max_length = 0
-            column_letter = column[0].column_letter
-            for cell in column:
-                try:
-                    if len(str(cell.value)) > max_length:
-                        max_length = len(cell.value)
-                except:
-                    pass
-            adjusted_width = (max_length + 2)
-            worksheet.column_dimensions[column_letter].width = adjusted_width
-
-    logging.info(f"📄 Generated Excel: '{output_filename}'.")
+    # Save the filled template as a new file
+    workbook.save(final_output_path)
+    logging.info(f"📄 Generated Excel from template: '{output_filename}'.")
     return final_output_path, output_filename, wr_num
 
 
@@ -247,15 +233,29 @@ def main():
         for group_key, group_rows in source_groups.items():
             logging.info(f"\nProcessing group: {group_key} ({len(group_rows)} rows)")
             
-            pdf_path, pdf_filename, wr_num = generate_pdf(group_key, group_rows)
-            excel_path, excel_filename, _ = generate_excel(group_key, group_rows)
+            # --- NEW: Filter rows to only include those with a price > 0 ---
+            filtered_rows = []
+            for row in group_rows:
+                cells_map = {c.column_id: c.value for c in row.cells}
+                price = parse_price(cells_map.get(SOURCE_COLUMNS['Redlined Total Price']))
+                if price > 0:
+                    filtered_rows.append(row)
+            
+            # --- NEW: Handle cases where a group has no billable items ---
+            if not filtered_rows:
+                logging.info(f"   ⏩ Skipping group '{group_key}' because it has no line items with a price.")
+                continue
+
+            # --- Generate files using the FILTERED list of rows ---
+            pdf_path, pdf_filename, wr_num = generate_pdf(group_key, filtered_rows)
+            excel_path, excel_filename, _ = generate_excel(group_key, filtered_rows)
 
             target_row = target_map.get(wr_num)
             if not target_row:
                 logging.warning(f"⚠️ WR '{wr_num}' not found on target. Skipping upload for group.")
                 continue
             
-            latest_modification = max(row.modified_at for row in group_rows)
+            latest_modification = max(row.modified_at for row in filtered_rows)
 
             # --- PDF UPLOAD LOGIC ---
             existing_pdf = next((a for a in (target_row.attachments or []) if a.name == pdf_filename), None)
@@ -302,7 +302,8 @@ def main():
     except smartsheet.exceptions.ApiError as e:
         logging.error(f"🚨 A Smartsheet API error occurred: {e}")
     except FileNotFoundError as e:
-        logging.error(f"🚨 FATAL File Not Found: {e}. Check that '{PDF_TEMPLATE_PATH}' exists.")
+        # Provide a more helpful error message
+        logging.error(f"🚨 FATAL File Not Found: {e}. Check that '{PDF_TEMPLATE_PATH}' and '{EXCEL_TEMPLATE_PATH}' exist in your repository.")
     except Exception as e:
         logging.error(f"🚨 An unexpected error occurred: {e}", exc_info=True)
 
