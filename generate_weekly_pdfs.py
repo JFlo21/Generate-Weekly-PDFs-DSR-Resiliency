@@ -168,17 +168,17 @@ def generate_excel(group_key, group_rows):
     workbook = openpyxl.load_workbook(EXCEL_TEMPLATE_PATH)
     worksheet = workbook.active  # Get the active sheet
 
-    # --- Map and fill header data into specific cells ---
+    # --- FIX: Write to cells using .cell(row, column) to avoid MergedCell read-only errors ---
     # NOTE: These cell locations are based on a standard layout.
-    # Adjust these if your template has a different structure.
-    worksheet['H4'] = week_end_display
-    worksheet['C4'] = foreman
-    worksheet['C6'] = first_row_cells.get(SOURCE_COLUMNS['Dept #'], '')
-    worksheet['H5'] = datetime.date.today().strftime("%m/%d/%y")
-    worksheet['C5'] = first_row_cells.get(SOURCE_COLUMNS['Customer Name'], '')
-    worksheet['C7'] = first_row_cells.get(SOURCE_COLUMNS['Work Order #'], '')
-    worksheet['H6'] = wr_num
-    worksheet['C8'] = first_row_cells.get(SOURCE_COLUMNS['Area'], '')
+    # Adjust these if your template has a different structure. (Column C=3, H=8)
+    worksheet.cell(row=4, column=8).value = week_end_display
+    worksheet.cell(row=4, column=3).value = foreman
+    worksheet.cell(row=6, column=3).value = first_row_cells.get(SOURCE_COLUMNS['Dept #'], '')
+    worksheet.cell(row=5, column=8).value = datetime.date.today().strftime("%m/%d/%y")
+    worksheet.cell(row=5, column=3).value = first_row_cells.get(SOURCE_COLUMNS['Customer Name'], '')
+    worksheet.cell(row=7, column=3).value = first_row_cells.get(SOURCE_COLUMNS['Work Order #'], '')
+    worksheet.cell(row=6, column=8).value = wr_num
+    worksheet.cell(row=8, column=3).value = first_row_cells.get(SOURCE_COLUMNS['Area'], '')
 
     # --- Fill line item data into the table ---
     start_row = 11  # The first row of the data table in the template
@@ -190,21 +190,21 @@ def generate_excel(group_key, group_rows):
         price = parse_price(row_cells.get(SOURCE_COLUMNS['Redlined Total Price']))
         total_price += price
         
-        # NOTE: Adjust column letters if your template is different (A, B, C...)
-        worksheet[f'A{current_row}'] = row_cells.get(SOURCE_COLUMNS['Pole #'], '')
-        worksheet[f'B{current_row}'] = row_cells.get(SOURCE_COLUMNS['CU'], '')
-        worksheet[f'C{current_row}'] = row_cells.get(SOURCE_COLUMNS['Work Type'], '')
-        worksheet[f'D{current_row}'] = row_cells.get(SOURCE_COLUMNS['CU Description'], '')
-        worksheet[f'E{current_row}'] = row_cells.get(SOURCE_COLUMNS['Unit of Measure'], '')
-        worksheet[f'F{current_row}'] = int(str(row_cells.get(SOURCE_COLUMNS['Quantity'], '')).split('.')[0])
+        # NOTE: Adjust column numbers if your template is different (1=A, 2=B, 3=C...)
+        worksheet.cell(row=current_row, column=1).value = row_cells.get(SOURCE_COLUMNS['Pole #'], '')
+        worksheet.cell(row=current_row, column=2).value = row_cells.get(SOURCE_COLUMNS['CU'], '')
+        worksheet.cell(row=current_row, column=3).value = row_cells.get(SOURCE_COLUMNS['Work Type'], '')
+        worksheet.cell(row=current_row, column=4).value = row_cells.get(SOURCE_COLUMNS['CU Description'], '')
+        worksheet.cell(row=current_row, column=5).value = row_cells.get(SOURCE_COLUMNS['Unit of Measure'], '')
+        worksheet.cell(row=current_row, column=6).value = int(str(row_cells.get(SOURCE_COLUMNS['Quantity'], '') or 0).split('.')[0])
         
-        price_cell = worksheet[f'H{current_row}']
+        price_cell = worksheet.cell(row=current_row, column=8)
         price_cell.value = price
         price_cell.number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
 
     # --- Fill the total price at the bottom ---
     # This assumes the total is in cell H49 in your template. Adjust if necessary.
-    total_cell = worksheet['H49']
+    total_cell = worksheet.cell(row=49, column=8)
     total_cell.value = total_price
     total_cell.number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
     
