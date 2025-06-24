@@ -7,7 +7,8 @@ from PyPDF2 import PdfReader, PdfWriter
 from PyPDF2.generic import NameObject, NumberObject, BooleanObject
 import smartsheet
 import openpyxl
-from openpyxl.styles import Font, numbers, Alignment, Border, Side
+from openpyxl.styles import Font, numbers, Alignment, Border, Side, PatternFill
+from openpyxl.drawing.image import Image
 from openpyxl.utils.cell import get_column_letter
 
 # --- Configuration ---
@@ -38,7 +39,7 @@ TARGET_WR_COLUMN_ID = 7941607783092100
 
 # --- File Paths ---
 PDF_TEMPLATE_PATH = "template.pdf"
-# EXCEL_TEMPLATE_PATH is no longer needed as we build the file from scratch.
+LOGO_PATH = "LinetecServices_Logo.png" # Path to your logo file
 OUTPUT_FOLDER = "generated_docs"
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
@@ -154,7 +155,7 @@ def generate_pdf(group_key, group_rows):
     return final_output_path, output_filename, wr_num
 
 def generate_excel(group_key, group_rows):
-    """Builds an Excel file from scratch that mimics the template's format."""
+    """Builds a professionally formatted Excel file from scratch."""
     first_row_cells = {c.column_id: c.value for c in group_rows[0].cells}
     foreman, wr_num, week_end_raw = group_key.split('_')
     week_end_display = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
@@ -165,53 +166,69 @@ def generate_excel(group_key, group_rows):
     workbook = openpyxl.Workbook()
     ws = workbook.active
     ws.title = "Work Report"
-    bold_font = Font(bold=True, name='Calibri', size=11)
-    center_align = Alignment(horizontal='center', vertical='center')
-    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
 
-    # --- Page Headers ---
-    ws.merge_cells('A1:H1')
-    ws['A1'].value = "LINETEC SERVICES"
-    ws['A1'].font = bold_font
-    ws['A1'].alignment = center_align
+    # --- Define Color Scheme from Logo ---
+    LINETEC_RED = 'C00000'
+    LINETEC_GREY = '808080'
+    LIGHT_GREY_FILL = PatternFill(start_color='F2F2F2', end_color='F2F2F2', fill_type='solid')
+    RED_FILL = PatternFill(start_color=LINETEC_RED, end_color=LINETEC_RED, fill_type='solid')
 
-    ws.merge_cells('A2:H2')
-    ws['A2'].value = "WEEKLY UNITS AND PAY COMPLETED"
-    ws['A2'].font = bold_font
-    ws['A2'].alignment = center_align
+    # --- Define Fonts ---
+    HEADER_FONT = Font(name='Calibri', size=16, bold=True, color=LINETEC_GREY)
+    TABLE_HEADER_FONT = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
+    BODY_FONT = Font(name='Calibri', size=11)
+    
+    # --- Define Borders ---
+    THIN_BORDER = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+
+    # --- Insert Logo and Main Header ---
+    try:
+        img = Image(LOGO_PATH)
+        img.height = 60 
+        img.width = 180
+        ws.add_image(img, 'A1')
+    except FileNotFoundError:
+        logging.warning(f"⚠️ Logo file not found at '{LOGO_PATH}'. Skipping logo insertion.")
+        ws.merge_cells('A1:C2')
+        ws['A1'] = "LINETEC SERVICES"
+        
+    ws.merge_cells('D1:I2')
+    ws['D1'].value = 'WEEKLY UNITS AND PAY COMPLETED'
+    ws['D1'].font = HEADER_FONT
+    ws['D1'].alignment = Alignment(horizontal='center', vertical='center')
+    ws.row_dimensions[1].height = 45
 
     # --- Header Data Block ---
-    header_map = {
-        'C4': "Employee Name:", 'D4': foreman,
-        'H4': "Week Ending Date:", 'I4': week_end_display,
-        'C5': "Customer Name:", 'D5': first_row_cells.get(SOURCE_COLUMNS['Customer Name'], ''),
-        'H5': "Date:", 'I5': datetime.date.today().strftime("%m/%d/%y"),
-        'C6': "Job/Phase (Dept No.):", 'D6': first_row_cells.get(SOURCE_COLUMNS['Dept #'], ''),
-        'H6': "Work Request #:", 'I6': wr_num,
-        'C7': "Work Order #:", 'D7': first_row_cells.get(SOURCE_COLUMNS['Work Order #'], ''),
-        'C8': "Location/Address:", 'D8': first_row_cells.get(SOURCE_COLUMNS['Area'], '')
-    }
-    
-    for cell, text in header_map.items():
-        ws[cell].value = text
-        if cell.startswith('C') or cell.startswith('H'):
-            ws[cell].font = bold_font
+    ws.append([]) # Spacer row
+    ws.append([]) # Spacer row
+    ws.append([]) # Spacer row
 
+    header_data = [
+        ["", "Employee Name:", foreman, "", "", "", "Week Ending Date:", week_end_display],
+        ["", "Customer Name:", first_row_cells.get(SOURCE_COLUMNS['Customer Name'], ''), "", "", "", "Date:", datetime.date.today().strftime("%m/%d/%y")],
+        ["", "Job/Phase (Dept No.):", first_row_cells.get(SOURCE_COLUMNS['Dept #'], ''), "", "", "", "Work Request #:", wr_num],
+        ["", "Work Order #:", first_row_cells.get(SOURCE_COLUMNS['Work Order #'], ''), "", "", "", "", ""],
+        ["", "Location/Address:", first_row_cells.get(SOURCE_COLUMNS['Area'], ''), "", "", "", "", ""],
+    ]
+
+    for row_data in header_data:
+        ws.append(row_data)
+    
     # --- Table Headers ---
+    ws.append([]) # Spacer
     table_headers = ["Point Number", "Billable Unit Code", "Work Type", "Unit Description", "Unit of Measure", "# of Units Completed", "N/A", "Pricing"]
-    # --- FIX: Pass an empty list to append a blank row ---
-    ws.append([]) # Add a blank row for spacing
     ws.append(table_headers)
-    header_row = ws.max_row
-    for col_num, header in enumerate(table_headers, 1):
-        cell = ws.cell(row=header_row, column=col_num)
-        cell.font = bold_font
-        cell.border = thin_border
-        cell.alignment = center_align
+    header_row_idx = ws.max_row
+    for col_num, header_title in enumerate(table_headers, 1):
+        cell = ws.cell(row=header_row_idx, column=col_num)
+        cell.font = TABLE_HEADER_FONT
+        cell.fill = RED_FILL
+        cell.alignment = Alignment(horizontal='center')
+        cell.border = THIN_BORDER
 
     # --- Table Data ---
     total_price = 0
-    for row_data in group_rows:
+    for i, row_data in enumerate(group_rows):
         cells = {c.column_id: c.value for c in row_data.cells}
         price = parse_price(cells.get(SOURCE_COLUMNS['Redlined Total Price']))
         total_price += price
@@ -229,27 +246,31 @@ def generate_excel(group_key, group_rows):
         ws.append(row_values)
         data_row_idx = ws.max_row
         for col_num in range(1, len(row_values) + 1):
-             ws.cell(row=data_row_idx, column=col_num).border = thin_border
+            cell = ws.cell(row=data_row_idx, column=col_num)
+            cell.font = BODY_FONT
+            cell.border = THIN_BORDER
+            # Apply row banding
+            if i % 2 == 1:
+                cell.fill = LIGHT_GREY_FILL
         ws.cell(row=data_row_idx, column=8).number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
 
     # --- Total Row ---
-    # --- FIX: Pass an empty list to append a blank row ---
-    ws.append([]) # Blank row for spacing
+    ws.append([]) # Spacer
     total_row_idx = ws.max_row
     ws.cell(row=total_row_idx, column=7).value = "TOTAL:"
-    ws.cell(row=total_row_idx, column=7).font = bold_font
+    ws.cell(row=total_row_idx, column=7).font = Font(name='Calibri', size=11, bold=True)
     total_price_cell = ws.cell(row=total_row_idx, column=8)
     total_price_cell.value = total_price
-    total_price_cell.font = bold_font
+    total_price_cell.font = Font(name='Calibri', size=11, bold=True)
     total_price_cell.number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
 
     # --- Set Column Widths ---
-    column_widths = {'A': 15, 'B': 20, 'C': 15, 'D': 40, 'E': 15, 'F': 20, 'G': 5, 'H': 15}
+    column_widths = {'A': 15, 'B': 20, 'C': 15, 'D': 40, 'E': 15, 'F': 20, 'G': 5, 'H': 15, 'I':15}
     for col, width in column_widths.items():
         ws.column_dimensions[col].width = width
 
     workbook.save(final_output_path)
-    logging.info(f"📄 Generated Excel from scratch: '{output_filename}'.")
+    logging.info(f"📄 Generated Branded Excel from scratch: '{output_filename}'.")
     return final_output_path, output_filename, wr_num
 
 
@@ -339,7 +360,7 @@ def main():
         logging.error(f"🚨 A Smartsheet API error occurred: {e}")
     except FileNotFoundError as e:
         # Provide a more helpful error message
-        logging.error(f"🚨 FATAL File Not Found: {e}. Check that '{PDF_TEMPLATE_PATH}' exists in your repository.")
+        logging.error(f"🚨 FATAL File Not Found: {e}. Check that '{PDF_TEMPLATE_PATH}' and '{LOGO_PATH}' exist in your repository.")
     except Exception as e:
         # --- FIX: Corrected typo from `_True` to `True` ---
         logging.error(f"🚨 An unexpected error occurred: {e}", exc_info=True)
