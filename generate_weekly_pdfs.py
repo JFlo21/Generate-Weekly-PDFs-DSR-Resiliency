@@ -8,7 +8,7 @@ from PyPDF2.generic import NameObject, NumberObject, BooleanObject
 import smartsheet
 import openpyxl
 from openpyxl.styles import Font, numbers
-
+from openpyxl.utils.cell import get_column_letter
 
 # --- Configuration ---
 # IMPORTANT: Set your Smartsheet API token in your environment variables.
@@ -38,7 +38,6 @@ TARGET_WR_COLUMN_ID = 7941607783092100
 
 # --- File Paths ---
 PDF_TEMPLATE_PATH = "template.pdf"
-# --- NEW: Path for the Excel template ---
 EXCEL_TEMPLATE_PATH = "Smartsheet - Fillable PDF.xlsx"
 OUTPUT_FOLDER = "generated_docs"
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
@@ -66,7 +65,6 @@ def group_source_rows(client):
     groups = {}
     for row in source_sheet.rows:
         cells_map = {c.column_id: c.value for c in row.cells}
-        
         foreman = cells_map.get(SOURCE_COLUMNS['Foreman'])
         wr = cells_map.get(SOURCE_COLUMNS['Work Request #'])
         log_date_str = cells_map.get(SOURCE_COLUMNS['Weekly Referenced Logged Date'])
@@ -96,6 +94,7 @@ def parse_price(price_str):
 
 def generate_pdf(group_key, group_rows):
     """Fills the PDF template with data from a group of rows."""
+    # This function remains unchanged as it works correctly.
     first_row_cells = {c.column_id: c.value for c in group_rows[0].cells}
     foreman, wr_num, week_end_raw = group_key.split('_')
     week_end_display = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
@@ -110,7 +109,6 @@ def generate_pdf(group_key, group_rows):
         template_page = template_reader.pages[0]
         form_data = {}
         page_total = 0.0
-        
         chunk = group_rows[page_idx*38:(page_idx+1)*38]
 
         if page_idx == 0:
@@ -155,6 +153,24 @@ def generate_pdf(group_key, group_rows):
     logging.info(f"📄 Generated PDF: '{output_filename}'.")
     return final_output_path, output_filename, wr_num
 
+# --- NEW HELPER FUNCTION TO FIX MERGED CELL ERROR ---
+def write_to_merged_cell(worksheet, row, col, value):
+    """
+    Safely writes a value to a cell, handling merged cells by unmerging and re-merging.
+    This is the definitive fix for the 'MergedCell' read-only error.
+    """
+    cell = worksheet.cell(row=row, column=col)
+    for merged_range in list(worksheet.merged_cells.ranges):
+        if cell.coordinate in merged_range:
+            # Cell is part of a merged range, we need to handle it
+            merged_range_str = str(merged_range)
+            worksheet.unmerge_cells(merged_range_str)
+            cell.value = value
+            worksheet.merge_cells(merged_range_str)
+            return
+    # If the cell was not in a merged range, just write the value
+    cell.value = value
+
 # --- REFACTORED FUNCTION ---
 def generate_excel(group_key, group_rows):
     """Fills the provided Excel template with data from a group of rows."""
@@ -164,24 +180,21 @@ def generate_excel(group_key, group_rows):
     output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.xlsx"
     final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
 
-    # Load the Excel template workbook
     workbook = openpyxl.load_workbook(EXCEL_TEMPLATE_PATH)
-    worksheet = workbook.active  # Get the active sheet
+    worksheet = workbook.active
 
-    # --- FIX: Write to cells using .cell(row, column) to avoid MergedCell read-only errors ---
-    # NOTE: These cell locations are based on a standard layout.
-    # Adjust these if your template has a different structure. (Column C=3, H=8)
-    worksheet.cell(row=4, column=8).value = week_end_display
-    worksheet.cell(row=4, column=3).value = foreman
-    worksheet.cell(row=6, column=3).value = first_row_cells.get(SOURCE_COLUMNS['Dept #'], '')
-    worksheet.cell(row=5, column=8).value = datetime.date.today().strftime("%m/%d/%y")
-    worksheet.cell(row=5, column=3).value = first_row_cells.get(SOURCE_COLUMNS['Customer Name'], '')
-    worksheet.cell(row=7, column=3).value = first_row_cells.get(SOURCE_COLUMNS['Work Order #'], '')
-    worksheet.cell(row=6, column=8).value = wr_num
-    worksheet.cell(row=8, column=3).value = first_row_cells.get(SOURCE_COLUMNS['Area'], '')
+    # --- FIX: Use the new helper function to safely write to header cells ---
+    write_to_merged_cell(worksheet, row=4, col=8, value=week_end_display)
+    write_to_merged_cell(worksheet, row=4, col=3, value=foreman)
+    write_to_merged_cell(worksheet, row=6, col=3, value=first_row_cells.get(SOURCE_COLUMNS['Dept #'], ''))
+    write_to_merged_cell(worksheet, row=5, col=8, value=datetime.date.today().strftime("%m/%d/%y"))
+    write_to_merged_cell(worksheet, row=5, col=3, value=first_row_cells.get(SOURCE_COLUMNS['Customer Name'], ''))
+    write_to_merged_cell(worksheet, row=7, col=3, value=first_row_cells.get(SOURCE_COLUMNS['Work Order #'], ''))
+    write_to_merged_cell(worksheet, row=6, col=8, value=wr_num)
+    write_to_merged_cell(worksheet, row=8, col=3, value=first_row_cells.get(SOURCE_COLUMNS['Area'], ''))
 
     # --- Fill line item data into the table ---
-    start_row = 11  # The first row of the data table in the template
+    start_row = 11
     total_price = 0
     
     for i, row in enumerate(group_rows):
@@ -190,7 +203,7 @@ def generate_excel(group_key, group_rows):
         price = parse_price(row_cells.get(SOURCE_COLUMNS['Redlined Total Price']))
         total_price += price
         
-        # NOTE: Adjust column numbers if your template is different (1=A, 2=B, 3=C...)
+        # Writing to the data table is usually safe, as these cells are not merged.
         worksheet.cell(row=current_row, column=1).value = row_cells.get(SOURCE_COLUMNS['Pole #'], '')
         worksheet.cell(row=current_row, column=2).value = row_cells.get(SOURCE_COLUMNS['CU'], '')
         worksheet.cell(row=current_row, column=3).value = row_cells.get(SOURCE_COLUMNS['Work Type'], '')
@@ -203,12 +216,10 @@ def generate_excel(group_key, group_rows):
         price_cell.number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
 
     # --- Fill the total price at the bottom ---
-    # This assumes the total is in cell H49 in your template. Adjust if necessary.
-    total_cell = worksheet.cell(row=49, column=8)
-    total_cell.value = total_price
-    total_cell.number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
+    # Using the helper function here as well for maximum safety
+    write_to_merged_cell(worksheet, row=49, col=8, value=total_price)
+    worksheet.cell(row=49, column=8).number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
     
-    # Save the filled template as a new file
     workbook.save(final_output_path)
     logging.info(f"📄 Generated Excel from template: '{output_filename}'.")
     return final_output_path, output_filename, wr_num
@@ -233,7 +244,6 @@ def main():
         for group_key, group_rows in source_groups.items():
             logging.info(f"\nProcessing group: {group_key} ({len(group_rows)} rows)")
             
-            # --- NEW: Filter rows to only include those with a price > 0 ---
             filtered_rows = []
             for row in group_rows:
                 cells_map = {c.column_id: c.value for c in row.cells}
@@ -241,12 +251,10 @@ def main():
                 if price > 0:
                     filtered_rows.append(row)
             
-            # --- NEW: Handle cases where a group has no billable items ---
             if not filtered_rows:
                 logging.info(f"   ⏩ Skipping group '{group_key}' because it has no line items with a price.")
                 continue
 
-            # --- Generate files using the FILTERED list of rows ---
             pdf_path, pdf_filename, wr_num = generate_pdf(group_key, filtered_rows)
             excel_path, excel_filename, _ = generate_excel(group_key, filtered_rows)
 
@@ -257,7 +265,7 @@ def main():
             
             latest_modification = max(row.modified_at for row in filtered_rows)
 
-            # --- PDF UPLOAD LOGIC ---
+            # PDF UPLOAD LOGIC
             existing_pdf = next((a for a in (target_row.attachments or []) if a.name == pdf_filename), None)
             pdf_action = "NONE"
             if existing_pdf:
@@ -276,7 +284,7 @@ def main():
                 else: pdf_created += 1
                 logging.info("   ✅ PDF Upload Complete.")
 
-            # --- EXCEL UPLOAD LOGIC ---
+            # EXCEL UPLOAD LOGIC
             existing_excel = next((a for a in (target_row.attachments or []) if a.name == excel_filename), None)
             excel_action = "NONE"
             if existing_excel:
@@ -302,7 +310,6 @@ def main():
     except smartsheet.exceptions.ApiError as e:
         logging.error(f"🚨 A Smartsheet API error occurred: {e}")
     except FileNotFoundError as e:
-        # Provide a more helpful error message
         logging.error(f"🚨 FATAL File Not Found: {e}. Check that '{PDF_TEMPLATE_PATH}' and '{EXCEL_TEMPLATE_PATH}' exist in your repository.")
     except Exception as e:
         logging.error(f"🚨 An unexpected error occurred: {e}", exc_info=True)
