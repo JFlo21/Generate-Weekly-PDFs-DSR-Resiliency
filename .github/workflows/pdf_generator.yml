@@ -1,83 +1,53 @@
-name: Generate Weekly PDFs and Deploy to GitHub Pages
+# A clear, updated name for the workflow
+name: Smartsheet PDF and Excel Generation
 
 on:
-  push:
-    branches: [master]  # ✅ targeting master
   schedule:
-    - cron: '0 */2 * * *'  # Every 2 hours
+    # Runs every 2 hours. You can adjust the cron schedule as needed.
+    # Example: '0 8 * * *' runs it once a day at 8:00 AM UTC.
+    - cron: '0 */2 * * *'
+  # Allows you to run the workflow manually from the GitHub Actions tab.
   workflow_dispatch:
 
-permissions:
-  contents: write
-  pages: write
-  id-token: write
-
-concurrency:
-  group: "pages"
-  cancel-in-progress: false
+# No special permissions are needed as we are no longer committing to the repo or deploying to pages.
 
 jobs:
-  build:
+  # The job is now clearly named for its single purpose.
+  run-smartsheet-script:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup GitHub Pages
-        uses: actions/configure-pages@v5
-
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
+          # Using a stable, modern version of Python.
           python-version: '3.11'
 
+      # --- CRITICAL CHANGE ---
+      # This step now uses a requirements.txt file, which is the best practice.
+      # It ensures all dependencies, including the new ones (pandas, openpyxl), are installed.
       - name: Install dependencies
-        run: pip install python-dateutil PyPDF2 smartsheet-python-sdk
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-      - name: Verify required secrets
+      # The secret verification step is good practice and remains unchanged.
+      - name: Verify required secrets are present
         run: |
           if [ -z "${{ secrets.SMARTSHEET_API_TOKEN }}" ] || [ -z "${{ secrets.SOURCE_SHEET_ID }}" ]; then
-            echo "Required secrets SMARTSHEET_API_TOKEN or SOURCE_SHEET_ID are missing."
+            echo "🚨 Required secrets SMARTSHEET_API_TOKEN or SOURCE_SHEET_ID are missing."
             exit 1
           fi
 
-      - name: Configure Git and pull latest changes
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git pull origin master --rebase
-
-      - name: Generate Weekly PDFs
+      # --- CORE LOGIC ---
+      # This is the main step that executes your Python script.
+      - name: Run Smartsheet Generation Script
         env:
+          # Securely provides the API token and Sheet ID to the Python script.
           SMARTSHEET_API_TOKEN: ${{ secrets.SMARTSHEET_API_TOKEN }}
           SOURCE_SHEET_ID: ${{ secrets.SOURCE_SHEET_ID }}
-        run: python generate_weekly_pdfs.py
-
-      - name: Recreate .nojekyll
-        run: echo "" > docs/.nojekyll
-
-      - name: Commit and push generated files
-        run: |
-          git add docs/assets/*.pdf docs/assets/metadata.json docs/.nojekyll
-          git diff --cached --quiet || git commit -m "📄 Auto-update PDFs and metadata"
-          git push origin HEAD:master
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload artifact for GitHub Pages
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+        # IMPORTANT: Make sure 'your_script_name.py' matches the actual filename in your repository.
+        run: python your_script_name.py

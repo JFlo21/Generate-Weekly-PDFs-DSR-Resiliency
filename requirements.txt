@@ -1,3 +1,5 @@
 smartsheet-python-sdk
-PyPDF2
 python-dateutil
+pandas
+openpyxl
+pypdf2
