@@ -153,7 +153,6 @@ def generate_pdf(group_key, group_rows):
     logging.info(f"📄 Generated PDF: '{output_filename}'.")
     return final_output_path, output_filename, wr_num
 
-# --- COMPLETELY REWRITTEN FUNCTION ---
 def generate_excel(group_key, group_rows):
     """Builds an Excel file from scratch that mimics the template's format."""
     first_row_cells = {c.column_id: c.value for c in group_rows[0].cells}
@@ -200,7 +199,8 @@ def generate_excel(group_key, group_rows):
 
     # --- Table Headers ---
     table_headers = ["Point Number", "Billable Unit Code", "Work Type", "Unit Description", "Unit of Measure", "# of Units Completed", "N/A", "Pricing"]
-    ws.append(None) # Add a blank row for spacing
+    # --- FIX: Pass an empty list to append a blank row ---
+    ws.append([]) # Add a blank row for spacing
     ws.append(table_headers)
     header_row = ws.max_row
     for col_num, header in enumerate(table_headers, 1):
@@ -233,7 +233,8 @@ def generate_excel(group_key, group_rows):
         ws.cell(row=data_row_idx, column=8).number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
 
     # --- Total Row ---
-    ws.append(None) # Blank row for spacing
+    # --- FIX: Pass an empty list to append a blank row ---
+    ws.append([]) # Blank row for spacing
     total_row_idx = ws.max_row
     ws.cell(row=total_row_idx, column=7).value = "TOTAL:"
     ws.cell(row=total_row_idx, column=7).font = bold_font
