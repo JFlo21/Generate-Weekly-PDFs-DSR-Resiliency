@@ -42,17 +42,15 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def get_column_value(cells_map, column_id):
-    """Safely retrieves a cell's value from a dictionary of cells."""
-    return cells_map.get(column_id, "")
-
 def create_target_sheet_map(client):
     """Fetches target sheet and creates an efficient map of WR# to row objects."""
     logging.info(f"Fetching target sheet ({TARGET_SHEET_ID}) to create a lookup map...")
     target_sheet = client.Sheets.get_sheet(TARGET_SHEET_ID, include=['attachments'])
     target_map = {}
     for row in target_sheet.rows:
-        wr_num_cell = row.get_cell(TARGET_WR_COLUMN_ID)
+        # --- FIX: The Smartsheet Row object does not have a `get_cell` method. ---
+        # The correct way is to iterate through the `row.cells` list to find the desired cell.
+        wr_num_cell = next((cell for cell in row.cells if cell.column_id == TARGET_WR_COLUMN_ID), None)
         if wr_num_cell and wr_num_cell.value:
             target_map[str(wr_num_cell.value).split('.')[0]] = row
     logging.info(f"✅ Created a map of {len(target_map)} work requests from the target sheet.")
@@ -65,10 +63,12 @@ def group_source_rows(client):
     logging.info(f"✅ Found {len(source_sheet.rows)} total rows in source.")
     groups = {}
     for row in source_sheet.rows:
-        cells = {c.column_id: c for c in row.cells}
-        foreman = get_column_value(cells, SOURCE_COLUMNS['Foreman']).value
-        wr = get_column_value(cells, SOURCE_COLUMNS['Work Request #']).value
-        log_date_str = get_column_value(cells, SOURCE_COLUMNS['Weekly Referenced Logged Date']).value
+        # --- REFACTOR: Create a direct map of column IDs to cell values for cleaner access. ---
+        cells_map = {c.column_id: c.value for c in row.cells}
+        
+        foreman = cells_map.get(SOURCE_COLUMNS['Foreman'])
+        wr = cells_map.get(SOURCE_COLUMNS['Work Request #'])
+        log_date_str = cells_map.get(SOURCE_COLUMNS['Weekly Referenced Logged Date'])
 
         if not all([foreman, wr, log_date_str]): continue
 
@@ -77,6 +77,7 @@ def group_source_rows(client):
             week_end_for_key = date_obj.strftime("%m%d%y")
             wr_key = str(wr).split('.')[0]
             key = f"{foreman}_{wr_key}_{week_end_for_key}"
+            # We append the entire row object to access its `modified_at` property later.
             groups.setdefault(key, []).append(row)
         except (parser.ParserError, TypeError):
             logging.warning(f"⚠️ Could not parse date '{log_date_str}' for grouping. Skipping row.")
@@ -102,7 +103,6 @@ def generate_pdf(group_key, group_rows):
     final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
     
     final_writer = PdfWriter()
-    chunks = list(row for i in range(0, len(group_rows), 38) for row in group_rows[i:i+38])
     num_pages = (len(group_rows) + 37) // 38
 
     for page_idx in range(num_pages):
@@ -155,7 +155,6 @@ def generate_pdf(group_key, group_rows):
     logging.info(f"📄 Generated PDF: '{output_filename}'.")
     return final_output_path, output_filename, wr_num
 
-# --- NEW FUNCTION ---
 def generate_excel(group_key, group_rows):
     """Builds a formatted Excel file from scratch with the data."""
     first_row_cells = {c.column_id: c.value for c in group_rows[0].cells}
@@ -164,7 +163,6 @@ def generate_excel(group_key, group_rows):
     output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.xlsx"
     final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
 
-    # Prepare data for the main table
     table_data = []
     total_price = 0
     for row in group_rows:
@@ -183,9 +181,7 @@ def generate_excel(group_key, group_rows):
     
     df = pd.DataFrame(table_data)
 
-    # --- Create and Format the Excel file ---
     with pd.ExcelWriter(final_output_path, engine='openpyxl') as writer:
-        # Create Header Data
         header_data = {
             "Employee Name:": [foreman], "Week Ending Date:": [week_end_display],
             "Work Request #:": [wr_num], "Work Order #:": [str(first_row_cells.get(SOURCE_COLUMNS['Work Order #'], '')).split('.')[0]],
@@ -194,36 +190,28 @@ def generate_excel(group_key, group_rows):
         header_df = pd.DataFrame(header_data)
         header_df.to_excel(writer, sheet_name='Work Report', index=False, startrow=0)
         
-        # Write the main data table
         df.to_excel(writer, sheet_name='Work Report', index=False, startrow=4)
         
-        # Add the total at the bottom
         workbook = writer.book
         worksheet = writer.sheets['Work Report']
-        total_row_idx = len(df) + 6 # Account for header and table header
+        total_row_idx = len(df) + 6
         worksheet.cell(row=total_row_idx, column=6).value = "Total:"
         worksheet.cell(row=total_row_idx, column=7).value = total_price
         
-        # --- Formatting ---
-        # Get formatting objects
         bold_font = pd.io.excel._openpyxl.styles.Font(bold=True)
         currency_format = pd.io.excel._openpyxl.styles.numbers.FORMAT_CURRENCY_USD_SIMPLE
 
-        # Format Header
         for i in range(1, 8, 2):
              worksheet.cell(row=2, column=i).font = bold_font
         
-        # Format Table Headers
         for col_num, value in enumerate(df.columns.values, 1):
             worksheet.cell(row=5, column=col_num).font = bold_font
 
-        # Format Total Price column
         for row in range(6, total_row_idx):
             worksheet.cell(row=row, column=7).number_format = currency_format
         worksheet.cell(row=total_row_idx, column=6).font = bold_font
         worksheet.cell(row=total_row_idx, column=7).number_format = currency_format
 
-        # Auto-fit column widths
         for column in worksheet.columns:
             max_length = 0
             column_letter = column[0].column_letter
@@ -259,7 +247,6 @@ def main():
         for group_key, group_rows in source_groups.items():
             logging.info(f"\nProcessing group: {group_key} ({len(group_rows)} rows)")
             
-            # --- Generate both files first ---
             pdf_path, pdf_filename, wr_num = generate_pdf(group_key, group_rows)
             excel_path, excel_filename, _ = generate_excel(group_key, group_rows)
 
@@ -283,7 +270,9 @@ def main():
             
             if pdf_action != "NONE":
                 logging.info(f"   Uploading PDF '{pdf_filename}'...")
-                client.Attachments.attach_file_to_row(TARGET_SHEET_ID, target_row.id, (pdf_filename, open(pdf_path, 'rb'), 'application/pdf'))
+                # The 'with' statement ensures the file is properly closed after reading.
+                with open(pdf_path, 'rb') as f:
+                    client.Attachments.attach_file_to_row(TARGET_SHEET_ID, target_row.id, (pdf_filename, f, 'application/pdf'))
                 if pdf_action == "UPDATE": pdf_updated += 1
                 else: pdf_created += 1
                 logging.info("   ✅ PDF Upload Complete.")
@@ -301,7 +290,9 @@ def main():
 
             if excel_action != "NONE":
                 logging.info(f"   Uploading Excel '{excel_filename}'...")
-                client.Attachments.attach_file_to_row(TARGET_SHEET_ID, target_row.id, (excel_filename, open(excel_path, 'rb'), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'))
+                # The 'with' statement ensures the file is properly closed after reading.
+                with open(excel_path, 'rb') as f:
+                    client.Attachments.attach_file_to_row(TARGET_SHEET_ID, target_row.id, (excel_filename, f, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'))
                 if excel_action == "UPDATE": excel_updated += 1
                 else: excel_created += 1
                 logging.info("   ✅ Excel Upload Complete.")
