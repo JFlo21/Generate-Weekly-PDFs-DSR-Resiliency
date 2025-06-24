@@ -94,7 +94,6 @@ def parse_price(price_str):
 
 def generate_pdf(group_key, group_rows):
     """Fills the PDF template with data from a group of rows."""
-    # This function remains unchanged as it works correctly.
     first_row_cells = {c.column_id: c.value for c in group_rows[0].cells}
     foreman, wr_num, week_end_raw = group_key.split('_')
     week_end_display = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
@@ -153,7 +152,6 @@ def generate_pdf(group_key, group_rows):
     logging.info(f"📄 Generated PDF: '{output_filename}'.")
     return final_output_path, output_filename, wr_num
 
-# --- NEW HELPER FUNCTION TO FIX MERGED CELL ERROR ---
 def write_to_merged_cell(worksheet, row, col, value):
     """
     Safely writes a value to a cell, handling merged cells by unmerging and re-merging.
@@ -162,16 +160,13 @@ def write_to_merged_cell(worksheet, row, col, value):
     cell = worksheet.cell(row=row, column=col)
     for merged_range in list(worksheet.merged_cells.ranges):
         if cell.coordinate in merged_range:
-            # Cell is part of a merged range, we need to handle it
             merged_range_str = str(merged_range)
             worksheet.unmerge_cells(merged_range_str)
             cell.value = value
             worksheet.merge_cells(merged_range_str)
             return
-    # If the cell was not in a merged range, just write the value
     cell.value = value
 
-# --- REFACTORED FUNCTION ---
 def generate_excel(group_key, group_rows):
     """Fills the provided Excel template with data from a group of rows."""
     first_row_cells = {c.column_id: c.value for c in group_rows[0].cells}
@@ -183,7 +178,10 @@ def generate_excel(group_key, group_rows):
     workbook = openpyxl.load_workbook(EXCEL_TEMPLATE_PATH)
     worksheet = workbook.active
 
-    # --- FIX: Use the new helper function to safely write to header cells ---
+    # --- DEFINITIVE FIX: Disable worksheet protection to allow editing. ---
+    worksheet.protection.sheet = False
+
+    # Use the helper function to safely write to header cells
     write_to_merged_cell(worksheet, row=4, col=8, value=week_end_display)
     write_to_merged_cell(worksheet, row=4, col=3, value=foreman)
     write_to_merged_cell(worksheet, row=6, col=3, value=first_row_cells.get(SOURCE_COLUMNS['Dept #'], ''))
@@ -193,7 +191,6 @@ def generate_excel(group_key, group_rows):
     write_to_merged_cell(worksheet, row=6, col=8, value=wr_num)
     write_to_merged_cell(worksheet, row=8, col=3, value=first_row_cells.get(SOURCE_COLUMNS['Area'], ''))
 
-    # --- Fill line item data into the table ---
     start_row = 11
     total_price = 0
     
@@ -203,7 +200,6 @@ def generate_excel(group_key, group_rows):
         price = parse_price(row_cells.get(SOURCE_COLUMNS['Redlined Total Price']))
         total_price += price
         
-        # Writing to the data table is usually safe, as these cells are not merged.
         worksheet.cell(row=current_row, column=1).value = row_cells.get(SOURCE_COLUMNS['Pole #'], '')
         worksheet.cell(row=current_row, column=2).value = row_cells.get(SOURCE_COLUMNS['CU'], '')
         worksheet.cell(row=current_row, column=3).value = row_cells.get(SOURCE_COLUMNS['Work Type'], '')
@@ -215,8 +211,6 @@ def generate_excel(group_key, group_rows):
         price_cell.value = price
         price_cell.number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
 
-    # --- Fill the total price at the bottom ---
-    # Using the helper function here as well for maximum safety
     write_to_merged_cell(worksheet, row=49, col=8, value=total_price)
     worksheet.cell(row=49, column=8).number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
     
@@ -312,7 +306,7 @@ def main():
     except FileNotFoundError as e:
         logging.error(f"🚨 FATAL File Not Found: {e}. Check that '{PDF_TEMPLATE_PATH}' and '{EXCEL_TEMPLATE_PATH}' exist in your repository.")
     except Exception as e:
-        logging.error(f"🚨 An unexpected error occurred: {e}", exc_info=True)
+        logging.error(f"🚨 An unexpected error occurred: {e}", exc_info=_True)
 
 if __name__ == "__main__":
     main()
