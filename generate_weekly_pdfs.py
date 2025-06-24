@@ -154,7 +154,6 @@ def generate_pdf(group_key, group_rows, snapshot_date):
     logging.info(f"📄 Generated PDF: '{output_filename}'.")
     return final_output_path, output_filename, wr_num
 
-# --- DEFINITIVE REWRITE for Enterprise-Grade Appearance ---
 def generate_excel(group_key, group_rows, snapshot_date):
     """Builds a professionally formatted, audit-ready Excel file from scratch."""
     first_row_cells = {c.column_id: c.value for c in group_rows[0].cells}
@@ -190,11 +189,10 @@ def generate_excel(group_key, group_rows, snapshot_date):
     ws.page_margins.bottom = 0.5
 
     # --- Insert Logo with specified dimensions ---
-    # 1.37" H -> 132px, 2.75" W -> 264px. Set row heights to give it space.
     try:
         img = Image(LOGO_PATH)
-        img.height = 103 # Corresponds to ~1.37" at 75 DPI
-        img.width = 206  # Corresponds to ~2.75" at 75 DPI
+        img.height = 103 
+        img.width = 206 
         ws.add_image(img, 'A1')
         ws.row_dimensions[1].height = 30
         ws.row_dimensions[2].height = 30
@@ -264,11 +262,10 @@ def generate_excel(group_key, group_rows, snapshot_date):
         data_cell.alignment = Alignment(horizontal='right')
 
     # --- Table ---
-    ws.append([]); ws.append([])
+    # --- FIX: Use explicit row calculation and cell writing to prevent errors ---
+    start_table_row = 12 # Start table on a predictable row
     
     table_headers = ["Point Number", "Billable Unit Code", "Work Type", "Unit Description", "Unit of Measure", "# Units", "N/A", "Pricing"]
-    start_table_row = ws.max_row
-    
     for col_num, header_title in enumerate(table_headers, 1):
         cell = ws.cell(row=start_table_row, column=col_num)
         cell.value = header_title
