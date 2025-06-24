@@ -34,14 +34,13 @@ SOURCE_COLUMNS = {
     'Unit of Measure': 1672112936537988,
     'Quantity': 3251486253076356,
     'Redlined Total Price': 6339054112821124,
-    # --- NEW: Added Snapshot Date column ID ---
     'Snapshot Date': 8278756118187908
 }
 TARGET_WR_COLUMN_ID = 7941607783092100
 
 # --- File Paths ---
 PDF_TEMPLATE_PATH = "template.pdf"
-LOGO_PATH = "LinetecServices_Logo.png" # Path to your logo file
+LOGO_PATH = "LinetecServices_Logo.png"
 OUTPUT_FOLDER = "generated_docs"
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
@@ -117,7 +116,6 @@ def generate_pdf(group_key, group_rows, snapshot_date):
             form_data.update({
                 "Week Ending Date": str(week_end_display), "Employee Name": str(foreman),
                 "JobPhase Dept No": str(first_row_cells.get(SOURCE_COLUMNS['Dept #'], '') or '').split('.')[0],
-                # --- UPDATE: Use the provided snapshot_date ---
                 "Date": snapshot_date.strftime("%m/%d/%y"),
                 "Customer Name": str(first_row_cells.get(SOURCE_COLUMNS['Customer Name'], '')),
                 "Work Order": str(first_row_cells.get(SOURCE_COLUMNS['Work Order #'], '') or '').split('.')[0],
@@ -156,6 +154,7 @@ def generate_pdf(group_key, group_rows, snapshot_date):
     logging.info(f"📄 Generated PDF: '{output_filename}'.")
     return final_output_path, output_filename, wr_num
 
+# --- DEFINITIVE REWRITE for Professional Appearance ---
 def generate_excel(group_key, group_rows, snapshot_date):
     """Builds a professionally formatted Excel file from scratch with a logo."""
     first_row_cells = {c.column_id: c.value for c in group_rows[0].cells}
@@ -164,71 +163,93 @@ def generate_excel(group_key, group_rows, snapshot_date):
     output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.xlsx"
     final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
 
-    # --- Setup Workbook and Styles ---
     workbook = openpyxl.Workbook()
     ws = workbook.active
     ws.title = "Work Report"
 
-    # --- Define Color Scheme and Fonts ---
+    # --- Define Color Scheme, Fonts, and Styles ---
     LINETEC_RED = 'C00000'
     LINETEC_GREY = '808080'
     LIGHT_GREY_FILL = PatternFill(start_color='F2F2F2', end_color='F2F2F2', fill_type='solid')
     RED_FILL = PatternFill(start_color=LINETEC_RED, end_color=LINETEC_RED, fill_type='solid')
-    HEADER_FONT = Font(name='Calibri', size=16, bold=True, color='000000') # Black for main header
+    
+    TITLE_FONT = Font(name='Calibri', size=20, bold=True)
+    SUBTITLE_FONT = Font(name='Calibri', size=16, bold=True, color='404040')
     TABLE_HEADER_FONT = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
     BODY_FONT = Font(name='Calibri', size=11)
     LABEL_FONT = Font(name='Calibri', size=11, bold=True)
+    SUMMARY_LABEL_FONT = Font(name='Calibri', size=12, bold=True, color=LINETEC_GREY)
+    SUMMARY_VALUE_FONT = Font(name='Calibri', size=12, bold=True)
     
-    # --- Insert Logo and Main Header ---
+    THIN_BORDER = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+
+    # --- Insert Logo ---
     try:
         img = Image(LOGO_PATH)
-        img.height = 75 
-        img.width = 225
+        img.height = 75
+        img.width = 250
         ws.add_image(img, 'A1')
+        ws.row_dimensions[1].height = 60
     except FileNotFoundError:
         logging.warning(f"⚠️ Logo file not found at '{LOGO_PATH}'. Skipping logo insertion.")
         ws.merge_cells('A1:C3')
         ws['A1'] = "LINETEC SERVICES"
-        ws['A1'].font = Font(name='Calibri', size=20, bold=True)
-        ws['A1'].alignment = Alignment(horizontal='center', vertical='center')
-        
+        ws['A1'].font = TITLE_FONT
+    
+    # --- Main Header ---
     ws.merge_cells('D1:I3')
-    ws['D1'].value = 'WEEKLY UNITS AND PAY COMPLETED'
-    ws['D1'].font = HEADER_FONT
+    ws['D1'].value = 'WEEKLY UNITS COMPLETED PER SCOPE ID'
+    ws['D1'].font = SUBTITLE_FONT
     ws['D1'].alignment = Alignment(horizontal='center', vertical='center')
+    
+    # --- Executive Summary Block ---
+    total_price = sum(parse_price(cells.get(SOURCE_COLUMNS['Redlined Total Price'])) for row in group_rows for cells in [{c.column_id: c.value for c in row.cells}])
+    
+    ws.merge_cells('B5:D5')
+    ws['B5'] = 'Report Summary'
+    ws['B5'].font = Font(name='Calibri', size=14, bold=True)
+    ws['B5'].fill = PatternFill(start_color='E7E6E6', end_color='E7E6E6', fill_type='solid')
 
-    # --- Header Data Block using explicit cell placement ---
-    ws['B5'] = "Employee Name:"
-    ws['C5'] = foreman
-    ws['G5'] = "Week Ending Date:"
-    ws['H5'] = week_end_display
+    ws['B6'] = 'Total Billed Amount:'
+    ws['C6'] = total_price
+    ws['C6'].number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
+    
+    ws['B7'] = 'Total Line Items:'
+    ws['C7'] = len(group_rows)
+    
+    ws['B8'] = 'Date Range:'
+    ws['C8'] = f"{snapshot_date.strftime('%m/%d/%Y')} - {week_end_display}"
+    
+    for row in range(6, 9):
+        ws[f'B{row}'].font = SUMMARY_LABEL_FONT
+        ws[f'C{row}'].font = SUMMARY_VALUE_FONT
 
-    ws['B6'] = "Customer Name:"
-    ws['C6'] = first_row_cells.get(SOURCE_COLUMNS['Customer Name'], '')
-    ws['G6'] = "Date:"
-    # --- UPDATE: Use the provided snapshot_date ---
-    ws['H6'] = snapshot_date
-    ws['H6'].number_format = 'MM/DD/YYYY'
+    # --- Report Details Block ---
+    ws.merge_cells('G5:I5')
+    ws['G5'] = 'Report Details'
+    ws['G5'].font = Font(name='Calibri', size=14, bold=True)
+    ws['G5'].fill = PatternFill(start_color='E7E6E6', end_color='E7E6E6', fill_type='solid')
 
-    ws['B7'] = "Job/Phase (Dept No.):"
-    ws['C7'] = first_row_cells.get(SOURCE_COLUMNS['Dept #'], '')
-    ws['G7'] = "Work Request #:"
-    ws['H7'] = wr_num
+    details = {
+        'G6': ("Foreman:", foreman),
+        'G7': ("Work Request #:", wr_num),
+        'G8': ("Work Order #:", first_row_cells.get(SOURCE_COLUMNS['Work Order #'], '')),
+        'G9': ("Customer:", first_row_cells.get(SOURCE_COLUMNS['Customer Name'], ''))
+    }
+    for cell, (label, value) in details.items():
+        ws[cell] = label
+        ws[cell].font = SUMMARY_LABEL_FONT
+        data_cell = ws.cell(row=ws[cell].row, column=ws[cell].column + 1)
+        data_cell.value = value
+        data_cell.font = SUMMARY_VALUE_FONT
 
-    ws['B8'] = "Work Order #:"
-    ws['C8'] = first_row_cells.get(SOURCE_COLUMNS['Work Order #'], '')
-    ws['B9'] = "Location/Address:"
-    ws['C9'] = first_row_cells.get(SOURCE_COLUMNS['Area'], '')
-
-    # Apply bold font to all labels in the header
-    for row in range(5, 10):
-        ws[f'B{row}'].font = LABEL_FONT
-        ws[f'G{row}'].font = LABEL_FONT
-
-    # --- Table Headers ---
+    # --- Table ---
+    ws.append([]) # Spacer
+    ws.append([]) # Spacer
+    
     table_headers = ["Point Number", "Billable Unit Code", "Work Type", "Unit Description", "Unit of Measure", "# of Units Completed", "N/A", "Pricing"]
-    start_table_row = 11
-    ws.cell(row=start_table_row, column=1) # Create the row
+    start_table_row = ws.max_row + 1
+    
     for col_num, header_title in enumerate(table_headers, 1):
         cell = ws.cell(row=start_table_row, column=col_num)
         cell.value = header_title
@@ -236,13 +257,10 @@ def generate_excel(group_key, group_rows, snapshot_date):
         cell.fill = RED_FILL
         cell.alignment = Alignment(horizontal='center', wrap_text=True)
         
-    # --- Table Data ---
-    total_price = 0
-    current_row = start_table_row + 1
     for i, row_data in enumerate(group_rows):
+        current_row = start_table_row + i + 1
         cells = {c.column_id: c.value for c in row_data.cells}
         price = parse_price(cells.get(SOURCE_COLUMNS['Redlined Total Price']))
-        total_price += price
         
         row_values = [
             cells.get(SOURCE_COLUMNS['Pole #'], ''),
@@ -251,36 +269,26 @@ def generate_excel(group_key, group_rows, snapshot_date):
             cells.get(SOURCE_COLUMNS['CU Description'], ''),
             cells.get(SOURCE_COLUMNS['Unit of Measure'], ''),
             int(str(cells.get(SOURCE_COLUMNS['Quantity'], '') or 0).split('.')[0]),
-            "", # N/A column
+            "",
             price
         ]
         
         for col_num, value in enumerate(row_values, 1):
-             cell = ws.cell(row=current_row + i, column=col_num)
+             cell = ws.cell(row=current_row, column=col_num)
              cell.value = value
              cell.font = BODY_FONT
-             if i % 2 == 1: # Apply row banding for readability
+             if i % 2 == 1:
                  cell.fill = LIGHT_GREY_FILL
         
-        # Format the price cell specifically
-        ws.cell(row=current_row + i, column=8).number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
-
-    # --- Total Row ---
-    total_row_idx = current_row + len(group_rows) + 1
-    ws.cell(row=total_row_idx, column=7).value = "TOTAL:"
-    ws.cell(row=total_row_idx, column=7).font = LABEL_FONT
-    total_price_cell = ws.cell(row=total_row_idx, column=8)
-    total_price_cell.value = total_price
-    total_price_cell.font = LABEL_FONT
-    total_price_cell.number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
+        ws.cell(row=current_row, column=8).number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
 
     # --- Set Column Widths ---
-    column_widths = {'A': 15, 'B': 20, 'C': 25, 'D': 45, 'E': 20, 'F': 20, 'G': 5, 'H': 15, 'I':15}
+    column_widths = {'A': 15, 'B': 20, 'C': 25, 'D': 45, 'E': 20, 'F': 20, 'G': 15, 'H': 15, 'I':15}
     for col, width in column_widths.items():
         ws.column_dimensions[col].width = width
 
     workbook.save(final_output_path)
-    logging.info(f"📄 Generated Branded Excel from scratch: '{output_filename}'.")
+    logging.info(f"📄 Generated Professional Branded Excel: '{output_filename}'.")
     return final_output_path, output_filename, wr_num
 
 
@@ -310,7 +318,6 @@ def main():
                 price = parse_price(cells_map.get(SOURCE_COLUMNS['Redlined Total Price']))
                 if price > 0:
                     filtered_rows.append(row)
-                    # --- NEW: Collect snapshot dates from the billable rows ---
                     snapshot_date_str = cells_map.get(SOURCE_COLUMNS['Snapshot Date'])
                     if snapshot_date_str:
                         try:
@@ -322,15 +329,12 @@ def main():
                 logging.info(f"   ⏩ Skipping group '{group_key}' because it has no line items with a price.")
                 continue
 
-            # --- NEW: Determine the most recent snapshot date for the group ---
             if snapshot_dates:
                 most_recent_snapshot_date = max(snapshot_dates)
             else:
-                # Fallback to current date if no valid snapshot dates are found
                 logging.warning(f"   ⚠️ No valid Snapshot Dates found for group '{group_key}'. Defaulting to current date.")
                 most_recent_snapshot_date = datetime.date.today()
 
-            # --- Pass the new date to the generator functions ---
             pdf_path, pdf_filename, wr_num = generate_pdf(group_key, filtered_rows, most_recent_snapshot_date)
             excel_path, excel_filename, _ = generate_excel(group_key, filtered_rows, most_recent_snapshot_date)
 
@@ -386,10 +390,8 @@ def main():
     except smartsheet.exceptions.ApiError as e:
         logging.error(f"🚨 A Smartsheet API error occurred: {e}")
     except FileNotFoundError as e:
-        # Provide a more helpful error message
         logging.error(f"🚨 FATAL File Not Found: {e}. Check that '{PDF_TEMPLATE_PATH}' and '{LOGO_PATH}' exist in your repository.")
     except Exception as e:
-        # FIX: Corrected typo from `_True` to `True`
         logging.error(f"🚨 An unexpected error occurred: {e}", exc_info=True)
 
 if __name__ == "__main__":
