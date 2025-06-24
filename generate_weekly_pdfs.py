@@ -34,7 +34,9 @@ SOURCE_COLUMNS = {
     'Unit of Measure': 1672112936537988,
     'Quantity': 3251486253076356,
     'Redlined Total Price': 6339054112821124,
-    'Snapshot Date': 8278756118187908
+    'Snapshot Date': 8278756118187908,
+    # --- NEW: Added Scope ID column ---
+    'Scope ID': 5871962817777540
 }
 TARGET_WR_COLUMN_ID = 7941607783092100
 
@@ -98,6 +100,7 @@ def generate_pdf(group_key, group_rows, snapshot_date):
     """Fills the PDF template with data from a group of rows."""
     first_row_cells = {c.column_id: c.value for c in group_rows[0].cells}
     foreman, wr_num, week_end_raw = group_key.split('_')
+    scope_id = first_row_cells.get(SOURCE_COLUMNS['Scope ID'], '')
     week_end_display = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
     output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.pdf"
     final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
@@ -114,12 +117,16 @@ def generate_pdf(group_key, group_rows, snapshot_date):
 
         if page_idx == 0:
             form_data.update({
-                "Week Ending Date": str(week_end_display), "Employee Name": str(foreman),
+                "Week Ending Date": str(week_end_display),
+                "Employee Name": str(foreman),
                 "JobPhase Dept No": str(first_row_cells.get(SOURCE_COLUMNS['Dept #'], '') or '').split('.')[0],
                 "Date": snapshot_date.strftime("%m/%d/%y"),
                 "Customer Name": str(first_row_cells.get(SOURCE_COLUMNS['Customer Name'], '')),
                 "Work Order": str(first_row_cells.get(SOURCE_COLUMNS['Work Order #'], '') or '').split('.')[0],
-                "Work Request": wr_num, "LocationAddress": str(first_row_cells.get(SOURCE_COLUMNS['Area'], ''))
+                "Work Request": wr_num,
+                "LocationAddress": str(first_row_cells.get(SOURCE_COLUMNS['Area'], '')),
+                # --- NEW: Assumes a field named "Scope ID #" exists in your PDF template ---
+                "Scope ID #": str(scope_id)
             })
         if num_pages > 1: form_data["PageNumber"] = f"Page {page_idx + 1} of {num_pages}"
 
@@ -158,6 +165,7 @@ def generate_excel(group_key, group_rows, snapshot_date):
     """Builds a professionally formatted, audit-ready Excel file from scratch."""
     first_row_cells = {c.column_id: c.value for c in group_rows[0].cells}
     foreman, wr_num, week_end_raw = group_key.split('_')
+    scope_id = first_row_cells.get(SOURCE_COLUMNS['Scope ID'], '')
     week_end_display = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
     output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.xlsx"
     final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
@@ -168,7 +176,6 @@ def generate_excel(group_key, group_rows, snapshot_date):
 
     # --- Define Color Scheme, Fonts, and Styles ---
     LINETEC_RED = 'C00000'
-    LINETEC_GREY = '808080'
     LIGHT_GREY_FILL = PatternFill(start_color='F2F2F2', end_color='F2F2F2', fill_type='solid')
     RED_FILL = PatternFill(start_color=LINETEC_RED, end_color=LINETEC_RED, fill_type='solid')
     
@@ -176,27 +183,23 @@ def generate_excel(group_key, group_rows, snapshot_date):
     SUBTITLE_FONT = Font(name='Calibri', size=16, bold=True, color='404040')
     TABLE_HEADER_FONT = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
     BODY_FONT = Font(name='Calibri', size=11)
-    LABEL_FONT = Font(name='Calibri', size=11, bold=True)
-    SUMMARY_LABEL_FONT = Font(name='Calibri', size=10, bold=True, color=LINETEC_GREY)
+    SUMMARY_HEADER_FONT = Font(name='Calibri', size=12, bold=True, color='FFFFFF')
+    SUMMARY_LABEL_FONT = Font(name='Calibri', size=10, bold=True)
     SUMMARY_VALUE_FONT = Font(name='Calibri', size=10)
     
     # --- Page Setup ---
     ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
     ws.page_setup.paper_size = ws.PAPERSIZE_A4
-    ws.page_margins.left = 0.5
-    ws.page_margins.right = 0.5
-    ws.page_margins.top = 0.5
-    ws.page_margins.bottom = 0.5
+    ws.page_margins.left = 0.25; ws.page_margins.right = 0.25
+    ws.page_margins.top = 0.5; ws.page_margins.bottom = 0.5
 
     # --- Insert Logo with specified dimensions ---
     try:
         img = Image(LOGO_PATH)
-        img.height = 103 
-        img.width = 206 
+        img.height = 99  # ~1.37 inches at 72 DPI
+        img.width = 198  # ~2.75 inches at 72 DPI
         ws.add_image(img, 'A1')
-        ws.row_dimensions[1].height = 30
-        ws.row_dimensions[2].height = 30
-        ws.row_dimensions[3].height = 30
+        for i in range(1, 4): ws.row_dimensions[i].height = 25
     except FileNotFoundError:
         logging.warning(f"⚠️ Logo file not found at '{LOGO_PATH}'. Skipping logo insertion.")
         ws.merge_cells('A1:C3')
@@ -220,50 +223,49 @@ def generate_excel(group_key, group_rows, snapshot_date):
     
     ws.merge_cells('B6:D6')
     ws['B6'] = 'REPORT SUMMARY'
-    ws['B6'].font = Font(name='Calibri', size=12, bold=True)
-    ws['B6'].fill = PatternFill(start_color='EAEAEA', end_color='EAEAEA', fill_type='solid')
+    ws['B6'].font = SUMMARY_HEADER_FONT
+    ws['B6'].fill = RED_FILL
     ws['B6'].alignment = Alignment(horizontal='center')
 
-    ws['B7'] = 'Total Billed Amount'
-    ws['C7'] = total_price
+    summary_data = {
+        'B7': ('Total Billed Amount:', total_price),
+        'B8': ('Total Line Items:', len(group_rows)),
+        'B9': ('Billing Period:', f"{snapshot_date.strftime('%m/%d/%Y')} to {week_end_display}")
+    }
+    for cell_ref, (label, value) in summary_data.items():
+        ws[cell_ref] = label
+        ws[cell_ref].font = SUMMARY_LABEL_FONT
+        data_cell = ws.cell(row=ws[cell_ref].row, column=ws[cell_ref].column + 1, value=value)
+        data_cell.font = SUMMARY_VALUE_FONT
+        data_cell.alignment = Alignment(horizontal='right')
     ws['C7'].number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
-    
-    ws['B8'] = 'Total Line Items'
-    ws['C8'] = len(group_rows)
-    
-    ws['B9'] = 'Billing Period'
-    ws['C9'] = f"{snapshot_date.strftime('%m/%d/%Y')} to {week_end_display}"
-    
-    for row in range(7, 10):
-        ws[f'B{row}'].font = SUMMARY_LABEL_FONT
-        ws[f'C{row}'].font = SUMMARY_VALUE_FONT
-        ws[f'C{row}'].alignment = Alignment(horizontal='right')
 
     # --- Report Details Block ---
     ws.merge_cells('F6:I6')
     ws['F6'] = 'REPORT DETAILS'
-    ws['F6'].font = Font(name='Calibri', size=12, bold=True)
-    ws['F6'].fill = PatternFill(start_color='EAEAEA', end_color='EAEAEA', fill_type='solid')
+    ws['F6'].font = SUMMARY_HEADER_FONT
+    ws['F6'].fill = RED_FILL
     ws['F6'].alignment = Alignment(horizontal='center')
 
     details = {
         'F7': ("Foreman:", foreman),
         'F8': ("Work Request #:", wr_num),
-        'F9': ("Work Order #:", first_row_cells.get(SOURCE_COLUMNS['Work Order #'], '')),
-        'F10': ("Customer:", first_row_cells.get(SOURCE_COLUMNS['Customer Name'], ''))
+        # --- NEW: Added Scope ID ---
+        'F9': ("Scope ID #:", scope_id),
+        'F10': ("Work Order #:", first_row_cells.get(SOURCE_COLUMNS['Work Order #'], '')),
+        'F11': ("Customer:", first_row_cells.get(SOURCE_COLUMNS['Customer Name'], ''))
     }
     for cell_ref, (label, value) in details.items():
         ws[cell_ref] = label
         ws[cell_ref].font = SUMMARY_LABEL_FONT
         data_cell = ws.cell(row=ws[cell_ref].row, column=ws[cell_ref].column + 1)
-        ws.merge_cells(start_row=data_cell.row, start_column=data_cell.column, end_row=data_cell.row, end_column=data_cell.column + 1)
+        ws.merge_cells(start_row=data_cell.row, start_column=data_cell.column, end_row=data_cell.row, end_column=data_cell.column + 2)
         data_cell.value = value
         data_cell.font = SUMMARY_VALUE_FONT
         data_cell.alignment = Alignment(horizontal='right')
 
     # --- Table ---
-    # --- FIX: Use explicit row calculation and cell writing to prevent errors ---
-    start_table_row = 12 # Start table on a predictable row
+    start_table_row = 13
     
     table_headers = ["Point Number", "Billable Unit Code", "Work Type", "Unit Description", "Unit of Measure", "# Units", "N/A", "Pricing"]
     for col_num, header_title in enumerate(table_headers, 1):
@@ -279,10 +281,8 @@ def generate_excel(group_key, group_rows, snapshot_date):
         price = parse_price(cells.get(SOURCE_COLUMNS['Redlined Total Price']))
         
         row_values = [
-            cells.get(SOURCE_COLUMNS['Pole #'], ''),
-            cells.get(SOURCE_COLUMNS['CU'], ''),
-            cells.get(SOURCE_COLUMNS['Work Type'], ''),
-            cells.get(SOURCE_COLUMNS['CU Description'], ''),
+            cells.get(SOURCE_COLUMNS['Pole #'], ''), cells.get(SOURCE_COLUMNS['CU'], ''),
+            cells.get(SOURCE_COLUMNS['Work Type'], ''), cells.get(SOURCE_COLUMNS['CU Description'], ''),
             cells.get(SOURCE_COLUMNS['Unit of Measure'], ''),
             int(str(cells.get(SOURCE_COLUMNS['Quantity'], '') or 0).split('.')[0]),
             "", price
@@ -302,19 +302,18 @@ def generate_excel(group_key, group_rows, snapshot_date):
     ws.merge_cells(start_row=final_total_row, start_column=1, end_row=final_total_row, end_column=7)
     total_label_cell = ws.cell(row=final_total_row, column=1)
     total_label_cell.value = "TOTAL"
-    total_label_cell.font = Font(name='Calibri', size=11, bold=True)
+    total_label_cell.font = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
     total_label_cell.alignment = Alignment(horizontal='right')
     total_label_cell.fill = RED_FILL
-    total_label_cell.font = TABLE_HEADER_FONT
 
     total_value_cell = ws.cell(row=final_total_row, column=8)
     total_value_cell.value = total_price
     total_value_cell.number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
-    total_value_cell.font = TABLE_HEADER_FONT
+    total_value_cell.font = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
     total_value_cell.fill = RED_FILL
 
     # --- Set Column Widths ---
-    column_widths = {'A': 15, 'B': 20, 'C': 25, 'D': 45, 'E': 20, 'F': 10, 'G': 5, 'H': 15, 'I':15}
+    column_widths = {'A': 15, 'B': 20, 'C': 25, 'D': 45, 'E': 20, 'F': 10, 'G': 15, 'H': 15, 'I': 15}
     for col, width in column_widths.items():
         ws.column_dimensions[col].width = width
 
