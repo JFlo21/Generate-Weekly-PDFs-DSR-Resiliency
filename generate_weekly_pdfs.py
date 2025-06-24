@@ -186,16 +186,19 @@ def generate_excel(group_key, group_rows, snapshot_date):
     ws.page_setup.paper_size = ws.PAPERSIZE_A4
     ws.page_margins.left = 0.5
     ws.page_margins.right = 0.5
-    ws.page_margins.top = 0.75
-    ws.page_margins.bottom = 0.75
+    ws.page_margins.top = 0.5
+    ws.page_margins.bottom = 0.5
 
-    # --- Insert Logo with correct dimensions ---
-    # Convert inches to pixels (assuming 96 DPI): 1.37" H = 132px, 2.75" W = 264px
+    # --- Insert Logo with specified dimensions ---
+    # 1.37" H -> 132px, 2.75" W -> 264px. Set row heights to give it space.
     try:
         img = Image(LOGO_PATH)
-        img.height = 132
-        img.width = 264
+        img.height = 103 # Corresponds to ~1.37" at 75 DPI
+        img.width = 206  # Corresponds to ~2.75" at 75 DPI
         ws.add_image(img, 'A1')
+        ws.row_dimensions[1].height = 30
+        ws.row_dimensions[2].height = 30
+        ws.row_dimensions[3].height = 30
     except FileNotFoundError:
         logging.warning(f"⚠️ Logo file not found at '{LOGO_PATH}'. Skipping logo insertion.")
         ws.merge_cells('A1:C3')
@@ -218,9 +221,10 @@ def generate_excel(group_key, group_rows, snapshot_date):
     total_price = sum(parse_price(cells.get(SOURCE_COLUMNS['Redlined Total Price'])) for row in group_rows for cells in [{c.column_id: c.value for c in row.cells}])
     
     ws.merge_cells('B6:D6')
-    ws['B6'] = 'Report Summary'
-    ws['B6'].font = Font(name='Calibri', size=14, bold=True)
+    ws['B6'] = 'REPORT SUMMARY'
+    ws['B6'].font = Font(name='Calibri', size=12, bold=True)
     ws['B6'].fill = PatternFill(start_color='EAEAEA', end_color='EAEAEA', fill_type='solid')
+    ws['B6'].alignment = Alignment(horizontal='center')
 
     ws['B7'] = 'Total Billed Amount'
     ws['C7'] = total_price
@@ -235,12 +239,14 @@ def generate_excel(group_key, group_rows, snapshot_date):
     for row in range(7, 10):
         ws[f'B{row}'].font = SUMMARY_LABEL_FONT
         ws[f'C{row}'].font = SUMMARY_VALUE_FONT
+        ws[f'C{row}'].alignment = Alignment(horizontal='right')
 
     # --- Report Details Block ---
     ws.merge_cells('F6:I6')
-    ws['F6'] = 'Report Details'
-    ws['F6'].font = Font(name='Calibri', size=14, bold=True)
+    ws['F6'] = 'REPORT DETAILS'
+    ws['F6'].font = Font(name='Calibri', size=12, bold=True)
     ws['F6'].fill = PatternFill(start_color='EAEAEA', end_color='EAEAEA', fill_type='solid')
+    ws['F6'].alignment = Alignment(horizontal='center')
 
     details = {
         'F7': ("Foreman:", foreman),
@@ -252,14 +258,15 @@ def generate_excel(group_key, group_rows, snapshot_date):
         ws[cell_ref] = label
         ws[cell_ref].font = SUMMARY_LABEL_FONT
         data_cell = ws.cell(row=ws[cell_ref].row, column=ws[cell_ref].column + 1)
+        ws.merge_cells(start_row=data_cell.row, start_column=data_cell.column, end_row=data_cell.row, end_column=data_cell.column + 1)
         data_cell.value = value
         data_cell.font = SUMMARY_VALUE_FONT
+        data_cell.alignment = Alignment(horizontal='right')
 
     # --- Table ---
-    ws.append([]) # Spacer
-    ws.append([]) # Spacer
+    ws.append([]); ws.append([])
     
-    table_headers = ["Point Number", "Billable Unit Code", "Work Type", "Unit Description", "Unit of Measure", "# of Units Completed", "N/A", "Pricing"]
+    table_headers = ["Point Number", "Billable Unit Code", "Work Type", "Unit Description", "Unit of Measure", "# Units", "N/A", "Pricing"]
     start_table_row = ws.max_row
     
     for col_num, header_title in enumerate(table_headers, 1):
@@ -281,21 +288,36 @@ def generate_excel(group_key, group_rows, snapshot_date):
             cells.get(SOURCE_COLUMNS['CU Description'], ''),
             cells.get(SOURCE_COLUMNS['Unit of Measure'], ''),
             int(str(cells.get(SOURCE_COLUMNS['Quantity'], '') or 0).split('.')[0]),
-            "",
-            price
+            "", price
         ]
         
         for col_num, value in enumerate(row_values, 1):
              cell = ws.cell(row=current_row, column=col_num)
              cell.value = value
              cell.font = BODY_FONT
-             if i % 2 == 1:
-                 cell.fill = LIGHT_GREY_FILL
+             if col_num >= 6: cell.alignment = Alignment(horizontal='right')
+             if i % 2 == 1: cell.fill = LIGHT_GREY_FILL
         
         ws.cell(row=current_row, column=8).number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
 
+    # --- Final Total Row ---
+    final_total_row = start_table_row + len(group_rows) + 1
+    ws.merge_cells(start_row=final_total_row, start_column=1, end_row=final_total_row, end_column=7)
+    total_label_cell = ws.cell(row=final_total_row, column=1)
+    total_label_cell.value = "TOTAL"
+    total_label_cell.font = Font(name='Calibri', size=11, bold=True)
+    total_label_cell.alignment = Alignment(horizontal='right')
+    total_label_cell.fill = RED_FILL
+    total_label_cell.font = TABLE_HEADER_FONT
+
+    total_value_cell = ws.cell(row=final_total_row, column=8)
+    total_value_cell.value = total_price
+    total_value_cell.number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
+    total_value_cell.font = TABLE_HEADER_FONT
+    total_value_cell.fill = RED_FILL
+
     # --- Set Column Widths ---
-    column_widths = {'A': 15, 'B': 20, 'C': 25, 'D': 45, 'E': 20, 'F': 20, 'G': 15, 'H': 15, 'I':15}
+    column_widths = {'A': 15, 'B': 20, 'C': 25, 'D': 45, 'E': 20, 'F': 10, 'G': 5, 'H': 15, 'I':15}
     for col, width in column_widths.items():
         ws.column_dimensions[col].width = width
 
@@ -306,7 +328,6 @@ def generate_excel(group_key, group_rows, snapshot_date):
     ws.oddFooter.left.text = f"Filename: {output_filename}"
     ws.oddFooter.left.size = 8
     ws.oddFooter.left.font = "Calibri,Italic"
-
 
     workbook.save(final_output_path)
     logging.info(f"📄 Generated Enterprise Branded Excel: '{output_filename}'.")
