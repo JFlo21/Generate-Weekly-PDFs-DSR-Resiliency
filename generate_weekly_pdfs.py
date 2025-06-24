@@ -33,7 +33,9 @@ SOURCE_COLUMNS = {
     'CU Description': 6727495535251332,
     'Unit of Measure': 1672112936537988,
     'Quantity': 3251486253076356,
-    'Redlined Total Price': 6339054112821124
+    'Redlined Total Price': 6339054112821124,
+    # --- NEW: Added Snapshot Date column ID ---
+    'Snapshot Date': 8278756118187908
 }
 TARGET_WR_COLUMN_ID = 7941607783092100
 
@@ -93,9 +95,8 @@ def parse_price(price_str):
         logging.warning(f"⚠️ Could not parse price value '{price_str}'. Treating as 0.")
         return 0.0
 
-def generate_pdf(group_key, group_rows):
+def generate_pdf(group_key, group_rows, snapshot_date):
     """Fills the PDF template with data from a group of rows."""
-    # This function remains unchanged.
     first_row_cells = {c.column_id: c.value for c in group_rows[0].cells}
     foreman, wr_num, week_end_raw = group_key.split('_')
     week_end_display = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
@@ -116,7 +117,8 @@ def generate_pdf(group_key, group_rows):
             form_data.update({
                 "Week Ending Date": str(week_end_display), "Employee Name": str(foreman),
                 "JobPhase Dept No": str(first_row_cells.get(SOURCE_COLUMNS['Dept #'], '') or '').split('.')[0],
-                "Date": datetime.date.today().strftime("%m/%d/%y"),
+                # --- UPDATE: Use the provided snapshot_date ---
+                "Date": snapshot_date.strftime("%m/%d/%y"),
                 "Customer Name": str(first_row_cells.get(SOURCE_COLUMNS['Customer Name'], '')),
                 "Work Order": str(first_row_cells.get(SOURCE_COLUMNS['Work Order #'], '') or '').split('.')[0],
                 "Work Request": wr_num, "LocationAddress": str(first_row_cells.get(SOURCE_COLUMNS['Area'], ''))
@@ -154,8 +156,7 @@ def generate_pdf(group_key, group_rows):
     logging.info(f"📄 Generated PDF: '{output_filename}'.")
     return final_output_path, output_filename, wr_num
 
-# --- DEFINITIVE REWRITE ---
-def generate_excel(group_key, group_rows):
+def generate_excel(group_key, group_rows, snapshot_date):
     """Builds a professionally formatted Excel file from scratch with a logo."""
     first_row_cells = {c.column_id: c.value for c in group_rows[0].cells}
     foreman, wr_num, week_end_raw = group_key.split('_')
@@ -197,7 +198,6 @@ def generate_excel(group_key, group_rows):
     ws['D1'].alignment = Alignment(horizontal='center', vertical='center')
 
     # --- Header Data Block using explicit cell placement ---
-    # This provides absolute control over the layout.
     ws['B5'] = "Employee Name:"
     ws['C5'] = foreman
     ws['G5'] = "Week Ending Date:"
@@ -206,9 +206,9 @@ def generate_excel(group_key, group_rows):
     ws['B6'] = "Customer Name:"
     ws['C6'] = first_row_cells.get(SOURCE_COLUMNS['Customer Name'], '')
     ws['G6'] = "Date:"
-    ws['H6'] = datetime.date.today()
+    # --- UPDATE: Use the provided snapshot_date ---
+    ws['H6'] = snapshot_date
     ws['H6'].number_format = 'MM/DD/YYYY'
-
 
     ws['B7'] = "Job/Phase (Dept No.):"
     ws['C7'] = first_row_cells.get(SOURCE_COLUMNS['Dept #'], '')
@@ -304,18 +304,35 @@ def main():
             logging.info(f"\nProcessing group: {group_key} ({len(group_rows)} rows)")
             
             filtered_rows = []
+            snapshot_dates = []
             for row in group_rows:
                 cells_map = {c.column_id: c.value for c in row.cells}
                 price = parse_price(cells_map.get(SOURCE_COLUMNS['Redlined Total Price']))
                 if price > 0:
                     filtered_rows.append(row)
-            
+                    # --- NEW: Collect snapshot dates from the billable rows ---
+                    snapshot_date_str = cells_map.get(SOURCE_COLUMNS['Snapshot Date'])
+                    if snapshot_date_str:
+                        try:
+                            snapshot_dates.append(parser.parse(snapshot_date_str))
+                        except (parser.ParserError, TypeError):
+                            logging.warning(f"⚠️ Could not parse Snapshot Date '{snapshot_date_str}'.")
+
             if not filtered_rows:
                 logging.info(f"   ⏩ Skipping group '{group_key}' because it has no line items with a price.")
                 continue
 
-            pdf_path, pdf_filename, wr_num = generate_pdf(group_key, filtered_rows)
-            excel_path, excel_filename, _ = generate_excel(group_key, filtered_rows)
+            # --- NEW: Determine the most recent snapshot date for the group ---
+            if snapshot_dates:
+                most_recent_snapshot_date = max(snapshot_dates)
+            else:
+                # Fallback to current date if no valid snapshot dates are found
+                logging.warning(f"   ⚠️ No valid Snapshot Dates found for group '{group_key}'. Defaulting to current date.")
+                most_recent_snapshot_date = datetime.date.today()
+
+            # --- Pass the new date to the generator functions ---
+            pdf_path, pdf_filename, wr_num = generate_pdf(group_key, filtered_rows, most_recent_snapshot_date)
+            excel_path, excel_filename, _ = generate_excel(group_key, filtered_rows, most_recent_snapshot_date)
 
             target_row = target_map.get(wr_num)
             if not target_row:
