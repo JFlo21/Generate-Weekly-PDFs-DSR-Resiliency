@@ -50,4 +50,4 @@ jobs:
           SMARTSHEET_API_TOKEN: ${{ secrets.SMARTSHEET_API_TOKEN }}
           SOURCE_SHEET_ID: ${{ secrets.SOURCE_SHEET_ID }}
         # IMPORTANT: Make sure 'your_script_name.py' matches the actual filename in your repository.
-        run: python your_script_name.py
+        run: python generate_weekly_pdfs.py
