@@ -7,7 +7,7 @@ from PyPDF2 import PdfReader, PdfWriter
 from PyPDF2.generic import NameObject, NumberObject, BooleanObject
 import smartsheet
 import openpyxl
-from openpyxl.styles import Font, numbers
+from openpyxl.styles import Font, numbers, Alignment, Border, Side
 from openpyxl.utils.cell import get_column_letter
 
 # --- Configuration ---
@@ -38,7 +38,7 @@ TARGET_WR_COLUMN_ID = 7941607783092100
 
 # --- File Paths ---
 PDF_TEMPLATE_PATH = "template.pdf"
-EXCEL_TEMPLATE_PATH = "Smartsheet - Fillable PDF.xlsx"
+# EXCEL_TEMPLATE_PATH is no longer needed as we build the file from scratch.
 OUTPUT_FOLDER = "generated_docs"
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
@@ -94,6 +94,7 @@ def parse_price(price_str):
 
 def generate_pdf(group_key, group_rows):
     """Fills the PDF template with data from a group of rows."""
+    # This function remains unchanged.
     first_row_cells = {c.column_id: c.value for c in group_rows[0].cells}
     foreman, wr_num, week_end_raw = group_key.split('_')
     week_end_display = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
@@ -152,70 +153,102 @@ def generate_pdf(group_key, group_rows):
     logging.info(f"📄 Generated PDF: '{output_filename}'.")
     return final_output_path, output_filename, wr_num
 
-def write_to_merged_cell(worksheet, row, col, value):
-    """
-    Safely writes a value to a cell, handling merged cells by unmerging and re-merging.
-    This is the definitive fix for the 'MergedCell' read-only error.
-    """
-    cell = worksheet.cell(row=row, column=col)
-    for merged_range in list(worksheet.merged_cells.ranges):
-        if cell.coordinate in merged_range:
-            merged_range_str = str(merged_range)
-            worksheet.unmerge_cells(merged_range_str)
-            cell.value = value
-            worksheet.merge_cells(merged_range_str)
-            return
-    cell.value = value
-
+# --- COMPLETELY REWRITTEN FUNCTION ---
 def generate_excel(group_key, group_rows):
-    """Fills the provided Excel template with data from a group of rows."""
+    """Builds an Excel file from scratch that mimics the template's format."""
     first_row_cells = {c.column_id: c.value for c in group_rows[0].cells}
     foreman, wr_num, week_end_raw = group_key.split('_')
     week_end_display = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
     output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.xlsx"
     final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
 
-    workbook = openpyxl.load_workbook(EXCEL_TEMPLATE_PATH)
-    worksheet = workbook.active
+    # --- Setup Workbook and Styles ---
+    workbook = openpyxl.Workbook()
+    ws = workbook.active
+    ws.title = "Work Report"
+    bold_font = Font(bold=True, name='Calibri', size=11)
+    center_align = Alignment(horizontal='center', vertical='center')
+    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
 
-    # --- DEFINITIVE FIX: Disable worksheet protection to allow editing. ---
-    worksheet.protection.sheet = False
+    # --- Page Headers ---
+    ws.merge_cells('A1:H1')
+    ws['A1'].value = "LINETEC SERVICES"
+    ws['A1'].font = bold_font
+    ws['A1'].alignment = center_align
 
-    # Use the helper function to safely write to header cells
-    write_to_merged_cell(worksheet, row=4, col=8, value=week_end_display)
-    write_to_merged_cell(worksheet, row=4, col=3, value=foreman)
-    write_to_merged_cell(worksheet, row=6, col=3, value=first_row_cells.get(SOURCE_COLUMNS['Dept #'], ''))
-    write_to_merged_cell(worksheet, row=5, col=8, value=datetime.date.today().strftime("%m/%d/%y"))
-    write_to_merged_cell(worksheet, row=5, col=3, value=first_row_cells.get(SOURCE_COLUMNS['Customer Name'], ''))
-    write_to_merged_cell(worksheet, row=7, col=3, value=first_row_cells.get(SOURCE_COLUMNS['Work Order #'], ''))
-    write_to_merged_cell(worksheet, row=6, col=8, value=wr_num)
-    write_to_merged_cell(worksheet, row=8, col=3, value=first_row_cells.get(SOURCE_COLUMNS['Area'], ''))
+    ws.merge_cells('A2:H2')
+    ws['A2'].value = "WEEKLY UNITS AND PAY COMPLETED"
+    ws['A2'].font = bold_font
+    ws['A2'].alignment = center_align
 
-    start_row = 11
-    total_price = 0
+    # --- Header Data Block ---
+    header_map = {
+        'C4': "Employee Name:", 'D4': foreman,
+        'H4': "Week Ending Date:", 'I4': week_end_display,
+        'C5': "Customer Name:", 'D5': first_row_cells.get(SOURCE_COLUMNS['Customer Name'], ''),
+        'H5': "Date:", 'I5': datetime.date.today().strftime("%m/%d/%y"),
+        'C6': "Job/Phase (Dept No.):", 'D6': first_row_cells.get(SOURCE_COLUMNS['Dept #'], ''),
+        'H6': "Work Request #:", 'I6': wr_num,
+        'C7': "Work Order #:", 'D7': first_row_cells.get(SOURCE_COLUMNS['Work Order #'], ''),
+        'C8': "Location/Address:", 'D8': first_row_cells.get(SOURCE_COLUMNS['Area'], '')
+    }
     
-    for i, row in enumerate(group_rows):
-        current_row = start_row + i
-        row_cells = {c.column_id: c.value for c in row.cells}
-        price = parse_price(row_cells.get(SOURCE_COLUMNS['Redlined Total Price']))
+    for cell, text in header_map.items():
+        ws[cell].value = text
+        if cell.startswith('C') or cell.startswith('H'):
+            ws[cell].font = bold_font
+
+    # --- Table Headers ---
+    table_headers = ["Point Number", "Billable Unit Code", "Work Type", "Unit Description", "Unit of Measure", "# of Units Completed", "N/A", "Pricing"]
+    ws.append(None) # Add a blank row for spacing
+    ws.append(table_headers)
+    header_row = ws.max_row
+    for col_num, header in enumerate(table_headers, 1):
+        cell = ws.cell(row=header_row, column=col_num)
+        cell.font = bold_font
+        cell.border = thin_border
+        cell.alignment = center_align
+
+    # --- Table Data ---
+    total_price = 0
+    for row_data in group_rows:
+        cells = {c.column_id: c.value for c in row_data.cells}
+        price = parse_price(cells.get(SOURCE_COLUMNS['Redlined Total Price']))
         total_price += price
         
-        worksheet.cell(row=current_row, column=1).value = row_cells.get(SOURCE_COLUMNS['Pole #'], '')
-        worksheet.cell(row=current_row, column=2).value = row_cells.get(SOURCE_COLUMNS['CU'], '')
-        worksheet.cell(row=current_row, column=3).value = row_cells.get(SOURCE_COLUMNS['Work Type'], '')
-        worksheet.cell(row=current_row, column=4).value = row_cells.get(SOURCE_COLUMNS['CU Description'], '')
-        worksheet.cell(row=current_row, column=5).value = row_cells.get(SOURCE_COLUMNS['Unit of Measure'], '')
-        worksheet.cell(row=current_row, column=6).value = int(str(row_cells.get(SOURCE_COLUMNS['Quantity'], '') or 0).split('.')[0])
-        
-        price_cell = worksheet.cell(row=current_row, column=8)
-        price_cell.value = price
-        price_cell.number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
+        row_values = [
+            cells.get(SOURCE_COLUMNS['Pole #'], ''),
+            cells.get(SOURCE_COLUMNS['CU'], ''),
+            cells.get(SOURCE_COLUMNS['Work Type'], ''),
+            cells.get(SOURCE_COLUMNS['CU Description'], ''),
+            cells.get(SOURCE_COLUMNS['Unit of Measure'], ''),
+            int(str(cells.get(SOURCE_COLUMNS['Quantity'], '') or 0).split('.')[0]),
+            "", # N/A column
+            price
+        ]
+        ws.append(row_values)
+        data_row_idx = ws.max_row
+        for col_num in range(1, len(row_values) + 1):
+             ws.cell(row=data_row_idx, column=col_num).border = thin_border
+        ws.cell(row=data_row_idx, column=8).number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
 
-    write_to_merged_cell(worksheet, row=49, col=8, value=total_price)
-    worksheet.cell(row=49, column=8).number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
-    
+    # --- Total Row ---
+    ws.append(None) # Blank row for spacing
+    total_row_idx = ws.max_row
+    ws.cell(row=total_row_idx, column=7).value = "TOTAL:"
+    ws.cell(row=total_row_idx, column=7).font = bold_font
+    total_price_cell = ws.cell(row=total_row_idx, column=8)
+    total_price_cell.value = total_price
+    total_price_cell.font = bold_font
+    total_price_cell.number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
+
+    # --- Set Column Widths ---
+    column_widths = {'A': 15, 'B': 20, 'C': 15, 'D': 40, 'E': 15, 'F': 20, 'G': 5, 'H': 15}
+    for col, width in column_widths.items():
+        ws.column_dimensions[col].width = width
+
     workbook.save(final_output_path)
-    logging.info(f"📄 Generated Excel from template: '{output_filename}'.")
+    logging.info(f"📄 Generated Excel from scratch: '{output_filename}'.")
     return final_output_path, output_filename, wr_num
 
 
@@ -304,9 +337,11 @@ def main():
     except smartsheet.exceptions.ApiError as e:
         logging.error(f"🚨 A Smartsheet API error occurred: {e}")
     except FileNotFoundError as e:
-        logging.error(f"🚨 FATAL File Not Found: {e}. Check that '{PDF_TEMPLATE_PATH}' and '{EXCEL_TEMPLATE_PATH}' exist in your repository.")
+        # Provide a more helpful error message
+        logging.error(f"🚨 FATAL File Not Found: {e}. Check that '{PDF_TEMPLATE_PATH}' exists in your repository.")
     except Exception as e:
-        logging.error(f"🚨 An unexpected error occurred: {e}", exc_info=_True)
+        # --- FIX: Corrected typo from `_True` to `True` ---
+        logging.error(f"🚨 An unexpected error occurred: {e}", exc_info=True)
 
 if __name__ == "__main__":
     main()
