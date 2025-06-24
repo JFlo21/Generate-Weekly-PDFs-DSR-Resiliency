@@ -154,9 +154,9 @@ def generate_pdf(group_key, group_rows, snapshot_date):
     logging.info(f"📄 Generated PDF: '{output_filename}'.")
     return final_output_path, output_filename, wr_num
 
-# --- DEFINITIVE REWRITE for Professional Appearance ---
+# --- DEFINITIVE REWRITE for Enterprise-Grade Appearance ---
 def generate_excel(group_key, group_rows, snapshot_date):
-    """Builds a professionally formatted Excel file from scratch with a logo."""
+    """Builds a professionally formatted, audit-ready Excel file from scratch."""
     first_row_cells = {c.column_id: c.value for c in group_rows[0].cells}
     foreman, wr_num, week_end_raw = group_key.split('_')
     week_end_display = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
@@ -178,18 +178,24 @@ def generate_excel(group_key, group_rows, snapshot_date):
     TABLE_HEADER_FONT = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
     BODY_FONT = Font(name='Calibri', size=11)
     LABEL_FONT = Font(name='Calibri', size=11, bold=True)
-    SUMMARY_LABEL_FONT = Font(name='Calibri', size=12, bold=True, color=LINETEC_GREY)
-    SUMMARY_VALUE_FONT = Font(name='Calibri', size=12, bold=True)
+    SUMMARY_LABEL_FONT = Font(name='Calibri', size=10, bold=True, color=LINETEC_GREY)
+    SUMMARY_VALUE_FONT = Font(name='Calibri', size=10)
     
-    THIN_BORDER = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+    # --- Page Setup ---
+    ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
+    ws.page_setup.paper_size = ws.PAPERSIZE_A4
+    ws.page_margins.left = 0.5
+    ws.page_margins.right = 0.5
+    ws.page_margins.top = 0.75
+    ws.page_margins.bottom = 0.75
 
-    # --- Insert Logo ---
+    # --- Insert Logo with correct dimensions ---
+    # Convert inches to pixels (assuming 96 DPI): 1.37" H = 132px, 2.75" W = 264px
     try:
         img = Image(LOGO_PATH)
-        img.height = 75
-        img.width = 250
+        img.height = 132
+        img.width = 264
         ws.add_image(img, 'A1')
-        ws.row_dimensions[1].height = 60
     except FileNotFoundError:
         logging.warning(f"⚠️ Logo file not found at '{LOGO_PATH}'. Skipping logo insertion.")
         ws.merge_cells('A1:C3')
@@ -201,45 +207,51 @@ def generate_excel(group_key, group_rows, snapshot_date):
     ws['D1'].value = 'WEEKLY UNITS COMPLETED PER SCOPE ID'
     ws['D1'].font = SUBTITLE_FONT
     ws['D1'].alignment = Alignment(horizontal='center', vertical='center')
+
+    # --- Report Generation Date (for audit trail) ---
+    ws.merge_cells('D4:I4')
+    ws['D4'].value = f"Report Generated On: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    ws['D4'].font = Font(name='Calibri', size=9, italic=True)
+    ws['D4'].alignment = Alignment(horizontal='right')
     
     # --- Executive Summary Block ---
     total_price = sum(parse_price(cells.get(SOURCE_COLUMNS['Redlined Total Price'])) for row in group_rows for cells in [{c.column_id: c.value for c in row.cells}])
     
-    ws.merge_cells('B5:D5')
-    ws['B5'] = 'Report Summary'
-    ws['B5'].font = Font(name='Calibri', size=14, bold=True)
-    ws['B5'].fill = PatternFill(start_color='E7E6E6', end_color='E7E6E6', fill_type='solid')
+    ws.merge_cells('B6:D6')
+    ws['B6'] = 'Report Summary'
+    ws['B6'].font = Font(name='Calibri', size=14, bold=True)
+    ws['B6'].fill = PatternFill(start_color='EAEAEA', end_color='EAEAEA', fill_type='solid')
 
-    ws['B6'] = 'Total Billed Amount:'
-    ws['C6'] = total_price
-    ws['C6'].number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
+    ws['B7'] = 'Total Billed Amount'
+    ws['C7'] = total_price
+    ws['C7'].number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
     
-    ws['B7'] = 'Total Line Items:'
-    ws['C7'] = len(group_rows)
+    ws['B8'] = 'Total Line Items'
+    ws['C8'] = len(group_rows)
     
-    ws['B8'] = 'Date Range:'
-    ws['C8'] = f"{snapshot_date.strftime('%m/%d/%Y')} - {week_end_display}"
+    ws['B9'] = 'Billing Period'
+    ws['C9'] = f"{snapshot_date.strftime('%m/%d/%Y')} to {week_end_display}"
     
-    for row in range(6, 9):
+    for row in range(7, 10):
         ws[f'B{row}'].font = SUMMARY_LABEL_FONT
         ws[f'C{row}'].font = SUMMARY_VALUE_FONT
 
     # --- Report Details Block ---
-    ws.merge_cells('G5:I5')
-    ws['G5'] = 'Report Details'
-    ws['G5'].font = Font(name='Calibri', size=14, bold=True)
-    ws['G5'].fill = PatternFill(start_color='E7E6E6', end_color='E7E6E6', fill_type='solid')
+    ws.merge_cells('F6:I6')
+    ws['F6'] = 'Report Details'
+    ws['F6'].font = Font(name='Calibri', size=14, bold=True)
+    ws['F6'].fill = PatternFill(start_color='EAEAEA', end_color='EAEAEA', fill_type='solid')
 
     details = {
-        'G6': ("Foreman:", foreman),
-        'G7': ("Work Request #:", wr_num),
-        'G8': ("Work Order #:", first_row_cells.get(SOURCE_COLUMNS['Work Order #'], '')),
-        'G9': ("Customer:", first_row_cells.get(SOURCE_COLUMNS['Customer Name'], ''))
+        'F7': ("Foreman:", foreman),
+        'F8': ("Work Request #:", wr_num),
+        'F9': ("Work Order #:", first_row_cells.get(SOURCE_COLUMNS['Work Order #'], '')),
+        'F10': ("Customer:", first_row_cells.get(SOURCE_COLUMNS['Customer Name'], ''))
     }
-    for cell, (label, value) in details.items():
-        ws[cell] = label
-        ws[cell].font = SUMMARY_LABEL_FONT
-        data_cell = ws.cell(row=ws[cell].row, column=ws[cell].column + 1)
+    for cell_ref, (label, value) in details.items():
+        ws[cell_ref] = label
+        ws[cell_ref].font = SUMMARY_LABEL_FONT
+        data_cell = ws.cell(row=ws[cell_ref].row, column=ws[cell_ref].column + 1)
         data_cell.value = value
         data_cell.font = SUMMARY_VALUE_FONT
 
@@ -248,14 +260,14 @@ def generate_excel(group_key, group_rows, snapshot_date):
     ws.append([]) # Spacer
     
     table_headers = ["Point Number", "Billable Unit Code", "Work Type", "Unit Description", "Unit of Measure", "# of Units Completed", "N/A", "Pricing"]
-    start_table_row = ws.max_row + 1
+    start_table_row = ws.max_row
     
     for col_num, header_title in enumerate(table_headers, 1):
         cell = ws.cell(row=start_table_row, column=col_num)
         cell.value = header_title
         cell.font = TABLE_HEADER_FONT
         cell.fill = RED_FILL
-        cell.alignment = Alignment(horizontal='center', wrap_text=True)
+        cell.alignment = Alignment(horizontal='center', wrap_text=True, vertical='center')
         
     for i, row_data in enumerate(group_rows):
         current_row = start_table_row + i + 1
@@ -287,8 +299,17 @@ def generate_excel(group_key, group_rows, snapshot_date):
     for col, width in column_widths.items():
         ws.column_dimensions[col].width = width
 
+    # --- Footer for Audit Trail ---
+    ws.oddFooter.right.text = "Page &P of &N"
+    ws.oddFooter.right.size = 8
+    ws.oddFooter.right.font = "Calibri,Italic"
+    ws.oddFooter.left.text = f"Filename: {output_filename}"
+    ws.oddFooter.left.size = 8
+    ws.oddFooter.left.font = "Calibri,Italic"
+
+
     workbook.save(final_output_path)
-    logging.info(f"📄 Generated Professional Branded Excel: '{output_filename}'.")
+    logging.info(f"📄 Generated Enterprise Branded Excel: '{output_filename}'.")
     return final_output_path, output_filename, wr_num
 
 
