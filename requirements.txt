@@ -2,5 +2,5 @@ smartsheet-python-sdk
 python-dateutil
 pandas
 openpyxl
-pypdf2
+pypdf
 Pillow

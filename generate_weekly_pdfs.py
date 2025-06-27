@@ -3,8 +3,9 @@ import datetime
 import shutil
 import logging
 from dateutil import parser
-from PyPDF2 import PdfReader, PdfWriter
-from PyPDF2.generic import NameObject, NumberObject, BooleanObject
+# Corrected: Switched from PyPDF2 to its modern successor, pypdf
+from pypdf import PdfReader, PdfWriter
+from pypdf.generic import NameObject, BooleanObject
 import smartsheet
 import openpyxl
 from openpyxl.styles import Font, numbers, Alignment, Border, Side, PatternFill
@@ -35,7 +36,6 @@ SOURCE_COLUMNS = {
     'Quantity': 3251486253076356,
     'Redlined Total Price': 6339054112821124,
     'Snapshot Date': 8278756118187908,
-    # --- NEW: Added Scope ID column ---
     'Scope ID': 5871962817777540
 }
 TARGET_WR_COLUMN_ID = 7941607783092100
@@ -97,7 +97,7 @@ def parse_price(price_str):
         return 0.0
 
 def generate_pdf(group_key, group_rows, snapshot_date):
-    """Fills the PDF template with data from a group of rows."""
+    """Fills the PDF template with data from a group of rows and flattens it."""
     first_row_cells = {c.column_id: c.value for c in group_rows[0].cells}
     foreman, wr_num, week_end_raw = group_key.split('_')
     scope_id = first_row_cells.get(SOURCE_COLUMNS['Scope ID'], '')
@@ -125,7 +125,6 @@ def generate_pdf(group_key, group_rows, snapshot_date):
                 "Work Order": str(first_row_cells.get(SOURCE_COLUMNS['Work Order #'], '') or '').split('.')[0],
                 "Work Request": wr_num,
                 "LocationAddress": str(first_row_cells.get(SOURCE_COLUMNS['Area'], '')),
-                # --- NEW: Assumes a field named "Scope ID #" exists in your PDF template ---
                 "Scope ID #": str(scope_id)
             })
         if num_pages > 1: form_data["PageNumber"] = f"Page {page_idx + 1} of {num_pages}"
@@ -147,22 +146,13 @@ def generate_pdf(group_key, group_rows, snapshot_date):
         form_data["PricingTOTAL"] = f"${page_total:,.2f}"
 
         final_writer.update_page_form_field_values(template_page, form_data)
-        
-        # --- FIX APPLIED ---
-        # The following block was removed as it caused corruption when viewed in Adobe.
-        # It attempted to make fields read-only, which conflicted with the
-        # /NeedAppearances flag required to make the data visible.
-        #
-        # if template_page.get("/Annots"):
-        #     for annot in template_page["/Annots"]:
-        #         writer_annot = annot.get_object()
-        #         writer_annot.update({NameObject("/Ff"): NumberObject(1)})
-        
         final_writer.add_page(template_page)
 
-    # This flag is essential for telling PDF viewers to render the field data.
-    if final_writer._root_object.get("/AcroForm"):
-        final_writer._root_object["/AcroForm"].update({NameObject("/NeedAppearances"): BooleanObject(True)})
+    # This crucial step "flattens" the PDF, baking the form data into the
+    # page content so it's always visible and no longer editable.
+    final_writer.flatten_pages()
+
+    # The /NeedAppearances flag is no longer needed after flattening.
 
     with open(final_output_path, "wb") as f:
         final_writer.write(f)
@@ -204,8 +194,8 @@ def generate_excel(group_key, group_rows, snapshot_date):
     # --- Insert Logo with specified dimensions ---
     try:
         img = Image(LOGO_PATH)
-        img.height = 99  # ~1.37 inches at 72 DPI
-        img.width = 198  # ~2.75 inches at 72 DPI
+        img.height = 99
+        img.width = 198
         ws.add_image(img, 'A1')
         for i in range(1, 4): ws.row_dimensions[i].height = 25
     except FileNotFoundError:
@@ -258,7 +248,6 @@ def generate_excel(group_key, group_rows, snapshot_date):
     details = {
         'F7': ("Foreman:", foreman),
         'F8': ("Work Request #:", wr_num),
-        # --- NEW: Added Scope ID ---
         'F9': ("Scope ID #:", scope_id),
         'F10': ("Work Order #:", first_row_cells.get(SOURCE_COLUMNS['Work Order #'], '')),
         'F11': ("Customer:", first_row_cells.get(SOURCE_COLUMNS['Customer Name'], ''))
