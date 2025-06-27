@@ -139,7 +139,7 @@ def generate_pdf(group_key, group_rows, snapshot_date):
                 f("Point Number"): str(row_cells.get(SOURCE_COLUMNS['Pole #'], '')),
                 f("Billable Unit Code"): str(row_cells.get(SOURCE_COLUMNS['CU'], '')),
                 f("Work Type"): str(row_cells.get(SOURCE_COLUMNS['Work Type'], '')),
-                f("Unit Decription"): str(row_cells.get(SOURCE_COLUMNS['CU Description'], '')),
+                f("Unit Description"): str(row_cells.get(SOURCE_COLUMNS['CU Description'], '')),
                 f("Unit of Measure"): str(row_cells.get(SOURCE_COLUMNS['Unit of Measure'], '')),
                 f(" of Units Completed"): str(row_cells.get(SOURCE_COLUMNS['Quantity'], '') or '').split('.')[0],
                 f("Pricing"): f"${price_val:,.2f}" if price_val else ""
