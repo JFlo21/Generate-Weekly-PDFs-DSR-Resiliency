@@ -165,7 +165,12 @@ def generate_pdf(group_key, group_rows, snapshot_date):
         )
 
     # Remove all form annotations so the values become static (flattening).
-    final_writer.remove_annotations()
+
+    # ``remove_annotations`` requires specifying the types of annotations to
+    # remove. Passing ``None`` removes all annotations, which effectively
+    # flattens the form fields while leaving the filled values intact.
+    final_writer.remove_annotations(None)
+
 
     # The final `flatten_pages()` call is no longer needed as each page has
     # already been processed.
