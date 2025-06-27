@@ -3,7 +3,6 @@ import datetime
 import shutil
 import logging
 from dateutil import parser
-# Using the modern and correct pypdf library
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import NameObject, BooleanObject
 import smartsheet
@@ -13,7 +12,6 @@ from openpyxl.drawing.image import Image
 from openpyxl.utils.cell import get_column_letter
 
 # --- Configuration ---
-# IMPORTANT: Set your Smartsheet API token in your environment variables.
 API_TOKEN = os.getenv("SMARTSHEET_API_TOKEN")
 
 # --- Sheet and Column IDs ---
@@ -50,7 +48,6 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def create_target_sheet_map(client):
-    """Fetches target sheet and creates an efficient map of WR# to row objects."""
     logging.info(f"Fetching target sheet ({TARGET_SHEET_ID}) to create a lookup map...")
     target_sheet = client.Sheets.get_sheet(TARGET_SHEET_ID, include=['attachments'])
     target_map = {}
@@ -62,7 +59,6 @@ def create_target_sheet_map(client):
     return target_map
 
 def group_source_rows(client):
-    """Fetches source rows and groups them by Foreman, WR#, and Week."""
     logging.info(f"Fetching rows from source sheet ({SOURCE_SHEET_ID})...")
     source_sheet = client.Sheets.get_sheet(SOURCE_SHEET_ID)
     logging.info(f"✅ Found {len(source_sheet.rows)} total rows in source.")
@@ -88,7 +84,6 @@ def group_source_rows(client):
     return groups
 
 def parse_price(price_str):
-    """Safely parses a string into a float."""
     if not price_str: return 0.0
     try:
         return float(str(price_str).replace('$', '').replace(',', ''))
@@ -97,7 +92,6 @@ def parse_price(price_str):
         return 0.0
 
 def generate_pdf(group_key, group_rows, snapshot_date):
-    """Fills the PDF template with data from a group of rows and flattens it."""
     first_row_cells = {c.column_id: c.value for c in group_rows[0].cells}
     foreman, wr_num, week_end_raw = group_key.split('_')
     scope_id = first_row_cells.get(SOURCE_COLUMNS['Scope ID'], '')
@@ -109,7 +103,6 @@ def generate_pdf(group_key, group_rows, snapshot_date):
     num_pages = (len(group_rows) + 37) // 38
 
     for page_idx in range(num_pages):
-        # Read the template for each page to get a fresh copy
         template_reader = PdfReader(PDF_TEMPLATE_PATH)
         template_page = template_reader.pages[0]
 
@@ -147,33 +140,20 @@ def generate_pdf(group_key, group_rows, snapshot_date):
             })
         form_data["PricingTOTAL"] = f"${page_total:,.2f}"
 
-        # Add the template page to the writer before updating any fields so that
-        # the writer has the page in its internal structure.
         final_writer.add_page(template_page)
 
-        # Ensure the writer has the AcroForm dictionary from the template. This
-        # is required for ``update_page_form_field_values`` to work correctly.
         if (
             "/AcroForm" in template_reader.trailer["/Root"]
             and "/AcroForm" not in final_writer._root_object
         ):
             final_writer._root_object[NameObject("/AcroForm")] = template_reader.trailer["/Root"]["/AcroForm"]
 
-        # Fill the form fields on the page that was just added to the writer.
         final_writer.update_page_form_field_values(
             final_writer.pages[-1], form_data
         )
 
-    # Remove all form annotations so the values become static (flattening).
-
-    # ``remove_annotations`` requires specifying the types of annotations to
-    # remove. Passing ``None`` removes all annotations, which effectively
-    # flattens the form fields while leaving the filled values intact.
-    final_writer.remove_annotations(None)
-
-
-    # The final `flatten_pages()` call is no longer needed as each page has
-    # already been processed.
+    # Correct flattening: only remove form fields after filling!
+    final_writer.remove_annotations(subtypes=["Widget"])
 
     with open(final_output_path, "wb") as f:
         final_writer.write(f)
@@ -181,7 +161,6 @@ def generate_pdf(group_key, group_rows, snapshot_date):
     return final_output_path, output_filename, wr_num
 
 def generate_excel(group_key, group_rows, snapshot_date):
-    """Builds a professionally formatted, audit-ready Excel file from scratch."""
     first_row_cells = {c.column_id: c.value for c in group_rows[0].cells}
     foreman, wr_num, week_end_raw = group_key.split('_')
     scope_id = first_row_cells.get(SOURCE_COLUMNS['Scope ID'], '')
@@ -332,7 +311,6 @@ def generate_excel(group_key, group_rows, snapshot_date):
     return final_output_path, output_filename, wr_num
 
 def main():
-    """Main execution function with Hybrid Logic for PDF and Excel."""
     try:
         if not all([API_TOKEN, SOURCE_SHEET_ID]):
             logging.error("🚨 FATAL: SMARTSHEET_API_TOKEN or SOURCE_SHEET_ID not set.")
