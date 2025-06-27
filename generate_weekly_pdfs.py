@@ -147,16 +147,31 @@ def generate_pdf(group_key, group_rows, snapshot_date):
             })
         form_data["PricingTOTAL"] = f"${page_total:,.2f}"
 
-        # First, fill the fields on the template page object
-        final_writer.update_page_form_field_values(
-            template_page, form_data
-        )
-        
-        # Then, add the filled page to the writer and flatten it in the same step.
-        # This is the backward-compatible method for flattening.
-        final_writer.add_page(template_page, flatten=True)
+        # Add the template page to the writer before updating any fields so that
+        # the writer has the page in its internal structure.
+        final_writer.add_page(template_page)
 
-    # The final `flatten_pages()` call is no longer needed as it's done per-page.
+        # Ensure the writer has the AcroForm dictionary from the template. This
+        # is required for ``update_page_form_field_values`` to work correctly.
+        if (
+            "/AcroForm" in template_reader.trailer["/Root"]
+            and "/AcroForm" not in final_writer._root_object
+        ):
+            final_writer._root_object[NameObject("/AcroForm")] = template_reader.trailer["/Root"]["/AcroForm"]
+
+        # Fill the form fields on the page that was just added to the writer.
+        final_writer.update_page_form_field_values(
+            final_writer.pages[-1], form_data
+        )
+
+    # Remove all form annotations so the values become static (flattening).
+    # ``remove_annotations`` requires specifying the types of annotations to
+    # remove. Passing ``None`` removes all annotations, which effectively
+    # flattens the form fields while leaving the filled values intact.
+    final_writer.remove_annotations(None)
+
+    # The final `flatten_pages()` call is no longer needed as each page has
+    # already been processed.
 
     with open(final_output_path, "wb") as f:
         final_writer.write(f)
