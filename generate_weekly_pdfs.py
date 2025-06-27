@@ -147,12 +147,20 @@ def generate_pdf(group_key, group_rows, snapshot_date):
         form_data["PricingTOTAL"] = f"${page_total:,.2f}"
 
         final_writer.update_page_form_field_values(template_page, form_data)
-        if template_page.get("/Annots"):
-            for annot in template_page["/Annots"]:
-                writer_annot = annot.get_object()
-                writer_annot.update({NameObject("/Ff"): NumberObject(1)})
+        
+        # --- FIX APPLIED ---
+        # The following block was removed as it caused corruption when viewed in Adobe.
+        # It attempted to make fields read-only, which conflicted with the
+        # /NeedAppearances flag required to make the data visible.
+        #
+        # if template_page.get("/Annots"):
+        #     for annot in template_page["/Annots"]:
+        #         writer_annot = annot.get_object()
+        #         writer_annot.update({NameObject("/Ff"): NumberObject(1)})
+        
         final_writer.add_page(template_page)
 
+    # This flag is essential for telling PDF viewers to render the field data.
     if final_writer._root_object.get("/AcroForm"):
         final_writer._root_object["/AcroForm"].update({NameObject("/NeedAppearances"): BooleanObject(True)})
 
@@ -289,11 +297,11 @@ def generate_excel(group_key, group_rows, snapshot_date):
         ]
         
         for col_num, value in enumerate(row_values, 1):
-             cell = ws.cell(row=current_row, column=col_num)
-             cell.value = value
-             cell.font = BODY_FONT
-             if col_num >= 6: cell.alignment = Alignment(horizontal='right')
-             if i % 2 == 1: cell.fill = LIGHT_GREY_FILL
+            cell = ws.cell(row=current_row, column=col_num)
+            cell.value = value
+            cell.font = BODY_FONT
+            if col_num >= 6: cell.alignment = Alignment(horizontal='right')
+            if i % 2 == 1: cell.fill = LIGHT_GREY_FILL
         
         ws.cell(row=current_row, column=8).number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
 
@@ -364,13 +372,13 @@ def main():
                             logging.warning(f"⚠️ Could not parse Snapshot Date '{snapshot_date_str}'.")
 
             if not filtered_rows:
-                logging.info(f"   ⏩ Skipping group '{group_key}' because it has no line items with a price.")
+                logging.info(f"   ⏩ Skipping group '{group_key}' because it has no line items with a price.")
                 continue
 
             if snapshot_dates:
                 most_recent_snapshot_date = max(snapshot_dates)
             else:
-                logging.warning(f"   ⚠️ No valid Snapshot Dates found for group '{group_key}'. Defaulting to current date.")
+                logging.warning(f"   ⚠️ No valid Snapshot Dates found for group '{group_key}'. Defaulting to current date.")
                 most_recent_snapshot_date = datetime.date.today()
 
             pdf_path, pdf_filename, wr_num = generate_pdf(group_key, filtered_rows, most_recent_snapshot_date)
@@ -388,38 +396,38 @@ def main():
             pdf_action = "NONE"
             if existing_pdf:
                 if latest_modification > existing_pdf.created_at:
-                    logging.info(f"   Change detected for PDF '{pdf_filename}'. Deleting old version...")
+                    logging.info(f"   Change detected for PDF '{pdf_filename}'. Deleting old version...")
                     client.Attachments.delete_attachment(TARGET_SHEET_ID, existing_pdf.id)
                     pdf_action = "UPDATE"
                 else: pdf_skipped += 1
             else: pdf_action = "CREATE"
             
             if pdf_action != "NONE":
-                logging.info(f"   Uploading PDF '{pdf_filename}'...")
+                logging.info(f"   Uploading PDF '{pdf_filename}'...")
                 with open(pdf_path, 'rb') as f:
                     client.Attachments.attach_file_to_row(TARGET_SHEET_ID, target_row.id, (pdf_filename, f, 'application/pdf'))
                 if pdf_action == "UPDATE": pdf_updated += 1
                 else: pdf_created += 1
-                logging.info("   ✅ PDF Upload Complete.")
+                logging.info("   ✅ PDF Upload Complete.")
 
             # EXCEL UPLOAD LOGIC
             existing_excel = next((a for a in (target_row.attachments or []) if a.name == excel_filename), None)
             excel_action = "NONE"
             if existing_excel:
                 if latest_modification > existing_excel.created_at:
-                    logging.info(f"   Change detected for Excel '{excel_filename}'. Deleting old version...")
+                    logging.info(f"   Change detected for Excel '{excel_filename}'. Deleting old version...")
                     client.Attachments.delete_attachment(TARGET_SHEET_ID, existing_excel.id)
                     excel_action = "UPDATE"
                 else: excel_skipped += 1
             else: excel_action = "CREATE"
 
             if excel_action != "NONE":
-                logging.info(f"   Uploading Excel '{excel_filename}'...")
+                logging.info(f"   Uploading Excel '{excel_filename}'...")
                 with open(excel_path, 'rb') as f:
                     client.Attachments.attach_file_to_row(TARGET_SHEET_ID, target_row.id, (excel_filename, f, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'))
                 if excel_action == "UPDATE": excel_updated += 1
                 else: excel_created += 1
-                logging.info("   ✅ Excel Upload Complete.")
+                logging.info("   ✅ Excel Upload Complete.")
 
         logging.info("\n\n--- ✅ Processing Complete ---")
         logging.info(f"PDFs Created: {pdf_created}, Updated: {pdf_updated}, Skipped: {pdf_skipped}")
