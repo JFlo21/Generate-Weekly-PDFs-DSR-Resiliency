@@ -104,13 +104,23 @@ def generate_pdf(group_key, group_rows, snapshot_date):
     week_end_display = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
     output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.pdf"
     final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
-    
+
+    template_reader = PdfReader(PDF_TEMPLATE_PATH)
     final_writer = PdfWriter()
+
+    # Explicitly copy the AcroForm from the template to the new writer.
+    # This is the crucial fix for the "No /AcroForm" error.
+    if "/AcroForm" in template_reader.trailer["/Root"]:
+        final_writer._root_object.update(
+            {NameObject("/AcroForm"): template_reader.trailer["/Root"]["/AcroForm"]}
+        )
+
     num_pages = (len(group_rows) + 37) // 38
 
     for page_idx in range(num_pages):
-        template_reader = PdfReader(PDF_TEMPLATE_PATH)
         template_page = template_reader.pages[0]
+        final_writer.add_page(template_page)
+
         form_data = {}
         page_total = 0.0
         chunk = group_rows[page_idx*38:(page_idx+1)*38]
@@ -145,14 +155,11 @@ def generate_pdf(group_key, group_rows, snapshot_date):
             })
         form_data["PricingTOTAL"] = f"${page_total:,.2f}"
 
-        final_writer.update_page_form_field_values(template_page, form_data)
-        final_writer.add_page(template_page)
+        final_writer.update_page_form_field_values(
+            final_writer.pages[page_idx], form_data
+        )
 
-    # This crucial step "flattens" the PDF, baking the form data into the
-    # page content so it's always visible and no longer editable.
     final_writer.flatten_pages()
-
-    # The /NeedAppearances flag is no longer needed after flattening.
 
     with open(final_output_path, "wb") as f:
         final_writer.write(f)
@@ -172,11 +179,9 @@ def generate_excel(group_key, group_rows, snapshot_date):
     ws = workbook.active
     ws.title = "Work Report"
 
-    # --- Define Color Scheme, Fonts, and Styles ---
     LINETEC_RED = 'C00000'
     LIGHT_GREY_FILL = PatternFill(start_color='F2F2F2', end_color='F2F2F2', fill_type='solid')
     RED_FILL = PatternFill(start_color=LINETEC_RED, end_color=LINETEC_RED, fill_type='solid')
-    
     TITLE_FONT = Font(name='Calibri', size=20, bold=True)
     SUBTITLE_FONT = Font(name='Calibri', size=16, bold=True, color='404040')
     TABLE_HEADER_FONT = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
@@ -185,13 +190,11 @@ def generate_excel(group_key, group_rows, snapshot_date):
     SUMMARY_LABEL_FONT = Font(name='Calibri', size=10, bold=True)
     SUMMARY_VALUE_FONT = Font(name='Calibri', size=10)
     
-    # --- Page Setup ---
     ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
     ws.page_setup.paper_size = ws.PAPERSIZE_A4
     ws.page_margins.left = 0.25; ws.page_margins.right = 0.25
     ws.page_margins.top = 0.5; ws.page_margins.bottom = 0.5
 
-    # --- Insert Logo with specified dimensions ---
     try:
         img = Image(LOGO_PATH)
         img.height = 99
@@ -204,19 +207,16 @@ def generate_excel(group_key, group_rows, snapshot_date):
         ws['A1'] = "LINETEC SERVICES"
         ws['A1'].font = TITLE_FONT
     
-    # --- Main Header ---
     ws.merge_cells('D1:I3')
     ws['D1'].value = 'WEEKLY UNITS COMPLETED PER SCOPE ID'
     ws['D1'].font = SUBTITLE_FONT
     ws['D1'].alignment = Alignment(horizontal='center', vertical='center')
 
-    # --- Report Generation Date (for audit trail) ---
     ws.merge_cells('D4:I4')
     ws['D4'].value = f"Report Generated On: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     ws['D4'].font = Font(name='Calibri', size=9, italic=True)
     ws['D4'].alignment = Alignment(horizontal='right')
     
-    # --- Executive Summary Block ---
     total_price = sum(parse_price(cells.get(SOURCE_COLUMNS['Redlined Total Price'])) for row in group_rows for cells in [{c.column_id: c.value for c in row.cells}])
     
     ws.merge_cells('B6:D6')
@@ -238,7 +238,6 @@ def generate_excel(group_key, group_rows, snapshot_date):
         data_cell.alignment = Alignment(horizontal='right')
     ws['C7'].number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
 
-    # --- Report Details Block ---
     ws.merge_cells('F6:I6')
     ws['F6'] = 'REPORT DETAILS'
     ws['F6'].font = SUMMARY_HEADER_FONT
@@ -261,9 +260,7 @@ def generate_excel(group_key, group_rows, snapshot_date):
         data_cell.font = SUMMARY_VALUE_FONT
         data_cell.alignment = Alignment(horizontal='right')
 
-    # --- Table ---
     start_table_row = 13
-    
     table_headers = ["Point Number", "Billable Unit Code", "Work Type", "Unit Description", "Unit of Measure", "# Units", "N/A", "Pricing"]
     for col_num, header_title in enumerate(table_headers, 1):
         cell = ws.cell(row=start_table_row, column=col_num)
@@ -276,7 +273,6 @@ def generate_excel(group_key, group_rows, snapshot_date):
         current_row = start_table_row + i + 1
         cells = {c.column_id: c.value for c in row_data.cells}
         price = parse_price(cells.get(SOURCE_COLUMNS['Redlined Total Price']))
-        
         row_values = [
             cells.get(SOURCE_COLUMNS['Pole #'], ''), cells.get(SOURCE_COLUMNS['CU'], ''),
             cells.get(SOURCE_COLUMNS['Work Type'], ''), cells.get(SOURCE_COLUMNS['CU Description'], ''),
@@ -284,17 +280,14 @@ def generate_excel(group_key, group_rows, snapshot_date):
             int(str(cells.get(SOURCE_COLUMNS['Quantity'], '') or 0).split('.')[0]),
             "", price
         ]
-        
         for col_num, value in enumerate(row_values, 1):
             cell = ws.cell(row=current_row, column=col_num)
             cell.value = value
             cell.font = BODY_FONT
             if col_num >= 6: cell.alignment = Alignment(horizontal='right')
             if i % 2 == 1: cell.fill = LIGHT_GREY_FILL
-        
         ws.cell(row=current_row, column=8).number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
 
-    # --- Final Total Row ---
     final_total_row = start_table_row + len(group_rows) + 1
     ws.merge_cells(start_row=final_total_row, start_column=1, end_row=final_total_row, end_column=7)
     total_label_cell = ws.cell(row=final_total_row, column=1)
@@ -309,12 +302,10 @@ def generate_excel(group_key, group_rows, snapshot_date):
     total_value_cell.font = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
     total_value_cell.fill = RED_FILL
 
-    # --- Set Column Widths ---
     column_widths = {'A': 15, 'B': 20, 'C': 25, 'D': 45, 'E': 20, 'F': 10, 'G': 15, 'H': 15, 'I': 15}
     for col, width in column_widths.items():
         ws.column_dimensions[col].width = width
 
-    # --- Footer for Audit Trail ---
     ws.oddFooter.right.text = "Page &P of &N"
     ws.oddFooter.right.size = 8
     ws.oddFooter.right.font = "Calibri,Italic"
@@ -325,7 +316,6 @@ def generate_excel(group_key, group_rows, snapshot_date):
     workbook.save(final_output_path)
     logging.info(f"📄 Generated Enterprise Branded Excel: '{output_filename}'.")
     return final_output_path, output_filename, wr_num
-
 
 def main():
     """Main execution function with Hybrid Logic for PDF and Excel."""
