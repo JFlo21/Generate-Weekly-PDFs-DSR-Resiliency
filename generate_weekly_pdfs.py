@@ -3,7 +3,7 @@ import datetime
 import shutil
 import logging
 from dateutil import parser
-# Corrected: Switched from PyPDF2 to its modern successor, pypdf
+# Using the modern and correct pypdf library
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import NameObject, BooleanObject
 import smartsheet
@@ -105,21 +105,13 @@ def generate_pdf(group_key, group_rows, snapshot_date):
     output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.pdf"
     final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
 
-    template_reader = PdfReader(PDF_TEMPLATE_PATH)
     final_writer = PdfWriter()
-
-    # Explicitly copy the AcroForm from the template to the new writer.
-    # This is the crucial fix for the "No /AcroForm" error.
-    if "/AcroForm" in template_reader.trailer["/Root"]:
-        final_writer._root_object.update(
-            {NameObject("/AcroForm"): template_reader.trailer["/Root"]["/AcroForm"]}
-        )
-
     num_pages = (len(group_rows) + 37) // 38
 
     for page_idx in range(num_pages):
+        # Read the template for each page to get a fresh copy
+        template_reader = PdfReader(PDF_TEMPLATE_PATH)
         template_page = template_reader.pages[0]
-        final_writer.add_page(template_page)
 
         form_data = {}
         page_total = 0.0
@@ -155,11 +147,16 @@ def generate_pdf(group_key, group_rows, snapshot_date):
             })
         form_data["PricingTOTAL"] = f"${page_total:,.2f}"
 
+        # First, fill the fields on the template page object
         final_writer.update_page_form_field_values(
-            final_writer.pages[page_idx], form_data
+            template_page, form_data
         )
+        
+        # Then, add the filled page to the writer and flatten it in the same step.
+        # This is the backward-compatible method for flattening.
+        final_writer.add_page(template_page, flatten=True)
 
-    final_writer.flatten_pages()
+    # The final `flatten_pages()` call is no longer needed as it's done per-page.
 
     with open(final_output_path, "wb") as f:
         final_writer.write(f)
