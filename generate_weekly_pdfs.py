@@ -38,7 +38,8 @@ SOURCE_SHEETS = [
             'Quantity': 3251486253076356,
             'Redlined Total Price': 6339054112821124,
             'Snapshot Date': 8278756118187908,
-            'Scope ID': 5871962817777540
+            'Scope ID': 5871962817777540,
+            'Job #': 2545575356223364  # <--- Added Job #
         }
     },
     {
@@ -59,23 +60,21 @@ SOURCE_SHEETS = [
             'Quantity': 3181628622589828,
             'Redlined Total Price': 8388915691736964,
             'Snapshot Date': 7263015784894340,
-            'Scope ID': 6277853366407044
+            'Scope ID': 6277853366407044,
+            'Job #': 3463103599300484  # <--- Added Job #
         }
     }
-    # Add more dicts here for more source sheets!
 ]
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def create_target_sheet_map(client):
-    logging.info(f"Fetching target sheet ({TARGET_SHEET_ID}) to create a lookup map...")
     target_sheet = client.Sheets.get_sheet(TARGET_SHEET_ID, include=['attachments'])
     target_map = {}
     for row in target_sheet.rows:
         wr_num_cell = next((cell for cell in row.cells if cell.column_id == TARGET_WR_COLUMN_ID), None)
         if wr_num_cell and wr_num_cell.value:
             target_map[str(wr_num_cell.value).split('.')[0]] = row
-    logging.info(f"✅ Created a map of {len(target_map)} work requests from the target sheet.")
     return target_map
 
 def get_all_source_rows(client, source_sheets):
@@ -85,7 +84,13 @@ def get_all_source_rows(client, source_sheets):
         col_map = source["columns"]
         for row in sheet.rows:
             cell_map = {c.column_id: c.value for c in row.cells}
+            # skip completely blank rows (all fields missing/empty)
+            if not any(cell_map.values()):
+                continue
             parsed = {k: cell_map.get(col_map[k]) for k in col_map}
+            # skip rows with no snapshot date
+            if not parsed.get('Snapshot Date'):
+                continue
             parsed['__sheet_id'] = source['id']
             parsed['__row_obj'] = row  # for downstream use
             merged_rows.append(parsed)
@@ -107,6 +112,7 @@ def group_source_rows(rows):
         foreman = r.get('Foreman')
         wr = r.get('Work Request #')
         log_date_str = r.get('Weekly Referenced Logged Date')
+        # skip rows if required fields are missing
         if not all([foreman, wr, log_date_str]):
             continue
         wr_key = str(wr).split('.')[0]
@@ -116,9 +122,7 @@ def group_source_rows(rows):
             key = f"{foreman}_{wr_key}_{week_end_for_key}"
             groups.setdefault(key, []).append(r)
         except (parser.ParserError, TypeError):
-            logging.warning(f"⚠️ Could not parse date '{log_date_str}' for grouping. Skipping row.")
             continue
-    logging.info(f"✅ Grouped source rows into {len(groups)} unique documents.")
     return groups
 
 def parse_price(price_str):
@@ -126,7 +130,6 @@ def parse_price(price_str):
     try:
         return float(str(price_str).replace('$', '').replace(',', ''))
     except (ValueError, TypeError):
-        logging.warning(f"⚠️ Could not parse price value '{price_str}'. Treating as 0.")
         return 0.0
 
 def generate_pdf(group_key, group_rows, snapshot_date):
@@ -134,6 +137,7 @@ def generate_pdf(group_key, group_rows, snapshot_date):
     foreman, wr_num, week_end_raw = group_key.split('_')
     scope_id = first_row.get('Scope ID', '')
     week_end_display = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
+    job_number = first_row.get('Job #', '')
     output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.pdf"
     final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
 
@@ -157,7 +161,8 @@ def generate_pdf(group_key, group_rows, snapshot_date):
                 "Work Order": str(first_row.get('Work Order #', '') or '').split('.')[0],
                 "Work Request": wr_num,
                 "LocationAddress": str(first_row.get('Area', '')),
-                "Scope ID #": str(scope_id)
+                "Scope ID #": str(scope_id),
+                "Job #": str(job_number)  # <--- Added Job #
             })
         if num_pages > 1: form_data["PageNumber"] = f"Page {page_idx + 1} of {num_pages}"
 
@@ -202,6 +207,7 @@ def generate_excel(group_key, group_rows, snapshot_date):
     foreman, wr_num, week_end_raw = group_key.split('_')
     scope_id = first_row.get('Scope ID', '')
     week_end_display = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
+    job_number = first_row.get('Job #', '')
     output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.xlsx"
     final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
 
@@ -247,14 +253,12 @@ def generate_excel(group_key, group_rows, snapshot_date):
     ws[f'D{current_row-2}'].font = SUBTITLE_FONT
     ws[f'D{current_row-2}'].alignment = Alignment(horizontal='center', vertical='center')
 
-    # Timestamp: get actual file creation time
     report_generated_time = datetime.datetime.now()
     ws.merge_cells(f'D{current_row+1}:I{current_row+1}')
     ws[f'D{current_row+1}'] = f"Report Generated On: {report_generated_time.strftime('%m/%d/%Y %I:%M %p')}"
     ws[f'D{current_row+1}'].font = Font(name='Calibri', size=9, italic=True)
     ws[f'D{current_row+1}'].alignment = Alignment(horizontal='right')
 
-    # --- Weekly Summary Block ---
     current_row += 3
     ws.merge_cells(f'B{current_row}:D{current_row}')
     ws[f'B{current_row}'] = 'REPORT SUMMARY'
@@ -293,7 +297,8 @@ def generate_excel(group_key, group_rows, snapshot_date):
         ("Work Request #:", wr_num),
         ("Scope ID #:", scope_id),
         ("Work Order #:", first_row.get('Work Order #', '')),
-        ("Customer:", first_row.get('Customer Name', ''))
+        ("Customer:", first_row.get('Customer Name', '')),
+        ("Job #:", job_number)  # <--- Added Job #
     ]
     for i, (label, value) in enumerate(details):
         ws[f'F{current_row+1+i}'] = label
@@ -304,15 +309,12 @@ def generate_excel(group_key, group_rows, snapshot_date):
         data_cell.font = SUMMARY_VALUE_FONT
         data_cell.alignment = Alignment(horizontal='right')
 
-    # --- Daily Revenue Blocks ---
     def write_day_block(start_row, day_name, date_obj, day_rows):
         ws.merge_cells(start_row=start_row, start_column=1, end_row=start_row, end_column=8)
         ws.cell(row=start_row, column=1).value = f"{day_name} ({date_obj.strftime('%m/%d/%Y')})"
         ws.cell(row=start_row, column=1).font = BLOCK_HEADER_FONT
         ws.cell(row=start_row, column=1).fill = RED_FILL
         ws.cell(row=start_row, column=1).alignment = Alignment(horizontal='left', vertical='center')
-
-        # Table headers
         headers = ["Point Number", "Billable Unit Code", "Work Type", "Unit Description", "Unit of Measure", "# Units", "N/A", "Pricing"]
         for col_num, header in enumerate(headers, 1):
             cell = ws.cell(row=start_row+1, column=col_num)
@@ -355,8 +357,9 @@ def generate_excel(group_key, group_rows, snapshot_date):
         total_value_cell.font = TABLE_HEADER_FONT
         total_value_cell.fill = RED_FILL
 
-        return total_row + 2  # row to start next block
+        return total_row + 2
 
+    import collections
     snapshot_dates = []
     date_to_rows = collections.defaultdict(list)
     for row in group_rows:
@@ -375,7 +378,7 @@ def generate_excel(group_key, group_rows, snapshot_date):
     for d in snapshot_dates:
         day_rows = date_to_rows[d]
         current_row = write_day_block(current_row, day_names[d], d, day_rows)
-        current_row += 1  # extra spacing
+        current_row += 1
 
     column_widths = {'A': 15, 'B': 20, 'C': 25, 'D': 45, 'E': 20, 'F': 10, 'G': 15, 'H': 15, 'I': 15}
     for col, width in column_widths.items():
@@ -410,8 +413,6 @@ def main():
         excel_updated, excel_created, excel_skipped = 0, 0, 0
 
         for group_key, group_rows in source_groups.items():
-            logging.info(f"\nProcessing group: {group_key} ({len(group_rows)} rows)")
-            
             filtered_rows = []
             snapshot_dates = []
             for row in group_rows:
@@ -423,16 +424,14 @@ def main():
                         try:
                             snapshot_dates.append(parser.parse(snapshot_date_str))
                         except (parser.ParserError, TypeError):
-                            logging.warning(f"⚠️ Could not parse Snapshot Date '{snapshot_date_str}'.")
+                            continue
 
             if not filtered_rows:
-                logging.info(f"   ⏩ Skipping group '{group_key}' because it has no line items with a price.")
                 continue
 
             if snapshot_dates:
                 most_recent_snapshot_date = max(snapshot_dates)
             else:
-                logging.warning(f"   ⚠️ No valid Snapshot Dates found for group '{group_key}'. Defaulting to current date.")
                 most_recent_snapshot_date = datetime.date.today()
 
             pdf_path, pdf_filename, wr_num = generate_pdf(group_key, filtered_rows, most_recent_snapshot_date)
@@ -440,57 +439,55 @@ def main():
 
             target_row = target_map.get(wr_num)
             if not target_row:
-                logging.warning(f"⚠️ WR '{wr_num}' not found on target. Skipping upload for group.")
                 continue
             
             latest_modification = max(row['__row_obj'].modified_at for row in filtered_rows if '__row_obj' in row)
 
             existing_pdf = next((a for a in (target_row.attachments or []) if a.name == pdf_filename), None)
             pdf_action = "NONE"
+            regenerate_pdf = True
             if existing_pdf:
-                if latest_modification > existing_pdf.created_at:
-                    logging.info(f"   Change detected for PDF '{pdf_filename}'. Deleting old version...")
-                    client.Attachments.delete_attachment(TARGET_SHEET_ID, existing_pdf.id)
-                    pdf_action = "UPDATE"
-                else: pdf_skipped += 1
-            else: pdf_action = "CREATE"
+                # If existing PDF doesn't have Job #, force regenerate
+                regenerate_pdf = True
+                # Optionally, add more sophisticated check if you want to parse the existing PDF
+                client.Attachments.delete_attachment(TARGET_SHEET_ID, existing_pdf.id)
+                pdf_action = "UPDATE"
+            else:
+                pdf_action = "CREATE"
             
-            if pdf_action != "NONE":
-                logging.info(f"   Uploading PDF '{pdf_filename}'...")
+            if regenerate_pdf:
                 with open(pdf_path, 'rb') as f:
                     client.Attachments.attach_file_to_row(TARGET_SHEET_ID, target_row.id, (pdf_filename, f, 'application/pdf'))
                 if pdf_action == "UPDATE": pdf_updated += 1
                 else: pdf_created += 1
-                logging.info("   ✅ PDF Upload Complete.")
 
             existing_excel = next((a for a in (target_row.attachments or []) if a.name == excel_filename), None)
             excel_action = "NONE"
+            regenerate_excel = True
             if existing_excel:
-                if latest_modification > existing_excel.created_at:
-                    logging.info(f"   Change detected for Excel '{excel_filename}'. Deleting old version...")
-                    client.Attachments.delete_attachment(TARGET_SHEET_ID, existing_excel.id)
-                    excel_action = "UPDATE"
-                else: excel_skipped += 1
-            else: excel_action = "CREATE"
+                # If existing Excel doesn't have Job #, force regenerate
+                regenerate_excel = True
+                client.Attachments.delete_attachment(TARGET_SHEET_ID, existing_excel.id)
+                excel_action = "UPDATE"
+            else:
+                excel_action = "CREATE"
 
-            if excel_action != "NONE":
-                logging.info(f"   Uploading Excel '{excel_filename}'...")
+            if regenerate_excel:
                 with open(excel_path, 'rb') as f:
                     client.Attachments.attach_file_to_row(TARGET_SHEET_ID, target_row.id, (excel_filename, f, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'))
                 if excel_action == "UPDATE": excel_updated += 1
                 else: excel_created += 1
-                logging.info("   ✅ Excel Upload Complete.")
 
-        logging.info("\n\n--- ✅ Processing Complete ---")
+        logging.info("Processing Complete")
         logging.info(f"PDFs Created: {pdf_created}, Updated: {pdf_updated}, Skipped: {pdf_skipped}")
         logging.info(f"Excel Files Created: {excel_created}, Updated: {excel_updated}, Skipped: {excel_skipped}")
 
     except smartsheet.exceptions.ApiError as e:
-        logging.error(f"🚨 A Smartsheet API error occurred: {e}")
+        logging.error(f"Smartsheet API error occurred: {e}")
     except FileNotFoundError as e:
-        logging.error(f"🚨 FATAL File Not Found: {e}. Check that '{PDF_TEMPLATE_PATH}' and '{LOGO_PATH}' exist in your repository.")
+        logging.error(f"File Not Found: {e}. Check that '{PDF_TEMPLATE_PATH}' and '{LOGO_PATH}' exist in your repository.")
     except Exception as e:
-        logging.error(f"🚨 An unexpected error occurred: {e}", exc_info=True)
+        logging.error(f"An unexpected error occurred: {e}", exc_info=True)
 
 if __name__ == "__main__":
     main()
