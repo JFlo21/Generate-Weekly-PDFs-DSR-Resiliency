@@ -11,37 +11,59 @@ from openpyxl.drawing.image import Image
 
 # --- Configuration ---
 API_TOKEN = os.getenv("SMARTSHEET_API_TOKEN")
-
-# --- Sheet and Column IDs ---
-SOURCE_SHEET_A_ID = 3239244454645636  # Main data sheet
-SOURCE_SHEET_B_ID = 2230129632694148  # Criteria/matching sheet
 TARGET_SHEET_ID = 5723337641643908
-
-SOURCE_COLUMNS = {
-    'Foreman': 5151953459564420,
-    'Work Request #': 4026053552721796,
-    'Weekly Referenced Logged Date': 2759416157523844,
-    'Dept #': 5714903412985732,
-    'Customer Name': 7966703226670980,
-    'Work Order #': 366878855483268,
-    'Area': 7403753273249668,
-    'Pole #': 929828808904580,
-    'CU': 7122278296539012,
-    'Work Type': 5433428436275076,
-    'CU Description': 5996378389696388,
-    'Unit of Measure': 3744578576011140,
-    'Quantity': 3181628622589828,
-    'Redlined Total Price': 8388915691736964,
-    'Snapshot Date': 7263015784894340,
-    'Scope ID': 6277853366407044
-}
 TARGET_WR_COLUMN_ID = 7941607783092100
-
-# --- File Paths ---
 PDF_TEMPLATE_PATH = "template.pdf"
 LOGO_PATH = "LinetecServices_Logo.png"
 OUTPUT_FOLDER = "generated_docs"
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+
+# --- Source Sheets and Column Mappings ---
+SOURCE_SHEETS = [
+    {
+        "id": 3239244454645636,  # Sheet A
+        "columns": {
+            'Foreman': 5476104938409860,
+            'Work Request #': 3620163004092292,
+            'Weekly Referenced Logged Date': 2398418129080196,
+            'Dept #': 6997862724620164,
+            'Customer Name': 491507762810756,
+            'Work Order #': 3885814985740164,
+            'Area': 1634015172054916,
+            'Pole #': 3621340785102724,
+            'CU': 5574664846004100,
+            'Work Type': 5503286066761604,
+            'CU Description': 6727495535251332,
+            'Unit of Measure': 1672112936537988,
+            'Quantity': 3251486253076356,
+            'Redlined Total Price': 6339054112821124,
+            'Snapshot Date': 8278756118187908,
+            'Scope ID': 5871962817777540
+        }
+    },
+    {
+        "id": 2230129632694148,  # Sheet B
+        "columns": {
+            'Foreman': 5151953459564420,
+            'Work Request #': 4026053552721796,
+            'Weekly Referenced Logged Date': 2759416157523844,
+            'Dept #': 5714903412985732,
+            'Customer Name': 7966703226670980,
+            'Work Order #': 366878855483268,
+            'Area': 7403753273249668,
+            'Pole #': 929828808904580,
+            'CU': 7122278296539012,
+            'Work Type': 5433428436275076,
+            'CU Description': 5996378389696388,
+            'Unit of Measure': 3744578576011140,
+            'Quantity': 3181628622589828,
+            'Redlined Total Price': 8388915691736964,
+            'Snapshot Date': 7263015784894340,
+            'Scope ID': 6277853366407044
+        }
+    }
+    # Add more dicts here for more source sheets
+]
 
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -57,41 +79,43 @@ def create_target_sheet_map(client):
     logging.info(f"✅ Created a map of {len(target_map)} work requests from the target sheet.")
     return target_map
 
-def get_matching_work_requests(client):
-    """
-    Reads all Work Request #s from SOURCE_SHEET_B_ID and returns them as a set of strings.
-    """
-    sheet = client.Sheets.get_sheet(SOURCE_SHEET_B_ID)
-    col_map = {col.title: col.id for col in sheet.columns}
-    wr_col_id = col_map["Work Request #"]
-    matching_wrs = set()
-    for row in sheet.rows:
-        wr_value = next((cell.value for cell in row.cells if cell.column_id == wr_col_id), None)
-        if wr_value:
-            matching_wrs.add(str(wr_value).split('.')[0])
-    logging.info(f"✅ Loaded {len(matching_wrs)} Work Request #s from matching criteria sheet.")
-    return matching_wrs
+def get_all_source_rows(client, source_sheets):
+    merged_rows = []
+    for source in source_sheets:
+        sheet = client.Sheets.get_sheet(source["id"])
+        col_map = source["columns"]
+        for row in sheet.rows:
+            cell_map = {c.column_id: c.value for c in row.cells}
+            parsed = {k: cell_map.get(col_map[k]) for k in col_map}
+            parsed['__sheet_id'] = source['id']
+            parsed['__row_obj'] = row  # for downstream use
+            merged_rows.append(parsed)
+    return merged_rows
 
-def group_source_rows(client, matching_wrs):
-    logging.info(f"Fetching rows from source sheet ({SOURCE_SHEET_A_ID})...")
-    source_sheet = client.Sheets.get_sheet(SOURCE_SHEET_A_ID)
-    logging.info(f"✅ Found {len(source_sheet.rows)} total rows in source.")
+def deduplicate_rows(rows):
+    seen = set()
+    deduped = []
+    for r in rows:
+        wr = r.get('Work Request #')
+        if wr and wr not in seen:
+            deduped.append(r)
+            seen.add(wr)
+    return deduped
+
+def group_source_rows(rows):
     groups = {}
-    for row in source_sheet.rows:
-        cells_map = {c.column_id: c.value for c in row.cells}
-        foreman = cells_map.get(SOURCE_COLUMNS['Foreman'])
-        wr = cells_map.get(SOURCE_COLUMNS['Work Request #'])
-        log_date_str = cells_map.get(SOURCE_COLUMNS['Weekly Referenced Logged Date'])
+    for r in rows:
+        foreman = r.get('Foreman')
+        wr = r.get('Work Request #')
+        log_date_str = r.get('Weekly Referenced Logged Date')
         if not all([foreman, wr, log_date_str]):
             continue
         wr_key = str(wr).split('.')[0]
-        if wr_key not in matching_wrs:
-            continue
         try:
             date_obj = parser.parse(log_date_str)
             week_end_for_key = date_obj.strftime("%m%d%y")
             key = f"{foreman}_{wr_key}_{week_end_for_key}"
-            groups.setdefault(key, []).append(row)
+            groups.setdefault(key, []).append(r)
         except (parser.ParserError, TypeError):
             logging.warning(f"⚠️ Could not parse date '{log_date_str}' for grouping. Skipping row.")
             continue
@@ -107,9 +131,9 @@ def parse_price(price_str):
         return 0.0
 
 def generate_pdf(group_key, group_rows, snapshot_date):
-    first_row_cells = {c.column_id: c.value for c in group_rows[0].cells}
+    first_row = group_rows[0]
     foreman, wr_num, week_end_raw = group_key.split('_')
-    scope_id = first_row_cells.get(SOURCE_COLUMNS['Scope ID'], '')
+    scope_id = first_row.get('Scope ID', '')
     week_end_display = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
     output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.pdf"
     final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
@@ -120,7 +144,6 @@ def generate_pdf(group_key, group_rows, snapshot_date):
     for page_idx in range(num_pages):
         template_reader = PdfReader(PDF_TEMPLATE_PATH)
         template_page = template_reader.pages[0]
-
         form_data = {}
         page_total = 0.0
         chunk = group_rows[page_idx*38:(page_idx+1)*38]
@@ -129,34 +152,33 @@ def generate_pdf(group_key, group_rows, snapshot_date):
             form_data.update({
                 "Week Ending Date": str(week_end_display),
                 "Employee Name": str(foreman),
-                "JobPhase Dept No": str(first_row_cells.get(SOURCE_COLUMNS['Dept #'], '') or '').split('.')[0],
+                "JobPhase Dept No": str(first_row.get('Dept #', '') or '').split('.')[0],
                 "Date": snapshot_date.strftime("%m/%d/%y"),
-                "Customer Name": str(first_row_cells.get(SOURCE_COLUMNS['Customer Name'], '')),
-                "Work Order": str(first_row_cells.get(SOURCE_COLUMNS['Work Order #'], '') or '').split('.')[0],
+                "Customer Name": str(first_row.get('Customer Name', '')),
+                "Work Order": str(first_row.get('Work Order #', '') or '').split('.')[0],
                 "Work Request": wr_num,
-                "LocationAddress": str(first_row_cells.get(SOURCE_COLUMNS['Area'], '')),
+                "LocationAddress": str(first_row.get('Area', '')),
                 "Scope ID #": str(scope_id)
             })
         if num_pages > 1: form_data["PageNumber"] = f"Page {page_idx + 1} of {num_pages}"
 
         for i, row in enumerate(chunk):
-            idx, row_cells = i + 1, {c.column_id: c.value for c in row.cells}
+            idx = i + 1
             def f(k): return f"{k}Row{idx}"
-            price_val = parse_price(row_cells.get(SOURCE_COLUMNS['Redlined Total Price']))
+            price_val = parse_price(row.get('Redlined Total Price'))
             page_total += price_val
             form_data.update({
-                f("Point Number"): str(row_cells.get(SOURCE_COLUMNS['Pole #'], '')),
-                f("Billable Unit Code"): str(row_cells.get(SOURCE_COLUMNS['CU'], '')),
-                f("Work Type"): str(row_cells.get(SOURCE_COLUMNS['Work Type'], '')),
-                f("Unit Description"): str(row_cells.get(SOURCE_COLUMNS['CU Description'], '')),
-                f("Unit of Measure"): str(row_cells.get(SOURCE_COLUMNS['Unit of Measure'], '')),
-                f(" of Units Completed"): str(row_cells.get(SOURCE_COLUMNS['Quantity'], '') or '').split('.')[0],
+                f("Point Number"): str(row.get('Pole #', '')),
+                f("Billable Unit Code"): str(row.get('CU', '')),
+                f("Work Type"): str(row.get('Work Type', '')),
+                f("Unit Description"): str(row.get('CU Description', '')),
+                f("Unit of Measure"): str(row.get('Unit of Measure', '')),
+                f(" of Units Completed"): str(row.get('Quantity', '') or '').split('.')[0],
                 f("Pricing"): f"${price_val:,.2f}" if price_val else ""
             })
         form_data["PricingTOTAL"] = f"${page_total:,.2f}"
 
         final_writer.add_page(template_page)
-
         if (
             "/AcroForm" in template_reader.trailer["/Root"]
             and "/AcroForm" not in final_writer._root_object
@@ -167,9 +189,7 @@ def generate_pdf(group_key, group_rows, snapshot_date):
             final_writer.pages[-1], form_data
         )
 
-    # Correct flattening: only remove form fields after filling!
     final_writer.remove_annotations(subtypes=["Widget"])
-
     with open(final_output_path, "wb") as f:
         final_writer.write(f)
     logging.info(f"📄 Generated PDF: '{output_filename}'.")
@@ -177,9 +197,9 @@ def generate_pdf(group_key, group_rows, snapshot_date):
 
 def generate_excel(group_key, group_rows, snapshot_date):
     import collections
-    first_row_cells = {c.column_id: c.value for c in group_rows[0].cells}
+    first_row = group_rows[0]
     foreman, wr_num, week_end_raw = group_key.split('_')
-    scope_id = first_row_cells.get(SOURCE_COLUMNS['Scope ID'], '')
+    scope_id = first_row.get('Scope ID', '')
     week_end_display = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
     output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.xlsx"
     final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
@@ -232,7 +252,7 @@ def generate_excel(group_key, group_rows, snapshot_date):
 
     # --- Weekly Summary Block ---
     def write_block(start_row, title, block_rows, block_date=None):
-        total_price = sum(parse_price({c.column_id: c.value for c in row.cells}.get(SOURCE_COLUMNS['Redlined Total Price'])) for row in block_rows)
+        total_price = sum(parse_price(row.get('Redlined Total Price')) for row in block_rows)
         ws.merge_cells(f'B{start_row}:D{start_row}')
         ws[f'B{start_row}'] = title
         ws[f'B{start_row}'].font = SUMMARY_HEADER_FONT
@@ -262,8 +282,8 @@ def generate_excel(group_key, group_rows, snapshot_date):
             (f'F{start_row+1}', ("Foreman:", foreman)),
             (f'F{start_row+2}', ("Work Request #:", wr_num)),
             (f'F{start_row+3}', ("Scope ID #:", scope_id)),
-            (f'F{start_row+4}', ("Work Order #:", first_row_cells.get(SOURCE_COLUMNS['Work Order #'], ''))),
-            (f'F{start_row+5}', ("Customer:", first_row_cells.get(SOURCE_COLUMNS['Customer Name'], '')))
+            (f'F{start_row+4}', ("Work Order #:", first_row.get('Work Order #', ''))),
+            (f'F{start_row+5}', ("Customer:", first_row.get('Customer Name', '')))
         ])
         for i, (cell_ref, (label, value)) in enumerate(details.items()):
             ws[cell_ref] = label
@@ -287,13 +307,12 @@ def generate_excel(group_key, group_rows, snapshot_date):
         # --- Line Items ---
         for i, row_data in enumerate(block_rows):
             current_row = th_row + i + 1
-            cells = {c.column_id: c.value for c in row_data.cells}
-            price = parse_price(cells.get(SOURCE_COLUMNS['Redlined Total Price']))
+            price = parse_price(row_data.get('Redlined Total Price'))
             row_values = [
-                cells.get(SOURCE_COLUMNS['Pole #'], ''), cells.get(SOURCE_COLUMNS['CU'], ''),
-                cells.get(SOURCE_COLUMNS['Work Type'], ''), cells.get(SOURCE_COLUMNS['CU Description'], ''),
-                cells.get(SOURCE_COLUMNS['Unit of Measure'], ''),
-                int(str(cells.get(SOURCE_COLUMNS['Quantity'], '') or 0).split('.')[0]),
+                row_data.get('Pole #', ''), row_data.get('CU', ''),
+                row_data.get('Work Type', ''), row_data.get('CU Description', ''),
+                row_data.get('Unit of Measure', ''),
+                int(str(row_data.get('Quantity', '') or 0).split('.')[0]),
                 "", price
             ]
             for col_num, value in enumerate(row_values, 1):
@@ -328,19 +347,17 @@ def generate_excel(group_key, group_rows, snapshot_date):
     # --- Daily Revenue Blocks ---
     # Get unique snapshot dates (as date objects, sorted)
     snapshot_dates = sorted({
-        parser.parse(({c.column_id: c.value for c in row.cells}).get(SOURCE_COLUMNS['Snapshot Date']))
+        parser.parse(row.get('Snapshot Date'))
         for row in group_rows
-        if ({c.column_id: c.value for c in row.cells}).get(SOURCE_COLUMNS['Snapshot Date'])
+        if row.get('Snapshot Date')
     })
 
     for snap_date in snapshot_dates:
         # Get all rows for this date
         block_rows = [
             row for row in group_rows
-            if (
-                ({c.column_id: c.value for c in row.cells}).get(SOURCE_COLUMNS['Snapshot Date'])
-                and parser.parse(({c.column_id: c.value for c in row.cells}).get(SOURCE_COLUMNS['Snapshot Date'])) == snap_date
-            )
+            if row.get('Snapshot Date')
+            and parser.parse(row.get('Snapshot Date')) == snap_date
         ]
         if not block_rows:
             continue
@@ -367,16 +384,17 @@ def generate_excel(group_key, group_rows, snapshot_date):
 
 def main():
     try:
-        if not all([API_TOKEN, SOURCE_SHEET_A_ID, SOURCE_SHEET_B_ID]):
-            logging.error("🚨 FATAL: SMARTSHEET_API_TOKEN or one of the SOURCE_SHEET_IDs not set.")
+        if not API_TOKEN:
+            logging.error("🚨 FATAL: SMARTSHEET_API_TOKEN not set.")
             return
 
         client = smartsheet.Smartsheet(API_TOKEN)
         client.errors_as_exceptions(True)
 
         target_map = create_target_sheet_map(client)
-        matching_wrs = get_matching_work_requests(client)
-        source_groups = group_source_rows(client, matching_wrs)
+        all_rows = get_all_source_rows(client, SOURCE_SHEETS)
+        deduped_rows = deduplicate_rows(all_rows)
+        source_groups = group_source_rows(deduped_rows)
         
         pdf_updated, pdf_created, pdf_skipped = 0, 0, 0
         excel_updated, excel_created, excel_skipped = 0, 0, 0
@@ -387,11 +405,10 @@ def main():
             filtered_rows = []
             snapshot_dates = []
             for row in group_rows:
-                cells_map = {c.column_id: c.value for c in row.cells}
-                price = parse_price(cells_map.get(SOURCE_COLUMNS['Redlined Total Price']))
+                price = parse_price(row.get('Redlined Total Price'))
                 if price > 0:
                     filtered_rows.append(row)
-                    snapshot_date_str = cells_map.get(SOURCE_COLUMNS['Snapshot Date'])
+                    snapshot_date_str = row.get('Snapshot Date')
                     if snapshot_date_str:
                         try:
                             snapshot_dates.append(parser.parse(snapshot_date_str))
@@ -416,7 +433,8 @@ def main():
                 logging.warning(f"⚠️ WR '{wr_num}' not found on target. Skipping upload for group.")
                 continue
             
-            latest_modification = max(row.modified_at for row in filtered_rows)
+            # Use row object from the group for modification date
+            latest_modification = max(row['__row_obj'].modified_at for row in filtered_rows if '__row_obj' in row)
 
             # PDF UPLOAD LOGIC
             existing_pdf = next((a for a in (target_row.attachments or []) if a.name == pdf_filename), None)
