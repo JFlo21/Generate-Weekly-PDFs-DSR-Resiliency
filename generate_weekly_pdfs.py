@@ -62,7 +62,7 @@ SOURCE_SHEETS = [
             'Scope ID': 6277853366407044
         }
     }
-    # Add more dicts here for more source sheets
+    # Add more dicts here for more source sheets!
 ]
 
 # --- Logging Setup ---
@@ -201,10 +201,12 @@ def generate_excel(group_key, group_rows, snapshot_date):
 
     first_row = group_rows[0]
     foreman, wr_num, week_end_raw = group_key.split('_')
+    scope_id = first_row.get('Scope ID', '')
     week_end_display = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
     output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.xlsx"
     final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
 
+    # Capture precise report generation time at save
     workbook = openpyxl.Workbook()
     ws = workbook.active
     ws.title = "Work Report"
@@ -214,16 +216,20 @@ def generate_excel(group_key, group_rows, snapshot_date):
     LIGHT_GREY_FILL = PatternFill(start_color='F2F2F2', end_color='F2F2F2', fill_type='solid')
     RED_FILL = PatternFill(start_color=LINETEC_RED, end_color=LINETEC_RED, fill_type='solid')
     TITLE_FONT = Font(name='Calibri', size=20, bold=True)
-    BLOCK_HEADER_FONT = Font(name='Calibri', size=14, bold=True, color='FFFFFF')
+    SUBTITLE_FONT = Font(name='Calibri', size=16, bold=True, color='404040')
     TABLE_HEADER_FONT = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
+    BLOCK_HEADER_FONT = Font(name='Calibri', size=14, bold=True, color='FFFFFF')
     BODY_FONT = Font(name='Calibri', size=11)
+    SUMMARY_HEADER_FONT = Font(name='Calibri', size=12, bold=True, color='FFFFFF')
+    SUMMARY_LABEL_FONT = Font(name='Calibri', size=10, bold=True)
+    SUMMARY_VALUE_FONT = Font(name='Calibri', size=10)
 
     ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
     ws.page_setup.paper_size = ws.PAPERSIZE_A4
     ws.page_margins.left = 0.25; ws.page_margins.right = 0.25
     ws.page_margins.top = 0.5; ws.page_margins.bottom = 0.5
 
-    # --- Logo and Title ---
+    # --- Branding and Titles ---
     current_row = 1
     try:
         img = Image(LOGO_PATH)
@@ -239,16 +245,68 @@ def generate_excel(group_key, group_rows, snapshot_date):
         current_row += 3
 
     ws.merge_cells(f'D{current_row-2}:I{current_row}')
-    ws[f'D{current_row-2}'] = f'WEEK ENDING: {week_end_display}'
-    ws[f'D{current_row-2}'].font = TITLE_FONT
+    ws[f'D{current_row-2}'] = 'WEEKLY UNITS COMPLETED PER SCOPE ID'
+    ws[f'D{current_row-2}'].font = SUBTITLE_FONT
     ws[f'D{current_row-2}'].alignment = Alignment(horizontal='center', vertical='center')
 
+    # Timestamp: get actual file creation time
+    report_generated_time = datetime.datetime.now()
     ws.merge_cells(f'D{current_row+1}:I{current_row+1}')
-    ws[f'D{current_row+1}'] = f"Report Generated On: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    ws[f'D{current_row+1}'] = f"Report Generated On: {report_generated_time.strftime('%m/%d/%Y %I:%M %p')}"
     ws[f'D{current_row+1}'].font = Font(name='Calibri', size=9, italic=True)
     ws[f'D{current_row+1}'].alignment = Alignment(horizontal='right')
 
-    # --- Helper: Write one day block ---
+    # --- Weekly Summary Block ---
+    current_row += 3
+    ws.merge_cells(f'B{current_row}:D{current_row}')
+    ws[f'B{current_row}'] = 'REPORT SUMMARY'
+    ws[f'B{current_row}'].font = SUMMARY_HEADER_FONT
+    ws[f'B{current_row}'].fill = RED_FILL
+    ws[f'B{current_row}'].alignment = Alignment(horizontal='center')
+
+    total_price = sum(parse_price(row.get('Redlined Total Price')) for row in group_rows)
+    ws[f'B{current_row+1}'] = 'Total Billed Amount:'
+    ws[f'B{current_row+1}'].font = SUMMARY_LABEL_FONT
+    ws[f'C{current_row+1}'] = total_price
+    ws[f'C{current_row+1}'].font = SUMMARY_VALUE_FONT
+    ws[f'C{current_row+1}'].alignment = Alignment(horizontal='right')
+    ws[f'C{current_row+1}'].number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
+
+    ws[f'B{current_row+2}'] = 'Total Line Items:'
+    ws[f'B{current_row+2}'].font = SUMMARY_LABEL_FONT
+    ws[f'C{current_row+2}'] = len(group_rows)
+    ws[f'C{current_row+2}'].font = SUMMARY_VALUE_FONT
+    ws[f'C{current_row+2}'].alignment = Alignment(horizontal='right')
+
+    ws[f'B{current_row+3}'] = 'Billing Period:'
+    ws[f'B{current_row+3}'].font = SUMMARY_LABEL_FONT
+    ws[f'C{current_row+3}'] = f"{snapshot_date.strftime('%m/%d/%Y')} to {week_end_display}"
+    ws[f'C{current_row+3}'].font = SUMMARY_VALUE_FONT
+    ws[f'C{current_row+3}'].alignment = Alignment(horizontal='right')
+
+    ws.merge_cells(f'F{current_row}:I{current_row}')
+    ws[f'F{current_row}'] = 'REPORT DETAILS'
+    ws[f'F{current_row}'].font = SUMMARY_HEADER_FONT
+    ws[f'F{current_row}'].fill = RED_FILL
+    ws[f'F{current_row}'].alignment = Alignment(horizontal='center')
+
+    details = [
+        ("Foreman:", foreman),
+        ("Work Request #:", wr_num),
+        ("Scope ID #:", scope_id),
+        ("Work Order #:", first_row.get('Work Order #', '')),
+        ("Customer:", first_row.get('Customer Name', ''))
+    ]
+    for i, (label, value) in enumerate(details):
+        ws[f'F{current_row+1+i}'] = label
+        ws[f'F{current_row+1+i}'].font = SUMMARY_LABEL_FONT
+        data_cell = ws.cell(row=current_row+1+i, column=ws[f'F{current_row+1+i}'].column + 1)
+        ws.merge_cells(start_row=data_cell.row, start_column=data_cell.column, end_row=data_cell.row, end_column=data_cell.column + 2)
+        data_cell.value = value
+        data_cell.font = SUMMARY_VALUE_FONT
+        data_cell.alignment = Alignment(horizontal='right')
+
+    # --- Daily Revenue Blocks ---
     def write_day_block(start_row, day_name, date_obj, day_rows):
         ws.merge_cells(start_row=start_row, start_column=1, end_row=start_row, end_column=8)
         ws.cell(row=start_row, column=1).value = f"{day_name} ({date_obj.strftime('%m/%d/%Y')})"
@@ -319,7 +377,7 @@ def generate_excel(group_key, group_rows, snapshot_date):
     day_names = {d: d.strftime('%A') for d in snapshot_dates}
 
     # Write all blocks
-    current_row += 5
+    current_row += 7
     for d in snapshot_dates:
         day_rows = date_to_rows[d]
         current_row = write_day_block(current_row, day_names[d], d, day_rows)
