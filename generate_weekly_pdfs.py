@@ -40,7 +40,7 @@ SOURCE_SHEETS = [
             'Snapshot Date': 8278756118187908,
             'Scope ID': 5871962817777540,
             'Job #': 2545575356223364,
-            'Units Completed': 2027690946940804   # <--- ADDED FOR FILTERING
+            'Units Completed': 5574165924630404,   # <-- Correct for Sheet A
         }
     },
     {
@@ -63,7 +63,7 @@ SOURCE_SHEETS = [
             'Snapshot Date': 7263015784894340,
             'Scope ID': 6277853366407044,
             'Job #': 3463103599300484,
-            'Units Completed': 5574165924630404   # <--- ADDED FOR FILTERING
+            'Units Completed': 2027690946940804,   # <-- Correct for Sheet B
         }
     }
 ]
