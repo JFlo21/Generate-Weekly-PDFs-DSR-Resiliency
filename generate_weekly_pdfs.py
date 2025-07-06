@@ -39,7 +39,8 @@ SOURCE_SHEETS = [
             'Redlined Total Price': 6339054112821124,
             'Snapshot Date': 8278756118187908,
             'Scope ID': 5871962817777540,
-            'Job #': 2545575356223364  # <--- Added Job #
+            'Job #': 2545575356223364,
+            'Units Completed': 2027690946940804   # <--- ADDED FOR FILTERING
         }
     },
     {
@@ -61,12 +62,23 @@ SOURCE_SHEETS = [
             'Redlined Total Price': 8388915691736964,
             'Snapshot Date': 7263015784894340,
             'Scope ID': 6277853366407044,
-            'Job #': 3463103599300484  # <--- Added Job #
+            'Job #': 3463103599300484,
+            'Units Completed': 5574165924630404   # <--- ADDED FOR FILTERING
         }
     }
 ]
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+def is_checked(val):
+    # Accepts True, "True", "checked", 1, "1", etc.
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, int):
+        return val == 1
+    if isinstance(val, str):
+        return val.strip().lower() in ('true', 'checked', 'yes', '1')
+    return False
 
 def create_target_sheet_map(client):
     target_sheet = client.Sheets.get_sheet(TARGET_SHEET_ID, include=['attachments'])
@@ -84,15 +96,14 @@ def get_all_source_rows(client, source_sheets):
         col_map = source["columns"]
         for row in sheet.rows:
             cell_map = {c.column_id: c.value for c in row.cells}
-            # skip completely blank rows (all fields missing/empty)
             if not any(cell_map.values()):
                 continue
             parsed = {k: cell_map.get(col_map[k]) for k in col_map}
-            # skip rows with no snapshot date
-            if not parsed.get('Snapshot Date'):
+            # Only include rows with Snapshot Date and Units Completed checked
+            if not parsed.get('Snapshot Date') or not is_checked(parsed.get('Units Completed')):
                 continue
             parsed['__sheet_id'] = source['id']
-            parsed['__row_obj'] = row  # for downstream use
+            parsed['__row_obj'] = row
             merged_rows.append(parsed)
     return merged_rows
 
@@ -112,7 +123,6 @@ def group_source_rows(rows):
         foreman = r.get('Foreman')
         wr = r.get('Work Request #')
         log_date_str = r.get('Weekly Referenced Logged Date')
-        # skip rows if required fields are missing
         if not all([foreman, wr, log_date_str]):
             continue
         wr_key = str(wr).split('.')[0]
@@ -162,7 +172,7 @@ def generate_pdf(group_key, group_rows, snapshot_date):
                 "Work Request": wr_num,
                 "LocationAddress": str(first_row.get('Area', '')),
                 "Scope ID #": str(scope_id),
-                "Job #": str(job_number)  # <--- Added Job #
+                "Job #": str(job_number)
             })
         if num_pages > 1: form_data["PageNumber"] = f"Page {page_idx + 1} of {num_pages}"
 
@@ -298,7 +308,7 @@ def generate_excel(group_key, group_rows, snapshot_date):
         ("Scope ID #:", scope_id),
         ("Work Order #:", first_row.get('Work Order #', '')),
         ("Customer:", first_row.get('Customer Name', '')),
-        ("Job #:", job_number)  # <--- Added Job #
+        ("Job #:", job_number)
     ]
     for i, (label, value) in enumerate(details):
         ws[f'F{current_row+1+i}'] = label
@@ -413,11 +423,14 @@ def main():
         excel_updated, excel_created, excel_skipped = 0, 0, 0
 
         for group_key, group_rows in source_groups.items():
+            if not group_rows:
+                continue
+
             filtered_rows = []
             snapshot_dates = []
             for row in group_rows:
                 price = parse_price(row.get('Redlined Total Price'))
-                if price > 0:
+                if price > 0 and is_checked(row.get('Units Completed')):
                     filtered_rows.append(row)
                     snapshot_date_str = row.get('Snapshot Date')
                     if snapshot_date_str:
@@ -447,9 +460,6 @@ def main():
             pdf_action = "NONE"
             regenerate_pdf = True
             if existing_pdf:
-                # If existing PDF doesn't have Job #, force regenerate
-                regenerate_pdf = True
-                # Optionally, add more sophisticated check if you want to parse the existing PDF
                 client.Attachments.delete_attachment(TARGET_SHEET_ID, existing_pdf.id)
                 pdf_action = "UPDATE"
             else:
@@ -465,8 +475,6 @@ def main():
             excel_action = "NONE"
             regenerate_excel = True
             if existing_excel:
-                # If existing Excel doesn't have Job #, force regenerate
-                regenerate_excel = True
                 client.Attachments.delete_attachment(TARGET_SHEET_ID, existing_excel.id)
                 excel_action = "UPDATE"
             else:
