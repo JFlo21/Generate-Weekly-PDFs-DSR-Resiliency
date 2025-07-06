@@ -40,7 +40,7 @@ SOURCE_SHEETS = [
             'Snapshot Date': 8278756118187908,
             'Scope ID': 5871962817777540,
             'Job #': 2545575356223364,
-            'Units Completed': 2027690946940804,   # <-- Original mapping for Sheet A
+            'Units Completed': 2027690946940804,    # <-- Original mapping for Sheet A
         }
     },
     {
@@ -63,7 +63,7 @@ SOURCE_SHEETS = [
             'Snapshot Date': 7263015784894340,
             'Scope ID': 6277853366407044,
             'Job #': 3463103599300484,
-            'Units Completed': 5574165924630404,   # <-- Original mapping for Sheet B
+            'Units Completed': 5574165924630404,    # <-- Original mapping for Sheet B
         }
     }
 ]
@@ -416,8 +416,8 @@ def main():
 
         target_map = create_target_sheet_map(client)
         all_rows = get_all_source_rows(client, SOURCE_SHEETS)
-        deduped_rows = deduplicate_rows(all_rows)
-        source_groups = group_source_rows(deduped_rows)
+        # deduped_rows = deduplicate_rows(all_rows) # <-- This was causing the issue.
+        source_groups = group_source_rows(all_rows) # <-- Use all_rows to group all valid records.
         
         pdf_updated, pdf_created, pdf_skipped = 0, 0, 0
         excel_updated, excel_created, excel_skipped = 0, 0, 0
