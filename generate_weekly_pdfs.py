@@ -197,9 +197,10 @@ def generate_pdf(group_key, group_rows, snapshot_date):
 
 def generate_excel(group_key, group_rows, snapshot_date):
     import collections
+    from openpyxl.utils import get_column_letter
+
     first_row = group_rows[0]
     foreman, wr_num, week_end_raw = group_key.split('_')
-    scope_id = first_row.get('Scope ID', '')
     week_end_display = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
     output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.xlsx"
     final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
@@ -213,19 +214,16 @@ def generate_excel(group_key, group_rows, snapshot_date):
     LIGHT_GREY_FILL = PatternFill(start_color='F2F2F2', end_color='F2F2F2', fill_type='solid')
     RED_FILL = PatternFill(start_color=LINETEC_RED, end_color=LINETEC_RED, fill_type='solid')
     TITLE_FONT = Font(name='Calibri', size=20, bold=True)
-    SUBTITLE_FONT = Font(name='Calibri', size=16, bold=True, color='404040')
+    BLOCK_HEADER_FONT = Font(name='Calibri', size=14, bold=True, color='FFFFFF')
     TABLE_HEADER_FONT = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
     BODY_FONT = Font(name='Calibri', size=11)
-    SUMMARY_HEADER_FONT = Font(name='Calibri', size=12, bold=True, color='FFFFFF')
-    SUMMARY_LABEL_FONT = Font(name='Calibri', size=10, bold=True)
-    SUMMARY_VALUE_FONT = Font(name='Calibri', size=10)
 
     ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
     ws.page_setup.paper_size = ws.PAPERSIZE_A4
     ws.page_margins.left = 0.25; ws.page_margins.right = 0.25
     ws.page_margins.top = 0.5; ws.page_margins.bottom = 0.5
 
-    # --- Branding and Titles ---
+    # --- Logo and Title ---
     current_row = 1
     try:
         img = Image(LOGO_PATH)
@@ -241,73 +239,38 @@ def generate_excel(group_key, group_rows, snapshot_date):
         current_row += 3
 
     ws.merge_cells(f'D{current_row-2}:I{current_row}')
-    ws[f'D{current_row-2}'].value = 'WEEKLY UNITS COMPLETED PER SCOPE ID'
-    ws[f'D{current_row-2}'].font = SUBTITLE_FONT
+    ws[f'D{current_row-2}'] = f'WEEK ENDING: {week_end_display}'
+    ws[f'D{current_row-2}'].font = TITLE_FONT
     ws[f'D{current_row-2}'].alignment = Alignment(horizontal='center', vertical='center')
 
     ws.merge_cells(f'D{current_row+1}:I{current_row+1}')
-    ws[f'D{current_row+1}'].value = f"Report Generated On: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    ws[f'D{current_row+1}'] = f"Report Generated On: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     ws[f'D{current_row+1}'].font = Font(name='Calibri', size=9, italic=True)
     ws[f'D{current_row+1}'].alignment = Alignment(horizontal='right')
 
-    # --- Weekly Summary Block ---
-    def write_block(start_row, title, block_rows, block_date=None):
-        total_price = sum(parse_price(row.get('Redlined Total Price')) for row in block_rows)
-        ws.merge_cells(f'B{start_row}:D{start_row}')
-        ws[f'B{start_row}'] = title
-        ws[f'B{start_row}'].font = SUMMARY_HEADER_FONT
-        ws[f'B{start_row}'].fill = RED_FILL
-        ws[f'B{start_row}'].alignment = Alignment(horizontal='center')
+    # --- Helper: Write one day block ---
+    def write_day_block(start_row, day_name, date_obj, day_rows):
+        ws.merge_cells(start_row=start_row, start_column=1, end_row=start_row, end_column=8)
+        ws.cell(row=start_row, column=1).value = f"{day_name} ({date_obj.strftime('%m/%d/%Y')})"
+        ws.cell(row=start_row, column=1).font = BLOCK_HEADER_FONT
+        ws.cell(row=start_row, column=1).fill = RED_FILL
+        ws.cell(row=start_row, column=1).alignment = Alignment(horizontal='left', vertical='center')
 
-        summary_data = collections.OrderedDict([
-            (f'B{start_row+1}', ('Total Billed Amount:', total_price)),
-            (f'B{start_row+2}', ('Total Line Items:', len(block_rows))),
-            (f'B{start_row+3}', ('Billing Period:', f"{snapshot_date.strftime('%m/%d/%Y')} to {week_end_display}" if not block_date else f"{block_date.strftime('%A, %m/%d/%Y')}"))
-        ])
-        for cell_ref, (label, value) in summary_data.items():
-            ws[cell_ref] = label
-            ws[cell_ref].font = SUMMARY_LABEL_FONT
-            data_cell = ws.cell(row=ws[cell_ref].row, column=ws[cell_ref].column + 1, value=value)
-            data_cell.font = SUMMARY_VALUE_FONT
-            data_cell.alignment = Alignment(horizontal='right')
-        ws[f'C{start_row+1}'].number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
-
-        ws.merge_cells(f'F{start_row}:I{start_row}')
-        ws[f'F{start_row}'] = 'REPORT DETAILS'
-        ws[f'F{start_row}'].font = SUMMARY_HEADER_FONT
-        ws[f'F{start_row}'].fill = RED_FILL
-        ws[f'F{start_row}'].alignment = Alignment(horizontal='center')
-
-        details = collections.OrderedDict([
-            (f'F{start_row+1}', ("Foreman:", foreman)),
-            (f'F{start_row+2}', ("Work Request #:", wr_num)),
-            (f'F{start_row+3}', ("Scope ID #:", scope_id)),
-            (f'F{start_row+4}', ("Work Order #:", first_row.get('Work Order #', ''))),
-            (f'F{start_row+5}', ("Customer:", first_row.get('Customer Name', '')))
-        ])
-        for i, (cell_ref, (label, value)) in enumerate(details.items()):
-            ws[cell_ref] = label
-            ws[cell_ref].font = SUMMARY_LABEL_FONT
-            data_cell = ws.cell(row=ws[cell_ref].row, column=ws[cell_ref].column + 1)
-            ws.merge_cells(start_row=data_cell.row, start_column=data_cell.column, end_row=data_cell.row, end_column=data_cell.column + 2)
-            data_cell.value = value
-            data_cell.font = SUMMARY_VALUE_FONT
-            data_cell.alignment = Alignment(horizontal='right')
-
-        # --- Table Headers ---
-        table_headers = ["Point Number", "Billable Unit Code", "Work Type", "Unit Description", "Unit of Measure", "# Units", "N/A", "Pricing"]
-        th_row = start_row + 7
-        for col_num, header_title in enumerate(table_headers, 1):
-            cell = ws.cell(row=th_row, column=col_num)
-            cell.value = header_title
+        # Table headers
+        headers = ["Point Number", "Billable Unit Code", "Work Type", "Unit Description", "Unit of Measure", "# Units", "N/A", "Pricing"]
+        for col_num, header in enumerate(headers, 1):
+            cell = ws.cell(row=start_row+1, column=col_num)
+            cell.value = header
             cell.font = TABLE_HEADER_FONT
             cell.fill = RED_FILL
             cell.alignment = Alignment(horizontal='center', wrap_text=True, vertical='center')
-        
-        # --- Line Items ---
-        for i, row_data in enumerate(block_rows):
-            current_row = th_row + i + 1
+
+        # Line items
+        total_price = 0.0
+        for i, row_data in enumerate(day_rows):
+            crow = start_row + 2 + i
             price = parse_price(row_data.get('Redlined Total Price'))
+            total_price += price
             row_values = [
                 row_data.get('Pole #', ''), row_data.get('CU', ''),
                 row_data.get('Work Type', ''), row_data.get('CU Description', ''),
@@ -316,55 +279,51 @@ def generate_excel(group_key, group_rows, snapshot_date):
                 "", price
             ]
             for col_num, value in enumerate(row_values, 1):
-                cell = ws.cell(row=current_row, column=col_num)
+                cell = ws.cell(row=crow, column=col_num)
                 cell.value = value
                 cell.font = BODY_FONT
                 if col_num >= 6: cell.alignment = Alignment(horizontal='right')
                 if i % 2 == 1: cell.fill = LIGHT_GREY_FILL
-            ws.cell(row=current_row, column=8).number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
+            ws.cell(row=crow, column=8).number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
 
-        # --- Table Total ---
-        final_total_row = th_row + len(block_rows) + 1
-        ws.merge_cells(start_row=final_total_row, start_column=1, end_row=final_total_row, end_column=7)
-        total_label_cell = ws.cell(row=final_total_row, column=1)
+        # Table total
+        total_row = start_row + 2 + len(day_rows)
+        ws.merge_cells(start_row=total_row, start_column=1, end_row=total_row, end_column=7)
+        total_label_cell = ws.cell(row=total_row, column=1)
         total_label_cell.value = "TOTAL"
-        total_label_cell.font = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
+        total_label_cell.font = TABLE_HEADER_FONT
         total_label_cell.alignment = Alignment(horizontal='right')
         total_label_cell.fill = RED_FILL
 
-        total_value_cell = ws.cell(row=final_total_row, column=8)
+        total_value_cell = ws.cell(row=total_row, column=8)
         total_value_cell.value = total_price
         total_value_cell.number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
-        total_value_cell.font = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
+        total_value_cell.font = TABLE_HEADER_FONT
         total_value_cell.fill = RED_FILL
 
-        return final_total_row + 2  # Row to start the next block
+        return total_row + 2  # row to start next block
 
-    # Write the weekly block
+    # --- Group by unique snapshot dates in group_rows ---
+    snapshot_dates = []
+    date_to_rows = collections.defaultdict(list)
+    for row in group_rows:
+        snap = row.get('Snapshot Date')
+        if snap:
+            try:
+                dt = parser.parse(snap)
+                date_to_rows[dt].append(row)
+            except Exception:
+                continue
+
+    snapshot_dates = sorted(date_to_rows.keys())
+    day_names = {d: d.strftime('%A') for d in snapshot_dates}
+
+    # Write all blocks
     current_row += 5
-    current_row = write_block(current_row, f"WEEKLY UNITS COMPLETED (Week Ending {week_end_display})", group_rows)
-
-    # --- Daily Revenue Blocks ---
-    # Get unique snapshot dates (as date objects, sorted)
-    snapshot_dates = sorted({
-        parser.parse(row.get('Snapshot Date'))
-        for row in group_rows
-        if row.get('Snapshot Date')
-    })
-
-    for snap_date in snapshot_dates:
-        # Get all rows for this date
-        block_rows = [
-            row for row in group_rows
-            if row.get('Snapshot Date')
-            and parser.parse(row.get('Snapshot Date')) == snap_date
-        ]
-        if not block_rows:
-            continue
-        # Write a block for this snapshot date
-        block_title = f"DAILY REVENUE FOR {snap_date.strftime('%A, %m/%d/%Y')}"
-        current_row += 2  # Add spacing between blocks
-        current_row = write_block(current_row, block_title, block_rows, block_date=snap_date)
+    for d in snapshot_dates:
+        day_rows = date_to_rows[d]
+        current_row = write_day_block(current_row, day_names[d], d, day_rows)
+        current_row += 1  # extra spacing
 
     # --- Formatting/Footers ---
     column_widths = {'A': 15, 'B': 20, 'C': 25, 'D': 45, 'E': 20, 'F': 10, 'G': 15, 'H': 15, 'I': 15}
@@ -379,7 +338,7 @@ def generate_excel(group_key, group_rows, snapshot_date):
     ws.oddFooter.left.font = "Calibri,Italic"
 
     workbook.save(final_output_path)
-    logging.info(f"📄 Generated Enterprise Branded Excel: '{output_filename}'.")
+    logging.info(f"📄 Generated Excel with daily blocks: '{output_filename}'.")
     return final_output_path, output_filename, wr_num
 
 def main():
