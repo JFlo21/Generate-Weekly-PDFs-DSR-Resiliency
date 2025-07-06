@@ -65,7 +65,6 @@ SOURCE_SHEETS = [
     # Add more dicts here for more source sheets!
 ]
 
-# --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def create_target_sheet_map(client):
@@ -206,7 +205,6 @@ def generate_excel(group_key, group_rows, snapshot_date):
     output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.xlsx"
     final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
 
-    # Capture precise report generation time at save
     workbook = openpyxl.Workbook()
     ws = workbook.active
     ws.title = "Work Report"
@@ -323,7 +321,6 @@ def generate_excel(group_key, group_rows, snapshot_date):
             cell.fill = RED_FILL
             cell.alignment = Alignment(horizontal='center', wrap_text=True, vertical='center')
 
-        # Line items
         total_price = 0.0
         for i, row_data in enumerate(day_rows):
             crow = start_row + 2 + i
@@ -344,7 +341,6 @@ def generate_excel(group_key, group_rows, snapshot_date):
                 if i % 2 == 1: cell.fill = LIGHT_GREY_FILL
             ws.cell(row=crow, column=8).number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
 
-        # Table total
         total_row = start_row + 2 + len(day_rows)
         ws.merge_cells(start_row=total_row, start_column=1, end_row=total_row, end_column=7)
         total_label_cell = ws.cell(row=total_row, column=1)
@@ -361,7 +357,6 @@ def generate_excel(group_key, group_rows, snapshot_date):
 
         return total_row + 2  # row to start next block
 
-    # --- Group by unique snapshot dates in group_rows ---
     snapshot_dates = []
     date_to_rows = collections.defaultdict(list)
     for row in group_rows:
@@ -376,14 +371,12 @@ def generate_excel(group_key, group_rows, snapshot_date):
     snapshot_dates = sorted(date_to_rows.keys())
     day_names = {d: d.strftime('%A') for d in snapshot_dates}
 
-    # Write all blocks
     current_row += 7
     for d in snapshot_dates:
         day_rows = date_to_rows[d]
         current_row = write_day_block(current_row, day_names[d], d, day_rows)
         current_row += 1  # extra spacing
 
-    # --- Formatting/Footers ---
     column_widths = {'A': 15, 'B': 20, 'C': 25, 'D': 45, 'E': 20, 'F': 10, 'G': 15, 'H': 15, 'I': 15}
     for col, width in column_widths.items():
         ws.column_dimensions[col].width = width
@@ -450,10 +443,8 @@ def main():
                 logging.warning(f"⚠️ WR '{wr_num}' not found on target. Skipping upload for group.")
                 continue
             
-            # Use row object from the group for modification date
             latest_modification = max(row['__row_obj'].modified_at for row in filtered_rows if '__row_obj' in row)
 
-            # PDF UPLOAD LOGIC
             existing_pdf = next((a for a in (target_row.attachments or []) if a.name == pdf_filename), None)
             pdf_action = "NONE"
             if existing_pdf:
@@ -472,7 +463,6 @@ def main():
                 else: pdf_created += 1
                 logging.info("   ✅ PDF Upload Complete.")
 
-            # EXCEL UPLOAD LOGIC
             existing_excel = next((a for a in (target_row.attachments or []) if a.name == excel_filename), None)
             excel_action = "NONE"
             if existing_excel:
