@@ -8,6 +8,8 @@ import smartsheet
 import openpyxl
 from openpyxl.styles import Font, numbers, Alignment, PatternFill
 from openpyxl.drawing.image import Image
+import collections
+from openpyxl.utils import get_column_letter
 
 # --- Configuration ---
 API_TOKEN = os.getenv("SMARTSHEET_API_TOKEN")
@@ -24,7 +26,7 @@ SOURCE_SHEETS = [
         "id": 3239244454645636,  # Sheet A
         "columns": {
             'Foreman': 5476104938409860,
-            'Work Request #': 5924026620530564,
+            'Work Request #': 3620163004092292,
             'Weekly Referenced Logged Date': 2398418129080196,
             'Dept #': 6997862724620164,
             'Customer Name': 491507762810756,
@@ -40,14 +42,14 @@ SOURCE_SHEETS = [
             'Snapshot Date': 8278756118187908,
             'Scope ID': 5871962817777540,
             'Job #': 2545575356223364,
-            'Units Completed': 2027690946940804,    # <-- Original mapping for Sheet A
+            'Units Completed': 2027690946940804,
         }
     },
     {
         "id": 2230129632694148,  # Sheet B
         "columns": {
             'Foreman': 5151953459564420,
-            'Work Request #': 8529653180092292,
+            'Work Request #': 4026053552721796,
             'Weekly Referenced Logged Date': 2759416157523844,
             'Dept #': 5714903412985732,
             'Customer Name': 7966703226670980,
@@ -63,15 +65,46 @@ SOURCE_SHEETS = [
             'Snapshot Date': 7263015784894340,
             'Scope ID': 6277853366407044,
             'Job #': 3463103599300484,
-            'Units Completed': 5574165924630404,    # <-- Original mapping for Sheet B
+            'Units Completed': 5574165924630404,
+        }
+    },
+    {
+        "id": 1732945426468740,  # Sheet C
+        "columns": {
+            'Foreman': 961390415925124,
+            'Work Request #': 4339090136452996,
+            'Weekly Referenced Logged Date': 2280804369256324,
+            'Dept #': 7153839903559556,
+            'Customer Name': 3776140183031684,
+            'Work Order #': 8842689763823492,
+            'Area': 3213190229610372,
+            'Pole #': 8139002322046852,
+            'CU': 2509502787833732,
+            'Work Type': 820652927569796,
+            'CU Description': 1383602880991108,
+            'Unit of Measure': 5887202508361604,
+            'Quantity': 5324252554940292,
+            'Redlined Total Price': 3406704276098948,
+            'Snapshot Date': 4532604182941572,
+            'Scope ID': 2087290322767748,
+            'Job #': 6027939996716932,
+            'Units Completed': 591954508992388,
         }
     }
 ]
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+def parse_price(price_str):
+    """Safely converts a price string to a float."""
+    if not price_str: return 0.0
+    try:
+        return float(str(price_str).replace('$', '').replace(',', ''))
+    except (ValueError, TypeError):
+        return 0.0
+
 def is_checked(val):
-    # Accepts True, "True", "checked", 1, "1", etc.
+    """Checks if a value from a checkbox column is considered 'checked'."""
     if isinstance(val, bool):
         return val
     if isinstance(val, int):
@@ -81,68 +114,82 @@ def is_checked(val):
     return False
 
 def create_target_sheet_map(client):
+    """Creates a map of Work Request # to row objects from the target sheet."""
     target_sheet = client.Sheets.get_sheet(TARGET_SHEET_ID, include=['attachments'])
     target_map = {}
     for row in target_sheet.rows:
-        wr_num_cell = next((cell for cell in row.cells if cell.column_id == TARGET_WR_COLUMN_ID), None)
+        wr_num_cell = row.get_column(TARGET_WR_COLUMN_ID)
         if wr_num_cell and wr_num_cell.value:
-            target_map[str(wr_num_cell.value).split('.')[0]] = row
+            # Get the integer part of the work request number for consistent matching
+            wr_key = str(wr_num_cell.value).split('.')[0]
+            target_map[wr_key] = row
     return target_map
 
 def get_all_source_rows(client, source_sheets):
+    """
+    Fetches rows from all source sheets and applies all filtering criteria.
+    A row is considered valid if it has a Snapshot Date, a checked "Units Completed"
+    box, and a Redlined Total Price greater than zero.
+    """
     merged_rows = []
     for source in source_sheets:
-        sheet = client.Sheets.get_sheet(source["id"])
-        col_map = source["columns"]
-        for row in sheet.rows:
-            cell_map = {c.column_id: c.value for c in row.cells}
-            if not any(cell_map.values()):
-                continue
-            parsed = {k: cell_map.get(col_map[k]) for k in col_map}
-            # Only include rows with Snapshot Date and Units Completed checked
-            if not parsed.get('Snapshot Date') or not is_checked(parsed.get('Units Completed')):
-                continue
-            parsed['__sheet_id'] = source['id']
-            parsed['__row_obj'] = row
-            merged_rows.append(parsed)
+        try:
+            sheet = client.Sheets.get_sheet(source["id"])
+            col_map = source["columns"]
+            logging.info(f"Processing Sheet: {sheet.name} (ID: {source['id']})")
+
+            for row in sheet.rows:
+                cell_map = {c.column_id: c.value for c in row.cells}
+                if not any(cell_map.values()):
+                    continue # Skip entirely empty rows
+
+                # Create a parsed dictionary of the row's values based on the column mapping
+                parsed = {key: cell_map.get(col_id) for key, col_id in col_map.items()}
+
+                # --- Consolidated Filtering Logic ---
+                has_date = parsed.get('Snapshot Date')
+                is_complete = is_checked(parsed.get('Units Completed'))
+                has_price = parse_price(parsed.get('Redlined Total Price')) > 0
+
+                if not (has_date and is_complete and has_price):
+                    continue # If any condition fails, skip this row
+
+                # Add metadata to the row for later use
+                parsed['__sheet_id'] = source['id']
+                parsed['__row_obj'] = row # Keep the original row object
+                merged_rows.append(parsed)
+
+        except Exception as e:
+            logging.error(f"Could not process Sheet ID {source.get('id', 'N/A')}. Error: {e}")
+            
+    logging.info(f"Found {len(merged_rows)} total valid rows across all source sheets.")
     return merged_rows
 
-def deduplicate_rows(rows):
-    seen = set()
-    deduped = []
-    for r in rows:
-        wr = r.get('Work Request #')
-        if wr and wr not in seen:
-            deduped.append(r)
-            seen.add(wr)
-    return deduped
-
 def group_source_rows(rows):
-    groups = {}
+    """Groups valid rows by a composite key of Foreman, WR#, and Week Ending Date."""
+    groups = collections.defaultdict(list)
     for r in rows:
         foreman = r.get('Foreman')
         wr = r.get('Work Request #')
         log_date_str = r.get('Weekly Referenced Logged Date')
+
         if not all([foreman, wr, log_date_str]):
-            continue
+            continue # Skip if key information is missing
+
         wr_key = str(wr).split('.')[0]
         try:
             date_obj = parser.parse(log_date_str)
+            # Use a consistent week-ending date format for the key
             week_end_for_key = date_obj.strftime("%m%d%y")
             key = f"{foreman}_{wr_key}_{week_end_for_key}"
-            groups.setdefault(key, []).append(r)
-        except (parser.ParserError, TypeError):
+            groups[key].append(r)
+        except (parser.ParserError, TypeError) as e:
+            logging.warning(f"Could not parse date '{log_date_str}' for WR# {wr_key}. Skipping row. Error: {e}")
             continue
     return groups
 
-def parse_price(price_str):
-    if not price_str: return 0.0
-    try:
-        return float(str(price_str).replace('$', '').replace(',', ''))
-    except (ValueError, TypeError):
-        return 0.0
-
 def generate_pdf(group_key, group_rows, snapshot_date):
+    """Generates a multi-page PDF report for a group of rows."""
     first_row = group_rows[0]
     foreman, wr_num, week_end_raw = group_key.split('_')
     scope_id = first_row.get('Scope ID', '')
@@ -152,6 +199,7 @@ def generate_pdf(group_key, group_rows, snapshot_date):
     final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
 
     final_writer = PdfWriter()
+    # A standard page fits 38 rows of data
     num_pages = (len(group_rows) + 37) // 38
 
     for page_idx in range(num_pages):
@@ -159,8 +207,10 @@ def generate_pdf(group_key, group_rows, snapshot_date):
         template_page = template_reader.pages[0]
         form_data = {}
         page_total = 0.0
+        # Get the chunk of rows for the current page
         chunk = group_rows[page_idx*38:(page_idx+1)*38]
 
+        # Add header info only on the first page
         if page_idx == 0:
             form_data.update({
                 "Week Ending Date": str(week_end_display),
@@ -178,31 +228,28 @@ def generate_pdf(group_key, group_rows, snapshot_date):
 
         for i, row in enumerate(chunk):
             idx = i + 1
-            def f(k): return f"{k}Row{idx}"
             price_val = parse_price(row.get('Redlined Total Price'))
             page_total += price_val
             form_data.update({
-                f("Point Number"): str(row.get('Pole #', '')),
-                f("Billable Unit Code"): str(row.get('CU', '')),
-                f("Work Type"): str(row.get('Work Type', '')),
-                f("Unit Description"): str(row.get('CU Description', '')),
-                f("Unit of Measure"): str(row.get('Unit of Measure', '')),
-                f(" of Units Completed"): str(row.get('Quantity', '') or '').split('.')[0],
-                f("Pricing"): f"${price_val:,.2f}" if price_val else ""
+                f"Point NumberRow{idx}": str(row.get('Pole #', '')),
+                f"Billable Unit CodeRow{idx}": str(row.get('CU', '')),
+                f"Work TypeRow{idx}": str(row.get('Work Type', '')),
+                f"Unit DescriptionRow{idx}": str(row.get('CU Description', '')),
+                f"Unit of MeasureRow{idx}": str(row.get('Unit of Measure', '')),
+                f" of Units CompletedRow{idx}": str(row.get('Quantity', '') or '').split('.')[0],
+                f"PricingRow{idx}": f"${price_val:,.2f}" if price_val else ""
             })
         form_data["PricingTOTAL"] = f"${page_total:,.2f}"
 
         final_writer.add_page(template_page)
-        if (
-            "/AcroForm" in template_reader.trailer["/Root"]
-            and "/AcroForm" not in final_writer._root_object
-        ):
-            final_writer._root_object[NameObject("/AcroForm")] = template_reader.trailer["/Root"]["/AcroForm"]
+        # Ensure AcroForm is correctly carried over
+        if "/AcroForm" in template_reader.trailer["/Root"]:
+             if "/AcroForm" not in final_writer._root_object:
+                final_writer._root_object[NameObject("/AcroForm")] = template_reader.trailer["/Root"]["/AcroForm"]
 
-        final_writer.update_page_form_field_values(
-            final_writer.pages[-1], form_data
-        )
+        final_writer.update_page_form_field_values(final_writer.pages[-1], form_data, auto_regenerate=False)
 
+    # Flatten the form fields to make them non-editable
     final_writer.remove_annotations(subtypes=["Widget"])
     with open(final_output_path, "wb") as f:
         final_writer.write(f)
@@ -210,9 +257,7 @@ def generate_pdf(group_key, group_rows, snapshot_date):
     return final_output_path, output_filename, wr_num
 
 def generate_excel(group_key, group_rows, snapshot_date):
-    import collections
-    from openpyxl.utils import get_column_letter
-
+    """Generates a formatted Excel report for a group of rows."""
     first_row = group_rows[0]
     foreman, wr_num, week_end_raw = group_key.split('_')
     scope_id = first_row.get('Scope ID', '')
@@ -333,11 +378,11 @@ def generate_excel(group_key, group_rows, snapshot_date):
             cell.fill = RED_FILL
             cell.alignment = Alignment(horizontal='center', wrap_text=True, vertical='center')
 
-        total_price = 0.0
+        total_price_day = 0.0
         for i, row_data in enumerate(day_rows):
             crow = start_row + 2 + i
             price = parse_price(row_data.get('Redlined Total Price'))
-            total_price += price
+            total_price_day += price
             row_values = [
                 row_data.get('Pole #', ''), row_data.get('CU', ''),
                 row_data.get('Work Type', ''), row_data.get('CU Description', ''),
@@ -362,24 +407,21 @@ def generate_excel(group_key, group_rows, snapshot_date):
         total_label_cell.fill = RED_FILL
 
         total_value_cell = ws.cell(row=total_row, column=8)
-        total_value_cell.value = total_price
+        total_value_cell.value = total_price_day
         total_value_cell.number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
         total_value_cell.font = TABLE_HEADER_FONT
         total_value_cell.fill = RED_FILL
 
         return total_row + 2
 
-    import collections
-    snapshot_dates = []
     date_to_rows = collections.defaultdict(list)
     for row in group_rows:
         snap = row.get('Snapshot Date')
-        if snap:
-            try:
-                dt = parser.parse(snap)
-                date_to_rows[dt].append(row)
-            except Exception:
-                continue
+        try:
+            dt = parser.parse(snap)
+            date_to_rows[dt].append(row)
+        except (parser.ParserError, TypeError, ValueError):
+            continue
 
     snapshot_dates = sorted(date_to_rows.keys())
     day_names = {d: d.strftime('%A') for d in snapshot_dates}
@@ -406,94 +448,87 @@ def generate_excel(group_key, group_rows, snapshot_date):
     return final_output_path, output_filename, wr_num
 
 def main():
+    """Main execution function."""
     try:
         if not API_TOKEN:
-            logging.error("🚨 FATAL: SMARTSHEET_API_TOKEN not set.")
+            logging.error("🚨 FATAL: SMARTSHEET_API_TOKEN environment variable not set.")
             return
 
         client = smartsheet.Smartsheet(API_TOKEN)
         client.errors_as_exceptions(True)
 
-        target_map = create_target_sheet_map(client)
-        all_rows = get_all_source_rows(client, SOURCE_SHEETS)
-        # deduped_rows = deduplicate_rows(all_rows) # <-- This was causing the issue.
-        source_groups = group_source_rows(all_rows) # <-- Use all_rows to group all valid records.
+        logging.info("--- Starting Report Generation Process ---")
         
-        pdf_updated, pdf_created, pdf_skipped = 0, 0, 0
-        excel_updated, excel_created, excel_skipped = 0, 0, 0
+        # 1. Get the map of the target sheet to know where to upload files
+        target_map = create_target_sheet_map(client)
+        
+        # 2. Get all rows from all source sheets that meet ALL criteria
+        all_valid_rows = get_all_source_rows(client, SOURCE_SHEETS)
+        if not all_valid_rows:
+            logging.info("No valid rows found to process. Exiting.")
+            return
 
+        # 3. Group the valid rows into reports
+        source_groups = group_source_rows(all_valid_rows)
+        logging.info(f"Created {len(source_groups)} groups to generate reports for.")
+
+        pdf_updated, pdf_created = 0, 0
+        excel_updated, excel_created = 0, 0
+
+        # 4. Process each group
         for group_key, group_rows in source_groups.items():
             if not group_rows:
                 continue
 
-            filtered_rows = []
-            snapshot_dates = []
-            for row in group_rows:
-                price = parse_price(row.get('Redlined Total Price'))
-                if price > 0 and is_checked(row.get('Units Completed')):
-                    filtered_rows.append(row)
-                    snapshot_date_str = row.get('Snapshot Date')
-                    if snapshot_date_str:
-                        try:
-                            snapshot_dates.append(parser.parse(snapshot_date_str))
-                        except (parser.ParserError, TypeError):
-                            continue
+            # Determine the most recent snapshot date for the group
+            snapshot_dates = [parser.parse(row['Snapshot Date']) for row in group_rows if row.get('Snapshot Date')]
+            most_recent_snapshot_date = max(snapshot_dates) if snapshot_dates else datetime.date.today()
 
-            if not filtered_rows:
-                continue
+            # Generate both PDF and Excel files
+            pdf_path, pdf_filename, wr_num = generate_pdf(group_key, group_rows, most_recent_snapshot_date)
+            excel_path, excel_filename, _ = generate_excel(group_key, group_rows, most_recent_snapshot_date)
 
-            if snapshot_dates:
-                most_recent_snapshot_date = max(snapshot_dates)
-            else:
-                most_recent_snapshot_date = datetime.date.today()
-
-            pdf_path, pdf_filename, wr_num = generate_pdf(group_key, filtered_rows, most_recent_snapshot_date)
-            excel_path, excel_filename, _ = generate_excel(group_key, filtered_rows, most_recent_snapshot_date)
-
+            # Find the corresponding row in the target sheet
             target_row = target_map.get(wr_num)
             if not target_row:
+                logging.warning(f"⚠️ No matching row found in target sheet for WR# {wr_num}. Skipping attachment.")
                 continue
             
-            latest_modification = max(row['__row_obj'].modified_at for row in filtered_rows if '__row_obj' in row)
+            # --- Attach PDF File ---
+            # Check for and delete an existing version before uploading the new one
+            for attachment in target_row.attachments or []:
+                if attachment.name == pdf_filename:
+                    client.Attachments.delete_attachment(TARGET_SHEET_ID, attachment.id)
+                    pdf_updated += 1
+                    break
+            else: # Runs if the for loop doesn't break
+                pdf_created += 1
 
-            existing_pdf = next((a for a in (target_row.attachments or []) if a.name == pdf_filename), None)
-            pdf_action = "NONE"
-            regenerate_pdf = True
-            if existing_pdf:
-                client.Attachments.delete_attachment(TARGET_SHEET_ID, existing_pdf.id)
-                pdf_action = "UPDATE"
-            else:
-                pdf_action = "CREATE"
-            
-            if regenerate_pdf:
-                with open(pdf_path, 'rb') as f:
-                    client.Attachments.attach_file_to_row(TARGET_SHEET_ID, target_row.id, (pdf_filename, f, 'application/pdf'))
-                if pdf_action == "UPDATE": pdf_updated += 1
-                else: pdf_created += 1
+            client.Attachments.attach_file_to_row(TARGET_SHEET_ID, target_row.id, (pdf_filename, open(pdf_path, 'rb'), 'application/pdf'))
+            logging.info(f"✅ Attached PDF '{pdf_filename}' to row {target_row.row_number} for WR# {wr_num}.")
 
-            existing_excel = next((a for a in (target_row.attachments or []) if a.name == excel_filename), None)
-            excel_action = "NONE"
-            regenerate_excel = True
-            if existing_excel:
-                client.Attachments.delete_attachment(TARGET_SHEET_ID, existing_excel.id)
-                excel_action = "UPDATE"
-            else:
-                excel_action = "CREATE"
+            # --- Attach Excel File ---
+            # Check for and delete an existing version
+            for attachment in target_row.attachments or []:
+                 if attachment.name == excel_filename:
+                    client.Attachments.delete_attachment(TARGET_SHEET_ID, attachment.id)
+                    excel_updated += 1
+                    break
+            else: # Runs if the for loop doesn't break
+                excel_created += 1
 
-            if regenerate_excel:
-                with open(excel_path, 'rb') as f:
-                    client.Attachments.attach_file_to_row(TARGET_SHEET_ID, target_row.id, (excel_filename, f, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'))
-                if excel_action == "UPDATE": excel_updated += 1
-                else: excel_created += 1
+            client.Attachments.attach_file_to_row(TARGET_SHEET_ID, target_row.id, (excel_filename, open(excel_path, 'rb'), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'))
+            logging.info(f"✅ Attached Excel '{excel_filename}' to row {target_row.row_number} for WR# {wr_num}.")
 
-        logging.info("Processing Complete")
-        logging.info(f"PDFs Created: {pdf_created}, Updated: {pdf_updated}, Skipped: {pdf_skipped}")
-        logging.info(f"Excel Files Created: {excel_created}, Updated: {excel_updated}, Skipped: {excel_skipped}")
+
+        logging.info("--- Processing Complete ---")
+        logging.info(f"PDFs: {pdf_created} created, {pdf_updated} updated.")
+        logging.info(f"Excel Files: {excel_created} created, {excel_updated} updated.")
 
     except smartsheet.exceptions.ApiError as e:
-        logging.error(f"Smartsheet API error occurred: {e}")
+        logging.error(f"A Smartsheet API error occurred: {e}")
     except FileNotFoundError as e:
-        logging.error(f"File Not Found: {e}. Check that '{PDF_TEMPLATE_PATH}' and '{LOGO_PATH}' exist in your repository.")
+        logging.error(f"File Not Found: {e}. Please ensure '{PDF_TEMPLATE_PATH}' and '{LOGO_PATH}' are available.")
     except Exception as e:
         logging.error(f"An unexpected error occurred: {e}", exc_info=True)
 
