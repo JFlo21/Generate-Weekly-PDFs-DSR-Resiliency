@@ -24,7 +24,7 @@ SOURCE_SHEETS = [
         "id": 3239244454645636,  # Sheet A
         "columns": {
             'Foreman': 5476104938409860,
-            'Work Request #': 3620163004092292,
+            'Work Request #': 5924026620530564,
             'Weekly Referenced Logged Date': 2398418129080196,
             'Dept #': 6997862724620164,
             'Customer Name': 491507762810756,
@@ -47,7 +47,7 @@ SOURCE_SHEETS = [
         "id": 2230129632694148,  # Sheet B
         "columns": {
             'Foreman': 5151953459564420,
-            'Work Request #': 4026053552721796,
+            'Work Request #': 8529653180092292,
             'Weekly Referenced Logged Date': 2759416157523844,
             'Dept #': 5714903412985732,
             'Customer Name': 7966703226670980,
