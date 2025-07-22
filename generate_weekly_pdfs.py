@@ -90,6 +90,29 @@ SOURCE_SHEETS = [
             'Job #': 6027939996716932,
             'Units Completed': 591954508992388,
         }
+    },
+    {
+        "id": 4126460034895748,  # Sheet D - NEW SHEET ADDED
+        "columns": {
+            'Foreman': 2979010661011332,
+            'Work Request #': 8608510195224452,
+            'Weekly Referenced Logged Date': 1501267033280388,
+            'Dept #': 3541960614432644,
+            'Customer Name': 727210847326084,
+            'Work Order #': 4949335497985924,
+            'Area': 1853110754168708,
+            'Pole #': 5512285451407236,
+            'CU': 1571635777458052,
+            'Work Type': 3260485637721988,
+            'CU Description': 3823435591143300,
+            'Unit of Measure': 8327035218513796,
+            'Quantity': 7764085265092484,
+            'Redlined Total Price': 938317079859076,
+            'Snapshot Date': 7130766567493508,
+            'Scope ID': 4104910567853956,
+            'Job #': 8045560241803140,
+            'Units Completed': 3190116893544324,
+        }
     }
 ]
 
