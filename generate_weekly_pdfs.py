@@ -2,121 +2,140 @@ import os
 import datetime
 import logging
 from dateutil import parser
-from pypdf import PdfReader, PdfWriter
-from pypdf.generic import NameObject
 import smartsheet
 import openpyxl
 from openpyxl.styles import Font, numbers, Alignment, PatternFill
 from openpyxl.drawing.image import Image
 import collections
 from openpyxl.utils import get_column_letter
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # --- Configuration ---
 API_TOKEN = os.getenv("SMARTSHEET_API_TOKEN")
 TARGET_SHEET_ID = 5723337641643908
 TARGET_WR_COLUMN_ID = 7941607783092100
-PDF_TEMPLATE_PATH = "template.pdf"
 LOGO_PATH = "LinetecServices_Logo.png"
 OUTPUT_FOLDER = "generated_docs"
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-# --- Source Sheets and Column Mappings ---
-SOURCE_SHEETS = [
-    {
-        "id": 3239244454645636,  # Sheet A
-        "columns": {
-            'Foreman': 5476104938409860,
-            'Work Request #': 3620163004092292,
-            'Weekly Referenced Logged Date': 2398418129080196,
-            'Dept #': 6997862724620164,
-            'Customer Name': 491507762810756,
-            'Work Order #': 3885814985740164,
-            'Area': 1634015172054916,
-            'Pole #': 3621340785102724,
-            'CU': 5574664846004100,
-            'Work Type': 5503286066761604,
-            'CU Description': 6727495535251332,
-            'Unit of Measure': 1672112936537988,
-            'Quantity': 3251486253076356,
-            'Redlined Total Price': 6339054112821124,
-            'Snapshot Date': 8278756118187908,
-            'Scope ID': 5871962817777540,
-            'Job #': 2545575356223364,
-            'Units Completed': 2027690946940804,
-        }
-    },
-    {
-        "id": 2230129632694148,  # Sheet B
-        "columns": {
-            'Foreman': 5151953459564420,
-            'Work Request #': 4026053552721796,
-            'Weekly Referenced Logged Date': 2759416157523844,
-            'Dept #': 5714903412985732,
-            'Customer Name': 7966703226670980,
-            'Work Order #': 366878855483268,
-            'Area': 7403753273249668,
-            'Pole #': 929828808904580,
-            'CU': 7122278296539012,
-            'Work Type': 5433428436275076,
-            'CU Description': 5996378389696388,
-            'Unit of Measure': 3744578576011140,
-            'Quantity': 3181628622589828,
-            'Redlined Total Price': 8388915691736964,
-            'Snapshot Date': 7263015784894340,
-            'Scope ID': 6277853366407044,
-            'Job #': 3463103599300484,
-            'Units Completed': 5574165924630404,
-        }
-    },
-    {
-        "id": 1732945426468740,  # Sheet C
-        "columns": {
-            'Foreman': 961390415925124,
-            'Work Request #': 4339090136452996,
-            'Weekly Referenced Logged Date': 2280804369256324,
-            'Dept #': 7153839903559556,
-            'Customer Name': 3776140183031684,
-            'Work Order #': 8842689763823492,
-            'Area': 3213190229610372,
-            'Pole #': 8139002322046852,
-            'CU': 2509502787833732,
-            'Work Type': 820652927569796,
-            'CU Description': 1383602880991108,
-            'Unit of Measure': 5887202508361604,
-            'Quantity': 5324252554940292,
-            'Redlined Total Price': 3406704276098948,
-            'Snapshot Date': 4532604182941572,
-            'Scope ID': 2087290322767748,
-            'Job #': 6027939996716932,
-            'Units Completed': 591954508992388,
-        }
-    },
-    {
-        "id": 4126460034895748,  # Sheet D - NEW SHEET ADDED
-        "columns": {
-            'Foreman': 2979010661011332,
-            'Work Request #': 8608510195224452,
-            'Weekly Referenced Logged Date': 1501267033280388,
-            'Dept #': 3541960614432644,
-            'Customer Name': 727210847326084,
-            'Work Order #': 4949335497985924,
-            'Area': 1853110754168708,
-            'Pole #': 5512285451407236,
-            'CU': 1571635777458052,
-            'Work Type': 3260485637721988,
-            'CU Description': 3823435591143300,
-            'Unit of Measure': 8327035218513796,
-            'Quantity': 7764085265092484,
-            'Redlined Total Price': 938317079859076,
-            'Snapshot Date': 7130766567493508,
-            'Scope ID': 4104910567853956,
-            'Job #': 8045560241803140,
-            'Units Completed': 3190116893544324,
-        }
-    }
-]
+# --- TEST MODE CONFIGURATION ---
+TEST_MODE = True  # Set to False for actual production run
+# When TEST_MODE is True:
+# - Files will be generated locally for inspection
+# - No uploads to Smartsheet will occur  
+# - Only simulation output will be shown for uploads
+# NOTE: GitHub Actions workflow will automatically set this to False during scheduled runs
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+def discover_source_sheets(client):
+    """
+    Dynamically discovers source sheets based on the base sheet IDs and their duplicates.
+    Returns an updated list of SOURCE_SHEETS with all discovered sheets and their column mappings.
+    """
+    base_sheet_ids = [3239244454645636, 2230129632694148, 1732945426468740, 4126460034895748]
+    
+    # Base column mapping template - we'll use this to map columns by name
+    # Key = Actual column name in your sheets, Value = Internal name used by script
+    column_name_mapping = {
+        'Foreman': 'Foreman',
+        'Work Request #': 'Work Request #',  # Column 12 in your sheet
+        'Weekly Reference Logged Date': 'Weekly Referenced Logged Date',  # Column 46 in your sheet
+        'Dept #': 'Dept #',
+        'Customer Name': 'Customer Name',
+        'Work Order #': 'Work Order #',
+        'Area': 'Area',
+        'Pole #': 'Pole #',
+        'CU': 'CU',
+        'Work Type': 'Work Type',
+        'CU Description': 'CU Description',
+        'Unit of Measure': 'Unit of Measure',
+        'Quantity': 'Quantity',
+        'Units Total Price': 'Redlined Total Price',  # Column 51 in your sheet
+        'Snapshot Date': 'Snapshot Date',
+        'Scope #': 'Scope ID',  # Column 11 in your sheet (Scope # maps to Scope ID)
+        'Job #': 'Job #',
+        'Units Completed?': 'Units Completed',  # Column 53 in your sheet
+    }
+    
+    discovered_sheets = []
+    all_sheets = client.Sheets.list_sheets(include_all=True)
+    
+    for base_id in base_sheet_ids:
+        try:
+            # Get the base sheet to find its name pattern
+            base_sheet = client.Sheets.get_sheet(base_id)
+            base_name = base_sheet.name
+            logging.info(f"Processing base sheet: {base_name} (ID: {base_id})")
+            
+            # Find all sheets that match this base sheet or are copies of it
+            # EXCLUDE any sheets with "Archive" in the name to avoid duplicate data
+            matching_sheets = [sheet for sheet in all_sheets.data 
+                             if (sheet.id == base_id or base_name in sheet.name) and 
+                             "Archive" not in sheet.name]
+            
+            for sheet_info in matching_sheets:
+                try:
+                    # Get full sheet details including columns
+                    full_sheet = client.Sheets.get_sheet(sheet_info.id)
+                    
+                    # Create column mapping by matching column titles
+                    column_mapping = {}
+                    available_columns = []
+                    for column in full_sheet.columns:
+                        available_columns.append(column.title)
+                        if column.title in column_name_mapping:
+                            column_mapping[column_name_mapping[column.title]] = column.id
+                    
+                    # Only add sheets that have all required columns
+                    required_columns = ['Foreman', 'Work Request #', 'Weekly Referenced Logged Date', 
+                                      'Snapshot Date', 'Units Completed', 'Redlined Total Price']
+                    
+                    if TEST_MODE:
+                        print(f"\n🔍 Analyzing Sheet: {full_sheet.name}")
+                        print(f"Available columns: {', '.join(available_columns[:10])}{'...' if len(available_columns) > 10 else ''}")
+                        print(f"Total columns found: {len(available_columns)}")
+                        missing_cols = [col for col in required_columns if col not in column_mapping]
+                        if missing_cols:
+                            print(f"❌ Missing required columns: {missing_cols}")
+                        else:
+                            print(f"✅ All required columns found!")
+                    
+                    if all(col in column_mapping for col in required_columns):
+                        discovered_sheets.append({
+                            "id": sheet_info.id,
+                            "name": full_sheet.name,
+                            "columns": column_mapping
+                        })
+                        logging.info(f"Added sheet: {full_sheet.name} (ID: {sheet_info.id})")
+                    else:
+                        missing_cols = [col for col in required_columns if col not in column_mapping]
+                        logging.warning(f"Skipping sheet {full_sheet.name} - missing columns: {missing_cols}")
+                        
+                except Exception as e:
+                    logging.error(f"Error processing sheet {sheet_info.id}: {e}")
+                    continue
+                    
+        except Exception as e:
+            logging.error(f"Error processing base sheet {base_id}: {e}")
+            continue
+    
+    logging.info(f"Discovered {len(discovered_sheets)} total sheets for processing")
+    
+    if TEST_MODE and discovered_sheets:
+        print(f"\n🔍 DISCOVERED SHEETS IN TEST MODE:")
+        print(f"{'='*60}")
+        for i, sheet in enumerate(discovered_sheets, 1):
+            print(f"{i}. Sheet: {sheet['name']}")
+            print(f"   ID: {sheet['id']}")
+            print(f"   Columns Found: {len(sheet['columns'])}")
+            print(f"   Required Columns: ✅ All present")
+        print(f"{'='*60}\n")
+    
+    return discovered_sheets
 
 def parse_price(price_str):
     """Safely converts a price string to a float."""
@@ -189,8 +208,50 @@ def get_all_source_rows(client, source_sheets):
     return merged_rows
 
 def group_source_rows(rows):
-    """Groups valid rows by a composite key of Foreman, WR#, and Week Ending Date."""
+    """Groups valid rows by a composite key of WR# and Week Ending Date, using the most recent foreman name."""
     groups = collections.defaultdict(list)
+    # First, collect all rows by WR# to determine the most recent foreman for each work request
+    wr_to_foreman_history = collections.defaultdict(list)
+    
+    for r in rows:
+        foreman = r.get('Foreman')
+        wr = r.get('Work Request #')
+        log_date_str = r.get('Weekly Referenced Logged Date')
+        snapshot_date_str = r.get('Snapshot Date')
+
+        if not all([foreman, wr, log_date_str, snapshot_date_str]):
+            continue # Skip if key information is missing
+
+        wr_key = str(wr).split('.')[0]
+        try:
+            log_date_obj = parser.parse(log_date_str)
+            snapshot_date_obj = parser.parse(snapshot_date_str)
+            
+            # Track foreman history for this work request with the most recent date
+            wr_to_foreman_history[wr_key].append({
+                'foreman': foreman,
+                'snapshot_date': snapshot_date_obj,
+                'log_date': log_date_obj,
+                'row': r
+            })
+        except (parser.ParserError, TypeError) as e:
+            logging.warning(f"Could not parse date for WR# {wr_key}. Skipping row. Error: {e}")
+            continue
+    
+    # Determine the most recent foreman for each work request
+    wr_to_current_foreman = {}
+    for wr_key, history in wr_to_foreman_history.items():
+        # Sort by snapshot date (most recent first) to get the current foreman
+        history.sort(key=lambda x: x['snapshot_date'], reverse=True)
+        wr_to_current_foreman[wr_key] = history[0]['foreman']
+        
+        if TEST_MODE:
+            # Check if foreman changed during this work request
+            unique_foremen = list(set(h['foreman'] for h in history))
+            if len(unique_foremen) > 1:
+                print(f"🔄 WR# {wr_key}: Foreman changed from {unique_foremen} -> Using most recent: '{history[0]['foreman']}'")
+    
+    # Now group the rows using the determined current foreman for consistency
     for r in rows:
         foreman = r.get('Foreman')
         wr = r.get('Work Request #')
@@ -200,94 +261,48 @@ def group_source_rows(rows):
             continue # Skip if key information is missing
 
         wr_key = str(wr).split('.')[0]
+        
+        # Use the most recent foreman name for this work request instead of the row's foreman
+        current_foreman = wr_to_current_foreman.get(wr_key, foreman)
+        
         try:
             date_obj = parser.parse(log_date_str)
             # Use a consistent week-ending date format for the key
             week_end_for_key = date_obj.strftime("%m%d%y")
-            key = f"{foreman}_{wr_key}_{week_end_for_key}"
+            key = f"{current_foreman}_{wr_key}_{week_end_for_key}"
+            
+            # Add the current foreman to the row data for consistent reporting
+            r['__current_foreman'] = current_foreman
             groups[key].append(r)
         except (parser.ParserError, TypeError) as e:
             logging.warning(f"Could not parse date '{log_date_str}' for WR# {wr_key}. Skipping row. Error: {e}")
             continue
     return groups
 
-def generate_pdf(group_key, group_rows, snapshot_date):
-    """Generates a multi-page PDF report for a group of rows."""
-    first_row = group_rows[0]
-    foreman, wr_num, week_end_raw = group_key.split('_')
-    scope_id = first_row.get('Scope ID', '')
-    week_end_display = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
-    job_number = first_row.get('Job #', '')
-    output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.pdf"
-    final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
-
-    final_writer = PdfWriter()
-    # A standard page fits 38 rows of data
-    num_pages = (len(group_rows) + 37) // 38
-
-    for page_idx in range(num_pages):
-        template_reader = PdfReader(PDF_TEMPLATE_PATH)
-        template_page = template_reader.pages[0]
-        form_data = {}
-        page_total = 0.0
-        # Get the chunk of rows for the current page
-        chunk = group_rows[page_idx*38:(page_idx+1)*38]
-
-        # Add header info only on the first page
-        if page_idx == 0:
-            form_data.update({
-                "Week Ending Date": str(week_end_display),
-                "Employee Name": str(foreman),
-                "JobPhase Dept No": str(first_row.get('Dept #', '') or '').split('.')[0],
-                "Date": snapshot_date.strftime("%m/%d/%y"),
-                "Customer Name": str(first_row.get('Customer Name', '')),
-                "Work Order": str(first_row.get('Work Order #', '') or '').split('.')[0],
-                "Work Request": wr_num,
-                "LocationAddress": str(first_row.get('Area', '')),
-                "Scope ID #": str(scope_id),
-                "Job #": str(job_number)
-            })
-        if num_pages > 1: form_data["PageNumber"] = f"Page {page_idx + 1} of {num_pages}"
-
-        for i, row in enumerate(chunk):
-            idx = i + 1
-            price_val = parse_price(row.get('Redlined Total Price'))
-            page_total += price_val
-            form_data.update({
-                f"Point NumberRow{idx}": str(row.get('Pole #', '')),
-                f"Billable Unit CodeRow{idx}": str(row.get('CU', '')),
-                f"Work TypeRow{idx}": str(row.get('Work Type', '')),
-                f"Unit DescriptionRow{idx}": str(row.get('CU Description', '')),
-                f"Unit of MeasureRow{idx}": str(row.get('Unit of Measure', '')),
-                f" of Units CompletedRow{idx}": str(row.get('Quantity', '') or '').split('.')[0],
-                f"PricingRow{idx}": f"${price_val:,.2f}" if price_val else ""
-            })
-        form_data["PricingTOTAL"] = f"${page_total:,.2f}"
-
-        final_writer.add_page(template_page)
-        # Ensure AcroForm is correctly carried over
-        if "/AcroForm" in template_reader.trailer["/Root"]:
-             if "/AcroForm" not in final_writer._root_object:
-                final_writer._root_object[NameObject("/AcroForm")] = template_reader.trailer["/Root"]["/AcroForm"]
-
-        final_writer.update_page_form_field_values(final_writer.pages[-1], form_data, auto_regenerate=False)
-
-    # Flatten the form fields to make them non-editable
-    final_writer.remove_annotations(subtypes=["Widget"])
-    with open(final_output_path, "wb") as f:
-        final_writer.write(f)
-    logging.info(f"📄 Generated PDF: '{output_filename}'.")
-    return final_output_path, output_filename, wr_num
-
 def generate_excel(group_key, group_rows, snapshot_date):
     """Generates a formatted Excel report for a group of rows."""
     first_row = group_rows[0]
     foreman, wr_num, week_end_raw = group_key.split('_')
+    
+    # Use the current foreman (most recent) instead of the one from the group key
+    # In case there were changes during the work request timeline
+    current_foreman = first_row.get('__current_foreman', foreman)
+    
     scope_id = first_row.get('Scope ID', '')
     week_end_display = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
     job_number = first_row.get('Job #', '')
     output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.xlsx"
     final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
+
+    if TEST_MODE:
+        print(f"📊 Generating sample Excel: {output_filename}")
+        print(f"   - Work Request: {wr_num}")
+        print(f"   - Foreman: {current_foreman}")  # Show the current foreman being used
+        print(f"   - Week Ending: {week_end_display}")
+        print(f"   - Row Count: {len(group_rows)}")
+        if current_foreman != foreman:
+            print(f"   - 🔄 Using updated foreman '{current_foreman}' (was '{foreman}')")
+        # Continue to generate the actual file in test mode for inspection
 
     workbook = openpyxl.Workbook()
     ws = workbook.active
@@ -371,7 +386,7 @@ def generate_excel(group_key, group_rows, snapshot_date):
     ws[f'F{current_row}'].alignment = Alignment(horizontal='center')
 
     details = [
-        ("Foreman:", foreman),
+        ("Foreman:", current_foreman),
         ("Work Request #:", wr_num),
         ("Scope ID #:", scope_id),
         ("Work Order #:", first_row.get('Work Order #', '')),
@@ -466,8 +481,70 @@ def generate_excel(group_key, group_rows, snapshot_date):
     ws.oddFooter.left.size = 8
     ws.oddFooter.left.font = "Calibri,Italic"
 
+    if TEST_MODE:
+        # In test mode, don't actually save the file, just show what would be created
+        total_price = sum(parse_price(row.get('Redlined Total Price')) for row in group_rows)
+        
+        print(f"\n{'='*80}")
+        print(f"🧪 TEST MODE: Would generate Excel file '{output_filename}'")
+        print(f"{'='*80}")
+        print(f"📋 Report Details:")
+        print(f"   • Foreman: {foreman}")
+        print(f"   • Work Request #: {wr_num}")
+        print(f"   • Week Ending: {week_end_display}")
+        print(f"   • Scope ID: {scope_id}")
+        print(f"   • Job #: {job_number}")
+        print(f"   • Customer: {first_row.get('Customer Name', '')}")
+        print(f"   • Work Order #: {first_row.get('Work Order #', '')}")
+        print(f"   • Department #: {first_row.get('Dept #', '')}")
+        print(f"   • Area: {first_row.get('Area', '')}")
+        print(f"\n📊 Data Summary:")
+        print(f"   • Total Line Items: {len(group_rows)}")
+        print(f"   • Total Billed Amount: ${total_price:,.2f}")
+        print(f"   • Snapshot Date Range: {snapshot_date.strftime('%m/%d/%Y')}")
+        
+        # Show breakdown by day
+        date_to_rows = collections.defaultdict(list)
+        for row in group_rows:
+            snap = row.get('Snapshot Date')
+            try:
+                dt = parser.parse(snap)
+                date_to_rows[dt].append(row)
+            except (parser.ParserError, TypeError, ValueError):
+                continue
+        
+        if date_to_rows:
+            print(f"\n📅 Daily Breakdown:")
+            for date_obj in sorted(date_to_rows.keys()):
+                day_rows = date_to_rows[date_obj]
+                day_total = sum(parse_price(row.get('Redlined Total Price')) for row in day_rows)
+                print(f"   • {date_obj.strftime('%A, %m/%d/%Y')}: {len(day_rows)} items, ${day_total:,.2f}")
+        
+        # Show sample of first few rows
+        print(f"\n📝 Sample Data (first 3 rows):")
+        for i, row in enumerate(group_rows[:3]):
+            print(f"   Row {i+1}:")
+            print(f"     - Point #: {row.get('Pole #', '')}")
+            print(f"     - CU: {row.get('CU', '')}")
+            print(f"     - Work Type: {row.get('Work Type', '')}")
+            print(f"     - Description: {row.get('CU Description', '')}")
+            print(f"     - Unit of Measure: {row.get('Unit of Measure', '')}")
+            print(f"     - Quantity: {row.get('Quantity', '')}")
+            print(f"     - Price: ${parse_price(row.get('Redlined Total Price')):,.2f}")
+        
+        if len(group_rows) > 3:
+            print(f"   ... and {len(group_rows) - 3} more rows")
+        
+        print(f"{'='*80}\n")
+        
+        # In test mode, still generate the file for inspection but don't upload
+        # Fall through to workbook.save() below
+    # Save the workbook (in both test and production modes)
     workbook.save(final_output_path)
-    logging.info(f"📄 Generated Excel with daily blocks: '{output_filename}'.")
+    if TEST_MODE:
+        logging.info(f"📄 Generated sample Excel for inspection: '{output_filename}' (TEST MODE)")
+    else:
+        logging.info(f"📄 Generated Excel with daily blocks: '{output_filename}'.")
     return final_output_path, output_filename, wr_num
 
 def main():
@@ -480,25 +557,37 @@ def main():
         client = smartsheet.Smartsheet(API_TOKEN)
         client.errors_as_exceptions(True)
 
+        if TEST_MODE:
+            print(f"\n{'🧪 TEST MODE ACTIVE 🧪':^80}")
+            print(f"{'='*80}")
+            print(f"NO FILES WILL BE GENERATED OR UPLOADED")
+            print(f"THIS IS A SIMULATION TO SHOW WHAT WOULD HAPPEN")
+            print(f"{'='*80}\n")
+
         logging.info("--- Starting Report Generation Process ---")
         
-        # 1. Get the map of the target sheet to know where to upload files
+        # 1. Dynamically discover all source sheets (base sheets + their duplicates)
+        source_sheets = discover_source_sheets(client)
+        if not source_sheets:
+            logging.error("No valid source sheets found. Exiting.")
+            return
+        
+        # 2. Get the map of the target sheet to know where to upload files
         target_map = create_target_sheet_map(client)
         
-        # 2. Get all rows from all source sheets that meet ALL criteria
-        all_valid_rows = get_all_source_rows(client, SOURCE_SHEETS)
+        # 3. Get all rows from all source sheets that meet ALL criteria
+        all_valid_rows = get_all_source_rows(client, source_sheets)
         if not all_valid_rows:
             logging.info("No valid rows found to process. Exiting.")
             return
 
-        # 3. Group the valid rows into reports
+        # 4. Group the valid rows into reports
         source_groups = group_source_rows(all_valid_rows)
         logging.info(f"Created {len(source_groups)} groups to generate reports for.")
 
-        pdf_updated, pdf_created = 0, 0
         excel_updated, excel_created = 0, 0
 
-        # 4. Process each group
+        # 5. Process each group
         for group_key, group_rows in source_groups.items():
             if not group_rows:
                 continue
@@ -507,51 +596,80 @@ def main():
             snapshot_dates = [parser.parse(row['Snapshot Date']) for row in group_rows if row.get('Snapshot Date')]
             most_recent_snapshot_date = max(snapshot_dates) if snapshot_dates else datetime.date.today()
 
-            # Generate both PDF and Excel files
-            pdf_path, pdf_filename, wr_num = generate_pdf(group_key, group_rows, most_recent_snapshot_date)
-            excel_path, excel_filename, _ = generate_excel(group_key, group_rows, most_recent_snapshot_date)
+            # Generate Excel file only
+            excel_path, excel_filename, wr_num = generate_excel(group_key, group_rows, most_recent_snapshot_date)
 
             # Find the corresponding row in the target sheet
             target_row = target_map.get(wr_num)
             if not target_row:
-                logging.warning(f"⚠️ No matching row found in target sheet for WR# {wr_num}. Skipping attachment.")
+                if TEST_MODE:
+                    print(f"⚠️  TEST MODE: No matching row found in target sheet for WR# {wr_num}")
+                    print(f"   Would skip attachment for this Work Request")
+                else:
+                    logging.warning(f"⚠️ No matching row found in target sheet for WR# {wr_num}. Skipping attachment.")
                 continue
             
-            # --- Attach PDF File ---
-            # Check for and delete an existing version before uploading the new one
-            for attachment in target_row.attachments or []:
-                if attachment.name == pdf_filename:
-                    client.Attachments.delete_attachment(TARGET_SHEET_ID, attachment.id)
-                    pdf_updated += 1
-                    break
-            else: # Runs if the for loop doesn't break
-                pdf_created += 1
-
-            client.Attachments.attach_file_to_row(TARGET_SHEET_ID, target_row.id, (pdf_filename, open(pdf_path, 'rb'), 'application/pdf'))
-            logging.info(f"✅ Attached PDF '{pdf_filename}' to row {target_row.row_number} for WR# {wr_num}.")
-
-            # --- Attach Excel File ---
-            # Check for and delete an existing version
-            for attachment in target_row.attachments or []:
-                 if attachment.name == excel_filename:
-                    client.Attachments.delete_attachment(TARGET_SHEET_ID, attachment.id)
+            if TEST_MODE:
+                # In test mode, show what would happen with attachments
+                print(f"🔗 TEST MODE: Would attach to target sheet:")
+                print(f"   • Target Sheet Row: {target_row.row_number}")
+                print(f"   • Work Request #: {wr_num}")
+                
+                existing_attachment = None
+                for attachment in target_row.attachments or []:
+                    if attachment.name == excel_filename:
+                        existing_attachment = attachment
+                        break
+                
+                if existing_attachment:
+                    print(f"   • Action: UPDATE existing attachment '{excel_filename}'")
+                    print(f"   • Would delete old attachment ID: {existing_attachment.id}")
                     excel_updated += 1
-                    break
-            else: # Runs if the for loop doesn't break
-                excel_created += 1
+                else:
+                    print(f"   • Action: CREATE new attachment '{excel_filename}'")
+                    excel_created += 1
+                
+                print(f"   • File would be uploaded to row {target_row.row_number}")
+                print()
+            else:
+                # --- Attach Excel File ---
+                # Check for and delete an existing version
+                for attachment in target_row.attachments or []:
+                     if attachment.name == excel_filename:
+                        client.Attachments.delete_attachment(TARGET_SHEET_ID, attachment.id)
+                        excel_updated += 1
+                        break
+                else: # Runs if the for loop doesn't break
+                    excel_created += 1
 
-            client.Attachments.attach_file_to_row(TARGET_SHEET_ID, target_row.id, (excel_filename, open(excel_path, 'rb'), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'))
-            logging.info(f"✅ Attached Excel '{excel_filename}' to row {target_row.row_number} for WR# {wr_num}.")
+                client.Attachments.attach_file_to_row(TARGET_SHEET_ID, target_row.id, (excel_filename, open(excel_path, 'rb'), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'))
+                logging.info(f"✅ Attached Excel '{excel_filename}' to row {target_row.row_number} for WR# {wr_num}.")
 
-
-        logging.info("--- Processing Complete ---")
-        logging.info(f"PDFs: {pdf_created} created, {pdf_updated} updated.")
-        logging.info(f"Excel Files: {excel_created} created, {excel_updated} updated.")
+        if TEST_MODE:
+            print(f"\n{'='*80}")
+            print(f"🧪 TEST MODE SUMMARY - NO ACTUAL CHANGES MADE")
+            print(f"{'='*80}")
+            print(f"📈 Processing Results:")
+            print(f"   • Total Groups Processed: {len(source_groups)}")
+            print(f"   • Excel Files that would be CREATED: {excel_created}")
+            print(f"   • Excel Files that would be UPDATED: {excel_updated}")
+            print(f"   • Total Excel Files: {excel_created + excel_updated}")
+            print(f"\n🔍 Discovery Results:")
+            print(f"   • Source Sheets Found: {len(source_sheets)}")
+            print(f"   • Valid Data Rows Found: {len(all_valid_rows)}")
+            print(f"   • Target Sheet Rows Available: {len(target_map)}")
+            print(f"\n💡 To run in PRODUCTION mode:")
+            print(f"   • Set TEST_MODE = False in the configuration")
+            print(f"   • Files will be generated and uploaded to Smartsheet")
+            print(f"{'='*80}")
+        else:
+            logging.info("--- Processing Complete ---")
+            logging.info(f"Excel Files: {excel_created} created, {excel_updated} updated.")
 
     except smartsheet.exceptions.ApiError as e:
         logging.error(f"A Smartsheet API error occurred: {e}")
     except FileNotFoundError as e:
-        logging.error(f"File Not Found: {e}. Please ensure '{PDF_TEMPLATE_PATH}' and '{LOGO_PATH}' are available.")
+        logging.error(f"File Not Found: {e}. Please ensure '{LOGO_PATH}' is available.")
     except Exception as e:
         logging.error(f"An unexpected error occurred: {e}", exc_info=True)
 

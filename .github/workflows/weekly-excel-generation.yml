@@ -1,0 +1,157 @@
+name: Weekly Excel Report Generation
+
+on:
+  schedule:
+    # Run every Sunday during the 5-10 PM Central window (multiple times for reliability)
+    # 5:00 PM CDT = 10:00 PM UTC (same day), 5:00 PM CST = 11:00 PM UTC (same day)
+    # 7:00 PM CDT = 12:00 AM UTC (next day), 7:00 PM CST = 1:00 AM UTC (next day)  
+    # 9:00 PM CDT = 2:00 AM UTC (next day), 9:00 PM CST = 3:00 AM UTC (next day)
+    - cron: '0 22 * * 0'   # 5:00 PM CDT / 4:00 PM CST on Sunday
+    - cron: '0 0 * * 1'    # 7:00 PM CDT / 6:00 PM CST on Sunday  
+    - cron: '0 2 * * 1'    # 9:00 PM CDT / 8:00 PM CST on Sunday
+  
+  # Allow manual triggering for testing
+  workflow_dispatch:
+    inputs:
+      test_mode:
+        description: 'Run in test mode (true/false) - Production mode will upload to Smartsheet'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+        - 'false'
+        - 'true'
+
+env:
+  # Central Time Zone for logging purposes
+  TZ: America/Chicago
+
+jobs:
+  generate-excel-reports:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Verify Current Time (Central)
+      run: |
+        echo "Current UTC time: $(date -u)"
+        echo "Current Central time: $(TZ=America/Chicago date)"
+        echo "Target execution window: Sunday 5:00 PM - 10:00 PM Central"
+        
+    - name: Check if within execution window
+      id: time_check
+      run: |
+        # Get current day of week (0=Sunday, 1=Monday, etc.) and hour in Central Time
+        current_day=$(TZ=America/Chicago date +%w)
+        current_hour=$(TZ=America/Chicago date +%H)
+        current_date=$(TZ=America/Chicago date +%Y-%m-%d)
+        
+        echo "Current day of week: $current_day (0=Sunday)"
+        echo "Current hour (Central): $current_hour"
+        echo "Current date: $current_date"
+        
+        # Check if it's Sunday (0) and between 17:00 (5 PM) and 22:00 (10 PM) Central
+        if [ "$current_day" -eq 0 ] && [ "$current_hour" -ge 17 ] && [ "$current_hour" -lt 22 ]; then
+          echo "✅ Within execution window (Sunday 5-10 PM Central)"
+          echo "should_run=true" >> $GITHUB_OUTPUT
+          echo "week_id=$(TZ=America/Chicago date +%Y-W%U)" >> $GITHUB_OUTPUT
+        elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "🔧 Manual trigger - will run regardless of time"
+          echo "should_run=true" >> $GITHUB_OUTPUT
+          echo "week_id=manual-$(date +%Y%m%d-%H%M)" >> $GITHUB_OUTPUT
+        else
+          echo "⏰ Outside execution window. Current: Day $current_day, Hour $current_hour Central"
+          echo "should_run=false" >> $GITHUB_OUTPUT
+        fi
+        
+    - name: Check if already ran this week
+      id: duplicate_check
+      if: steps.time_check.outputs.should_run == 'true' && github.event_name == 'schedule'
+      run: |
+        week_id="${{ steps.time_check.outputs.week_id }}"
+        echo "Checking for previous runs in week: $week_id"
+        
+        # Create a marker file name for this week
+        marker_file="last_run_$week_id.txt"
+        echo "marker_file=$marker_file" >> $GITHUB_OUTPUT
+        
+        # For now, we'll rely on the schedule timing to prevent duplicates
+        # In a more sophisticated setup, you could check against a database or file storage
+        echo "allow_run=true" >> $GITHUB_OUTPUT
+        
+    - name: Set Production Mode
+      if: (steps.time_check.outputs.should_run == 'true' && github.event_name == 'schedule') || github.event.inputs.test_mode == 'false'
+      run: |
+        # Set TEST_MODE to False for production runs (scheduled runs or manual production mode)
+        sed -i 's/TEST_MODE = True/TEST_MODE = False/' generate_weekly_pdfs.py
+        echo "✅ Set to PRODUCTION mode - files will be generated and uploaded to Smartsheet"
+        
+    - name: Keep Test Mode (if manual test)
+      if: github.event.inputs.test_mode == 'true'
+      run: |
+        echo "🧪 Keeping TEST_MODE = True for manual test run"
+        echo "Files will be generated locally but NOT uploaded to Smartsheet"
+        
+    - name: Generate Excel Reports
+      if: (steps.time_check.outputs.should_run == 'true') && (steps.duplicate_check.outputs.allow_run == 'true' || github.event_name == 'workflow_dispatch')
+      env:
+        SMARTSHEET_API_TOKEN: ${{ secrets.SMARTSHEET_API_TOKEN }}
+      run: |
+        echo "🚀 Starting Excel report generation..."
+        echo "Week ending: $(TZ=America/Chicago date -d 'next Sunday' '+%m/%d/%y')"
+        
+        # Verify API token is available
+        if [ -z "$SMARTSHEET_API_TOKEN" ]; then
+          echo "❌ ERROR: SMARTSHEET_API_TOKEN secret not found"
+          echo "Please add your Smartsheet API token as a repository secret named 'SMARTSHEET_API_TOKEN'"
+          exit 1
+        fi
+        
+        # Run the report generation script
+        python generate_weekly_pdfs.py
+        
+        # Log completion
+        echo "✅ Excel generation completed at $(TZ=America/Chicago date)"
+        
+    - name: Upload Generated Files (Archive for Records)
+      if: (steps.time_check.outputs.should_run == 'true' && github.event_name == 'schedule') || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_mode == 'false')
+      uses: actions/upload-artifact@v3
+      with:
+        name: weekly-excel-reports-${{ github.run_number }}
+        path: generated_docs/
+        retention-days: 90
+        
+    - name: Log Execution Summary
+      if: always()
+      run: |
+        echo "📊 EXECUTION SUMMARY"
+        echo "===================="
+        echo "Trigger: ${{ github.event_name }}"
+        echo "Time: $(TZ=America/Chicago date)"
+        echo "Should run: ${{ steps.time_check.outputs.should_run }}"
+        echo "Test mode: ${{ github.event.inputs.test_mode }}"
+        
+        if [ -d "generated_docs" ]; then
+          echo "Generated files:"
+          ls -la generated_docs/ || echo "No files generated"
+        else
+          echo "No generated_docs directory found"
+        fi
+
+    - name: Skip Execution (Outside Window)
+      if: steps.time_check.outputs.should_run == 'false' && github.event_name != 'workflow_dispatch'
+      run: |
+        echo "⏭️  Skipping execution - outside of Sunday 5-10 PM Central time window"
+        echo "Next scheduled run: Next Sunday between 5:00-10:00 PM Central"
