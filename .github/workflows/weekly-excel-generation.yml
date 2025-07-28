@@ -127,7 +127,7 @@ jobs:
         
     - name: Upload Generated Files (Archive for Records)
       if: (steps.time_check.outputs.should_run == 'true' && github.event_name == 'schedule') || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_mode == 'false')
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: weekly-excel-reports-${{ github.run_number }}
         path: generated_docs/
