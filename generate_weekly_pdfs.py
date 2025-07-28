@@ -65,106 +65,121 @@ def discover_source_sheets(client):
     processed_sheet_ids = set()  # Track already processed sheets to avoid duplicates
     all_sheets = client.Sheets.list_sheets(include_all=True)
     
+    # First, get the names of all base sheets to prevent cross-matching
+    base_sheet_names = {}
     for base_id in base_sheet_ids:
         try:
-            # Get the base sheet to find its name pattern
             base_sheet = client.Sheets.get_sheet(base_id)
-            base_name = base_sheet.name
-            logging.info(f"Processing base sheet: {base_name} (ID: {base_id})")
-            
-            # Find all sheets that match this base sheet or are copies of it
-            # Use more precise matching to avoid cross-contamination between base sheets
-            # EXCLUDE any sheets with "Archive" in the name to avoid duplicate data
-            matching_sheets = []
-            for sheet in all_sheets.data:
-                # Skip if already processed
-                if sheet.id in processed_sheet_ids:
-                    continue
-                    
-                # Skip Archive sheets
-                if "Archive" in sheet.name:
-                    continue
-                
-                # Match exact base sheet ID
-                if sheet.id == base_id:
-                    matching_sheets.append(sheet)
-                    continue
-                
-                # Match copies more precisely - look for exact base name followed by copy indicators
-                # This prevents cross-matching between different base sheets
-                copy_patterns = [
-                    f"{base_name} - Copy",
-                    f"{base_name} Copy",
-                    f"{base_name}_Copy",
-                    f"Copy of {base_name}",
-                ]
-                
-                # Also check if the sheet name starts with the base name followed by common separators
-                name_starts_with_base = (
-                    sheet.name.startswith(f"{base_name} - ") or
-                    sheet.name.startswith(f"{base_name}_") or
-                    sheet.name.startswith(f"{base_name} (") or
-                    sheet.name == base_name  # Exact match
-                )
-                
-                if any(pattern in sheet.name for pattern in copy_patterns) or name_starts_with_base:
-                    matching_sheets.append(sheet)
-            
-            if TEST_MODE:
-                print(f"\n🔍 Base Sheet: {base_name}")
-                print(f"   Found {len(matching_sheets)} matching sheets:")
-                for sheet in matching_sheets:
-                    print(f"   - {sheet.name} (ID: {sheet.id})")
-                print()
-            
-            for sheet_info in matching_sheets:
-                try:
-                    # Mark this sheet as processed to avoid duplicates
-                    processed_sheet_ids.add(sheet_info.id)
-                    
-                    # Get full sheet details including columns
-                    full_sheet = client.Sheets.get_sheet(sheet_info.id)
-                    
-                    # Create column mapping by matching column titles
-                    column_mapping = {}
-                    available_columns = []
-                    for column in full_sheet.columns:
-                        available_columns.append(column.title)
-                        if column.title in column_name_mapping:
-                            column_mapping[column_name_mapping[column.title]] = column.id
-                    
-                    # Only add sheets that have all required columns
-                    required_columns = ['Foreman', 'Work Request #', 'Weekly Referenced Logged Date', 
-                                      'Snapshot Date', 'Units Completed', 'Redlined Total Price']
-                    
-                    if TEST_MODE:
-                        print(f"\n🔍 Analyzing Sheet: {full_sheet.name}")
-                        print(f"Available columns: {', '.join(available_columns[:10])}{'...' if len(available_columns) > 10 else ''}")
-                        print(f"Total columns found: {len(available_columns)}")
-                        missing_cols = [col for col in required_columns if col not in column_mapping]
-                        if missing_cols:
-                            print(f"❌ Missing required columns: {missing_cols}")
-                        else:
-                            print(f"✅ All required columns found!")
-                    
-                    if all(col in column_mapping for col in required_columns):
-                        discovered_sheets.append({
-                            "id": sheet_info.id,
-                            "name": full_sheet.name,
-                            "columns": column_mapping
-                        })
-                        logging.info(f"Added sheet: {full_sheet.name} (ID: {sheet_info.id})")
-                    else:
-                        missing_cols = [col for col in required_columns if col not in column_mapping]
-                        logging.warning(f"Skipping sheet {full_sheet.name} - missing columns: {missing_cols}")
-                        
-                except Exception as e:
-                    logging.error(f"Error processing sheet {sheet_info.id}: {e}")
-                    continue
-                    
+            base_sheet_names[base_id] = base_sheet.name
         except Exception as e:
-            logging.error(f"Error processing base sheet {base_id}: {e}")
-            continue
+            logging.error(f"Could not fetch base sheet {base_id}: {e}")
+    
+    all_base_names = set(base_sheet_names.values())
+    
+    for base_id in base_sheet_ids:
+        if base_id not in base_sheet_names:
+            continue  # Skip if we couldn't fetch this base sheet
+            
+        base_name = base_sheet_names[base_id]
+        logging.info(f"Processing base sheet: {base_name} (ID: {base_id})")
+        
+        # Find all sheets that match this base sheet or are copies of it
+        # Use more precise matching to avoid cross-contamination between base sheets
+        # EXCLUDE any sheets with "Archive" in the name to avoid duplicate data
+        matching_sheets = []
+        for sheet in all_sheets.data:
+            # Skip if already processed
+            if sheet.id in processed_sheet_ids:
+                continue
+                
+            # Skip Archive sheets
+            if "Archive" in sheet.name:
+                continue
+            
+            # Match exact base sheet ID
+            if sheet.id == base_id:
+                matching_sheets.append(sheet)
+                continue
+            
+            # Skip if this sheet name is actually another base sheet
+            if sheet.name in all_base_names and sheet.name != base_name:
+                continue
+            
+            # Match copies more precisely - look for exact base name followed by copy indicators
+            # This prevents cross-matching between different base sheets
+            copy_patterns = [
+                f"{base_name} - Copy",
+                f"{base_name} Copy", 
+                f"{base_name}_Copy",
+                f"Copy of {base_name}",
+            ]
+            
+            # Also check if the sheet name starts with the base name followed by common separators
+            # BUT exclude sheets that are exactly matching other base sheet names
+            name_starts_with_base = False
+            if sheet.name == base_name:  # Exact match
+                name_starts_with_base = True
+            elif (sheet.name.startswith(f"{base_name} - ") or 
+                  sheet.name.startswith(f"{base_name}_") or 
+                  sheet.name.startswith(f"{base_name} (")):
+                # Make sure this sheet name is not exactly another base sheet name
+                if sheet.name not in all_base_names:
+                    name_starts_with_base = True
+                
+            if any(pattern in sheet.name for pattern in copy_patterns) or name_starts_with_base:
+                matching_sheets.append(sheet)
+        
+        if TEST_MODE:
+            print(f"\n🔍 Base Sheet: {base_name}")
+            print(f"   Found {len(matching_sheets)} matching sheets:")
+            for sheet in matching_sheets:
+                print(f"   - {sheet.name} (ID: {sheet.id})")
+            print()
+        
+        for sheet_info in matching_sheets:
+            try:
+                # Mark this sheet as processed to avoid duplicates
+                processed_sheet_ids.add(sheet_info.id)
+                
+                # Get full sheet details including columns
+                full_sheet = client.Sheets.get_sheet(sheet_info.id)
+                
+                # Create column mapping by matching column titles
+                column_mapping = {}
+                available_columns = []
+                for column in full_sheet.columns:
+                    available_columns.append(column.title)
+                    if column.title in column_name_mapping:
+                        column_mapping[column_name_mapping[column.title]] = column.id
+                
+                # Only add sheets that have all required columns
+                required_columns = ['Foreman', 'Work Request #', 'Weekly Referenced Logged Date', 
+                                  'Snapshot Date', 'Units Completed', 'Redlined Total Price']
+                
+                if TEST_MODE:
+                    print(f"\n🔍 Analyzing Sheet: {full_sheet.name}")
+                    print(f"Available columns: {', '.join(available_columns[:10])}{'...' if len(available_columns) > 10 else ''}")
+                    print(f"Total columns found: {len(available_columns)}")
+                    missing_cols = [col for col in required_columns if col not in column_mapping]
+                    if missing_cols:
+                        print(f"❌ Missing required columns: {missing_cols}")
+                    else:
+                        print(f"✅ All required columns found!")
+                
+                if all(col in column_mapping for col in required_columns):
+                    discovered_sheets.append({
+                        "id": sheet_info.id,
+                        "name": full_sheet.name,
+                        "columns": column_mapping
+                    })
+                    logging.info(f"Added sheet: {full_sheet.name} (ID: {sheet_info.id})")
+                else:
+                    missing_cols = [col for col in required_columns if col not in column_mapping]
+                    logging.warning(f"Skipping sheet {full_sheet.name} - missing columns: {missing_cols}")
+                    
+            except Exception as e:
+                logging.error(f"Error processing sheet {sheet_info.id}: {e}")
+                continue
     
     logging.info(f"Discovered {len(discovered_sheets)} total sheets for processing")
     
