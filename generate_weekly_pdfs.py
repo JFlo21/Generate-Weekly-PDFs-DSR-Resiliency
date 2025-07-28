@@ -62,6 +62,7 @@ def discover_source_sheets(client):
     }
     
     discovered_sheets = []
+    processed_sheet_ids = set()  # Track already processed sheets to avoid duplicates
     all_sheets = client.Sheets.list_sheets(include_all=True)
     
     for base_id in base_sheet_ids:
@@ -72,13 +73,55 @@ def discover_source_sheets(client):
             logging.info(f"Processing base sheet: {base_name} (ID: {base_id})")
             
             # Find all sheets that match this base sheet or are copies of it
+            # Use more precise matching to avoid cross-contamination between base sheets
             # EXCLUDE any sheets with "Archive" in the name to avoid duplicate data
-            matching_sheets = [sheet for sheet in all_sheets.data 
-                             if (sheet.id == base_id or base_name in sheet.name) and 
-                             "Archive" not in sheet.name]
+            matching_sheets = []
+            for sheet in all_sheets.data:
+                # Skip if already processed
+                if sheet.id in processed_sheet_ids:
+                    continue
+                    
+                # Skip Archive sheets
+                if "Archive" in sheet.name:
+                    continue
+                
+                # Match exact base sheet ID
+                if sheet.id == base_id:
+                    matching_sheets.append(sheet)
+                    continue
+                
+                # Match copies more precisely - look for exact base name followed by copy indicators
+                # This prevents cross-matching between different base sheets
+                copy_patterns = [
+                    f"{base_name} - Copy",
+                    f"{base_name} Copy",
+                    f"{base_name}_Copy",
+                    f"Copy of {base_name}",
+                ]
+                
+                # Also check if the sheet name starts with the base name followed by common separators
+                name_starts_with_base = (
+                    sheet.name.startswith(f"{base_name} - ") or
+                    sheet.name.startswith(f"{base_name}_") or
+                    sheet.name.startswith(f"{base_name} (") or
+                    sheet.name == base_name  # Exact match
+                )
+                
+                if any(pattern in sheet.name for pattern in copy_patterns) or name_starts_with_base:
+                    matching_sheets.append(sheet)
+            
+            if TEST_MODE:
+                print(f"\n🔍 Base Sheet: {base_name}")
+                print(f"   Found {len(matching_sheets)} matching sheets:")
+                for sheet in matching_sheets:
+                    print(f"   - {sheet.name} (ID: {sheet.id})")
+                print()
             
             for sheet_info in matching_sheets:
                 try:
+                    # Mark this sheet as processed to avoid duplicates
+                    processed_sheet_ids.add(sheet_info.id)
+                    
                     # Get full sheet details including columns
                     full_sheet = client.Sheets.get_sheet(sheet_info.id)
                     
@@ -126,14 +169,23 @@ def discover_source_sheets(client):
     logging.info(f"Discovered {len(discovered_sheets)} total sheets for processing")
     
     if TEST_MODE and discovered_sheets:
-        print(f"\n🔍 DISCOVERED SHEETS IN TEST MODE:")
-        print(f"{'='*60}")
+        print(f"\n🔍 FINAL DISCOVERED SHEETS (UNIQUE):")
+        print(f"{'='*70}")
+        unique_ids = set()
         for i, sheet in enumerate(discovered_sheets, 1):
+            if sheet['id'] in unique_ids:
+                print(f"⚠️  DUPLICATE DETECTED: {sheet['name']} (ID: {sheet['id']})")
+            else:
+                unique_ids.add(sheet['id'])
             print(f"{i}. Sheet: {sheet['name']}")
             print(f"   ID: {sheet['id']}")
             print(f"   Columns Found: {len(sheet['columns'])}")
             print(f"   Required Columns: ✅ All present")
-        print(f"{'='*60}\n")
+        print(f"{'='*70}")
+        print(f"📊 Summary: {len(unique_ids)} unique sheets, {len(discovered_sheets)} total entries")
+        if len(unique_ids) != len(discovered_sheets):
+            print(f"⚠️  WARNING: {len(discovered_sheets) - len(unique_ids)} duplicate entries detected!")
+        print()
     
     return discovered_sheets
 
@@ -615,15 +667,18 @@ def main():
                 print(f"   • Target Sheet Row: {target_row.row_number}")
                 print(f"   • Work Request #: {wr_num}")
                 
-                existing_attachment = None
+                # Check for existing Excel attachments (not just exact filename match)
+                existing_excel_attachments = []
                 for attachment in target_row.attachments or []:
-                    if attachment.name == excel_filename:
-                        existing_attachment = attachment
-                        break
+                    if (attachment.name == excel_filename or 
+                        (attachment.name.startswith(f"WR_{wr_num}_") and attachment.name.endswith('.xlsx'))):
+                        existing_excel_attachments.append(attachment)
                 
-                if existing_attachment:
-                    print(f"   • Action: UPDATE existing attachment '{excel_filename}'")
-                    print(f"   • Would delete old attachment ID: {existing_attachment.id}")
+                if existing_excel_attachments:
+                    print(f"   • Found {len(existing_excel_attachments)} existing Excel attachment(s) to replace:")
+                    for att in existing_excel_attachments:
+                        print(f"     - '{att.name}' (ID: {att.id})")
+                    print(f"   • Action: DELETE existing + CREATE new attachment '{excel_filename}'")
                     excel_updated += 1
                 else:
                     print(f"   • Action: CREATE new attachment '{excel_filename}'")
@@ -632,18 +687,46 @@ def main():
                 print(f"   • File would be uploaded to row {target_row.row_number}")
                 print()
             else:
-                # --- Attach Excel File ---
-                # Check for and delete an existing version
+                # --- Production Mode: Delete existing Excel files and upload new one ---
+                existing_excel_attachments = []
+                
+                # Find ALL Excel attachments for this Work Request (not just exact filename match)
+                # This handles cases where filename format might have changed over time
                 for attachment in target_row.attachments or []:
-                     if attachment.name == excel_filename:
+                    if (attachment.name == excel_filename or 
+                        (attachment.name.startswith(f"WR_{wr_num}_") and attachment.name.endswith('.xlsx'))):
+                        existing_excel_attachments.append(attachment)
+                
+                # Delete all existing Excel attachments for this Work Request
+                deleted_count = 0
+                for attachment in existing_excel_attachments:
+                    try:
                         client.Attachments.delete_attachment(TARGET_SHEET_ID, attachment.id)
-                        excel_updated += 1
-                        break
-                else: # Runs if the for loop doesn't break
+                        logging.info(f"🗑️ Deleted existing attachment: '{attachment.name}' (ID: {attachment.id})")
+                        deleted_count += 1
+                    except Exception as e:
+                        logging.warning(f"⚠️ Failed to delete attachment '{attachment.name}' (ID: {attachment.id}): {e}")
+                
+                # Track whether this is an update or new creation
+                if deleted_count > 0:
+                    excel_updated += 1
+                    logging.info(f"📝 Replacing {deleted_count} existing Excel attachment(s) for WR# {wr_num}")
+                else:
                     excel_created += 1
-
-                client.Attachments.attach_file_to_row(TARGET_SHEET_ID, target_row.id, (excel_filename, open(excel_path, 'rb'), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'))
-                logging.info(f"✅ Attached Excel '{excel_filename}' to row {target_row.row_number} for WR# {wr_num}.")
+                    logging.info(f"📄 Creating new Excel attachment for WR# {wr_num}")
+                
+                # Upload the new Excel file
+                try:
+                    with open(excel_path, 'rb') as file:
+                        client.Attachments.attach_file_to_row(
+                            TARGET_SHEET_ID, 
+                            target_row.id, 
+                            (excel_filename, file, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                        )
+                    logging.info(f"✅ Successfully attached Excel '{excel_filename}' to row {target_row.row_number} for WR# {wr_num}")
+                except Exception as e:
+                    logging.error(f"❌ Failed to attach Excel file '{excel_filename}' for WR# {wr_num}: {e}")
+                    continue
 
         if TEST_MODE:
             print(f"\n{'='*80}")
