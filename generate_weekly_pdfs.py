@@ -1,5 +1,6 @@
 import os
 import datetime
+from datetime import timedelta
 import logging
 from dateutil import parser
 import smartsheet
@@ -22,7 +23,7 @@ OUTPUT_FOLDER = "generated_docs"
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 # --- TEST MODE CONFIGURATION ---
-TEST_MODE = True  # Set to False for actual production run
+TEST_MODE = False  # Set to False for actual production run
 # When TEST_MODE is True:
 # - Files will be generated locally for inspection
 # - No uploads to Smartsheet will occur  
@@ -334,12 +335,27 @@ def group_source_rows(rows):
         
         try:
             date_obj = parser.parse(log_date_str)
-            # Use a consistent week-ending date format for the key
-            week_end_for_key = date_obj.strftime("%m%d%y")
+            
+            # Calculate the week ending date (Sunday of that week)
+            # If the date is already Sunday, use it; otherwise find the next Sunday
+            if date_obj.weekday() == 6:  # If it's already Sunday
+                week_ending_date = date_obj
+            else:
+                days_until_sunday = (6 - date_obj.weekday()) % 7
+                week_ending_date = date_obj + timedelta(days=days_until_sunday)
+            week_end_for_key = week_ending_date.strftime("%m%d%y")
+            
+            if TEST_MODE:
+                print(f"🔍 Date calculation for WR# {wr_key}:")
+                print(f"   Log date: {date_obj.strftime('%m/%d/%Y')} ({date_obj.strftime('%A')})")
+                print(f"   Week ending: {week_ending_date.strftime('%m/%d/%Y')} ({week_ending_date.strftime('%A')})")
+                print(f"   Key format: {week_end_for_key}")
+            
             key = f"{current_foreman}_{wr_key}_{week_end_for_key}"
             
-            # Add the current foreman to the row data for consistent reporting
+            # Add the current foreman and calculated week ending date to the row data
             r['__current_foreman'] = current_foreman
+            r['__week_ending_date'] = week_ending_date
             groups[key].append(r)
         except (parser.ParserError, TypeError) as e:
             logging.warning(f"Could not parse date '{log_date_str}' for WR# {wr_key}. Skipping row. Error: {e}")
@@ -355,8 +371,17 @@ def generate_excel(group_key, group_rows, snapshot_date):
     # In case there were changes during the work request timeline
     current_foreman = first_row.get('__current_foreman', foreman)
     
+    # Get the calculated week ending date from the row data if available
+    week_ending_date = first_row.get('__week_ending_date')
+    if week_ending_date:
+        week_end_display = week_ending_date.strftime('%m/%d/%y')
+        # Update the raw format to match the calculated date
+        week_end_raw = week_ending_date.strftime('%m%d%y')
+    else:
+        # Fallback to the original format
+        week_end_display = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
+    
     scope_id = first_row.get('Scope ID', '')
-    week_end_display = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
     job_number = first_row.get('Job #', '')
     output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.xlsx"
     final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
@@ -366,6 +391,8 @@ def generate_excel(group_key, group_rows, snapshot_date):
         print(f"   - Work Request: {wr_num}")
         print(f"   - Foreman: {current_foreman}")  # Show the current foreman being used
         print(f"   - Week Ending: {week_end_display}")
+        if week_ending_date:
+            print(f"   - Calculated Week Ending: {week_ending_date.strftime('%A, %m/%d/%Y')}")
         print(f"   - Row Count: {len(group_rows)}")
         if current_foreman != foreman:
             print(f"   - 🔄 Using updated foreman '{current_foreman}' (was '{foreman}')")
