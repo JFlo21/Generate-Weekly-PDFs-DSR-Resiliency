@@ -2,13 +2,10 @@ name: Weekly Excel Report Generation
 
 on:
   schedule:
-    # Run every Sunday during the 5-10 PM Central window (multiple times for reliability)
-    # 5:00 PM CDT = 10:00 PM UTC (same day), 5:00 PM CST = 11:00 PM UTC (same day)
-    # 7:00 PM CDT = 12:00 AM UTC (next day), 7:00 PM CST = 1:00 AM UTC (next day)  
-    # 9:00 PM CDT = 2:00 AM UTC (next day), 9:00 PM CST = 3:00 AM UTC (next day)
-    - cron: '0 22 * * 0'   # 5:00 PM CDT / 4:00 PM CST on Sunday
-    - cron: '0 0 * * 1'    # 7:00 PM CDT / 6:00 PM CST on Sunday  
-    - cron: '0 2 * * 1'    # 9:00 PM CDT / 8:00 PM CST on Sunday
+    # Run every 2 hours, every day for operations crew updates
+    # Runs at: 12 AM, 2 AM, 4 AM, 6 AM, 8 AM, 10 AM, 12 PM, 2 PM, 4 PM, 6 PM, 8 PM, 10 PM Central Time
+    # Central Time = UTC-6 (CDT) or UTC-5 (CST), so we use UTC times that adjust automatically
+    - cron: '0 */2 * * *'   # Every 2 hours throughout the day
   
   # Allow manual triggering for testing
   workflow_dispatch:
