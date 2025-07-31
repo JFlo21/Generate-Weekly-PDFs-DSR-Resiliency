@@ -346,9 +346,32 @@ def group_source_rows(rows):
             week_end_for_key = week_ending_date.strftime("%m%d%y")
             
             if TEST_MODE:
+                # Parse snapshot date to compare with log date
+                snap_date_str = r.get('Snapshot Date', '')
+                snap_date_info = "N/A"
+                if snap_date_str:
+                    try:
+                        snap_date_obj = parser.parse(snap_date_str)
+                        snap_date_info = f"{snap_date_obj.strftime('%m/%d/%Y')} ({snap_date_obj.strftime('%A')})"
+                        
+                        # Check if snapshot date falls within the same week
+                        if snap_date_obj.weekday() == 6:  # Sunday
+                            snap_week_ending = snap_date_obj
+                        else:
+                            days_until_sunday = (6 - snap_date_obj.weekday()) % 7
+                            snap_week_ending = snap_date_obj + timedelta(days=days_until_sunday)
+                        
+                        if snap_week_ending != week_ending_date:
+                            print(f"⚠️  Week mismatch for WR# {wr_key}!")
+                            print(f"   Log date week ending: {week_ending_date.strftime('%m/%d/%Y')}")
+                            print(f"   Snapshot date week ending: {snap_week_ending.strftime('%m/%d/%Y')}")
+                    except Exception as e:
+                        snap_date_info = f"Parse Error: {e}"
+                
                 print(f"🔍 Date calculation for WR# {wr_key}:")
                 print(f"   Log date: {date_obj.strftime('%m/%d/%Y')} ({date_obj.strftime('%A')})")
                 print(f"   Week ending: {week_ending_date.strftime('%m/%d/%Y')} ({week_ending_date.strftime('%A')})")
+                print(f"   Snapshot date: {snap_date_info}")
                 print(f"   Key format: {week_end_for_key}")
             
             key = f"{current_foreman}_{wr_key}_{week_end_for_key}"
@@ -469,7 +492,16 @@ def generate_excel(group_key, group_rows, snapshot_date):
 
     ws[f'B{current_row+3}'] = 'Billing Period:'
     ws[f'B{current_row+3}'].font = SUMMARY_LABEL_FONT
-    ws[f'C{current_row+3}'] = f"{snapshot_date.strftime('%m/%d/%Y')} to {week_end_display}"
+    
+    # Calculate the proper week range (Monday to Sunday) for billing period
+    if week_ending_date:
+        week_start_date = week_ending_date - timedelta(days=6)  # Monday of that week
+        billing_period = f"{week_start_date.strftime('%m/%d/%Y')} to {week_end_display}"
+    else:
+        # Fallback to using snapshot date if week ending date is not available
+        billing_period = f"{snapshot_date.strftime('%m/%d/%Y')} to {week_end_display}"
+    
+    ws[f'C{current_row+3}'] = billing_period
     ws[f'C{current_row+3}'].font = SUMMARY_VALUE_FONT
     ws[f'C{current_row+3}'].alignment = Alignment(horizontal='right')
 
@@ -547,15 +579,56 @@ def generate_excel(group_key, group_rows, snapshot_date):
         return total_row + 2
 
     date_to_rows = collections.defaultdict(list)
+    
+    # Calculate the proper week range (Monday to Sunday) for filtering
+    if week_ending_date:
+        # Calculate Monday of the week (6 days before Sunday)
+        week_start_date = week_ending_date - timedelta(days=6)  # Monday of that week
+        week_end_date = week_ending_date  # Sunday of that week
+        
+        if TEST_MODE:
+            print(f"\n🗓️  Week Range Filter: {week_start_date.strftime('%A, %m/%d/%Y')} to {week_end_date.strftime('%A, %m/%d/%Y')}")
+    else:
+        week_start_date = None
+        week_end_date = None
+    
     for row in group_rows:
         snap = row.get('Snapshot Date')
         try:
             dt = parser.parse(snap)
-            date_to_rows[dt].append(row)
-        except (parser.ParserError, TypeError, ValueError):
+            
+            # Include snapshot dates that fall within the Monday-Sunday range
+            if week_start_date and week_end_date:
+                # Use date comparison (not datetime) to include the entire day
+                snap_date = dt.date() if hasattr(dt, 'date') else dt
+                week_start = week_start_date.date() if hasattr(week_start_date, 'date') else week_start_date
+                week_end = week_end_date.date() if hasattr(week_end_date, 'date') else week_end_date
+                
+                if week_start <= snap_date <= week_end:
+                    date_to_rows[dt].append(row)
+                    if TEST_MODE:
+                        print(f"✅ Including Snapshot Date: {snap} -> {dt.strftime('%A, %m/%d/%Y')} (within week range)")
+                else:
+                    if TEST_MODE:
+                        print(f"❌ Excluding Snapshot Date: {snap} -> {dt.strftime('%A, %m/%d/%Y')} (outside week range)")
+                        print(f"   Week range: {week_start} to {week_end}, Snapshot: {snap_date}")
+            else:
+                # Fallback: if no week range calculated, include all dates
+                date_to_rows[dt].append(row)
+                if TEST_MODE:
+                    print(f"🔍 Processing Snapshot Date: {snap} -> parsed as {dt.strftime('%A, %m/%d/%Y')} (no week filter)")
+                    
+        except (parser.ParserError, TypeError, ValueError) as e:
+            if TEST_MODE:
+                print(f"❌ Failed to parse Snapshot Date: '{snap}' - Error: {e}")
             continue
 
     snapshot_dates = sorted(date_to_rows.keys())
+    if TEST_MODE:
+        print(f"\n📅 Found {len(snapshot_dates)} unique snapshot dates:")
+        for d in snapshot_dates:
+            print(f"   • {d.strftime('%A, %m/%d/%Y')}: {len(date_to_rows[d])} rows")
+    
     day_names = {d: d.strftime('%A') for d in snapshot_dates}
 
     current_row += 7
