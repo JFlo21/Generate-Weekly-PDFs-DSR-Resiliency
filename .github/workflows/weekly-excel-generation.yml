@@ -1,10 +1,9 @@
-name: Weekly Excel Report Generation
+name: Continuous Excel Report Generation
 
 on:
   schedule:
-    # Run every 2 hours, every day for operations crew updates
-    # Runs at: 12 AM, 2 AM, 4 AM, 6 AM, 8 AM, 10 AM, 12 PM, 2 PM, 4 PM, 6 PM, 8 PM, 10 PM Central Time
-    # Central Time = UTC-6 (CDT) or UTC-5 (CST), so we use UTC times that adjust automatically
+    # Run every 2 hours, every day to check for data updates
+    # Runs at: 12 AM, 2 AM, 4 AM, 6 AM, 8 AM, 10 AM, 12 PM, 2 PM, 4 PM, 6 PM, 8 PM, 10 PM UTC
     - cron: '0 */2 * * *'   # Every 2 hours throughout the day
   
   # Allow manual triggering for testing
@@ -45,12 +44,12 @@ jobs:
       run: |
         echo "Current UTC time: $(date -u)"
         echo "Current Central time: $(TZ=America/Chicago date)"
-        echo "Target execution window: Sunday 5:00 PM - 10:00 PM Central"
+        echo "Execution mode: Continuous monitoring every 2 hours"
         
-    - name: Check if within execution window
+    - name: Check execution conditions
       id: time_check
       run: |
-        # Get current day of week (0=Sunday, 1=Monday, etc.) and hour in Central Time
+        # Get current time info in Central Time
         current_day=$(TZ=America/Chicago date +%w)
         current_hour=$(TZ=America/Chicago date +%H)
         current_date=$(TZ=America/Chicago date +%Y-%m-%d)
@@ -59,34 +58,30 @@ jobs:
         echo "Current hour (Central): $current_hour"
         echo "Current date: $current_date"
         
-        # Check if it's Sunday (0) and between 17:00 (5 PM) and 22:00 (10 PM) Central
-        if [ "$current_day" -eq 0 ] && [ "$current_hour" -ge 17 ] && [ "$current_hour" -lt 22 ]; then
-          echo "✅ Within execution window (Sunday 5-10 PM Central)"
-          echo "should_run=true" >> $GITHUB_OUTPUT
-          echo "week_id=$(TZ=America/Chicago date +%Y-W%U)" >> $GITHUB_OUTPUT
-        elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          echo "🔧 Manual trigger - will run regardless of time"
-          echo "should_run=true" >> $GITHUB_OUTPUT
-          echo "week_id=manual-$(date +%Y%m%d-%H%M)" >> $GITHUB_OUTPUT
+        # Always run for continuous monitoring (every 2 hours)
+        # This ensures Excel files are updated whenever source data changes
+        echo "✅ Continuous execution mode - checking for data updates every 2 hours"
+        echo "should_run=true" >> $GITHUB_OUTPUT
+        echo "run_id=$(date +%Y%m%d-%H%M)" >> $GITHUB_OUTPUT
+        
+        # Set execution context
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "🔧 Manual trigger"
         else
-          echo "⏰ Outside execution window. Current: Day $current_day, Hour $current_hour Central"
-          echo "should_run=false" >> $GITHUB_OUTPUT
+          echo "⏰ Scheduled execution (every 2 hours)"
         fi
         
-    - name: Check if already ran this week
-      id: duplicate_check
+    - name: Check for data changes (smart execution)
+      id: data_check
       if: steps.time_check.outputs.should_run == 'true' && github.event_name == 'schedule'
       run: |
-        week_id="${{ steps.time_check.outputs.week_id }}"
-        echo "Checking for previous runs in week: $week_id"
+        run_id="${{ steps.time_check.outputs.run_id }}"
+        echo "Checking for data changes at: $run_id"
         
-        # Create a marker file name for this week
-        marker_file="last_run_$week_id.txt"
-        echo "marker_file=$marker_file" >> $GITHUB_OUTPUT
-        
-        # For now, we'll rely on the schedule timing to prevent duplicates
-        # In a more sophisticated setup, you could check against a database or file storage
+        # Always allow execution for continuous monitoring
+        # The script itself will determine if there are actual changes to process
         echo "allow_run=true" >> $GITHUB_OUTPUT
+        echo "✅ Proceeding with data check and Excel generation"
         
     - name: Set Production Mode
       if: (steps.time_check.outputs.should_run == 'true' && github.event_name == 'schedule') || github.event.inputs.test_mode == 'false'
@@ -102,12 +97,13 @@ jobs:
         echo "Files will be generated locally but NOT uploaded to Smartsheet"
         
     - name: Generate Excel Reports
-      if: (steps.time_check.outputs.should_run == 'true') && (steps.duplicate_check.outputs.allow_run == 'true' || github.event_name == 'workflow_dispatch')
+      if: (steps.time_check.outputs.should_run == 'true') && (steps.data_check.outputs.allow_run == 'true' || github.event_name == 'workflow_dispatch')
       env:
         SMARTSHEET_API_TOKEN: ${{ secrets.SMARTSHEET_API_TOKEN }}
       run: |
-        echo "🚀 Starting Excel report generation..."
-        echo "Week ending: $(TZ=America/Chicago date -d 'next Sunday' '+%m/%d/%y')"
+        echo "🚀 Starting continuous Excel report generation..."
+        echo "Current time: $(TZ=America/Chicago date)"
+        echo "Checking for data updates and generating Excel files as needed..."
         
         # Verify API token is available
         if [ -z "$SMARTSHEET_API_TOKEN" ]; then
@@ -147,8 +143,8 @@ jobs:
           echo "No generated_docs directory found"
         fi
 
-    - name: Skip Execution (Outside Window)
+    - name: Skip Execution (Not Needed)
       if: steps.time_check.outputs.should_run == 'false' && github.event_name != 'workflow_dispatch'
       run: |
-        echo "⏭️  Skipping execution - outside of Sunday 5-10 PM Central time window"
-        echo "Next scheduled run: Next Sunday between 5:00-10:00 PM Central"
+        echo "⏭️  No execution needed at this time"
+        echo "Script runs every 2 hours to check for data updates"
