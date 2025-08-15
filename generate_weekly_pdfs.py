@@ -37,7 +37,7 @@ def discover_source_sheets(client):
     Dynamically discovers source sheets based on the base sheet IDs and their duplicates.
     Returns an updated list of SOURCE_SHEETS with all discovered sheets and their column mappings.
     """
-    base_sheet_ids = [3239244454645636, 2230129632694148, 1732945426468740, 4126460034895748, 7899446718189444, 1964558450118532, 5905527830695812]
+    base_sheet_ids = [3239244454645636, 2230129632694148, 1732945426468740, 4126460034895748, 7899446718189444, 1964558450118532, 5905527830695812, 820644963897220]
     
     # Base column mapping template - we'll use this to map columns by name
     # Key = Actual column name in your sheets, Value = Internal name used by script
