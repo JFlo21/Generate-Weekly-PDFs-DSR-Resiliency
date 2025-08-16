@@ -1,8 +1,8 @@
-name: Continuous Excel Report Generation
+name: Excel Generation & Billing Audit System
 
 on:
   schedule:
-    # Run every 2 hours, every day to check for data updates
+    # Run every 2 hours, every day to check for data updates and audit changes
     # Runs at: 12 AM, 2 AM, 4 AM, 6 AM, 8 AM, 10 AM, 12 PM, 2 PM, 4 PM, 6 PM, 8 PM, 10 PM UTC
     - cron: '0 */2 * * *'   # Every 2 hours throughout the day
   
@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       test_mode:
-        description: 'Run in test mode (true/false) - Production mode will upload to Smartsheet'
+        description: 'Run in test mode (true/false) - Production mode will upload to Smartsheet & run audit'
         required: false
         default: 'false'
         type: choice
@@ -23,7 +23,7 @@ env:
   TZ: America/Chicago
 
 jobs:
-  generate-excel-reports:
+  generate-reports-and-audit:
     runs-on: ubuntu-latest
     
     steps:
@@ -118,6 +118,30 @@ jobs:
         # Log completion
         echo "✅ Excel generation completed at $(TZ=America/Chicago date)"
         
+    - name: Run Billing Audit System
+      if: (steps.time_check.outputs.should_run == 'true') && (steps.data_check.outputs.allow_run == 'true' || github.event_name == 'workflow_dispatch')
+      env:
+        SMARTSHEET_API_TOKEN: ${{ secrets.SMARTSHEET_API_TOKEN }}
+        AUDIT_SHEET_ID: ${{ secrets.AUDIT_SHEET_ID }}
+      run: |
+        echo "🔍 Starting billing audit system..."
+        echo "Current time: $(TZ=America/Chicago date)"
+        echo "Checking for unauthorized historical data changes..."
+        
+        # Verify API token is available (same as Excel generation)
+        if [ -z "$SMARTSHEET_API_TOKEN" ]; then
+          echo "❌ ERROR: SMARTSHEET_API_TOKEN secret not found"
+          echo "Audit system requires the same API token as Excel generation"
+          exit 1
+        fi
+        
+        # Run the audit system
+        python audit_billing_changes.py
+        
+        # Log audit completion
+        echo "✅ Billing audit completed at $(TZ=America/Chicago date)"
+        echo "🔒 Historical data protection monitoring active"
+        
     - name: Upload Generated Files (Archive for Records)
       if: (steps.time_check.outputs.should_run == 'true' && github.event_name == 'schedule') || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_mode == 'false')
       uses: actions/upload-artifact@v4
@@ -135,13 +159,21 @@ jobs:
         echo "Time: $(TZ=America/Chicago date)"
         echo "Should run: ${{ steps.time_check.outputs.should_run }}"
         echo "Test mode: ${{ github.event.inputs.test_mode }}"
+        echo ""
+        echo "🔄 SYSTEMS EXECUTED:"
+        echo "✅ Excel Generation: Primary timesheet processing"
+        echo "🔍 Billing Audit: Historical data protection monitoring"
+        echo ""
         
         if [ -d "generated_docs" ]; then
-          echo "Generated files:"
+          echo "📁 Generated files:"
           ls -la generated_docs/ || echo "No files generated"
         else
           echo "No generated_docs directory found"
         fi
+        
+        echo ""
+        echo "🔒 COMPLIANCE STATUS: Audit system monitoring active"
 
     - name: Skip Execution (Not Needed)
       if: steps.time_check.outputs.should_run == 'false' && github.event_name != 'workflow_dispatch'

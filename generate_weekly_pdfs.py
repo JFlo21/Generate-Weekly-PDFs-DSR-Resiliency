@@ -10,6 +10,7 @@ from openpyxl.drawing.image import Image
 import collections
 from openpyxl.utils import get_column_letter
 from dotenv import load_dotenv
+from audit_billing_changes import BillingAudit
 
 # Load environment variables from .env file
 load_dotenv()
@@ -267,6 +268,7 @@ def get_all_source_rows(client, source_sheets):
                 # Add metadata to the row for later use
                 parsed['__sheet_id'] = source['id']
                 parsed['__row_obj'] = row # Keep the original row object
+                parsed['__columns'] = col_map  # Keep column-id map for audit
                 merged_rows.append(parsed)
 
         except Exception as e:
@@ -733,6 +735,10 @@ def main():
 
         logging.info("--- Starting Report Generation Process ---")
         
+        # Initialize audit system
+        run_started_at = datetime.datetime.utcnow()
+        audit_system = BillingAudit(client)
+        
         # 1. Dynamically discover all source sheets (base sheets + their duplicates)
         source_sheets = discover_source_sheets(client)
         if not source_sheets:
@@ -748,13 +754,17 @@ def main():
             logging.info("No valid rows found to process. Exiting.")
             return
 
-        # 4. Group the valid rows into reports
+        # 4. Audit changes for billing columns (Quantity, Redlined Total Price)
+        if not TEST_MODE:  # Only audit in production mode
+            audit_system.audit_changes_for_rows(all_valid_rows, run_started_at)
+
+        # 5. Group the valid rows into reports
         source_groups = group_source_rows(all_valid_rows)
         logging.info(f"Created {len(source_groups)} groups to generate reports for.")
 
         excel_updated, excel_created = 0, 0
 
-        # 5. Process each group
+        # 6. Process each group
         for group_key, group_rows in source_groups.items():
             if not group_rows:
                 continue
