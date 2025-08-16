@@ -4,3 +4,17 @@ pandas
 openpyxl
 Pillow
 python-dotenv
+scikit-learn
+numpy
+matplotlib
+seaborn
+plotly
+transformers
+torch
+tensorflow
+joblib
+networkx
+keras
+torchvision
+psutil
+tf-keras
