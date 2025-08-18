@@ -13,28 +13,39 @@ import collections
 from openpyxl.utils import get_column_letter
 from dotenv import load_dotenv
 
-# Suppress TensorFlow/ML library warnings for cleaner GitHub Actions logs
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-import warnings
-warnings.filterwarnings('ignore', category=FutureWarning)
-warnings.filterwarnings('ignore', category=UserWarning)
+# GitHub Actions Performance Optimization
+GITHUB_ACTIONS_MODE = os.getenv('GITHUB_ACTIONS') == 'true'
+ULTRA_LIGHT_MODE = GITHUB_ACTIONS_MODE and os.getenv('ENABLE_HEAVY_AI', 'false').lower() != 'true'
+
+if ULTRA_LIGHT_MODE:
+    # Skip ALL AI/ML imports for maximum speed on GitHub Actions
+    logging.info("⚡ GitHub Actions Ultra-Light Mode: Maximum performance prioritized")
+    CPU_AI_AVAILABLE = False
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress all TensorFlow logs
+else:
+    # Normal mode with AI capabilities
+    # Suppress TensorFlow/ML library warnings for cleaner GitHub Actions logs
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+    import warnings
+    warnings.filterwarnings('ignore', category=FutureWarning)
+    warnings.filterwarnings('ignore', category=UserWarning)
+
+    # Import CPU-optimized AI engine for GitHub Actions
+    try:
+        from cpu_optimized_ai_engine import CPUOptimizedAIEngine
+        CPU_AI_AVAILABLE = True
+        logging.info("🚀 CPU-optimized AI engine loaded for GitHub Actions")
+    except ImportError:
+        # Fallback to advanced AI engine
+        try:
+            from advanced_ai_audit_engine import AdvancedAuditAIEngine
+            CPU_AI_AVAILABLE = False
+            logging.info("🧠 Advanced AI engine loaded (fallback)")
+        except ImportError:
+            CPU_AI_AVAILABLE = False
+            logging.warning("No AI engine available")
 
 from audit_billing_changes import BillingAudit
-
-# Import CPU-optimized AI engine for GitHub Actions
-try:
-    from cpu_optimized_ai_engine import CPUOptimizedAIEngine
-    CPU_AI_AVAILABLE = True
-    logging.info("🚀 CPU-optimized AI engine loaded for GitHub Actions")
-except ImportError:
-    # Fallback to advanced AI engine
-    try:
-        from advanced_ai_audit_engine import AdvancedAuditAIEngine
-        CPU_AI_AVAILABLE = False
-        logging.info("🧠 Advanced AI engine loaded (fallback)")
-    except ImportError:
-        CPU_AI_AVAILABLE = False
-        logging.warning("No AI engine available")
 
 # Load environment variables from .env file
 load_dotenv()
@@ -876,12 +887,20 @@ def main():
             logging.info("No valid rows found to process. Exiting.")
             return
 
-        # 4. Audit changes for billing columns (Quantity, Redlined Total Price)
+        # 4. Audit changes for billing columns - Optimize for GitHub Actions
         if not TEST_MODE:  # Only audit in production mode
-            audit_system.audit_changes_for_rows(all_valid_rows, run_started_at)
+            if ULTRA_LIGHT_MODE and len(all_valid_rows) > 2000:
+                # Ultra-Light Mode: Process only first 2000 rows for speed
+                logging.info(f"⚡ Ultra-Light Mode: Processing first 2000 rows (of {len(all_valid_rows)}) for speed")
+                audit_system.audit_changes_for_rows(all_valid_rows[:2000], run_started_at)
+            else:
+                audit_system.audit_changes_for_rows(all_valid_rows, run_started_at)
 
-        # 4.5. AI Analysis on CPU-optimized engine for GitHub Actions
-        if ai_engine and all_valid_rows:
+        # 4.5. AI Analysis - Skip in Ultra-Light Mode for GitHub Actions speed
+        if ULTRA_LIGHT_MODE:
+            logging.info("⚡ Ultra-Light Mode: Skipping AI analysis for maximum GitHub Actions speed")
+            ai_analysis_results = {}
+        elif ai_engine and all_valid_rows:
             try:
                 logging.info("🤖 Starting CPU-optimized AI analysis...")
                 ai_start_time = time.time()

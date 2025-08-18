@@ -1,0 +1,10 @@
+# Ultra-Light Mode Requirements for Maximum GitHub Actions Speed
+# Only essential packages for basic Excel generation
+smartsheet-python-sdk
+python-dateutil
+pandas
+openpyxl
+Pillow
+python-dotenv
+# Skip ALL AI/ML libraries for maximum speed
+# No tensorflow, torch, scikit-learn, transformers, etc.
