@@ -75,7 +75,9 @@ AUDIT_SHEET_ID = None  # Will be set from environment variable or config
 TRACK_COLUMNS = ['Quantity', 'Redlined Total Price']  # which columns to watch
 OUTPUT_FOLDER = "generated_docs"
 RUN_STATE_PATH = os.path.join(OUTPUT_FOLDER, 'audit_state.json')  # remembers last run
-MAX_ROWS_PER_RUN = 50  # Limit for safety - prevents overwhelming API on first run
+MAX_ROWS_PER_RUN = 500  # Increased batch size for comprehensive analysis
+BATCH_SIZE = 100  # Process in smaller batches to respect API limits
+API_DELAY = 0.5  # Seconds between API calls to prevent rate limiting
 
 class BillingAudit:
     """
@@ -491,11 +493,34 @@ class BillingAudit:
         after_entry = None
         
         for revision in history:
-            if revision['modified_at'] and revision['modified_at'] <= since_datetime:
-                before_entry = revision
-            elif revision['modified_at'] and revision['modified_at'] > since_datetime:
-                after_entry = revision
-                break
+            try:
+                # Ensure datetime comparison compatibility
+                revision_time = revision['modified_at']
+                if revision_time and since_datetime:
+                    # Convert both to UTC timezone-aware for safe comparison
+                    if isinstance(revision_time, str):
+                        revision_time = parser.parse(revision_time)
+                    if isinstance(since_datetime, str):
+                        since_datetime = parser.parse(since_datetime)
+                    
+                    # Make both timezone-aware if needed
+                    if revision_time.tzinfo is None:
+                        revision_time = revision_time.replace(tzinfo=datetime.timezone.utc)
+                    if since_datetime.tzinfo is None:
+                        since_datetime = since_datetime.replace(tzinfo=datetime.timezone.utc)
+                    
+                    if revision_time <= since_datetime:
+                        before_entry = revision
+                    elif revision_time > since_datetime:
+                        after_entry = revision
+                        break
+                elif revision_time and not since_datetime:
+                    # Handle case where since_datetime is None
+                    after_entry = revision
+                    break
+            except Exception as e:
+                logging.warning(f"⚠️ Error comparing datetime for revision: {e}")
+                continue
         
         if before_entry and after_entry:
             return (
@@ -591,92 +616,130 @@ class BillingAudit:
                 if key not in unique_rows:
                     unique_rows[key] = row
         
-        # Apply safety limit to prevent overwhelming the API
+        # Apply batch processing to handle all rows safely
         if len(unique_rows) > MAX_ROWS_PER_RUN:
-            logging.warning(f"⚠️  Limiting audit to first {MAX_ROWS_PER_RUN} rows out of {len(unique_rows)} to prevent API overload")
+            logging.info(f"🔄 Processing {len(unique_rows)} rows in batches of {BATCH_SIZE} to respect API limits")
+            logging.info(f"📊 Total rows will be processed across multiple batches (max {MAX_ROWS_PER_RUN} per run)")
+            # Take larger sample but still respect limits
             unique_rows = dict(list(unique_rows.items())[:MAX_ROWS_PER_RUN])
+        else:
+            logging.info(f"✅ Processing all {len(unique_rows)} rows - within safe limits")
         
         logging.info(f"🔍 Checking {len(unique_rows)} unique rows for changes...")
         
-        # Collect audit entries
+        # Collect audit entries with batch processing
         audit_entries = []
         run_id = datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
+        processed_count = 0
         
-        for (sheet_id, row_id), row_data in unique_rows.items():
-            row_obj = row_data.get('__row_obj')
-            column_map = row_data.get('__columns', {})
+        # Process in batches to respect API rate limits
+        unique_rows_list = list(unique_rows.items())
+        total_batches = (len(unique_rows_list) + BATCH_SIZE - 1) // BATCH_SIZE
+        
+        for batch_num in range(total_batches):
+            start_idx = batch_num * BATCH_SIZE
+            end_idx = min(start_idx + BATCH_SIZE, len(unique_rows_list))
+            batch_rows = unique_rows_list[start_idx:end_idx]
             
-            # Extract work request info for the audit log
-            wr_number = str(row_data.get('Work Request #')).split('.')[0] if row_data.get('Work Request #') else ''
-            week_ending = self.calculate_week_ending(row_data.get('Weekly Referenced Logged Date'))
+            logging.info(f"🔄 Processing batch {batch_num + 1}/{total_batches} ({len(batch_rows)} rows)")
             
-            if not column_map:
-                continue
-            
-            # Check each tracked column for changes
-            for column_title in TRACK_COLUMNS:
-                if column_title not in column_map:
+            for (sheet_id, row_id), row_data in batch_rows:
+                row_obj = row_data.get('__row_obj')
+                column_map = row_data.get('__columns', {})
+                
+                # Extract work request info for the audit log
+                wr_number = str(row_data.get('Work Request #')).split('.')[0] if row_data.get('Work Request #') else ''
+                week_ending = self.calculate_week_ending(row_data.get('Weekly Referenced Logged Date'))
+                
+                if not column_map:
                     continue
                 
-                column_id = column_map[column_title]
+                # Check each tracked column for changes
+                for column_title in TRACK_COLUMNS:
+                    if column_title not in column_map:
+                        continue
+                    
+                    column_id = column_map[column_title]
+                    
+                    try:
+                        # Get cell history
+                        cell_history = self.fetch_cell_history(sheet_id, row_id, column_id)
+                        
+                        # Look for changes since last run
+                        change_info = self.find_change_since(cell_history, last_run_timestamp)
+                        
+                        if not change_info:
+                            continue  # No relevant changes
+                        
+                        old_value, new_value, changed_by_name, changed_by_email, changed_at = change_info
+                        
+                        # Convert values to numbers for comparison
+                        old_number = self.coerce_number(old_value, column_title)
+                        new_number = self.coerce_number(new_value, column_title)
+                        
+                        # Calculate delta
+                        delta = None
+                        if old_number is not None and new_number is not None:
+                            delta = new_number - old_number
+                        
+                        # Only log if there's actually a meaningful change
+                        if old_number != new_number:
+                            # CRITICAL CHECK: Only flag changes to HISTORICAL data (past week endings)
+                            if not self.is_historical_week(week_ending, changed_at):
+                                continue  # Skip current week changes - these are normal and allowed
+                            
+                            # This is a suspicious change to locked historical data!
+                            logging.warning(f"🚨 UNAUTHORIZED HISTORICAL CHANGE: WR {wr_number}, Week {week_ending}, {column_title}: {old_number} → {new_number}")
+                            
+                            # Create the direct link to the source sheet
+                            sheet_url = f"https://app.smartsheet.com/sheets/{sheet_id}"
+                            
+                            audit_entry = self.create_audit_row(
+                                audit_column_map,
+                                work_request=wr_number,
+                                week_ending=week_ending,
+                                column_name=column_title,
+                                old_value=old_number if old_number is not None else (old_value if old_value is not None else ""),
+                                new_value=new_number if new_number is not None else (new_value if new_value is not None else ""),
+                                delta=delta,
+                                changed_by=changed_by_email or changed_by_name or "",
+                                changed_at=changed_at,
+                                source_sheet_id=str(sheet_id),
+                                source_row_id=row_id,
+                                sheet_reference=sheet_url,
+                                run_at=run_started_at,
+                                run_id=run_id
+                            )
+                            
+                            if audit_entry:
+                                audit_entries.append(audit_entry)
+                                logging.info(f"📝 Change detected: WR {wr_number}, {column_title}: {old_number} → {new_number} (Δ {delta})")
+                    
+                    except Exception as e:
+                        logging.warning(f"⚠️ Error checking {column_title} for row {row_id} in sheet {sheet_id}: {e}")
+                        continue
                 
-                try:
-                    # Get cell history
-                    cell_history = self.fetch_cell_history(sheet_id, row_id, column_id)
-                    
-                    # Look for changes since last run
-                    change_info = self.find_change_since(cell_history, last_run_timestamp)
-                    
-                    if not change_info:
-                        continue  # No relevant changes
-                    
-                    old_value, new_value, changed_by_name, changed_by_email, changed_at = change_info
-                    
-                    # Convert values to numbers for comparison
-                    old_number = self.coerce_number(old_value, column_title)
-                    new_number = self.coerce_number(new_value, column_title)
-                    
-                    # Calculate delta
-                    delta = None
-                    if old_number is not None and new_number is not None:
-                        delta = new_number - old_number
-                    
-                    # Only log if there's actually a meaningful change
-                    if old_number != new_number:
-                        # CRITICAL CHECK: Only flag changes to HISTORICAL data (past week endings)
-                        if not self.is_historical_week(week_ending, changed_at):
-                            continue  # Skip current week changes - these are normal and allowed
-                        
-                        # This is a suspicious change to locked historical data!
-                        logging.warning(f"🚨 UNAUTHORIZED HISTORICAL CHANGE: WR {wr_number}, Week {week_ending}, {column_title}: {old_number} → {new_number}")
-                        
-                        # Create the direct link to the source sheet
-                        sheet_url = f"https://app.smartsheet.com/sheets/{sheet_id}"
-                        
-                        audit_entry = self.create_audit_row(
-                            audit_column_map,
-                            work_request=wr_number,
-                            week_ending=week_ending,
-                            column_name=column_title,
-                            old_value=old_number if old_number is not None else (old_value if old_value is not None else ""),
-                            new_value=new_number if new_number is not None else (new_value if new_value is not None else ""),
-                            delta=delta,
-                            changed_by=changed_by_email or changed_by_name or "",
-                            changed_at=changed_at,
-                            source_sheet_id=str(sheet_id),
-                            source_row_id=row_id,
-                            sheet_reference=sheet_url,
-                            run_at=run_started_at,
-                            run_id=run_id
-                        )
-                        
-                        if audit_entry:
-                            audit_entries.append(audit_entry)
-                            logging.info(f"📝 Change detected: WR {wr_number}, {column_title}: {old_number} → {new_number} (Δ {delta})")
+                    except Exception as e:
+                        logging.warning(f"⚠️ Error checking {column_title} for row {row_id} in sheet {sheet_id}: {e}")
+                        continue
                 
-                except Exception as e:
-                    logging.warning(f"⚠️ Error checking {column_title} for row {row_id} in sheet {sheet_id}: {e}")
-                    continue
+                # Track progress and add delay for API rate limiting
+                processed_count += 1
+                if processed_count % 10 == 0:  # Log progress every 10 rows
+                    logging.info(f"📊 Progress: {processed_count}/{len(unique_rows)} rows processed")
+                
+                # Small delay to respect API rate limits
+                if API_DELAY > 0:
+                    time.sleep(API_DELAY)
+            
+            # Log batch completion
+            logging.info(f"✅ Batch {batch_num + 1}/{total_batches} completed ({len(batch_rows)} rows)")
+            
+            # Longer delay between batches for API courtesy
+            if batch_num < total_batches - 1:  # Don't delay after last batch
+                time.sleep(1.0)
+        
+        logging.info(f"🏁 All batches completed! Processed {processed_count} total rows")
         
         # Write audit entries to Smartsheet
         if audit_entries:
