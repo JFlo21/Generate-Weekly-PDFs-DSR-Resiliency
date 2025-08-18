@@ -3,6 +3,7 @@ import datetime
 import json
 import logging
 import time
+import traceback
 from dateutil import parser
 import smartsheet
 from smartsheet.models import Row as SSRow, Cell as SSCell
@@ -12,6 +13,12 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.utils import get_column_letter
+
+# Suppress TensorFlow warnings for production
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Suppress TensorFlow INFO and WARNING messages
+import warnings
+warnings.filterwarnings('ignore', category=UserWarning, module='tensorflow')
+warnings.filterwarnings('ignore', category=FutureWarning, module='tensorflow')
 
 # Try to import Image for logo support, fallback if not available
 try:
@@ -33,6 +40,11 @@ try:
 except ImportError as e:
     SEABORN_CHARTS_AVAILABLE = False
     logging.warning(f"Seaborn chart generation not available: {e}")
+    # Create dummy variables to prevent "unbound" errors
+    plt = None
+    sns = None
+    np = None
+    io = None
 
 # Advanced AI/ML Audit Engine Integration
 try:
@@ -78,7 +90,9 @@ RUN_STATE_PATH = os.path.join(OUTPUT_FOLDER, 'audit_state.json')  # remembers la
 MAX_ROWS_PER_RUN = None  # Process ALL rows - no artificial limits
 EMERGENCY_LIMIT = 2000  # Emergency brake for extremely large datasets (> 2000 rows gets logged but continues)
 BATCH_SIZE = 100  # Process in smaller batches to respect API limits
-API_DELAY = 0.2  # Reduced from 0.5s to 0.2s - still respects rate limits but faster processing
+API_DELAY = 0.15  # Optimized from 0.2s to 0.15s - aggressive optimization for sub-60 minute runtime
+API_RETRY_ATTEMPTS = 3  # Number of retries for 502 Bad Gateway errors
+API_RETRY_DELAY = 2.0  # Base delay between retries (exponential backoff)
 
 class BillingAudit:
     """
@@ -106,11 +120,51 @@ class BillingAudit:
             self.enabled = AUDIT_ENABLED
             logging.info(f"🔍 Audit system initialized for sheet ID: {self.audit_sheet_id}")
     
+    def _api_call_with_retry(self, api_function, *args, **kwargs):
+        """
+        Execute API call with retry logic for handling 502 Bad Gateway errors.
+        
+        Args:
+            api_function: The API function to call
+            *args, **kwargs: Arguments to pass to the API function
+            
+        Returns:
+            Result of the API call
+            
+        Raises:
+            Exception: If all retry attempts fail
+        """
+        for attempt in range(API_RETRY_ATTEMPTS):
+            try:
+                result = api_function(*args, **kwargs)
+                return result
+            except Exception as e:
+                error_msg = str(e).lower()
+                if "502" in error_msg or "bad gateway" in error_msg:
+                    if attempt < API_RETRY_ATTEMPTS - 1:  # Not the last attempt
+                        wait_time = API_RETRY_DELAY * (2 ** attempt)  # Exponential backoff
+                        logging.warning(f"⚠️ 502 Bad Gateway error (attempt {attempt + 1}/{API_RETRY_ATTEMPTS}). Retrying in {wait_time}s...")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logging.error(f"❌ All {API_RETRY_ATTEMPTS} retry attempts failed for API call")
+                        # Continue processing instead of crashing
+                        return None
+                else:
+                    # Not a 502 error, re-raise immediately
+                    raise e
+        return None
+    
     def _generate_seaborn_charts(self, audit_data, ai_analysis_results=None):
         """Generate beautiful AI-enhanced Seaborn charts for Excel embedding."""
         charts = {}
         
         if not SEABORN_CHARTS_AVAILABLE or not audit_data:
+            return charts
+        
+        # Safety check - ensure libraries are actually available
+        if plt is None or sns is None or np is None or io is None:
+            logging.warning("Chart generation libraries not available - skipping chart creation")
             return charts
         
         try:
@@ -231,10 +285,10 @@ class BillingAudit:
                 
                 # Left plot: Anomaly Timeline
                 df_sorted = df.sort_values('changed_at')
-                anomaly_mask = df_sorted.get('is_anomaly', False)
+                anomaly_mask = df_sorted.get('is_anomaly', pd.Series([False] * len(df_sorted)))
                 
                 ax1.plot(range(len(df_sorted)), df_sorted['abs_delta'], 'b-', alpha=0.6, label='Normal')
-                if anomaly_mask.any():
+                if hasattr(anomaly_mask, 'any') and anomaly_mask.any():
                     ax1.scatter(np.where(anomaly_mask)[0], df_sorted[anomaly_mask]['abs_delta'], 
                                color='red', s=100, label='AI Detected Anomalies', zorder=5)
                 
@@ -322,6 +376,21 @@ class BillingAudit:
     def _enrich_data_with_ai_insights(self, df, ai_analysis_results):
         """Enrich dataframe with AI analysis insights for visualization."""
         try:
+            # Safety check for numpy availability
+            if np is None:
+                logging.warning("NumPy not available - using basic enrichment")
+                # Add simple AI confidence scores without numpy
+                if 'confidence_score' in ai_analysis_results:
+                    base_confidence = ai_analysis_results['confidence_score'] / 100
+                    df['ai_confidence'] = base_confidence
+                
+                # Add simple AI risk scores based on amount
+                df['ai_risk_score'] = df['abs_delta'].apply(lambda x: 0.9 if x > 1000 else (0.6 if x > 100 else 0.3))
+                df['is_anomaly'] = df['abs_delta'] > df['abs_delta'].quantile(0.8)
+                df['ai_anomaly_score'] = df['abs_delta'] / df['abs_delta'].max()
+                return df
+            
+            # Full numpy-enhanced enrichment
             # Add AI confidence scores
             if 'confidence_score' in ai_analysis_results:
                 base_confidence = ai_analysis_results['confidence_score'] / 100
@@ -390,17 +459,31 @@ class BillingAudit:
         - modified_by_email: email of user who made the change
         """
         try:
-            # Add rate limiting - wait 0.5 seconds between API calls
-            time.sleep(0.5)
+            # Add rate limiting - wait between API calls (reduced for performance)
+            time.sleep(0.15)
             
-            # Try different SDK methods for cell history
+            # Try different SDK methods for cell history with retry logic
+            resp = None
+            history = []
             try:
-                resp = self.client.Cells.list_cell_history(sheet_id, row_id, column_id, include_all=True)
-                history = resp.data
+                resp = self._api_call_with_retry(
+                    self.client.Cells.list_cell_history, 
+                    sheet_id, row_id, column_id, include_all=True
+                )
+                if resp:
+                    history = resp.data
             except AttributeError:
                 # Some SDK versions use get_cell_history
-                resp = self.client.Cells.get_cell_history(sheet_id, row_id, column_id, include_all=True)
-                history = resp.data if hasattr(resp, 'data') else resp
+                resp = self._api_call_with_retry(
+                    self.client.Cells.get_cell_history, 
+                    sheet_id, row_id, column_id, include_all=True
+                )
+                if resp:
+                    history = resp.data if hasattr(resp, 'data') else resp
+            
+            if resp is None or not history:
+                logging.warning(f"⚠️ Failed to fetch cell history after retries for sheet {sheet_id}, row {row_id}, column {column_id}")
+                return []
             
             parsed_history = []
             for h in history:
@@ -722,10 +805,6 @@ class BillingAudit:
                                 audit_entries.append(audit_entry)
                                 logging.info(f"📝 Change detected: WR {wr_number}, {column_title}: {old_number} → {new_number} (Δ {delta})")
                     
-                    except Exception as e:
-                        logging.warning(f"⚠️ Error checking {column_title} for row {row_id} in sheet {sheet_id}: {e}")
-                        continue
-                
                     except Exception as e:
                         logging.warning(f"⚠️ Error checking {column_title} for row {row_id} in sheet {sheet_id}: {e}")
                         continue

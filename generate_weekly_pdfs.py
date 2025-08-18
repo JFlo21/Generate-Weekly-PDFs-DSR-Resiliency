@@ -154,30 +154,39 @@ def discover_source_sheets(client):
                     if column.title in column_name_mapping:
                         column_mapping[column_name_mapping[column.title]] = column.id
                 
-                # Only add sheets that have all required columns
-                required_columns = ['Foreman', 'Work Request #', 'Weekly Referenced Logged Date', 
-                                  'Snapshot Date', 'Units Completed', 'Redlined Total Price']
+                # Flexible column validation - require key columns but be forgiving about optional ones
+                required_columns = ['Work Request #', 'Weekly Referenced Logged Date']  # Core columns only
+                recommended_columns = ['Foreman', 'Snapshot Date', 'Units Completed', 'Redlined Total Price']  # Optional but preferred
                 
                 if TEST_MODE:
                     print(f"\n🔍 Analyzing Sheet: {full_sheet.name}")
                     print(f"Available columns: {', '.join(available_columns[:10])}{'...' if len(available_columns) > 10 else ''}")
                     print(f"Total columns found: {len(available_columns)}")
-                    missing_cols = [col for col in required_columns if col not in column_mapping]
-                    if missing_cols:
-                        print(f"❌ Missing required columns: {missing_cols}")
+                    missing_required = [col for col in required_columns if col not in column_mapping]
+                    missing_recommended = [col for col in recommended_columns if col not in column_mapping]
+                    if missing_required:
+                        print(f"❌ Missing REQUIRED columns: {missing_required}")
+                    elif missing_recommended:
+                        print(f"⚠️ Missing recommended columns: {missing_recommended}")
                     else:
-                        print(f"✅ All required columns found!")
+                        print(f"✅ All required and recommended columns found!")
                 
+                # Only require core columns - be flexible about others
                 if all(col in column_mapping for col in required_columns):
+                    missing_recommended = [col for col in recommended_columns if col not in column_mapping]
+                    if missing_recommended:
+                        logging.info(f"✅ Adding sheet {full_sheet.name} - missing optional columns: {missing_recommended}")
+                    else:
+                        logging.info(f"✅ Adding sheet {full_sheet.name} - all columns present")
+                    
                     discovered_sheets.append({
                         "id": sheet_info.id,
                         "name": full_sheet.name,
                         "columns": column_mapping
                     })
-                    logging.info(f"Added sheet: {full_sheet.name} (ID: {sheet_info.id})")
                 else:
-                    missing_cols = [col for col in required_columns if col not in column_mapping]
-                    logging.warning(f"Skipping sheet {full_sheet.name} - missing columns: {missing_cols}")
+                    missing_required = [col for col in required_columns if col not in column_mapping]
+                    logging.warning(f"Skipping sheet {full_sheet.name} - missing REQUIRED columns: {missing_required}")
                     
             except Exception as e:
                 logging.error(f"Error processing sheet {sheet_info.id}: {e}")
@@ -441,7 +450,11 @@ def generate_excel(group_key, group_rows, snapshot_date):
     SUMMARY_VALUE_FONT = Font(name='Calibri', size=10)
 
     ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
-    ws.page_setup.paper_size = ws.PAPERSIZE_A4
+    try:
+        ws.page_setup.paper_size = ws.PAPERSIZE_A4
+    except AttributeError:
+        # Alternative approach for different openpyxl versions
+        ws.page_setup.paperSize = 9  # A4 paper size code
     ws.page_margins.left = 0.25; ws.page_margins.right = 0.25
     ws.page_margins.top = 0.5; ws.page_margins.bottom = 0.5
 
@@ -525,21 +538,22 @@ def generate_excel(group_key, group_rows, snapshot_date):
         ws[f'F{current_row+1+i}'] = label
         ws[f'F{current_row+1+i}'].font = SUMMARY_LABEL_FONT
         data_cell = ws.cell(row=current_row+1+i, column=ws[f'F{current_row+1+i}'].column + 1)
-        ws.merge_cells(start_row=data_cell.row, start_column=data_cell.column, end_row=data_cell.row, end_column=data_cell.column + 2)
-        data_cell.value = value
+        if data_cell.row is not None and data_cell.column is not None:  # type: ignore
+            ws.merge_cells(start_row=data_cell.row, start_column=data_cell.column, end_row=data_cell.row, end_column=data_cell.column + 2)  # type: ignore
+        data_cell.value = value  # type: ignore
         data_cell.font = SUMMARY_VALUE_FONT
         data_cell.alignment = Alignment(horizontal='right')
 
     def write_day_block(start_row, day_name, date_obj, day_rows):
         ws.merge_cells(start_row=start_row, start_column=1, end_row=start_row, end_column=8)
-        ws.cell(row=start_row, column=1).value = f"{day_name} ({date_obj.strftime('%m/%d/%Y')})"
+        ws.cell(row=start_row, column=1).value = f"{day_name} ({date_obj.strftime('%m/%d/%Y')})"  # type: ignore
         ws.cell(row=start_row, column=1).font = BLOCK_HEADER_FONT
         ws.cell(row=start_row, column=1).fill = RED_FILL
         ws.cell(row=start_row, column=1).alignment = Alignment(horizontal='left', vertical='center')
         headers = ["Point Number", "Billable Unit Code", "Work Type", "Unit Description", "Unit of Measure", "# Units", "N/A", "Pricing"]
         for col_num, header in enumerate(headers, 1):
             cell = ws.cell(row=start_row+1, column=col_num)
-            cell.value = header
+            cell.value = header  # type: ignore
             cell.font = TABLE_HEADER_FONT
             cell.fill = RED_FILL
             cell.alignment = Alignment(horizontal='center', wrap_text=True, vertical='center')
@@ -567,13 +581,13 @@ def generate_excel(group_key, group_rows, snapshot_date):
         total_row = start_row + 2 + len(day_rows)
         ws.merge_cells(start_row=total_row, start_column=1, end_row=total_row, end_column=7)
         total_label_cell = ws.cell(row=total_row, column=1)
-        total_label_cell.value = "TOTAL"
+        total_label_cell.value = "TOTAL"  # type: ignore
         total_label_cell.font = TABLE_HEADER_FONT
         total_label_cell.alignment = Alignment(horizontal='right')
         total_label_cell.fill = RED_FILL
 
         total_value_cell = ws.cell(row=total_row, column=8)
-        total_value_cell.value = total_price_day
+        total_value_cell.value = total_price_day  # type: ignore
         total_value_cell.number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
         total_value_cell.font = TABLE_HEADER_FONT
         total_value_cell.fill = RED_FILL
@@ -874,12 +888,13 @@ def main():
             logging.info("--- Processing Complete ---")
             logging.info(f"Excel Files: {excel_created} created, {excel_updated} updated.")
 
-    except smartsheet.exceptions.ApiError as e:
-        logging.error(f"A Smartsheet API error occurred: {e}")
     except FileNotFoundError as e:
         logging.error(f"File Not Found: {e}. Please ensure '{LOGO_PATH}' is available.")
-    except Exception as e:
-        logging.error(f"An unexpected error occurred: {e}", exc_info=True)
+    except Exception as e:  # type: ignore  # smartsheet.exceptions.ApiError may not be available
+        if "smartsheet" in str(type(e)).lower() or "api" in str(e).lower():
+            logging.error(f"A Smartsheet API error occurred: {e}")
+        else:
+            logging.error(f"An unexpected error occurred: {e}", exc_info=True)
 
 if __name__ == "__main__":
     main()

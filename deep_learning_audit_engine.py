@@ -16,49 +16,104 @@ warnings.filterwarnings('ignore')
 
 # Deep Learning Imports
 try:
-    import tensorflow as tf
-    from tensorflow import keras
-    from tensorflow.keras import layers, models, callbacks
-    from tensorflow.keras.models import Sequential, Model
-    from tensorflow.keras.layers import Dense, LSTM, GRU, Conv1D, MaxPooling1D, Dropout as TFDropout, BatchNormalization
-    from tensorflow.keras.optimizers import Adam, RMSprop
-    from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
+    import tensorflow as tf  # type: ignore
+    from tensorflow import keras  # type: ignore
+    from tensorflow.keras import layers, models, callbacks  # type: ignore
+    from tensorflow.keras.models import Sequential, Model  # type: ignore
+    from tensorflow.keras.layers import Dense, LSTM, GRU, Conv1D, MaxPooling1D, Dropout as TFDropout, BatchNormalization  # type: ignore
+    from tensorflow.keras.optimizers import Adam, RMSprop  # type: ignore
+    from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau  # type: ignore
     TENSORFLOW_AVAILABLE = True
     logging.info("🔥 TensorFlow deep learning models loaded successfully")
 except ImportError as e:
     TENSORFLOW_AVAILABLE = False
     logging.warning(f"TensorFlow not available: {e}")
+    # Create dummy classes for TensorFlow components
+    class Sequential:
+        def __init__(self, *args, **kwargs): pass
+        def compile(self, *args, **kwargs): pass
+        def predict(self, *args, **kwargs): return np.array([[0.5]])
+        def save(self, *args, **kwargs): pass
+    
+    class Model:
+        def __init__(self, *args, **kwargs): pass
+        def compile(self, *args, **kwargs): pass
+        def predict(self, *args, **kwargs): return np.array([[0.5]])
+        def save(self, *args, **kwargs): pass
+    
+    # Dummy layer classes
+    Dense = LSTM = GRU = Conv1D = MaxPooling1D = TFDropout = BatchNormalization = lambda *args, **kwargs: None
+    Adam = RMSprop = lambda *args, **kwargs: None
+    keras = type('keras', (), {
+        'Input': lambda *args, **kwargs: None,
+        'models': type('models', (), {'load_model': lambda *args: Sequential()})(),
+        'layers': type('layers', (), {'Flatten': lambda *args, **kwargs: None})()
+    })()
 
 try:
-    import torch
-    import torch.nn as nn
-    import torch.optim as optim
-    import torch.nn.functional as F
-    from torch.utils.data import Dataset, DataLoader, TensorDataset
-    from torch.nn import Linear, ReLU, Dropout as TorchDropout, Sequential as TorchSequential
+    import torch  # type: ignore
+    import torch.nn as nn  # type: ignore
+    import torch.optim as optim  # type: ignore
+    import torch.nn.functional as F  # type: ignore
+    from torch.utils.data import Dataset, DataLoader, TensorDataset  # type: ignore
+    from torch.nn import Linear, ReLU, Dropout as TorchDropout, Sequential as TorchSequential  # type: ignore
     PYTORCH_AVAILABLE = True
     logging.info("🔥 PyTorch deep learning models loaded successfully")
 except ImportError as e:
     PYTORCH_AVAILABLE = False
     logging.warning(f"PyTorch not available: {e}")
+    # Create dummy classes
+    class nn:
+        class Module:
+            def __init__(self, *args, **kwargs): pass
+        TransformerEncoder = TransformerEncoderLayer = Sigmoid = lambda *args, **kwargs: None
+    Linear = ReLU = TorchDropout = TorchSequential = lambda *args, **kwargs: None
+    F = type('F', (), {'relu': lambda x: x, 'softmax': lambda x, dim: x, 'sigmoid': lambda x: x})()
+    torch = type('torch', (), {
+        'randn_like': lambda x: x,
+        'exp': lambda x: x,
+        'sigmoid': lambda x: x
+    })()
 
 # Graph and Network Analysis
 try:
-    import networkx as nx
+    import networkx as nx  # type: ignore
     GRAPH_ANALYSIS_AVAILABLE = True
     logging.info("📊 Graph analysis capabilities loaded")
 except ImportError:
     GRAPH_ANALYSIS_AVAILABLE = False
     logging.warning("NetworkX not available for graph analysis")
+    # Create dummy networkx
+    class DummyGraph:
+        def __init__(self): 
+            self._nodes = {}
+            self._edges = {}
+        def nodes(self): return self._nodes.keys()
+        def edges(self, data=False): return []
+        def clear(self): pass
+        def add_node(self, *args, **kwargs): pass
+        def add_edge(self, *args, **kwargs): pass
+        def has_node(self, node): return False
+        def has_edge(self, u, v): return False
+        def degree(self, node): return 0
+        def __getitem__(self, key): return {}
+    
+    nx = type('nx', (), {
+        'DiGraph': DummyGraph,
+        'Graph': DummyGraph, 
+        'degree_centrality': lambda g: {},
+        'betweenness_centrality': lambda g: {},
+        'density': lambda g: 0
+    })()
 
 # Advanced Visualization
 try:
-    import seaborn as sns
-    import matplotlib.pyplot as plt
-    import plotly.graph_objects as go
-    import plotly.express as px
-    import plotly.figure_factory as ff
-    from plotly.subplots import make_subplots
+    import seaborn as sns  # type: ignore
+    import matplotlib.pyplot as plt  # type: ignore
+    import plotly.graph_objects as go  # type: ignore
+    import plotly.express as px  # type: ignore
+    import plotly.figure_factory as ff  # type: ignore
+    from plotly.subplots import make_subplots  # type: ignore
     ADVANCED_VIZ_AVAILABLE = True
 except ImportError:
     ADVANCED_VIZ_AVAILABLE = False
@@ -378,6 +433,9 @@ class DeepLearningAuditEngine:
         except Exception as e:
             logging.warning(f"LSTM analysis failed: {e}")
             return {'status': 'error', 'message': str(e)}
+        
+        # Default return in case no conditions are met
+        return {'status': 'no_analysis', 'message': 'No LSTM analysis performed'}
     
     def _autoencoder_anomaly_detection(self, df: pd.DataFrame) -> Dict[str, Any]:
         """Advanced anomaly detection using autoencoder."""
@@ -530,13 +588,26 @@ class DeepLearningAuditEngine:
                     'average_violations_per_wr': np.mean([self.violation_network.nodes[node]['violations'] for node in self.violation_network.nodes()]) if self.violation_network.nodes() else 0
                 },
                 'collaboration_patterns': {
-                    'users_with_collaborations': len([user for user in self.user_interaction_graph.nodes() if self.user_interaction_graph.degree(user) > 0]),
-                    'most_collaborative_pairs': [(u, v, data['shared_wr_count']) for u, v, data in sorted(self.user_interaction_graph.edges(data=True), key=lambda x: x[2]['shared_wr_count'], reverse=True)[:3]]
+                    'users_with_collaborations': len([user for user in self.user_interaction_graph.nodes() if self._get_node_degree(user) > 0]),
+                    'most_collaborative_pairs': [(u, v, data.get('shared_wr_count', 0)) for u, v, data in sorted(self.user_interaction_graph.edges(data=True), key=lambda x: x[2].get('shared_wr_count', 0), reverse=True)[:3]]
                 }
             }
         except Exception as e:
             logging.warning(f"Graph network analysis failed: {e}")
             return {'status': 'error', 'message': str(e)}
+    
+    def _get_node_degree(self, node: str) -> int:
+        """Helper method to safely get node degree from graph."""
+        try:
+            if hasattr(self.user_interaction_graph, 'degree'):
+                # Handle dummy implementation (returns int) vs real NetworkX (callable)
+                if callable(self.user_interaction_graph.degree):
+                    return int(self.user_interaction_graph.degree(node))  # type: ignore
+                else:
+                    return int(self.user_interaction_graph.degree)  # Dummy returns 0
+            return 0
+        except:
+            return 0
     
     def _real_time_violation_scoring(self, audit_data: List[Dict]) -> List[Dict[str, Any]]:
         """Implement real-time scoring for immediate violation assessment."""
@@ -675,7 +746,7 @@ class DeepLearningAuditEngine:
         logging.info(f"🚨 Generated {len(alerts)} automated alerts")
         return alerts
     
-    def _calculate_confidence_metrics(self, analysis_results: Dict[str, Any]) -> Dict[str, float]:
+    def _calculate_confidence_metrics(self, analysis_results: Dict[str, Any]) -> Dict[str, Any]:
         """Calculate overall confidence metrics for the analysis."""
         confidences = []
         
@@ -868,14 +939,19 @@ if PYTORCH_AVAILABLE:
 
 else:
     # Dummy classes when PyTorch is not available
-    class UserGraphNN:
+    class DummyUserGraphNN:
         def __init__(self, *args, **kwargs):
             pass
     
-    class ViolationTransformer:
+    class DummyViolationTransformer:
         def __init__(self, *args, **kwargs):
             pass
     
-    class VariationalAutoencoder:
+    class DummyVariationalAutoencoder:
         def __init__(self, *args, **kwargs):
             pass
+    
+    # Aliases to maintain compatibility
+    UserGraphNN = DummyUserGraphNN
+    ViolationTransformer = DummyViolationTransformer
+    VariationalAutoencoder = DummyVariationalAutoencoder
