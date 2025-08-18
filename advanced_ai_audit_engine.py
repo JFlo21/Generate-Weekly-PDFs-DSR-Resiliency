@@ -159,18 +159,26 @@ class AdvancedAuditAIEngine:
         logging.info("🤖 Machine Learning models initialized")
     
     def _initialize_nlp_models(self):
-        """Initialize NLP models for intelligent text generation."""
+        """Initialize lightweight NLP models optimized for CPU execution."""
         try:
-            # Use a lightweight model for text analysis
+            # Use lightweight, CPU-optimized models for GitHub Actions
+            # Small RoBERTa model for sentiment (much faster on CPU)
             self.nlp_sentiment = pipeline("sentiment-analysis", 
-                                        model="cardiffnlp/twitter-roberta-base-sentiment-latest")
+                                        model="cardiffnlp/twitter-roberta-base-sentiment-latest",
+                                        device=-1)  # Force CPU usage
+            
+            # Use DistilBART for summarization (lighter than full BART)
             self.nlp_summarizer = pipeline("summarization", 
-                                         model="facebook/bart-large-cnn")
-            logging.info("🧠 NLP models initialized successfully")
+                                         model="sshleifer/distilbart-cnn-12-6",
+                                         device=-1)  # Force CPU usage
+            
+            logging.info("🚀 Lightweight CPU-optimized NLP models initialized")
         except Exception as e:
             logging.warning(f"NLP model initialization failed: {e}")
+            # Fallback to rule-based approaches
             self.nlp_sentiment = None
             self.nlp_summarizer = None
+            logging.info("📝 Using rule-based text analysis instead")
     
     def _load_learning_data(self):
         """Load historical learning data."""

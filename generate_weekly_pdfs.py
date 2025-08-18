@@ -1,19 +1,48 @@
 import os
 import datetime
+import time
 from datetime import timedelta
 import logging
 from dateutil import parser
 import smartsheet
 import openpyxl
+import pandas as pd
 from openpyxl.styles import Font, numbers, Alignment, PatternFill
 from openpyxl.drawing.image import Image
 import collections
 from openpyxl.utils import get_column_letter
 from dotenv import load_dotenv
+
+# Suppress TensorFlow/ML library warnings for cleaner GitHub Actions logs
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+import warnings
+warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', category=UserWarning)
+
 from audit_billing_changes import BillingAudit
+
+# Import CPU-optimized AI engine for GitHub Actions
+try:
+    from cpu_optimized_ai_engine import CPUOptimizedAIEngine
+    CPU_AI_AVAILABLE = True
+    logging.info("🚀 CPU-optimized AI engine loaded for GitHub Actions")
+except ImportError:
+    # Fallback to advanced AI engine
+    try:
+        from advanced_ai_audit_engine import AdvancedAuditAIEngine
+        CPU_AI_AVAILABLE = False
+        logging.info("🧠 Advanced AI engine loaded (fallback)")
+    except ImportError:
+        CPU_AI_AVAILABLE = False
+        logging.warning("No AI engine available")
 
 # Load environment variables from .env file
 load_dotenv()
+
+# CPU optimization flags for GitHub Actions
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress TensorFlow warnings
+os.environ['OMP_NUM_THREADS'] = '4'       # Optimize for GitHub Actions 4-core
+os.environ['OPENBLAS_NUM_THREADS'] = '4'  # Optimize NumPy operations
 
 # --- Configuration ---
 API_TOKEN = os.getenv("SMARTSHEET_API_TOKEN")
@@ -396,7 +425,7 @@ def group_source_rows(rows):
             continue
     return groups
 
-def generate_excel(group_key, group_rows, snapshot_date):
+def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=None):
     """Generates a formatted Excel report for a group of rows."""
     first_row = group_rows[0]
     foreman, wr_num, week_end_raw = group_key.split('_')
@@ -722,6 +751,67 @@ def generate_excel(group_key, group_rows, snapshot_date):
         
         # In test mode, still generate the file for inspection but don't upload
         # Fall through to workbook.save() below
+        
+    # Add AI Insights sheet if available
+    if ai_analysis_results and ai_analysis_results.get('anomalies'):
+        try:
+            ai_sheet = workbook.create_sheet("🤖 AI Insights")
+            
+            # Headers
+            ai_sheet['A1'] = "AI Analysis Summary"
+            ai_sheet['A1'].font = Font(bold=True, size=14)
+            
+            row = 3
+            
+            # Risk Assessment
+            if ai_analysis_results.get('risk_assessment'):
+                risk = ai_analysis_results['risk_assessment']
+                ai_sheet[f'A{row}'] = "Overall Risk Level:"
+                ai_sheet[f'A{row}'].font = Font(bold=True)
+                ai_sheet[f'B{row}'] = risk.get('overall_risk', 'Unknown')
+                row += 1
+                
+                ai_sheet[f'A{row}'] = "Risk Score:"
+                ai_sheet[f'A{row}'].font = Font(bold=True)
+                ai_sheet[f'B{row}'] = f"{risk.get('risk_score', 0):.2f}"
+                row += 2
+            
+            # Anomalies
+            if ai_analysis_results.get('anomalies'):
+                ai_sheet[f'A{row}'] = "Detected Anomalies:"
+                ai_sheet[f'A{row}'].font = Font(bold=True)
+                row += 1
+                
+                ai_sheet[f'A{row}'] = "Row Index"
+                ai_sheet[f'B{row}'] = "Anomaly Score"
+                ai_sheet[f'C{row}'] = "Risk Level"
+                ai_sheet[f'A{row}'].font = Font(bold=True)
+                ai_sheet[f'B{row}'].font = Font(bold=True)
+                ai_sheet[f'C{row}'].font = Font(bold=True)
+                row += 1
+                
+                for idx, anomaly in enumerate(ai_analysis_results['anomalies'][:50]):  # Limit to 50
+                    ai_sheet[f'A{row}'] = anomaly.get('row_index', idx)
+                    ai_sheet[f'B{row}'] = f"{anomaly.get('anomaly_score', 0):.3f}"
+                    ai_sheet[f'C{row}'] = anomaly.get('risk_level', 'Unknown')
+                    row += 1
+                    
+            # Recommendations
+            if ai_analysis_results.get('recommendations'):
+                row += 1
+                ai_sheet[f'A{row}'] = "AI Recommendations:"
+                ai_sheet[f'A{row}'].font = Font(bold=True)
+                row += 1
+                
+                for rec in ai_analysis_results['recommendations'][:10]:  # Limit to 10
+                    ai_sheet[f'A{row}'] = f"• {rec}"
+                    row += 1
+                    
+            logging.info("✅ Added AI Insights sheet to Excel report")
+            
+        except Exception as e:
+            logging.warning(f"Failed to add AI insights to Excel: {e}")
+    
     # Save the workbook (in both test and production modes)
     workbook.save(final_output_path)
     if TEST_MODE:
@@ -753,6 +843,24 @@ def main():
         run_started_at = datetime.datetime.utcnow()
         audit_system = BillingAudit(client)
         
+        # Initialize CPU-optimized AI engine for GitHub Actions
+        ai_analysis_results = {}
+        if CPU_AI_AVAILABLE:
+            try:
+                ai_engine = CPUOptimizedAIEngine()
+                logging.info("🎯 CPU-optimized AI engine initialized for performance")
+            except Exception as e:
+                logging.warning(f"Failed to initialize CPU AI engine: {e}")
+                try:
+                    ai_engine = AdvancedAuditAIEngine()
+                    logging.info("🧠 Advanced AI engine initialized (fallback)")
+                except Exception:
+                    ai_engine = None
+                    logging.warning("No AI engine available")
+        else:
+            ai_engine = None
+            logging.warning("No AI engine available")
+        
         # 1. Dynamically discover all source sheets (base sheets + their duplicates)
         source_sheets = discover_source_sheets(client)
         if not source_sheets:
@@ -772,6 +880,36 @@ def main():
         if not TEST_MODE:  # Only audit in production mode
             audit_system.audit_changes_for_rows(all_valid_rows, run_started_at)
 
+        # 4.5. AI Analysis on CPU-optimized engine for GitHub Actions
+        if ai_engine and all_valid_rows:
+            try:
+                logging.info("🤖 Starting CPU-optimized AI analysis...")
+                ai_start_time = time.time()
+                
+                # Prepare data for AI analysis
+                df_for_analysis = pd.DataFrame(all_valid_rows)
+                
+                # Run comprehensive AI analysis
+                ai_analysis_results = ai_engine.comprehensive_audit_analysis(df_for_analysis)
+                
+                ai_duration = time.time() - ai_start_time
+                logging.info(f"✅ AI analysis completed in {ai_duration:.2f} seconds")
+                
+                # Log AI findings summary
+                if ai_analysis_results.get('anomalies'):
+                    anomaly_count = len(ai_analysis_results['anomalies'])
+                    logging.info(f"🔍 AI detected {anomaly_count} potential anomalies")
+                
+                if ai_analysis_results.get('risk_assessment'):
+                    risk_level = ai_analysis_results['risk_assessment'].get('overall_risk', 'Unknown')
+                    logging.info(f"📊 Overall risk assessment: {risk_level}")
+                    
+            except Exception as e:
+                logging.warning(f"AI analysis failed: {e}")
+                ai_analysis_results = {}
+        else:
+            logging.info("⚠️ AI analysis skipped (engine not available or no data)")
+
         # 5. Group the valid rows into reports
         source_groups = group_source_rows(all_valid_rows)
         logging.info(f"Created {len(source_groups)} groups to generate reports for.")
@@ -787,8 +925,8 @@ def main():
             snapshot_dates = [parser.parse(row['Snapshot Date']) for row in group_rows if row.get('Snapshot Date')]
             most_recent_snapshot_date = max(snapshot_dates) if snapshot_dates else datetime.date.today()
 
-            # Generate Excel file only
-            excel_path, excel_filename, wr_num = generate_excel(group_key, group_rows, most_recent_snapshot_date)
+            # Generate Excel file with AI insights
+            excel_path, excel_filename, wr_num = generate_excel(group_key, group_rows, most_recent_snapshot_date, ai_analysis_results)
 
             # Find the corresponding row in the target sheet
             target_row = target_map.get(wr_num)

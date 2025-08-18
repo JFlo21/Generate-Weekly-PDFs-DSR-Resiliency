@@ -16,7 +16,10 @@ warnings.filterwarnings('ignore')
 
 # Deep Learning Imports
 try:
+    # Suppress TensorFlow logging warnings for cleaner GitHub Actions output
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Suppress INFO and WARNING messages
     import tensorflow as tf  # type: ignore
+    tf.get_logger().setLevel('ERROR')  # Only show errors
     from tensorflow import keras  # type: ignore
     from tensorflow.keras import layers, models, callbacks  # type: ignore
     from tensorflow.keras.models import Sequential, Model  # type: ignore

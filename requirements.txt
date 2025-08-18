@@ -9,12 +9,12 @@ numpy
 matplotlib
 seaborn
 plotly
-transformers
-torch
-tensorflow
 joblib
 networkx
-keras
-torchvision
 psutil
-tf-keras
+# CPU-optimized ML libraries for GitHub Actions
+transformers[torch]
+torch --index-url https://download.pytorch.org/whl/cpu
+tensorflow-cpu
+# Lightweight NLP models
+spacy
