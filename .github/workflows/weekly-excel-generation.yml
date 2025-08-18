@@ -112,6 +112,7 @@ jobs:
       if: (steps.time_check.outputs.should_run == 'true') && (steps.data_check.outputs.allow_run == 'true' || github.event_name == 'workflow_dispatch')
       env:
         SMARTSHEET_API_TOKEN: ${{ secrets.SMARTSHEET_API_TOKEN }}
+        AUDIT_SHEET_ID: ${{ secrets.AUDIT_SHEET_ID }}
       run: |
         echo "🚀 Starting AI-powered Excel report generation..."
         echo "🤖 AI Features Active:"
@@ -128,6 +129,15 @@ jobs:
           echo "❌ ERROR: SMARTSHEET_API_TOKEN secret not found"
           echo "Please add your Smartsheet API token as a repository secret named 'SMARTSHEET_API_TOKEN'"
           exit 1
+        fi
+        
+        # Verify audit sheet ID is available
+        if [ -z "$AUDIT_SHEET_ID" ]; then
+          echo "⚠️  WARNING: AUDIT_SHEET_ID secret not found"
+          echo "Audit functionality will be disabled during Excel generation"
+          echo "To enable audit features, add your audit sheet ID as a repository secret named 'AUDIT_SHEET_ID'"
+        else
+          echo "✅ AUDIT_SHEET_ID configured for integrated audit monitoring"
         fi
         
         # Run the AI-powered report generation script
@@ -159,6 +169,16 @@ jobs:
           echo "❌ ERROR: SMARTSHEET_API_TOKEN secret not found"
           echo "AI audit system requires the same API token as Excel generation"
           exit 1
+        fi
+        
+        # Verify audit sheet ID is available
+        if [ -z "$AUDIT_SHEET_ID" ]; then
+          echo "❌ ERROR: AUDIT_SHEET_ID secret not found"
+          echo "Please add your audit sheet ID as a repository secret named 'AUDIT_SHEET_ID'"
+          echo "This is required for the AI audit system to log violations and changes"
+          exit 1
+        else
+          echo "✅ AUDIT_SHEET_ID configured for advanced AI audit monitoring"
         fi
         
         # Run the AI-powered audit system
