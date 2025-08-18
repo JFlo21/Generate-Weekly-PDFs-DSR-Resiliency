@@ -75,7 +75,8 @@ AUDIT_SHEET_ID = None  # Will be set from environment variable or config
 TRACK_COLUMNS = ['Quantity', 'Redlined Total Price']  # which columns to watch
 OUTPUT_FOLDER = "generated_docs"
 RUN_STATE_PATH = os.path.join(OUTPUT_FOLDER, 'audit_state.json')  # remembers last run
-MAX_ROWS_PER_RUN = 500  # Increased batch size for comprehensive analysis
+MAX_ROWS_PER_RUN = None  # Process ALL rows - no artificial limits
+EMERGENCY_LIMIT = 2000  # Emergency brake for extremely large datasets (> 2000 rows gets logged but continues)
 BATCH_SIZE = 100  # Process in smaller batches to respect API limits
 API_DELAY = 0.5  # Seconds between API calls to prevent rate limiting
 
@@ -616,18 +617,24 @@ class BillingAudit:
                 if key not in unique_rows:
                     unique_rows[key] = row
         
-        # Apply batch processing to handle all rows safely
-        if len(unique_rows) > MAX_ROWS_PER_RUN:
-            logging.info(f"🔄 Processing {len(unique_rows)} rows in batches of {BATCH_SIZE} to respect API limits")
-            logging.info(f"📊 Total rows will be processed across multiple batches (max {MAX_ROWS_PER_RUN} per run)")
-            # Take larger sample but still respect limits
-            unique_rows = dict(list(unique_rows.items())[:MAX_ROWS_PER_RUN])
+        # Process all rows with intelligent batching and API rate limiting
+        total_rows = len(unique_rows)
+        
+        # Emergency check for extremely large datasets
+        if total_rows > EMERGENCY_LIMIT:
+            logging.warning(f"⚠️ Large dataset detected: {total_rows} rows (>{EMERGENCY_LIMIT})")
+            logging.warning(f"📊 Estimated processing time: {(total_rows * API_DELAY) / 60:.1f} minutes")
+            logging.info(f"🔄 Proceeding with full processing - no artificial limits applied")
+        
+        if total_rows > BATCH_SIZE:
+            logging.info(f"🔄 Processing all {total_rows} rows in batches of {BATCH_SIZE} to respect API limits")
+            logging.info(f"📊 Estimated processing time: {(total_rows * API_DELAY) / 60:.1f} minutes with API delays")
         else:
-            logging.info(f"✅ Processing all {len(unique_rows)} rows - within safe limits")
+            logging.info(f"✅ Processing all {total_rows} rows - within single batch limits")
         
-        logging.info(f"🔍 Checking {len(unique_rows)} unique rows for changes...")
+        logging.info(f"🔍 Checking {total_rows} unique rows for changes...")
         
-        # Collect audit entries with batch processing
+        # Collect audit entries with comprehensive processing
         audit_entries = []
         run_id = datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
         processed_count = 0
