@@ -26,8 +26,8 @@ jobs:
   generate-reports-and-audit:
     runs-on: ubuntu-latest  # GitHub-hosted runner with 4 CPU cores, 16GB RAM - suitable for AI processing
     
-    # Increase timeout for AI processing
-    timeout-minutes: 60
+    # Increase timeout for comprehensive AI processing of all 7,503 rows
+    timeout-minutes: 120  # 2 hours - adequate for full dataset analysis
     
     steps:
     - name: Checkout repository

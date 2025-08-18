@@ -78,7 +78,7 @@ RUN_STATE_PATH = os.path.join(OUTPUT_FOLDER, 'audit_state.json')  # remembers la
 MAX_ROWS_PER_RUN = None  # Process ALL rows - no artificial limits
 EMERGENCY_LIMIT = 2000  # Emergency brake for extremely large datasets (> 2000 rows gets logged but continues)
 BATCH_SIZE = 100  # Process in smaller batches to respect API limits
-API_DELAY = 0.5  # Seconds between API calls to prevent rate limiting
+API_DELAY = 0.2  # Reduced from 0.5s to 0.2s - still respects rate limits but faster processing
 
 class BillingAudit:
     """
