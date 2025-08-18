@@ -20,6 +20,16 @@ warnings.filterwarnings('ignore')
 
 # Type annotations for better code clarity
 from typing import Dict, List, Any, Optional, Union, Tuple
+import multiprocessing
+import os
+
+# Optimize for GitHub Actions 4-core environment
+if 'GITHUB_ACTIONS' in os.environ:
+    # Use all available cores on GitHub Actions
+    N_JOBS = min(4, multiprocessing.cpu_count())
+else:
+    # Conservative local setting
+    N_JOBS = min(2, multiprocessing.cpu_count())
 
 # Machine Learning Imports with fallback handling
 ML_AVAILABLE = False
@@ -125,13 +135,13 @@ class AdvancedAuditAIEngine:
         self._load_saved_models()
     
     def _initialize_ml_models(self):
-        """Initialize machine learning models."""
+        """Initialize machine learning models with GitHub Actions optimizations."""
         self.models = {
-            'anomaly_detector': IsolationForest(contamination=0.1, random_state=42),
-            'risk_classifier': RandomForestClassifier(n_estimators=100, random_state=42),
+            'anomaly_detector': IsolationForest(contamination=0.1, random_state=42, n_jobs=N_JOBS),
+            'risk_classifier': RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=N_JOBS),
             'user_clusterer': KMeans(n_clusters=3, random_state=42),
-            'pattern_analyzer': RandomForestClassifier(n_estimators=50, random_state=42),
-            'trend_predictor': LinearRegression()
+            'pattern_analyzer': RandomForestClassifier(n_estimators=50, random_state=42, n_jobs=N_JOBS),
+            'trend_predictor': LinearRegression(n_jobs=N_JOBS)
         }
         
         self.scalers = {

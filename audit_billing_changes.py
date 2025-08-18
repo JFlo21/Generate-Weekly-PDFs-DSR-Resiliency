@@ -89,10 +89,10 @@ OUTPUT_FOLDER = "generated_docs"
 RUN_STATE_PATH = os.path.join(OUTPUT_FOLDER, 'audit_state.json')  # remembers last run
 MAX_ROWS_PER_RUN = None  # Process ALL rows - no artificial limits
 EMERGENCY_LIMIT = 2000  # Emergency brake for extremely large datasets (> 2000 rows gets logged but continues)
-BATCH_SIZE = 100  # Process in smaller batches to respect API limits
-API_DELAY = 0.15  # Optimized from 0.2s to 0.15s - aggressive optimization for sub-60 minute runtime
+BATCH_SIZE = 150  # Increased batch size for GitHub Actions cloud networking (was 100)
+API_DELAY = 0.10  # Optimized for GitHub Actions cloud networking (reduced from 0.15s)
 API_RETRY_ATTEMPTS = 3  # Number of retries for 502 Bad Gateway errors
-API_RETRY_DELAY = 2.0  # Base delay between retries (exponential backoff)
+API_RETRY_DELAY = 1.5  # Reduced base delay for cloud environment (was 2.0s)
 
 class BillingAudit:
     """
@@ -706,7 +706,8 @@ class BillingAudit:
         # Emergency check for extremely large datasets
         if total_rows > EMERGENCY_LIMIT:
             logging.warning(f"⚠️ Large dataset detected: {total_rows} rows (>{EMERGENCY_LIMIT})")
-            logging.warning(f"📊 Estimated processing time: {(total_rows * API_DELAY) / 60:.1f} minutes")
+            logging.warning(f"📊 Estimated processing time: {(total_rows * API_DELAY) / 60:.1f} minutes (optimized for GitHub Actions)")
+            logging.warning(f"🚀 Cloud networking optimizations: API delay reduced to {API_DELAY}s per request")
             logging.info(f"🔄 Proceeding with full processing - no artificial limits applied")
         
         if total_rows > BATCH_SIZE:

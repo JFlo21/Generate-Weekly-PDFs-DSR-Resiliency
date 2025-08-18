@@ -24,10 +24,16 @@ env:
 
 jobs:
   generate-reports-and-audit:
-    runs-on: ubuntu-latest  # GitHub-hosted runner with 4 CPU cores, 16GB RAM - suitable for AI processing
+    runs-on: ubuntu-latest  # Standard GitHub runner - consider upgrading for faster processing
     
-    # Increase timeout for comprehensive AI processing of all 7,503 rows
-    timeout-minutes: 120  # 2 hours - adequate for full dataset analysis
+    # Optimized timeout for 8000+ row AI processing on shared GitHub runners
+    timeout-minutes: 90  # Reduced from 120 with optimizations
+    
+    # Set environment variables for better performance
+    env:
+      PYTHONUNBUFFERED: 1
+      TF_CPP_MIN_LOG_LEVEL: 2  # Reduce TensorFlow logging overhead
+      OMP_NUM_THREADS: 4       # Optimize for 4-core GitHub runner
     
     steps:
     - name: Checkout repository
@@ -38,14 +44,34 @@ jobs:
       with:
         python-version: '3.11'
         
+    - name: Cache Python dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-ai-${{ hashFiles('requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-ai-
+          ${{ runner.os }}-pip-
+        
     - name: Install AI/ML dependencies
       run: |
-        echo "🤖 Installing Maximum AI/ML Stack..."
+        echo "🤖 Installing Optimized AI/ML Stack for GitHub Actions..."
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        echo "✅ Installed AI Stack:"
-        echo "   • TensorFlow (LSTM, Autoencoder, CNN, Deep Classifier)"
-        echo "   • PyTorch (Graph NN, Transformer, Variational AE)"
+        
+        # Install core dependencies first (fastest)
+        pip install pandas numpy openpyxl python-dateutil python-dotenv smartsheet-python-sdk
+        
+        # Install ML dependencies with optimizations
+        pip install scikit-learn matplotlib seaborn plotly joblib psutil
+        
+        # Install deep learning with CPU-only optimizations for GitHub Actions
+        pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+        pip install tensorflow-cpu  # CPU-only version for faster GitHub Actions
+        pip install keras tf-keras transformers networkx
+        
+        echo "✅ Optimized AI Stack for GitHub Actions:"
+        echo "   • TensorFlow-CPU (optimized for GitHub runners)"
+        echo "   • PyTorch-CPU (lighter weight for cloud execution)"  
         echo "   • Scikit-Learn (Random Forest, Isolation Forest)"
         echo "   • NetworkX (Graph Analysis)"
         echo "   • Transformers (NLP Processing)"
