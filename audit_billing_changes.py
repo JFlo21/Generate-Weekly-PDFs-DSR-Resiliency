@@ -102,16 +102,21 @@ class BillingAudit:
     across all source sheets and logs them to a dedicated Smartsheet audit log.
     """
     
-    def __init__(self, client, audit_sheet_id=None):
+    def __init__(self, client, audit_sheet_id=None, skip_cell_history=False):
         """
         Initialize the audit system.
         
         Args:
             client: Smartsheet client instance
             audit_sheet_id: Sheet ID for the audit log (optional, will use env var if not provided)
+            skip_cell_history: Skip cell history API calls for resilience (default: False)
         """
         self.client = client
         self.audit_sheet_id = audit_sheet_id or os.getenv("AUDIT_SHEET_ID")
+        self.skip_cell_history = skip_cell_history
+        
+        if skip_cell_history:
+            logging.info("⚡ Cell history audit disabled for API resilience and speed")
         
         if not self.audit_sheet_id:
             logging.warning("⚠️ AUDIT_SHEET_ID not set. Audit functionality disabled.")
@@ -458,6 +463,10 @@ class BillingAudit:
         - modified_by_name: name of user who made the change
         - modified_by_email: email of user who made the change
         """
+        # Skip cell history API calls if resilience mode is enabled
+        if self.skip_cell_history:
+            return []
+            
         try:
             # Add rate limiting - wait between API calls (reduced for performance)
             time.sleep(0.15)

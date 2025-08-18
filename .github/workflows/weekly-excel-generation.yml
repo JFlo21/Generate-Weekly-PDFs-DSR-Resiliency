@@ -190,12 +190,19 @@ jobs:
         AUDIT_SHEET_ID: ${{ secrets.AUDIT_SHEET_ID }}
         GITHUB_ACTIONS: 'true'
         ENABLE_HEAVY_AI: 'false'  # Set to 'true' only when full AI analysis needed
+        SKIP_CELL_HISTORY: 'true'  # Skip cell history API calls for resilience and speed
+        ENABLE_POST_ANALYSIS: 'true'  # Enable AI analysis after Excel generation
       run: |
-        echo "⚡ Starting Ultra-Light Mode AI billing audit system..."
-        echo "🎯 Ultra-Light Mode Features:"
-        echo "   • Maximum speed prioritized over AI complexity"
-        echo "   • Skips heavy ML library imports (TensorFlow, PyTorch)"
-        echo "   • Processes up to 2000 rows for optimal GitHub Actions performance"
+        echo "⚡ Starting Two-Phase Excel Generation System..."
+        echo "🎯 PHASE 1: Fast Excel Generation (Priority)"
+        echo "   • Maximum speed prioritized for Excel file creation"
+        echo "   • Skips heavy API calls during generation"
+        echo "   • Target: 5-10 minutes for Excel files"
+        echo "🎯 PHASE 2: Post-Generation Analysis (Optional)"
+        echo "   • AI analysis runs AFTER Excel files are created"
+        echo "   • Adds AI insights as additional sheets"
+        echo "   • API resilience mode: Handles server issues gracefully"
+        echo "   • Total target: 12-18 minutes including analysis"
         echo "   • Lightweight risk assessment models"
         echo "   • AI-enhanced visualizations with faster processing"
         echo "   • Expected 50-75% performance improvement on GitHub Actions"

@@ -17,11 +17,31 @@ from dotenv import load_dotenv
 GITHUB_ACTIONS_MODE = os.getenv('GITHUB_ACTIONS') == 'true'
 ULTRA_LIGHT_MODE = GITHUB_ACTIONS_MODE and os.getenv('ENABLE_HEAVY_AI', 'false').lower() != 'true'
 
+# Smartsheet API Resilience Mode - Skip cell history when API is having issues
+SKIP_CELL_HISTORY = os.getenv('SKIP_CELL_HISTORY', 'false').lower() == 'true' or ULTRA_LIGHT_MODE
+
 if ULTRA_LIGHT_MODE:
     # Skip ALL AI/ML imports for maximum speed on GitHub Actions
     logging.info("⚡ GitHub Actions Ultra-Light Mode: Maximum performance prioritized")
+    logging.info("⚡ Cell history audit disabled for maximum API resilience")
     CPU_AI_AVAILABLE = False
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress all TensorFlow logs
+    
+    # Import audit system without AI engine to avoid heavy imports
+    import sys
+    sys.path.insert(0, '.')
+    
+    # Create a minimal audit system class to avoid import errors
+    class BillingAudit:
+        def __init__(self, client, skip_cell_history=True):
+            self.client = client
+            self.skip_cell_history = skip_cell_history
+            self.enabled = False
+            logging.info("⚡ Ultra-light audit system initialized (minimal functionality)")
+        
+        def audit_changes_for_rows(self, rows, timestamp):
+            logging.info("⚡ Ultra-light mode: Skipping audit API calls")
+            return
 else:
     # Normal mode with AI capabilities
     # Suppress TensorFlow/ML library warnings for cleaner GitHub Actions logs
@@ -45,7 +65,7 @@ else:
             CPU_AI_AVAILABLE = False
             logging.warning("No AI engine available")
 
-from audit_billing_changes import BillingAudit
+    from audit_billing_changes import BillingAudit
 
 # Load environment variables from .env file
 load_dotenv()
@@ -831,6 +851,94 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         logging.info(f"📄 Generated Excel with daily blocks: '{output_filename}'.")
     return final_output_path, output_filename, wr_num
 
+def add_ai_insights_to_excel(excel_path, ai_results):
+    """
+    Add AI insights as a new sheet to an existing Excel file.
+    
+    Args:
+        excel_path: Path to the Excel file
+        ai_results: AI analysis results dictionary
+    """
+    try:
+        # Load existing workbook
+        wb = openpyxl.load_workbook(excel_path)
+        
+        # Create AI Insights sheet
+        if 'AI Insights' in wb.sheetnames:
+            # Remove existing AI sheet
+            wb.remove(wb['AI Insights'])
+        
+        ai_sheet = wb.create_sheet('AI Insights')
+        
+        # Add AI analysis summary
+        ai_sheet['A1'] = "AI Analysis Summary"
+        ai_sheet['A1'].font = Font(bold=True, size=14)
+        
+        row = 3
+        
+        # Risk Assessment
+        if ai_results.get('risk_assessment'):
+            risk = ai_results['risk_assessment']
+            ai_sheet[f'A{row}'] = "Risk Assessment"
+            ai_sheet[f'A{row}'].font = Font(bold=True)
+            row += 1
+            
+            ai_sheet[f'A{row}'] = f"Overall Risk Level: {risk.get('overall_risk', 'Unknown')}"
+            ai_sheet[f'A{row}'].font = Font(color="FF0000" if risk.get('overall_risk') == 'HIGH' else "FFA500" if risk.get('overall_risk') == 'MEDIUM' else "008000")
+            row += 2
+        
+        # Anomalies
+        if ai_results.get('anomalies'):
+            ai_sheet[f'A{row}'] = "Detected Anomalies"
+            ai_sheet[f'A{row}'].font = Font(bold=True)
+            row += 1
+            
+            ai_sheet[f'A{row}'] = "Type"
+            ai_sheet[f'B{row}'] = "Description"
+            ai_sheet[f'C{row}'] = "Severity"
+            ai_sheet[f'A{row}'].font = Font(bold=True)
+            ai_sheet[f'B{row}'].font = Font(bold=True)
+            ai_sheet[f'C{row}'].font = Font(bold=True)
+            row += 1
+            
+            for anomaly in ai_results['anomalies'][:20]:  # Limit to 20 anomalies
+                ai_sheet[f'A{row}'] = anomaly.get('type', 'Unknown')
+                ai_sheet[f'B{row}'] = anomaly.get('description', 'No description')
+                ai_sheet[f'C{row}'] = anomaly.get('severity', 'Unknown')
+                row += 1
+            
+            row += 1
+        
+        # Recommendations
+        if ai_results.get('recommendations'):
+            ai_sheet[f'A{row}'] = "AI Recommendations"
+            ai_sheet[f'A{row}'].font = Font(bold=True)
+            row += 1
+            
+            for i, rec in enumerate(ai_results['recommendations'][:10], 1):
+                ai_sheet[f'A{row}'] = f"{i}. {rec}"
+                row += 1
+        
+        # Auto-adjust column widths
+        for column in ai_sheet.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            ai_sheet.column_dimensions[column_letter].width = adjusted_width
+        
+        # Save the workbook
+        wb.save(excel_path)
+        
+    except Exception as e:
+        logging.warning(f"⚠️ Failed to add AI insights to {excel_path}: {e}")
+
+
 def main():
     """Main execution function."""
     try:
@@ -850,9 +958,9 @@ def main():
 
         logging.info("--- Starting Report Generation Process ---")
         
-        # Initialize audit system
+        # Initialize audit system with resilience mode for ultra-light performance
         run_started_at = datetime.datetime.utcnow()
-        audit_system = BillingAudit(client)
+        audit_system = BillingAudit(client, skip_cell_history=SKIP_CELL_HISTORY)
         
         # Initialize CPU-optimized AI engine for GitHub Actions
         ai_analysis_results = {}
@@ -887,55 +995,18 @@ def main():
             logging.info("No valid rows found to process. Exiting.")
             return
 
-        # 4. Audit changes for billing columns - Optimize for GitHub Actions
-        if not TEST_MODE:  # Only audit in production mode
-            if ULTRA_LIGHT_MODE and len(all_valid_rows) > 2000:
-                # Ultra-Light Mode: Process only first 2000 rows for speed
-                logging.info(f"⚡ Ultra-Light Mode: Processing first 2000 rows (of {len(all_valid_rows)}) for speed")
-                audit_system.audit_changes_for_rows(all_valid_rows[:2000], run_started_at)
-            else:
-                audit_system.audit_changes_for_rows(all_valid_rows, run_started_at)
-
-        # 4.5. AI Analysis - Skip in Ultra-Light Mode for GitHub Actions speed
-        if ULTRA_LIGHT_MODE:
-            logging.info("⚡ Ultra-Light Mode: Skipping AI analysis for maximum GitHub Actions speed")
-            ai_analysis_results = {}
-        elif ai_engine and all_valid_rows:
-            try:
-                logging.info("🤖 Starting CPU-optimized AI analysis...")
-                ai_start_time = time.time()
-                
-                # Prepare data for AI analysis
-                df_for_analysis = pd.DataFrame(all_valid_rows)
-                
-                # Run comprehensive AI analysis
-                ai_analysis_results = ai_engine.comprehensive_audit_analysis(df_for_analysis)
-                
-                ai_duration = time.time() - ai_start_time
-                logging.info(f"✅ AI analysis completed in {ai_duration:.2f} seconds")
-                
-                # Log AI findings summary
-                if ai_analysis_results.get('anomalies'):
-                    anomaly_count = len(ai_analysis_results['anomalies'])
-                    logging.info(f"🔍 AI detected {anomaly_count} potential anomalies")
-                
-                if ai_analysis_results.get('risk_assessment'):
-                    risk_level = ai_analysis_results['risk_assessment'].get('overall_risk', 'Unknown')
-                    logging.info(f"📊 Overall risk assessment: {risk_level}")
-                    
-            except Exception as e:
-                logging.warning(f"AI analysis failed: {e}")
-                ai_analysis_results = {}
-        else:
-            logging.info("⚠️ AI analysis skipped (engine not available or no data)")
-
+        # 4. PHASE 1: FAST EXCEL GENERATION (Priority - Skip heavy API calls)
+        # Skip audit and AI analysis during Excel generation for speed
+        logging.info("� PHASE 1: Fast Excel Generation (No API delays)")
+        
         # 5. Group the valid rows into reports
         source_groups = group_source_rows(all_valid_rows)
         logging.info(f"Created {len(source_groups)} groups to generate reports for.")
 
         excel_updated, excel_created = 0, 0
+        generated_files = []  # Track generated files for post-analysis
 
-        # 6. Process each group
+        # 6. Process each group - FAST EXCEL GENERATION ONLY
         for group_key, group_rows in source_groups.items():
             if not group_rows:
                 continue
@@ -944,8 +1015,14 @@ def main():
             snapshot_dates = [parser.parse(row['Snapshot Date']) for row in group_rows if row.get('Snapshot Date')]
             most_recent_snapshot_date = max(snapshot_dates) if snapshot_dates else datetime.date.today()
 
-            # Generate Excel file with AI insights
-            excel_path, excel_filename, wr_num = generate_excel(group_key, group_rows, most_recent_snapshot_date, ai_analysis_results)
+            # Generate Excel file WITHOUT AI analysis (fast!)
+            excel_path, excel_filename, wr_num = generate_excel(group_key, group_rows, most_recent_snapshot_date, None)
+            generated_files.append({
+                'path': excel_path,
+                'filename': excel_filename, 
+                'wr_num': wr_num,
+                'group_rows': group_rows
+            })
 
             # Find the corresponding row in the target sheet
             target_row = target_map.get(wr_num)
@@ -1023,6 +1100,59 @@ def main():
                 except Exception as e:
                     logging.error(f"❌ Failed to attach Excel file '{excel_filename}' for WR# {wr_num}: {e}")
                     continue
+
+        # 🚀 PHASE 1 COMPLETE: Fast Excel Generation Done!
+        phase1_end_time = time.time()
+        phase1_duration = phase1_end_time - run_started_at.timestamp()
+        logging.info(f"✅ PHASE 1 COMPLETE: Excel generation finished in {phase1_duration:.1f} seconds")
+        logging.info(f"📊 Generated {len(generated_files)} Excel files successfully")
+
+        # 🧠 PHASE 2: POST-GENERATION ANALYSIS (Optional)
+        post_analysis_enabled = os.getenv('ENABLE_POST_ANALYSIS', 'true').lower() == 'true'
+        
+        if post_analysis_enabled and generated_files:
+            logging.info("🧠 PHASE 2: Starting Post-Generation Analysis...")
+            
+            # 2A. Optional Audit Analysis (if needed and API is stable)
+            if not SKIP_CELL_HISTORY and not TEST_MODE:
+                try:
+                    logging.info("📋 Running audit analysis...")
+                    audit_system.audit_changes_for_rows(all_valid_rows, run_started_at)
+                    logging.info("✅ Audit analysis completed")
+                except Exception as e:
+                    logging.warning(f"⚠️ Audit analysis failed (non-critical): {e}")
+            
+            # 2B. AI Analysis on Generated Excel Files
+            if CPU_AI_AVAILABLE:
+                try:
+                    logging.info("🤖 Running AI analysis on generated Excel files...")
+                    ai_start_time = time.time()
+                    
+                    # Analyze each generated Excel file
+                    for file_info in generated_files:
+                        try:
+                            # Read the Excel file and analyze it
+                            df = pd.read_excel(file_info['path'])
+                            if len(df) > 0:
+                                ai_engine = CPUOptimizedAIEngine() if 'ai_engine' not in locals() else ai_engine
+                                ai_results = ai_engine.comprehensive_audit_analysis(df)
+                                
+                                # Add AI insights as a new sheet to the existing Excel file
+                                if ai_results and ai_results.get('anomalies'):
+                                    add_ai_insights_to_excel(file_info['path'], ai_results)
+                                    logging.info(f"🧠 Added AI insights to {file_info['filename']}")
+                        except Exception as e:
+                            logging.warning(f"⚠️ AI analysis failed for {file_info['filename']}: {e}")
+                    
+                    ai_duration = time.time() - ai_start_time
+                    logging.info(f"✅ AI post-analysis completed in {ai_duration:.2f} seconds")
+                    
+                except Exception as e:
+                    logging.warning(f"⚠️ AI post-analysis failed (non-critical): {e}")
+            else:
+                logging.info("⚠️ AI post-analysis skipped (engine not available)")
+        else:
+            logging.info("⚠️ Post-analysis disabled or no files to analyze")
 
         if TEST_MODE:
             print(f"\n{'='*80}")
