@@ -1,5 +1,8 @@
 name: AI-Powered Excel Generation & Advanced Billing Audit System
 
+permissions:
+  contents: read
+
 on:
   schedule:
     # Run every 2 hours, every day to check for data updates and audit changes
