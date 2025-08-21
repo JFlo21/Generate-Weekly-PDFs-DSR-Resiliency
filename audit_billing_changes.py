@@ -4,6 +4,7 @@ import json
 import logging
 import time
 import traceback
+import shutil
 from dateutil import parser
 import smartsheet
 from smartsheet.models import Row as SSRow, Cell as SSCell
@@ -86,6 +87,7 @@ AUDIT_ENABLED = True
 AUDIT_SHEET_ID = None  # Will be set from environment variable or config
 TRACK_COLUMNS = ['Quantity', 'Redlined Total Price']  # which columns to watch
 OUTPUT_FOLDER = "generated_docs"
+ARCHIVE_FOLDER = os.path.join(OUTPUT_FOLDER, 'archive')
 RUN_STATE_PATH = os.path.join(OUTPUT_FOLDER, 'audit_state.json')  # remembers last run
 MAX_ROWS_PER_RUN = None  # Process ALL rows - no artificial limits
 EMERGENCY_LIMIT = 2000  # Emergency brake for extremely large datasets (> 2000 rows gets logged but continues)
@@ -93,6 +95,8 @@ BATCH_SIZE = 150  # Increased batch size for GitHub Actions cloud networking (wa
 API_DELAY = 0.10  # Optimized for GitHub Actions cloud networking (reduced from 0.15s)
 API_RETRY_ATTEMPTS = 3  # Number of retries for 502 Bad Gateway errors
 API_RETRY_DELAY = 1.5  # Reduced base delay for cloud environment (was 2.0s)
+
+os.makedirs(ARCHIVE_FOLDER, exist_ok=True)
 
 class BillingAudit:
     """
@@ -922,6 +926,63 @@ class BillingAudit:
                 continue
         
         logging.info(f"✅ Total audit entries written: {total_written}")
+
+    def archive_and_compare_excel(self, excel_path):
+        """Archive generated Excel files and log variances from previous versions."""
+        try:
+            base = os.path.basename(excel_path)
+            wr_num = base.split('_')[1] if '_' in base else base
+            archive_path = os.path.join(ARCHIVE_FOLDER, base)
+
+            previous_df = None
+            if os.path.exists(archive_path):
+                previous_df = pd.read_excel(archive_path)
+
+            # Always archive the current file for next comparison
+            shutil.copy2(excel_path, archive_path)
+
+            if previous_df is None:
+                return
+
+            current_df = pd.read_excel(excel_path)
+            diffs = []
+            for col in TRACK_COLUMNS:
+                if col in previous_df.columns and col in current_df.columns:
+                    prev_total = pd.to_numeric(previous_df[col], errors='coerce').sum()
+                    curr_total = pd.to_numeric(current_df[col], errors='coerce').sum()
+                    delta = curr_total - prev_total
+                    if delta != 0:
+                        diffs.append({
+                            'wr_num': wr_num,
+                            'column': col,
+                            'previous_total': prev_total,
+                            'new_total': curr_total,
+                            'delta': delta,
+                            'changed_at': datetime.datetime.utcnow(),
+                            'changed_by': 'Excel Comparison'
+                        })
+
+            if diffs and self.enabled and self.audit_sheet_id:
+                audit_column_map = self.build_column_map_for_sheet(self.audit_sheet_id)
+                audit_entries = []
+                for d in diffs:
+                    audit_row = self.create_audit_row(
+                        audit_column_map,
+                        work_request=d['wr_num'],
+                        column_name=d['column'],
+                        old_value=d['previous_total'],
+                        new_value=d['new_total'],
+                        delta=d['delta'],
+                        changed_by=d['changed_by'],
+                        changed_at=d['changed_at'],
+                    )
+                    if audit_row:
+                        audit_entries.append(audit_row)
+                if audit_entries:
+                    self.write_audit_entries(audit_entries)
+
+        except Exception as e:
+            logging.error(f"❌ Failed to archive/compare Excel '{excel_path}': {e}")
 
     def create_comprehensive_audit_excel(self, audit_data, run_id, ai_analysis_results=None):
         """
