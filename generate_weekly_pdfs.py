@@ -456,8 +456,12 @@ def group_source_rows(rows):
             continue
     return groups
 
-def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=None):
-    """Generates a formatted Excel report for a group of rows."""
+def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=None, audit_system=None):
+    """Generates a formatted Excel report for a group of rows.
+
+    If an audit_system is provided, the generated Excel will be archived and
+    compared against the previous version to track variances.
+    """
     first_row = group_rows[0]
     foreman, wr_num, week_end_raw = group_key.split('_')
     
@@ -845,6 +849,11 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     
     # Save the workbook (in both test and production modes)
     workbook.save(final_output_path)
+    if audit_system:
+        try:
+            audit_system.archive_and_compare_excel(final_output_path)
+        except Exception as e:
+            logging.warning(f"Audit comparison failed for {output_filename}: {e}")
     if TEST_MODE:
         logging.info(f"📄 Generated sample Excel for inspection: '{output_filename}' (TEST MODE)")
     else:
@@ -1016,7 +1025,9 @@ def main():
             most_recent_snapshot_date = max(snapshot_dates) if snapshot_dates else datetime.date.today()
 
             # Generate Excel file WITHOUT AI analysis (fast!)
-            excel_path, excel_filename, wr_num = generate_excel(group_key, group_rows, most_recent_snapshot_date, None)
+            excel_path, excel_filename, wr_num = generate_excel(
+                group_key, group_rows, most_recent_snapshot_date, None, audit_system
+            )
             generated_files.append({
                 'path': excel_path,
                 'filename': excel_filename, 

@@ -9,6 +9,7 @@ The Billing Report Audit System tracks changes to critical billing columns (`Qua
 - **Change Tracking**: Monitors `Quantity` and `Redlined Total Price` columns for any modifications
 - **Who, What, When**: Records the user, timestamp, and exact values for each change
 - **Delta Calculation**: Shows the difference between old and new values
+- **Variance Auditing**: Archives each generated Excel report and logs column-level differences
 - **Automated Integration**: Runs as part of your existing Excel generation process
 - **Deduplication**: Efficiently handles multiple references to the same source row
 - **First Run Support**: On initial run, compares the last two revisions if available
