@@ -1,0 +1,47 @@
+{
+    "system": {
+        "name": "Enhanced Audit System V2",
+        "version": "2.0.0",
+        "environment": "production"
+    },
+    "webhook": {
+        "enabled": false,
+        "url": "https://your-domain.com/webhook",
+        "secret": "audit_webhook_secret_2025",
+        "port": 5000
+    },
+    "dashboard": {
+        "port": 8050,
+        "host": "0.0.0.0",
+        "debug": false
+    },
+    "ml": {
+        "anomaly_threshold": 0.1,
+        "risk_score_threshold": 0.7,
+        "retrain_interval_days": 7
+    },
+    "backup": {
+        "schedule": "02:00",
+        "retention_days": 30,
+        "compression": true
+    },
+    "alerts": {
+        "email": {
+            "enabled": false,
+            "smtp_server": "smtp.gmail.com",
+            "smtp_port": 587,
+            "username": "",
+            "password": "",
+            "recipients": []
+        },
+        "slack": {
+            "enabled": false,
+            "webhook_url": ""
+        }
+    },
+    "security": {
+        "session_timeout": 3600,
+        "max_login_attempts": 5,
+        "password_complexity": true
+    }
+}
