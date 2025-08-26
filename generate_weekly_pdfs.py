@@ -1,6 +1,8 @@
 import os
 import datetime
 import time
+import re
+import warnings
 from datetime import timedelta
 import logging
 from dateutil import parser
@@ -45,7 +47,6 @@ else:
     # Normal mode with AI capabilities
     # Suppress TensorFlow/ML library warnings for cleaner GitHub Actions logs
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-    import warnings
     warnings.filterwarnings('ignore', category=FutureWarning)
     warnings.filterwarnings('ignore', category=UserWarning)
 
@@ -1006,7 +1007,6 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
             qty_str = str(row_data.get('Quantity', '') or 0)
             try:
                 # Extract numeric part only
-                import re
                 qty_match = re.search(r'(\d+(?:\.\d+)?)', qty_str)
                 if qty_match:
                     quantity = int(float(qty_match.group(1)))
