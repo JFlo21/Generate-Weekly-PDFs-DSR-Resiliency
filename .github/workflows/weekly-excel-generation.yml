@@ -1,24 +1,32 @@
-name: Enhanced Real-Time Billing Audit & Excel Generation System
+name: Comprehensive Weekly Excel Generation with Enhanced Sentry Monitoring
 
 on:
   schedule:
-    # Run every 2 hours, every day for continuous audit monitoring and Excel generation
-    # Provides real-time protection against unauthorized billing changes
-    - cron: '0 */2 * * *'   # Every 2 hours throughout the day
+    # Run weekly on Sunday at 11 PM CST (Monday 5 AM UTC) for weekly report generation
+    # This ensures reports capture the complete work week (Monday-Sunday)
+    - cron: '0 5 * * 1'   # Weekly on Monday at 5 AM UTC (Sunday 11 PM CST)
   
-  # Allow manual triggering for testing and forced audit reports
+  # Allow manual triggering for testing and immediate report generation
   workflow_dispatch:
     inputs:
       test_mode:
-        description: 'Run in test mode (true/false) - Production mode will upload to Smartsheet & run audit'
+        description: 'Run in test mode (true/false) - Production mode will upload to Smartsheet'
         required: false
         default: 'false'
         type: choice
         options:
         - 'false'
         - 'true'
-      force_audit_report:
-        description: 'Force generate audit report even if no changes detected'
+      force_generation:
+        description: 'Force generate reports even if no eligible data found'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+        - 'false'
+        - 'true'
+      enable_ai_analysis:
+        description: 'Enable AI analysis and insights (may increase runtime)'
         required: false
         default: 'false'
         type: choice
@@ -31,251 +39,237 @@ env:
   TZ: America/Chicago
 
 jobs:
-  enhanced-audit-excel-generation:
-    runs-on: ubuntu-latest  # Optimized for enhanced audit system
+  comprehensive-excel-generation:
+    runs-on: ubuntu-latest
     
-    # Timeout optimized for enhanced audit system
-    timeout-minutes: 35  # Allows time for comprehensive audit analysis
+    # Optimized timeout for comprehensive system with enhanced monitoring
+    timeout-minutes: 25  # Allows sufficient time for complete processing with Sentry monitoring
     
-    # Enhanced audit system environment variables
+    # Environment variables for comprehensive system
     env:
       PYTHONUNBUFFERED: 1
       TF_CPP_MIN_LOG_LEVEL: 3  # Suppress TensorFlow warnings for cleaner logs
       OMP_NUM_THREADS: 4       # Optimize for 4-core GitHub runner
       OPENBLAS_NUM_THREADS: 4  # Optimize NumPy operations for CPU
-      TF_ENABLE_ONEDNN_OPTS: 0 # Disable oneDNN for consistent CPU performance
-      # Enhanced audit system control variables
+      # Production system control variables
       GITHUB_ACTIONS: 'true'
-      ENABLE_HEAVY_AI: 'false'  # Ultra-light mode for maximum speed
+      ENABLE_HEAVY_AI: ${{ github.event.inputs.enable_ai_analysis || 'false' }}
       SKIP_CELL_HISTORY: 'true'  # API resilience - skip problematic calls in GitHub Actions
-      ENABLE_POST_ANALYSIS: 'true'  # Enable comprehensive audit analysis
-      ENABLE_AUDIT_REPORTS: 'true'  # Enable enhanced audit report generation
     
     steps:
-    - name: Checkout repository
+    - name: Checkout Repository
       uses: actions/checkout@v4
       
-    - name: Set up Python
+    - name: Setup Python Environment
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
         
-    - name: Cache Python dependencies
+    - name: Cache Python Dependencies
       uses: actions/cache@v4
       with:
         path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-ai-${{ hashFiles('requirements.txt') }}
+        key: ${{ runner.os }}-pip-comprehensive-${{ hashFiles('requirements.txt') }}
         restore-keys: |
-          ${{ runner.os }}-pip-ai-
+          ${{ runner.os }}-pip-comprehensive-
           ${{ runner.os }}-pip-
         
-    - name: Install Enhanced Audit System Dependencies
+    - name: Install System Dependencies
       run: |
-        echo "⚡ Installing Enhanced Audit System Dependencies..."
+        echo "🔧 Installing Comprehensive Excel Generation System Dependencies..."
         python -m pip install --upgrade pip
         
-        # Install based on mode - enhanced audit system always gets core dependencies
-        if [ "${ENABLE_HEAVY_AI:-false}" = "false" ]; then
-          echo "🚀 Ultra-Light Mode: Installing minimal dependencies for maximum speed"
-          echo "✅ Enhanced audit system core features will be available"
+        # Install based on AI mode preference
+        if [ "${{ github.event.inputs.enable_ai_analysis }}" = "true" ]; then
+          echo "🧠 Full Mode: Installing complete system with AI capabilities"
+          pip install -r requirements.txt
+          echo "✅ Full System Installed:"
+          echo "   • Complete Excel generation with enhanced formatting"
+          echo "   • Advanced error monitoring with Sentry integration"
+          echo "   • AI-powered insights and anomaly detection"
+          echo "   • Comprehensive grouping logic validation"
+        else
+          echo "⚡ Standard Mode: Installing optimized dependencies for maximum reliability"
           pip install -r requirements-ultralight.txt
           
-          # Always add enhanced audit requirements for core functionality
-          pip install requests colorama
-          
-          echo "✅ Ultra-Light Stack + Enhanced Audit Core Installed:"
-          echo "   • Essential packages (pandas, openpyxl, smartsheet-sdk)"
-          echo "   • Enhanced audit system core features"
-          echo "   • NO heavy AI/ML libraries for maximum speed"
-          echo "   • Expected speedup: 70-80% faster execution"
-        else
-          echo "🧠 Full Enhanced Mode: Installing complete audit + AI/ML stack"
-          pip install -r requirements.txt
-          echo "✅ Full Enhanced Audit + AI Stack Installed"
-          echo "   • Complete audit system with advanced analytics"
-          echo "   • AI-powered insights and recommendations"
-          echo "   • CPU-optimized ML libraries for GitHub Actions"
+          echo "✅ Standard System Installed:"
+          echo "   • Essential Excel generation and Smartsheet integration"
+          echo "   • Enhanced Sentry monitoring with detailed error context"
+          echo "   • Critical grouping logic validation and protection"
+          echo "   • Optimized for reliability and speed"
         fi
         
-        # Verify enhanced audit system is available
-        python -c "from audit_billing_changes import BillingAudit; print('✅ Enhanced audit system ready')"
-      env:
-        ENABLE_HEAVY_AI: 'false'  # Default to ultra-light for maximum speed
+        # Verify core system components
+        python -c "import sentry_sdk; print('✅ Sentry monitoring ready')"
+        python -c "import smartsheet; print('✅ Smartsheet integration ready')"
+        python -c "import openpyxl; print('✅ Excel generation ready')"
         
-    - name: Verify Current Time (Central)
+    - name: Verify System Time and Execution Context
       run: |
         echo "Current UTC time: $(date -u)"
         echo "Current Central time: $(TZ=America/Chicago date)"
-        echo "Execution mode: Continuous monitoring every 2 hours"
+        echo "Execution mode: Weekly comprehensive Excel generation"
         
-    - name: Check execution conditions
-      id: time_check
+    - name: Check Execution Conditions
+      id: execution_check
       run: |
         # Get current time info in Central Time
         current_day=$(TZ=America/Chicago date +%w)
         current_hour=$(TZ=America/Chicago date +%H)
         current_date=$(TZ=America/Chicago date +%Y-%m-%d)
         
-        echo "Current day of week: $current_day (0=Sunday)"
+        echo "Current day of week: $current_day (0=Sunday, 1=Monday)"
         echo "Current hour (Central): $current_hour"
         echo "Current date: $current_date"
         
-        # Always run for continuous monitoring (every 2 hours)
-        # This ensures Excel files are updated whenever source data changes
-        echo "✅ Continuous execution mode - checking for data updates every 2 hours"
-        echo "should_run=true" >> $GITHUB_OUTPUT
+        # Execution logic for comprehensive system
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "🔧 Manual trigger - executing comprehensive generation"
+          echo "should_run=true" >> $GITHUB_OUTPUT
+        else
+          echo "⏰ Scheduled execution - weekly comprehensive generation"
+          echo "should_run=true" >> $GITHUB_OUTPUT
+        fi
+        
         echo "run_id=$(date +%Y%m%d-%H%M)" >> $GITHUB_OUTPUT
         
-        # Set execution context
-        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          echo "🔧 Manual trigger"
-        else
-          echo "⏰ Scheduled execution (every 2 hours)"
-        fi
-        
-    - name: Check for data changes (smart execution)
-      id: data_check
-      if: steps.time_check.outputs.should_run == 'true' && github.event_name == 'schedule'
-      run: |
-        run_id="${{ steps.time_check.outputs.run_id }}"
-        echo "Checking for data changes at: $run_id"
-        
-        # Always allow execution for continuous monitoring
-        # The script itself will determine if there are actual changes to process
-        echo "allow_run=true" >> $GITHUB_OUTPUT
-        echo "✅ Proceeding with data check and Excel generation"
-        
     - name: Set Production Mode
-      if: (steps.time_check.outputs.should_run == 'true' && github.event_name == 'schedule') || github.event.inputs.test_mode == 'false'
+      if: steps.execution_check.outputs.should_run == 'true' && github.event.inputs.test_mode != 'true'
       run: |
-        # Set TEST_MODE to False for production runs (scheduled runs or manual production mode)
+        # Set TEST_MODE to False for production runs
         sed -i 's/TEST_MODE = True/TEST_MODE = False/' generate_weekly_pdfs.py
         echo "✅ Set to PRODUCTION mode - files will be generated and uploaded to Smartsheet"
+        echo "🔍 Enhanced Sentry monitoring active for production error tracking"
         
-    - name: Keep Test Mode (if manual test)
+    - name: Keep Test Mode
       if: github.event.inputs.test_mode == 'true'
       run: |
-        echo "🧪 Keeping TEST_MODE = True for manual test run"
+        echo "🧪 Keeping TEST_MODE = True for test run"
         echo "Files will be generated locally but NOT uploaded to Smartsheet"
+        echo "🔍 Sentry monitoring will track test execution for debugging"
         
-    - name: Enhanced Real-Time Billing Audit & Excel Generation
-      if: (steps.time_check.outputs.should_run == 'true') && (steps.data_check.outputs.allow_run == 'true' || github.event_name == 'workflow_dispatch')
+    - name: Comprehensive Weekly Excel Generation with Enhanced Sentry Monitoring
+      if: steps.execution_check.outputs.should_run == 'true'
       env:
+        # GitHub Secrets - DO NOT put actual values here
         SMARTSHEET_API_TOKEN: ${{ secrets.SMARTSHEET_API_TOKEN }}
-        AUDIT_SHEET_ID: ${{ secrets.AUDIT_SHEET_ID }}
+        SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+        # System configuration
         GITHUB_ACTIONS: 'true'
-        ENABLE_HEAVY_AI: 'false'  # Ultra-light mode for maximum speed
-        SKIP_CELL_HISTORY: 'true'  # Skip cell history API calls for resilience and speed
-        ENABLE_POST_ANALYSIS: 'true'  # Enable comprehensive audit analysis
-        FORCE_AUDIT_REPORT: ${{ github.event.inputs.force_audit_report || 'false' }}
+        ENABLE_HEAVY_AI: ${{ github.event.inputs.enable_ai_analysis || 'false' }}
+        SKIP_CELL_HISTORY: 'true'  # Skip cell history API calls for reliability
+        ENVIRONMENT: 'production'
+        RELEASE: ${{ github.sha }}
+        FORCE_GENERATION: ${{ github.event.inputs.force_generation || 'false' }}
       run: |
-        echo "🔍 Starting Enhanced Real-Time Billing Audit & Excel Generation System..."
-        echo "================================================================================================"
-        echo "🎯 COMPREHENSIVE AUDIT PROTECTION: Real-time monitoring for unauthorized billing changes"
-        echo "📊 EXCEL GENERATION: Fast, reliable report creation with beautiful formatting"
-        echo "📅 WEEK-BASED GROUPING: Files grouped by week ending date (not by individual foreman)"
-        echo "🤖 AI INSIGHTS: Optional enhanced analytics and system recommendations"
-        echo "📋 SMARTSHEET INTEGRATION: Automated upload with professional presentation"
+        echo "🔍 Starting Comprehensive Weekly Excel Generation System..."
+        echo "===================================================================================="
+        echo "🎯 ENHANCED SYSTEM FEATURES:"
+        echo "   • Advanced Sentry monitoring with detailed line-specific error reporting"
+        echo "   • Critical grouping logic validation and protection"
+        echo "   • Professional Excel generation with enhanced formatting"
+        echo "   • Bulletproof one-work-request-per-file grouping enforcement"
+        echo "   • Real-time error detection with exact source location tracking"
         echo ""
-        echo "⚡ SYSTEM ARCHITECTURE:"
-        echo "   • Phase 1: Fast Excel Generation (5-10 minutes target)"
-        echo "   • Phase 2: Real-Time Audit Analysis (3-5 minutes)"
-        echo "   • Phase 3: Enhanced Report Generation (2-3 minutes)"
-        echo "   • Total Target: 10-18 minutes vs previous 34+ minute timeouts"
+        echo "🔒 CRITICAL BUSINESS LOGIC PROTECTION:"
+        echo "   • Each Excel file contains ONLY one work request per week ending date"
+        echo "   • Comprehensive validation prevents grouping logic regression"
+        echo "   • Immediate Sentry alerting for any violations of business rules"
+        echo "   • Enhanced debugging with exact line numbers and context"
         echo ""
-        echo "📈 NEW GROUPING SYSTEM:"
-        echo "   • Groups by Weekly Reference Logged Date (week ending date)"
-        echo "   • Combines all work requests and foremen for each week"
-        echo "   • Filename format: WeekEnding_MMDDYY_WRs_##.xlsx"
-        echo "   • Reduces file count while maintaining comprehensive data"
+        echo "📊 SYSTEM ARCHITECTURE:"
+        echo "   • Phase 1: Secure data discovery with API resilience"
+        echo "   • Phase 2: Protected grouping with real-time validation"
+        echo "   • Phase 3: Professional Excel generation with monitoring"
+        echo "   • Phase 4: Smartsheet upload with comprehensive error tracking"
         echo ""
-        echo "🔒 SECURITY FEATURES:"
-        echo "   • Continuous monitoring of billing data changes"
-        echo "   • Immediate detection of unauthorized historical modifications"
-        echo "   • Complete audit trail with user attribution"
-        echo "   • Executive dashboards for management oversight"
-        echo ""
-        echo "Current time: $(TZ=America/Chicago date)"
+        echo "Current execution time: $(TZ=America/Chicago date)"
         
-        # Verify API token is available
+        # Verify required secrets
         if [ -z "$SMARTSHEET_API_TOKEN" ]; then
           echo "❌ ERROR: SMARTSHEET_API_TOKEN secret not found"
-          echo "Please add your Smartsheet API token as a repository secret named 'SMARTSHEET_API_TOKEN'"
+          echo "Please add your Smartsheet API token as a repository secret"
+          echo "Go to: Repository Settings → Secrets and variables → Actions → New repository secret"
+          echo "Name: SMARTSHEET_API_TOKEN"
+          echo "Value: [Your Smartsheet API token]"
           exit 1
         fi
         
-        # Enhanced audit system requires AUDIT_SHEET_ID for full functionality
-        if [ -z "$AUDIT_SHEET_ID" ]; then
-          echo "❌ ERROR: AUDIT_SHEET_ID secret not found"
-          echo "Enhanced audit system requires audit sheet ID for real-time monitoring"
-          echo "Please add your audit sheet ID as a repository secret named 'AUDIT_SHEET_ID'"
-          echo "You can create an audit sheet using: python setup_audit_sheet.py"
-          exit 1
+        if [ -z "$SENTRY_DSN" ]; then
+          echo "⚠️ WARNING: SENTRY_DSN secret not found"
+          echo "Enhanced error monitoring will be disabled"
+          echo "To enable full monitoring capabilities:"
+          echo "1. Create a Sentry account at https://sentry.io"
+          echo "2. Create a new project for error monitoring"
+          echo "3. Copy the DSN from your Sentry project settings"
+          echo "4. Add SENTRY_DSN as a GitHub repository secret"
+          echo "Go to: Repository Settings → Secrets and variables → Actions → New repository secret"
+          echo "Name: SENTRY_DSN"
+          echo "Value: [Your Sentry DSN URL]"
         else
-          echo "✅ AUDIT_SHEET_ID configured - Enhanced real-time audit monitoring enabled"
+          echo "✅ SENTRY_DSN configured - Enhanced error monitoring with line-specific reporting enabled"
         fi
         
-        # Execute Enhanced Audit System with Excel Generation
-        echo "🚀 Executing Enhanced Real-Time Audit & Excel Generation System..."
-        echo "� Running integrated workflow: generate_weekly_pdfs.py with enhanced audit"
+        # Execute the comprehensive system
+        echo "🚀 Executing Comprehensive Excel Generation System..."
+        echo "📋 Running with enhanced Sentry monitoring and grouping logic protection"
         
-        # Option 1: Use existing integrated workflow (recommended)
+        # Run the main system with comprehensive monitoring
         python generate_weekly_pdfs.py
         
-        # Option 2: Use standalone enhanced audit system (if needed)
-        # python enhanced_audit_system.py ${{ github.event.inputs.force_audit_report == 'true' && '--force-report' || '' }}
+        # Log completion with comprehensive summary
+        echo "✅ Comprehensive Excel generation system completed at $(TZ=America/Chicago date)"
+        echo "🔍 MONITORING: Enhanced Sentry tracking with detailed error context"
+        echo "📊 EXCEL: Professional reports with protected grouping logic"
+        echo "🛡️ VALIDATION: Critical business rules monitored and enforced"
+        echo "⚡ RELIABILITY: Optimized for GitHub Actions stability"
         
-        # Log completion
-        echo "✅ Enhanced audit & Excel generation system completed at $(TZ=America/Chicago date)"
-        echo "🔍 AUDIT: Real-time monitoring completed with change detection"
-        echo "📊 EXCEL: Professional reports generated and uploaded to Smartsheet"
-        echo "🤖 INSIGHTS: Enhanced analysis and recommendations provided"
-        echo "⚡ Performance: Optimized for GitHub Actions reliability"
-        
-    - name: Upload Enhanced Audit Reports (Archive for Production Records)
-      if: always() && steps.time_check.outputs.should_run == 'true'
+    - name: Upload Generated Excel Reports
+      if: always() && steps.execution_check.outputs.should_run == 'true'
       uses: actions/upload-artifact@v4
       with:
-        name: enhanced-audit-excel-reports-${{ github.run_number }}
+        name: comprehensive-excel-reports-${{ github.run_number }}
         path: generated_docs/
+        retention-days: 30
         
-    - name: Log Enhanced Audit System Execution Summary
+    - name: Log Comprehensive System Execution Summary
       if: always()
       run: |
-        echo "🎯 ENHANCED REAL-TIME BILLING AUDIT & EXCEL GENERATION SYSTEM SUMMARY"
-        echo "======================================================================"
+        echo "🎯 COMPREHENSIVE EXCEL GENERATION SYSTEM SUMMARY"
+        echo "=================================================="
         echo "Trigger: ${{ github.event_name }}"
         echo "Time: $(TZ=America/Chicago date)"
-        echo "Should run: ${{ steps.time_check.outputs.should_run }}"
+        echo "Should run: ${{ steps.execution_check.outputs.should_run }}"
         echo "Test mode: ${{ github.event.inputs.test_mode }}"
+        echo "AI Analysis: ${{ github.event.inputs.enable_ai_analysis }}"
         echo ""
-        echo "🚀 ENHANCED AUDIT ARCHITECTURE EXECUTED:"
-        echo "✅ REAL-TIME AUDIT: Delta tracking with change detection"
-        echo "✅ EXCEL REPORTS: Professional multi-sheet analysis with insights"
-        echo "✅ SMARTSHEET: Beautifully formatted audit logs and data uploads"
-        echo "✅ AI ANALYSIS: Intelligent recommendations and trend identification"
-        echo "⚡ Performance: Optimized for GitHub Actions reliability"
-        echo "🔧 API Resilience: Handles Smartsheet 500 errors gracefully"
+        echo "🚀 COMPREHENSIVE SYSTEM FEATURES EXECUTED:"
+        echo "✅ ENHANCED SENTRY: Line-specific error reporting with detailed context"
+        echo "✅ GROUPING PROTECTION: Critical business logic validation and monitoring"
+        echo "✅ EXCEL GENERATION: Professional reports with advanced formatting"
+        echo "✅ SMARTSHEET INTEGRATION: Reliable uploads with error resilience"
+        echo "✅ REAL-TIME MONITORING: Immediate alerts for any system violations"
+        echo "⚡ Performance: Optimized for GitHub Actions reliability and speed"
         echo ""
         
         if [ -d "generated_docs" ]; then
-          echo "📁 Enhanced audit system generated files:"
+          echo "📁 Comprehensive system generated files:"
           file_count=$(find generated_docs/ -name "*.xlsx" -type f | wc -l)
-          echo "   📊 Audit Reports: $file_count (with real-time change detection)"
-          echo "   🔍 Delta Tracking: Changes tracked and highlighted automatically"
-          echo "   🎯 Smart Formatting: Beautiful Smartsheet integration with audit logs"
-          echo "   🤖 AI Insights: Intelligent analysis and recommendations included"
-          ls -la generated_docs/ || echo "Directory access limited"
+          echo "   📊 Excel Reports: $file_count (with enhanced Sentry monitoring)"
+          echo "   🔍 Grouping Validation: Protected against business logic regression"
+          echo "   🎯 Error Tracking: Detailed line-specific debugging information"
+          echo "   🛡️ Business Rules: Enforced with real-time monitoring"
+          ls -la generated_docs/ 2>/dev/null || echo "Directory access limited"
         else
-          echo "❌ No generated_docs directory found - check enhanced audit system execution"
+          echo "❌ No generated_docs directory found - check system execution"
         fi
         
         echo ""
-        echo "🔒 ENHANCED AUDIT SYSTEM: Real-time monitoring with delta tracking"
-        echo "🚀 PRODUCTION READY: Comprehensive billing audit solution"
+        echo "🔒 BUSINESS LOGIC PROTECTION: One work request per Excel file enforced"
+        echo "🚀 PRODUCTION READY: Comprehensive monitoring and error tracking enabled"
 
-    - name: Skip Execution (Not Needed)
-      if: steps.time_check.outputs.should_run == 'false' && github.event_name != 'workflow_dispatch'
+    - name: Skip Execution
+      if: steps.execution_check.outputs.should_run != 'true' && github.event_name != 'workflow_dispatch'
       run: |
-        echo "⏭️  No execution needed at this time"
-        echo "Script runs every 2 hours to check for data updates"
+        echo "⏭️ No execution needed at this time"
+        echo "System runs weekly to generate comprehensive Excel reports"

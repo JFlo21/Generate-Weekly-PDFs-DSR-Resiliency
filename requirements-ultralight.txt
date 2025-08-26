@@ -1,5 +1,5 @@
 # Ultra-Light Mode Requirements for Maximum GitHub Actions Speed
-# Enhanced Audit System - Essential packages only
+# Comprehensive Excel Generation System - Essential packages only
 
 # Core Smartsheet Integration
 smartsheet-python-sdk>=2.105.1
@@ -8,7 +8,7 @@ smartsheet-python-sdk>=2.105.1
 python-dateutil>=2.8.2
 pandas>=1.3.0
 
-# Excel Generation and Audit Reports
+# Excel Generation and Professional Reports
 openpyxl>=3.0.9
 
 # Image Processing (for logos in reports)
@@ -20,9 +20,12 @@ python-dotenv>=0.19.0
 # HTTP Requests
 requests>=2.25.1
 
-# Chart Generation for Audit Reports (lightweight versions)
+# Enhanced Error Monitoring (CRITICAL for production)
+sentry-sdk>=1.40.0
+
+# Chart Generation for Reports (lightweight versions)
 matplotlib>=3.3.0
 seaborn>=0.11.0
 
 # Note: All AI/ML libraries skipped for maximum speed in ultra-light mode
-# Enhanced audit functionality will work with basic features + chart generation
+# Enhanced Sentry monitoring and critical business logic protection included

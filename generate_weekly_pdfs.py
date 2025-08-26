@@ -12,6 +12,11 @@ from openpyxl.drawing.image import Image
 import collections
 from openpyxl.utils import get_column_letter
 from dotenv import load_dotenv
+import sentry_sdk
+from sentry_sdk.integrations.logging import LoggingIntegration
+import traceback
+import sys
+import inspect
 
 # Configure logging to suppress Smartsheet SDK 404 errors (normal when cleaning up old attachments)
 logging.getLogger('smartsheet.smartsheet').setLevel(logging.CRITICAL)
@@ -63,6 +68,65 @@ else:
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Configure Sentry.io for error monitoring and alerting with detailed stack traces
+SENTRY_DSN = os.getenv("SENTRY_DSN")
+if SENTRY_DSN:
+    sentry_logging = LoggingIntegration(
+        level=logging.INFO,        # Capture info and above as breadcrumbs
+        event_level=logging.ERROR  # Send errors as events
+    )
+    
+    def before_send_filter(event, hint):
+        """Enhanced error filtering and context enrichment."""
+        # Filter out Smartsheet SDK 404 errors (normal cleanup operations)
+        if event.get('logger') == 'smartsheet.smartsheet':
+            return None
+            
+        # Enhance error context with precise file and line information
+        if 'exception' in event and event['exception'].get('values'):
+            for exc_value in event['exception']['values']:
+                if exc_value.get('stacktrace') and exc_value['stacktrace'].get('frames'):
+                    for frame in exc_value['stacktrace']['frames']:
+                        # Add more context to each frame
+                        if frame.get('filename') and 'generate_weekly_pdfs.py' in frame['filename']:
+                            frame['in_app'] = True  # Mark as application code
+                            # Add function context
+                            if frame.get('function'):
+                                frame['context_line'] = f"Function: {frame['function']} | Line: {frame.get('lineno', 'Unknown')}"
+        
+        return event
+    
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        integrations=[
+            sentry_logging
+        ],
+        traces_sample_rate=1.0,  # 100% of transactions for comprehensive monitoring
+        profiles_sample_rate=0.1,  # 10% of transactions for profiling
+        environment=os.getenv("ENVIRONMENT", "production"),
+        release=os.getenv("RELEASE", "latest"),
+        before_send=before_send_filter,
+        attach_stacktrace=True,
+        # Enhanced debugging options
+        debug=os.getenv("SENTRY_DEBUG", "false").lower() == "true",
+        send_default_pii=False,  # Don't send personally identifiable information
+        max_breadcrumbs=100,  # Increase breadcrumb limit for better context
+        # Include local variables in stack traces for better debugging
+        include_local_variables=True,
+        include_source_context=True,
+    )
+    
+    # Set user context for better error tracking
+    with sentry_sdk.configure_scope() as scope:
+        scope.user = {"id": "excel_generator", "username": "weekly_pdf_generator"}
+        scope.set_tag("component", "excel_generation")
+        scope.set_tag("process", "weekly_reports")
+        scope.set_tag("ai_enabled", "true")
+    
+    logging.info("🛡️ Sentry.io error monitoring initialized")
+else:
+    logging.warning("⚠️ SENTRY_DSN not configured - error monitoring disabled")
 
 # CPU optimization flags for GitHub Actions
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress TensorFlow warnings
@@ -169,7 +233,16 @@ def discover_source_sheets(client):
             base_sheet = client.Sheets.get_sheet(base_id)
             base_sheet_names[base_id] = base_sheet.name
         except Exception as e:
-            logging.error(f"Could not fetch base sheet {base_id}: {e}")
+            error_msg = f"Could not fetch base sheet {base_id}: {e}"
+            logging.error(error_msg)
+            
+            # Send base sheet fetch failures to Sentry
+            if SENTRY_DSN:
+                with sentry_sdk.configure_scope() as scope:
+                    scope.set_tag("error_type", "base_sheet_fetch_failure")
+                    scope.set_tag("base_sheet_id", str(base_id))
+                    scope.set_level("error")
+                    sentry_sdk.capture_exception(e)
     
     all_base_names = set(base_sheet_names.values())
     
@@ -284,7 +357,17 @@ def discover_source_sheets(client):
                     logging.warning(f"Skipping sheet {full_sheet.name} - missing REQUIRED columns: {missing_required}")
                     
             except Exception as e:
-                logging.error(f"Error processing sheet {sheet_info.id}: {e}")
+                error_msg = f"Error processing sheet {sheet_info.id}: {e}"
+                logging.error(error_msg)
+                
+                # Send critical sheet processing errors to Sentry
+                if SENTRY_DSN:
+                    with sentry_sdk.configure_scope() as scope:
+                        scope.set_tag("error_type", "sheet_processing_failure")
+                        scope.set_tag("sheet_id", str(sheet_info.id))
+                        scope.set_extra("sheet_name", getattr(sheet_info, 'name', 'Unknown'))
+                        scope.set_level("error")
+                        sentry_sdk.capture_exception(e)
                 continue
     
     logging.info(f"Discovered {len(discovered_sheets)} total sheets for processing")
@@ -312,10 +395,15 @@ def discover_source_sheets(client):
 
 def parse_price(price_str):
     """Safely converts a price string to a float."""
-    if not price_str: return 0.0
+    if not price_str: 
+        return 0.0
     try:
         return float(str(price_str).replace('$', '').replace(',', ''))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as e:
+        log_detailed_error(e, f"Failed to parse price: '{price_str}'", {
+            "input_value": str(price_str),
+            "input_type": type(price_str).__name__
+        })
         return 0.0
 
 def is_checked(val):
@@ -428,7 +516,16 @@ def get_all_source_rows(client, source_sheets):
                     logging.info(f"⚡ Found {found_rows} valid rows in sheet {source['id']}")
                     
                 except Exception as e:
-                    logging.warning(f"⚡ Ultra-light mode failed for sheet {source['id']}: {e}")
+                    error_msg = f"⚡ Ultra-light mode failed for sheet {source['id']}: {e}"
+                    logging.warning(error_msg)
+                    
+                    # Send ultra-light processing failures to Sentry
+                    if SENTRY_DSN:
+                        with sentry_sdk.configure_scope() as scope:
+                            scope.set_tag("error_type", "ultra_light_processing_failure")
+                            scope.set_tag("sheet_id", str(source['id']))
+                            scope.set_level("warning")
+                            sentry_sdk.capture_exception(e)
                 continue
             
             # NORMAL MODE PROCESSING
@@ -476,14 +573,37 @@ def get_all_source_rows(client, source_sheets):
             logging.info(f"Sheet {source['id']}: {valid_rows_count} valid rows out of {total_rows_processed} total rows")
 
         except Exception as e:
-            logging.error(f"Could not process Sheet ID {source.get('id', 'N/A')}. Error: {e}")
+            error_msg = f"Could not process Sheet ID {source.get('id', 'N/A')}. Error: {e}"
+            logging.error(error_msg)
+            
+            # Send sheet processing failures to Sentry with additional context
+            if SENTRY_DSN:
+                with sentry_sdk.configure_scope() as scope:
+                    scope.set_tag("error_type", "sheet_data_processing_failure")
+                    scope.set_tag("sheet_id", str(source.get('id', 'N/A')))
+                    scope.set_extra("processed_rows", total_rows_processed if 'total_rows_processed' in locals() else 0)
+                    scope.set_extra("valid_rows", valid_rows_count if 'valid_rows_count' in locals() else 0)
+                    scope.set_level("error")
+                    sentry_sdk.capture_exception(e)
             
     logging.info(f"Found {len(merged_rows)} total valid rows across all source sheets.")
     return merged_rows
 
 def group_source_rows(rows):
-    """Groups valid rows by Week Ending Date only, combining all work requests for each week."""
+    """
+    CRITICAL BUSINESS LOGIC: Groups valid rows by Week Ending Date AND Work Request #.
+    Each group will create ONE Excel file containing ONE work request for ONE week ending date.
+    
+    FILENAME FORMAT: WR_{work_request_number}_WeekEnding_{MMDDYY}.xlsx
+    
+    This ensures:
+    - Each Excel file contains ONLY one work request
+    - Each work request can have multiple Excel files (one per week ending date)
+    - No mixing of work requests in a single file
+    - Clear, predictable file naming
+    """
     groups = collections.defaultdict(list)
+    
     # First, collect all rows by WR# to determine the most recent foreman for each work request
     wr_to_foreman_history = collections.defaultdict(list)
     
@@ -526,6 +646,7 @@ def group_source_rows(rows):
                 print(f"🔄 WR# {wr_key}: Foreman changed from {unique_foremen} -> Using most recent: '{history[0]['foreman']}'")
     
     # Now group the rows using the determined current foreman for consistency
+    # CRITICAL: Each group contains ONLY one work request for one week ending date
     for r in rows:
         foreman = r.get('Foreman')
         wr = r.get('Work Request #')
@@ -565,34 +686,165 @@ def group_source_rows(rows):
                 print(f"   Snapshot date: {snap_date_info}")
                 print(f"   Key format: {week_end_for_key}")
             
-            key = f"{week_end_for_key}"
+            # CRITICAL GROUPING KEY: Ensures one work request per week ending date per file
+            # Format: MMDDYY_WRNUMBER (e.g., "081725_89708709")
+            key = f"{week_end_for_key}_{wr_key}"
+            
+            # ENHANCED SENTRY MONITORING: Validate the grouping logic integrity
+            if SENTRY_DSN:
+                # Track successful grouping operations
+                with sentry_sdk.configure_scope() as scope:
+                    scope.set_tag("grouping_operation", "success")
+                    scope.set_tag("week_ending", week_end_for_key)
+                    scope.set_tag("work_request", wr_key)
+                    scope.set_extra("grouping_key", key)
+                    scope.set_extra("foreman", current_foreman)
+                    
+                    # CRITICAL VALIDATION: Ensure no work request duplication
+                    existing_groups = list(groups.keys())
+                    for existing_key in existing_groups:
+                        if existing_key.endswith(f"_{wr_key}") and existing_key != key:
+                            # This work request already has a group for a different week
+                            scope.set_tag("multiple_weeks_detected", True)
+                            scope.set_extra("existing_group", existing_key)
+                            scope.set_extra("new_group", key)
             
             # Add the current foreman and calculated week ending date to the row data
             r['__current_foreman'] = current_foreman
             r['__week_ending_date'] = week_ending_date
+            r['__grouping_key'] = key  # Add for validation
             groups[key].append(r)
+            
+            if TEST_MODE:
+                print(f"✅ Added row to group: {key}")
+                
         except (parser.ParserError, TypeError) as e:
             logging.warning(f"Could not parse Weekly Reference Logged Date '{log_date_str}' for WR# {wr_key}. Skipping row. Error: {e}")
             continue
+    
+    # FINAL VALIDATION: Ensure each group contains only one work request
+    if SENTRY_DSN:
+        with sentry_sdk.configure_scope() as scope:
+            scope.set_tag("grouping_validation", "final_check")
+            scope.set_extra("total_groups", len(groups))
+            
+            validation_errors = []
+            for group_key, group_rows in groups.items():
+                # Validate each group contains only one work request
+                wr_numbers = list(set(str(row.get('Work Request #', '')).split('.')[0] for row in group_rows if row.get('Work Request #')))
+                if len(wr_numbers) > 1:
+                    error = f"Group {group_key} contains multiple work requests: {wr_numbers}"
+                    validation_errors.append(error)
+                    logging.error(f"🚨 CRITICAL GROUPING ERROR: {error}")
+            
+            if validation_errors:
+                scope.set_tag("grouping_errors", len(validation_errors))
+                scope.set_extra("validation_errors", validation_errors)
+                sentry_sdk.capture_message(f"Critical grouping validation failed: {len(validation_errors)} errors", level="error")
+            else:
+                scope.set_tag("grouping_success", True)
+                logging.info(f"✅ Grouping validation passed: {len(groups)} groups, each with one work request")
+    
     return groups
 
 def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=None):
     """Generates a formatted Excel report for a group of rows."""
     first_row = group_rows[0]
     
-    # Since we're now grouping only by week ending date, group_key is just the date
-    week_end_raw = group_key
+    # ENHANCED SENTRY MONITORING: Validate Excel generation grouping integrity
+    if SENTRY_DSN:
+        with sentry_sdk.configure_scope() as scope:
+            scope.set_tag("excel_generation_start", True)
+            scope.set_tag("group_key", group_key)
+            scope.set_tag("group_size", len(group_rows))
+            scope.set_extra("excel_generation_context", {
+                "group_key": group_key,
+                "row_count": len(group_rows),
+                "first_row_wr": first_row.get('Work Request #', 'Unknown')
+            })
+    
+    # Parse the combined key format: "MMDDYY_WRNUMBER"
+    if '_' in group_key:
+        week_end_raw, wr_from_key = group_key.split('_', 1)
+    else:
+        # CRITICAL ERROR: Old format detected - this should never happen with fixed grouping
+        error_msg = f"CRITICAL: Invalid group key format detected: '{group_key}'. Expected format: 'MMDDYY_WRNUMBER'. This indicates grouping logic regression."
+        log_detailed_error(Exception(error_msg), "Invalid group key format - grouping logic failure", {
+            "group_key": group_key,
+            "expected_format": "MMDDYY_WRNUMBER",
+            "group_size": len(group_rows)
+        })
+        # Fallback for old format
+        week_end_raw = group_key
+        wr_from_key = None
     
     # Use the current foreman (most recent) from the row data
     current_foreman = first_row.get('__current_foreman', 'Unknown_Foreman')
     
-    # Get all unique work requests in this group for filename
+    # CRITICAL VALIDATION: Ensure grouping logic worked correctly
+    # Get the work request number - MUST be singular with correct grouping
     wr_numbers = list(set(str(row.get('Work Request #', '')).split('.')[0] for row in group_rows if row.get('Work Request #')))
-    if len(wr_numbers) == 1:
-        wr_num = wr_numbers[0]
-    else:
-        # Multiple work requests in this week ending - use a combined identifier
-        wr_num = f"Multiple_WRs_{len(wr_numbers)}"
+    
+    # ABSOLUTE REQUIREMENT: Each group must contain EXACTLY ONE work request
+    if len(wr_numbers) != 1:
+        # CRITICAL FAILURE: This should NEVER happen with correct grouping
+        error_msg = f"FATAL ERROR: Group contains {len(wr_numbers)} work requests instead of 1: {wr_numbers}. Group key: {group_key}. This indicates complete grouping logic failure."
+        
+        # Enhanced error details for debugging
+        error_context = {
+            "group_key": group_key,
+            "work_requests_found": wr_numbers,
+            "group_size": len(group_rows),
+            "expected_wr_from_key": wr_from_key,
+            "foreman": current_foreman,
+            "sample_rows": [
+                {
+                    "wr": row.get('Work Request #', 'Unknown'),
+                    "week_ending": row.get('Weekly Reference Logged Date', 'Unknown'),
+                    "foreman": row.get('Foreman', 'Unknown')
+                } for row in group_rows[:5]  # Show first 5 rows for debugging
+            ]
+        }
+        
+        log_detailed_error(Exception(error_msg), "FATAL: Multiple work requests in single group", error_context)
+        
+        # STOP PROCESSING - Do not create invalid file
+        raise Exception(f"Invalid grouping detected: {len(wr_numbers)} work requests in single group")
+    
+    # SUCCESS: Exactly one work request in this group
+    wr_num = wr_numbers[0]
+    
+    # Log successful validation
+    if SENTRY_DSN:
+        with sentry_sdk.configure_scope() as scope:
+            scope.set_tag("grouping_validation", "success")
+            scope.set_tag("work_request_count", 1)
+            scope.set_tag("work_request_number", wr_num)
+            scope.set_extra("validation_success", {
+                "group_key": group_key,
+                "work_request": wr_num,
+                "row_count": len(group_rows),
+                "foreman": current_foreman
+            })
+    
+    # ADDITIONAL VALIDATION: Check week ending date consistency
+    week_ending_dates = list(set(row.get('__week_ending_date') for row in group_rows if row.get('__week_ending_date')))
+    if len(week_ending_dates) > 1:
+        error_msg = f"CRITICAL: Multiple week ending dates in single group: {[d.strftime('%m/%d/%Y') if d else 'None' for d in week_ending_dates]}. Group key: {group_key}."
+        log_detailed_error(Exception(error_msg), "Multiple week ending dates in single group", {
+            "group_key": group_key,
+            "week_ending_dates": [d.isoformat() if d else None for d in week_ending_dates],
+            "work_request": wr_num
+        })
+    
+    # VALIDATION: Verify the work request from key matches actual work request
+    if wr_from_key and wr_from_key != wr_num:
+        error_msg = f"CRITICAL: Work request mismatch - Key: {wr_from_key}, Actual: {wr_num}. Group key: {group_key}."
+        log_detailed_error(Exception(error_msg), "Work request key mismatch", {
+            "group_key": group_key,
+            "key_work_request": wr_from_key,
+            "actual_work_request": wr_num
+        })
     
     # Get the calculated week ending date from the row data if available
     week_ending_date = first_row.get('__week_ending_date')
@@ -606,7 +858,8 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     
     scope_id = first_row.get('Scope ID', '')
     job_number = first_row.get('Job #', '')
-    output_filename = f"WeekEnding_{week_end_raw}_WRs_{len(wr_numbers)}.xlsx"
+    # Use individual work request number for filename
+    output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.xlsx"
     final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
 
     if TEST_MODE:
@@ -981,14 +1234,49 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
             logging.info("Added AI Insights sheet to Excel report")
             
         except Exception as e:
-            logging.warning(f"Failed to add AI insights to Excel: {e}")
+            error_msg = f"Failed to add AI insights to Excel: {e}"
+            logging.warning(error_msg)
+            
+            # Send AI insights processing failures to Sentry
+            if SENTRY_DSN:
+                with sentry_sdk.configure_scope() as scope:
+                    scope.set_tag("error_type", "ai_insights_processing_failure")
+                    scope.set_extra("excel_file", final_output_path)
+                    scope.set_level("warning")
+                    sentry_sdk.capture_exception(e)
     
     # Save the workbook (in both test and production modes)
     workbook.save(final_output_path)
+    
+    # FINAL VALIDATION: Confirm Excel file was generated correctly with proper formatting
+    if SENTRY_DSN:
+        with sentry_sdk.configure_scope() as scope:
+            scope.set_tag("excel_generation_complete", True)
+            scope.set_tag("work_request_validated", wr_num)
+            scope.set_tag("filename_generated", output_filename)
+            scope.set_extra("excel_validation", {
+                "group_key": group_key,
+                "work_request": wr_num,
+                "week_ending": week_end_display,
+                "foreman": current_foreman,
+                "row_count": len(group_rows),
+                "total_price": sum(parse_price(row.get('Units Total Price')) for row in group_rows),
+                "filename": output_filename,
+                "file_path": final_output_path,
+                "grouping_format_correct": True
+            })
+    
     if TEST_MODE:
         logging.info(f"📄 Generated sample Excel for inspection: '{output_filename}' (TEST MODE)")
     else:
         logging.info(f"📄 Generated Excel with daily blocks: '{output_filename}'.")
+        # Log successful generation with format validation
+        if SENTRY_DSN:
+            sentry_sdk.capture_message(
+                f"Excel file successfully generated with correct format: {output_filename} for WR#{wr_num}",
+                level="info"
+            )
+    
     return final_output_path, output_filename, wr_numbers
 
 def add_ai_insights_to_excel(excel_path, ai_results):
@@ -1076,14 +1364,151 @@ def add_ai_insights_to_excel(excel_path, ai_results):
         wb.save(excel_path)
         
     except Exception as e:
-        logging.warning(f"⚠️ Failed to add AI insights to {excel_path}: {e}")
+        error_msg = f"⚠️ Failed to add AI insights to {excel_path}: {e}"
+        logging.warning(error_msg)
+        
+        # Send AI insights failures to Sentry
+        if SENTRY_DSN:
+            with sentry_sdk.configure_scope() as scope:
+                scope.set_tag("error_type", "ai_insights_failure")
+                scope.set_extra("excel_path", excel_path)
+                scope.set_level("warning")
+                sentry_sdk.capture_exception(e)
 
+
+def log_detailed_error(error, context="", additional_data=None):
+    """
+    Enhanced error logging with precise line numbers, function context, and Sentry integration.
+    
+    Args:
+        error: The exception object
+        context: Additional context about what was happening when the error occurred
+        additional_data: Dictionary of additional data to include in the error report
+    """
+    # Get the current frame information
+    frame = inspect.currentframe()
+    try:
+        # Get the caller's frame (the function that called log_detailed_error)
+        caller_frame = frame.f_back if frame else None
+        caller_info = inspect.getframeinfo(caller_frame) if caller_frame else None
+        
+        # Get the original error location if it's from a traceback
+        tb = error.__traceback__
+        error_frame_info = None
+        if tb:
+            # Walk the traceback to find the most relevant frame in our code
+            while tb:
+                frame_info = inspect.getframeinfo(tb.tb_frame)
+                if 'generate_weekly_pdfs.py' in frame_info.filename:
+                    error_frame_info = frame_info
+                tb = tb.tb_next
+        
+        # Use error frame if available, otherwise use caller frame
+        target_frame_info = error_frame_info or caller_info
+        
+        if target_frame_info:
+            # Extract detailed information
+            filename = os.path.basename(target_frame_info.filename)
+            line_number = target_frame_info.lineno
+            function_name = target_frame_info.function
+            
+            # Get the actual line of code that caused the error
+            code_context = ""
+            if target_frame_info.code_context:
+                code_context = target_frame_info.code_context[0].strip()
+        else:
+            # Fallback if frame info is not available
+            filename = "unknown"
+            line_number = 0
+            function_name = "unknown"
+            code_context = "unknown"
+        
+        # Create detailed error message
+        error_details = {
+            'error_type': type(error).__name__,
+            'error_message': str(error),
+            'file': filename,
+            'line_number': line_number,
+            'function': function_name,
+            'code_line': code_context,
+            'context': context,
+        }
+        
+        if additional_data:
+            error_details.update(additional_data)
+        
+        # Format the error message for logging
+        log_message = (
+            f"🚨 ERROR in {filename}:{line_number} in function '{function_name}'\n"
+            f"   Error Type: {type(error).__name__}\n"
+            f"   Error Message: {str(error)}\n"
+            f"   Code Line: {code_context}\n"
+            f"   Context: {context}\n"
+        )
+        
+        # Log the error locally
+        logging.error(log_message)
+        
+        # Send detailed error to Sentry with enhanced context
+        if SENTRY_DSN:
+            with sentry_sdk.configure_scope() as scope:
+                # Add all error details as tags and context
+                scope.set_tag("error_file", filename)
+                scope.set_tag("error_line", str(line_number))
+                scope.set_tag("error_function", function_name)
+                scope.set_tag("error_type", type(error).__name__)
+                
+                # Add the problematic code line as context
+                scope.set_context("error_details", {
+                    "file": filename,
+                    "line_number": line_number,
+                    "function": function_name,
+                    "code_line": code_context,
+                    "error_context": context,
+                    "additional_data": additional_data or {}
+                })
+                
+                # Add the full stack trace as extra context
+                scope.set_extra("full_traceback", traceback.format_exc())
+                
+                # Capture the exception with all the enhanced context
+                sentry_sdk.capture_exception(error)
+        
+        return error_details
+        
+    except Exception as meta_error:
+        # If there's an error in the error handling itself, log it simply
+        logging.error(f"Error in error handler: {meta_error}. Original error: {error}")
+        if SENTRY_DSN:
+            sentry_sdk.capture_exception(error)
+        return {'error_type': type(error).__name__, 'error_message': str(error)}
+        
+    finally:
+        del frame  # Prevent reference cycles
 
 def main():
     """Main execution function."""
+    session_start = datetime.datetime.now()
+    generated_files_count = 0
+    
     try:
+        # Set session context in Sentry
+        if SENTRY_DSN:
+            with sentry_sdk.configure_scope() as scope:
+                scope.set_tag("session_start", session_start.isoformat())
+                scope.set_tag("process", "excel_generation")
+        
         if not API_TOKEN:
-            logging.error("🚨 FATAL: SMARTSHEET_API_TOKEN environment variable not set.")
+            error_msg = "🚨 FATAL: SMARTSHEET_API_TOKEN environment variable not set."
+            logging.error(error_msg)
+            
+            # Send fatal configuration errors to Sentry
+            if SENTRY_DSN:
+                with sentry_sdk.configure_scope() as scope:
+                    scope.set_tag("error_type", "fatal_configuration_error")
+                    scope.set_tag("missing_config", "SMARTSHEET_API_TOKEN")
+                    scope.set_level("fatal")
+                    sentry_sdk.capture_message(error_msg, level="fatal")
             return
 
         client = smartsheet.Smartsheet(API_TOKEN)
@@ -1112,7 +1537,17 @@ def main():
                 ai_engine = CPUOptimizedAIEngine()
                 logging.info("🎯 CPU-optimized AI engine initialized for performance")
             except Exception as e:
-                logging.warning(f"Failed to initialize CPU AI engine: {e}")
+                error_msg = f"Failed to initialize CPU AI engine: {e}"
+                logging.warning(error_msg)
+                
+                # Send AI initialization failures to Sentry
+                if SENTRY_DSN:
+                    with sentry_sdk.configure_scope() as scope:
+                        scope.set_tag("error_type", "ai_initialization_failure")
+                        scope.set_tag("ai_engine_type", "CPU_optimized")
+                        scope.set_level("warning")
+                        sentry_sdk.capture_exception(e)
+                
                 try:
                     ai_engine = AdvancedAuditAIEngine()
                     logging.info("🧠 Advanced AI engine initialized (fallback)")
@@ -1124,18 +1559,44 @@ def main():
             logging.warning("No AI engine available")
         
         # 1. Dynamically discover all source sheets (base sheets + their duplicates)
-        source_sheets = discover_source_sheets(client)
-        if not source_sheets:
-            logging.error("No valid source sheets found. Exiting.")
+        try:
+            source_sheets = discover_source_sheets(client)
+            if not source_sheets:
+                error_msg = "No valid source sheets found. Exiting."
+                logging.error(error_msg)
+                
+                if SENTRY_DSN:
+                    with sentry_sdk.configure_scope() as scope:
+                        scope.set_tag("error_type", "no_source_sheets")
+                        scope.set_level("error")
+                        sentry_sdk.capture_message(error_msg, level="error")
+                return
+        except Exception as e:
+            log_detailed_error(e, "Failed to discover source sheets", {"step": "source_sheet_discovery"})
             return
         
         # 2. Get the map of the target sheet to know where to upload files
-        target_map = create_target_sheet_map(client)
+        try:
+            target_map = create_target_sheet_map(client)
+        except Exception as e:
+            log_detailed_error(e, "Failed to create target sheet map", {"step": "target_sheet_mapping"})
+            return
         
         # 3. Get all rows from all source sheets that meet ALL criteria
-        all_valid_rows = get_all_source_rows(client, source_sheets)
-        if not all_valid_rows:
-            logging.info("No valid rows found to process. Exiting.")
+        try:
+            all_valid_rows = get_all_source_rows(client, source_sheets)
+            if not all_valid_rows:
+                warning_msg = "No valid rows found to process. Exiting."
+                logging.info(warning_msg)
+                
+                if SENTRY_DSN:
+                    with sentry_sdk.configure_scope() as scope:
+                        scope.set_tag("warning_type", "no_valid_rows")
+                        scope.set_level("warning")
+                        sentry_sdk.capture_message(warning_msg, level="warning")
+                return
+        except Exception as e:
+            log_detailed_error(e, "Failed to get valid rows from source sheets", {"step": "source_row_retrieval"})
             return
 
         # 3.5. COMPREHENSIVE REAL-TIME AUDIT - Monitor for unauthorized changes
@@ -1152,15 +1613,20 @@ def main():
                 logging.info("✅ Audit complete: No unauthorized changes detected")
                 
         except Exception as e:
-            logging.warning(f"⚠️ Audit detection failed (non-critical): {e}")
+            log_detailed_error(e, "Audit detection failed (non-critical)", {"step": "billing_audit"})
+            # Continue execution as audit is non-critical
 
         # 4. PHASE 1: FAST EXCEL GENERATION (Priority - Skip heavy API calls)
         # Skip audit and AI analysis during Excel generation for speed
         logging.info("� PHASE 1: Fast Excel Generation (No API delays)")
         
         # 5. Group the valid rows into reports
-        source_groups = group_source_rows(all_valid_rows)
-        logging.info(f"Created {len(source_groups)} groups to generate reports for.")
+        try:
+            source_groups = group_source_rows(all_valid_rows)
+            logging.info(f"Created {len(source_groups)} groups to generate reports for.")
+        except Exception as e:
+            log_detailed_error(e, "Failed to group source rows", {"step": "row_grouping"})
+            return
 
         excel_updated, excel_created = 0, 0
         generated_files = []  # Track generated files for post-analysis
@@ -1170,21 +1636,52 @@ def main():
             if not group_rows:
                 continue
 
-            # Determine the most recent snapshot date for the group
-            snapshot_dates = [parser.parse(row['Snapshot Date']) for row in group_rows if row.get('Snapshot Date')]
-            most_recent_snapshot_date = max(snapshot_dates) if snapshot_dates else datetime.date.today()
+            try:
+                # Determine the most recent snapshot date for the group
+                snapshot_dates = [parser.parse(row['Snapshot Date']) for row in group_rows if row.get('Snapshot Date')]
+                most_recent_snapshot_date = max(snapshot_dates) if snapshot_dates else datetime.date.today()
 
-            # Generate Excel file WITHOUT AI analysis (fast!)
-            excel_path, excel_filename, wr_numbers = generate_excel(group_key, group_rows, most_recent_snapshot_date, None)
-            generated_files.append({
-                'path': excel_path,
-                'filename': excel_filename, 
-                'wr_numbers': wr_numbers,
-                'group_rows': group_rows
-            })
+                # Generate AI analysis for data quality monitoring
+                total_price = sum(parse_price(row.get('Units Total Price')) for row in group_rows)
+                data_summary = {
+                    'line_items': len(group_rows),
+                    'total_amount': total_price,
+                    'work_requests': list(set(str(row.get('Work Request #', '')).split('.')[0] for row in group_rows if row.get('Work Request #'))),
+                    'foreman': group_rows[0].get('__current_foreman', 'Unknown') if group_rows else 'Unknown',
+                    'week_ending': group_key,
+                    'snapshot_dates': [row.get('Snapshot Date') for row in group_rows[:5]]  # Sample of dates
+                }
+                
+                # Generate Excel file WITHOUT AI analysis (fast!)
+                excel_path, excel_filename, wr_numbers = generate_excel(group_key, group_rows, most_recent_snapshot_date, None)
+                
+                generated_files.append({
+                    'path': excel_path,
+                    'filename': excel_filename, 
+                    'wr_numbers': wr_numbers,
+                    'group_rows': group_rows
+                })
 
-            # Since we now have multiple work requests per group, process each one for upload
-            for wr_num in wr_numbers:
+            except Exception as e:
+                log_detailed_error(e, f"Failed to process group {group_key}", {
+                    "step": "excel_generation",
+                    "group_key": group_key,
+                    "group_size": len(group_rows)
+                })
+                continue  # Continue with other groups
+
+            # CORRECTED LOGIC: Each group contains EXACTLY ONE work request
+            # With proper grouping, wr_numbers should contain exactly one work request
+            if len(wr_numbers) != 1:
+                error_msg = f"CRITICAL: Group {group_key} returned {len(wr_numbers)} work requests: {wr_numbers}. Each group should contain exactly 1 work request."
+                logging.error(error_msg)
+                if SENTRY_DSN:
+                    sentry_sdk.capture_message(error_msg, level="error")
+                continue
+            
+            wr_num = wr_numbers[0]  # Get the single work request number
+            
+            try:
                 # Find the corresponding row in the target sheet
                 target_row = target_map.get(wr_num)
                 if not target_row:
@@ -1194,7 +1691,7 @@ def main():
                     else:
                         logging.warning(f"⚠️ No matching row found in target sheet for WR# {wr_num}. Skipping attachment.")
                     continue
-                
+            
                 if TEST_MODE:
                     # In test mode, show what would happen with attachments
                     print(f"🔗 TEST MODE: Would attach to target sheet:")
@@ -1221,46 +1718,59 @@ def main():
                     print(f"   • File would be uploaded to row {target_row.row_number}")
                     print()
                 else:
-                    # --- Production Mode: Delete existing Excel files and upload new one ---
-                    existing_excel_attachments = []
-                    
-                    # Find ALL Excel attachments for this Work Request (not just exact filename match)
-                    # This handles cases where filename format might have changed over time
-                    for attachment in target_row.attachments or []:
-                        if (attachment.name == excel_filename or 
-                            (attachment.name.startswith(f"WR_{wr_num}_") and attachment.name.endswith('.xlsx'))):
-                            existing_excel_attachments.append(attachment)
-                    
-                    # Delete all existing Excel attachments for this Work Request
-                    deleted_count = 0
-                    for attachment in existing_excel_attachments:
+                        # --- Production Mode: Delete existing Excel files and upload new one ---
+                        existing_excel_attachments = []
+                        
+                        # Find ALL Excel attachments for this Work Request (not just exact filename match)
+                        # This handles cases where filename format might have changed over time
+                        for attachment in target_row.attachments or []:
+                            if (attachment.name == excel_filename or 
+                                (attachment.name.startswith(f"WR_{wr_num}_") and attachment.name.endswith('.xlsx'))):
+                                existing_excel_attachments.append(attachment)
+                        
+                        # Delete all existing Excel attachments for this Work Request
+                        deleted_count = 0
+                        for attachment in existing_excel_attachments:
+                            try:
+                                client.Attachments.delete_attachment(TARGET_SHEET_ID, attachment.id)
+                                logging.info(f"🗑️ Deleted existing attachment: '{attachment.name}' (ID: {attachment.id})")
+                                deleted_count += 1
+                            except Exception as delete_error:
+                                log_detailed_error(delete_error, f"Failed to delete attachment '{attachment.name}'", {
+                                    "attachment_id": attachment.id,
+                                    "work_request": wr_num
+                                })
+                        
+                        # Track whether this is an update or new creation
+                        if deleted_count > 0:
+                            excel_updated += 1
+                            logging.info(f"📝 Replacing {deleted_count} existing Excel attachment(s) for WR# {wr_num}")
+                        else:
+                            excel_created += 1
+                            logging.info(f"📄 Creating new Excel attachment for WR# {wr_num}")
+                        
+                        # Upload the new Excel file
                         try:
-                            client.Attachments.delete_attachment(TARGET_SHEET_ID, attachment.id)
-                            logging.info(f"🗑️ Deleted existing attachment: '{attachment.name}' (ID: {attachment.id})")
-                            deleted_count += 1
-                        except Exception as e:
-                            logging.warning(f"⚠️ Failed to delete attachment '{attachment.name}' (ID: {attachment.id}): {e}")
-                    
-                    # Track whether this is an update or new creation
-                    if deleted_count > 0:
-                        excel_updated += 1
-                        logging.info(f"📝 Replacing {deleted_count} existing Excel attachment(s) for WR# {wr_num}")
-                    else:
-                        excel_created += 1
-                        logging.info(f"📄 Creating new Excel attachment for WR# {wr_num}")
-                    
-                    # Upload the new Excel file
-                    try:
-                        with open(excel_path, 'rb') as file:
-                            client.Attachments.attach_file_to_row(
-                                TARGET_SHEET_ID, 
-                                target_row.id, 
-                                (excel_filename, file, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-                            )
-                        logging.info(f"Successfully attached Excel '{excel_filename}' to row {target_row.row_number} for WR# {wr_num}")
-                    except Exception as e:
-                        logging.error(f"Failed to attach Excel file '{excel_filename}' for WR# {wr_num}: {e}")
-                        continue
+                            with open(excel_path, 'rb') as file:
+                                client.Attachments.attach_file_to_row(
+                                    TARGET_SHEET_ID, 
+                                    target_row.id, 
+                                    (excel_filename, file, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                                )
+                            logging.info(f"Successfully attached Excel '{excel_filename}' to row {target_row.row_number} for WR# {wr_num}")
+                        except Exception as upload_error:
+                            log_detailed_error(upload_error, f"Failed to attach Excel file '{excel_filename}'", {
+                                "work_request": wr_num,
+                                "target_row": target_row.row_number,
+                                "excel_path": excel_path
+                            })
+                            continue
+
+            except Exception as e:
+                log_detailed_error(e, f"Failed to process work request {wr_num}", {
+                    "wr_number": wr_num,
+                    "group_key": group_key
+                })
 
         # 🚀 PHASE 1 COMPLETE: Fast Excel Generation Done!
         phase1_end_time = time.time()
@@ -1339,14 +1849,59 @@ def main():
         else:
             logging.info("--- Processing Complete ---")
             logging.info(f"Excel Files: {excel_created} created, {excel_updated} updated.")
+            generated_files_count = excel_created + excel_updated
+            
+        # Log successful session completion
+        session_duration = datetime.datetime.now() - session_start
+        if SENTRY_DSN:
+            with sentry_sdk.configure_scope() as scope:
+                scope.set_tag("session_success", True)
+                scope.set_tag("session_duration", str(session_duration))
+                scope.set_tag("files_generated", generated_files_count)
+                scope.set_level("info")
+            sentry_sdk.capture_message(
+                f"Excel generation completed successfully: {generated_files_count} files in {session_duration}",
+                level="info"
+            )
+        logging.info(f"🎉 Session completed successfully in {session_duration}")
 
     except FileNotFoundError as e:
-        logging.error(f"File Not Found: {e}. Please ensure '{LOGO_PATH}' is available.")
+        session_duration = datetime.datetime.now() - session_start
+        log_detailed_error(e, f"File Not Found: Please ensure '{LOGO_PATH}' is available.", {
+            "step": "file_access",
+            "missing_file": LOGO_PATH,
+            "session_duration": str(session_duration)
+        })
+        
+        # Log session failure
+        if SENTRY_DSN:
+            with sentry_sdk.configure_scope() as scope:
+                scope.set_tag("session_success", False)
+                scope.set_tag("session_duration", str(session_duration))
+                scope.set_tag("failure_type", "file_not_found")
+                scope.set_level("error")
+            
     except Exception as e:  # type: ignore  # smartsheet.exceptions.ApiError may not be available
+        session_duration = datetime.datetime.now() - session_start
+        
+        # Determine error context
+        error_context = "Unknown error occurred during Excel generation process"
         if "smartsheet" in str(type(e)).lower() or "api" in str(e).lower():
-            logging.error(f"A Smartsheet API error occurred: {e}")
-        else:
-            logging.error(f"An unexpected error occurred: {e}", exc_info=True)
+            error_context = "Smartsheet API error occurred"
+        
+        log_detailed_error(e, error_context, {
+            "step": "main_execution",
+            "session_duration": str(session_duration),
+            "error_type": type(e).__name__
+        })
+        
+        # Log session failure with details
+        if SENTRY_DSN:
+            with sentry_sdk.configure_scope() as scope:
+                scope.set_tag("session_success", False)
+                scope.set_tag("session_duration", str(session_duration))
+                scope.set_tag("failure_type", "general_exception")
+                scope.set_level("error")
 
 if __name__ == "__main__":
     main()

@@ -18,6 +18,9 @@ requests>=2.25.1
 # Image Processing (for logos)
 Pillow>=8.3.0
 
+# Error Monitoring
+sentry-sdk>=1.40.0
+
 # Optional: Enhanced Analytics (will be skipped in ultra-light mode)
 numpy>=1.21.0
 matplotlib>=3.5.0
