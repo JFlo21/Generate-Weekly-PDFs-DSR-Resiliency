@@ -118,12 +118,11 @@ if SENTRY_DSN:
         include_source_context=True,
     )
     
-    # Set user context for better error tracking
-    with sentry_sdk.configure_scope() as scope:
-        scope.user = {"id": "excel_generator", "username": "weekly_pdf_generator"}
-        scope.set_tag("component", "excel_generation")
-        scope.set_tag("process", "weekly_reports")
-        scope.set_tag("ai_enabled", "true")
+    # Set user context for better error tracking - using new API
+    sentry_sdk.set_user({"id": "excel_generator", "username": "weekly_pdf_generator"})
+    sentry_sdk.set_tag("component", "excel_generation")
+    sentry_sdk.set_tag("process", "weekly_reports")
+    sentry_sdk.set_tag("ai_enabled", "true")
     
     logging.info("🛡️ Sentry.io error monitoring initialized")
 else:
