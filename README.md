@@ -29,6 +29,7 @@ The system groups data by `Week Ending Date AND Work Request #`, ensuring:
 
 ```bash
 SMARTSHEET_API_TOKEN=your_token_here
+AUDIT_SHEET_ID=your_audit_sheet_id_here
 SENTRY_DSN=your_sentry_dsn_here  # Optional but recommended
 ```
 
@@ -44,7 +45,7 @@ SENTRY_DSN=your_sentry_dsn_here  # Optional but recommended
 2. **GitHub Actions:**
    - Add credentials as GitHub repository secrets
    - Go to: Repository Settings → Secrets and variables → Actions
-   - Add: `SMARTSHEET_API_TOKEN`, `SENTRY_DSN`
+   - Add: `SMARTSHEET_API_TOKEN`, `AUDIT_SHEET_ID`, `SENTRY_DSN`
 
 ## Files
 
