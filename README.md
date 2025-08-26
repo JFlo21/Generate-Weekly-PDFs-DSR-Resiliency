@@ -32,6 +32,20 @@ SMARTSHEET_API_TOKEN=your_token_here
 SENTRY_DSN=your_sentry_dsn_here  # Optional but recommended
 ```
 
+### 🔒 Security Configuration
+
+**IMPORTANT: Never commit .env files with actual credentials!**
+
+1. **Local Development:**
+   - Copy `.env.example` to `.env`
+   - Fill in your actual credentials in `.env`
+   - The `.env` file is excluded from git via `.gitignore`
+
+2. **GitHub Actions:**
+   - Add credentials as GitHub repository secrets
+   - Go to: Repository Settings → Secrets and variables → Actions
+   - Add: `SMARTSHEET_API_TOKEN`, `SENTRY_DSN`
+
 ## Files
 
 - `generate_weekly_pdfs.py` - Main Excel generation system
