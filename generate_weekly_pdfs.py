@@ -210,16 +210,27 @@ def discover_source_sheets(client):
         'Work Order #': 'Work Order #',
         'Area': 'Area',
         'Pole #': 'Pole #',
+        'Point #': 'Pole #',  # Alternative name for Pole #
+        'Point Number': 'Pole #',  # Alternative name for Pole #
         'CU': 'CU',
+        'Billable Unit Code': 'CU',  # Alternative name for CU
         'Work Type': 'Work Type',
         'CU Description': 'CU Description',
+        'Unit Description': 'CU Description',  # Alternative name
         'Unit of Measure': 'Unit of Measure',
+        'UOM': 'Unit of Measure',  # Alternative abbreviation
         'Quantity': 'Quantity',
+        'Qty': 'Quantity',  # Alternative abbreviation
+        '# Units': 'Quantity',  # Alternative name
         'Units Total Price': 'Units Total Price',  # Column 51 in your sheet
+        'Total Price': 'Units Total Price',  # Alternative name
+        'Redlined Total Price': 'Units Total Price',  # Alternative name
         'Snapshot Date': 'Snapshot Date',
         'Scope #': 'Scope #',  # Column 11 in your sheet
+        'Scope ID': 'Scope #',  # Alternative name
         'Job #': 'Job #',
         'Units Completed?': 'Units Completed?',  # Column 53 in your sheet
+        'Units Completed': 'Units Completed?',  # Alternative name (without ?)
     }
     
     discovered_sheets = []
@@ -1002,6 +1013,7 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         for i, row_data in enumerate(day_rows):
             crow = start_row + 2 + i
             price = parse_price(row_data.get('Units Total Price'))
+            
             # Safely parse quantity - extract only numbers
             qty_str = str(row_data.get('Quantity', '') or 0)
             try:
@@ -1015,19 +1027,62 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
                 quantity = 0
                 
             total_price_day += price
+            
+            # Get the field values with debugging and fallbacks
+            # Try multiple field name variations for each column
+            pole_num = (row_data.get('Pole #', '') or 
+                       row_data.get('Point #', '') or 
+                       row_data.get('Point Number', ''))
+            
+            cu_code = (row_data.get('CU', '') or 
+                      row_data.get('Billable Unit Code', '') or
+                      row_data.get('BUC', ''))
+            
+            work_type = row_data.get('Work Type', '')
+            
+            cu_description = (row_data.get('CU Description', '') or 
+                             row_data.get('Unit Description', '') or
+                             row_data.get('Description', ''))
+            
+            unit_measure = (row_data.get('Unit of Measure', '') or 
+                           row_data.get('UOM', '') or
+                           row_data.get('Unit of Measurement', ''))
+            
+            # Debug logging for missing data
+            if TEST_MODE and i < 3:  # Only log first 3 rows to avoid spam
+                print(f"   Row {i+1} data:")
+                print(f"     Pole #: '{pole_num}' (tried: Pole #, Point #, Point Number)")
+                print(f"     CU: '{cu_code}' (tried: CU, Billable Unit Code, BUC)")
+                print(f"     Work Type: '{work_type}'")
+                print(f"     CU Description: '{cu_description}' (tried: CU Description, Unit Description, Description)")
+                print(f"     Unit of Measure: '{unit_measure}' (tried: Unit of Measure, UOM, Unit of Measurement)")
+                print(f"     Quantity: '{quantity}' (from '{qty_str}')")
+                print(f"     Price: ${price}")
+                # Show ALL available keys for debugging
+                available_keys = [k for k in row_data.keys() if not k.startswith('__')]
+                print(f"     ALL available fields: {available_keys}")
+                
+                # Show empty fields to help identify the issue
+                empty_fields = []
+                if not pole_num: empty_fields.append("Pole #")
+                if not cu_code: empty_fields.append("CU") 
+                if not work_type: empty_fields.append("Work Type")
+                if not cu_description: empty_fields.append("CU Description")
+                if not unit_measure: empty_fields.append("Unit of Measure")
+                if empty_fields:
+                    print(f"     ⚠️ EMPTY FIELDS: {empty_fields}")
+            
             row_values = [
-                row_data.get('Pole #', ''), row_data.get('CU', ''),
-                row_data.get('Work Type', ''), row_data.get('CU Description', ''),
-                row_data.get('Unit of Measure', ''),
-                quantity,
-                "", price
+                pole_num, cu_code, work_type, cu_description, unit_measure, quantity, "", price
             ]
             for col_num, value in enumerate(row_values, 1):
                 cell = ws.cell(row=crow, column=col_num)
                 cell.value = value
                 cell.font = BODY_FONT
-                if col_num >= 6: cell.alignment = Alignment(horizontal='right')
-                if i % 2 == 1: cell.fill = LIGHT_GREY_FILL
+                if col_num >= 6: 
+                    cell.alignment = Alignment(horizontal='right')
+                if i % 2 == 1: 
+                    cell.fill = LIGHT_GREY_FILL
             ws.cell(row=crow, column=8).number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
 
         total_row = start_row + 2 + len(day_rows)
