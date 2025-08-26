@@ -246,7 +246,7 @@ jobs:
         python enhanced_audit_system.py ${{ github.event.inputs.force_report == 'true' && '--force-report' || '' }}
     
     - name: Upload audit logs
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: always()
       with:
         name: audit-logs

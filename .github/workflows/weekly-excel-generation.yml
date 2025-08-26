@@ -234,7 +234,7 @@ jobs:
         
     - name: Upload Enhanced Audit Reports (Archive for Production Records)
       if: always() && steps.time_check.outputs.should_run == 'true'
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: enhanced-audit-excel-reports-${{ github.run_number }}
         path: generated_docs/
