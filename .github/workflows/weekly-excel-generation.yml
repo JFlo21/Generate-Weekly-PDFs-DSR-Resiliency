@@ -1,5 +1,8 @@
 name: Comprehensive Excel Generation with Enhanced Sentry Monitoring (Every 2 Hours + Weekly)
 
+permissions:
+  contents: read
+
 on:
   schedule:
     # Production billing system - Run every 2 hours during business hours (Monday-Friday)
