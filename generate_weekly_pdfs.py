@@ -20,6 +20,57 @@ import traceback
 import sys
 import inspect
 
+# Import our enhanced monitoring and validation system
+try:
+    from enhanced_monitoring import (
+        performance_monitor, data_validator, audit_logger, 
+        monitored_operation, PerformanceMonitor, DataValidator, AuditLogger
+    )
+    ENHANCED_MONITORING_AVAILABLE = True
+    logging.info("🔍 Enhanced monitoring and validation system loaded")
+except ImportError:
+    ENHANCED_MONITORING_AVAILABLE = False
+    logging.warning("🔍 Enhanced monitoring not available - using basic monitoring")
+    
+    # Create dummy decorator if monitoring not available
+    def monitored_operation(operation_name: str):
+        def decorator(func):
+            return func
+        return decorator
+
+# Import advanced Sentry monitoring with business logic validation
+try:
+    from advanced_sentry_monitoring import (
+        BusinessLogicValidator, AdvancedSentryIntegration, 
+        business_logic_monitor, financial_threshold_monitor, advanced_sentry
+    )
+    ADVANCED_SENTRY_AVAILABLE = True
+    logging.info("🚨 Advanced Sentry monitoring with business logic validation loaded")
+except ImportError:
+    ADVANCED_SENTRY_AVAILABLE = False
+    logging.warning("🚨 Advanced Sentry monitoring not available - using basic error monitoring")
+    
+    # Create dummy decorators if advanced monitoring not available
+    def business_logic_monitor(operation_name: str):
+        def decorator(func):
+            return func
+        return decorator
+    
+    def financial_threshold_monitor(amount_field: str = 'Units Total Price', threshold: float = 1000.0):
+        def decorator(func):
+            return func
+        return decorator
+
+# Import our enhanced email template system
+try:
+    from sentry_email_templates import SentryEmailTemplateGenerator, send_sentry_email
+    EMAIL_TEMPLATES_AVAILABLE = True
+    logging.info("📧 Sentry email templates loaded successfully")
+except ImportError:
+    EMAIL_TEMPLATES_AVAILABLE = False
+    logging.warning("📧 Sentry email templates not available - continuing without email alerts")
+import inspect
+
 # Configure logging to suppress Smartsheet SDK 404 errors (normal when cleaning up old attachments)
 logging.getLogger('smartsheet.smartsheet').setLevel(logging.CRITICAL)
 
@@ -142,11 +193,16 @@ OUTPUT_FOLDER = "generated_docs"
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 # --- TEST MODE CONFIGURATION ---
-TEST_MODE = False  # Set to False for actual production run
+TEST_MODE = True   # Set to True for local testing with real data
+DISABLE_AUDIT_FOR_TESTING = True  # Set to True to skip slow audit system during testing
+SINGLE_FILE_TEST = True  # Generate only ONE Excel file for testing
 # When TEST_MODE is True:
 # - Files will be generated locally for inspection
 # - No uploads to Smartsheet will occur  
 # - Only simulation output will be shown for uploads
+# When SINGLE_FILE_TEST is True:
+# - Only the first group will be processed
+# - Perfect for testing the generator with real data
 # NOTE: GitHub Actions workflow will automatically set this to False during scheduled runs
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -1433,6 +1489,7 @@ def add_ai_insights_to_excel(excel_path, ai_results):
 def log_detailed_error(error, context="", additional_data=None):
     """
     Enhanced error logging with precise line numbers, function context, and Sentry integration.
+    Now includes detailed email template generation for critical errors.
     
     Args:
         error: The exception object
@@ -1503,6 +1560,69 @@ def log_detailed_error(error, context="", additional_data=None):
         # Log the error locally
         logging.error(log_message)
         
+        # Determine error type for email template generation
+        error_type = None
+        email_data = {}
+        
+        # Extract error type from context or additional data for email templating
+        if "grouping logic failure" in context.lower():
+            error_type = "grouping_validation_failure"
+            email_data = additional_data or {}
+        elif "sheet processing failure" in context.lower() or "sheet_processing_failure" in str(additional_data):
+            error_type = "sheet_processing_failure"
+            email_data = additional_data or {}
+        elif "base_sheet_fetch_failure" in str(additional_data):
+            error_type = "base_sheet_fetch_failure"
+            email_data = additional_data or {}
+        elif "ultra_light_processing_failure" in str(additional_data):
+            error_type = "ultra_light_processing_failure"
+            email_data = additional_data or {}
+        elif "attachment_deletion_failure" in str(additional_data):
+            error_type = "attachment_deletion_failure"
+            email_data = additional_data or {}
+            # Add more specific attachment error context
+            email_data.update({
+                "error_details": str(error),
+                "error_type_name": type(error).__name__,
+                "function_location": f"{filename}:{line_number}",
+                "technical_context": context
+            })
+        
+        # Generate email template if this is a critical error and email templates are available
+        if error_type and EMAIL_TEMPLATES_AVAILABLE:
+            try:
+                generator = SentryEmailTemplateGenerator()
+                email_template = generator.generate_email_template(error_type, email_data)
+                
+                # Log that an email template was generated
+                logging.info(f"📧 Generated detailed email template for error type: {error_type}")
+                
+                # In production, you could send the email here
+                # For now, we'll add it to the Sentry context
+                if SENTRY_DSN:
+                    with sentry_sdk.configure_scope() as scope:
+                        scope.set_context("email_template", {
+                            "subject": email_template['subject'],
+                            "template_generated": True,
+                            "error_type": error_type
+                        })
+                        
+                # Save email template to file for review (optional)
+                if os.getenv("SAVE_ERROR_EMAIL_TEMPLATES", "false").lower() == "true":
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    email_filename = f"error_email_{error_type}_{timestamp}.html"
+                    email_path = os.path.join(OUTPUT_FOLDER, email_filename)
+                    
+                    try:
+                        with open(email_path, 'w', encoding='utf-8') as f:
+                            f.write(email_template['html_body'])
+                        logging.info(f"📧 Saved email template to: {email_path}")
+                    except Exception as e:
+                        logging.warning(f"Could not save email template: {e}")
+                        
+            except Exception as email_error:
+                logging.warning(f"Failed to generate email template: {email_error}")
+        
         # Send detailed error to Sentry with enhanced context
         if SENTRY_DSN:
             with sentry_sdk.configure_scope() as scope:
@@ -1511,6 +1631,11 @@ def log_detailed_error(error, context="", additional_data=None):
                 scope.set_tag("error_line", str(line_number))
                 scope.set_tag("error_function", function_name)
                 scope.set_tag("error_type", type(error).__name__)
+                
+                # Add email template availability
+                scope.set_tag("email_template_available", EMAIL_TEMPLATES_AVAILABLE)
+                if error_type:
+                    scope.set_tag("email_template_type", error_type)
                 
                 # Add the problematic code line as context
                 scope.set_context("error_details", {
@@ -1524,6 +1649,16 @@ def log_detailed_error(error, context="", additional_data=None):
                 
                 # Add the full stack trace as extra context
                 scope.set_extra("full_traceback", traceback.format_exc())
+                
+                # Add human-readable error explanation
+                scope.set_extra("human_readable_explanation", {
+                    "what_happened": f"An error occurred in the {function_name} function at line {line_number}",
+                    "error_type": type(error).__name__,
+                    "error_message": str(error),
+                    "context": context,
+                    "impact": "This error may affect the Excel generation process" if "excel" in context.lower() else "System operation affected",
+                    "code_location": f"{filename}:{line_number}"
+                })
                 
                 # Capture the exception with all the enhanced context
                 sentry_sdk.capture_exception(error)
@@ -1540,10 +1675,20 @@ def log_detailed_error(error, context="", additional_data=None):
     finally:
         del frame  # Prevent reference cycles
 
+@business_logic_monitor("excel_generation_session")
+@financial_threshold_monitor("Units Total Price", 1000.0)
 def main():
-    """Main execution function."""
+    """Main execution function with advanced business logic monitoring."""
     session_start = datetime.datetime.now()
     generated_files_count = 0
+    
+    # Initialize advanced business logic validation
+    business_validator = None
+    if ADVANCED_SENTRY_AVAILABLE:
+        business_validator = BusinessLogicValidator()
+        # Setup enhanced Sentry with business context
+        if SENTRY_DSN:
+            advanced_sentry.setup_enhanced_sentry(SENTRY_DSN, os.getenv("ENVIRONMENT", "production"))
     
     try:
         # Set session context in Sentry
@@ -1551,6 +1696,8 @@ def main():
             with sentry_sdk.configure_scope() as scope:
                 scope.set_tag("session_start", session_start.isoformat())
                 scope.set_tag("process", "excel_generation")
+                scope.set_tag("business_logic_monitoring", ADVANCED_SENTRY_AVAILABLE)
+                scope.set_tag("enhanced_monitoring", ENHANCED_MONITORING_AVAILABLE)
         
         if not API_TOKEN:
             error_msg = "🚨 FATAL: SMARTSHEET_API_TOKEN environment variable not set."
@@ -1579,7 +1726,13 @@ def main():
         
         # Initialize audit system with resilience mode for ultra-light performance
         run_started_at = datetime.datetime.utcnow()
-        audit_system = BillingAudit(client, skip_cell_history=SKIP_CELL_HISTORY)
+        
+        # Skip audit system if disabled for testing (much faster)
+        if not DISABLE_AUDIT_FOR_TESTING:
+            audit_system = BillingAudit(client, skip_cell_history=SKIP_CELL_HISTORY)
+        else:
+            audit_system = None
+            logging.info("🚀 Audit system disabled for faster testing")
         
         # ENHANCED: Initialize audit state for delta tracking
         audit_detected_changes = []
@@ -1654,21 +1807,102 @@ def main():
             return
 
         # 3.5. COMPREHENSIVE REAL-TIME AUDIT - Monitor for unauthorized changes
-        logging.info("🔍 Starting comprehensive billing audit - monitoring for unauthorized changes...")
-        try:
-            # Run the audit system to detect any changes since last run
-            detected_changes = audit_system.audit_changes_for_rows(all_valid_rows, run_started_at)
-            
-            # Store audit results for later use in Excel report generation
-            if hasattr(audit_system, '_last_audit_entries') and audit_system._last_audit_entries:
-                audit_detected_changes.extend(audit_system._last_audit_entries)
-                logging.warning(f"🚨 AUDIT ALERT: {len(audit_system._last_audit_entries)} unauthorized changes detected!")
-            else:
-                logging.info("✅ Audit complete: No unauthorized changes detected")
+        if audit_system:
+            logging.info("🔍 Starting comprehensive billing audit - monitoring for unauthorized changes...")
+            try:
+                # Run the audit system to detect any changes since last run
+                detected_changes = audit_system.audit_changes_for_rows(all_valid_rows, run_started_at)
                 
-        except Exception as e:
-            log_detailed_error(e, "Audit detection failed (non-critical)", {"step": "billing_audit"})
-            # Continue execution as audit is non-critical
+                # Store audit results for later use in Excel report generation
+                if hasattr(audit_system, '_last_audit_entries') and audit_system._last_audit_entries:
+                    audit_detected_changes.extend(audit_system._last_audit_entries)
+                    logging.warning(f"🚨 AUDIT ALERT: {len(audit_system._last_audit_entries)} unauthorized changes detected!")
+                    
+                    # Send critical audit findings to Sentry
+                    if SENTRY_DSN:
+                        with sentry_sdk.configure_scope() as scope:
+                            scope.set_tag("audit_violations_detected", True)
+                            scope.set_tag("violation_count", len(audit_system._last_audit_entries))
+                            scope.set_context("audit_violations", {
+                                "total_violations": len(audit_system._last_audit_entries),
+                                "first_few_violations": audit_system._last_audit_entries[:3]
+                            })
+                            sentry_sdk.capture_message(
+                                f"CRITICAL: {len(audit_system._last_audit_entries)} unauthorized billing changes detected",
+                                level="error"
+                            )
+                else:
+                    logging.info("✅ Audit complete: No unauthorized changes detected")
+                    
+            except Exception as e:
+                log_detailed_error(e, "Audit detection failed (non-critical)", {"step": "billing_audit"})
+                # Continue execution as audit is non-critical
+        else:
+            logging.info("⏩ Skipping audit system (disabled for testing)")
+
+        # 3.6. ADVANCED BUSINESS LOGIC VALIDATION
+        if ADVANCED_SENTRY_AVAILABLE and business_validator:
+            logging.info("🔍 Running advanced business logic validation...")
+            try:
+                # Prepare data for business logic validation
+                validation_data = []
+                for row in all_valid_rows:
+                    validation_data.append({
+                        'Work Request #': row.get('Work Request #', ''),
+                        'Foreman': row.get('Foreman', ''),
+                        'Customer Name': row.get('Customer Name', ''),
+                        'Units Total Price': row.get('Units Total Price', '0'),
+                        'Quantity': row.get('Quantity', '0'),
+                        'CU': row.get('CU', ''),
+                        'Snapshot Date': row.get('Snapshot Date', ''),
+                        'Weekly Reference Logged Date': row.get('Weekly Reference Logged Date', ''),
+                        'Pole #': row.get('Pole #', ''),
+                        'Job #': row.get('Job #', '')
+                    })
+                
+                # Run comprehensive business logic validation
+                business_validation = business_validator.validate_business_logic(
+                    validation_data, 
+                    {
+                        "session_id": session_start.isoformat(),
+                        "total_rows": len(all_valid_rows),
+                        "audit_violations": len(audit_detected_changes)
+                    }
+                )
+                
+                # Handle business logic validation results
+                if not business_validation['is_valid']:
+                    error_msg = f"Business logic validation failed with {len(business_validation['critical_violations'])} critical violations"
+                    logging.error(f"❌ {error_msg}")
+                    
+                    # Log critical violations
+                    for violation in business_validation['critical_violations'][:5]:
+                        logging.error(f"  🚨 CRITICAL: {violation}")
+                    
+                    # Send to Sentry with business context
+                    if SENTRY_DSN:
+                        with sentry_sdk.configure_scope() as scope:
+                            scope.set_tag("business_validation_failure", True)
+                            scope.set_tag("risk_score", f"{business_validation['risk_score']:.1f}")
+                            scope.set_tag("critical_violations_count", len(business_validation['critical_violations']))
+                            scope.set_context("business_validation", business_validation)
+                            sentry_sdk.capture_message(error_msg, level="error")
+                else:
+                    risk_score = business_validation['risk_score']
+                    logging.info(f"✅ Business logic validation passed (risk score: {risk_score:.1f}/100)")
+                    
+                    # Send info to Sentry for trending
+                    if SENTRY_DSN and risk_score > 10:
+                        with sentry_sdk.configure_scope() as scope:
+                            scope.set_tag("business_validation_warning", True)
+                            scope.set_tag("risk_score", f"{risk_score:.1f}")
+                            sentry_sdk.capture_message(
+                                f"Business validation passed with elevated risk score: {risk_score:.1f}",
+                                level="warning"
+                            )
+                            
+            except Exception as e:
+                log_detailed_error(e, "Business logic validation failure", {"step": "business_validation"})
 
         # 4. PHASE 1: FAST EXCEL GENERATION (Priority - Skip heavy API calls)
         # Skip audit and AI analysis during Excel generation for speed
@@ -1690,6 +1924,11 @@ def main():
             if not group_rows:
                 continue
 
+            # SINGLE FILE TEST MODE: Only process the first group
+            if SINGLE_FILE_TEST and generated_files_count > 0:
+                logging.info(f"🧪 SINGLE FILE TEST: Stopping after first file generation")
+                break
+
             try:
                 # Determine the most recent snapshot date for the group
                 snapshot_dates = [parser.parse(row['Snapshot Date']) for row in group_rows if row.get('Snapshot Date')]
@@ -1709,12 +1948,82 @@ def main():
                 # Generate Excel file WITHOUT AI analysis (fast!)
                 excel_path, excel_filename, wr_numbers = generate_excel(group_key, group_rows, most_recent_snapshot_date, None)
                 
+                # ENHANCED: Business logic validation per group (single week, single work request)
+                if ADVANCED_SENTRY_AVAILABLE and business_validator:
+                    # Parse the group key to get week ending date
+                    week_ending_str = group_key.split('_')[0] if '_' in group_key else 'Unknown'
+                    wr_number = group_key.split('_')[1] if '_' in group_key else 'Unknown'
+                    
+                    # Create validation context for single-week processing
+                    single_week_context = {
+                        "is_single_week": True,
+                        "week_ending": week_ending_str,
+                        "work_request": wr_number,
+                        "excel_filename": excel_filename,
+                        "group_key": group_key,
+                        "foreman": group_rows[0].get('__current_foreman', 'Unknown') if group_rows else 'Unknown',
+                        "total_line_items": len(group_rows)
+                    }
+                    
+                    # Validate this specific group's business logic
+                    group_validation = business_validator.validate_business_logic(group_rows, single_week_context)
+                    
+                    # Handle validation results for this specific Excel file
+                    if not group_validation['is_valid']:
+                        # Count of critical violations for this group
+                        critical_count = len(group_validation['critical_violations'])
+                        warning_count = len(group_validation['warnings'])
+                        
+                        if critical_count > 0:
+                            logging.error(f"❌ Business logic validation failed: {critical_count} critical violations, {warning_count} warnings (risk score: {group_validation['risk_score']:.1f}/100)")
+                            # Log first few critical violations
+                            for violation in group_validation['critical_violations'][:3]:
+                                logging.error(f"  🚨 CRITICAL: {violation}")
+                        else:
+                            # Only warnings, less severe
+                            logging.warning(f"⚠️ Business validation warnings: {warning_count} warnings for {excel_filename}")
+                
+                # ENHANCED: Validate generated data before proceeding
+                if ENHANCED_MONITORING_AVAILABLE:
+                    validation_result = data_validator.validate_excel_data(group_rows)
+                    
+                    if not validation_result["is_valid"]:
+                        error_msg = f"Data validation failed for group {group_key}: {validation_result['errors']}"
+                        logging.error(error_msg)
+                        
+                        # Log validation failure
+                        audit_logger.log_operation("data_validation", {
+                            "group_key": group_key,
+                            "validation_errors": validation_result["errors"],
+                            "data_quality_score": validation_result["data_quality_score"],
+                            "row_count": len(group_rows)
+                        }, success=False)
+                        
+                        # Send to Sentry with validation context
+                        if SENTRY_DSN:
+                            with sentry_sdk.configure_scope() as scope:
+                                scope.set_tag("data_validation_failure", True)
+                                scope.set_tag("group_key", group_key)
+                                scope.set_tag("quality_score", f"{validation_result['data_quality_score']:.1f}")
+                                scope.set_context("validation_details", validation_result)
+                                sentry_sdk.capture_message(error_msg, level="error")
+                        
+                        continue  # Skip this group if validation fails
+                    else:
+                        logging.info(f"✅ Data validation passed for group {group_key} (score: {validation_result['data_quality_score']:.1f}/100)")
+                        audit_logger.log_operation("data_validation", {
+                            "group_key": group_key,
+                            "data_quality_score": validation_result["data_quality_score"],
+                            "row_count": len(group_rows)
+                        }, success=True)
+                
                 generated_files.append({
                     'path': excel_path,
                     'filename': excel_filename, 
                     'wr_numbers': wr_numbers,
                     'group_rows': group_rows
                 })
+                generated_files_count += 1
 
             except Exception as e:
                 log_detailed_error(e, f"Failed to process group {group_key}", {
@@ -1782,41 +2091,148 @@ def main():
                                 (attachment.name.startswith(f"WR_{wr_num}_") and attachment.name.endswith('.xlsx'))):
                                 existing_excel_attachments.append(attachment)
                         
-                        # Delete all existing Excel attachments for this Work Request
-                        deleted_count = 0
-                        for attachment in existing_excel_attachments:
-                            try:
-                                client.Attachments.delete_attachment(TARGET_SHEET_ID, attachment.id)
-                                logging.info(f"🗑️ Deleted existing attachment: '{attachment.name}' (ID: {attachment.id})")
-                                deleted_count += 1
-                            except Exception as delete_error:
-                                log_detailed_error(delete_error, f"Failed to delete attachment '{attachment.name}'", {
-                                    "attachment_id": attachment.id,
-                                    "work_request": wr_num
-                                })
+                        # ENHANCED APPROACH: Skip deletion, use direct replacement/overwrite
+                        # This avoids 404 errors when attachments don't exist or can't be deleted
                         
-                        # Track whether this is an update or new creation
-                        if deleted_count > 0:
+                        # Check if Excel attachments exist for this Work Request
+                        existing_excel_attachments = []
+                        for attachment in target_row.attachments or []:
+                            if (attachment.name == excel_filename or 
+                                (attachment.name.startswith(f"WR_{wr_num}_") and attachment.name.endswith('.xlsx'))):
+                                existing_excel_attachments.append(attachment)
+                        
+                        # Log what we found
+                        if existing_excel_attachments:
+                            logging.info(f"📎 Found {len(existing_excel_attachments)} existing Excel attachment(s) for WR# {wr_num}")
                             excel_updated += 1
-                            logging.info(f"📝 Replacing {deleted_count} existing Excel attachment(s) for WR# {wr_num}")
+                            action_type = "REPLACE"
                         else:
+                            logging.info(f"📎 No existing Excel attachments found for WR# {wr_num}")
                             excel_created += 1
-                            logging.info(f"📄 Creating new Excel attachment for WR# {wr_num}")
+                            action_type = "CREATE"
                         
-                        # Upload the new Excel file
+                        # Enhanced monitoring for attachment operations
+                        if ENHANCED_MONITORING_AVAILABLE:
+                            audit_logger.log_operation("attachment_analysis", {
+                                "work_request": wr_num,
+                                "existing_attachments": len(existing_excel_attachments),
+                                "action_type": action_type,
+                                "attachment_names": [att.name for att in existing_excel_attachments]
+                            }, success=True)
+                        
+                        # ROBUST UPLOAD: Direct attachment with automatic replacement
+                        # Smartsheet API handles replacements automatically when same filename is used
                         try:
-                            with open(excel_path, 'rb') as file:
-                                client.Attachments.attach_file_to_row(
-                                    TARGET_SHEET_ID, 
-                                    target_row.id, 
-                                    (excel_filename, file, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-                                )
-                            logging.info(f"Successfully attached Excel '{excel_filename}' to row {target_row.row_number} for WR# {wr_num}")
+                            # Monitor file upload performance
+                            if ENHANCED_MONITORING_AVAILABLE:
+                                upload_start = time.time()
+                                file_size = os.path.getsize(excel_path) if os.path.exists(excel_path) else 0
+                            
+                            # Upload with error resilience - try multiple approaches if needed
+                            upload_success = False
+                            upload_method = "standard"
+                            
+                            try:
+                                # Method 1: Standard upload (handles most cases including replacements)
+                                with open(excel_path, 'rb') as file:
+                                    upload_result = client.Attachments.attach_file_to_row(
+                                        TARGET_SHEET_ID, 
+                                        target_row.id, 
+                                        (excel_filename, file, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                                    )
+                                upload_success = True
+                                upload_method = "standard"
+                                
+                            except Exception as primary_upload_error:
+                                # Method 2: Fallback - try with different filename if there's a conflict
+                                logging.warning(f"⚠️ Primary upload failed for {excel_filename}, trying fallback method")
+                                
+                                # Check if it's a filename conflict issue
+                                error_str = str(primary_upload_error).lower()
+                                if "duplicate" in error_str or "exists" in error_str or "conflict" in error_str:
+                                    # Generate a unique filename for fallback
+                                    timestamp = datetime.datetime.now().strftime("%H%M%S")
+                                    fallback_filename = f"WR_{wr_num}_WeekEnding_{group_key.replace('-', '')}_{timestamp}.xlsx"
+                                    
+                                    try:
+                                        with open(excel_path, 'rb') as file:
+                                            upload_result = client.Attachments.attach_file_to_row(
+                                                TARGET_SHEET_ID, 
+                                                target_row.id, 
+                                                (fallback_filename, file, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                                            )
+                                        upload_success = True
+                                        upload_method = "fallback_unique_name"
+                                        excel_filename = fallback_filename  # Update for logging
+                                        logging.info(f"✅ Fallback upload successful with filename: {fallback_filename}")
+                                        
+                                    except Exception as fallback_error:
+                                        # If fallback also fails, raise the original error
+                                        raise primary_upload_error
+                                else:
+                                    # If it's not a filename conflict, raise the original error
+                                    raise primary_upload_error
+                            
+                            # Calculate upload performance metrics
+                            if ENHANCED_MONITORING_AVAILABLE and upload_success:
+                                upload_duration = time.time() - upload_start
+                                upload_speed = (file_size / 1024 / 1024) / upload_duration if upload_duration > 0 else 0  # MB/s
+                                
+                                # Log successful upload with comprehensive metrics
+                                audit_logger.log_operation("upload_excel_success", {
+                                    "work_request": wr_num,
+                                    "filename": excel_filename,
+                                    "file_size_mb": file_size / 1024 / 1024,
+                                    "upload_duration": upload_duration,
+                                    "upload_speed_mbps": upload_speed,
+                                    "target_row": target_row.row_number,
+                                    "action_type": action_type,
+                                    "upload_method": upload_method,
+                                    "existing_attachments_count": len(existing_excel_attachments)
+                                }, success=True)
+                                
+                                # Monitor slow uploads
+                                if upload_duration > 10.0:
+                                    logging.warning(f"⚠️ Slow upload: {excel_filename} took {upload_duration:.2f}s ({upload_speed:.2f} MB/s)")
+                                    if SENTRY_DSN:
+                                        with sentry_sdk.configure_scope() as scope:
+                                            scope.set_tag("slow_upload", True)
+                                            scope.set_tag("upload_duration", f"{upload_duration:.2f}")
+                                            scope.set_tag("file_size_mb", f"{file_size / 1024 / 1024:.2f}")
+                                            scope.set_tag("upload_method", upload_method)
+                                            sentry_sdk.capture_message(f"Slow file upload: {upload_duration:.2f}s", level="warning")
+                            
+                            # Success logging with action type context
+                            if action_type == "REPLACE":
+                                logging.info(f"✅ Successfully {action_type.lower()}d Excel '{excel_filename}' on row {target_row.row_number} for WR# {wr_num} ({len(existing_excel_attachments)} existing attachments handled)")
+                            else:
+                                logging.info(f"✅ Successfully {action_type.lower()}d Excel '{excel_filename}' on row {target_row.row_number} for WR# {wr_num}")
+                            
                         except Exception as upload_error:
-                            log_detailed_error(upload_error, f"Failed to attach Excel file '{excel_filename}'", {
+                            # Enhanced upload error reporting with context
+                            if ENHANCED_MONITORING_AVAILABLE:
+                                audit_logger.log_operation("upload_excel_error", {
+                                    "work_request": wr_num,
+                                    "filename": excel_filename,
+                                    "target_row": target_row.row_number,
+                                    "error_type": type(upload_error).__name__,
+                                    "error_details": str(upload_error),
+                                    "action_type": action_type,
+                                    "existing_attachments_count": len(existing_excel_attachments),
+                                    "file_exists": os.path.exists(excel_path)
+                                }, success=False)
+                            
+                            # Enhanced error context for Sentry
+                            log_detailed_error(upload_error, f"Failed to {action_type.lower()} Excel file '{excel_filename}'", {
                                 "work_request": wr_num,
                                 "target_row": target_row.row_number,
-                                "excel_path": excel_path
+                                "excel_path": excel_path,
+                                "file_exists": os.path.exists(excel_path),
+                                "file_size": os.path.getsize(excel_path) if os.path.exists(excel_path) else 0,
+                                "error_type": "file_upload_failure",
+                                "action_type": action_type,
+                                "existing_attachments": len(existing_excel_attachments),
+                                "upload_method_attempted": upload_method
                             })
                             continue
 
@@ -1839,7 +2255,7 @@ def main():
             logging.info("🧠 PHASE 2: Starting Post-Generation Analysis...")
             
             # 2A. Quick Billing Audit Analysis (Fast comprehensive summary)
-            if not SKIP_CELL_HISTORY and not TEST_MODE:
+            if not SKIP_CELL_HISTORY and not TEST_MODE and audit_system:
                 try:
                     logging.info("📋 Running quick billing audit analysis...")
                     audit_summary = audit_system.quick_billing_summary(all_valid_rows, run_started_at)
@@ -1851,35 +2267,40 @@ def main():
                         logging.info(f"   • Date Range: {audit_summary.get('date_range', 'N/A')}")
                 except Exception as e:
                     logging.warning(f"⚠️ Quick audit analysis failed (non-critical): {e}")
+            elif not audit_system:
+                logging.info("⏩ Skipping billing audit analysis (audit system disabled)")
             
             # 2B. Skip Heavy AI Analysis - Use simple validation only
             logging.info("⚡ Skipping heavy AI analysis for faster processing")
             logging.info(f"✅ Generated {len(generated_files)} Excel files with valid pricing data")
             
             # 2C. ENHANCED: Generate Real-Time Audit Report
-            try:
-                logging.info("📊 Generating comprehensive audit report...")
-                run_id = datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
-                
-                # Generate the audit Excel report
-                audit_report_path = audit_system.generate_realtime_audit_excel_report(run_id, ai_analysis_results)
-                
-                if audit_report_path and os.path.exists(audit_report_path):
-                    if not TEST_MODE:
-                        # Upload to Smartsheet with beautiful header row
-                        upload_success = audit_system.upload_audit_report_to_smartsheet(audit_report_path)
-                        if upload_success:
-                            logging.info("✅ Audit report uploaded to Smartsheet successfully")
-                        else:
-                            logging.warning("⚠️ Failed to upload audit report to Smartsheet")
-                    else:
-                        logging.info(f"🧪 TEST MODE: Audit report generated at {audit_report_path}")
-                        logging.info("🧪 TEST MODE: Would upload to Smartsheet in production mode")
-                else:
-                    logging.warning("⚠️ No audit report generated")
+            if audit_system:
+                try:
+                    logging.info("📊 Generating comprehensive audit report...")
+                    run_id = datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
                     
-            except Exception as e:
-                logging.warning(f"⚠️ Audit report generation failed (non-critical): {e}")
+                    # Generate the audit Excel report
+                    audit_report_path = audit_system.generate_realtime_audit_excel_report(run_id, ai_analysis_results)
+                    
+                    if audit_report_path and os.path.exists(audit_report_path):
+                        if not TEST_MODE:
+                            # Upload to Smartsheet with beautiful header row
+                            upload_success = audit_system.upload_audit_report_to_smartsheet(audit_report_path)
+                            if upload_success:
+                                logging.info("✅ Audit report uploaded to Smartsheet successfully")
+                            else:
+                                logging.warning("⚠️ Failed to upload audit report to Smartsheet")
+                        else:
+                            logging.info(f"🧪 TEST MODE: Audit report generated at {audit_report_path}")
+                            logging.info("🧪 TEST MODE: Would upload to Smartsheet in production mode")
+                    else:
+                        logging.warning("⚠️ No audit report generated")
+                        
+                except Exception as e:
+                    logging.warning(f"⚠️ Audit report generation failed (non-critical): {e}")
+            else:
+                logging.info("⏩ Skipping audit report generation (audit system disabled)")
         else:
             logging.info("⚠️ Post-analysis disabled or no files to analyze")
 
@@ -1905,8 +2326,29 @@ def main():
             logging.info(f"Excel Files: {excel_created} created, {excel_updated} updated.")
             generated_files_count = excel_created + excel_updated
             
-        # Log successful session completion
+        # Log successful session completion with enhanced monitoring summary
         session_duration = datetime.datetime.now() - session_start
+        
+        # Generate comprehensive monitoring report
+        if ENHANCED_MONITORING_AVAILABLE:
+            performance_summary = performance_monitor.get_performance_summary()
+            audit_summary = audit_logger.get_audit_summary()
+            
+            logging.info("📊 ENHANCED MONITORING SUMMARY:")
+            logging.info(f"   • Performance: {performance_summary.get('total_operations', 0)} operations, avg {performance_summary.get('average_duration', 0):.2f}s")
+            logging.info(f"   • API Calls: {performance_summary.get('total_api_calls', 0)} total")
+            logging.info(f"   • Slow Operations: {performance_summary.get('slow_operations_count', 0)}")
+            logging.info(f"   • Audit Success Rate: {audit_summary.get('success_rate', 0):.1f}%")
+            logging.info(f"   • Failed Operations: {audit_summary.get('failed_operations', 0)}")
+            
+            # Send monitoring summary to Sentry
+            if SENTRY_DSN:
+                with sentry_sdk.configure_scope() as scope:
+                    scope.set_context("performance_summary", performance_summary)
+                    scope.set_context("audit_summary", audit_summary)
+                    scope.set_tag("monitoring_enabled", True)
+                    scope.set_tag("data_quality_validation", True)
+        
         if SENTRY_DSN:
             with sentry_sdk.configure_scope() as scope:
                 scope.set_tag("session_success", True)

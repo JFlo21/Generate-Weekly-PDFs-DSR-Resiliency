@@ -1,0 +1,74 @@
+
+        <html>
+        <head>
+            <style>
+                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                .header { background-color: #ff9800; color: white; padding: 20px; text-align: center; }
+                .content { padding: 20px; }
+                .error-box { background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; margin: 10px 0; border-radius: 5px; }
+                .technical-box { background-color: #f8f9fa; border: 1px solid #dee2e6; padding: 15px; margin: 10px 0; border-radius: 5px; }
+                .action-box { background-color: #d1ecf1; border: 1px solid #bee5eb; padding: 15px; margin: 10px 0; border-radius: 5px; }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>⚠️ Attachment Deletion Issue Alert</h1>
+                <p>Weekly Excel Generation System - Linetec Services</p>
+            </div>
+            
+            <div class="content">
+                <h2>📋 Issue Summary</h2>
+                <div class="error-box">
+                    <p><strong>What Happened:</strong> The system encountered an issue while trying to delete an existing Excel attachment before uploading a new version.</p>
+                    <p><strong>Attachment:</strong> WR_89877351_WeekEnding_081725.xlsx</p>
+                    <p><strong>Work Request:</strong> 89877351</p>
+                    <p><strong>Error Type:</strong> ApiError</p>
+                </div>
+                
+                <h2>🔍 Technical Details</h2>
+                <div class="technical-box">
+                    <p><strong>Attachment ID:</strong> 7384401510698884</p>
+                    <p><strong>Function Location:</strong> generate_weekly_pdfs.py:1793</p>
+                    <p><strong>Error Details:</strong> API Error: 1006 - Not Found</p>
+                    <p><strong>Time:</strong> 2025-08-26 22:35:38 CST</p>
+                </div>
+                
+                <h2>💡 What This Means</h2>
+                <p>This is typically a <strong>minor issue</strong> that doesn't affect the core Excel generation process. The system was trying to clean up old attachments before uploading new ones, but encountered an error. Common causes:</p>
+                <ul>
+                    <li>Network connectivity issues with Smartsheet API</li>
+                    <li>Temporary Smartsheet service issues</li>
+                    <li>Permission changes on the attachment</li>
+                    <li>Attachment was already deleted by another process</li>
+                </ul>
+                
+                <h2>📊 Business Impact</h2>
+                <div class="action-box">
+                    <p><strong>Impact Level:</strong> Low - Minor operational issue</p>
+                    <p><strong>Excel Generation:</strong> Should continue normally despite this error</p>
+                    <p><strong>Data Integrity:</strong> Not affected - new Excel files will still be uploaded</p>
+                    <p><strong>Customer Impact:</strong> Minimal - customers should still receive updated reports</p>
+                </div>
+                
+                <h2>🔧 Recommended Actions</h2>
+                <ol>
+                    <li><strong>Monitor:</strong> Check if new Excel files are still being uploaded successfully</li>
+                    <li><strong>Verify:</strong> Look for the work request 89877351 in the target Smartsheet to ensure the new file was uploaded</li>
+                    <li><strong>Clean Up:</strong> If you see duplicate attachments, manually remove old ones</li>
+                    <li><strong>Investigate:</strong> If this error occurs frequently, check Smartsheet API status and permissions</li>
+                </ol>
+                
+                <h2>🆘 When to Escalate</h2>
+                <p>Contact technical support if:</p>
+                <ul>
+                    <li>This error occurs for multiple work requests consistently</li>
+                    <li>New Excel files are not being uploaded at all</li>
+                    <li>Customers report missing or outdated Excel reports</li>
+                    <li>The error persists for more than 2-3 consecutive runs</li>
+                </ul>
+                
+                <p><em>This alert was generated automatically by the Excel Generation System monitoring service.</em></p>
+            </div>
+        </body>
+        </html>
+        
