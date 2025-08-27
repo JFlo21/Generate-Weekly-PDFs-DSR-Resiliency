@@ -1,10 +1,18 @@
-name: Comprehensive Weekly Excel Generation with Enhanced Sentry Monitoring
+name: Comprehensive Excel Generation with Enhanced Sentry Monitoring (Every 2 Hours + Weekly)
 
 on:
   schedule:
-    # Run weekly on Sunday at 11 PM CST (Monday 5 AM UTC) for weekly report generation
-    # This ensures reports capture the complete work week (Monday-Sunday)
-    - cron: '0 5 * * 1'   # Weekly on Monday at 5 AM UTC (Sunday 11 PM CST)
+    # Production billing system - Run every 2 hours during business hours (Monday-Friday)
+    # 7 AM - 7 PM CST (13:00 - 01:00 UTC next day) for real-time billing updates
+    - cron: '0 13,15,17,19,21,23,1 * * 1-5'  # Every 2 hours Mon-Fri business hours CST
+    
+    # Weekend reduced frequency - Every 4 hours (Saturday-Sunday)
+    # 9 AM, 1 PM, 5 PM CST (15:00, 19:00, 23:00 UTC) for weekend coverage
+    - cron: '0 15,19,23 * * 0,6'  # Every 4 hours weekends CST
+    
+    # Weekly comprehensive report - Sunday at 11 PM CST (Monday 5 AM UTC)
+    # This ensures complete weekly reports capture the full work week (Monday-Sunday)
+    - cron: '0 5 * * 1'   # Weekly comprehensive on Monday at 5 AM UTC (Sunday 11 PM CST)
   
   # Allow manual triggering for testing and immediate report generation
   workflow_dispatch:
@@ -42,8 +50,8 @@ jobs:
   comprehensive-excel-generation:
     runs-on: ubuntu-latest
     
-    # Optimized timeout for comprehensive system with enhanced monitoring
-    timeout-minutes: 25  # Allows sufficient time for complete processing with Sentry monitoring
+    # Optimized timeout for production billing system with enhanced monitoring
+    timeout-minutes: 20  # Reduced for frequent runs while allowing sufficient time for processing
     
     # Environment variables for comprehensive system
     env:
@@ -122,12 +130,29 @@ jobs:
         echo "Current hour (Central): $current_hour"
         echo "Current date: $current_date"
         
-        # Execution logic for comprehensive system
+        # Determine execution type based on schedule
         if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
           echo "🔧 Manual trigger - executing comprehensive generation"
+          echo "execution_type=manual" >> $GITHUB_OUTPUT
+          echo "should_run=true" >> $GITHUB_OUTPUT
+        elif [ "$current_day" -ge 1 ] && [ "$current_day" -le 5 ]; then
+          # Monday-Friday: Business hours every 2 hours
+          echo "⚡ Business hours production run - every 2 hours for real-time billing"
+          echo "execution_type=production_frequent" >> $GITHUB_OUTPUT
+          echo "should_run=true" >> $GITHUB_OUTPUT
+        elif [ "$current_day" -eq 0 ] || [ "$current_day" -eq 6 ]; then
+          # Weekend: Every 4 hours
+          echo "📅 Weekend maintenance run - every 4 hours for coverage"
+          echo "execution_type=weekend_maintenance" >> $GITHUB_OUTPUT
+          echo "should_run=true" >> $GITHUB_OUTPUT
+        elif [ "$current_day" -eq 1 ] && [ "$current_hour" -eq 23 ]; then
+          # Weekly comprehensive report (Sunday 11 PM CST = Monday 5 AM UTC)
+          echo "📊 Weekly comprehensive report generation"
+          echo "execution_type=weekly_comprehensive" >> $GITHUB_OUTPUT
           echo "should_run=true" >> $GITHUB_OUTPUT
         else
-          echo "⏰ Scheduled execution - weekly comprehensive generation"
+          echo "⏰ Scheduled execution - real-time billing system"
+          echo "execution_type=scheduled" >> $GITHUB_OUTPUT
           echo "should_run=true" >> $GITHUB_OUTPUT
         fi
         
@@ -148,7 +173,7 @@ jobs:
         echo "Files will be generated locally but NOT uploaded to Smartsheet"
         echo "🔍 Sentry monitoring will track test execution for debugging"
         
-    - name: Comprehensive Weekly Excel Generation with Enhanced Sentry Monitoring
+    - name: Production Excel Generation with Enhanced Sentry Monitoring (Every 2 Hours + Weekly)
       if: steps.execution_check.outputs.should_run == 'true'
       env:
         # GitHub Secrets - DO NOT put actual values here
@@ -162,9 +187,43 @@ jobs:
         ENVIRONMENT: 'production'
         RELEASE: ${{ github.sha }}
         FORCE_GENERATION: ${{ github.event.inputs.force_generation || 'false' }}
+        EXECUTION_TYPE: ${{ steps.execution_check.outputs.execution_type }}
       run: |
-        echo "🔍 Starting Comprehensive Weekly Excel Generation System..."
+        echo "🔍 Starting Production Excel Generation System..."
         echo "===================================================================================="
+        
+        # Display execution type specific information
+        case "${{ steps.execution_check.outputs.execution_type }}" in
+          "production_frequent")
+            echo "⚡ PRODUCTION FREQUENT RUN (Every 2 Hours - Business Days)"
+            echo "🎯 PURPOSE: Real-time billing system updates for customer responsiveness"
+            echo "📅 SCHEDULE: Monday-Friday, 7 AM - 7 PM CST (every 2 hours)"
+            echo "🔄 FREQUENCY: High-frequency updates for production billing needs"
+            ;;
+          "weekend_maintenance")
+            echo "📅 WEEKEND MAINTENANCE RUN (Every 4 Hours - Weekends)"
+            echo "🎯 PURPOSE: Weekend coverage for continuous system operation"
+            echo "📅 SCHEDULE: Saturday-Sunday, 9 AM, 1 PM, 5 PM CST"
+            echo "🔄 FREQUENCY: Reduced frequency for weekend maintenance"
+            ;;
+          "weekly_comprehensive")
+            echo "📊 WEEKLY COMPREHENSIVE REPORT (Sunday 11 PM CST)"
+            echo "🎯 PURPOSE: Complete weekly reporting and data archival"
+            echo "📅 SCHEDULE: Sunday nights for full week capture"
+            echo "🔄 FREQUENCY: Weekly comprehensive analysis"
+            ;;
+          "manual")
+            echo "🔧 MANUAL EXECUTION"
+            echo "🎯 PURPOSE: On-demand testing and immediate report generation"
+            echo "🔄 FREQUENCY: User-initiated"
+            ;;
+          *)
+            echo "⏰ SCHEDULED PRODUCTION RUN"
+            echo "🎯 PURPOSE: Real-time billing system operation"
+            ;;
+        esac
+        
+        echo ""
         echo "🎯 ENHANCED SYSTEM FEATURES:"
         echo "   • Advanced Sentry monitoring with detailed line-specific error reporting"
         echo "   • Critical grouping logic validation and protection"
@@ -178,7 +237,7 @@ jobs:
         echo "   • Immediate Sentry alerting for any violations of business rules"
         echo "   • Enhanced debugging with exact line numbers and context"
         echo ""
-        echo "📊 SYSTEM ARCHITECTURE:"
+        echo "📊 PRODUCTION BILLING SYSTEM ARCHITECTURE:"
         echo "   • Phase 1: Secure data discovery with API resilience"
         echo "   • Phase 2: Protected grouping with real-time validation"
         echo "   • Phase 3: Professional Excel generation with monitoring"
@@ -229,28 +288,34 @@ jobs:
       if: always() && steps.execution_check.outputs.should_run == 'true'
       uses: actions/upload-artifact@v4
       with:
-        name: comprehensive-excel-reports-${{ github.run_number }}
+        name: excel-reports-${{ steps.execution_check.outputs.execution_type }}-${{ github.run_number }}
         path: generated_docs/
-        retention-days: 30
+        retention-days: 15  # Reduced retention for frequent runs
         
-    - name: Log Comprehensive System Execution Summary
+    - name: Log Production System Execution Summary
       if: always()
       run: |
-        echo "🎯 COMPREHENSIVE EXCEL GENERATION SYSTEM SUMMARY"
-        echo "=================================================="
+        echo "🎯 PRODUCTION EXCEL GENERATION SYSTEM SUMMARY"
+        echo "=============================================="
         echo "Trigger: ${{ github.event_name }}"
+        echo "Execution Type: ${{ steps.execution_check.outputs.execution_type }}"
         echo "Time: $(TZ=America/Chicago date)"
         echo "Should run: ${{ steps.execution_check.outputs.should_run }}"
         echo "Test mode: ${{ github.event.inputs.test_mode }}"
         echo "AI Analysis: ${{ github.event.inputs.enable_ai_analysis }}"
         echo ""
-        echo "🚀 COMPREHENSIVE SYSTEM FEATURES EXECUTED:"
+        echo "🚀 PRODUCTION BILLING SYSTEM SCHEDULE:"
+        echo "⚡ Business Hours: Every 2 hours (Mon-Fri, 7 AM - 7 PM CST)"
+        echo "📅 Weekends: Every 4 hours (Sat-Sun, 9 AM, 1 PM, 5 PM CST)"
+        echo "📊 Weekly Reports: Sunday 11 PM CST (comprehensive)"
+        echo ""
+        echo "🚀 ENHANCED SYSTEM FEATURES EXECUTED:"
         echo "✅ ENHANCED SENTRY: Line-specific error reporting with detailed context"
         echo "✅ GROUPING PROTECTION: Critical business logic validation and monitoring"
         echo "✅ EXCEL GENERATION: Professional reports with advanced formatting"
         echo "✅ SMARTSHEET INTEGRATION: Reliable uploads with error resilience"
         echo "✅ REAL-TIME MONITORING: Immediate alerts for any system violations"
-        echo "⚡ Performance: Optimized for GitHub Actions reliability and speed"
+        echo "⚡ Performance: Optimized for frequent production runs and GitHub Actions reliability"
         echo ""
         
         if [ -d "generated_docs" ]; then
@@ -267,10 +332,14 @@ jobs:
         
         echo ""
         echo "🔒 BUSINESS LOGIC PROTECTION: One work request per Excel file enforced"
-        echo "🚀 PRODUCTION READY: Comprehensive monitoring and error tracking enabled"
+        echo "🚀 PRODUCTION READY: Real-time billing system with every-2-hour updates"
+        echo "⚡ FREQUENCY: High-frequency business hours + weekend maintenance + weekly comprehensive"
 
     - name: Skip Execution
       if: steps.execution_check.outputs.should_run != 'true' && github.event_name != 'workflow_dispatch'
       run: |
         echo "⏭️ No execution needed at this time"
-        echo "System runs weekly to generate comprehensive Excel reports"
+        echo "Production billing system runs:"
+        echo "   ⚡ Every 2 hours during business hours (Mon-Fri)"
+        echo "   📅 Every 4 hours on weekends"
+        echo "   📊 Weekly comprehensive reports (Sunday nights)"
