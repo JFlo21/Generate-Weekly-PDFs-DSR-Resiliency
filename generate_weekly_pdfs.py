@@ -303,7 +303,7 @@ OUTPUT_FOLDER = "generated_docs"
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 # --- TEST MODE CONFIGURATION ---
-TEST_MODE = True   # Set to True for local testing with real data
+TEST_MODE = False   # Set to True for local testing with real data
 DISABLE_AUDIT_FOR_TESTING = True  # Set to True to skip slow audit system during testing
 SINGLE_FILE_TEST = True  # Generate only ONE Excel file for testing
 # When TEST_MODE is True:
