@@ -636,19 +636,42 @@ class AdvancedSentryIntegration:
             # SQLAlchemy not available - skip this integration
             pass
         
-        sentry_sdk.init(
-            dsn=dsn,
-            integrations=integrations,
-            environment=environment,
-            traces_sample_rate=1.0,
-            profiles_sample_rate=0.2,
-            attach_stacktrace=True,
-            include_local_variables=True,
-            include_source_context=True,
-            max_breadcrumbs=200,
-            before_send=self._before_send_filter,
-            before_send_transaction=self._before_send_transaction,
-        )
+        # Initialize Sentry with version-compatible parameters
+        sentry_init_params = {
+            'dsn': dsn,
+            'integrations': integrations,
+            'environment': environment,
+            'traces_sample_rate': 1.0,
+            'attach_stacktrace': True,
+            'max_breadcrumbs': 200,
+            'before_send': self._before_send_filter,
+            'before_send_transaction': self._before_send_transaction,
+        }
+        
+        # Add version-specific parameters based on SDK capabilities
+        try:
+            import inspect
+            init_signature = inspect.signature(sentry_sdk.init)
+            available_params = init_signature.parameters.keys()
+            
+            # Add profiling if supported
+            if 'profiles_sample_rate' in available_params:
+                sentry_init_params['profiles_sample_rate'] = 0.2
+                
+            # Add local variables support - check for newer parameter name first
+            if 'include_local_variables' in available_params:
+                sentry_init_params['include_local_variables'] = True
+            elif 'with_locals' in available_params:
+                sentry_init_params['with_locals'] = True
+                
+            # Add source context if supported
+            if 'include_source_context' in available_params:
+                sentry_init_params['include_source_context'] = True
+                
+        except Exception as e:
+            print(f"Warning: Could not detect Sentry SDK parameters: {e}")
+        
+        sentry_sdk.init(**sentry_init_params)
         
         # Set global context
         sentry_sdk.set_user({
