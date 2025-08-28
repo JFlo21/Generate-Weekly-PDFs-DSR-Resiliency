@@ -149,60 +149,35 @@ if SENTRY_DSN:
         
         return event
     
-    # Initialize Sentry with version-specific parameters
-    # Base parameters that work across all versions
+    # Initialize Sentry with backward compatibility for SDK versions
     sentry_init_params = {
         'dsn': SENTRY_DSN,
         'integrations': [sentry_logging],
         'traces_sample_rate': 1.0,  # 100% of transactions for comprehensive monitoring
+        'profiles_sample_rate': 0.1,  # 10% of transactions for profiling
         'environment': os.getenv("ENVIRONMENT", "production"),
         'release': os.getenv("RELEASE", "latest"),
         'before_send': before_send_filter,
         'attach_stacktrace': True,
+        # Enhanced debugging options
         'debug': os.getenv("SENTRY_DEBUG", "False").lower() == "true",
         'max_breadcrumbs': 50,
+        'request_bodies': 'medium',
+        'with_locals': True,
         'send_client_reports': True,
     }
     
-    # Detect Sentry SDK version and add version-specific parameters
+    # Add enable_logs only if supported (Sentry SDK 2.35.0+)
     try:
         import inspect
         init_signature = inspect.signature(sentry_sdk.init)
-        available_params = init_signature.parameters.keys()
-        
-        # Check for 2.35.0+ features
-        if 'enable_logs' in available_params:
+        if 'enable_logs' in init_signature.parameters:
             sentry_init_params['enable_logs'] = True
             print("✅ Sentry SDK 2.35.0+ detected - Enhanced logging enabled")
-            
-            # Use newer SDK parameters
-            if 'profiles_sample_rate' in available_params:
-                sentry_init_params['profiles_sample_rate'] = 0.1
-            
-            # For SDK 2.35.0+, use 'include_local_variables' instead of 'with_locals'
-            if 'include_local_variables' in available_params:
-                sentry_init_params['include_local_variables'] = True
-            elif 'with_locals' in available_params:
-                sentry_init_params['with_locals'] = True
-                
-            # For SDK 2.35.0+, 'request_bodies' parameter may not exist
-            # Only add if it's supported
-            if 'request_bodies' in available_params:
-                sentry_init_params['request_bodies'] = 'medium'
-                
         else:
-            print("⚠️ Older Sentry SDK detected - Using legacy configuration")
-            # Legacy parameters for older versions
-            if 'profiles_sample_rate' in available_params:
-                sentry_init_params['profiles_sample_rate'] = 0.1
-            if 'with_locals' in available_params:
-                sentry_init_params['with_locals'] = True
-            if 'request_bodies' in available_params:
-                sentry_init_params['request_bodies'] = 'medium'
-                
+            print("⚠️ Older Sentry SDK detected - Using legacy logging integration")
     except Exception as e:
         print(f"⚠️ Could not detect Sentry SDK version: {e}")
-        print("Using basic Sentry configuration")
     
     sentry_sdk.init(**sentry_init_params)
     
