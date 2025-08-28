@@ -1,0 +1,16 @@
+# Enhanced Monitoring and Error Handling (2.35.0+ required for enable_logs)
+sentry-sdk>=2.35.0
+
+# Core Dependencies
+smartsheet-python-sdk==3.0.3
+openpyxl==3.1.5
+Pillow==10.4.0
+python-dateutil==2.9.0.post0
+python-dotenv==1.0.1
+
+# Data Processing and Validation
+pandas==2.2.2
+pandera==0.20.3
+
+# Performance Monitoring
+psutil==6.0.0

@@ -8,8 +8,8 @@ Pillow==10.4.0
 python-dateutil==2.9.0.post0
 python-dotenv==1.0.1
 
-# Enhanced Monitoring and Error Handling
-sentry-sdk==2.8.0
+# Enhanced Monitoring and Error Handling (2.35.0+ required for enable_logs)
+sentry-sdk>=2.35.0
 
 # Data Validation and Quality (Monitoring Enhancement)
 pandas==2.2.2

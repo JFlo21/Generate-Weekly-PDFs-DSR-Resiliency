@@ -149,27 +149,37 @@ if SENTRY_DSN:
         
         return event
     
-    sentry_sdk.init(
-        dsn=SENTRY_DSN,
-        integrations=[
-            sentry_logging
-        ],
-        traces_sample_rate=1.0,  # 100% of transactions for comprehensive monitoring
-        profiles_sample_rate=0.1,  # 10% of transactions for profiling
-        environment=os.getenv("ENVIRONMENT", "production"),
-        release=os.getenv("RELEASE", "latest"),
-        before_send=before_send_filter,
-        attach_stacktrace=True,
-        # CRITICAL: Enable automatic logging capture for Sentry SDK 2.35.0+
-        enable_logs=True,
+    # Initialize Sentry with backward compatibility for SDK versions
+    sentry_init_params = {
+        'dsn': SENTRY_DSN,
+        'integrations': [sentry_logging],
+        'traces_sample_rate': 1.0,  # 100% of transactions for comprehensive monitoring
+        'profiles_sample_rate': 0.1,  # 10% of transactions for profiling
+        'environment': os.getenv("ENVIRONMENT", "production"),
+        'release': os.getenv("RELEASE", "latest"),
+        'before_send': before_send_filter,
+        'attach_stacktrace': True,
         # Enhanced debugging options
-        debug=os.getenv("SENTRY_DEBUG", "false").lower() == "true",
-        send_default_pii=False,  # Don't send personally identifiable information
-        max_breadcrumbs=100,  # Increase breadcrumb limit for better context
-        # Include local variables in stack traces for better debugging
-        include_local_variables=True,
-        include_source_context=True,
-    )
+        'debug': os.getenv("SENTRY_DEBUG", "False").lower() == "true",
+        'max_breadcrumbs': 50,
+        'request_bodies': 'medium',
+        'with_locals': True,
+        'send_client_reports': True,
+    }
+    
+    # Add enable_logs only if supported (Sentry SDK 2.35.0+)
+    try:
+        import inspect
+        init_signature = inspect.signature(sentry_sdk.init)
+        if 'enable_logs' in init_signature.parameters:
+            sentry_init_params['enable_logs'] = True
+            print("✅ Sentry SDK 2.35.0+ detected - Enhanced logging enabled")
+        else:
+            print("⚠️ Older Sentry SDK detected - Using legacy logging integration")
+    except Exception as e:
+        print(f"⚠️ Could not detect Sentry SDK version: {e}")
+    
+    sentry_sdk.init(**sentry_init_params)
     
     # Set user context for better error tracking - using new API
     sentry_sdk.set_user({"id": "excel_generator", "username": "weekly_pdf_generator"})
