@@ -12,8 +12,18 @@ This module implements advanced Sentry monitoring features including:
 """
 
 import sentry_sdk
-from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
-from sentry_sdk.integrations.threading import ThreadingIntegration
+
+# Optional integrations (only if available)
+try:
+    from sentry_sdk.integrations.threading import ThreadingIntegration
+    THREADING_AVAILABLE = True
+except (ImportError, sentry_sdk.integrations.DidNotEnable):
+    THREADING_AVAILABLE = False
+    ThreadingIntegration = None
+
+# SQLAlchemy integration - import only when needed to avoid GitHub Actions issues
+SQLALCHEMY_AVAILABLE = False
+SqlalchemyIntegration = None
 import logging
 import time
 from datetime import datetime, timedelta
@@ -589,12 +599,22 @@ class AdvancedSentryIntegration:
         if not dsn:
             return False
         
+        # Build integrations list conditionally
+        integrations = []
+        if THREADING_AVAILABLE and ThreadingIntegration:
+            integrations.append(ThreadingIntegration(propagate_hub=True))
+        
+        # Try to add SQLAlchemy integration only if available
+        try:
+            from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+            integrations.append(SqlalchemyIntegration())
+        except (ImportError, sentry_sdk.integrations.DidNotEnable):
+            # SQLAlchemy not available - skip this integration
+            pass
+        
         sentry_sdk.init(
             dsn=dsn,
-            integrations=[
-                SqlalchemyIntegration(),
-                ThreadingIntegration(propagate_hub=True),
-            ],
+            integrations=integrations,
             environment=environment,
             traces_sample_rate=1.0,
             profiles_sample_rate=0.2,
