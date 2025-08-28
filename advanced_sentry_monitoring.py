@@ -40,17 +40,18 @@ class BusinessLogicValidator:
     
     def __init__(self):
         self.thresholds = {
-            # ADJUSTED THRESHOLDS: Focus on truly anomalous data, not normal business operations
+            # ADJUSTED THRESHOLDS: Based on actual business operations
             'max_daily_amount': 1000000.00,  # Alert if daily total exceeds $1M (truly unusual)
             'max_single_work_request_total': 500000.00,  # Alert if single WR total (all weeks) exceeds $500K
-            'max_single_work_request_weekly': 150000.00,  # Alert if single WR for one week exceeds $150K
-            'max_quantity_per_item': 10000,  # Maximum quantity per line item (10K+ units is extreme)
+            'max_single_work_request_weekly': 50000.00,  # Alert if single WR for one week exceeds $50K (per business rule)
+            'max_quantity_per_item': 50000,  # Maximum quantity per line item (allows for wire footage measurements)
             'min_price_per_unit': 0.01,  # Minimum price per unit (catch $0.00 errors)
-            'max_price_per_unit': 10000.00,  # Maximum price per unit ($10K per unit is extreme)
+            'max_price_per_unit': 50000.00,  # Maximum price per unit ($50K per unit - only catches extreme outliers)
             'max_work_requests_per_day': 200,  # Maximum work requests per day (doubled threshold)
             'suspicious_duplicate_threshold': 50,  # Alert if 50+ identical entries (data duplication)
             'negative_amount_threshold': 0,  # Alert on any negative amounts
-            'extreme_outlier_multiplier': 10  # Alert if single item is 10x normal for that WR
+            'extreme_outlier_multiplier': 15,  # Alert if single item is 15x normal for that WR (adjusted for business variance)
+            'weekend_work_threshold': 20  # CRITICAL FIX: Maximum weekend work requests before alert
         }
         
         self.business_rules = [
@@ -456,11 +457,20 @@ class BusinessLogicValidator:
         return result
     
     def _validate_foreman_assignments(self, data: List[Dict[str, Any]], context: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate foreman assignments and detect unusual patterns."""
+        """
+        Validate foreman assignments with revenue concentration fraud detection.
+        
+        BUSINESS LOGIC CORRECTIONS:
+        - Normal: Foreman changes over time (job reassignment)
+        - Normal: Multiple work requests per foreman
+        - Normal: Multiple poles per work request (duplicate CU codes/dates)
+        - SUSPICIOUS: Revenue concentration >60% to single foreman
+        """
         result = {'critical_violations': [], 'warnings': [], 'metrics': {}, 'risk_score_delta': 0}
         
         foreman_workload = {}
         foreman_amounts = {}
+        total_revenue = 0
         
         for row in data:
             foreman = row.get('Foreman', 'Unknown')
@@ -473,35 +483,49 @@ class BusinessLogicValidator:
                 
                 foreman_workload[foreman] = foreman_workload.get(foreman, 0) + 1
                 foreman_amounts[foreman] = foreman_amounts.get(foreman, 0) + price
+                total_revenue += price
                 
             except (ValueError, TypeError):
                 continue
         
-        # Check for workload imbalances
+        # ENHANCED FRAUD DETECTION: Revenue concentration analysis
+        if total_revenue > 0 and foreman_amounts:
+            for foreman, amount in foreman_amounts.items():
+                revenue_percentage = (amount / total_revenue) * 100
+                
+                # CRITICAL: >60% revenue concentration (potential fraud)
+                if revenue_percentage >= 60:
+                    result['critical_violations'].append(
+                        f"🚨 FRAUD ALERT: Foreman {foreman} has {revenue_percentage:.1f}% of total revenue (${amount:,.2f}/${total_revenue:,.2f})"
+                    )
+                    result['risk_score_delta'] += 10
+                
+                # WARNING: >40% revenue concentration (investigate)
+                elif revenue_percentage >= 40:
+                    result['warnings'].append(
+                        f"⚠️ High revenue concentration: Foreman {foreman} has {revenue_percentage:.1f}% of total revenue (${amount:,.2f})"
+                    )
+                    result['risk_score_delta'] += 5
+        
+        # WORKLOAD CONCENTRATION: Check for extreme workload imbalances
         if foreman_workload:
             max_workload = max(foreman_workload.values())
             avg_workload = sum(foreman_workload.values()) / len(foreman_workload)
             
-            # Alert if one foreman has >3x average workload
+            # Alert if one foreman has >5x average AND >100 items (extreme concentration)
             for foreman, workload in foreman_workload.items():
-                if workload > avg_workload * 3 and workload > 20:
+                if workload > avg_workload * 5 and workload > 100:
                     result['warnings'].append(
-                        f"Foreman {foreman} has unusually high workload: {workload} items (avg: {avg_workload:.1f})"
-                    )
-                    result['risk_score_delta'] += 2
-                
-                # Alert for unusually high dollar amounts per foreman
-                amount = foreman_amounts.get(foreman, 0)
-                if amount > 25000:  # $25k threshold
-                    result['warnings'].append(
-                        f"Foreman {foreman} has high total amount: ${amount:,.2f}"
+                        f"Extreme workload concentration: Foreman {foreman} has {workload} items (avg: {avg_workload:.1f})"
                     )
                     result['risk_score_delta'] += 3
         
         result['metrics'] = {
             'foreman_count': len(foreman_workload),
+            'total_revenue': total_revenue,
             'max_workload': max(foreman_workload.values()) if foreman_workload else 0,
-            'avg_workload': sum(foreman_workload.values()) / len(foreman_workload) if foreman_workload else 0
+            'avg_workload': sum(foreman_workload.values()) / len(foreman_workload) if foreman_workload else 0,
+            'revenue_concentration': {foreman: (amount/total_revenue)*100 for foreman, amount in foreman_amounts.items()} if total_revenue > 0 else {}
         }
         
         return result

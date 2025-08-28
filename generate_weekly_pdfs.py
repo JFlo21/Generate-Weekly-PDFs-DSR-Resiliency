@@ -160,6 +160,8 @@ if SENTRY_DSN:
         release=os.getenv("RELEASE", "latest"),
         before_send=before_send_filter,
         attach_stacktrace=True,
+        # CRITICAL: Enable automatic logging capture for Sentry SDK 2.35.0+
+        enable_logs=True,
         # Enhanced debugging options
         debug=os.getenv("SENTRY_DEBUG", "false").lower() == "true",
         send_default_pii=False,  # Don't send personally identifiable information
@@ -175,9 +177,141 @@ if SENTRY_DSN:
     sentry_sdk.set_tag("process", "weekly_reports")
     sentry_sdk.set_tag("ai_enabled", "true")
     
-    logging.info("🛡️ Sentry.io error monitoring initialized")
+    # Configure logger for Sentry integration
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
+    
+    logging.info("🛡️ Sentry.io error monitoring initialized with enhanced logging")
 else:
+    # Configure basic logger when Sentry is not available
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
     logging.warning("⚠️ SENTRY_DSN not configured - error monitoring disabled")
+
+# === ENHANCED SENTRY VALIDATION ERROR LOGGING FUNCTIONS ===
+def log_column_mapping_error(sheet_name: str, expected_column: str, available_columns: list, error_details: str = ""):
+    """Log column mapping validation errors with enhanced context for GitHub Actions debugging"""
+    error_data = {
+        'error_type': 'column_mapping_failure',
+        'sheet_name': sheet_name,
+        'expected_column': expected_column,
+        'available_columns': available_columns,
+        'column_count': len(available_columns),
+        'error_details': error_details,
+        'github_actions_critical': True
+    }
+    
+    # Use both standard logging and Sentry SDK logger for maximum coverage
+    if 'logger' in globals():
+        logger.error(f"🚨 Column Mapping Error: Expected '{expected_column}' not found in sheet '{sheet_name}'", extra=error_data)
+    else:
+        logging.error(f"🚨 Column Mapping Error: Expected '{expected_column}' not found in sheet '{sheet_name}'")
+    
+    if SENTRY_DSN:
+        with sentry_sdk.push_scope() as scope:
+            scope.set_tag("error_category", "validation_error")
+            scope.set_tag("error_type", "column_mapping_failure")
+            scope.set_tag("github_actions_critical", "true")
+            scope.set_context("column_mapping", error_data)
+            sentry_sdk.capture_message(f"Column mapping validation failed: {expected_column} not found in {sheet_name}", level="error")
+
+def log_threshold_configuration_error(missing_threshold: str, validator_class: str, error_details: str = ""):
+    """Log missing threshold configuration errors that cause GitHub Actions failures"""
+    error_data = {
+        'error_type': 'threshold_configuration_failure',
+        'missing_threshold': missing_threshold,
+        'validator_class': validator_class,
+        'error_details': error_details,
+        'github_actions_critical': True
+    }
+    
+    if 'logger' in globals():
+        logger.error(f"🚨 Threshold Configuration Error: Missing {missing_threshold} in {validator_class}", extra=error_data)
+    else:
+        logging.error(f"🚨 Threshold Configuration Error: Missing {missing_threshold} in {validator_class}")
+    
+    if SENTRY_DSN:
+        with sentry_sdk.push_scope() as scope:
+            scope.set_tag("error_category", "validation_error")
+            scope.set_tag("error_type", "threshold_configuration_failure")
+            scope.set_tag("github_actions_critical", "true")
+            scope.set_context("threshold_config", error_data)
+            sentry_sdk.capture_message(f"Threshold configuration missing: {missing_threshold} in {validator_class}", level="error")
+
+def log_business_logic_validation_error(validation_type: str, work_request: str, details: dict, severity: str = "warning"):
+    """Log business logic validation errors with enhanced fraud detection context"""
+    error_data = {
+        'error_type': 'business_logic_failure',
+        'validation_type': validation_type,
+        'work_request': work_request,
+        'severity': severity,
+        'details': details,
+        'data_integrity_critical': severity == "critical"
+    }
+    
+    log_level = "error" if severity == "critical" else "warning"
+    if 'logger' in globals():
+        logger.log(getattr(logging, log_level.upper()), f"🔍 Business Logic Validation: {validation_type} for WR {work_request}", extra=error_data)
+    else:
+        logging.log(getattr(logging, log_level.upper()), f"🔍 Business Logic Validation: {validation_type} for WR {work_request}")
+    
+    if SENTRY_DSN:
+        with sentry_sdk.push_scope() as scope:
+            scope.set_tag("error_category", "validation_error")
+            scope.set_tag("error_type", "business_logic_failure")
+            scope.set_tag("validation_type", validation_type)
+            scope.set_tag("severity", severity)
+            scope.set_context("business_logic", error_data)
+            sentry_sdk.capture_message(f"Business logic validation {severity}: {validation_type} for {work_request}", level=log_level)
+
+def log_financial_validation_error(validation_type: str, amount: float, work_request: str, details: str = ""):
+    """Log financial validation errors affecting billing accuracy"""
+    error_data = {
+        'error_type': 'financial_validation_failure',
+        'validation_type': validation_type,
+        'amount': amount,
+        'work_request': work_request,
+        'details': details,
+        'billing_critical': True
+    }
+    
+    if 'logger' in globals():
+        logger.error(f"💰 Financial Validation Error: {validation_type} - ${amount} for WR {work_request}", extra=error_data)
+    else:
+        logging.error(f"💰 Financial Validation Error: {validation_type} - ${amount} for WR {work_request}")
+    
+    if SENTRY_DSN:
+        with sentry_sdk.push_scope() as scope:
+            scope.set_tag("error_category", "validation_error")
+            scope.set_tag("error_type", "financial_validation_failure")
+            scope.set_tag("billing_critical", "true")
+            scope.set_context("financial_validation", error_data)
+            sentry_sdk.capture_message(f"Financial validation error: {validation_type} - ${amount} for {work_request}", level="error")
+
+def log_data_schema_validation_error(column_name: str, expected_type: str, actual_value: any, conversion_error: str = ""):
+    """Log data schema validation errors that cause type conversion failures"""
+    error_data = {
+        'error_type': 'data_schema_failure',
+        'column_name': column_name,
+        'expected_type': expected_type,
+        'actual_value': str(actual_value)[:100],  # Truncate for safety
+        'actual_type': type(actual_value).__name__,
+        'conversion_error': conversion_error,
+        'github_actions_critical': True
+    }
+    
+    if 'logger' in globals():
+        logger.error(f"📊 Data Schema Error: Cannot convert '{actual_value}' to {expected_type} in column '{column_name}'", extra=error_data)
+    else:
+        logging.error(f"📊 Data Schema Error: Cannot convert '{actual_value}' to {expected_type} in column '{column_name}'")
+    
+    if SENTRY_DSN:
+        with sentry_sdk.push_scope() as scope:
+            scope.set_tag("error_category", "validation_error")
+            scope.set_tag("error_type", "data_schema_failure")
+            scope.set_tag("github_actions_critical", "true")
+            scope.set_context("data_schema", error_data)
+            sentry_sdk.capture_message(f"Data schema validation failed: {column_name} type conversion error", level="error")
 
 # CPU optimization flags for GitHub Actions
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress TensorFlow warnings
