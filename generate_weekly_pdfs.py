@@ -298,7 +298,7 @@ def log_financial_validation_error(validation_type: str, amount: float, work_req
             scope.set_context("financial_validation", error_data)
             sentry_sdk.capture_message(f"Financial validation error: {validation_type} - ${amount} for {work_request}", level="error")
 
-def log_data_schema_validation_error(column_name: str, expected_type: str, actual_value: any, conversion_error: str = ""):
+def log_data_schema_validation_error(column_name: str, expected_type: str, actual_value, conversion_error: str = ""):
     """Log data schema validation errors that cause type conversion failures"""
     error_data = {
         'error_type': 'data_schema_failure',
