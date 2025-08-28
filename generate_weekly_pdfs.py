@@ -332,33 +332,66 @@ def discover_source_sheets(client):
         logging.info("⚡ Ultra-Light Mode: Using server-side filtering for current week ending data")
         discovered_sheets = []
         
+        # Use the same column mapping system as NORMAL MODE for consistency
+        column_name_mapping = {
+            'Foreman': 'Foreman',
+            'Work Request #': 'Work Request #',
+            'Weekly Reference Logged Date': 'Weekly Reference Logged Date',
+            'Dept #': 'Dept #',
+            'Customer Name': 'Customer Name',
+            'Work Order #': 'Work Order #',
+            'Area': 'Area',
+            'Pole #': 'Pole #',
+            'Point #': 'Pole #',  # Alternative name for Pole #
+            'Point Number': 'Pole #',  # Alternative name for Pole #
+            'CU': 'CU',
+            'Billable Unit Code': 'CU',  # Alternative name for CU
+            'Work Type': 'Work Type',
+            'CU Description': 'CU Description',
+            'Unit Description': 'CU Description',  # Alternative name
+            'Unit of Measure': 'Unit of Measure',
+            'UOM': 'Unit of Measure',  # Alternative abbreviation
+            'Quantity': 'Quantity',
+            'Qty': 'Quantity',  # Alternative abbreviation
+            '# Units': 'Quantity',  # Alternative name
+            'Units Total Price': 'Units Total Price',
+            'Total Price': 'Units Total Price',  # Alternative name
+            'Redlined Total Price': 'Units Total Price',  # Alternative name
+            'Snapshot Date': 'Snapshot Date',
+            'Scope #': 'Scope #',
+            'Scope ID': 'Scope #',  # Alternative name
+            'Job #': 'Job #',
+            'Units Completed?': 'Units Completed?',
+            'Units Completed': 'Units Completed?',  # Alternative name (without ?)
+        }
+        
         # In ultra-light mode, validate sheets exist and get column mappings for filtering
         for base_id in base_sheet_ids:
             try:
                 # Get minimal sheet info (columns only, no rows)
                 sheet_info = client.Sheets.get_sheet(base_id, include='columns')
                 
-                # Get column mappings for filtering
-                essential_columns = {}
-                for col in sheet_info.columns:
-                    if col.title in ['Weekly Reference Logged Date', 'Work Request #', 'Foreman', 
-                                   'Snapshot Date', 'Units Completed?', 'Units Total Price']:
-                        essential_columns[col.title] = col.id
+                # Apply the same column mapping logic as NORMAL MODE
+                column_mapping = {}
+                for column in sheet_info.columns:
+                    if column.title in column_name_mapping:
+                        column_mapping[column_name_mapping[column.title]] = column.id
                 
-                if 'Weekly Reference Logged Date' in essential_columns:
+                # Check for required columns using mapped names
+                if 'Weekly Reference Logged Date' in column_mapping:
                     discovered_sheets.append({
                         "id": base_id,
                         "name": sheet_info.name,
-                        "columns": essential_columns  # Use actual column mappings for filtering
+                        "columns": column_mapping  # Use mapped column names, same as NORMAL MODE
                     })
-                    logging.info(f"⚡ Added sheet {sheet_info.name} (ID: {base_id}) with column mappings")
+                    logging.info(f"⚡ Added sheet {sheet_info.name} (ID: {base_id}) with {len(column_mapping)} mapped columns")
                 else:
                     logging.warning(f"⚡ Skipping sheet {base_id} - missing date column")
                     
             except Exception as e:
                 logging.warning(f"⚡ Failed to validate sheet {base_id}: {e}")
         
-        logging.info(f"⚡ Ultra-light discovery complete: {len(discovered_sheets)} sheets with server-side filtering")
+        logging.info(f"⚡ Ultra-light discovery complete: {len(discovered_sheets)} sheets with consistent column mapping")
         return discovered_sheets
     
     # NORMAL MODE: Full discovery with copy detection (slower but comprehensive)
@@ -501,7 +534,7 @@ def discover_source_sheets(client):
                 
                 # Flexible column validation - require key columns but be forgiving about optional ones
                 required_columns = ['Work Request #', 'Weekly Reference Logged Date']  # Core columns only
-                recommended_columns = ['Foreman', 'Snapshot Date', 'Units Completed', 'Redlined Total Price']  # Optional but preferred
+                recommended_columns = ['Foreman', 'Snapshot Date', 'Units Completed?', 'Units Total Price']  # Optional but preferred
                 
                 if TEST_MODE:
                     print(f"\nAnalyzing Sheet: {full_sheet.name}")
