@@ -20,55 +20,31 @@ import traceback
 import sys
 import inspect
 
-# Import our enhanced monitoring and validation system
-try:
-    from enhanced_monitoring import (
-        performance_monitor, data_validator, audit_logger, 
-        monitored_operation, PerformanceMonitor, DataValidator, AuditLogger
-    )
-    ENHANCED_MONITORING_AVAILABLE = True
-    logging.info("🔍 Enhanced monitoring and validation system loaded")
-except ImportError:
-    ENHANCED_MONITORING_AVAILABLE = False
-    logging.warning("🔍 Enhanced monitoring not available - using basic monitoring")
-    
-    # Create dummy decorator if monitoring not available
-    def monitored_operation(operation_name: str):
-        def decorator(func):
-            return func
-        return decorator
+# Enhanced monitoring not needed for core functionality
+ENHANCED_MONITORING_AVAILABLE = False
 
-# Import advanced Sentry monitoring with business logic validation
-try:
-    from advanced_sentry_monitoring import (
-        BusinessLogicValidator, AdvancedSentryIntegration, 
-        business_logic_monitor, financial_threshold_monitor, advanced_sentry
-    )
-    ADVANCED_SENTRY_AVAILABLE = True
-    logging.info("🚨 Advanced Sentry monitoring with business logic validation loaded")
-except ImportError:
-    ADVANCED_SENTRY_AVAILABLE = False
-    logging.warning("🚨 Advanced Sentry monitoring not available - using basic error monitoring")
-    
-    # Create dummy decorators if advanced monitoring not available
-    def business_logic_monitor(operation_name: str):
-        def decorator(func):
-            return func
-        return decorator
-    
-    def financial_threshold_monitor(amount_field: str = 'Units Total Price', threshold: float = 1000.0):
-        def decorator(func):
-            return func
-        return decorator
+# Create dummy decorator for compatibility
+def monitored_operation(operation_name: str):
+    def decorator(func):
+        return func
+    return decorator
 
-# Import our enhanced email template system
-try:
-    from sentry_email_templates import SentryEmailTemplateGenerator, send_sentry_email
-    EMAIL_TEMPLATES_AVAILABLE = True
-    logging.info("📧 Sentry email templates loaded successfully")
-except ImportError:
-    EMAIL_TEMPLATES_AVAILABLE = False
-    logging.warning("📧 Sentry email templates not available - continuing without email alerts")
+# Advanced Sentry monitoring not needed for core functionality
+ADVANCED_SENTRY_AVAILABLE = False
+
+# Create dummy decorators for compatibility
+def business_logic_monitor(operation_name: str):
+    def decorator(func):
+        return func
+    return decorator
+
+def financial_threshold_monitor(amount_field: str = 'Units Total Price', threshold: float = 1000.0):
+    def decorator(func):
+        return func
+    return decorator
+
+# Email templates not needed for core functionality
+EMAIL_TEMPLATES_AVAILABLE = False
 import inspect
 
 # Configure logging to suppress Smartsheet SDK 404 errors (normal when cleaning up old attachments)
@@ -82,39 +58,19 @@ ULTRA_LIGHT_MODE = GITHUB_ACTIONS_MODE and os.getenv('ENABLE_HEAVY_AI', 'false')
 SKIP_CELL_HISTORY = os.getenv('SKIP_CELL_HISTORY', 'false').lower() == 'true' or ULTRA_LIGHT_MODE
 
 if ULTRA_LIGHT_MODE:
-    # Skip ALL AI/ML imports for maximum speed on GitHub Actions
-    logging.info("⚡ GitHub Actions Ultra-Light Mode: Maximum performance prioritized")
-    logging.info("⚡ Cell history audit disabled for maximum API resilience")
+    # Keep only core functionality for GitHub Actions
     CPU_AI_AVAILABLE = False
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress all TensorFlow logs
     
-    # Import audit system - KEEP FULL FUNCTIONALITY even in ultra-light mode
+    # Import audit system
     from audit_billing_changes import BillingAudit
     
-    # Skip heavy AI imports but keep audit functionality
     import sys
     sys.path.insert(0, '.')
 else:
-    # Normal mode with AI capabilities
-    # Suppress TensorFlow/ML library warnings for cleaner GitHub Actions logs
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+    # Normal mode - keep core functionality only
+    CPU_AI_AVAILABLE = False
     warnings.filterwarnings('ignore', category=FutureWarning)
     warnings.filterwarnings('ignore', category=UserWarning)
-
-    # Import CPU-optimized AI engine for GitHub Actions
-    try:
-        from cpu_optimized_ai_engine import CPUOptimizedAIEngine
-        CPU_AI_AVAILABLE = True
-        logging.info("🚀 CPU-optimized AI engine loaded for GitHub Actions")
-    except ImportError:
-        # Fallback to advanced AI engine
-        try:
-            from advanced_ai_audit_engine import AdvancedAuditAIEngine
-            CPU_AI_AVAILABLE = False
-            logging.info("🧠 Advanced AI engine loaded (fallback)")
-        except ImportError:
-            CPU_AI_AVAILABLE = False
-            logging.warning("No AI engine available")
 
     from audit_billing_changes import BillingAudit
 
@@ -150,34 +106,44 @@ if SENTRY_DSN:
         return event
     
     # Initialize Sentry with backward compatibility for SDK versions
+    # Start with base parameters that work across all SDK versions
     sentry_init_params = {
         'dsn': SENTRY_DSN,
         'integrations': [sentry_logging],
         'traces_sample_rate': 1.0,  # 100% of transactions for comprehensive monitoring
-        'profiles_sample_rate': 0.1,  # 10% of transactions for profiling
         'environment': os.getenv("ENVIRONMENT", "production"),
         'release': os.getenv("RELEASE", "latest"),
         'before_send': before_send_filter,
         'attach_stacktrace': True,
-        # Enhanced debugging options
         'debug': os.getenv("SENTRY_DEBUG", "False").lower() == "true",
         'max_breadcrumbs': 50,
-        'request_bodies': 'medium',
-        'with_locals': True,
-        'send_client_reports': True,
     }
     
-    # Add enable_logs only if supported (Sentry SDK 2.35.0+)
+    # Detect SDK version and add compatible parameters
     try:
         import inspect
         init_signature = inspect.signature(sentry_sdk.init)
-        if 'enable_logs' in init_signature.parameters:
-            sentry_init_params['enable_logs'] = True
-            print("✅ Sentry SDK 2.35.0+ detected - Enhanced logging enabled")
+        available_params = set(init_signature.parameters.keys())
+        
+        # Add parameters based on SDK version compatibility
+        if 'enable_logs' in available_params:
+            # Sentry SDK 2.35.0+ - Full feature set
+            sentry_init_params.update({
+                'enable_logs': True,
+                'profiles_sample_rate': 0.1,
+                'request_bodies': 'medium',
+                'with_locals': True,
+                'send_client_reports': True,
+            })
+            print("✅ Sentry SDK 2.35.0+ detected - Enhanced logging and profiling enabled")
         else:
-            print("⚠️ Older Sentry SDK detected - Using legacy logging integration")
+            # Older SDK - Safe parameters only
+            if 'profiles_sample_rate' in available_params:
+                sentry_init_params['profiles_sample_rate'] = 0.1
+            print("⚠️ Older Sentry SDK detected - Using compatible parameters only")
+            
     except Exception as e:
-        print(f"⚠️ Could not detect Sentry SDK version: {e}")
+        print(f"⚠️ Could not detect Sentry SDK version: {e} - Using minimal safe configuration")
     
     sentry_sdk.init(**sentry_init_params)
     
@@ -792,8 +758,8 @@ def get_all_source_rows(client, source_sheets):
                 with sentry_sdk.configure_scope() as scope:
                     scope.set_tag("error_type", "sheet_data_processing_failure")
                     scope.set_tag("sheet_id", str(source.get('id', 'N/A')))
-                    scope.set_extra("processed_rows", total_rows_processed if 'total_rows_processed' in locals() else 0)
-                    scope.set_extra("valid_rows", valid_rows_count if 'valid_rows_count' in locals() else 0)
+                    scope.set_extra("processed_rows", 0)  # Default since variable may not be set
+                    scope.set_extra("valid_rows", 0)  # Default since variable may not be set
                     scope.set_level("error")
                     sentry_sdk.capture_exception(e)
             
@@ -1732,40 +1698,9 @@ def log_detailed_error(error, context="", additional_data=None):
                 "technical_context": context
             })
         
-        # Generate email template if this is a critical error and email templates are available
-        if error_type and EMAIL_TEMPLATES_AVAILABLE:
-            try:
-                generator = SentryEmailTemplateGenerator()
-                email_template = generator.generate_email_template(error_type, email_data)
-                
-                # Log that an email template was generated
-                logging.info(f"📧 Generated detailed email template for error type: {error_type}")
-                
-                # In production, you could send the email here
-                # For now, we'll add it to the Sentry context
-                if SENTRY_DSN:
-                    with sentry_sdk.configure_scope() as scope:
-                        scope.set_context("email_template", {
-                            "subject": email_template['subject'],
-                            "template_generated": True,
-                            "error_type": error_type
-                        })
-                        
-                # Save email template to file for review (optional)
-                if os.getenv("SAVE_ERROR_EMAIL_TEMPLATES", "false").lower() == "true":
-                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                    email_filename = f"error_email_{error_type}_{timestamp}.html"
-                    email_path = os.path.join(OUTPUT_FOLDER, email_filename)
-                    
-                    try:
-                        with open(email_path, 'w', encoding='utf-8') as f:
-                            f.write(email_template['html_body'])
-                        logging.info(f"📧 Saved email template to: {email_path}")
-                    except Exception as e:
-                        logging.warning(f"Could not save email template: {e}")
-                        
-            except Exception as email_error:
-                logging.warning(f"Failed to generate email template: {email_error}")
+        # Skip email template generation - not needed for core functionality
+        if error_type:
+            logging.info(f"📧 Email template generation skipped for error type: {error_type}")
         
         # Send detailed error to Sentry with enhanced context
         if SENTRY_DSN:
@@ -1822,17 +1757,12 @@ def log_detailed_error(error, context="", additional_data=None):
 @business_logic_monitor("excel_generation_session")
 @financial_threshold_monitor("Units Total Price", 1000.0)
 def main():
-    """Main execution function with advanced business logic monitoring."""
+    """Main execution function with simplified monitoring."""
     session_start = datetime.datetime.now()
     generated_files_count = 0
     
-    # Initialize advanced business logic validation
+    # Skip advanced business logic validation
     business_validator = None
-    if ADVANCED_SENTRY_AVAILABLE:
-        business_validator = BusinessLogicValidator()
-        # Setup enhanced Sentry with business context
-        if SENTRY_DSN:
-            advanced_sentry.setup_enhanced_sentry(SENTRY_DSN, os.getenv("ENVIRONMENT", "production"))
     
     try:
         # Set session context in Sentry
@@ -1881,33 +1811,9 @@ def main():
         # ENHANCED: Initialize audit state for delta tracking
         audit_detected_changes = []
         
-        # Initialize CPU-optimized AI engine for GitHub Actions
+        # Skip AI engine initialization - not needed for core functionality
         ai_analysis_results = {}
-        if CPU_AI_AVAILABLE:
-            try:
-                ai_engine = CPUOptimizedAIEngine()
-                logging.info("🎯 CPU-optimized AI engine initialized for performance")
-            except Exception as e:
-                error_msg = f"Failed to initialize CPU AI engine: {e}"
-                logging.warning(error_msg)
-                
-                # Send AI initialization failures to Sentry
-                if SENTRY_DSN:
-                    with sentry_sdk.configure_scope() as scope:
-                        scope.set_tag("error_type", "ai_initialization_failure")
-                        scope.set_tag("ai_engine_type", "CPU_optimized")
-                        scope.set_level("warning")
-                        sentry_sdk.capture_exception(e)
-                
-                try:
-                    ai_engine = AdvancedAuditAIEngine()
-                    logging.info("🧠 Advanced AI engine initialized (fallback)")
-                except Exception:
-                    ai_engine = None
-                    logging.warning("No AI engine available")
-        else:
-            ai_engine = None
-            logging.warning("No AI engine available")
+        ai_engine = None
         
         # 1. Dynamically discover all source sheets (base sheets + their duplicates)
         try:
@@ -1985,68 +1891,8 @@ def main():
             logging.info("⏩ Skipping audit system (disabled for testing)")
 
         # 3.6. ADVANCED BUSINESS LOGIC VALIDATION
-        if ADVANCED_SENTRY_AVAILABLE and business_validator:
-            logging.info("🔍 Running advanced business logic validation...")
-            try:
-                # Prepare data for business logic validation
-                validation_data = []
-                for row in all_valid_rows:
-                    validation_data.append({
-                        'Work Request #': row.get('Work Request #', ''),
-                        'Foreman': row.get('Foreman', ''),
-                        'Customer Name': row.get('Customer Name', ''),
-                        'Units Total Price': row.get('Units Total Price', '0'),
-                        'Quantity': row.get('Quantity', '0'),
-                        'CU': row.get('CU', ''),
-                        'Snapshot Date': row.get('Snapshot Date', ''),
-                        'Weekly Reference Logged Date': row.get('Weekly Reference Logged Date', ''),
-                        'Pole #': row.get('Pole #', ''),
-                        'Job #': row.get('Job #', '')
-                    })
-                
-                # Run comprehensive business logic validation
-                business_validation = business_validator.validate_business_logic(
-                    validation_data, 
-                    {
-                        "session_id": session_start.isoformat(),
-                        "total_rows": len(all_valid_rows),
-                        "audit_violations": len(audit_detected_changes)
-                    }
-                )
-                
-                # Handle business logic validation results
-                if not business_validation['is_valid']:
-                    error_msg = f"Business logic validation failed with {len(business_validation['critical_violations'])} critical violations"
-                    logging.error(f"❌ {error_msg}")
-                    
-                    # Log critical violations
-                    for violation in business_validation['critical_violations'][:5]:
-                        logging.error(f"  🚨 CRITICAL: {violation}")
-                    
-                    # Send to Sentry with business context
-                    if SENTRY_DSN:
-                        with sentry_sdk.configure_scope() as scope:
-                            scope.set_tag("business_validation_failure", True)
-                            scope.set_tag("risk_score", f"{business_validation['risk_score']:.1f}")
-                            scope.set_tag("critical_violations_count", len(business_validation['critical_violations']))
-                            scope.set_context("business_validation", business_validation)
-                            sentry_sdk.capture_message(error_msg, level="error")
-                else:
-                    risk_score = business_validation['risk_score']
-                    logging.info(f"✅ Business logic validation passed (risk score: {risk_score:.1f}/100)")
-                    
-                    # Send info to Sentry for trending
-                    if SENTRY_DSN and risk_score > 10:
-                        with sentry_sdk.configure_scope() as scope:
-                            scope.set_tag("business_validation_warning", True)
-                            scope.set_tag("risk_score", f"{risk_score:.1f}")
-                            sentry_sdk.capture_message(
-                                f"Business validation passed with elevated risk score: {risk_score:.1f}",
-                                level="warning"
-                            )
-                            
-            except Exception as e:
-                log_detailed_error(e, "Business logic validation failure", {"step": "business_validation"})
+        # Skip business logic validation - not needed for core functionality
+        logging.info("🔍 Business logic validation skipped")
 
         # 4. PHASE 1: FAST EXCEL GENERATION (Priority - Skip heavy API calls)
         # Skip audit and AI analysis during Excel generation for speed
@@ -2092,74 +1938,11 @@ def main():
                 # Generate Excel file WITHOUT AI analysis (fast!)
                 excel_path, excel_filename, wr_numbers = generate_excel(group_key, group_rows, most_recent_snapshot_date, None)
                 
-                # ENHANCED: Business logic validation per group (single week, single work request)
-                if ADVANCED_SENTRY_AVAILABLE and business_validator:
-                    # Parse the group key to get week ending date
-                    week_ending_str = group_key.split('_')[0] if '_' in group_key else 'Unknown'
-                    wr_number = group_key.split('_')[1] if '_' in group_key else 'Unknown'
-                    
-                    # Create validation context for single-week processing
-                    single_week_context = {
-                        "is_single_week": True,
-                        "week_ending": week_ending_str,
-                        "work_request": wr_number,
-                        "excel_filename": excel_filename,
-                        "group_key": group_key,
-                        "foreman": group_rows[0].get('__current_foreman', 'Unknown') if group_rows else 'Unknown',
-                        "total_line_items": len(group_rows)
-                    }
-                    
-                    # Validate this specific group's business logic
-                    group_validation = business_validator.validate_business_logic(group_rows, single_week_context)
-                    
-                    # Handle validation results for this specific Excel file
-                    if not group_validation['is_valid']:
-                        # Count of critical violations for this group
-                        critical_count = len(group_validation['critical_violations'])
-                        warning_count = len(group_validation['warnings'])
-                        
-                        if critical_count > 0:
-                            logging.error(f"❌ Business logic validation failed: {critical_count} critical violations, {warning_count} warnings (risk score: {group_validation['risk_score']:.1f}/100)")
-                            # Log first few critical violations
-                            for violation in group_validation['critical_violations'][:3]:
-                                logging.error(f"  🚨 CRITICAL: {violation}")
-                        else:
-                            # Only warnings, less severe
-                            logging.warning(f"⚠️ Business validation warnings: {warning_count} warnings for {excel_filename}")
+                # Skip business logic validation for this group
+                logging.info(f"🔍 Business logic validation skipped for {excel_filename}")
                 
-                # ENHANCED: Validate generated data before proceeding
-                if ENHANCED_MONITORING_AVAILABLE:
-                    validation_result = data_validator.validate_excel_data(group_rows)
-                    
-                    if not validation_result["is_valid"]:
-                        error_msg = f"Data validation failed for group {group_key}: {validation_result['errors']}"
-                        logging.error(error_msg)
-                        
-                        # Log validation failure
-                        audit_logger.log_operation("data_validation", {
-                            "group_key": group_key,
-                            "validation_errors": validation_result["errors"],
-                            "data_quality_score": validation_result["data_quality_score"],
-                            "row_count": len(group_rows)
-                        }, success=False)
-                        
-                        # Send to Sentry with validation context
-                        if SENTRY_DSN:
-                            with sentry_sdk.configure_scope() as scope:
-                                scope.set_tag("data_validation_failure", True)
-                                scope.set_tag("group_key", group_key)
-                                scope.set_tag("quality_score", f"{validation_result['data_quality_score']:.1f}")
-                                scope.set_context("validation_details", validation_result)
-                                sentry_sdk.capture_message(error_msg, level="error")
-                        
-                        continue  # Skip this group if validation fails
-                    else:
-                        logging.info(f"✅ Data validation passed for group {group_key} (score: {validation_result['data_quality_score']:.1f}/100)")
-                        audit_logger.log_operation("data_validation", {
-                            "group_key": group_key,
-                            "data_quality_score": validation_result["data_quality_score"],
-                            "row_count": len(group_rows)
-                        }, success=True)
+                # Skip data validation - not needed for core functionality
+                logging.info(f"🔍 Data validation skipped for {group_key}")
                 
                 generated_files.append({
                     'path': excel_path,
@@ -2255,22 +2038,15 @@ def main():
                             excel_created += 1
                             action_type = "CREATE"
                         
-                        # Enhanced monitoring for attachment operations
-                        if ENHANCED_MONITORING_AVAILABLE:
-                            audit_logger.log_operation("attachment_analysis", {
-                                "work_request": wr_num,
-                                "existing_attachments": len(existing_excel_attachments),
-                                "action_type": action_type,
-                                "attachment_names": [att.name for att in existing_excel_attachments]
-                            }, success=True)
+                        # Skip enhanced monitoring for attachment operations
+                        logging.info(f"Attachment operation: {action_type} for work request {wr_num}")
                         
                         # ROBUST UPLOAD: Direct attachment with automatic replacement
                         # Smartsheet API handles replacements automatically when same filename is used
                         try:
-                            # Monitor file upload performance
-                            if ENHANCED_MONITORING_AVAILABLE:
-                                upload_start = time.time()
-                                file_size = os.path.getsize(excel_path) if os.path.exists(excel_path) else 0
+                            # Skip upload monitoring for performance
+                            upload_start = None
+                            file_size = 0
                             
                             # Upload with error resilience - try multiple approaches if needed
                             upload_success = False
@@ -2317,34 +2093,9 @@ def main():
                                     # If it's not a filename conflict, raise the original error
                                     raise primary_upload_error
                             
-                            # Calculate upload performance metrics
-                            if ENHANCED_MONITORING_AVAILABLE and upload_success:
-                                upload_duration = time.time() - upload_start
-                                upload_speed = (file_size / 1024 / 1024) / upload_duration if upload_duration > 0 else 0  # MB/s
-                                
-                                # Log successful upload with comprehensive metrics
-                                audit_logger.log_operation("upload_excel_success", {
-                                    "work_request": wr_num,
-                                    "filename": excel_filename,
-                                    "file_size_mb": file_size / 1024 / 1024,
-                                    "upload_duration": upload_duration,
-                                    "upload_speed_mbps": upload_speed,
-                                    "target_row": target_row.row_number,
-                                    "action_type": action_type,
-                                    "upload_method": upload_method,
-                                    "existing_attachments_count": len(existing_excel_attachments)
-                                }, success=True)
-                                
-                                # Monitor slow uploads
-                                if upload_duration > 10.0:
-                                    logging.warning(f"⚠️ Slow upload: {excel_filename} took {upload_duration:.2f}s ({upload_speed:.2f} MB/s)")
-                                    if SENTRY_DSN:
-                                        with sentry_sdk.configure_scope() as scope:
-                                            scope.set_tag("slow_upload", True)
-                                            scope.set_tag("upload_duration", f"{upload_duration:.2f}")
-                                            scope.set_tag("file_size_mb", f"{file_size / 1024 / 1024:.2f}")
-                                            scope.set_tag("upload_method", upload_method)
-                                            sentry_sdk.capture_message(f"Slow file upload: {upload_duration:.2f}s", level="warning")
+                            # Skip upload performance monitoring
+                            if upload_success:
+                                logging.info(f"✅ Successfully uploaded {excel_filename} for work request {wr_num}")
                             
                             # Success logging with action type context
                             if action_type == "REPLACE":
@@ -2353,18 +2104,9 @@ def main():
                                 logging.info(f"✅ Successfully {action_type.lower()}d Excel '{excel_filename}' on row {target_row.row_number} for WR# {wr_num}")
                             
                         except Exception as upload_error:
-                            # Enhanced upload error reporting with context
-                            if ENHANCED_MONITORING_AVAILABLE:
-                                audit_logger.log_operation("upload_excel_error", {
-                                    "work_request": wr_num,
-                                    "filename": excel_filename,
-                                    "target_row": target_row.row_number,
-                                    "error_type": type(upload_error).__name__,
-                                    "error_details": str(upload_error),
-                                    "action_type": action_type,
-                                    "existing_attachments_count": len(existing_excel_attachments),
-                                    "file_exists": os.path.exists(excel_path)
-                                }, success=False)
+                            # Basic error logging without enhanced monitoring
+                            error_msg = f"Failed to {action_type.lower()} Excel file '{excel_filename}': {str(upload_error)}"
+                            logging.error(error_msg)
                             
                             # Enhanced error context for Sentry
                             log_detailed_error(upload_error, f"Failed to {action_type.lower()} Excel file '{excel_filename}'", {
@@ -2375,8 +2117,7 @@ def main():
                                 "file_size": os.path.getsize(excel_path) if os.path.exists(excel_path) else 0,
                                 "error_type": "file_upload_failure",
                                 "action_type": action_type,
-                                "existing_attachments": len(existing_excel_attachments),
-                                "upload_method_attempted": upload_method
+                                "existing_attachments": len(existing_excel_attachments)
                             })
                             continue
 
@@ -2473,25 +2214,11 @@ def main():
         # Log successful session completion with enhanced monitoring summary
         session_duration = datetime.datetime.now() - session_start
         
-        # Generate comprehensive monitoring report
-        if ENHANCED_MONITORING_AVAILABLE:
-            performance_summary = performance_monitor.get_performance_summary()
-            audit_summary = audit_logger.get_audit_summary()
-            
-            logging.info("📊 ENHANCED MONITORING SUMMARY:")
-            logging.info(f"   • Performance: {performance_summary.get('total_operations', 0)} operations, avg {performance_summary.get('average_duration', 0):.2f}s")
-            logging.info(f"   • API Calls: {performance_summary.get('total_api_calls', 0)} total")
-            logging.info(f"   • Slow Operations: {performance_summary.get('slow_operations_count', 0)}")
-            logging.info(f"   • Audit Success Rate: {audit_summary.get('success_rate', 0):.1f}%")
-            logging.info(f"   • Failed Operations: {audit_summary.get('failed_operations', 0)}")
-            
-            # Send monitoring summary to Sentry
-            if SENTRY_DSN:
-                with sentry_sdk.configure_scope() as scope:
-                    scope.set_context("performance_summary", performance_summary)
-                    scope.set_context("audit_summary", audit_summary)
-                    scope.set_tag("monitoring_enabled", True)
-                    scope.set_tag("data_quality_validation", True)
+        # Generate basic monitoring report
+        logging.info("📊 SESSION SUMMARY:")
+        logging.info(f"   • Files Generated: {generated_files_count}")
+        logging.info(f"   • Session Duration: {session_duration}")
+        logging.info(f"   • Enhanced Monitoring: Disabled")
         
         if SENTRY_DSN:
             with sentry_sdk.configure_scope() as scope:
