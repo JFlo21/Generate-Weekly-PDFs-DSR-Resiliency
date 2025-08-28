@@ -3,6 +3,7 @@ import datetime
 import time
 import re
 import warnings
+import hashlib
 from datetime import timedelta
 import logging
 from dateutil import parser
@@ -302,10 +303,24 @@ LOGO_PATH = "LinetecServices_Logo.png"
 OUTPUT_FOLDER = "generated_docs"
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-# --- TEST MODE CONFIGURATION ---
-TEST_MODE = False   # Set to True for local testing with real data
-DISABLE_AUDIT_FOR_TESTING = True  # Set to True to skip slow audit system during testing
-SINGLE_FILE_TEST = True  # Generate only ONE Excel file for testing
+def calculate_data_hash(group_rows):
+    """Calculate a hash of the group data to detect changes and prevent unnecessary uploads."""
+    # Create a normalized representation of the data for hashing
+    data_string = ""
+    for row in sorted(group_rows, key=lambda x: x.get('Work Request #', '')):
+        # Include key fields that would indicate data changes
+        row_data = f"{row.get('Work Request #', '')}{row.get('CU', '')}{row.get('Quantity', '')}" \
+                  f"{row.get('Units Total Price', '')}{row.get('Snapshot Date', '')}" \
+                  f"{row.get('Pole #', '')}{row.get('Work Type', '')}"
+        data_string += row_data
+    
+    # Return SHA-256 hash of the data
+    return hashlib.sha256(data_string.encode('utf-8')).hexdigest()[:16]  # Use first 16 chars
+
+# --- PRODUCTION CONFIGURATION ---
+TEST_MODE = True   # Set to False for production uploads to Smartsheet
+DISABLE_AUDIT_FOR_TESTING = False  # Audit system ENABLED for production monitoring
+SINGLE_FILE_TEST = not GITHUB_ACTIONS_MODE and TEST_MODE == True  # Only enable for local testing
 # When TEST_MODE is True:
 # - Files will be generated locally for inspection
 # - No uploads to Smartsheet will occur  
@@ -313,7 +328,8 @@ SINGLE_FILE_TEST = True  # Generate only ONE Excel file for testing
 # When SINGLE_FILE_TEST is True:
 # - Only the first group will be processed
 # - Perfect for testing the generator with real data
-# NOTE: GitHub Actions workflow will automatically set this to False during scheduled runs
+# NOTE: GitHub Actions workflow automatically sets TEST_MODE=False for production
+# NOTE: Audit system is ALWAYS enabled for production to monitor unauthorized changes
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -1889,9 +1905,9 @@ def main():
             log_detailed_error(e, "Failed to get valid rows from source sheets", {"step": "source_row_retrieval"})
             return
 
-        # 3.5. COMPREHENSIVE REAL-TIME AUDIT - Monitor for unauthorized changes
+        # 3.5. COMPREHENSIVE REAL-TIME AUDIT - Monitor for unauthorized changes with Sentry integration
         if audit_system:
-            logging.info("🔍 Starting comprehensive billing audit - monitoring for unauthorized changes...")
+            logging.info("🔍 Starting comprehensive billing audit with Sentry monitoring - detecting unauthorized changes...")
             try:
                 # Run the audit system to detect any changes since last run
                 detected_changes = audit_system.audit_changes_for_rows(all_valid_rows, run_started_at)
@@ -1899,23 +1915,55 @@ def main():
                 # Store audit results for later use in Excel report generation
                 if hasattr(audit_system, '_last_audit_entries') and audit_system._last_audit_entries:
                     audit_detected_changes.extend(audit_system._last_audit_entries)
-                    logging.warning(f"🚨 AUDIT ALERT: {len(audit_system._last_audit_entries)} unauthorized changes detected!")
+                    violation_count = len(audit_system._last_audit_entries)
+                    logging.warning(f"🚨 AUDIT ALERT: {violation_count} unauthorized changes detected!")
                     
-                    # Send critical audit findings to Sentry
+                    # Enhanced Sentry reporting for audit violations
                     if SENTRY_DSN:
                         with sentry_sdk.configure_scope() as scope:
                             scope.set_tag("audit_violations_detected", True)
-                            scope.set_tag("violation_count", len(audit_system._last_audit_entries))
+                            scope.set_tag("violation_count", violation_count)
+                            scope.set_tag("audit_severity", "critical" if violation_count > 10 else "high")
                             scope.set_context("audit_violations", {
-                                "total_violations": len(audit_system._last_audit_entries),
-                                "first_few_violations": audit_system._last_audit_entries[:3]
+                                "total_violations": violation_count,
+                                "audit_timestamp": run_started_at.isoformat(),
+                                "first_few_violations": audit_system._last_audit_entries[:5],
+                                "github_actions_mode": GITHUB_ACTIONS_MODE,
+                                "ultra_light_mode": ULTRA_LIGHT_MODE
                             })
+                            
+                            # Create detailed Sentry event for audit violations
                             sentry_sdk.capture_message(
-                                f"CRITICAL: {len(audit_system._last_audit_entries)} unauthorized billing changes detected",
+                                f"CRITICAL BILLING AUDIT: {violation_count} unauthorized changes detected in production data",
                                 level="error"
                             )
+                            
+                            # Also send individual violation alerts for severe cases
+                            if violation_count > 5:
+                                sentry_sdk.capture_message(
+                                    f"HIGH VOLUME AUDIT VIOLATION: {violation_count} unauthorized billing changes detected - immediate investigation required",
+                                    level="fatal"
+                                )
+                    
+                    logging.error(f"⚠️ PRODUCTION ALERT: Audit system detected {violation_count} unauthorized billing changes")
                 else:
                     logging.info("✅ Audit complete: No unauthorized changes detected")
+                    
+                    # Send positive audit confirmation to Sentry for monitoring
+                    if SENTRY_DSN:
+                        with sentry_sdk.configure_scope() as scope:
+                            scope.set_tag("audit_violations_detected", False)
+                            scope.set_tag("audit_status", "clean")
+                            scope.set_context("audit_summary", {
+                                "total_rows_audited": len(all_valid_rows),
+                                "audit_timestamp": run_started_at.isoformat(),
+                                "github_actions_mode": GITHUB_ACTIONS_MODE,
+                                "ultra_light_mode": ULTRA_LIGHT_MODE
+                            })
+                            sentry_sdk.capture_message(
+                                f"AUDIT CLEAN: {len(all_valid_rows)} rows audited, no unauthorized changes detected",
+                                level="info"
+                            )
                     
             except Exception as e:
                 log_detailed_error(e, "Audit detection failed (non-critical)", {"step": "billing_audit"})
@@ -1953,6 +2001,9 @@ def main():
                 break
 
             try:
+                # Calculate data hash for change detection
+                current_data_hash = calculate_data_hash(group_rows)
+                
                 # Determine the most recent snapshot date for the group
                 snapshot_dates = [parser.parse(row['Snapshot Date']) for row in group_rows if row.get('Snapshot Date')]
                 most_recent_snapshot_date = max(snapshot_dates) if snapshot_dates else datetime.date.today()
@@ -1965,7 +2016,8 @@ def main():
                     'work_requests': list(set(str(row.get('Work Request #', '')).split('.')[0] for row in group_rows if row.get('Work Request #'))),
                     'foreman': group_rows[0].get('__current_foreman', 'Unknown') if group_rows else 'Unknown',
                     'week_ending': group_key,
-                    'snapshot_dates': [row.get('Snapshot Date') for row in group_rows[:5]]  # Sample of dates
+                    'snapshot_dates': [row.get('Snapshot Date') for row in group_rows[:5]],  # Sample of dates
+                    'data_hash': current_data_hash  # Include hash for change tracking
                 }
                 
                 # Generate Excel file WITHOUT AI analysis (fast!)
