@@ -53,7 +53,7 @@ jobs:
     runs-on: ubuntu-latest
     
     # Optimized timeout for core system with Sentry monitoring
-    timeout-minutes: 15  # Reduced for streamlined core functionality
+    timeout-minutes: 25  # Increased for complete processing of all work request groups
     
     # Environment variables for comprehensive system
     env:
@@ -79,9 +79,9 @@ jobs:
       uses: actions/cache@v4
       with:
         path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-comprehensive-${{ hashFiles('requirements.txt') }}
+        key: ${{ runner.os }}-pip-ultralight-${{ hashFiles('requirements-ultralight.txt') }}
         restore-keys: |
-          ${{ runner.os }}-pip-comprehensive-
+          ${{ runner.os }}-pip-ultralight-
           ${{ runner.os }}-pip-
         
     - name: Install System Dependencies
