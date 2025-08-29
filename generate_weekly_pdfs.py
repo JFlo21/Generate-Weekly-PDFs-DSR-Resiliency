@@ -332,6 +332,68 @@ def calculate_data_hash(group_rows):
     # Return SHA-256 hash of the data
     return hashlib.sha256(data_string.encode('utf-8')).hexdigest()[:16]  # Use first 16 chars
 
+def extract_data_hash_from_filename(filename):
+    """Extract data hash from filename format: WR_{wr_num}_WeekEnding_{week_end}_{data_hash}.xlsx"""
+    try:
+        # Remove .xlsx extension
+        name_without_ext = filename.replace('.xlsx', '')
+        # Split by underscores and get the last part (should be the hash)
+        parts = name_without_ext.split('_')
+        if len(parts) >= 4 and len(parts[-1]) == 16:  # Hash should be 16 chars
+            return parts[-1]
+    except Exception:
+        pass
+    return None
+
+def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, current_data_hash):
+    """Delete old Excel attachments for a work request, optionally skipping if data hasn't changed."""
+    deleted_count = 0
+    skipped_due_to_same_data = False
+    
+    if not target_row.attachments:
+        return deleted_count, skipped_due_to_same_data
+    
+    # Find all Excel attachments for this work request
+    excel_attachments = []
+    for attachment in target_row.attachments:
+        if attachment.name.endswith('.xlsx') and f'WR_{wr_num}_' in attachment.name:
+            excel_attachments.append(attachment)
+    
+    if not excel_attachments:
+        return deleted_count, skipped_due_to_same_data
+    
+    # Check if any existing file has the same data hash
+    for attachment in excel_attachments:
+        existing_hash = extract_data_hash_from_filename(attachment.name)
+        if existing_hash == current_data_hash:
+            logging.info(f"📋 Data unchanged for WR# {wr_num} (hash: {current_data_hash}). Skipping upload.")
+            skipped_due_to_same_data = True
+            return deleted_count, skipped_due_to_same_data
+    
+    # Data has changed, delete all old Excel attachments
+    logging.info(f"🗑️ Deleting {len(excel_attachments)} old Excel attachment(s) for WR# {wr_num}")
+    
+    for attachment in excel_attachments:
+        try:
+            client.Attachments.delete_attachment(target_sheet_id, attachment.id)
+            deleted_count += 1
+            logging.info(f"   ✅ Deleted: '{attachment.name}'")
+        except Exception as e:
+            # Smart error handling: 404 errors mean file already deleted (success)
+            error_str = str(e).lower()
+            if "404" in error_str or "not found" in error_str or "does not exist" in error_str:
+                # Treat 404 as successful deletion (file already gone)
+                deleted_count += 1
+                logging.info(f"   ✅ Already deleted: '{attachment.name}' (404)")
+            else:
+                # Only count real errors as failures
+                logging.error(f"   ❌ Failed to delete '{attachment.name}': {e}")
+        
+        # Small delay to avoid rate limiting
+        time.sleep(0.1)
+    
+    return deleted_count, skipped_due_to_same_data
+
 # --- PRODUCTION CONFIGURATION ---
 TEST_MODE = True   # Set to False for production uploads to Smartsheet
 DISABLE_AUDIT_FOR_TESTING = False  # Audit system ENABLED for production monitoring
@@ -988,7 +1050,7 @@ def group_source_rows(rows):
     
     return groups
 
-def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=None):
+def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=None, data_hash=None):
     """Generates a formatted Excel report for a group of rows."""
     first_row = group_rows[0]
     
@@ -1099,8 +1161,11 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     
     scope_id = first_row.get('Scope ID', '')
     job_number = first_row.get('Job #', '')
-    # Use individual work request number for filename
-    output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.xlsx"
+    # Use individual work request number for filename with data hash for change tracking
+    if data_hash:
+        output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}_{data_hash}.xlsx"
+    else:
+        output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}.xlsx"
     final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
 
     if TEST_MODE:
@@ -2045,7 +2110,7 @@ def main():
                 }
                 
                 # Generate Excel file WITHOUT AI analysis (fast!)
-                excel_path, excel_filename, wr_numbers = generate_excel(group_key, group_rows, most_recent_snapshot_date, None)
+                excel_path, excel_filename, wr_numbers = generate_excel(group_key, group_rows, most_recent_snapshot_date, None, current_data_hash)
                 
                 # Skip business logic validation for this group
                 logging.info(f"🔍 Business logic validation skipped for {excel_filename}")
@@ -2117,103 +2182,48 @@ def main():
                     print(f"   • File would be uploaded to row {target_row.row_number}")
                     print()
                 else:
-                        # --- Production Mode: Delete existing Excel files and upload new one ---
-                        existing_excel_attachments = []
+                        # --- Production Mode: Smart Excel file management with data change detection ---
                         
-                        # Find ALL Excel attachments for this Work Request (not just exact filename match)
-                        # This handles cases where filename format might have changed over time
-                        for attachment in target_row.attachments or []:
-                            if (attachment.name == excel_filename or 
-                                (attachment.name.startswith(f"WR_{wr_num}_") and attachment.name.endswith('.xlsx'))):
-                                existing_excel_attachments.append(attachment)
+                        # STEP 1: Check if data has changed using hash comparison and delete old files if needed
+                        deleted_count, skipped_due_to_same_data = delete_old_excel_attachments(
+                            client, TARGET_SHEET_ID, target_row, wr_num, current_data_hash
+                        )
                         
-                        # ENHANCED APPROACH: Skip deletion, use direct replacement/overwrite
-                        # This avoids 404 errors when attachments don't exist or can't be deleted
+                        # STEP 2: Skip upload if data hasn't changed
+                        if skipped_due_to_same_data:
+                            logging.info(f"⏩ Skipping upload for WR# {wr_num} - data unchanged")
+                            continue
                         
-                        # Check if Excel attachments exist for this Work Request
-                        existing_excel_attachments = []
-                        for attachment in target_row.attachments or []:
-                            if (attachment.name == excel_filename or 
-                                (attachment.name.startswith(f"WR_{wr_num}_") and attachment.name.endswith('.xlsx'))):
-                                existing_excel_attachments.append(attachment)
+                        # STEP 3: Data has changed or no previous file exists, proceed with upload
+                        action_type = "REPLACE" if deleted_count > 0 else "CREATE"
                         
-                        # Log what we found
-                        if existing_excel_attachments:
-                            logging.info(f"📎 Found {len(existing_excel_attachments)} existing Excel attachment(s) for WR# {wr_num}")
+                        if deleted_count > 0:
+                            logging.info(f"📎 Deleted {deleted_count} old Excel attachment(s) for WR# {wr_num}")
                             excel_updated += 1
-                            action_type = "REPLACE"
                         else:
                             logging.info(f"📎 No existing Excel attachments found for WR# {wr_num}")
                             excel_created += 1
-                            action_type = "CREATE"
                         
-                        # Skip enhanced monitoring for attachment operations
-                        logging.info(f"Attachment operation: {action_type} for work request {wr_num}")
-                        
-                        # ROBUST UPLOAD: Direct attachment with automatic replacement
-                        # Smartsheet API handles replacements automatically when same filename is used
+                        # STEP 4: Upload new Excel file with data hash in filename
                         try:
-                            # Skip upload monitoring for performance
-                            upload_start = None
-                            file_size = 0
+                            logging.info(f"📤 Uploading new Excel file '{excel_filename}' for WR# {wr_num}")
                             
-                            # Upload with error resilience - try multiple approaches if needed
-                            upload_success = False
-                            upload_method = "standard"
-                            
-                            try:
-                                # Method 1: Standard upload (handles most cases including replacements)
-                                with open(excel_path, 'rb') as file:
-                                    upload_result = client.Attachments.attach_file_to_row(
-                                        TARGET_SHEET_ID, 
-                                        target_row.id, 
-                                        (excel_filename, file, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-                                    )
-                                upload_success = True
-                                upload_method = "standard"
-                                
-                            except Exception as primary_upload_error:
-                                # Method 2: Fallback - try with different filename if there's a conflict
-                                logging.warning(f"⚠️ Primary upload failed for {excel_filename}, trying fallback method")
-                                
-                                # Check if it's a filename conflict issue
-                                error_str = str(primary_upload_error).lower()
-                                if "duplicate" in error_str or "exists" in error_str or "conflict" in error_str:
-                                    # Generate a unique filename for fallback
-                                    timestamp = datetime.datetime.now().strftime("%H%M%S")
-                                    fallback_filename = f"WR_{wr_num}_WeekEnding_{group_key.replace('-', '')}_{timestamp}.xlsx"
-                                    
-                                    try:
-                                        with open(excel_path, 'rb') as file:
-                                            upload_result = client.Attachments.attach_file_to_row(
-                                                TARGET_SHEET_ID, 
-                                                target_row.id, 
-                                                (fallback_filename, file, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-                                            )
-                                        upload_success = True
-                                        upload_method = "fallback_unique_name"
-                                        excel_filename = fallback_filename  # Update for logging
-                                        logging.info(f"✅ Fallback upload successful with filename: {fallback_filename}")
-                                        
-                                    except Exception as fallback_error:
-                                        # If fallback also fails, raise the original error
-                                        raise primary_upload_error
-                                else:
-                                    # If it's not a filename conflict, raise the original error
-                                    raise primary_upload_error
-                            
-                            # Skip upload performance monitoring
-                            if upload_success:
-                                logging.info(f"✅ Successfully uploaded {excel_filename} for work request {wr_num}")
+                            with open(excel_path, 'rb') as file:
+                                upload_result = client.Attachments.attach_file_to_row(
+                                    TARGET_SHEET_ID, 
+                                    target_row.id, 
+                                    (excel_filename, file, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                                )
                             
                             # Success logging with action type context
-                            if action_type == "REPLACE":
-                                logging.info(f"✅ Successfully {action_type.lower()}d Excel '{excel_filename}' on row {target_row.row_number} for WR# {wr_num} ({len(existing_excel_attachments)} existing attachments handled)")
+                            logging.info(f"✅ Successfully {action_type.lower()}d Excel '{excel_filename}' on row {target_row.row_number} for WR# {wr_num}")
+                            if deleted_count > 0:
+                                logging.info(f"   🔄 Replaced {deleted_count} old file(s) with updated data (hash: {current_data_hash})")
                             else:
-                                logging.info(f"✅ Successfully {action_type.lower()}d Excel '{excel_filename}' on row {target_row.row_number} for WR# {wr_num}")
+                                logging.info(f"   ✨ Created new file with data hash: {current_data_hash}")
                             
                         except Exception as upload_error:
-                            # Basic error logging without enhanced monitoring
+                            # Basic error logging
                             error_msg = f"Failed to {action_type.lower()} Excel file '{excel_filename}': {str(upload_error)}"
                             logging.error(error_msg)
                             
@@ -2226,7 +2236,8 @@ def main():
                                 "file_size": os.path.getsize(excel_path) if os.path.exists(excel_path) else 0,
                                 "error_type": "file_upload_failure",
                                 "action_type": action_type,
-                                "existing_attachments": len(existing_excel_attachments)
+                                "data_hash": current_data_hash,
+                                "deleted_count": deleted_count
                             })
                             continue
 
