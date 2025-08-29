@@ -341,7 +341,7 @@ def discover_source_sheets(client):
     ULTRA-LIGHT MODE: When GITHUB_ACTIONS=true, this function uses aggressive optimizations
     to minimize API calls and reduce discovery time from minutes to seconds.
     """
-    base_sheet_ids = [3239244454645636, 2230129632694148, 1732945426468740, 4126460034895748, 7899446718189444, 1964558450118532, 5905527830695812, 820644963897220]
+    base_sheet_ids = [3239244454645636, 2230129632694148, 1732945426468740, 4126460034895748, 7899446718189444, 1964558450118532, 5905527830695812, 820644963897220, 8002920231423876]
     
     # ULTRA-LIGHT MODE: Use targeted sheet filtering with dynamic week ending calculation
     if ULTRA_LIGHT_MODE:
@@ -412,7 +412,7 @@ def discover_source_sheets(client):
     
     # NORMAL MODE: Full discovery with copy detection (slower but comprehensive)
     logging.info("🔍 Normal mode: Full discovery with copy detection")
-    base_sheet_ids = [3239244454645636, 2230129632694148, 1732945426468740, 4126460034895748, 7899446718189444, 1964558450118532, 5905527830695812, 820644963897220]
+    base_sheet_ids = [3239244454645636, 2230129632694148, 1732945426468740, 4126460034895748, 7899446718189444, 1964558450118532, 5905527830695812, 820644963897220, 8002920231423876]
     
     # Base column mapping template - we'll use this to map columns by name
     # Key = Actual column name in your sheets, Value = Internal name used by script
@@ -1848,7 +1848,7 @@ def main():
         logging.info("--- Starting Report Generation Process ---")
         
         # Initialize audit system with resilience mode for ultra-light performance
-        run_started_at = datetime.datetime.utcnow()
+        run_started_at = datetime.datetime.now(datetime.timezone.utc)
         
         # Skip audit system if disabled for testing (much faster)
         if not DISABLE_AUDIT_FOR_TESTING:
@@ -2248,7 +2248,7 @@ def main():
             if audit_system:
                 try:
                     logging.info("📊 Generating comprehensive audit report...")
-                    run_id = datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
+                    run_id = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
                     
                     # Generate the audit Excel report
                     audit_report_path = audit_system.generate_realtime_audit_excel_report(run_id, ai_analysis_results)
