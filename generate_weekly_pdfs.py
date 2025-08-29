@@ -80,6 +80,12 @@ load_dotenv()
 
 # Configure Sentry.io for error monitoring and alerting with detailed stack traces
 SENTRY_DSN = os.getenv("SENTRY_DSN")
+
+# Enhanced Sentry configuration check for production deployment
+if not SENTRY_DSN and os.getenv("ENVIRONMENT", "development") == "production":
+    logging.warning("🚨 PRODUCTION WARNING: SENTRY_DSN not configured in production environment!")
+    logging.warning("   Error monitoring is disabled. Please configure SENTRY_DSN for production.")
+
 if SENTRY_DSN:
     sentry_logging = LoggingIntegration(
         level=logging.INFO,        # Capture info and above as breadcrumbs
@@ -91,6 +97,15 @@ if SENTRY_DSN:
         # Filter out Smartsheet SDK 404 errors (normal cleanup operations)
         if event.get('logger') == 'smartsheet.smartsheet':
             return None
+        
+        # Filter out 404 attachment deletion errors (normal operations)
+        if 'exception' in event and event['exception'].get('values'):
+            for exc_value in event['exception']['values']:
+                if exc_value.get('value'):
+                    error_msg = exc_value['value'].lower()
+                    if ("404" in error_msg or "not found" in error_msg) and "attachment" in error_msg:
+                        logging.info("⚠️ Filtered 404 attachment error from Sentry (normal operation)")
+                        return None
             
         # Enhance error context with precise file and line information
         if 'exception' in event and event['exception'].get('values'):
@@ -1739,12 +1754,21 @@ def log_detailed_error(error, context="", additional_data=None):
         elif "attachment_deletion_failure" in str(additional_data):
             error_type = "attachment_deletion_failure"
             email_data = additional_data or {}
-            # Add more specific attachment error context
+            
+            # Smart error classification for attachment operations
+            error_str = str(error).lower()
+            if "404" in error_str or "not found" in error_str or "does not exist" in error_str:
+                # 404 errors are normal - attachment already deleted
+                logging.warning(f"⚠️ Attachment already deleted or doesn't exist: {error}")
+                return {'error_type': 'attachment_already_deleted', 'error_message': str(error)}
+            
+            # Add more specific attachment error context for real errors
             email_data.update({
                 "error_details": str(error),
                 "error_type_name": type(error).__name__,
                 "function_location": f"{filename}:{line_number}",
-                "technical_context": context
+                "technical_context": context,
+                "error_severity": "medium" if "404" in error_str else "high"
             })
         
         # Skip email template generation - not needed for core functionality
