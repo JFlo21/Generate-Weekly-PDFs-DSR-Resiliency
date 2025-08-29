@@ -129,8 +129,16 @@ def cleanup_duplicate_excel_files():
                     time.sleep(0.1)
                     
                 except Exception as e:
-                    failed_deletions += 1
-                    print(f"      ❌ {i}/{len(attachments)}: Failed '{attachment.name}': {e}")
+                    # Smart error handling: 404 errors mean file already deleted (success)
+                    error_str = str(e).lower()
+                    if "404" in error_str or "not found" in error_str or "does not exist" in error_str:
+                        # Treat 404 as successful deletion (file already gone)
+                        deleted_count += 1
+                        print(f"      ✅ {i}/{len(attachments)}: Already deleted '{attachment.name}' (404)")
+                    else:
+                        # Only count real errors as failures
+                        failed_deletions += 1
+                        print(f"      ❌ {i}/{len(attachments)}: Failed '{attachment.name}': {e}")
         
         # Final summary
         print(f"\n{'='*80}")
