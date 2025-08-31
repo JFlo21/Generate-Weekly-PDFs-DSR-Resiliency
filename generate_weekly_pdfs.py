@@ -273,12 +273,19 @@ def discover_source_sheets(client):
         try:
             sheet_info = client.Sheets.get_sheet(base_id, include='columns')
             
+            # Log all available columns in the sheet
+            available_columns = [col.title for col in sheet_info.columns]
+            logging.info(f"📋 Sheet {base_id} has columns: {available_columns}")
+            
             column_mapping = {}
             for column in sheet_info.columns:
                 column_title = column.title
                 if column_title in column_name_mapping:
                     mapped_name = column_name_mapping[column_title]
                     column_mapping[mapped_name] = column.id
+                    logging.debug(f"  ✅ Mapped '{column_title}' -> '{mapped_name}'")
+                else:
+                    logging.debug(f"  ⚠️ Unmapped column: '{column_title}'")
             
             if 'Weekly Reference Logged Date' in column_mapping:
                 discovered_sheets.append({
@@ -288,7 +295,16 @@ def discover_source_sheets(client):
                 })
                 logging.info(f"✅ Added sheet: {sheet_info.name} (ID: {base_id})")
             else:
-                logging.warning(f"⚠️ Sheet {base_id} missing required columns")
+                # RELAXED: Add sheet even without Weekly Reference Logged Date if it has Work Request #
+                if 'Work Request #' in column_mapping:
+                    discovered_sheets.append({
+                        'id': base_id,
+                        'name': sheet_info.name,
+                        'column_mapping': column_mapping
+                    })
+                    logging.info(f"✅ Added sheet (relaxed): {sheet_info.name} (ID: {base_id}) - Missing Weekly Reference Logged Date")
+                else:
+                    logging.warning(f"⚠️ Sheet {base_id} missing both Work Request # and Weekly Reference Logged Date columns")
                 
         except Exception as e:
             logging.warning(f"⚡ Failed to validate sheet {base_id}: {e}")
@@ -299,38 +315,44 @@ def discover_source_sheets(client):
 def get_all_source_rows(client, source_sheets):
     """Fetch rows from all source sheets with filtering."""
     merged_rows = []
-    
+
     for source in source_sheets:
         try:
             logging.info(f"⚡ Processing: {source['name']} (ID: {source['id']})")
-            
+
             try:
                 sheet = client.Sheets.get_sheet(source['id'])
                 column_mapping = source['column_mapping']
-                
+
+                logging.info(f"📋 Available columns in {source['name']}: {list(column_mapping.keys())}")
+
                 for row in sheet.rows:
                     row_data = {}
                     has_required_data = False
-                    
+
                     for cell in row.cells:
                         for mapped_name, column_id in column_mapping.items():
                             if cell.column_id == column_id:
                                 row_data[mapped_name] = cell.display_value
-                                if mapped_name in ['Work Request #', 'Weekly Reference Logged Date', 'Units Completed?']:
-                                    if cell.display_value:
-                                        has_required_data = True
                                 break
                     
-                    # Validate row has essential data - RELAXED FILTERING FOR MORE DATA
-                    work_request = row_data.get('Work Request #')
-                    weekly_date = row_data.get('Weekly Reference Logged Date')
-                    units_completed = row_data.get('Units Completed?')
-                    total_price = parse_price(row_data.get('Units Total Price', 0))
+                    # Process ALL rows with any data (no strict filtering)
+                    if row_data:  # If we have any mapped data at all
+                        work_request = row_data.get('Work Request #')
+                        weekly_date = row_data.get('Weekly Reference Logged Date')
+                        units_completed = row_data.get('Units Completed?')
+                        total_price = parse_price(row_data.get('Units Total Price', 0))
 
-                    # More lenient validation - only require Work Request # and some price data
-                    if (work_request and total_price > 0):
-                        merged_rows.append(row_data)
-                        logging.debug(f"✅ Added valid row: WR#{work_request}, Price:${total_price}, Date:{weekly_date}, Completed:{units_completed}")
+                        # Debug logging for first few rows
+                        if len(merged_rows) < 5:
+                            logging.info(f"🔍 Row data sample: WR={work_request}, Price={total_price}, Date={weekly_date}, Completed={units_completed}")
+
+                        # Add ALL rows with any work request or price data
+                        if work_request or total_price > 0:
+                            merged_rows.append(row_data)
+                            logging.debug(f"✅ Added row: WR#{work_request}, Price:${total_price}")
+                        else:
+                            logging.debug(f"⚠️ Row has no WR or price: {row_data}")
                         
             except Exception as e:
                 logging.error(f"Error processing sheet {source['id']}: {e}")
