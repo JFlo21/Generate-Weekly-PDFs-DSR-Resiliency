@@ -546,41 +546,41 @@ def get_all_source_rows(client, source_sheets):
                     # Quick empty row check
                     if not row.cells:
                         continue
-                            
-                        cell_map = {c.column_id: c.value for c in row.cells if c.value is not None}
-                        if not cell_map:
-                            continue # Skip entirely empty rows
+                        
+                    cell_map = {c.column_id: c.value for c in row.cells if c.value is not None}
+                    if not cell_map:
+                        continue # Skip entirely empty rows
 
-                        # FILTER 1: Essential validation - Exclude $0.00 values
-                        # Include ONLY rows with ALL required criteria for billing:
-                        # 1. Snapshot Date (required)
-                        # 2. Weekly Reference Logged Date (required) 
-                        # 3. Units Completed = true (required)
-                        # 4. Work Request # (required)
-                        # 5. Units Total Price > 0 (filter out $0.00 values)
-                        snapshot_date = cell_map.get(source['columns'].get('Snapshot Date'))
-                        log_date = cell_map.get(source['columns'].get('Weekly Reference Logged Date'))
-                        units_completed = cell_map.get(source['columns'].get('Units Completed?'))
-                        work_request = cell_map.get(source['columns'].get('Work Request #'))
-                        price_value = parse_price(cell_map.get(source['columns'].get('Units Total Price'), 0))
-                        
-                        # Require ALL criteria including price > 0
-                        if not (snapshot_date and log_date and is_checked(units_completed) and work_request and price_value > 0):
-                            continue
-                            
-                        # Create parsed row with essential data only
-                        parsed = {}
-                        for col_name, col_id in source['columns'].items():
-                            parsed[col_name] = cell_map.get(col_id)
-                        
-                        # Add metadata to the row for later use
-                        parsed['__sheet_id'] = source['id']
-                        parsed['__row_obj'] = row
-                        parsed['__columns'] = source['columns']
-                        merged_rows.append(parsed)
-                        found_rows += 1
+                    # FILTER 1: Essential validation - Exclude $0.00 values
+                    # Include ONLY rows with ALL required criteria for billing:
+                    # 1. Snapshot Date (required)
+                    # 2. Weekly Reference Logged Date (required) 
+                    # 3. Units Completed = true (required)
+                    # 4. Work Request # (required)
+                    # 5. Units Total Price > 0 (filter out $0.00 values)
+                    snapshot_date = cell_map.get(source['columns'].get('Snapshot Date'))
+                    log_date = cell_map.get(source['columns'].get('Weekly Reference Logged Date'))
+                    units_completed = cell_map.get(source['columns'].get('Units Completed?'))
+                    work_request = cell_map.get(source['columns'].get('Work Request #'))
+                    price_value = parse_price(cell_map.get(source['columns'].get('Units Total Price'), 0))
                     
-                    logging.info(f"⚡ Found {found_rows} valid rows in sheet {source['id']}")
+                    # Require ALL criteria including price > 0
+                    if not (snapshot_date and log_date and is_checked(units_completed) and work_request and price_value > 0):
+                        continue
+                        
+                    # Create parsed row with essential data only
+                    parsed = {}
+                    for col_name, col_id in source['columns'].items():
+                        parsed[col_name] = cell_map.get(col_id)
+                    
+                    # Add metadata to the row for later use
+                    parsed['__sheet_id'] = source['id']
+                    parsed['__row_obj'] = row
+                    parsed['__columns'] = source['columns']
+                    merged_rows.append(parsed)
+                    found_rows += 1
+                
+                logging.info(f"⚡ Found {found_rows} valid rows in sheet {source['id']}")
                     
             except Exception as e:
                 error_msg = f"⚡ Sheet processing failed for sheet {source['id']}: {e}"
@@ -593,50 +593,8 @@ def get_all_source_rows(client, source_sheets):
                         scope.set_tag("sheet_id", str(source['id']))
                         scope.set_level("warning")
                         sentry_sdk.capture_exception(e)
-                continue            # NORMAL MODE PROCESSING
-            sheet = client.Sheets.get_sheet(source["id"])
-            col_map = source["columns"]
-            logging.info(f"Processing Sheet: {sheet.name} (ID: {source['id']})")
+                continue
             
-            valid_rows_count = 0
-            total_rows_processed = 0
-
-            for row in sheet.rows:
-                total_rows_processed += 1
-                cell_map = {c.column_id: c.value for c in row.cells}
-                if not any(cell_map.values()):
-                    continue # Skip entirely empty rows
-
-                # Create a parsed dictionary of the row's values based on the column mapping
-                parsed = {key: cell_map.get(col_id) for key, col_id in col_map.items()}
-
-                # --- Consolidated Filtering Logic ---
-                # Include ONLY rows with ALL required criteria for billing:
-                # 1. Snapshot Date (required)
-                # 2. Weekly Reference Logged Date (required) 
-                # 3. Units Completed = true (required)
-                # 4. Work Request # (required)
-                # 5. Units Total Price > 0 (filter out $0.00 values)
-                has_snapshot_date = parsed.get('Snapshot Date')
-                has_log_date = parsed.get('Weekly Reference Logged Date')
-                is_complete = is_checked(parsed.get('Units Completed?'))
-                has_work_request = parsed.get('Work Request #')
-                price_value = parse_price(parsed.get('Units Total Price'))
-                has_valid_price = price_value > 0
-
-                if not (has_snapshot_date and has_log_date and is_complete and has_work_request and has_valid_price):
-                    continue # If any condition fails, skip this row
-
-                valid_rows_count += 1
-
-                # Add metadata to the row for later use
-                parsed['__sheet_id'] = source['id']
-                parsed['__row_obj'] = row # Keep the original row object
-                parsed['__columns'] = col_map  # Keep column-id map for audit
-                merged_rows.append(parsed)
-            
-            logging.info(f"Sheet {source['id']}: {valid_rows_count} valid rows out of {total_rows_processed} total rows")
-
         except Exception as e:
             error_msg = f"Could not process Sheet ID {source.get('id', 'N/A')}. Error: {e}"
             logging.error(error_msg)
@@ -644,10 +602,8 @@ def get_all_source_rows(client, source_sheets):
             # Send sheet processing failures to Sentry with additional context
             if SENTRY_DSN:
                 with sentry_sdk.configure_scope() as scope:
-                    scope.set_tag("error_type", "sheet_data_processing_failure")
+                    scope.set_tag("error_type", "sheet_processing_failure")
                     scope.set_tag("sheet_id", str(source.get('id', 'N/A')))
-                    scope.set_extra("processed_rows", 0)  # Default since variable may not be set
-                    scope.set_extra("valid_rows", 0)  # Default since variable may not be set
                     scope.set_level("error")
                     sentry_sdk.capture_exception(e)
             
@@ -942,6 +898,8 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
 
     workbook = openpyxl.Workbook()
     ws = workbook.active
+    if ws is None:
+        ws = workbook.create_sheet("Work Report")
     ws.title = "Work Report"
 
     # --- Formatting ---
@@ -959,9 +917,10 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
 
     ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
     try:
-        ws.page_setup.paper_size = ws.PAPERSIZE_A4
+        # Try the newer API first
+        ws.page_setup.paperSize = 9  # A4 paper size code
     except AttributeError:
-        # Alternative approach for different openpyxl versions
+        # Fallback for older openpyxl versions
         ws.page_setup.paperSize = 9  # A4 paper size code
     ws.page_margins.left = 0.25; ws.page_margins.right = 0.25
     ws.page_margins.top = 0.5; ws.page_margins.bottom = 0.5
@@ -1221,12 +1180,18 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     for col, width in column_widths.items():
         ws.column_dimensions[col].width = width
 
-    ws.oddFooter.right.text = "Page &P of &N"
-    ws.oddFooter.right.size = 8
-    ws.oddFooter.right.font = "Calibri,Italic"
-    ws.oddFooter.left.text = f"Filename: {output_filename}"
-    ws.oddFooter.left.size = 8
-    ws.oddFooter.left.font = "Calibri,Italic"
+    # Add footer information (with error handling for different openpyxl versions)
+    try:
+        if hasattr(ws, 'oddFooter') and ws.oddFooter is not None:
+            ws.oddFooter.right.text = "Page &P of &N"
+            ws.oddFooter.right.size = 8
+            ws.oddFooter.right.font = "Calibri,Italic"
+            ws.oddFooter.left.text = f"Filename: {output_filename}"
+            ws.oddFooter.left.size = 8
+            ws.oddFooter.left.font = "Calibri,Italic"
+    except AttributeError:
+        # Footer not supported in this openpyxl version
+        pass
 
     if TEST_MODE:
         # In test mode, don't actually save the file, just show what would be created
@@ -1653,6 +1618,41 @@ def log_detailed_error(error, context="", additional_data=None):
         
     finally:
         del frame  # Prevent reference cycles
+
+def create_target_sheet_map(client):
+    """
+    Creates a map of the target sheet for uploading Excel files.
+    Returns a dictionary mapping work request numbers to row objects.
+    """
+    try:
+        target_sheet = client.Sheets.get_sheet(TARGET_SHEET_ID)
+        target_map = {}
+        
+        # Find the Work Request # column
+        wr_column_id = None
+        for column in target_sheet.columns:
+            if column.title == "Work Request #" or column.id == TARGET_WR_COLUMN_ID:
+                wr_column_id = column.id
+                break
+        
+        if not wr_column_id:
+            logging.error(f"Could not find Work Request # column in target sheet {TARGET_SHEET_ID}")
+            return {}
+        
+        # Map work request numbers to rows
+        for row in target_sheet.rows:
+            for cell in row.cells:
+                if cell.column_id == wr_column_id and cell.value:
+                    wr_num = str(cell.value).split('.')[0]  # Remove decimal if present
+                    target_map[wr_num] = row
+                    break
+        
+        logging.info(f"Created target sheet map with {len(target_map)} work requests")
+        return target_map
+        
+    except Exception as e:
+        logging.error(f"Failed to create target sheet map: {e}")
+        return {}
 
 @business_logic_monitor("excel_generation_session")
 @financial_threshold_monitor("Units Total Price", 1000.0)
