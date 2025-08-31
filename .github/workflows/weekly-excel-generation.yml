@@ -1,4 +1,4 @@
-name: Core Excel Generation with Sentry Monitoring (Every 2 Hours + Weekly)
+name: Weekly Excel Generation with Sentry Monitoring (Every 2 Hours + Weekly)
 
 permissions:
   contents: read
@@ -79,25 +79,25 @@ jobs:
       uses: actions/cache@v4
       with:
         path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-ultralight-${{ hashFiles('requirements-ultralight.txt') }}
+        key: ${{ runner.os }}-pip-production-${{ hashFiles('requirements.txt') }}
         restore-keys: |
-          ${{ runner.os }}-pip-ultralight-
+          ${{ runner.os }}-pip-production-
           ${{ runner.os }}-pip-
         
     - name: Install System Dependencies
       run: |
-        echo "🔧 Installing Core Excel Generation System Dependencies..."
+        echo "🔧 Installing Excel Generation System Dependencies..."
         python -m pip install --upgrade pip
         
-        # Install streamlined dependencies for maximum reliability
-        echo "⚡ Core Mode: Installing optimized dependencies for maximum reliability"
-        pip install -r requirements-ultralight.txt
+        # Install production dependencies for unified system
+        echo "⚡ Production Mode: Installing unified dependencies for consistent behavior"
+        pip install -r requirements.txt
         
-        echo "✅ Core System Installed:"
-        echo "   • Essential Excel generation and Smartsheet integration"
-        echo "   • Sentry monitoring with SDK 2.35.0+ compatibility"
-        echo "   • Core business logic validation"
-        echo "   • Optimized for reliability and speed"
+        echo "✅ Production System Installed:"
+        echo "   • Complete Excel generation and Smartsheet integration"
+        echo "   • Sentry monitoring with SDK 2.35.0+ compatibility" 
+        echo "   • Full business logic validation and auditing"
+        echo "   • Unified processing for consistent behavior"
         
         # Verify core system components
         python -c "import sentry_sdk; print('✅ Sentry monitoring ready')"

@@ -53,27 +53,20 @@ logging.getLogger('smartsheet.smartsheet').setLevel(logging.CRITICAL)
 
 # GitHub Actions Performance Optimization
 GITHUB_ACTIONS_MODE = os.getenv('GITHUB_ACTIONS') == 'true'
-ULTRA_LIGHT_MODE = GITHUB_ACTIONS_MODE and os.getenv('ENABLE_HEAVY_AI', 'false').lower() != 'true'
 
 # Smartsheet API Resilience Mode - Skip cell history when API is having issues
-SKIP_CELL_HISTORY = os.getenv('SKIP_CELL_HISTORY', 'false').lower() == 'true' or ULTRA_LIGHT_MODE
+SKIP_CELL_HISTORY = os.getenv('SKIP_CELL_HISTORY', 'false').lower() == 'true'
 
-if ULTRA_LIGHT_MODE:
-    # Keep only core functionality for GitHub Actions
-    CPU_AI_AVAILABLE = False
-    
-    # Import audit system
-    from audit_billing_changes import BillingAudit
-    
-    import sys
-    sys.path.insert(0, '.')
-else:
-    # Normal mode - keep core functionality only
-    CPU_AI_AVAILABLE = False
-    warnings.filterwarnings('ignore', category=FutureWarning)
-    warnings.filterwarnings('ignore', category=UserWarning)
+# Import audit system
+from audit_billing_changes import BillingAudit
 
-    from audit_billing_changes import BillingAudit
+import sys
+sys.path.insert(0, '.')
+
+# Normal mode - keep core functionality only
+CPU_AI_AVAILABLE = False
+warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', category=UserWarning)
 
 # Load environment variables from .env file
 load_dotenv()
@@ -420,46 +413,45 @@ def discover_source_sheets(client):
     """
     base_sheet_ids = [3239244454645636, 2230129632694148, 1732945426468740, 4126460034895748, 7899446718189444, 1964558450118532, 5905527830695812, 820644963897220, 8002920231423876]
     
-    # ULTRA-LIGHT MODE: Use targeted sheet filtering with dynamic week ending calculation
-    if ULTRA_LIGHT_MODE:
-        logging.info("⚡ Ultra-Light Mode: Using server-side filtering for current week ending data")
-        discovered_sheets = []
-        
-        # Use the same column mapping system as NORMAL MODE for consistency
-        column_name_mapping = {
-            'Foreman': 'Foreman',
-            'Work Request #': 'Work Request #',
-            'Weekly Reference Logged Date': 'Weekly Reference Logged Date',
-            'Dept #': 'Dept #',
-            'Customer Name': 'Customer Name',
-            'Work Order #': 'Work Order #',
-            'Area': 'Area',
-            'Pole #': 'Pole #',
-            'Point #': 'Pole #',  # Alternative name for Pole #
-            'Point Number': 'Pole #',  # Alternative name for Pole #
-            'CU': 'CU',
-            'Billable Unit Code': 'CU',  # Alternative name for CU
-            'Work Type': 'Work Type',
-            'CU Description': 'CU Description',
-            'Unit Description': 'CU Description',  # Alternative name
-            'Unit of Measure': 'Unit of Measure',
-            'UOM': 'Unit of Measure',  # Alternative abbreviation
-            'Quantity': 'Quantity',
-            'Qty': 'Quantity',  # Alternative abbreviation
-            '# Units': 'Quantity',  # Alternative name
-            'Units Total Price': 'Units Total Price',
-            'Total Price': 'Units Total Price',  # Alternative name
-            'Redlined Total Price': 'Units Total Price',  # Alternative name
-            'Snapshot Date': 'Snapshot Date',
-            'Scope #': 'Scope #',
-            'Scope ID': 'Scope #',  # Alternative name
-            'Job #': 'Job #',
-            'Units Completed?': 'Units Completed?',
-            'Units Completed': 'Units Completed?',  # Alternative name (without ?)
-        }
-        
-        # In ultra-light mode, validate sheets exist and get column mappings for filtering
-        for base_id in base_sheet_ids:
+    # Use targeted sheet filtering with dynamic week ending calculation
+    logging.info("⚡ Using server-side filtering for current week ending data")
+    discovered_sheets = []
+    
+    # Use the same column mapping system for consistency
+    column_name_mapping = {
+        'Foreman': 'Foreman',
+        'Work Request #': 'Work Request #',
+        'Weekly Reference Logged Date': 'Weekly Reference Logged Date',
+        'Dept #': 'Dept #',
+        'Customer Name': 'Customer Name',
+        'Work Order #': 'Work Order #',
+        'Area': 'Area',
+        'Pole #': 'Pole #',
+        'Point #': 'Pole #',  # Alternative name for Pole #
+        'Point Number': 'Pole #',  # Alternative name for Pole #
+        'CU': 'CU',
+        'Billable Unit Code': 'CU',  # Alternative name for CU
+        'Work Type': 'Work Type',
+        'CU Description': 'CU Description',
+        'Unit Description': 'CU Description',  # Alternative name
+        'Unit of Measure': 'Unit of Measure',
+        'UOM': 'Unit of Measure',  # Alternative abbreviation
+        'Quantity': 'Quantity',
+        'Qty': 'Quantity',  # Alternative abbreviation
+        '# Units': 'Quantity',  # Alternative name
+        'Units Total Price': 'Units Total Price',
+        'Total Price': 'Units Total Price',  # Alternative name
+        'Redlined Total Price': 'Units Total Price',  # Alternative name
+        'Snapshot Date': 'Snapshot Date',
+        'Scope #': 'Scope #',
+        'Scope ID': 'Scope #',  # Alternative name
+        'Job #': 'Job #',
+        'Units Completed?': 'Units Completed?',
+        'Units Completed': 'Units Completed?',  # Alternative name (without ?)
+    }
+    
+    # Validate sheets exist and get column mappings for filtering
+    for base_id in base_sheet_ids:
             try:
                 # Get minimal sheet info (columns only, no rows)
                 sheet_info = client.Sheets.get_sheet(base_id, include='columns')
@@ -483,254 +475,9 @@ def discover_source_sheets(client):
                     
             except Exception as e:
                 logging.warning(f"⚡ Failed to validate sheet {base_id}: {e}")
-        
-        logging.info(f"⚡ Ultra-light discovery complete: {len(discovered_sheets)} sheets with consistent column mapping")
-        return discovered_sheets
     
-    # NORMAL MODE: Full discovery with copy detection (slower but comprehensive)
-    logging.info("🔍 Normal mode: Full discovery with copy detection")
-    base_sheet_ids = [3239244454645636, 2230129632694148, 1732945426468740, 4126460034895748, 7899446718189444, 1964558450118532, 5905527830695812, 820644963897220, 8002920231423876]
-    
-    # Base column mapping template - we'll use this to map columns by name
-    # Key = Actual column name in your sheets, Value = Internal name used by script
-    column_name_mapping = {
-        'Foreman': 'Foreman',
-        'Work Request #': 'Work Request #',  # Column 12 in your sheet
-        'Weekly Reference Logged Date': 'Weekly Reference Logged Date',  # Column 46 in your sheet
-        'Dept #': 'Dept #',
-        'Customer Name': 'Customer Name',
-        'Work Order #': 'Work Order #',
-        'Area': 'Area',
-        'Pole #': 'Pole #',
-        'Point #': 'Pole #',  # Alternative name for Pole #
-        'Point Number': 'Pole #',  # Alternative name for Pole #
-        'CU': 'CU',
-        'Billable Unit Code': 'CU',  # Alternative name for CU
-        'Work Type': 'Work Type',
-        'CU Description': 'CU Description',
-        'Unit Description': 'CU Description',  # Alternative name
-        'Unit of Measure': 'Unit of Measure',
-        'UOM': 'Unit of Measure',  # Alternative abbreviation
-        'Quantity': 'Quantity',
-        'Qty': 'Quantity',  # Alternative abbreviation
-        '# Units': 'Quantity',  # Alternative name
-        'Units Total Price': 'Units Total Price',  # Column 51 in your sheet
-        'Total Price': 'Units Total Price',  # Alternative name
-        'Redlined Total Price': 'Units Total Price',  # Alternative name
-        'Snapshot Date': 'Snapshot Date',
-        'Scope #': 'Scope #',  # Column 11 in your sheet
-        'Scope ID': 'Scope #',  # Alternative name
-        'Job #': 'Job #',
-        'Units Completed?': 'Units Completed?',  # Column 53 in your sheet
-        'Units Completed': 'Units Completed?',  # Alternative name (without ?)
-    }
-    
-    discovered_sheets = []
-    processed_sheet_ids = set()  # Track already processed sheets to avoid duplicates
-    all_sheets = client.Sheets.list_sheets(include_all=True)
-    
-    # First, get the names of all base sheets to prevent cross-matching
-    base_sheet_names = {}
-    for base_id in base_sheet_ids:
-        try:
-            base_sheet = client.Sheets.get_sheet(base_id)
-            base_sheet_names[base_id] = base_sheet.name
-        except Exception as e:
-            error_msg = f"Could not fetch base sheet {base_id}: {e}"
-            logging.error(error_msg)
-            
-            # Send base sheet fetch failures to Sentry
-            if SENTRY_DSN:
-                with sentry_sdk.configure_scope() as scope:
-                    scope.set_tag("error_type", "base_sheet_fetch_failure")
-                    scope.set_tag("base_sheet_id", str(base_id))
-                    scope.set_level("error")
-                    sentry_sdk.capture_exception(e)
-    
-    all_base_names = set(base_sheet_names.values())
-    
-    for base_id in base_sheet_ids:
-        if base_id not in base_sheet_names:
-            continue  # Skip if we couldn't fetch this base sheet
-            
-        base_name = base_sheet_names[base_id]
-        logging.info(f"Processing base sheet: {base_name} (ID: {base_id})")
-        
-        # Find all sheets that match this base sheet or are copies of it
-        # Use more precise matching to avoid cross-contamination between base sheets
-        # EXCLUDE any sheets with "Archive" in the name to avoid duplicate data
-        matching_sheets = []
-        for sheet in all_sheets.data:
-            # Skip if already processed
-            if sheet.id in processed_sheet_ids:
-                continue
-                
-            # Skip Archive sheets
-            if "Archive" in sheet.name:
-                continue
-            
-            # Match exact base sheet ID
-            if sheet.id == base_id:
-                matching_sheets.append(sheet)
-                continue
-            
-            # Skip if this sheet name is actually another base sheet
-            if sheet.name in all_base_names and sheet.name != base_name:
-                continue
-            
-            # Match copies more precisely - look for exact base name followed by copy indicators
-            # This prevents cross-matching between different base sheets
-            copy_patterns = [
-                f"{base_name} - Copy",
-                f"{base_name} Copy", 
-                f"{base_name}_Copy",
-                f"Copy of {base_name}",
-            ]
-            
-            # Also check if the sheet name starts with the base name followed by common separators
-            # BUT exclude sheets that are exactly matching other base sheet names
-            name_starts_with_base = False
-            if sheet.name == base_name:  # Exact match
-                name_starts_with_base = True
-            elif (sheet.name.startswith(f"{base_name} - ") or 
-                  sheet.name.startswith(f"{base_name}_") or 
-                  sheet.name.startswith(f"{base_name} (")):
-                # Make sure this sheet name is not exactly another base sheet name
-                if sheet.name not in all_base_names:
-                    name_starts_with_base = True
-                
-            if any(pattern in sheet.name for pattern in copy_patterns) or name_starts_with_base:
-                matching_sheets.append(sheet)
-        
-        if TEST_MODE:
-            print(f"\nBase Sheet: {base_name}")
-            print(f"   Found {len(matching_sheets)} matching sheets:")
-            for sheet in matching_sheets:
-                print(f"   - {sheet.name} (ID: {sheet.id})")
-            print()
-        
-        for sheet_info in matching_sheets:
-            try:
-                # Mark this sheet as processed to avoid duplicates
-                processed_sheet_ids.add(sheet_info.id)
-                
-                # Get full sheet details including columns
-                full_sheet = client.Sheets.get_sheet(sheet_info.id)
-                
-                # Create column mapping by matching column titles
-                column_mapping = {}
-                available_columns = []
-                for column in full_sheet.columns:
-                    available_columns.append(column.title)
-                    if column.title in column_name_mapping:
-                        column_mapping[column_name_mapping[column.title]] = column.id
-                
-                # Flexible column validation - require key columns but be forgiving about optional ones
-                required_columns = ['Work Request #', 'Weekly Reference Logged Date']  # Core columns only
-                recommended_columns = ['Foreman', 'Snapshot Date', 'Units Completed?', 'Units Total Price']  # Optional but preferred
-                
-                if TEST_MODE:
-                    print(f"\nAnalyzing Sheet: {full_sheet.name}")
-                    print(f"Available columns: {', '.join(available_columns[:10])}{'...' if len(available_columns) > 10 else ''}")
-                    print(f"Total columns found: {len(available_columns)}")
-                    missing_required = [col for col in required_columns if col not in column_mapping]
-                    missing_recommended = [col for col in recommended_columns if col not in column_mapping]
-                    if missing_required:
-                        print(f"Missing REQUIRED columns: {missing_required}")
-                    elif missing_recommended:
-                        print(f"⚠️ Missing recommended columns: {missing_recommended}")
-                    else:
-                        print(f"All required and recommended columns found!")
-                
-                # Only require core columns - be flexible about others
-                if all(col in column_mapping for col in required_columns):
-                    missing_recommended = [col for col in recommended_columns if col not in column_mapping]
-                    if missing_recommended:
-                        logging.info(f"Adding sheet {full_sheet.name} - missing optional columns: {missing_recommended}")
-                    else:
-                        logging.info(f"Adding sheet {full_sheet.name} - all columns present")
-                    
-                    discovered_sheets.append({
-                        "id": sheet_info.id,
-                        "name": full_sheet.name,
-                        "columns": column_mapping
-                    })
-                else:
-                    missing_required = [col for col in required_columns if col not in column_mapping]
-                    logging.warning(f"Skipping sheet {full_sheet.name} - missing REQUIRED columns: {missing_required}")
-                    
-            except Exception as e:
-                error_msg = f"Error processing sheet {sheet_info.id}: {e}"
-                logging.error(error_msg)
-                
-                # Send critical sheet processing errors to Sentry
-                if SENTRY_DSN:
-                    with sentry_sdk.configure_scope() as scope:
-                        scope.set_tag("error_type", "sheet_processing_failure")
-                        scope.set_tag("sheet_id", str(sheet_info.id))
-                        scope.set_extra("sheet_name", getattr(sheet_info, 'name', 'Unknown'))
-                        scope.set_level("error")
-                        sentry_sdk.capture_exception(e)
-                continue
-    
-    logging.info(f"Discovered {len(discovered_sheets)} total sheets for processing")
-    
-    if TEST_MODE and discovered_sheets:
-        print(f"\nFINAL DISCOVERED SHEETS (UNIQUE):")
-        print(f"{'='*70}")
-        unique_ids = set()
-        for i, sheet in enumerate(discovered_sheets, 1):
-            if sheet['id'] in unique_ids:
-                print(f"⚠️  DUPLICATE DETECTED: {sheet['name']} (ID: {sheet['id']})")
-            else:
-                unique_ids.add(sheet['id'])
-            print(f"{i}. Sheet: {sheet['name']}")
-            print(f"   ID: {sheet['id']}")
-            print(f"   Columns Found: {len(sheet['columns'])}")
-            print(f"   Required Columns: All present")
-        print(f"{'='*70}")
-        print(f"Summary: {len(unique_ids)} unique sheets, {len(discovered_sheets)} total entries")
-        if len(unique_ids) != len(discovered_sheets):
-            print(f"⚠️  WARNING: {len(discovered_sheets) - len(unique_ids)} duplicate entries detected!")
-        print()
-    
+    logging.info(f"⚡ Discovery complete: {len(discovered_sheets)} sheets with consistent column mapping")
     return discovered_sheets
-
-def parse_price(price_str):
-    """Safely converts a price string to a float."""
-    if not price_str: 
-        return 0.0
-    try:
-        return float(str(price_str).replace('$', '').replace(',', ''))
-    except (ValueError, TypeError) as e:
-        log_detailed_error(e, f"Failed to parse price: '{price_str}'", {
-            "input_value": str(price_str),
-            "input_type": type(price_str).__name__
-        })
-        return 0.0
-
-def is_checked(val):
-    """Checks if a value from a checkbox column is considered 'checked'."""
-    if isinstance(val, bool):
-        return val
-    if isinstance(val, int):
-        return val == 1
-    if isinstance(val, str):
-        return val.strip().lower() in ('true', 'checked', 'yes', '1')
-    return False
-
-def create_target_sheet_map(client):
-    """Creates a map of Work Request # to row objects from the target sheet."""
-    target_sheet = client.Sheets.get_sheet(TARGET_SHEET_ID, include=['attachments'])
-    target_map = {}
-    for row in target_sheet.rows:
-        wr_num_cell = row.get_column(TARGET_WR_COLUMN_ID)
-        if wr_num_cell and wr_num_cell.value:
-            # Get the integer part of the work request number for consistent matching
-            wr_key = str(wr_num_cell.value).split('.')[0]
-            target_map[wr_key] = row
-    return target_map
-
 def get_all_source_rows(client, source_sheets):
     """
     Fetches rows from all source sheets and applies all filtering criteria.
@@ -742,20 +489,18 @@ def get_all_source_rows(client, source_sheets):
     """
     merged_rows = []
     
-    if ULTRA_LIGHT_MODE:
-        logging.info("⚡ Ultra-Light Mode: Using minimal row processing for maximum speed")
-        # In ultra-light mode, process all 8 base sheets to get the full 550 rows
-        max_sheets = len(source_sheets)  # Process all sheets to get complete data
-        logging.info(f"⚡ Processing all {max_sheets} sheets to capture valid rows for current week ending")
+    logging.info("⚡ Using minimal row processing for maximum speed")
+    # Process all 8 base sheets to get the full 550 rows
+    max_sheets = len(source_sheets)  # Process all sheets to get complete data
+    logging.info(f"⚡ Processing all {max_sheets} sheets to capture valid rows for current week ending")
     
     for source in source_sheets:
         try:
             # Add timeout and retry logic for API resilience
-            if ULTRA_LIGHT_MODE:
-                # Ultra-light mode: Use minimal data fetching with targeted filtering
-                logging.info(f"⚡ Ultra-light processing: {source['name']} (ID: {source['id']})")
-                
-                try:
+            # Use minimal data fetching with targeted filtering
+            logging.info(f"⚡ Processing: {source['name']} (ID: {source['id']})")
+            
+            try:
                     # Step 1: Get only the columns we need (no rows yet)
                     sheet_columns = client.Sheets.get_sheet(source["id"], include='columns')
                     
@@ -2018,7 +1763,7 @@ def main():
                                 "audit_timestamp": run_started_at.isoformat(),
                                 "first_few_violations": audit_system._last_audit_entries[:5],
                                 "github_actions_mode": GITHUB_ACTIONS_MODE,
-                                "ultra_light_mode": ULTRA_LIGHT_MODE
+                                "unified_processing": True
                             })
                             
                             # Create detailed Sentry event for audit violations
@@ -2047,7 +1792,7 @@ def main():
                                 "total_rows_audited": len(all_valid_rows),
                                 "audit_timestamp": run_started_at.isoformat(),
                                 "github_actions_mode": GITHUB_ACTIONS_MODE,
-                                "ultra_light_mode": ULTRA_LIGHT_MODE
+                                "unified_processing": True
                             })
                             sentry_sdk.capture_message(
                                 f"AUDIT CLEAN: {len(all_valid_rows)} rows audited, no unauthorized changes detected",
