@@ -48,6 +48,27 @@ def financial_threshold_monitor(amount_field: str = 'Units Total Price', thresho
 EMAIL_TEMPLATES_AVAILABLE = False
 import inspect
 
+def parse_price(price_str):
+    """Safely convert a price string to a float."""
+    if not price_str:
+        return 0.0
+    try:
+        return float(str(price_str).replace('$', '').replace(',', ''))
+    except (ValueError, TypeError):
+        return 0.0
+
+def is_checked(value):
+    """Check if a checkbox value is considered checked/true."""
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value == 1
+    if isinstance(value, str):
+        return value.strip().lower() in ('true', 'checked', 'yes', '1', 'on')
+    return False
+
 # Configure logging to suppress Smartsheet SDK 404 errors (normal when cleaning up old attachments)
 logging.getLogger('smartsheet.smartsheet').setLevel(logging.CRITICAL)
 
@@ -408,8 +429,7 @@ def discover_source_sheets(client):
     Dynamically discovers source sheets based on the base sheet IDs and their duplicates.
     Returns an updated list of SOURCE_SHEETS with all discovered sheets and their column mappings.
     
-    ULTRA-LIGHT MODE: When GITHUB_ACTIONS=true, this function uses aggressive optimizations
-    to minimize API calls and reduce discovery time from minutes to seconds.
+    Optimized for efficient sheet discovery with minimal API calls and reduced discovery time.
     """
     base_sheet_ids = [3239244454645636, 2230129632694148, 1732945426468740, 4126460034895748, 7899446718189444, 1964558450118532, 5905527830695812, 820644963897220, 8002920231423876]
     
@@ -484,8 +504,7 @@ def get_all_source_rows(client, source_sheets):
     A row is considered valid if it has a Snapshot Date, a checked "Units Completed"
     box, and a Redlined Total Price greater than zero.
     
-    ULTRA-LIGHT MODE: Implements aggressive API optimizations to reduce fetch time
-    from minutes to seconds when GITHUB_ACTIONS=true.
+    Implements optimizations to reduce fetch time and improve performance.
     """
     merged_rows = []
     
@@ -501,32 +520,32 @@ def get_all_source_rows(client, source_sheets):
             logging.info(f"⚡ Processing: {source['name']} (ID: {source['id']})")
             
             try:
-                    # Step 1: Get only the columns we need (no rows yet)
-                    sheet_columns = client.Sheets.get_sheet(source["id"], include='columns')
-                    
-                    # Step 2: Use the column mappings we already have from discovery
-                    date_column_id = source['columns'].get('Weekly Reference Logged Date')
-                    
-                    if not date_column_id:
-                        logging.warning(f"⚡ No date column found in sheet {source['id']}, skipping")
+                # Step 1: Get only the columns we need (no rows yet)
+                sheet_columns = client.Sheets.get_sheet(source["id"], include='columns')
+                
+                # Step 2: Use the column mappings we already have from discovery
+                date_column_id = source['columns'].get('Weekly Reference Logged Date')
+                
+                if not date_column_id:
+                    logging.warning(f"⚡ No date column found in sheet {source['id']}, skipping")
+                    continue
+                
+                # Step 3: Get sheet with pagination to reduce memory usage
+                # Only fetch rows, not all metadata
+                sheet = client.Sheets.get_sheet(
+                    source["id"],
+                    page_size=1000,  # Process in chunks
+                    include='objectValue'  # Minimal data
+                )
+                
+                logging.info(f"⚡ Processing {len(sheet.rows)} rows with early filtering")
+                
+                # Step 4: Apply multiple filters in order of selectivity (most selective first)
+                found_rows = 0
+                for row in sheet.rows:
+                    # Quick empty row check
+                    if not row.cells:
                         continue
-                    
-                    # Step 3: Get sheet with pagination to reduce memory usage
-                    # Only fetch rows, not all metadata
-                    sheet = client.Sheets.get_sheet(
-                        source["id"],
-                        page_size=1000,  # Process in chunks
-                        include='objectValue'  # Minimal data
-                    )
-                    
-                    logging.info(f"⚡ Processing {len(sheet.rows)} rows with early filtering")
-                    
-                    # Step 4: Apply multiple filters in order of selectivity (most selective first)
-                    found_rows = 0
-                    for row in sheet.rows:
-                        # Quick empty row check
-                        if not row.cells:
-                            continue
                             
                         cell_map = {c.column_id: c.value for c in row.cells if c.value is not None}
                         if not cell_map:
@@ -563,20 +582,18 @@ def get_all_source_rows(client, source_sheets):
                     
                     logging.info(f"⚡ Found {found_rows} valid rows in sheet {source['id']}")
                     
-                except Exception as e:
-                    error_msg = f"⚡ Ultra-light mode failed for sheet {source['id']}: {e}"
-                    logging.warning(error_msg)
-                    
-                    # Send ultra-light processing failures to Sentry
-                    if SENTRY_DSN:
-                        with sentry_sdk.configure_scope() as scope:
-                            scope.set_tag("error_type", "ultra_light_processing_failure")
-                            scope.set_tag("sheet_id", str(source['id']))
-                            scope.set_level("warning")
-                            sentry_sdk.capture_exception(e)
-                continue
-            
-            # NORMAL MODE PROCESSING
+            except Exception as e:
+                error_msg = f"⚡ Sheet processing failed for sheet {source['id']}: {e}"
+                logging.warning(error_msg)
+                
+                # Send sheet processing failures to Sentry
+                if SENTRY_DSN:
+                    with sentry_sdk.configure_scope() as scope:
+                        scope.set_tag("error_type", "sheet_processing_failure")
+                        scope.set_tag("sheet_id", str(source['id']))
+                        scope.set_level("warning")
+                        sentry_sdk.capture_exception(e)
+                continue            # NORMAL MODE PROCESSING
             sheet = client.Sheets.get_sheet(source["id"])
             col_map = source["columns"]
             logging.info(f"Processing Sheet: {sheet.name} (ID: {source['id']})")
@@ -1558,8 +1575,8 @@ def log_detailed_error(error, context="", additional_data=None):
         elif "base_sheet_fetch_failure" in str(additional_data):
             error_type = "base_sheet_fetch_failure"
             email_data = additional_data or {}
-        elif "ultra_light_processing_failure" in str(additional_data):
-            error_type = "ultra_light_processing_failure"
+        elif "sheet_processing_failure" in str(additional_data):
+            error_type = "sheet_processing_failure"
             email_data = additional_data or {}
         elif "attachment_deletion_failure" in str(additional_data):
             error_type = "attachment_deletion_failure"
@@ -1681,7 +1698,7 @@ def main():
 
         logging.info("--- Starting Report Generation Process ---")
         
-        # Initialize audit system with resilience mode for ultra-light performance
+        # Initialize audit system with optimized performance settings
         run_started_at = datetime.datetime.now(datetime.timezone.utc)
         
         # Skip audit system if disabled for testing (much faster)
