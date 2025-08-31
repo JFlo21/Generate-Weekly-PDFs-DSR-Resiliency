@@ -39,17 +39,14 @@ load_dotenv()
 
 # Import audit system with error handling
 try:
-    from audit_billing_changes import BillingAudit  # type: ignore
+    from audit_billing_changes import BillingAudit
     AUDIT_SYSTEM_AVAILABLE = True
     print("🔍 Billing audit system loaded successfully")
 except ImportError as e:
     print(f"⚠️ Billing audit system not available: {e}")
     AUDIT_SYSTEM_AVAILABLE = False
-    class BillingAudit:
-        def __init__(self, *args, **kwargs):
-            pass
-        def audit_financial_data(self, *args, **kwargs):
-            return {"summary": {"risk_level": "UNKNOWN"}}
+    # Remove duplicate class definition to avoid type conflicts
+    BillingAudit = None
 
 # Configure logging early
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -634,20 +631,17 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
 
     def write_day_block(start_row, day_name, date_obj, day_rows):
         """FIXED: Write daily data blocks with proper cell handling."""
-        # Assign value BEFORE merging cells
+        ws.merge_cells(start_row=start_row, start_column=1, end_row=start_row, end_column=8)
         day_header_cell = ws.cell(row=start_row, column=1)
-        day_header_cell.value = f"{day_name} ({date_obj.strftime('%m/%d/%Y')})"  # type: ignore
+        day_header_cell.value = f"{day_name} ({date_obj.strftime('%m/%d/%Y')})"
         day_header_cell.font = BLOCK_HEADER_FONT
         day_header_cell.fill = RED_FILL
         day_header_cell.alignment = Alignment(horizontal='left', vertical='center')
         
-        # Now merge the cells
-        ws.merge_cells(start_row=start_row, start_column=1, end_row=start_row, end_column=8)
-        
         headers = ["Point Number", "Billable Unit Code", "Work Type", "Unit Description", "Unit of Measure", "# Units", "N/A", "Pricing"]
         for col_num, header in enumerate(headers, 1):
             cell = ws.cell(row=start_row+1, column=col_num)
-            cell.value = header  # type: ignore
+            cell.value = header
             cell.font = TABLE_HEADER_FONT
             cell.fill = RED_FILL
             cell.alignment = Alignment(horizontal='center', wrap_text=True, vertical='center')
@@ -688,19 +682,15 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
             ws.cell(row=crow, column=8).number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
 
         total_row = start_row + 2 + len(day_rows)
-        
-        # Assign value BEFORE merging cells
+        ws.merge_cells(start_row=total_row, start_column=1, end_row=total_row, end_column=7)
         total_label_cell = ws.cell(row=total_row, column=1)
-        total_label_cell.value = "TOTAL"  # type: ignore
+        total_label_cell.value = "TOTAL"
         total_label_cell.font = TABLE_HEADER_FONT
         total_label_cell.alignment = Alignment(horizontal='right')
         total_label_cell.fill = RED_FILL
-        
-        # Now merge the cells
-        ws.merge_cells(start_row=total_row, start_column=1, end_row=total_row, end_column=7)
 
         total_value_cell = ws.cell(row=total_row, column=8)
-        total_value_cell.value = total_price_day  # type: ignore
+        total_value_cell.value = total_price_day
         total_value_cell.number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
         total_value_cell.font = TABLE_HEADER_FONT
         total_value_cell.fill = RED_FILL
