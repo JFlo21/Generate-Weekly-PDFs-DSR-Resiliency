@@ -1,7 +1,7 @@
 {
-  "timestamp": "2025-09-01T21:00:50.015054",
+  "timestamp": "2025-09-01T21:18:47.684283",
   "checks": {
-    "dependencies": "PASS",
+    "dependencies": "FAIL",
     "core_files": "PASS",
     "configuration": "FAIL",
     "import_integrity": "PASS",
@@ -9,6 +9,7 @@
   },
   "overall_status": "CRITICAL",
   "critical_issues": [
+    "Missing dependencies: ['smartsheet', 'openpyxl', 'pandas', 'sentry_sdk', 'dotenv']",
     "No .env file found and SMARTSHEET_API_TOKEN not set"
   ],
   "warnings": []
