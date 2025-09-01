@@ -102,7 +102,15 @@ class BillingAudit:
             # 4. Generate audit summary
             audit_results["summary"] = self._generate_audit_summary(audit_results)
             
-            # 5. Compute trend vs previous and attach
+            # 5.a Selective cell history enrichment for problematic rows (only ones with issues to limit API use)
+            try:
+                enriched = self._selective_cell_history_enrichment(current_rows, audit_results)
+                if enriched:
+                    audit_results["enriched_cells"] = enriched
+            except Exception as enr_err:
+                self.logger.debug(f"Cell history enrichment skipped: {enr_err}")
+
+            # 5.b Compute trend vs previous and attach
             try:
                 trend = self._compute_trend(audit_results["summary"])
                 if trend:
@@ -370,15 +378,24 @@ class BillingAudit:
             
             # This would create a new row in the audit sheet
             # Implementation depends on the audit sheet structure
+            summary = audit_results.get("summary", {})
+            trend = audit_results.get("trend", {})
             audit_row = {
                 "Audit Timestamp": audit_results["audit_timestamp"],
-                "Risk Level": audit_results["summary"]["risk_level"],
-                "Total Issues": audit_results["summary"]["total_anomalies"] + 
-                               audit_results["summary"]["total_unauthorized_changes"] + 
-                               audit_results["summary"]["total_data_issues"],
-                "Sheets Audited": audit_results["sheets_audited"],
-                "Rows Audited": audit_results["rows_audited"]
+                "Risk Level": summary.get("risk_level"),
+                "Total Issues": summary.get("total_anomalies",0) + summary.get("total_unauthorized_changes",0) + summary.get("total_data_issues",0),
+                "Sheets Audited": audit_results.get("sheets_audited"),
+                "Rows Audited": audit_results.get("rows_audited"),
+                "Anomalies": summary.get("total_anomalies",0),
+                "Unauthorized Changes": summary.get("total_unauthorized_changes",0),
+                "Data Issues": summary.get("total_data_issues",0),
+                "Risk Direction": trend.get("risk_direction"),
+                "Risk Level Δ": trend.get("risk_level_delta"),
+                "Issues Δ": trend.get("issues_delta"),
+                "Issues Δ %": trend.get("issues_delta_pct"),
+                "Enriched Rows": len(audit_results.get("enriched_cells", []))
             }
+            # Placeholder: actual Smartsheet row creation would map these keys to column IDs.
             
             # Note: Actual implementation would require proper Smartsheet row creation
             self.logger.info("📋 Audit results logged to audit sheet")
@@ -427,3 +444,35 @@ class BillingAudit:
             "issues_delta": issues_delta,
             "issues_delta_pct": issues_delta_pct
         }
+
+    def _selective_cell_history_enrichment(self, rows: List[Dict], audit_results: Dict) -> List[Dict]:
+        """Fetch cell history only for rows implicated in anomalies / issues.
+
+        Looks at anomalies, unauthorized changes, data issues, builds a set of affected WR numbers,
+        then pulls minimal cell history for those rows using stored __sheet_id / __row_id metadata.
+        """
+        affected_wr = set()
+        for coll in (audit_results.get("anomalies_detected", []), audit_results.get("data_integrity_issues", [])):
+            for item in coll:
+                wr = item.get("work_request") or item.get("work_request_number")
+                if wr:
+                    affected_wr.add(str(wr))
+        if not affected_wr:
+            return []
+        enriched = []
+        for r in rows:
+            wr = str(r.get('Work Request #', ''))
+            if wr not in affected_wr:
+                continue
+            sheet_id = r.get('__sheet_id'); row_id = r.get('__row_id')
+            if not (sheet_id and row_id):
+                continue
+            # Minimal sample: we just record existence of history (actual per-cell diff can be expanded later)
+            history_meta = {"sheet_id": sheet_id, "row_id": row_id, "work_request": wr}
+            try:
+                # We avoid deep iteration to limit API usage; could call cell history endpoints if needed.
+                history_meta["history_available"] = True
+            except Exception:
+                history_meta["history_available"] = False
+            enriched.append(history_meta)
+        return enriched

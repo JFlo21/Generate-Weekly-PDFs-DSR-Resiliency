@@ -590,6 +590,11 @@ def get_all_source_rows(client, source_sheets):
                                 row_data[mapped_name] = raw_val
                                 break
 
+                    # Attach provenance metadata for audit (used to fetch selective cell history later)
+                    if row_data:
+                        row_data['__sheet_id'] = source['id']
+                        row_data['__row_id'] = row.id
+
                     # Essential field summary for earliest rows
                     if global_row_counter < DEBUG_ESSENTIAL_ROWS:
                         essential_fields = [
