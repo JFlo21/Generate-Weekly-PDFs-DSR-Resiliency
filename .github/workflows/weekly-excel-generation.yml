@@ -5,331 +5,97 @@ permissions:
 
 on:
   schedule:
-    # Production billing system - Run every 2 hours during business hours (Monday-Friday)
-    # 7 AM - 7 PM CST (13:00 - 01:00 UTC next day) for real-time billing updates
-    - cron: '0 13,15,17,19,21,23,1 * * 1-5'  # Every 2 hours Mon-Fri business hours CST
-    
-    # Weekend reduced frequency - Every 4 hours (Saturday-Sunday)
-    # 9 AM, 1 PM, 5 PM CST (15:00, 19:00, 23:00 UTC) for weekend coverage
-    - cron: '0 15,19,23 * * 0,6'  # Every 4 hours weekends CST
-    
-    # Weekly comprehensive report - Sunday at 11 PM CST (Monday 5 AM UTC)
-    # This ensures complete weekly reports capture the full work week (Monday-Sunday)
-    - cron: '0 5 * * 1'   # Weekly comprehensive on Monday at 5 AM UTC (Sunday 11 PM CST)
-  
-  # Allow manual triggering for testing and immediate report generation
+    - cron: '0 13,15,17,19,21,23,1 * * 1-5'
+    - cron: '0 15,19,23 * * 0,6'
+    - cron: '0 5 * * 1'
   workflow_dispatch:
     inputs:
       test_mode:
-        description: 'Run in test mode (true/false) - Production mode will upload to Smartsheet'
+        description: 'Run in test mode (true/false)'
         required: false
         default: 'false'
         type: choice
-        options:
-        - 'false'
-        - 'true'
+        options: ['false','true']
       force_generation:
-        description: 'Force generate reports even if no eligible data found'
+        description: 'Force generate even if no eligible data'
         required: false
         default: 'false'
         type: choice
-        options:
-        - 'false'
-        - 'true'
-      enable_ai_analysis:
-        description: 'Enable AI analysis (disabled - not available in current version)'
+        options: ['false','true']
+      cleanup_only:
+        description: 'Only cleanup stale Excel files (no generation)'
         required: false
         default: 'false'
         type: choice
-        options:
-        - 'false'
+        options: ['false','true']
 
 env:
-  # Central Time Zone for logging purposes
   TZ: America/Chicago
 
 jobs:
-  core-excel-generation:
+  core:
     runs-on: ubuntu-latest
-    
-    # Optimized timeout for core system with Sentry monitoring
-    timeout-minutes: 25  # Increased for complete processing of all work request groups
-    
-    # Environment variables for comprehensive system
+    timeout-minutes: 20
     env:
       PYTHONUNBUFFERED: 1
-      TF_CPP_MIN_LOG_LEVEL: 3  # Suppress TensorFlow warnings for cleaner logs
-      OMP_NUM_THREADS: 4       # Optimize for 4-core GitHub runner
-      OPENBLAS_NUM_THREADS: 4  # Optimize NumPy operations for CPU
-      # Production system control variables
       GITHUB_ACTIONS: 'true'
-      ENABLE_HEAVY_AI: ${{ github.event.inputs.enable_ai_analysis || 'false' }}
-      SKIP_CELL_HISTORY: 'true'  # API resilience - skip problematic calls in GitHub Actions
-    
+      SKIP_CELL_HISTORY: 'true'
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
-      
-    - name: Setup Python Environment
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-        
-    - name: Cache Python Dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-production-${{ hashFiles('requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-production-
-          ${{ runner.os }}-pip-
-        
-    - name: Install System Dependencies
-      run: |
-        echo "🔧 Installing Excel Generation System Dependencies..."
-        python -m pip install --upgrade pip
-        
-        # Install production dependencies for unified system
-        echo "⚡ Production Mode: Installing unified dependencies for consistent behavior"
-        pip install -r requirements.txt
-        
-        echo "✅ Production System Installed:"
-        echo "   • Complete Excel generation and Smartsheet integration"
-        echo "   • Sentry monitoring with SDK 2.35.0+ compatibility" 
-        echo "   • Full business logic validation and auditing"
-        echo "   • Unified processing for consistent behavior"
-        
-        # Verify core system components
-        python -c "import sentry_sdk; print('✅ Sentry monitoring ready')"
-        python -c "import smartsheet; print('✅ Smartsheet integration ready')"
-        python -c "import openpyxl; print('✅ Excel generation ready')"
-        
-    - name: Verify System Time and Execution Context
-      run: |
-        echo "Current UTC time: $(date -u)"
-        echo "Current Central time: $(TZ=America/Chicago date)"
-        echo "Execution mode: Weekly comprehensive Excel generation"
-        
-    - name: Check Execution Conditions
-      id: execution_check
-      run: |
-        # Get current time info in Central Time
-        current_day=$(TZ=America/Chicago date +%w)
-        current_hour=$(TZ=America/Chicago date +%H)
-        current_date=$(TZ=America/Chicago date +%Y-%m-%d)
-        
-        echo "Current day of week: $current_day (0=Sunday, 1=Monday)"
-        echo "Current hour (Central): $current_hour"
-        echo "Current date: $current_date"
-        
-        # Determine execution type based on schedule
-        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          echo "🔧 Manual trigger - executing comprehensive generation"
-          echo "execution_type=manual" >> $GITHUB_OUTPUT
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Determine execution type
+        id: exec
+        run: |
+          day=$(TZ=America/Chicago date +%w)
+          hour=$(TZ=America/Chicago date +%H)
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then t=manual
+          elif [ $day -ge 1 ] && [ $day -le 5 ]; then t=production_frequent
+          elif [ $day -eq 0 ] || [ $day -eq 6 ]; then t=weekend_maintenance
+          else t=scheduled; fi
+          if [ $day -eq 1 ] && [ $hour -eq 23 ]; then t=weekly_comprehensive; fi
+          echo "execution_type=$t" >> $GITHUB_OUTPUT
           echo "should_run=true" >> $GITHUB_OUTPUT
-        elif [ "$current_day" -ge 1 ] && [ "$current_day" -le 5 ]; then
-          # Monday-Friday: Business hours every 2 hours
-          echo "⚡ Business hours production run - every 2 hours for real-time billing"
-          echo "execution_type=production_frequent" >> $GITHUB_OUTPUT
-          echo "should_run=true" >> $GITHUB_OUTPUT
-        elif [ "$current_day" -eq 0 ] || [ "$current_day" -eq 6 ]; then
-          # Weekend: Every 4 hours
-          echo "📅 Weekend maintenance run - every 4 hours for coverage"
-          echo "execution_type=weekend_maintenance" >> $GITHUB_OUTPUT
-          echo "should_run=true" >> $GITHUB_OUTPUT
-        elif [ "$current_day" -eq 1 ] && [ "$current_hour" -eq 23 ]; then
-          # Weekly comprehensive report (Sunday 11 PM CST = Monday 5 AM UTC)
-          echo "📊 Weekly comprehensive report generation"
-          echo "execution_type=weekly_comprehensive" >> $GITHUB_OUTPUT
-          echo "should_run=true" >> $GITHUB_OUTPUT
-        else
-          echo "⏰ Scheduled execution - real-time billing system"
-          echo "execution_type=scheduled" >> $GITHUB_OUTPUT
-          echo "should_run=true" >> $GITHUB_OUTPUT
-        fi
-        
-        echo "run_id=$(date +%Y%m%d-%H%M)" >> $GITHUB_OUTPUT
-        
-    - name: Set Production Mode
-      if: steps.execution_check.outputs.should_run == 'true' && github.event.inputs.test_mode != 'true'
-      run: |
-        # Set TEST_MODE to False for production runs
-        sed -i 's/TEST_MODE = True/TEST_MODE = False/' generate_weekly_pdfs.py
-        echo "✅ Set to PRODUCTION mode - files will be generated and uploaded to Smartsheet"
-        echo "🔍 Sentry monitoring active for production error tracking"
-        
-    - name: Keep Test Mode
-      if: github.event.inputs.test_mode == 'true'
-      run: |
-        echo "🧪 Keeping TEST_MODE = True for test run"
-        echo "Files will be generated locally but NOT uploaded to Smartsheet"
-        echo "🔍 Sentry monitoring will track test execution for debugging"
-        
-    - name: Core Excel Generation with Sentry Monitoring (Every 2 Hours + Weekly)
-      if: steps.execution_check.outputs.should_run == 'true'
-      env:
-        # GitHub Secrets - DO NOT put actual values here
-        SMARTSHEET_API_TOKEN: ${{ secrets.SMARTSHEET_API_TOKEN }}
-        SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
-        AUDIT_SHEET_ID: ${{ secrets.AUDIT_SHEET_ID }}
-        # System configuration
-        GITHUB_ACTIONS: 'true'
-        SKIP_CELL_HISTORY: 'true'  # Skip cell history API calls for reliability
-        ENVIRONMENT: 'production'
-        RELEASE: ${{ github.sha }}
-        FORCE_GENERATION: ${{ github.event.inputs.force_generation || 'false' }}
-        EXECUTION_TYPE: ${{ steps.execution_check.outputs.execution_type }}
-      run: |
-        echo "🔍 Starting Core Excel Generation System..."
-        echo "===================================================================================="
-        
-        # Display execution type specific information
-        case "${{ steps.execution_check.outputs.execution_type }}" in
-          "production_frequent")
-            echo "⚡ PRODUCTION FREQUENT RUN (Every 2 Hours - Business Days)"
-            echo "🎯 PURPOSE: Real-time billing system updates for customer responsiveness"
-            echo "📅 SCHEDULE: Monday-Friday, 7 AM - 7 PM CST (every 2 hours)"
-            echo "🔄 FREQUENCY: High-frequency updates for production billing needs"
-            ;;
-          "weekend_maintenance")
-            echo "📅 WEEKEND MAINTENANCE RUN (Every 4 Hours - Weekends)"
-            echo "🎯 PURPOSE: Weekend coverage for continuous system operation"
-            echo "📅 SCHEDULE: Saturday-Sunday, 9 AM, 1 PM, 5 PM CST"
-            echo "🔄 FREQUENCY: Reduced frequency for weekend maintenance"
-            ;;
-          "weekly_comprehensive")
-            echo "📊 WEEKLY COMPREHENSIVE REPORT (Sunday 11 PM CST)"
-            echo "🎯 PURPOSE: Complete weekly reporting and data archival"
-            echo "📅 SCHEDULE: Sunday nights for full week capture"
-            echo "🔄 FREQUENCY: Weekly comprehensive analysis"
-            ;;
-          "manual")
-            echo "🔧 MANUAL EXECUTION"
-            echo "🎯 PURPOSE: On-demand testing and immediate report generation"
-            echo "🔄 FREQUENCY: User-initiated"
-            ;;
-          *)
-            echo "⏰ SCHEDULED PRODUCTION RUN"
-            echo "🎯 PURPOSE: Real-time billing system operation"
-            ;;
-        esac
-        
-        echo ""
-        echo "🎯 CORE SYSTEM FEATURES:"
-        echo "   • Sentry monitoring with SDK 2.35.0+ compatibility"
-        echo "   • Core business logic validation"
-        echo "   • Professional Excel generation with essential formatting"
-        echo "   • Reliable one-work-request-per-file grouping"
-        echo "   • Real-time error detection and reporting"
-        echo ""
-        echo "🔒 BUSINESS LOGIC PROTECTION:"
-        echo "   • Each Excel file contains ONLY one work request per week ending date"
-        echo "   • Core validation prevents grouping logic issues"
-        echo "   • Sentry alerting for system violations"
-        echo "   • Essential debugging with error context"
-        echo ""
-        echo "📊 CORE BILLING SYSTEM ARCHITECTURE:"
-        echo "   • Phase 1: Secure data discovery with API resilience"
-        echo "   • Phase 2: Protected grouping with core validation"
-        echo "   • Phase 3: Professional Excel generation with monitoring"
-        echo "   • Phase 4: Smartsheet upload with error tracking"
-        echo ""
-        echo "Current execution time: $(TZ=America/Chicago date)"
-        
-        # Verify required secrets
-        if [ -z "$SMARTSHEET_API_TOKEN" ]; then
-          echo "❌ ERROR: SMARTSHEET_API_TOKEN secret not found"
-          echo "Please add your Smartsheet API token as a repository secret"
-          echo "Go to: Repository Settings → Secrets and variables → Actions → New repository secret"
-          echo "Name: SMARTSHEET_API_TOKEN"
-          echo "Value: [Your Smartsheet API token]"
-          exit 1
-        fi
-        
-        if [ -z "$SENTRY_DSN" ]; then
-          echo "⚠️ WARNING: SENTRY_DSN secret not found"
-          echo "Enhanced error monitoring will be disabled"
-          echo "To enable full monitoring capabilities:"
-          echo "1. Create a Sentry account at https://sentry.io"
-          echo "2. Create a new project for error monitoring"
-          echo "3. Copy the DSN from your Sentry project settings"
-          echo "4. Add SENTRY_DSN as a GitHub repository secret"
-          echo "Go to: Repository Settings → Secrets and variables → Actions → New repository secret"
-          echo "Name: SENTRY_DSN"
-          echo "Value: [Your Sentry DSN URL]"
-        else
-          echo "✅ SENTRY_DSN configured - Enhanced error monitoring enabled"
-        fi
-        
-        # Execute the core system
-        echo "🚀 Executing Core Excel Generation System..."
-        echo "📋 Running with Sentry monitoring and core business logic validation"
-        
-        # Run the main system with monitoring
-        python generate_weekly_pdfs.py
-        
-        # Log completion with summary
-        echo "✅ Core Excel generation system completed at $(TZ=America/Chicago date)"
-        echo "🔍 MONITORING: Sentry tracking with error context"
-        echo "📊 EXCEL: Professional reports with core grouping logic"
-        echo "🛡️ VALIDATION: Core business rules enforced"
-        echo "⚡ RELIABILITY: Optimized for GitHub Actions stability"
-        
-    - name: Upload Generated Excel Reports
-      if: always() && steps.execution_check.outputs.should_run == 'true'
-      uses: actions/upload-artifact@v4
-      with:
-        name: excel-reports-${{ steps.execution_check.outputs.execution_type }}-${{ github.run_number }}
-        path: generated_docs/
-        retention-days: 15  # Reduced retention for frequent runs
-        
-    - name: Log Core System Execution Summary
-      if: always()
-      run: |
-        echo "🎯 CORE EXCEL GENERATION SYSTEM SUMMARY"
-        echo "======================================="
-        echo "Trigger: ${{ github.event_name }}"
-        echo "Execution Type: ${{ steps.execution_check.outputs.execution_type }}"
-        echo "Time: $(TZ=America/Chicago date)"
-        echo "Should run: ${{ steps.execution_check.outputs.should_run }}"
-        echo "Test mode: ${{ github.event.inputs.test_mode }}"
-        echo ""
-        echo "🚀 CORE BILLING SYSTEM SCHEDULE:"
-        echo "⚡ Business Hours: Every 2 hours (Mon-Fri, 7 AM - 7 PM CST)"
-        echo "📅 Weekends: Every 4 hours (Sat-Sun, 9 AM, 1 PM, 5 PM CST)"
-        echo "📊 Weekly Reports: Sunday 11 PM CST (comprehensive)"
-        echo ""
-        echo "🚀 CORE SYSTEM FEATURES EXECUTED:"
-        echo "✅ SENTRY MONITORING: Error reporting with SDK 2.35.0+ compatibility"
-        echo "✅ BUSINESS LOGIC: Core validation and monitoring"
-        echo "✅ EXCEL GENERATION: Professional reports with essential formatting"
-        echo "✅ SMARTSHEET INTEGRATION: Reliable uploads with error resilience"
-        echo "✅ ERROR TRACKING: Immediate alerts for system violations"
-        echo "⚡ Performance: Optimized for frequent production runs and GitHub Actions reliability"
-        echo ""
-        
-        if [ -d "generated_docs" ]; then
-          echo "📁 Core system generated files:"
-          file_count=$(find generated_docs/ -name "*.xlsx" -type f | wc -l)
-          echo "   📊 Excel Reports: $file_count (with Sentry monitoring)"
-          echo "   🔍 Core Validation: Protected against business logic issues"
-          echo "   🎯 Error Tracking: Essential debugging information"
-          echo "   🛡️ Business Rules: Enforced with monitoring"
-          ls -la generated_docs/ 2>/dev/null || echo "Directory access limited"
-        else
-          echo "❌ No generated_docs directory found - check system execution"
-        fi
-        
-        echo ""
-        echo "🔒 BUSINESS LOGIC PROTECTION: One work request per Excel file enforced"
-        echo "🚀 PRODUCTION READY: Real-time billing system with every-2-hour updates"
-        echo "⚡ FREQUENCY: High-frequency business hours + weekend maintenance + weekly comprehensive"
-
-    - name: Skip Execution
-      if: steps.execution_check.outputs.should_run != 'true' && github.event_name != 'workflow_dispatch'
-      run: |
-        echo "⏭️ No execution needed at this time"
-        echo "Production billing system runs:"
-        echo "   ⚡ Every 2 hours during business hours (Mon-Fri)"
-        echo "   📅 Every 4 hours on weekends"
-        echo "   📊 Weekly comprehensive reports (Sunday nights)"
+      - name: Generate reports
+        if: steps.exec.outputs.should_run == 'true' && github.event.inputs.cleanup_only != 'true'
+        env:
+          SMARTSHEET_API_TOKEN: ${{ secrets.SMARTSHEET_API_TOKEN }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          ENVIRONMENT: production
+          RELEASE: ${{ github.sha }}
+          TEST_MODE: ${{ github.event.inputs.test_mode }}
+          FORCE_GENERATION: ${{ github.event.inputs.force_generation }}
+          EXECUTION_TYPE: ${{ steps.exec.outputs.execution_type }}
+        run: python generate_weekly_pdfs.py
+      - name: Cleanup only
+        if: steps.exec.outputs.should_run == 'true' && github.event.inputs.cleanup_only == 'true'
+        run: |
+          python cleanup_excels.py
+      - name: Upload artifacts
+        if: always() && steps.exec.outputs.should_run == 'true' && github.event.inputs.cleanup_only != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: excel-reports-${{ steps.exec.outputs.execution_type }}-${{ github.run_number }}
+          path: generated_docs/
+          retention-days: 15
+      - name: Summary
+        if: always()
+        run: |
+          echo "Execution Type: ${{ steps.exec.outputs.execution_type }}"
+          echo "Test Mode: ${{ github.event.inputs.test_mode }}"
+          echo "Cleanup Only: ${{ github.event.inputs.cleanup_only }}"
+          if [ -d generated_docs ]; then ls -1 generated_docs | head -n 25; fi

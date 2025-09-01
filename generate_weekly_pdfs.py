@@ -22,7 +22,6 @@ import logging
 from dateutil import parser
 import smartsheet
 import openpyxl
-import pandas as pd
 from openpyxl.styles import Font, numbers, Alignment, PatternFill
 from openpyxl.drawing.image import Image
 import collections
@@ -33,9 +32,17 @@ from sentry_sdk.integrations.logging import LoggingIntegration
 import traceback
 import sys
 import inspect
+import json
+import signal
 
 # Load environment variables
 load_dotenv()
+
+# Suppress BrokenPipeError when piping output (e.g. | head, | grep -m) so it doesn't surface as an exception
+try:
+    signal.signal(signal.SIGPIPE, signal.SIG_DFL)  # type: ignore[attr-defined]
+except Exception:
+    pass
 
 # Import audit system with error handling
 try:
@@ -56,8 +63,6 @@ print("✅ CRITICAL FIXES APPLIED:")
 print("   • WR 90093002 Excel generation fix - ACTIVE")
 print("   • WR 89954686 specific handling - ACTIVE")
 print("   • MergedCell assignment errors - FIXED")
-print("   • Relaxed data filtering - ENABLED")
-print("   • Always create new files - ENABLED")
 print("   • Type ignore comments - APPLIED")
 print("🚀 SYSTEM READY FOR PRODUCTION")
 print("=" * 60)
@@ -72,14 +77,62 @@ SKIP_CELL_HISTORY = os.getenv('SKIP_CELL_HISTORY', 'false').lower() == 'true'
 
 # --- CORE CONFIGURATION ---
 API_TOKEN = os.getenv("SMARTSHEET_API_TOKEN")
-TARGET_SHEET_ID = 5723337641643908
-TARGET_WR_COLUMN_ID = 7941607783092100
+# TARGET / AUDIT SHEET CONFIGURATION
+# TARGET_SHEET_ID: destination for generated weekly Excel report attachments
+# AUDIT_SHEET_ID (or legacy BILLING_AUDIT_SHEET_ID): destination for audit rows / stats ONLY
+_target_sheet_id_env = os.getenv("TARGET_SHEET_ID")
+AUDIT_SHEET_ID = os.getenv("AUDIT_SHEET_ID") or os.getenv("BILLING_AUDIT_SHEET_ID")
+
+def _coerce_sheet_id(raw_value, default=None):
+    if not raw_value:
+        return default
+    try:
+        return int(raw_value)
+    except (TypeError, ValueError):
+        logging.warning(f"⚠️ Invalid sheet id value provided: {raw_value}; using default {default}")
+        return default
+
+TARGET_SHEET_ID = _coerce_sheet_id(_target_sheet_id_env, 5723337641643908)
+_audit_sheet_id_int = _coerce_sheet_id(AUDIT_SHEET_ID) if AUDIT_SHEET_ID else None
+
+if _target_sheet_id_env:
+    logging.info(f"🎯 Using target sheet id: {TARGET_SHEET_ID} (from env TARGET_SHEET_ID)")
+else:
+    logging.info(f"🎯 Using default target sheet id: {TARGET_SHEET_ID}")
+
+if _audit_sheet_id_int:
+    logging.info(f"🧾 Audit sheet configured: {_audit_sheet_id_int}")
+else:
+    logging.info("🧾 Audit sheet not configured (set AUDIT_SHEET_ID to enable detailed audit logging to Smartsheet)")
+
+# Export AUDIT_SHEET_ID into env-compatible form for BillingAudit (which reads os.getenv inside its module)
+if _audit_sheet_id_int and not os.getenv("AUDIT_SHEET_ID"):
+    os.environ["AUDIT_SHEET_ID"] = str(_audit_sheet_id_int)
+
+# TARGET_WR_COLUMN_ID removed (unused)
 LOGO_PATH = "LinetecServices_Logo.png"
 OUTPUT_FOLDER = "generated_docs"
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-# Test/Production modes
-TEST_MODE = True   # Set to False for production uploads to Smartsheet
+# Optional performance/test tuning via environment (must come AFTER OUTPUT_FOLDER defined)
+WR_FILTER = [w.strip() for w in os.getenv('WR_FILTER','').split(',') if w.strip()]
+MAX_GROUPS = int(os.getenv('MAX_GROUPS','0') or 0)
+QUIET_LOGGING = os.getenv('QUIET_LOGGING','0').lower() in ('1','true','yes')
+USE_DISCOVERY_CACHE = os.getenv('USE_DISCOVERY_CACHE','1').lower() in ('1','true','yes')
+DISCOVERY_CACHE_TTL_MIN = int(os.getenv('DISCOVERY_CACHE_TTL_MIN','60') or 60)
+DISCOVERY_CACHE_PATH = os.path.join(OUTPUT_FOLDER, 'discovery_cache.json')
+# Verbose debug tunables
+DEBUG_SAMPLE_ROWS = int(os.getenv('DEBUG_SAMPLE_ROWS','3') or 3)  # How many initial rows (across all sheets) to show full per-cell mapping
+DEBUG_ESSENTIAL_ROWS = int(os.getenv('DEBUG_ESSENTIAL_ROWS','5') or 5)  # How many initial rows to log essential field summary
+LOG_UNKNOWN_COLUMNS = os.getenv('LOG_UNKNOWN_COLUMNS','1').lower() in ('1','true','yes')  # Summarize unmapped columns once per sheet
+PER_CELL_DEBUG_ENABLED = os.getenv('PER_CELL_DEBUG_ENABLED','1').lower() in ('1','true','yes')  # Master switch
+UNMAPPED_COLUMN_SAMPLE_LIMIT = int(os.getenv('UNMAPPED_COLUMN_SAMPLE_LIMIT','5') or 5)  # Sample values per unmapped column in summary
+if QUIET_LOGGING:
+    logging.getLogger().setLevel(logging.WARNING)
+
+# Test/Production modes (controlled by environment variable TEST_MODE)
+# PRODUCTION BY DEFAULT: set TEST_MODE=true only for maintenance / dry runs.
+TEST_MODE = os.getenv('TEST_MODE', 'false').lower() in ('1','true','yes')
 DISABLE_AUDIT_FOR_TESTING = False  # Audit system ENABLED for production monitoring
 
 # --- SENTRY CONFIGURATION ---
@@ -155,6 +208,23 @@ def is_checked(value):
         return value.strip().lower() in ('true', 'checked', 'yes', '1', 'on')
     return False
 
+def excel_serial_to_date(value):
+    """Strict date parsing: return datetime or None. No numeric/serial fallbacks."""
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime.datetime):
+        return value
+    if isinstance(value, datetime.date):
+        return datetime.datetime.combine(value, datetime.time.min)
+    s = str(value).strip()
+    try:
+        dt = parser.parse(s)
+        if isinstance(dt, datetime.datetime):
+            return dt
+        return datetime.datetime.combine(dt, datetime.time.min)
+    except Exception:
+        return None
+
 def calculate_data_hash(group_rows):
     """Calculate a hash of the group data to detect changes."""
     data_string = ""
@@ -177,183 +247,338 @@ def extract_data_hash_from_filename(filename):
         pass
     return None
 
-def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, current_data_hash):
+def list_generated_excel_files(folder: str):
+    """List Excel files beginning with WR_ in the specified folder."""
+    try:
+        return [f for f in os.listdir(folder) if f.startswith('WR_') and f.lower().endswith('.xlsx')]
+    except FileNotFoundError:
+        return []
+
+def build_group_identity(filename: str):
+    """Return (wr, week_ending) tuple parsed from filename (legacy or current format) or None."""
+    if not filename.startswith('WR_'):
+        return None
+    base = filename[:-5] if filename.lower().endswith('.xlsx') else filename
+    parts = base.split('_')
+    # Legacy: WR_<wr>_WeekEnding_<week>
+    # Current: WR_<wr>_WeekEnding_<week>_<timestamp>_<hash>
+    if len(parts) < 4:
+        return None
+    if parts[0] != 'WR' or parts[2] != 'WeekEnding':
+        return None
+    wr = parts[1]
+    week = parts[3]
+    return (wr, week)
+
+def cleanup_stale_excels(output_folder: str, kept_filenames: set):
+    """Remove Excel files not generated in current run.
+
+    Strategy:
+      1. Keep all names in kept_filenames.
+      2. For identities (wr, week) present in kept_filenames, remove any other variants (legacy or older timestamp/hash).
+      3. Remove any other WR_*.xlsx whose identity is not in current run (per user requirement to only keep new system outputs).
+    Returns list of removed filenames.
     """
-    FIXED: Delete old Excel attachments for a work request.
-    This function was incomplete - now properly implemented.
+    removed = []
+    existing = list_generated_excel_files(output_folder)
+    identities_to_keep = set()
+    for fname in kept_filenames:
+        ident = build_group_identity(fname)
+        if ident:
+            identities_to_keep.add(ident)
+    for fname in existing:
+        if fname in kept_filenames:
+            continue
+        ident = build_group_identity(fname)
+        if ident and ident in identities_to_keep:
+            # Variant of identity we already produced this run
+            try:
+                os.remove(os.path.join(output_folder, fname))
+                removed.append(fname)
+            except Exception as e:
+                logging.warning(f"⚠️ Failed to remove stale variant {fname}: {e}")
+        elif ident:
+            # Different identity (older run) – remove per requirement
+            try:
+                os.remove(os.path.join(output_folder, fname))
+                removed.append(fname)
+            except Exception as e:
+                logging.warning(f"⚠️ Failed to remove legacy file {fname}: {e}")
+        # Non-conforming files left untouched
+    return removed
+
+def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, current_data_hash):
+    """Delete prior Excel attachments for a WR row.
+
+    Improvements:
+      • Correct Smartsheet SDK call signature delete_attachment(sheet_id, attachment_id)
+      • Skip upload if an existing attachment already has identical data hash
+      • Graceful handling of transient errors / 404s
     """
     deleted_count = 0
     skipped_due_to_same_data = False
-    
-    if not target_row.attachments:
-        return deleted_count, skipped_due_to_same_data
-    
-    # Find all Excel attachments for this work request
-    excel_attachments = []
-    for attachment in target_row.attachments:
-        if attachment.name.endswith('.xlsx') and f'WR_{wr_num}_' in attachment.name:
-            excel_attachments.append(attachment)
-    
+    try:
+        attachments = client.Attachments.list_row_attachments(target_sheet_id, target_row.id).data
+    except Exception as e:
+        logging.warning(f"Could not list attachments for row {target_row.id}: {e}")
+        return 0, False
+
+    excel_attachments = [a for a in attachments if a.name.endswith('.xlsx') and f"WR_{wr_num}_" in a.name]
     if not excel_attachments:
-        return deleted_count, skipped_due_to_same_data
-    
-    # Check if any existing file has the same data hash
-    # DISABLED: Always create new files instead of checking for duplicates
-    # for attachment in excel_attachments:
-    #     existing_hash = extract_data_hash_from_filename(attachment.name)
-    #     if existing_hash == current_data_hash:
-    #         logging.info(f"📋 Data unchanged for WR# {wr_num} (hash: {current_data_hash}). Skipping upload.")
-    #         skipped_due_to_same_data = True
-    #         return deleted_count, skipped_due_to_same_data
-    
-    # Data has changed, delete old attachments
-    logging.info(f"🗑️ Deleting {len(excel_attachments)} old Excel attachment(s) for WR# {wr_num}")
-    
-    for attachment in excel_attachments:
+        return 0, False
+
+    # Hash short‑circuit: if any existing attachment already matches current hash, skip
+    for att in excel_attachments:
+        existing_hash = extract_data_hash_from_filename(att.name)
+        if existing_hash == current_data_hash:
+            logging.info(f"⏩ Data unchanged for WR# {wr_num} (hash {current_data_hash}); skipping regeneration & upload")
+            skipped_due_to_same_data = True
+            return 0, True
+
+    logging.info(f"�️ Deleting {len(excel_attachments)} old Excel attachment(s) for WR# {wr_num}")
+    for att in excel_attachments:
         try:
-            client.Attachments.delete_attachment(target_sheet_id, attachment.id)
+            client.Attachments.delete_attachment(target_sheet_id, att.id)
             deleted_count += 1
-            logging.info(f"   ✅ Deleted: '{attachment.name}'")
+            logging.info(f"   ✅ Deleted: '{att.name}'")
         except Exception as e:
-            error_str = str(e).lower()
-            if "404" in error_str or "not found" in error_str:
-                logging.info(f"   ℹ️ File already deleted: '{attachment.name}'")
-                deleted_count += 1  # Count as successful deletion
+            msg = str(e).lower()
+            if '404' in msg or 'not found' in msg:
+                logging.info(f"   ℹ️ Already deleted: '{att.name}'")
+                deleted_count += 1
             else:
-                logging.warning(f"   ⚠️ Failed to delete '{attachment.name}': {e}")
-        
-        time.sleep(0.1)  # Rate limiting
-    
+                logging.warning(f"   ⚠️ Failed to delete '{att.name}': {e}")
+        time.sleep(0.1)
     return deleted_count, skipped_due_to_same_data
 
 # --- DATA DISCOVERY AND PROCESSING ---
 
+def _title(t):
+    return (t or "").strip().lower()
+
+def _sample_values_for_col(client, sheet_id, col_id, n=5):
+    try:
+        sample = client.Sheets.get_sheet(sheet_id, row_numbers=list(range(1, n+1)))
+    except Exception:
+        return []
+    vals = []
+    for row in sample.rows:
+        for cell in row.cells:
+            if cell.column_id == col_id:
+                val = getattr(cell, 'value', None)
+                if val is None:
+                    val = getattr(cell, 'display_value', None)
+                if val is not None:
+                    vals.append(str(val))
+                break
+    return vals
+
 def discover_source_sheets(client):
-    """Discover source sheets with column mapping."""
+    """Strict deterministic discovery: anchored keywords + type filtered. Skips sheets missing Weekly Reference Logged Date."""
+    # Attempt cache load
+    if USE_DISCOVERY_CACHE and os.path.exists(DISCOVERY_CACHE_PATH):
+        try:
+            with open(DISCOVERY_CACHE_PATH,'r') as f:
+                cache = json.load(f)
+            ts = datetime.datetime.fromisoformat(cache.get('timestamp'))
+            age_min = (datetime.datetime.now() - ts).total_seconds()/60.0
+            if age_min <= DISCOVERY_CACHE_TTL_MIN:
+                logging.info(f"⚡ Using cached discovery ({age_min:.1f} min old) with {len(cache.get('sheets',[]))} sheets")
+                return cache.get('sheets', [])
+            else:
+                logging.info(f"ℹ️ Discovery cache expired ({age_min:.1f} min old); refreshing")
+        except Exception as e:
+            logging.info(f"Cache load failed, refreshing discovery: {e}")
     base_sheet_ids = [
         3239244454645636, 2230129632694148, 1732945426468740, 4126460034895748,
         7899446718189444, 1964558450118532, 5905527830695812, 820644963897220, 8002920231423876
     ]
-    
-    discovered_sheets = []
-    
-    column_name_mapping = {
-        'Foreman': 'Foreman',
-        'Work Request #': 'Work Request #',
-        'Weekly Reference Logged Date': 'Weekly Reference Logged Date',
-        'Dept #': 'Dept #',
-        'Customer Name': 'Customer Name',
-        'Work Order #': 'Work Order #',
-        'Area': 'Area',
-        'Pole #': 'Pole #',
-        'Point #': 'Pole #',
-        'Point Number': 'Pole #',
-        'CU': 'CU',
-        'Billable Unit Code': 'CU',
-        'Work Type': 'Work Type',
-        'CU Description': 'CU Description',
-        'Unit Description': 'CU Description',
-        'Unit of Measure': 'Unit of Measure',
-        'UOM': 'Unit of Measure',
-        'Quantity': 'Quantity',
-        'Qty': 'Quantity',
-        '# Units': 'Quantity',
-        'Units Total Price': 'Units Total Price',
-        'Total Price': 'Units Total Price',
-        'Redlined Total Price': 'Units Total Price',
-        'Snapshot Date': 'Snapshot Date',
-        'Scope #': 'Scope #',
-        'Scope ID': 'Scope #',
-        'Job #': 'Job #',
-        'Units Completed?': 'Units Completed?',
-        'Units Completed': 'Units Completed?',
-    }
-    
-    for base_id in base_sheet_ids:
+    discovered = []
+    for sid in base_sheet_ids:
         try:
-            sheet_info = client.Sheets.get_sheet(base_id, include='columns')
-            
-            # Log all available columns in the sheet
-            available_columns = [col.title for col in sheet_info.columns]
-            logging.info(f"📋 Sheet {base_id} has columns: {available_columns}")
-            
-            column_mapping = {}
-            for column in sheet_info.columns:
-                column_title = column.title
-                if column_title in column_name_mapping:
-                    mapped_name = column_name_mapping[column_title]
-                    column_mapping[mapped_name] = column.id
-                    logging.debug(f"  ✅ Mapped '{column_title}' -> '{mapped_name}'")
-                else:
-                    logging.debug(f"  ⚠️ Unmapped column: '{column_title}'")
-            
-            if 'Weekly Reference Logged Date' in column_mapping:
-                discovered_sheets.append({
-                    'id': base_id,
-                    'name': sheet_info.name,
-                    'column_mapping': column_mapping
-                })
-                logging.info(f"✅ Added sheet: {sheet_info.name} (ID: {base_id})")
+            sheet = client.Sheets.get_sheet(sid, include='columns')
+            cols = sheet.columns
+            mapping = {}
+            by_title = { _title(c.title): c for c in cols }
+            # Exact matches
+            w_exact = by_title.get(_title('Weekly Reference Logged Date'))
+            s_exact = by_title.get(_title('Snapshot Date'))
+            if w_exact: mapping['Weekly Reference Logged Date'] = w_exact.id
+            if s_exact: mapping['Snapshot Date'] = s_exact.id
+            # Date candidates
+            date_candidates = [c for c in cols if str(c.type).upper() in ('DATE','DATETIME')]
+            if 'Weekly Reference Logged Date' not in mapping:
+                keyed = [c for c in date_candidates if 'date' in _title(c.title) and any(k in _title(c.title) for k in ('weekly','reference','logged','week ending'))]
+                if keyed:
+                    mapping['Weekly Reference Logged Date'] = keyed[0].id
+            if 'Snapshot Date' not in mapping:
+                keyed = [c for c in date_candidates if 'date' in _title(c.title) and 'snapshot' in _title(c.title)]
+                if keyed:
+                    mapping['Snapshot Date'] = keyed[0].id
+            # Sample fallback
+            if 'Weekly Reference Logged Date' not in mapping:
+                for c in date_candidates:
+                    t = _title(c.title)
+                    if 'date' in t and any(k in t for k in ('weekly','reference','logged','week ending')):
+                        samples = _sample_values_for_col(client, sid, c.id, 3)
+                        if any(re.match(r'^\d{4}-\d{2}-\d{2}', v) for v in samples):
+                            mapping['Weekly Reference Logged Date'] = c.id
+                            break
+            if 'Snapshot Date' not in mapping:
+                for c in date_candidates:
+                    t = _title(c.title)
+                    if 'date' in t and 'snapshot' in t:
+                        samples = _sample_values_for_col(client, sid, c.id, 3)
+                        if any(re.match(r'^\d{4}-\d{2}-\d{2}', v) for v in samples):
+                            mapping['Snapshot Date'] = c.id
+                            break
+            # Non-date synonyms
+            synonyms = {
+                'Foreman':'Foreman','Work Request #':'Work Request #','Dept #':'Dept #','Customer Name':'Customer Name','Work Order #':'Work Order #','Area':'Area',
+                'Pole #':'Pole #','Point #':'Pole #','Point Number':'Pole #','CU':'CU','Billable Unit Code':'CU','Work Type':'Work Type','CU Description':'CU Description',
+                'Unit Description':'CU Description','Unit of Measure':'Unit of Measure','UOM':'Unit of Measure','Quantity':'Quantity','Qty':'Quantity','# Units':'Quantity',
+                'Units Total Price':'Units Total Price','Total Price':'Units Total Price','Redlined Total Price':'Units Total Price','Scope #':'Scope #','Scope ID':'Scope #',
+                'Job #':'Job #','Units Completed?':'Units Completed?','Units Completed':'Units Completed?'
+            }
+            for c in cols:
+                if c.title in synonyms and synonyms[c.title] not in mapping:
+                    mapping[synonyms[c.title]] = c.id
+            if 'Weekly Reference Logged Date' in mapping:
+                w_id = mapping['Weekly Reference Logged Date']
+                s_id = mapping.get('Snapshot Date')
+                w_samples = _sample_values_for_col(client, sid, w_id, 3)
+                s_samples = _sample_values_for_col(client, sid, s_id, 3) if s_id else []
+                logging.info(f"Sheet {sheet.name} (ID {sid}) date columns:")
+                logging.info(f"  Weekly Reference Logged Date (ID {w_id}) samples: {w_samples}")
+                if s_id:
+                    logging.info(f"  Snapshot Date (ID {s_id}) samples: {s_samples}")
+                discovered.append({'id': sid,'name': sheet.name,'column_mapping': mapping})
+                logging.info(f"✅ Added sheet: {sheet.name} (ID: {sid})")
             else:
-                # RELAXED: Add sheet even without Weekly Reference Logged Date if it has Work Request #
-                if 'Work Request #' in column_mapping:
-                    discovered_sheets.append({
-                        'id': base_id,
-                        'name': sheet_info.name,
-                        'column_mapping': column_mapping
-                    })
-                    logging.info(f"✅ Added sheet (relaxed): {sheet_info.name} (ID: {base_id}) - Missing Weekly Reference Logged Date")
-                else:
-                    logging.warning(f"⚠️ Sheet {base_id} missing both Work Request # and Weekly Reference Logged Date columns")
-                
+                logging.warning(f"❌ Skipping sheet {sheet.name} (ID {sid}) - Weekly Reference Logged Date not found (strict mode)")
         except Exception as e:
-            logging.warning(f"⚡ Failed to validate sheet {base_id}: {e}")
-    
-    logging.info(f"⚡ Discovery complete: {len(discovered_sheets)} sheets")
-    return discovered_sheets
+            logging.warning(f"⚡ Failed to validate sheet {sid}: {e}")
+    logging.info(f"⚡ Discovery complete: {len(discovered)} sheets")
+    # Save cache
+    if USE_DISCOVERY_CACHE:
+        try:
+            with open(DISCOVERY_CACHE_PATH,'w') as f:
+                json.dump({'timestamp': datetime.datetime.now().isoformat(), 'sheets': discovered}, f)
+        except Exception as e:
+            logging.warning(f"Failed to write discovery cache: {e}")
+    return discovered
 
 def get_all_source_rows(client, source_sheets):
-    """Fetch rows from all source sheets with filtering."""
+    """Fetch rows from all source sheets with filtering.
+
+    Improvements:
+      • Per‑cell debug logging limited by DEBUG_SAMPLE_ROWS (env tunable)
+      • Essential field summary limited by DEBUG_ESSENTIAL_ROWS
+      • Single concise summary for unmapped columns with a small sample of values
+      • Greatly reduces 'Unknown' spam while preserving early transparency
+    """
     merged_rows = []
+    global_row_counter = 0
 
     for source in source_sheets:
         try:
             logging.info(f"⚡ Processing: {source['name']} (ID: {source['id']})")
 
             try:
-                sheet = client.Sheets.get_sheet(source['id'])
+                # Fetch sheet once (no column history); include columns to support unmapped summary
+                sheet = client.Sheets.get_sheet(source['id'], include='columns')
                 column_mapping = source['column_mapping']
 
-                logging.info(f"📋 Available columns in {source['name']}: {list(column_mapping.keys())}")
+                logging.info(f"📋 Available mapped columns in {source['name']}: {list(column_mapping.keys())}")
+                
+                # Debug: Check if Weekly Reference Logged Date is mapped
+                if 'Weekly Reference Logged Date' in column_mapping:
+                    logging.info(f"✅ Weekly Reference Logged Date column found with ID: {column_mapping['Weekly Reference Logged Date']}")
+                else:
+                    logging.warning(f"❌ Weekly Reference Logged Date column NOT found in mapping")
+                    logging.info(f"   Available mappings: {column_mapping}")
+
+                # Unmapped column summary (once per sheet)
+                if LOG_UNKNOWN_COLUMNS:
+                    mapped_ids = set(column_mapping.values())
+                    unmapped = [c for c in sheet.columns if c.id not in mapped_ids]
+                    if unmapped:
+                        # Build sample values for up to UNMAPPED_COLUMN_SAMPLE_LIMIT cells in first few rows
+                        sample_rows = sheet.rows[:UNMAPPED_COLUMN_SAMPLE_LIMIT]
+                        col_samples = {}
+                        for col in unmapped:
+                            vals = []
+                            for r in sample_rows:
+                                for ce in r.cells:
+                                    if ce.column_id == col.id:
+                                        v = getattr(ce,'display_value', None) or getattr(ce,'value', None)
+                                        if v is not None:
+                                            vals.append(str(v))
+                                        break
+                                if len(vals) >= 3:
+                                    break
+                            if vals:
+                                col_samples[col.title] = vals
+                        logging.info(f"🧭 Unmapped columns ({len(unmapped)}): {[c.title for c in unmapped][:15]}{' ...' if len(unmapped)>15 else ''}")
+                        if col_samples:
+                            logging.info(f"🧪 Unmapped sample values: { {k: v for k,v in col_samples.items()} }")
 
                 for row in sheet.rows:
                     row_data = {}
-                    has_required_data = False
 
+                    # Per‑cell debug logging only for the earliest rows overall
+                    if PER_CELL_DEBUG_ENABLED and global_row_counter < DEBUG_SAMPLE_ROWS:
+                        logging.info(f"🔍 DEBUG: Processing row with {len(row.cells)} cells (global row #{global_row_counter+1})")
+                        for cell in row.cells:
+                            mapped_name = None
+                            for name, cid in column_mapping.items():
+                                if cell.column_id == cid:
+                                    mapped_name = name
+                                    break
+                            if mapped_name:
+                                val = cell.display_value if cell.display_value is not None else cell.value
+                                if val is not None:
+                                    logging.info(f"   Cell {cell.column_id}: '{mapped_name}' = '{val}'")
+
+                    # Build mapped row data
                     for cell in row.cells:
+                        raw_val = getattr(cell, 'value', None)
+                        if raw_val is None:
+                            raw_val = getattr(cell, 'display_value', None)
                         for mapped_name, column_id in column_mapping.items():
                             if cell.column_id == column_id:
-                                row_data[mapped_name] = cell.display_value
+                                row_data[mapped_name] = raw_val
                                 break
-                    
-                    # Process ALL rows with any data (no strict filtering)
-                    if row_data:  # If we have any mapped data at all
+
+                    # Essential field summary for earliest rows
+                    if global_row_counter < DEBUG_ESSENTIAL_ROWS:
+                        essential_fields = [
+                            'Weekly Reference Logged Date', 'Snapshot Date', 'Units Completed?',
+                            'Units Total Price', 'Work Request #'
+                        ]
+                        debug_essentials = {f: row_data.get(f) for f in essential_fields}
+                        logging.info(f"   ESSENTIAL FIELDS: {debug_essentials}")
+
+                    # Process row if it has any mapped data
+                    if row_data:
                         work_request = row_data.get('Work Request #')
                         weekly_date = row_data.get('Weekly Reference Logged Date')
+                        price_raw = row_data.get('Units Total Price')
+                        price_val = parse_price(price_raw)
+                        has_price = (price_raw not in (None, "", "$0", "$0.00", "0", "0.0")) and price_val > 0
                         units_completed = row_data.get('Units Completed?')
-                        total_price = parse_price(row_data.get('Units Total Price', 0))
+                        units_completed_checked = is_checked(units_completed)
 
-                        # Debug logging for first few rows
-                        if len(merged_rows) < 5:
-                            logging.info(f"🔍 Row data sample: WR={work_request}, Price={total_price}, Date={weekly_date}, Completed={units_completed}")
+                        if global_row_counter < DEBUG_ESSENTIAL_ROWS:
+                            logging.info(f"🔍 Row data sample: WR={work_request}, Price={price_val}, Date={weekly_date}, Units Completed={units_completed} ({units_completed_checked})")
 
-                        # Add ALL rows with any work request or price data
-                        if work_request or total_price > 0:
+                        # REQUIRE: Work Request # AND Weekly Reference Logged Date AND Units Completed? true AND price exists >0
+                        if work_request and weekly_date and units_completed_checked and has_price:
                             merged_rows.append(row_data)
-                            logging.debug(f"✅ Added row: WR#{work_request}, Price:${total_price}")
-                        else:
-                            logging.debug(f"⚠️ Row has no WR or price: {row_data}")
-                        
+                        # (Else conditions kept silent or at debug level to reduce noise)
+
+                    global_row_counter += 1
+
             except Exception as e:
                 logging.error(f"Error processing sheet {source['id']}: {e}")
                 if SENTRY_DSN:
@@ -363,16 +588,15 @@ def get_all_source_rows(client, source_sheets):
             logging.error(f"Could not process Sheet ID {source.get('id', 'N/A')}: {e}")
             if SENTRY_DSN:
                 sentry_sdk.capture_exception(e)
-    
+
     logging.info(f"Found {len(merged_rows)} valid rows")
-    
-    # 🎯 SHOW RELAXED FILTERING RESULTS
-    if len(merged_rows) > 0:
-        logging.info(f"✅ RELAXED FILTERING SUCCESS: Found {len(merged_rows)} rows (Work Request + Price only)")
-        logging.info(f"🎯 ALWAYS CREATE NEW FILES: Data hash checking DISABLED")
+
+    if merged_rows:
+        logging.info(f"✅ UPDATED FILTERING SUCCESS: Found {len(merged_rows)} rows (Work Request # + Weekly Reference Logged Date + Units Completed? + Units Total Price exists required)")
+        logging.info("🎯 Change detection ACTIVE: Existing attachment with matching data hash will skip regeneration & upload")
     else:
-        logging.warning(f"⚠️ No valid rows found with relaxed filtering")
-    
+        logging.warning("⚠️ No valid rows found with updated filtering (missing Work Request #, Weekly Reference Logged Date, Units Completed?, or Units Total Price)")
+
     return merged_rows
 
 def group_source_rows(rows):
@@ -400,36 +624,55 @@ def group_source_rows(rows):
         wr = r.get('Work Request #')
         log_date_str = r.get('Weekly Reference Logged Date')
         snapshot_date_str = r.get('Snapshot Date')
+        units_completed = r.get('Units Completed?')
+        total_price = parse_price(r.get('Units Total Price', 0))
+        
+        # Check if Units Completed? is true/1
+        units_completed_checked = is_checked(units_completed)
 
-        if not all([foreman, wr, log_date_str, snapshot_date_str]):
-            continue # Skip if key information is missing
+        # REQUIRE: Work Request # AND Weekly Reference Logged Date AND Units Completed? = true/1 AND Units Total Price exists
+        if not wr or not log_date_str or not units_completed_checked or total_price is None:
+            continue # Skip if any essential grouping information is missing
 
         wr_key = str(wr).split('.')[0]
         try:
-            log_date_obj = parser.parse(log_date_str)
-            snapshot_date_obj = parser.parse(snapshot_date_str)
+            log_date_obj = excel_serial_to_date(log_date_str)
+            
+            if log_date_obj is None:
+                logging.warning(f"Could not parse Weekly Reference Logged Date '{log_date_str}' for WR# {wr_key}. Skipping row.")
+                continue
             
             # Track foreman history for this work request with the most recent date
-            wr_to_foreman_history[wr_key].append({
-                'foreman': foreman,
-                'snapshot_date': snapshot_date_obj,
+            foreman_entry = {
+                'foreman': foreman or 'Unknown Foreman',
                 'log_date': log_date_obj,
                 'row': r
-            })
+            }
+            
+            # Only add snapshot date if available
+            if snapshot_date_str:
+                try:
+                    snapshot_date_obj = parser.parse(snapshot_date_str)
+                    foreman_entry['snapshot_date'] = snapshot_date_obj
+                except (parser.ParserError, TypeError):
+                    foreman_entry['snapshot_date'] = log_date_obj  # Fallback to log date
+            
+            wr_to_foreman_history[wr_key].append(foreman_entry)
+            
         except (parser.ParserError, TypeError) as e:
-            logging.warning(f"Could not parse date for WR# {wr_key}. Skipping row. Error: {e}")
+            logging.warning(f"Could not parse Weekly Reference Logged Date for WR# {wr_key}. Skipping row. Error: {e}")
             continue
     
     # Determine the most recent foreman for each work request
     wr_to_current_foreman = {}
     for wr_key, history in wr_to_foreman_history.items():
-        # Sort by snapshot date (most recent first) to get the current foreman
-        history.sort(key=lambda x: x['snapshot_date'], reverse=True)
+        # Sort by log date (most recent first) to get the current foreman
+        history.sort(key=lambda x: x['log_date'], reverse=True)
         wr_to_current_foreman[wr_key] = history[0]['foreman']
         
         if TEST_MODE:
             # Check if foreman changed during this work request
-            unique_foremen = list(set(h['foreman'] for h in history))
+            unique_foremen = list(set(h['foreman'] for h in history if h['foreman'] != 'Unknown Foreman'))
             if len(unique_foremen) > 1:
                 logging.info(f"📝 WR# {wr_key}: Foreman changed from {unique_foremen[1:]} to {unique_foremen[0]}")
     
@@ -439,14 +682,20 @@ def group_source_rows(rows):
         foreman = r.get('Foreman')
         wr = r.get('Work Request #')
         log_date_str = r.get('Weekly Reference Logged Date')
+        units_completed = r.get('Units Completed?')
+        total_price = parse_price(r.get('Units Total Price', 0))
+        
+        # Check if Units Completed? is true/1
+        units_completed_checked = is_checked(units_completed)
 
-        if not all([foreman, wr, log_date_str]):
-            continue # Skip if key information is missing
+        # REQUIRE: Work Request # AND Weekly Reference Logged Date AND Units Completed? = true/1 AND Units Total Price exists
+        if not wr or not log_date_str or not units_completed_checked or total_price is None:
+            continue # Skip if essential grouping information is missing
 
         wr_key = str(wr).split('.')[0]
         
         # Use the most recent foreman name for this work request instead of the row's foreman
-        current_foreman = wr_to_current_foreman.get(wr_key, foreman)
+        current_foreman = wr_to_current_foreman.get(wr_key, foreman or 'Unknown Foreman')
         
         try:
             # Use Weekly Reference Logged Date as the week ending date directly
@@ -456,7 +705,10 @@ def group_source_rows(rows):
                 continue
                 
             # Parse the Weekly Reference Logged Date - this IS the week ending date
-            week_ending_date = parser.parse(log_date_str)
+            week_ending_date = excel_serial_to_date(log_date_str)
+            if week_ending_date is None:
+                logging.warning(f"Could not parse Weekly Reference Logged Date '{log_date_str}' for WR# {wr_key}. Skipping row.")
+                continue
             week_end_for_key = week_ending_date.strftime("%m%d%y")
             
             if TEST_MODE:
@@ -494,7 +746,20 @@ def group_source_rows(rows):
     else:
         logging.info(f"✅ Grouping validation passed: {len(groups)} groups, each with exactly 1 work request")
     
+    # Optional filtering by WR_FILTER
+    if WR_FILTER and TEST_MODE:
+        before = len(groups)
+        groups = {k:v for k,v in groups.items() if any(k.endswith(f"_{wr}") for wr in WR_FILTER)}
+        logging.info(f"🔎 WR_FILTER applied: {len(groups)}/{before} groups retained ({','.join(WR_FILTER)})")
     return groups
+
+def validate_group_totals(groups):
+    """Compute and validate totals per group, returning summary list of dicts."""
+    summaries = []
+    for key, rows in groups.items():
+        total = sum(parse_price(r.get('Units Total Price')) for r in rows)
+        summaries.append({'group_key': key, 'rows': len(rows), 'total': round(total,2)})
+    return summaries
 
 def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=None, data_hash=None):
     """
@@ -546,13 +811,15 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         # Fallback to the original format
         week_end_display = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
     
-    scope_id = first_row.get('Scope ID', '')
+    # Prefer 'Scope #' then fallback to 'Scope ID'
+    scope_id = first_row.get('Scope #') or first_row.get('Scope ID', '')
     job_number = first_row.get('Job #', '')
     
     # Use individual work request number for filename with timestamp for uniqueness
     timestamp = datetime.datetime.now().strftime('%H%M%S')
     if data_hash:
-        output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}_{timestamp}_{data_hash[:8]}.xlsx"
+        # Use full 16-character hash (calculate_data_hash already truncates to 16)
+        output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}_{timestamp}_{data_hash}.xlsx"
     else:
         output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}_{timestamp}.xlsx"
     final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
@@ -588,7 +855,8 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     SUMMARY_LABEL_FONT = Font(name='Calibri', size=10, bold=True)
     SUMMARY_VALUE_FONT = Font(name='Calibri', size=10)
 
-    ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
+    # Use explicit string for orientation for deterministic behavior
+    ws.page_setup.orientation = 'landscape'
     try:
         ws.page_setup.paperSize = 9  # A4 paper size code
     except AttributeError:
@@ -673,15 +941,16 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         ("Customer:", first_row.get('Customer Name', '')),
         ("Job #:", job_number)
     ]
+    # Deterministic merges: labels in F, values merged G:I
     for i, (label, value) in enumerate(details):
-        ws[f'F{current_row+1+i}'] = label
-        ws[f'F{current_row+1+i}'].font = SUMMARY_LABEL_FONT
-        data_cell = ws.cell(row=current_row+1+i, column=ws[f'F{current_row+1+i}'].column + 1)
-        if data_cell.row is not None and data_cell.column is not None:
-            ws.merge_cells(start_row=data_cell.row, start_column=data_cell.column, end_row=data_cell.row, end_column=data_cell.column + 2)
-        data_cell.value = value
-        data_cell.font = SUMMARY_VALUE_FONT
-        data_cell.alignment = Alignment(horizontal='right')
+        r = current_row + 1 + i
+        ws[f'F{r}'] = label
+        ws[f'F{r}'].font = SUMMARY_LABEL_FONT
+        ws.merge_cells(f'G{r}:I{r}')
+        vcell = ws[f'G{r}']
+        vcell.value = value
+        vcell.font = SUMMARY_VALUE_FONT
+        vcell.alignment = Alignment(horizontal='right')
 
     def write_day_block(start_row, day_name, date_obj, day_rows):
         """FIXED: Write daily data blocks with proper cell handling."""
@@ -710,9 +979,11 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
             
             # Safely parse quantity - extract only numbers
             qty_str = str(row_data.get('Quantity', '') or 0)
+            # Normalize quantity by stripping non-numeric (retain digits, dot, minus)
+            qty_str = re.sub(r'[^0-9.\-]', '', qty_str)
             try:
-                quantity = float(qty_str)
-            except (ValueError, AttributeError):
+                quantity = float(qty_str) if qty_str not in ('', '.', '-', '-.', '.-') else 0.0
+            except Exception:
                 quantity = 0.0
                 
             total_price_day += price
@@ -775,7 +1046,11 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     for row in group_rows:
         snap = row.get('Snapshot Date')
         try:
-            dt = parser.parse(snap)
+            dt = excel_serial_to_date(snap)
+            if dt is None:
+                if TEST_MODE:
+                    logging.warning(f"Could not parse snapshot date '{snap}'")
+                continue
             
             # Include snapshot dates that fall within the Monday-Sunday range
             if week_start_date and week_end_date:
@@ -872,6 +1147,7 @@ def main():
     """Main execution function with all fixes implemented."""
     session_start = datetime.datetime.now()
     generated_files_count = 0
+    generated_filenames = []  # Track exact filenames created this session
     
     try:
         # Set Sentry context
@@ -883,9 +1159,62 @@ def main():
 
         logging.info("🚀 Starting Weekly PDF Generator with Complete Fixes")
         
-        # Initialize Smartsheet client
+        # Initialize Smartsheet client or fall back to synthetic data in TEST_MODE
         if not API_TOKEN:
-            raise Exception("SMARTSHEET_API_TOKEN not configured")
+            if TEST_MODE:
+                logging.info("🧪 TEST_MODE without SMARTSHEET_API_TOKEN: using synthetic in-memory dataset")
+
+                def build_synthetic_rows():
+                    base_week_end = datetime.datetime.now()
+                    # Snap week ending to coming Sunday for consistency
+                    base_week_end = base_week_end + datetime.timedelta(days=(6 - base_week_end.weekday()))
+                    week_end_iso = base_week_end.strftime('%Y-%m-%d')
+                    rows = []
+                    wrs = ['90093002', '89708709']
+                    foremen = ['Alice Foreman', 'Bob Foreman']
+                    daily_prices = [1200.50, 800.00, 950.75, 0, 1300.25, 600.00, 1450.00]
+                    for idx, wr in enumerate(wrs):
+                        foreman = foremen[idx]
+                        for offset, price in enumerate(daily_prices):
+                            snap_date = (base_week_end - datetime.timedelta(days=(6 - offset)))
+                            row = {
+                                'Work Request #': wr,
+                                'Weekly Reference Logged Date': week_end_iso,  # same week ending for all
+                                'Snapshot Date': snap_date.strftime('%Y-%m-%d'),
+                                'Units Total Price': f"${price:,.2f}",
+                                'Quantity': str(1 + (offset % 3)),
+                                'Units Completed?': True,
+                                'Foreman': foreman,
+                                'CU': f"CU{100+offset}",
+                                'CU Description': f"Synthetic Work Item {offset+1}",
+                                'Unit of Measure': 'EA',
+                                'Pole #': f"P-{offset+1:03d}",
+                                'Work Type': 'Maintenance',
+                                'Scope #': f"SCP-{wr[-3:]}"
+                            }
+                            # Include a zero price row intentionally (price==0) to confirm exclusion
+                            rows.append(row)
+                    return rows
+
+                synthetic_rows = build_synthetic_rows()
+                logging.info(f"Synthetic rows prepared: {len(synthetic_rows)} raw rows")
+                # Apply normal grouping logic (filtering happens inside grouping)
+                groups = group_source_rows(synthetic_rows)
+                logging.info(f"Synthetic grouping produced {len(groups)} group(s)")
+                snapshot_date = datetime.datetime.now()
+                for group_key, group_rows in groups.items():
+                    try:
+                        data_hash = calculate_data_hash(group_rows)
+                        excel_path, filename, wr_numbers = generate_excel(group_key, group_rows, snapshot_date, data_hash=data_hash)
+                        generated_files_count += 1
+                        logging.info(f"🧪 Synthetic Excel generated: {filename} ({len(group_rows)} rows)")
+                    except Exception as e:
+                        logging.error(f"Synthetic group failure {group_key}: {e}")
+                session_duration = datetime.datetime.now() - session_start
+                logging.info(f"🧪 Synthetic session complete: {generated_files_count} file(s) in {session_duration}")
+                return
+            else:
+                raise Exception("SMARTSHEET_API_TOKEN not configured")
         
         client = smartsheet.Smartsheet(API_TOKEN)
         client.errors_as_exceptions(True)
@@ -927,6 +1256,9 @@ def main():
             raise Exception("No valid groups created")
         
         logging.info(f"📈 Found {len(groups)} work request groups to process")
+        if MAX_GROUPS and len(groups) > MAX_GROUPS:
+            logging.info(f"✂️ Limiting processing to first {MAX_GROUPS} groups for test run")
+            groups = dict(list(groups.items())[:MAX_GROUPS])
         
         # Process groups
         snapshot_date = datetime.datetime.now()
@@ -935,7 +1267,7 @@ def main():
         target_map = {}
         if not TEST_MODE:
             target_map = create_target_sheet_map(client)
-        
+
         for group_key, group_rows in groups.items():
             try:
                 # Calculate data hash for change detection
@@ -947,6 +1279,7 @@ def main():
                 )
                 
                 generated_files_count += 1
+                generated_filenames.append(filename)
                 
                 # Upload to Smartsheet in production mode
                 if not TEST_MODE and target_map and wr_numbers:
@@ -980,12 +1313,26 @@ def main():
                     sentry_sdk.capture_exception(e)
                 continue
         
+        # Validation summary
+        summaries = validate_group_totals(groups)
+        if summaries:
+            logging.info("🧮 Totals Validation (first 10 groups):")
+            for s in summaries[:10]:
+                logging.info(f"   {s['group_key']}: rows={s['rows']} total=${s['total']}")
+
         # Session summary
         session_duration = datetime.datetime.now() - session_start
         logging.info(f"✅ Session complete!")
         logging.info(f"   • Files generated: {generated_files_count}")
         logging.info(f"   • Duration: {session_duration}")
         logging.info(f"   • Mode: {'TEST' if TEST_MODE else 'PRODUCTION'}")
+
+        # Cleanup legacy / stale Excel files so only current system outputs remain
+        try:
+            removed = cleanup_stale_excels(OUTPUT_FOLDER, set(generated_filenames))
+            logging.info(f"🧹 Cleanup complete: removed {len(removed)} stale file(s)")
+        except Exception as e:
+            logging.warning(f"⚠️ Cleanup step failed: {e}")
         
         # Audit summary
         if audit_results:
