@@ -307,6 +307,46 @@ def cleanup_stale_excels(output_folder: str, kept_filenames: set):
         # Non-conforming files left untouched
     return removed
 
+def cleanup_untracked_sheet_attachments(client, target_sheet_id: int, valid_wr_weeks: set, test_mode: bool):
+    """Remove Excel attachments on the target sheet that are not part of the current run.
+
+    We keep only attachments whose (WR, weekEnding) identity was produced OR validated (unchanged hash skip) this run.
+    Everything else matching WR_*.xlsx is removed to avoid user confusion with legacy/incorrect data.
+
+    valid_wr_weeks: set of tuples (wr, week_mmddyy)
+    """
+    if test_mode:
+        logging.info("🧪 Test mode – skipping sheet attachment pruning")
+        return
+    removed = 0
+    scanned = 0
+    try:
+        sheet = client.Sheets.get_sheet(target_sheet_id)
+    except Exception as e:
+        logging.warning(f"⚠️ Could not load target sheet for attachment cleanup: {e}")
+        return
+    for row in sheet.rows:
+        try:
+            attachments = client.Attachments.list_row_attachments(target_sheet_id, row.id).data
+        except Exception:
+            continue
+        for att in attachments:
+            name = getattr(att, 'name', '') or ''
+            if not name.endswith('.xlsx') or not name.startswith('WR_'):
+                continue
+            ident = build_group_identity(name)
+            if not ident:
+                continue
+            scanned += 1
+            if ident not in valid_wr_weeks:
+                try:
+                    client.Attachments.delete_attachment(target_sheet_id, att.id)
+                    removed += 1
+                    logging.info(f"🗑️ Pruned legacy attachment: {name}")
+                except Exception as e:
+                    logging.warning(f"⚠️ Failed to delete legacy attachment {name}: {e}")
+    logging.info(f"🧹 Sheet attachment pruning complete: kept {scanned-removed} / scanned {scanned}, removed {removed}")
+
 def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, current_data_hash):
     """Delete prior Excel attachments for a WR row.
 
@@ -1326,6 +1366,21 @@ def main():
         logging.info(f"   • Files generated: {generated_files_count}")
         logging.info(f"   • Duration: {session_duration}")
         logging.info(f"   • Mode: {'TEST' if TEST_MODE else 'PRODUCTION'}")
+
+        # Build identity set for sheet pruning: (wr, week)
+        valid_wr_weeks = set()
+        for fname in generated_filenames:
+            ident = build_group_identity(fname)
+            if ident:
+                valid_wr_weeks.add(ident)
+        # Also include any WR/week combos we skipped due to identical hash (so we don't delete their existing attachment)
+        # Already implicit because skipped groups did not regenerate; we can add from groups processed via grouping keys
+        for key in groups.keys():
+            if '_' in key:
+                week_raw, wr = key.split('_',1)
+                valid_wr_weeks.add((wr, week_raw))
+        if not TEST_MODE:
+            cleanup_untracked_sheet_attachments(client, TARGET_SHEET_ID, valid_wr_weeks, TEST_MODE)
 
         # Cleanup legacy / stale Excel files so only current system outputs remain
         try:
