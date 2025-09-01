@@ -71,6 +71,7 @@ ai_models/
 generated_docs/*.xlsx
 generated_docs/audit_state.json
 generated_docs/discovery_cache.json
+generated_docs/risk_trend.json
 !generated_docs/README.md
 
 # Backup files

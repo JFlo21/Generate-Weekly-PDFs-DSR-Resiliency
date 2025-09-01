@@ -102,12 +102,41 @@ class BillingAudit:
             # 4. Generate audit summary
             audit_results["summary"] = self._generate_audit_summary(audit_results)
             
-            # 5. Log audit results
+            # 5. Compute trend vs previous and attach
+            try:
+                trend = self._compute_trend(audit_results["summary"])
+                if trend:
+                    audit_results["trend"] = trend
+            except Exception as trend_err:  # defensive
+                self.logger.debug(f"Trend computation skipped: {trend_err}")
+
+            # 6. Log audit results (now includes trend if present)
             self._log_audit_results(audit_results)
             
-            # 6. Update audit state
+            # 7. Update audit state & local rolling history
             self.audit_state["last_audit_time"] = audit_start.isoformat()
             self.audit_state["audit_summary"] = audit_results["summary"]
+            if "trend" in audit_results:
+                self.audit_state["last_trend"] = audit_results["trend"]
+            # Append to local risk history (non-critical)
+            history_entry = {
+                "timestamp": audit_results["audit_timestamp"],
+                "risk_level": audit_results["summary"].get("risk_level"),
+                "total_issues": audit_results["summary"].get("total_anomalies",0) + audit_results["summary"].get("total_unauthorized_changes",0) + audit_results["summary"].get("total_data_issues",0),
+                "trend": audit_results.get("trend", {})
+            }
+            try:
+                hist_path = os.path.join("generated_docs", "risk_trend.json")
+                existing_hist = []
+                if os.path.exists(hist_path):
+                    with open(hist_path, 'r') as hf:
+                        existing_hist = json.load(hf)
+                existing_hist.append(history_entry)
+                existing_hist = existing_hist[-50:]
+                with open(hist_path, 'w') as hf:
+                    json.dump(existing_hist, hf, indent=2)
+            except Exception as e:
+                self.logger.debug(f"Could not persist local risk history: {e}")
             self._save_audit_state()
             
         except Exception as e:
@@ -290,7 +319,8 @@ class BillingAudit:
         """Log audit results to various outputs."""
         summary = audit_results.get("summary", {})
         risk_level = summary.get("risk_level", "UNKNOWN")
-        
+        trend = audit_results.get("trend", {})
+
         # Log to console
         if risk_level == "HIGH":
             self.logger.warning(f"🚨 AUDIT ALERT: {risk_level} risk detected")
@@ -298,22 +328,33 @@ class BillingAudit:
             self.logger.info(f"⚠️ AUDIT WARNING: {risk_level} risk detected")
         else:
             self.logger.info(f"✅ AUDIT CLEAR: {risk_level} risk level")
-        
+
         self.logger.info(f"   • Anomalies: {summary.get('total_anomalies', 0)}")
         self.logger.info(f"   • Unauthorized changes: {summary.get('total_unauthorized_changes', 0)}")
         self.logger.info(f"   • Data issues: {summary.get('total_data_issues', 0)}")
-        
-        # Send to Sentry if configured and high risk
-        if os.getenv("SENTRY_DSN") and risk_level == "HIGH":
+        if trend:
+            self.logger.info(f"   • Risk Trend: {trend.get('risk_direction')} (Δ level {trend.get('risk_level_delta',0)} / Δ issues {trend.get('issues_delta',0)} {trend.get('issues_delta_pct','')})")
+
+        # Send to Sentry if configured and high risk or worsening trend
+        send = False
+        if risk_level == "HIGH":
+            send = True
+        elif trend and trend.get("risk_level_delta",0) > 0:
+            send = True
+        if os.getenv("SENTRY_DSN") and send:
             with sentry_sdk.configure_scope() as scope:
                 scope.set_tag("audit_risk_level", risk_level)
                 scope.set_tag("audit_system", "billing_audit")
+                if trend:
+                    scope.set_tag("risk_direction", trend.get("risk_direction"))
+                    scope.set_tag("risk_level_delta", trend.get("risk_level_delta"))
+                    scope.set_tag("issues_delta", trend.get("issues_delta"))
                 scope.set_context("audit_results", audit_results)
                 sentry_sdk.capture_message(
-                    f"HIGH RISK: Billing audit detected {summary.get('total_anomalies', 0)} anomalies",
-                    level="warning"
+                    f"AUDIT: Risk {risk_level} trend={trend.get('risk_direction','n/a')} anomalies={summary.get('total_anomalies', 0)}",
+                    level="warning" if risk_level == "HIGH" else "info"
                 )
-        
+
         # Log to audit sheet if configured
         if self.audit_sheet_id:
             try:
@@ -353,4 +394,36 @@ class BillingAudit:
             "audit_sheet_configured": bool(self.audit_sheet_id),
             "last_audit_time": self.audit_state.get("last_audit_time"),
             "last_risk_level": self.audit_state.get("audit_summary", {}).get("risk_level", "UNKNOWN")
+        }
+
+    def _compute_trend(self, current_summary: Dict) -> Optional[Dict]:
+        """Compute risk & issue trend vs previous summary (local state)."""
+        previous = self.audit_state.get("audit_summary") or {}
+        if not previous:
+            return {"risk_direction": "baseline", "risk_level_delta": 0, "issues_delta": 0, "issues_delta_pct": "0%"}
+        def _risk_val(level: str) -> int:
+            return {"LOW":1, "MEDIUM":2, "HIGH":3}.get(str(level).upper(), 0)
+        cur_level = current_summary.get("risk_level", "UNKNOWN")
+        prev_level = previous.get("risk_level", "UNKNOWN")
+        cur_issues = current_summary.get("total_anomalies",0) + current_summary.get("total_unauthorized_changes",0) + current_summary.get("total_data_issues",0)
+        prev_issues = previous.get("total_anomalies",0) + previous.get("total_unauthorized_changes",0) + previous.get("total_data_issues",0)
+        level_delta = _risk_val(cur_level) - _risk_val(prev_level)
+        if level_delta > 0:
+            direction = "worsening"
+        elif level_delta < 0:
+            direction = "improving"
+        else:
+            if cur_issues > prev_issues:
+                direction = "worsening"
+            elif cur_issues < prev_issues:
+                direction = "improving"
+            else:
+                direction = "stable"
+        issues_delta = cur_issues - prev_issues
+        issues_delta_pct = "0%" if prev_issues == 0 else f"{(issues_delta/prev_issues)*100:.1f}%"
+        return {
+            "risk_direction": direction,
+            "risk_level_delta": level_delta,
+            "issues_delta": issues_delta,
+            "issues_delta_pct": issues_delta_pct
         }
