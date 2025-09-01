@@ -1,0 +1,120 @@
+---
+name: 🐛 Bug Report
+about: Report a problem with the billing audit or Excel generation system
+title: '[BUG] '
+labels: ['bug']
+assignees: ''
+---
+
+## 🐛 Bug Description
+
+**Clear description of the issue**
+
+## 🌍 Environment
+
+**System**: [ ] Production / [ ] Staging / [ ] Development / [ ] Local
+**Date/Time**: *When did this occur?*
+**Version/Commit**: *Git commit hash or release version*
+**User/Process**: *Who or what was affected?*
+
+## 🔄 Reproduction Steps
+
+1. Step 1
+2. Step 2  
+3. Step 3
+4. ...
+
+## ✅ Expected Behavior
+
+*What should have happened?*
+
+## ❌ Actual Behavior
+
+*What actually happened?*
+
+## 📊 Impact Assessment
+
+### Severity
+- [ ] 🔴 Critical - System down or data corruption
+- [ ] 🟠 High - Major functionality broken
+- [ ] 🟡 Medium - Minor functionality affected
+- [ ] 🟢 Low - Cosmetic or edge case issue
+
+### Users Affected
+*Number and type of users impacted*
+
+### Business Impact
+- [ ] 💰 Revenue impact
+- [ ] 📋 Compliance risk
+- [ ] 🎯 User experience degraded
+- [ ] 📊 Reporting inaccurate
+- [ ] 🔧 Development blocked
+
+### Data Integrity
+- [ ] ✅ No data issues
+- [ ] ⚠️ Potential data inconsistency
+- [ ] 🚨 Confirmed data corruption
+
+## 📸 Evidence
+
+### Error Messages
+```
+Paste any error messages here
+```
+
+### Log Excerpts
+```
+Paste relevant log entries here
+```
+
+### Screenshots
+*Attach screenshots if applicable*
+
+### Generated Files
+*Describe any problematic generated files*
+
+## 🛠️ Immediate Workaround
+
+*If available, describe temporary workaround*
+
+## 🔍 Additional Context
+
+### Related Issues
+*Links to related issues or previous occurrences*
+
+### Recent Changes
+*Any recent deployments, configuration changes, or updates*
+
+### System Metrics
+*Relevant performance metrics, if available*
+
+---
+
+## 🚨 For Critical/High Severity Bugs
+
+### Immediate Actions Taken
+- [ ] Issue escalated to on-call team
+- [ ] Stakeholders notified
+- [ ] Workaround implemented
+- [ ] Monitoring increased
+
+### Root Cause Analysis
+*To be completed by development team*
+
+### Fix Implementation Plan
+*To be completed by development team*
+
+### Prevention Measures
+*How can we prevent this in the future?*
+
+---
+
+## 📋 Bug Triage Checklist (For Development Team)
+
+- [ ] Bug reproduced in development environment
+- [ ] Impact assessment completed
+- [ ] Priority assigned based on severity and impact
+- [ ] Root cause identified
+- [ ] Fix approach determined
+- [ ] Testing strategy defined
+- [ ] Regression prevention plan created

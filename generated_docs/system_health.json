@@ -1,0 +1,15 @@
+{
+  "timestamp": "2025-09-01T21:00:50.015054",
+  "checks": {
+    "dependencies": "PASS",
+    "core_files": "PASS",
+    "configuration": "FAIL",
+    "import_integrity": "PASS",
+    "github_actions": "PASS"
+  },
+  "overall_status": "CRITICAL",
+  "critical_issues": [
+    "No .env file found and SMARTSHEET_API_TOKEN not set"
+  ],
+  "warnings": []
+}
