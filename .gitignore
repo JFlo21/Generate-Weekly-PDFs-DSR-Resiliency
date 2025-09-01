@@ -67,8 +67,11 @@ ai_models/
 *.pkl
 *.joblib
 
-# Generated documentation that might contain sensitive data
+# Generated artifacts & caches (kept out of VCS)
+generated_docs/*.xlsx
 generated_docs/audit_state.json
+generated_docs/discovery_cache.json
+!generated_docs/README.md
 
 # Backup files
 *.bak
