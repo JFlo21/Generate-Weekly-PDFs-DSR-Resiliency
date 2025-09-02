@@ -436,52 +436,79 @@ def cleanup_untracked_sheet_attachments(client, target_sheet_id: int, valid_wr_w
                     logging.warning(f"⚠️ Could not delete variant {old.name}: {e}")
     logging.info(f"🧹 Variant pruning done: removed_variants={removed_variants}")
 
-def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, current_data_hash, force_generation=False):
-    """Delete prior Excel attachments for a WR row.
+def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, week_raw, current_data_hash, force_generation=False):
+    """Delete prior Excel attachment(s) ONLY for the specific (WR, week) pair.
 
-    Improvements:
-      • Correct Smartsheet SDK call signature delete_attachment(sheet_id, attachment_id)
-      • Skip upload if an existing attachment already has identical data hash
-      • Graceful handling of transient errors / 404s
+    Previous behavior deleted every attachment matching WR_<wr>_* which removed
+    historical week-ending files for that Work Request. This function now:
+      • Looks only for names: WR_<wr>_WeekEnding_<MMDDYY>.xlsx (legacy) OR
+        WR_<wr>_WeekEnding_<MMDDYY>_<...>.xlsx (timestamp/hash variants)
+      • If an attachment for that (wr, week) already has the identical data hash
+        (and not forcing) we skip regeneration & upload.
+      • Leaves attachments for other weeks untouched so multiple weeks accumulate.
+
+    Returns (deleted_count, skipped_due_to_same_data)
     """
     deleted_count = 0
-    skipped_due_to_same_data = False
     try:
         attachments = client.Attachments.list_row_attachments(target_sheet_id, target_row.id).data
     except Exception as e:
         logging.warning(f"Could not list attachments for row {target_row.id}: {e}")
         return 0, False
 
-    excel_attachments = [a for a in attachments if a.name.endswith('.xlsx') and f"WR_{wr_num}_" in a.name]
-    if not excel_attachments:
+    prefix_no_underscore = f"WR_{wr_num}_WeekEnding_{week_raw}"
+    legacy_exact = f"{prefix_no_underscore}.xlsx"
+    candidates = []
+    for a in attachments:
+        name = getattr(a, 'name', '') or ''
+        if not name.endswith('.xlsx'):
+            continue
+        # Must match EXACT (legacy) or start with prefix + underscore (new naming)
+        if name == legacy_exact or name.startswith(prefix_no_underscore + '_'):
+            candidates.append(a)
+
+    if not candidates:
         return 0, False
 
+    # Skip if any existing candidate already carries the same hash (unless forced)
     if not force_generation:
-        # Hash short‑circuit: if any existing attachment already matches current hash, skip
-        for att in excel_attachments:
+        for att in candidates:
             existing_hash = extract_data_hash_from_filename(att.name)
             if existing_hash == current_data_hash:
-                logging.info(f"⏩ Data unchanged for WR# {wr_num} (hash {current_data_hash}); skipping regeneration & upload")
-                skipped_due_to_same_data = True
+                logging.info(f"⏩ Unchanged (WR {wr_num} Week {week_raw}) hash {current_data_hash}; skipping regeneration & upload")
                 return 0, True
     else:
-        logging.info(f"⚐ FORCE GENERATION active for WR# {wr_num}; ignoring existing hash matches")
+        logging.info(f"⚐ FORCE GENERATION for WR {wr_num} Week {week_raw}; ignoring existing hash match")
 
-    logging.info(f"�️ Deleting {len(excel_attachments)} old Excel attachment(s) for WR# {wr_num}")
-    for att in excel_attachments:
+    logging.info(f"🗑️ Removing {len(candidates)} prior attachment(s) for WR {wr_num} Week {week_raw}")
+    for att in candidates:
         try:
             client.Attachments.delete_attachment(target_sheet_id, att.id)
             deleted_count += 1
-            logging.info(f"   ✅ Deleted: '{att.name}'")
+            logging.info(f"   ✅ Deleted: {att.name}")
         except Exception as e:
             msg = str(e).lower()
             if '404' in msg or 'not found' in msg:
-                logging.info(f"   ℹ️ Already deleted: '{att.name}'")
-                deleted_count += 1
+                logging.info(f"   ℹ️ Already gone: {att.name}")
             else:
-                logging.warning(f"   ⚠️ Failed to delete '{att.name}': {e}")
-        time.sleep(0.1)
-    return deleted_count, skipped_due_to_same_data
+                logging.warning(f"   ⚠️ Delete failed {att.name}: {e}")
+        time.sleep(0.05)
+    return deleted_count, False
+
+def _has_existing_week_attachment(client, target_sheet_id, target_row, wr_num: str, week_raw: str) -> bool:
+    """Return True if at least one attachment exists for this (WR, week)."""
+    try:
+        attachments = client.Attachments.list_row_attachments(target_sheet_id, target_row.id).data
+    except Exception:
+        return False
+    prefix = f"WR_{wr_num}_WeekEnding_{week_raw}"
+    for a in attachments:
+        name = getattr(a, 'name', '') or ''
+        if not name.endswith('.xlsx'):
+            continue
+        if name == prefix + '.xlsx' or name.startswith(prefix + '_'):
+            return True
+    return False
 
 def purge_existing_hashed_outputs(client, target_sheet_id: int, wr_subset: set | None, test_mode: bool):
     """Delete existing hashed Excel attachments and local files so hashes recompute fresh.
@@ -1559,8 +1586,24 @@ def main():
                 if HISTORY_SKIP_ENABLED and not (FORCE_GENERATION or week_raw in REGEN_WEEKS or RESET_HASH_HISTORY or RESET_WR_LIST):
                     prev = hash_history.get(history_key)
                     if prev and prev.get('hash') == data_hash:
-                        logging.info(f"⏩ Skip (hash history) WR {wr_num} week {week_raw} unchanged hash {data_hash}")
-                        continue
+                        # Only skip if attachment present OR policy allows skipping without attachment
+                        can_skip = True
+                        if ATTACHMENT_REQUIRED_FOR_SKIP and not TEST_MODE:
+                            # Need a target row to verify attachment presence
+                            if not target_map:
+                                target_map = create_target_sheet_map(client)
+                            target_row = target_map.get(str(wr_num)) if target_map else None
+                            if target_row is None:
+                                can_skip = False  # Can't verify; safer to regenerate
+                            else:
+                                has_attachment = _has_existing_week_attachment(client, TARGET_SHEET_ID, target_row, str(wr_num), week_raw)
+                                if not has_attachment:
+                                    can_skip = False
+                        if can_skip:
+                            logging.info(f"⏩ Skip (unchanged + attachment exists) WR {wr_num} week {week_raw} hash {data_hash}")
+                            continue
+                        else:
+                            logging.info(f"🔁 Regenerating WR {wr_num} week {week_raw} despite unchanged hash (attachment missing or verification failed)")
                 
                 # Generate Excel file with complete fixes
                 excel_path, filename, wr_numbers = generate_excel(
@@ -1583,8 +1626,9 @@ def main():
                         except ValueError:
                             week_raw = ''
                         force_this = FORCE_GENERATION or (week_raw in REGEN_WEEKS)
+                        # Week component for week-specific deletion (allow multiple weeks per WR)
                         deleted_count, skipped = delete_old_excel_attachments(
-                            client, TARGET_SHEET_ID, target_row, wr_num, data_hash, force_generation=force_this
+                            client, TARGET_SHEET_ID, target_row, wr_num, week_raw, data_hash, force_generation=force_this
                         )
                         if force_this and skipped:
                             # Should not happen because we bypass skip when forced, but guard anyway
