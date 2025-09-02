@@ -135,6 +135,11 @@ FILTER_DIAGNOSTICS = os.getenv('FILTER_DIAGNOSTICS','0').lower() in ('1','true',
 FOREMAN_DIAGNOSTICS = os.getenv('FOREMAN_DIAGNOSTICS','0').lower() in ('1','true','yes')  # When enabled, logs per-WR foreman value distributions & exclusion reasons
 FORCE_GENERATION = os.getenv('FORCE_GENERATION','0').lower() in ('1','true','yes')  # When true, ignore hash short‑circuit and always regenerate
 REGEN_WEEKS = {w.strip() for w in os.getenv('REGEN_WEEKS','').split(',') if w.strip()}  # Comma list of MMDDYY week ending codes to force regenerate
+RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
+RESET_WR_LIST = {w.strip() for w in os.getenv('RESET_WR_LIST','').split(',') if w.strip()}  # When provided, only purge these WR numbers (overrides full reset)
+HASH_HISTORY_PATH = os.getenv('HASH_HISTORY_PATH', os.path.join(OUTPUT_FOLDER, 'hash_history.json'))
+HISTORY_SKIP_ENABLED = os.getenv('HISTORY_SKIP_ENABLED','1').lower() in ('1','true','yes')  # Allow skip based on identical stored hash ONLY if attachment still present
+ATTACHMENT_REQUIRED_FOR_SKIP = os.getenv('ATTACHMENT_REQUIRED_FOR_SKIP','1').lower() in ('1','true','yes')  # If true, even identical hash regenerates when attachment missing
 KEEP_HISTORICAL_WEEKS = os.getenv('KEEP_HISTORICAL_WEEKS','0').lower() in ('1','true','yes')  # Preserve attachments for weeks not processed this run
 if EXTENDED_CHANGE_DETECTION:
     logging.info("🔄 Extended change detection ENABLED (hash includes Foreman, Dept #, Scope, totals, etc.)")
@@ -477,6 +482,87 @@ def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, cu
                 logging.warning(f"   ⚠️ Failed to delete '{att.name}': {e}")
         time.sleep(0.1)
     return deleted_count, skipped_due_to_same_data
+
+def purge_existing_hashed_outputs(client, target_sheet_id: int, wr_subset: set | None, test_mode: bool):
+    """Delete existing hashed Excel attachments and local files so hashes recompute fresh.
+
+    wr_subset: if provided, only purge attachments for these WR numbers; otherwise purge all WR_*.xlsx attachments.
+    """
+    # Local file purge
+    try:
+        local_files = list_generated_excel_files(OUTPUT_FOLDER)
+        removed_local = 0
+        for f in local_files:
+            wr_ident = build_group_identity(f)
+            if wr_subset and wr_ident and wr_ident[0] not in wr_subset:
+                continue
+            try:
+                os.remove(os.path.join(OUTPUT_FOLDER, f))
+                removed_local += 1
+            except Exception:
+                pass
+        logging.info(f"🧨 Local hash reset: removed {removed_local} existing Excel file(s)")
+    except Exception as e:
+        logging.warning(f"⚠️ Local hash reset failed: {e}")
+
+    if test_mode:
+        logging.info("🧪 Test mode active – skipping remote attachment purge")
+        return
+    try:
+        sheet = client.Sheets.get_sheet(target_sheet_id)
+    except Exception as e:
+        logging.warning(f"⚠️ Could not load target sheet for purge: {e}")
+        return
+    purged = 0
+    scanned = 0
+    for row in sheet.rows:
+        try:
+            attachments = client.Attachments.list_row_attachments(target_sheet_id, row.id).data
+        except Exception:
+            continue
+        for att in attachments:
+            name = getattr(att,'name','') or ''
+            if not name.startswith('WR_') or not name.endswith('.xlsx'):
+                continue
+            ident = build_group_identity(name)
+            if wr_subset and ident and ident[0] not in wr_subset:
+                continue
+            scanned += 1
+            try:
+                client.Attachments.delete_attachment(target_sheet_id, att.id)
+                purged += 1
+                logging.info(f"🗑️ Purged attachment: {name}")
+            except Exception as e:
+                logging.warning(f"⚠️ Failed to purge attachment {name}: {e}")
+    logging.info(f"🔥 Remote hash reset complete: purged {purged} / scanned {scanned} matching attachment(s)")
+
+# --- HASH HISTORY PERSISTENCE ---
+
+def load_hash_history(path: str):
+    if RESET_HASH_HISTORY:
+        logging.info("♻️ Hash history reset requested; ignoring existing history file")
+        return {}
+    try:
+        with open(path,'r') as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return data
+        return {}
+    except FileNotFoundError:
+        return {}
+    except Exception as e:
+        logging.warning(f"⚠️ Failed to load hash history: {e}")
+        return {}
+
+def save_hash_history(path: str, history: dict):
+    try:
+        tmp_path = path + '.tmp'
+        with open(tmp_path,'w') as f:
+            json.dump(history, f, indent=2, default=str)
+        os.replace(tmp_path, path)
+        logging.info(f"📝 Hash history saved ({len(history)} entries)")
+    except Exception as e:
+        logging.warning(f"⚠️ Failed to save hash history: {e}")
 
 # --- DATA DISCOVERY AND PROCESSING ---
 
@@ -1427,9 +1513,19 @@ def main():
         else:
             logging.info("🚀 Audit system disabled for testing")
 
-        # Group rows by work request and week ending
+    # Group rows by work request and week ending
         logging.info("📂 Grouping data...")
         groups = group_source_rows(all_rows)
+
+        # Optional full/partial hash reset purge BEFORE processing groups if requested
+        if RESET_HASH_HISTORY or RESET_WR_LIST:
+            if RESET_WR_LIST:
+                logging.info(f"🧨 Hash reset requested for specific WRs: {sorted(list(RESET_WR_LIST))}")
+                purge_existing_hashed_outputs(client, TARGET_SHEET_ID, RESET_WR_LIST, TEST_MODE)
+            else:
+                logging.info("🧨 Global hash reset requested (RESET_HASH_HISTORY=1)")
+                purge_existing_hashed_outputs(client, TARGET_SHEET_ID, None, TEST_MODE)
+            # After purge, any regenerated files get new timestamp+hash filenames and re-upload
         
         if not groups:
             raise Exception("No valid groups created")
@@ -1447,10 +1543,24 @@ def main():
         if not TEST_MODE:
             target_map = create_target_sheet_map(client)
 
+        # Load hash history AFTER optional purge so we don't rely on stale attachments
+        hash_history = load_hash_history(HASH_HISTORY_PATH)
+        history_updates = 0
+
         for group_key, group_rows in groups.items():
             try:
                 # Calculate data hash for change detection
                 data_hash = calculate_data_hash(group_rows)
+                wr_num = group_rows[0].get('Work Request #')
+                week_raw = group_key.split('_',1)[0] if '_' in group_key else ''
+                history_key = f"{wr_num}|{week_raw}"
+
+                # Decide skip based on stored history BEFORE generating Excel (only if FORCE not set)
+                if HISTORY_SKIP_ENABLED and not (FORCE_GENERATION or week_raw in REGEN_WEEKS or RESET_HASH_HISTORY or RESET_WR_LIST):
+                    prev = hash_history.get(history_key)
+                    if prev and prev.get('hash') == data_hash:
+                        logging.info(f"⏩ Skip (hash history) WR {wr_num} week {week_raw} unchanged hash {data_hash}")
+                        continue
                 
                 # Generate Excel file with complete fixes
                 excel_path, filename, wr_numbers = generate_excel(
@@ -1496,6 +1606,16 @@ def main():
                                 logging.error(f"❌ Upload failed for {filename}: {e}")
                     else:
                         logging.warning(f"⚠️ Work request {wr_num} not found in target sheet")
+
+                # Update hash history (even in TEST_MODE so future prod runs can leverage)
+                hash_history[history_key] = {
+                    'hash': data_hash,
+                    'rows': len(group_rows),
+                    'updated_at': datetime.datetime.utcnow().isoformat() + 'Z',
+                    'foreman': group_rows[0].get('__current_foreman'),
+                    'week': week_raw,
+                }
+                history_updates += 1
                 
             except Exception as e:
                 logging.error(f"❌ Failed to process group {group_key}: {e}")
@@ -1547,6 +1667,10 @@ def main():
             logging.info(f"   • Anomalies: {audit_summary.get('total_anomalies', 0)}")
             logging.info(f"   • Data Issues: {audit_summary.get('total_data_issues', 0)}")
         
+        # Persist hash history if updated
+        if history_updates:
+            save_hash_history(HASH_HISTORY_PATH, hash_history)
+
         if SENTRY_DSN:
             with sentry_sdk.configure_scope() as scope:
                 scope.set_tag("session_success", True)

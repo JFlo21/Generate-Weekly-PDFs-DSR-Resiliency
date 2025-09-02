@@ -17,7 +17,7 @@ on:
         type: choice
         options: ['false','true']
       force_generation:
-        description: 'Force generate even if no eligible data'
+        description: 'Force regenerate ALL groups ignoring existing attachment hash match (set true to refresh everything).'
         required: false
         default: 'false'
         type: choice
@@ -28,7 +28,34 @@ on:
         default: 'false'
         type: choice
         options: ['false','true']
-
+      regen_weeks:
+        description: 'Comma list of specific week ending codes (MMDDYY) to force regenerate (e.g. 082425,083125). Empty = none.'
+        required: false
+        default: ''
+        type: string
+      extended_change_detection:
+        description: 'Include extra business fields (Foreman, Dept, Scope, totals) in data hash (recommended true).'
+        required: false
+        default: 'true'
+        type: choice
+        options: ['true','false']
+      filter_diagnostics:
+        description: 'Log counts of why rows were excluded (accepted, missing date, price, etc.).'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false','true']
+      foreman_diagnostics:
+        description: 'Log per-WR foreman value distribution & exclusion reasons (verbose).'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false','true']
+      wr_filter:
+        description: 'Optional comma list of WR numbers to limit processing (diagnostics/single WR runs). Empty = all.'
+        required: false
+        default: ''
+        type: string
 env:
   TZ: America/Chicago
 
@@ -79,6 +106,11 @@ jobs:
           RELEASE: ${{ github.sha }}
           TEST_MODE: ${{ github.event.inputs.test_mode }}
           FORCE_GENERATION: ${{ github.event.inputs.force_generation }}
+          REGEN_WEEKS: ${{ github.event.inputs.regen_weeks }}
+          EXTENDED_CHANGE_DETECTION: ${{ github.event.inputs.extended_change_detection }}
+          FILTER_DIAGNOSTICS: ${{ github.event.inputs.filter_diagnostics }}
+          FOREMAN_DIAGNOSTICS: ${{ github.event.inputs.foreman_diagnostics }}
+          WR_FILTER: ${{ github.event.inputs.wr_filter }}
           EXECUTION_TYPE: ${{ steps.exec.outputs.execution_type }}
         run: python generate_weekly_pdfs.py
       - name: Cleanup only
@@ -98,4 +130,10 @@ jobs:
           echo "Execution Type: ${{ steps.exec.outputs.execution_type }}"
           echo "Test Mode: ${{ github.event.inputs.test_mode }}"
           echo "Cleanup Only: ${{ github.event.inputs.cleanup_only }}"
+          echo "Force Generation: ${{ github.event.inputs.force_generation }}"
+          echo "Regen Weeks: ${{ github.event.inputs.regen_weeks }}"
+          echo "Extended Change Detection: ${{ github.event.inputs.extended_change_detection }}"
+          echo "Filter Diagnostics: ${{ github.event.inputs.filter_diagnostics }}"
+          echo "Foreman Diagnostics: ${{ github.event.inputs.foreman_diagnostics }}"
+          echo "WR Filter: ${{ github.event.inputs.wr_filter }}"
           if [ -d generated_docs ]; then ls -1 generated_docs | head -n 25; fi
