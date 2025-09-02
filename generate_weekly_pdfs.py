@@ -132,6 +132,8 @@ UNMAPPED_COLUMN_SAMPLE_LIMIT = int(os.getenv('UNMAPPED_COLUMN_SAMPLE_LIMIT','5')
 # current foreman, dept numbers, scope id, aggregated totals, unique dept list, and row count.
 EXTENDED_CHANGE_DETECTION = os.getenv('EXTENDED_CHANGE_DETECTION','1').lower() in ('1','true','yes')
 FILTER_DIAGNOSTICS = os.getenv('FILTER_DIAGNOSTICS','0').lower() in ('1','true','yes')  # When enabled, logs exclusion reasons counts
+FOREMAN_DIAGNOSTICS = os.getenv('FOREMAN_DIAGNOSTICS','0').lower() in ('1','true','yes')  # When enabled, logs per-WR foreman value distributions & exclusion reasons
+KEEP_HISTORICAL_WEEKS = os.getenv('KEEP_HISTORICAL_WEEKS','0').lower() in ('1','true','yes')  # Preserve attachments for weeks not processed this run
 if EXTENDED_CHANGE_DETECTION:
     logging.info("🔄 Extended change detection ENABLED (hash includes Foreman, Dept #, Scope, totals, etc.)")
 else:
@@ -380,44 +382,52 @@ def cleanup_stale_excels(output_folder: str, kept_filenames: set):
     return removed
 
 def cleanup_untracked_sheet_attachments(client, target_sheet_id: int, valid_wr_weeks: set, test_mode: bool):
-    """Remove Excel attachments on the target sheet that are not part of the current run.
+    """Prune only older variants for identities processed this run.
 
-    We keep only attachments whose (WR, weekEnding) identity was produced OR validated (unchanged hash skip) this run.
-    Everything else matching WR_*.xlsx is removed to avoid user confusion with legacy/incorrect data.
-
-    valid_wr_weeks: set of tuples (wr, week_mmddyy)
+    If KEEP_HISTORICAL_WEEKS=1 (default false here), weeks not in this run are preserved.
+    valid_wr_weeks: set of tuples (wr, week_mmddyy) that were generated or validated this session.
     """
     if test_mode:
         logging.info("🧪 Test mode – skipping sheet attachment pruning")
         return
-    removed = 0
-    scanned = 0
     try:
         sheet = client.Sheets.get_sheet(target_sheet_id)
     except Exception as e:
         logging.warning(f"⚠️ Could not load target sheet for attachment cleanup: {e}")
         return
+    removed_variants = 0
     for row in sheet.rows:
         try:
             attachments = client.Attachments.list_row_attachments(target_sheet_id, row.id).data
         except Exception:
             continue
+        identity_groups = collections.defaultdict(list)
         for att in attachments:
-            name = getattr(att, 'name', '') or ''
-            if not name.endswith('.xlsx') or not name.startswith('WR_'):
+            name = getattr(att,'name','') or ''
+            if name.startswith('WR_') and name.endswith('.xlsx'):
+                ident = build_group_identity(name)
+                if ident:
+                    identity_groups[ident].append(att)
+        for ident, atts in identity_groups.items():
+            # Skip identities not processed if preserving historical weeks
+            if ident not in valid_wr_weeks and KEEP_HISTORICAL_WEEKS:
                 continue
-            ident = build_group_identity(name)
-            if not ident:
-                continue
-            scanned += 1
-            if ident not in valid_wr_weeks:
+            # Sort attachments newest first based on timestamp token
+            def _ts(a):
+                parts = a.name.split('_')
+                if len(parts) >= 6 and parts[4].isdigit():
+                    return parts[4]
+                return '000000'
+            atts_sorted = sorted(atts, key=_ts, reverse=True)
+            # Keep newest; remove others
+            for old in atts_sorted[1:]:
                 try:
-                    client.Attachments.delete_attachment(target_sheet_id, att.id)
-                    removed += 1
-                    logging.info(f"🗑️ Pruned legacy attachment: {name}")
+                    client.Attachments.delete_attachment(target_sheet_id, old.id)
+                    removed_variants += 1
+                    logging.info(f"🗑️ Removed older variant: {old.name}")
                 except Exception as e:
-                    logging.warning(f"⚠️ Failed to delete legacy attachment {name}: {e}")
-    logging.info(f"🧹 Sheet attachment pruning complete: kept {scanned-removed} / scanned {scanned}, removed {removed}")
+                    logging.warning(f"⚠️ Could not delete variant {old.name}: {e}")
+    logging.info(f"🧹 Variant pruning done: removed_variants={removed_variants}")
 
 def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, current_data_hash):
     """Delete prior Excel attachments for a WR row.
@@ -598,6 +608,9 @@ def get_all_source_rows(client, source_sheets):
         'price_missing_or_zero': 0,
         'accepted': 0
     }
+    # Detailed per‑WR diagnostics
+    foreman_raw_counts = collections.defaultdict(lambda: collections.Counter())  # wr -> Counter(foreman values as-seen)
+    wr_exclusion_reasons = collections.defaultdict(lambda: collections.Counter())  # wr -> Counter(reason)
 
     for source in source_sheets:
         try:
@@ -696,7 +709,14 @@ def get_all_source_rows(client, source_sheets):
                         if global_row_counter < DEBUG_ESSENTIAL_ROWS:
                             logging.info(f"🔍 Row data sample: WR={work_request}, Price={price_val}, Date={weekly_date}, Units Completed={units_completed} ({units_completed_checked})")
 
-                        # REQUIRE: Work Request # AND Weekly Reference Logged Date AND Units Completed? true AND price exists >0
+                        # Record raw foreman regardless of acceptance (if WR exists)
+                        wr_key_for_diag = None
+                        if work_request:
+                            wr_key_for_diag = str(work_request).split('.')[0]
+                            fr_val = (row_data.get('Foreman') or '').strip() or '<<blank>>'
+                            foreman_raw_counts[wr_key_for_diag][fr_val] += 1
+
+                        # Acceptance logic (STRICT: Units Completed? must be checked/true)
                         if work_request and weekly_date and units_completed_checked and has_price:
                             merged_rows.append(row_data)
                             exclusion_counts['accepted'] += 1
@@ -704,12 +724,20 @@ def get_all_source_rows(client, source_sheets):
                             # Increment specific exclusion reasons (first matching reason recorded)
                             if not work_request:
                                 exclusion_counts['missing_work_request'] += 1
+                                if wr_key_for_diag:
+                                    wr_exclusion_reasons[wr_key_for_diag]['missing_work_request'] += 1
                             elif not weekly_date:
                                 exclusion_counts['missing_weekly_reference_logged_date'] += 1
+                                if wr_key_for_diag:
+                                    wr_exclusion_reasons[wr_key_for_diag]['missing_weekly_reference_logged_date'] += 1
                             elif not units_completed_checked:
                                 exclusion_counts['units_not_completed'] += 1
+                                if wr_key_for_diag:
+                                    wr_exclusion_reasons[wr_key_for_diag]['units_not_completed'] += 1
                             elif not has_price:
                                 exclusion_counts['price_missing_or_zero'] += 1
+                                if wr_key_for_diag:
+                                    wr_exclusion_reasons[wr_key_for_diag]['price_missing_or_zero'] += 1
 
                     global_row_counter += 1
 
@@ -730,6 +758,12 @@ def get_all_source_rows(client, source_sheets):
         for k,v in exclusion_counts.items():
             logging.info(f"   {k}: {v}")
         logging.info(f"   total_excluded: {total_excluded}")
+    if FOREMAN_DIAGNOSTICS and foreman_raw_counts:
+        logging.info("🧪 FOREMAN DIAGNOSTICS (first 25 WRs):")
+        for wr_key, ctr in list(foreman_raw_counts.items())[:25]:
+            top = ctr.most_common(5)
+            excl = wr_exclusion_reasons.get(wr_key, {})
+            logging.info(f"   WR {wr_key}: {sum(ctr.values())} rows seen, foremen(top5)={top}; exclusions={dict(excl)}")
 
     if merged_rows:
         logging.info(f"✅ UPDATED FILTERING SUCCESS: Found {len(merged_rows)} rows (Work Request # + Weekly Reference Logged Date + Units Completed? + Units Total Price exists required)")
