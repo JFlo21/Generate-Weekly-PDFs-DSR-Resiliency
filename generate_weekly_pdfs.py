@@ -131,6 +131,7 @@ UNMAPPED_COLUMN_SAMPLE_LIMIT = int(os.getenv('UNMAPPED_COLUMN_SAMPLE_LIMIT','5')
 # whether an Excel needs regeneration will include additional business fields such as
 # current foreman, dept numbers, scope id, aggregated totals, unique dept list, and row count.
 EXTENDED_CHANGE_DETECTION = os.getenv('EXTENDED_CHANGE_DETECTION','1').lower() in ('1','true','yes')
+FILTER_DIAGNOSTICS = os.getenv('FILTER_DIAGNOSTICS','0').lower() in ('1','true','yes')  # When enabled, logs exclusion reasons counts
 if EXTENDED_CHANGE_DETECTION:
     logging.info("🔄 Extended change detection ENABLED (hash includes Foreman, Dept #, Scope, totals, etc.)")
 else:
@@ -590,6 +591,13 @@ def get_all_source_rows(client, source_sheets):
     """
     merged_rows = []
     global_row_counter = 0
+    exclusion_counts = {
+        'missing_work_request': 0,
+        'missing_weekly_reference_logged_date': 0,
+        'units_not_completed': 0,
+        'price_missing_or_zero': 0,
+        'accepted': 0
+    }
 
     for source in source_sheets:
         try:
@@ -691,7 +699,17 @@ def get_all_source_rows(client, source_sheets):
                         # REQUIRE: Work Request # AND Weekly Reference Logged Date AND Units Completed? true AND price exists >0
                         if work_request and weekly_date and units_completed_checked and has_price:
                             merged_rows.append(row_data)
-                        # (Else conditions kept silent or at debug level to reduce noise)
+                            exclusion_counts['accepted'] += 1
+                        else:
+                            # Increment specific exclusion reasons (first matching reason recorded)
+                            if not work_request:
+                                exclusion_counts['missing_work_request'] += 1
+                            elif not weekly_date:
+                                exclusion_counts['missing_weekly_reference_logged_date'] += 1
+                            elif not units_completed_checked:
+                                exclusion_counts['units_not_completed'] += 1
+                            elif not has_price:
+                                exclusion_counts['price_missing_or_zero'] += 1
 
                     global_row_counter += 1
 
@@ -706,6 +724,12 @@ def get_all_source_rows(client, source_sheets):
                 sentry_sdk.capture_exception(e)
 
     logging.info(f"Found {len(merged_rows)} valid rows")
+    if FILTER_DIAGNOSTICS:
+        total_excluded = sum(v for k,v in exclusion_counts.items() if k != 'accepted')
+        logging.info("🧪 FILTER DIAGNOSTICS:")
+        for k,v in exclusion_counts.items():
+            logging.info(f"   {k}: {v}")
+        logging.info(f"   total_excluded: {total_excluded}")
 
     if merged_rows:
         logging.info(f"✅ UPDATED FILTERING SUCCESS: Found {len(merged_rows)} rows (Work Request # + Weekly Reference Logged Date + Units Completed? + Units Total Price exists required)")
