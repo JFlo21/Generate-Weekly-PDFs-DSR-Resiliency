@@ -19,9 +19,9 @@ on:
       force_generation:
         description: 'Force regenerate ALL groups ignoring existing attachment hash match (set true to refresh everything).'
         required: false
-        default: 'false'
-        type: choice
-        options: ['false','true']
+  default: 'true'
+  type: choice
+  options: ['false','true']
       cleanup_only:
         description: 'Only cleanup stale Excel files (no generation)'
         required: false
