@@ -127,6 +127,14 @@ DEBUG_ESSENTIAL_ROWS = int(os.getenv('DEBUG_ESSENTIAL_ROWS','5') or 5)  # How ma
 LOG_UNKNOWN_COLUMNS = os.getenv('LOG_UNKNOWN_COLUMNS','1').lower() in ('1','true','yes')  # Summarize unmapped columns once per sheet
 PER_CELL_DEBUG_ENABLED = os.getenv('PER_CELL_DEBUG_ENABLED','1').lower() in ('1','true','yes')  # Master switch
 UNMAPPED_COLUMN_SAMPLE_LIMIT = int(os.getenv('UNMAPPED_COLUMN_SAMPLE_LIMIT','5') or 5)  # Sample values per unmapped column in summary
+# Extended change detection (default ON). When enabled, the data hash used to detect
+# whether an Excel needs regeneration will include additional business fields such as
+# current foreman, dept numbers, scope id, aggregated totals, unique dept list, and row count.
+EXTENDED_CHANGE_DETECTION = os.getenv('EXTENDED_CHANGE_DETECTION','1').lower() in ('1','true','yes')
+if EXTENDED_CHANGE_DETECTION:
+    logging.info("🔄 Extended change detection ENABLED (hash includes Foreman, Dept #, Scope, totals, etc.)")
+else:
+    logging.info("ℹ️ Legacy change detection mode (hash limited to core line item fields)")
 if QUIET_LOGGING:
     logging.getLogger().setLevel(logging.WARNING)
 
@@ -226,15 +234,78 @@ def excel_serial_to_date(value):
         return None
 
 def calculate_data_hash(group_rows):
-    """Calculate a hash of the group data to detect changes."""
-    data_string = ""
-    for row in sorted(group_rows, key=lambda x: x.get('Work Request #', '')):
-        row_data = f"{row.get('Work Request #', '')}{row.get('CU', '')}{row.get('Quantity', '')}" \
-                  f"{row.get('Units Total Price', '')}{row.get('Snapshot Date', '')}" \
-                  f"{row.get('Pole #', '')}{row.get('Work Type', '')}"
-        data_string += row_data
-    
-    return hashlib.sha256(data_string.encode('utf-8')).hexdigest()[:16]
+    """Calculate a hash of the group data to detect changes.
+
+    Legacy (EXTENDED_CHANGE_DETECTION=0):
+        Uses original minimal fields so hash stability is preserved for rollbacks.
+
+    Extended (default):
+        Incorporates additional business-critical fields so regenerated Excel
+        files occur when any of these change:
+          • Current foreman name (derived '__current_foreman')
+          • Dept # values present across the group (set + order)
+          • Scope ID / #
+          • Aggregated total billed amount
+          • Unique dept list and row count
+          • All prior minimal fields
+    """
+    if not group_rows:
+        return "0" * 16
+
+    # Deterministic sorting across key business fields
+    sorted_rows = sorted(
+        group_rows,
+        key=lambda x: (
+            str(x.get('Work Request #', '')),
+            str(x.get('Snapshot Date', '')),
+            str(x.get('CU', '')),
+            str(x.get('Pole #') or x.get('Point #') or x.get('Point Number') or ''),
+            str(x.get('Quantity', '')),
+        )
+    )
+
+    if not EXTENDED_CHANGE_DETECTION:
+        data_string = ""
+        for row in sorted_rows:
+            data_string += (
+                f"{row.get('Work Request #', '')}"
+                f"{row.get('CU', '')}"
+                f"{row.get('Quantity', '')}"
+                f"{row.get('Units Total Price', '')}"
+                f"{row.get('Snapshot Date', '')}"
+                f"{row.get('Pole #', '')}"
+                f"{row.get('Work Type', '')}"
+            )
+        return hashlib.sha256(data_string.encode('utf-8')).hexdigest()[:16]
+
+    # Extended mode hash input parts
+    parts = []
+    group_foreman = None
+    for row in sorted_rows:
+        foreman = row.get('__current_foreman') or row.get('Foreman') or ''
+        if group_foreman is None and foreman:
+            group_foreman = foreman
+        parts.append("|".join([
+            str(row.get('Work Request #', '')),
+            str(row.get('Snapshot Date', '') or ''),
+            str(row.get('CU', '') or ''),
+            str(row.get('Quantity', '') or ''),
+            str(row.get('Units Total Price', '') or ''),
+            str(row.get('Pole #') or row.get('Point #') or row.get('Point Number') or ''),
+            str(row.get('Work Type', '') or ''),
+            str(row.get('Dept #', '') or ''),
+            str(row.get('Scope #') or row.get('Scope ID', '') or ''),
+        ]))
+
+    unique_depts = sorted({str(r.get('Dept #', '') or '') for r in sorted_rows if r.get('Dept #') is not None})
+    total_price = sum(parse_price(r.get('Units Total Price')) for r in sorted_rows)
+    parts.append(f"FOREMAN={group_foreman or ''}")
+    parts.append(f"DEPTS={','.join(unique_depts)}")
+    parts.append(f"TOTAL={total_price:.2f}")
+    parts.append(f"ROWCOUNT={len(sorted_rows)}")
+
+    hash_input = "\n".join(parts)
+    return hashlib.sha256(hash_input.encode('utf-8')).hexdigest()[:16]
 
 def extract_data_hash_from_filename(filename):
     """Extract data hash from filename format: WR_{wr_num}_WeekEnding_{week_end}_{data_hash}.xlsx"""
