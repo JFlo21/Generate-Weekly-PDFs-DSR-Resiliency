@@ -133,6 +133,8 @@ UNMAPPED_COLUMN_SAMPLE_LIMIT = int(os.getenv('UNMAPPED_COLUMN_SAMPLE_LIMIT','5')
 EXTENDED_CHANGE_DETECTION = os.getenv('EXTENDED_CHANGE_DETECTION','1').lower() in ('1','true','yes')
 FILTER_DIAGNOSTICS = os.getenv('FILTER_DIAGNOSTICS','0').lower() in ('1','true','yes')  # When enabled, logs exclusion reasons counts
 FOREMAN_DIAGNOSTICS = os.getenv('FOREMAN_DIAGNOSTICS','0').lower() in ('1','true','yes')  # When enabled, logs per-WR foreman value distributions & exclusion reasons
+FORCE_GENERATION = os.getenv('FORCE_GENERATION','0').lower() in ('1','true','yes')  # When true, ignore hash short‑circuit and always regenerate
+REGEN_WEEKS = {w.strip() for w in os.getenv('REGEN_WEEKS','').split(',') if w.strip()}  # Comma list of MMDDYY week ending codes to force regenerate
 KEEP_HISTORICAL_WEEKS = os.getenv('KEEP_HISTORICAL_WEEKS','0').lower() in ('1','true','yes')  # Preserve attachments for weeks not processed this run
 if EXTENDED_CHANGE_DETECTION:
     logging.info("🔄 Extended change detection ENABLED (hash includes Foreman, Dept #, Scope, totals, etc.)")
@@ -429,7 +431,7 @@ def cleanup_untracked_sheet_attachments(client, target_sheet_id: int, valid_wr_w
                     logging.warning(f"⚠️ Could not delete variant {old.name}: {e}")
     logging.info(f"🧹 Variant pruning done: removed_variants={removed_variants}")
 
-def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, current_data_hash):
+def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, current_data_hash, force_generation=False):
     """Delete prior Excel attachments for a WR row.
 
     Improvements:
@@ -449,13 +451,16 @@ def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, cu
     if not excel_attachments:
         return 0, False
 
-    # Hash short‑circuit: if any existing attachment already matches current hash, skip
-    for att in excel_attachments:
-        existing_hash = extract_data_hash_from_filename(att.name)
-        if existing_hash == current_data_hash:
-            logging.info(f"⏩ Data unchanged for WR# {wr_num} (hash {current_data_hash}); skipping regeneration & upload")
-            skipped_due_to_same_data = True
-            return 0, True
+    if not force_generation:
+        # Hash short‑circuit: if any existing attachment already matches current hash, skip
+        for att in excel_attachments:
+            existing_hash = extract_data_hash_from_filename(att.name)
+            if existing_hash == current_data_hash:
+                logging.info(f"⏩ Data unchanged for WR# {wr_num} (hash {current_data_hash}); skipping regeneration & upload")
+                skipped_due_to_same_data = True
+                return 0, True
+    else:
+        logging.info(f"⚐ FORCE GENERATION active for WR# {wr_num}; ignoring existing hash matches")
 
     logging.info(f"�️ Deleting {len(excel_attachments)} old Excel attachment(s) for WR# {wr_num}")
     for att in excel_attachments:
@@ -1462,9 +1467,20 @@ def main():
                         target_row = target_map[wr_num]
                         
                         # FIXED: Delete old attachments with proper implementation
+                        # Determine if this group/week is force-regenerated
+                        try:
+                            week_raw, _wr_tmp = group_key.split('_',1)
+                        except ValueError:
+                            week_raw = ''
+                        force_this = FORCE_GENERATION or (week_raw in REGEN_WEEKS)
                         deleted_count, skipped = delete_old_excel_attachments(
-                            client, TARGET_SHEET_ID, target_row, wr_num, data_hash
+                            client, TARGET_SHEET_ID, target_row, wr_num, data_hash, force_generation=force_this
                         )
+                        if force_this and skipped:
+                            # Should not happen because we bypass skip when forced, but guard anyway
+                            skipped = False
+                        if force_this:
+                            logging.info(f"🔁 Forced regeneration applied (FORCE_GENERATION={FORCE_GENERATION}, week_in_REGEN_WEEKS={week_raw in REGEN_WEEKS}) for group {group_key}")
                         
                         if not skipped:
                             # Upload new file
