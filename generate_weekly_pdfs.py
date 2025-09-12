@@ -137,7 +137,19 @@ FORCE_GENERATION = os.getenv('FORCE_GENERATION','0').lower() in ('1','true','yes
 REGEN_WEEKS = {w.strip() for w in os.getenv('REGEN_WEEKS','').split(',') if w.strip()}  # Comma list of MMDDYY week ending codes to force regenerate
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
 RESET_WR_LIST = {w.strip() for w in os.getenv('RESET_WR_LIST','').split(',') if w.strip()}  # When provided, only purge these WR numbers (overrides full reset)
-HASH_HISTORY_PATH = os.getenv('HASH_HISTORY_PATH', os.path.join(OUTPUT_FOLDER, 'hash_history.json'))
+_env_hist_path = os.getenv('HASH_HISTORY_PATH')
+_default_hist_path = os.path.join(OUTPUT_FOLDER, 'hash_history.json')
+if _env_hist_path:
+    # Only allow the file within OUTPUT_FOLDER (resolve real absolute paths)
+    _norm_path = os.path.normpath(os.path.abspath(os.path.join(OUTPUT_FOLDER, _env_hist_path)))
+    _output_folder_abs = os.path.normpath(os.path.abspath(OUTPUT_FOLDER))
+    if _norm_path.startswith(_output_folder_abs):
+        HASH_HISTORY_PATH = _norm_path
+    else:
+        logging.warning(f"⚠️ HASH_HISTORY_PATH environment variable must resolve within {OUTPUT_FOLDER}. Using default: {_default_hist_path}")
+        HASH_HISTORY_PATH = _default_hist_path
+else:
+    HASH_HISTORY_PATH = _default_hist_path
 HISTORY_SKIP_ENABLED = os.getenv('HISTORY_SKIP_ENABLED','1').lower() in ('1','true','yes')  # Allow skip based on identical stored hash ONLY if attachment still present
 ATTACHMENT_REQUIRED_FOR_SKIP = os.getenv('ATTACHMENT_REQUIRED_FOR_SKIP','1').lower() in ('1','true','yes')  # If true, even identical hash regenerates when attachment missing
 KEEP_HISTORICAL_WEEKS = os.getenv('KEEP_HISTORICAL_WEEKS','0').lower() in ('1','true','yes')  # Preserve attachments for weeks not processed this run
