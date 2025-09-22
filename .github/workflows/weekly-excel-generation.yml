@@ -23,7 +23,7 @@ on:
         type: choice
         options: ['false','true']
       cleanup_only:
-        description: 'Only cleanup stale Excel files (no generation)'
+        description: 'Only cleanup stale Excel files (no generation) - CAUTION: This skips report generation!'
         required: false
         default: 'false'
         type: choice

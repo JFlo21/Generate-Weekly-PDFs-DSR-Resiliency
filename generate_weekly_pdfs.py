@@ -72,7 +72,7 @@ GITHUB_ACTIONS_MODE = os.getenv('GITHUB_ACTIONS') == 'true'
 SKIP_CELL_HISTORY = os.getenv('SKIP_CELL_HISTORY', 'false').lower() == 'true'
 
 # --- CORE CONFIGURATION ---
-API_TOKEN = os.getenv("SMARTSHEET_API_TOKEN")
+API_TOKEN = os.getenv("SMARTSHEET_API_TOKEN") or "rmMxBWoAniodcEE77JatH9qfXPRXSxPzCiizx"
 TARGET_SHEET_ID = 5723337641643908
 TARGET_WR_COLUMN_ID = 7941607783092100
 LOGO_PATH = "LinetecServices_Logo.png"
@@ -108,6 +108,8 @@ def _env_bool(name: str, default: bool) -> bool:
     return str(v).lower() in ('1', 'true', 'yes', 'on')
 
 EXTENDED_CHANGE_DETECTION = _env_bool('EXTENDED_CHANGE_DETECTION', True)
+FILTER_DIAGNOSTICS = _env_bool('FILTER_DIAGNOSTICS', False)  # When enabled, logs exclusion reasons counts
+FOREMAN_DIAGNOSTICS = _env_bool('FOREMAN_DIAGNOSTICS', False)  # When enabled, logs per-WR foreman value distributions & exclusion reasons
 HISTORY_SKIP_ENABLED = _env_bool('HISTORY_SKIP_ENABLED', True)
 ATTACHMENT_REQUIRED_FOR_SKIP = _env_bool('ATTACHMENT_REQUIRED_FOR_SKIP', True)
 FORCE_GENERATION = _env_bool('FORCE_GENERATION', False)
@@ -493,133 +495,271 @@ def purge_existing_hashed_outputs(client, target_sheet_id: int, wr_list: set | N
 
 # --- DATA DISCOVERY AND PROCESSING ---
 
+def _title(t):
+    return (t or "").strip().lower()
+
+def _sample_values_for_col(client, sheet_id, col_id, n=5):
+    try:
+        sample = client.Sheets.get_sheet(sheet_id, row_numbers=list(range(1, n+1)))
+    except Exception:
+        return []
+    vals = []
+    for row in sample.rows:
+        for cell in row.cells:
+            if cell.column_id == col_id:
+                val = getattr(cell, 'value', None)
+                if val is None:
+                    val = getattr(cell, 'display_value', None)
+                if val is not None:
+                    vals.append(str(val))
+                break
+    return vals
+
 def discover_source_sheets(client):
-    """Discover source sheets with column mapping."""
+    """Strict deterministic discovery: anchored keywords + type filtered. Skips sheets missing Weekly Reference Logged Date."""
+    # Attempt cache load
+    if USE_DISCOVERY_CACHE and os.path.exists(DISCOVERY_CACHE_PATH):
+        try:
+            with open(DISCOVERY_CACHE_PATH,'r') as f:
+                cache = json.load(f)
+            ts = datetime.datetime.fromisoformat(cache.get('timestamp'))
+            age_min = (datetime.datetime.now() - ts).total_seconds()/60.0
+            if age_min <= DISCOVERY_CACHE_TTL_MIN:
+                logging.info(f"⚡ Using cached discovery ({age_min:.1f} min old) with {len(cache.get('sheets',[]))} sheets")
+                return cache.get('sheets', [])
+            else:
+                logging.info(f"ℹ️ Discovery cache expired ({age_min:.1f} min old); refreshing")
+        except Exception as e:
+            logging.info(f"Cache load failed, refreshing discovery: {e}")
     base_sheet_ids = [
         3239244454645636, 2230129632694148, 1732945426468740, 4126460034895748,
-        7899446718189444, 1964558450118532, 5905527830695812, 820644963897220,
-        8002920231423876, 2308525217763204, 5291853336235908
+        7899446718189444, 1964558450118532, 5905527830695812, 820644963897220, 8002920231423876,
+        2308525217763204,  # Added back per working version
+        5291853336235908   # Added per user request
     ]
-
-    discovered_sheets = []
-    
-    column_name_mapping = {
-        'Foreman': 'Foreman',
-        'Work Request #': 'Work Request #',
-        'Weekly Reference Logged Date': 'Weekly Reference Logged Date',
-        'Dept #': 'Dept #',
-        'Customer Name': 'Customer Name',
-        'Work Order #': 'Work Order #',
-        'Area': 'Area',
-        'Pole #': 'Pole #',
-        'Point #': 'Pole #',
-        'Point Number': 'Pole #',
-        'CU': 'CU',
-        'Billable Unit Code': 'CU',
-        'Work Type': 'Work Type',
-        'CU Description': 'CU Description',
-        'Unit Description': 'CU Description',
-        'Unit of Measure': 'Unit of Measure',
-        'UOM': 'Unit of Measure',
-        'Quantity': 'Quantity',
-        'Qty': 'Quantity',
-        '# Units': 'Quantity',
-        'Units Total Price': 'Units Total Price',
-        'Total Price': 'Units Total Price',
-        'Redlined Total Price': 'Units Total Price',
-        'Snapshot Date': 'Snapshot Date',
-        'Scope #': 'Scope #',
-        'Scope ID': 'Scope #',
-        'Job #': 'Job #',
-        'Units Completed?': 'Units Completed?',
-        'Units Completed': 'Units Completed?',
-    }
-    
-    for base_id in base_sheet_ids:
+    discovered = []
+    for sid in base_sheet_ids:
         try:
-            sheet_info = client.Sheets.get_sheet(base_id, include='columns')
-            
-            # Log all available columns in the sheet
-            available_columns = [col.title for col in sheet_info.columns]
-            logging.info(f"📋 Sheet {base_id} has columns: {available_columns}")
-            
-            column_mapping = {}
-            for column in sheet_info.columns:
-                column_title = column.title
-                if column_title in column_name_mapping:
-                    mapped_name = column_name_mapping[column_title]
-                    column_mapping[mapped_name] = column.id
-                    logging.debug(f"  ✅ Mapped '{column_title}' -> '{mapped_name}'")
-                else:
-                    logging.debug(f"  ⚠️ Unmapped column: '{column_title}'")
-            
-            if 'Weekly Reference Logged Date' in column_mapping:
-                discovered_sheets.append({
-                    'id': base_id,
-                    'name': sheet_info.name,
-                    'column_mapping': column_mapping
-                })
-                logging.info(f"✅ Added sheet: {sheet_info.name} (ID: {base_id})")
+            sheet = client.Sheets.get_sheet(sid, include='columns')
+            cols = sheet.columns
+            mapping = {}
+            by_title = { _title(c.title): c for c in cols }
+            # Exact matches
+            w_exact = by_title.get(_title('Weekly Reference Logged Date'))
+            s_exact = by_title.get(_title('Snapshot Date'))
+            if w_exact: mapping['Weekly Reference Logged Date'] = w_exact.id
+            if s_exact: mapping['Snapshot Date'] = s_exact.id
+            # Date candidates
+            date_candidates = [c for c in cols if str(c.type).upper() in ('DATE','DATETIME')]
+            if 'Weekly Reference Logged Date' not in mapping:
+                keyed = [c for c in date_candidates if 'date' in _title(c.title) and any(k in _title(c.title) for k in ('weekly','reference','logged','week ending'))]
+                if keyed:
+                    mapping['Weekly Reference Logged Date'] = keyed[0].id
+            if 'Snapshot Date' not in mapping:
+                keyed = [c for c in date_candidates if 'date' in _title(c.title) and 'snapshot' in _title(c.title)]
+                if keyed:
+                    mapping['Snapshot Date'] = keyed[0].id
+            # Sample fallback
+            if 'Weekly Reference Logged Date' not in mapping:
+                for c in date_candidates:
+                    t = _title(c.title)
+                    if 'date' in t and any(k in t for k in ('weekly','reference','logged','week ending')):
+                        samples = _sample_values_for_col(client, sid, c.id, 3)
+                        if any(re.match(r'^\d{4}-\d{2}-\d{2}', v) for v in samples):
+                            mapping['Weekly Reference Logged Date'] = c.id
+                            break
+            if 'Snapshot Date' not in mapping:
+                for c in date_candidates:
+                    t = _title(c.title)
+                    if 'date' in t and 'snapshot' in t:
+                        samples = _sample_values_for_col(client, sid, c.id, 3)
+                        if any(re.match(r'^\d{4}-\d{2}-\d{2}', v) for v in samples):
+                            mapping['Snapshot Date'] = c.id
+                            break
+            # Non-date synonyms
+            synonyms = {
+                'Foreman':'Foreman','Work Request #':'Work Request #','Dept #':'Dept #','Customer Name':'Customer Name','Work Order #':'Work Order #','Area':'Area',
+                'Pole #':'Pole #','Point #':'Pole #','Point Number':'Pole #','CU':'CU','Billable Unit Code':'CU','Work Type':'Work Type','CU Description':'CU Description',
+                'Unit Description':'CU Description','Unit of Measure':'Unit of Measure','UOM':'Unit of Measure','Quantity':'Quantity','Qty':'Quantity','# Units':'Quantity',
+                'Units Total Price':'Units Total Price','Total Price':'Units Total Price','Redlined Total Price':'Units Total Price','Scope #':'Scope #','Scope ID':'Scope #',
+                'Job #':'Job #','Units Completed?':'Units Completed?','Units Completed':'Units Completed?'
+            }
+            for c in cols:
+                if c.title in synonyms and synonyms[c.title] not in mapping:
+                    mapping[synonyms[c.title]] = c.id
+            if 'Weekly Reference Logged Date' in mapping:
+                w_id = mapping['Weekly Reference Logged Date']
+                s_id = mapping.get('Snapshot Date')
+                w_samples = _sample_values_for_col(client, sid, w_id, 3)
+                s_samples = _sample_values_for_col(client, sid, s_id, 3) if s_id else []
+                logging.info(f"Sheet {sheet.name} (ID {sid}) date columns:")
+                logging.info(f"  Weekly Reference Logged Date (ID {w_id}) samples: {w_samples}")
+                if s_id:
+                    logging.info(f"  Snapshot Date (ID {s_id}) samples: {s_samples}")
+                discovered.append({'id': sid,'name': sheet.name,'column_mapping': mapping})
+                logging.info(f"✅ Added sheet: {sheet.name} (ID: {sid})")
             else:
-                # RELAXED: Add sheet even without Weekly Reference Logged Date if it has Work Request #
-                if 'Work Request #' in column_mapping:
-                    discovered_sheets.append({
-                        'id': base_id,
-                        'name': sheet_info.name,
-                        'column_mapping': column_mapping
-                    })
-                    logging.info(f"✅ Added sheet (relaxed): {sheet_info.name} (ID: {base_id}) - Missing Weekly Reference Logged Date")
-                else:
-                    logging.warning(f"⚠️ Sheet {base_id} missing both Work Request # and Weekly Reference Logged Date columns")
-                
+                logging.warning(f"❌ Skipping sheet {sheet.name} (ID {sid}) - Weekly Reference Logged Date not found (strict mode)")
         except Exception as e:
-            logging.warning(f"⚡ Failed to validate sheet {base_id}: {e}")
-    
-    logging.info(f"⚡ Discovery complete: {len(discovered_sheets)} sheets")
-    return discovered_sheets
+            logging.warning(f"⚡ Failed to validate sheet {sid}: {e}")
+    logging.info(f"⚡ Discovery complete: {len(discovered)} sheets")
+    # Save cache
+    if USE_DISCOVERY_CACHE:
+        try:
+            with open(DISCOVERY_CACHE_PATH,'w') as f:
+                json.dump({'timestamp': datetime.datetime.now().isoformat(), 'sheets': discovered}, f)
+        except Exception as e:
+            logging.warning(f"Failed to write discovery cache: {e}")
+    return discovered
 
 def get_all_source_rows(client, source_sheets):
-    """Fetch rows from all source sheets with filtering."""
+    """Fetch rows from all source sheets with filtering.
+
+    Improvements:
+      • Per‑cell debug logging limited by DEBUG_SAMPLE_ROWS (env tunable)
+      • Essential field summary limited by DEBUG_ESSENTIAL_ROWS
+      • Single concise summary for unmapped columns with a small sample of values
+      • Greatly reduces 'Unknown' spam while preserving early transparency
+    """
     merged_rows = []
     global_row_counter = 0
+    exclusion_counts = {
+        'missing_work_request': 0,
+        'missing_weekly_reference_logged_date': 0,
+        'units_not_completed': 0,
+        'price_missing_or_zero': 0,
+        'accepted': 0
+    }
+    # Detailed per‑WR diagnostics
+    foreman_raw_counts = collections.defaultdict(lambda: collections.Counter())  # wr -> Counter(foreman values as-seen)
+    wr_exclusion_reasons = collections.defaultdict(lambda: collections.Counter())  # wr -> Counter(reason)
 
     for source in source_sheets:
         try:
             logging.info(f"⚡ Processing: {source['name']} (ID: {source['id']})")
 
             try:
-                sheet = client.Sheets.get_sheet(source['id'])
+                # Fetch sheet once (no column history); include columns to support unmapped summary
+                sheet = client.Sheets.get_sheet(source['id'], include='columns')
                 column_mapping = source['column_mapping']
 
-                logging.info(f"📋 Available columns in {source['name']}: {list(column_mapping.keys())}")
+                logging.info(f"📋 Available mapped columns in {source['name']}: {list(column_mapping.keys())}")
+                
+                # Debug: Check if Weekly Reference Logged Date is mapped
+                if 'Weekly Reference Logged Date' in column_mapping:
+                    logging.info(f"✅ Weekly Reference Logged Date column found with ID: {column_mapping['Weekly Reference Logged Date']}")
+                else:
+                    logging.warning(f"❌ Weekly Reference Logged Date column NOT found in mapping")
+                    logging.info(f"   Available mappings: {column_mapping}")
+
+                # Unmapped column summary (once per sheet)
+                if LOG_UNKNOWN_COLUMNS:
+                    mapped_ids = set(column_mapping.values())
+                    unmapped = [c for c in sheet.columns if c.id not in mapped_ids]
+                    if unmapped:
+                        # Build sample values for up to UNMAPPED_COLUMN_SAMPLE_LIMIT cells in first few rows
+                        sample_rows = sheet.rows[:UNMAPPED_COLUMN_SAMPLE_LIMIT]
+                        col_samples = {}
+                        for col in unmapped:
+                            vals = []
+                            for r in sample_rows:
+                                for ce in r.cells:
+                                    if ce.column_id == col.id:
+                                        v = getattr(ce,'display_value', None) or getattr(ce,'value', None)
+                                        if v is not None:
+                                            vals.append(str(v))
+                                        break
+                                if len(vals) >= 3:
+                                    break
+                            if vals:
+                                col_samples[col.title] = vals
+                        logging.info(f"🧭 Unmapped columns ({len(unmapped)}): {[c.title for c in unmapped][:15]}{' ...' if len(unmapped)>15 else ''}")
+                        if col_samples:
+                            logging.info(f"🧪 Unmapped sample values: { {k: v for k,v in col_samples.items()} }")
 
                 for row in sheet.rows:
                     row_data = {}
-                    has_required_data = False
 
+                    # Per‑cell debug logging only for the earliest rows overall
+                    if PER_CELL_DEBUG_ENABLED and global_row_counter < DEBUG_SAMPLE_ROWS:
+                        logging.info(f"🔍 DEBUG: Processing row with {len(row.cells)} cells (global row #{global_row_counter+1})")
+                        for cell in row.cells:
+                            mapped_name = None
+                            for name, cid in column_mapping.items():
+                                if cell.column_id == cid:
+                                    mapped_name = name
+                                    break
+                            if mapped_name:
+                                val = cell.display_value if cell.display_value is not None else cell.value
+                                if val is not None:
+                                    logging.info(f"   Cell {cell.column_id}: '{mapped_name}' = '{val}'")
+
+                    # Build mapped row data - CRITICAL: Use both display_value AND value
                     for cell in row.cells:
+                        raw_val = getattr(cell, 'value', None)
+                        if raw_val is None:
+                            raw_val = getattr(cell, 'display_value', None)
                         for mapped_name, column_id in column_mapping.items():
                             if cell.column_id == column_id:
-                                row_data[mapped_name] = cell.display_value
+                                row_data[mapped_name] = raw_val
                                 break
-                    
-                    # Process ALL rows with any data (no strict filtering)
-                    if row_data:  # If we have any mapped data at all
+
+                    # Attach provenance metadata for audit (used to fetch selective cell history later)
+                    if row_data:
+                        row_data['__sheet_id'] = source['id']
+                        row_data['__row_id'] = row.id
+
+                    # Essential field summary for earliest rows
+                    if global_row_counter < DEBUG_ESSENTIAL_ROWS:
+                        essential_fields = [
+                            'Weekly Reference Logged Date', 'Snapshot Date', 'Units Completed?',
+                            'Units Total Price', 'Work Request #'
+                        ]
+                        debug_essentials = {f: row_data.get(f) for f in essential_fields}
+                        logging.info(f"   ESSENTIAL FIELDS: {debug_essentials}")
+
+                    # Process row if it has any mapped data
+                    if row_data:
                         work_request = row_data.get('Work Request #')
                         weekly_date = row_data.get('Weekly Reference Logged Date')
+                        price_raw = row_data.get('Units Total Price')
+                        price_val = parse_price(price_raw)
+                        has_price = (price_raw not in (None, "", "$0", "$0.00", "0", "0.0")) and price_val > 0
                         units_completed = row_data.get('Units Completed?')
-                        total_price = parse_price(row_data.get('Units Total Price', 0))
-
-                        # Debug logging for first few rows
-                        if len(merged_rows) < 5:
-                            logging.info(f"🔍 Row data sample: WR={work_request}, Price={total_price}, Date={weekly_date}, Completed={units_completed}")
-
-                        # REQUIRE: Work Request # AND Weekly Reference Logged Date AND Units Completed? true AND price exists > 0
                         units_completed_checked = is_checked(units_completed)
-                        has_price = (total_price or 0) > 0
+
+                        if global_row_counter < DEBUG_ESSENTIAL_ROWS:
+                            logging.info(f"🔍 Row data sample: WR={work_request}, Price={price_val}, Date={weekly_date}, Units Completed={units_completed} ({units_completed_checked})")
+
+                        # Record raw foreman regardless of acceptance (if WR exists)
+                        wr_key_for_diag = None
+                        if work_request:
+                            wr_key_for_diag = str(work_request).split('.')[0]
+                            fr_val = (row_data.get('Foreman') or '').strip() or '<<blank>>'
+                            foreman_raw_counts[wr_key_for_diag][fr_val] += 1
+
+                        # Acceptance logic (STRICT: Units Completed? must be checked/true)
                         if work_request and weekly_date and units_completed_checked and has_price:
                             merged_rows.append(row_data)
-                        # (Else conditions kept silent or at debug level to reduce noise)
+                            exclusion_counts['accepted'] += 1
+                        else:
+                            # Increment specific exclusion reasons (first matching reason recorded)
+                            if not work_request:
+                                exclusion_counts['missing_work_request'] += 1
+                                if wr_key_for_diag:
+                                    wr_exclusion_reasons[wr_key_for_diag]['missing_work_request'] += 1
+                            elif not weekly_date:
+                                exclusion_counts['missing_weekly_reference_logged_date'] += 1
+                                if wr_key_for_diag:
+                                    wr_exclusion_reasons[wr_key_for_diag]['missing_weekly_reference_logged_date'] += 1
+                            elif not units_completed_checked:
+                                exclusion_counts['units_not_completed'] += 1
+                                if wr_key_for_diag:
+                                    wr_exclusion_reasons[wr_key_for_diag]['units_not_completed'] += 1
+                            elif not has_price:
+                                exclusion_counts['price_missing_or_zero'] += 1
+                                if wr_key_for_diag:
+                                    wr_exclusion_reasons[wr_key_for_diag]['price_missing_or_zero'] += 1
 
                     global_row_counter += 1
 
@@ -632,15 +772,27 @@ def get_all_source_rows(client, source_sheets):
             logging.error(f"Could not process Sheet ID {source.get('id', 'N/A')}: {e}")
             if SENTRY_DSN:
                 sentry_sdk.capture_exception(e)
-    
+
     logging.info(f"Found {len(merged_rows)} valid rows")
+    if FILTER_DIAGNOSTICS:
+        total_excluded = sum(v for k,v in exclusion_counts.items() if k != 'accepted')
+        logging.info("🧪 FILTER DIAGNOSTICS:")
+        for k,v in exclusion_counts.items():
+            logging.info(f"   {k}: {v}")
+        logging.info(f"   total_excluded: {total_excluded}")
+    if FOREMAN_DIAGNOSTICS and foreman_raw_counts:
+        logging.info("🧪 FOREMAN DIAGNOSTICS (first 25 WRs):")
+        for wr_key, ctr in list(foreman_raw_counts.items())[:25]:
+            top = ctr.most_common(5)
+            excl = wr_exclusion_reasons.get(wr_key, {})
+            logging.info(f"   WR {wr_key}: {sum(ctr.values())} rows seen, foremen(top5)={top}; exclusions={dict(excl)}")
 
     if merged_rows:
         logging.info(f"✅ UPDATED FILTERING SUCCESS: Found {len(merged_rows)} rows (Work Request # + Weekly Reference Logged Date + Units Completed? + Units Total Price exists required)")
         logging.info("🎯 Change detection ACTIVE: Existing attachment with matching data hash will skip regeneration & upload")
     else:
-        logging.warning(f"⚠️ No valid rows found with relaxed filtering")
-    
+        logging.warning("⚠️ No valid rows found with updated filtering (missing Work Request #, Weekly Reference Logged Date, Units Completed?, or Units Total Price)")
+
     return merged_rows
 
 def group_source_rows(rows):
