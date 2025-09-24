@@ -10,6 +10,7 @@ on:
     - cron: '0 5 * * 1'
   workflow_dispatch:
     inputs:
+      # Basic Operation Controls
       test_mode:
         description: 'Run in test mode (true/false)'
         required: false
@@ -28,6 +29,130 @@ on:
         default: 'false'
         type: choice
         options: ['false','true']
+      
+      # Logging & Debug Controls
+      quiet_logging:
+        description: 'Enable quiet logging (reduces output)'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false','true']
+      per_cell_debug_enabled:
+        description: 'Enable per-cell debug logging'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false','true']
+      log_unknown_columns:
+        description: 'Log unmapped columns summary'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false','true']
+      filter_diagnostics:
+        description: 'Enable filter diagnostics logging'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false','true']
+      foreman_diagnostics:
+        description: 'Enable foreman diagnostics logging'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false','true']
+      
+      # Performance & Caching
+      use_discovery_cache:
+        description: 'Use discovery cache for faster processing'
+        required: false
+        default: 'true'
+        type: choice
+        options: ['true','false']
+      discovery_cache_ttl_min:
+        description: 'Discovery cache TTL in minutes'
+        required: false
+        default: '60'
+        type: string
+      skip_cell_history:
+        description: 'Skip cell history for faster processing'
+        required: false
+        default: 'true'
+        type: choice
+        options: ['true','false']
+      
+      # Change Detection & History
+      extended_change_detection:
+        description: 'Enable extended change detection (includes foreman, dept, etc.)'
+        required: false
+        default: 'true'
+        type: choice
+        options: ['true','false']
+      history_skip_enabled:
+        description: 'Enable hash-based skip logic'
+        required: false
+        default: 'true'
+        type: choice
+        options: ['true','false']
+      attachment_required_for_skip:
+        description: 'Require attachment present for skip'
+        required: false
+        default: 'true'
+        type: choice
+        options: ['true','false']
+      keep_historical_weeks:
+        description: 'Preserve attachments for historical weeks'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false','true']
+      
+      # Reset & Cleanup Options
+      reset_hash_history:
+        description: 'Reset hash history and regenerate all files'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false','true']
+      
+      # Advanced Filters & Limits
+      wr_filter:
+        description: 'Comma-separated list of Work Request numbers to process (empty = all)'
+        required: false
+        default: ''
+        type: string
+      max_groups:
+        description: 'Maximum number of groups to process (0 = unlimited)'
+        required: false
+        default: '0'
+        type: string
+      regen_weeks:
+        description: 'Comma-separated list of MMDDYY week codes to regenerate'
+        required: false
+        default: ''
+        type: string
+      reset_wr_list:
+        description: 'Comma-separated list of WR numbers to reset (overrides full reset)'
+        required: false
+        default: ''
+        type: string
+      
+      # Debug Limits
+      debug_sample_rows:
+        description: 'Number of sample rows for debug logging'
+        required: false
+        default: '1'
+        type: string
+      debug_essential_rows:
+        description: 'Number of essential rows for debug logging'
+        required: false
+        default: '5'
+        type: string
+      unmapped_column_sample_limit:
+        description: 'Sample limit for unmapped columns'
+        required: false
+        default: '5'
+        type: string
 
 env:
   TZ: America/Chicago
@@ -77,16 +202,43 @@ jobs:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           ENVIRONMENT: production
           RELEASE: ${{ github.sha }}
-          TEST_MODE: ${{ github.event.inputs.test_mode }}
-          FORCE_GENERATION: ${{ github.event.inputs.force_generation }}
           EXECUTION_TYPE: ${{ steps.exec.outputs.execution_type }}
-          # Performance optimizations for GitHub Actions
-          QUIET_LOGGING: 'false'
-          USE_DISCOVERY_CACHE: 'true'
-          DISCOVERY_CACHE_TTL_MIN: '60'
-          PER_CELL_DEBUG_ENABLED: 'false'
-          DEBUG_SAMPLE_ROWS: '1'
-          LOG_UNKNOWN_COLUMNS: 'false'
+          
+          # Basic Operation Controls
+          TEST_MODE: ${{ github.event.inputs.test_mode || 'false' }}
+          FORCE_GENERATION: ${{ github.event.inputs.force_generation || 'false' }}
+          
+          # Logging & Debug Controls
+          QUIET_LOGGING: ${{ github.event.inputs.quiet_logging || 'false' }}
+          PER_CELL_DEBUG_ENABLED: ${{ github.event.inputs.per_cell_debug_enabled || 'false' }}
+          LOG_UNKNOWN_COLUMNS: ${{ github.event.inputs.log_unknown_columns || 'false' }}
+          FILTER_DIAGNOSTICS: ${{ github.event.inputs.filter_diagnostics || 'false' }}
+          FOREMAN_DIAGNOSTICS: ${{ github.event.inputs.foreman_diagnostics || 'false' }}
+          
+          # Performance & Caching
+          USE_DISCOVERY_CACHE: ${{ github.event.inputs.use_discovery_cache || 'true' }}
+          DISCOVERY_CACHE_TTL_MIN: ${{ github.event.inputs.discovery_cache_ttl_min || '60' }}
+          SKIP_CELL_HISTORY: ${{ github.event.inputs.skip_cell_history || 'true' }}
+          
+          # Change Detection & History
+          EXTENDED_CHANGE_DETECTION: ${{ github.event.inputs.extended_change_detection || 'true' }}
+          HISTORY_SKIP_ENABLED: ${{ github.event.inputs.history_skip_enabled || 'true' }}
+          ATTACHMENT_REQUIRED_FOR_SKIP: ${{ github.event.inputs.attachment_required_for_skip || 'true' }}
+          KEEP_HISTORICAL_WEEKS: ${{ github.event.inputs.keep_historical_weeks || 'false' }}
+          
+          # Reset & Cleanup Options
+          RESET_HASH_HISTORY: ${{ github.event.inputs.reset_hash_history || 'false' }}
+          
+          # Advanced Filters & Limits
+          WR_FILTER: ${{ github.event.inputs.wr_filter || '' }}
+          MAX_GROUPS: ${{ github.event.inputs.max_groups || '0' }}
+          REGEN_WEEKS: ${{ github.event.inputs.regen_weeks || '' }}
+          RESET_WR_LIST: ${{ github.event.inputs.reset_wr_list || '' }}
+          
+          # Debug Limits
+          DEBUG_SAMPLE_ROWS: ${{ github.event.inputs.debug_sample_rows || '1' }}
+          DEBUG_ESSENTIAL_ROWS: ${{ github.event.inputs.debug_essential_rows || '5' }}
+          UNMAPPED_COLUMN_SAMPLE_LIMIT: ${{ github.event.inputs.unmapped_column_sample_limit || '5' }}
         run: python generate_weekly_pdfs.py
       - name: Cleanup only
         if: steps.exec.outputs.should_run == 'true' && github.event.inputs.cleanup_only == 'true'
