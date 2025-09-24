@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📚 Documentation
+    url: https://github.com/JFlo21/Generate-Weekly-PDFs-DSR-Resiliency/blob/main/PROJECT_TRACKER.md
+    about: Read the comprehensive project tracker documentation
+  - name: 🚀 GitHub Projects Setup
+    url: https://github.com/JFlo21/Generate-Weekly-PDFs-DSR-Resiliency/blob/main/GITHUB_PROJECTS_SETUP.md
+    about: Instructions for setting up the project tracking board
+  - name: 🆘 Emergency Support
+    url: mailto:juflores@ltspower.com
+    about: For critical production issues requiring immediate attention

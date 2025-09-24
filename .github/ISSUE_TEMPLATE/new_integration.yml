@@ -1,0 +1,220 @@
+---
+name: 🔧 New Integration
+about: Adding connections to external systems or services
+title: '[INTEGRATION] '
+labels: ['integration', 'new-feature']
+assignees: ''
+---
+
+## 🔗 Integration Overview
+
+**Category**: New Integration
+**Priority**: [ ] Critical / [ ] High / [ ] Medium / [ ] Low
+**System Impact**: [ ] External Integration / [ ] Core Financial Logic / [ ] Report Generation / [ ] Infrastructure
+**Risk Level**: [ ] High Risk / [ ] Medium Risk / [ ] Low Risk
+**Effort Estimate**: [ ] 1-2 days / [ ] 1 week / [ ] 2-3 weeks / [ ] 1 month / [ ] 2+ months
+
+## 🎯 Integration Target
+
+### External System
+*What system are we integrating with?*
+
+### Integration Type
+- [ ] API Integration (REST/GraphQL)
+- [ ] Database Connection
+- [ ] File-based Integration
+- [ ] Webhook/Event-driven
+- [ ] Message Queue
+- [ ] Other: _____________
+
+### Authentication Method
+- [ ] API Key
+- [ ] OAuth 2.0
+- [ ] Basic Authentication
+- [ ] Certificate-based
+- [ ] Other: _____________
+
+## 📋 Business Case
+
+### Business Need
+*Why is this integration necessary?*
+
+### Expected Benefits
+*What value will this integration provide?*
+
+### Business Impact
+*Select one:*
+- [ ] 💰 Revenue Critical
+- [ ] 📈 Efficiency Improvement
+- [ ] 🛡️ Compliance Required
+- [ ] 🎯 User Experience
+- [ ] 🔧 Technical Debt
+- [ ] 📊 Reporting Enhancement
+
+## 🔧 Technical Requirements
+
+### Data Flow
+*Describe the data flow (inbound/outbound/bidirectional)*
+
+### Data Mapping
+*What data needs to be transformed or mapped?*
+
+### Frequency
+- [ ] Real-time
+- [ ] Hourly
+- [ ] Daily
+- [ ] Weekly
+- [ ] On-demand
+- [ ] Event-triggered
+
+### Volume Expectations
+*Expected data volume and growth*
+
+## 🛡️ Security & Compliance
+
+### Data Sensitivity
+- [ ] Public data
+- [ ] Internal use only
+- [ ] Confidential
+- [ ] Restricted/PII
+- [ ] Financial data
+
+### Compliance Requirements
+- [ ] SOX compliance needed
+- [ ] GDPR considerations
+- [ ] Data retention policies
+- [ ] Audit trail requirements
+
+### Security Measures
+- [ ] Encryption in transit
+- [ ] Encryption at rest
+- [ ] Access logging
+- [ ] Rate limiting
+- [ ] Input validation
+
+## ✅ Acceptance Criteria
+
+### Functional Requirements
+- [ ] Successfully connect to external system
+- [ ] Authenticate and maintain session
+- [ ] Handle data exchange as specified
+- [ ] Process errors gracefully
+- [ ] Maintain data integrity
+
+### Non-Functional Requirements
+- [ ] Performance meets expectations
+- [ ] Security requirements satisfied
+- [ ] Monitoring and alerting in place
+- [ ] Documentation completed
+- [ ] Configuration externalized
+
+## 🧪 Testing Strategy
+
+### Testing Types Required
+*Select all that apply:*
+- [ ] Unit Tests
+- [ ] Integration Tests
+- [ ] Security Tests
+- [ ] Performance Tests
+- [ ] User Acceptance Tests
+- [ ] Regression Tests
+
+### Mock/Stub Strategy
+*How will external dependencies be mocked for testing?*
+
+### Test Data Requirements
+*What test data is needed?*
+
+## 📊 Monitoring & Observability
+
+### Key Metrics
+*What metrics should be tracked?*
+- [ ] Connection success rate
+- [ ] Response time
+- [ ] Data accuracy
+- [ ] Error rates
+- [ ] Throughput
+
+### Alerting
+*What conditions should trigger alerts?*
+
+### Logging Requirements
+*What events should be logged?*
+
+## 🚨 Risk Assessment
+
+### Integration Risks
+*What could go wrong with the integration?*
+
+### System Impact
+*How might this affect existing functionality?*
+
+### Rollback Strategy
+*How can we undo this integration if needed?*
+
+## 📋 Dependencies
+
+### External Dependencies
+- [ ] Access to target system
+- [ ] API credentials/permissions
+- [ ] Network connectivity
+- [ ] Documentation availability
+
+### Internal Dependencies
+- [ ] Configuration system updates
+- [ ] Database schema changes
+- [ ] Monitoring setup
+- [ ] Documentation updates
+
+### Blockers
+*What's preventing progress on this integration?*
+
+## 📝 Implementation Plan
+
+### Phase 1: Research & Planning
+- [ ] API documentation review
+- [ ] Authentication setup
+- [ ] Test environment access
+- [ ] Data mapping specification
+
+### Phase 2: Development
+- [ ] Core integration logic
+- [ ] Error handling
+- [ ] Configuration management
+- [ ] Unit tests
+
+### Phase 3: Testing
+- [ ] Integration testing
+- [ ] Security validation
+- [ ] Performance testing
+- [ ] User acceptance testing
+
+### Phase 4: Deployment
+- [ ] Staging deployment
+- [ ] Production configuration
+- [ ] Monitoring setup
+- [ ] Documentation finalization
+
+## 📊 Success Metrics
+
+*How will we measure integration success?*
+- [ ] Metric 1: [Specific measurable outcome]
+- [ ] Metric 2: [Specific measurable outcome]
+- [ ] Metric 3: [Specific measurable outcome]
+
+## 📝 Additional Context
+
+*API documentation links, mockups, examples, etc.*
+
+---
+
+### 🔍 Integration Safety Checklist
+
+- [ ] External system stability verified
+- [ ] Rate limits understood and respected
+- [ ] Credential management strategy approved
+- [ ] Error handling covers all scenarios
+- [ ] Timeout and retry logic implemented
+- [ ] Data validation on both ends
+- [ ] Monitoring and alerting configured
+- [ ] Rollback procedure tested

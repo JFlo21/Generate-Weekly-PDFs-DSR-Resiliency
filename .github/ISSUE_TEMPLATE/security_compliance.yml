@@ -1,0 +1,201 @@
+---
+name: 🛡️ Security & Compliance
+about: Security improvements or compliance requirements for the system
+title: '[SECURITY] '
+labels: ['security', 'compliance']
+assignees: ''
+---
+
+## 🛡️ Security Overview
+
+**Category**: Security & Compliance
+**Priority**: [ ] Critical / [ ] High / [ ] Medium / [ ] Low
+**Compliance Type**: [ ] SOX / [ ] GDPR / [ ] Internal Policy / [ ] Industry Standard / [ ] Other
+**Risk Level**: [ ] High Risk / [ ] Medium Risk / [ ] Low Risk
+**Effort Estimate**: [ ] 1-2 days / [ ] 1 week / [ ] 2-3 weeks / [ ] 1 month / [ ] 2+ months
+
+## 🎯 Security Requirement
+
+### Type of Security Enhancement
+- [ ] 🔐 Authentication/Authorization
+- [ ] 🔒 Data Encryption
+- [ ] 📋 Audit Logging
+- [ ] 🛡️ Access Control
+- [ ] 🔍 Vulnerability Remediation
+- [ ] 📊 Security Monitoring
+- [ ] 🚨 Incident Response
+- [ ] 📝 Compliance Documentation
+
+### Scope
+*Which components or data types are affected?*
+
+## 📋 Business Case
+
+### Compliance Requirement
+*What regulation, policy, or standard drives this requirement?*
+
+### Risk Being Mitigated
+*What security risk does this address?*
+
+### Business Impact
+- [ ] 🚨 Regulatory Requirement (Must Have)
+- [ ] 🛡️ Risk Reduction (Should Have)
+- [ ] 📈 Security Posture Improvement (Nice to Have)
+
+## 🔧 Technical Requirements
+
+### Current State
+*Describe the current security posture*
+
+### Desired Future State
+*What should the security posture look like after implementation?*
+
+### Security Controls Needed
+- [ ] Preventive controls
+- [ ] Detective controls
+- [ ] Corrective controls
+- [ ] Compensating controls
+
+### Data Classification
+*What types of data are involved?*
+- [ ] Public
+- [ ] Internal
+- [ ] Confidential
+- [ ] Restricted/PII
+- [ ] Financial data
+
+## ✅ Acceptance Criteria
+
+### Security Requirements
+- [ ] Security control implemented as specified
+- [ ] Access properly restricted
+- [ ] Audit trail complete and accurate
+- [ ] No unauthorized access possible
+- [ ] Security testing passed
+
+### Compliance Requirements
+- [ ] Regulatory requirements satisfied
+- [ ] Documentation completed
+- [ ] Control effectiveness demonstrated
+- [ ] Audit evidence generated
+
+## 🧪 Security Testing Requirements
+
+### Testing Types Required
+*Select all that apply:*
+- [ ] Security Penetration Testing
+- [ ] Vulnerability Assessment
+- [ ] Access Control Testing
+- [ ] Encryption Validation
+- [ ] Audit Log Testing
+- [ ] Compliance Validation
+
+### Testing Approach
+*How will security be validated?*
+
+## 📊 Monitoring & Detection
+
+### Security Metrics
+*What should be monitored?*
+- [ ] Failed authentication attempts
+- [ ] Unauthorized access attempts
+- [ ] Data access patterns
+- [ ] Configuration changes
+- [ ] Privilege escalations
+
+### Alerting Requirements
+*What events should trigger security alerts?*
+
+### Incident Response
+*How should security incidents be handled?*
+
+## 🚨 Risk Assessment
+
+### Security Risks
+*What could go wrong during implementation?*
+
+### Impact if Not Implemented
+*What happens if we don't address this?*
+
+### Implementation Risks
+*What risks does the implementation itself introduce?*
+
+## 📋 Dependencies
+
+### Security Infrastructure
+- [ ] Identity management system
+- [ ] Certificate management
+- [ ] Key management system
+- [ ] Monitoring/SIEM integration
+- [ ] Backup and recovery procedures
+
+### External Dependencies
+- [ ] Third-party security tools
+- [ ] Compliance consulting
+- [ ] Security training
+- [ ] Hardware security modules
+
+### Approval Requirements
+- [ ] Security team approval
+- [ ] Compliance team review
+- [ ] Legal team review
+- [ ] Management approval
+
+## 📝 Implementation Plan
+
+### Phase 1: Security Design
+- [ ] Threat modeling completed
+- [ ] Security architecture defined
+- [ ] Control design documented
+- [ ] Risk assessment updated
+
+### Phase 2: Implementation
+- [ ] Security controls implemented
+- [ ] Integration testing completed
+- [ ] Security validation performed
+- [ ] Documentation updated
+
+### Phase 3: Validation
+- [ ] Security testing completed
+- [ ] Compliance validation performed
+- [ ] Penetration testing (if required)
+- [ ] Control effectiveness demonstrated
+
+### Phase 4: Operations
+- [ ] Monitoring configured
+- [ ] Incident response procedures updated
+- [ ] Training provided
+- [ ] Regular review scheduled
+
+## 📊 Success Metrics
+
+*How will we measure security improvement?*
+- [ ] Metric 1: [Specific security outcome]
+- [ ] Metric 2: [Compliance measure]
+- [ ] Metric 3: [Risk reduction indicator]
+
+## 📝 Additional Context
+
+### Regulatory References
+*Links to relevant regulations, standards, or policies*
+
+### Security Documentation
+*Links to threat models, security designs, etc.*
+
+### Related Security Issues
+*Links to related security work*
+
+---
+
+### 🔒 Security Implementation Checklist
+
+- [ ] Security design reviewed and approved
+- [ ] Threat model updated
+- [ ] Security controls tested
+- [ ] Audit logging implemented
+- [ ] Monitoring and alerting configured
+- [ ] Incident response procedures updated
+- [ ] Documentation completed
+- [ ] Compliance validation performed
+- [ ] Security training provided
+- [ ] Regular review scheduled
