@@ -46,7 +46,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
       - name: Cache pip
         uses: actions/cache@v4
         with:
@@ -80,6 +80,13 @@ jobs:
           TEST_MODE: ${{ github.event.inputs.test_mode }}
           FORCE_GENERATION: ${{ github.event.inputs.force_generation }}
           EXECUTION_TYPE: ${{ steps.exec.outputs.execution_type }}
+          # Performance optimizations for GitHub Actions
+          QUIET_LOGGING: 'false'
+          USE_DISCOVERY_CACHE: 'true'
+          DISCOVERY_CACHE_TTL_MIN: '60'
+          PER_CELL_DEBUG_ENABLED: 'false'
+          DEBUG_SAMPLE_ROWS: '1'
+          LOG_UNKNOWN_COLUMNS: 'false'
         run: python generate_weekly_pdfs.py
       - name: Cleanup only
         if: steps.exec.outputs.should_run == 'true' && github.event.inputs.cleanup_only == 'true'

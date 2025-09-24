@@ -642,12 +642,12 @@ def discover_source_sheets(client):
         except Exception as e:
             logging.info(f"Cache load failed, refreshing discovery: {e}")
     base_sheet_ids = [
-         3239244454645636, 2230129632694148, 1732945426468740, 4126460034895748,
+        3239244454645636, 2230129632694148, 1732945426468740, 4126460034895748,
         7899446718189444, 1964558450118532, 5905527830695812, 820644963897220,
-        8002920231423876, 2308525217763204  # Added per user request
         8002920231423876, 2308525217763204,  # Added per user request
-        5892629871939460, 3756603854507908
+        5892629871939460, 3756603854507908  # Added per user request
     ]
+    
     discovered = []
     for sid in base_sheet_ids:
         try:
