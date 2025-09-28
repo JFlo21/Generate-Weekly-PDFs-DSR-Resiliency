@@ -431,7 +431,12 @@ def discover_source_sheets(client):
     
     Optimized for efficient sheet discovery with minimal API calls and reduced discovery time.
     """
-    base_sheet_ids = [3239244454645636, 2230129632694148, 1732945426468740, 4126460034895748, 7899446718189444, 1964558450118532, 5905527830695812, 820644963897220, 8002920231423876]
+    base_sheet_ids = [
+        3239244454645636, 2230129632694148, 1732945426468740, 4126460034895748,
+        7899446718189444, 1964558450118532, 5905527830695812, 820644963897220,
+        8002920231423876, 2308525217763204,  # Added per user request
+        5892629871939460, 3756603854507908, 5833510251089796  # Added per user request
+    ]
     
     # Use targeted sheet filtering with dynamic week ending calculation
     logging.info("⚡ Using server-side filtering for current week ending data")
