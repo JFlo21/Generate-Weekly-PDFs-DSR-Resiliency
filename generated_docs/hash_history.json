@@ -1,0 +1,2389 @@
+{
+  "89708709.0|071325": {
+    "hash": "d0c0c9e498f2193a",
+    "rows": 137,
+    "updated_at": "2025-09-29T17:37:38.383158Z",
+    "foreman": "Marco Gonzalez",
+    "week": "071325"
+  },
+  "89708709.0|062925": {
+    "hash": "180d98cea4559d1d",
+    "rows": 4,
+    "updated_at": "2025-09-29T17:37:39.266035Z",
+    "foreman": "Marco Gonzalez",
+    "week": "062925"
+  },
+  "89719272.0|072025": {
+    "hash": "c54a29edd2471a31",
+    "rows": 200,
+    "updated_at": "2025-09-29T17:37:40.166338Z",
+    "foreman": "Jose Mendez",
+    "week": "072025"
+  },
+  "89774377.0|072025": {
+    "hash": "79e5a64faa0bac33",
+    "rows": 439,
+    "updated_at": "2025-09-29T17:37:41.152363Z",
+    "foreman": "Jonathan Estrada",
+    "week": "072025"
+  },
+  "89774377.0|080325": {
+    "hash": "5fde7696ec00075f",
+    "rows": 11,
+    "updated_at": "2025-09-29T17:37:41.979675Z",
+    "foreman": "Jonathan Estrada",
+    "week": "080325"
+  },
+  "89804587.0|072025": {
+    "hash": "747241c8a3331fce",
+    "rows": 49,
+    "updated_at": "2025-09-29T17:37:42.878869Z",
+    "foreman": "Unknown Foreman",
+    "week": "072025"
+  },
+  "89787325.0|080325": {
+    "hash": "9e18df18b6924e3e",
+    "rows": 6,
+    "updated_at": "2025-09-29T17:37:43.710828Z",
+    "foreman": "Wesley York",
+    "week": "080325"
+  },
+  "89719272.0|072725": {
+    "hash": "3a23fe276c22afac",
+    "rows": 251,
+    "updated_at": "2025-09-29T17:37:44.665932Z",
+    "foreman": "Jose Mendez",
+    "week": "072725"
+  },
+  "89774377.0|081025": {
+    "hash": "cbfef47f524dee07",
+    "rows": 21,
+    "updated_at": "2025-09-29T17:37:45.562200Z",
+    "foreman": "Jonathan Estrada",
+    "week": "081025"
+  },
+  "89708709.0|070625": {
+    "hash": "331b509a2fc10874",
+    "rows": 14,
+    "updated_at": "2025-09-29T17:37:46.510556Z",
+    "foreman": "Marco Gonzalez",
+    "week": "070625"
+  },
+  "89709840.0|071325": {
+    "hash": "612854e0026ce8c0",
+    "rows": 94,
+    "updated_at": "2025-09-29T17:37:47.862239Z",
+    "foreman": "BM",
+    "week": "071325"
+  },
+  "89709840.0|070625": {
+    "hash": "1a0af0bf9ceff314",
+    "rows": 8,
+    "updated_at": "2025-09-29T17:37:48.771983Z",
+    "foreman": "BM",
+    "week": "070625"
+  },
+  "89774377.0|071325": {
+    "hash": "e6282ab9c8ff6514",
+    "rows": 64,
+    "updated_at": "2025-09-29T17:37:49.671243Z",
+    "foreman": "Jonathan Estrada",
+    "week": "071325"
+  },
+  "89804587.0|072725": {
+    "hash": "0484835b18181bae",
+    "rows": 8,
+    "updated_at": "2025-09-29T17:37:50.545512Z",
+    "foreman": "Unknown Foreman",
+    "week": "072725"
+  },
+  "89787325.0|092825": {
+    "hash": "1db6dc9425c0984e",
+    "rows": 8,
+    "updated_at": "2025-09-29T17:37:51.342907Z",
+    "foreman": "Wesley York",
+    "week": "092825"
+  },
+  "89787325.0|072725": {
+    "hash": "d593389c2d0d0424",
+    "rows": 32,
+    "updated_at": "2025-09-29T17:37:52.188215Z",
+    "foreman": "Wesley York",
+    "week": "072725"
+  },
+  "89708709.0|072725": {
+    "hash": "f51f1cb8cd342e96",
+    "rows": 2,
+    "updated_at": "2025-09-29T17:37:53.001608Z",
+    "foreman": "Marco Gonzalez",
+    "week": "072725"
+  },
+  "89719272.0|070625": {
+    "hash": "6ebe5c0eec55885f",
+    "rows": 81,
+    "updated_at": "2025-09-29T17:37:53.874688Z",
+    "foreman": "Jose Mendez",
+    "week": "070625"
+  },
+  "89787325.0|072025": {
+    "hash": "9d730f580fc5533f",
+    "rows": 28,
+    "updated_at": "2025-09-29T17:37:54.719993Z",
+    "foreman": "Wesley York",
+    "week": "072025"
+  },
+  "89709840.0|072025": {
+    "hash": "26a37719b43975f3",
+    "rows": 278,
+    "updated_at": "2025-09-29T17:37:55.669647Z",
+    "foreman": "BM",
+    "week": "072025"
+  },
+  "89774377.0|070625": {
+    "hash": "dfc52795faacf59c",
+    "rows": 23,
+    "updated_at": "2025-09-29T17:37:56.533822Z",
+    "foreman": "Jonathan Estrada",
+    "week": "070625"
+  },
+  "89719272.0|062925": {
+    "hash": "0bc91b757240c2d2",
+    "rows": 10,
+    "updated_at": "2025-09-29T17:37:57.459336Z",
+    "foreman": "Jose Mendez",
+    "week": "062925"
+  },
+  "89719272.0|071325": {
+    "hash": "184e915125d04d49",
+    "rows": 13,
+    "updated_at": "2025-09-29T17:37:58.423239Z",
+    "foreman": "Jose Mendez",
+    "week": "071325"
+  },
+  "89734550.0|072025": {
+    "hash": "5ab938f27dc122b3",
+    "rows": 139,
+    "updated_at": "2025-09-29T17:37:59.808712Z",
+    "foreman": "Joseph Ford",
+    "week": "072025"
+  },
+  "89734550.0|071325": {
+    "hash": "0b4d21378a07f541",
+    "rows": 95,
+    "updated_at": "2025-09-29T17:38:00.871512Z",
+    "foreman": "Joseph Ford",
+    "week": "071325"
+  },
+  "89734550.0|062925": {
+    "hash": "cfb943dd6f9e1c18",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:38:01.883060Z",
+    "foreman": "Joseph Ford",
+    "week": "062925"
+  },
+  "89734550.0|072725": {
+    "hash": "e50685003a10525d",
+    "rows": 73,
+    "updated_at": "2025-09-29T17:38:03.069629Z",
+    "foreman": "Joseph Ford",
+    "week": "072725"
+  },
+  "89734550.0|080325": {
+    "hash": "dcd2acb6c3d17ce3",
+    "rows": 127,
+    "updated_at": "2025-09-29T17:38:04.120724Z",
+    "foreman": "Joseph Ford",
+    "week": "080325"
+  },
+  "89734550.0|070625": {
+    "hash": "e6f57ccc246e7b84",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:38:05.125465Z",
+    "foreman": "Joseph Ford",
+    "week": "070625"
+  },
+  "89775268.0|071325": {
+    "hash": "6b68bc989ff885e0",
+    "rows": 141,
+    "updated_at": "2025-09-29T17:38:06.154282Z",
+    "foreman": "Walter Ward",
+    "week": "071325"
+  },
+  "89775268.0|062925": {
+    "hash": "09990e0f1e8a2656",
+    "rows": 11,
+    "updated_at": "2025-09-29T17:38:07.010132Z",
+    "foreman": "Walter Ward",
+    "week": "062925"
+  },
+  "89775268.0|072025": {
+    "hash": "56591c9090757287",
+    "rows": 95,
+    "updated_at": "2025-09-29T17:38:07.937873Z",
+    "foreman": "Walter Ward",
+    "week": "072025"
+  },
+  "89814636.0|072025": {
+    "hash": "00a37e93d4f6def0",
+    "rows": 143,
+    "updated_at": "2025-09-29T17:38:08.864353Z",
+    "foreman": "Edward DeRosia",
+    "week": "072025"
+  },
+  "89700661.0|072025": {
+    "hash": "67c5100dd3b5a7c1",
+    "rows": 60,
+    "updated_at": "2025-09-29T17:38:09.709250Z",
+    "foreman": "Jonathan Estrada",
+    "week": "072025"
+  },
+  "89700661.0|072725": {
+    "hash": "fe193cda4bba9efd",
+    "rows": 111,
+    "updated_at": "2025-09-29T17:38:10.562156Z",
+    "foreman": "Jonathan Estrada",
+    "week": "072725"
+  },
+  "89700661.0|080325": {
+    "hash": "d1ee8ed6d01d2082",
+    "rows": 86,
+    "updated_at": "2025-09-29T17:38:11.466319Z",
+    "foreman": "Jonathan Estrada",
+    "week": "080325"
+  },
+  "89700661.0|081025": {
+    "hash": "fec675c746e9437e",
+    "rows": 2,
+    "updated_at": "2025-09-29T17:38:12.318602Z",
+    "foreman": "Jonathan Estrada",
+    "week": "081025"
+  },
+  "89732091.0|072025": {
+    "hash": "a2076422a119716e",
+    "rows": 21,
+    "updated_at": "2025-09-29T17:38:13.151385Z",
+    "foreman": "Karl Guidroz",
+    "week": "072025"
+  },
+  "89732091.0|080325": {
+    "hash": "5c74795bfcea7db3",
+    "rows": 84,
+    "updated_at": "2025-09-29T17:38:14.378290Z",
+    "foreman": "Karl Guidroz",
+    "week": "080325"
+  },
+  "89732091.0|081025": {
+    "hash": "b7ae123d41efb48e",
+    "rows": 19,
+    "updated_at": "2025-09-29T17:38:15.210577Z",
+    "foreman": "Karl Guidroz",
+    "week": "081025"
+  },
+  "89732091.0|072725": {
+    "hash": "c2c0b2dbb89f9e79",
+    "rows": 96,
+    "updated_at": "2025-09-29T17:38:16.021107Z",
+    "foreman": "Karl Guidroz",
+    "week": "072725"
+  },
+  "89732091.0|071325": {
+    "hash": "2638a65797b7d8c3",
+    "rows": 9,
+    "updated_at": "2025-09-29T17:38:16.865387Z",
+    "foreman": "Karl Guidroz",
+    "week": "071325"
+  },
+  "89713058.0|080325": {
+    "hash": "42f43cba25dcbe07",
+    "rows": 45,
+    "updated_at": "2025-09-29T17:38:17.703903Z",
+    "foreman": "Devin Carriere",
+    "week": "080325"
+  },
+  "89713058.0|081025": {
+    "hash": "6fdf301555c534bb",
+    "rows": 160,
+    "updated_at": "2025-09-29T17:38:18.571683Z",
+    "foreman": "Devin Carriere",
+    "week": "081025"
+  },
+  "89713058.0|081725": {
+    "hash": "737de4383380601f",
+    "rows": 51,
+    "updated_at": "2025-09-29T17:38:19.434175Z",
+    "foreman": "Devin Carriere",
+    "week": "081725"
+  },
+  "89713058.0|072725": {
+    "hash": "8853e926ec7bb185",
+    "rows": 105,
+    "updated_at": "2025-09-29T17:38:20.307734Z",
+    "foreman": "Devin Carriere",
+    "week": "072725"
+  },
+  "89713058.0|072025": {
+    "hash": "718a04e88b9a80e8",
+    "rows": 5,
+    "updated_at": "2025-09-29T17:38:21.153291Z",
+    "foreman": "Devin Carriere",
+    "week": "072025"
+  },
+  "89713058.0|090725": {
+    "hash": "95c61713419bbb02",
+    "rows": 4,
+    "updated_at": "2025-09-29T17:38:22.001552Z",
+    "foreman": "Devin Carriere",
+    "week": "090725"
+  },
+  "89774664.0|080325": {
+    "hash": "0b9298155b5a3d0c",
+    "rows": 51,
+    "updated_at": "2025-09-29T17:38:22.853967Z",
+    "foreman": "Walter Ward",
+    "week": "080325"
+  },
+  "89774664.0|082425": {
+    "hash": "8da9786f6e3f2d56",
+    "rows": 61,
+    "updated_at": "2025-09-29T17:38:23.768414Z",
+    "foreman": "Walter Ward",
+    "week": "082425"
+  },
+  "89774664.0|081725": {
+    "hash": "d332c5046b3406eb",
+    "rows": 61,
+    "updated_at": "2025-09-29T17:38:24.651871Z",
+    "foreman": "Walter Ward",
+    "week": "081725"
+  },
+  "89774664.0|072725": {
+    "hash": "2a55082a31577961",
+    "rows": 88,
+    "updated_at": "2025-09-29T17:38:25.563895Z",
+    "foreman": "Walter Ward",
+    "week": "072725"
+  },
+  "89774664.0|092825": {
+    "hash": "a2cd144382372a84",
+    "rows": 2,
+    "updated_at": "2025-09-29T17:38:26.378710Z",
+    "foreman": "Walter Ward",
+    "week": "092825"
+  },
+  "89774664.0|081025": {
+    "hash": "bcc36201b5fbf9c0",
+    "rows": 54,
+    "updated_at": "2025-09-29T17:38:27.217390Z",
+    "foreman": "Walter Ward",
+    "week": "081025"
+  },
+  "89840280.0|080325": {
+    "hash": "abf2d905842d0a75",
+    "rows": 72,
+    "updated_at": "2025-09-29T17:38:28.057187Z",
+    "foreman": "Joseph Ford",
+    "week": "080325"
+  },
+  "89840280.0|081025": {
+    "hash": "8fcf3b63f6cd70b6",
+    "rows": 134,
+    "updated_at": "2025-09-29T17:38:28.965806Z",
+    "foreman": "Joseph Ford",
+    "week": "081025"
+  },
+  "89840280.0|081725": {
+    "hash": "14cfff3097da75ae",
+    "rows": 61,
+    "updated_at": "2025-09-29T17:38:29.749585Z",
+    "foreman": "Joseph Ford",
+    "week": "081725"
+  },
+  "89699991.0|072725": {
+    "hash": "c1c2dfceb09b5a68",
+    "rows": 15,
+    "updated_at": "2025-09-29T17:38:30.576959Z",
+    "foreman": "Unknown Foreman",
+    "week": "072725"
+  },
+  "89699991.0|080325": {
+    "hash": "2115145834d0af64",
+    "rows": 19,
+    "updated_at": "2025-09-29T17:38:31.432809Z",
+    "foreman": "Unknown Foreman",
+    "week": "080325"
+  },
+  "89699991.0|081025": {
+    "hash": "40511d3714088796",
+    "rows": 4,
+    "updated_at": "2025-09-29T17:38:32.326724Z",
+    "foreman": "Unknown Foreman",
+    "week": "081025"
+  },
+  "89804587.0|071325": {
+    "hash": "37895ec246b9abc4",
+    "rows": 9,
+    "updated_at": "2025-09-29T17:38:33.174180Z",
+    "foreman": "Unknown Foreman",
+    "week": "071325"
+  },
+  "89787325.0|071325": {
+    "hash": "bdf426cfd2a23c18",
+    "rows": 6,
+    "updated_at": "2025-09-29T17:38:34.034962Z",
+    "foreman": "Wesley York",
+    "week": "071325"
+  },
+  "89881161.0|072025": {
+    "hash": "32cc2035007cacf3",
+    "rows": 83,
+    "updated_at": "2025-09-29T17:38:34.946864Z",
+    "foreman": "Chad Wheat",
+    "week": "072025"
+  },
+  "89700562.0|072025": {
+    "hash": "5dfefa7ec225e409",
+    "rows": 37,
+    "updated_at": "2025-09-29T17:38:35.838127Z",
+    "foreman": "Allen Harris",
+    "week": "072025"
+  },
+  "89877351.0|072025": {
+    "hash": "0ae68f4aca24c309",
+    "rows": 17,
+    "updated_at": "2025-09-29T17:38:36.643323Z",
+    "foreman": "Marco Gonzalez",
+    "week": "072025"
+  },
+  "89708709.0|072025": {
+    "hash": "70ef2ad954285c2c",
+    "rows": 9,
+    "updated_at": "2025-09-29T17:38:37.484162Z",
+    "foreman": "Marco Gonzalez",
+    "week": "072025"
+  },
+  "89763663.0|072725": {
+    "hash": "564af2a95c80f2ab",
+    "rows": 178,
+    "updated_at": "2025-09-29T17:38:38.382930Z",
+    "foreman": "Abraham Hernandez",
+    "week": "072725"
+  },
+  "89877351.0|072725": {
+    "hash": "53852486935190e6",
+    "rows": 162,
+    "updated_at": "2025-09-29T17:38:39.265640Z",
+    "foreman": "Marco Gonzalez",
+    "week": "072725"
+  },
+  "89792541.0|072725": {
+    "hash": "373097efe2611fb5",
+    "rows": 166,
+    "updated_at": "2025-09-29T17:38:40.283689Z",
+    "foreman": "Oscar Aleman",
+    "week": "072725"
+  },
+  "89856203.0|072725": {
+    "hash": "68aef6757604670c",
+    "rows": 43,
+    "updated_at": "2025-09-29T17:38:41.258476Z",
+    "foreman": "Jose Rosenbaun Sr.",
+    "week": "072725"
+  },
+  "89830464.0|072725": {
+    "hash": "37d4a4c706b48fec",
+    "rows": 73,
+    "updated_at": "2025-09-29T17:38:42.330490Z",
+    "foreman": "Jose Rosenbaun Jr.",
+    "week": "072725"
+  },
+  "89700562.0|072725": {
+    "hash": "431926ae0d08bbf7",
+    "rows": 24,
+    "updated_at": "2025-09-29T17:38:43.644658Z",
+    "foreman": "Allen Harris",
+    "week": "072725"
+  },
+  "89709840.0|072725": {
+    "hash": "c7c283d8f211a05e",
+    "rows": 2,
+    "updated_at": "2025-09-29T17:38:44.744462Z",
+    "foreman": "BM",
+    "week": "072725"
+  },
+  "89804587.0|080325": {
+    "hash": "50b29df385f4be53",
+    "rows": 3,
+    "updated_at": "2025-09-29T17:38:45.759764Z",
+    "foreman": "Unknown Foreman",
+    "week": "080325"
+  },
+  "89792541.0|080325": {
+    "hash": "34a59ba1af9f0050",
+    "rows": 141,
+    "updated_at": "2025-09-29T17:38:46.878772Z",
+    "foreman": "Oscar Aleman",
+    "week": "080325"
+  },
+  "89877351.0|080325": {
+    "hash": "cd542ac2ba0444c1",
+    "rows": 87,
+    "updated_at": "2025-09-29T17:38:47.862314Z",
+    "foreman": "Marco Gonzalez",
+    "week": "080325"
+  },
+  "89763663.0|080325": {
+    "hash": "cfed99e32d416a53",
+    "rows": 128,
+    "updated_at": "2025-09-29T17:38:48.851769Z",
+    "foreman": "Abraham Hernandez",
+    "week": "080325"
+  },
+  "89912899.0|080325": {
+    "hash": "238f1d83bc3f6e1a",
+    "rows": 52,
+    "updated_at": "2025-09-29T17:38:49.724971Z",
+    "foreman": "Jose Mendez",
+    "week": "080325"
+  },
+  "89830464.0|080325": {
+    "hash": "fc23b9705e9a484b",
+    "rows": 161,
+    "updated_at": "2025-09-29T17:38:50.638644Z",
+    "foreman": "Jose Rosenbaun Jr.",
+    "week": "080325"
+  },
+  "89700562.0|080325": {
+    "hash": "0d73407cf66772a0",
+    "rows": 47,
+    "updated_at": "2025-09-29T17:38:51.514613Z",
+    "foreman": "Allen Harris",
+    "week": "080325"
+  },
+  "89856203.0|080325": {
+    "hash": "6b6d452cab40e90b",
+    "rows": 99,
+    "updated_at": "2025-09-29T17:38:52.465055Z",
+    "foreman": "Jose Rosenbaun Sr.",
+    "week": "080325"
+  },
+  "89763663.0|081025": {
+    "hash": "fee6d9d67abf7249",
+    "rows": 129,
+    "updated_at": "2025-09-29T17:38:53.461531Z",
+    "foreman": "Abraham Hernandez",
+    "week": "081025"
+  },
+  "89877351.0|081025": {
+    "hash": "d573b38cf1509037",
+    "rows": 126,
+    "updated_at": "2025-09-29T17:38:54.429753Z",
+    "foreman": "Marco Gonzalez",
+    "week": "081025"
+  },
+  "89830464.0|081025": {
+    "hash": "bb2d2510e7c3a015",
+    "rows": 50,
+    "updated_at": "2025-09-29T17:38:55.337747Z",
+    "foreman": "Jose Rosenbaun Jr.",
+    "week": "081025"
+  },
+  "Dcp 0371577|081025": {
+    "hash": "e74640e5f3313b56",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:38:55.353249Z",
+    "foreman": "#INVALID VALUE",
+    "week": "081025"
+  },
+  "Dcp0371577|081025": {
+    "hash": "d7293f556be8a697",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:38:55.368195Z",
+    "foreman": "#INVALID VALUE",
+    "week": "081025"
+  },
+  "89912899.0|081025": {
+    "hash": "e7cc35d0e622c6ca",
+    "rows": 38,
+    "updated_at": "2025-09-29T17:38:56.210893Z",
+    "foreman": "Jose Mendez",
+    "week": "081025"
+  },
+  "89856203.0|081025": {
+    "hash": "1cc6ecbc39c9d904",
+    "rows": 77,
+    "updated_at": "2025-09-29T17:38:57.066069Z",
+    "foreman": "Jose Rosenbaun Sr.",
+    "week": "081025"
+  },
+  "89719272.0|081025": {
+    "hash": "f2781ace0b016230",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:38:58.023750Z",
+    "foreman": "Jose Mendez",
+    "week": "081025"
+  },
+  "89866468.0|081025": {
+    "hash": "705f01803009264b",
+    "rows": 127,
+    "updated_at": "2025-09-29T17:38:58.998144Z",
+    "foreman": "Jesus Zarate",
+    "week": "081025"
+  },
+  "89839464.0|081025": {
+    "hash": "cc313771aee2c919",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:38:59.013780Z",
+    "foreman": "#NO MATCH",
+    "week": "081025"
+  },
+  "89700562.0|081025": {
+    "hash": "b5d0e989658085f8",
+    "rows": 29,
+    "updated_at": "2025-09-29T17:38:59.883630Z",
+    "foreman": "Allen Harris",
+    "week": "081025"
+  },
+  "89941778.0|081025": {
+    "hash": "58bb7967d72c8cb2",
+    "rows": 72,
+    "updated_at": "2025-09-29T17:39:00.708392Z",
+    "foreman": "Jonathan Estrada",
+    "week": "081025"
+  },
+  "89754704.0|081025": {
+    "hash": "5e6c3317deeb24ac",
+    "rows": 61,
+    "updated_at": "2025-09-29T17:39:01.552680Z",
+    "foreman": "Jose Rosenbaun Jr.",
+    "week": "081025"
+  },
+  "89877202.0|081025": {
+    "hash": "32ef3853a7c25e22",
+    "rows": 21,
+    "updated_at": "2025-09-29T17:39:02.399028Z",
+    "foreman": "Jose Rosenbaun Sr.",
+    "week": "081025"
+  },
+  "89866468.0|081725": {
+    "hash": "9c58105c22f96de2",
+    "rows": 153,
+    "updated_at": "2025-09-29T17:39:03.540984Z",
+    "foreman": "Jesus Zarate",
+    "week": "081725"
+  },
+  "8984028.0|081725": {
+    "hash": "28ecfcfbc836c281",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:39:03.558679Z",
+    "foreman": "#NO MATCH",
+    "week": "081725"
+  },
+  "90093002.0|081725": {
+    "hash": "88c39fcf75f4193b",
+    "rows": 20,
+    "updated_at": "2025-09-29T17:39:04.465341Z",
+    "foreman": "Karl Guidroz",
+    "week": "081725"
+  },
+  "898402.0|081725": {
+    "hash": "5aa85dae185eee14",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:39:04.482775Z",
+    "foreman": "#NO MATCH",
+    "week": "081725"
+  },
+  "89700562.0|081725": {
+    "hash": "4c67d4b2aa4199a5",
+    "rows": 27,
+    "updated_at": "2025-09-29T17:39:05.315325Z",
+    "foreman": "Allen Harris",
+    "week": "081725"
+  },
+  "89912899.0|081725": {
+    "hash": "a8b7b49e0dbf83bb",
+    "rows": 140,
+    "updated_at": "2025-09-29T17:39:06.168964Z",
+    "foreman": "Jose Mendez",
+    "week": "081725"
+  },
+  "89754704.0|081725": {
+    "hash": "0f5010784829fa5a",
+    "rows": 101,
+    "updated_at": "2025-09-29T17:39:07.001827Z",
+    "foreman": "Jose Rosenbaun Jr.",
+    "week": "081725"
+  },
+  "98966468.0|081725": {
+    "hash": "a655db2a450aa29c",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:39:07.018169Z",
+    "foreman": "#NO MATCH",
+    "week": "081725"
+  },
+  "89877202.0|081725": {
+    "hash": "e572561864e2c09b",
+    "rows": 129,
+    "updated_at": "2025-09-29T17:39:07.926940Z",
+    "foreman": "Jose Rosenbaun Sr.",
+    "week": "081725"
+  },
+  "89819201.0|081725": {
+    "hash": "47bf15c6584f304f",
+    "rows": 125,
+    "updated_at": "2025-09-29T17:39:08.811210Z",
+    "foreman": "Bryan Rodriguez",
+    "week": "081725"
+  },
+  "89803515.0|081725": {
+    "hash": "b29ff99f6f105c5a",
+    "rows": 88,
+    "updated_at": "2025-09-29T17:39:09.627588Z",
+    "foreman": "Brennan Talbert",
+    "week": "081725"
+  },
+  "89719272.0|081725": {
+    "hash": "15edadecc43b35d4",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:39:10.404016Z",
+    "foreman": "Jose Mendez",
+    "week": "081725"
+  },
+  "89812901.0|081725": {
+    "hash": "63cc864e9eaa29ae",
+    "rows": 8,
+    "updated_at": "2025-09-29T17:39:10.421989Z",
+    "foreman": "#NO MATCH",
+    "week": "081725"
+  },
+  "89856203.0|081725": {
+    "hash": "cf5870c59a9d1c10",
+    "rows": 35,
+    "updated_at": "2025-09-29T17:39:11.305825Z",
+    "foreman": "Jose Rosenbaun Sr.",
+    "week": "081725"
+  },
+  "89566203.0|081725": {
+    "hash": "1e34cf51b9286337",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:39:11.322132Z",
+    "foreman": "#NO MATCH",
+    "week": "081725"
+  },
+  "8985203.0|081725": {
+    "hash": "2150f80be62c9cfc",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:39:11.337245Z",
+    "foreman": "#NO MATCH",
+    "week": "081725"
+  },
+  "89941778.0|081725": {
+    "hash": "61e091eafa41ddac",
+    "rows": 139,
+    "updated_at": "2025-09-29T17:39:12.216174Z",
+    "foreman": "Jonathan Estrada",
+    "week": "081725"
+  },
+  "89987874.0|081725": {
+    "hash": "14f18f4ea2426ef7",
+    "rows": 5,
+    "updated_at": "2025-09-29T17:39:13.055428Z",
+    "foreman": "Edward DeRosia",
+    "week": "081725"
+  },
+  "83812901.0|081725": {
+    "hash": "d0217a3d5ed9151c",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:39:13.071947Z",
+    "foreman": "#NO MATCH",
+    "week": "081725"
+  },
+  "898035615.0|081725": {
+    "hash": "7ce027876bcaaa04",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:39:13.086968Z",
+    "foreman": "#NO MATCH",
+    "week": "081725"
+  },
+  "85756441.0|081725": {
+    "hash": "052d57661158d99c",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:39:13.102723Z",
+    "foreman": "#NO MATCH",
+    "week": "081725"
+  },
+  "82131472.0|081725": {
+    "hash": "7b422cff8b19d55a",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:39:13.123189Z",
+    "foreman": "#NO MATCH",
+    "week": "081725"
+  },
+  "89866468.0|082425": {
+    "hash": "d4410d45c4c17f85",
+    "rows": 82,
+    "updated_at": "2025-09-29T17:39:14.098719Z",
+    "foreman": "Jesus Zarate",
+    "week": "082425"
+  },
+  "89763663.0|082425": {
+    "hash": "33c66d73333031e7",
+    "rows": 45,
+    "updated_at": "2025-09-29T17:39:14.953096Z",
+    "foreman": "Abraham Hernandez",
+    "week": "082425"
+  },
+  "89754704.0|082425": {
+    "hash": "4983b213c37da0e2",
+    "rows": 104,
+    "updated_at": "2025-09-29T17:39:16.022684Z",
+    "foreman": "Jose Rosenbaun Jr.",
+    "week": "082425"
+  },
+  "89877202.0|082425": {
+    "hash": "f7c3702d56719766",
+    "rows": 142,
+    "updated_at": "2025-09-29T17:39:16.899564Z",
+    "foreman": "Jose Rosenbaun Sr.",
+    "week": "082425"
+  },
+  "89819201.0|082425": {
+    "hash": "3ee58f8ec6267262",
+    "rows": 149,
+    "updated_at": "2025-09-29T17:39:17.807959Z",
+    "foreman": "Bryan Rodriguez",
+    "week": "082425"
+  },
+  "89812901.0|082425": {
+    "hash": "fd502de398f2c8ba",
+    "rows": 18,
+    "updated_at": "2025-09-29T17:39:17.830192Z",
+    "foreman": "#NO MATCH",
+    "week": "082425"
+  },
+  "89941778.0|082425": {
+    "hash": "f15aa08c334e027b",
+    "rows": 103,
+    "updated_at": "2025-09-29T17:39:18.739652Z",
+    "foreman": "Jonathan Estrada",
+    "week": "082425"
+  },
+  "89797129.0|082425": {
+    "hash": "ed846bff9cf378dc",
+    "rows": 97,
+    "updated_at": "2025-09-29T17:39:19.569983Z",
+    "foreman": "Abraham Hernandez",
+    "week": "082425"
+  },
+  "83812901.0|082425": {
+    "hash": "842af85ed8956276",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:39:19.587143Z",
+    "foreman": "#NO MATCH",
+    "week": "082425"
+  },
+  "89746993.0|082425": {
+    "hash": "4b6b75d72a8e2521",
+    "rows": 10,
+    "updated_at": "2025-09-29T17:39:20.502117Z",
+    "foreman": "Dillion Butler",
+    "week": "082425"
+  },
+  "89877351.0|082425": {
+    "hash": "6beb1792ee319d9a",
+    "rows": 20,
+    "updated_at": "2025-09-29T17:39:21.308808Z",
+    "foreman": "Marco Gonzalez",
+    "week": "082425"
+  },
+  "89840280.0|082425": {
+    "hash": "7e067782856cdb50",
+    "rows": 6,
+    "updated_at": "2025-09-29T17:39:22.150282Z",
+    "foreman": "Joseph Ford",
+    "week": "082425"
+  },
+  "89958407.0|082425": {
+    "hash": "d9d14d8107dc591d",
+    "rows": 14,
+    "updated_at": "2025-09-29T17:39:23.117984Z",
+    "foreman": "Devin Carriere",
+    "week": "082425"
+  },
+  "89912899.0|082425": {
+    "hash": "9226ffb8e102749e",
+    "rows": 167,
+    "updated_at": "2025-09-29T17:39:23.999574Z",
+    "foreman": "Jose Mendez",
+    "week": "082425"
+  },
+  "89987874.0|082425": {
+    "hash": "79df94cbcb3a03cb",
+    "rows": 9,
+    "updated_at": "2025-09-29T17:39:24.824931Z",
+    "foreman": "Edward DeRosia",
+    "week": "082425"
+  },
+  "89979435.0|082425": {
+    "hash": "afc8f0772a3df30f",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:39:25.653972Z",
+    "foreman": "Walter Ward",
+    "week": "082425"
+  },
+  "89841789.0|082425": {
+    "hash": "7e4e240eb94a0899",
+    "rows": 6,
+    "updated_at": "2025-09-29T17:39:26.524032Z",
+    "foreman": "Marco Gonzalez",
+    "week": "082425"
+  },
+  "89829163.0|082425": {
+    "hash": "ddb88f8e98113259",
+    "rows": 59,
+    "updated_at": "2025-09-29T17:39:27.360087Z",
+    "foreman": "Allen Harris",
+    "week": "082425"
+  },
+  "89797129.0|083125": {
+    "hash": "cace71a46e113be4",
+    "rows": 123,
+    "updated_at": "2025-09-29T17:39:28.209719Z",
+    "foreman": "Abraham Hernandez",
+    "week": "083125"
+  },
+  "89912899.0|083125": {
+    "hash": "bf0a541beab2fca6",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:39:29.005321Z",
+    "foreman": "Jose Mendez",
+    "week": "083125"
+  },
+  "89829163.0|083125": {
+    "hash": "27da6c8bd211a9fb",
+    "rows": 29,
+    "updated_at": "2025-09-29T17:39:29.950748Z",
+    "foreman": "Allen Harris",
+    "week": "083125"
+  },
+  "89958407.0|083125": {
+    "hash": "e03f855fec14c078",
+    "rows": 20,
+    "updated_at": "2025-09-29T17:39:30.758838Z",
+    "foreman": "Devin Carriere",
+    "week": "083125"
+  },
+  "89776921.0|083125": {
+    "hash": "5b9992c8e988c3bc",
+    "rows": 8,
+    "updated_at": "2025-09-29T17:39:31.591825Z",
+    "foreman": "Joseph Ford",
+    "week": "083125"
+  },
+  "89841789.0|083125": {
+    "hash": "fbfe5a2acccc05e5",
+    "rows": 39,
+    "updated_at": "2025-09-29T17:39:32.507536Z",
+    "foreman": "Marco Gonzalez",
+    "week": "083125"
+  },
+  "89812901.0|083125": {
+    "hash": "922ddfdb24a7151f",
+    "rows": 19,
+    "updated_at": "2025-09-29T17:39:32.528859Z",
+    "foreman": "#NO MATCH",
+    "week": "083125"
+  },
+  "89987874.0|083125": {
+    "hash": "7ee454669f5b3948",
+    "rows": 15,
+    "updated_at": "2025-09-29T17:39:33.398684Z",
+    "foreman": "Edward DeRosia",
+    "week": "083125"
+  },
+  "89746993.0|083125": {
+    "hash": "fd211ce2146466fc",
+    "rows": 2,
+    "updated_at": "2025-09-29T17:39:34.261644Z",
+    "foreman": "Dillion Butler",
+    "week": "083125"
+  },
+  "90093002.0|083125": {
+    "hash": "3de01f47d10f3b6b",
+    "rows": 166,
+    "updated_at": "2025-09-29T17:39:35.194219Z",
+    "foreman": "Karl Guidroz",
+    "week": "083125"
+  },
+  "89819201.0|083125": {
+    "hash": "bd3df003b61f887a",
+    "rows": 261,
+    "updated_at": "2025-09-29T17:39:36.049886Z",
+    "foreman": "Bryan Rodriguez",
+    "week": "083125"
+  },
+  "88987874.0|083125": {
+    "hash": "016de10701d5b1f9",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:39:36.067372Z",
+    "foreman": "#NO MATCH",
+    "week": "083125"
+  },
+  "89803515.0|083125": {
+    "hash": "c39a9d984a659267",
+    "rows": 72,
+    "updated_at": "2025-09-29T17:39:36.883046Z",
+    "foreman": "Brennan Talbert",
+    "week": "083125"
+  },
+  "89866468.0|083125": {
+    "hash": "44e64f69e5c00f51",
+    "rows": 75,
+    "updated_at": "2025-09-29T17:39:37.809817Z",
+    "foreman": "Jesus Zarate",
+    "week": "083125"
+  },
+  "89877202.0|083125": {
+    "hash": "73063b4eb7ceab1b",
+    "rows": 36,
+    "updated_at": "2025-09-29T17:39:38.649874Z",
+    "foreman": "Jose Rosenbaun Sr.",
+    "week": "083125"
+  },
+  "89979435.0|083125": {
+    "hash": "dd3ab44940113490",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:39:39.476139Z",
+    "foreman": "Walter Ward",
+    "week": "083125"
+  },
+  "89754704.0|083125": {
+    "hash": "32e3046659df15ba",
+    "rows": 30,
+    "updated_at": "2025-09-29T17:39:40.378253Z",
+    "foreman": "Jose Rosenbaun Jr.",
+    "week": "083125"
+  },
+  "89848991.0|083125": {
+    "hash": "b8f246549cfa31d6",
+    "rows": 66,
+    "updated_at": "2025-09-29T17:39:41.294350Z",
+    "foreman": "Jesus Zarate",
+    "week": "083125"
+  },
+  "89941778.0|083125": {
+    "hash": "91cdb333b1588a19",
+    "rows": 95,
+    "updated_at": "2025-09-29T17:39:42.150718Z",
+    "foreman": "Jonathan Estrada",
+    "week": "083125"
+  },
+  "89954686.0|083125": {
+    "hash": "21e4263ed23697db",
+    "rows": 143,
+    "updated_at": "2025-09-29T17:39:43.060955Z",
+    "foreman": "Mike Gragg",
+    "week": "083125"
+  },
+  "89902854.0|083125": {
+    "hash": "d13decc2b3e1252f",
+    "rows": 28,
+    "updated_at": "2025-09-29T17:39:43.930877Z",
+    "foreman": "Jose Rosenbaun Sr.",
+    "week": "083125"
+  },
+  "89810448.0|083125": {
+    "hash": "b9f952373e3d6181",
+    "rows": 3,
+    "updated_at": "2025-09-29T17:39:44.863796Z",
+    "foreman": "Jose Rosenbaun Jr.",
+    "week": "083125"
+  },
+  "89924686.0|083125": {
+    "hash": "3b321ed28b5af0db",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:39:44.879763Z",
+    "foreman": "#NO MATCH",
+    "week": "083125"
+  },
+  "89709840.0|083125": {
+    "hash": "7f06228ef829b1d5",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:39:45.700690Z",
+    "foreman": "BM",
+    "week": "083125"
+  },
+  "89841789.0|090725": {
+    "hash": "ec9afd7fb9bfe196",
+    "rows": 31,
+    "updated_at": "2025-09-29T17:39:46.604740Z",
+    "foreman": "Marco Gonzalez",
+    "week": "090725"
+  },
+  "89954686.0|090725": {
+    "hash": "da79680de92c953c",
+    "rows": 124,
+    "updated_at": "2025-09-29T17:39:47.510091Z",
+    "foreman": "Mike Gragg",
+    "week": "090725"
+  },
+  "98948991.0|090725": {
+    "hash": "db773e920297cdba",
+    "rows": 4,
+    "updated_at": "2025-09-29T17:39:47.528225Z",
+    "foreman": "#NO MATCH",
+    "week": "090725"
+  },
+  "89848991.0|090725": {
+    "hash": "5f5eb24bde0151df",
+    "rows": 108,
+    "updated_at": "2025-09-29T17:39:48.450553Z",
+    "foreman": "Jesus Zarate",
+    "week": "090725"
+  },
+  "89810448.0|090725": {
+    "hash": "36dcaa30f646c5d8",
+    "rows": 128,
+    "updated_at": "2025-09-29T17:39:49.400571Z",
+    "foreman": "Jose Rosenbaun Jr.",
+    "week": "090725"
+  },
+  "89941778.0|090725": {
+    "hash": "b7bfbe43e5b0eacf",
+    "rows": 62,
+    "updated_at": "2025-09-29T17:39:50.235763Z",
+    "foreman": "Jonathan Estrada",
+    "week": "090725"
+  },
+  "89797129.0|090725": {
+    "hash": "0df98a247e4e7724",
+    "rows": 108,
+    "updated_at": "2025-09-29T17:39:51.155267Z",
+    "foreman": "Abraham Hernandez",
+    "week": "090725"
+  },
+  "89902854.0|090725": {
+    "hash": "dd13291c17a6ca88",
+    "rows": 124,
+    "updated_at": "2025-09-29T17:39:52.017912Z",
+    "foreman": "Jose Rosenbaun Sr.",
+    "week": "090725"
+  },
+  "89708709.0|090725": {
+    "hash": "4fe591d0525c394a",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:39:52.848541Z",
+    "foreman": "Marco Gonzalez",
+    "week": "090725"
+  },
+  "89948507.0|090725": {
+    "hash": "489e4f3ff43e874b",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:39:52.865553Z",
+    "foreman": "#NO MATCH",
+    "week": "090725"
+  },
+  "90129343.0|090725": {
+    "hash": "dd95e1c345eeb3a1",
+    "rows": 85,
+    "updated_at": "2025-09-29T17:39:53.698014Z",
+    "foreman": "Bryan Rodriguez",
+    "week": "090725"
+  },
+  "89987874.0|090725": {
+    "hash": "7de7c564113dc783",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:39:54.492453Z",
+    "foreman": "Edward DeRosia",
+    "week": "090725"
+  },
+  "90093002.0|090725": {
+    "hash": "e87eb5bbd172f1bc",
+    "rows": 27,
+    "updated_at": "2025-09-29T17:39:55.350146Z",
+    "foreman": "Karl Guidroz",
+    "week": "090725"
+  },
+  "89979435.0|090725": {
+    "hash": "95ed74b6d4556796",
+    "rows": 3,
+    "updated_at": "2025-09-29T17:39:56.213077Z",
+    "foreman": "Walter Ward",
+    "week": "090725"
+  },
+  "89978838.0|090725": {
+    "hash": "a640bcdccab5754c",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:39:57.053809Z",
+    "foreman": "Jose Mendez",
+    "week": "090725"
+  },
+  "89700272.0|090725": {
+    "hash": "9e5ce009612186fe",
+    "rows": 59,
+    "updated_at": "2025-09-29T17:39:58.143579Z",
+    "foreman": "Phillip Slocum",
+    "week": "090725"
+  },
+  "8970072.0|090725": {
+    "hash": "9d30009ac5244973",
+    "rows": 2,
+    "updated_at": "2025-09-29T17:39:58.160700Z",
+    "foreman": "#NO MATCH",
+    "week": "090725"
+  },
+  "89700273.0|090725": {
+    "hash": "2010d35dcb300933",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:39:58.175704Z",
+    "foreman": "#NO MATCH",
+    "week": "090725"
+  },
+  "89746993.0|090725": {
+    "hash": "ef5ace090993dba8",
+    "rows": 38,
+    "updated_at": "2025-09-29T17:39:59.108077Z",
+    "foreman": "Dillion Butler",
+    "week": "090725"
+  },
+  "89776921.0|090725": {
+    "hash": "32ba8fde46effb5c",
+    "rows": 70,
+    "updated_at": "2025-09-29T17:40:00.077793Z",
+    "foreman": "Joseph Ford",
+    "week": "090725"
+  },
+  "89958407.0|090725": {
+    "hash": "56d5aab57c771f82",
+    "rows": 8,
+    "updated_at": "2025-09-29T17:40:00.928148Z",
+    "foreman": "Devin Carriere",
+    "week": "090725"
+  },
+  "89732091.0|090725": {
+    "hash": "d420ad11bea27d81",
+    "rows": 4,
+    "updated_at": "2025-09-29T17:40:01.775913Z",
+    "foreman": "Karl Guidroz",
+    "week": "090725"
+  },
+  "90127152.0|090725": {
+    "hash": "1e3c3a198f10387a",
+    "rows": 10,
+    "updated_at": "2025-09-29T17:40:02.733019Z",
+    "foreman": "Abraham Hernandez",
+    "week": "090725"
+  },
+  "90005228.0|090725": {
+    "hash": "3d3bb081c826883f",
+    "rows": 3,
+    "updated_at": "2025-09-29T17:40:03.787135Z",
+    "foreman": "Karl Guidroz",
+    "week": "090725"
+  },
+  "9005228.0|090725": {
+    "hash": "51df0b48d256b05f",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:40:03.803622Z",
+    "foreman": "#NO MATCH",
+    "week": "090725"
+  },
+  "8970027.0|090725": {
+    "hash": "956af9b9706062e9",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:40:03.819343Z",
+    "foreman": "#NO MATCH",
+    "week": "090725"
+  },
+  "89746993.0|091425": {
+    "hash": "a96ca561608eefbf",
+    "rows": 64,
+    "updated_at": "2025-09-29T17:40:04.643254Z",
+    "foreman": "Dillion Butler",
+    "week": "091425"
+  },
+  "89841789.0|091425": {
+    "hash": "863d8e123d35f7ab",
+    "rows": 102,
+    "updated_at": "2025-09-29T17:40:05.504089Z",
+    "foreman": "Marco Gonzalez",
+    "week": "091425"
+  },
+  "90127152.0|091425": {
+    "hash": "2f5e37797942f24c",
+    "rows": 170,
+    "updated_at": "2025-09-29T17:40:06.505921Z",
+    "foreman": "Abraham Hernandez",
+    "week": "091425"
+  },
+  "89941778.0|091425": {
+    "hash": "99ae23f469f70403",
+    "rows": 6,
+    "updated_at": "2025-09-29T17:40:07.425517Z",
+    "foreman": "Jonathan Estrada",
+    "week": "091425"
+  },
+  "89708709.0|091425": {
+    "hash": "c709d6e879176be0",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:40:08.457593Z",
+    "foreman": "Marco Gonzalez",
+    "week": "091425"
+  },
+  "89979435.0|091425": {
+    "hash": "83642792156b827d",
+    "rows": 9,
+    "updated_at": "2025-09-29T17:40:09.375370Z",
+    "foreman": "Walter Ward",
+    "week": "091425"
+  },
+  "89848991.0|091425": {
+    "hash": "0c5a12eddc9df46f",
+    "rows": 128,
+    "updated_at": "2025-09-29T17:40:10.339614Z",
+    "foreman": "Jesus Zarate",
+    "week": "091425"
+  },
+  "90005228.0|091425": {
+    "hash": "fc08f32c853819d8",
+    "rows": 12,
+    "updated_at": "2025-09-29T17:40:11.184592Z",
+    "foreman": "Karl Guidroz",
+    "week": "091425"
+  },
+  "89776921.0|091425": {
+    "hash": "0493688439d881a4",
+    "rows": 76,
+    "updated_at": "2025-09-29T17:40:12.023649Z",
+    "foreman": "Joseph Ford",
+    "week": "091425"
+  },
+  "89700272.0|091425": {
+    "hash": "23535d3309c62cc0",
+    "rows": 75,
+    "updated_at": "2025-09-29T17:40:12.889261Z",
+    "foreman": "Phillip Slocum",
+    "week": "091425"
+  },
+  "87900272.0|091425": {
+    "hash": "3b1c683b4dda96e5",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:40:12.905250Z",
+    "foreman": "#NO MATCH",
+    "week": "091425"
+  },
+  "89902854.0|091425": {
+    "hash": "46bf44e16ae7fcb4",
+    "rows": 89,
+    "updated_at": "2025-09-29T17:40:14.060956Z",
+    "foreman": "Jose Rosenbaun Sr.",
+    "week": "091425"
+  },
+  "89987874.0|091425": {
+    "hash": "e512fba8e10c0fdb",
+    "rows": 13,
+    "updated_at": "2025-09-29T17:40:14.953998Z",
+    "foreman": "Edward DeRosia",
+    "week": "091425"
+  },
+  "90140478.0|091425": {
+    "hash": "2f664125bbf00a2f",
+    "rows": 81,
+    "updated_at": "2025-09-29T17:40:15.868013Z",
+    "foreman": "Travis Calcote",
+    "week": "091425"
+  },
+  "89732091.0|091425": {
+    "hash": "22045e3e2064428c",
+    "rows": 2,
+    "updated_at": "2025-09-29T17:40:16.742820Z",
+    "foreman": "Karl Guidroz",
+    "week": "091425"
+  },
+  "87932091.0|091425": {
+    "hash": "abf4f676c322baa0",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:40:16.758440Z",
+    "foreman": "#NO MATCH",
+    "week": "091425"
+  },
+  "89941959.0|091425": {
+    "hash": "77633ce939302cf3",
+    "rows": 80,
+    "updated_at": "2025-09-29T17:40:17.599086Z",
+    "foreman": "Jonathan Estrada",
+    "week": "091425"
+  },
+  "89774664.0|091425": {
+    "hash": "162b481fe05a5986",
+    "rows": 9,
+    "updated_at": "2025-09-29T17:40:18.407203Z",
+    "foreman": "Walter Ward",
+    "week": "091425"
+  },
+  "89774377.0|091425": {
+    "hash": "9061b514760457a9",
+    "rows": 23,
+    "updated_at": "2025-09-29T17:40:19.278687Z",
+    "foreman": "Jonathan Estrada",
+    "week": "091425"
+  },
+  "90098617.0|091425": {
+    "hash": "50e8d142683dbc4b",
+    "rows": 170,
+    "updated_at": "2025-09-29T17:40:20.207711Z",
+    "foreman": "Miguel Perez",
+    "week": "091425"
+  },
+  "90207874.0|091425": {
+    "hash": "26a8bfc4e311db25",
+    "rows": 3,
+    "updated_at": "2025-09-29T17:40:21.083297Z",
+    "foreman": "Brandon Jackson",
+    "week": "091425"
+  },
+  "90129343.0|091425": {
+    "hash": "b002331165d44258",
+    "rows": 37,
+    "updated_at": "2025-09-29T17:40:21.893531Z",
+    "foreman": "Bryan Rodriguez",
+    "week": "091425"
+  },
+  "89877202.0|091425": {
+    "hash": "b0fafcebaac489b9",
+    "rows": 51,
+    "updated_at": "2025-09-29T17:40:22.760284Z",
+    "foreman": "Jose Rosenbaun Sr.",
+    "week": "091425"
+  },
+  "89958407.0|091425": {
+    "hash": "31e5570580b60099",
+    "rows": 4,
+    "updated_at": "2025-09-29T17:40:23.561516Z",
+    "foreman": "Devin Carriere",
+    "week": "091425"
+  },
+  "90075559.0|091425": {
+    "hash": "707f377e36c17c03",
+    "rows": 113,
+    "updated_at": "2025-09-29T17:40:24.500514Z",
+    "foreman": "Bryan Rodriguez",
+    "week": "091425"
+  },
+  "9007559.0|091425": {
+    "hash": "f9230e126842773d",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:40:24.516078Z",
+    "foreman": "#NO MATCH",
+    "week": "091425"
+  },
+  "89829163.0|091425": {
+    "hash": "1b9d4f54bef82fd3",
+    "rows": 58,
+    "updated_at": "2025-09-29T17:40:25.448986Z",
+    "foreman": "Allen Harris",
+    "week": "091425"
+  },
+  "89810448.0|091425": {
+    "hash": "1b4dde4eba6c86e9",
+    "rows": 136,
+    "updated_at": "2025-09-29T17:40:26.278094Z",
+    "foreman": "Jose Rosenbaun Jr.",
+    "week": "091425"
+  },
+  "89978838.0|091425": {
+    "hash": "386e984718e3620d",
+    "rows": 6,
+    "updated_at": "2025-09-29T17:40:27.107908Z",
+    "foreman": "Jose Mendez",
+    "week": "091425"
+  },
+  "899002854.0|091425": {
+    "hash": "38951b4d388426d3",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:40:27.125450Z",
+    "foreman": "#NO MATCH",
+    "week": "091425"
+  },
+  "90127152.0|092125": {
+    "hash": "26c8cf279d5c8cd5",
+    "rows": 232,
+    "updated_at": "2025-09-29T17:40:28.222532Z",
+    "foreman": "Abraham Hernandez",
+    "week": "092125"
+  },
+  "89848991.0|092125": {
+    "hash": "c1912a37bcb5862a",
+    "rows": 185,
+    "updated_at": "2025-09-29T17:40:29.070347Z",
+    "foreman": "Jesus Zarate",
+    "week": "092125"
+  },
+  "89841789.0|092125": {
+    "hash": "3bf27f61dde6c13e",
+    "rows": 28,
+    "updated_at": "2025-09-29T17:40:29.961500Z",
+    "foreman": "Marco Gonzalez",
+    "week": "092125"
+  },
+  "89754704.0|092125": {
+    "hash": "14a2a376442e779d",
+    "rows": 112,
+    "updated_at": "2025-09-29T17:40:30.837808Z",
+    "foreman": "Jose Rosenbaun Jr.",
+    "week": "092125"
+  },
+  "89902854.0|092125": {
+    "hash": "93a0777cc1aeca94",
+    "rows": 152,
+    "updated_at": "2025-09-29T17:40:31.749379Z",
+    "foreman": "Jose Rosenbaun Sr.",
+    "week": "092125"
+  },
+  "89941959.0|092125": {
+    "hash": "86de78eb9772c78c",
+    "rows": 80,
+    "updated_at": "2025-09-29T17:40:32.624565Z",
+    "foreman": "Jonathan Estrada",
+    "week": "092125"
+  },
+  "90098617.0|092125": {
+    "hash": "d240cf0be4a327f0",
+    "rows": 156,
+    "updated_at": "2025-09-29T17:40:33.494420Z",
+    "foreman": "Miguel Perez",
+    "week": "092125"
+  },
+  "89834661.0|092125": {
+    "hash": "db8e09e785c9d0d9",
+    "rows": 139,
+    "updated_at": "2025-09-29T17:40:34.486193Z",
+    "foreman": "Casey Alan Gill",
+    "week": "092125"
+  },
+  "89934661.0|092125": {
+    "hash": "7978a9c03e364c49",
+    "rows": 2,
+    "updated_at": "2025-09-29T17:40:34.504897Z",
+    "foreman": "#NO MATCH",
+    "week": "092125"
+  },
+  "90140478.0|092125": {
+    "hash": "e20438f962b2eb15",
+    "rows": 185,
+    "updated_at": "2025-09-29T17:40:35.354517Z",
+    "foreman": "Travis Calcote",
+    "week": "092125"
+  },
+  "89987874.0|092125": {
+    "hash": "0ea6894a38840270",
+    "rows": 9,
+    "updated_at": "2025-09-29T17:40:36.201010Z",
+    "foreman": "Edward DeRosia",
+    "week": "092125"
+  },
+  "90005228.0|092125": {
+    "hash": "1c378499a8424c8e",
+    "rows": 55,
+    "updated_at": "2025-09-29T17:40:37.079543Z",
+    "foreman": "Karl Guidroz",
+    "week": "092125"
+  },
+  "89776921.0|092125": {
+    "hash": "3369bbd43011d6b8",
+    "rows": 47,
+    "updated_at": "2025-09-29T17:40:38.001096Z",
+    "foreman": "Joseph Ford",
+    "week": "092125"
+  },
+  "89700272.0|092125": {
+    "hash": "04b3fa87ad87f43f",
+    "rows": 134,
+    "updated_at": "2025-09-29T17:40:38.861795Z",
+    "foreman": "Phillip Slocum",
+    "week": "092125"
+  },
+  "89978838.0|092125": {
+    "hash": "a4028bdf3b964239",
+    "rows": 22,
+    "updated_at": "2025-09-29T17:40:39.739557Z",
+    "foreman": "Jose Mendez",
+    "week": "092125"
+  },
+  "8900272.0|092125": {
+    "hash": "c4a54259f5e88194",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:40:39.755296Z",
+    "foreman": "#NO MATCH",
+    "week": "092125"
+  },
+  "89774377.0|092125": {
+    "hash": "9ca8dd6335b6de31",
+    "rows": 17,
+    "updated_at": "2025-09-29T17:40:40.630657Z",
+    "foreman": "Jonathan Estrada",
+    "week": "092125"
+  },
+  "90127208.0|092125": {
+    "hash": "1d73b9cfba4ff172",
+    "rows": 7,
+    "updated_at": "2025-09-29T17:40:41.502928Z",
+    "foreman": "Josh West",
+    "week": "092125"
+  },
+  "89721240.0|092125": {
+    "hash": "1d1af24123f9b730",
+    "rows": 79,
+    "updated_at": "2025-09-29T17:40:42.481872Z",
+    "foreman": "Jake Dunne",
+    "week": "092125"
+  },
+  "90207874.0|092125": {
+    "hash": "c4d472caed6d65a8",
+    "rows": 18,
+    "updated_at": "2025-09-29T17:40:43.327014Z",
+    "foreman": "Brandon Jackson",
+    "week": "092125"
+  },
+  "89979435.0|092125": {
+    "hash": "7988d100a330a461",
+    "rows": 5,
+    "updated_at": "2025-09-29T17:40:44.258350Z",
+    "foreman": "Walter Ward",
+    "week": "092125"
+  },
+  "89999112.0|092125": {
+    "hash": "a8fec42ad5a54530",
+    "rows": 54,
+    "updated_at": "2025-09-29T17:40:45.106301Z",
+    "foreman": "Devin Carriere",
+    "week": "092125"
+  },
+  "90112630.0|092125": {
+    "hash": "3d69cf377727e2b8",
+    "rows": 10,
+    "updated_at": "2025-09-29T17:40:45.903165Z",
+    "foreman": "Josh West",
+    "week": "092125"
+  },
+  "98948991.0|092125": {
+    "hash": "2db9f1e51c3c70ff",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:40:45.918821Z",
+    "foreman": "#NO MATCH",
+    "week": "092125"
+  },
+  "87921240.0|092125": {
+    "hash": "9d1e35aefc96fb92",
+    "rows": 6,
+    "updated_at": "2025-09-29T17:40:45.937480Z",
+    "foreman": "#NO MATCH",
+    "week": "092125"
+  },
+  "90112360.0|092125": {
+    "hash": "a28b44bfacd6f665",
+    "rows": 5,
+    "updated_at": "2025-09-29T17:40:45.954223Z",
+    "foreman": "#NO MATCH",
+    "week": "092125"
+  },
+  "89894498.0|092125": {
+    "hash": "582b150b1b7b3bbb",
+    "rows": 50,
+    "updated_at": "2025-09-29T17:40:46.807837Z",
+    "foreman": "Dillion Butler",
+    "week": "092125"
+  },
+  "89829163.0|092125": {
+    "hash": "b102c3c4f94457a5",
+    "rows": 92,
+    "updated_at": "2025-09-29T17:40:47.782669Z",
+    "foreman": "Allen Harris",
+    "week": "092125"
+  },
+  "899788388.0|092125": {
+    "hash": "71e8ec33d87234d4",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:40:47.801021Z",
+    "foreman": "#NO MATCH",
+    "week": "092125"
+  },
+  "87900272.0|092125": {
+    "hash": "923447a4df19f04f",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:40:47.816826Z",
+    "foreman": "#NO MATCH",
+    "week": "092125"
+  },
+  "89978833.0|092125": {
+    "hash": "26a6d38bdda29a12",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:40:47.831533Z",
+    "foreman": "#NO MATCH",
+    "week": "092125"
+  },
+  "90005228.0|092825": {
+    "hash": "ac0ab9ef5dd48d76",
+    "rows": 49,
+    "updated_at": "2025-09-29T17:40:48.736832Z",
+    "foreman": "Karl Guidroz",
+    "week": "092825"
+  },
+  "89700562.0|071325": {
+    "hash": "ea1816e4dedda9fc",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:40:49.693600Z",
+    "foreman": "Allen Harris",
+    "week": "071325"
+  },
+  "89792541.0|081025": {
+    "hash": "80cc4b64d9aeadb1",
+    "rows": 57,
+    "updated_at": "2025-09-29T17:40:50.631448Z",
+    "foreman": "Oscar Aleman",
+    "week": "081025"
+  },
+  "89792541.0|081725": {
+    "hash": "f0204d385abfee8b",
+    "rows": 41,
+    "updated_at": "2025-09-29T17:40:51.573455Z",
+    "foreman": "Oscar Aleman",
+    "week": "081725"
+  },
+  "89792541.0|082425": {
+    "hash": "56585c2597a9fc26",
+    "rows": 20,
+    "updated_at": "2025-09-29T17:40:52.559175Z",
+    "foreman": "Oscar Aleman",
+    "week": "082425"
+  },
+  "89792541.0|092125": {
+    "hash": "d24d978602164520",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:40:53.476970Z",
+    "foreman": "Oscar Aleman",
+    "week": "092125"
+  },
+  "89734884.0|092825": {
+    "hash": "7122e5057ba1aa3c",
+    "rows": 296,
+    "updated_at": "2025-09-29T17:40:54.506955Z",
+    "foreman": "David Shepard",
+    "week": "092825"
+  },
+  "89734884.0|100525": {
+    "hash": "8044003a1db47b2a",
+    "rows": 38,
+    "updated_at": "2025-09-29T17:40:55.406495Z",
+    "foreman": "David Shepard",
+    "week": "100525"
+  },
+  "89734884.0|090725": {
+    "hash": "ebc4f73f26b6b7d0",
+    "rows": 8,
+    "updated_at": "2025-09-29T17:40:56.253145Z",
+    "foreman": "David Shepard",
+    "week": "090725"
+  },
+  "89734884.0|083125": {
+    "hash": "598e664942e3e5c9",
+    "rows": 78,
+    "updated_at": "2025-09-29T17:40:57.141351Z",
+    "foreman": "David Shepard",
+    "week": "083125"
+  },
+  "89734884.0|082425": {
+    "hash": "500898ff2d96f2e7",
+    "rows": 23,
+    "updated_at": "2025-09-29T17:40:57.994709Z",
+    "foreman": "David Shepard",
+    "week": "082425"
+  },
+  "89894498.0|080325": {
+    "hash": "dc2e1038e8e8313a",
+    "rows": 6,
+    "updated_at": "2025-09-29T17:40:58.822767Z",
+    "foreman": "Dillion Butler",
+    "week": "080325"
+  },
+  "89894498.0|092825": {
+    "hash": "1234a7bd4cdbe15b",
+    "rows": 77,
+    "updated_at": "2025-09-29T17:40:59.700066Z",
+    "foreman": "Dillion Butler",
+    "week": "092825"
+  },
+  "89754704.0|092825": {
+    "hash": "d88411cdf34a84fc",
+    "rows": 19,
+    "updated_at": "2025-09-29T17:41:00.568170Z",
+    "foreman": "Jose Rosenbaun Jr.",
+    "week": "092825"
+  },
+  "89700272.0|092825": {
+    "hash": "dc8bf118ed934b15",
+    "rows": 34,
+    "updated_at": "2025-09-29T17:41:01.437778Z",
+    "foreman": "Phillip Slocum",
+    "week": "092825"
+  },
+  "89763321.0|100525": {
+    "hash": "c58b554b572b58f9",
+    "rows": 17,
+    "updated_at": "2025-09-29T17:41:02.297942Z",
+    "foreman": "Marshall Epps",
+    "week": "100525"
+  },
+  "89763321.0|092825": {
+    "hash": "c76a37e4187496f8",
+    "rows": 10,
+    "updated_at": "2025-09-29T17:41:03.269333Z",
+    "foreman": "Marshall Epps",
+    "week": "092825"
+  },
+  "89776921.0|092825": {
+    "hash": "525956b3566c1696",
+    "rows": 121,
+    "updated_at": "2025-09-29T17:41:04.180498Z",
+    "foreman": "Joseph Ford",
+    "week": "092825"
+  },
+  "89776921.0|082425": {
+    "hash": "b35fe71f40aa6674",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:41:05.068103Z",
+    "foreman": "Joseph Ford",
+    "week": "082425"
+  },
+  "89803515.0|082425": {
+    "hash": "db4a777c334898b8",
+    "rows": 137,
+    "updated_at": "2025-09-29T17:41:06.002805Z",
+    "foreman": "Brennan Talbert",
+    "week": "082425"
+  },
+  "89841789.0|092825": {
+    "hash": "7857b697472d1e02",
+    "rows": 75,
+    "updated_at": "2025-09-29T17:41:06.974278Z",
+    "foreman": "Marco Gonzalez",
+    "week": "092825"
+  },
+  "89841789.0|100525": {
+    "hash": "005e6e1d7ee239ee",
+    "rows": 14,
+    "updated_at": "2025-09-29T17:41:07.882962Z",
+    "foreman": "Marco Gonzalez",
+    "week": "100525"
+  },
+  "90093002.0|081025": {
+    "hash": "0a6ad9238be7a9b6",
+    "rows": 38,
+    "updated_at": "2025-09-29T17:41:08.772338Z",
+    "foreman": "Karl Guidroz",
+    "week": "081025"
+  },
+  "90093002.0|082425": {
+    "hash": "2e298d96d2a28d91",
+    "rows": 60,
+    "updated_at": "2025-09-29T17:41:09.737815Z",
+    "foreman": "Karl Guidroz",
+    "week": "082425"
+  },
+  "89877351.0|071325": {
+    "hash": "c50c0d019a3641cc",
+    "rows": 3,
+    "updated_at": "2025-09-29T17:41:10.621529Z",
+    "foreman": "Marco Gonzalez",
+    "week": "071325"
+  },
+  "89877351.0|081725": {
+    "hash": "7506f11ab97c7056",
+    "rows": 11,
+    "updated_at": "2025-09-29T17:41:11.488190Z",
+    "foreman": "Marco Gonzalez",
+    "week": "081725"
+  },
+  "89954686.0|092825": {
+    "hash": "5ab3f6464edecf62",
+    "rows": 71,
+    "updated_at": "2025-09-29T17:41:12.373616Z",
+    "foreman": "Mike Gragg",
+    "week": "092825"
+  },
+  "89954686.0|092125": {
+    "hash": "15a123cdde3159fb",
+    "rows": 72,
+    "updated_at": "2025-09-29T17:41:13.234433Z",
+    "foreman": "Mike Gragg",
+    "week": "092125"
+  },
+  "89954686.0|091425": {
+    "hash": "9495c94b4cbe90f4",
+    "rows": 103,
+    "updated_at": "2025-09-29T17:41:14.181259Z",
+    "foreman": "Mike Gragg",
+    "week": "091425"
+  },
+  "90052166.0|082425": {
+    "hash": "5d05bd7b3cb09425",
+    "rows": 165,
+    "updated_at": "2025-09-29T17:41:15.102025Z",
+    "foreman": "Chris Hornbrook",
+    "week": "082425"
+  },
+  "89902854.0|092825": {
+    "hash": "d01919d1d3505868",
+    "rows": 107,
+    "updated_at": "2025-09-29T17:41:16.014874Z",
+    "foreman": "Jose Rosenbaun Sr.",
+    "week": "092825"
+  },
+  "90127622.0|081725": {
+    "hash": "2cfaac810320bdb2",
+    "rows": 71,
+    "updated_at": "2025-09-29T17:41:16.917358Z",
+    "foreman": "John Walker",
+    "week": "081725"
+  },
+  "90127622.0|082425": {
+    "hash": "218ed5457881faf0",
+    "rows": 189,
+    "updated_at": "2025-09-29T17:41:17.884005Z",
+    "foreman": "John Walker",
+    "week": "082425"
+  },
+  "89911033.0|092825": {
+    "hash": "6637236bbca142f4",
+    "rows": 160,
+    "updated_at": "2025-09-29T17:41:18.844495Z",
+    "foreman": "Trace James",
+    "week": "092825"
+  },
+  "89911033.0|092125": {
+    "hash": "2c14c215711055a9",
+    "rows": 81,
+    "updated_at": "2025-09-29T17:41:19.694474Z",
+    "foreman": "Trace James",
+    "week": "092125"
+  },
+  "89911033.0|091425": {
+    "hash": "73310b5aeb8bb430",
+    "rows": 127,
+    "updated_at": "2025-09-29T17:41:20.576045Z",
+    "foreman": "Trace James",
+    "week": "091425"
+  },
+  "89911033.0|090725": {
+    "hash": "8ff49814d8c1f3cb",
+    "rows": 97,
+    "updated_at": "2025-09-29T17:41:21.447542Z",
+    "foreman": "Trace James",
+    "week": "090725"
+  },
+  "89829163.0|092825": {
+    "hash": "e09260048024e36a",
+    "rows": 60,
+    "updated_at": "2025-09-29T17:41:22.330014Z",
+    "foreman": "Allen Harris",
+    "week": "092825"
+  },
+  "89829163.0|090725": {
+    "hash": "000144d432df67fb",
+    "rows": 88,
+    "updated_at": "2025-09-29T17:41:23.227022Z",
+    "foreman": "Allen Harris",
+    "week": "090725"
+  },
+  "89941959.0|092825": {
+    "hash": "f5e83661a05ea30b",
+    "rows": 109,
+    "updated_at": "2025-09-29T17:41:24.502608Z",
+    "foreman": "Jonathan Estrada",
+    "week": "092825"
+  },
+  "89881161.0|081725": {
+    "hash": "c37fb84a591ed183",
+    "rows": 149,
+    "updated_at": "2025-09-29T17:41:25.431868Z",
+    "foreman": "Chad Wheat",
+    "week": "081725"
+  },
+  "89995424.0|090725": {
+    "hash": "ab8a737e4d5dfc48",
+    "rows": 177,
+    "updated_at": "2025-09-29T17:41:26.304499Z",
+    "foreman": "Wesley York",
+    "week": "090725"
+  },
+  "89995424.0|091425": {
+    "hash": "8686713008d6c4dd",
+    "rows": 61,
+    "updated_at": "2025-09-29T17:41:27.193577Z",
+    "foreman": "Wesley York",
+    "week": "091425"
+  },
+  "8999542.0|091425": {
+    "hash": "7b54a55ea6c9d153",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:41:27.210016Z",
+    "foreman": "#NO MATCH",
+    "week": "091425"
+  },
+  "89995424.0|092125": {
+    "hash": "60c814a2cc12f33b",
+    "rows": 99,
+    "updated_at": "2025-09-29T17:41:28.109838Z",
+    "foreman": "Wesley York",
+    "week": "092125"
+  },
+  "89875431.0|092125": {
+    "hash": "8b6ef17ffb36260c",
+    "rows": 48,
+    "updated_at": "2025-09-29T17:41:28.903488Z",
+    "foreman": "Wesley York",
+    "week": "092125"
+  },
+  "89819201.0|090725": {
+    "hash": "e658b0dc8f5d8469",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:41:29.738568Z",
+    "foreman": "Bryan Rodriguez",
+    "week": "090725"
+  },
+  "90127208.0|091425": {
+    "hash": "7cdc7b163369ecab",
+    "rows": 87,
+    "updated_at": "2025-09-29T17:41:30.591826Z",
+    "foreman": "Josh West",
+    "week": "091425"
+  },
+  "90074843.0|090725": {
+    "hash": "ae1bae35e56d8220",
+    "rows": 73,
+    "updated_at": "2025-09-29T17:41:31.695426Z",
+    "foreman": "Oscar Aleman",
+    "week": "090725"
+  },
+  "90074843.0|091425": {
+    "hash": "b42dcbf79f1c1b21",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:41:32.570880Z",
+    "foreman": "Oscar Aleman",
+    "week": "091425"
+  },
+  "90057401.0|090725": {
+    "hash": "9bba55e57616ec1a",
+    "rows": 99,
+    "updated_at": "2025-09-29T17:41:33.488718Z",
+    "foreman": "Oscar Aleman",
+    "week": "090725"
+  },
+  "90075485.0|090725": {
+    "hash": "952bff3a8a4d3f66",
+    "rows": 46,
+    "updated_at": "2025-09-29T17:41:34.381442Z",
+    "foreman": "Oscar Aleman",
+    "week": "090725"
+  },
+  "90075485.0|091425": {
+    "hash": "c76418c5d99eeaaa",
+    "rows": 8,
+    "updated_at": "2025-09-29T17:41:35.289500Z",
+    "foreman": "Oscar Aleman",
+    "week": "091425"
+  },
+  "90078213.0|092125": {
+    "hash": "43958df12316d60e",
+    "rows": 173,
+    "updated_at": "2025-09-29T17:41:36.165397Z",
+    "foreman": "Oscar Aleman",
+    "week": "092125"
+  },
+  "90078213.0|092825": {
+    "hash": "c65c81601871600d",
+    "rows": 144,
+    "updated_at": "2025-09-29T17:41:37.013975Z",
+    "foreman": "Oscar Aleman",
+    "week": "092825"
+  },
+  "90078213.0|091425": {
+    "hash": "203cbed1cfb5f717",
+    "rows": 104,
+    "updated_at": "2025-09-29T17:41:37.861138Z",
+    "foreman": "Oscar Aleman",
+    "week": "091425"
+  },
+  "89810448.0|092825": {
+    "hash": "a2aaa55e7a22cbed",
+    "rows": 94,
+    "updated_at": "2025-09-29T17:41:38.702118Z",
+    "foreman": "Jose Rosenbaun Jr.",
+    "week": "092825"
+  },
+  "89810448.0|092125": {
+    "hash": "1b958e1391c6142f",
+    "rows": 32,
+    "updated_at": "2025-09-29T17:41:39.531414Z",
+    "foreman": "Jose Rosenbaun Jr.",
+    "week": "092125"
+  },
+  "90129343.0|092125": {
+    "hash": "22eeee98d2f0e541",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:41:40.416886Z",
+    "foreman": "Bryan Rodriguez",
+    "week": "092125"
+  },
+  "89834661.0|091425": {
+    "hash": "939000aa89ecfbe8",
+    "rows": 58,
+    "updated_at": "2025-09-29T17:41:41.367891Z",
+    "foreman": "Casey Alan Gill",
+    "week": "091425"
+  },
+  "89834661.0|092825": {
+    "hash": "4df73b31695a1386",
+    "rows": 13,
+    "updated_at": "2025-09-29T17:41:42.216133Z",
+    "foreman": "Casey Alan Gill",
+    "week": "092825"
+  },
+  "89834661.0|090725": {
+    "hash": "a1270d0cf4c06427",
+    "rows": 8,
+    "updated_at": "2025-09-29T17:41:43.025181Z",
+    "foreman": "Casey Alan Gill",
+    "week": "090725"
+  },
+  "90140478.0|092825": {
+    "hash": "96ecefc8cebb943b",
+    "rows": 51,
+    "updated_at": "2025-09-29T17:41:43.989640Z",
+    "foreman": "Travis Calcote",
+    "week": "092825"
+  },
+  "90127152.0|092825": {
+    "hash": "a251b7d703475015",
+    "rows": 149,
+    "updated_at": "2025-09-29T17:41:44.878923Z",
+    "foreman": "Abraham Hernandez",
+    "week": "092825"
+  },
+  "90098617.0|092825": {
+    "hash": "5552c6b4c7555c0d",
+    "rows": 181,
+    "updated_at": "2025-09-29T17:41:45.863724Z",
+    "foreman": "Miguel Perez",
+    "week": "092825"
+  },
+  "90075559.0|092125": {
+    "hash": "5731a8cc41527c0d",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:41:46.866670Z",
+    "foreman": "Bryan Rodriguez",
+    "week": "092125"
+  },
+  "89875431.0|091425": {
+    "hash": "a9df4d9f6eadfef9",
+    "rows": 5,
+    "updated_at": "2025-09-29T17:41:47.782346Z",
+    "foreman": "Wesley York",
+    "week": "091425"
+  },
+  "89875431.0|092825": {
+    "hash": "eed224ef9b78f723",
+    "rows": 34,
+    "updated_at": "2025-09-29T17:41:48.737131Z",
+    "foreman": "Wesley York",
+    "week": "092825"
+  },
+  "89999112.0|092825": {
+    "hash": "323ddb46f51dbbb3",
+    "rows": 204,
+    "updated_at": "2025-09-29T17:41:49.634530Z",
+    "foreman": "Devin Carriere",
+    "week": "092825"
+  },
+  "89721240.0|100525": {
+    "hash": "152eace3691eb29c",
+    "rows": 13,
+    "updated_at": "2025-09-29T17:41:50.491498Z",
+    "foreman": "Jake Dunne",
+    "week": "100525"
+  },
+  "89721240.0|092825": {
+    "hash": "d00c6c580d12d35d",
+    "rows": 147,
+    "updated_at": "2025-09-29T17:41:51.343908Z",
+    "foreman": "Jake Dunne",
+    "week": "092825"
+  },
+  "89748800.0|092825": {
+    "hash": "529875de0ef79ed8",
+    "rows": 70,
+    "updated_at": "2025-09-29T17:41:52.241863Z",
+    "foreman": "Luke Duet",
+    "week": "092825"
+  },
+  "89748800.0|092125": {
+    "hash": "aec3743addded8ce",
+    "rows": 48,
+    "updated_at": "2025-09-29T17:41:53.181869Z",
+    "foreman": "Luke Duet",
+    "week": "092125"
+  },
+  "89814174.0|092125": {
+    "hash": "692c52abb902d67a",
+    "rows": 51,
+    "updated_at": "2025-09-29T17:41:54.018394Z",
+    "foreman": "Luke Duet",
+    "week": "092125"
+  },
+  "89814174.0|092825": {
+    "hash": "03878152632caa78",
+    "rows": 18,
+    "updated_at": "2025-09-29T17:41:54.885526Z",
+    "foreman": "Luke Duet",
+    "week": "092825"
+  },
+  "89987874.0|092825": {
+    "hash": "d3df121dc6c8e89b",
+    "rows": 16,
+    "updated_at": "2025-09-29T17:41:55.792430Z",
+    "foreman": "Edward DeRosia",
+    "week": "092825"
+  },
+  "90124277.0|092825": {
+    "hash": "a8b10c0045369976",
+    "rows": 36,
+    "updated_at": "2025-09-29T17:41:56.789643Z",
+    "foreman": "Bryan Rodriguez",
+    "week": "092825"
+  },
+  "84157414.0|092825": {
+    "hash": "5d1554b527859689",
+    "rows": 11,
+    "updated_at": "2025-09-29T17:41:57.646987Z",
+    "foreman": "Unknown Foreman",
+    "week": "092825"
+  },
+  "89978838.0|092825": {
+    "hash": "cf8cf231db1639cd",
+    "rows": 18,
+    "updated_at": "2025-09-29T17:41:58.478059Z",
+    "foreman": "Jose Mendez",
+    "week": "092825"
+  },
+  "89979435.0|092825": {
+    "hash": "8500816865dee1e5",
+    "rows": 4,
+    "updated_at": "2025-09-29T17:41:59.399391Z",
+    "foreman": "Walter Ward",
+    "week": "092825"
+  },
+  "89746993.0|092825": {
+    "hash": "1cbdec9dfc3ec565",
+    "rows": 11,
+    "updated_at": "2025-09-29T17:42:00.247790Z",
+    "foreman": "Dillion Butler",
+    "week": "092825"
+  },
+  "90079055.0|092825": {
+    "hash": "78e708ebb71ead74",
+    "rows": 8,
+    "updated_at": "2025-09-29T17:42:01.103966Z",
+    "foreman": "Cody Proshaska",
+    "week": "092825"
+  },
+  "90209571.0|092825": {
+    "hash": "606627ddd8a5d103",
+    "rows": 5,
+    "updated_at": "2025-09-29T17:42:01.965816Z",
+    "foreman": "Brandon Jackson",
+    "week": "092825"
+  },
+  "90112630.0|092825": {
+    "hash": "7a08a3ea636c9d9a",
+    "rows": 12,
+    "updated_at": "2025-09-29T17:42:03.039358Z",
+    "foreman": "Josh West",
+    "week": "092825"
+  },
+  "90127208.0|092825": {
+    "hash": "89c4666b236c307b",
+    "rows": 6,
+    "updated_at": "2025-09-29T17:42:03.939371Z",
+    "foreman": "Josh West",
+    "week": "092825"
+  },
+  "9024277.0|092825": {
+    "hash": "289e73feff56c6cd",
+    "rows": 3,
+    "updated_at": "2025-09-29T17:42:03.956513Z",
+    "foreman": "#NO MATCH",
+    "week": "092825"
+  },
+  "89876372.0|092825": {
+    "hash": "e285d68be10f08a1",
+    "rows": 13,
+    "updated_at": "2025-09-29T17:42:04.794014Z",
+    "foreman": "Leslie Maybin",
+    "week": "092825"
+  },
+  "89708709.0|092825": {
+    "hash": "267753a75cbe36fd",
+    "rows": 28,
+    "updated_at": "2025-09-29T17:42:05.666587Z",
+    "foreman": "Marco Gonzalez",
+    "week": "092825"
+  },
+  "89725031.0|092825": {
+    "hash": "78a88a7e373a3942",
+    "rows": 22,
+    "updated_at": "2025-09-29T17:42:06.508878Z",
+    "foreman": "Shane Jardot",
+    "week": "092825"
+  },
+  "90159803.0|092825": {
+    "hash": "02084656f9b38428",
+    "rows": 24,
+    "updated_at": "2025-09-29T17:42:07.473342Z",
+    "foreman": "Jesus Zarate",
+    "week": "092825"
+  },
+  "90221437.0|092825": {
+    "hash": "b8c140c164187908",
+    "rows": 98,
+    "updated_at": "2025-09-29T17:42:08.380998Z",
+    "foreman": "Jose Mendez",
+    "week": "092825"
+  },
+  "89720531.0|092825": {
+    "hash": "d7f63df8c694dca0",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:42:08.398654Z",
+    "foreman": "#NO MATCH",
+    "week": "092825"
+  },
+  "89776921.0|100525": {
+    "hash": "116015071487eb87",
+    "rows": 7,
+    "updated_at": "2025-09-29T17:42:09.191470Z",
+    "foreman": "Joseph Ford",
+    "week": "100525"
+  },
+  "889776921.0|100525": {
+    "hash": "708283913423a04c",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:42:09.206835Z",
+    "foreman": "#NO MATCH",
+    "week": "100525"
+  },
+  "89999112.0|100525": {
+    "hash": "ab5062a0bcb4ceff",
+    "rows": 1,
+    "updated_at": "2025-09-29T17:42:10.037154Z",
+    "foreman": "Devin Carriere",
+    "week": "100525"
+  }
+}
