@@ -904,5 +904,112 @@ def determine_escalation_level(diagnostic_results, recovery_attempts):
 ```
 
 The comprehensive recovery and diagnostic system provides structured approaches to system restoration with automated recovery attempts, clear escalation procedures, and detailed diagnostic information for technical resolution.
+
+## CRITICAL: PARSE_PRICE() ERROR HANDLING IN HASH CALCULATION
+
+### Context: Price Normalization in Change Detection
+The hash calculation system now uses `parse_price()` for normalization. This is CRITICAL for preventing format-based false changes but introduces potential error points that must be handled gracefully.
+
+```python
+# CRITICAL ERROR HANDLING PATTERN
+def calculate_data_hash_with_error_handling(group_rows):
+    """Hash calculation with robust price parsing error handling"""
+    
+    for row in sorted_rows:
+        try:
+            # CRITICAL: Normalize price for consistent hashing
+            normalized_price = f"{parse_price(row.get('Units Total Price', 0)):.2f}"
+        except (ValueError, TypeError, AttributeError) as e:
+            # FALLBACK STRATEGIES for price parsing failures
+            
+            # Strategy 1: Try alternative price fields
+            alternative_fields = ['Total Price', 'Redlined Total Price', 'Extended Price']
+            normalized_price = "0.00"  # Safe default
+            
+            for alt_field in alternative_fields:
+                try:
+                    if row.get(alt_field):
+                        alt_value = parse_price(row[alt_field])
+                        normalized_price = f"{alt_value:.2f}"
+                        logging.warning(f"🔧 Hash calculation: Used {alt_field} for price normalization")
+                        break
+                except:
+                    continue
+            
+            # Strategy 2: If all parsing fails, use raw string (legacy behavior)
+            if normalized_price == "0.00" and row.get('Units Total Price'):
+                raw_price = str(row.get('Units Total Price', ''))
+                if raw_price.strip():  # Only if not empty
+                    normalized_price = f"RAW:{raw_price}"  # Prefix to avoid confusion
+                    logging.warning(f"⚠️ Hash calculation: Fallback to raw price string for unparseable value: {raw_price}")
+        
+        # Continue with hash calculation using normalized_price...
+```
+
+### Error Scenarios & Handling
+
+#### Scenario 1: Completely Invalid Price Data
+```python
+# Examples: None, "", "INVALID", "TBD", complex objects
+row['Units Total Price'] = None  # or "", "INVALID", etc.
+
+# HANDLING: Use 0.00 as normalized value
+normalized_price = "0.00"  # Safe default prevents hash calculation errors
+```
+
+#### Scenario 2: Partial Price Data Corruption  
+```python
+# Examples: "$1,2XX.00", "1250.ERROR", corrupted data
+row['Units Total Price'] = "$1,2XX.00"
+
+# HANDLING: Try alternative fields, then fallback to raw string with prefix
+```
+
+#### Scenario 3: Missing parse_price Function
+```python
+# If parse_price is not available or fails to import
+try:
+    normalized_price = f"{parse_price(price_value):.2f}"
+except NameError:
+    # CRITICAL FALLBACK: Use basic string normalization
+    normalized_price = str(price_value or '0').replace('$', '').replace(',', '')
+    logging.error("⚠️ parse_price function not available - using basic normalization")
+```
+
+### Hash Calculation Resilience Patterns
+
+#### Pattern 1: Graceful Degradation
+- **Primary**: Normalized price via parse_price() 
+- **Secondary**: Alternative price field normalization
+- **Tertiary**: Raw string with "RAW:" prefix
+- **Final**: Default "0.00" value
+
+#### Pattern 2: Error Context Preservation
+```python
+# Include error context in hash when fallbacks are used
+if using_fallback_price:
+    row_parts.append(f"PRICE_FALLBACK:{normalized_price}")
+else:
+    row_parts.append(normalized_price)
+```
+
+#### Pattern 3: Audit Trail for Price Parsing Issues
+```python
+# Track price parsing failures for system health monitoring
+if price_parsing_failed:
+    sentry_sdk.capture_message(
+        f"Price parsing failed in hash calculation: WR={work_request}, Value={original_value}",
+        level='warning',
+        extra={'fallback_used': normalized_price, 'original_value': original_value}
+    )
+```
+
+### Monitoring & Alerting
+- **Monitor**: parse_price() failure rates in hash calculation
+- **Alert**: >5% fallback usage indicates data quality issues  
+- **Escalate**: >20% fallback usage requires immediate investigation
+- **Track**: Hash consistency before/after price parsing improvements
+
+This robust error handling ensures the critical change detection system remains functional even when encountering malformed price data while maintaining audit trails for system health monitoring.
 ```
 ````

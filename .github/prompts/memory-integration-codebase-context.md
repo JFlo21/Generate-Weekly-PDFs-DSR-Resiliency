@@ -56,6 +56,11 @@ def is_valid_row(row_data):
         row_data.get('Weekly Reference Logged Date')         # Has reference date
     )
 
+# CRITICAL FIXES: Hash calculation improvements for accurate change detection
+# 1. Includes Units Completed? field: completion status changes trigger regeneration
+# 2. Price normalization: same economic value = same hash regardless of format  
+data_hash = calculate_data_hash(group_rows)  # Includes completion + normalized price  
+
 # File naming convention (change detection + uniqueness)  
 filename = f"WR_{wr_numbers[0]}_WeekEnding_{week_ending}_{timestamp}_{data_hash[:8]}.xlsx"
 ```

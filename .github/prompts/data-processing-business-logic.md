@@ -364,22 +364,28 @@ HASH-BASED CHANGE DETECTION:
 ```python
 def calculate_data_hash(group_rows):
     # Creates hash for change detection - determines if regeneration needed
+    # CRITICAL FIXES: Units Completed? field + price normalization for accurate detection
     hash_data = []
     
     for row in sorted(group_rows, key=lambda r: r.get('Work Request #', '')):
+        # CRITICAL: Normalize price to avoid format-based false changes ($1,250.00 vs 1250.00)
+        normalized_price = f"{parse_price(row.get('Units Total Price', 0)):.2f}"
+        
         if EXTENDED_CHANGE_DETECTION:
             # Include extended business fields for comprehensive change detection
             row_data = (
                 row.get('Work Request #'), row.get('Weekly Reference Logged Date'),
-                row.get('Units Total Price'), row.get('Quantity'), row.get('CU'),
+                normalized_price, row.get('Quantity'), row.get('CU'),  # Normalized price
                 row.get('Foreman'), row.get('Dept #'), row.get('Scope #'),  # Extended fields
-                row.get('Customer Name'), row.get('Area')
+                row.get('Customer Name'), row.get('Area'),
+                is_checked(row.get('Units Completed?'))  # CRITICAL: Completion status
             )
         else:
-            # Legacy mode - core fields only
+            # Legacy mode - core fields only (with completion status + normalized price)
             row_data = (
                 row.get('Work Request #'), row.get('Weekly Reference Logged Date'), 
-                row.get('Units Total Price'), row.get('Quantity')
+                normalized_price, row.get('Quantity'),  # Normalized price
+                is_checked(row.get('Units Completed?'))  # CRITICAL: Completion status
             )
         hash_data.append(row_data)
     

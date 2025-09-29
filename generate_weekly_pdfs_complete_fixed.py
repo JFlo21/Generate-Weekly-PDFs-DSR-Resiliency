@@ -145,9 +145,12 @@ def calculate_data_hash(group_rows):
     """Calculate a hash of the group data to detect changes."""
     data_string = ""
     for row in sorted(group_rows, key=lambda x: x.get('Work Request #', '')):
+        # CRITICAL: Use parse_price() for normalization to avoid format-based false changes
+        normalized_price = f"{parse_price(row.get('Units Total Price', 0)):.2f}"
         row_data = f"{row.get('Work Request #', '')}{row.get('CU', '')}{row.get('Quantity', '')}" \
-                  f"{row.get('Units Total Price', '')}{row.get('Snapshot Date', '')}" \
-                  f"{row.get('Pole #', '')}{row.get('Work Type', '')}"
+                  f"{normalized_price}{row.get('Snapshot Date', '')}" \
+                  f"{row.get('Pole #', '')}{row.get('Work Type', '')}" \
+                  f"{is_checked(row.get('Units Completed?'))}"  # CRITICAL: Include completion status
         data_string += row_data
     
     return hashlib.sha256(data_string.encode('utf-8')).hexdigest()[:16]

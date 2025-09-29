@@ -58,6 +58,16 @@ COMMON ISSUE PATTERNS:
 5. **API Limits**: Check for rate limiting, use SKIP_CELL_HISTORY=true for performance
 6. **File Conflicts**: Run cleanup_excels.py to remove stale WR_*.xlsx files
 
+CRITICAL FIXES - CHANGE DETECTION IMPROVEMENTS:
+1. **Units Completed Detection**: Hash includes Units Completed? status in both modes
+   - Files regenerate when completion status changes (false→true or true→false)
+   - Ensures Excel files reflect current completion status of work items
+
+2. **Price Normalization**: Hash uses parse_price() to normalize Units Total Price
+   - Same economic value in different formats ($1,250.00 vs 1250.00) = same hash
+   - Prevents false regenerations due to format variations
+   - Actual price changes still trigger regeneration correctly
+
 DEBUGGING WORKFLOW:
 1. Enable debug mode: TEST_MODE=true DEBUG_SAMPLE_ROWS=10 PER_CELL_DEBUG_ENABLED=true
 2. Check discovery: Look for "✅ Added sheet" vs "❌ Skipping sheet" messages  

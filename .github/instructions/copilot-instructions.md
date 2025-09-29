@@ -154,10 +154,18 @@ WR_FILTER = [w.strip() for w in os.getenv('WR_FILTER','').split(',') if w.strip(
 4. `generate_excel()` - Format Excel with logo, formulas, styling
 5. `BillingAudit.audit_financial_data()` - Comprehensive audit analysis
 
-**Hash-Based Change Detection:**
+**Hash-Based Change Detection (CRITICAL FIXES IMPLEMENTED):**
 ```python
 # Extended mode includes foreman, dept, scope, totals for comprehensive change detection
 EXTENDED_CHANGE_DETECTION = os.getenv('EXTENDED_CHANGE_DETECTION','1').lower() in ('1','true','yes')
+
+# CRITICAL FIX #1: Units Completed? Field Detection
+# Hash calculation now includes: is_checked(row.get('Units Completed?'))
+# Ensures files regenerate when work items marked complete/incomplete
+
+# CRITICAL FIX #2: Price Format Normalization  
+# Hash calculation uses: f"{parse_price(price):.2f}"
+# Prevents false changes from format variations ($1,250.00 vs 1250.00)
 
 # Hash history management prevents unnecessary regeneration
 # Tracks content hashes per (WR, WeekEnding) to detect actual data changes
@@ -230,6 +238,9 @@ For deeper codebase understanding and specific scenarios, refer to these special
 - **`.github/prompts/architecture-analysis.md`** - Deep analysis, debugging, enhancement, and code review prompts  
 - **`.github/prompts/configuration-environment.md`** - Environment variable deep dive and GitHub Actions integration
 - **`.github/prompts/data-processing-business-logic.md`** - Smartsheet pipeline, Excel generation, and audit system details
+- **`.github/prompts/testing-and-validation.md`** - Comprehensive testing strategies including critical change detection validation
+- **`.github/prompts/error-handling-resilience.md`** - Error handling patterns with robust change detection safeguards
+- **`.github/prompts/change-detection-troubleshooting.md`** - Complete troubleshooting guide for hash-based change detection issues
 
 ### Usage Guidance
 These resources provide context-aware prompts that understand:
@@ -237,6 +248,7 @@ These resources provide context-aware prompts that understand:
 - Business logic patterns (WR grouping, validation rules, audit requirements)
 - Technical constraints (GitHub 10-input limit, API efficiency, caching strategies)
 - Operational patterns (error handling, monitoring, graceful degradation)
+- **Critical change detection fixes** (Units Completed? field detection, price normalization)
 
 ---
 *This codebase represents a production billing system handling ~550 rows across 8+ sheets with comprehensive audit trails and error monitoring. When modifying, preserve the extensive environment variable configuration system and maintain backward compatibility with scheduled workflows. Use the specialized prompt resources above for deeper context and scenario-specific guidance.*

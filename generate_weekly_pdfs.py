@@ -289,14 +289,17 @@ def calculate_data_hash(group_rows):
     if not EXTENDED_CHANGE_DETECTION:
         data_string = ""
         for row in sorted_rows:
+            # CRITICAL: Use parse_price() for normalization to avoid format-based false changes
+            normalized_price = f"{parse_price(row.get('Units Total Price', 0)):.2f}"
             data_string += (
                 f"{row.get('Work Request #', '')}"
                 f"{row.get('CU', '')}"
                 f"{row.get('Quantity', '')}"
-                f"{row.get('Units Total Price', '')}"
+                f"{normalized_price}"
                 f"{row.get('Snapshot Date', '')}"
                 f"{row.get('Pole #', '')}"
                 f"{row.get('Work Type', '')}"
+                f"{is_checked(row.get('Units Completed?'))}"  # CRITICAL: Include completion status
             )
         return hashlib.sha256(data_string.encode('utf-8')).hexdigest()[:16]
 
@@ -307,16 +310,19 @@ def calculate_data_hash(group_rows):
         foreman = row.get('__current_foreman') or row.get('Foreman') or ''
         if group_foreman is None and foreman:
             group_foreman = foreman
+        # CRITICAL: Use parse_price() for normalization to avoid format-based false changes
+        normalized_price = f"{parse_price(row.get('Units Total Price', 0)):.2f}"
         parts.append("|".join([
             str(row.get('Work Request #', '')),
             str(row.get('Snapshot Date', '') or ''),
             str(row.get('CU', '') or ''),
             str(row.get('Quantity', '') or ''),
-            str(row.get('Units Total Price', '') or ''),
+            normalized_price,
             str(row.get('Pole #') or row.get('Point #') or row.get('Point Number') or ''),
             str(row.get('Work Type', '') or ''),
             str(row.get('Dept #', '') or ''),
             str(row.get('Scope #') or row.get('Scope ID', '') or ''),
+            str(is_checked(row.get('Units Completed?'))),  # CRITICAL: Include completion status
         ]))
 
     unique_depts = sorted({str(r.get('Dept #', '') or '') for r in sorted_rows if r.get('Dept #') is not None})
