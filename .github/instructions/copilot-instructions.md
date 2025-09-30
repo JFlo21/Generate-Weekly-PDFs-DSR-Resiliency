@@ -14,8 +14,9 @@ This repository is a **production billing automation system** that generates wee
 - **generate_weekly_pdfs.py** (1762 lines): Production entry point with complete fixes for WR 90093002, 89954686. Implements discovery caching, extended change detection, synthetic test mode.
 - **audit_billing_changes.py** (479 lines): Advanced audit engine with price anomaly detection, trend analysis, selective cell history enrichment. Risk levels: LOW/MEDIUM/HIGH with delta tracking.
 - **cleanup_excels.py**: Standalone cleanup utility for removing stale WR_*.xlsx files while preserving latest per (WR, WeekEnding) identity.
-- **.github/workflows/weekly-excel-generation.yml**: Production workflow with 10-input limit workaround, advanced options parsing, scheduled runs every 2 hours + weekly comprehensive.
-- **Base Sheet IDs**: Hardcoded list of 12 sheet IDs (3239244454645636, 2230129632694148, etc.) with column synonym mapping for 'Weekly Reference Logged Date'
+- **scripts/generate_artifact_manifest.py**: Comprehensive artifact manifest generator with SHA256 validation, organized metadata, and audit trail support for GitHub Actions artifact preservation.
+- **.github/workflows/weekly-excel-generation.yml**: Production workflow with 10-input limit workaround, advanced options parsing, scheduled runs every 2 hours + weekly comprehensive. Includes comprehensive artifact preservation system with organized cloud storage.
+- **Base Sheet IDs**: Hardcoded list of 13 sheet IDs (3239244454645636, 2230129632694148, etc.) with column synonym mapping for 'Weekly Reference Logged Date'
 
 ## Environment & Configuration
 **30+ Environment Variables** control all behavior via `os.getenv()` pattern:
@@ -231,8 +232,10 @@ MAX_GROUPS=50 REGEN_WEEKS=081725,082425 RESET_WR_LIST=WR123,WR456
 For deeper codebase understanding and specific scenarios, refer to these specialized resources:
 
 ### Memory & Context Integration
+- ### Specialized Prompts
 - **`.github/prompts/memory-integration-codebase-context.md`** - Master codebase understanding with architectural memory map
 - **`.github/instructions/ai-agent-best-practices.md`** - Development guidelines, patterns, and operational considerations
+- **`.github/instructions/artifact-preservation-guide.md`** - Comprehensive guide for artifact storage, retrieval, naming conventions, and cloud storage best practices
 
 ### Specialized Prompts
 - **`.github/prompts/architecture-analysis.md`** - Deep analysis, debugging, enhancement, and code review prompts  

@@ -177,21 +177,214 @@ jobs:
           DEBUG_ESSENTIAL_ROWS: '3'
           UNMAPPED_COLUMN_SAMPLE_LIMIT: '3'
         run: python generate_weekly_pdfs.py
+      
       - name: Cleanup only
         if: steps.exec.outputs.should_run == 'true' && github.event.inputs.cleanup_only == 'true'
         run: |
           python cleanup_excels.py
-      - name: Upload artifacts
+      
+      # ==================== ARTIFACT PRESERVATION SYSTEM ====================
+      # Comprehensive artifact storage with organized naming, manifest generation,
+      # and secure cloud storage following GitHub best practices
+      # =====================================================================
+      
+      - name: Generate artifact manifest
+        id: manifest
+        if: always() && steps.exec.outputs.should_run == 'true' && github.event.inputs.cleanup_only != 'true'
+        run: |
+          echo "📦 Generating comprehensive artifact manifest..."
+          python scripts/generate_artifact_manifest.py generated_docs artifact_manifest.json
+          
+          # Extract summary for workflow outputs
+          if [ -f generated_docs/artifact_manifest.json ]; then
+            total_files=$(jq -r '.summary.total_files // 0' generated_docs/artifact_manifest.json)
+            total_size=$(jq -r '.summary.total_size_mb // 0' generated_docs/artifact_manifest.json)
+            wr_count=$(jq -r '.summary.work_requests | length' generated_docs/artifact_manifest.json)
+            week_count=$(jq -r '.summary.week_endings | length' generated_docs/artifact_manifest.json)
+            
+            echo "total_files=$total_files" >> $GITHUB_OUTPUT
+            echo "total_size_mb=$total_size" >> $GITHUB_OUTPUT
+            echo "wr_count=$wr_count" >> $GITHUB_OUTPUT
+            echo "week_count=$week_count" >> $GITHUB_OUTPUT
+            
+            echo "✅ Manifest generated successfully"
+            echo "   📊 Files: $total_files | Size: ${total_size}MB | WRs: $wr_count | Weeks: $week_count"
+          else
+            echo "⚠️ Manifest file not found"
+            echo "total_files=0" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Organize artifacts by Work Request
+        id: organize
+        if: always() && steps.exec.outputs.should_run == 'true' && github.event.inputs.cleanup_only != 'true'
+        run: |
+          echo "🗂️ Organizing artifacts by Work Request for easy discovery..."
+          mkdir -p artifact_staging/by_wr artifact_staging/by_week artifact_staging/manifest
+          
+          # Copy manifest to dedicated folder
+          if [ -f generated_docs/artifact_manifest.json ]; then
+            cp generated_docs/artifact_manifest.json artifact_staging/manifest/
+          fi
+          
+          # Organize Excel files by WR number for individual artifact uploads
+          for file in generated_docs/WR_*.xlsx; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              # Extract WR number from filename (format: WR_{number}_WeekEnding_...)
+              wr_number=$(echo "$filename" | cut -d'_' -f2)
+              week_ending=$(echo "$filename" | cut -d'_' -f4)
+              
+              # Create WR-specific folder
+              mkdir -p "artifact_staging/by_wr/WR_${wr_number}"
+              cp "$file" "artifact_staging/by_wr/WR_${wr_number}/"
+              
+              # Create week-specific folder
+              mkdir -p "artifact_staging/by_week/Week_${week_ending}"
+              cp "$file" "artifact_staging/by_week/Week_${week_ending}/"
+            fi
+          done
+          
+          # Count organized artifacts
+          wr_folders=$(find artifact_staging/by_wr -mindepth 1 -maxdepth 1 -type d | wc -l)
+          week_folders=$(find artifact_staging/by_week -mindepth 1 -maxdepth 1 -type d | wc -l)
+          
+          echo "organized_wr_count=$wr_folders" >> $GITHUB_OUTPUT
+          echo "organized_week_count=$week_folders" >> $GITHUB_OUTPUT
+          echo "✅ Organized into $wr_folders WR folders and $week_folders week folders"
+      
+      - name: Upload comprehensive artifact bundle
+        id: upload_bundle
         if: always() && steps.exec.outputs.should_run == 'true' && github.event.inputs.cleanup_only != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: excel-reports-${{ steps.exec.outputs.execution_type }}-${{ github.run_number }}
-          path: generated_docs/
-          retention-days: 15
+          name: Excel-Reports-Complete-${{ steps.exec.outputs.execution_type }}-Run${{ github.run_number }}
+          path: |
+            generated_docs/WR_*.xlsx
+            generated_docs/artifact_manifest.json
+            generated_docs/hash_history.json
+            generated_docs/audit_state.json
+          retention-days: ${{ github.event.inputs.test_mode == 'true' && '30' || '90' }}
+          compression-level: 6
+          if-no-files-found: warn
+          overwrite: true
+      
+      - name: Upload manifest artifact
+        id: upload_manifest
+        if: always() && steps.exec.outputs.should_run == 'true' && github.event.inputs.cleanup_only != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Manifest-${{ steps.exec.outputs.execution_type }}-Run${{ github.run_number }}
+          path: artifact_staging/manifest/
+          retention-days: 90
+          compression-level: 9
+          if-no-files-found: warn
+      
+      - name: Upload artifacts by Work Request
+        id: upload_by_wr
+        if: always() && steps.exec.outputs.should_run == 'true' && github.event.inputs.cleanup_only != 'true' && steps.organize.outputs.organized_wr_count > 0
+        uses: actions/upload-artifact@v4
+        with:
+          name: By-WorkRequest-${{ steps.exec.outputs.execution_type }}-Run${{ github.run_number }}
+          path: artifact_staging/by_wr/
+          retention-days: ${{ github.event.inputs.test_mode == 'true' && '30' || '90' }}
+          compression-level: 6
+          if-no-files-found: warn
+      
+      - name: Upload artifacts by Week Ending
+        id: upload_by_week
+        if: always() && steps.exec.outputs.should_run == 'true' && github.event.inputs.cleanup_only != 'true' && steps.organize.outputs.organized_week_count > 0
+        uses: actions/upload-artifact@v4
+        with:
+          name: By-WeekEnding-${{ steps.exec.outputs.execution_type }}-Run${{ github.run_number }}
+          path: artifact_staging/by_week/
+          retention-days: ${{ github.event.inputs.test_mode == 'true' && '30' || '90' }}
+          compression-level: 6
+          if-no-files-found: warn
+      
+      # ==================== ARTIFACT SUMMARY & VALIDATION ====================
+      
+      - name: Artifact preservation summary
+        if: always() && steps.exec.outputs.should_run == 'true' && github.event.inputs.cleanup_only != 'true'
+        run: |
+          echo "# 📦 Artifact Preservation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Execution Details" >> $GITHUB_STEP_SUMMARY
+          echo "- **Type**: ${{ steps.exec.outputs.execution_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Run**: #${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Date**: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "- **Test Mode**: ${{ github.event.inputs.test_mode }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "## Generated Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total Files**: ${{ steps.manifest.outputs.total_files }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total Size**: ${{ steps.manifest.outputs.total_size_mb }} MB" >> $GITHUB_STEP_SUMMARY
+          echo "- **Work Requests**: ${{ steps.manifest.outputs.wr_count }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Week Endings**: ${{ steps.manifest.outputs.week_count }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "## Cloud Storage Organization" >> $GITHUB_STEP_SUMMARY
+          echo "Artifacts are preserved in GitHub's secure cloud storage with:" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Complete Bundle**: All Excel reports with manifest and audit logs" >> $GITHUB_STEP_SUMMARY
+          echo "- 🗂️ **By Work Request**: Organized folders for each WR number" >> $GITHUB_STEP_SUMMARY
+          echo "- 📅 **By Week Ending**: Organized folders for each billing week" >> $GITHUB_STEP_SUMMARY
+          echo "- 📋 **Manifest**: Comprehensive JSON index with SHA256 validation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "## Artifact Details" >> $GITHUB_STEP_SUMMARY
+          if [ -f generated_docs/artifact_manifest.json ]; then
+            echo "### Work Request Numbers" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            jq -r '.summary.work_requests | join(", ")' generated_docs/artifact_manifest.json >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            echo "### Week Endings" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            jq -r '.summary.week_endings | join(", ")' generated_docs/artifact_manifest.json >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "## Retention Policy" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ github.event.inputs.test_mode }}" == "true" ]; then
+            echo "- **Test Mode**: 30 days retention" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Production**: 90 days retention (maximum)" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "- **Security**: Requires GitHub authentication to access" >> $GITHUB_STEP_SUMMARY
+          echo "- **Validation**: SHA256 digest for each artifact" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "## Access Instructions" >> $GITHUB_STEP_SUMMARY
+          echo "Artifacts are available in the **Artifacts** section at the bottom of this workflow run." >> $GITHUB_STEP_SUMMARY
+          echo "Download options:" >> $GITHUB_STEP_SUMMARY
+          echo "1. **Complete Bundle** - All files in one download" >> $GITHUB_STEP_SUMMARY
+          echo "2. **By Work Request** - Individual WR folders" >> $GITHUB_STEP_SUMMARY
+          echo "3. **By Week Ending** - Weekly billing periods" >> $GITHUB_STEP_SUMMARY
+          echo "4. **Manifest** - JSON index with file metadata" >> $GITHUB_STEP_SUMMARY
+      
       - name: Summary
         if: always()
         run: |
+          echo "============================================"
+          echo "📊 WORKFLOW EXECUTION SUMMARY"
+          echo "============================================"
           echo "Execution Type: ${{ steps.exec.outputs.execution_type }}"
           echo "Test Mode: ${{ github.event.inputs.test_mode }}"
           echo "Cleanup Only: ${{ github.event.inputs.cleanup_only }}"
-          if [ -d generated_docs ]; then ls -1 generated_docs | head -n 25; fi
+          echo ""
+          echo "📦 ARTIFACT PRESERVATION:"
+          echo "  Total Files: ${{ steps.manifest.outputs.total_files }}"
+          echo "  Total Size: ${{ steps.manifest.outputs.total_size_mb }} MB"
+          echo "  Work Requests: ${{ steps.manifest.outputs.wr_count }}"
+          echo "  Week Endings: ${{ steps.manifest.outputs.week_count }}"
+          echo ""
+          echo "🗂️ ORGANIZATION:"
+          echo "  WR Folders: ${{ steps.organize.outputs.organized_wr_count }}"
+          echo "  Week Folders: ${{ steps.organize.outputs.organized_week_count }}"
+          echo ""
+          if [ -d generated_docs ]; then 
+            echo "📄 GENERATED FILES:"
+            ls -1 generated_docs/WR_*.xlsx 2>/dev/null | head -n 25
+          fi
+          echo "============================================"
