@@ -9,6 +9,22 @@ FIXES IMPLEMENTED:
 - Proper file deletion logic
 - Complete audit system integration
 - All incomplete code sections completed
+- Enhanced error handling for API failures (resilient to 500 errors)
+- Configurable data quality filtering
+- Comprehensive data quality diagnostics and reporting
+
+DATA QUALITY CONFIGURATION:
+Environment variables to control filtering strictness:
+- REQUIRE_WEEKLY_DATE (default: 1): Require Weekly Reference Logged Date
+- REQUIRE_UNITS_COMPLETED (default: 1): Require Units Completed checkbox
+- REQUIRE_PRICE (default: 1): Require non-zero Units Total Price
+- ALLOW_ZERO_PRICE (default: 0): Allow $0 prices (for warranty/rework tracking)
+
+To handle data quality issues gracefully:
+1. Set REQUIRE_WEEKLY_DATE=0 if Weekly Reference Logged Date is often missing
+2. Set REQUIRE_UNITS_COMPLETED=0 to accept unchecked Units Completed rows
+3. Set REQUIRE_PRICE=0 to skip price validation
+4. Set ALLOW_ZERO_PRICE=1 to accept zero-dollar work items
 """
 
 import os
@@ -134,6 +150,11 @@ EXTENDED_CHANGE_DETECTION = os.getenv('EXTENDED_CHANGE_DETECTION','1').lower() i
 FILTER_DIAGNOSTICS = os.getenv('FILTER_DIAGNOSTICS','0').lower() in ('1','true','yes')  # When enabled, logs exclusion reasons counts
 FOREMAN_DIAGNOSTICS = os.getenv('FOREMAN_DIAGNOSTICS','0').lower() in ('1','true','yes')  # When enabled, logs per-WR foreman value distributions & exclusion reasons
 FORCE_GENERATION = os.getenv('FORCE_GENERATION','0').lower() in ('1','true','yes')  # When true, ignore hash short‑circuit and always regenerate
+# Data Quality Filtering Configuration (for handling incomplete data gracefully)
+REQUIRE_WEEKLY_DATE = os.getenv('REQUIRE_WEEKLY_DATE','1').lower() in ('1','true','yes')  # Require Weekly Reference Logged Date (default: strict)
+REQUIRE_UNITS_COMPLETED = os.getenv('REQUIRE_UNITS_COMPLETED','1').lower() in ('1','true','yes')  # Require Units Completed checkbox (default: strict)
+REQUIRE_PRICE = os.getenv('REQUIRE_PRICE','1').lower() in ('1','true','yes')  # Require non-zero price (default: strict)
+ALLOW_ZERO_PRICE = os.getenv('ALLOW_ZERO_PRICE','0').lower() in ('1','true','yes')  # When true, allow $0 prices (useful for warranty/rework tracking)
 REGEN_WEEKS = {w.strip() for w in os.getenv('REGEN_WEEKS','').split(',') if w.strip()}  # Comma list of MMDDYY week ending codes to force regenerate
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
 RESET_WR_LIST = {w.strip() for w in os.getenv('RESET_WR_LIST','').split(',') if w.strip()}  # When provided, only purge these WR numbers (overrides full reset)
@@ -658,6 +679,7 @@ def discover_source_sheets(client):
     ]
     
     discovered = []
+    failed_sheets = []
     for sid in base_sheet_ids:
         try:
             sheet = client.Sheets.get_sheet(sid, include='columns')
@@ -721,13 +743,28 @@ def discover_source_sheets(client):
             else:
                 logging.warning(f"❌ Skipping sheet {sheet.name} (ID {sid}) - Weekly Reference Logged Date not found (strict mode)")
         except Exception as e:
-            logging.warning(f"⚡ Failed to validate sheet {sid}: {e}")
-    logging.info(f"⚡ Discovery complete: {len(discovered)} sheets")
+            error_msg = str(e)
+            # Check if this is an API 500 error or other server-side issue
+            if '500' in error_msg or 'Internal Server Error' in error_msg or 'errorCode": 4000' in error_msg:
+                logging.error(f"🔴 API ERROR for sheet {sid}: Smartsheet returned server error (500/4000) - CONTINUING with other sheets")
+                logging.error(f"   Error details: {error_msg[:200]}")
+                failed_sheets.append({'id': sid, 'error': 'API_SERVER_ERROR', 'message': error_msg[:200]})
+                if SENTRY_DSN:
+                    sentry_sdk.capture_message(f"Smartsheet API server error for sheet {sid}", level="warning")
+            else:
+                logging.warning(f"⚡ Failed to validate sheet {sid}: {e}")
+                failed_sheets.append({'id': sid, 'error': 'VALIDATION_ERROR', 'message': str(e)[:200]})
+    logging.info(f"⚡ Discovery complete: {len(discovered)} sheets successfully discovered")
+    if failed_sheets:
+        logging.warning(f"⚠️ {len(failed_sheets)} sheet(s) failed to load:")
+        for failed in failed_sheets:
+            logging.warning(f"   • Sheet {failed['id']}: {failed['error']} - {failed['message']}")
+        logging.info(f"✅ Continuing with {len(discovered)} successfully loaded sheets")
     # Save cache
     if USE_DISCOVERY_CACHE:
         try:
             with open(DISCOVERY_CACHE_PATH,'w') as f:
-                json.dump({'timestamp': datetime.datetime.now().isoformat(), 'sheets': discovered}, f)
+                json.dump({'timestamp': datetime.datetime.now().isoformat(), 'sheets': discovered, 'failed_sheets': failed_sheets}, f)
         except Exception as e:
             logging.warning(f"Failed to write discovery cache: {e}")
     return discovered
@@ -844,7 +881,13 @@ def get_all_source_rows(client, source_sheets):
                         weekly_date = row_data.get('Weekly Reference Logged Date')
                         price_raw = row_data.get('Units Total Price')
                         price_val = parse_price(price_raw)
-                        has_price = (price_raw not in (None, "", "$0", "$0.00", "0", "0.0")) and price_val > 0
+                        
+                        # Price validation logic (configurable)
+                        if ALLOW_ZERO_PRICE:
+                            has_price = price_raw is not None  # Any price value including $0
+                        else:
+                            has_price = (price_raw not in (None, "", "$0", "$0.00", "0", "0.0")) and price_val > 0
+                        
                         units_completed = row_data.get('Units Completed?')
                         units_completed_checked = is_checked(units_completed)
 
@@ -858,8 +901,22 @@ def get_all_source_rows(client, source_sheets):
                             fr_val = (row_data.get('Foreman') or '').strip() or '<<blank>>'
                             foreman_raw_counts[wr_key_for_diag][fr_val] += 1
 
-                        # Acceptance logic (STRICT: Units Completed? must be checked/true)
-                        if work_request and weekly_date and units_completed_checked and has_price:
+                        # Configurable acceptance logic - build criteria list
+                        accept_criteria = []
+                        
+                        # Work Request # is ALWAYS required (core business requirement)
+                        accept_criteria.append(bool(work_request))
+                        
+                        # Configurable criteria based on environment settings
+                        if REQUIRE_WEEKLY_DATE:
+                            accept_criteria.append(bool(weekly_date))
+                        if REQUIRE_UNITS_COMPLETED:
+                            accept_criteria.append(units_completed_checked)
+                        if REQUIRE_PRICE:
+                            accept_criteria.append(has_price)
+                        
+                        # Accept row if ALL required criteria are met
+                        if all(accept_criteria):
                             merged_rows.append(row_data)
                             exclusion_counts['accepted'] += 1
                         else:
@@ -868,15 +925,15 @@ def get_all_source_rows(client, source_sheets):
                                 exclusion_counts['missing_work_request'] += 1
                                 if wr_key_for_diag:
                                     wr_exclusion_reasons[wr_key_for_diag]['missing_work_request'] += 1
-                            elif not weekly_date:
+                            elif REQUIRE_WEEKLY_DATE and not weekly_date:
                                 exclusion_counts['missing_weekly_reference_logged_date'] += 1
                                 if wr_key_for_diag:
                                     wr_exclusion_reasons[wr_key_for_diag]['missing_weekly_reference_logged_date'] += 1
-                            elif not units_completed_checked:
+                            elif REQUIRE_UNITS_COMPLETED and not units_completed_checked:
                                 exclusion_counts['units_not_completed'] += 1
                                 if wr_key_for_diag:
                                     wr_exclusion_reasons[wr_key_for_diag]['units_not_completed'] += 1
-                            elif not has_price:
+                            elif REQUIRE_PRICE and not has_price:
                                 exclusion_counts['price_missing_or_zero'] += 1
                                 if wr_key_for_diag:
                                     wr_exclusion_reasons[wr_key_for_diag]['price_missing_or_zero'] += 1
@@ -884,22 +941,80 @@ def get_all_source_rows(client, source_sheets):
                     global_row_counter += 1
 
             except Exception as e:
-                logging.error(f"Error processing sheet {source['id']}: {e}")
-                if SENTRY_DSN:
-                    sentry_sdk.capture_exception(e)
+                error_msg = str(e)
+                sheet_id = source['id']
+                sheet_name = source.get('name', 'Unknown')
+                
+                # Enhanced error logging with context
+                logging.error(f"❌ Error processing sheet '{sheet_name}' (ID: {sheet_id})")
+                logging.error(f"   Error type: {type(e).__name__}")
+                logging.error(f"   Error message: {error_msg[:500]}")
+                
+                # Check for API-specific errors
+                if '500' in error_msg or 'Internal Server Error' in error_msg or 'errorCode": 4000' in error_msg:
+                    logging.error(f"   🔴 SMARTSHEET API ERROR: Server-side issue (500/4000)")
+                    logging.error(f"   ℹ️ This is a Smartsheet platform issue, not a data issue")
+                    logging.error(f"   ℹ️ Continuing with other sheets...")
+                    if SENTRY_DSN:
+                        sentry_sdk.capture_message(
+                            f"Smartsheet API Error (500/4000) for sheet {sheet_name} (ID: {sheet_id})",
+                            level="error",
+                            extras={
+                                'sheet_id': sheet_id,
+                                'sheet_name': sheet_name,
+                                'error_type': 'API_SERVER_ERROR',
+                                'error_message': error_msg[:500]
+                            }
+                        )
+                elif '404' in error_msg or 'Not Found' in error_msg:
+                    logging.error(f"   🔍 Sheet not found or access denied")
+                    logging.error(f"   ℹ️ Check sheet permissions and ID validity")
+                elif 'timeout' in error_msg.lower() or 'timed out' in error_msg.lower():
+                    logging.error(f"   ⏱️ Request timeout - sheet may be very large or network slow")
+                    logging.error(f"   ℹ️ Consider reducing sheet size or retry later")
+                else:
+                    if SENTRY_DSN:
+                        sentry_sdk.capture_exception(e)
             
         except Exception as e:
-            logging.error(f"Could not process Sheet ID {source.get('id', 'N/A')}: {e}")
+            sheet_id = source.get('id', 'N/A')
+            logging.error(f"❌ Could not process Sheet ID {sheet_id}: {e}")
             if SENTRY_DSN:
                 sentry_sdk.capture_exception(e)
 
-    logging.info(f"Found {len(merged_rows)} valid rows")
+    # DATA QUALITY REPORTING - Always show summary
+    total_rows_scanned = global_row_counter
+    total_excluded = sum(v for k,v in exclusion_counts.items() if k != 'accepted')
+    
+    logging.info("=" * 80)
+    logging.info("📊 DATA QUALITY SUMMARY")
+    logging.info("=" * 80)
+    logging.info(f"Total rows scanned: {total_rows_scanned}")
+    logging.info(f"Valid rows accepted: {len(merged_rows)} ({len(merged_rows)*100/total_rows_scanned if total_rows_scanned > 0 else 0:.1f}%)")
+    logging.info(f"Rows excluded: {total_excluded} ({total_excluded*100/total_rows_scanned if total_rows_scanned > 0 else 0:.1f}%)")
+    logging.info("")
+    logging.info("Exclusion Breakdown:")
+    for k,v in sorted(exclusion_counts.items(), key=lambda x: x[1], reverse=True):
+        if k != 'accepted' and v > 0:
+            pct = v*100/total_rows_scanned if total_rows_scanned > 0 else 0
+            logging.info(f"   • {k.replace('_', ' ').title()}: {v} ({pct:.1f}%)")
+    
+    logging.info("")
+    logging.info("Active Filtering Rules:")
+    logging.info(f"   • Work Request # (ALWAYS REQUIRED): Yes")
+    logging.info(f"   • Weekly Reference Logged Date: {'REQUIRED' if REQUIRE_WEEKLY_DATE else 'Optional'}")
+    logging.info(f"   • Units Completed Checkbox: {'REQUIRED' if REQUIRE_UNITS_COMPLETED else 'Optional'}")
+    logging.info(f"   • Non-Zero Price: {'REQUIRED' if REQUIRE_PRICE else 'Optional'}")
+    if ALLOW_ZERO_PRICE:
+        logging.info(f"   • Zero Dollar Prices: ALLOWED")
+    logging.info("=" * 80)
+    
     if FILTER_DIAGNOSTICS:
-        total_excluded = sum(v for k,v in exclusion_counts.items() if k != 'accepted')
-        logging.info("🧪 FILTER DIAGNOSTICS:")
+        logging.info("🧪 DETAILED FILTER DIAGNOSTICS:")
         for k,v in exclusion_counts.items():
             logging.info(f"   {k}: {v}")
         logging.info(f"   total_excluded: {total_excluded}")
+    
     if FOREMAN_DIAGNOSTICS and foreman_raw_counts:
         logging.info("🧪 FOREMAN DIAGNOSTICS (first 25 WRs):")
         for wr_key, ctr in list(foreman_raw_counts.items())[:25]:
@@ -908,10 +1023,52 @@ def get_all_source_rows(client, source_sheets):
             logging.info(f"   WR {wr_key}: {sum(ctr.values())} rows seen, foremen(top5)={top}; exclusions={dict(excl)}")
 
     if merged_rows:
-        logging.info(f"✅ UPDATED FILTERING SUCCESS: Found {len(merged_rows)} rows (Work Request # + Weekly Reference Logged Date + Units Completed? + Units Total Price exists required)")
+        logging.info(f"✅ FILTERING SUCCESS: Found {len(merged_rows)} valid rows")
         logging.info("🎯 Change detection ACTIVE: Existing attachment with matching data hash will skip regeneration & upload")
     else:
-        logging.warning("⚠️ No valid rows found with updated filtering (missing Work Request #, Weekly Reference Logged Date, Units Completed?, or Units Total Price)")
+        # Enhanced error message with actionable guidance
+        logging.error("=" * 80)
+        logging.error("❌ NO VALID DATA ROWS FOUND")
+        logging.error("=" * 80)
+        logging.error("Root Cause Analysis:")
+        logging.error("")
+        
+        # Identify the primary exclusion reason
+        if total_rows_scanned == 0:
+            logging.error("   • NO ROWS FOUND IN SOURCE SHEETS")
+            logging.error("   • Check if sheets are empty or API errors occurred")
+        else:
+            max_exclusion = max([(k,v) for k,v in exclusion_counts.items() if k != 'accepted'], 
+                               key=lambda x: x[1], default=('none', 0))
+            if max_exclusion[1] > 0:
+                logging.error(f"   • Primary Issue: {max_exclusion[0].replace('_', ' ').title()} ({max_exclusion[1]} rows)")
+                
+                if 'missing_weekly_reference_logged_date' in max_exclusion[0]:
+                    logging.error("   • Weekly Reference Logged Date column is missing or empty")
+                    logging.error("   • ACTION: Ensure 'Weekly Reference Logged Date' is populated in source sheets")
+                    if not REQUIRE_WEEKLY_DATE:
+                        logging.error("   • Or set REQUIRE_WEEKLY_DATE=0 to make this field optional")
+                
+                if 'units_not_completed' in max_exclusion[0]:
+                    logging.error("   • Units Completed? checkbox is not marked")
+                    logging.error("   • ACTION: Check/mark 'Units Completed?' for completed work items")
+                    if not REQUIRE_UNITS_COMPLETED:
+                        logging.error("   • Or set REQUIRE_UNITS_COMPLETED=0 to make this field optional")
+                
+                if 'price_missing_or_zero' in max_exclusion[0]:
+                    logging.error("   • Units Total Price is missing or zero")
+                    logging.error("   • ACTION: Enter pricing data for billable work items")
+                    if not REQUIRE_PRICE:
+                        logging.error("   • Or set REQUIRE_PRICE=0 to make pricing optional")
+                    logging.error("   • Or set ALLOW_ZERO_PRICE=1 if $0 work is valid (warranty/rework)")
+        
+        logging.error("")
+        logging.error("Configuration Options to Relax Filtering:")
+        logging.error("   • REQUIRE_WEEKLY_DATE=0      - Make Weekly Date optional")
+        logging.error("   • REQUIRE_UNITS_COMPLETED=0  - Make Units Completed checkbox optional")
+        logging.error("   • REQUIRE_PRICE=0            - Make price validation optional")
+        logging.error("   • ALLOW_ZERO_PRICE=1         - Accept $0 prices")
+        logging.error("=" * 80)
 
     return merged_rows
 
@@ -946,9 +1103,20 @@ def group_source_rows(rows):
         # Check if Units Completed? is true/1
         units_completed_checked = is_checked(units_completed)
 
-        # REQUIRE: Work Request # AND Weekly Reference Logged Date AND Units Completed? = true/1 AND Units Total Price exists
-        if not wr or not log_date_str or not units_completed_checked or total_price is None:
-            continue # Skip if any essential grouping information is missing
+        # FLEXIBLE GROUPING: Adapt requirements based on what filtering allowed through
+        # Work Request # is ALWAYS required for grouping
+        if not wr:
+            continue
+        
+        # Weekly Reference Logged Date - required for grouping ONLY if it was required for filtering
+        # If filtering let rows through without it, we skip those rows here (can't group without date)
+        if not log_date_str:
+            continue  # Can't group without a date reference
+        
+        # Units Completed and Price - if filtering was relaxed, these may be optional for grouping
+        # Total price being None is rare (parse_price returns 0.0 for missing), but check anyway
+        if total_price is None:
+            continue
 
         wr_key = str(wr).split('.')[0]
         try:
@@ -1004,9 +1172,10 @@ def group_source_rows(rows):
         # Check if Units Completed? is true/1
         units_completed_checked = is_checked(units_completed)
 
-        # REQUIRE: Work Request # AND Weekly Reference Logged Date AND Units Completed? = true/1 AND Units Total Price exists
-        if not wr or not log_date_str or not units_completed_checked or total_price is None:
-            continue # Skip if essential grouping information is missing
+        # FLEXIBLE GROUPING: Work Request # and Weekly Reference Logged Date required
+        # (If filtering was relaxed, these rows already passed filtering checks)
+        if not wr or not log_date_str:
+            continue  # Can't group without WR# and date reference
 
         wr_key = str(wr).split('.')[0]
         
@@ -1547,7 +1716,33 @@ def main():
         all_rows = get_all_source_rows(client, source_sheets)
         
         if not all_rows:
-            raise Exception("No valid data rows found")
+            # Enhanced error with context and suggestions
+            error_msg = (
+                "No valid data rows found after filtering. "
+                "This is typically caused by data quality issues in the source sheets. "
+                "See the DATA QUALITY SUMMARY above for details. "
+                "Consider adjusting filter settings: REQUIRE_WEEKLY_DATE, REQUIRE_UNITS_COMPLETED, REQUIRE_PRICE, or ALLOW_ZERO_PRICE."
+            )
+            logging.error(f"💥 CRITICAL ERROR: {error_msg}")
+            
+            # Send detailed context to Sentry
+            if SENTRY_DSN:
+                sentry_sdk.capture_message(
+                    "No valid data rows found - Data Quality Issue",
+                    level="error",
+                    extras={
+                        'sheets_scanned': len(source_sheets),
+                        'filter_settings': {
+                            'REQUIRE_WEEKLY_DATE': REQUIRE_WEEKLY_DATE,
+                            'REQUIRE_UNITS_COMPLETED': REQUIRE_UNITS_COMPLETED,
+                            'REQUIRE_PRICE': REQUIRE_PRICE,
+                            'ALLOW_ZERO_PRICE': ALLOW_ZERO_PRICE
+                        },
+                        'suggestion': 'Check source sheet data quality - see exclusion breakdown in logs'
+                    }
+                )
+            
+            raise Exception(error_msg)
         
         # Initialize audit system
         audit_system = None
