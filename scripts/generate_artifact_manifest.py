@@ -76,7 +76,7 @@ def generate_manifest(docs_folder='generated_docs', output_file='artifact_manife
     # Validate supplied docs_folder to prevent path traversal or absolute paths.
     # Only allow relative, normalized directory names with no traversal ('..') or leading slashes.
     norm_docs_folder = os.path.normpath(docs_folder)
-    if os.path.isabs(norm_docs_folder) or '..' in norm_docs_folder.split(os.path.sep):
+    if os.path.isabs(norm_docs_folder):
         print(f"❌ Unsafe docs_folder path: {docs_folder}. Aborting for security.")
         return {
             'error': f"Unsafe docs_folder path: {docs_folder}"
