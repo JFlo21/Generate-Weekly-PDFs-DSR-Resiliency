@@ -13,7 +13,12 @@ from pathlib import Path
 
 # Set the trusted root directory for generated documents.
 # You can override this by setting the SAFE_DOCS_ROOT environment variable.
-SAFE_DOCS_ROOT = os.path.abspath(os.environ.get("SAFE_DOCS_ROOT", "generated_docs"))
+SAFE_DOCS_ROOT = os.path.abspath(
+    os.environ.get(
+        "SAFE_DOCS_ROOT",
+        os.path.join(os.path.dirname(__file__), '..', 'generated_docs')
+    )
+)
 
 def calculate_file_hash(filepath):
     """Calculate SHA256 hash of a file."""
