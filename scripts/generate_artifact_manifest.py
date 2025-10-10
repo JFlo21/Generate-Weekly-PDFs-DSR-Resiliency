@@ -95,15 +95,20 @@ def generate_manifest(docs_folder='generated_docs', output_file='artifact_manife
         common = os.path.commonpath([abs_docs_folder, safe_root])
         if common != safe_root:
             print(f"❌ docs_folder path {docs_folder} escapes safe root {safe_root}. Aborting for security.")
+    # Use pathlib to resolve the path and ensure it is within the intended base directory.
+    base_dir = Path.cwd().resolve()
+    try:
+        abs_docs_folder = (base_dir / docs_folder).resolve()
+        if os.path.commonpath([str(abs_docs_folder), str(base_dir)]) != str(base_dir):
+            print(f"❌ Unsafe docs_folder path: {docs_folder}. Aborting for security.")
             return {
-                'error': f"docs_folder path {docs_folder} escapes safe root {safe_root}"
+                'error': f"Unsafe docs_folder path: {docs_folder}"
             }
     except Exception as e:
-        print(f"❌ Error validating docs_folder path: {e}")
+        print(f"❌ Error resolving docs_folder path: {e}. Aborting for security.")
         return {
-            'error': f"Error validating docs_folder path: {e}"
+            'error': f"Error resolving docs_folder path: {e}"
         }
-
     manifest = {
         'generated_at': datetime.datetime.now().isoformat(),
         'generator': 'generate_artifact_manifest.py',
