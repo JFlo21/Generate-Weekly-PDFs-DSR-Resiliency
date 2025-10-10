@@ -91,6 +91,7 @@ def generate_manifest(docs_folder='generated_docs', output_file='artifact_manife
         if not (abs_docs_folder == safe_root or abs_docs_folder.startswith(safe_root + os.sep)):
     # Enforce abs_docs_folder is inside SAFE_DOCS_ROOT
     safe_root = SAFE_DOCS_ROOT
+    abs_docs_folder = os.path.abspath(os.path.join(safe_root, norm_docs_folder))
     try:
         common = os.path.commonpath([abs_docs_folder, safe_root])
         if common != safe_root:
