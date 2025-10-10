@@ -69,12 +69,22 @@ def get_file_metadata(filepath):
 
 def generate_manifest(docs_folder='generated_docs', output_file='artifact_manifest.json'):
     """Generate comprehensive artifact manifest."""
-    
+
+    # Validate supplied docs_folder to prevent path traversal or absolute paths.
+    # Only allow relative, normalized directory names with no traversal ('..') or leading slashes.
+    norm_docs_folder = os.path.normpath(docs_folder)
+    if os.path.isabs(norm_docs_folder) or '..' in norm_docs_folder.split(os.path.sep):
+        print(f"❌ Unsafe docs_folder path: {docs_folder}. Aborting for security.")
+        return {
+            'error': f"Unsafe docs_folder path: {docs_folder}"
+        }
+    abs_docs_folder = os.path.abspath(norm_docs_folder)
+
     manifest = {
         'generated_at': datetime.datetime.now().isoformat(),
         'generator': 'generate_artifact_manifest.py',
         'version': '1.0',
-        'source_folder': docs_folder,
+        'source_folder': abs_docs_folder,
         'artifacts': [],
         'summary': {
             'total_files': 0,
@@ -87,11 +97,11 @@ def generate_manifest(docs_folder='generated_docs', output_file='artifact_manife
         }
     }
     
-    if not os.path.exists(docs_folder):
-        print(f"⚠️ Folder {docs_folder} does not exist")
+    if not os.path.exists(abs_docs_folder):
+        print(f"⚠️ Folder {abs_docs_folder} does not exist")
         return manifest
     
-    excel_files = [f for f in os.listdir(docs_folder) 
+    excel_files = [f for f in os.listdir(abs_docs_folder) 
                    if f.startswith('WR_') and f.endswith('.xlsx')]
     
     print(f"📊 Processing {len(excel_files)} Excel files...")
@@ -155,7 +165,7 @@ def generate_manifest(docs_folder='generated_docs', output_file='artifact_manife
     manifest['summary']['week_endings'].sort()
     
     # Write manifest
-    output_path = os.path.join(docs_folder, output_file)
+    output_path = os.path.join(abs_docs_folder, output_file)
     with open(output_path, 'w') as f:
         json.dump(manifest, f, indent=2, default=str)
     
