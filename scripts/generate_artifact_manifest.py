@@ -11,6 +11,9 @@ import hashlib
 import datetime
 from pathlib import Path
 
+# Set the trusted root directory for generated documents
+SAFE_DOCS_ROOT = os.path.abspath("generated_docs")
+
 def calculate_file_hash(filepath):
     """Calculate SHA256 hash of a file."""
     sha256_hash = hashlib.sha256()
@@ -79,6 +82,20 @@ def generate_manifest(docs_folder='generated_docs', output_file='artifact_manife
             'error': f"Unsafe docs_folder path: {docs_folder}"
         }
     abs_docs_folder = os.path.abspath(norm_docs_folder)
+    # Enforce abs_docs_folder is inside SAFE_DOCS_ROOT
+    safe_root = SAFE_DOCS_ROOT
+    try:
+        common = os.path.commonpath([abs_docs_folder, safe_root])
+        if common != safe_root:
+            print(f"❌ docs_folder path {docs_folder} escapes safe root {safe_root}. Aborting for security.")
+            return {
+                'error': f"docs_folder path {docs_folder} escapes safe root {safe_root}"
+            }
+    except Exception as e:
+        print(f"❌ Error validating docs_folder path: {e}")
+        return {
+            'error': f"Error validating docs_folder path: {e}"
+        }
 
     manifest = {
         'generated_at': datetime.datetime.now().isoformat(),
