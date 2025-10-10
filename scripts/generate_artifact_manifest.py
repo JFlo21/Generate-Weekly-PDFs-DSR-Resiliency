@@ -87,8 +87,8 @@ def generate_manifest(docs_folder='generated_docs', output_file='artifact_manife
         print(f"❌ Unsafe docs_folder path: {docs_folder}. Aborting for security.")
         return {
             'error': f"Unsafe docs_folder path: {docs_folder}"
-        }
-    abs_docs_folder = os.path.abspath(norm_docs_folder)
+        # Ensure abs_docs_folder is exactly safe_root or a subdirectory of it
+        if not (abs_docs_folder == safe_root or abs_docs_folder.startswith(safe_root + os.sep)):
     # Enforce abs_docs_folder is inside SAFE_DOCS_ROOT
     safe_root = SAFE_DOCS_ROOT
     try:
