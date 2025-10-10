@@ -113,7 +113,7 @@ def generate_manifest(docs_folder='generated_docs', output_file='artifact_manife
         'generated_at': datetime.datetime.now().isoformat(),
         'generator': 'generate_artifact_manifest.py',
         'version': '1.0',
-        'source_folder': abs_docs_folder,
+        'source_folder': str(abs_docs_folder),
         'artifacts': [],
         'summary': {
             'total_files': 0,
