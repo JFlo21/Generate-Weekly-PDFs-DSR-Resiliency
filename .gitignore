@@ -81,3 +81,9 @@ generated_docs/risk_trend.json
 # Excel files with potentially sensitive data (keep local only)
 *.xlsx
 !template*.xlsx
+
+# Coverage reports
+coverage.xml
+.coverage
+htmlcov/
+.pytest_cache/
