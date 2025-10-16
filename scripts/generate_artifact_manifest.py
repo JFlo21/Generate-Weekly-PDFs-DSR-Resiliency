@@ -11,6 +11,15 @@ import hashlib
 import datetime
 from pathlib import Path
 
+# Set the trusted root directory for generated documents.
+# You can override this by setting the SAFE_DOCS_ROOT environment variable.
+SAFE_DOCS_ROOT = os.path.abspath(
+    os.environ.get(
+        "SAFE_DOCS_ROOT",
+        os.path.join(os.path.dirname(__file__), '..', 'generated_docs')
+    )
+)
+
 def calculate_file_hash(filepath):
     """Calculate SHA256 hash of a file."""
     sha256_hash = hashlib.sha256()
@@ -69,12 +78,42 @@ def get_file_metadata(filepath):
 
 def generate_manifest(docs_folder='generated_docs', output_file='artifact_manifest.json'):
     """Generate comprehensive artifact manifest."""
-    
+
+    # Validate supplied docs_folder to prevent path traversal or absolute paths.
+    # Only allow relative, normalized directory names with no traversal ('..') or leading slashes.
+    norm_docs_folder = os.path.normpath(docs_folder)
+    # Explicitly check for '..' components to prevent directory traversal
+    if os.path.isabs(norm_docs_folder) or '..' in norm_docs_folder.split(os.sep):
+        print(f"❌ Unsafe docs_folder path: {docs_folder}. Aborting for security.")
+        return {
+            'error': f"Unsafe docs_folder path: {docs_folder}"
+        }
+    # Enforce abs_docs_folder is inside SAFE_DOCS_ROOT
+    safe_root = SAFE_DOCS_ROOT
+    abs_docs_folder = os.path.abspath(os.path.join(safe_root, norm_docs_folder))
+    try:
+        common = os.path.commonpath([abs_docs_folder, safe_root])
+        if common != safe_root:
+            print(f"❌ docs_folder path {docs_folder} escapes safe root {safe_root}. Aborting for security.")
+    # Use pathlib to resolve the path and ensure it is within the intended base directory.
+    base_dir = Path.cwd().resolve()
+    try:
+        abs_docs_folder = (base_dir / docs_folder).resolve()
+        if os.path.commonpath([str(abs_docs_folder), str(base_dir)]) != str(base_dir):
+            print(f"❌ Unsafe docs_folder path: {docs_folder}. Aborting for security.")
+            return {
+                'error': f"Unsafe docs_folder path: {docs_folder}"
+            }
+    except Exception as e:
+        print(f"❌ Error resolving docs_folder path: {e}. Aborting for security.")
+        return {
+            'error': f"Error resolving docs_folder path: {e}"
+        }
     manifest = {
         'generated_at': datetime.datetime.now().isoformat(),
         'generator': 'generate_artifact_manifest.py',
         'version': '1.0',
-        'source_folder': docs_folder,
+        'source_folder': str(abs_docs_folder),
         'artifacts': [],
         'summary': {
             'total_files': 0,
@@ -87,11 +126,11 @@ def generate_manifest(docs_folder='generated_docs', output_file='artifact_manife
         }
     }
     
-    if not os.path.exists(docs_folder):
-        print(f"⚠️ Folder {docs_folder} does not exist")
+    if not os.path.exists(abs_docs_folder):
+        print(f"⚠️ Folder {abs_docs_folder} does not exist")
         return manifest
     
-    excel_files = [f for f in os.listdir(docs_folder) 
+    excel_files = [f for f in os.listdir(abs_docs_folder) 
                    if f.startswith('WR_') and f.endswith('.xlsx')]
     
     print(f"📊 Processing {len(excel_files)} Excel files...")
@@ -155,7 +194,7 @@ def generate_manifest(docs_folder='generated_docs', output_file='artifact_manife
     manifest['summary']['week_endings'].sort()
     
     # Write manifest
-    output_path = os.path.join(docs_folder, output_file)
+    output_path = os.path.join(abs_docs_folder, output_file)
     with open(output_path, 'w') as f:
         json.dump(manifest, f, indent=2, default=str)
     
