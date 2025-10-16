@@ -667,7 +667,7 @@ def discover_source_sheets(client):
         try:
             # PERFORMANCE FIX: Fetch only column metadata initially (no row data needed yet)
             # This prevents Error 4000 for large sheets during discovery phase
-            sheet = client.Sheets.get_sheet(sid, include='columns', page_size=1)
+            sheet = client.Sheets.get_sheet(sid, include='columns')
             cols = sheet.columns
             mapping = {}
             by_title = { _title(c.title): c for c in cols }
