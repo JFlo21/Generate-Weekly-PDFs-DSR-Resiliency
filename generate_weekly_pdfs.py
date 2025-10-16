@@ -772,8 +772,7 @@ def get_all_source_rows(client, source_sheets):
                 required_column_ids = list(column_mapping.values())
                 sheet = client.Sheets.get_sheet(
                     source['id'], 
-                    column_ids=required_column_ids,
-                    include='columns'
+                    column_ids=required_column_ids
                 )
 
                 logging.info(f"📋 Available mapped columns in {source['name']}: {list(column_mapping.keys())}")
