@@ -84,7 +84,7 @@ env:
 jobs:
   core:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       PYTHONUNBUFFERED: 1
       GITHUB_ACTIONS: 'true'
