@@ -660,6 +660,9 @@ def discover_source_sheets(client):
         8882702989086596, #Added Resiliency Promax Database 19
         2329343909908356, #Added Resiliency Promax Database 20
         5635469074190212, #Added Resiliency Promax Database 21
+        5962351384678276, #Added Resiliency Promax Database 22
+        3892736567496580, #Added Resiliency Promax Database 23
+        4973034927509380 #Added Resiliency Promax Database 24
     ]
     
     discovered = []
