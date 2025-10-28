@@ -38,6 +38,20 @@ import signal
 # Load environment variables
 load_dotenv()
 
+# Import cell history tracker with error handling
+try:
+    from cell_history_tracker import CellHistoryTracker
+    CELL_HISTORY_TRACKER_AVAILABLE = True
+    print("📝 Cell history tracker loaded successfully")
+except ImportError as e:
+    print(f"⚠️ Cell history tracker not available: {e}")
+    CELL_HISTORY_TRACKER_AVAILABLE = False
+    class CellHistoryTracker:
+        def __init__(self, *args, **kwargs):
+            pass
+        def track_modified_by_column(self, *args, **kwargs):
+            return {"tracking_timestamp": None, "sheets_processed": 0, "rows_processed": 0}
+
 # Suppress BrokenPipeError when piping output (e.g. | head, | grep -m) so it doesn't surface as an exception
 try:
     signal.signal(signal.SIGPIPE, signal.SIG_DFL)  # type: ignore[attr-defined]
@@ -74,6 +88,7 @@ logging.getLogger('smartsheet.smartsheet').setLevel(logging.CRITICAL)
 # Performance and compatibility settings
 GITHUB_ACTIONS_MODE = os.getenv('GITHUB_ACTIONS') == 'true'
 SKIP_CELL_HISTORY = os.getenv('SKIP_CELL_HISTORY', 'false').lower() == 'true'
+ENABLE_CELL_HISTORY_TRACKING = os.getenv('ENABLE_CELL_HISTORY_TRACKING', 'true').lower() == 'true'
 
 # --- CORE CONFIGURATION ---
 API_TOKEN = os.getenv("SMARTSHEET_API_TOKEN")
@@ -716,7 +731,7 @@ def discover_source_sheets(client):
                 'Pole #':'Pole #','Point #':'Pole #','Point Number':'Pole #','CU':'CU','Billable Unit Code':'CU','Work Type':'Work Type','CU Description':'CU Description',
                 'Unit Description':'CU Description','Unit of Measure':'Unit of Measure','UOM':'Unit of Measure','Quantity':'Quantity','Qty':'Quantity','# Units':'Quantity',
                 'Units Total Price':'Units Total Price','Total Price':'Units Total Price','Redlined Total Price':'Units Total Price','Scope #':'Scope #','Scope ID':'Scope #',
-                'Job #':'Job #','Units Completed?':'Units Completed?','Units Completed':'Units Completed?'
+                'Job #':'Job #','Units Completed?':'Units Completed?','Units Completed':'Units Completed?','Modified By':'Modified By'
             }
             for c in cols:
                 if c.title in synonyms and synonyms[c.title] not in mapping:
@@ -1560,6 +1575,21 @@ def main():
                     sentry_sdk.capture_exception(e)
         else:
             logging.info("🚀 Audit system disabled for testing")
+        
+        # Initialize and run cell history tracking
+        if ENABLE_CELL_HISTORY_TRACKING and CELL_HISTORY_TRACKER_AVAILABLE:
+            try:
+                cell_history_tracker = CellHistoryTracker(client, OUTPUT_FOLDER)
+                tracking_results = cell_history_tracker.track_modified_by_column(source_sheets, all_rows)
+                logging.info(f"📝 Cell history tracking complete - Sheets: {tracking_results.get('sheets_processed', 0)}, Rows: {tracking_results.get('rows_processed', 0)}")
+            except Exception as e:
+                logging.warning(f"⚠️ Cell history tracking error: {e}")
+                if SENTRY_DSN:
+                    sentry_sdk.capture_exception(e)
+        elif not ENABLE_CELL_HISTORY_TRACKING:
+            logging.info("📝 Cell history tracking disabled (ENABLE_CELL_HISTORY_TRACKING=false)")
+        else:
+            logging.info("📝 Cell history tracking not available")
 
     # Group rows by work request and week ending
         logging.info("📂 Grouping data...")
