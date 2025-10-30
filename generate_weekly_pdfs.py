@@ -195,6 +195,7 @@ if SENTRY_DSN:
             dsn=SENTRY_DSN,
             integrations=[sentry_logging],
             traces_sample_rate=1.0,
+            profiles_sample_rate=1.0,  # Enable profiling for performance insights
             environment=os.getenv("ENVIRONMENT", "production"),
             release=os.getenv("RELEASE", "latest"),
             before_send=before_send_filter,
@@ -746,6 +747,58 @@ def discover_source_sheets(client):
             logging.warning(f"Failed to write discovery cache: {e}")
     return discovered
 
+def batch_column_ids(column_ids, batch_size=6):
+    """
+    Split column IDs into smaller batches to avoid URL length limits in Smartsheet API.
+    
+    Args:
+        column_ids: List of column IDs to batch
+        batch_size: Number of column IDs per batch (default 6 to stay well under URL limits)
+    
+    Returns:
+        List of batches, where each batch is a list of column IDs
+    """
+    batches = []
+    for i in range(0, len(column_ids), batch_size):
+        batches.append(column_ids[i:i + batch_size])
+    return batches
+
+
+def merge_sheet_rows(sheet_batches):
+    """
+    Merge rows from multiple API calls into complete row data.
+    
+    When fetching a sheet with batched column_ids, each API call returns the same rows
+    but with different sets of cells. This function combines those cells into complete rows.
+    
+    Args:
+        sheet_batches: List of sheet objects from multiple API calls
+    
+    Returns:
+        List of merged row objects with all cells combined
+    """
+    if not sheet_batches:
+        return []
+    
+    # Use the first batch as the base
+    base_sheet = sheet_batches[0]
+    if len(sheet_batches) == 1:
+        return base_sheet.rows
+    
+    # Create a map of row_id -> row for the base sheet
+    merged_rows_map = {row.id: row for row in base_sheet.rows}
+    
+    # Merge cells from additional batches
+    for sheet_batch in sheet_batches[1:]:
+        for row in sheet_batch.rows:
+            if row.id in merged_rows_map:
+                # Extend the cells list with new cells from this batch
+                merged_rows_map[row.id].cells.extend(row.cells)
+    
+    # Return the merged rows in original order
+    return list(merged_rows_map.values())
+
+
 def get_all_source_rows(client, source_sheets):
     """Fetch rows from all source sheets with filtering.
 
@@ -754,6 +807,7 @@ def get_all_source_rows(client, source_sheets):
       • Essential field summary limited by DEBUG_ESSENTIAL_ROWS
       • Single concise summary for unmapped columns with a small sample of values
       • Greatly reduces 'Unknown' spam while preserving early transparency
+      • Batched column_ids API calls to prevent URL length limit errors (Error 4000)
     """
     merged_rows = []
     global_row_counter = 0
@@ -773,14 +827,53 @@ def get_all_source_rows(client, source_sheets):
             logging.info(f"⚡ Processing: {source['name']} (ID: {source['id']})")
 
             try:
-                # Fetch sheet once (no column history); include columns to support unmapped summary
-                # PERFORMANCE FIX: Use column_ids parameter to only fetch mapped columns
-                column_mapping = source['column_mapping']
-                required_column_ids = list(column_mapping.values())
-                sheet = client.Sheets.get_sheet(
-                    source['id'], 
-                    column_ids=required_column_ids
-                )
+                # PERFORMANCE FIX: Batch column_ids to prevent URL length limit errors (Error 4000)
+                # Split column IDs into batches and make multiple API calls if needed
+                with sentry_sdk.start_span(op="smartsheet.fetch_sheet", description=f"Fetch sheet {source['id']}"):
+                    column_mapping = source['column_mapping']
+                    required_column_ids = list(column_mapping.values())
+                    
+                    # Batch the column IDs to avoid URL length limits
+                    column_id_batches = batch_column_ids(required_column_ids, batch_size=6)
+                    
+                    if len(column_id_batches) > 1:
+                        logging.info(f"📦 Batching {len(required_column_ids)} columns into {len(column_id_batches)} API calls for sheet {source['name']}")
+                    
+                    # Fetch sheet data in batches
+                    sheet_batches = []
+                    for batch_idx, column_batch in enumerate(column_id_batches):
+                        try:
+                            with sentry_sdk.start_span(
+                                op="smartsheet.get_sheet_batch",
+                                description=f"Batch {batch_idx + 1}/{len(column_id_batches)}"
+                            ):
+                                sentry_sdk.set_context("smartsheet_batch", {
+                                    "sheet_id": source['id'],
+                                    "sheet_name": source['name'],
+                                    "batch_index": batch_idx + 1,
+                                    "total_batches": len(column_id_batches),
+                                    "column_count": len(column_batch)
+                                })
+                                
+                                batch_sheet = client.Sheets.get_sheet(
+                                    source['id'], 
+                                    column_ids=column_batch
+                                )
+                                sheet_batches.append(batch_sheet)
+                                
+                                if len(column_id_batches) > 1:
+                                    logging.info(f"  ✓ Batch {batch_idx + 1}/{len(column_id_batches)}: Fetched {len(column_batch)} columns, {len(batch_sheet.rows)} rows")
+                        except Exception as batch_error:
+                            logging.error(f"  ✗ Batch {batch_idx + 1}/{len(column_id_batches)} failed: {batch_error}")
+                            sentry_sdk.capture_exception(batch_error)
+                            raise  # Re-raise to trigger outer exception handler
+                    
+                    # Merge rows from all batches
+                    merged_rows = merge_sheet_rows(sheet_batches)
+                    
+                    # Create a sheet-like object with merged rows for compatibility
+                    sheet = sheet_batches[0]  # Use first batch as base
+                    sheet.rows = merged_rows  # Replace with merged rows
 
                 logging.info(f"📋 Available mapped columns in {source['name']}: {list(column_mapping.keys())}")
                 
@@ -792,7 +885,7 @@ def get_all_source_rows(client, source_sheets):
                     logging.info(f"   Available mappings: {column_mapping}")
 
                 # Note: Unmapped column logging skipped - we now only fetch mapped columns for performance
-                # This reduces API payload size by ~64% and prevents Error 4000 for large sheets
+                # Batched API calls prevent Error 4000 on sheets with large column ID values
 
                 for row in sheet.rows:
                     row_data = {}
