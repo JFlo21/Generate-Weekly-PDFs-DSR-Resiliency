@@ -665,7 +665,9 @@ def discover_source_sheets(client):
         4973034927509380, #Added Resiliency Promax Database 24
         1705871626162052, #Added Resiliency Promax Database 25
         5214601672085380, #Added Resiliency Promax Database 26
-        8551186744430468 # Added Resiliency Promax Database 27
+        8551186744430468, # Added Resiliency Promax Database 27
+        7820299006332804, # Added Resiliency Promax Database 28
+        1153867531112324 # Added Resiliency Promax Database 29
         
     ]
     
