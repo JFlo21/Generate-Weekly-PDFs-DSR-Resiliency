@@ -23,12 +23,6 @@ on:
         default: 'false'
         type: choice
         options: ['false','true']
-      cleanup_only:
-        description: 'Only cleanup stale Excel files (no generation)'
-        required: false
-        default: 'false'
-        type: choice
-        options: ['false','true']
       
       # Debug & Logging Mode
       debug_mode:
@@ -143,7 +137,7 @@ jobs:
             esac
           done
       - name: Generate reports
-        if: steps.exec.outputs.should_run == 'true' && github.event.inputs.cleanup_only != 'true'
+        if: steps.exec.outputs.should_run == 'true'
         env:
           SMARTSHEET_API_TOKEN: ${{ secrets.SMARTSHEET_API_TOKEN }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
@@ -189,10 +183,6 @@ jobs:
           UNMAPPED_COLUMN_SAMPLE_LIMIT: '3'
         run: python generate_weekly_pdfs.py
       
-      - name: Cleanup only
-        if: steps.exec.outputs.should_run == 'true' && github.event.inputs.cleanup_only == 'true'
-        run: |
-          python cleanup_excels.py
       
       # ==================== ARTIFACT PRESERVATION SYSTEM ====================
       # Comprehensive artifact storage with organized naming, manifest generation,
@@ -201,7 +191,7 @@ jobs:
       
       - name: Generate artifact manifest
         id: manifest
-        if: always() && steps.exec.outputs.should_run == 'true' && github.event.inputs.cleanup_only != 'true'
+        if: always() && steps.exec.outputs.should_run == 'true'
         run: |
           echo "📦 Generating comprehensive artifact manifest..."
           python scripts/generate_artifact_manifest.py generated_docs artifact_manifest.json
@@ -227,7 +217,7 @@ jobs:
       
       - name: Organize artifacts by Work Request
         id: organize
-        if: always() && steps.exec.outputs.should_run == 'true' && github.event.inputs.cleanup_only != 'true'
+        if: always() && steps.exec.outputs.should_run == 'true'
         run: |
           echo "🗂️ Organizing artifacts by Work Request for easy discovery..."
           mkdir -p artifact_staging/by_wr artifact_staging/by_week artifact_staging/manifest
@@ -265,7 +255,7 @@ jobs:
       
       - name: Upload comprehensive artifact bundle
         id: upload_bundle
-        if: always() && steps.exec.outputs.should_run == 'true' && github.event.inputs.cleanup_only != 'true'
+        if: always() && steps.exec.outputs.should_run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: Excel-Reports-Complete-${{ steps.exec.outputs.execution_type }}-Run${{ github.run_number }}
@@ -281,7 +271,7 @@ jobs:
       
       - name: Upload manifest artifact
         id: upload_manifest
-        if: always() && steps.exec.outputs.should_run == 'true' && github.event.inputs.cleanup_only != 'true'
+        if: always() && steps.exec.outputs.should_run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: Manifest-${{ steps.exec.outputs.execution_type }}-Run${{ github.run_number }}
@@ -292,7 +282,7 @@ jobs:
       
       - name: Upload artifacts by Work Request
         id: upload_by_wr
-        if: always() && steps.exec.outputs.should_run == 'true' && github.event.inputs.cleanup_only != 'true' && steps.organize.outputs.organized_wr_count > 0
+        if: always() && steps.exec.outputs.should_run == 'true' && steps.organize.outputs.organized_wr_count > 0
         uses: actions/upload-artifact@v4
         with:
           name: By-WorkRequest-${{ steps.exec.outputs.execution_type }}-Run${{ github.run_number }}
@@ -303,7 +293,7 @@ jobs:
       
       - name: Upload artifacts by Week Ending
         id: upload_by_week
-        if: always() && steps.exec.outputs.should_run == 'true' && github.event.inputs.cleanup_only != 'true' && steps.organize.outputs.organized_week_count > 0
+        if: always() && steps.exec.outputs.should_run == 'true' && steps.organize.outputs.organized_week_count > 0
         uses: actions/upload-artifact@v4
         with:
           name: By-WeekEnding-${{ steps.exec.outputs.execution_type }}-Run${{ github.run_number }}
@@ -315,7 +305,7 @@ jobs:
       # ==================== ARTIFACT SUMMARY & VALIDATION ====================
       
       - name: Artifact preservation summary
-        if: always() && steps.exec.outputs.should_run == 'true' && github.event.inputs.cleanup_only != 'true'
+        if: always() && steps.exec.outputs.should_run == 'true'
         run: |
           echo "# 📦 Artifact Preservation Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -382,7 +372,6 @@ jobs:
           echo "============================================"
           echo "Execution Type: ${{ steps.exec.outputs.execution_type }}"
           echo "Test Mode: ${{ github.event.inputs.test_mode }}"
-          echo "Cleanup Only: ${{ github.event.inputs.cleanup_only }}"
           echo "Grouping Mode: ${{ github.event.inputs.res_grouping_mode || 'both' }}"
           echo ""
           echo "📦 ARTIFACT PRESERVATION:"
