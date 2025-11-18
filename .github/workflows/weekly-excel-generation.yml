@@ -66,6 +66,14 @@ on:
         type: choice
         options: ['false','true']
       
+      # Helper/Resiliency Grouping Mode
+      res_grouping_mode:
+        description: 'Grouping mode: both (primary + helper files), primary (only primary files), helper (only helper files)'
+        required: false
+        default: 'both'
+        type: choice
+        options: ['both', 'primary', 'helper']
+      
       # Advanced Filters
       wr_filter:
         description: 'Comma-separated list of Work Request numbers to process (empty = all)'
@@ -167,6 +175,9 @@ jobs:
           
           # Reset & Cleanup Options
           RESET_HASH_HISTORY: ${{ github.event.inputs.reset_hash_history || 'false' }}
+          
+          # Helper/Resiliency Grouping Mode
+          RES_GROUPING_MODE: ${{ github.event.inputs.res_grouping_mode || 'both' }}
           
           # Advanced Filters
           WR_FILTER: ${{ github.event.inputs.wr_filter || '' }}
@@ -372,6 +383,7 @@ jobs:
           echo "Execution Type: ${{ steps.exec.outputs.execution_type }}"
           echo "Test Mode: ${{ github.event.inputs.test_mode }}"
           echo "Cleanup Only: ${{ github.event.inputs.cleanup_only }}"
+          echo "Grouping Mode: ${{ github.event.inputs.res_grouping_mode || 'both' }}"
           echo ""
           echo "📦 ARTIFACT PRESERVATION:"
           echo "  Total Files: ${{ steps.manifest.outputs.total_files }}"
