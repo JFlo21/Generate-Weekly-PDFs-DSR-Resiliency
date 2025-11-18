@@ -28,3 +28,20 @@ args = "python run_info.py"
 
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow]]
+name = "Git add"
+mode = "sequential"
+author = 44525095
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "git add"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "git commit -m \"Added new integration\""
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "git push origin master"
