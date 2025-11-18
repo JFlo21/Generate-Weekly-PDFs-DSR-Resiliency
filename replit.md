@@ -18,6 +18,11 @@ This is a Python-based automated billing system that generates weekly Excel repo
     - Previously these rows were appearing in both main and helper Excel files, causing double-counting
     - Main Excel files now correctly exclude these helper rows when RES_GROUPING_MODE is 'both' or 'helper'
     - Created test_helper_exclusion.py to verify the logic works correctly
+  - Fixed Excel generation errors:
+    - Resolved cell merging errors and XML issues by implementing safe_merge_cells function
+    - Fixed Job # field not being populated - now checks multiple column name variations (Job #, Job#, Job Number, etc.)
+    - Prevents duplicate cell merges that were causing Excel file corruption
+    - All merge operations now use safe_merge_cells to avoid XML errors when opening Excel files
 
 ## Project Architecture
 
