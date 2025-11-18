@@ -1257,29 +1257,42 @@ def group_source_rows(rows):
             # VARIANT-AWARE GROUPING: Build keys based on RES_GROUPING_MODE and row type
             keys_to_add = []
             
-            # Primary variant (standard WR-based grouping) - ALWAYS created for all rows
-            if RES_GROUPING_MODE in ('primary', 'helper', 'both'):
-                primary_key = f"{week_end_for_key}_{wr_key}"
-                keys_to_add.append(('primary', primary_key, None))
-            
-            # Helper variant - created ADDITIONALLY when helper criteria are met
-            # Helper rows must have: helper foreman name, helper dept, and helper job
+            # Check if this is a valid helper row (both checkboxes checked, has helper info)
+            valid_helper_row = False
             if is_helper_row and helper_foreman:
                 helper_dept = r.get('__helper_dept', '')
                 helper_job = r.get('__helper_job', '')
-                
-                # Require helper dept and job for helper Excel generation
+                # Validate helper row has all required fields
                 if helper_dept and helper_job:
-                    if RES_GROUPING_MODE in ('helper', 'both'):
-                        helper_sanitized = re.sub(r'[^\w\-]', '_', helper_foreman)[:50]
-                        helper_key = f"{week_end_for_key}_{wr_key}_HELPER_{helper_sanitized}"
-                        keys_to_add.append(('helper', helper_key, helper_foreman))
-                        # HELPER GROUP LOGGING: Always log when helper group is created
-                        logging.info(f"🔧 HELPER GROUP CREATED: WR={wr_key}, Week={week_end_for_key}, Helper={helper_foreman}, Dept={helper_dept}, Job={helper_job}")
-                    else:
-                        logging.info(f"ℹ️ Helper row found but RES_GROUPING_MODE={RES_GROUPING_MODE} - helper group not created")
+                    valid_helper_row = True
+            
+            # Primary variant - EXCLUDE valid helper rows when helper files are being generated
+            if RES_GROUPING_MODE in ('primary', 'helper', 'both'):
+                # Add to primary ONLY if:
+                # 1. It's NOT a valid helper row, OR
+                # 2. We're in primary-only mode (not generating helper files)
+                if not valid_helper_row or RES_GROUPING_MODE == 'primary':
+                    primary_key = f"{week_end_for_key}_{wr_key}"
+                    keys_to_add.append(('primary', primary_key, None))
+                elif valid_helper_row and RES_GROUPING_MODE in ('helper', 'both'):
+                    # Log when excluding from main Excel due to helper status
+                    logging.info(f"➖ EXCLUDING from main Excel: WR={wr_key}, Week={week_end_for_key} (Helper row with both checkboxes)")
+            
+            # Helper variant - created when helper criteria are met and mode allows it
+            if valid_helper_row:
+                if RES_GROUPING_MODE in ('helper', 'both'):
+                    helper_sanitized = re.sub(r'[^\w\-]', '_', helper_foreman)[:50]
+                    helper_key = f"{week_end_for_key}_{wr_key}_HELPER_{helper_sanitized}"
+                    keys_to_add.append(('helper', helper_key, helper_foreman))
+                    # HELPER GROUP LOGGING: Always log when helper group is created
+                    logging.info(f"🔧 HELPER GROUP CREATED: WR={wr_key}, Week={week_end_for_key}, Helper={helper_foreman}, Dept={helper_dept}, Job={helper_job}")
                 else:
-                    logging.warning(f"⚠️ Helper row for WR {wr_key} missing required fields - Dept: '{helper_dept}', Job: '{helper_job}' - skipping helper Excel generation")
+                    logging.info(f"ℹ️ Helper row found but RES_GROUPING_MODE={RES_GROUPING_MODE} - helper group not created")
+            elif is_helper_row:
+                # Helper row missing required fields
+                helper_dept = r.get('__helper_dept', '')
+                helper_job = r.get('__helper_job', '')
+                logging.warning(f"⚠️ Helper row for WR {wr_key} missing required fields - Dept: '{helper_dept}', Job: '{helper_job}' - including in main Excel")
             
             # Add row to all applicable groups
             for variant, key, current_foreman in keys_to_add:
