@@ -1257,37 +1257,44 @@ def group_source_rows(rows):
             # VARIANT-AWARE GROUPING: Build keys based on RES_GROUPING_MODE and row type
             keys_to_add = []
             
+            # Check if helper mode is enabled
+            helper_mode_enabled = RES_GROUPING_MODE in ('helper', 'both')
+            
             # Check if this is a valid helper row (both checkboxes checked, has helper info)
             valid_helper_row = False
-            if is_helper_row and helper_foreman:
+            if helper_mode_enabled and is_helper_row and helper_foreman:
                 helper_dept = r.get('__helper_dept', '')
                 helper_job = r.get('__helper_job', '')
                 # Validate helper row has all required fields
                 if helper_dept and helper_job:
                     valid_helper_row = True
             
-            # Primary variant - EXCLUDE valid helper rows when helper files are being generated
-            if RES_GROUPING_MODE in ('primary', 'helper', 'both'):
-                # Add to primary ONLY if:
-                # 1. It's NOT a valid helper row, OR
-                # 2. We're in primary-only mode (not generating helper files)
-                if not valid_helper_row or RES_GROUPING_MODE == 'primary':
+            # Primary variant logic
+            if RES_GROUPING_MODE == 'primary':
+                # In primary mode, ALL rows go to main (including helper rows)
+                primary_key = f"{week_end_for_key}_{wr_key}"
+                keys_to_add.append(('primary', primary_key, None))
+            elif RES_GROUPING_MODE in ('helper', 'both'):
+                # In helper/both mode, exclude valid helper rows from main
+                if not valid_helper_row:
                     primary_key = f"{week_end_for_key}_{wr_key}"
                     keys_to_add.append(('primary', primary_key, None))
-                elif valid_helper_row and RES_GROUPING_MODE in ('helper', 'both'):
+                else:
                     # Log when excluding from main Excel due to helper status
                     logging.info(f"➖ EXCLUDING from main Excel: WR={wr_key}, Week={week_end_for_key} (Helper row with both checkboxes)")
             
-            # Helper variant - created when helper criteria are met and mode allows it
-            if valid_helper_row:
-                if RES_GROUPING_MODE in ('helper', 'both'):
-                    helper_sanitized = re.sub(r'[^\w\-]', '_', helper_foreman)[:50]
-                    helper_key = f"{week_end_for_key}_{wr_key}_HELPER_{helper_sanitized}"
-                    keys_to_add.append(('helper', helper_key, helper_foreman))
-                    # HELPER GROUP LOGGING: Always log when helper group is created
-                    logging.info(f"🔧 HELPER GROUP CREATED: WR={wr_key}, Week={week_end_for_key}, Helper={helper_foreman}, Dept={helper_dept}, Job={helper_job}")
-                else:
-                    logging.info(f"ℹ️ Helper row found but RES_GROUPING_MODE={RES_GROUPING_MODE} - helper group not created")
+            # Helper variant - ONLY created when mode allows it
+            if valid_helper_row and helper_mode_enabled:
+                helper_dept = r.get('__helper_dept', '')
+                helper_job = r.get('__helper_job', '')
+                helper_sanitized = re.sub(r'[^\w\-]', '_', helper_foreman)[:50]
+                helper_key = f"{week_end_for_key}_{wr_key}_HELPER_{helper_sanitized}"
+                keys_to_add.append(('helper', helper_key, helper_foreman))
+                # HELPER GROUP LOGGING: Always log when helper group is created
+                logging.info(f"🔧 HELPER GROUP CREATED: WR={wr_key}, Week={week_end_for_key}, Helper={helper_foreman}, Dept={helper_dept}, Job={helper_job}")
+            elif is_helper_row and not helper_mode_enabled:
+                # In primary mode, helper rows go to main
+                logging.info(f"ℹ️ Helper row found but RES_GROUPING_MODE={RES_GROUPING_MODE} - including in main Excel")
             elif is_helper_row:
                 # Helper row missing required fields
                 helper_dept = r.get('__helper_dept', '')

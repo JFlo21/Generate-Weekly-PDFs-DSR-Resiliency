@@ -13,6 +13,11 @@ This is a Python-based automated billing system that generates weekly Excel repo
 - **2025-11-18**: Initial setup on Replit environment
   - Installed Python 3.11
   - Configured environment for local development
+  - Fixed helper row duplication issue in Excel generation:
+    - Helper rows with both "Helping Foreman Completed Unit?" and "Units Completed?" checkboxes checked now ONLY appear in helper Excel files
+    - Previously these rows were appearing in both main and helper Excel files, causing double-counting
+    - Main Excel files now correctly exclude these helper rows when RES_GROUPING_MODE is 'both' or 'helper'
+    - Created test_helper_exclusion.py to verify the logic works correctly
 
 ## Project Architecture
 
