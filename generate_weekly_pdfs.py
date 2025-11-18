@@ -14,6 +14,7 @@ FIXES IMPLEMENTED:
 import os
 import datetime
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 import warnings
 import hashlib
@@ -74,6 +75,20 @@ logging.getLogger('smartsheet.smartsheet').setLevel(logging.CRITICAL)
 # Performance and compatibility settings
 GITHUB_ACTIONS_MODE = os.getenv('GITHUB_ACTIONS') == 'true'
 SKIP_CELL_HISTORY = os.getenv('SKIP_CELL_HISTORY', 'false').lower() == 'true'
+
+# Resiliency grouping mode: controls which Excel variants to generate
+# - "primary": Standard WR-based grouping (one Excel per WR/Week)
+# - "helper": Helper-based grouping (one Excel per WR/Week/Helper)
+# - "both": Generate both primary and helper variants (DEFAULT - always creates primary + helper when helper criteria met)
+RES_GROUPING_MODE = os.getenv('RES_GROUPING_MODE', 'both').lower()
+if RES_GROUPING_MODE not in ('primary', 'helper', 'both'):
+    logging.warning(f"⚠️ Invalid RES_GROUPING_MODE '{RES_GROUPING_MODE}'; defaulting to 'both'")
+    RES_GROUPING_MODE = 'both'
+
+# Activity log-based foreman assignment has been removed - we now use helper column logic only
+
+# Skip Smartsheet uploads for local testing (files still saved to OUTPUT_FOLDER)
+SKIP_UPLOAD = os.getenv('SKIP_UPLOAD', 'false').lower() == 'true'
 
 # --- CORE CONFIGURATION ---
 API_TOKEN = os.getenv("SMARTSHEET_API_TOKEN")
@@ -328,6 +343,23 @@ def calculate_data_hash(group_rows):
     unique_depts = sorted({str(r.get('Dept #', '') or '') for r in sorted_rows if r.get('Dept #') is not None})
     total_price = sum(parse_price(r.get('Units Total Price')) for r in sorted_rows)
     parts.append(f"FOREMAN={group_foreman or ''}")
+    
+    # Variant-specific hash tokens (replaces activity log USER= token)
+    variant = sorted_rows[0].get('__variant', 'primary') if sorted_rows else 'primary'
+    parts.append(f"VARIANT={variant}")
+    
+    if variant == 'helper':
+        # Helper variant: include helper-specific metadata (ALL REQUIRED)
+        helper_foreman = sorted_rows[0].get('__helper_foreman', '') if sorted_rows else ''
+        helper_dept = sorted_rows[0].get('__helper_dept', '') if sorted_rows else ''
+        helper_job = sorted_rows[0].get('__helper_job', '') if sorted_rows else ''
+        # Validate required helper fields
+        if not helper_foreman or not helper_dept or not helper_job:
+            logging.warning(f"⚠️ Helper variant missing required fields: foreman={helper_foreman}, dept={helper_dept}, job={helper_job}")
+        parts.append(f"HELPER={helper_foreman}")
+        parts.append(f"HELPER_DEPT={helper_dept}")
+        parts.append(f"HELPER_JOB={helper_job}")
+    
     parts.append(f"DEPTS={','.join(unique_depts)}")
     parts.append(f"TOTAL={total_price:.2f}")
     parts.append(f"ROWCOUNT={len(sorted_rows)}")
@@ -354,28 +386,70 @@ def list_generated_excel_files(folder: str):
         return []
 
 def build_group_identity(filename: str):
-    """Return (wr, week_ending) tuple parsed from filename (legacy or current format) or None."""
+    """
+    Parse filename to extract identity tuple: (wr, week_ending, variant, helper_or_user).
+    
+    Returns tuple with format:
+    - Primary: (wr, week, 'primary', None)
+    - Primary+User: (wr, week, 'primary', user_identifier)
+    - Helper: (wr, week, 'helper', helper_name)
+    
+    Legacy format without variant: (wr, week, 'primary', None)
+    
+    Filename formats supported:
+    - WR_{wr}_WeekEnding_{week}_{hash}.xlsx (legacy primary)
+    - WR_{wr}_WeekEnding_{week}_{timestamp}_{hash}.xlsx (primary)
+    - WR_{wr}_WeekEnding_{week}_{timestamp}_User_{user}_{hash}.xlsx (primary+user)
+    - WR_{wr}_WeekEnding_{week}_{timestamp}_Helper_{helper}_{hash}.xlsx (helper)
+    
+    Returns None if filename doesn't match expected format.
+    """
     if not filename.startswith('WR_'):
         return None
     base = filename[:-5] if filename.lower().endswith('.xlsx') else filename
     parts = base.split('_')
-    # Legacy: WR_<wr>_WeekEnding_<week>
-    # Current: WR_<wr>_WeekEnding_<week>_<timestamp>_<hash>
+    
+    # Minimum: WR_<wr>_WeekEnding_<week>
     if len(parts) < 4:
         return None
     if parts[0] != 'WR' or parts[2] != 'WeekEnding':
         return None
+    
     wr = parts[1]
     week = parts[3]
-    return (wr, week)
+    
+    # Detect variant from filename structure
+    variant = 'primary'
+    identifier = None
+    
+    # Look for Helper or User markers
+    if 'Helper' in parts:
+        variant = 'helper'
+        helper_idx = parts.index('Helper')
+        if helper_idx + 1 < len(parts):
+            # Join all parts between Helper and hash (last part)
+            # Format: ...Helper_{name}_{hash} or ...Helper_{name}_part2_{hash}
+            identifier = '_'.join(parts[helper_idx + 1:-1])
+    elif 'User' in parts:
+        variant = 'primary'
+        user_idx = parts.index('User')
+        if user_idx + 1 < len(parts):
+            identifier = '_'.join(parts[user_idx + 1:-1])
+    
+    return (wr, week, variant, identifier)
 
 def cleanup_stale_excels(output_folder: str, kept_filenames: set):
-    """Remove Excel files not generated in current run.
+    """Remove Excel files not generated in current run (VARIANT-AWARE).
 
     Strategy:
       1. Keep all names in kept_filenames.
-      2. For identities (wr, week) present in kept_filenames, remove any other variants (legacy or older timestamp/hash).
-      3. Remove any other WR_*.xlsx whose identity is not in current run (per user requirement to only keep new system outputs).
+      2. For identities (wr, week, variant, identifier) present in kept_filenames, 
+         remove any other files with same identity (older timestamp/hash).
+      3. Remove any other WR_*.xlsx whose identity is not in current run 
+         (per user requirement to only keep new system outputs).
+      4. CRITICAL: Never cross-delete between variants (primary vs helper).
+    
+    Identity includes variant dimension to prevent primary/helper cross-deletion.
     Returns list of removed filenames.
     """
     removed = []
@@ -407,10 +481,14 @@ def cleanup_stale_excels(output_folder: str, kept_filenames: set):
     return removed
 
 def cleanup_untracked_sheet_attachments(client, target_sheet_id: int, valid_wr_weeks: set, test_mode: bool):
-    """Prune only older variants for identities processed this run.
+    """Prune only older variants for identities processed this run (VARIANT-AWARE).
 
     If KEEP_HISTORICAL_WEEKS=1 (default false here), weeks not in this run are preserved.
-    valid_wr_weeks: set of tuples (wr, week_mmddyy) that were generated or validated this session.
+    valid_wr_weeks: set of 4-tuples (wr, week_mmddyy, variant, identifier) that were 
+                    generated or validated this session.
+    
+    CRITICAL: Identity includes variant dimension to prevent primary/helper cross-deletion.
+              Each (wr, week, variant, identifier) is treated as independent.
     """
     if test_mode:
         logging.info("🧪 Test mode – skipping sheet attachment pruning")
@@ -440,8 +518,12 @@ def cleanup_untracked_sheet_attachments(client, target_sheet_id: int, valid_wr_w
             # Sort attachments newest first based on timestamp token
             def _ts(a):
                 parts = a.name.split('_')
-                if len(parts) >= 6 and parts[4].isdigit():
-                    return parts[4]
+                # Find timestamp (should be after WeekEnding_{week})
+                for i, p in enumerate(parts):
+                    if p == 'WeekEnding' and i + 2 < len(parts):
+                        ts_candidate = parts[i + 2]
+                        if ts_candidate.isdigit() and len(ts_candidate) == 6:
+                            return ts_candidate
                 return '000000'
             atts_sorted = sorted(atts, key=_ts, reverse=True)
             # Keep newest; remove others
@@ -454,16 +536,19 @@ def cleanup_untracked_sheet_attachments(client, target_sheet_id: int, valid_wr_w
                     logging.warning(f"⚠️ Could not delete variant {old.name}: {e}")
     logging.info(f"🧹 Variant pruning done: removed_variants={removed_variants}")
 
-def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, week_raw, current_data_hash, force_generation=False):
-    """Delete prior Excel attachment(s) ONLY for the specific (WR, week) pair.
+def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, week_raw, current_data_hash, variant='primary', identifier=None, force_generation=False):
+    """Delete prior Excel attachment(s) ONLY for the specific (WR, week, variant, identifier) identity.
 
-    Previous behavior deleted every attachment matching WR_<wr>_* which removed
-    historical week-ending files for that Work Request. This function now:
-      • Looks only for names: WR_<wr>_WeekEnding_<MMDDYY>.xlsx (legacy) OR
-        WR_<wr>_WeekEnding_<MMDDYY>_<...>.xlsx (timestamp/hash variants)
-      • If an attachment for that (wr, week) already has the identical data hash
-        (and not forcing) we skip regeneration & upload.
-      • Leaves attachments for other weeks untouched so multiple weeks accumulate.
+    VARIANT-AWARE BEHAVIOR:
+    • Looks for attachments matching (wr, week, variant, identifier) exactly
+    • CRITICAL: Never deletes across variants (primary vs helper)
+    • If an attachment for that identity already has the identical data hash
+      (and not forcing) we skip regeneration & upload
+    • Leaves attachments for other weeks and other variants untouched
+
+    Args:
+        variant: 'primary' or 'helper'
+        identifier: For helper variant, the helper name; for primary+user, the user identifier
 
     Returns (deleted_count, skipped_due_to_same_data)
     """
@@ -474,15 +559,28 @@ def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, we
         logging.warning(f"Could not list attachments for row {target_row.id}: {e}")
         return 0, False
 
-    prefix_no_underscore = f"WR_{wr_num}_WeekEnding_{week_raw}"
-    legacy_exact = f"{prefix_no_underscore}.xlsx"
+    # Build variant-specific prefix patterns
+    # Format: WR_{wr}_WeekEnding_{week}_<variant_marker>
+    base_prefix = f"WR_{wr_num}_WeekEnding_{week_raw}"
+    
     candidates = []
     for a in attachments:
         name = getattr(a, 'name', '') or ''
         if not name.endswith('.xlsx'):
             continue
-        # Must match EXACT (legacy) or start with prefix + underscore (new naming)
-        if name == legacy_exact or name.startswith(prefix_no_underscore + '_'):
+        
+        # Parse identity from filename
+        ident = build_group_identity(name)
+        if not ident:
+            continue
+        
+        ident_wr, ident_week, ident_variant, ident_identifier = ident
+        
+        # Match only if all identity components match
+        if (ident_wr == wr_num and 
+            ident_week == week_raw and 
+            ident_variant == variant and
+            ident_identifier == identifier):
             candidates.append(a)
 
     if not candidates:
@@ -493,12 +591,12 @@ def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, we
         for att in candidates:
             existing_hash = extract_data_hash_from_filename(att.name)
             if existing_hash == current_data_hash:
-                logging.info(f"⏩ Unchanged (WR {wr_num} Week {week_raw}) hash {current_data_hash}; skipping regeneration & upload")
+                logging.info(f"⏩ Unchanged ({variant} WR {wr_num} Week {week_raw}) hash {current_data_hash}; skipping regeneration & upload")
                 return 0, True
     else:
-        logging.info(f"⚐ FORCE GENERATION for WR {wr_num} Week {week_raw}; ignoring existing hash match")
+        logging.info(f"⚐ FORCE GENERATION for {variant} WR {wr_num} Week {week_raw}; ignoring existing hash match")
 
-    logging.info(f"🗑️ Removing {len(candidates)} prior attachment(s) for WR {wr_num} Week {week_raw}")
+    logging.info(f"🗑️ Removing {len(candidates)} prior {variant} attachment(s) for WR {wr_num} Week {week_raw}")
     for att in candidates:
         try:
             client.Attachments.delete_attachment(target_sheet_id, att.id)
@@ -513,19 +611,33 @@ def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, we
         time.sleep(0.05)
     return deleted_count, False
 
-def _has_existing_week_attachment(client, target_sheet_id, target_row, wr_num: str, week_raw: str) -> bool:
-    """Return True if at least one attachment exists for this (WR, week)."""
+def _has_existing_week_attachment(client, target_sheet_id, target_row, wr_num: str, week_raw: str, variant: str = 'primary', identifier: str | None = None) -> bool:
+    """Return True if at least one attachment exists for this (WR, week, variant, identifier) identity."""
     try:
         attachments = client.Attachments.list_row_attachments(target_sheet_id, target_row.id).data
     except Exception:
         return False
-    prefix = f"WR_{wr_num}_WeekEnding_{week_raw}"
+    
+    # Check for attachments matching this exact identity
     for a in attachments:
         name = getattr(a, 'name', '') or ''
         if not name.endswith('.xlsx'):
             continue
-        if name == prefix + '.xlsx' or name.startswith(prefix + '_'):
+        
+        # Parse identity from filename
+        ident = build_group_identity(name)
+        if not ident:
+            continue
+        
+        ident_wr, ident_week, ident_variant, ident_identifier = ident
+        
+        # Match only if all identity components match
+        if (ident_wr == wr_num and 
+            ident_week == week_raw and 
+            ident_variant == variant and
+            ident_identifier == identifier):
             return True
+    
     return False
 
 def purge_existing_hashed_outputs(client, target_sheet_id: int, wr_subset: set | None, test_mode: bool):
@@ -663,13 +775,29 @@ def discover_source_sheets(client):
         5962351384678276, #Added Resiliency Promax Database 22
         3892736567496580, #Added Resiliency Promax Database 23
         4973034927509380, #Added Resiliency Promax Database 24
-        1705871626162052, #Added Resiliency Promax Database 25
-        5214601672085380, #Added Resiliency Promax Database 26
+        1705871626162052, # Added Resiliency Promax Database 25
+        5214601672085380, #  Added Resiliency Promax Database 26
         8551186744430468, # Added Resiliency Promax Database 27
         7820299006332804, # Added Resiliency Promax Database 28
         1153867531112324, # Added Resiliency Promax Database 29
-        6692045306417028 # Added Resiliency Promax Database 30
+        6692045306417028, # Added Resiliency Promax Database 30
+        249276132183940, # Added Intake Promax 2
+        2126238714908548, # Added Promax Database 31
+        366100316376964, # Added Promax Database 32
+        1207776467439492 # Added Promax Database 33
     ]
+
+    # OPTIONAL SPEED-UP FOR TESTING: allow overriding sheet list via env LIMITED_SHEET_IDS
+    # Comma-separated list of numeric sheet IDs. If provided, we restrict discovery to only these.
+    _limited_ids_raw = os.getenv('LIMITED_SHEET_IDS')
+    if _limited_ids_raw:
+        try:
+            limited_ids = [int(x.strip()) for x in _limited_ids_raw.split(',') if x.strip()]
+            if limited_ids:
+                logging.info(f"⏩ LIMITED_SHEET_IDS override active ({len(limited_ids)} IDs); restricting discovery to provided list")
+                base_sheet_ids = limited_ids
+        except Exception as e:
+            logging.warning(f"⚠️ LIMITED_SHEET_IDS parse failed '{_limited_ids_raw}': {e}")
     
     discovered = []
     for sid in base_sheet_ids:
@@ -718,11 +846,32 @@ def discover_source_sheets(client):
                 'Pole #':'Pole #','Point #':'Pole #','Point Number':'Pole #','CU':'CU','Billable Unit Code':'CU','Work Type':'Work Type','CU Description':'CU Description',
                 'Unit Description':'CU Description','Unit of Measure':'Unit of Measure','UOM':'Unit of Measure','Quantity':'Quantity','Qty':'Quantity','# Units':'Quantity',
                 'Units Total Price':'Units Total Price','Total Price':'Units Total Price','Redlined Total Price':'Units Total Price','Scope #':'Scope #','Scope ID':'Scope #',
-                'Job #':'Job #','Units Completed?':'Units Completed?','Units Completed':'Units Completed?'
+                'Job #':'Job #','Units Completed?':'Units Completed?','Units Completed':'Units Completed?',
+                # Helper variant columns (exact names with brackets as authoritative)
+                'Helper Job [#]':'Helper Job #',  # Exact spelling with brackets
+                'Helper Job':'Helper Job #',      # Fallback synonym
+                'Helper Job #':'Helper Job #',    # Ensure direct exact match is captured
+                'Helper Dept #':'Helper Dept #',
+                'Foreman Helping?':'Foreman Helping?',
+                'Helping Foreman Completed Unit?':'Helping Foreman Completed Unit?'
             }
+            # COLUMN MAPPING DEBUG: Log all column titles to verify helper columns
+            helper_columns_found = []
             for c in cols:
+                # Check for helper-related columns specifically
+                if 'Helper' in c.title or 'Helping' in c.title:
+                    helper_columns_found.append(c.title)
+                
                 if c.title in synonyms and synonyms[c.title] not in mapping:
                     mapping[synonyms[c.title]] = c.id
+                    # Log helper column mappings specifically
+                    if 'Helper' in c.title:
+                        logging.info(f"🔧 MAPPED HELPER COLUMN: '{c.title}' -> '{synonyms[c.title]}' (column ID: {c.id})")
+            
+            # Log summary of helper columns found
+            if helper_columns_found:
+                logging.info(f"🔧 All helper/helping columns found in sheet: {helper_columns_found}")
+            
             if 'Weekly Reference Logged Date' in mapping:
                 w_id = mapping['Weekly Reference Logged Date']
                 s_id = mapping.get('Snapshot Date')
@@ -748,8 +897,28 @@ def discover_source_sheets(client):
             logging.warning(f"Failed to write discovery cache: {e}")
     return discovered
 
+# Cell history and Modified By logic removed - using direct column assignment only
+
 def get_all_source_rows(client, source_sheets):
     """Fetch rows from all source sheets with filtering.
+    
+    Implements direct column-based foreman assignment with helper row detection.
+    
+    Args:
+        client: Smartsheet client instance
+        source_sheets: List of source sheet configurations
+    
+    Foreman assignment logic:
+    - Primary: Use "Foreman Assigned?" column if present
+    - Fallback: Use "Foreman" column text
+    - Final fallback: "Unknown Foreman"
+    
+    Helper row detection:
+    - Identifies rows where "Foreman Helping?" has a value AND
+      both "Helping Foreman Completed Unit?" and "Units Completed?" are checked
+    - Helper rows are tagged with __is_helper_row=True and helper metadata
+    - No matching, no cache lookup, completely unchanged behavior
+    - Triggers when: no cache, no cache entry, no matches found
 
     Improvements:
       • Per‑cell debug logging limited by DEBUG_SAMPLE_ROWS (env tunable)
@@ -764,6 +933,7 @@ def get_all_source_rows(client, source_sheets):
         'missing_weekly_reference_logged_date': 0,
         'units_not_completed': 0,
         'price_missing_or_zero': 0,
+        'cu_no_match': 0,
         'accepted': 0
     }
     # Detailed per‑WR diagnostics
@@ -792,10 +962,24 @@ def get_all_source_rows(client, source_sheets):
                 else:
                     logging.warning(f"❌ Weekly Reference Logged Date column NOT found in mapping")
                     logging.info(f"   Available mappings: {column_mapping}")
+                
+                # HELPER DETECTION LOGGING: Check if helper columns are present
+                helper_columns = ['Foreman Helping?', 'Helping Foreman Completed Unit?', 'Helper Dept #', 'Helper Job #']
+                found_helper_cols = [col for col in helper_columns if col in column_mapping]
+                if found_helper_cols:
+                    logging.info(f"🔧 Helper columns found in {source['name']}: {found_helper_cols}")
+                    if len(found_helper_cols) == 4:
+                        logging.info(f"✅ All 4 helper columns present - helper detection will be active for this sheet")
+                    else:
+                        missing = [col for col in helper_columns if col not in column_mapping]
+                        logging.warning(f"⚠️ Missing helper columns in {source['name']}: {missing}")
+                else:
+                    logging.info(f"ℹ️ No helper columns found in {source['name']} - helper detection disabled for this sheet")
 
                 # Note: Unmapped column logging skipped - we now only fetch mapped columns for performance
                 # This reduces API payload size by ~64% and prevents Error 4000 for large sheets
 
+                # Process all rows
                 for row in sheet.rows:
                     row_data = {}
 
@@ -859,6 +1043,78 @@ def get_all_source_rows(client, source_sheets):
 
                         # Acceptance logic (STRICT: Units Completed? must be checked/true)
                         if work_request and weekly_date and units_completed_checked and has_price:
+                            # CU no-match exclusion: drop backend placeholder rows like "#NO MATCH..."
+                            cu_raw = (row_data.get('CU') or row_data.get('Billable Unit Code') or '')
+                            cu_text = str(cu_raw).strip().upper()
+                            # Exclude any backend placeholder variants like '#NO MATCH' or 'NO MATCH'
+                            if 'NO MATCH' in cu_text:
+                                exclusion_counts['cu_no_match'] += 1
+                                if wr_key_for_diag:
+                                    wr_exclusion_reasons[wr_key_for_diag]['cu_no_match'] += 1
+                                if FILTER_DIAGNOSTICS and global_row_counter < DEBUG_ESSENTIAL_ROWS:
+                                    logging.info(f"🚫 Excluding row for WR {wr_key_for_diag} due to CU 'NO MATCH' placeholder: raw='{cu_raw}'")
+                                # Skip appending this row
+                                global_row_counter += 1
+                                continue
+                            # Helper row detection (before foreman assignment)
+                            # Helper criteria: Foreman Helping? non-blank AND both checkboxes checked
+                            # Handle None values safely with defensive str() conversion to prevent float/strip errors
+                            foreman_helping_val = row_data.get('Foreman Helping?')
+                            helper_name = str(foreman_helping_val).strip() if foreman_helping_val else ''
+                            helping_foreman_completed = row_data.get('Helping Foreman Completed Unit?')
+                            helping_foreman_completed_checked = is_checked(helping_foreman_completed)
+                            
+                            is_helper_row = bool(helper_name and helping_foreman_completed_checked and units_completed_checked)
+                            
+                            # HELPER DETECTION LOGGING: Log criteria evaluation for sample rows
+                            if global_row_counter < DEBUG_ESSENTIAL_ROWS:
+                                logging.info(f"🔧 Helper detection criteria for row {global_row_counter+1}:")
+                                logging.info(f"   Foreman Helping?: '{foreman_helping_val}' -> helper_name='{helper_name}'")
+                                logging.info(f"   Helping Foreman Completed Unit?: {helping_foreman_completed} -> checked={helping_foreman_completed_checked}")
+                                logging.info(f"   Units Completed?: {units_completed} -> checked={units_completed_checked}")
+                                logging.info(f"   is_helper_row: {is_helper_row}")
+                            
+                            if is_helper_row:
+                                # Populate helper metadata (with safe None handling and defensive str() conversion)
+                                row_data['__is_helper_row'] = True
+                                row_data['__helper_foreman'] = helper_name
+                                helper_dept_val = row_data.get('Helper Dept #')
+                                helper_job_val = row_data.get('Helper Job #')
+                                row_data['__helper_dept'] = str(helper_dept_val).strip() if helper_dept_val else ''
+                                row_data['__helper_job'] = str(helper_job_val).strip() if helper_job_val else ''
+                                
+                                # HELPER DETECTION LOGGING: Always log helper row detection
+                                logging.info(f"🔧 HELPER ROW DETECTED [Row {global_row_counter+1}]: WR={wr_key_for_diag}, Helper={helper_name}, Dept={row_data['__helper_dept']}, Job={row_data['__helper_job']}")
+                            else:
+                                row_data['__is_helper_row'] = False
+                            
+                            # Direct column-based foreman assignment
+                            effective_user = None
+                            assignment_method = None
+                            # Use Foreman Assigned? column, fallback to Foreman column
+                            foreman_assigned = row_data.get('Foreman Assigned?')
+                            if foreman_assigned:
+                                # Use the value directly (could be email, name, or text)
+                                effective_user = str(foreman_assigned).strip()
+                                assignment_method = 'FOREMAN_ASSIGNED'
+                            else:
+                                # Fallback to primary Foreman text if available (defensive str() conversion to prevent float errors)
+                                foreman_val = row_data.get('Foreman')
+                                primary_foreman_text = str(foreman_val).strip() if foreman_val else ''
+                                if primary_foreman_text:
+                                    effective_user = primary_foreman_text
+                                    assignment_method = 'FOREMAN_COLUMN'
+                                else:
+                                    effective_user = 'Unknown Foreman'
+                                    assignment_method = 'NO_FOREMAN'
+                            
+                            if global_row_counter < DEBUG_ESSENTIAL_ROWS:
+                                logging.info(f"📋 Foreman Assignment: Using '{effective_user}' ({assignment_method})")
+                            
+                            # Store effective user and method for grouping
+                            row_data['__effective_user'] = effective_user
+                            row_data['__assignment_method'] = assignment_method
+                            
                             merged_rows.append(row_data)
                             exclusion_counts['accepted'] += 1
                         else:
@@ -893,6 +1149,18 @@ def get_all_source_rows(client, source_sheets):
                 sentry_sdk.capture_exception(e)
 
     logging.info(f"Found {len(merged_rows)} valid rows")
+    
+    # HELPER DETECTION SUMMARY LOGGING
+    helper_row_count = sum(1 for r in merged_rows if r.get('__is_helper_row', False))
+    if helper_row_count > 0:
+        logging.info(f"🔧 HELPER DETECTION SUMMARY: {helper_row_count} helper rows detected out of {len(merged_rows)} total valid rows ({helper_row_count/len(merged_rows)*100:.1f}%)")
+        # Log sample helper rows for verification
+        sample_helpers = [r for r in merged_rows if r.get('__is_helper_row', False)][:5]
+        for idx, helper in enumerate(sample_helpers, 1):
+            logging.info(f"   Sample Helper {idx}: WR={helper.get('Work Request #')}, Helper={helper.get('__helper_foreman')}, Dept={helper.get('__helper_dept')}, Job={helper.get('__helper_job')}")
+    else:
+        logging.warning(f"⚠️ HELPER DETECTION SUMMARY: No helper rows detected in {len(merged_rows)} valid rows - check if helper columns exist and criteria are met")
+    
     if FILTER_DIAGNOSTICS:
         total_excluded = sum(v for k,v in exclusion_counts.items() if k != 'accepted')
         logging.info("🧪 FILTER DIAGNOSTICS:")
@@ -916,31 +1184,55 @@ def get_all_source_rows(client, source_sheets):
 
 def group_source_rows(rows):
     """
-    FIXED: Group rows by Week Ending Date AND Work Request # for proper file creation.
+    VARIANT-AWARE GROUPING: Groups rows by Work Request #, Week Ending Date, and Variant (primary/helper).
+    
+    Primary Variant:
+    - Standard WR-based grouping (one Excel per WR/Week)
+    - Key format: MMDDYY_WRNUMBER
+    
+    Helper Variant:
+    - Helper-based grouping (one Excel per WR/Week/Helper)
+    - Key format: MMDDYY_WRNUMBER_HELPER_<sanitized_helper_name>
+    - Only created for rows where __is_helper_row = True
+    
+    Activity Log (DECOMMISSIONED - only in primary mode):
+    - No longer uses Modified By cache - direct column assignment only
+    - Appends user identifier: MMDDYY_WRNUMBER_USER_<sanitized_user>
+    
+    RES_GROUPING_MODE controls which variants are generated:
+    - "primary": Only primary variant (may include user if activity log enabled)
+    - "helper": Helper variant for helper rows + primary variant for non-helper rows (conditional filter)
+    - "both": Both primary and helper variants for all applicable rows
     
     CRITICAL BUSINESS LOGIC: Groups valid rows by Week Ending Date AND Work Request #.
     Each group will create ONE Excel file containing ONE work request for ONE week ending date.
     
-    FILENAME FORMAT: WR_{work_request_number}_WeekEnding_{MMDDYY}.xlsx
+    FILENAME FORMAT: 
+    - Primary: WR_{work_request_number}_WeekEnding_{MMDDYY}_{hash}.xlsx
+    - Primary+User: WR_{work_request_number}_WeekEnding_{MMDDYY}_User_{user_sanitized}_{hash}.xlsx
+    - Helper: WR_{work_request_number}_WeekEnding_{MMDDYY}_Helper_{helper_sanitized}_{hash}.xlsx
     
     This ensures:
     - Each Excel file contains ONLY one work request
-    - Each work request can have multiple Excel files (one per week ending date)
-    - No mixing of work requests in a single file
-    - Clear, predictable file naming
+    - Each work request can have multiple Excel files (one per week ending date and/or variant)
+    - No mixing of work requests or variants in a single file
+    - Clear, predictable file naming with variant identification
     """
     groups = collections.defaultdict(list)
     
-    # First, collect all rows by WR# to determine the most recent foreman for each work request
-    wr_to_foreman_history = collections.defaultdict(list)
-    
     for r in rows:
-        foreman = r.get('Foreman')
         wr = r.get('Work Request #')
         log_date_str = r.get('Weekly Reference Logged Date')
-        snapshot_date_str = r.get('Snapshot Date')
         units_completed = r.get('Units Completed?')
         total_price = parse_price(r.get('Units Total Price', 0))
+        
+        # Use __effective_user (set by dual-logic system in get_all_source_rows)
+        effective_user = r.get('__effective_user', 'Unknown Foreman')
+        assignment_method = r.get('__assignment_method', 'PATH_B_NO_CACHE_FILE')
+        
+        # Helper row metadata
+        is_helper_row = r.get('__is_helper_row', False)
+        helper_foreman = r.get('__helper_foreman', '')
         
         # Check if Units Completed? is true/1
         units_completed_checked = is_checked(units_completed)
@@ -950,75 +1242,8 @@ def group_source_rows(rows):
             continue # Skip if any essential grouping information is missing
 
         wr_key = str(wr).split('.')[0]
-        try:
-            log_date_obj = excel_serial_to_date(log_date_str)
-            
-            if log_date_obj is None:
-                logging.warning(f"Could not parse Weekly Reference Logged Date '{log_date_str}' for WR# {wr_key}. Skipping row.")
-                continue
-            
-            # Track foreman history for this work request with the most recent date
-            foreman_entry = {
-                'foreman': foreman or 'Unknown Foreman',
-                'log_date': log_date_obj,
-                'row': r
-            }
-            
-            # Only add snapshot date if available
-            if snapshot_date_str:
-                try:
-                    snapshot_date_obj = parser.parse(snapshot_date_str)
-                    foreman_entry['snapshot_date'] = snapshot_date_obj
-                except (parser.ParserError, TypeError):
-                    foreman_entry['snapshot_date'] = log_date_obj  # Fallback to log date
-            
-            wr_to_foreman_history[wr_key].append(foreman_entry)
-            
-        except (parser.ParserError, TypeError) as e:
-            logging.warning(f"Could not parse Weekly Reference Logged Date for WR# {wr_key}. Skipping row. Error: {e}")
-            continue
-    
-    # Determine the most recent foreman for each work request
-    wr_to_current_foreman = {}
-    for wr_key, history in wr_to_foreman_history.items():
-        # Sort by log date (most recent first) to get the current foreman
-        history.sort(key=lambda x: x['log_date'], reverse=True)
-        wr_to_current_foreman[wr_key] = history[0]['foreman']
-        
-        if TEST_MODE:
-            # Check if foreman changed during this work request
-            unique_foremen = list(set(h['foreman'] for h in history if h['foreman'] != 'Unknown Foreman'))
-            if len(unique_foremen) > 1:
-                logging.info(f"📝 WR# {wr_key}: Foreman changed from {unique_foremen[1:]} to {unique_foremen[0]}")
-    
-    # Now group the rows using the determined current foreman for consistency
-    # CRITICAL: Each group contains ONLY one work request for one week ending date
-    for r in rows:
-        foreman = r.get('Foreman')
-        wr = r.get('Work Request #')
-        log_date_str = r.get('Weekly Reference Logged Date')
-        units_completed = r.get('Units Completed?')
-        total_price = parse_price(r.get('Units Total Price', 0))
-        
-        # Check if Units Completed? is true/1
-        units_completed_checked = is_checked(units_completed)
-
-        # REQUIRE: Work Request # AND Weekly Reference Logged Date AND Units Completed? = true/1 AND Units Total Price exists
-        if not wr or not log_date_str or not units_completed_checked or total_price is None:
-            continue # Skip if essential grouping information is missing
-
-        wr_key = str(wr).split('.')[0]
-        
-        # Use the most recent foreman name for this work request instead of the row's foreman
-        current_foreman = wr_to_current_foreman.get(wr_key, foreman or 'Unknown Foreman')
         
         try:
-            # Use Weekly Reference Logged Date as the week ending date directly
-            log_date_str = r.get('Weekly Reference Logged Date')
-            if not log_date_str:
-                logging.warning(f"Missing Weekly Reference Logged Date for WR# {wr_key}")
-                continue
-                
             # Parse the Weekly Reference Logged Date - this IS the week ending date
             week_ending_date = excel_serial_to_date(log_date_str)
             if week_ending_date is None:
@@ -1027,20 +1252,47 @@ def group_source_rows(rows):
             week_end_for_key = week_ending_date.strftime("%m%d%y")
             
             if TEST_MODE:
-                logging.debug(f"WR# {wr_key}: Week ending {week_ending_date.strftime('%A, %m/%d/%Y')}")
+                logging.debug(f"WR# {wr_key}: Week ending {week_ending_date.strftime('%A, %m/%d/%Y')} | User: {effective_user} | Method: {assignment_method} | Helper: {is_helper_row}")
             
-            # CRITICAL GROUPING KEY: Ensures one work request per week ending date per file
-            # Format: MMDDYY_WRNUMBER (e.g., "081725_89708709")
-            key = f"{week_end_for_key}_{wr_key}"
+            # VARIANT-AWARE GROUPING: Build keys based on RES_GROUPING_MODE and row type
+            keys_to_add = []
             
-            # Add the current foreman and calculated week ending date to the row data
-            r['__current_foreman'] = current_foreman
-            r['__week_ending_date'] = week_ending_date
-            r['__grouping_key'] = key  # Add for validation
-            groups[key].append(r)
+            # Primary variant (standard WR-based grouping) - ALWAYS created for all rows
+            if RES_GROUPING_MODE in ('primary', 'helper', 'both'):
+                primary_key = f"{week_end_for_key}_{wr_key}"
+                keys_to_add.append(('primary', primary_key, None))
             
-            if TEST_MODE:
-                logging.debug(f"Added to group '{key}': {len(groups[key])} rows")
+            # Helper variant - created ADDITIONALLY when helper criteria are met
+            # Helper rows must have: helper foreman name, helper dept, and helper job
+            if is_helper_row and helper_foreman:
+                helper_dept = r.get('__helper_dept', '')
+                helper_job = r.get('__helper_job', '')
+                
+                # Require helper dept and job for helper Excel generation
+                if helper_dept and helper_job:
+                    if RES_GROUPING_MODE in ('helper', 'both'):
+                        helper_sanitized = re.sub(r'[^\w\-]', '_', helper_foreman)[:50]
+                        helper_key = f"{week_end_for_key}_{wr_key}_HELPER_{helper_sanitized}"
+                        keys_to_add.append(('helper', helper_key, helper_foreman))
+                        # HELPER GROUP LOGGING: Always log when helper group is created
+                        logging.info(f"🔧 HELPER GROUP CREATED: WR={wr_key}, Week={week_end_for_key}, Helper={helper_foreman}, Dept={helper_dept}, Job={helper_job}")
+                    else:
+                        logging.info(f"ℹ️ Helper row found but RES_GROUPING_MODE={RES_GROUPING_MODE} - helper group not created")
+                else:
+                    logging.warning(f"⚠️ Helper row for WR {wr_key} missing required fields - Dept: '{helper_dept}', Job: '{helper_job}' - skipping helper Excel generation")
+            
+            # Add row to all applicable groups
+            for variant, key, current_foreman in keys_to_add:
+                # Add calculated values to row data
+                r_copy = r.copy()
+                r_copy['__variant'] = variant
+                r_copy['__current_foreman'] = current_foreman or effective_user
+                r_copy['__week_ending_date'] = week_ending_date
+                r_copy['__grouping_key'] = key
+                groups[key].append(r_copy)
+                
+                if TEST_MODE:
+                    logging.debug(f"Added to {variant} group '{key}': {len(groups[key])} rows")
                 
         except (parser.ParserError, TypeError) as e:
             logging.warning(f"Could not parse Weekly Reference Logged Date '{log_date_str}' for WR# {wr_key}. Skipping row. Error: {e}")
@@ -1061,11 +1313,35 @@ def group_source_rows(rows):
     else:
         logging.info(f"✅ Grouping validation passed: {len(groups)} groups, each with exactly 1 work request")
     
-    # Optional filtering by WR_FILTER
+    # HELPER GROUP SUMMARY LOGGING
+    helper_groups = [k for k in groups.keys() if '_HELPER_' in k]
+    primary_groups = [k for k in groups.keys() if '_HELPER_' not in k]
+    if helper_groups:
+        logging.info(f"🔧 HELPER GROUP SUMMARY: Created {len(helper_groups)} helper groups out of {len(groups)} total groups")
+        logging.info(f"   Primary groups: {len(primary_groups)}")
+        logging.info(f"   Helper groups: {len(helper_groups)}")
+        # Log sample helper groups
+        for helper_key in helper_groups[:5]:
+            row_count = len(groups[helper_key])
+            logging.info(f"   Helper group '{helper_key}': {row_count} rows")
+    else:
+        logging.warning(f"⚠️ HELPER GROUP SUMMARY: No helper groups created out of {len(groups)} total groups - check RES_GROUPING_MODE and helper row detection")
+    
+    # Optional filtering by WR_FILTER (retain both primary and helper variants)
     if WR_FILTER and TEST_MODE:
         before = len(groups)
-        groups = {k:v for k,v in groups.items() if any(k.endswith(f"_{wr}") for wr in WR_FILTER)}
-        logging.info(f"🔎 WR_FILTER applied: {len(groups)}/{before} groups retained ({','.join(WR_FILTER)})")
+        def _key_matches_wr(k: str, wr: str) -> bool:
+            # k format examples:
+            #   MMDDYY_WR
+            #   MMDDYY_WR_HELPER_<name>
+            try:
+                suffix = k.split('_', 1)[1]  # take everything after first underscore (WR...)
+            except Exception:
+                return False
+            return suffix == wr or suffix.startswith(f"{wr}_HELPER_")
+
+        groups = {k: v for k, v in groups.items() if any(_key_matches_wr(k, wr) for wr in WR_FILTER)}
+        logging.info(f"🔎 WR_FILTER applied (primary + helper): {len(groups)}/{before} groups retained ({','.join(WR_FILTER)})")
     return groups
 
 def validate_group_totals(groups):
@@ -1122,9 +1398,21 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         week_end_display = week_ending_date.strftime('%m/%d/%y')
         # Update the raw format to match the calculated date
         week_end_raw = week_ending_date.strftime('%m%d%y')
+        # Create subfolder for this week-ending date (YYYY-MM-DD format)
+        week_folder_name = week_ending_date.strftime('%Y-%m-%d')
     else:
         # Fallback to the original format
         week_end_display = f"{week_end_raw[:2]}/{week_end_raw[2:4]}/{week_end_raw[4:]}"
+        # Parse week_end_raw (MMDDYY) to create folder name
+        try:
+            fallback_date = datetime.datetime.strptime(week_end_raw, '%m%d%y')
+            week_folder_name = fallback_date.strftime('%Y-%m-%d')
+        except ValueError:
+            week_folder_name = "unknown_week"
+    
+    # Create week-specific subfolder under OUTPUT_FOLDER
+    week_output_folder = os.path.join(OUTPUT_FOLDER, week_folder_name)
+    os.makedirs(week_output_folder, exist_ok=True)
     
     # Prefer 'Scope #' then fallback to 'Scope ID'
     scope_id = first_row.get('Scope #') or first_row.get('Scope ID', '')
@@ -1132,12 +1420,27 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     
     # Use individual work request number for filename with timestamp for uniqueness
     timestamp = datetime.datetime.now().strftime('%H%M%S')
+    
+    # Variant-aware filename construction
+    variant = first_row.get('__variant', 'primary')
+    variant_suffix = ""
+    
+    if variant == 'helper':
+        # Helper variant: include helper identifier in filename
+        helper_foreman = first_row.get('__helper_foreman', '')
+        if helper_foreman:
+            helper_sanitized = re.sub(r'[^\w\-]', '_', helper_foreman)[:50]
+            variant_suffix = f"_Helper_{helper_sanitized}"
+    elif variant == 'primary':
+        # Primary variant (no suffix needed)
+        variant_suffix = ''
+    
     if data_hash:
         # Use full 16-character hash (calculate_data_hash already truncates to 16)
-        output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}_{timestamp}_{data_hash}.xlsx"
+        output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}_{timestamp}{variant_suffix}_{data_hash}.xlsx"
     else:
-        output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}_{timestamp}.xlsx"
-    final_output_path = os.path.join(OUTPUT_FOLDER, output_filename)
+        output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}_{timestamp}{variant_suffix}.xlsx"
+    final_output_path = os.path.join(week_output_folder, output_filename)
 
     if TEST_MODE:
         print(f"\n🧪 TEST MODE: Generating Excel file '{output_filename}'")
@@ -1195,7 +1498,8 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         ws[f'A{current_row}'].font = TITLE_FONT
         current_row += 3
 
-    ws.merge_cells(f'D{current_row-2}:I{current_row}')
+    # CRITICAL FIX: Merge cells FIRST, then assign values
+    ws.merge_cells(f'D{current_row-2}:I{current_row-2}')
     ws[f'D{current_row-2}'] = 'WEEKLY UNITS COMPLETED PER SCOPE ID'
     ws[f'D{current_row-2}'].font = SUBTITLE_FONT
     ws[f'D{current_row-2}'].alignment = Alignment(horizontal='center', vertical='center')
@@ -1248,20 +1552,45 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     ws[f'F{current_row}'].fill = RED_FILL
     ws[f'F{current_row}'].alignment = Alignment(horizontal='center')
 
+    # Determine display values based on variant
+    variant = first_row.get('__variant', 'primary')
+    
+    if variant == 'helper':
+        # Helper variant: show helper foreman and helper-specific dept/job (REQUIRED)
+        display_foreman = first_row.get('__helper_foreman', 'Unknown Helper')
+        display_dept = first_row.get('__helper_dept', '')
+        display_job = first_row.get('__helper_job', '')
+    else:
+        # Primary variant: show primary foreman with standard dept/job from row data
+        display_foreman = current_foreman
+        display_dept = first_row.get('Dept #', '')
+        display_job = job_number
+
     details = [
-        ("Foreman:", current_foreman),
+        ("Foreman:", display_foreman),
         ("Work Request #:", wr_num),
         ("Scope ID #:", scope_id),
         ("Work Order #:", first_row.get('Work Order #', '')),
         ("Customer:", first_row.get('Customer Name', '')),
-        ("Job #:", job_number)
+        ("Job #:", display_job)
     ]
-    # Deterministic merges: labels in F, values merged G:I
+    
+    # Add Dept # to details if it exists
+    if display_dept:
+        details.insert(1, ("Dept #:", display_dept))
+    
+    # CRITICAL FIX: Merge cells FIRST, then assign value to top-left cell
     for i, (label, value) in enumerate(details):
         r = current_row + 1 + i
         ws[f'F{r}'] = label
         ws[f'F{r}'].font = SUMMARY_LABEL_FONT
-        ws.merge_cells(f'G{r}:I{r}')
+        
+        # Merge cells first - check for duplicates
+        detail_merge_range = f'G{r}:I{r}'
+        if detail_merge_range not in [str(merged) for merged in ws.merged_cells.ranges]:
+            ws.merge_cells(detail_merge_range)
+        
+        # Now assign value to the merged cell (top-left cell G)
         vcell = ws[f'G{r}']
         vcell.value = value
         vcell.font = SUMMARY_VALUE_FONT
@@ -1269,15 +1598,18 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
 
     def write_day_block(start_row, day_name, date_obj, day_rows):
         """FIXED: Write daily data blocks with proper cell handling."""
-        # Assign value BEFORE merging cells
+        # CRITICAL FIX: Merge cells FIRST, then assign value to top-left cell
+        # Use safe merge to prevent duplicate ranges
+        merge_range = f'A{start_row}:H{start_row}'
+        if merge_range not in [str(merged) for merged in ws.merged_cells.ranges]:
+            ws.merge_cells(merge_range)
+        
+        # Now assign value to the merged cell (top-left cell A1)
         day_header_cell = ws.cell(row=start_row, column=1)
         day_header_cell.value = f"{day_name} ({date_obj.strftime('%m/%d/%Y')})"  # type: ignore
         day_header_cell.font = BLOCK_HEADER_FONT
         day_header_cell.fill = RED_FILL
         day_header_cell.alignment = Alignment(horizontal='left', vertical='center')
-        
-        # Now merge the cells
-        ws.merge_cells(start_row=start_row, start_column=1, end_row=start_row, end_column=8)
         
         headers = ["Point Number", "Billable Unit Code", "Work Type", "Unit Description", "Unit of Measure", "# Units", "N/A", "Pricing"]
         for col_num, header in enumerate(headers, 1):
@@ -1326,15 +1658,18 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
 
         total_row = start_row + 2 + len(day_rows)
         
-        # Assign value BEFORE merging cells
+        # CRITICAL FIX: Merge cells FIRST, then assign value to top-left cell
+        # Use safe merge to prevent duplicate ranges
+        total_merge_range = f'A{total_row}:G{total_row}'
+        if total_merge_range not in [str(merged) for merged in ws.merged_cells.ranges]:
+            ws.merge_cells(total_merge_range)
+        
+        # Now assign value to the merged cell
         total_label_cell = ws.cell(row=total_row, column=1)
         total_label_cell.value = "TOTAL"  # type: ignore
         total_label_cell.font = TABLE_HEADER_FONT
         total_label_cell.alignment = Alignment(horizontal='right')
         total_label_cell.fill = RED_FILL
-        
-        # Now merge the cells
-        ws.merge_cells(start_row=total_row, start_column=1, end_row=total_row, end_column=7)
 
         total_value_cell = ws.cell(row=total_row, column=8)
         total_value_cell.value = total_price_day  # type: ignore
@@ -1455,6 +1790,8 @@ def create_target_sheet_map(client):
     except Exception as e:
         logging.error(f"Failed to create target sheet map: {e}")
         return {}
+
+# Modified By cache loading removed - using direct column assignment only
 
 # --- MAIN EXECUTION ---
 
@@ -1603,7 +1940,18 @@ def main():
                 data_hash = calculate_data_hash(group_rows)
                 wr_num = group_rows[0].get('Work Request #')
                 week_raw = group_key.split('_',1)[0] if '_' in group_key else ''
-                history_key = f"{wr_num}|{week_raw}"
+                
+                # Extract variant and identifier for variant-aware hash history
+                first_row = group_rows[0] if group_rows else {}
+                variant = first_row.get('__variant', 'primary')
+                if variant == 'helper':
+                    identifier = first_row.get('__helper_foreman', '')
+                else:
+                    user_val = first_row.get('User')
+                    identifier = re.sub(r'[^\w\-@.]', '_', user_val)[:50] if user_val else ''
+                
+                # History key includes variant dimension to prevent collisions
+                history_key = f"{wr_num}|{week_raw}|{variant}|{identifier}"
 
                 # Decide skip based on stored history BEFORE generating Excel (only if FORCE not set)
                 if HISTORY_SKIP_ENABLED and not (FORCE_GENERATION or week_raw in REGEN_WEEKS or RESET_HASH_HISTORY or RESET_WR_LIST):
@@ -1619,14 +1967,14 @@ def main():
                             if target_row is None:
                                 can_skip = False  # Can't verify; safer to regenerate
                             else:
-                                has_attachment = _has_existing_week_attachment(client, TARGET_SHEET_ID, target_row, str(wr_num), week_raw)
+                                has_attachment = _has_existing_week_attachment(client, TARGET_SHEET_ID, target_row, str(wr_num), week_raw, variant, identifier)
                                 if not has_attachment:
                                     can_skip = False
                         if can_skip:
-                            logging.info(f"⏩ Skip (unchanged + attachment exists) WR {wr_num} week {week_raw} hash {data_hash}")
+                            logging.info(f"⏩ Skip (unchanged + attachment exists) {variant} WR {wr_num} week {week_raw} hash {data_hash}")
                             continue
                         else:
-                            logging.info(f"🔁 Regenerating WR {wr_num} week {week_raw} despite unchanged hash (attachment missing or verification failed)")
+                            logging.info(f"🔁 Regenerating {variant} WR {wr_num} week {week_raw} despite unchanged hash (attachment missing or verification failed)")
                 
                 # Generate Excel file with complete fixes
                 excel_path, filename, wr_numbers = generate_excel(
@@ -1642,7 +1990,20 @@ def main():
                     if wr_num in target_map:
                         target_row = target_map[wr_num]
                         
-                        # FIXED: Delete old attachments with proper implementation
+                        # Extract variant and identifier from group_rows (set by group_source_rows)
+                        first_row = group_rows[0] if group_rows else {}
+                        variant = first_row.get('__variant', 'primary')
+                        
+                        # Extract identifier based on variant
+                        if variant == 'helper':
+                            # For helper, identifier is already sanitized in __helper_foreman during grouping
+                            identifier = first_row.get('__helper_foreman')
+                        else:
+                            # Primary variant: check if user-specific
+                            user_val = first_row.get('User')
+                            identifier = re.sub(r'[^\w\-@.]', '_', user_val)[:50] if user_val else None
+                        
+                        # FIXED: Delete old attachments with proper variant-aware implementation
                         # Determine if this group/week is force-regenerated
                         try:
                             week_raw, _wr_tmp = group_key.split('_',1)
@@ -1651,7 +2012,8 @@ def main():
                         force_this = FORCE_GENERATION or (week_raw in REGEN_WEEKS)
                         # Week component for week-specific deletion (allow multiple weeks per WR)
                         deleted_count, skipped = delete_old_excel_attachments(
-                            client, TARGET_SHEET_ID, target_row, wr_num, week_raw, data_hash, force_generation=force_this
+                            client, TARGET_SHEET_ID, target_row, wr_num, week_raw, data_hash, 
+                            variant=variant, identifier=identifier, force_generation=force_this
                         )
                         if force_this and skipped:
                             # Should not happen because we bypass skip when forced, but guard anyway
@@ -1660,27 +2022,33 @@ def main():
                             logging.info(f"🔁 Forced regeneration applied (FORCE_GENERATION={FORCE_GENERATION}, week_in_REGEN_WEEKS={week_raw in REGEN_WEEKS}) for group {group_key}")
                         
                         if not skipped:
-                            # Upload new file
-                            try:
-                                with open(excel_path, 'rb') as file:
-                                    client.Attachments.attach_file_to_row(
-                                        TARGET_SHEET_ID, 
-                                        target_row.id, 
-                                        (filename, file, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-                                    )
-                                logging.info(f"✅ Uploaded: {filename}")
-                            except Exception as e:
-                                logging.error(f"❌ Upload failed for {filename}: {e}")
+                            # Upload new file to Smartsheet (skip if SKIP_UPLOAD=true for local testing)
+                            if not SKIP_UPLOAD:
+                                try:
+                                    with open(excel_path, 'rb') as file:
+                                        client.Attachments.attach_file_to_row(
+                                            TARGET_SHEET_ID, 
+                                            target_row.id, 
+                                            (filename, file, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                                        )
+                                    logging.info(f"✅ Uploaded: {filename}")
+                                except Exception as e:
+                                    logging.error(f"❌ Upload failed for {filename}: {e}")
+                            else:
+                                logging.info(f"⏭️  Skipping upload (SKIP_UPLOAD=true): {filename}")
+                                logging.info(f"📁 File saved locally at: {excel_path}")
                     else:
                         logging.warning(f"⚠️ Work request {wr_num} not found in target sheet")
 
-                # Update hash history (even in TEST_MODE so future prod runs can leverage)
+                # Update hash history with variant-aware key (even in TEST_MODE so future prod runs can leverage)
                 hash_history[history_key] = {
                     'hash': data_hash,
                     'rows': len(group_rows),
                     'updated_at': datetime.datetime.utcnow().isoformat() + 'Z',
                     'foreman': group_rows[0].get('__current_foreman'),
                     'week': week_raw,
+                    'variant': variant,
+                    'identifier': identifier,
                 }
                 history_updates += 1
                 
@@ -1704,18 +2072,25 @@ def main():
         logging.info(f"   • Duration: {session_duration}")
         logging.info(f"   • Mode: {'TEST' if TEST_MODE else 'PRODUCTION'}")
 
-        # Build identity set for sheet pruning: (wr, week)
+        # Build identity set for sheet pruning: (wr, week, variant, identifier) 4-tuples
         valid_wr_weeks = set()
         for fname in generated_filenames:
             ident = build_group_identity(fname)
             if ident:
-                valid_wr_weeks.add(ident)
-        # Also include any WR/week combos we skipped due to identical hash (so we don't delete their existing attachment)
+                valid_wr_weeks.add(ident)  # Already returns 4-tuple
+        # Also include any WR/week/variant/identifier combos we skipped due to identical hash (so we don't delete their existing attachment)
         # Already implicit because skipped groups did not regenerate; we can add from groups processed via grouping keys
-        for key in groups.keys():
+        for key, group_rows in groups.items():
             if '_' in key:
-                week_raw, wr = key.split('_',1)
-                valid_wr_weeks.add((wr, week_raw))
+                week_raw = key.split('_',1)[0]
+                wr = group_rows[0].get('Work Request #')
+                variant = group_rows[0].get('__variant', 'primary')
+                if variant == 'helper':
+                    identifier = group_rows[0].get('__helper_foreman', '')
+                else:
+                    user_val = group_rows[0].get('User')
+                    identifier = re.sub(r'[^\w\-@.]', '_', user_val)[:50] if user_val else ''
+                valid_wr_weeks.add((wr, week_raw, variant, identifier))
         if not TEST_MODE:
             cleanup_untracked_sheet_attachments(client, TARGET_SHEET_ID, valid_wr_weeks, TEST_MODE)
 
