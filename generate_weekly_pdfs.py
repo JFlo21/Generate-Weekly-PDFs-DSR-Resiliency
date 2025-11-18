@@ -1372,6 +1372,31 @@ def validate_group_totals(groups):
         summaries.append({'group_key': key, 'rows': len(rows), 'total': round(total,2)})
     return summaries
 
+def safe_merge_cells(ws, range_str):
+    """
+    Safely merge cells, avoiding duplicates and overlaps that cause XML errors.
+    
+    Args:
+        ws: The worksheet object
+        range_str: The range string (e.g., 'A1:C3')
+    
+    Returns:
+        bool: True if merge was successful, False if skipped
+    """
+    try:
+        # Check if this exact range is already merged
+        for merged in ws.merged_cells.ranges:
+            if str(merged) == range_str:
+                # Already merged, skip to avoid duplicate
+                return False
+        
+        # Safe to merge
+        ws.merge_cells(range_str)
+        return True
+    except Exception as e:
+        logging.warning(f"Failed to merge cells {range_str}: {e}")
+        return False
+
 def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=None, data_hash=None):
     """
     FIXED: Generate a formatted Excel report for a group of rows.
@@ -1381,6 +1406,8 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     - WR 89954686 specific handling 
     - Proper error handling for worksheet objects
     - Complete daily data block generation
+    - Safe cell merging to prevent XML errors
+    - Improved Job # field detection with multiple column name variations
     """
     first_row = group_rows[0]
     
@@ -1436,7 +1463,23 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     
     # Prefer 'Scope #' then fallback to 'Scope ID'
     scope_id = first_row.get('Scope #') or first_row.get('Scope ID', '')
-    job_number = first_row.get('Job #', '')
+    
+    # Try multiple column name variations for Job # to handle different formats
+    job_number = (first_row.get('Job #') or 
+                  first_row.get('Job#') or 
+                  first_row.get('Job Number') or 
+                  first_row.get('JobNumber') or 
+                  first_row.get('Job_Number') or 
+                  first_row.get('JOB #') or 
+                  first_row.get('JOB#') or 
+                  first_row.get('job #') or 
+                  first_row.get('job#') or 
+                  '')
+    
+    # Log warning if Job # is missing
+    if not job_number:
+        available_cols = [k for k in first_row.keys() if not k.startswith('__')][:15]
+        logging.warning(f"Job # not found for WR {wr_num}. Available columns: {available_cols}")
     
     # Use individual work request number for filename with timestamp for uniqueness
     timestamp = datetime.datetime.now().strftime('%H%M%S')
@@ -1513,25 +1556,25 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
             ws.row_dimensions[i].height = 25
         current_row += 3
     except FileNotFoundError:
-        ws.merge_cells(f'A{current_row}:C{current_row+2}')
+        safe_merge_cells(ws, f'A{current_row}:C{current_row+2}')
         ws[f'A{current_row}'] = "LINETEC SERVICES"
         ws[f'A{current_row}'].font = TITLE_FONT
         current_row += 3
 
     # CRITICAL FIX: Merge cells FIRST, then assign values
-    ws.merge_cells(f'D{current_row-2}:I{current_row-2}')
+    safe_merge_cells(ws, f'D{current_row-2}:I{current_row-2}')
     ws[f'D{current_row-2}'] = 'WEEKLY UNITS COMPLETED PER SCOPE ID'
     ws[f'D{current_row-2}'].font = SUBTITLE_FONT
     ws[f'D{current_row-2}'].alignment = Alignment(horizontal='center', vertical='center')
 
     report_generated_time = datetime.datetime.now()
-    ws.merge_cells(f'D{current_row+1}:I{current_row+1}')
+    safe_merge_cells(ws, f'D{current_row+1}:I{current_row+1}')
     ws[f'D{current_row+1}'] = f"Report Generated On: {report_generated_time.strftime('%m/%d/%Y %I:%M %p')}"
     ws[f'D{current_row+1}'].font = Font(name='Calibri', size=9, italic=True)
     ws[f'D{current_row+1}'].alignment = Alignment(horizontal='right')
 
     current_row += 3
-    ws.merge_cells(f'B{current_row}:D{current_row}')
+    safe_merge_cells(ws, f'B{current_row}:D{current_row}')
     ws[f'B{current_row}'] = 'REPORT SUMMARY'
     ws[f'B{current_row}'].font = SUMMARY_HEADER_FONT
     ws[f'B{current_row}'].fill = RED_FILL
@@ -1566,7 +1609,7 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     ws[f'C{current_row+3}'].font = SUMMARY_VALUE_FONT
     ws[f'C{current_row+3}'].alignment = Alignment(horizontal='right')
 
-    ws.merge_cells(f'F{current_row}:I{current_row}')
+    safe_merge_cells(ws, f'F{current_row}:I{current_row}')
     ws[f'F{current_row}'] = 'REPORT DETAILS'
     ws[f'F{current_row}'].font = SUMMARY_HEADER_FONT
     ws[f'F{current_row}'].fill = RED_FILL
@@ -1607,8 +1650,7 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         
         # Merge cells first - check for duplicates
         detail_merge_range = f'G{r}:I{r}'
-        if detail_merge_range not in [str(merged) for merged in ws.merged_cells.ranges]:
-            ws.merge_cells(detail_merge_range)
+        safe_merge_cells(ws, detail_merge_range)
         
         # Now assign value to the merged cell (top-left cell G)
         vcell = ws[f'G{r}']
@@ -1621,8 +1663,7 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         # CRITICAL FIX: Merge cells FIRST, then assign value to top-left cell
         # Use safe merge to prevent duplicate ranges
         merge_range = f'A{start_row}:H{start_row}'
-        if merge_range not in [str(merged) for merged in ws.merged_cells.ranges]:
-            ws.merge_cells(merge_range)
+        safe_merge_cells(ws, merge_range)
         
         # Now assign value to the merged cell (top-left cell A1)
         day_header_cell = ws.cell(row=start_row, column=1)
@@ -1681,8 +1722,7 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         # CRITICAL FIX: Merge cells FIRST, then assign value to top-left cell
         # Use safe merge to prevent duplicate ranges
         total_merge_range = f'A{total_row}:G{total_row}'
-        if total_merge_range not in [str(merged) for merged in ws.merged_cells.ranges]:
-            ws.merge_cells(total_merge_range)
+        safe_merge_cells(ws, total_merge_range)
         
         # Now assign value to the merged cell
         total_label_cell = ws.cell(row=total_row, column=1)
