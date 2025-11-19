@@ -23,6 +23,10 @@ This is a Python-based automated billing system that generates weekly Excel repo
     - Fixed Job # field not being populated - now checks multiple column name variations (Job #, Job#, Job Number, etc.)
     - Prevents duplicate cell merges that were causing Excel file corruption
     - All merge operations now use safe_merge_cells to avoid XML errors when opening Excel files
+  - Fixed helper file update issues:
+    - Hash history now uses helper-specific keys (WR|week|variant|foreman|dept|job) instead of just (WR|week|variant|foreman)
+    - This ensures helper Excel files regenerate when new rows are added for past week ending dates
+    - Helper files will now properly update with new data instead of being skipped due to hash matching
 
 ## Project Architecture
 

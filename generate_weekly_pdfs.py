@@ -2005,7 +2005,12 @@ def main():
                 first_row = group_rows[0] if group_rows else {}
                 variant = first_row.get('__variant', 'primary')
                 if variant == 'helper':
-                    identifier = first_row.get('__helper_foreman', '')
+                    # CRITICAL FIX: Include helper dept and job in identifier for unique hash keys
+                    # This ensures helper files regenerate when new helper rows are added
+                    helper_foreman = first_row.get('__helper_foreman', '')
+                    helper_dept = first_row.get('__helper_dept', '')
+                    helper_job = first_row.get('__helper_job', '')
+                    identifier = f"{helper_foreman}|{helper_dept}|{helper_job}"
                 else:
                     user_val = first_row.get('User')
                     identifier = re.sub(r'[^\w\-@.]', '_', user_val)[:50] if user_val else ''
@@ -2056,8 +2061,11 @@ def main():
                         
                         # Extract identifier based on variant
                         if variant == 'helper':
-                            # For helper, identifier is already sanitized in __helper_foreman during grouping
-                            identifier = first_row.get('__helper_foreman')
+                            # CRITICAL FIX: Include helper dept and job in identifier (matches hash history key)
+                            helper_foreman = first_row.get('__helper_foreman', '')
+                            helper_dept = first_row.get('__helper_dept', '')
+                            helper_job = first_row.get('__helper_job', '')
+                            identifier = f"{helper_foreman}|{helper_dept}|{helper_job}"
                         else:
                             # Primary variant: check if user-specific
                             user_val = first_row.get('User')
@@ -2146,7 +2154,11 @@ def main():
                 wr = group_rows[0].get('Work Request #')
                 variant = group_rows[0].get('__variant', 'primary')
                 if variant == 'helper':
-                    identifier = group_rows[0].get('__helper_foreman', '')
+                    # CRITICAL FIX: Include helper dept and job in identifier (matches hash history key)
+                    helper_foreman = group_rows[0].get('__helper_foreman', '')
+                    helper_dept = group_rows[0].get('__helper_dept', '')
+                    helper_job = group_rows[0].get('__helper_job', '')
+                    identifier = f"{helper_foreman}|{helper_dept}|{helper_job}"
                 else:
                     user_val = group_rows[0].get('User')
                     identifier = re.sub(r'[^\w\-@.]', '_', user_val)[:50] if user_val else ''
