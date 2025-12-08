@@ -1,0 +1,203 @@
+name: Code Analysis Agent
+
+permissions:
+  contents: read
+
+on:
+  # Run analysis on push to main branches
+  push:
+    branches: [main, master]
+    paths:
+      - '**.py'
+  
+  # Run on pull requests to catch issues before merge
+  pull_request:
+    branches: [main, master]
+    paths:
+      - '**.py'
+  
+  # Scheduled runs - every 6 hours during business hours (CST)
+  schedule:
+    # 8 AM, 2 PM, 8 PM CST (13, 19, 01 UTC)
+    - cron: '0 13,19,1 * * *'
+  
+  # Manual trigger with options
+  workflow_dispatch:
+    inputs:
+      min_severity:
+        description: 'Minimum severity level to report'
+        required: false
+        default: 'warning'
+        type: choice
+        options:
+          - 'info'
+          - 'warning'
+          - 'error'
+      send_email:
+        description: 'Send email notification'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      email_always:
+        description: 'Send email even if no issues found'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      directory:
+        description: 'Directory to analyze (default: repository root)'
+        required: false
+        default: '.'
+        type: string
+
+env:
+  TZ: America/Chicago
+  PYTHONUNBUFFERED: 1
+
+jobs:
+  analyze:
+    name: Analyze Code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-analyzer-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-analyzer-
+            ${{ runner.os }}-pip-
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install python-dotenv
+          # Install any additional dependencies from requirements.txt if they exist
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+      
+      - name: Create output directory
+        run: mkdir -p generated_docs/code_analysis
+      
+      - name: Run Code Analysis
+        id: analysis
+        env:
+          ANALYZER_MIN_SEVERITY: ${{ github.event.inputs.min_severity || 'warning' }}
+          ANALYZER_EMAIL_ALWAYS: ${{ github.event.inputs.email_always || 'false' }}
+          ANALYZER_INCLUDE_SUGGESTIONS: 'true'
+          ANALYZER_REPORT_DIR: 'generated_docs/code_analysis'
+          # SMTP credentials from secrets (optional)
+          ANALYZER_SMTP_SERVER: ${{ secrets.ANALYZER_SMTP_SERVER }}
+          ANALYZER_SMTP_PORT: ${{ secrets.ANALYZER_SMTP_PORT }}
+          ANALYZER_SMTP_USERNAME: ${{ secrets.ANALYZER_SMTP_USERNAME }}
+          ANALYZER_SMTP_PASSWORD: ${{ secrets.ANALYZER_SMTP_PASSWORD }}
+          ANALYZER_SENDER_EMAIL: ${{ secrets.ANALYZER_SENDER_EMAIL }}
+          ANALYZER_EMAIL_RECIPIENTS: ${{ secrets.ANALYZER_EMAIL_RECIPIENTS }}
+        run: |
+          echo "🔍 Starting Code Analysis..."
+          echo ""
+          
+          SEND_EMAIL="${{ github.event.inputs.send_email || 'true' }}"
+          DIRECTORY="${{ github.event.inputs.directory || '.' }}"
+          
+          # Build command with options
+          CMD="python code_analyzer_agent.py --directory $DIRECTORY --json"
+          
+          if [ "$SEND_EMAIL" = "false" ]; then
+            CMD="$CMD --no-email"
+          fi
+          
+          # Run analysis and capture output
+          set +e
+          ANALYSIS_OUTPUT=$($CMD 2>&1)
+          EXIT_CODE=$?
+          set -e
+          
+          echo "$ANALYSIS_OUTPUT"
+          
+          # Parse results for summary
+          TOTAL_ISSUES=$(echo "$ANALYSIS_OUTPUT" | grep -o '"total_issues": [0-9]*' | grep -o '[0-9]*' || echo "0")
+          ERRORS=$(echo "$ANALYSIS_OUTPUT" | grep -o '"errors": [0-9]*' | grep -o '[0-9]*' || echo "0")
+          WARNINGS=$(echo "$ANALYSIS_OUTPUT" | grep -o '"warnings": [0-9]*' | grep -o '[0-9]*' || echo "0")
+          FILES=$(echo "$ANALYSIS_OUTPUT" | grep -o '"total_files_analyzed": [0-9]*' | grep -o '[0-9]*' || echo "0")
+          
+          # Set outputs for summary
+          echo "total_issues=$TOTAL_ISSUES" >> $GITHUB_OUTPUT
+          echo "errors=$ERRORS" >> $GITHUB_OUTPUT
+          echo "warnings=$WARNINGS" >> $GITHUB_OUTPUT
+          echo "files_analyzed=$FILES" >> $GITHUB_OUTPUT
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+          
+          # Determine status
+          if [ "$ERRORS" -gt 0 ]; then
+            echo "status=❌ ERRORS FOUND" >> $GITHUB_OUTPUT
+          elif [ "$WARNINGS" -gt 0 ]; then
+            echo "status=⚠️ WARNINGS" >> $GITHUB_OUTPUT
+          else
+            echo "status=✅ PASS" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Upload Analysis Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: code-analysis-report-${{ github.run_number }}
+          path: generated_docs/code_analysis/
+          retention-days: 30
+          if-no-files-found: warn
+      
+      - name: Generate Summary
+        if: always()
+        run: |
+          echo "# 🔍 Code Analysis Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Status: ${{ steps.analysis.outputs.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Files Analyzed | ${{ steps.analysis.outputs.files_analyzed }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Total Issues | ${{ steps.analysis.outputs.total_issues }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Errors | ${{ steps.analysis.outputs.errors }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Warnings | ${{ steps.analysis.outputs.warnings }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **Severity Level**: ${{ github.event.inputs.min_severity || 'warning' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Directory**: ${{ github.event.inputs.directory || '.' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.analysis.outputs.errors }}" -gt 0 ]; then
+            echo "⚠️ **Action Required**: Critical errors were found. Please review and fix the issues." >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ steps.analysis.outputs.warnings }}" -gt 0 ]; then
+            echo "📋 **Recommended**: Review the warnings to improve code quality." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ **Great job!** No issues found in the analyzed code." >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📦 Download the detailed report from the **Artifacts** section below." >> $GITHUB_STEP_SUMMARY
+      
+      - name: Check for Errors
+        if: steps.analysis.outputs.errors > 0
+        run: |
+          echo "❌ Code analysis found ${{ steps.analysis.outputs.errors }} error(s)"
+          echo "Please review the analysis report and fix the issues."
+          # Note: We don't fail the workflow to allow notification to be sent
+          # but you can uncomment the next line to fail on errors
+          # exit 1

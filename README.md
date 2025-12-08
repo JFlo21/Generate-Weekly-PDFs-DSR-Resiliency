@@ -122,6 +122,70 @@ pytest tests/ --cov
 ✅ **Sentry integration** - Error monitoring and reporting  
 ✅ **Audit system** - Financial data validation  
 ✅ **Flexible grouping** - Multiple grouping modes supported  
+✅ **Code Analysis Agent** - Automated code error detection with email notifications
+
+## 🔍 Code Analysis Agent
+
+The Code Analyzer Agent automatically scans Python code for errors and issues, then sends email notifications with detailed reports and suggested fixes.
+
+### Features
+
+- **Syntax Error Detection** - Catches syntax errors before runtime
+- **Code Pattern Analysis** - Detects common anti-patterns (bare except, mutable defaults, etc.)
+- **Import Validation** - Identifies unused imports
+- **Complexity Analysis** - Flags overly complex functions (nesting depth, too many arguments)
+- **Email Notifications** - Sends formatted HTML/text emails with issues and fixes
+- **Scheduled Analysis** - Runs automatically via GitHub Actions
+
+### Quick Start
+
+```bash
+# Run analysis on current directory
+python code_analyzer_agent.py
+
+# Run without email (local testing)
+python code_analyzer_agent.py --no-email
+
+# Analyze specific directory
+python code_analyzer_agent.py --directory ./src
+
+# Only report errors (skip warnings)
+python code_analyzer_agent.py --min-severity error
+```
+
+### Configuration
+
+Edit `.env.analyzer-config` to configure:
+
+```ini
+# Email recipients (comma-separated)
+ANALYZER_EMAIL_RECIPIENTS=admin@company.com,dev@company.com
+
+# SMTP settings for email
+ANALYZER_SMTP_SERVER=smtp.gmail.com
+ANALYZER_SMTP_PORT=587
+ANALYZER_SMTP_USERNAME=your-email@gmail.com
+ANALYZER_SMTP_PASSWORD=your-app-password
+
+# Minimum severity level: 'info', 'warning', or 'error'
+ANALYZER_MIN_SEVERITY=warning
+```
+
+### GitHub Actions Integration
+
+The agent runs automatically via the `code-analysis-agent.yml` workflow:
+
+- **On Push/PR**: Analyzes changed Python files
+- **Scheduled**: Every 6 hours during business hours
+- **Manual**: Trigger via GitHub Actions UI
+
+### Report Output
+
+Reports are saved to `generated_docs/code_analysis/` in JSON format and include:
+- Summary statistics (files analyzed, issue counts)
+- Issues grouped by file and type
+- Code snippets showing context around issues
+- Suggested fixes for each issue
 
 ## 🛠️ Development
 
