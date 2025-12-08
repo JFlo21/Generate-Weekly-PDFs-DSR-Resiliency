@@ -129,6 +129,10 @@ LOGO_PATH = "LinetecServices_Logo.png"
 OUTPUT_FOLDER = "generated_docs"
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
+# Work Request Exemption List Configuration
+# Allow exempting specific Work Request #'s from Excel generation
+EXEMPTION_LIST_PATH = os.getenv('EXEMPTION_LIST_PATH', 'exemption_list.json')
+
 # Optional performance/test tuning via environment (must come AFTER OUTPUT_FOLDER defined)
 WR_FILTER = [w.strip() for w in os.getenv('WR_FILTER','').split(',') if w.strip()]
 MAX_GROUPS = int(os.getenv('MAX_GROUPS','0') or 0)
@@ -721,6 +725,72 @@ def save_hash_history(path: str, history: dict):
     except Exception as e:
         logging.warning(f"⚠️ Failed to save hash history: {e}")
 
+# --- EXEMPTION LIST MANAGEMENT ---
+
+def load_exemption_list(path: str):
+    """Load the list of Work Request numbers to exempt from Excel generation.
+    
+    Args:
+        path: Path to the exemption list JSON file
+        
+    Returns:
+        set: Set of Work Request numbers (as strings) to exempt from processing
+        
+    The exemption list file should be a JSON file with the following structure:
+    {
+        "exempted_work_requests": ["12345678", "87654321", ...]
+    }
+    
+    If the file doesn't exist or has errors, returns an empty set.
+    """
+    if not path:
+        return set()
+    
+    try:
+        # Check if file exists
+        if not os.path.exists(path):
+            logging.info(f"ℹ️ Exemption list file not found at '{path}' - no Work Requests will be exempted")
+            return set()
+        
+        # Load and parse JSON file
+        with open(path, 'r') as f:
+            data = json.load(f)
+        
+        # Extract exempted work requests
+        if not isinstance(data, dict):
+            logging.warning(f"⚠️ Exemption list file has invalid format (expected JSON object) - no Work Requests will be exempted")
+            return set()
+        
+        exempted = data.get('exempted_work_requests', [])
+        
+        if not isinstance(exempted, list):
+            logging.warning(f"⚠️ Exemption list 'exempted_work_requests' is not a list - no Work Requests will be exempted")
+            return set()
+        
+        # Convert all entries to strings and normalize (remove decimals, strip whitespace)
+        exempted_set = set()
+        for wr in exempted:
+            if wr:  # Skip empty values
+                # Convert to string and normalize (remove decimal points if present)
+                wr_str = str(wr).split('.')[0].strip()
+                if wr_str:
+                    exempted_set.add(wr_str)
+        
+        if exempted_set:
+            logging.info(f"📋 Loaded exemption list from '{path}': {len(exempted_set)} Work Request(s) will be exempted from Excel generation")
+            logging.info(f"   Exempted WRs: {sorted(list(exempted_set))}")
+        else:
+            logging.info(f"ℹ️ Exemption list is empty - no Work Requests will be exempted")
+        
+        return exempted_set
+        
+    except json.JSONDecodeError as e:
+        logging.warning(f"⚠️ Failed to parse exemption list file '{path}': {e} - no Work Requests will be exempted")
+        return set()
+    except Exception as e:
+        logging.warning(f"⚠️ Failed to load exemption list from '{path}': {e} - no Work Requests will be exempted")
+        return set()
+
 # --- DATA DISCOVERY AND PROCESSING ---
 
 def _title(t):
@@ -1183,7 +1253,7 @@ def get_all_source_rows(client, source_sheets):
 
     return merged_rows
 
-def group_source_rows(rows):
+def group_source_rows(rows, exemption_list=None):
     """
     VARIANT-AWARE GROUPING: Groups rows by Work Request #, Week Ending Date, and Variant (primary/helper).
     
@@ -1213,11 +1283,16 @@ def group_source_rows(rows):
     - Primary+User: WR_{work_request_number}_WeekEnding_{MMDDYY}_User_{user_sanitized}_{hash}.xlsx
     - Helper: WR_{work_request_number}_WeekEnding_{MMDDYY}_Helper_{helper_sanitized}_{hash}.xlsx
     
+    Args:
+        rows: List of row data dictionaries
+        exemption_list: Set of Work Request numbers (as strings) to exempt from Excel generation
+    
     This ensures:
     - Each Excel file contains ONLY one work request
     - Each work request can have multiple Excel files (one per week ending date and/or variant)
     - No mixing of work requests or variants in a single file
     - Clear, predictable file naming with variant identification
+    - Work Requests in exemption_list are excluded from processing
     """
     groups = collections.defaultdict(list)
     
@@ -1243,6 +1318,12 @@ def group_source_rows(rows):
             continue # Skip if any essential grouping information is missing
 
         wr_key = str(wr).split('.')[0]
+        
+        # Check if this Work Request is in the exemption list
+        if exemption_list and wr_key in exemption_list:
+            if TEST_MODE:
+                logging.debug(f"⛔ Exempting WR# {wr_key} from Excel generation (in exemption list)")
+            continue  # Skip this row - it's exempted
         
         try:
             # Parse the Weekly Reference Logged Date - this IS the week ending date
@@ -1347,6 +1428,23 @@ def group_source_rows(rows):
             logging.info(f"   Helper group '{helper_key}': {row_count} rows")
     else:
         logging.warning(f"⚠️ HELPER GROUP SUMMARY: No helper groups created out of {len(groups)} total groups - check RES_GROUPING_MODE and helper row detection")
+    
+    # EXEMPTION LIST SUMMARY LOGGING
+    if exemption_list:
+        # Count how many rows were exempted by checking all rows
+        exempted_wrs_found = set()
+        for r in rows:
+            wr = r.get('Work Request #')
+            if wr:
+                wr_key = str(wr).split('.')[0]
+                if wr_key in exemption_list:
+                    exempted_wrs_found.add(wr_key)
+        
+        if exempted_wrs_found:
+            logging.info(f"⛔ EXEMPTION SUMMARY: {len(exempted_wrs_found)} Work Request(s) exempted from Excel generation")
+            logging.info(f"   Exempted WRs: {sorted(list(exempted_wrs_found))}")
+        else:
+            logging.info(f"ℹ️ EXEMPTION SUMMARY: No rows matched exemption list (exemption list has {len(exemption_list)} WRs)")
     
     # Optional filtering by WR_FILTER (retain both primary and helper variants)
     if WR_FILTER and TEST_MODE:
@@ -1872,6 +1970,9 @@ def main():
 
         logging.info("🚀 Starting Weekly PDF Generator with Complete Fixes")
         
+        # Load exemption list for Work Requests to skip
+        exemption_list = load_exemption_list(EXEMPTION_LIST_PATH)
+        
         # Initialize Smartsheet client or fall back to synthetic data in TEST_MODE
         if not API_TOKEN:
             if TEST_MODE:
@@ -1912,7 +2013,7 @@ def main():
                 synthetic_rows = build_synthetic_rows()
                 logging.info(f"Synthetic rows prepared: {len(synthetic_rows)} raw rows")
                 # Apply normal grouping logic (filtering happens inside grouping)
-                groups = group_source_rows(synthetic_rows)
+                groups = group_source_rows(synthetic_rows, exemption_list)
                 logging.info(f"Synthetic grouping produced {len(groups)} group(s)")
                 snapshot_date = datetime.datetime.now()
                 for group_key, group_rows in groups.items():
@@ -1963,7 +2064,7 @@ def main():
 
     # Group rows by work request and week ending
         logging.info("📂 Grouping data...")
-        groups = group_source_rows(all_rows)
+        groups = group_source_rows(all_rows, exemption_list)
 
         # Optional full/partial hash reset purge BEFORE processing groups if requested
         if RESET_HASH_HISTORY or RESET_WR_LIST:

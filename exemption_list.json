@@ -1,0 +1,6 @@
+{
+  "_comment": "Work Request numbers to exempt from Excel generation",
+  "_instructions": "Add Work Request numbers (as strings) to the 'exempted_work_requests' array below.",
+  "_example": "To exempt WR 12345678, add \"12345678\" to the array",
+  "exempted_work_requests": []
+}
