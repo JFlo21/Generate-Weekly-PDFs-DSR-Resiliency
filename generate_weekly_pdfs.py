@@ -1321,8 +1321,8 @@ def group_source_rows(rows, exemption_list=None):
         
         # Check if this Work Request is in the exemption list
         if exemption_list and wr_key in exemption_list:
-            if TEST_MODE:
-                logging.debug(f"⛔ Exempting WR# {wr_key} from Excel generation (in exemption list)")
+            # Log at debug level to avoid spam, but available in all modes
+            logging.debug(f"⛔ Exempting WR# {wr_key} from Excel generation (in exemption list)")
             continue  # Skip this row - it's exempted
         
         try:
