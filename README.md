@@ -126,7 +126,7 @@ pytest tests/ --cov
 
 ## 🔍 Code Analysis Agent
 
-The Code Analyzer Agent automatically scans Python code for errors and issues, then sends email notifications with detailed reports and suggested fixes.
+The Code Analyzer Agent automatically scans Python code for errors and issues, then sends notifications with detailed reports and suggested fixes.
 
 ### Features
 
@@ -134,7 +134,8 @@ The Code Analyzer Agent automatically scans Python code for errors and issues, t
 - **Code Pattern Analysis** - Detects common anti-patterns (bare except, mutable defaults, etc.)
 - **Import Validation** - Identifies unused imports
 - **Complexity Analysis** - Flags overly complex functions (nesting depth, too many arguments)
-- **Email Notifications** - Sends formatted HTML/text emails with issues and fixes
+- **GitHub Notifications** - Automatic notifications via GitHub's workflow system (no setup required!)
+- **Optional Email Support** - Can send HTML/text emails if SMTP is configured
 - **Scheduled Analysis** - Runs automatically via GitHub Actions
 
 ### Quick Start
@@ -153,22 +154,38 @@ python code_analyzer_agent.py --directory ./src
 python code_analyzer_agent.py --min-severity error
 ```
 
-### Configuration
+### Receiving Notifications
 
-Edit `.env.analyzer-config` to configure:
+#### Option 1: GitHub Notifications (Recommended - No Setup Required!)
+
+The analyzer automatically writes detailed reports to GitHub Actions workflow summaries. To receive notifications:
+
+1. Go to the repository on GitHub
+2. Click **Watch** (bell icon) and select "All Activity" or "Custom" → "Workflows"
+3. You'll receive GitHub notifications when analysis finds issues
+
+#### Option 2: Email Notifications (Optional)
+
+If you prefer email notifications, configure SMTP in `.env.analyzer-config`:
 
 ```ini
-# Email recipients (comma-separated)
-ANALYZER_EMAIL_RECIPIENTS=admin@company.com,dev@company.com
-
-# SMTP settings for email
+ANALYZER_EMAIL_RECIPIENTS=your-email@company.com
 ANALYZER_SMTP_SERVER=smtp.gmail.com
 ANALYZER_SMTP_PORT=587
 ANALYZER_SMTP_USERNAME=your-email@gmail.com
 ANALYZER_SMTP_PASSWORD=your-app-password
+```
 
+### Configuration
+
+Edit `.env.analyzer-config` to configure analysis settings:
+
+```ini
 # Minimum severity level: 'info', 'warning', or 'error'
 ANALYZER_MIN_SEVERITY=warning
+
+# Include fix suggestions in reports
+ANALYZER_INCLUDE_SUGGESTIONS=true
 ```
 
 ### GitHub Actions Integration

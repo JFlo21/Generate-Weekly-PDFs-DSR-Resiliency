@@ -705,14 +705,81 @@ Total Issues: {summary['total_issues']}
         
         return text
     
+    def write_github_summary(self, report: Dict[str, Any]) -> bool:
+        """Write analysis report to GitHub Actions Step Summary.
+        
+        This provides notifications through GitHub's built-in notification system
+        when the workflow completes. Users watching the repository will receive
+        notifications about workflow runs automatically.
+        """
+        github_step_summary = os.getenv('GITHUB_STEP_SUMMARY')
+        if not github_step_summary:
+            logger.info("ℹ️ Not running in GitHub Actions - skipping GitHub summary")
+            return False
+        
+        summary = report["summary"]
+        status_emoji = "❌" if summary["errors"] > 0 else ("⚠️" if summary["warnings"] > 0 else "✅")
+        
+        try:
+            with open(github_step_summary, 'a') as f:
+                f.write(f"\n# {status_emoji} Code Analysis Report\n\n")
+                f.write(f"**Status**: {summary['status']}\n\n")
+                f.write("## Summary\n\n")
+                f.write("| Metric | Value |\n")
+                f.write("|--------|-------|\n")
+                f.write(f"| Files Analyzed | {summary['total_files_analyzed']} |\n")
+                f.write(f"| Total Issues | {summary['total_issues']} |\n")
+                f.write(f"| Errors | {summary['errors']} |\n")
+                f.write(f"| Warnings | {summary['warnings']} |\n")
+                f.write(f"| Info | {summary['info']} |\n\n")
+                
+                if report["issues_by_file"]:
+                    f.write("## Issues Found\n\n")
+                    
+                    for file_path, issues in report["issues_by_file"].items():
+                        f.write(f"### 📄 `{file_path}`\n\n")
+                        
+                        for issue in issues:
+                            severity_emoji = {'error': '❌', 'warning': '⚠️', 'info': 'ℹ️'}.get(issue['severity'], '•')
+                            f.write(f"**{severity_emoji} Line {issue['line_number']}**: {issue['issue_type'].replace('_', ' ').title()}\n\n")
+                            f.write(f"> {issue['message']}\n\n")
+                            
+                            if issue.get('code_snippet'):
+                                f.write("```python\n")
+                                f.write(issue['code_snippet'])
+                                f.write("\n```\n\n")
+                            
+                            if self.include_suggestions and issue.get('suggested_fix'):
+                                f.write(f"💡 **Suggested Fix**: {issue['suggested_fix']}\n\n")
+                        
+                        f.write("---\n\n")
+                else:
+                    f.write("✅ **No issues found!** Your code looks great!\n\n")
+                
+                f.write(f"\n*Generated: {report['analysis_timestamp']}*\n")
+            
+            logger.info("📋 GitHub Actions summary written successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to write GitHub summary: {e}")
+            return False
+    
     def send_email_notification(self, report: Dict[str, Any]) -> bool:
-        """Send email notification with analysis report."""
+        """Send email notification with analysis report.
+        
+        Note: This is an optional feature that requires SMTP configuration.
+        If not configured, use GitHub Actions notifications instead by watching
+        the repository for workflow run notifications.
+        """
         if not self.email_recipients:
-            logger.warning("⚠️ No email recipients configured. Skipping email notification.")
+            logger.info("ℹ️ No email recipients configured. Using GitHub Actions notifications instead.")
+            logger.info("   To receive notifications, watch this repository on GitHub.")
             return False
         
         if not self.smtp_username or not self.smtp_password:
-            logger.warning("⚠️ SMTP credentials not configured. Skipping email notification.")
+            logger.info("ℹ️ SMTP credentials not configured. Using GitHub Actions notifications instead.")
+            logger.info("   To receive notifications, watch this repository on GitHub.")
             return False
         
         summary = report["summary"]
@@ -765,6 +832,9 @@ Total Issues: {summary['total_issues']}
         
         # Save report
         self.save_report(report)
+        
+        # Write GitHub Actions summary (always, if running in GitHub Actions)
+        self.write_github_summary(report)
         
         # Send email if enabled and issues found (or always if configured)
         should_email = send_email and (
