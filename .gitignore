@@ -69,6 +69,8 @@ ai_models/
 
 # Generated artifacts & caches (kept out of VCS)
 generated_docs/*.xlsx
+generated_docs/*.csv
+generated_docs/*.json
 generated_docs/audit_state.json
 generated_docs/discovery_cache.json
 generated_docs/risk_trend.json
