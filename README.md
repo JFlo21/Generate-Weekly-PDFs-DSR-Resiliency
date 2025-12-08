@@ -78,7 +78,24 @@ pytest tests/
 - `SKIP_UPLOAD` - Skip Smartsheet uploads for local testing (default: false)
 - `SKIP_CELL_HISTORY` - Skip cell history for performance (default: false)
 - `RES_GROUPING_MODE` - Grouping mode: primary, helper, or both (default: both)
+- `EXEMPTION_LIST_PATH` - Path to exemption list JSON file (default: exemption_list.json)
 - `SENTRY_DSN` - Sentry.io DSN for error monitoring (optional)
+
+## 🚫 Work Request Exemption List
+
+You can prevent specific Work Requests from generating Excel files using the exemption list feature.
+
+**Quick Start:**
+1. Edit `exemption_list.json`
+2. Add Work Request numbers to exempt:
+   ```json
+   {
+     "exempted_work_requests": ["12345678", "87654321"]
+   }
+   ```
+3. Run the generator - exempted WRs will be skipped
+
+**Full Documentation:** See [EXEMPTION_LIST.md](EXEMPTION_LIST.md) for complete usage guide.
 
 ## 📁 Output
 
