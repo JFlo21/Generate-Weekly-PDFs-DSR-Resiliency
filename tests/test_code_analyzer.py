@@ -3,13 +3,10 @@ Tests for the Code Analyzer Agent.
 """
 
 import os
-import sys
 import tempfile
 import pytest
 
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
+# Import directly - pytest handles the path correctly when run from repo root
 from code_analyzer_agent import CodeAnalyzerAgent, CodeIssue
 
 

@@ -18,7 +18,7 @@ on:
   
   # Scheduled runs - every 6 hours during business hours (CST)
   schedule:
-    # 8 AM, 2 PM, 8 PM CST (13, 19, 01 UTC)
+    # 7 AM, 1 PM, 7 PM CST (13:00, 19:00, 01:00 UTC)
     - cron: '0 13,19,1 * * *'
   
   # Manual trigger with options

@@ -171,7 +171,9 @@ class CodeAnalyzerAgent:
     def _get_exclude_patterns(self) -> List[str]:
         """Get file patterns to exclude from analysis."""
         patterns_str = os.getenv('ANALYZER_EXCLUDE_PATTERNS', '')
-        default_patterns = ['__pycache__', '.git', 'venv', 'env', '.env', 'node_modules', 'tests/']
+        # Default excludes common non-production directories. Tests are included by default
+        # to catch issues in test code. Add 'tests/' to ANALYZER_EXCLUDE_PATTERNS to skip.
+        default_patterns = ['__pycache__', '.git', 'venv', 'env', '.env', 'node_modules']
         if not patterns_str:
             return default_patterns
         return default_patterns + [p.strip() for p in patterns_str.split(',') if p.strip()]
@@ -535,14 +537,24 @@ class CodeAnalyzerAgent:
         summary = report["summary"]
         status_color = "#28a745" if summary["status"] == "PASS" else "#dc3545"
         
+        # Brand color - Linetec red (configurable via environment)
+        brand_color = os.getenv('ANALYZER_BRAND_COLOR', '#C00000')
+        
         html = f"""
 <!DOCTYPE html>
 <html>
 <head>
     <style>
+        :root {{
+            --brand-color: {brand_color};
+            --success-color: #28a745;
+            --error-color: #dc3545;
+            --warning-color: #ffc107;
+            --info-color: #17a2b8;
+        }}
         body {{ font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }}
         .container {{ max-width: 900px; margin: 0 auto; background-color: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
-        .header {{ background-color: #C00000; color: white; padding: 20px; border-radius: 8px 8px 0 0; }}
+        .header {{ background-color: var(--brand-color); color: white; padding: 20px; border-radius: 8px 8px 0 0; }}
         .header h1 {{ margin: 0; font-size: 24px; }}
         .status {{ display: inline-block; padding: 5px 15px; border-radius: 4px; background-color: {status_color}; color: white; font-weight: bold; }}
         .summary {{ padding: 20px; border-bottom: 1px solid #eee; }}
@@ -550,14 +562,14 @@ class CodeAnalyzerAgent:
         .summary-item {{ background-color: #f8f9fa; padding: 15px; border-radius: 4px; text-align: center; }}
         .summary-item .number {{ font-size: 28px; font-weight: bold; color: #333; }}
         .summary-item .label {{ color: #666; font-size: 12px; text-transform: uppercase; }}
-        .error-count .number {{ color: #dc3545; }}
-        .warning-count .number {{ color: #ffc107; }}
-        .info-count .number {{ color: #17a2b8; }}
+        .error-count .number {{ color: var(--error-color); }}
+        .warning-count .number {{ color: var(--warning-color); }}
+        .info-count .number {{ color: var(--info-color); }}
         .issues {{ padding: 20px; }}
         .issue {{ background-color: #f8f9fa; border-left: 4px solid #ccc; margin: 10px 0; padding: 15px; border-radius: 0 4px 4px 0; }}
-        .issue.error {{ border-left-color: #dc3545; }}
-        .issue.warning {{ border-left-color: #ffc107; }}
-        .issue.info {{ border-left-color: #17a2b8; }}
+        .issue.error {{ border-left-color: var(--error-color); }}
+        .issue.warning {{ border-left-color: var(--warning-color); }}
+        .issue.info {{ border-left-color: var(--info-color); }}
         .issue-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }}
         .issue-type {{ font-weight: bold; color: #333; }}
         .issue-location {{ color: #666; font-size: 12px; }}
