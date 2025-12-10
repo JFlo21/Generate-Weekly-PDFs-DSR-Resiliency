@@ -91,13 +91,13 @@ def generate_manifest(docs_folder='generated_docs', output_file='artifact_manife
         print(f"⚠️ Folder {docs_folder} does not exist")
         return manifest
     
-    excel_files = [f for f in os.listdir(docs_folder) 
-                   if f.startswith('WR_') and f.endswith('.xlsx')]
+    excel_files = list(Path(docs_folder).rglob("WR_*.xlsx"))
     
     print(f"📊 Processing {len(excel_files)} Excel files...")
     
-    for filename in sorted(excel_files):
-        filepath = os.path.join(docs_folder, filename)
+    for file_path in sorted(excel_files):
+        filename = file_path.name
+        filepath = str(file_path)
         
         # Parse filename structure
         parsed = parse_excel_filename(filename)
