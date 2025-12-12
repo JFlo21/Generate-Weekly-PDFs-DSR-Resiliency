@@ -67,14 +67,19 @@ def get_file_metadata(filepath):
         print(f"⚠️ Could not get metadata for {filepath}: {e}")
         return None
 
-def generate_manifest(docs_folder='generated_docs', output_file='artifact_manifest.json'):
-    """Generate comprehensive artifact manifest."""
+def generate_manifest(docs_folder=Path('generated_docs'), output_file='artifact_manifest.json'):
+    """Generate comprehensive artifact manifest.
+
+    Args:
+        docs_folder (Path): Validated, absolute Path to the documents folder.
+        output_file (str): Name of the output manifest file.
+    """
     
     manifest = {
         'generated_at': datetime.datetime.now().isoformat(),
         'generator': 'generate_artifact_manifest.py',
         'version': '1.0',
-        'source_folder': docs_folder,
+        'source_folder': str(docs_folder),
         'artifacts': [],
         'summary': {
             'total_files': 0,
@@ -155,7 +160,7 @@ def generate_manifest(docs_folder='generated_docs', output_file='artifact_manife
     manifest['summary']['week_endings'].sort()
     
     # Write manifest
-    docs_folder_path = Path(docs_folder).resolve()
+    docs_folder_path = docs_folder  # Already a validated, resolved Path
     output_path = (docs_folder_path / output_file).resolve()
     try:
         output_path.relative_to(docs_folder_path)
@@ -189,4 +194,4 @@ if __name__ == '__main__':
         print(f"❌ Refusing unsafe docs folder: '{docs_folder}' resolves to '{docs_folder_abs}', outside root '{safe_root}'")
         sys.exit(1)
 
-    manifest = generate_manifest(str(docs_folder_abs), output_file)
+    manifest = generate_manifest(docs_folder_abs, output_file)
