@@ -75,11 +75,13 @@ def generate_manifest(docs_folder=Path('generated_docs'), output_file='artifact_
         output_file (str): Name of the output manifest file.
     """
     
+    docs_folder_path = Path(docs_folder).resolve()
+
     manifest = {
         'generated_at': datetime.datetime.now().isoformat(),
         'generator': 'generate_artifact_manifest.py',
         'version': '1.0',
-        'source_folder': str(docs_folder),
+        'source_folder': str(docs_folder_path),
         'artifacts': [],
         'summary': {
             'total_files': 0,
@@ -92,11 +94,11 @@ def generate_manifest(docs_folder=Path('generated_docs'), output_file='artifact_
         }
     }
     
-    if not os.path.exists(docs_folder):
-        print(f"⚠️ Folder {docs_folder} does not exist")
+    if not docs_folder_path.exists():
+        print(f"⚠️ Folder {docs_folder_path} does not exist")
         return manifest
     
-    excel_files = list(Path(docs_folder).rglob("WR_*.xlsx"))
+    excel_files = list(docs_folder_path.rglob("WR_*.xlsx"))
     
     print(f"📊 Processing {len(excel_files)} Excel files...")
     
@@ -160,7 +162,6 @@ def generate_manifest(docs_folder=Path('generated_docs'), output_file='artifact_
     manifest['summary']['week_endings'].sort()
     
     # Write manifest
-    docs_folder_path = docs_folder  # Already a validated, resolved Path
     output_path = (docs_folder_path / output_file).resolve()
     try:
         output_path.relative_to(docs_folder_path)
