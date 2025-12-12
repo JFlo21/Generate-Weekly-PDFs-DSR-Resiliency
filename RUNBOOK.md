@@ -1,5 +1,7 @@
 # Smartsheet Weekly PDF Generator - Runbook
 
+> 📊 **Prefer visual diagrams?** See [Visual Documentation with Mermaid Charts](docs/index.md)
+
 ## Table of Contents
 
 1. [System Overview](#system-overview)
