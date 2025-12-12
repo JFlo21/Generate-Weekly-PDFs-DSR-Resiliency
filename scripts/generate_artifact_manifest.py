@@ -172,5 +172,12 @@ if __name__ == '__main__':
     import sys
     docs_folder = sys.argv[1] if len(sys.argv) > 1 else 'generated_docs'
     output_file = sys.argv[2] if len(sys.argv) > 2 else 'artifact_manifest.json'
-    
-    manifest = generate_manifest(docs_folder, output_file)
+
+    # Validate docs_folder path to ensure it's inside a safe root directory
+    safe_root = os.path.abspath(os.getcwd())
+    docs_folder_abs = os.path.abspath(os.path.join(safe_root, docs_folder))
+    if not docs_folder_abs.startswith(safe_root):
+        print(f"❌ Refusing unsafe docs folder: '{docs_folder}' resolves to '{docs_folder_abs}', outside root '{safe_root}'")
+        sys.exit(1)
+
+    manifest = generate_manifest(docs_folder_abs, output_file)
