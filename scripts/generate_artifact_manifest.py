@@ -67,15 +67,24 @@ def get_file_metadata(filepath):
         print(f"⚠️ Could not get metadata for {filepath}: {e}")
         return None
 
-def generate_manifest(docs_folder=Path('generated_docs'), output_file='artifact_manifest.json'):
+def generate_manifest(docs_folder=Path('generated_docs'), output_file='artifact_manifest.json', safe_root=None):
     """Generate comprehensive artifact manifest.
 
     Args:
-        docs_folder (Path): Validated, absolute Path to the documents folder.
+        docs_folder (Path): Path to the documents folder (user-supplied).
         output_file (str): Name of the output manifest file.
+        safe_root (Path, optional): Root directory to which docs_folder access is restricted.
     """
-    
+    # Determine the safe root at runtime if not given
+    if safe_root is None:
+        safe_root = Path(os.getcwd()).resolve()
+
     docs_folder_path = Path(docs_folder).resolve()
+    try:
+        docs_folder_path.relative_to(safe_root)
+    except ValueError:
+        print(f"❌ Refusing unsafe docs_folder: '{docs_folder}' resolves to '{docs_folder_path}', outside root '{safe_root}'")
+        raise SystemExit(1)
 
     manifest = {
         'generated_at': datetime.datetime.now().isoformat(),
@@ -189,10 +198,6 @@ if __name__ == '__main__':
     # Validate docs_folder path to ensure it's inside a safe root directory
     safe_root = Path(os.getcwd()).resolve()
     docs_folder_abs = (safe_root / docs_folder).resolve()
-    try:
-        docs_folder_abs.relative_to(safe_root)
-    except ValueError:
-        print(f"❌ Refusing unsafe docs folder: '{docs_folder}' resolves to '{docs_folder_abs}', outside root '{safe_root}'")
-        sys.exit(1)
+    # Validation now occurs inside generate_manifest, so redundant here
 
-    manifest = generate_manifest(docs_folder_abs, output_file)
+    manifest = generate_manifest(docs_folder_abs, output_file, safe_root=safe_root)
