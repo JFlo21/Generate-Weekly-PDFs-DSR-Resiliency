@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 from scripts.generate_artifact_manifest import generate_manifest
 

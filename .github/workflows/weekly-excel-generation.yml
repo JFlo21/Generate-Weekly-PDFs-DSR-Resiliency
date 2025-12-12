@@ -364,9 +364,9 @@ jobs:
       
       - name: Summary
         if: always()
-          run: |
-            echo "============================================"
-            echo "📊 WORKFLOW EXECUTION SUMMARY"
+        run: |
+          echo "============================================"
+          echo "📊 WORKFLOW EXECUTION SUMMARY"
           echo "============================================"
           echo "Execution Type: ${{ steps.exec.outputs.execution_type }}"
           echo "Test Mode: ${{ github.event.inputs.test_mode }}"

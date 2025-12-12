@@ -155,7 +155,14 @@ def generate_manifest(docs_folder='generated_docs', output_file='artifact_manife
     manifest['summary']['week_endings'].sort()
     
     # Write manifest
-    output_path = os.path.join(docs_folder, output_file)
+    docs_folder_path = Path(docs_folder).resolve()
+    output_path = (docs_folder_path / output_file).resolve()
+    try:
+        output_path.relative_to(docs_folder_path)
+    except ValueError:
+        print(f"❌ Refusing to write manifest outside docs folder: '{output_path}'")
+        raise SystemExit(1)
+
     with open(output_path, 'w') as f:
         json.dump(manifest, f, indent=2, default=str)
     
@@ -174,10 +181,12 @@ if __name__ == '__main__':
     output_file = sys.argv[2] if len(sys.argv) > 2 else 'artifact_manifest.json'
 
     # Validate docs_folder path to ensure it's inside a safe root directory
-    safe_root = os.path.abspath(os.getcwd())
-    docs_folder_abs = os.path.abspath(os.path.join(safe_root, docs_folder))
-    if not docs_folder_abs.startswith(safe_root):
+    safe_root = Path(os.getcwd()).resolve()
+    docs_folder_abs = (safe_root / docs_folder).resolve()
+    try:
+        docs_folder_abs.relative_to(safe_root)
+    except ValueError:
         print(f"❌ Refusing unsafe docs folder: '{docs_folder}' resolves to '{docs_folder_abs}', outside root '{safe_root}'")
         sys.exit(1)
 
-    manifest = generate_manifest(docs_folder_abs, output_file)
+    manifest = generate_manifest(str(docs_folder_abs), output_file)
