@@ -417,7 +417,7 @@ def main():
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `TARGET_SHEET_ID` | Destination sheet for Excel attachments | `5723337641643908` |
+| `TARGET_SHEET_ID` | Destination sheet for Excel attachments | `5723337641643908` (configurable) |
 | `AUDIT_SHEET_ID` | Destination for audit rows/stats | *None* |
 
 #### Operation Modes
@@ -531,15 +531,17 @@ def main():
 **Location:** `generated_docs/{YYYY-MM-DD}/`
 
 **Naming Convention:**
-- Primary: `WR_{WR#}_WeekEnding_{MMDDYY}_{HHMMSS}_{16-char-hash}.xlsx`
-- Helper: `WR_{WR#}_WeekEnding_{MMDDYY}_{HHMMSS}_Helper_{name}_{16-char-hash}.xlsx`
+- Primary: `WR_{WR#}_WeekEnding_{MMDDYY}_{HHMMSS}_{hash}.xlsx`
+- Helper: `WR_{WR#}_WeekEnding_{MMDDYY}_{HHMMSS}_Helper_{name}_{hash}.xlsx`
+
+> **Note:** The hash is the first 16 characters of a SHA256 hex digest (truncated from 64 characters for filename readability). The timestamp is in `HHMMSS` format (hours, minutes, seconds).
 
 **Example:**
 ```
 generated_docs/2025-12-08/
-├── WR_90093002_WeekEnding_120825_143022_a1b2c3d4e5f6g7h8.xlsx
-├── WR_89954686_WeekEnding_120825_143025_b2c3d4e5f6g7h8i9.xlsx
-└── WR_90093002_WeekEnding_120825_143030_Helper_John_Smith_c3d4e5f6g7h8i9j0.xlsx
+├── WR_90093002_WeekEnding_120825_143022_a1b2c3d4e5f6789a.xlsx
+├── WR_89954686_WeekEnding_120825_143025_b2c3d4e5f6789abc.xlsx
+└── WR_90093002_WeekEnding_120825_143030_Helper_John_Smith_c3d4e5f6789abcde.xlsx
 ```
 
 #### Hash History File
@@ -550,7 +552,7 @@ generated_docs/2025-12-08/
 ```json
 {
   "90093002|120825|primary|": {
-    "hash": "a1b2c3d4e5f6g7h8",
+    "hash": "a1b2c3d4e5f6789a",
     "rows": 15,
     "updated_at": "2025-12-08T14:30:22.123456Z",
     "foreman": "Jane Doe",
@@ -559,7 +561,7 @@ generated_docs/2025-12-08/
     "identifier": ""
   },
   "90093002|120825|helper|John Smith|DEPT001|JOB123": {
-    "hash": "c3d4e5f6g7h8i9j0",
+    "hash": "c3d4e5f6789abcde",
     "rows": 5,
     "updated_at": "2025-12-08T14:30:30.123456Z",
     "foreman": "John Smith",
@@ -568,6 +570,9 @@ generated_docs/2025-12-08/
     "identifier": "John Smith|DEPT001|JOB123"
   }
 }
+```
+
+> **Note:** The `hash` values are SHA256 hex digests truncated to the first 16 characters for brevity.
 ```
 
 #### Discovery Cache
