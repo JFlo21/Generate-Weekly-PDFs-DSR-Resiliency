@@ -122,6 +122,87 @@ pytest tests/ --cov
 ✅ **Sentry integration** - Error monitoring and reporting  
 ✅ **Audit system** - Financial data validation  
 ✅ **Flexible grouping** - Multiple grouping modes supported  
+✅ **Code Analysis Agent** - Automated code error detection with email notifications
+
+## 🔍 Code Analysis Agent
+
+The Code Analyzer Agent automatically scans Python code for errors and issues, then sends notifications with detailed reports and suggested fixes.
+
+### Features
+
+- **Syntax Error Detection** - Catches syntax errors before runtime
+- **Code Pattern Analysis** - Detects common anti-patterns (bare except, mutable defaults, etc.)
+- **Import Validation** - Identifies unused imports
+- **Complexity Analysis** - Flags overly complex functions (nesting depth, too many arguments)
+- **GitHub Notifications** - Automatic notifications via GitHub's workflow system (no setup required!)
+- **Optional Email Support** - Can send HTML/text emails if SMTP is configured
+- **Scheduled Analysis** - Runs automatically via GitHub Actions
+
+### Quick Start
+
+```bash
+# Run analysis on current directory
+python code_analyzer_agent.py
+
+# Run without email (local testing)
+python code_analyzer_agent.py --no-email
+
+# Analyze specific directory
+python code_analyzer_agent.py --directory ./src
+
+# Only report errors (skip warnings)
+python code_analyzer_agent.py --min-severity error
+```
+
+### Receiving Notifications
+
+#### Option 1: GitHub Notifications (Recommended - No Setup Required!)
+
+The analyzer automatically writes detailed reports to GitHub Actions workflow summaries. To receive notifications:
+
+1. Go to the repository on GitHub
+2. Click **Watch** (bell icon) and select "All Activity" or "Custom" → "Workflows"
+3. You'll receive GitHub notifications when analysis finds issues
+
+#### Option 2: Email Notifications (Optional)
+
+If you prefer email notifications, configure SMTP in `.env.analyzer-config`:
+
+```ini
+ANALYZER_EMAIL_RECIPIENTS=your-email@company.com
+ANALYZER_SMTP_SERVER=smtp.gmail.com
+ANALYZER_SMTP_PORT=587
+ANALYZER_SMTP_USERNAME=your-email@gmail.com
+ANALYZER_SMTP_PASSWORD=your-app-password
+```
+
+### Configuration
+
+Edit `.env.analyzer-config` to configure analysis settings:
+
+```ini
+# Minimum severity level: 'info', 'warning', or 'error'
+ANALYZER_MIN_SEVERITY=warning
+
+# Include fix suggestions in reports
+ANALYZER_INCLUDE_SUGGESTIONS=true
+```
+
+### GitHub Actions Integration
+
+The agent runs automatically via the `code-analysis-agent.yml` workflow:
+
+- **On Push/PR**: Analyzes changed Python files
+- **Scheduled**: Every 6 hours during business hours
+- **Manual**: Trigger via GitHub Actions UI
+
+### Report Output
+
+Reports are saved to `generated_docs/code_analysis/` in JSON format and include:
+- Summary statistics (files analyzed, issue counts)
+- Issues grouped by file and type
+- Code snippets showing context around issues
+- Suggested fixes for each issue
 
 ## 🛠️ Development
 
