@@ -785,7 +785,9 @@ def discover_source_sheets(client):
         2126238714908548, # Added Promax Database 31
         366100316376964, # Added Promax Database 32
         1207776467439492, # Added Promax Database 33
-        342733613911940 # Added Promax Database 34
+        342733613911940, # Added Promax Database 34
+        6658677403504516, # Added Promax Database 35
+        7043847386255236 # Added Promax Database 36
     ]
 
     # OPTIONAL SPEED-UP FOR TESTING: allow overriding sheet list via env LIMITED_SHEET_IDS
