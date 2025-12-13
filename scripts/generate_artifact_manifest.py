@@ -198,6 +198,10 @@ if __name__ == '__main__':
     # Validate docs_folder path to ensure it's inside a safe root directory
     safe_root = Path(os.getcwd()).resolve()
     docs_folder_abs = (safe_root / docs_folder).resolve()
-    # Validation now occurs inside generate_manifest, so redundant here
+    try:
+        docs_folder_abs.relative_to(safe_root)
+    except ValueError:
+        print(f"❌ Refusing to use docs folder outside of safe root: '{docs_folder_abs}'")
+        raise SystemExit(1)
 
     manifest = generate_manifest(docs_folder_abs, output_file, safe_root=safe_root)
