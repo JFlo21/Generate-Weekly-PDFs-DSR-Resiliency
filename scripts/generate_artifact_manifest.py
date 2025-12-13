@@ -67,14 +67,30 @@ def get_file_metadata(filepath):
         print(f"⚠️ Could not get metadata for {filepath}: {e}")
         return None
 
-def generate_manifest(docs_folder='generated_docs', output_file='artifact_manifest.json'):
-    """Generate comprehensive artifact manifest."""
-    
+def generate_manifest(docs_folder=Path('generated_docs'), output_file='artifact_manifest.json', safe_root=None):
+    """Generate comprehensive artifact manifest.
+
+    Args:
+        docs_folder (Path): Path to the documents folder (user-supplied).
+        output_file (str): Name of the output manifest file.
+        safe_root (Path, optional): Root directory to which docs_folder access is restricted.
+    """
+    # Determine the safe root at runtime if not given
+    if safe_root is None:
+        safe_root = Path(os.getcwd()).resolve()
+
+    docs_folder_path = Path(docs_folder).resolve()
+    try:
+        docs_folder_path.relative_to(safe_root)
+    except ValueError:
+        print(f"❌ Refusing unsafe docs_folder: '{docs_folder}' resolves to '{docs_folder_path}', outside root '{safe_root}'")
+        raise SystemExit(1)
+
     manifest = {
         'generated_at': datetime.datetime.now().isoformat(),
         'generator': 'generate_artifact_manifest.py',
         'version': '1.0',
-        'source_folder': docs_folder,
+        'source_folder': str(docs_folder_path),
         'artifacts': [],
         'summary': {
             'total_files': 0,
@@ -87,17 +103,17 @@ def generate_manifest(docs_folder='generated_docs', output_file='artifact_manife
         }
     }
     
-    if not os.path.exists(docs_folder):
-        print(f"⚠️ Folder {docs_folder} does not exist")
+    if not docs_folder_path.exists():
+        print(f"⚠️ Folder {docs_folder_path} does not exist")
         return manifest
     
-    excel_files = [f for f in os.listdir(docs_folder) 
-                   if f.startswith('WR_') and f.endswith('.xlsx')]
+    excel_files = list(docs_folder_path.rglob("WR_*.xlsx"))
     
     print(f"📊 Processing {len(excel_files)} Excel files...")
     
-    for filename in sorted(excel_files):
-        filepath = os.path.join(docs_folder, filename)
+    for file_path in sorted(excel_files):
+        filename = file_path.name
+        filepath = str(file_path)
         
         # Parse filename structure
         parsed = parse_excel_filename(filename)
@@ -155,7 +171,13 @@ def generate_manifest(docs_folder='generated_docs', output_file='artifact_manife
     manifest['summary']['week_endings'].sort()
     
     # Write manifest
-    output_path = os.path.join(docs_folder, output_file)
+    output_path = (docs_folder_path / output_file).resolve()
+    try:
+        output_path.relative_to(docs_folder_path)
+    except ValueError:
+        print(f"❌ Refusing to write manifest outside docs folder: '{output_path}'")
+        raise SystemExit(1)
+
     with open(output_path, 'w') as f:
         json.dump(manifest, f, indent=2, default=str)
     
@@ -172,5 +194,14 @@ if __name__ == '__main__':
     import sys
     docs_folder = sys.argv[1] if len(sys.argv) > 1 else 'generated_docs'
     output_file = sys.argv[2] if len(sys.argv) > 2 else 'artifact_manifest.json'
-    
-    manifest = generate_manifest(docs_folder, output_file)
+
+    # Validate docs_folder path to ensure it's inside a safe root directory
+    safe_root = Path(os.getcwd()).resolve()
+    docs_folder_abs = (safe_root / docs_folder).resolve()
+    try:
+        docs_folder_abs.relative_to(safe_root)
+    except ValueError:
+        print(f"❌ Refusing to use docs folder outside of safe root: '{docs_folder_abs}'")
+        raise SystemExit(1)
+
+    manifest = generate_manifest(docs_folder_abs, output_file, safe_root=safe_root)
