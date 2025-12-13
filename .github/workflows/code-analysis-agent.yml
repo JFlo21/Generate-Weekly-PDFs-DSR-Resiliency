@@ -16,10 +16,9 @@ on:
     paths:
       - '**.py'
   
-  # Scheduled runs - every 6 hours during business hours (CST)
+  # Scheduled runs - Daily at 8 AM CST (14:00 UTC)
   schedule:
-    # 7 AM, 1 PM, 7 PM CST (13:00, 19:00, 01:00 UTC)
-    - cron: '0 13,19,1 * * *'
+    - cron: '0 14 * * *'
   
   # Manual trigger with options
   workflow_dispatch:
