@@ -68,12 +68,16 @@ def get_file_metadata(filepath):
         return None
 
 def generate_manifest(docs_folder='generated_docs', output_file='artifact_manifest.json'):
-    """Generate comprehensive artifact manifest."""
+    """Generate comprehensive artifact manifest.
+    
+    Scans both the root docs_folder and week-specific subfolders (YYYY-MM-DD format)
+    for Excel files matching the WR_*.xlsx pattern.
+    """
     
     manifest = {
         'generated_at': datetime.datetime.now().isoformat(),
         'generator': 'generate_artifact_manifest.py',
-        'version': '1.0',
+        'version': '1.1',  # Updated version for subfolder support
         'source_folder': docs_folder,
         'artifacts': [],
         'summary': {
@@ -82,8 +86,10 @@ def generate_manifest(docs_folder='generated_docs', output_file='artifact_manife
             'total_size_mb': 0,
             'work_requests': [],
             'week_endings': [],
+            'week_folders': [],  # Track which week folders contain files
             'by_week': {},
-            'by_wr': {}
+            'by_wr': {},
+            'by_folder': {}  # Group by source folder
         }
     }
     
@@ -91,13 +97,37 @@ def generate_manifest(docs_folder='generated_docs', output_file='artifact_manife
         print(f"⚠️ Folder {docs_folder} does not exist")
         return manifest
     
-    excel_files = [f for f in os.listdir(docs_folder) 
-                   if f.startswith('WR_') and f.endswith('.xlsx')]
+    # Collect Excel files from root folder AND week subfolders (YYYY-MM-DD pattern)
+    excel_files = []
     
-    print(f"📊 Processing {len(excel_files)} Excel files...")
+    # Check root folder
+    for f in os.listdir(docs_folder):
+        if f.startswith('WR_') and f.endswith('.xlsx'):
+            excel_files.append((docs_folder, f))
     
-    for filename in sorted(excel_files):
-        filepath = os.path.join(docs_folder, filename)
+    # Check week subfolders (YYYY-MM-DD pattern)
+    for subfolder in os.listdir(docs_folder):
+        subfolder_path = os.path.join(docs_folder, subfolder)
+        if os.path.isdir(subfolder_path):
+            # Match YYYY-MM-DD pattern for week folders
+            import re
+            if re.match(r'^\d{4}-\d{2}-\d{2}$', subfolder):
+                for f in os.listdir(subfolder_path):
+                    if f.startswith('WR_') and f.endswith('.xlsx'):
+                        excel_files.append((subfolder_path, f))
+                        # Track week folder
+                        if subfolder not in manifest['summary']['week_folders']:
+                            manifest['summary']['week_folders'].append(subfolder)
+    
+    print(f"📊 Processing {len(excel_files)} Excel files across {len(manifest['summary']['week_folders']) + 1} folder(s)...")
+    
+    for folder_path, filename in sorted(excel_files, key=lambda x: x[1]):
+        filepath = os.path.join(folder_path, filename)
+        
+        # Determine relative folder for grouping
+        relative_folder = os.path.relpath(folder_path, docs_folder)
+        if relative_folder == '.':
+            relative_folder = 'root'
         
         # Parse filename structure
         parsed = parse_excel_filename(filename)
@@ -111,6 +141,7 @@ def generate_manifest(docs_folder='generated_docs', output_file='artifact_manife
         artifact_entry = {
             'filename': filename,
             'filepath': filepath,
+            'relative_folder': relative_folder,
             'sha256': file_hash,
         }
         
@@ -140,6 +171,11 @@ def generate_manifest(docs_folder='generated_docs', output_file='artifact_manife
                 manifest['summary']['by_wr'][wr] = []
             manifest['summary']['by_wr'][wr].append(filename)
         
+        # Group by folder
+        if relative_folder not in manifest['summary']['by_folder']:
+            manifest['summary']['by_folder'][relative_folder] = []
+        manifest['summary']['by_folder'][relative_folder].append(filename)
+        
         if metadata:
             artifact_entry.update(metadata)
             manifest['summary']['total_size_bytes'] += metadata['size_bytes']
@@ -153,6 +189,7 @@ def generate_manifest(docs_folder='generated_docs', output_file='artifact_manife
     )
     manifest['summary']['work_requests'].sort()
     manifest['summary']['week_endings'].sort()
+    manifest['summary']['week_folders'].sort()
     
     # Write manifest
     output_path = os.path.join(docs_folder, output_file)
@@ -165,6 +202,7 @@ def generate_manifest(docs_folder='generated_docs', output_file='artifact_manife
     print(f"   Total Size: {manifest['summary']['total_size_mb']} MB")
     print(f"   Work Requests: {len(manifest['summary']['work_requests'])}")
     print(f"   Week Endings: {len(manifest['summary']['week_endings'])}")
+    print(f"   Week Folders: {len(manifest['summary']['week_folders'])}")
     
     return manifest
 

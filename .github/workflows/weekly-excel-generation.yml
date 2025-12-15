@@ -194,6 +194,11 @@ jobs:
         if: always() && steps.exec.outputs.should_run == 'true'
         run: |
           echo "📦 Generating comprehensive artifact manifest..."
+          
+          # Count Excel files first (including week subfolders)
+          excel_count=$(find generated_docs -name 'WR_*.xlsx' -type f 2>/dev/null | wc -l)
+          echo "📊 Found $excel_count Excel files in generated_docs (including week subfolders)"
+          
           python scripts/generate_artifact_manifest.py generated_docs artifact_manifest.json
           
           # Extract summary for workflow outputs
@@ -228,7 +233,9 @@ jobs:
           fi
           
           # Organize Excel files by WR number for individual artifact uploads
-          for file in generated_docs/WR_*.xlsx; do
+          # Search in both root and week subfolders (YYYY-MM-DD pattern)
+          file_count=0
+          for file in $(find generated_docs -name 'WR_*.xlsx' -type f 2>/dev/null); do
             if [ -f "$file" ]; then
               filename=$(basename "$file")
               # Extract WR number from filename (format: WR_{number}_WeekEnding_...)
@@ -242,15 +249,20 @@ jobs:
               # Create week-specific folder
               mkdir -p "artifact_staging/by_week/Week_${week_ending}"
               cp "$file" "artifact_staging/by_week/Week_${week_ending}/"
+              
+              file_count=$((file_count + 1))
             fi
           done
           
+          echo "📊 Found and organized $file_count Excel files"
+          
           # Count organized artifacts
-          wr_folders=$(find artifact_staging/by_wr -mindepth 1 -maxdepth 1 -type d | wc -l)
-          week_folders=$(find artifact_staging/by_week -mindepth 1 -maxdepth 1 -type d | wc -l)
+          wr_folders=$(find artifact_staging/by_wr -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+          week_folders=$(find artifact_staging/by_week -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
           
           echo "organized_wr_count=$wr_folders" >> $GITHUB_OUTPUT
           echo "organized_week_count=$week_folders" >> $GITHUB_OUTPUT
+          echo "total_files_organized=$file_count" >> $GITHUB_OUTPUT
           echo "✅ Organized into $wr_folders WR folders and $week_folders week folders"
       
       - name: Upload comprehensive artifact bundle
@@ -260,7 +272,7 @@ jobs:
         with:
           name: Excel-Reports-Complete-${{ steps.exec.outputs.execution_type }}-Run${{ github.run_number }}
           path: |
-            generated_docs/WR_*.xlsx
+            generated_docs/**/WR_*.xlsx
             generated_docs/artifact_manifest.json
             generated_docs/hash_history.json
             generated_docs/audit_state.json
@@ -381,11 +393,12 @@ jobs:
           echo "  Week Endings: ${{ steps.manifest.outputs.week_count }}"
           echo ""
           echo "🗂️ ORGANIZATION:"
+          echo "  Files Organized: ${{ steps.organize.outputs.total_files_organized }}"
           echo "  WR Folders: ${{ steps.organize.outputs.organized_wr_count }}"
           echo "  Week Folders: ${{ steps.organize.outputs.organized_week_count }}"
           echo ""
           if [ -d generated_docs ]; then 
-            echo "📄 GENERATED FILES:"
-            ls -1 generated_docs/WR_*.xlsx 2>/dev/null | head -n 25
+            echo "📄 GENERATED FILES (including week subfolders):"
+            find generated_docs -name 'WR_*.xlsx' -type f 2>/dev/null | head -n 25
           fi
           echo "============================================"
