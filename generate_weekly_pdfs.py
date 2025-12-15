@@ -131,6 +131,7 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 # Optional performance/test tuning via environment (must come AFTER OUTPUT_FOLDER defined)
 WR_FILTER = [w.strip() for w in os.getenv('WR_FILTER','').split(',') if w.strip()]
+EXCLUDE_WRS = [w.strip() for w in os.getenv('EXCLUDE_WRS','').split(',') if w.strip()]  # Work Requests to EXCLUDE from generation
 MAX_GROUPS = int(os.getenv('MAX_GROUPS','0') or 0)
 QUIET_LOGGING = os.getenv('QUIET_LOGGING','0').lower() in ('1','true','yes')
 USE_DISCOVERY_CACHE = os.getenv('USE_DISCOVERY_CACHE','1').lower() in ('1','true','yes')
@@ -349,16 +350,18 @@ def calculate_data_hash(group_rows):
     parts.append(f"VARIANT={variant}")
     
     if variant == 'helper':
-        # Helper variant: include helper-specific metadata (ALL REQUIRED)
+        # Helper variant: include helper-specific metadata (helper_job is OPTIONAL)
         helper_foreman = sorted_rows[0].get('__helper_foreman', '') if sorted_rows else ''
         helper_dept = sorted_rows[0].get('__helper_dept', '') if sorted_rows else ''
         helper_job = sorted_rows[0].get('__helper_job', '') if sorted_rows else ''
-        # Validate required helper fields
-        if not helper_foreman or not helper_dept or not helper_job:
-            logging.warning(f"⚠️ Helper variant missing required fields: foreman={helper_foreman}, dept={helper_dept}, job={helper_job}")
+        # Validate required helper fields (helper_job is optional)
+        if not helper_foreman or not helper_dept:
+            logging.warning(f"⚠️ Helper variant missing required fields: foreman={helper_foreman}, dept={helper_dept}")
+        if not helper_job:
+            logging.info(f"ℹ️ Helper variant without Job #: foreman={helper_foreman}, dept={helper_dept} (proceeding anyway)")
         parts.append(f"HELPER={helper_foreman}")
         parts.append(f"HELPER_DEPT={helper_dept}")
-        parts.append(f"HELPER_JOB={helper_job}")
+        parts.append(f"HELPER_JOB={helper_job}")  # Include even if empty for hash consistency
     
     parts.append(f"DEPTS={','.join(unique_depts)}")
     parts.append(f"TOTAL={total_price:.2f}")
@@ -1268,8 +1271,9 @@ def group_source_rows(rows):
             if helper_mode_enabled and is_helper_row and helper_foreman:
                 helper_dept = r.get('__helper_dept', '')
                 helper_job = r.get('__helper_job', '')
-                # Validate helper row has all required fields
-                if helper_dept and helper_job:
+                # Validate helper row: helper_dept is required, helper_job is OPTIONAL
+                # This allows rows to sync even when Helper Job # is missing
+                if helper_dept:  # helper_job is now optional
                     valid_helper_row = True
             
             # Primary variant logic
@@ -1299,10 +1303,10 @@ def group_source_rows(rows):
                 # In primary mode, helper rows go to main
                 logging.info(f"ℹ️ Helper row found but RES_GROUPING_MODE={RES_GROUPING_MODE} - including in main Excel")
             elif is_helper_row:
-                # Helper row missing required fields
+                # Helper row missing required helper_dept (helper_job is optional)
                 helper_dept = r.get('__helper_dept', '')
                 helper_job = r.get('__helper_job', '')
-                logging.warning(f"⚠️ Helper row for WR {wr_key} missing required fields - Dept: '{helper_dept}', Job: '{helper_job}' - including in main Excel")
+                logging.warning(f"⚠️ Helper row for WR {wr_key} missing required Helper Dept # (Job: '{helper_job}') - including in main Excel")
             
             # Add row to all applicable groups
             for variant, key, current_foreman in keys_to_add:
@@ -1365,6 +1369,28 @@ def group_source_rows(rows):
 
         groups = {k: v for k, v in groups.items() if any(_key_matches_wr(k, wr) for wr in WR_FILTER)}
         logging.info(f"🔎 WR_FILTER applied (primary + helper): {len(groups)}/{before} groups retained ({','.join(WR_FILTER)})")
+    
+    # EXCLUDE_WRS: Remove specific Work Requests from generation (applies always, not just TEST_MODE)
+    if EXCLUDE_WRS:
+        before_exclude = len(groups)
+        def _key_matches_excluded_wr(k: str, wr: str) -> bool:
+            # k format examples:
+            #   MMDDYY_WR
+            #   MMDDYY_WR_HELPER_<name>
+            try:
+                suffix = k.split('_', 1)[1]  # take everything after first underscore (WR...)
+            except Exception:
+                return False
+            return suffix == wr or suffix.startswith(f"{wr}_HELPER_")
+        
+        # Remove groups that match any excluded WR
+        groups = {k: v for k, v in groups.items() if not any(_key_matches_excluded_wr(k, wr) for wr in EXCLUDE_WRS)}
+        excluded_count = before_exclude - len(groups)
+        if excluded_count > 0:
+            logging.info(f"🚫 EXCLUDE_WRS applied: {excluded_count} groups excluded ({','.join(EXCLUDE_WRS)}) - {len(groups)} groups remaining")
+        else:
+            logging.info(f"🚫 EXCLUDE_WRS specified but no matching groups found to exclude ({','.join(EXCLUDE_WRS)})")
+    
     return groups
 
 def validate_group_totals(groups):
@@ -1386,14 +1412,23 @@ def safe_merge_cells(ws, range_str):
     Returns:
         bool: True if merge was successful, False if skipped
     """
+    from openpyxl.utils import range_boundaries
+    
     try:
-        # Check if this exact range is already merged
-        for merged in ws.merged_cells.ranges:
-            if str(merged) == range_str:
-                # Already merged, skip to avoid duplicate
+        # Parse the requested range boundaries
+        min_col, min_row, max_col, max_row = range_boundaries(range_str)
+        
+        # Check for any overlapping or duplicate merged ranges
+        for merged in list(ws.merged_cells.ranges):
+            m_min_col, m_min_row, m_max_col, m_max_row = range_boundaries(str(merged))
+            
+            # Check if ranges overlap (not just exact match)
+            if not (max_col < m_min_col or min_col > m_max_col or
+                    max_row < m_min_row or min_row > m_max_row):
+                # Ranges overlap - skip to avoid XML corruption
                 return False
         
-        # Safe to merge
+        # Safe to merge - no overlaps detected
         ws.merge_cells(range_str)
         return True
     except Exception as e:
@@ -1663,6 +1698,10 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
 
     def write_day_block(start_row, day_name, date_obj, day_rows):
         """FIXED: Write daily data blocks with proper cell handling."""
+        # Skip empty day blocks to prevent Excel corruption
+        if not day_rows:
+            return start_row
+        
         # CRITICAL FIX: Merge cells FIRST, then assign value to top-left cell
         # Use safe merge to prevent duplicate ranges
         merge_range = f'A{start_row}:H{start_row}'
@@ -1795,18 +1834,9 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     for col, width in column_widths.items():
         ws.column_dimensions[col].width = width
 
-    # Add footer information (with error handling for different openpyxl versions)
-    try:
-        if hasattr(ws, 'oddFooter') and ws.oddFooter is not None:
-            ws.oddFooter.right.text = "Page &P of &N"
-            ws.oddFooter.right.size = 8
-            ws.oddFooter.right.font = "Calibri,Italic"
-            ws.oddFooter.left.text = f"Filename: {output_filename}"
-            ws.oddFooter.left.size = 8
-            ws.oddFooter.left.font = "Calibri,Italic"
-    except AttributeError:
-        # Footer not supported in this openpyxl version
-        pass
+    # NOTE: Footer code removed - was causing Excel XML corruption errors
+    # Footer attributes (oddFooter.right.text, etc.) can create malformed XML
+    # that triggers "We found a problem with some content" errors in Excel
 
     # Save the workbook
     workbook.save(final_output_path)

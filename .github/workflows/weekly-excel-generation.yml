@@ -74,6 +74,11 @@ on:
         required: false
         default: ''
         type: string
+      exclude_wrs:
+        description: 'Comma-separated list of Work Request numbers to EXCLUDE from generation'
+        required: false
+        default: ''
+        type: string
       advanced_options:
         description: 'Advanced: max_groups:X,regen_weeks:MMDDYY1;MMDDYY2,reset_wr_list:WR1;WR2'
         required: false
@@ -175,6 +180,8 @@ jobs:
           
           # Advanced Filters
           WR_FILTER: ${{ github.event.inputs.wr_filter || '' }}
+          # EXCLUDE_WRS: Manual input overrides repo variable; repo variable is persistent default
+          EXCLUDE_WRS: ${{ github.event.inputs.exclude_wrs || vars.EXCLUDE_WRS || '' }}
           ADVANCED_OPTIONS: ${{ github.event.inputs.advanced_options || '' }}
           
           # Debug Limits (optimized for Actions)
