@@ -1373,15 +1373,23 @@ def group_source_rows(rows):
     # EXCLUDE_WRS: Remove specific Work Requests from generation (applies always, not just TEST_MODE)
     if EXCLUDE_WRS:
         before_exclude = len(groups)
+        logging.info(f"🔍 EXCLUDE_WRS check: Attempting to exclude WRs {EXCLUDE_WRS} from {before_exclude} groups")
+        
+        # Debug: Show sample group keys for troubleshooting
+        sample_keys = list(groups.keys())[:5]
+        logging.info(f"🔍 Sample group keys: {sample_keys}")
+        
         def _key_matches_excluded_wr(k: str, wr: str) -> bool:
             # k format examples:
-            #   MMDDYY_WR
-            #   MMDDYY_WR_HELPER_<name>
+            #   MMDDYY_WR               → suffix = WR
+            #   MMDDYY_WR_HELPER_<name> → suffix = WR_HELPER_<name>
+            #   MMDDYY_WR_USER_<name>   → suffix = WR_USER_<name>
             try:
                 suffix = k.split('_', 1)[1]  # take everything after first underscore (WR...)
             except Exception:
                 return False
-            return suffix == wr or suffix.startswith(f"{wr}_HELPER_")
+            # Match exact WR, or WR followed by _HELPER_ or _USER_ variants
+            return suffix == wr or suffix.startswith(f"{wr}_HELPER_") or suffix.startswith(f"{wr}_USER_")
         
         # Remove groups that match any excluded WR
         groups = {k: v for k, v in groups.items() if not any(_key_matches_excluded_wr(k, wr) for wr in EXCLUDE_WRS)}
