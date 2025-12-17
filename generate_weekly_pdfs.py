@@ -30,6 +30,7 @@ from openpyxl.utils import get_column_letter
 from dotenv import load_dotenv
 import sentry_sdk
 from sentry_sdk.integrations.logging import LoggingIntegration
+from sentry_sdk.integrations.threading import ThreadingIntegration
 import traceback
 import sys
 import inspect
@@ -187,8 +188,80 @@ if QUIET_LOGGING:
 TEST_MODE = os.getenv('TEST_MODE', 'false').lower() in ('1','true','yes')
 DISABLE_AUDIT_FOR_TESTING = False  # Audit system ENABLED for production monitoring
 
-# --- SENTRY CONFIGURATION ---
+# --- SENTRY CONFIGURATION (SDK 2.x) ---
 SENTRY_DSN = os.getenv("SENTRY_DSN")
+
+# Sentry helper functions for enhanced error context
+def sentry_add_breadcrumb(category: str, message: str, level: str = "info", data: dict | None = None):
+    """Add a breadcrumb for execution flow tracking in Sentry dashboard."""
+    if SENTRY_DSN:
+        sentry_sdk.add_breadcrumb(
+            category=category,
+            message=message,
+            level=level,
+            data=data or {}
+        )
+
+def sentry_set_context(name: str, context_data: dict):
+    """Set structured context for rich error details in Sentry dashboard."""
+    if SENTRY_DSN:
+        sentry_sdk.set_context(name, context_data)
+
+def sentry_capture_with_context(exception: Exception, context_name: str | None = None, 
+                                  context_data: dict | None = None, tags: dict | None = None,
+                                  fingerprint: list | None = None):
+    """Capture exception with rich context, tags, and custom fingerprinting.
+    
+    Args:
+        exception: The exception to capture
+        context_name: Name for the context block in Sentry dashboard
+        context_data: Dictionary of contextual data for debugging
+        tags: Additional tags for filtering in Sentry
+        fingerprint: Custom fingerprint for error grouping
+    """
+    if not SENTRY_DSN:
+        return
+    
+    scope = sentry_sdk.get_current_scope()
+    
+    # Add rich context data
+    if context_name and context_data:
+        sentry_sdk.set_context(context_name, context_data)
+    
+    # Add custom tags for filtering
+    if tags:
+        for key, value in tags.items():
+            scope.set_tag(key, str(value))
+    
+    # Set custom fingerprint for error grouping
+    if fingerprint:
+        scope.fingerprint = fingerprint
+    
+    # Capture with full context
+    sentry_sdk.capture_exception(exception)
+
+from typing import Literal
+
+# Log level type for Sentry SDK 2.x
+SentryLogLevel = Literal["fatal", "critical", "error", "warning", "info", "debug"]
+
+def sentry_capture_message_with_context(message: str, level: SentryLogLevel = "error",
+                                         context_name: str | None = None, context_data: dict | None = None,
+                                         tags: dict | None = None):
+    """Capture a message with rich context for Sentry dashboard visibility."""
+    if not SENTRY_DSN:
+        return
+    
+    scope = sentry_sdk.get_current_scope()
+    
+    if context_name and context_data:
+        sentry_sdk.set_context(context_name, context_data)
+    
+    if tags:
+        for key, value in tags.items():
+            scope.set_tag(key, str(value))
+    
+    sentry_sdk.capture_message(message, level=level)
 
 if SENTRY_DSN:
     sentry_logging = LoggingIntegration(
@@ -197,7 +270,11 @@ if SENTRY_DSN:
     )
     
     def before_send_filter(event, hint):
-        """Filter out normal Smartsheet 404 errors during cleanup operations."""
+        """Filter out normal Smartsheet 404 errors during cleanup operations.
+        
+        Sentry 2.x compatible: Enriches events with additional context.
+        """
+        # Filter Smartsheet internal logger noise
         if event.get('logger') == 'smartsheet.smartsheet':
             return None
         
@@ -210,26 +287,89 @@ if SENTRY_DSN:
                         logging.info("⚠️ Filtered 404 attachment error from Sentry (normal operation)")
                         return None
         
+        # Enrich all events with runtime context
+        event.setdefault('contexts', {})
+        event['contexts']['runtime_info'] = {
+            'test_mode': TEST_MODE,
+            'github_actions': bool(os.getenv('GITHUB_ACTIONS')),
+            'max_groups': MAX_GROUPS,
+            'extended_change_detection': EXTENDED_CHANGE_DETECTION,
+            'python_version': sys.version,
+        }
+        
         return event
+    
+    def traces_sampler(sampling_context):
+        """Dynamic sampling for performance tracing based on operation type."""
+        # Always trace errors
+        if sampling_context.get('parent_sampled'):
+            return 1.0
+        
+        # Sample main operations at 100% for full visibility
+        transaction_name = sampling_context.get('transaction_context', {}).get('name', '')
+        if 'excel_generation' in transaction_name or 'main' in transaction_name:
+            return 1.0
+        
+        # Sample other operations at 50%
+        return 0.5
     
     try:
         sentry_sdk.init(
             dsn=SENTRY_DSN,
-            integrations=[sentry_logging],
+            integrations=[
+                sentry_logging,
+                ThreadingIntegration(propagate_hub=True),
+            ],
+            # Performance monitoring
             traces_sample_rate=1.0,
+            traces_sampler=traces_sampler,
+            profiles_sample_rate=0.5,  # SDK 2.x: No longer experimental
+            
+            # Environment configuration
             environment=os.getenv("ENVIRONMENT", "production"),
-            release=os.getenv("RELEASE", "latest"),
+            release=os.getenv("RELEASE", "weekly-excel-generator@1.0.0"),
+            server_name=os.getenv("HOSTNAME", "local"),
+            
+            # Error enrichment
             before_send=before_send_filter,
             attach_stacktrace=True,
-            max_breadcrumbs=50,
+            include_local_variables=True,  # SDK 2.x: Replaces with_locals
+            max_breadcrumbs=100,
+            
+            # Request handling (SDK 2.x syntax)
+            max_request_body_size="medium",  # SDK 2.x: Replaces request_bodies
+            
+            # Enable source context for better stack traces
+            include_source_context=True,
+            
+            # Shutdown timeout for graceful error flushing
+            shutdown_timeout=5,
         )
         
-        sentry_sdk.set_user({"id": "excel_generator", "username": "weekly_pdf_generator"})
+        # Set user context (SDK 2.x: top-level API)
+        sentry_sdk.set_user({
+            "id": "excel_generator",
+            "username": "weekly_pdf_generator",
+            "segment": "billing_automation"
+        })
+        
+        # Set global tags for all events (SDK 2.x: top-level API)
         sentry_sdk.set_tag("component", "excel_generation")
         sentry_sdk.set_tag("process", "weekly_reports")
+        sentry_sdk.set_tag("test_mode", str(TEST_MODE))
+        sentry_sdk.set_tag("github_actions", str(bool(os.getenv('GITHUB_ACTIONS'))))
+        
+        # Set initial context (SDK 2.x: top-level API)
+        sentry_sdk.set_context("configuration", {
+            "max_groups": MAX_GROUPS,
+            "extended_change_detection": EXTENDED_CHANGE_DETECTION,
+            "use_discovery_cache": USE_DISCOVERY_CACHE,
+            "force_generation": FORCE_GENERATION,
+            "wr_filter": WR_FILTER,
+        })
         
         logger = logging.getLogger(__name__)
-        logging.info("🛡️ Sentry.io error monitoring initialized")
+        logging.info("🛡️ Sentry.io error monitoring initialized (SDK 2.x)")
     except Exception as e:
         logging.warning(f"⚠️ Sentry initialization failed: {e}")
         logger = logging.getLogger(__name__)
@@ -1205,13 +1345,34 @@ def get_all_source_rows(client, source_sheets):
 
             except Exception as e:
                 logging.error(f"Error processing sheet {source['id']}: {e}")
-                if SENTRY_DSN:
-                    sentry_sdk.capture_exception(e)
+                sentry_capture_with_context(
+                    exception=e,
+                    context_name="sheet_processing_error",
+                    context_data={
+                        "sheet_id": source['id'],
+                        "sheet_name": source.get('name', 'Unknown'),
+                        "rows_processed": global_row_counter,
+                        "error_type": type(e).__name__,
+                        "error_message": str(e),
+                    },
+                    tags={"error_location": "sheet_row_processing", "sheet_id": source['id']},
+                    fingerprint=["sheet-processing", str(source['id']), type(e).__name__]
+                )
             
         except Exception as e:
             logging.error(f"Could not process Sheet ID {source.get('id', 'N/A')}: {e}")
-            if SENTRY_DSN:
-                sentry_sdk.capture_exception(e)
+            sentry_capture_with_context(
+                exception=e,
+                context_name="sheet_access_error",
+                context_data={
+                    "sheet_id": source.get('id', 'N/A'),
+                    "sheet_name": source.get('name', 'Unknown'),
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                },
+                tags={"error_location": "sheet_access", "sheet_id": str(source.get('id', 'N/A'))},
+                fingerprint=["sheet-access", str(source.get('id', 'N/A')), type(e).__name__]
+            )
 
     logging.info(f"Found {len(merged_rows)} valid rows")
     
@@ -1395,8 +1556,17 @@ def group_source_rows(rows):
     if validation_errors:
         error_msg = "CRITICAL GROUPING ERRORS: " + "; ".join(validation_errors)
         logging.error(error_msg)
-        if SENTRY_DSN:
-            sentry_sdk.capture_message(error_msg, level="error")
+        sentry_capture_message_with_context(
+            message=error_msg,
+            level="error",
+            context_name="grouping_validation",
+            context_data={
+                "total_groups": len(groups),
+                "validation_errors": validation_errors,
+                "error_count": len(validation_errors),
+            },
+            tags={"error_location": "group_validation", "error_type": "data_integrity"}
+        )
     else:
         logging.info(f"✅ Grouping validation passed: {len(groups)} groups, each with exactly 1 work request")
     
@@ -2052,13 +2222,29 @@ def main():
         audit_results = {}
         if AUDIT_SYSTEM_AVAILABLE and not DISABLE_AUDIT_FOR_TESTING:
             try:
+                sentry_add_breadcrumb("audit", "Starting billing audit", data={"skip_cell_history": SKIP_CELL_HISTORY})
                 audit_system = BillingAudit(client, skip_cell_history=SKIP_CELL_HISTORY)
                 audit_results = audit_system.audit_financial_data(source_sheets, all_rows)
                 logging.info(f"🔍 Audit complete - Risk level: {audit_results.get('summary', {}).get('risk_level', 'UNKNOWN')}")
+                sentry_add_breadcrumb("audit", "Audit completed", data={
+                    "risk_level": audit_results.get('summary', {}).get('risk_level', 'UNKNOWN'),
+                    "total_anomalies": audit_results.get('summary', {}).get('total_anomalies', 0)
+                })
             except Exception as e:
                 logging.warning(f"⚠️ Audit system error: {e}")
-                if SENTRY_DSN:
-                    sentry_sdk.capture_exception(e)
+                sentry_capture_with_context(
+                    exception=e,
+                    context_name="audit_system_error",
+                    context_data={
+                        "source_sheets_count": len(source_sheets),
+                        "total_rows": len(all_rows),
+                        "skip_cell_history": SKIP_CELL_HISTORY,
+                        "error_type": type(e).__name__,
+                        "error_message": str(e),
+                    },
+                    tags={"error_location": "audit_system", "subsystem": "billing_audit"},
+                    fingerprint=["audit-system", type(e).__name__]
+                )
         else:
             logging.info("🚀 Audit system disabled for testing")
 
@@ -2226,8 +2412,25 @@ def main():
                 
             except Exception as e:
                 logging.error(f"❌ Failed to process group {group_key}: {e}")
-                if SENTRY_DSN:
-                    sentry_sdk.capture_exception(e)
+                sentry_capture_with_context(
+                    exception=e,
+                    context_name="group_processing_error",
+                    context_data={
+                        "group_key": group_key,
+                        "wr_number": wr_num if 'wr_num' in dir() else 'unknown',
+                        "week_ending": week_raw if 'week_raw' in dir() else 'unknown',
+                        "variant": variant if 'variant' in dir() else 'unknown',
+                        "row_count": len(group_rows),
+                        "error_type": type(e).__name__,
+                        "error_message": str(e),
+                        "traceback": traceback.format_exc(),
+                    },
+                    tags={
+                        "error_location": "group_processing",
+                        "group_key": group_key[:50],  # Truncate for tag limit
+                    },
+                    fingerprint=["group-processing", type(e).__name__]
+                )
                 continue
         
         # Validation summary
@@ -2290,32 +2493,74 @@ def main():
         if history_updates:
             save_hash_history(HASH_HISTORY_PATH, hash_history)
 
+        # SDK 2.x: Use get_isolation_scope() instead of configure_scope()
         if SENTRY_DSN:
-            with sentry_sdk.configure_scope() as scope:
-                scope.set_tag("session_success", True)
-                scope.set_tag("files_generated", generated_files_count)
-                scope.set_tag("session_duration", str(session_duration))
-                if audit_results:
-                    scope.set_tag("audit_risk_level", audit_results.get('summary', {}).get('risk_level', 'UNKNOWN'))
+            scope = sentry_sdk.get_isolation_scope()
+            scope.set_tag("session_success", "true")
+            scope.set_tag("files_generated", str(generated_files_count))
+            scope.set_tag("session_duration_seconds", str(session_duration.total_seconds()))
+            if audit_results:
+                scope.set_tag("audit_risk_level", audit_results.get('summary', {}).get('risk_level', 'UNKNOWN'))
+            
+            # Set final session context for dashboard visibility
+            sentry_sdk.set_context("session_summary", {
+                "success": True,
+                "files_generated": generated_files_count,
+                "duration_seconds": session_duration.total_seconds(),
+                "duration_human": str(session_duration),
+                "groups_processed": len(groups),
+                "history_updates": history_updates,
+                "mode": "TEST" if TEST_MODE else "PRODUCTION",
+                "audit_risk_level": audit_results.get('summary', {}).get('risk_level', 'UNKNOWN') if audit_results else None,
+            })
+            sentry_add_breadcrumb("session", "Session completed successfully", level="info", data={
+                "files_generated": generated_files_count,
+                "duration": str(session_duration)
+            })
 
     except FileNotFoundError as e:
         error_context = f"Missing required file: {e}"
         logging.error(f"💥 {error_context}")
-        if SENTRY_DSN:
-            sentry_sdk.capture_exception(e)
+        sentry_capture_with_context(
+            exception=e,
+            context_name="file_not_found",
+            context_data={
+                "missing_file": str(e),
+                "working_directory": os.getcwd(),
+                "error_type": "FileNotFoundError",
+            },
+            tags={"error_location": "main", "error_type": "file_not_found"},
+            fingerprint=["file-not-found", str(e)]
+        )
             
     except Exception as e:
         session_duration = datetime.datetime.now() - session_start
         error_context = f"Session failed after {session_duration}"
         logging.error(f"💥 {error_context}: {e}")
         
+        # SDK 2.x: Use get_isolation_scope() instead of configure_scope()
         if SENTRY_DSN:
-            with sentry_sdk.configure_scope() as scope:
-                scope.set_tag("session_success", False)
-                scope.set_tag("session_duration", str(session_duration))
-                scope.set_tag("failure_type", "general_exception")
-                scope.set_level("error")
-            sentry_sdk.capture_exception(e)
+            scope = sentry_sdk.get_isolation_scope()
+            scope.set_tag("session_success", "false")
+            scope.set_tag("session_duration_seconds", str(session_duration.total_seconds()))
+            scope.set_tag("failure_type", "general_exception")
+            scope.set_level("error")
+            
+            sentry_capture_with_context(
+                exception=e,
+                context_name="session_failure",
+                context_data={
+                    "duration_seconds": session_duration.total_seconds(),
+                    "duration_human": str(session_duration),
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                    "traceback": traceback.format_exc(),
+                    "test_mode": TEST_MODE,
+                    "groups_attempted": len(groups) if 'groups' in dir() else 'unknown',
+                },
+                tags={"error_location": "main", "session_phase": "execution"},
+                fingerprint=["session-failure", type(e).__name__]
+            )
 
 if __name__ == "__main__":
     main()
