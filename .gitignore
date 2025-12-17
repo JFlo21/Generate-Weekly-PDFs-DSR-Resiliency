@@ -87,3 +87,5 @@ coverage.xml
 .coverage
 htmlcov/
 .pytest_cache/
+
+generated_docs/hash_history.json

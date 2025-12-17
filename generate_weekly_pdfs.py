@@ -39,6 +39,12 @@ import signal
 # Load environment variables
 load_dotenv()
 
+# PERFORMANCE: Pre-compiled regex patterns (avoid repeated compilation in hot paths)
+_RE_SANITIZE_IDENTIFIER = re.compile(r'[^\w\-@.]')
+_RE_SANITIZE_HELPER_NAME = re.compile(r'[^\w\-]')
+_RE_EXTRACT_NUMBERS = re.compile(r'[^0-9.\-]')
+_RE_ISO_DATE_PREFIX = re.compile(r'^\d{4}-\d{2}-\d{2}')
+
 # Suppress BrokenPipeError when piping output (e.g. | head, | grep -m) so it doesn't surface as an exception
 try:
     signal.signal(signal.SIGPIPE, signal.SIG_DFL)  # type: ignore[attr-defined]
@@ -233,8 +239,15 @@ else:
 
 # --- UTILITY FUNCTIONS ---
 
-def parse_price(price_str):
-    """Safely convert a price string to a float."""
+def parse_price(price_str: str | float | int | None) -> float:
+    """Safely convert a price string to a float.
+    
+    Args:
+        price_str: Price value as string, float, int, or None
+    
+    Returns:
+        float: Parsed price value, or 0.0 if parsing fails
+    """
     if not price_str:
         return 0.0
     try:
@@ -242,8 +255,15 @@ def parse_price(price_str):
     except (ValueError, TypeError):
         return 0.0
 
-def is_checked(value):
-    """Check if a checkbox value is considered checked/true."""
+def is_checked(value: bool | int | str | None) -> bool:
+    """Check if a checkbox value is considered checked/true.
+    
+    Args:
+        value: Checkbox value in various formats
+    
+    Returns:
+        bool: True if the value represents a checked state
+    """
     if value is None:
         return False
     if isinstance(value, bool):
@@ -255,7 +275,11 @@ def is_checked(value):
     return False
 
 def excel_serial_to_date(value):
-    """Strict date parsing: return datetime or None. No numeric/serial fallbacks."""
+    """Strict date parsing: return datetime or None. No numeric/serial fallbacks.
+    
+    PERFORMANCE: Fast-path for ISO format dates (YYYY-MM-DD) before falling back
+    to the slower dateutil.parser.parse() for other formats.
+    """
     if value in (None, ""):
         return None
     if isinstance(value, datetime.datetime):
@@ -263,6 +287,14 @@ def excel_serial_to_date(value):
     if isinstance(value, datetime.date):
         return datetime.datetime.combine(value, datetime.time.min)
     s = str(value).strip()
+    # PERFORMANCE: Fast-path for ISO date format (most common in Smartsheet)
+    if len(s) >= 10 and s[4] == '-' and s[7] == '-':
+        try:
+            # Try ISO format first (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)
+            date_part = s[:10]
+            return datetime.datetime.strptime(date_part, '%Y-%m-%d')
+        except ValueError:
+            pass  # Fall through to general parser
     try:
         dt = parser.parse(s)
         if isinstance(dt, datetime.datetime):
@@ -271,8 +303,14 @@ def excel_serial_to_date(value):
     except Exception:
         return None
 
-def calculate_data_hash(group_rows):
+def calculate_data_hash(group_rows: list[dict]) -> str:
     """Calculate a hash of the group data to detect changes.
+
+    Args:
+        group_rows: List of row dictionaries to hash
+    
+    Returns:
+        str: 16-character SHA256 hash prefix
 
     Legacy (EXTENDED_CHANGE_DETECTION=0):
         Uses original minimal fields so hash stability is preserved for rollbacks.
@@ -351,9 +389,11 @@ def calculate_data_hash(group_rows):
     
     if variant == 'helper':
         # Helper variant: include helper-specific metadata (helper_job is OPTIONAL)
-        helper_foreman = sorted_rows[0].get('__helper_foreman', '') if sorted_rows else ''
-        helper_dept = sorted_rows[0].get('__helper_dept', '') if sorted_rows else ''
-        helper_job = sorted_rows[0].get('__helper_job', '') if sorted_rows else ''
+        # PERFORMANCE: Access row once, avoid repeated dict lookups
+        _first = sorted_rows[0] if sorted_rows else {}
+        helper_foreman = _first.get('__helper_foreman', '')
+        helper_dept = _first.get('__helper_dept', '')
+        helper_job = _first.get('__helper_job', '')
         # Validate required helper fields (helper_job is optional)
         if not helper_foreman or not helper_dept:
             logging.warning(f"⚠️ Helper variant missing required fields: foreman={helper_foreman}, dept={helper_dept}")
@@ -370,8 +410,15 @@ def calculate_data_hash(group_rows):
     hash_input = "\n".join(parts)
     return hashlib.sha256(hash_input.encode('utf-8')).hexdigest()[:16]
 
-def extract_data_hash_from_filename(filename):
-    """Extract data hash from filename format: WR_{wr_num}_WeekEnding_{week_end}_{data_hash}.xlsx"""
+def extract_data_hash_from_filename(filename: str) -> str | None:
+    """Extract data hash from filename format: WR_{wr_num}_WeekEnding_{week_end}_{data_hash}.xlsx
+    
+    Args:
+        filename: Excel filename to parse
+    
+    Returns:
+        str | None: 16-character hash if found, else None
+    """
     try:
         name_without_ext = filename.replace('.xlsx', '')
         parts = name_without_ext.split('_')
@@ -381,31 +428,42 @@ def extract_data_hash_from_filename(filename):
         pass
     return None
 
-def list_generated_excel_files(folder: str):
-    """List Excel files beginning with WR_ in the specified folder."""
+def list_generated_excel_files(folder: str) -> list[str]:
+    """List Excel files beginning with WR_ in the specified folder.
+    
+    Args:
+        folder: Directory path to scan
+    
+    Returns:
+        list[str]: List of matching Excel filenames
+    """
     try:
         return [f for f in os.listdir(folder) if f.startswith('WR_') and f.lower().endswith('.xlsx')]
     except FileNotFoundError:
         return []
 
-def build_group_identity(filename: str):
+def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | None:
     """
     Parse filename to extract identity tuple: (wr, week_ending, variant, helper_or_user).
     
-    Returns tuple with format:
-    - Primary: (wr, week, 'primary', None)
-    - Primary+User: (wr, week, 'primary', user_identifier)
-    - Helper: (wr, week, 'helper', helper_name)
+    Args:
+        filename: Excel filename to parse
     
-    Legacy format without variant: (wr, week, 'primary', None)
+    Returns:
+        tuple with format:
+        - Primary: (wr, week, 'primary', None)
+        - Primary+User: (wr, week, 'primary', user_identifier)
+        - Helper: (wr, week, 'helper', helper_name)
+        
+        Legacy format without variant: (wr, week, 'primary', None)
+        
+        Returns None if filename doesn't match expected format.
     
     Filename formats supported:
     - WR_{wr}_WeekEnding_{week}_{hash}.xlsx (legacy primary)
     - WR_{wr}_WeekEnding_{week}_{timestamp}_{hash}.xlsx (primary)
     - WR_{wr}_WeekEnding_{week}_{timestamp}_User_{user}_{hash}.xlsx (primary+user)
     - WR_{wr}_WeekEnding_{week}_{timestamp}_Helper_{helper}_{hash}.xlsx (helper)
-    
-    Returns None if filename doesn't match expected format.
     """
     if not filename.startswith('WR_'):
         return None
@@ -962,6 +1020,9 @@ def get_all_source_rows(client, source_sheets):
 
                 logging.info(f"📋 Available mapped columns in {source['name']}: {list(column_mapping.keys())}")
                 
+                # PERFORMANCE: Pre-build reverse mapping for O(1) cell lookups (column_id -> field_name)
+                reverse_column_map = {cid: name for name, cid in column_mapping.items()}
+                
                 # Debug: Check if Weekly Reference Logged Date is mapped
                 if 'Weekly Reference Logged Date' in column_mapping:
                     logging.info(f"✅ Weekly Reference Logged Date column found with ID: {column_mapping['Weekly Reference Logged Date']}")
@@ -990,36 +1051,34 @@ def get_all_source_rows(client, source_sheets):
                     row_data = {}
 
                     # Per‑cell debug logging only for the earliest rows overall
-                    if PER_CELL_DEBUG_ENABLED and global_row_counter < DEBUG_SAMPLE_ROWS:
+                    # PERFORMANCE: Use early continue to avoid logging overhead in production
+                    _should_debug_cells = PER_CELL_DEBUG_ENABLED and global_row_counter < DEBUG_SAMPLE_ROWS
+                    if _should_debug_cells:
                         logging.info(f"🔍 DEBUG: Processing row with {len(row.cells)} cells (global row #{global_row_counter+1})")
                         for cell in row.cells:
-                            mapped_name = None
-                            for name, cid in column_mapping.items():
-                                if cell.column_id == cid:
-                                    mapped_name = name
-                                    break
+                            mapped_name = reverse_column_map.get(cell.column_id)
                             if mapped_name:
                                 val = cell.display_value if cell.display_value is not None else cell.value
                                 if val is not None:
                                     logging.info(f"   Cell {cell.column_id}: '{mapped_name}' = '{val}'")
 
-                    # Build mapped row data
+                    # Build mapped row data using pre-built reverse mapping for O(1) lookup
                     for cell in row.cells:
-                        raw_val = getattr(cell, 'value', None)
-                        if raw_val is None:
-                            raw_val = getattr(cell, 'display_value', None)
-                        for mapped_name, column_id in column_mapping.items():
-                            if cell.column_id == column_id:
-                                row_data[mapped_name] = raw_val
-                                break
+                        mapped_name = reverse_column_map.get(cell.column_id)
+                        if mapped_name:
+                            raw_val = getattr(cell, 'value', None)
+                            if raw_val is None:
+                                raw_val = getattr(cell, 'display_value', None)
+                            row_data[mapped_name] = raw_val
 
                     # Attach provenance metadata for audit (used to fetch selective cell history later)
                     if row_data:
                         row_data['__sheet_id'] = source['id']
                         row_data['__row_id'] = row.id
 
-                    # Essential field summary for earliest rows
-                    if global_row_counter < DEBUG_ESSENTIAL_ROWS:
+                    # Essential field summary for earliest rows (gated to reduce I/O)
+                    _should_log_essentials = global_row_counter < DEBUG_ESSENTIAL_ROWS
+                    if _should_log_essentials:
                         essential_fields = [
                             'Weekly Reference Logged Date', 'Snapshot Date', 'Units Completed?',
                             'Units Total Price', 'Work Request #'
@@ -1294,7 +1353,8 @@ def group_source_rows(rows):
             if valid_helper_row and helper_mode_enabled:
                 helper_dept = r.get('__helper_dept', '')
                 helper_job = r.get('__helper_job', '')
-                helper_sanitized = re.sub(r'[^\w\-]', '_', helper_foreman)[:50]
+                # PERFORMANCE: Use pre-compiled regex for helper name sanitization
+                helper_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50]
                 helper_key = f"{week_end_for_key}_{wr_key}_HELPER_{helper_sanitized}"
                 keys_to_add.append(('helper', helper_key, helper_foreman))
                 # HELPER GROUP LOGGING: Always log when helper group is created
@@ -1538,7 +1598,8 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         # Helper variant: include helper identifier in filename
         helper_foreman = first_row.get('__helper_foreman', '')
         if helper_foreman:
-            helper_sanitized = re.sub(r'[^\w\-]', '_', helper_foreman)[:50]
+            # PERFORMANCE: Use pre-compiled regex for filename sanitization
+            helper_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50]
             variant_suffix = f"_Helper_{helper_sanitized}"
     elif variant == 'primary':
         # Primary variant (no suffix needed)
@@ -1737,8 +1798,8 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
             
             # Safely parse quantity - extract only numbers
             qty_str = str(row_data.get('Quantity', '') or 0)
-            # Normalize quantity by stripping non-numeric (retain digits, dot, minus)
-            qty_str = re.sub(r'[^0-9.\-]', '', qty_str)
+            # PERFORMANCE: Use pre-compiled regex for quantity normalization
+            qty_str = _RE_EXTRACT_NUMBERS.sub('', qty_str)
             try:
                 quantity = float(qty_str) if qty_str not in ('', '.', '-', '-.', '.-') else 0.0
             except Exception:
@@ -2054,7 +2115,8 @@ def main():
                     identifier = f"{helper_foreman}|{helper_dept}|{helper_job}"
                 else:
                     user_val = first_row.get('User')
-                    identifier = re.sub(r'[^\w\-@.]', '_', user_val)[:50] if user_val else ''
+                    # PERFORMANCE: Use pre-compiled regex for identifier sanitization
+                    identifier = _RE_SANITIZE_IDENTIFIER.sub('_', user_val)[:50] if user_val else ''
                 
                 # History key includes variant dimension to prevent collisions
                 history_key = f"{wr_num}|{week_raw}|{variant}|{identifier}"
@@ -2110,7 +2172,8 @@ def main():
                         else:
                             # Primary variant: check if user-specific
                             user_val = first_row.get('User')
-                            identifier = re.sub(r'[^\w\-@.]', '_', user_val)[:50] if user_val else None
+                            # PERFORMANCE: Use pre-compiled regex
+                            identifier = _RE_SANITIZE_IDENTIFIER.sub('_', user_val)[:50] if user_val else None
                         
                         # FIXED: Delete old attachments with proper variant-aware implementation
                         # Determine if this group/week is force-regenerated
@@ -2202,7 +2265,8 @@ def main():
                     identifier = f"{helper_foreman}|{helper_dept}|{helper_job}"
                 else:
                     user_val = group_rows[0].get('User')
-                    identifier = re.sub(r'[^\w\-@.]', '_', user_val)[:50] if user_val else ''
+                    # PERFORMANCE: Use pre-compiled regex
+                    identifier = _RE_SANITIZE_IDENTIFIER.sub('_', user_val)[:50] if user_val else ''
                 valid_wr_weeks.add((wr, week_raw, variant, identifier))
         if not TEST_MODE:
             cleanup_untracked_sheet_attachments(client, TARGET_SHEET_ID, valid_wr_weeks, TEST_MODE)
