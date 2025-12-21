@@ -964,7 +964,9 @@ def discover_source_sheets(client):
         3239244454645636, 2230129632694148, 1732945426468740, 4126460034895748,
         7899446718189444, 1964558450118532, 5905527830695812, 820644963897220,
         8002920231423876, 2308525217763204,  # Added per user request
-        5892629871939460, 3756603854507908, 5833510251089796,  # Added per user request
+        5892629871939460, 
+        3756603854507908, # Added Intake Promax
+        5833510251089796,  # Added per user request
         5291853336235908,  # Added per user request
         6399146438119300, # Added per user request
         2582148201533316, # Added Resiliency Promax Database 16
@@ -988,7 +990,8 @@ def discover_source_sheets(client):
         1207776467439492, # Added Promax Database 33
         342733613911940, # Added Promax Database 34
         6658677403504516, # Added Promax Database 35
-        7043847386255236 # Added Promax Database 36
+        7043847386255236, # Added Promax Database 36
+
     ]
 
     # OPTIONAL SPEED-UP FOR TESTING: allow overriding sheet list via env LIMITED_SHEET_IDS
