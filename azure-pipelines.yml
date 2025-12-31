@@ -1,32 +1,24 @@
 
 # azure-pipelines.yml
-# CI on GitHub default branch; sync GitHub -> Azure DevOps (single-branch or full mirror)
+# CI on GitHub; sync GitHub -> Azure DevOps (single-branch or full mirror)
 
-# ── Trigger (change to 'main' if applicable)
 trigger:
   branches:
     include:
-      - master
+      - master     # change to 'main' if your GitHub default is main
 
-# Optional PR validation
 pr:
   branches:
     include:
-      - master
+      - master     # change to 'main' if desired
 
 pool:
   vmImage: 'ubuntu-latest'
 
-# These identify your Azure DevOps destination
 variables:
   AZDO_ORG: 'LinetecDevelopment'
-  AZDO_PROJECT: 'Resiliency%20-%20Development'
+  AZDO_PROJECT: 'Resiliency - Development'
   AZDO_REPO: 'Generate-Weekly-PDFs-DSR-Resiliency'
-
-  # You have two auth choices to push into Azure DevOps:
-  # 1) Use a secret PAT variable 'AZDO_PAT' with Code (Read & Write).
-  # 2) Use System.AccessToken (no PAT) with “Allow scripts to access OAuth token”.
-  USE_SYSTEM_ACCESSTOKEN: 'false'   # set to 'false' to use PAT
 
 steps:
   # Checkout from GitHub (origin points to GitHub)
@@ -38,47 +30,37 @@ steps:
       git config --global user.name "Azure Pipelines"
       git config --global user.email "buildagent@azuredevops.local"
 
-      # Build remote URL for Azure DevOps
-      AZDO_URL="https://$(AZDO_ORG).visualstudio.com/$(AZDO_PROJECT)/_git/$(AZDO_REPO)"
+      echo "Configuring Azure DevOps remote (using System.AccessToken header)..."
+      AZDO_URL="https://dev.azure.com/$(AZDO_ORG)/$(AZDO_PROJECT)/_git/$(AZDO_REPO)"
 
-      if [ "$(USE_SYSTEM_ACCESSTOKEN)" = "true" ]; then
-        # Use the pipeline OAuth token (enable in pipeline settings)
-        GIT_REMOTE="https://$(System.AccessToken)@$(AZDO_ORG).visualstudio.com/$(AZDO_PROJECT)/_git/$(AZDO_REPO)"
-      else
-        # Use PAT stored as a secret variable AZDO_PAT
-        GIT_REMOTE="https://$(AZDO_PAT)@$(AZDO_ORG).visualstudio.com/$(AZDO_PROJECT)/_git/$(AZDO_REPO)"
-      fi
-
-      # Add/Update remote named 'azure'
+      # Add or update remote named 'azure' WITHOUT credentials in the URL
       if git remote | grep -q '^azure$'; then
-        git remote set-url azure "$GIT_REMOTE"
+        git remote set-url azure "$AZDO_URL"
       else
-        git remote add azure "$GIT_REMOTE"
+        git remote add azure "$AZDO_URL"
       fi
 
-      # (Avoid printing credentials)
       echo "Azure remote set to: $AZDO_URL"
-    displayName: 'Configure Git & Azure DevOps remote'
+    displayName: 'Configure Git identity & Azure DevOps remote'
 
-  # ── Sync only the default branch (master->master). Change to 'main' if needed.
   - script: |
       set -eu
 
-      # Ensure we’re on and up-to-date with GitHub default branch
+      # Ensure we’re up to date with GitHub default branch
       git fetch origin --prune
       git checkout master
       git pull --ff-only origin master
 
-      # Push the branch to Azure DevOps
-      git push azure master:master
+      # Push to Azure DevOps using the OAuth token as an HTTP header
+      # (more robust than embedding the token in the URL)
+      git -c http.extraheader="AUTHORIZATION: bearer $(System.AccessToken)" \
+          push azure master:master
     displayName: 'Sync default branch from GitHub to Azure DevOps'
 
-    # ── OPTIONAL: Mirror all branches and tags (uncomment to enable)
-    # - script: |
-    #     set -eu
-    #     git fetch origin --prune --tags
-    #     # Push all branches and tags to Azure DevOps
-    #     git push azure --all
-    #     git push azure --tags
-    #   displayName: 'Mirror all branches & tags (GitHub -> Azure DevOps)'
-
+  # OPTIONAL: Mirror all branches & tags (uncomment if desired)
+  # - script: |
+  #     set -eu
+  #     git fetch origin --prune --tags
+  #     git -c http.extraheader="AUTHORIZATION: bearer $(System.AccessToken)" push azure --all
+  #     git -c http.extraheader="AUTHORIZATION: bearer $(System.AccessToken)" push azure --tags
+  #   displayName: 'Mirror all branches & tags (GitHub -> Azure DevOps)'
