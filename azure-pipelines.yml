@@ -17,7 +17,7 @@ pool:
 
 variables:
   AZDO_ORG: 'LinetecDevelopment'
-  AZDO_PROJECT: 'Resiliency - Development'
+  AZDO_PROJECT: 'Resiliency%20-%20Development'
   AZDO_REPO: 'Generate-Weekly-PDFs-DSR-Resiliency'
 
 steps:
