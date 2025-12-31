@@ -1,13 +1,13 @@
 
+# azure-pipelines.yml
 # CI on GitHub; authoritative sync to Azure DevOps using PAT and --force-with-lease
+# with full history to avoid shallow object errors
 
-# ── Trigger (change to 'main' if your GitHub default branch is main)
 trigger:
   branches:
     include:
-      - master
+      - master  # change to 'main' if your GitHub default branch is main
 
-# Optional PR validation (adjust if you want PR builds too)
 pr:
   branches:
     include:
@@ -16,16 +16,16 @@ pr:
 pool:
   vmImage: 'ubuntu-latest'
 
-# Destination Azure DevOps identifiers
 variables:
   AZDO_ORG: 'LinetecDevelopment'
-  AZDO_PROJECT: 'Resiliency%20-%20Development'              # use literal name (spaces ok)
+  AZDO_PROJECT: 'Resiliency%20-%20Development'
   AZDO_REPO: 'Generate-Weekly-PDFs-DSR-Resiliency'
 
 steps:
-  # 1) Checkout from GitHub (origin points to GitHub because pipeline was created from GitHub)
+  # 1) Checkout from GitHub with FULL history
   - checkout: self
     persistCredentials: true
+    fetchDepth: 0  # <-- critical: avoid shallow clone
 
   # 2) Configure Git identity & add Azure DevOps remote (no credentials in URL)
   - script: |
@@ -48,8 +48,6 @@ steps:
   # 3) Prepare PAT-based HTTP Basic header (safer than embedding PAT in URL)
   - script: |
       set -eu
-      # Build Basic auth header using empty username and PAT as password.
-      # header value must be base64(":<PAT>")
       BASIC="$(printf ':%s' "$(AZDO_PAT)" | base64 -w0 || printf ':%s' "$(AZDO_PAT)" | base64)"
       echo "AUTHORIZATION: Basic $BASIC" > ~/.azdo_header
       chmod 600 ~/.azdo_header
@@ -60,10 +58,17 @@ steps:
   - script: |
       set -eu
 
-      # Update local from GitHub (origin)
+      # Make sure branch exists locally and is up to date with GitHub
       git fetch origin --prune
-      git checkout master
+      # If master isn't present locally yet, create it tracking origin/master
+      git checkout master || git checkout -b master origin/master
       git pull --ff-only origin master
+
+      # (If the checkout was shallow for any reason, unshallow now)
+      if [ -f .git/shallow ]; then
+        echo "Converting shallow clone to full clone..."
+        git fetch --unshallow origin
+      fi
 
       # Seed lease: fetch current Azure state to ensure we don't overwrite concurrent changes
       EXTRA="AUTHORIZATION: $(cat ~/.azdo_header | cut -d' ' -f2-)"
@@ -74,21 +79,22 @@ steps:
     displayName: 'Mirror GitHub → Azure DevOps (default branch, safer force)'
 
   # 5) OPTIONAL: Full mirror (all branches & tags) with --force-with-lease
-  #    Uncomment to keep Azure Repos exactly matching GitHub across all refs.
   # - script: |
   #     set -eu
   #     git fetch origin --prune --tags
   #
-  #     EXTRA="AUTHORIZATION: $(cat ~/.azdo_header | cut -d' ' -f2-)"
-  #     # Seed leases for all refs and tags
-  #     git -c http.extraheader="$EXTRA" fetch azure --all --tags
+  #     # Ensure full history for tags/branches as well
+  #     if [ -f .git/shallow ]; then
+  #       git fetch --unshallow origin
+  #     fi
   #
-  #     # Push all branches and tags (authoritative, safer force)
+  #     EXTRA="AUTHORIZATION: $(cat ~/.azdo_header | cut -d' ' -f2-)"
+  #     git -c http.extraheader="$EXTRA" fetch azure --all --tags
   #     git -c http.extraheader="$EXTRA" push --force-with-lease azure --all
   #     git -c http.extraheader="$EXTRA" push --force-with-lease azure --tags
   #   displayName: 'Mirror all branches & tags (GitHub → Azure, safer force)'
 
-  # 6) OPTIONAL: Diagnostics (enable if troubleshooting)
+  # 6) OPTIONAL: Diagnostics when troubleshooting
   # - script: |
   #     set -eu
   #     echo "Remotes:"
