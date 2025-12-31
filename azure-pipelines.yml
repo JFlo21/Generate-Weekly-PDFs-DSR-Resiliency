@@ -1,6 +1,5 @@
 
-# azure-pipelines.yml
-# CI on GitHub; sync GitHub -> Azure DevOps using PAT (safe header-based auth)
+# CI on GitHub; authoritative sync to Azure DevOps using PAT and --force-with-lease
 
 # ── Trigger (change to 'main' if your GitHub default branch is main)
 trigger:
@@ -8,7 +7,7 @@ trigger:
     include:
       - master
 
-# Optional PR validation
+# Optional PR validation (adjust if you want PR builds too)
 pr:
   branches:
     include:
@@ -20,7 +19,7 @@ pool:
 # Destination Azure DevOps identifiers
 variables:
   AZDO_ORG: 'LinetecDevelopment'
-  AZDO_PROJECT: 'Resiliency%20-%20Development'              # note:literal spaces; Azure will handle encoding
+  AZDO_PROJECT: 'Resiliency - Development'              # use literal name (spaces ok)
   AZDO_REPO: 'Generate-Weekly-PDFs-DSR-Resiliency'
 
 steps:
@@ -28,7 +27,7 @@ steps:
   - checkout: self
     persistCredentials: true
 
-  # 2) Configure Git identity and Azure DevOps remote (no credentials in the URL)
+  # 2) Configure Git identity & add Azure DevOps remote (no credentials in URL)
   - script: |
       set -eu
       git config --global user.name "Azure Pipelines"
@@ -44,24 +43,20 @@ steps:
 
       echo "Azure remote set to:"
       printf '%s\n' "$AZDO_URL"
-    displayName: 'Configure Git identity & Azure DevOps remote (no creds in URL)'
+    displayName: 'Configure Git identity & Azure DevOps remote'
 
   # 3) Prepare PAT-based HTTP Basic header (safer than embedding PAT in URL)
   - script: |
       set -eu
-
       # Build Basic auth header using empty username and PAT as password.
       # header value must be base64(":<PAT>")
       BASIC="$(printf ':%s' "$(AZDO_PAT)" | base64 -w0 || printf ':%s' "$(AZDO_PAT)" | base64)"
-
-      # Persist the header for subsequent git commands (avoids echoing PAT in logs)
       echo "AUTHORIZATION: Basic $BASIC" > ~/.azdo_header
       chmod 600 ~/.azdo_header
-
       echo "Prepared PAT header for Azure DevOps pushes."
     displayName: 'Prepare PAT header for Azure DevOps'
 
-  # 4) Sync only the default branch (master -> master). Change to 'main' if needed.
+  # 4) Authoritative sync for default branch using --force-with-lease
   - script: |
       set -eu
 
@@ -70,31 +65,37 @@ steps:
       git checkout master
       git pull --ff-only origin master
 
-      # Read header and push to Azure DevOps (remote 'azure')
+      # Seed lease: fetch current Azure state to ensure we don't overwrite concurrent changes
       EXTRA="AUTHORIZATION: $(cat ~/.azdo_header | cut -d' ' -f2-)"
-      git -c http.extraheader="$EXTRA" push azure master:master
-    displayName: 'Sync default branch from GitHub to Azure DevOps (PAT)'
+      git -c http.extraheader="$EXTRA" fetch azure master
 
-  # ── OPTIONAL: Full mirror (push all branches & tags)
-  #   Uncomment the block below if you want Azure DevOps to mirror GitHub completely.
+      # Safer force push: only forces if remote hasn't changed since our fetch
+      git -c http.extraheader="$EXTRA" push --force-with-lease azure master:master
+    displayName: 'Mirror GitHub → Azure DevOps (default branch, safer force)'
+
+  # 5) OPTIONAL: Full mirror (all branches & tags) with --force-with-lease
+  #    Uncomment to keep Azure Repos exactly matching GitHub across all refs.
   # - script: |
   #     set -eu
   #     git fetch origin --prune --tags
+  #
   #     EXTRA="AUTHORIZATION: $(cat ~/.azdo_header | cut -d' ' -f2-)"
-  #     git -c http.extraheader="$EXTRA" push azure --all
-  #     git -c http.extraheader="$EXTRA" push azure --tags
-  #   displayName: 'Mirror all branches & tags (GitHub -> Azure DevOps, PAT)'
-  
-  # ── OPTIONAL: Diagnostics (use temporarily when troubleshooting)
+  #     # Seed leases for all refs and tags
+  #     git -c http.extraheader="$EXTRA" fetch azure --all --tags
+  #
+  #     # Push all branches and tags (authoritative, safer force)
+  #     git -c http.extraheader="$EXTRA" push --force-with-lease azure --all
+  #     git -c http.extraheader="$EXTRA" push --force-with-lease azure --tags
+  #   displayName: 'Mirror all branches & tags (GitHub → Azure, safer force)'
+
+  # 6) OPTIONAL: Diagnostics (enable if troubleshooting)
   # - script: |
   #     set -eu
   #     echo "Remotes:"
   #     git remote -v | sed 's/https:\/\/[^ ]*/https:\/\/<redacted>/g'
   #     echo "HEAD:"
   #     git symbolic-ref --short HEAD || echo "(detached)"
-  #     AZDO_URL="https://dev.azure.com/$(AZDO_ORG)/$(AZDO_PROJECT)/_git/$(AZDO_REPO)"
   #     EXTRA="AUTHORIZATION: $(cat ~/.azdo_header | cut -d' ' -f2-)"
-  #     echo "Attempting ls-remote on azure..."
+  #     echo "Azure refs (ls-remote):"
   #     git -c http.extraheader="$EXTRA" ls-remote azure | head || true
-  #   displayName: 'Diagnostics: show remotes, HEAD, ls-remote'
-
+  #   displayName: 'Diagnostics: remotes, HEAD, azure refs'
