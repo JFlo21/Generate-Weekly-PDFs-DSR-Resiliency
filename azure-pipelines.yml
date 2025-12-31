@@ -20,7 +20,7 @@ pool:
 # Destination Azure DevOps identifiers
 variables:
   AZDO_ORG: 'LinetecDevelopment'
-  AZDO_PROJECT: 'Resiliency - Development'              # note:literal spaces; Azure will handle encoding
+  AZDO_PROJECT: 'Resiliency%20-%20Development'              # note:literal spaces; Azure will handle encoding
   AZDO_REPO: 'Generate-Weekly-PDFs-DSR-Resiliency'
 
 steps:
