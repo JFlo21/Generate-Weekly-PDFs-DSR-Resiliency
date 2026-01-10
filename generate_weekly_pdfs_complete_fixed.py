@@ -298,19 +298,20 @@ def get_all_source_rows(client, source_sheets):
             try:
                 sheet = client.Sheets.get_sheet(source['id'])
                 column_mapping = source['column_mapping']
+                # OPTIMIZATION: Invert mapping for O(1) lookup
+                column_id_to_name = {v: k for k, v in column_mapping.items()}
                 
                 for row in sheet.rows:
                     row_data = {}
                     has_required_data = False
                     
                     for cell in row.cells:
-                        for mapped_name, column_id in column_mapping.items():
-                            if cell.column_id == column_id:
-                                row_data[mapped_name] = cell.display_value
-                                if mapped_name in ['Work Request #', 'Weekly Reference Logged Date', 'Units Completed?']:
-                                    if cell.display_value:
-                                        has_required_data = True
-                                break
+                        if cell.column_id in column_id_to_name:
+                            mapped_name = column_id_to_name[cell.column_id]
+                            row_data[mapped_name] = cell.display_value
+                            if mapped_name in ['Work Request #', 'Weekly Reference Logged Date', 'Units Completed?']:
+                                if cell.display_value:
+                                    has_required_data = True
                     
                     # Validate row has essential data
                     if (has_required_data and 
