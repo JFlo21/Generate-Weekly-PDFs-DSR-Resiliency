@@ -29,3 +29,4 @@ python-dateutil==2.9.0.post0
 python-dotenv==1.0.1
 sentry-sdk>=2.35.0
 smartsheet-python-sdk==3.0.3
+urllib3>=2.6.3 # not directly required, pinned by Snyk to avoid a vulnerability
