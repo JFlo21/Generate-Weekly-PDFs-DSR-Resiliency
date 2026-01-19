@@ -3,14 +3,11 @@ Unit tests for get_all_source_rows optimization.
 Verifies that the O(1) hash map lookup produces the same results as the original O(M) implementation.
 """
 
-import sys
-import os
-
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock
 import pytest
+
+# Test constants
+NUM_EXTRA_COLUMNS = 46  # Plus 4 required columns = 50 total columns
 
 
 def test_get_all_source_rows_with_empty_column_mapping():
@@ -180,7 +177,7 @@ def test_get_all_source_rows_with_many_columns():
     }
     
     # Add 46 more columns to simulate a large mapping
-    for i in range(5, 51):
+    for i in range(5, 5 + NUM_EXTRA_COLUMNS):
         column_mapping[f'Extra Column {i}'] = 1000 + i
     
     # Create mock cells - only required ones have values
@@ -207,7 +204,7 @@ def test_get_all_source_rows_with_many_columns():
     mock_cells.append(mock_cell_price)
     
     # Add cells for all other columns (simulating a wide sheet)
-    for i in range(5, 51):
+    for i in range(5, 5 + NUM_EXTRA_COLUMNS):
         mock_cell = Mock()
         mock_cell.column_id = 1000 + i
         mock_cell.display_value = f"Value {i}"
@@ -240,7 +237,7 @@ def test_get_all_source_rows_with_many_columns():
     assert result[0]['Units Total Price'] == '250.75'
     
     # Verify all extra columns were captured
-    for i in range(5, 51):
+    for i in range(5, 5 + NUM_EXTRA_COLUMNS):
         assert result[0][f'Extra Column {i}'] == f'Value {i}'
 
 
@@ -299,10 +296,10 @@ def test_get_all_source_rows_handles_unmapped_columns():
     # Verify unmapped column is not in result
     assert len(result) == 1
     assert result[0]['Work Request #'] == 'WR54321'
-    assert 9999 not in result[0]  # Column ID should not appear
-    # No key for unmapped column should exist
-    assert all(key in ['Work Request #', 'Weekly Reference Logged Date', 'Units Completed?', 'Units Total Price'] 
-               for key in result[0].keys())
+    # Verify only mapped column names appear in result (column IDs should not appear)
+    result_keys = set(result[0].keys())
+    expected_keys = {'Work Request #', 'Weekly Reference Logged Date', 'Units Completed?', 'Units Total Price'}
+    assert result_keys == expected_keys, f"Expected {expected_keys}, got {result_keys}"
 
 
 def test_get_all_source_rows_filters_zero_price():
@@ -354,7 +351,3 @@ def test_get_all_source_rows_filters_zero_price():
     
     # Row with zero price should be filtered out
     assert len(result) == 0
-
-
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
