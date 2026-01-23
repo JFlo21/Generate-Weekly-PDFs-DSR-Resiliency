@@ -994,7 +994,8 @@ def discover_source_sheets(client):
         2920263713771396, # Added Intake Promax 3
         4317397608517508, # Added Resiliency Promax 37
         277473162907524, # Added Resiliency Promax (New)
-        1697214691757956 # Added Resiliency Promax 38
+        1697214691757956, # Added Resiliency Promax 38
+        8823469929090948 # Added Resiliency Promax 39
         
 
     ]
