@@ -996,7 +996,9 @@ def discover_source_sheets(client):
         277473162907524, # Added Resiliency Promax (New)
         1697214691757956, # Added Resiliency Promax 38
         8823469929090948, # Added Resiliency Promax 39
-        692599695298436 #Added Resiliency Promax 40
+        692599695298436, #Added Resiliency Promax 40
+        2183127494512516, #Added Resiliency Promax 42
+        4774094567329668 #Added Resiliency Promax 41
         
 
     ]
