@@ -30,6 +30,10 @@ steps:
   # 2) Configure Git identity & add Azure DevOps remote (no credentials in URL)
   - script: |
       set -eu
+      if [ -z "$(AZDO_PAT)" ]; then
+        echo "⚠️ AZDO_PAT is not set. Skipping Azure DevOps configuration."
+        exit 0
+      fi
       git config --global user.name "Azure Pipelines"
       git config --global user.email "buildagent@azuredevops.local"
 
@@ -48,6 +52,10 @@ steps:
   # 3) Prepare PAT-based HTTP Basic header (safer than embedding PAT in URL)
   - script: |
       set -eu
+      if [ -z "$(AZDO_PAT)" ]; then
+        echo "⚠️ AZDO_PAT is not set. Skipping header preparation."
+        exit 0
+      fi
       BASIC="$(printf ':%s' "$(AZDO_PAT)" | base64 -w0 || printf ':%s' "$(AZDO_PAT)" | base64)"
       echo "AUTHORIZATION: Basic $BASIC" > ~/.azdo_header
       chmod 600 ~/.azdo_header
@@ -57,6 +65,10 @@ steps:
   # 4) Authoritative sync for default branch using --force-with-lease
   - script: |
       set -eu
+      if [ -z "$(AZDO_PAT)" ]; then
+        echo "⚠️ AZDO_PAT is not set. Skipping mirror sync."
+        exit 0
+      fi
 
       # Make sure branch exists locally and is up to date with GitHub
       git fetch origin --prune
