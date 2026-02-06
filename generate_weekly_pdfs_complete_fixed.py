@@ -143,7 +143,9 @@ def is_checked(value):
 
 def calculate_data_hash(group_rows):
     """Calculate a hash of the group data to detect changes."""
-    data_string = ""
+    # OPTIMIZATION: Use incremental hashing to avoid large string allocation
+    hasher = hashlib.sha256()
+
     for row in sorted(group_rows, key=lambda x: x.get('Work Request #', '')):
         # CRITICAL: Use parse_price() for normalization to avoid format-based false changes
         normalized_price = f"{parse_price(row.get('Units Total Price', 0)):.2f}"
@@ -151,9 +153,9 @@ def calculate_data_hash(group_rows):
                   f"{normalized_price}{row.get('Snapshot Date', '')}" \
                   f"{row.get('Pole #', '')}{row.get('Work Type', '')}" \
                   f"{is_checked(row.get('Units Completed?'))}"  # CRITICAL: Include completion status
-        data_string += row_data
+        hasher.update(row_data.encode('utf-8'))
     
-    return hashlib.sha256(data_string.encode('utf-8')).hexdigest()[:16]
+    return hasher.hexdigest()[:16]
 
 def extract_data_hash_from_filename(filename):
     """Extract data hash from filename format: WR_{wr_num}_WeekEnding_{week_end}_{data_hash}.xlsx"""
@@ -368,6 +370,9 @@ def group_source_rows(rows):
             log_date_obj = parser.parse(log_date_str)
             snapshot_date_obj = parser.parse(snapshot_date_str)
             
+            # OPTIMIZATION: Cache parsed dates to avoid re-parsing in the second pass
+            r['_cache_log_date'] = log_date_obj
+
             # Track foreman history for this work request with the most recent date
             wr_to_foreman_history[wr_key].append({
                 'foreman': foreman,
@@ -408,14 +413,19 @@ def group_source_rows(rows):
         current_foreman = wr_to_current_foreman.get(wr_key, foreman)
         
         try:
-            # Use Weekly Reference Logged Date as the week ending date directly
-            log_date_str = r.get('Weekly Reference Logged Date')
-            if not log_date_str:
-                logging.warning(f"Missing Weekly Reference Logged Date for WR# {wr_key}")
-                continue
-                
-            # Parse the Weekly Reference Logged Date - this IS the week ending date
-            week_ending_date = parser.parse(log_date_str)
+            # OPTIMIZATION: Use cached date if available to avoid expensive re-parsing
+            if '_cache_log_date' in r:
+                week_ending_date = r['_cache_log_date']
+            else:
+                # Use Weekly Reference Logged Date as the week ending date directly
+                log_date_str = r.get('Weekly Reference Logged Date')
+                if not log_date_str:
+                    logging.warning(f"Missing Weekly Reference Logged Date for WR# {wr_key}")
+                    continue
+
+                # Parse the Weekly Reference Logged Date - this IS the week ending date
+                week_ending_date = parser.parse(log_date_str)
+
             week_end_for_key = week_ending_date.strftime("%m%d%y")
             
             if TEST_MODE:
