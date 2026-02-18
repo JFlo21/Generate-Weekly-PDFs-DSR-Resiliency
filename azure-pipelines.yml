@@ -30,7 +30,14 @@ steps:
   # 2) Configure Git identity & add Azure DevOps remote (no credentials in URL)
   - script: |
       set -eu
+      # Check if AZDO_PAT is empty OR matches the literal macro string (unreplaced)
+      if [ -z "$AZDO_PAT_ENV" ] || [ "$AZDO_PAT_ENV" = "\$(AZDO_PAT)" ]; then
+        echo "⚠️ AZDO_PAT is not set or not replaced. Skipping Azure DevOps configuration."
+        exit 0
+      fi
       git config --global user.name "Azure Pipelines"
+    env:
+      AZDO_PAT_ENV: $(AZDO_PAT)
       git config --global user.email "buildagent@azuredevops.local"
 
       AZDO_URL="https://dev.azure.com/$(AZDO_ORG)/$(AZDO_PROJECT)/_git/$(AZDO_REPO)"
@@ -48,7 +55,13 @@ steps:
   # 3) Prepare PAT-based HTTP Basic header (safer than embedding PAT in URL)
   - script: |
       set -eu
-      BASIC="$(printf ':%s' "$(AZDO_PAT)" | base64 -w0 || printf ':%s' "$(AZDO_PAT)" | base64)"
+      if [ -z "$AZDO_PAT_ENV" ] || [ "$AZDO_PAT_ENV" = "\$(AZDO_PAT)" ]; then
+        echo "⚠️ AZDO_PAT is not set or not replaced. Skipping header preparation."
+        exit 0
+      fi
+      BASIC="$(printf ':%s' "$AZDO_PAT_ENV" | base64 -w0 || printf ':%s' "$AZDO_PAT_ENV" | base64)"
+    env:
+      AZDO_PAT_ENV: $(AZDO_PAT)
       echo "AUTHORIZATION: Basic $BASIC" > ~/.azdo_header
       chmod 600 ~/.azdo_header
       echo "Prepared PAT header for Azure DevOps pushes."
@@ -57,8 +70,14 @@ steps:
   # 4) Authoritative sync for default branch using --force-with-lease
   - script: |
       set -eu
+      if [ -z "$AZDO_PAT_ENV" ] || [ "$AZDO_PAT_ENV" = "\$(AZDO_PAT)" ]; then
+        echo "⚠️ AZDO_PAT is not set or not replaced. Skipping mirror sync."
+        exit 0
+      fi
 
       # Make sure branch exists locally and is up to date with GitHub
+    env:
+      AZDO_PAT_ENV: $(AZDO_PAT)
       git fetch origin --prune
       # If master isn't present locally yet, create it tracking origin/master
       git checkout master || git checkout -b master origin/master

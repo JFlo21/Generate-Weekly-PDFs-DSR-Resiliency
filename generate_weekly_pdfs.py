@@ -481,11 +481,12 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
     )
 
     if not EXTENDED_CHANGE_DETECTION:
-        data_string = ""
+        # OPTIMIZATION: Use incremental hashing to avoid large string allocation
+        hasher = hashlib.sha256()
         for row in sorted_rows:
             # CRITICAL: Use parse_price() for normalization to avoid format-based false changes
             normalized_price = f"{parse_price(row.get('Units Total Price', 0)):.2f}"
-            data_string += (
+            row_data = (
                 f"{row.get('Work Request #', '')}"
                 f"{row.get('CU', '')}"
                 f"{row.get('Quantity', '')}"
@@ -495,10 +496,12 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
                 f"{row.get('Work Type', '')}"
                 f"{is_checked(row.get('Units Completed?'))}"  # CRITICAL: Include completion status
             )
-        return hashlib.sha256(data_string.encode('utf-8')).hexdigest()[:16]
+            hasher.update(row_data.encode('utf-8'))
+        return hasher.hexdigest()[:16]
 
-    # Extended mode hash input parts
-    parts = []
+    # Extended mode: Use incremental hashing
+    hasher = hashlib.sha256()
+
     group_foreman = None
     for row in sorted_rows:
         foreman = row.get('__current_foreman') or row.get('Foreman') or ''
@@ -506,7 +509,8 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
             group_foreman = foreman
         # CRITICAL: Use parse_price() for normalization to avoid format-based false changes
         normalized_price = f"{parse_price(row.get('Units Total Price', 0)):.2f}"
-        parts.append("|".join([
+
+        row_str = "|".join([
             str(row.get('Work Request #', '')),
             str(row.get('Snapshot Date', '') or ''),
             str(row.get('CU', '') or ''),
@@ -517,15 +521,21 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
             str(row.get('Dept #', '') or ''),
             str(row.get('Scope #') or row.get('Scope ID', '') or ''),
             str(is_checked(row.get('Units Completed?'))),  # CRITICAL: Include completion status
-        ]))
+        ])
+        # Update hash incrementally with newline separator
+        hasher.update(row_str.encode('utf-8'))
+        hasher.update(b"\n")
 
     unique_depts = sorted({str(r.get('Dept #', '') or '') for r in sorted_rows if r.get('Dept #') is not None})
     total_price = sum(parse_price(r.get('Units Total Price')) for r in sorted_rows)
-    parts.append(f"FOREMAN={group_foreman or ''}")
+
+    # Append metadata
+    meta_parts = []
+    meta_parts.append(f"FOREMAN={group_foreman or ''}")
     
     # Variant-specific hash tokens (replaces activity log USER= token)
     variant = sorted_rows[0].get('__variant', 'primary') if sorted_rows else 'primary'
-    parts.append(f"VARIANT={variant}")
+    meta_parts.append(f"VARIANT={variant}")
     
     if variant == 'helper':
         # Helper variant: include helper-specific metadata (helper_job is OPTIONAL)
@@ -539,16 +549,19 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
             logging.warning(f"⚠️ Helper variant missing required fields: foreman={helper_foreman}, dept={helper_dept}")
         if not helper_job:
             logging.info(f"ℹ️ Helper variant without Job #: foreman={helper_foreman}, dept={helper_dept} (proceeding anyway)")
-        parts.append(f"HELPER={helper_foreman}")
-        parts.append(f"HELPER_DEPT={helper_dept}")
-        parts.append(f"HELPER_JOB={helper_job}")  # Include even if empty for hash consistency
+        meta_parts.append(f"HELPER={helper_foreman}")
+        meta_parts.append(f"HELPER_DEPT={helper_dept}")
+        meta_parts.append(f"HELPER_JOB={helper_job}")  # Include even if empty for hash consistency
     
-    parts.append(f"DEPTS={','.join(unique_depts)}")
-    parts.append(f"TOTAL={total_price:.2f}")
-    parts.append(f"ROWCOUNT={len(sorted_rows)}")
+    meta_parts.append(f"DEPTS={','.join(unique_depts)}")
+    meta_parts.append(f"TOTAL={total_price:.2f}")
+    meta_parts.append(f"ROWCOUNT={len(sorted_rows)}")
 
-    hash_input = "\n".join(parts)
-    return hashlib.sha256(hash_input.encode('utf-8')).hexdigest()[:16]
+    # Update hash with metadata
+    if meta_parts:
+        hasher.update("\n".join(meta_parts).encode('utf-8'))
+
+    return hasher.hexdigest()[:16]
 
 def extract_data_hash_from_filename(filename: str) -> str | None:
     """Extract data hash from filename format: WR_{wr_num}_WeekEnding_{week_end}_{data_hash}.xlsx
