@@ -18,9 +18,13 @@
     })
     .catch(() => { window.location.href = '/'; });
 
+  // Fetch CSRF token for state-changing requests
+  let csrfToken = '';
+  fetch('/csrf-token').then(r => r.json()).then(d => { csrfToken = d.token; }).catch(() => {});
+
   // Logout
   logoutBtn.addEventListener('click', async () => {
-    await fetch('/auth/logout', { method: 'POST' });
+    await fetch('/auth/logout', { method: 'POST', headers: { 'X-CSRF-Token': csrfToken } });
     window.location.href = '/';
   });
 

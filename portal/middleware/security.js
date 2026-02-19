@@ -1,6 +1,20 @@
 const helmet = require('helmet');
+const crypto = require('node:crypto');
 const rateLimit = require('express-rate-limit');
 const config = require('../config/default');
+
+function csrfProtection(req, res, next) {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+    return next();
+  }
+  if (!req.session) return next();
+
+  const token = req.headers['x-csrf-token'];
+  if (!token || token !== req.session.csrfToken) {
+    return res.status(403).json({ error: 'Invalid CSRF token' });
+  }
+  next();
+}
 
 function setupSecurity(app) {
   app.use(helmet({
@@ -35,4 +49,4 @@ function setupSecurity(app) {
   });
 }
 
-module.exports = { setupSecurity };
+module.exports = { setupSecurity, csrfProtection };

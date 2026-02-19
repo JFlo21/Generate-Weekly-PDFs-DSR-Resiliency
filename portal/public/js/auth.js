@@ -21,9 +21,15 @@
     const password = document.getElementById('password').value;
 
     try {
+      const csrfRes = await fetch('/csrf-token');
+      const csrfData = await csrfRes.json();
+
       const res = await fetch('/auth/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfData.token,
+        },
         body: JSON.stringify({ username, password }),
       });
       const data = await res.json();

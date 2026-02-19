@@ -4,7 +4,7 @@ const express = require('express');
 const session = require('express-session');
 const path = require('node:path');
 const config = require('./config/default');
-const { setupSecurity } = require('./middleware/security');
+const { setupSecurity, csrfProtection } = require('./middleware/security');
 const authRoutes = require('./routes/auth');
 const apiRoutes = require('./routes/api');
 const healthRoutes = require('./routes/health');
@@ -27,6 +27,16 @@ app.use(session({
 }));
 
 app.use(express.static(config.staticDir));
+
+app.get('/csrf-token', (req, res) => {
+  const crypto = require('node:crypto');
+  if (!req.session.csrfToken) {
+    req.session.csrfToken = crypto.randomBytes(32).toString('hex');
+  }
+  res.json({ token: req.session.csrfToken });
+});
+
+app.use(csrfProtection);
 
 app.use('/auth', authRoutes);
 app.use('/api', apiRoutes);

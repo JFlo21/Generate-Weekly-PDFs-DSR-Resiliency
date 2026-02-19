@@ -65,19 +65,32 @@ describe('Auth endpoints', () => {
     expect(res.body.authenticated).toBe(false);
   });
 
-  it('rejects login with missing fields', async () => {
+  it('rejects POST without CSRF token', async () => {
     const res = await request('/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      body: { username: 'admin', password: 'test' },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('rejects login with missing fields (with CSRF)', async () => {
+    const csrfRes = await request('/csrf-token');
+    const cookie = csrfRes.headers['set-cookie']?.[0]?.split(';')[0] || '';
+    const res = await request('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfRes.body.token, 'Cookie': cookie },
       body: { username: '' },
     });
     expect(res.status).toBe(400);
   });
 
-  it('rejects invalid credentials', async () => {
+  it('rejects invalid credentials (with CSRF)', async () => {
+    const csrfRes = await request('/csrf-token');
+    const cookie = csrfRes.headers['set-cookie']?.[0]?.split(';')[0] || '';
     const res = await request('/auth/login', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfRes.body.token, 'Cookie': cookie },
       body: { username: 'wrong', password: 'wrong' },
     });
     expect(res.status).toBe(401);
