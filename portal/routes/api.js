@@ -1,10 +1,17 @@
 const express = require('express');
-const { createUnzip } = require('node:zlib');
+const path = require('node:path');
 const { requireAuth } = require('../middleware/auth');
 const github = require('../services/github');
 const excel = require('../services/excel');
 
 const router = express.Router();
+
+function sanitizeFilename(name) {
+  if (!name) return undefined;
+  const normalized = path.posix.normalize(name);
+  if (normalized.startsWith('..') || normalized.includes('/../')) return undefined;
+  return normalized;
+}
 
 router.use(requireAuth);
 
@@ -67,11 +74,11 @@ router.get('/artifacts/:artifactId/view', async (req, res) => {
     const zip = new AdmZip(zipBuffer);
     const entries = zip.getEntries();
 
-    const filename = req.query.file;
+    const filename = sanitizeFilename(req.query.file);
     let targetEntry;
 
     if (filename) {
-      targetEntry = entries.find((e) => e.entryName === filename || e.entryName.endsWith(filename));
+      targetEntry = entries.find((e) => e.entryName === filename);
     }
     if (!targetEntry) {
       targetEntry = entries.find((e) => e.entryName.endsWith('.xlsx'));

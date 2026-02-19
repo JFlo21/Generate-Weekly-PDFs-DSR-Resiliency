@@ -57,7 +57,7 @@
         card.addEventListener('click', () => loadArtifacts(card.dataset.runId));
       });
     } catch (err) {
-      runsContainer.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>Error loading runs. ${err.message}</p></div>`;
+      runsContainer.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>Error loading runs. ${escapeHtml(err.message)}</p></div>`;
     }
   }
 
@@ -114,7 +114,7 @@
         });
       });
     } catch (err) {
-      artifactsPanel.innerHTML = `<div class="artifacts-panel"><div class="empty-state"><div class="icon">⚠️</div><p>Error: ${err.message}</p></div></div>`;
+      artifactsPanel.innerHTML = `<div class="artifacts-panel"><div class="empty-state"><div class="icon">⚠️</div><p>Error: ${escapeHtml(err.message)}</p></div></div>`;
     }
   }
 
@@ -170,7 +170,7 @@
         });
       });
     } catch (err) {
-      body.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>Error: ${err.message}</p></div>`;
+      body.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>Error: ${escapeHtml(err.message)}</p></div>`;
     }
   }
 
@@ -196,7 +196,7 @@
 
       window.ExcelViewer.render(data.sheets, tabs, body);
     } catch (err) {
-      body.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>Error parsing file: ${err.message}</p></div>`;
+      body.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>Error parsing file: ${escapeHtml(err.message)}</p></div>`;
     }
   }
 

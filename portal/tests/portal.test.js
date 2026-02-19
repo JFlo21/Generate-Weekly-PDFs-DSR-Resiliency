@@ -4,6 +4,10 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 
+// Set test password hash before importing the app
+const bcrypt = require('bcryptjs');
+process.env.ADMIN_PASSWORD_HASH = bcrypt.hashSync('testpass', 4);
+
 let server;
 let baseUrl;
 
