@@ -137,3 +137,34 @@ describe('Excel service', () => {
     expect(result.sheets[0].rows.length).toBeGreaterThanOrEqual(3);
   });
 });
+
+describe('sanitizeFilename', () => {
+  const { sanitizeFilename } = require('../routes/api');
+
+  it('returns undefined for empty input', () => {
+    expect(sanitizeFilename('')).toBeUndefined();
+    expect(sanitizeFilename(null)).toBeUndefined();
+    expect(sanitizeFilename(undefined)).toBeUndefined();
+  });
+
+  it('allows normal filenames', () => {
+    expect(sanitizeFilename('report.xlsx')).toBe('report.xlsx');
+    expect(sanitizeFilename('folder/report.xlsx')).toBe('folder/report.xlsx');
+  });
+
+  it('blocks parent directory traversal', () => {
+    expect(sanitizeFilename('../secret.txt')).toBeUndefined();
+    expect(sanitizeFilename('../../etc/passwd')).toBeUndefined();
+    expect(sanitizeFilename('folder/../../../etc/passwd')).toBeUndefined();
+  });
+
+  it('blocks absolute paths', () => {
+    expect(sanitizeFilename('/etc/passwd')).toBeUndefined();
+    expect(sanitizeFilename('/root/.ssh/id_rsa')).toBeUndefined();
+  });
+
+  it('blocks encoded traversal patterns after normalization', () => {
+    expect(sanitizeFilename('folder/..%2f..%2fetc/passwd')).toBeUndefined();
+    expect(sanitizeFilename('a/b/../../../c')).toBeUndefined();
+  });
+});

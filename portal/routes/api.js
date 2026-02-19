@@ -9,7 +9,7 @@ const router = express.Router();
 function sanitizeFilename(name) {
   if (!name) return undefined;
   const normalized = path.posix.normalize(name);
-  if (normalized.startsWith('..') || normalized.includes('/../')) return undefined;
+  if (path.posix.isAbsolute(normalized) || normalized.includes('..')) return undefined;
   return normalized;
 }
 
@@ -130,3 +130,4 @@ router.get('/artifacts/:artifactId/files', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.sanitizeFilename = sanitizeFilename;

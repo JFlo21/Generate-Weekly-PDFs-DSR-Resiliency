@@ -1,11 +1,25 @@
 const path = require('node:path');
+const crypto = require('node:crypto');
+
+const env = process.env.NODE_ENV || 'development';
+
+function getSessionSecret() {
+  if (process.env.SESSION_SECRET) {
+    return process.env.SESSION_SECRET;
+  }
+  if (env === 'production') {
+    throw new Error('SESSION_SECRET environment variable must be set in production.');
+  }
+  console.warn('SESSION_SECRET is not set. Generated a random secret for non-production use.');
+  return crypto.randomBytes(32).toString('hex');
+}
 
 module.exports = {
   port: parseInt(process.env.PORT, 10) || 3000,
-  env: process.env.NODE_ENV || 'development',
+  env,
 
   session: {
-    secret: process.env.SESSION_SECRET || 'dev-secret-change-in-production',
+    secret: getSessionSecret(),
     maxAge: 8 * 60 * 60 * 1000, // 8 hours
   },
 
