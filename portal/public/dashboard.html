@@ -30,7 +30,11 @@
     <div class="viewer-container">
       <div class="viewer-header">
         <h3 id="viewerTitle">Loading…</h3>
-        <button class="btn-close-viewer" id="closeViewer">✕</button>
+        <div class="viewer-toolbar">
+          <button class="btn-sm btn-export" id="exportCsv" title="Export as CSV" style="display:none;">⬇ CSV</button>
+          <button class="btn-sm btn-export" id="exportXlsx" title="Download Excel file" style="display:none;">⬇ XLSX</button>
+          <button class="btn-close-viewer" id="closeViewer">✕</button>
+        </div>
       </div>
       <div class="viewer-tabs" id="viewerTabs"></div>
       <div class="viewer-body" id="viewerBody">

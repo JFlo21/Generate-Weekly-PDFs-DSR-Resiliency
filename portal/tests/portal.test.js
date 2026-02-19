@@ -136,6 +136,46 @@ describe('Excel service', () => {
     expect(result.sheets[0].name).toBe('Test');
     expect(result.sheets[0].rows.length).toBeGreaterThanOrEqual(3);
   });
+
+  it('exports Excel to CSV correctly', async () => {
+    const ExcelJS = require('exceljs');
+    const excel = require('../services/excel');
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Export');
+    sheet.addRow(['Name', 'Amount', 'Note']);
+    sheet.addRow(['Alpha', 1000, 'with, comma']);
+    sheet.addRow(['Beta', 2000, 'clean']);
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const parsed = await excel.parseExcelBuffer(buffer);
+    const rows = parsed.sheets[0].rows;
+
+    const maxCol = Math.max(...rows.map(r =>
+      r.cells.length > 0 ? Math.max(...r.cells.map(c => c.col)) : 0
+    ));
+
+    const csvRows = rows.map(row => {
+      const cellMap = {};
+      for (const cell of row.cells) {
+        cellMap[cell.col] = cell;
+      }
+      const cols = [];
+      for (let col = 1; col <= maxCol; col++) {
+        const cell = cellMap[col];
+        let val = cell ? String(cell.value ?? '') : '';
+        if (val.includes(',') || val.includes('"') || val.includes('\n')) {
+          val = '"' + val.replace(/"/g, '""') + '"';
+        }
+        cols.push(val);
+      }
+      return cols.join(',');
+    });
+
+    expect(csvRows[0]).toContain('Name');
+    expect(csvRows[1]).toContain('"with, comma"');
+    expect(csvRows[2]).toBe('Beta,2000,clean');
+  });
 });
 
 describe('sanitizeFilename', () => {

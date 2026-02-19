@@ -94,6 +94,7 @@
               <div class="actions">
                 <button class="btn-sm btn-view" data-artifact-id="${a.id}" data-artifact-name="${escapeHtml(a.name)}">View</button>
                 <button class="btn-sm btn-files" data-artifact-id="${a.id}" data-action="files">Files</button>
+                <button class="btn-sm btn-download" data-artifact-id="${a.id}" data-artifact-name="${escapeHtml(a.name)}">⬇ ZIP</button>
               </div>
             </li>`;
         }).join('');
@@ -117,6 +118,13 @@
           openFileSelector(btn.dataset.artifactId, 'Files');
         });
       });
+
+      artifactsPanel.querySelectorAll('.btn-download').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          downloadArtifactZip(btn.dataset.artifactId, btn.dataset.artifactName);
+        });
+      });
     } catch (err) {
       artifactsPanel.innerHTML = `<div class="artifacts-panel"><div class="empty-state"><div class="icon">⚠️</div><p>Error: ${escapeHtml(err.message)}</p></div></div>`;
     }
@@ -132,6 +140,7 @@
     overlay.style.display = 'flex';
     title.textContent = artifactName;
     tabs.innerHTML = '';
+    hideExportButtons();
     body.innerHTML = '<div class="loading"><div class="spinner"></div><span>Loading file list…</span></div>';
 
     try {
@@ -140,7 +149,6 @@
       const data = await res.json();
 
       const excelFiles = data.files.filter(f => f.isExcel);
-      const otherFiles = data.files.filter(f => !f.isExcel);
 
       if (excelFiles.length === 0) {
         body.innerHTML = '<div class="empty-state"><div class="icon">📄</div><p>No Excel files found in this artifact.</p></div>';
@@ -158,19 +166,39 @@
             const sizeMB = (f.size / (1024 * 1024)).toFixed(2);
             const shortName = f.name.split('/').pop();
             return `
-              <li class="file-list-item" data-file="${escapeHtml(f.name)}">
-                <div>
+              <li class="file-list-item">
+                <div class="file-list-info" data-file="${escapeHtml(f.name)}">
                   <span class="file-icon">📊</span>
                   <span class="file-name">${escapeHtml(shortName)}</span>
+                  <span class="file-size">${sizeMB} MB</span>
                 </div>
-                <span class="file-size">${sizeMB} MB</span>
+                <div class="file-list-actions">
+                  <button class="btn-sm btn-view" data-file="${escapeHtml(f.name)}" data-name="${escapeHtml(shortName)}">View</button>
+                  <button class="btn-sm btn-export" data-artifact-id="${artifactId}" data-file="${escapeHtml(f.name)}" data-format="xlsx">⬇ XLSX</button>
+                  <button class="btn-sm btn-export" data-artifact-id="${artifactId}" data-file="${escapeHtml(f.name)}" data-format="csv">⬇ CSV</button>
+                </div>
               </li>`;
           }).join('')}
         </ul>`;
 
-      body.querySelectorAll('.file-list-item').forEach(item => {
-        item.addEventListener('click', () => {
-          viewExcelFile(artifactId, item.dataset.file, item.querySelector('.file-name').textContent);
+      body.querySelectorAll('.file-list-info').forEach(info => {
+        info.style.cursor = 'pointer';
+        info.addEventListener('click', () => {
+          viewExcelFile(artifactId, info.dataset.file, info.querySelector('.file-name').textContent);
+        });
+      });
+
+      body.querySelectorAll('.btn-view').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          viewExcelFile(artifactId, btn.dataset.file, btn.dataset.name);
+        });
+      });
+
+      body.querySelectorAll('.btn-export').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          triggerExport(btn.dataset.artifactId, btn.dataset.file, btn.dataset.format);
         });
       });
     } catch (err) {
@@ -195,29 +223,71 @@
 
       if (!data.sheets || data.sheets.length === 0) {
         body.innerHTML = '<div class="empty-state"><div class="icon">📄</div><p>No data found in this file.</p></div>';
+        hideExportButtons();
         return;
       }
 
+      showExportButtons(artifactId, filename);
       window.ExcelViewer.render(data.sheets, tabs, body);
     } catch (err) {
       body.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>Error parsing file: ${escapeHtml(err.message)}</p></div>`;
+      hideExportButtons();
     }
+  }
+
+  // Download artifact as ZIP
+  function downloadArtifactZip(artifactId, artifactName) {
+    const a = document.createElement('a');
+    a.href = `/api/artifacts/${artifactId}/download`;
+    a.download = `${artifactName || 'artifact'}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  // Trigger server-side export (CSV or XLSX)
+  function triggerExport(artifactId, filename, format) {
+    const url = `/api/artifacts/${artifactId}/export?file=${encodeURIComponent(filename)}&format=${format}`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  // Show/hide export buttons in viewer toolbar
+  function showExportButtons(artifactId, filename) {
+    const csvBtn = document.getElementById('exportCsv');
+    const xlsxBtn = document.getElementById('exportXlsx');
+    csvBtn.style.display = '';
+    xlsxBtn.style.display = '';
+    csvBtn.onclick = () => triggerExport(artifactId, filename, 'csv');
+    xlsxBtn.onclick = () => triggerExport(artifactId, filename, 'xlsx');
+  }
+
+  function hideExportButtons() {
+    document.getElementById('exportCsv').style.display = 'none';
+    document.getElementById('exportXlsx').style.display = 'none';
   }
 
   // Close viewer
   document.getElementById('closeViewer').addEventListener('click', () => {
     document.getElementById('viewerOverlay').style.display = 'none';
+    hideExportButtons();
   });
 
   document.getElementById('viewerOverlay').addEventListener('click', (e) => {
     if (e.target === e.currentTarget) {
       document.getElementById('viewerOverlay').style.display = 'none';
+      hideExportButtons();
     }
   });
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       document.getElementById('viewerOverlay').style.display = 'none';
+      hideExportButtons();
     }
   });
 

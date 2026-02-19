@@ -129,5 +129,72 @@ router.get('/artifacts/:artifactId/files', async (req, res) => {
   }
 });
 
+router.get('/artifacts/:artifactId/export', async (req, res) => {
+  try {
+    const format = req.query.format || 'xlsx';
+    const filename = sanitizeFilename(req.query.file);
+
+    const zipBuffer = await github.downloadArtifact(req.params.artifactId);
+    const AdmZip = require('adm-zip');
+    const zip = new AdmZip(zipBuffer);
+    const entries = zip.getEntries();
+
+    let targetEntry;
+    if (filename) {
+      targetEntry = entries.find((e) => e.entryName === filename);
+    }
+    if (!targetEntry) {
+      targetEntry = entries.find((e) => e.entryName.endsWith('.xlsx'));
+    }
+    if (!targetEntry) {
+      return res.status(404).json({ error: 'No file found in artifact' });
+    }
+
+    const excelBuffer = targetEntry.getData();
+    const baseName = path.basename(targetEntry.entryName, '.xlsx');
+
+    if (format === 'csv') {
+      const parsed = await excel.parseExcelBuffer(excelBuffer);
+      const sheet = parsed.sheets[0];
+      if (!sheet || !sheet.rows || sheet.rows.length === 0) {
+        return res.status(404).json({ error: 'Sheet is empty' });
+      }
+
+      const maxCol = Math.max(...sheet.rows.map(r =>
+        r.cells.length > 0 ? Math.max(...r.cells.map(c => c.col)) : 0
+      ));
+
+      const csvRows = sheet.rows.map(row => {
+        const cellMap = {};
+        for (const cell of row.cells) {
+          cellMap[cell.col] = cell;
+        }
+        const cols = [];
+        for (let col = 1; col <= maxCol; col++) {
+          const cell = cellMap[col];
+          let val = cell ? String(cell.value ?? '') : '';
+          if (val.includes(',') || val.includes('"') || val.includes('\n')) {
+            val = '"' + val.replace(/"/g, '""') + '"';
+          }
+          cols.push(val);
+        }
+        return cols.join(',');
+      });
+
+      const csvContent = csvRows.join('\r\n');
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${baseName}.csv"`);
+      return res.send(csvContent);
+    }
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${baseName}.xlsx"`);
+    return res.send(excelBuffer);
+  } catch (err) {
+    console.error('Error exporting artifact:', err.message);
+    return res.status(502).json({ error: 'Failed to export artifact' });
+  }
+});
+
 module.exports = router;
 module.exports.sanitizeFilename = sanitizeFilename;
