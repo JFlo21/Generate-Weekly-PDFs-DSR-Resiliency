@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Linetec Services – Report Portal</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <div class="login-wrapper">
+    <form class="login-card" id="loginForm">
+      <img src="/assets/logo.png" alt="Linetec Services" class="logo">
+      <p class="subtitle">Report Portal – Secure Access</p>
+      <div class="form-group">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" autocomplete="username" required>
+      </div>
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" required>
+      </div>
+      <button type="submit" class="btn-primary" id="loginBtn">Sign In</button>
+      <p class="error-msg" id="errorMsg"></p>
+    </form>
+  </div>
+  <script src="/js/auth.js"></script>
+</body>
+</html>

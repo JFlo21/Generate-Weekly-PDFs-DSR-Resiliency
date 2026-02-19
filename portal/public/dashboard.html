@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard – Linetec Report Portal</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <img src="/assets/logo.png" alt="Linetec Services" class="logo">
+    <div class="header-right">
+      <span class="user-badge" id="userBadge"></span>
+      <button class="btn-outline" id="logoutBtn">Sign Out</button>
+    </div>
+  </header>
+
+  <main class="main-content">
+    <h1 class="page-title">Workflow Reports</h1>
+    <p class="page-desc">Select a workflow run to browse and view generated Excel reports in-browser.</p>
+
+    <div id="runsContainer" class="runs-grid">
+      <div class="loading"><div class="spinner"></div><span>Loading workflow runs…</span></div>
+    </div>
+
+    <div id="artifactsPanel" style="display:none;"></div>
+  </main>
+
+  <div id="viewerOverlay" class="viewer-overlay" style="display:none;">
+    <div class="viewer-container">
+      <div class="viewer-header">
+        <h3 id="viewerTitle">Loading…</h3>
+        <button class="btn-close-viewer" id="closeViewer">✕</button>
+      </div>
+      <div class="viewer-tabs" id="viewerTabs"></div>
+      <div class="viewer-body" id="viewerBody">
+        <div class="loading"><div class="spinner"></div><span>Parsing Excel data…</span></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/app.js"></script>
+  <script src="/js/excel-viewer.js"></script>
+</body>
+</html>
