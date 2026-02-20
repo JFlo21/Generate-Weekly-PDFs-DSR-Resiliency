@@ -1019,8 +1019,14 @@ def discover_source_sheets(client):
         1804369797271428, #Added Resiliency Promax Database 46
         2873734244290436, #Added Resiliency Promax Database 47
         8153606260739972, #Added Resiliency Promax Database 48
-        7630927397080964 #Added Resiliency Promax Database 49
-        
+        7630927397080964, #Added Resiliency Promax Database 49
+        4017481216642948, #Added Resiliency Promax Database 50
+        1326553209196420, #Added Resiliency Promax Database 51
+        6479287751233412, #Added Resiliency Promax Database 52
+        2672627970690948, #Added Resiliency Promax Database 53
+        3800355386118020, #Added Intake Promax Database 5
+        6123743714692996, #Added Resiliency Promax Database 54
+        3804822152105860 #Added Resiliency Promax Database 55
         
 
     ]
