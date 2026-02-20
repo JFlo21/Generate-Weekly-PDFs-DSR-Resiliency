@@ -89,3 +89,6 @@ htmlcov/
 .pytest_cache/
 
 generated_docs/hash_history.json
+
+# Portal dependencies
+portal/node_modules/

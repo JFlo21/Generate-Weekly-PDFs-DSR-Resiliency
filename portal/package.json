@@ -1,0 +1,32 @@
+{
+  "name": "linetec-report-portal",
+  "version": "1.0.0",
+  "description": "Enterprise report portal for viewing GitHub Actions artifacts",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "portal",
+    "reports",
+    "excel-viewer"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.4.7",
+    "exceljs": "^4.4.0",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "express-session": "^1.18.1",
+    "helmet": "^8.0.0"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.5"
+  }
+}
