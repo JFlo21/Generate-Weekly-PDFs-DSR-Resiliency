@@ -4,6 +4,13 @@
 .env.production
 .env.staging
 
+# Portal-specific environment files
+portal/.env
+portal/.env.local
+portal/.env.production
+portal/.env.staging
+portal/.env.*.local
+
 # Python cache files
 __pycache__/
 *.py[cod]
