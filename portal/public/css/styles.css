@@ -606,7 +606,7 @@ body {
 
 .countdown-text {
   position: absolute;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--brand-gray);
 }
@@ -702,4 +702,16 @@ body {
 @keyframes toastIn {
   from { opacity: 0; transform: translateX(100px); }
   to { opacity: 1; transform: translateX(0); }
+}
+
+/* ─── Reduced Motion ─── */
+@media (prefers-reduced-motion: reduce) {
+  .new-item,
+  .slide-in,
+  .scale-in,
+  .toast,
+  .badge-new,
+  .status-dot {
+    animation: none !important;
+  }
 }

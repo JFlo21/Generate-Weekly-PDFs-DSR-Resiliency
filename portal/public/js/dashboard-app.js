@@ -9,12 +9,6 @@
   var useCallback = React.useCallback;
 
   // ─── Helpers ───
-  function escapeHtml(str) {
-    var d = document.createElement('div');
-    d.textContent = str;
-    return d.innerHTML;
-  }
-
   function formatDate(iso) {
     return new Date(iso).toLocaleDateString('en-US', {
       month: 'short', day: 'numeric', year: 'numeric',
@@ -430,7 +424,7 @@
       } finally {
         setRunsLoading(false);
       }
-    }, [runs]);
+    }, []);
 
     loadRunsRef.current = loadRuns;
 
@@ -443,14 +437,20 @@
 
     // SSE connection for real-time updates
     useEffect(function () {
+      var reconnecting = false;
+
       function connectSSE() {
+        if (reconnecting) return;
+        reconnecting = true;
+
         var es = new EventSource('/api/events');
         sseRef.current = es;
 
-        es.onopen = function () { setConnected(true); };
+        es.onopen = function () { setConnected(true); reconnecting = false; };
         es.onerror = function () {
           setConnected(false);
           es.close();
+          reconnecting = false;
           setTimeout(connectSSE, 5000);
         };
         es.addEventListener('newRun', function (e) {
@@ -465,6 +465,7 @@
       connectSSE();
 
       return function () {
+        reconnecting = true;
         if (sseRef.current) sseRef.current.close();
       };
     }, []);

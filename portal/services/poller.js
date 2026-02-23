@@ -19,14 +19,21 @@ class ArtifactPoller extends EventEmitter {
   start() {
     if (this.running) return;
     this.running = true;
-    this.poll();
-    this.timer = setInterval(() => this.poll(), this.intervalMs);
+
+    const runPoll = async () => {
+      if (!this.running) return;
+      await this.poll();
+      if (!this.running) return;
+      this.timer = setTimeout(runPoll, this.intervalMs);
+    };
+
+    runPoll();
   }
 
   stop() {
     this.running = false;
     if (this.timer) {
-      clearInterval(this.timer);
+      clearTimeout(this.timer);
       this.timer = null;
     }
   }
@@ -58,7 +65,7 @@ class ArtifactPoller extends EventEmitter {
 
       const latestRun = runs[0];
 
-      if (this.lastKnownRunId && latestRun.id !== this.lastKnownRunId) {
+      if (this.lastKnownRunId && latestRun.id !== this.lastKnownRunId && this.clients.size > 0) {
         const artifactsData = await github.listRunArtifacts(latestRun.id);
         const artifacts = (artifactsData.artifacts || []).map((a) => ({
           id: a.id,
@@ -89,7 +96,11 @@ class ArtifactPoller extends EventEmitter {
       this.lastKnownRunId = latestRun.id;
     } catch (err) {
       this.lastError = err.message;
-      this.emit('error', err);
+      if (this.listenerCount('error') > 0) {
+        this.emit('error', err);
+      } else {
+        console.error('ArtifactPoller poll error:', err);
+      }
     }
   }
 

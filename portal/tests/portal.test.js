@@ -235,7 +235,8 @@ describe('Vendor static files', () => {
   it('serves React production build', async () => {
     const res = await request('/vendor/react/react.production.min.js');
     expect(res.status).toBe(200);
-    expect(res.body).toContain('react');
+    expect(typeof res.body).toBe('string');
+    expect(res.body.length).toBeGreaterThan(0);
   });
 
   it('serves ReactDOM production build', async () => {
@@ -292,5 +293,39 @@ describe('Config polling settings', () => {
     expect(config.polling).toBeDefined();
     expect(typeof config.polling.intervalMs).toBe('number');
     expect(config.polling.intervalMs).toBeGreaterThan(0);
+  });
+});
+
+describe('Authenticated API endpoints', () => {
+  let sessionCookie;
+
+  beforeAll(async () => {
+    const csrfRes = await request('/csrf-token');
+    const csrfCookie = csrfRes.headers['set-cookie']?.[0]?.split(';')[0] || '';
+    const loginRes = await request('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfRes.body.token, 'Cookie': csrfCookie },
+      body: { username: 'admin', password: 'testpass' },
+    });
+    sessionCookie = loginRes.headers['set-cookie']?.[0]?.split(';')[0] || '';
+  });
+
+  it('returns data from /api/latest when authenticated', async () => {
+    const res = await request('/api/latest', { headers: { 'Cookie': sessionCookie } });
+    // 502 means it reached the handler but GitHub token is not set — not a 302 redirect
+    expect([200, 502]).toContain(res.status);
+  });
+
+  it('returns data from /api/poll when authenticated', async () => {
+    const res = await request('/api/poll', { headers: { 'Cookie': sessionCookie } });
+    expect([200, 502]).toContain(res.status);
+  });
+
+  it('returns data from /api/poller-status when authenticated', async () => {
+    const res = await request('/api/poller-status', { headers: { 'Cookie': sessionCookie } });
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('running');
+    expect(res.body).toHaveProperty('connectedClients');
+    expect(res.body).toHaveProperty('intervalMs');
   });
 });

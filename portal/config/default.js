@@ -24,7 +24,7 @@ function parseInterval() {
     return DEFAULT_POLL_INTERVAL_MS;
   }
   const value = parseInt(raw, 10);
-  if (!Number.isFinite(value) || value !== Math.floor(value)) {
+  if (Number.isNaN(value)) {
     return DEFAULT_POLL_INTERVAL_MS;
   }
   if (value < MIN_POLL_INTERVAL_MS) {
