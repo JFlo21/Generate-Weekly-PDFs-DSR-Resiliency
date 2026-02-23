@@ -372,6 +372,7 @@
     var sseRef = useRef(null);
     var loadRunsRef = useRef(null);
     var runsRef = useRef(runs);
+    useEffect(function () { runsRef.current = runs; }, [runs]);
 
     function addToast(message, type) {
       var id = ++toastIdRef.current;
