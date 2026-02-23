@@ -34,5 +34,10 @@ module.exports = {
     max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 100,
   },
 
+  polling: {
+    intervalMs: parseInt(process.env.POLL_INTERVAL_MS, 10) || 2 * 60 * 1000,
+    enabled: process.env.POLLING_ENABLED !== 'false',
+  },
+
   staticDir: path.join(__dirname, '..', 'public'),
 };

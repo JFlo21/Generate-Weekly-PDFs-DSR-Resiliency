@@ -8,6 +8,7 @@ const { setupSecurity, csrfProtection } = require('./middleware/security');
 const authRoutes = require('./routes/auth');
 const apiRoutes = require('./routes/api');
 const healthRoutes = require('./routes/health');
+const poller = require('./services/poller');
 
 const app = express();
 
@@ -25,6 +26,10 @@ app.use(session({
     maxAge: config.session.maxAge,
   },
 }));
+
+app.use('/vendor/react', express.static(path.join(__dirname, 'node_modules/react/umd'), { maxAge: '7d' }));
+app.use('/vendor/react-dom', express.static(path.join(__dirname, 'node_modules/react-dom/umd'), { maxAge: '7d' }));
+app.use('/vendor/htm', express.static(path.join(__dirname, 'node_modules/htm/dist'), { maxAge: '7d' }));
 
 app.use(express.static(config.staticDir));
 
@@ -57,6 +62,10 @@ app.use((err, req, res, _next) => {
 if (require.main === module) {
   app.listen(config.port, () => {
     console.log(`Linetec Report Portal running on http://localhost:${config.port}`);
+    if (config.polling.enabled) {
+      poller.start();
+      console.log(`Artifact polling started (interval: ${config.polling.intervalMs}ms)`);
+    }
   });
 }
 

@@ -3,6 +3,7 @@ const path = require('node:path');
 const { requireAuth } = require('../middleware/auth');
 const github = require('../services/github');
 const excel = require('../services/excel');
+const poller = require('../services/poller');
 
 const router = express.Router();
 
@@ -194,6 +195,100 @@ router.get('/artifacts/:artifactId/export', async (req, res) => {
     console.error('Error exporting artifact:', err.message);
     return res.status(502).json({ error: 'Failed to export artifact' });
   }
+});
+
+router.get('/latest', async (req, res) => {
+  try {
+    const data = await github.listWorkflowRuns(1, 1);
+    const runs = data.workflow_runs || [];
+    if (runs.length === 0) {
+      return res.json({ run: null, artifacts: [] });
+    }
+    const run = runs[0];
+    const artifactsData = await github.listRunArtifacts(run.id);
+    const artifacts = (artifactsData.artifacts || []).map((a) => ({
+      id: a.id,
+      name: a.name,
+      sizeInBytes: a.size_in_bytes,
+      expired: a.expired,
+      createdAt: a.created_at,
+      expiresAt: a.expires_at,
+    }));
+    return res.json({
+      run: {
+        id: run.id,
+        runNumber: run.run_number,
+        status: run.status,
+        conclusion: run.conclusion,
+        createdAt: run.created_at,
+        updatedAt: run.updated_at,
+        event: run.event,
+        headBranch: run.head_branch,
+      },
+      artifacts,
+    });
+  } catch (err) {
+    console.error('Error fetching latest run:', err.message);
+    return res.status(502).json({ error: 'Failed to fetch latest run' });
+  }
+});
+
+router.get('/poll', async (req, res) => {
+  try {
+    const lastRunId = req.query.lastRunId;
+    const data = await github.listWorkflowRuns(1, 10);
+    const allRuns = data.workflow_runs || [];
+
+    let newRuns = allRuns;
+    if (lastRunId) {
+      const idx = allRuns.findIndex((r) => String(r.id) === String(lastRunId));
+      newRuns = idx > 0 ? allRuns.slice(0, idx) : (idx === 0 ? [] : allRuns);
+    }
+
+    const runs = newRuns.map((r) => ({
+      id: r.id,
+      runNumber: r.run_number,
+      status: r.status,
+      conclusion: r.conclusion,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      event: r.event,
+      headBranch: r.head_branch,
+    }));
+
+    return res.json({ hasNew: runs.length > 0, runs });
+  } catch (err) {
+    console.error('Error polling for new runs:', err.message);
+    return res.status(502).json({ error: 'Failed to poll for updates' });
+  }
+});
+
+router.get('/events', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  res.write(`data: ${JSON.stringify({ type: 'connected', timestamp: new Date().toISOString() })}\n\n`);
+
+  poller.addClient(res);
+
+  const keepAlive = setInterval(() => {
+    try {
+      res.write(': keepalive\n\n');
+    } catch {
+      clearInterval(keepAlive);
+    }
+  }, 30000);
+
+  req.on('close', () => {
+    clearInterval(keepAlive);
+  });
+});
+
+router.get('/poller-status', (req, res) => {
+  return res.json(poller.getStatus());
 });
 
 module.exports = router;
