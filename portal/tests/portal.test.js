@@ -208,3 +208,89 @@ describe('sanitizeFilename', () => {
     expect(sanitizeFilename('a/b/../../../c')).toBeUndefined();
   });
 });
+
+describe('New API endpoints protection', () => {
+  it('blocks unauthenticated access to /api/latest', async () => {
+    const res = await request('/api/latest');
+    expect(res.status).toBe(302);
+  });
+
+  it('blocks unauthenticated access to /api/poll', async () => {
+    const res = await request('/api/poll');
+    expect(res.status).toBe(302);
+  });
+
+  it('blocks unauthenticated access to /api/events', async () => {
+    const res = await request('/api/events');
+    expect(res.status).toBe(302);
+  });
+
+  it('blocks unauthenticated access to /api/poller-status', async () => {
+    const res = await request('/api/poller-status');
+    expect(res.status).toBe(302);
+  });
+});
+
+describe('Vendor static files', () => {
+  it('serves React production build', async () => {
+    const res = await request('/vendor/react/react.production.min.js');
+    expect(res.status).toBe(200);
+    expect(res.body).toContain('react');
+  });
+
+  it('serves ReactDOM production build', async () => {
+    const res = await request('/vendor/react-dom/react-dom.production.min.js');
+    expect(res.status).toBe(200);
+  });
+
+  it('serves htm UMD build', async () => {
+    const res = await request('/vendor/htm/htm.umd.js');
+    expect(res.status).toBe(200);
+    expect(res.body).toContain('htm');
+  });
+
+  it('serves dashboard-app.js', async () => {
+    const res = await request('/js/dashboard-app.js');
+    expect(res.status).toBe(200);
+    expect(res.body).toContain('React');
+  });
+});
+
+describe('Poller service', () => {
+  it('exports a poller singleton with expected methods', () => {
+    const poller = require('../services/poller');
+    expect(typeof poller.start).toBe('function');
+    expect(typeof poller.stop).toBe('function');
+    expect(typeof poller.addClient).toBe('function');
+    expect(typeof poller.getStatus).toBe('function');
+    expect(typeof poller.poll).toBe('function');
+  });
+
+  it('returns status with expected fields', () => {
+    const poller = require('../services/poller');
+    const status = poller.getStatus();
+    expect(status).toHaveProperty('running');
+    expect(status).toHaveProperty('lastPollTime');
+    expect(status).toHaveProperty('lastKnownRunId');
+    expect(status).toHaveProperty('connectedClients');
+    expect(status).toHaveProperty('intervalMs');
+    expect(typeof status.intervalMs).toBe('number');
+  });
+
+  it('starts and stops without error', () => {
+    const poller = require('../services/poller');
+    poller.start();
+    expect(poller.getStatus().running).toBe(true);
+    poller.stop();
+    expect(poller.getStatus().running).toBe(false);
+  });
+});
+
+describe('Config polling settings', () => {
+  it('has polling configuration', () => {
+    const config = require('../config/default');
+    expect(config.polling).toBeDefined();
+    expect(typeof config.polling.intervalMs).toBe('number');
+    expect(config.polling.intervalMs).toBeGreaterThan(0);
+  });
+});
