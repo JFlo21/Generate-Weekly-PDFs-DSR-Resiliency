@@ -14,6 +14,28 @@ function getSessionSecret() {
   return crypto.randomBytes(32).toString('hex');
 }
 
+const DEFAULT_POLL_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes
+const MIN_POLL_INTERVAL_MS = 1000; // 1 second
+const MAX_POLL_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+
+function parseInterval() {
+  const raw = process.env.POLL_INTERVAL_MS;
+  if (!raw) {
+    return DEFAULT_POLL_INTERVAL_MS;
+  }
+  const value = parseInt(raw, 10);
+  if (!Number.isFinite(value) || value !== Math.floor(value)) {
+    return DEFAULT_POLL_INTERVAL_MS;
+  }
+  if (value < MIN_POLL_INTERVAL_MS) {
+    return MIN_POLL_INTERVAL_MS;
+  }
+  if (value > MAX_POLL_INTERVAL_MS) {
+    return MAX_POLL_INTERVAL_MS;
+  }
+  return value;
+}
+
 module.exports = {
   port: parseInt(process.env.PORT, 10) || 3000,
   env,
@@ -35,7 +57,7 @@ module.exports = {
   },
 
   polling: {
-    intervalMs: parseInt(process.env.POLL_INTERVAL_MS, 10) || 2 * 60 * 1000,
+    intervalMs: parseInterval(),
     enabled: process.env.POLLING_ENABLED !== 'false',
   },
 
