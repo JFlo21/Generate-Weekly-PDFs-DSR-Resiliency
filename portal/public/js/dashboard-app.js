@@ -371,6 +371,7 @@
     var pollTimerRef = useRef(null);
     var sseRef = useRef(null);
     var loadRunsRef = useRef(null);
+    var runsRef = useRef(runs);
 
     function addToast(message, type) {
       var id = ++toastIdRef.current;
@@ -399,12 +400,13 @@
     // Load runs
     var loadRuns = useCallback(async function () {
       try {
-        setRunsLoading(function (prev) { return runs.length === 0 ? true : prev; });
+        var currentRuns = runsRef.current;
+        setRunsLoading(function (prev) { return currentRuns.length === 0 ? true : prev; });
         var data = await api('/api/runs');
-        var prevIds = new Set(runs.map(function (r) { return r.id; }));
+        var prevIds = new Set(currentRuns.map(function (r) { return r.id; }));
         var nextRuns = data.runs || [];
 
-        if (runs.length > 0) {
+        if (currentRuns.length > 0) {
           var freshIds = new Set();
           nextRuns.forEach(function (r) {
             if (!prevIds.has(r.id)) freshIds.add(r.id);
@@ -417,6 +419,7 @@
         }
 
         setRuns(nextRuns);
+        runsRef.current = nextRuns;
         setRunsError(null);
         setLastPoll(new Date().toISOString());
       } catch (err) {
