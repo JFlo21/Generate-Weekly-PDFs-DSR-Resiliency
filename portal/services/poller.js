@@ -2,6 +2,8 @@ const EventEmitter = require('node:events');
 const config = require('../config/default');
 const github = require('./github');
 
+const POLL_RUN_COUNT = 5;
+
 class ArtifactPoller extends EventEmitter {
   constructor(options = {}) {
     super();
@@ -47,7 +49,7 @@ class ArtifactPoller extends EventEmitter {
 
   async poll() {
     try {
-      const data = await github.listWorkflowRuns(1, 5);
+      const data = await github.listWorkflowRuns(1, POLL_RUN_COUNT);
       const runs = data.workflow_runs || [];
       this.lastPollTime = new Date().toISOString();
       this.lastError = null;

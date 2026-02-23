@@ -292,7 +292,7 @@
                 if (cell.style.align) style.textAlign = cell.style.align;
               }
               var val = cell ? (cell.value != null ? String(cell.value) : '') : '';
-              if (typeof cell?.value === 'number') {
+              if (cell && typeof cell.value === 'number') {
                 val = Number.isInteger(cell.value) ? cell.value.toLocaleString('en-US') :
                   cell.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
               }
@@ -376,6 +376,7 @@
     var toastIdRef = useRef(0);
     var pollTimerRef = useRef(null);
     var sseRef = useRef(null);
+    var loadRunsRef = useRef(null);
 
     function addToast(message, type) {
       var id = ++toastIdRef.current;
@@ -431,10 +432,12 @@
       }
     }, [runs]);
 
+    loadRunsRef.current = loadRuns;
+
     // Initial load + periodic polling
     useEffect(function () {
-      loadRuns();
-      pollTimerRef.current = setInterval(loadRuns, REFRESH_INTERVAL * 1000);
+      loadRunsRef.current();
+      pollTimerRef.current = setInterval(function () { loadRunsRef.current(); }, REFRESH_INTERVAL * 1000);
       return function () { clearInterval(pollTimerRef.current); };
     }, []);
 
@@ -454,7 +457,7 @@
           try {
             var payload = JSON.parse(e.data);
             addToast('New artifacts from Run #' + payload.run.runNumber, 'success');
-            loadRuns();
+            loadRunsRef.current();
           } catch (err) { /* ignore parse errors */ }
         });
       }
