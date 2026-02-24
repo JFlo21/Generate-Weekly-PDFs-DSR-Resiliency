@@ -208,3 +208,124 @@ describe('sanitizeFilename', () => {
     expect(sanitizeFilename('a/b/../../../c')).toBeUndefined();
   });
 });
+
+describe('New API endpoints protection', () => {
+  it('blocks unauthenticated access to /api/latest', async () => {
+    const res = await request('/api/latest');
+    expect(res.status).toBe(302);
+  });
+
+  it('blocks unauthenticated access to /api/poll', async () => {
+    const res = await request('/api/poll');
+    expect(res.status).toBe(302);
+  });
+
+  it('blocks unauthenticated access to /api/events', async () => {
+    const res = await request('/api/events');
+    expect(res.status).toBe(302);
+  });
+
+  it('blocks unauthenticated access to /api/poller-status', async () => {
+    const res = await request('/api/poller-status');
+    expect(res.status).toBe(302);
+  });
+});
+
+describe('Vendor static files', () => {
+  it('serves React production build', async () => {
+    const res = await request('/vendor/react/react.production.min.js');
+    expect(res.status).toBe(200);
+    expect(typeof res.body).toBe('string');
+    expect(res.body.length).toBeGreaterThan(0);
+  });
+
+  it('serves ReactDOM production build', async () => {
+    const res = await request('/vendor/react-dom/react-dom.production.min.js');
+    expect(res.status).toBe(200);
+  });
+
+  it('serves htm UMD build', async () => {
+    const res = await request('/vendor/htm/htm.umd.js');
+    expect(res.status).toBe(200);
+    expect(res.body).toContain('htm');
+  });
+
+  it('serves dashboard-app.js', async () => {
+    const res = await request('/js/dashboard-app.js');
+    expect(res.status).toBe(200);
+    expect(res.body).toContain('React');
+  });
+});
+
+describe('Poller service', () => {
+  it('exports a poller singleton with expected methods', () => {
+    const poller = require('../services/poller');
+    expect(typeof poller.start).toBe('function');
+    expect(typeof poller.stop).toBe('function');
+    expect(typeof poller.addClient).toBe('function');
+    expect(typeof poller.getStatus).toBe('function');
+    expect(typeof poller.poll).toBe('function');
+  });
+
+  it('returns status with expected fields', () => {
+    const poller = require('../services/poller');
+    const status = poller.getStatus();
+    expect(status).toHaveProperty('running');
+    expect(status).toHaveProperty('lastPollTime');
+    expect(status).toHaveProperty('lastKnownRunId');
+    expect(status).toHaveProperty('connectedClients');
+    expect(status).toHaveProperty('intervalMs');
+    expect(typeof status.intervalMs).toBe('number');
+  });
+
+  it('starts and stops without error', () => {
+    const poller = require('../services/poller');
+    poller.start();
+    expect(poller.getStatus().running).toBe(true);
+    poller.stop();
+    expect(poller.getStatus().running).toBe(false);
+  });
+});
+
+describe('Config polling settings', () => {
+  it('has polling configuration', () => {
+    const config = require('../config/default');
+    expect(config.polling).toBeDefined();
+    expect(typeof config.polling.intervalMs).toBe('number');
+    expect(config.polling.intervalMs).toBeGreaterThan(0);
+  });
+});
+
+describe('Authenticated API endpoints', () => {
+  let sessionCookie;
+
+  beforeAll(async () => {
+    const csrfRes = await request('/csrf-token');
+    const csrfCookie = csrfRes.headers['set-cookie']?.[0]?.split(';')[0] || '';
+    const loginRes = await request('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfRes.body.token, 'Cookie': csrfCookie },
+      body: { username: 'admin', password: 'testpass' },
+    });
+    sessionCookie = loginRes.headers['set-cookie']?.[0]?.split(';')[0] || '';
+  });
+
+  it('returns data from /api/latest when authenticated', async () => {
+    const res = await request('/api/latest', { headers: { 'Cookie': sessionCookie } });
+    // 502 means it reached the handler but GitHub token is not set — not a 302 redirect
+    expect([200, 502]).toContain(res.status);
+  });
+
+  it('returns data from /api/poll when authenticated', async () => {
+    const res = await request('/api/poll', { headers: { 'Cookie': sessionCookie } });
+    expect([200, 502]).toContain(res.status);
+  });
+
+  it('returns data from /api/poller-status when authenticated', async () => {
+    const res = await request('/api/poller-status', { headers: { 'Cookie': sessionCookie } });
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('running');
+    expect(res.body).toHaveProperty('connectedClients');
+    expect(res.body).toHaveProperty('intervalMs');
+  });
+});
