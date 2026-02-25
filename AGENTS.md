@@ -38,3 +38,5 @@ Without a valid `SMARTSHEET_API_TOKEN`, the script initializes correctly but fai
 - `pip install` puts binaries in `~/.local/bin`; ensure this is on `PATH`.
 - The portal `.env` needs `ADMIN_PASSWORD_HASH` set to a bcrypt hash (not the plaintext password).
 - The portal serves React/ReactDOM/htm from `node_modules` as vendor static files — no build step is needed.
+- The Python generator processes 55+ Smartsheet sheets and 80K+ rows. A full run with a real `SMARTSHEET_API_TOKEN` takes 40+ minutes. For quick dev iteration, focus on unit tests (`pytest tests/`) rather than full generator runs.
+- When running the generator, stdout is heavily buffered when piped. Use `python3 -u generate_weekly_pdfs.py` for unbuffered output if you need to monitor progress live.
