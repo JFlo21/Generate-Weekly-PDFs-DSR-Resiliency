@@ -99,3 +99,7 @@ generated_docs/hash_history.json
 
 # Portal dependencies
 portal/node_modules/
+
+# portal-v2: un-ignore src/lib/ (overrides Python lib/ pattern above)
+!portal-v2/src/lib/
+!portal-v2/src/lib/**
