@@ -5,6 +5,8 @@ import type { Profile, UserRole } from '../../lib/types';
 import { formatDate } from '../../lib/utils';
 import { Skeleton } from '../ui/Skeleton';
 import { Badge } from '../ui/Badge';
+import { useToast } from '../../hooks/useToast';
+import { ToastContainer } from '../ui/Toast';
 
 const ROLES: UserRole[] = ['viewer', 'biller', 'admin'];
 
@@ -12,6 +14,7 @@ export function UsersPage() {
   const [users, setUsers] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { toasts, addToast, removeToast } = useToast();
 
   useEffect(() => {
     supabase
@@ -30,10 +33,13 @@ export function UsersPage() {
       .from('profiles')
       .update({ role })
       .eq('id', userId);
-    if (!err) {
+    if (err) {
+      addToast('error', `Failed to update role: ${err.message}`);
+    } else {
       setUsers((prev) =>
         prev.map((u) => (u.id === userId ? { ...u, role } : u))
       );
+      addToast('success', `Role updated to ${role}`);
     }
   }
 
@@ -128,6 +134,8 @@ export function UsersPage() {
           </table>
         )}
       </div>
+
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </motion.div>
   );
 }
