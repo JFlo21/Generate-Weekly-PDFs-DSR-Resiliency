@@ -3,6 +3,7 @@ import { api } from '../lib/api';
 import type { WorkflowRun } from '../lib/types';
 
 const POLL_INTERVAL_MS = 120_000; // 2 minutes
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 
 export function useRuns() {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
@@ -55,7 +56,7 @@ export function useRuns() {
     fetchRef.current?.();
 
     // SSE for real-time updates
-    const es = new EventSource('/api/events');
+    const es = new EventSource(`${API_BASE}/api/events`);
     es.addEventListener('open', () => setIsConnected(true));
     es.addEventListener('runs-updated', () => {
       if (timerRef.current) clearTimeout(timerRef.current);
