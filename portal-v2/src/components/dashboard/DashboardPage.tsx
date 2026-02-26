@@ -1,9 +1,10 @@
 import { useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { useRuns } from '../../hooks/useRuns';
 import { useArtifacts } from '../../hooks/useArtifacts';
 import { api } from '../../lib/api';
 import type { WorkflowRun, Artifact, ExcelSheet } from '../../lib/types';
+import type { DashboardOutletContext } from '../layout/DashboardLayout';
 import { StatsGrid } from './StatsGrid';
 import { SearchBar } from './SearchBar';
 import { RunList } from './RunList';
@@ -11,7 +12,7 @@ import { ArtifactPanel } from './ArtifactPanel';
 import { ExcelViewer } from './ExcelViewer';
 
 export function DashboardPage() {
-  const { runs, loading, error } = useRuns();
+  const { runs, loading, error } = useOutletContext<DashboardOutletContext>();
   const [selectedRun, setSelectedRun] = useState<WorkflowRun | null>(null);
   const [search, setSearch] = useState('');
   const [excelArtifact, setExcelArtifact] = useState<Artifact | null>(null);
