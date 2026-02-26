@@ -14,6 +14,7 @@ export function useRuns() {
   const runsRef = useRef(runs);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fetchRef = useRef<() => Promise<void>>();
 
   useEffect(() => {
     runsRef.current = runs;
@@ -36,26 +37,29 @@ export function useRuns() {
       setLoading(false);
     }
 
-    // Schedule next poll
+    // Schedule next poll via ref to avoid stale closure
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
-      fetchRuns();
+      fetchRef.current?.();
     }, POLL_INTERVAL_MS);
 
     // Reset countdown
     setCountdown(POLL_INTERVAL_MS / 1000);
   }, []);
 
-  // Initial fetch + SSE
+  // Keep fetchRef in sync
+  fetchRef.current = fetchRuns;
+
+  // Initial fetch + SSE — runs once on mount
   useEffect(() => {
-    fetchRuns();
+    fetchRef.current?.();
 
     // SSE for real-time updates
     const es = new EventSource('/api/events');
     es.addEventListener('open', () => setIsConnected(true));
     es.addEventListener('runs-updated', () => {
       if (timerRef.current) clearTimeout(timerRef.current);
-      fetchRuns();
+      fetchRef.current?.();
     });
     es.addEventListener('error', () => setIsConnected(false));
 
@@ -69,7 +73,8 @@ export function useRuns() {
       if (countdownRef.current) clearInterval(countdownRef.current);
       es.close();
     };
-  }, [fetchRuns]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return { runs, loading, error, lastUpdated, countdown, isConnected, refresh: fetchRuns };
 }
