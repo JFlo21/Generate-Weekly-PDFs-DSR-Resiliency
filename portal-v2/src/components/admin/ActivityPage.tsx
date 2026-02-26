@@ -28,8 +28,20 @@ export function ActivityPage() {
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'activity_logs' },
-        (payload) => {
-          setLogs((prev) => [payload.new as ActivityLog, ...prev]);
+        async (payload) => {
+          const newLog = payload.new as ActivityLog;
+          // Real-time payloads don't include joined data, so fetch the profile
+          if (newLog.user_id) {
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('email, display_name')
+              .eq('id', newLog.user_id)
+              .single();
+            if (profile) {
+              newLog.profiles = profile;
+            }
+          }
+          setLogs((prev) => [newLog, ...prev]);
         }
       )
       .subscribe();
