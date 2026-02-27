@@ -2,6 +2,7 @@ require('dotenv').config();
 
 const express = require('express');
 const session = require('express-session');
+const cors = require('cors');
 const path = require('node:path');
 const config = require('./config/default');
 const { setupSecurity, csrfProtection } = require('./middleware/security');
@@ -11,6 +12,21 @@ const healthRoutes = require('./routes/health');
 const poller = require('./services/poller');
 
 const app = express();
+
+// ─── CORS (must be before Helmet/security) ───────────────────
+// Allows the Vercel-hosted frontend to call this backend
+const ALLOWED_ORIGINS = [
+  process.env.CORS_ORIGIN,               // e.g. https://linetec-portal.vercel.app
+  'http://localhost:5173',                // local Vite dev server
+].filter(Boolean);
+
+app.use(cors({
+  origin: ALLOWED_ORIGINS,
+  credentials: true,                      // Required — api.ts uses { credentials: 'include' }
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'X-CSRF-Token'],
+}));
+// ──────────────────────────────────────────────────────────────
 
 setupSecurity(app);
 

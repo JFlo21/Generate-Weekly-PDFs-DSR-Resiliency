@@ -24,7 +24,7 @@ function setupSecurity(app) {
         styleSrc: ["'self'", "'unsafe-inline'"],
         scriptSrc: ["'self'"],
         imgSrc: ["'self'", "data:"],
-        connectSrc: ["'self'"],
+        connectSrc: ["'self'", process.env.CORS_ORIGIN].filter(Boolean),
         fontSrc: ["'self'"],
         objectSrc: ["'none'"],
         frameAncestors: ["'none'"],
