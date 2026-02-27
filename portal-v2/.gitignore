@@ -31,3 +31,6 @@ Thumbs.db
 
 # TypeScript
 *.tsbuildinfo
+
+# Auto-generated reports
+.vade-report
