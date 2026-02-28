@@ -3,6 +3,10 @@ import { AnimatePresence } from 'framer-motion';
 import { AuthContext, useAuthState } from './hooks/useAuth';
 import { AuthGuard } from './components/auth/AuthGuard';
 import { LoginPage } from './components/auth/LoginPage';
+import { ConfirmEmailPage } from './components/auth/ConfirmEmailPage';
+import { AuthCallback } from './components/auth/AuthCallback';
+import { ForgotPasswordPage } from './components/auth/ForgotPasswordPage';
+import { ResetPasswordPage } from './components/auth/ResetPasswordPage';
 import { DashboardLayout } from './components/layout/DashboardLayout';
 import { DashboardPage } from './components/dashboard/DashboardPage';
 import { UsersPage } from './components/admin/UsersPage';
@@ -25,6 +29,10 @@ export default function App() {
         <AnimatePresence mode="wait">
           <Routes>
             <Route path="/login" element={<PageTransition><LoginPage /></PageTransition>} />
+            <Route path="/auth/confirm-email" element={<PageTransition><ConfirmEmailPage /></PageTransition>} />
+            <Route path="/auth/confirm" element={<PageTransition><AuthCallback /></PageTransition>} />
+            <Route path="/auth/forgot-password" element={<PageTransition><ForgotPasswordPage /></PageTransition>} />
+            <Route path="/auth/reset-password" element={<PageTransition><ResetPasswordPage /></PageTransition>} />
 
             <Route
               path="/dashboard"

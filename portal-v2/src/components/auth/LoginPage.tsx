@@ -26,10 +26,11 @@ export function LoginPage() {
     try {
       if (mode === 'signin') {
         await login(email, password);
+        navigate('/dashboard', { replace: true });
       } else {
         await signup(email, password);
+        navigate('/auth/confirm-email', { replace: true });
       }
-      navigate('/dashboard', { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Authentication failed');
     } finally {
@@ -110,9 +111,20 @@ export function LoginPage() {
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.25 }}
             >
-              <label className="block text-sm font-medium text-white/80 mb-1.5">
-                Password
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-sm font-medium text-white/80">
+                  Password
+                </label>
+                {mode === 'signin' && (
+                  <button
+                    type="button"
+                    onClick={() => navigate('/auth/forgot-password')}
+                    className="text-xs text-brand-red-light hover:underline"
+                  >
+                    Forgot password?
+                  </button>
+                )}
+              </div>
               <div className="relative">
                 <Lock
                   size={16}

@@ -13,10 +13,16 @@ const poller = require('./services/poller');
 
 const app = express();
 
+// Trust first proxy (Railway, Render, Heroku, etc.)
+// Required: without this, express-rate-limit throws
+// ERR_ERL_UNEXPECTED_X_FORWARDED_FOR and crashes every request
+app.set('trust proxy', 1);
+
 // ─── CORS (must be before Helmet/security) ───────────────────
 // Allows the Vercel-hosted frontend to call this backend
 const ALLOWED_ORIGINS = [
   process.env.CORS_ORIGIN,               // e.g. https://linetec-portal.vercel.app
+  process.env.CORS_ORIGIN_2,             // optional second origin
   'http://localhost:5173',                // local Vite dev server
 ].filter(Boolean);
 
