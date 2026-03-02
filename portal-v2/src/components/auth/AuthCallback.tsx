@@ -16,7 +16,7 @@ export function AuthCallback() {
   useEffect(() => {
     async function handleCallback() {
       try {
-        const { data, error } = await supabase.auth.getSession();
+        const { error } = await supabase.auth.getSession();
         if (error) throw error;
 
         // Supabase puts `type` in the URL fragment for implicit flow; fall back
