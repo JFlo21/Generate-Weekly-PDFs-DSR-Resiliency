@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Lock, Eye, EyeOff, ArrowRight, CheckCircle2 } from 'lucide-react';
@@ -33,14 +33,19 @@ export function ResetPasswordPage() {
       const { error: updateError } = await supabase.auth.updateUser({ password });
       if (updateError) throw updateError;
       setSuccess(true);
-      const timer = setTimeout(() => navigate('/dashboard', { replace: true }), 2000);
-      return () => clearTimeout(timer);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to reset password');
     } finally {
       setLoading(false);
     }
   }
+
+  // Redirect to dashboard after showing success — cleaned up on unmount
+  useEffect(() => {
+    if (!success) return;
+    const timer = setTimeout(() => navigate('/dashboard', { replace: true }), 2000);
+    return () => clearTimeout(timer);
+  }, [success, navigate]);
 
   return (
     <div className="relative min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-red-950 flex items-center justify-center p-4 overflow-hidden">

@@ -19,8 +19,10 @@ export function AuthCallback() {
         const { data, error } = await supabase.auth.getSession();
         if (error) throw error;
 
-        const searchType = new URLSearchParams(window.location.search).get('type');
-        const type = searchType ?? (data.session?.user?.app_metadata?.recovery_sent_at ? 'recovery' : null);
+        // Supabase puts `type` in the URL fragment for implicit flow; fall back
+        // to the query string for PKCE / older link formats
+        const hashParams = new URLSearchParams(window.location.hash.slice(1));
+        const type = hashParams.get('type') ?? new URLSearchParams(window.location.search).get('type');
 
         if (type === 'recovery') {
           navigate('/auth/reset-password', { replace: true });
