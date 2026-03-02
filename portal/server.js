@@ -14,9 +14,11 @@ const poller = require('./services/poller');
 const app = express();
 
 // Trust first proxy (Railway, Render, Heroku, etc.)
-// Required: without this, express-rate-limit throws
+// Required behind a trusted proxy: without this, express-rate-limit throws
 // ERR_ERL_UNEXPECTED_X_FORWARDED_FOR and crashes every request
-app.set('trust proxy', 1);
+if (process.env.TRUST_PROXY === 'true') {
+  app.set('trust proxy', 1);
+}
 
 // ─── CORS (must be before Helmet/security) ───────────────────
 // Allows the Vercel-hosted frontend to call this backend
