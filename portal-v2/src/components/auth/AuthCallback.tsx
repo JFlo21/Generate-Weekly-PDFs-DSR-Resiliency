@@ -28,7 +28,6 @@ export function AuthCallback() {
         }
 
         setStatus('success');
-        setTimeout(() => navigate('/dashboard', { replace: true }), 2000);
       } catch (err) {
         setErrorMsg(err instanceof Error ? err.message : 'Verification failed');
         setStatus('error');
@@ -37,6 +36,13 @@ export function AuthCallback() {
 
     handleCallback();
   }, [navigate]);
+
+  // Redirect to dashboard after showing success — cleaned up on unmount
+  useEffect(() => {
+    if (status !== 'success') return;
+    const timer = setTimeout(() => navigate('/dashboard', { replace: true }), 2000);
+    return () => clearTimeout(timer);
+  }, [status, navigate]);
 
   return (
     <div className="relative min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-red-950 flex items-center justify-center p-4 overflow-hidden">
