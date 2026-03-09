@@ -357,7 +357,7 @@ class BillingAudit:
                 scope.set_tag("risk_direction", trend.get("risk_direction"))
                 scope.set_tag("risk_level_delta", trend.get("risk_level_delta"))
                 scope.set_tag("issues_delta", trend.get("issues_delta"))
-            sentry_sdk.set_context("audit_results", audit_results)
+            scope.set_context("audit_results", audit_results)
             sentry_sdk.capture_message(
                 f"AUDIT: Risk {risk_level} trend={trend.get('risk_direction','n/a')} anomalies={summary.get('total_anomalies', 0)}",
                 level="warning" if risk_level == "HIGH" else "info"
