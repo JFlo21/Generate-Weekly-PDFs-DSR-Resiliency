@@ -214,7 +214,7 @@ def log_column_mapping_error(sheet_name: str, expected_column: str, available_co
         logging.error(f"🚨 Column Mapping Error: Expected '{expected_column}' not found in sheet '{sheet_name}'")
     
     if SENTRY_DSN:
-        with sentry_sdk.push_scope() as scope:
+        with sentry_sdk.new_scope() as scope:
             scope.set_tag("error_category", "validation_error")
             scope.set_tag("error_type", "column_mapping_failure")
             scope.set_tag("github_actions_critical", "true")
@@ -237,7 +237,7 @@ def log_threshold_configuration_error(missing_threshold: str, validator_class: s
         logging.error(f"🚨 Threshold Configuration Error: Missing {missing_threshold} in {validator_class}")
     
     if SENTRY_DSN:
-        with sentry_sdk.push_scope() as scope:
+        with sentry_sdk.new_scope() as scope:
             scope.set_tag("error_category", "validation_error")
             scope.set_tag("error_type", "threshold_configuration_failure")
             scope.set_tag("github_actions_critical", "true")
@@ -262,7 +262,7 @@ def log_business_logic_validation_error(validation_type: str, work_request: str,
         logging.log(getattr(logging, log_level.upper()), f"🔍 Business Logic Validation: {validation_type} for WR {work_request}")
     
     if SENTRY_DSN:
-        with sentry_sdk.push_scope() as scope:
+        with sentry_sdk.new_scope() as scope:
             scope.set_tag("error_category", "validation_error")
             scope.set_tag("error_type", "business_logic_failure")
             scope.set_tag("validation_type", validation_type)
@@ -287,7 +287,7 @@ def log_financial_validation_error(validation_type: str, amount: float, work_req
         logging.error(f"💰 Financial Validation Error: {validation_type} - ${amount} for WR {work_request}")
     
     if SENTRY_DSN:
-        with sentry_sdk.push_scope() as scope:
+        with sentry_sdk.new_scope() as scope:
             scope.set_tag("error_category", "validation_error")
             scope.set_tag("error_type", "financial_validation_failure")
             scope.set_tag("billing_critical", "true")
@@ -312,7 +312,7 @@ def log_data_schema_validation_error(column_name: str, expected_type: str, actua
         logging.error(f"📊 Data Schema Error: Cannot convert '{actual_value}' to {expected_type} in column '{column_name}'")
     
     if SENTRY_DSN:
-        with sentry_sdk.push_scope() as scope:
+        with sentry_sdk.new_scope() as scope:
             scope.set_tag("error_category", "validation_error")
             scope.set_tag("error_type", "data_schema_failure")
             scope.set_tag("github_actions_critical", "true")
@@ -597,7 +597,7 @@ def get_all_source_rows(client, source_sheets):
                 
                 # Send sheet processing failures to Sentry
                 if SENTRY_DSN:
-                    with sentry_sdk.configure_scope() as scope:
+                    with sentry_sdk.new_scope() as scope:
                         scope.set_tag("error_type", "sheet_processing_failure")
                         scope.set_tag("sheet_id", str(source['id']))
                         scope.set_level("warning")
@@ -610,7 +610,7 @@ def get_all_source_rows(client, source_sheets):
             
             # Send sheet processing failures to Sentry with additional context
             if SENTRY_DSN:
-                with sentry_sdk.configure_scope() as scope:
+                with sentry_sdk.new_scope() as scope:
                     scope.set_tag("error_type", "sheet_processing_failure")
                     scope.set_tag("sheet_id", str(source.get('id', 'N/A')))
                     scope.set_level("error")
@@ -723,7 +723,7 @@ def group_source_rows(rows):
             # ENHANCED SENTRY MONITORING: Validate the grouping logic integrity
             if SENTRY_DSN:
                 # Track successful grouping operations
-                with sentry_sdk.configure_scope() as scope:
+                with sentry_sdk.new_scope() as scope:
                     scope.set_tag("grouping_operation", "success")
                     scope.set_tag("week_ending", week_end_for_key)
                     scope.set_tag("work_request", wr_key)
@@ -754,7 +754,7 @@ def group_source_rows(rows):
     
     # FINAL VALIDATION: Ensure each group contains only one work request
     if SENTRY_DSN:
-        with sentry_sdk.configure_scope() as scope:
+        with sentry_sdk.new_scope() as scope:
             scope.set_tag("grouping_validation", "final_check")
             scope.set_extra("total_groups", len(groups))
             
@@ -783,7 +783,7 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     
     # ENHANCED SENTRY MONITORING: Validate Excel generation grouping integrity
     if SENTRY_DSN:
-        with sentry_sdk.configure_scope() as scope:
+        with sentry_sdk.new_scope() as scope:
             scope.set_tag("excel_generation_start", True)
             scope.set_tag("group_key", group_key)
             scope.set_tag("group_size", len(group_rows))
@@ -846,7 +846,7 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     
     # Log successful validation
     if SENTRY_DSN:
-        with sentry_sdk.configure_scope() as scope:
+        with sentry_sdk.new_scope() as scope:
             scope.set_tag("grouping_validation", "success")
             scope.set_tag("work_request_count", 1)
             scope.set_tag("work_request_number", wr_num)
@@ -1324,7 +1324,7 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
             
             # Send AI insights processing failures to Sentry
             if SENTRY_DSN:
-                with sentry_sdk.configure_scope() as scope:
+                with sentry_sdk.new_scope() as scope:
                     scope.set_tag("error_type", "ai_insights_processing_failure")
                     scope.set_extra("excel_file", final_output_path)
                     scope.set_level("warning")
@@ -1335,7 +1335,7 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     
     # FINAL VALIDATION: Confirm Excel file was generated correctly with proper formatting
     if SENTRY_DSN:
-        with sentry_sdk.configure_scope() as scope:
+        with sentry_sdk.new_scope() as scope:
             scope.set_tag("excel_generation_complete", True)
             scope.set_tag("work_request_validated", wr_num)
             scope.set_tag("filename_generated", output_filename)
@@ -1454,7 +1454,7 @@ def add_ai_insights_to_excel(excel_path, ai_results):
         
         # Send AI insights failures to Sentry
         if SENTRY_DSN:
-            with sentry_sdk.configure_scope() as scope:
+            with sentry_sdk.new_scope() as scope:
                 scope.set_tag("error_type", "ai_insights_failure")
                 scope.set_extra("excel_path", excel_path)
                 scope.set_level("warning")
@@ -1578,7 +1578,7 @@ def log_detailed_error(error, context="", additional_data=None):
         
         # Send detailed error to Sentry with enhanced context
         if SENTRY_DSN:
-            with sentry_sdk.configure_scope() as scope:
+            with sentry_sdk.new_scope() as scope:
                 # Add all error details as tags and context
                 scope.set_tag("error_file", filename)
                 scope.set_tag("error_line", str(line_number))
@@ -1676,7 +1676,7 @@ def main():
     try:
         # Set session context in Sentry
         if SENTRY_DSN:
-            with sentry_sdk.configure_scope() as scope:
+            with sentry_sdk.new_scope() as scope:
                 scope.set_tag("session_start", session_start.isoformat())
                 scope.set_tag("process", "excel_generation")
                 scope.set_tag("business_logic_monitoring", ADVANCED_SENTRY_AVAILABLE)
@@ -1688,7 +1688,7 @@ def main():
             
             # Send fatal configuration errors to Sentry
             if SENTRY_DSN:
-                with sentry_sdk.configure_scope() as scope:
+                with sentry_sdk.new_scope() as scope:
                     scope.set_tag("error_type", "fatal_configuration_error")
                     scope.set_tag("missing_config", "SMARTSHEET_API_TOKEN")
                     scope.set_level("fatal")
@@ -1732,7 +1732,7 @@ def main():
                 logging.error(error_msg)
                 
                 if SENTRY_DSN:
-                    with sentry_sdk.configure_scope() as scope:
+                    with sentry_sdk.new_scope() as scope:
                         scope.set_tag("error_type", "no_source_sheets")
                         scope.set_level("error")
                         sentry_sdk.capture_message(error_msg, level="error")
@@ -1756,7 +1756,7 @@ def main():
                 logging.info(warning_msg)
                 
                 if SENTRY_DSN:
-                    with sentry_sdk.configure_scope() as scope:
+                    with sentry_sdk.new_scope() as scope:
                         scope.set_tag("warning_type", "no_valid_rows")
                         scope.set_level("warning")
                         sentry_sdk.capture_message(warning_msg, level="warning")
@@ -1780,7 +1780,7 @@ def main():
                     
                     # Enhanced Sentry reporting for audit violations
                     if SENTRY_DSN:
-                        with sentry_sdk.configure_scope() as scope:
+                        with sentry_sdk.new_scope() as scope:
                             scope.set_tag("audit_violations_detected", True)
                             scope.set_tag("violation_count", violation_count)
                             scope.set_tag("audit_severity", "critical" if violation_count > 10 else "high")
@@ -1811,7 +1811,7 @@ def main():
                     
                     # Send positive audit confirmation to Sentry for monitoring
                     if SENTRY_DSN:
-                        with sentry_sdk.configure_scope() as scope:
+                        with sentry_sdk.new_scope() as scope:
                             scope.set_tag("audit_violations_detected", False)
                             scope.set_tag("audit_status", "clean")
                             scope.set_context("audit_summary", {
@@ -2112,7 +2112,7 @@ def main():
         logging.info(f"   • Enhanced Monitoring: Disabled")
         
         if SENTRY_DSN:
-            with sentry_sdk.configure_scope() as scope:
+            with sentry_sdk.new_scope() as scope:
                 scope.set_tag("session_success", True)
                 scope.set_tag("session_duration", str(session_duration))
                 scope.set_tag("files_generated", generated_files_count)
@@ -2133,7 +2133,7 @@ def main():
         
         # Log session failure
         if SENTRY_DSN:
-            with sentry_sdk.configure_scope() as scope:
+            with sentry_sdk.new_scope() as scope:
                 scope.set_tag("session_success", False)
                 scope.set_tag("session_duration", str(session_duration))
                 scope.set_tag("failure_type", "file_not_found")
@@ -2155,7 +2155,7 @@ def main():
         
         # Log session failure with details
         if SENTRY_DSN:
-            with sentry_sdk.configure_scope() as scope:
+            with sentry_sdk.new_scope() as scope:
                 scope.set_tag("session_success", False)
                 scope.set_tag("session_duration", str(session_duration))
                 scope.set_tag("failure_type", "general_exception")

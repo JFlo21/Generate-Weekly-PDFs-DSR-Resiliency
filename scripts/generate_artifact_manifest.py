@@ -60,8 +60,8 @@ def get_file_metadata(filepath):
         return {
             'size_bytes': stat.st_size,
             'size_mb': round(stat.st_size / (1024 * 1024), 2),
-            'created': datetime.datetime.fromtimestamp(stat.st_ctime).isoformat(),
-            'modified': datetime.datetime.fromtimestamp(stat.st_mtime).isoformat(),
+            'created': datetime.datetime.fromtimestamp(stat.st_ctime, tz=datetime.timezone.utc).isoformat(),
+            'modified': datetime.datetime.fromtimestamp(stat.st_mtime, tz=datetime.timezone.utc).isoformat(),
         }
     except Exception as e:
         print(f"⚠️ Could not get metadata for {filepath}: {e}")
@@ -75,7 +75,7 @@ def generate_manifest(docs_folder='generated_docs', output_file='artifact_manife
     """
     
     manifest = {
-        'generated_at': datetime.datetime.now().isoformat(),
+        'generated_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
         'generator': 'generate_artifact_manifest.py',
         'version': '1.1',  # Updated version for subfolder support
         'source_folder': docs_folder,
