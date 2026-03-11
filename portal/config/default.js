@@ -41,6 +41,16 @@ if (!githubToken) {
   console.warn('WARNING: GITHUB_TOKEN not set. GitHub API rate limit is 60 req/hr.');
 }
 
+const githubOwner = process.env.GITHUB_OWNER || '';
+if (!githubOwner) {
+  console.warn('WARNING: GITHUB_OWNER not set. GitHub API calls will fail.');
+}
+
+const githubRepo = process.env.GITHUB_REPO || '';
+if (!githubRepo) {
+  console.warn('WARNING: GITHUB_REPO not set. GitHub API calls will fail.');
+}
+
 module.exports = {
   port: process.env.PORT != null ? parseInt(process.env.PORT, 10) : 3000,
   env,
@@ -52,8 +62,8 @@ module.exports = {
 
   github: {
     token: githubToken,
-    owner: process.env.GITHUB_OWNER || '',
-    repo: process.env.GITHUB_REPO || '',
+    owner: githubOwner,
+    repo: githubRepo,
   },
 
   rateLimit: {

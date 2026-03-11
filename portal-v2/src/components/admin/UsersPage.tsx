@@ -12,6 +12,7 @@ export function UsersPage() {
   const [users, setUsers] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [roleError, setRoleError] = useState<string | null>(null);
 
   useEffect(() => {
     supabase
@@ -31,12 +32,12 @@ export function UsersPage() {
       .update({ role })
       .eq('id', userId);
     if (err) {
-      setError(`Failed to update role: ${err.message}`);
+      setRoleError(`Failed to update role: ${err.message}`);
     } else {
       setUsers((prev) =>
         prev.map((u) => (u.id === userId ? { ...u, role } : u))
       );
-      setError(null);
+      setRoleError(null);
     }
   }
 
@@ -52,6 +53,18 @@ export function UsersPage() {
           Manage user roles and access
         </p>
       </div>
+
+      {roleError && (
+        <div className="flex items-center justify-between bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+          <p className="text-sm text-red-600">{roleError}</p>
+          <button
+            onClick={() => setRoleError(null)}
+            className="text-red-400 hover:text-red-600 text-xs font-medium ml-4"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
         {loading ? (
