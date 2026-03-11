@@ -36,6 +36,7 @@ import sys
 import inspect
 import json
 import signal
+import csv
 
 # Load environment variables
 load_dotenv()
@@ -158,6 +159,7 @@ FILTER_DIAGNOSTICS = os.getenv('FILTER_DIAGNOSTICS','0').lower() in ('1','true',
 FOREMAN_DIAGNOSTICS = os.getenv('FOREMAN_DIAGNOSTICS','0').lower() in ('1','true','yes')  # When enabled, logs per-WR foreman value distributions & exclusion reasons
 FORCE_GENERATION = os.getenv('FORCE_GENERATION','0').lower() in ('1','true','yes')  # When true, ignore hash short‑circuit and always regenerate
 REGEN_WEEKS = {w.strip() for w in os.getenv('REGEN_WEEKS','').split(',') if w.strip()}  # Comma list of MMDDYY week ending codes to force regenerate
+SUBCONTRACTOR_SHEET_IDS = [int(s.strip()) for s in os.getenv('SUBCONTRACTOR_SHEET_IDS', '').split(',') if s.strip()]
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
 RESET_WR_LIST = {w.strip() for w in os.getenv('RESET_WR_LIST','').split(',') if w.strip()}  # When provided, only purge these WR numbers (overrides full reset)
 _env_hist_path = os.getenv('HASH_HISTORY_PATH')
@@ -394,6 +396,33 @@ def parse_price(price_str: str | float | int | None) -> float:
         return float(str(price_str).replace('$', '').replace(',', ''))
     except (ValueError, TypeError):
         return 0.0
+
+def load_original_contract_rates(filepath='original_contract_rates.csv'):
+    """Loads original 100% contract rates for accurate recalculation."""
+    rates = {}
+    try:
+        with open(filepath, mode='r', encoding='utf-8-sig') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                cu = str(row.get('CU', '')).strip().upper()
+                if not cu:
+                    continue
+
+                def safe_float(val):
+                    try:
+                        return float(str(val).replace('$', '').replace(',', ''))
+                    except (ValueError, TypeError):
+                        return 0.0
+
+                rates[cu] = {
+                    'install': safe_float(row.get('Install Price', 0)),
+                    'removal': safe_float(row.get('Removal Price', 0)),
+                    'transfer': safe_float(row.get('Transfer Price', 0))
+                }
+        logging.info(f"Loaded {len(rates)} CU rates from original contract.")
+    except Exception as e:
+        logging.error(f"Failed to load original contract rates: {e}")
+    return rates
 
 def is_checked(value: bool | int | str | None) -> bool:
     """Check if a checkbox value is considered checked/true.
@@ -1179,6 +1208,7 @@ def get_all_source_rows(client, source_sheets):
     """
     merged_rows = []
     global_row_counter = 0
+    original_rates = load_original_contract_rates()
     exclusion_counts = {
         'missing_work_request': 0,
         'missing_weekly_reference_logged_date': 0,
@@ -1194,6 +1224,7 @@ def get_all_source_rows(client, source_sheets):
     for source in source_sheets:
         try:
             logging.info(f"⚡ Processing: {source['name']} (ID: {source['id']})")
+            is_subcontractor_sheet = source['id'] in SUBCONTRACTOR_SHEET_IDS
 
             try:
                 # Fetch sheet once (no column history); include columns to support unmapped summary
@@ -1279,6 +1310,34 @@ def get_all_source_rows(client, source_sheets):
                         weekly_date = row_data.get('Weekly Reference Logged Date')
                         price_raw = row_data.get('Units Total Price')
                         price_val = parse_price(price_raw)
+
+                        # --- SUBCONTRACTOR PRICING REVERSION ---
+                        if is_subcontractor_sheet and original_rates:
+                            cu_code = str(row_data.get('CU') or row_data.get('Billable Unit Code') or '').strip().upper()
+                            work_type_raw = str(row_data.get('Work Type') or '').strip().lower()
+
+                            # Determine work type key
+                            wt_key = 'install'
+                            if 'rem' in work_type_raw:
+                                wt_key = 'removal'
+                            elif 'tran' in work_type_raw or 'xfr' in work_type_raw:
+                                wt_key = 'transfer'
+
+                            # Parse exact quantity
+                            qty_str = str(row_data.get('Quantity', '') or '0')
+                            try:
+                                qty = float(_RE_EXTRACT_NUMBERS.sub('', qty_str) or 0)
+                            except ValueError:
+                                qty = 0.0
+
+                            # Apply the 100% original rate if CU exists in dictionary
+                            if cu_code in original_rates:
+                                exact_rate = original_rates[cu_code].get(wt_key, 0.0)
+                                price_val = round(exact_rate * qty, 2)
+                                # Overwrite row_data so Excel generation uses the reverted 100% price
+                                row_data['Units Total Price'] = price_val
+                        # --- END SUBCONTRACTOR REVERSION ---
+
                         has_price = (price_raw not in (None, "", "$0", "$0.00", "0", "0.0")) and price_val > 0
                         units_completed = row_data.get('Units Completed?')
                         units_completed_checked = is_checked(units_completed)
