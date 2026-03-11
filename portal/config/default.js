@@ -36,8 +36,13 @@ function parseInterval() {
   return value;
 }
 
+const githubToken = process.env.GITHUB_TOKEN || '';
+if (!githubToken) {
+  console.warn('WARNING: GITHUB_TOKEN not set. GitHub API rate limit is 60 req/hr.');
+}
+
 module.exports = {
-  port: parseInt(process.env.PORT, 10) || 3000,
+  port: process.env.PORT != null ? parseInt(process.env.PORT, 10) : 3000,
   env,
 
   session: {
@@ -46,9 +51,9 @@ module.exports = {
   },
 
   github: {
-    token: process.env.GITHUB_TOKEN || '',
-    owner: process.env.GITHUB_OWNER || 'JFlo21',
-    repo: process.env.GITHUB_REPO || 'Generate-Weekly-PDFs-DSR-Resiliency',
+    token: githubToken,
+    owner: process.env.GITHUB_OWNER || '',
+    repo: process.env.GITHUB_REPO || '',
   },
 
   rateLimit: {

@@ -98,9 +98,9 @@ describe('Auth endpoints', () => {
 });
 
 describe('API protection', () => {
-  it('blocks unauthenticated API access', async () => {
+  it('blocks unauthenticated API access with 401', async () => {
     const res = await request('/api/runs');
-    expect(res.status).toBe(302);
+    expect(res.status).toBe(401);
   });
 });
 
@@ -151,9 +151,12 @@ describe('Excel service', () => {
     const parsed = await excel.parseExcelBuffer(buffer);
     const rows = parsed.sheets[0].rows;
 
-    const maxCol = Math.max(...rows.map(r =>
-      r.cells.length > 0 ? Math.max(...r.cells.map(c => c.col)) : 0
-    ));
+    let maxCol = 0;
+    for (const r of rows) {
+      for (const c of r.cells) {
+        if (c.col > maxCol) maxCol = c.col;
+      }
+    }
 
     const csvRows = rows.map(row => {
       const cellMap = {};
@@ -210,24 +213,24 @@ describe('sanitizeFilename', () => {
 });
 
 describe('New API endpoints protection', () => {
-  it('blocks unauthenticated access to /api/latest', async () => {
+  it('blocks unauthenticated access to /api/latest with 401', async () => {
     const res = await request('/api/latest');
-    expect(res.status).toBe(302);
+    expect(res.status).toBe(401);
   });
 
-  it('blocks unauthenticated access to /api/poll', async () => {
+  it('blocks unauthenticated access to /api/poll with 401', async () => {
     const res = await request('/api/poll');
-    expect(res.status).toBe(302);
+    expect(res.status).toBe(401);
   });
 
-  it('blocks unauthenticated access to /api/events', async () => {
+  it('blocks unauthenticated access to /api/events with 401', async () => {
     const res = await request('/api/events');
-    expect(res.status).toBe(302);
+    expect(res.status).toBe(401);
   });
 
-  it('blocks unauthenticated access to /api/poller-status', async () => {
+  it('blocks unauthenticated access to /api/poller-status with 401', async () => {
     const res = await request('/api/poller-status');
-    expect(res.status).toBe(302);
+    expect(res.status).toBe(401);
   });
 });
 

@@ -7,7 +7,9 @@ function csrfProtection(req, res, next) {
   if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
     return next();
   }
-  if (!req.session) return next();
+  if (!req.session) {
+    return res.status(403).json({ error: 'Session required' });
+  }
 
   const token = req.headers['x-csrf-token'];
   if (!token || token !== req.session.csrfToken) {
@@ -42,8 +44,6 @@ function setupSecurity(app) {
   }));
 
   app.use((req, res, next) => {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
     next();
   });
