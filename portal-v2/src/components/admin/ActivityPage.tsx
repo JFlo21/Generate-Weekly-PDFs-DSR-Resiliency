@@ -29,8 +29,7 @@ export function ActivityPage() {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'activity_logs' },
         async (payload) => {
-          const newLog = payload.new as ActivityLog;
-          // Real-time payloads don't include joined data, so fetch the profile
+          const newLog = { ...(payload.new as ActivityLog) };
           if (newLog.user_id) {
             const { data: profile } = await supabase
               .from('profiles')
@@ -41,7 +40,7 @@ export function ActivityPage() {
               newLog.profiles = profile;
             }
           }
-          setLogs((prev) => [newLog, ...prev]);
+          setLogs((prev) => [newLog, ...prev].slice(0, 200));
         }
       )
       .subscribe();

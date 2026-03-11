@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext } from 'react';
+import { useState, useEffect, useCallback, useMemo, createContext, useContext } from 'react';
 import type { User, Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import type { Profile } from '../lib/types';
@@ -21,20 +21,20 @@ export function useAuthState(): AuthContextValue {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  async function fetchProfile(userId: string): Promise<void> {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
-    if (error) {
-      console.error('Failed to fetch profile:', error.message);
-      return;
-    }
-    if (data) setProfile(data as Profile);
-  }
-
   useEffect(() => {
+    async function fetchProfile(userId: string): Promise<void> {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+      if (error) {
+        console.error('Failed to fetch profile:', error.message);
+        return;
+      }
+      if (data) setProfile(data as Profile);
+    }
+
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       setSession(s);
       setUser(s?.user ?? null);
@@ -57,24 +57,27 @@ export function useAuthState(): AuthContextValue {
     return () => listener.subscription.unsubscribe();
   }, []);
 
-  async function login(email: string, password: string): Promise<void> {
+  const login = useCallback(async (email: string, password: string): Promise<void> => {
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
     if (error) throw error;
-  }
+  }, []);
 
-  async function signup(email: string, password: string): Promise<void> {
+  const signup = useCallback(async (email: string, password: string): Promise<void> => {
     const { error } = await supabase.auth.signUp({ email, password });
     if (error) throw error;
-  }
+  }, []);
 
-  async function logout(): Promise<void> {
+  const logout = useCallback(async (): Promise<void> => {
     await supabase.auth.signOut();
-  }
+  }, []);
 
-  return { user, session, profile, loading, login, signup, logout };
+  return useMemo(
+    () => ({ user, session, profile, loading, login, signup, logout }),
+    [user, session, profile, loading, login, signup, logout]
+  );
 }
 
 export function useAuth(): AuthContextValue {

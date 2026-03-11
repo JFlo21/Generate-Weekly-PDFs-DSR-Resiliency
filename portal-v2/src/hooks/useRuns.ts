@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { api } from '../lib/api';
+import { api, API_BASE } from '../lib/api';
 import type { WorkflowRun } from '../lib/types';
 
 const POLL_INTERVAL_MS = 120_000; // 2 minutes
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 
 export function useRuns() {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);

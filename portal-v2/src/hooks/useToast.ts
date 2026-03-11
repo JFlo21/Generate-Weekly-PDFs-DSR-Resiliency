@@ -10,10 +10,10 @@ export function useToast() {
     new Map()
   );
 
-  // Cleanup all timeouts on unmount
   useEffect(() => {
+    const map = timeoutsRef.current;
     return () => {
-      timeoutsRef.current.forEach((id) => clearTimeout(id));
+      map.forEach((id) => clearTimeout(id));
     };
   }, []);
 
