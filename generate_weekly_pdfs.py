@@ -2181,12 +2181,12 @@ def main():
     generated_filenames = []  # Track exact filenames created this session
     
     try:
-        # Set Sentry context
+        # Set Sentry context (SDK 2.x API)
         if SENTRY_DSN:
-            with sentry_sdk.configure_scope() as scope:
-                scope.set_tag("session_start", session_start.isoformat())
-                scope.set_tag("test_mode", TEST_MODE)
-                scope.set_tag("github_actions", GITHUB_ACTIONS_MODE)
+            scope = sentry_sdk.get_isolation_scope()
+            scope.set_tag("session_start", session_start.isoformat())
+            scope.set_tag("test_mode", TEST_MODE)
+            scope.set_tag("github_actions", GITHUB_ACTIONS_MODE)
 
         logging.info("🚀 Starting Weekly PDF Generator with Complete Fixes")
         
@@ -2449,7 +2449,7 @@ def main():
                 hash_history[history_key] = {
                     'hash': data_hash,
                     'rows': len(group_rows),
-                    'updated_at': datetime.datetime.utcnow().isoformat() + 'Z',
+                    'updated_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
                     'foreman': group_rows[0].get('__current_foreman'),
                     'week': week_raw,
                     'variant': variant,
