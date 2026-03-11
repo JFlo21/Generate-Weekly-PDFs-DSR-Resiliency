@@ -1313,6 +1313,7 @@ def get_all_source_rows(client, source_sheets):
 
                         # --- SUBCONTRACTOR PRICING REVERSION ---
                         if is_subcontractor_sheet and original_rates:
+                            # CU field may appear as 'CU' or 'Billable Unit Code' across different sheet types
                             cu_code = str(row_data.get('CU') or row_data.get('Billable Unit Code') or '').strip().upper()
                             work_type_raw = str(row_data.get('Work Type') or '').strip().lower()
 
