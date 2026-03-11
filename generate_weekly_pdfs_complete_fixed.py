@@ -14,7 +14,6 @@ FIXES IMPLEMENTED:
 import os
 import datetime
 import time
-import re
 import warnings
 import hashlib
 from datetime import timedelta
@@ -26,13 +25,10 @@ import pandas as pd
 from openpyxl.styles import Font, numbers, Alignment, PatternFill
 from openpyxl.drawing.image import Image
 import collections
-from openpyxl.utils import get_column_letter
 from dotenv import load_dotenv
 import sentry_sdk
 from sentry_sdk.integrations.logging import LoggingIntegration
 import traceback
-import sys
-import inspect
 
 # Load environment variables
 load_dotenv()
@@ -65,7 +61,7 @@ OUTPUT_FOLDER = "generated_docs"
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 # Test/Production modes
-TEST_MODE = True   # Set to False for production uploads to Smartsheet
+TEST_MODE = os.getenv('TEST_MODE', 'false').lower() == 'true'
 DISABLE_AUDIT_FOR_TESTING = False  # Audit system ENABLED for production monitoring
 
 # --- SENTRY CONFIGURATION ---
@@ -552,10 +548,7 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     SUMMARY_VALUE_FONT = Font(name='Calibri', size=10)
 
     ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
-    try:
-        ws.page_setup.paperSize = 9  # A4 paper size code
-    except AttributeError:
-        ws.page_setup.paperSize = 9  # Fallback for older versions
+    ws.page_setup.paperSize = 9
     ws.page_margins.left = 0.25; ws.page_margins.right = 0.25
     ws.page_margins.top = 0.5; ws.page_margins.bottom = 0.5
 
@@ -832,10 +825,10 @@ def main():
     try:
         # Set Sentry context
         if SENTRY_DSN:
-            with sentry_sdk.configure_scope() as scope:
-                scope.set_tag("session_start", session_start.isoformat())
-                scope.set_tag("test_mode", TEST_MODE)
-                scope.set_tag("github_actions", GITHUB_ACTIONS_MODE)
+            scope = sentry_sdk.get_isolation_scope()
+            scope.set_tag("session_start", session_start.isoformat())
+            scope.set_tag("test_mode", TEST_MODE)
+            scope.set_tag("github_actions", GITHUB_ACTIONS_MODE)
 
         logging.info("🚀 Starting Weekly PDF Generator with Complete Fixes")
         
@@ -952,12 +945,12 @@ def main():
             logging.info(f"   • Data Issues: {audit_summary.get('total_data_issues', 0)}")
         
         if SENTRY_DSN:
-            with sentry_sdk.configure_scope() as scope:
-                scope.set_tag("session_success", True)
-                scope.set_tag("files_generated", generated_files_count)
-                scope.set_tag("session_duration", str(session_duration))
-                if audit_results:
-                    scope.set_tag("audit_risk_level", audit_results.get('summary', {}).get('risk_level', 'UNKNOWN'))
+            scope = sentry_sdk.get_isolation_scope()
+            scope.set_tag("session_success", True)
+            scope.set_tag("files_generated", generated_files_count)
+            scope.set_tag("session_duration", str(session_duration))
+            if audit_results:
+                scope.set_tag("audit_risk_level", audit_results.get('summary', {}).get('risk_level', 'UNKNOWN'))
 
     except FileNotFoundError as e:
         error_context = f"Missing required file: {e}"
