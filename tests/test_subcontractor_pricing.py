@@ -159,6 +159,76 @@ class TestSubcontractorSheetIdsConfig(unittest.TestCase):
         """Verify that SUBCONTRACTOR_SHEET_IDS is a list attribute on the module."""
         self.assertIsInstance(generate_weekly_pdfs.SUBCONTRACTOR_SHEET_IDS, list)
 
+    def test_parse_sheet_ids_skips_invalid(self):
+        """Verify _parse_sheet_ids gracefully skips non-integer tokens."""
+        result = generate_weekly_pdfs._parse_sheet_ids('123,abc,456,,  789  ')
+        self.assertEqual(result, [123, 456, 789])
+
+    def test_parse_sheet_ids_empty_string(self):
+        """Verify _parse_sheet_ids returns empty list for empty string."""
+        result = generate_weekly_pdfs._parse_sheet_ids('')
+        self.assertEqual(result, [])
+
+
+class TestRevertSubcontractorPrice(unittest.TestCase):
+    """Tests for the revert_subcontractor_price helper function."""
+
+    def setUp(self):
+        self.rates = {
+            'CU-INSTALL': {'install': 100.0, 'removal': 50.0, 'transfer': 30.0},
+            'CU-MULTI': {'install': 200.0, 'removal': 80.0, 'transfer': 60.0},
+        }
+
+    def test_basic_install_reversion(self):
+        """Test that install price is recalculated from original rate × quantity."""
+        row = {'CU': 'CU-INSTALL', 'Work Type': 'Install', 'Quantity': '3', 'Units Total Price': '$270.00'}
+        result = generate_weekly_pdfs.revert_subcontractor_price(row, self.rates)
+        self.assertAlmostEqual(result, 300.0)
+        self.assertAlmostEqual(row['Units Total Price'], 300.0)
+
+    def test_removal_work_type(self):
+        """Test that 'Removal' work type maps to removal rates."""
+        row = {'CU': 'CU-INSTALL', 'Work Type': 'Removal', 'Quantity': '2', 'Units Total Price': '$90.00'}
+        result = generate_weekly_pdfs.revert_subcontractor_price(row, self.rates)
+        self.assertAlmostEqual(result, 100.0)
+
+    def test_transfer_work_type(self):
+        """Test that 'Transfer' work type maps to transfer rates."""
+        row = {'CU': 'CU-INSTALL', 'Work Type': 'Transfer', 'Quantity': '4', 'Units Total Price': '$108.00'}
+        result = generate_weekly_pdfs.revert_subcontractor_price(row, self.rates)
+        self.assertAlmostEqual(result, 120.0)
+
+    def test_xfr_work_type(self):
+        """Test that 'xfr' in work type maps to transfer rates."""
+        row = {'CU': 'CU-INSTALL', 'Work Type': 'XFR', 'Quantity': '1', 'Units Total Price': '$27.00'}
+        result = generate_weekly_pdfs.revert_subcontractor_price(row, self.rates)
+        self.assertAlmostEqual(result, 30.0)
+
+    def test_cu_helper_preferred_over_cu(self):
+        """Test that CU Helper field is preferred over CU field."""
+        row = {'CU Helper': 'CU-MULTI', 'CU': 'CU-INSTALL', 'Work Type': 'Install', 'Quantity': '1', 'Units Total Price': '$90.00'}
+        result = generate_weekly_pdfs.revert_subcontractor_price(row, self.rates)
+        self.assertAlmostEqual(result, 200.0)
+
+    def test_nan_cu_helper_falls_back_to_cu(self):
+        """Test that NaN CU Helper falls back to CU field."""
+        row = {'CU Helper': 'nan', 'CU': 'CU-INSTALL', 'Work Type': 'Install', 'Quantity': '2', 'Units Total Price': '$180.00'}
+        result = generate_weekly_pdfs.revert_subcontractor_price(row, self.rates)
+        self.assertAlmostEqual(result, 200.0)
+
+    def test_unknown_cu_returns_parsed_price(self):
+        """Test that unknown CU code returns the original parsed price unchanged."""
+        row = {'CU': 'UNKNOWN-CU', 'Work Type': 'Install', 'Quantity': '1', 'Units Total Price': '$55.00'}
+        result = generate_weekly_pdfs.revert_subcontractor_price(row, self.rates)
+        self.assertAlmostEqual(result, 55.0)
+        self.assertEqual(row['Units Total Price'], '$55.00')
+
+    def test_zero_quantity(self):
+        """Test that zero quantity yields zero price."""
+        row = {'CU': 'CU-INSTALL', 'Work Type': 'Install', 'Quantity': '0', 'Units Total Price': '$0.00'}
+        result = generate_weekly_pdfs.revert_subcontractor_price(row, self.rates)
+        self.assertAlmostEqual(result, 0.0)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -159,7 +159,20 @@ FILTER_DIAGNOSTICS = os.getenv('FILTER_DIAGNOSTICS','0').lower() in ('1','true',
 FOREMAN_DIAGNOSTICS = os.getenv('FOREMAN_DIAGNOSTICS','0').lower() in ('1','true','yes')  # When enabled, logs per-WR foreman value distributions & exclusion reasons
 FORCE_GENERATION = os.getenv('FORCE_GENERATION','0').lower() in ('1','true','yes')  # When true, ignore hash short‑circuit and always regenerate
 REGEN_WEEKS = {w.strip() for w in os.getenv('REGEN_WEEKS','').split(',') if w.strip()}  # Comma list of MMDDYY week ending codes to force regenerate
-SUBCONTRACTOR_SHEET_IDS = [int(s.strip()) for s in os.getenv('SUBCONTRACTOR_SHEET_IDS', '').split(',') if s.strip()]
+def _parse_sheet_ids(env_val):
+    """Parse comma-separated sheet IDs, skipping non-integer tokens."""
+    ids = []
+    for s in env_val.split(','):
+        s = s.strip()
+        if not s:
+            continue
+        try:
+            ids.append(int(s))
+        except ValueError:
+            logging.warning(f"Ignoring invalid SUBCONTRACTOR_SHEET_IDS token: {s!r}")
+    return ids
+
+SUBCONTRACTOR_SHEET_IDS = _parse_sheet_ids(os.getenv('SUBCONTRACTOR_SHEET_IDS', ''))
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
 RESET_WR_LIST = {w.strip() for w in os.getenv('RESET_WR_LIST','').split(',') if w.strip()}  # When provided, only purge these WR numbers (overrides full reset)
 _env_hist_path = os.getenv('HASH_HISTORY_PATH')
@@ -423,6 +436,47 @@ def load_contract_rates(filepath):
     except Exception as e:
         logging.error(f"Failed to load rates from {filepath}: {e}")
     return rates
+
+def revert_subcontractor_price(row_data, original_rates):
+    """Revert a subcontractor row's price to the 100% original contract rate.
+
+    Looks up the CU code from row_data (preferring CU Helper, then CU,
+    then Billable Unit Code), determines the work type, and recalculates
+    the price as original_rate × quantity.
+
+    Args:
+        row_data: Dict of row field values (modified in-place if reverted).
+        original_rates: Dict mapping CU codes to {install, removal, transfer} rates.
+
+    Returns:
+        The (possibly recalculated) price value as a float.
+    """
+    price_val = parse_price(row_data.get('Units Total Price'))
+
+    cu_code = str(row_data.get('CU Helper') or row_data.get('CU') or row_data.get('Billable Unit Code') or '').strip().upper()
+    if cu_code == 'NAN':
+        cu_code = str(row_data.get('CU') or '').strip().upper()
+
+    work_type_raw = str(row_data.get('Work Type') or '').strip().lower()
+
+    wt_key = 'install'
+    if 'rem' in work_type_raw:
+        wt_key = 'removal'
+    elif 'tran' in work_type_raw or 'xfr' in work_type_raw:
+        wt_key = 'transfer'
+
+    qty_str = str(row_data.get('Quantity', '') or '0')
+    try:
+        qty = float(_RE_EXTRACT_NUMBERS.sub('', qty_str) or 0)
+    except ValueError:
+        qty = 0.0
+
+    if cu_code in original_rates:
+        exact_original_rate = original_rates[cu_code].get(wt_key, 0.0)
+        price_val = round(exact_original_rate * qty, 2)
+        row_data['Units Total Price'] = price_val
+
+    return price_val
 
 def is_checked(value: bool | int | str | None) -> bool:
     """Check if a checkbox value is considered checked/true.
@@ -1209,8 +1263,6 @@ def get_all_source_rows(client, source_sheets):
     merged_rows = []
     global_row_counter = 0
     original_rates = load_contract_rates('CU List - Corpus North & South.csv')
-    # contractor_rates loaded for future audit/validation; reversion uses original_rates
-    contractor_rates = load_contract_rates('CU List Contract - Arrowhead Contract.csv')
     exclusion_counts = {
         'missing_work_request': 0,
         'missing_weekly_reference_logged_date': 0,
@@ -1315,35 +1367,11 @@ def get_all_source_rows(client, source_sheets):
 
                         # --- SUBCONTRACTOR PRICING REVERSION ---
                         if is_subcontractor_sheet and original_rates:
-                            # Safely extract CU (Prefer CU Helper if mapped, fallback to CU)
-                            cu_code = str(row_data.get('CU Helper') or row_data.get('CU') or row_data.get('Billable Unit Code') or '').strip().upper()
-                            if cu_code == 'NAN':
-                                cu_code = str(row_data.get('CU') or '').strip().upper()
-
-                            work_type_raw = str(row_data.get('Work Type') or '').strip().lower()
-
-                            # Determine work type key
-                            wt_key = 'install'
-                            if 'rem' in work_type_raw:
-                                wt_key = 'removal'
-                            elif 'tran' in work_type_raw or 'xfr' in work_type_raw:
-                                wt_key = 'transfer'
-
-                            # Parse exact quantity
-                            qty_str = str(row_data.get('Quantity', '') or '0')
-                            try:
-                                qty = float(_RE_EXTRACT_NUMBERS.sub('', qty_str) or 0)
-                            except ValueError:
-                                qty = 0.0
-
-                            # Apply the 100% original rate for the final Excel report
-                            if cu_code in original_rates:
-                                exact_original_rate = original_rates[cu_code].get(wt_key, 0.0)
-                                price_val = round(exact_original_rate * qty, 2)
-                                # Overwrite row_data so downstream aggregation uses the 100% price
-                                row_data['Units Total Price'] = price_val
+                            price_val = revert_subcontractor_price(row_data, original_rates)
                         # --- END SUBCONTRACTOR REVERSION ---
 
+                        # Re-read price_raw after potential subcontractor reversion
+                        price_raw = row_data.get('Units Total Price')
                         has_price = (price_raw not in (None, "", "$0", "$0.00", "0", "0.0")) and price_val > 0
                         units_completed = row_data.get('Units Completed?')
                         units_completed_checked = is_checked(units_completed)
