@@ -412,6 +412,12 @@ def parse_price(price_str: str | float | int | None) -> float:
 
 def load_contract_rates(filepath):
     """Loads contract rates into a fast lookup dictionary."""
+    def safe_float(val):
+        try:
+            return float(str(val).replace('$', '').replace(',', ''))
+        except (ValueError, TypeError):
+            return 0.0
+
     rates = {}
     try:
         with open(filepath, mode='r', encoding='utf-8-sig') as f:
@@ -420,12 +426,6 @@ def load_contract_rates(filepath):
                 cu = str(row.get('CU', '')).strip().upper()
                 if not cu:
                     continue
-
-                def safe_float(val):
-                    try:
-                        return float(str(val).replace('$', '').replace(',', ''))
-                    except (ValueError, TypeError):
-                        return 0.0
 
                 rates[cu] = {
                     'install': safe_float(row.get('Install Price', 0)),
