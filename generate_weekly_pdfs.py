@@ -397,8 +397,8 @@ def parse_price(price_str: str | float | int | None) -> float:
     except (ValueError, TypeError):
         return 0.0
 
-def load_original_contract_rates(filepath='original_contract_rates.csv'):
-    """Loads original 100% contract rates for accurate recalculation."""
+def load_contract_rates(filepath):
+    """Loads contract rates into a fast lookup dictionary."""
     rates = {}
     try:
         with open(filepath, mode='r', encoding='utf-8-sig') as f:
@@ -419,9 +419,9 @@ def load_original_contract_rates(filepath='original_contract_rates.csv'):
                     'removal': safe_float(row.get('Removal Price', 0)),
                     'transfer': safe_float(row.get('Transfer Price', 0))
                 }
-        logging.info(f"Loaded {len(rates)} CU rates from original contract.")
+        logging.info(f"Loaded {len(rates)} CU rates from {filepath}")
     except Exception as e:
-        logging.error(f"Failed to load original contract rates: {e}")
+        logging.error(f"Failed to load rates from {filepath}: {e}")
     return rates
 
 def is_checked(value: bool | int | str | None) -> bool:
@@ -1208,7 +1208,9 @@ def get_all_source_rows(client, source_sheets):
     """
     merged_rows = []
     global_row_counter = 0
-    original_rates = load_original_contract_rates()
+    original_rates = load_contract_rates('CU List - Corpus North & South.csv')
+    # contractor_rates loaded for future audit/validation; reversion uses original_rates
+    contractor_rates = load_contract_rates('CU List Contract - Arrowhead Contract.csv')
     exclusion_counts = {
         'missing_work_request': 0,
         'missing_weekly_reference_logged_date': 0,
@@ -1313,8 +1315,11 @@ def get_all_source_rows(client, source_sheets):
 
                         # --- SUBCONTRACTOR PRICING REVERSION ---
                         if is_subcontractor_sheet and original_rates:
-                            # CU field may appear as 'CU' or 'Billable Unit Code' across different sheet types
-                            cu_code = str(row_data.get('CU') or row_data.get('Billable Unit Code') or '').strip().upper()
+                            # Safely extract CU (Prefer CU Helper if mapped, fallback to CU)
+                            cu_code = str(row_data.get('CU Helper') or row_data.get('CU') or row_data.get('Billable Unit Code') or '').strip().upper()
+                            if cu_code == 'NAN':
+                                cu_code = str(row_data.get('CU') or '').strip().upper()
+
                             work_type_raw = str(row_data.get('Work Type') or '').strip().lower()
 
                             # Determine work type key
@@ -1331,11 +1336,11 @@ def get_all_source_rows(client, source_sheets):
                             except ValueError:
                                 qty = 0.0
 
-                            # Apply the 100% original rate if CU exists in dictionary
+                            # Apply the 100% original rate for the final Excel report
                             if cu_code in original_rates:
-                                exact_rate = original_rates[cu_code].get(wt_key, 0.0)
-                                price_val = round(exact_rate * qty, 2)
-                                # Overwrite row_data so Excel generation uses the reverted 100% price
+                                exact_original_rate = original_rates[cu_code].get(wt_key, 0.0)
+                                price_val = round(exact_original_rate * qty, 2)
+                                # Overwrite row_data so downstream aggregation uses the 100% price
                                 row_data['Units Total Price'] = price_val
                         # --- END SUBCONTRACTOR REVERSION ---
 
