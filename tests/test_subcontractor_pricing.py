@@ -1,6 +1,6 @@
 """
-Tests for the subcontractor pricing reversion feature.
-Validates load_contract_rates() and the pricing reversion logic.
+Tests for subcontractor pricing helpers.
+Validates load_contract_rates() behavior and SUBCONTRACTOR_SHEET_IDS configuration.
 """
 
 import os
