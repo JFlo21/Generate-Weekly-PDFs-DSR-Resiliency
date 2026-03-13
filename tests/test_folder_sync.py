@@ -54,17 +54,11 @@ class TestSyncFolder(unittest.TestCase):
     @patch.object(smartsheet_client, 'list_folder_sheets', return_value=[])
     @patch.object(smartsheet_client, 'get_sheet')
     def test_contractor_folder_not_skipped(self, mock_get, mock_list):
-        """Contractor folders must NOT be skipped — this is the core fix.
+        """Contractor folders must NOT be skipped during auto-sync.
 
-        Previously the code contained::
-
-            if folder_config.get('folder_type') == 'contractor':
-                logger.info("Contractor folder — skipping auto-sync "
-                            "(manual push only)")
-                return {'synced': 0, 'failed': 0}
-
-        After the fix, contractor folders should be processed identically
-        to standard folders.
+        Regression test for the fix that removed the contractor-type
+        skip logic which previously prevented these folders from
+        participating in automatic sync runs.
         """
         client = MagicMock()
         config = self._make_folder_config('contractor')

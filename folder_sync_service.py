@@ -182,15 +182,7 @@ def sync_folder(
     **This is the fixed entry-point.**  All folder types — including
     ``contractor`` — are now processed identically.  The previous
     behaviour silently skipped contractor folders during automatic
-    sync runs:
-
-    .. code-block:: python
-
-        # ---- REMOVED (was the bug) ----
-        # if folder_config.get('folder_type') == 'contractor':
-        #     logger.info("Contractor folder — skipping auto-sync "
-        #                 "(manual push only)")
-        #     return {'synced': 0, 'failed': 0}
+    sync runs, requiring a manual push.
 
     Parameters:
         client: Authenticated Smartsheet client.

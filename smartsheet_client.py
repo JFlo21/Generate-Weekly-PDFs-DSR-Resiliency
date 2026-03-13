@@ -97,6 +97,11 @@ def get_column_map(sheet):
 def add_rows_batched(client, sheet_id, rows):
     """Add *rows* to a sheet in batches of up to 500.
 
+    Batch failures are logged and counted but do **not** halt
+    processing of remaining batches.  This allows partial progress
+    when transient Smartsheet API errors occur (e.g. rate limits,
+    temporary network issues).
+
     Parameters:
         client: Authenticated Smartsheet client.
         sheet_id (int): Target sheet ID.
