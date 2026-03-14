@@ -46,7 +46,12 @@ export function RunCard({ run, index, isSelected, onClick }: RunCardProps) {
       )}
       role="button"
       tabIndex={0}
-      onKeyDown={(e) => e.key === 'Enter' && onClick()}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      }}
       aria-pressed={isSelected}
     >
       {/* Left accent bar */}

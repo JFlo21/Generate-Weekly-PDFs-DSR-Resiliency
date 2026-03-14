@@ -5,8 +5,6 @@ import type { Profile, UserRole } from '../../lib/types';
 import { formatDate } from '../../lib/utils';
 import { Skeleton } from '../ui/Skeleton';
 import { Badge } from '../ui/Badge';
-import { useToast } from '../../hooks/useToast';
-import { ToastContainer } from '../ui/Toast';
 
 const ROLES: UserRole[] = ['viewer', 'biller', 'admin'];
 
@@ -14,7 +12,6 @@ export function UsersPage() {
   const [users, setUsers] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { toasts, addToast, removeToast } = useToast();
 
   useEffect(() => {
     supabase
@@ -34,12 +31,12 @@ export function UsersPage() {
       .update({ role })
       .eq('id', userId);
     if (err) {
-      addToast('error', `Failed to update role: ${err.message}`);
+      setError(`Failed to update role: ${err.message}`);
     } else {
       setUsers((prev) =>
         prev.map((u) => (u.id === userId ? { ...u, role } : u))
       );
-      addToast('success', `Role updated to ${role}`);
+      setError(null);
     }
   }
 
@@ -108,9 +105,12 @@ export function UsersPage() {
                   <td className="px-5 py-3">
                     <select
                       value={user.role}
-                      onChange={(e) =>
-                        updateRole(user.id, e.target.value as UserRole)
-                      }
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === 'admin' || val === 'viewer' || val === 'biller') {
+                          updateRole(user.id, val);
+                        }
+                      }}
                       className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-brand-red/40"
                     >
                       {ROLES.map((r) => (
@@ -135,7 +135,6 @@ export function UsersPage() {
         )}
       </div>
 
-      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </motion.div>
   );
 }

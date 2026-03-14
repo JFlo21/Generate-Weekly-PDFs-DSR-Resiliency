@@ -45,12 +45,16 @@ class ArtifactPoller extends EventEmitter {
 
   broadcast(event, data) {
     const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    const dead = [];
     for (const client of this.clients) {
       try {
         client.write(message);
       } catch {
-        this.clients.delete(client);
+        dead.push(client);
       }
+    }
+    for (const client of dead) {
+      this.clients.delete(client);
     }
   }
 

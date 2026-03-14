@@ -4,6 +4,7 @@ const express = require('express');
 const session = require('express-session');
 const cors = require('cors');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const config = require('./config/default');
 const { setupSecurity, csrfProtection } = require('./middleware/security');
 const authRoutes = require('./routes/auth');
@@ -12,6 +13,10 @@ const healthRoutes = require('./routes/health');
 const poller = require('./services/poller');
 
 const app = express();
+
+if (config.env === 'production') {
+  app.set('trust proxy', 1);
+}
 
 // ─── CORS (must be before Helmet/security) ───────────────────
 // Allows the Vercel-hosted frontend to call this backend
@@ -38,7 +43,7 @@ app.use(session({
   cookie: {
     httpOnly: true,
     secure: config.env === 'production',
-    sameSite: 'lax',
+    sameSite: config.env === 'production' ? 'none' : 'lax',
     maxAge: config.session.maxAge,
   },
 }));
@@ -47,10 +52,11 @@ app.use('/vendor/react', express.static(path.join(__dirname, 'node_modules/react
 app.use('/vendor/react-dom', express.static(path.join(__dirname, 'node_modules/react-dom/umd'), { maxAge: '7d' }));
 app.use('/vendor/htm', express.static(path.join(__dirname, 'node_modules/htm/dist'), { maxAge: '7d' }));
 
-app.use(express.static(config.staticDir));
+app.use(express.static(config.staticDir, {
+  maxAge: config.env === 'production' ? '1d' : 0,
+}));
 
 app.get('/csrf-token', (req, res) => {
-  const crypto = require('node:crypto');
   if (!req.session.csrfToken) {
     req.session.csrfToken = crypto.randomBytes(32).toString('hex');
   }
@@ -76,13 +82,23 @@ app.use((err, req, res, _next) => {
 });
 
 if (require.main === module) {
-  app.listen(config.port, () => {
+  const server = app.listen(config.port, () => {
     console.log(`Linetec Report Portal running on http://localhost:${config.port}`);
     if (config.polling.enabled) {
       poller.start();
       console.log(`Artifact polling started (interval: ${config.polling.intervalMs}ms)`);
     }
   });
+
+  function gracefulShutdown() {
+    console.log('Shutting down gracefully...');
+    poller.stop();
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(1), 10000);
+  }
+
+  process.on('SIGTERM', gracefulShutdown);
+  process.on('SIGINT', gracefulShutdown);
 }
 
 module.exports = app;

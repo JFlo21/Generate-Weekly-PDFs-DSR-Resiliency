@@ -10,22 +10,30 @@ export function useArtifacts(runId: number | null) {
   useEffect(() => {
     if (runId === null) {
       setArtifacts([]);
+      setError(null);
       return;
     }
+    let stale = false;
     setLoading(true);
     setError(null);
 
     api
       .getArtifacts(runId)
       .then((data) => {
-        setArtifacts(data);
+        if (!stale) setArtifacts(data);
       })
       .catch((err) => {
-        setError(
-          err instanceof Error ? err.message : 'Failed to fetch artifacts'
-        );
+        if (!stale) {
+          setError(
+            err instanceof Error ? err.message : 'Failed to fetch artifacts'
+          );
+        }
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!stale) setLoading(false);
+      });
+
+    return () => { stale = true; };
   }, [runId]);
 
   return { artifacts, loading, error };

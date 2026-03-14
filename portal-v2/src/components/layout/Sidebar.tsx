@@ -3,7 +3,6 @@ import { NavLink } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   LayoutDashboard,
-  Download,
   Users,
   Activity,
   ChevronLeft,
@@ -21,7 +20,6 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/dashboard/downloads', icon: Download, label: 'Downloads' },
   { to: '/dashboard/admin/users', icon: Users, label: 'Admin Users', adminOnly: true },
   { to: '/dashboard/admin/activity', icon: Activity, label: 'Activity', adminOnly: true },
 ];

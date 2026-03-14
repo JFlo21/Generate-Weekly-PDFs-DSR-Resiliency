@@ -85,6 +85,10 @@ on:
         default: ''
         type: string
 
+concurrency:
+  group: weekly-excel-generation
+  cancel-in-progress: true
+
 env:
   TZ: America/Chicago
 

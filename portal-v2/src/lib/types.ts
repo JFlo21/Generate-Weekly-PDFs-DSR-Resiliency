@@ -1,10 +1,27 @@
 export type UserRole = 'admin' | 'viewer' | 'biller';
 
+export type WorkflowRunStatus =
+  | 'queued'
+  | 'in_progress'
+  | 'completed'
+  | 'waiting'
+  | 'requested'
+  | 'pending';
+
+export type WorkflowRunConclusion =
+  | 'success'
+  | 'failure'
+  | 'cancelled'
+  | 'skipped'
+  | 'timed_out'
+  | 'action_required'
+  | null;
+
 export interface WorkflowRun {
   id: number;
   name: string;
-  status: string;
-  conclusion: string | null;
+  status: WorkflowRunStatus | string;
+  conclusion: WorkflowRunConclusion | string;
   run_number: number;
   created_at: string;
   updated_at: string;

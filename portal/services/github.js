@@ -26,13 +26,16 @@ function request(urlPath, options = {}) {
       headers: { ...makeHeaders(), ...options.headers },
     };
 
+    const maxRedirects = options.maxRedirects ?? 5;
+
     const req = https.request(reqOptions, (res) => {
-      if (options.followRedirect && (res.statusCode === 301 || res.statusCode === 302)) {
-        return resolve(request(res.headers.location, options));
+      if (options.followRedirect && [301, 302, 307, 308].includes(res.statusCode) && maxRedirects > 0) {
+        return resolve(request(res.headers.location, { ...options, maxRedirects: maxRedirects - 1 }));
       }
       if (options.rawStream) {
         return resolve({ statusCode: res.statusCode, headers: res.headers, stream: res });
       }
+      res.setTimeout(60000, () => { res.destroy(); reject(new Error('Response timeout')); });
       const chunks = [];
       res.on('data', (chunk) => chunks.push(chunk));
       res.on('end', () => {
@@ -55,7 +58,7 @@ function request(urlPath, options = {}) {
 
 async function listWorkflowRuns(page = 1, perPage = 30) {
   const { owner, repo } = config.github;
-  const path = `/repos/${owner}/${repo}/actions/workflows/weekly-excel-generation.yml/runs?status=completed&per_page=${perPage}&page=${page}`;
+  const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions/workflows/weekly-excel-generation.yml/runs?status=completed&per_page=${perPage}&page=${page}`;
   const { statusCode, body } = await request(path);
   if (statusCode !== 200) {
     throw new Error(`GitHub API error ${statusCode}: ${JSON.stringify(body)}`);
@@ -65,7 +68,7 @@ async function listWorkflowRuns(page = 1, perPage = 30) {
 
 async function listRunArtifacts(runId) {
   const { owner, repo } = config.github;
-  const path = `/repos/${owner}/${repo}/actions/runs/${runId}/artifacts?per_page=100`;
+  const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions/runs/${encodeURIComponent(runId)}/artifacts?per_page=100`;
   const { statusCode, body } = await request(path);
   if (statusCode !== 200) {
     throw new Error(`GitHub API error ${statusCode}: ${JSON.stringify(body)}`);
@@ -75,7 +78,7 @@ async function listRunArtifacts(runId) {
 
 async function downloadArtifact(artifactId) {
   const { owner, repo } = config.github;
-  const path = `/repos/${owner}/${repo}/actions/artifacts/${artifactId}/zip`;
+  const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions/artifacts/${encodeURIComponent(artifactId)}/zip`;
   const result = await request(path, { followRedirect: true, binary: true });
   if (result.statusCode !== 200) {
     throw new Error(`Download failed with status ${result.statusCode}`);
@@ -94,11 +97,11 @@ async function getArtifactsByWorkRequest() {
     const artifacts = artifactsData.artifacts || [];
 
     for (const artifact of artifacts) {
-      const match = artifact.name.match(/^By-WorkRequest/);
-      const isManifest = artifact.name.match(/^Manifest/);
-      const isComplete = artifact.name.match(/^Excel-Reports-Complete/);
+      const isByWR = artifact.name.startsWith('By-WorkRequest');
+      const isManifest = artifact.name.startsWith('Manifest');
+      const isComplete = artifact.name.startsWith('Excel-Reports-Complete');
 
-      if (match || isManifest || isComplete) {
+      if (isByWR || isManifest || isComplete) {
         const runInfo = {
           artifactId: artifact.id,
           artifactName: artifact.name,

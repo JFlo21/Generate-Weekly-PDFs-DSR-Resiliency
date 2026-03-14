@@ -102,7 +102,7 @@ export function Navbar({ countdown, isConnected, onRefresh }: NavbarProps) {
 
         {/* Sign out */}
         <button
-          onClick={logout}
+          onClick={() => logout().catch(console.error)}
           className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-900 transition-colors"
           title="Sign out"
         >
