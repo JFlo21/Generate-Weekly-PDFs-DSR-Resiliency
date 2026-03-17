@@ -830,12 +830,12 @@ def main():
     generated_files_count = 0
     
     try:
-        # Set Sentry context
+        # Set Sentry context (SDK 2.x API)
         if SENTRY_DSN:
-            with sentry_sdk.configure_scope() as scope:
-                scope.set_tag("session_start", session_start.isoformat())
-                scope.set_tag("test_mode", TEST_MODE)
-                scope.set_tag("github_actions", GITHUB_ACTIONS_MODE)
+            scope = sentry_sdk.get_isolation_scope()
+            scope.set_tag("session_start", session_start.isoformat())
+            scope.set_tag("test_mode", TEST_MODE)
+            scope.set_tag("github_actions", GITHUB_ACTIONS_MODE)
 
         logging.info("🚀 Starting Weekly PDF Generator with Complete Fixes")
         
@@ -952,12 +952,12 @@ def main():
             logging.info(f"   • Data Issues: {audit_summary.get('total_data_issues', 0)}")
         
         if SENTRY_DSN:
-            with sentry_sdk.configure_scope() as scope:
-                scope.set_tag("session_success", True)
-                scope.set_tag("files_generated", generated_files_count)
-                scope.set_tag("session_duration", str(session_duration))
-                if audit_results:
-                    scope.set_tag("audit_risk_level", audit_results.get('summary', {}).get('risk_level', 'UNKNOWN'))
+            scope = sentry_sdk.get_isolation_scope()
+            scope.set_tag("session_success", True)
+            scope.set_tag("files_generated", generated_files_count)
+            scope.set_tag("session_duration", str(session_duration))
+            if audit_results:
+                scope.set_tag("audit_risk_level", audit_results.get('summary', {}).get('risk_level', 'UNKNOWN'))
 
     except FileNotFoundError as e:
         error_context = f"Missing required file: {e}"
@@ -971,11 +971,11 @@ def main():
         logging.error(f"💥 {error_context}: {e}")
         
         if SENTRY_DSN:
-            with sentry_sdk.configure_scope() as scope:
-                scope.set_tag("session_success", False)
-                scope.set_tag("session_duration", str(session_duration))
-                scope.set_tag("failure_type", "general_exception")
-                scope.set_level("error")
+            scope = sentry_sdk.get_isolation_scope()
+            scope.set_tag("session_success", False)
+            scope.set_tag("session_duration", str(session_duration))
+            scope.set_tag("failure_type", "general_exception")
+            scope.set_level("error")
             sentry_sdk.capture_exception(e)
 
 if __name__ == "__main__":
