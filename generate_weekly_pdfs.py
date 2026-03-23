@@ -173,6 +173,9 @@ def _parse_sheet_ids(env_val):
     return ids
 
 SUBCONTRACTOR_SHEET_IDS = _parse_sheet_ids(os.getenv('SUBCONTRACTOR_SHEET_IDS', ''))
+SUBCONTRACTOR_FOLDER_IDS = _parse_sheet_ids(os.getenv('SUBCONTRACTOR_FOLDER_IDS', ''))
+# Note: SUBCONTRACTOR_SHEET_IDS is mutated at runtime during discover_source_sheets()
+# to auto-register sheets found inside SUBCONTRACTOR_FOLDER_IDS folders.
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
 RESET_WR_LIST = {w.strip() for w in os.getenv('RESET_WR_LIST','').split(',') if w.strip()}  # When provided, only purge these WR numbers (overrides full reset)
 _env_hist_path = os.getenv('HASH_HISTORY_PATH')
@@ -1223,7 +1226,95 @@ def discover_source_sheets(client):
                 logging.warning(f"❌ Skipping sheet {sheet.name} (ID {sid}) - Weekly Reference Logged Date not found (strict mode)")
         except Exception as e:
             logging.warning(f"⚡ Failed to validate sheet {sid}: {e}")
-    logging.info(f"⚡ Discovery complete: {len(discovered)} sheets")
+    logging.info(f"⚡ Discovery complete: {len(discovered)} sheets from base_sheet_ids")
+
+    # ---- Subcontractor folder-based discovery ----
+    # Sheets inside SUBCONTRACTOR_FOLDER_IDS are automatically treated as
+    # subcontractor sheets (reduced Arrowhead pricing that must be reverted
+    # to original Corpus rates during Excel generation).
+    if SUBCONTRACTOR_FOLDER_IDS:
+        already_discovered = {s['id'] for s in discovered}
+        folder_sheet_ids = []
+        for fid in SUBCONTRACTOR_FOLDER_IDS:
+            try:
+                folder = client.Folders.get_folder(fid)
+                folder_sheets = folder.sheets if hasattr(folder, 'sheets') and folder.sheets else []
+                logging.info(f"📂 Subcontractor folder {fid}: found {len(folder_sheets)} sheets")
+                for fs in folder_sheets:
+                    if fs.id not in already_discovered:
+                        folder_sheet_ids.append(fs.id)
+                    else:
+                        logging.info(f"  ↳ Sheet {fs.name} (ID {fs.id}) already discovered, skipping duplicate")
+            except Exception as e:
+                logging.warning(f"⚠️ Failed to list sheets in subcontractor folder {fid}: {e}")
+
+        # Discover each folder sheet using the same validation as base sheets
+        for sid in folder_sheet_ids:
+            try:
+                sheet = client.Sheets.get_sheet(sid, include='columns')
+                cols = sheet.columns
+                mapping = {}
+                by_title = {_title(c.title): c for c in cols}
+                w_exact = by_title.get(_title('Weekly Reference Logged Date'))
+                s_exact = by_title.get(_title('Snapshot Date'))
+                if w_exact:
+                    mapping['Weekly Reference Logged Date'] = w_exact.id
+                if s_exact:
+                    mapping['Snapshot Date'] = s_exact.id
+                date_candidates = [c for c in cols if str(c.type).upper() in ('DATE', 'DATETIME')]
+                if 'Weekly Reference Logged Date' not in mapping:
+                    keyed = [c for c in date_candidates if 'date' in _title(c.title) and any(k in _title(c.title) for k in ('weekly', 'reference', 'logged', 'week ending'))]
+                    if keyed:
+                        mapping['Weekly Reference Logged Date'] = keyed[0].id
+                if 'Snapshot Date' not in mapping:
+                    keyed = [c for c in date_candidates if 'date' in _title(c.title) and 'snapshot' in _title(c.title)]
+                    if keyed:
+                        mapping['Snapshot Date'] = keyed[0].id
+                if 'Weekly Reference Logged Date' not in mapping:
+                    for c in date_candidates:
+                        t = _title(c.title)
+                        if 'date' in t and any(k in t for k in ('weekly', 'reference', 'logged', 'week ending')):
+                            samples = _sample_values_for_col(client, sid, c.id, 3)
+                            if any(re.match(r'^\d{4}-\d{2}-\d{2}', v) for v in samples):
+                                mapping['Weekly Reference Logged Date'] = c.id
+                                break
+                if 'Snapshot Date' not in mapping:
+                    for c in date_candidates:
+                        t = _title(c.title)
+                        if 'date' in t and 'snapshot' in t:
+                            samples = _sample_values_for_col(client, sid, c.id, 3)
+                            if any(re.match(r'^\d{4}-\d{2}-\d{2}', v) for v in samples):
+                                mapping['Snapshot Date'] = c.id
+                                break
+                synonyms = {
+                    'Foreman': 'Foreman', 'Work Request #': 'Work Request #', 'Dept #': 'Dept #', 'Customer Name': 'Customer Name', 'Work Order #': 'Work Order #', 'Area': 'Area',
+                    'Pole #': 'Pole #', 'Point #': 'Pole #', 'Point Number': 'Pole #', 'CU': 'CU', 'Billable Unit Code': 'CU', 'Work Type': 'Work Type', 'CU Description': 'CU Description',
+                    'Unit Description': 'CU Description', 'Unit of Measure': 'Unit of Measure', 'UOM': 'Unit of Measure', 'Quantity': 'Quantity', 'Qty': 'Quantity', '# Units': 'Quantity',
+                    'Units Total Price': 'Units Total Price', 'Total Price': 'Units Total Price', 'Redlined Total Price': 'Units Total Price', 'Scope #': 'Scope #', 'Scope ID': 'Scope #',
+                    'Job #': 'Job #', 'Units Completed?': 'Units Completed?', 'Units Completed': 'Units Completed?',
+                    'Helper Job [#]': 'Helper Job #', 'Helper Job': 'Helper Job #', 'Helper Job #': 'Helper Job #',
+                    'Helper Dept #': 'Helper Dept #', 'Foreman Helping?': 'Foreman Helping?', 'Helping Foreman Completed Unit?': 'Helping Foreman Completed Unit?',
+                    'CU Helper': 'CU Helper',
+                }
+                for c in cols:
+                    if c.title in synonyms and synonyms[c.title] not in mapping:
+                        mapping[synonyms[c.title]] = c.id
+
+                if 'Weekly Reference Logged Date' in mapping:
+                    discovered.append({'id': sid, 'name': sheet.name, 'column_mapping': mapping})
+                    # Auto-register as subcontractor sheet for pricing reversion
+                    if sid not in SUBCONTRACTOR_SHEET_IDS:
+                        SUBCONTRACTOR_SHEET_IDS.append(sid)
+                    logging.info(f"✅ Added subcontractor sheet from folder: {sheet.name} (ID: {sid})")
+                else:
+                    logging.warning(f"❌ Skipping subcontractor sheet {sheet.name} (ID {sid}) - Weekly Reference Logged Date not found")
+            except Exception as e:
+                logging.warning(f"⚡ Failed to validate subcontractor sheet {sid}: {e}")
+
+        logging.info(f"📂 Subcontractor folder discovery complete: {len(folder_sheet_ids)} new sheets checked")
+    # ---- End subcontractor folder discovery ----
+
+    logging.info(f"⚡ Total discovery complete: {len(discovered)} sheets")
     # Save cache
     if USE_DISCOVERY_CACHE:
         try:
