@@ -1113,9 +1113,11 @@ def discover_source_sheets(client):
         5065263654326148, #Added Resiliency Promax Database 56
         5417244814167940, #Added Resiliency Promax Database 57
         2431001297899396, #Added Resiliency Promax Database 58
-        4085014678425476 #Added Intake Promax 6
-        
-    
+        4085014678425476, #Added Intake Promax 6
+        1080481698238340, #Added Resiliency Promax Database 59
+        8391967734976388, #Added Resiliency Promax Database 60
+        2233624515530628, #Added Resiliency Promax Database 61
+        2780425391918980 #Added Resiliency Promax Database 62
         
         
 
