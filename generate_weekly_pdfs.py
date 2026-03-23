@@ -174,6 +174,8 @@ def _parse_sheet_ids(env_val):
 
 SUBCONTRACTOR_SHEET_IDS = _parse_sheet_ids(os.getenv('SUBCONTRACTOR_SHEET_IDS', ''))
 SUBCONTRACTOR_FOLDER_IDS = _parse_sheet_ids(os.getenv('SUBCONTRACTOR_FOLDER_IDS', ''))
+# Note: SUBCONTRACTOR_SHEET_IDS is mutated at runtime during discover_source_sheets()
+# to auto-register sheets found inside SUBCONTRACTOR_FOLDER_IDS folders.
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
 RESET_WR_LIST = {w.strip() for w in os.getenv('RESET_WR_LIST','').split(',') if w.strip()}  # When provided, only purge these WR numbers (overrides full reset)
 _env_hist_path = os.getenv('HASH_HISTORY_PATH')

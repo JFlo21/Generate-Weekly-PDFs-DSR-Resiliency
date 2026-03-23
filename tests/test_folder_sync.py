@@ -5,6 +5,7 @@ ensures that folders with ``folder_type='contractor'`` participate in
 automatic sync runs (the original bug skipped them).
 """
 
+import os
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -229,6 +230,14 @@ class TestSubcontractorFolderIds(unittest.TestCase):
         with patch.dict('os.environ', {'SUBCONTRACTOR_FOLDER_IDS': '111,bad,222'}):
             ids = folder_sync_service.get_subcontractor_folder_ids()
             self.assertEqual(ids, [111, 222])
+
+    def test_get_subcontractor_folder_ids_env_missing(self):
+        """get_subcontractor_folder_ids returns defaults when env key is absent."""
+        env = dict(os.environ)
+        env.pop('SUBCONTRACTOR_FOLDER_IDS', None)
+        with patch.dict('os.environ', env, clear=True):
+            ids = folder_sync_service.get_subcontractor_folder_ids()
+            self.assertEqual(ids, [4232010517505924, 2588197684307844])
 
 
 class TestSubcontractorFolderDiscovery(unittest.TestCase):
