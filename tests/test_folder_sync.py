@@ -203,5 +203,88 @@ class TestSmartsheetClientHelpers(unittest.TestCase):
         self.assertEqual(result['cu code'], 222)
 
 
+class TestSubcontractorFolderIds(unittest.TestCase):
+    """Tests for subcontractor folder ID configuration."""
+
+    def test_default_folder_ids(self):
+        """Default subcontractor folder IDs should include both folders."""
+        defaults = folder_sync_service._DEFAULT_SUBCONTRACTOR_FOLDER_IDS
+        self.assertIn(4232010517505924, defaults)
+        self.assertIn(2588197684307844, defaults)
+
+    def test_get_subcontractor_folder_ids_defaults(self):
+        """get_subcontractor_folder_ids returns defaults when env is empty."""
+        with patch.dict('os.environ', {'SUBCONTRACTOR_FOLDER_IDS': ''}):
+            ids = folder_sync_service.get_subcontractor_folder_ids()
+            self.assertEqual(ids, [4232010517505924, 2588197684307844])
+
+    def test_get_subcontractor_folder_ids_from_env(self):
+        """get_subcontractor_folder_ids reads from env when set."""
+        with patch.dict('os.environ', {'SUBCONTRACTOR_FOLDER_IDS': '111,222'}):
+            ids = folder_sync_service.get_subcontractor_folder_ids()
+            self.assertEqual(ids, [111, 222])
+
+    def test_get_subcontractor_folder_ids_skips_invalid(self):
+        """Invalid tokens in SUBCONTRACTOR_FOLDER_IDS are skipped."""
+        with patch.dict('os.environ', {'SUBCONTRACTOR_FOLDER_IDS': '111,bad,222'}):
+            ids = folder_sync_service.get_subcontractor_folder_ids()
+            self.assertEqual(ids, [111, 222])
+
+
+class TestSubcontractorFolderDiscovery(unittest.TestCase):
+    """Tests for folder-based subcontractor sheet discovery."""
+
+    def test_subcontractor_folder_ids_env_parsed(self):
+        """SUBCONTRACTOR_FOLDER_IDS env var should be parsed in generate_weekly_pdfs."""
+        import generate_weekly_pdfs
+        self.assertIsInstance(generate_weekly_pdfs.SUBCONTRACTOR_FOLDER_IDS, list)
+
+    def test_subcontractor_pricing_reversion_uses_original_rates(self):
+        """Subcontractor sheets must have prices reverted to 100% Corpus rates.
+
+        The reduced Arrowhead rates (×0.9) on subcontractor sheets
+        must be converted back to original Corpus North & South rates
+        when generating Excel files.
+        """
+        import generate_weekly_pdfs
+        rates = {'CU-TEST': {'install': 100.0, 'removal': 50.0, 'transfer': 75.0}}
+        row_data = {
+            'CU': 'CU-TEST',
+            'Work Type': 'Install',
+            'Quantity': '2',
+            'Units Total Price': '$180.00',
+        }
+        result = generate_weekly_pdfs.revert_subcontractor_price(row_data, rates)
+        # Should be 100.0 × 2 = 200.0 (original rate), NOT 90.0 × 2 = 180.0 (reduced)
+        self.assertAlmostEqual(result, 200.0)
+        self.assertAlmostEqual(row_data['Units Total Price'], 200.0)
+
+    def test_removal_pricing_reversion(self):
+        """Removal work type should use removal rates for reversion."""
+        import generate_weekly_pdfs
+        rates = {'CU-TEST': {'install': 100.0, 'removal': 50.0, 'transfer': 75.0}}
+        row_data = {
+            'CU': 'CU-TEST',
+            'Work Type': 'Removal',
+            'Quantity': '3',
+            'Units Total Price': '$135.00',
+        }
+        result = generate_weekly_pdfs.revert_subcontractor_price(row_data, rates)
+        self.assertAlmostEqual(result, 150.0)
+
+    def test_transfer_pricing_reversion(self):
+        """Transfer work type should use transfer rates for reversion."""
+        import generate_weekly_pdfs
+        rates = {'CU-TEST': {'install': 100.0, 'removal': 50.0, 'transfer': 75.0}}
+        row_data = {
+            'CU': 'CU-TEST',
+            'Work Type': 'Transfer',
+            'Quantity': '1',
+            'Units Total Price': '$67.50',
+        }
+        result = generate_weekly_pdfs.revert_subcontractor_price(row_data, rates)
+        self.assertAlmostEqual(result, 75.0)
+
+
 if __name__ == '__main__':
     unittest.main()

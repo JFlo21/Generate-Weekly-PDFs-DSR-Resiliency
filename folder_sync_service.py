@@ -12,12 +12,49 @@ scheduled sync cycle.
 """
 
 import logging
+import os
 from typing import Any, Dict, List, Optional, Tuple
 
 import smartsheet as ss
 import smartsheet_client
 
 logger = logging.getLogger('folder_sync_service')
+
+# ---------------------------------------------------------------------------
+# Default subcontractor folder IDs (overridable via environment)
+# ---------------------------------------------------------------------------
+# 4232010517505924 — Main subcontractor promax sheets
+# 2588197684307844 — Field crew add-on sheets
+_DEFAULT_SUBCONTRACTOR_FOLDER_IDS = [4232010517505924, 2588197684307844]
+
+
+def _parse_folder_ids(env_val):
+    """Parse comma-separated folder IDs from an env var value."""
+    ids = []
+    for s in env_val.split(','):
+        s = s.strip()
+        if not s:
+            continue
+        try:
+            ids.append(int(s))
+        except ValueError:
+            logger.warning("Ignoring invalid SUBCONTRACTOR_FOLDER_IDS token: %r", s)
+    return ids
+
+
+def get_subcontractor_folder_ids():
+    """Return the list of subcontractor folder IDs.
+
+    Reads from the ``SUBCONTRACTOR_FOLDER_IDS`` environment variable
+    if set; otherwise falls back to the built-in defaults.
+
+    Returns:
+        list[int]: Smartsheet folder IDs for subcontractor folders.
+    """
+    env_val = os.getenv('SUBCONTRACTOR_FOLDER_IDS', '')
+    if env_val.strip():
+        return _parse_folder_ids(env_val)
+    return list(_DEFAULT_SUBCONTRACTOR_FOLDER_IDS)
 
 
 # ---------------------------------------------------------------------------
