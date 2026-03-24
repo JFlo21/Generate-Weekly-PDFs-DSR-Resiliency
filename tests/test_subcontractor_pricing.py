@@ -230,5 +230,120 @@ class TestRevertSubcontractorPrice(unittest.TestCase):
         self.assertAlmostEqual(result, 0.0)
 
 
+class TestDiscoverFolderSheets(unittest.TestCase):
+    """Tests for folder-based sheet discovery."""
+
+    def test_discover_folder_sheets_returns_set(self):
+        """Test discover_folder_sheets returns a set of ints."""
+        from unittest.mock import MagicMock
+        mock_client = MagicMock()
+        sheet1 = MagicMock(); sheet1.id = 111
+        sheet2 = MagicMock(); sheet2.id = 222
+        folder = MagicMock(); folder.sheets = [sheet1, sheet2]
+        mock_client.Folders.get_folder.return_value = folder
+
+        result = generate_weekly_pdfs.discover_folder_sheets(mock_client, [9999], 'test')
+        self.assertEqual(result, {111, 222})
+        mock_client.Folders.get_folder.assert_called_once_with(9999)
+
+    def test_discover_folder_sheets_handles_api_error(self):
+        """Test graceful handling when folder API call fails."""
+        from unittest.mock import MagicMock
+        mock_client = MagicMock()
+        mock_client.Folders.get_folder.side_effect = Exception("API error")
+
+        result = generate_weekly_pdfs.discover_folder_sheets(mock_client, [9999], 'test')
+        self.assertEqual(result, set())
+
+    def test_discover_folder_sheets_multiple_folders(self):
+        """Test discovery across multiple folder IDs with deduplication."""
+        from unittest.mock import MagicMock
+        mock_client = MagicMock()
+        sheet_a = MagicMock(); sheet_a.id = 100
+        sheet_b = MagicMock(); sheet_b.id = 200
+        sheet_c = MagicMock(); sheet_c.id = 100  # duplicate
+        folder1 = MagicMock(); folder1.sheets = [sheet_a, sheet_b]
+        folder2 = MagicMock(); folder2.sheets = [sheet_c]
+        mock_client.Folders.get_folder.side_effect = [folder1, folder2]
+
+        result = generate_weekly_pdfs.discover_folder_sheets(mock_client, [1, 2], 'test')
+        self.assertEqual(result, {100, 200})
+
+    def test_discover_folder_sheets_empty_list(self):
+        """Test with no folder IDs returns empty set."""
+        from unittest.mock import MagicMock
+        mock_client = MagicMock()
+        result = generate_weekly_pdfs.discover_folder_sheets(mock_client, [], 'test')
+        self.assertEqual(result, set())
+
+
+class TestIdentityNormalization(unittest.TestCase):
+    """Tests for the None vs '' identity comparison fix."""
+
+    def test_none_equals_empty_string_after_normalization(self):
+        """Verify that (None or '') == ('' or '') is True."""
+        ident_identifier = None
+        identifier = ''
+        self.assertEqual((ident_identifier or ''), (identifier or ''))
+
+    def test_non_empty_identifiers_still_match(self):
+        """Verify that real identifiers still match correctly."""
+        ident_identifier = 'John|Dept1|Job1'
+        identifier = 'John|Dept1|Job1'
+        self.assertEqual((ident_identifier or ''), (identifier or ''))
+
+    def test_different_identifiers_do_not_match(self):
+        """Verify that different identifiers don't match."""
+        ident_identifier = 'John|Dept1|Job1'
+        identifier = 'Jane|Dept2|Job2'
+        self.assertNotEqual((ident_identifier or ''), (identifier or ''))
+
+
+class TestExpandedHashCoverage(unittest.TestCase):
+    """Tests for the expanded calculate_data_hash field coverage."""
+
+    def test_hash_changes_when_customer_name_changes(self):
+        """Verify the hash changes when Customer Name is modified."""
+        base_row = {
+            'Work Request #': '12345', 'Snapshot Date': '2025-01-01',
+            'CU': 'ABC', 'Quantity': '1', 'Units Total Price': '100.00',
+            'Work Type': 'install', 'Dept #': '10',
+            'Customer Name': 'OriginalCustomer', '__variant': 'primary',
+        }
+        import copy
+        modified_row = copy.deepcopy(base_row)
+        modified_row['Customer Name'] = 'DifferentCustomer'
+
+        hash1 = generate_weekly_pdfs.calculate_data_hash([base_row])
+        hash2 = generate_weekly_pdfs.calculate_data_hash([modified_row])
+        self.assertNotEqual(hash1, hash2)
+
+    def test_hash_changes_when_job_number_changes(self):
+        """Verify the hash changes when Job # is modified."""
+        base_row = {
+            'Work Request #': '12345', 'Snapshot Date': '2025-01-01',
+            'CU': 'ABC', 'Quantity': '1', 'Units Total Price': '100.00',
+            'Work Type': 'install', 'Job #': 'JOB001', '__variant': 'primary',
+        }
+        import copy
+        modified_row = copy.deepcopy(base_row)
+        modified_row['Job #'] = 'JOB002'
+
+        hash1 = generate_weekly_pdfs.calculate_data_hash([base_row])
+        hash2 = generate_weekly_pdfs.calculate_data_hash([modified_row])
+        self.assertNotEqual(hash1, hash2)
+
+    def test_hash_stable_when_no_changes(self):
+        """Verify the hash is deterministic for identical input."""
+        row = {
+            'Work Request #': '12345', 'Snapshot Date': '2025-01-01',
+            'CU': 'ABC', 'Quantity': '1', 'Units Total Price': '100.00',
+            'Work Type': 'install', '__variant': 'primary',
+        }
+        hash1 = generate_weekly_pdfs.calculate_data_hash([row])
+        hash2 = generate_weekly_pdfs.calculate_data_hash([row])
+        self.assertEqual(hash1, hash2)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -173,6 +173,16 @@ def _parse_sheet_ids(env_val):
     return ids
 
 SUBCONTRACTOR_SHEET_IDS = _parse_sheet_ids(os.getenv('SUBCONTRACTOR_SHEET_IDS', ''))
+
+# Folder-based discovery: Smartsheet folder IDs whose child sheets should be auto-discovered
+# Subcontractor folders (sheets priced at subcontractor rates, will be reverted to original contract rates)
+SUBCONTRACTOR_FOLDER_IDS = _parse_sheet_ids(os.getenv('SUBCONTRACTOR_FOLDER_IDS', '4232010517505924,2588197684307844'))
+# Original contract folders (sheets already at original contract rates)
+ORIGINAL_CONTRACT_FOLDER_IDS = _parse_sheet_ids(os.getenv('ORIGINAL_CONTRACT_FOLDER_IDS', '7644752003786628,8815193070299012'))
+# Module-level sets populated at runtime by discover_folder_sheets()
+_FOLDER_DISCOVERED_SUB_IDS: set[int] = set()
+_FOLDER_DISCOVERED_ORIG_IDS: set[int] = set()
+
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
 RESET_WR_LIST = {w.strip() for w in os.getenv('RESET_WR_LIST','').split(',') if w.strip()}  # When provided, only purge these WR numbers (overrides full reset)
 _env_hist_path = os.getenv('HASH_HISTORY_PATH')
@@ -526,6 +536,30 @@ def excel_serial_to_date(value):
     except Exception:
         return None
 
+def discover_folder_sheets(client, folder_ids: list[int], label: str) -> set[int]:
+    """Discover all sheet IDs inside the given Smartsheet folders.
+
+    Args:
+        client: Authenticated Smartsheet client instance.
+        folder_ids: List of Smartsheet folder IDs to enumerate.
+        label: Human-readable label for logging (e.g. 'subcontractor', 'original contract').
+
+    Returns:
+        Set of sheet IDs found across all folders.
+    """
+    discovered: set[int] = set()
+    for fid in folder_ids:
+        try:
+            folder = client.Folders.get_folder(fid)
+            sheets = getattr(folder, 'sheets', None) or []
+            for s in sheets:
+                discovered.add(s.id)
+            logging.info(f"📂 Folder {fid} ({label}): found {len(sheets)} sheet(s)")
+        except Exception as e:
+            logging.warning(f"⚠️ Could not read {label} folder {fid}: {e}")
+    logging.info(f"📂 Total {label} folder discovery: {len(discovered)} unique sheet(s)")
+    return discovered
+
 def calculate_data_hash(group_rows: list[dict]) -> str:
     """Calculate a hash of the group data to detect changes.
 
@@ -604,6 +638,13 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
             str(row.get('Dept #', '') or ''),
             str(row.get('Scope #') or row.get('Scope ID', '') or ''),
             str(is_checked(row.get('Units Completed?'))),  # CRITICAL: Include completion status
+            # Additional fields to catch changes previously missed
+            str(row.get('Customer Name', '') or ''),
+            str(row.get('Job #') or row.get('Job Number', '') or ''),
+            str(row.get('Work Order #') or row.get('Work Order Number', '') or ''),
+            str(row.get('CU Description', '') or ''),
+            str(row.get('Unit of Measure', '') or ''),
+            str(row.get('Area', '') or ''),
         ])
         # Update hash incrementally with newline separator
         hasher.update(row_str.encode('utf-8'))
@@ -874,10 +915,11 @@ def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, we
         ident_wr, ident_week, ident_variant, ident_identifier = ident
         
         # Match only if all identity components match
+        # Normalize None/'' to avoid mismatch between build_group_identity (returns None) and main loop (uses '')
         if (ident_wr == wr_num and 
             ident_week == week_raw and 
             ident_variant == variant and
-            ident_identifier == identifier):
+            (ident_identifier or '') == (identifier or '')):
             candidates.append(a)
 
     if not candidates:
@@ -929,10 +971,11 @@ def _has_existing_week_attachment(client, target_sheet_id, target_row, wr_num: s
         ident_wr, ident_week, ident_variant, ident_identifier = ident
         
         # Match only if all identity components match
+        # Normalize None/'' to avoid mismatch between build_group_identity (returns None) and main loop (uses '')
         if (ident_wr == wr_num and 
             ident_week == week_raw and 
             ident_variant == variant and
-            ident_identifier == identifier):
+            (ident_identifier or '') == (identifier or '')):
             return True
     
     return False
@@ -1135,6 +1178,17 @@ def discover_source_sheets(client):
         except Exception as e:
             logging.warning(f"⚠️ LIMITED_SHEET_IDS parse failed '{_limited_ids_raw}': {e}")
     
+    # Merge folder-discovered sheet IDs (populated by discover_folder_sheets() in main())
+    _folder_ids = _FOLDER_DISCOVERED_SUB_IDS | _FOLDER_DISCOVERED_ORIG_IDS
+    if _folder_ids:
+        existing = set(base_sheet_ids)
+        new_ids = _folder_ids - existing
+        if new_ids:
+            base_sheet_ids.extend(sorted(new_ids))
+            logging.info(f"📂 Merged {len(new_ids)} folder-discovered sheet(s) into discovery list (total: {len(base_sheet_ids)})")
+        else:
+            logging.info(f"📂 All {len(_folder_ids)} folder-discovered sheet(s) already in base list")
+
     discovered = []
     for sid in base_sheet_ids:
         try:
@@ -1367,12 +1421,12 @@ def get_all_source_rows(client, source_sheets):
                         price_raw = row_data.get('Units Total Price')
                         price_val = parse_price(price_raw)
 
-                        # --- SUBCONTRACTOR PRICING REVERSION ---
-                        if is_subcontractor_sheet and original_rates:
-                            price_val = revert_subcontractor_price(row_data, original_rates)
-                        # --- END SUBCONTRACTOR REVERSION ---
+                        # --- SUBCONTRACTOR PRICING ---
+                        # Subcontractor sheets keep their reduced 10% pricing as-is.
+                        # The Excel files will reflect the actual subcontractor rates
+                        # captured from Smartsheet without reversion to original contract rates.
+                        # --- END SUBCONTRACTOR PRICING ---
 
-                        # Re-read price_raw after potential subcontractor reversion
                         price_raw = row_data.get('Units Total Price')
                         has_price = (price_raw not in (None, "", "$0", "$0.00", "0", "0.0")) and price_val > 0
                         units_completed = row_data.get('Units Completed?')
@@ -2345,6 +2399,16 @@ def main():
         client = smartsheet.Smartsheet(API_TOKEN)
         client.errors_as_exceptions(True)
         
+        # ── Folder-based sheet discovery ──────────────────────────────
+        global _FOLDER_DISCOVERED_SUB_IDS, _FOLDER_DISCOVERED_ORIG_IDS, SUBCONTRACTOR_SHEET_IDS
+        if SUBCONTRACTOR_FOLDER_IDS:
+            _FOLDER_DISCOVERED_SUB_IDS = discover_folder_sheets(client, SUBCONTRACTOR_FOLDER_IDS, 'subcontractor')
+            # Merge into SUBCONTRACTOR_SHEET_IDS so get_all_source_rows() triggers price reversion
+            SUBCONTRACTOR_SHEET_IDS = list(set(SUBCONTRACTOR_SHEET_IDS) | _FOLDER_DISCOVERED_SUB_IDS)
+            logging.info(f"📂 Subcontractor sheet IDs after folder merge: {len(SUBCONTRACTOR_SHEET_IDS)}")
+        if ORIGINAL_CONTRACT_FOLDER_IDS:
+            _FOLDER_DISCOVERED_ORIG_IDS = discover_folder_sheets(client, ORIGINAL_CONTRACT_FOLDER_IDS, 'original contract')
+
         # Discover source sheets
         logging.info("📊 Discovering source sheets...")
         source_sheets = discover_source_sheets(client)

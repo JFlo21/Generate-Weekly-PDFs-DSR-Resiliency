@@ -110,6 +110,13 @@ jobs:
           key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
+      - name: Cache hash history
+        uses: actions/cache@v4
+        with:
+          path: generated_docs/hash_history.json
+          key: hash-history-${{ github.ref_name }}
+          restore-keys: |
+            hash-history-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -174,6 +181,10 @@ jobs:
           
           # Reset & Cleanup Options
           RESET_HASH_HISTORY: ${{ github.event.inputs.reset_hash_history || 'false' }}
+          
+          # Folder-based Sheet Discovery
+          SUBCONTRACTOR_FOLDER_IDS: ${{ vars.SUBCONTRACTOR_FOLDER_IDS || '4232010517505924,2588197684307844' }}
+          ORIGINAL_CONTRACT_FOLDER_IDS: ${{ vars.ORIGINAL_CONTRACT_FOLDER_IDS || '7644752003786628,8815193070299012' }}
           
           # Helper/Resiliency Grouping Mode
           RES_GROUPING_MODE: ${{ github.event.inputs.res_grouping_mode || 'both' }}
