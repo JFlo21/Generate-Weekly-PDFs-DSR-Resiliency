@@ -31,6 +31,8 @@ from dotenv import load_dotenv
 import sentry_sdk
 from sentry_sdk.integrations.logging import LoggingIntegration
 from sentry_sdk.integrations.threading import ThreadingIntegration
+from sentry_sdk.crons import capture_checkin
+from sentry_sdk.crons.consts import MonitorStatus
 import traceback
 import sys
 import inspect
@@ -550,13 +552,19 @@ def discover_folder_sheets(client, folder_ids: list[int], label: str) -> set[int
     discovered: set[int] = set()
     for fid in folder_ids:
         try:
-            folder = client.Folders.get_folder(fid)
-            sheets = getattr(folder, 'sheets', None) or []
-            for s in sheets:
-                discovered.add(s.id)
+            with sentry_sdk.start_span(op="smartsheet.api", description=f"Get folder {fid} ({label})") as span:
+                folder = client.Folders.get_folder(fid)
+                sheets = getattr(folder, 'sheets', None) or []
+                for s in sheets:
+                    discovered.add(s.id)
+                span.set_data("folder_id", fid)
+                span.set_data("sheets_found", len(sheets))
             logging.info(f"📂 Folder {fid} ({label}): found {len(sheets)} sheet(s)")
         except Exception as e:
             logging.warning(f"⚠️ Could not read {label} folder {fid}: {e}")
+            sentry_add_breadcrumb("folder_discovery", f"Failed to read folder {fid}", level="error", data={
+                "folder_id": fid, "label": label, "error": str(e)[:200],
+            })
     logging.info(f"📂 Total {label} folder discovery: {len(discovered)} unique sheet(s)")
     return discovered
 
@@ -1341,10 +1349,15 @@ def get_all_source_rows(client, source_sheets):
                 # PERFORMANCE FIX: Use column_ids parameter to only fetch mapped columns
                 column_mapping = source['column_mapping']
                 required_column_ids = list(column_mapping.values())
-                sheet = client.Sheets.get_sheet(
-                    source['id'], 
-                    column_ids=required_column_ids
-                )
+                with sentry_sdk.start_span(op="smartsheet.api", description=f"Fetch sheet {source['name']}") as api_span:
+                    sheet = client.Sheets.get_sheet(
+                        source['id'], 
+                        column_ids=required_column_ids
+                    )
+                    api_span.set_data("sheet_id", source['id'])
+                    api_span.set_data("sheet_name", source['name'])
+                    api_span.set_data("row_count", len(sheet.rows) if sheet.rows else 0)
+                    api_span.set_data("column_count", len(required_column_ids))
 
                 logging.info(f"📋 Available mapped columns in {source['name']}: {list(column_mapping.keys())}")
                 
@@ -1538,6 +1551,13 @@ def get_all_source_rows(client, source_sheets):
                                     wr_exclusion_reasons[wr_key_for_diag]['price_missing_or_zero'] += 1
 
                     global_row_counter += 1
+
+                sentry_add_breadcrumb("sheet_processing", f"Processed sheet {source['name']}", data={
+                    "sheet_id": source['id'],
+                    "rows_in_sheet": len(sheet.rows) if sheet.rows else 0,
+                    "accepted_so_far": exclusion_counts['accepted'],
+                    "is_subcontractor": is_subcontractor_sheet,
+                })
 
             except Exception as e:
                 logging.error(f"Error processing sheet {source['id']}: {e}")
@@ -2290,7 +2310,10 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
 def create_target_sheet_map(client):
     """Create a map of the target sheet for uploading Excel files."""
     try:
-        target_sheet = client.Sheets.get_sheet(TARGET_SHEET_ID)
+        with sentry_sdk.start_span(op="smartsheet.api", description="Fetch target sheet for WR mapping") as span:
+            target_sheet = client.Sheets.get_sheet(TARGET_SHEET_ID)
+            span.set_data("target_sheet_id", TARGET_SHEET_ID)
+            span.set_data("row_count", len(target_sheet.rows) if target_sheet.rows else 0)
         target_map = {}
         
         # Find the Work Request # column
@@ -2329,13 +2352,33 @@ def main():
     generated_files_count = 0
     generated_filenames = []  # Track exact filenames created this session
     
+    # Sentry cron check-in: signal "in_progress" at session start
+    _cron_checkin_id = None
+    _cron_monitor_slug = os.getenv("SENTRY_CRON_MONITOR_SLUG", "weekly-excel-generation")
+    if SENTRY_DSN:
+        try:
+            _cron_checkin_id = capture_checkin(
+                monitor_slug=_cron_monitor_slug,
+                status=MonitorStatus.IN_PROGRESS,
+                monitor_config={
+                    "schedule": {"type": "crontab", "value": "30 17 * * 1"},
+                    "checkin_margin": 10,
+                    "max_runtime": 120,
+                    "failure_issue_threshold": 2,
+                    "recovery_threshold": 1,
+                    "timezone": "America/Phoenix",
+                },
+            )
+        except Exception as exc:
+            logging.warning(f"⚠️ Sentry cron check-in (in_progress) failed: {exc}")
+
     try:
-        # Set Sentry context
+        # Set Sentry context (SDK 2.x: top-level API)
         if SENTRY_DSN:
-            with sentry_sdk.configure_scope() as scope:
-                scope.set_tag("session_start", session_start.isoformat())
-                scope.set_tag("test_mode", TEST_MODE)
-                scope.set_tag("github_actions", GITHUB_ACTIONS_MODE)
+            scope = sentry_sdk.get_isolation_scope()
+            scope.set_tag("session_start", session_start.isoformat())
+            scope.set_tag("test_mode", str(TEST_MODE))
+            scope.set_tag("github_actions", str(GITHUB_ACTIONS_MODE))
 
         logging.info("🚀 Starting Weekly PDF Generator with Complete Fixes")
         
@@ -2399,29 +2442,60 @@ def main():
         client = smartsheet.Smartsheet(API_TOKEN)
         client.errors_as_exceptions(True)
         
+        # ── Start root Sentry transaction for full session tracing ──
+        _txn = None
+        if SENTRY_DSN:
+            _txn = sentry_sdk.start_transaction(
+                op="session",
+                name="weekly-excel-generation",
+                description="Full weekly Excel generation session",
+            )
+            _txn.__enter__()
+            _txn.set_data("test_mode", TEST_MODE)
+            _txn.set_data("github_actions", GITHUB_ACTIONS_MODE)
+
         # ── Folder-based sheet discovery ──────────────────────────────
         global _FOLDER_DISCOVERED_SUB_IDS, _FOLDER_DISCOVERED_ORIG_IDS, SUBCONTRACTOR_SHEET_IDS
         if SUBCONTRACTOR_FOLDER_IDS:
-            _FOLDER_DISCOVERED_SUB_IDS = discover_folder_sheets(client, SUBCONTRACTOR_FOLDER_IDS, 'subcontractor')
+            with sentry_sdk.start_span(op="smartsheet.folder_discovery", description="Discover subcontractor folder sheets") as span:
+                _FOLDER_DISCOVERED_SUB_IDS = discover_folder_sheets(client, SUBCONTRACTOR_FOLDER_IDS, 'subcontractor')
+                span.set_data("folder_count", len(SUBCONTRACTOR_FOLDER_IDS))
+                span.set_data("sheets_found", len(_FOLDER_DISCOVERED_SUB_IDS))
             # Merge into SUBCONTRACTOR_SHEET_IDS so get_all_source_rows() triggers price reversion
             SUBCONTRACTOR_SHEET_IDS = list(set(SUBCONTRACTOR_SHEET_IDS) | _FOLDER_DISCOVERED_SUB_IDS)
             logging.info(f"📂 Subcontractor sheet IDs after folder merge: {len(SUBCONTRACTOR_SHEET_IDS)}")
         if ORIGINAL_CONTRACT_FOLDER_IDS:
-            _FOLDER_DISCOVERED_ORIG_IDS = discover_folder_sheets(client, ORIGINAL_CONTRACT_FOLDER_IDS, 'original contract')
+            with sentry_sdk.start_span(op="smartsheet.folder_discovery", description="Discover original contract folder sheets") as span:
+                _FOLDER_DISCOVERED_ORIG_IDS = discover_folder_sheets(client, ORIGINAL_CONTRACT_FOLDER_IDS, 'original contract')
+                span.set_data("folder_count", len(ORIGINAL_CONTRACT_FOLDER_IDS))
+                span.set_data("sheets_found", len(_FOLDER_DISCOVERED_ORIG_IDS))
 
         # Discover source sheets
         logging.info("📊 Discovering source sheets...")
-        source_sheets = discover_source_sheets(client)
+        sentry_add_breadcrumb("discovery", "Starting source sheet discovery")
+        with sentry_sdk.start_span(op="smartsheet.discovery", description="Discover and validate source sheets") as span:
+            source_sheets = discover_source_sheets(client)
+            span.set_data("sheets_discovered", len(source_sheets) if source_sheets else 0)
         
         if not source_sheets:
             raise Exception("No valid source sheets found")
         
+        sentry_add_breadcrumb("discovery", f"Discovered {len(source_sheets)} source sheets", data={"count": len(source_sheets)})
+        
         # Get all source rows
         logging.info("📋 Fetching source data...")
-        all_rows = get_all_source_rows(client, source_sheets)
+        with sentry_sdk.start_span(op="smartsheet.fetch_rows", description="Fetch all source rows from Smartsheet") as span:
+            all_rows = get_all_source_rows(client, source_sheets)
+            span.set_data("source_sheets_count", len(source_sheets))
+            span.set_data("rows_fetched", len(all_rows) if all_rows else 0)
         
         if not all_rows:
             raise Exception("No valid data rows found")
+        
+        sentry_add_breadcrumb("data", f"Fetched {len(all_rows)} source rows from {len(source_sheets)} sheets", data={
+            "row_count": len(all_rows),
+            "sheet_count": len(source_sheets),
+        })
         
         # Initialize audit system
         audit_system = None
@@ -2429,8 +2503,11 @@ def main():
         if AUDIT_SYSTEM_AVAILABLE and not DISABLE_AUDIT_FOR_TESTING:
             try:
                 sentry_add_breadcrumb("audit", "Starting billing audit", data={"skip_cell_history": SKIP_CELL_HISTORY})
-                audit_system = BillingAudit(client, skip_cell_history=SKIP_CELL_HISTORY)
-                audit_results = audit_system.audit_financial_data(source_sheets, all_rows)
+                with sentry_sdk.start_span(op="audit.financial", description="Run billing audit on source data") as audit_span:
+                    audit_system = BillingAudit(client, skip_cell_history=SKIP_CELL_HISTORY)
+                    audit_results = audit_system.audit_financial_data(source_sheets, all_rows)
+                    audit_span.set_data("risk_level", audit_results.get('summary', {}).get('risk_level', 'UNKNOWN'))
+                    audit_span.set_data("total_anomalies", audit_results.get('summary', {}).get('total_anomalies', 0))
                 logging.info(f"🔍 Audit complete - Risk level: {audit_results.get('summary', {}).get('risk_level', 'UNKNOWN')}")
                 sentry_add_breadcrumb("audit", "Audit completed", data={
                     "risk_level": audit_results.get('summary', {}).get('risk_level', 'UNKNOWN'),
@@ -2456,22 +2533,33 @@ def main():
 
     # Group rows by work request and week ending
         logging.info("📂 Grouping data...")
-        groups = group_source_rows(all_rows)
+        with sentry_sdk.start_span(op="data.grouping", description="Group source rows by WR/week/variant") as span:
+            groups = group_source_rows(all_rows)
+            span.set_data("input_rows", len(all_rows))
+            span.set_data("groups_created", len(groups) if groups else 0)
 
         # Optional full/partial hash reset purge BEFORE processing groups if requested
         if RESET_HASH_HISTORY or RESET_WR_LIST:
-            if RESET_WR_LIST:
-                logging.info(f"🧨 Hash reset requested for specific WRs: {sorted(list(RESET_WR_LIST))}")
-                purge_existing_hashed_outputs(client, TARGET_SHEET_ID, RESET_WR_LIST, TEST_MODE)
-            else:
-                logging.info("🧨 Global hash reset requested (RESET_HASH_HISTORY=1)")
-                purge_existing_hashed_outputs(client, TARGET_SHEET_ID, None, TEST_MODE)
+            with sentry_sdk.start_span(op="smartsheet.purge", description="Purge existing hashed outputs") as span:
+                if RESET_WR_LIST:
+                    logging.info(f"🧨 Hash reset requested for specific WRs: {sorted(list(RESET_WR_LIST))}")
+                    span.set_data("purge_type", "wr_subset")
+                    span.set_data("wr_count", len(RESET_WR_LIST))
+                    purge_existing_hashed_outputs(client, TARGET_SHEET_ID, RESET_WR_LIST, TEST_MODE)
+                else:
+                    logging.info("🧨 Global hash reset requested (RESET_HASH_HISTORY=1)")
+                    span.set_data("purge_type", "global")
+                    purge_existing_hashed_outputs(client, TARGET_SHEET_ID, None, TEST_MODE)
             # After purge, any regenerated files get new timestamp+hash filenames and re-upload
         
         if not groups:
             raise Exception("No valid groups created")
         
         logging.info(f"📈 Found {len(groups)} work request groups to process")
+        sentry_add_breadcrumb("grouping", f"Created {len(groups)} groups from {len(all_rows)} rows", data={
+            "group_count": len(groups),
+            "row_count": len(all_rows),
+        })
         if MAX_GROUPS and len(groups) > MAX_GROUPS:
             logging.info(f"✂️ Limiting processing to first {MAX_GROUPS} groups for test run")
             groups = dict(list(groups.items())[:MAX_GROUPS])
@@ -2482,13 +2570,20 @@ def main():
         # Create target sheet map for production uploads
         target_map = {}
         if not TEST_MODE:
-            target_map = create_target_sheet_map(client)
+            with sentry_sdk.start_span(op="smartsheet.target_map", description="Create target sheet map for uploads") as span:
+                target_map = create_target_sheet_map(client)
+                span.set_data("wr_count", len(target_map))
 
         # Load hash history AFTER optional purge so we don't rely on stale attachments
         hash_history = load_hash_history(HASH_HISTORY_PATH)
         history_updates = 0
+        _groups_skipped = 0
+        _groups_generated = 0
+        _groups_uploaded = 0
+        _groups_errored = 0
+        _api_calls_count = 0
 
-        for group_key, group_rows in groups.items():
+        for group_idx, (group_key, group_rows) in enumerate(groups.items(), 1):
             try:
                 # Calculate data hash for change detection
                 data_hash = calculate_data_hash(group_rows)
@@ -2532,77 +2627,100 @@ def main():
                                     can_skip = False
                         if can_skip:
                             logging.info(f"⏩ Skip (unchanged + attachment exists) {variant} WR {wr_num} week {week_raw} hash {data_hash}")
+                            _groups_skipped += 1
+                            sentry_add_breadcrumb("group", f"Skipped unchanged group", level="info", data={
+                                "wr": wr_num, "week": week_raw, "variant": variant, "hash": data_hash,
+                            })
                             continue
                         else:
                             logging.info(f"🔁 Regenerating {variant} WR {wr_num} week {week_raw} despite unchanged hash (attachment missing or verification failed)")
+                            sentry_add_breadcrumb("group", f"Regenerating despite same hash (attachment missing)", level="warning", data={
+                                "wr": wr_num, "week": week_raw, "variant": variant,
+                            })
                 
                 # Generate Excel file with complete fixes
-                excel_path, filename, wr_numbers = generate_excel(
-                    group_key, group_rows, snapshot_date, data_hash=data_hash
-                )
+                with sentry_sdk.start_span(op="excel.generate", description=f"Generate Excel for WR {wr_num}") as gen_span:
+                    gen_span.set_data("group_key", group_key)
+                    gen_span.set_data("row_count", len(group_rows))
+                    gen_span.set_data("variant", variant)
+                    gen_span.set_data("group_index", group_idx)
+                    excel_path, filename, wr_numbers = generate_excel(
+                        group_key, group_rows, snapshot_date, data_hash=data_hash
+                    )
+                    gen_span.set_data("filename", filename)
                 
                 generated_files_count += 1
+                _groups_generated += 1
                 generated_filenames.append(filename)
                 
                 # Upload to Smartsheet in production mode
                 if not TEST_MODE and target_map and wr_numbers:
-                    wr_num = wr_numbers[0]
-                    if wr_num in target_map:
-                        target_row = target_map[wr_num]
-                        
-                        # Extract variant and identifier from group_rows (set by group_source_rows)
-                        first_row = group_rows[0] if group_rows else {}
-                        variant = first_row.get('__variant', 'primary')
-                        
-                        # Extract identifier based on variant
-                        if variant == 'helper':
-                            # CRITICAL FIX: Include helper dept and job in identifier (matches hash history key)
-                            helper_foreman = first_row.get('__helper_foreman', '')
-                            helper_dept = first_row.get('__helper_dept', '')
-                            helper_job = first_row.get('__helper_job', '')
-                            identifier = f"{helper_foreman}|{helper_dept}|{helper_job}"
-                        else:
-                            # Primary variant: check if user-specific
-                            user_val = first_row.get('User')
-                            # PERFORMANCE: Use pre-compiled regex
-                            identifier = _RE_SANITIZE_IDENTIFIER.sub('_', user_val)[:50] if user_val else None
-                        
-                        # FIXED: Delete old attachments with proper variant-aware implementation
-                        # Determine if this group/week is force-regenerated
-                        try:
-                            week_raw, _wr_tmp = group_key.split('_',1)
-                        except ValueError:
-                            week_raw = ''
-                        force_this = FORCE_GENERATION or (week_raw in REGEN_WEEKS)
-                        # Week component for week-specific deletion (allow multiple weeks per WR)
-                        deleted_count, skipped = delete_old_excel_attachments(
-                            client, TARGET_SHEET_ID, target_row, wr_num, week_raw, data_hash, 
-                            variant=variant, identifier=identifier, force_generation=force_this
-                        )
-                        if force_this and skipped:
-                            # Should not happen because we bypass skip when forced, but guard anyway
-                            skipped = False
-                        if force_this:
-                            logging.info(f"🔁 Forced regeneration applied (FORCE_GENERATION={FORCE_GENERATION}, week_in_REGEN_WEEKS={week_raw in REGEN_WEEKS}) for group {group_key}")
-                        
-                        if not skipped:
-                            # Upload new file to Smartsheet (skip if SKIP_UPLOAD=true for local testing)
-                            if not SKIP_UPLOAD:
-                                try:
-                                    with open(excel_path, 'rb') as file:
-                                        client.Attachments.attach_file_to_row(
-                                            TARGET_SHEET_ID, 
-                                            target_row.id, 
-                                            (filename, file, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-                                        )
-                                    logging.info(f"✅ Uploaded: {filename}")
-                                except Exception as e:
-                                    logging.error(f"❌ Upload failed for {filename}: {e}")
+                    with sentry_sdk.start_span(op="smartsheet.upload", description=f"Upload WR {wr_numbers[0]}") as upload_span:
+                        wr_num = wr_numbers[0]
+                        upload_span.set_data("wr_num", wr_num)
+                        upload_span.set_data("filename", filename)
+                        if wr_num in target_map:
+                            target_row = target_map[wr_num]
+                            
+                            # Extract variant and identifier from group_rows (set by group_source_rows)
+                            first_row = group_rows[0] if group_rows else {}
+                            variant = first_row.get('__variant', 'primary')
+                            
+                            # Extract identifier based on variant
+                            if variant == 'helper':
+                                # CRITICAL FIX: Include helper dept and job in identifier (matches hash history key)
+                                helper_foreman = first_row.get('__helper_foreman', '')
+                                helper_dept = first_row.get('__helper_dept', '')
+                                helper_job = first_row.get('__helper_job', '')
+                                identifier = f"{helper_foreman}|{helper_dept}|{helper_job}"
                             else:
-                                logging.info(f"⏭️  Skipping upload (SKIP_UPLOAD=true): {filename}")
-                                logging.info(f"📁 File saved locally at: {excel_path}")
-                    else:
-                        logging.warning(f"⚠️ Work request {wr_num} not found in target sheet")
+                                # Primary variant: check if user-specific
+                                user_val = first_row.get('User')
+                                # PERFORMANCE: Use pre-compiled regex
+                                identifier = _RE_SANITIZE_IDENTIFIER.sub('_', user_val)[:50] if user_val else None
+                            
+                            # FIXED: Delete old attachments with proper variant-aware implementation
+                            # Determine if this group/week is force-regenerated
+                            try:
+                                week_raw, _wr_tmp = group_key.split('_',1)
+                            except ValueError:
+                                week_raw = ''
+                            force_this = FORCE_GENERATION or (week_raw in REGEN_WEEKS)
+                            # Week component for week-specific deletion (allow multiple weeks per WR)
+                            deleted_count, skipped = delete_old_excel_attachments(
+                                client, TARGET_SHEET_ID, target_row, wr_num, week_raw, data_hash, 
+                                variant=variant, identifier=identifier, force_generation=force_this
+                            )
+                            if force_this and skipped:
+                                # Should not happen because we bypass skip when forced, but guard anyway
+                                skipped = False
+                            if force_this:
+                                logging.info(f"🔁 Forced regeneration applied (FORCE_GENERATION={FORCE_GENERATION}, week_in_REGEN_WEEKS={week_raw in REGEN_WEEKS}) for group {group_key}")
+                            
+                            if not skipped:
+                                # Upload new file to Smartsheet (skip if SKIP_UPLOAD=true for local testing)
+                                if not SKIP_UPLOAD:
+                                    try:
+                                        with open(excel_path, 'rb') as file:
+                                            client.Attachments.attach_file_to_row(
+                                                TARGET_SHEET_ID, 
+                                                target_row.id, 
+                                                (filename, file, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                                            )
+                                        logging.info(f"✅ Uploaded: {filename}")
+                                        _groups_uploaded += 1
+                                        _api_calls_count += 1
+                                    except Exception as e:
+                                        logging.error(f"❌ Upload failed for {filename}: {e}")
+                                        sentry_add_breadcrumb("upload", f"Upload failed for {filename}", level="error", data={
+                                            "wr": wr_num, "error": str(e)[:200],
+                                        })
+                                else:
+                                    logging.info(f"⏭️  Skipping upload (SKIP_UPLOAD=true): {filename}")
+                                    logging.info(f"📁 File saved locally at: {excel_path}")
+                        else:
+                            logging.warning(f"⚠️ Work request {wr_num} not found in target sheet")
+                            upload_span.set_data("wr_missing_from_target", True)
 
                 # Update hash history with variant-aware key (even in TEST_MODE so future prod runs can leverage)
                 hash_history[history_key] = {
@@ -2617,12 +2735,15 @@ def main():
                 history_updates += 1
                 
             except Exception as e:
+                _groups_errored += 1
                 logging.error(f"❌ Failed to process group {group_key}: {e}")
                 sentry_capture_with_context(
                     exception=e,
                     context_name="group_processing_error",
                     context_data={
                         "group_key": group_key,
+                        "group_index": group_idx,
+                        "total_groups": len(groups),
                         "wr_number": wr_num if 'wr_num' in dir() else 'unknown',
                         "week_ending": week_raw if 'week_raw' in dir() else 'unknown',
                         "variant": variant if 'variant' in dir() else 'unknown',
@@ -2678,11 +2799,13 @@ def main():
                     identifier = _RE_SANITIZE_IDENTIFIER.sub('_', user_val)[:50] if user_val else ''
                 valid_wr_weeks.add((wr, week_raw, variant, identifier))
         if not TEST_MODE:
-            cleanup_untracked_sheet_attachments(client, TARGET_SHEET_ID, valid_wr_weeks, TEST_MODE)
+            with sentry_sdk.start_span(op="smartsheet.cleanup", description="Cleanup untracked sheet attachments"):
+                cleanup_untracked_sheet_attachments(client, TARGET_SHEET_ID, valid_wr_weeks, TEST_MODE)
 
         # Cleanup legacy / stale Excel files so only current system outputs remain
         try:
-            removed = cleanup_stale_excels(OUTPUT_FOLDER, set(generated_filenames))
+            with sentry_sdk.start_span(op="file.cleanup", description="Cleanup stale local Excel files"):
+                removed = cleanup_stale_excels(OUTPUT_FOLDER, set(generated_filenames))
             logging.info(f"🧹 Cleanup complete: removed {len(removed)} stale file(s)")
         except Exception as e:
             logging.warning(f"⚠️ Cleanup step failed: {e}")
@@ -2704,6 +2827,10 @@ def main():
             scope = sentry_sdk.get_isolation_scope()
             scope.set_tag("session_success", "true")
             scope.set_tag("files_generated", str(generated_files_count))
+            scope.set_tag("groups_skipped", str(_groups_skipped))
+            scope.set_tag("groups_generated", str(_groups_generated))
+            scope.set_tag("groups_uploaded", str(_groups_uploaded))
+            scope.set_tag("groups_errored", str(_groups_errored))
             scope.set_tag("session_duration_seconds", str(session_duration.total_seconds()))
             if audit_results:
                 scope.set_tag("audit_risk_level", audit_results.get('summary', {}).get('risk_level', 'UNKNOWN'))
@@ -2712,17 +2839,36 @@ def main():
             sentry_sdk.set_context("session_summary", {
                 "success": True,
                 "files_generated": generated_files_count,
+                "groups_total": len(groups),
+                "groups_skipped": _groups_skipped,
+                "groups_generated": _groups_generated,
+                "groups_uploaded": _groups_uploaded,
+                "groups_errored": _groups_errored,
                 "duration_seconds": session_duration.total_seconds(),
                 "duration_human": str(session_duration),
-                "groups_processed": len(groups),
                 "history_updates": history_updates,
                 "mode": "TEST" if TEST_MODE else "PRODUCTION",
                 "audit_risk_level": audit_results.get('summary', {}).get('risk_level', 'UNKNOWN') if audit_results else None,
             })
+            sentry_sdk.set_context("data_pipeline", {
+                "source_sheets": len(source_sheets) if 'source_sheets' in dir() else 0,
+                "total_rows_fetched": len(all_rows) if 'all_rows' in dir() else 0,
+                "groups_created": len(groups),
+                "hash_history_entries": len(hash_history) if 'hash_history' in dir() else 0,
+                "api_calls_upload": _api_calls_count,
+            })
             sentry_add_breadcrumb("session", "Session completed successfully", level="info", data={
                 "files_generated": generated_files_count,
-                "duration": str(session_duration)
+                "duration": str(session_duration),
+                "skipped": _groups_skipped,
+                "errored": _groups_errored,
             })
+            
+            # Finish the root transaction
+            if _txn:
+                _txn.set_status("ok")
+                _txn.__exit__(None, None, None)
+                _txn = None
 
     except FileNotFoundError as e:
         error_context = f"Missing required file: {e}"
@@ -2738,6 +2884,11 @@ def main():
             tags={"error_location": "main", "error_type": "file_not_found"},
             fingerprint=["file-not-found", str(e)]
         )
+        # Close transaction with error
+        if _txn:
+            _txn.set_status("internal_error")
+            _txn.__exit__(type(e), e, e.__traceback__)
+            _txn = None
             
     except Exception as e:
         session_duration = datetime.datetime.now() - session_start
@@ -2750,6 +2901,7 @@ def main():
             scope.set_tag("session_success", "false")
             scope.set_tag("session_duration_seconds", str(session_duration.total_seconds()))
             scope.set_tag("failure_type", "general_exception")
+            scope.set_tag("groups_errored", str(_groups_errored))
             scope.set_level("error")
             
             sentry_capture_with_context(
@@ -2763,10 +2915,39 @@ def main():
                     "traceback": traceback.format_exc(),
                     "test_mode": TEST_MODE,
                     "groups_attempted": len(groups) if 'groups' in dir() else 'unknown',
+                    "groups_generated": _groups_generated,
+                    "groups_errored": _groups_errored,
                 },
                 tags={"error_location": "main", "session_phase": "execution"},
                 fingerprint=["session-failure", type(e).__name__]
             )
+        # Close transaction with error
+        if _txn:
+            _txn.set_status("internal_error")
+            _txn.__exit__(type(e), e, e.__traceback__)
+            _txn = None
+    
+    finally:
+        # Sentry cron check-in: signal final status
+        if SENTRY_DSN and _cron_checkin_id:
+            try:
+                _cron_ok = '_groups_errored' not in dir() or _groups_errored == 0
+                capture_checkin(
+                    monitor_slug=_cron_monitor_slug,
+                    check_in_id=_cron_checkin_id,
+                    status=MonitorStatus.OK if _cron_ok else MonitorStatus.ERROR,
+                )
+            except Exception as exc:
+                logging.warning(f"⚠️ Sentry cron check-in (final) failed: {exc}")
+        
+        # Ensure any open transaction is closed
+        if _txn:
+            _txn.set_status("unknown")
+            _txn.__exit__(None, None, None)
+        
+        # Flush Sentry events before process exits
+        if SENTRY_DSN:
+            sentry_sdk.flush(timeout=10)
 
 if __name__ == "__main__":
     main()
