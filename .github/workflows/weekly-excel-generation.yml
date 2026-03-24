@@ -84,6 +84,16 @@ on:
         required: false
         default: ''
         type: string
+      parallel_workers:
+        description: 'Number of parallel workers for data fetch & attachment pre-fetch (default 8)'
+        required: false
+        default: '8'
+        type: string
+      parallel_workers_discovery:
+        description: 'Number of parallel workers for sheet discovery (default 8)'
+        required: false
+        default: '8'
+        type: string
 
 env:
   TZ: America/Chicago
@@ -172,6 +182,8 @@ jobs:
           USE_DISCOVERY_CACHE: ${{ github.event.inputs.use_discovery_cache || 'true' }}
           DISCOVERY_CACHE_TTL_MIN: '60'
           SKIP_CELL_HISTORY: 'true'
+          PARALLEL_WORKERS: ${{ github.event.inputs.parallel_workers || '8' }}
+          PARALLEL_WORKERS_DISCOVERY: ${{ github.event.inputs.parallel_workers_discovery || '8' }}
           
           # Change Detection & History
           EXTENDED_CHANGE_DETECTION: ${{ github.event.inputs.extended_change_detection || 'true' }}

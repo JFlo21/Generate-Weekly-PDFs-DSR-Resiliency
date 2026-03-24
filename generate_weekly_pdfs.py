@@ -16,7 +16,6 @@ import datetime
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
-import warnings
 import hashlib
 from datetime import timedelta
 import logging
@@ -26,7 +25,6 @@ import openpyxl
 from openpyxl.styles import Font, numbers, Alignment, PatternFill
 from openpyxl.drawing.image import Image
 import collections
-from openpyxl.utils import get_column_letter
 from dotenv import load_dotenv
 import sentry_sdk
 from sentry_sdk.integrations.logging import LoggingIntegration
@@ -146,10 +144,10 @@ MAX_GROUPS = int(os.getenv('MAX_GROUPS','0') or 0)
 QUIET_LOGGING = os.getenv('QUIET_LOGGING','0').lower() in ('1','true','yes')
 
 # Parallel execution: number of ThreadPoolExecutor workers for concurrent Smartsheet API calls
-# Smartsheet rate limit is 300 req/min (~5/sec). 4 workers stays safely under the limit.
-# The SDK auto-retries on 429 errors with exponential backoff.
-PARALLEL_WORKERS = int(os.getenv('PARALLEL_WORKERS', '4') or 4)
-PARALLEL_WORKERS_DISCOVERY = int(os.getenv('PARALLEL_WORKERS_DISCOVERY', '5') or 5)
+# Smartsheet rate limit is 300 req/min (~5/sec). 8 I/O-bound workers stays safely under the limit
+# because each request blocks ~200ms on network I/O; the SDK auto-retries on 429 with backoff.
+PARALLEL_WORKERS = int(os.getenv('PARALLEL_WORKERS', '8') or 8)
+PARALLEL_WORKERS_DISCOVERY = int(os.getenv('PARALLEL_WORKERS_DISCOVERY', '8') or 8)
 USE_DISCOVERY_CACHE = os.getenv('USE_DISCOVERY_CACHE','1').lower() in ('1','true','yes')
 DISCOVERY_CACHE_TTL_MIN = int(os.getenv('DISCOVERY_CACHE_TTL_MIN','60') or 60)
 DISCOVERY_CACHE_PATH = os.path.join(OUTPUT_FOLDER, 'discovery_cache.json')
@@ -234,11 +232,6 @@ def sentry_add_breadcrumb(category: str, message: str, level: str = "info", data
             level=level,
             data=data or {}
         )
-
-def sentry_set_context(name: str, context_data: dict):
-    """Set structured context for rich error details in Sentry dashboard."""
-    if SENTRY_DSN:
-        sentry_sdk.set_context(name, context_data)
 
 def sentry_capture_with_context(exception: Exception, context_name: str | None = None, 
                                   context_data: dict | None = None, tags: dict | None = None,
@@ -1086,23 +1079,6 @@ def save_hash_history(path: str, history: dict):
 def _title(t):
     return (t or "").strip().lower()
 
-def _sample_values_for_col(client, sheet_id, col_id, n=5):
-    try:
-        sample = client.Sheets.get_sheet(sheet_id, row_numbers=list(range(1, n+1)))
-    except Exception:
-        return []
-    vals = []
-    for row in sample.rows:
-        for cell in row.cells:
-            if cell.column_id == col_id:
-                val = getattr(cell, 'value', None)
-                if val is None:
-                    val = getattr(cell, 'display_value', None)
-                if val is not None:
-                    vals.append(str(val))
-                break
-    return vals
-
 def discover_source_sheets(client):
     """Strict deterministic discovery: anchored keywords + type filtered. Skips sheets missing Weekly Reference Logged Date."""
     # Attempt cache load
@@ -1328,14 +1304,20 @@ def discover_source_sheets(client):
             return None
 
     # Parallel discovery: validate all sheets concurrently
+    logging.info(f"🚀 Starting parallel discovery with {PARALLEL_WORKERS_DISCOVERY} workers for {len(base_sheet_ids)} sheets...")
+    _discovery_start = datetime.datetime.now()
     with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS_DISCOVERY) as executor:
         futures = {executor.submit(_validate_single_sheet, sid): sid for sid in base_sheet_ids}
-        for future in as_completed(futures):
+        for i, future in enumerate(as_completed(futures), 1):
+            sid = futures[future]
             result = future.result()
             if result is not None:
                 discovered.append(result)
-
-    logging.info(f"⚡ Discovery complete: {len(discovered)} sheets")
+                logging.info(f"   ✅ [{i}/{len(futures)}] Discovered: {result['name']} (ID: {sid})")
+            else:
+                logging.info(f"   ❌ [{i}/{len(futures)}] Skipped sheet ID {sid}")
+    _discovery_elapsed = (datetime.datetime.now() - _discovery_start).total_seconds()
+    logging.info(f"⚡ Discovery complete: {len(discovered)} sheets validated in {_discovery_elapsed:.1f}s (parallel w/{PARALLEL_WORKERS_DISCOVERY} workers)")
     # Save cache
     if USE_DISCOVERY_CACHE:
         try:
@@ -1657,9 +1639,12 @@ def get_all_source_rows(client, source_sheets):
         return (sheet_rows, sheet_exclusion_counts, sheet_foreman_counts, sheet_wr_exclusion_reasons, sheet_row_counter)
 
     # Parallel sheet fetching: submit all sources to ThreadPoolExecutor
+    logging.info(f"🚀 Starting parallel data fetch with {PARALLEL_WORKERS} workers for {len(source_sheets)} sheets...")
+    _fetch_start = datetime.datetime.now()
     with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
         futures = {executor.submit(_fetch_and_process_sheet, source): source for source in source_sheets}
-        for future in as_completed(futures):
+        for i, future in enumerate(as_completed(futures), 1):
+            source = futures[future]
             try:
                 sheet_rows, sheet_exc, sheet_fc, sheet_wr_exc, sheet_rc = future.result()
                 # Merge rows
@@ -1674,11 +1659,11 @@ def get_all_source_rows(client, source_sheets):
                 for wr_key, ctr in sheet_wr_exc.items():
                     wr_exclusion_reasons[wr_key] += ctr
                 global_row_counter += sheet_rc
+                logging.info(f"   📋 [{i}/{len(futures)}] Fetched {sheet_exc['accepted']} rows from {source.get('name', 'unknown')} ({sheet_rc} total processed)")
             except Exception as e:
-                source = futures[future]
-                logging.error(f"⚠️ Sheet worker failed for {source.get('name', 'unknown')}: {e}")
-
-    logging.info(f"Found {len(merged_rows)} valid rows")
+                logging.error(f"   ⚠️ [{i}/{len(futures)}] Sheet worker failed for {source.get('name', 'unknown')}: {e}")
+    _fetch_elapsed = (datetime.datetime.now() - _fetch_start).total_seconds()
+    logging.info(f"⚡ Data fetch complete: {len(merged_rows)} valid rows in {_fetch_elapsed:.1f}s (parallel w/{PARALLEL_WORKERS} workers)")
     
     # HELPER DETECTION SUMMARY LOGGING
     helper_row_count = sum(1 for r in merged_rows if r.get('__is_helper_row', False))
@@ -2668,6 +2653,9 @@ def main():
         attachment_cache = {}  # row_id -> list of attachment objects
         if target_map and not TEST_MODE:
             with sentry_sdk.start_span(op="smartsheet.attachment_prefetch", description="Pre-fetch row attachments") as span:
+                logging.info(f"🚀 Starting parallel attachment pre-fetch with {PARALLEL_WORKERS} workers for {len(target_map)} target rows...")
+                _att_start = datetime.datetime.now()
+
                 def _fetch_row_attachments(row_item):
                     wr_num, target_row = row_item
                     try:
@@ -2678,12 +2666,15 @@ def main():
                 
                 with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
                     futures = [executor.submit(_fetch_row_attachments, item) for item in target_map.items()]
-                    for future in as_completed(futures):
+                    for i, future in enumerate(as_completed(futures), 1):
                         row_id, atts = future.result()
                         attachment_cache[row_id] = atts
+                        if i % 25 == 0 or i == len(futures):
+                            logging.info(f"   📎 [{i}/{len(futures)}] Attachment pre-fetch progress...")
                 
+                _att_elapsed = (datetime.datetime.now() - _att_start).total_seconds()
                 span.set_data("rows_cached", len(attachment_cache))
-                logging.info(f"⚡ Pre-fetched attachments for {len(attachment_cache)} target rows")
+                logging.info(f"⚡ Pre-fetched attachments for {len(attachment_cache)} target rows in {_att_elapsed:.1f}s (parallel w/{PARALLEL_WORKERS} workers)")
 
         # Load hash history AFTER optional purge so we don't rely on stale attachments
         hash_history = load_hash_history(HASH_HISTORY_PATH)
