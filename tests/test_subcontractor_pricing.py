@@ -155,9 +155,9 @@ class TestLoadContractRates(unittest.TestCase):
 class TestSubcontractorSheetIdsConfig(unittest.TestCase):
     """Test SUBCONTRACTOR_SHEET_IDS configuration parsing."""
 
-    def test_default_is_empty_list(self):
-        """Verify that SUBCONTRACTOR_SHEET_IDS is a list attribute on the module."""
-        self.assertIsInstance(generate_weekly_pdfs.SUBCONTRACTOR_SHEET_IDS, list)
+    def test_default_is_empty_set(self):
+        """Verify that SUBCONTRACTOR_SHEET_IDS is a set attribute on the module."""
+        self.assertIsInstance(generate_weekly_pdfs.SUBCONTRACTOR_SHEET_IDS, set)
 
     def test_parse_sheet_ids_skips_invalid(self):
         """Verify _parse_sheet_ids gracefully skips non-integer tokens."""

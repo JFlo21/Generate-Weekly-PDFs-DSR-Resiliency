@@ -144,6 +144,12 @@ WR_FILTER = [w.strip() for w in os.getenv('WR_FILTER','').split(',') if w.strip(
 EXCLUDE_WRS = [w.strip() for w in os.getenv('EXCLUDE_WRS','').split(',') if w.strip()]  # Work Requests to EXCLUDE from generation
 MAX_GROUPS = int(os.getenv('MAX_GROUPS','0') or 0)
 QUIET_LOGGING = os.getenv('QUIET_LOGGING','0').lower() in ('1','true','yes')
+
+# Parallel execution: number of ThreadPoolExecutor workers for concurrent Smartsheet API calls
+# Smartsheet rate limit is 300 req/min (~5/sec). 4 workers stays safely under the limit.
+# The SDK auto-retries on 429 errors with exponential backoff.
+PARALLEL_WORKERS = int(os.getenv('PARALLEL_WORKERS', '4') or 4)
+PARALLEL_WORKERS_DISCOVERY = int(os.getenv('PARALLEL_WORKERS_DISCOVERY', '5') or 5)
 USE_DISCOVERY_CACHE = os.getenv('USE_DISCOVERY_CACHE','1').lower() in ('1','true','yes')
 DISCOVERY_CACHE_TTL_MIN = int(os.getenv('DISCOVERY_CACHE_TTL_MIN','60') or 60)
 DISCOVERY_CACHE_PATH = os.path.join(OUTPUT_FOLDER, 'discovery_cache.json')
@@ -174,7 +180,7 @@ def _parse_sheet_ids(env_val):
             logging.warning(f"Ignoring invalid SUBCONTRACTOR_SHEET_IDS token: {s!r}")
     return ids
 
-SUBCONTRACTOR_SHEET_IDS = _parse_sheet_ids(os.getenv('SUBCONTRACTOR_SHEET_IDS', ''))
+SUBCONTRACTOR_SHEET_IDS = set(_parse_sheet_ids(os.getenv('SUBCONTRACTOR_SHEET_IDS', '')))
 
 # Folder-based discovery: Smartsheet folder IDs whose child sheets should be auto-discovered
 # Subcontractor folders (sheets priced at subcontractor rates, will be reverted to original contract rates)
@@ -826,12 +832,13 @@ def cleanup_stale_excels(output_folder: str, kept_filenames: set):
         # Non-conforming files left untouched
     return removed
 
-def cleanup_untracked_sheet_attachments(client, target_sheet_id: int, valid_wr_weeks: set, test_mode: bool):
+def cleanup_untracked_sheet_attachments(client, target_sheet_id: int, valid_wr_weeks: set, test_mode: bool, attachment_cache: dict | None = None):
     """Prune only older variants for identities processed this run (VARIANT-AWARE).
 
     If KEEP_HISTORICAL_WEEKS=1 (default false here), weeks not in this run are preserved.
     valid_wr_weeks: set of 4-tuples (wr, week_mmddyy, variant, identifier) that were 
                     generated or validated this session.
+    attachment_cache: Pre-fetched dict of row_id -> attachment list (avoids per-row API calls).
     
     CRITICAL: Identity includes variant dimension to prevent primary/helper cross-deletion.
               Each (wr, week, variant, identifier) is treated as independent.
@@ -847,7 +854,11 @@ def cleanup_untracked_sheet_attachments(client, target_sheet_id: int, valid_wr_w
     removed_variants = 0
     for row in sheet.rows:
         try:
-            attachments = client.Attachments.list_row_attachments(target_sheet_id, row.id).data
+            # Use pre-fetched cache if available; otherwise fall back to per-row API call
+            if attachment_cache is not None and row.id in attachment_cache:
+                attachments = attachment_cache[row.id]
+            else:
+                attachments = client.Attachments.list_row_attachments(target_sheet_id, row.id).data
         except Exception:
             continue
         identity_groups = collections.defaultdict(list)
@@ -882,7 +893,7 @@ def cleanup_untracked_sheet_attachments(client, target_sheet_id: int, valid_wr_w
                     logging.warning(f"⚠️ Could not delete variant {old.name}: {e}")
     logging.info(f"🧹 Variant pruning done: removed_variants={removed_variants}")
 
-def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, week_raw, current_data_hash, variant='primary', identifier=None, force_generation=False):
+def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, week_raw, current_data_hash, variant='primary', identifier=None, force_generation=False, cached_attachments: list | None = None):
     """Delete prior Excel attachment(s) ONLY for the specific (WR, week, variant, identifier) identity.
 
     VARIANT-AWARE BEHAVIOR:
@@ -895,12 +906,13 @@ def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, we
     Args:
         variant: 'primary' or 'helper'
         identifier: For helper variant, the helper name; for primary+user, the user identifier
+        cached_attachments: Pre-fetched attachment list (avoids redundant API call)
 
     Returns (deleted_count, skipped_due_to_same_data)
     """
     deleted_count = 0
     try:
-        attachments = client.Attachments.list_row_attachments(target_sheet_id, target_row.id).data
+        attachments = cached_attachments if cached_attachments is not None else client.Attachments.list_row_attachments(target_sheet_id, target_row.id).data
     except Exception as e:
         logging.warning(f"Could not list attachments for row {target_row.id}: {e}")
         return 0, False
@@ -958,10 +970,10 @@ def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, we
         time.sleep(0.05)
     return deleted_count, False
 
-def _has_existing_week_attachment(client, target_sheet_id, target_row, wr_num: str, week_raw: str, variant: str = 'primary', identifier: str | None = None) -> bool:
+def _has_existing_week_attachment(client, target_sheet_id, target_row, wr_num: str, week_raw: str, variant: str = 'primary', identifier: str | None = None, cached_attachments: list | None = None) -> bool:
     """Return True if at least one attachment exists for this (WR, week, variant, identifier) identity."""
     try:
-        attachments = client.Attachments.list_row_attachments(target_sheet_id, target_row.id).data
+        attachments = cached_attachments if cached_attachments is not None else client.Attachments.list_row_attachments(target_sheet_id, target_row.id).data
     except Exception:
         return False
     
@@ -1198,7 +1210,9 @@ def discover_source_sheets(client):
             logging.info(f"📂 All {len(_folder_ids)} folder-discovered sheet(s) already in base list")
 
     discovered = []
-    for sid in base_sheet_ids:
+
+    def _validate_single_sheet(sid):
+        """Validate a single sheet and return its discovery dict (or None if invalid)."""
         try:
             # PERFORMANCE FIX: Fetch only column metadata initially (no row data needed yet)
             # This prevents Error 4000 for large sheets during discovery phase
@@ -1221,12 +1235,37 @@ def discover_source_sheets(client):
                 keyed = [c for c in date_candidates if 'date' in _title(c.title) and 'snapshot' in _title(c.title)]
                 if keyed:
                     mapping['Snapshot Date'] = keyed[0].id
-            # Sample fallback
+            # Sample fallback — fetch sample rows ONCE for all column checks
+            _sample_rows_cache = None
+            def _get_sample_rows():
+                nonlocal _sample_rows_cache
+                if _sample_rows_cache is None:
+                    try:
+                        _sample_sheet = client.Sheets.get_sheet(sid, row_numbers=list(range(1, 4)))
+                        _sample_rows_cache = _sample_sheet.rows if _sample_sheet.rows else []
+                    except Exception:
+                        _sample_rows_cache = []
+                return _sample_rows_cache
+
+            def _extract_col_samples(col_id):
+                """Extract sample values for a column from the cached sample rows."""
+                vals = []
+                for row in _get_sample_rows():
+                    for cell in row.cells:
+                        if cell.column_id == col_id:
+                            val = getattr(cell, 'value', None)
+                            if val is None:
+                                val = getattr(cell, 'display_value', None)
+                            if val is not None:
+                                vals.append(str(val))
+                            break
+                return vals
+
             if 'Weekly Reference Logged Date' not in mapping:
                 for c in date_candidates:
                     t = _title(c.title)
                     if 'date' in t and any(k in t for k in ('weekly','reference','logged','week ending')):
-                        samples = _sample_values_for_col(client, sid, c.id, 3)
+                        samples = _extract_col_samples(c.id)
                         if any(re.match(r'^\d{4}-\d{2}-\d{2}', v) for v in samples):
                             mapping['Weekly Reference Logged Date'] = c.id
                             break
@@ -1234,7 +1273,7 @@ def discover_source_sheets(client):
                 for c in date_candidates:
                     t = _title(c.title)
                     if 'date' in t and 'snapshot' in t:
-                        samples = _sample_values_for_col(client, sid, c.id, 3)
+                        samples = _extract_col_samples(c.id)
                         if any(re.match(r'^\d{4}-\d{2}-\d{2}', v) for v in samples):
                             mapping['Snapshot Date'] = c.id
                             break
@@ -1273,18 +1312,29 @@ def discover_source_sheets(client):
             if 'Weekly Reference Logged Date' in mapping:
                 w_id = mapping['Weekly Reference Logged Date']
                 s_id = mapping.get('Snapshot Date')
-                w_samples = _sample_values_for_col(client, sid, w_id, 3)
-                s_samples = _sample_values_for_col(client, sid, s_id, 3) if s_id else []
+                w_samples = _extract_col_samples(w_id)
+                s_samples = _extract_col_samples(s_id) if s_id else []
                 logging.info(f"Sheet {sheet.name} (ID {sid}) date columns:")
                 logging.info(f"  Weekly Reference Logged Date (ID {w_id}) samples: {w_samples}")
                 if s_id:
                     logging.info(f"  Snapshot Date (ID {s_id}) samples: {s_samples}")
-                discovered.append({'id': sid,'name': sheet.name,'column_mapping': mapping})
                 logging.info(f"✅ Added sheet: {sheet.name} (ID: {sid})")
+                return {'id': sid,'name': sheet.name,'column_mapping': mapping}
             else:
                 logging.warning(f"❌ Skipping sheet {sheet.name} (ID {sid}) - Weekly Reference Logged Date not found (strict mode)")
+                return None
         except Exception as e:
             logging.warning(f"⚡ Failed to validate sheet {sid}: {e}")
+            return None
+
+    # Parallel discovery: validate all sheets concurrently
+    with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS_DISCOVERY) as executor:
+        futures = {executor.submit(_validate_single_sheet, sid): sid for sid in base_sheet_ids}
+        for future in as_completed(futures):
+            result = future.result()
+            if result is not None:
+                discovered.append(result)
+
     logging.info(f"⚡ Discovery complete: {len(discovered)} sheets")
     # Save cache
     if USE_DISCOVERY_CACHE:
@@ -1339,7 +1389,20 @@ def get_all_source_rows(client, source_sheets):
     foreman_raw_counts = collections.defaultdict(lambda: collections.Counter())  # wr -> Counter(foreman values as-seen)
     wr_exclusion_reasons = collections.defaultdict(lambda: collections.Counter())  # wr -> Counter(reason)
 
-    for source in source_sheets:
+    def _fetch_and_process_sheet(source):
+        """Fetch and process a single source sheet. Returns (rows, sheet_exclusion_counts, sheet_foreman_counts, sheet_wr_exclusion_reasons, row_count)."""
+        sheet_rows = []
+        sheet_exclusion_counts = {
+            'missing_work_request': 0,
+            'missing_weekly_reference_logged_date': 0,
+            'units_not_completed': 0,
+            'price_missing_or_zero': 0,
+            'cu_no_match': 0,
+            'accepted': 0
+        }
+        sheet_foreman_counts = collections.defaultdict(lambda: collections.Counter())
+        sheet_wr_exclusion_reasons = collections.defaultdict(lambda: collections.Counter())
+        sheet_row_counter = 0
         try:
             logging.info(f"⚡ Processing: {source['name']} (ID: {source['id']})")
             is_subcontractor_sheet = source['id'] in SUBCONTRACTOR_SHEET_IDS
@@ -1393,9 +1456,9 @@ def get_all_source_rows(client, source_sheets):
 
                     # Per‑cell debug logging only for the earliest rows overall
                     # PERFORMANCE: Use early continue to avoid logging overhead in production
-                    _should_debug_cells = PER_CELL_DEBUG_ENABLED and global_row_counter < DEBUG_SAMPLE_ROWS
+                    _should_debug_cells = PER_CELL_DEBUG_ENABLED and sheet_row_counter < DEBUG_SAMPLE_ROWS
                     if _should_debug_cells:
-                        logging.info(f"🔍 DEBUG: Processing row with {len(row.cells)} cells (global row #{global_row_counter+1})")
+                        logging.info(f"🔍 DEBUG: Processing row with {len(row.cells)} cells (sheet row #{sheet_row_counter+1})")
                         for cell in row.cells:
                             mapped_name = reverse_column_map.get(cell.column_id)
                             if mapped_name:
@@ -1418,7 +1481,7 @@ def get_all_source_rows(client, source_sheets):
                         row_data['__row_id'] = row.id
 
                     # Essential field summary for earliest rows (gated to reduce I/O)
-                    _should_log_essentials = global_row_counter < DEBUG_ESSENTIAL_ROWS
+                    _should_log_essentials = sheet_row_counter < DEBUG_ESSENTIAL_ROWS
                     if _should_log_essentials:
                         essential_fields = [
                             'Weekly Reference Logged Date', 'Snapshot Date', 'Units Completed?',
@@ -1445,7 +1508,7 @@ def get_all_source_rows(client, source_sheets):
                         units_completed = row_data.get('Units Completed?')
                         units_completed_checked = is_checked(units_completed)
 
-                        if global_row_counter < DEBUG_ESSENTIAL_ROWS:
+                        if sheet_row_counter < DEBUG_ESSENTIAL_ROWS:
                             logging.info(f"🔍 Row data sample: WR={work_request}, Price={price_val}, Date={weekly_date}, Units Completed={units_completed} ({units_completed_checked})")
 
                         # Record raw foreman regardless of acceptance (if WR exists)
@@ -1453,7 +1516,7 @@ def get_all_source_rows(client, source_sheets):
                         if work_request:
                             wr_key_for_diag = str(work_request).split('.')[0]
                             fr_val = (row_data.get('Foreman') or '').strip() or '<<blank>>'
-                            foreman_raw_counts[wr_key_for_diag][fr_val] += 1
+                            sheet_foreman_counts[wr_key_for_diag][fr_val] += 1
 
                         # Acceptance logic (STRICT: Units Completed? must be checked/true)
                         if work_request and weekly_date and units_completed_checked and has_price:
@@ -1462,13 +1525,13 @@ def get_all_source_rows(client, source_sheets):
                             cu_text = str(cu_raw).strip().upper()
                             # Exclude any backend placeholder variants like '#NO MATCH' or 'NO MATCH'
                             if 'NO MATCH' in cu_text:
-                                exclusion_counts['cu_no_match'] += 1
+                                sheet_exclusion_counts['cu_no_match'] += 1
                                 if wr_key_for_diag:
-                                    wr_exclusion_reasons[wr_key_for_diag]['cu_no_match'] += 1
-                                if FILTER_DIAGNOSTICS and global_row_counter < DEBUG_ESSENTIAL_ROWS:
+                                    sheet_wr_exclusion_reasons[wr_key_for_diag]['cu_no_match'] += 1
+                                if FILTER_DIAGNOSTICS and sheet_row_counter < DEBUG_ESSENTIAL_ROWS:
                                     logging.info(f"🚫 Excluding row for WR {wr_key_for_diag} due to CU 'NO MATCH' placeholder: raw='{cu_raw}'")
                                 # Skip appending this row
-                                global_row_counter += 1
+                                sheet_row_counter += 1
                                 continue
                             # Helper row detection (before foreman assignment)
                             # Helper criteria: Foreman Helping? non-blank AND both checkboxes checked
@@ -1481,8 +1544,8 @@ def get_all_source_rows(client, source_sheets):
                             is_helper_row = bool(helper_name and helping_foreman_completed_checked and units_completed_checked)
                             
                             # HELPER DETECTION LOGGING: Log criteria evaluation for sample rows
-                            if global_row_counter < DEBUG_ESSENTIAL_ROWS:
-                                logging.info(f"🔧 Helper detection criteria for row {global_row_counter+1}:")
+                            if sheet_row_counter < DEBUG_ESSENTIAL_ROWS:
+                                logging.info(f"🔧 Helper detection criteria for row {sheet_row_counter+1}:")
                                 logging.info(f"   Foreman Helping?: '{foreman_helping_val}' -> helper_name='{helper_name}'")
                                 logging.info(f"   Helping Foreman Completed Unit?: {helping_foreman_completed} -> checked={helping_foreman_completed_checked}")
                                 logging.info(f"   Units Completed?: {units_completed} -> checked={units_completed_checked}")
@@ -1497,8 +1560,9 @@ def get_all_source_rows(client, source_sheets):
                                 row_data['__helper_dept'] = str(helper_dept_val).strip() if helper_dept_val else ''
                                 row_data['__helper_job'] = str(helper_job_val).strip() if helper_job_val else ''
                                 
-                                # HELPER DETECTION LOGGING: Always log helper row detection
-                                logging.info(f"🔧 HELPER ROW DETECTED [Row {global_row_counter+1}]: WR={wr_key_for_diag}, Helper={helper_name}, Dept={row_data['__helper_dept']}, Job={row_data['__helper_job']}")
+                                # HELPER DETECTION LOGGING: Log first 10 helper rows per sheet for transparency
+                                if sheet_row_counter < 10:
+                                    logging.info(f"🔧 HELPER ROW DETECTED [Row {sheet_row_counter+1}]: WR={wr_key_for_diag}, Helper={helper_name}, Dept={row_data['__helper_dept']}, Job={row_data['__helper_job']}")
                             else:
                                 row_data['__is_helper_row'] = False
                             
@@ -1522,40 +1586,40 @@ def get_all_source_rows(client, source_sheets):
                                     effective_user = 'Unknown Foreman'
                                     assignment_method = 'NO_FOREMAN'
                             
-                            if global_row_counter < DEBUG_ESSENTIAL_ROWS:
+                            if sheet_row_counter < DEBUG_ESSENTIAL_ROWS:
                                 logging.info(f"📋 Foreman Assignment: Using '{effective_user}' ({assignment_method})")
                             
                             # Store effective user and method for grouping
                             row_data['__effective_user'] = effective_user
                             row_data['__assignment_method'] = assignment_method
                             
-                            merged_rows.append(row_data)
-                            exclusion_counts['accepted'] += 1
+                            sheet_rows.append(row_data)
+                            sheet_exclusion_counts['accepted'] += 1
                         else:
                             # Increment specific exclusion reasons (first matching reason recorded)
                             if not work_request:
-                                exclusion_counts['missing_work_request'] += 1
+                                sheet_exclusion_counts['missing_work_request'] += 1
                                 if wr_key_for_diag:
-                                    wr_exclusion_reasons[wr_key_for_diag]['missing_work_request'] += 1
+                                    sheet_wr_exclusion_reasons[wr_key_for_diag]['missing_work_request'] += 1
                             elif not weekly_date:
-                                exclusion_counts['missing_weekly_reference_logged_date'] += 1
+                                sheet_exclusion_counts['missing_weekly_reference_logged_date'] += 1
                                 if wr_key_for_diag:
-                                    wr_exclusion_reasons[wr_key_for_diag]['missing_weekly_reference_logged_date'] += 1
+                                    sheet_wr_exclusion_reasons[wr_key_for_diag]['missing_weekly_reference_logged_date'] += 1
                             elif not units_completed_checked:
-                                exclusion_counts['units_not_completed'] += 1
+                                sheet_exclusion_counts['units_not_completed'] += 1
                                 if wr_key_for_diag:
-                                    wr_exclusion_reasons[wr_key_for_diag]['units_not_completed'] += 1
+                                    sheet_wr_exclusion_reasons[wr_key_for_diag]['units_not_completed'] += 1
                             elif not has_price:
-                                exclusion_counts['price_missing_or_zero'] += 1
+                                sheet_exclusion_counts['price_missing_or_zero'] += 1
                                 if wr_key_for_diag:
-                                    wr_exclusion_reasons[wr_key_for_diag]['price_missing_or_zero'] += 1
+                                    sheet_wr_exclusion_reasons[wr_key_for_diag]['price_missing_or_zero'] += 1
 
-                    global_row_counter += 1
+                    sheet_row_counter += 1
 
                 sentry_add_breadcrumb("sheet_processing", f"Processed sheet {source['name']}", data={
                     "sheet_id": source['id'],
                     "rows_in_sheet": len(sheet.rows) if sheet.rows else 0,
-                    "accepted_so_far": exclusion_counts['accepted'],
+                    "accepted_so_far": sheet_exclusion_counts['accepted'],
                     "is_subcontractor": is_subcontractor_sheet,
                 })
 
@@ -1567,7 +1631,7 @@ def get_all_source_rows(client, source_sheets):
                     context_data={
                         "sheet_id": source['id'],
                         "sheet_name": source.get('name', 'Unknown'),
-                        "rows_processed": global_row_counter,
+                        "rows_processed": sheet_row_counter,
                         "error_type": type(e).__name__,
                         "error_message": str(e),
                     },
@@ -1589,6 +1653,30 @@ def get_all_source_rows(client, source_sheets):
                 tags={"error_location": "sheet_access", "sheet_id": str(source.get('id', 'N/A'))},
                 fingerprint=["sheet-access", str(source.get('id', 'N/A')), type(e).__name__]
             )
+
+        return (sheet_rows, sheet_exclusion_counts, sheet_foreman_counts, sheet_wr_exclusion_reasons, sheet_row_counter)
+
+    # Parallel sheet fetching: submit all sources to ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
+        futures = {executor.submit(_fetch_and_process_sheet, source): source for source in source_sheets}
+        for future in as_completed(futures):
+            try:
+                sheet_rows, sheet_exc, sheet_fc, sheet_wr_exc, sheet_rc = future.result()
+                # Merge rows
+                merged_rows.extend(sheet_rows)
+                # Merge exclusion counts
+                for k in exclusion_counts:
+                    exclusion_counts[k] += sheet_exc[k]
+                # Merge foreman raw counts
+                for wr_key, ctr in sheet_fc.items():
+                    foreman_raw_counts[wr_key] += ctr
+                # Merge WR exclusion reasons
+                for wr_key, ctr in sheet_wr_exc.items():
+                    wr_exclusion_reasons[wr_key] += ctr
+                global_row_counter += sheet_rc
+            except Exception as e:
+                source = futures[future]
+                logging.error(f"⚠️ Sheet worker failed for {source.get('name', 'unknown')}: {e}")
 
     logging.info(f"Found {len(merged_rows)} valid rows")
     
@@ -2462,7 +2550,7 @@ def main():
                 span.set_data("folder_count", len(SUBCONTRACTOR_FOLDER_IDS))
                 span.set_data("sheets_found", len(_FOLDER_DISCOVERED_SUB_IDS))
             # Merge into SUBCONTRACTOR_SHEET_IDS so get_all_source_rows() triggers price reversion
-            SUBCONTRACTOR_SHEET_IDS = list(set(SUBCONTRACTOR_SHEET_IDS) | _FOLDER_DISCOVERED_SUB_IDS)
+            SUBCONTRACTOR_SHEET_IDS = SUBCONTRACTOR_SHEET_IDS | _FOLDER_DISCOVERED_SUB_IDS
             logging.info(f"📂 Subcontractor sheet IDs after folder merge: {len(SUBCONTRACTOR_SHEET_IDS)}")
         if ORIGINAL_CONTRACT_FOLDER_IDS:
             with sentry_sdk.start_span(op="smartsheet.folder_discovery", description="Discover original contract folder sheets") as span:
@@ -2574,6 +2662,29 @@ def main():
                 target_map = create_target_sheet_map(client)
                 span.set_data("wr_count", len(target_map))
 
+        # PERFORMANCE: Pre-fetch all target row attachments into cache to eliminate
+        # redundant per-row API calls in _has_existing_week_attachment and delete_old_excel_attachments.
+        # Each row's attachments are fetched once here instead of 2-3 times in the group loop.
+        attachment_cache = {}  # row_id -> list of attachment objects
+        if target_map and not TEST_MODE:
+            with sentry_sdk.start_span(op="smartsheet.attachment_prefetch", description="Pre-fetch row attachments") as span:
+                def _fetch_row_attachments(row_item):
+                    wr_num, target_row = row_item
+                    try:
+                        atts = client.Attachments.list_row_attachments(TARGET_SHEET_ID, target_row.id).data
+                        return (target_row.id, atts)
+                    except Exception:
+                        return (target_row.id, [])
+                
+                with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
+                    futures = [executor.submit(_fetch_row_attachments, item) for item in target_map.items()]
+                    for future in as_completed(futures):
+                        row_id, atts = future.result()
+                        attachment_cache[row_id] = atts
+                
+                span.set_data("rows_cached", len(attachment_cache))
+                logging.info(f"⚡ Pre-fetched attachments for {len(attachment_cache)} target rows")
+
         # Load hash history AFTER optional purge so we don't rely on stale attachments
         hash_history = load_hash_history(HASH_HISTORY_PATH)
         history_updates = 0
@@ -2622,7 +2733,7 @@ def main():
                             if target_row is None:
                                 can_skip = False  # Can't verify; safer to regenerate
                             else:
-                                has_attachment = _has_existing_week_attachment(client, TARGET_SHEET_ID, target_row, str(wr_num), week_raw, variant, identifier)
+                                has_attachment = _has_existing_week_attachment(client, TARGET_SHEET_ID, target_row, str(wr_num), week_raw, variant, identifier, cached_attachments=attachment_cache.get(target_row.id))
                                 if not has_attachment:
                                     can_skip = False
                         if can_skip:
@@ -2689,7 +2800,8 @@ def main():
                             # Week component for week-specific deletion (allow multiple weeks per WR)
                             deleted_count, skipped = delete_old_excel_attachments(
                                 client, TARGET_SHEET_ID, target_row, wr_num, week_raw, data_hash, 
-                                variant=variant, identifier=identifier, force_generation=force_this
+                                variant=variant, identifier=identifier, force_generation=force_this,
+                                cached_attachments=attachment_cache.get(target_row.id)
                             )
                             if force_this and skipped:
                                 # Should not happen because we bypass skip when forced, but guard anyway
@@ -2800,7 +2912,7 @@ def main():
                 valid_wr_weeks.add((wr, week_raw, variant, identifier))
         if not TEST_MODE:
             with sentry_sdk.start_span(op="smartsheet.cleanup", description="Cleanup untracked sheet attachments"):
-                cleanup_untracked_sheet_attachments(client, TARGET_SHEET_ID, valid_wr_weeks, TEST_MODE)
+                cleanup_untracked_sheet_attachments(client, TARGET_SHEET_ID, valid_wr_weeks, TEST_MODE, attachment_cache=attachment_cache)
 
         # Cleanup legacy / stale Excel files so only current system outputs remain
         try:
