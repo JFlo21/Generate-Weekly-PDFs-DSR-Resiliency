@@ -2011,10 +2011,7 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
 
     # Use explicit string for orientation for deterministic behavior
     ws.page_setup.orientation = 'landscape'
-    try:
-        ws.page_setup.paperSize = 9  # A4 paper size code
-    except AttributeError:
-        ws.page_setup.paperSize = 9  # Fallback for older versions
+    ws.page_setup.paperSize = 9
     ws.page_margins.left = 0.25; ws.page_margins.right = 0.25
     ws.page_margins.top = 0.5; ws.page_margins.bottom = 0.5
 
@@ -2332,10 +2329,10 @@ def main():
     try:
         # Set Sentry context
         if SENTRY_DSN:
-            with sentry_sdk.configure_scope() as scope:
-                scope.set_tag("session_start", session_start.isoformat())
-                scope.set_tag("test_mode", TEST_MODE)
-                scope.set_tag("github_actions", GITHUB_ACTIONS_MODE)
+            scope = sentry_sdk.get_isolation_scope()
+            scope.set_tag("session_start", session_start.isoformat())
+            scope.set_tag("test_mode", TEST_MODE)
+            scope.set_tag("github_actions", GITHUB_ACTIONS_MODE)
 
         logging.info("🚀 Starting Weekly PDF Generator with Complete Fixes")
         
@@ -2608,7 +2605,7 @@ def main():
                 hash_history[history_key] = {
                     'hash': data_hash,
                     'rows': len(group_rows),
-                    'updated_at': datetime.datetime.utcnow().isoformat() + 'Z',
+                    'updated_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
                     'foreman': group_rows[0].get('__current_foreman'),
                     'week': week_raw,
                     'variant': variant,
@@ -2623,9 +2620,9 @@ def main():
                     context_name="group_processing_error",
                     context_data={
                         "group_key": group_key,
-                        "wr_number": wr_num if 'wr_num' in dir() else 'unknown',
-                        "week_ending": week_raw if 'week_raw' in dir() else 'unknown',
-                        "variant": variant if 'variant' in dir() else 'unknown',
+                        "wr_number": locals().get('wr_num', 'unknown'),
+                        "week_ending": locals().get('week_raw', 'unknown'),
+                        "variant": locals().get('variant', 'unknown'),
                         "row_count": len(group_rows),
                         "error_type": type(e).__name__,
                         "error_message": str(e),
@@ -2762,7 +2759,7 @@ def main():
                     "error_message": str(e),
                     "traceback": traceback.format_exc(),
                     "test_mode": TEST_MODE,
-                    "groups_attempted": len(groups) if 'groups' in dir() else 'unknown',
+                    "groups_attempted": len(groups) if 'groups' in locals() else 'unknown',
                 },
                 tags={"error_location": "main", "session_phase": "execution"},
                 fingerprint=["session-failure", type(e).__name__]

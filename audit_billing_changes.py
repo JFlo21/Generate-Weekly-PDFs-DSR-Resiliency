@@ -350,18 +350,18 @@ class BillingAudit:
         elif trend and trend.get("risk_level_delta",0) > 0:
             send = True
         if os.getenv("SENTRY_DSN") and send:
-            with sentry_sdk.configure_scope() as scope:
-                scope.set_tag("audit_risk_level", risk_level)
-                scope.set_tag("audit_system", "billing_audit")
-                if trend:
-                    scope.set_tag("risk_direction", trend.get("risk_direction"))
-                    scope.set_tag("risk_level_delta", trend.get("risk_level_delta"))
-                    scope.set_tag("issues_delta", trend.get("issues_delta"))
-                scope.set_context("audit_results", audit_results)
-                sentry_sdk.capture_message(
-                    f"AUDIT: Risk {risk_level} trend={trend.get('risk_direction','n/a')} anomalies={summary.get('total_anomalies', 0)}",
-                    level="warning" if risk_level == "HIGH" else "info"
-                )
+            scope = sentry_sdk.get_isolation_scope()
+            scope.set_tag("audit_risk_level", risk_level)
+            scope.set_tag("audit_system", "billing_audit")
+            if trend:
+                scope.set_tag("risk_direction", trend.get("risk_direction"))
+                scope.set_tag("risk_level_delta", trend.get("risk_level_delta"))
+                scope.set_tag("issues_delta", trend.get("issues_delta"))
+            scope.set_context("audit_results", audit_results)
+            sentry_sdk.capture_message(
+                f"AUDIT: Risk {risk_level} trend={trend.get('risk_direction','n/a')} anomalies={summary.get('total_anomalies', 0)}",
+                level="warning" if risk_level == "HIGH" else "info"
+            )
 
         # Log to audit sheet if configured
         if self.audit_sheet_id:

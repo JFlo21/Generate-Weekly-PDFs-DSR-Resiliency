@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { X, Download } from 'lucide-react';
 import type { Artifact, ExcelSheet } from '../../lib/types';
@@ -20,6 +20,20 @@ export function ExcelViewer({
   onClose,
 }: ExcelViewerProps) {
   const [activeSheet, setActiveSheet] = useState(0);
+
+  useEffect(() => {
+    setActiveSheet(0);
+  }, [artifact]);
+
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'Escape') onClose();
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!artifact) return;
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [artifact, handleKeyDown]);
 
   function exportCSV() {
     const sheet = sheets[activeSheet];
@@ -121,11 +135,26 @@ export function ExcelViewer({
                 </p>
               ) : (
                 <table className="w-full text-xs border-collapse">
+                  {sheets[activeSheet]?.rows.length > 0 && (
+                    <thead>
+                      <tr className="bg-slate-100 font-semibold">
+                        {sheets[activeSheet].rows[0].map((cell, ci) => (
+                          <th
+                            key={ci}
+                            scope="col"
+                            className="border border-slate-200 px-3 py-1.5 text-slate-700 whitespace-nowrap text-left"
+                          >
+                            {cell ?? ''}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                  )}
                   <tbody>
-                    {sheets[activeSheet]?.rows.map((row, ri) => (
+                    {sheets[activeSheet]?.rows.slice(1).map((row, ri) => (
                       <tr
                         key={ri}
-                        className={ri === 0 ? 'bg-slate-100 font-semibold' : 'hover:bg-slate-50'}
+                        className="hover:bg-slate-50"
                       >
                         {row.map((cell, ci) => (
                           <td

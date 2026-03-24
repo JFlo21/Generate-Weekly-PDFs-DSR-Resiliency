@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useArtifacts } from '../../hooks/useArtifacts';
@@ -24,10 +24,14 @@ export function DashboardPage() {
     selectedRun?.id ?? null
   );
 
-  const filtered = runs.filter(
-    (r) =>
-      r.name.toLowerCase().includes(search.toLowerCase()) ||
-      r.head_branch.toLowerCase().includes(search.toLowerCase())
+  const filtered = useMemo(
+    () =>
+      runs.filter(
+        (r) =>
+          r.name.toLowerCase().includes(search.toLowerCase()) ||
+          r.head_branch.toLowerCase().includes(search.toLowerCase())
+      ),
+    [runs, search]
   );
 
   async function handleViewExcel(artifact: Artifact) {

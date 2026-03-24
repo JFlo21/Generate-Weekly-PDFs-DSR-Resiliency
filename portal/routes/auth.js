@@ -4,35 +4,35 @@ const router = express.Router();
 
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH || '';
+const DUMMY_HASH = bcrypt.hashSync('__dummy_timing_pad__', 12);
 
 if (!ADMIN_PASSWORD_HASH) {
   console.warn('WARNING: ADMIN_PASSWORD_HASH not set. Generate one with: node -e "console.log(require(\'bcryptjs\').hashSync(\'yourpassword\', 12))"');
 }
 
-router.post('/login', express.json(), async (req, res) => {
+router.post('/login', express.json({ limit: '1kb' }), async (req, res) => {
   const { username, password } = req.body;
 
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password are required' });
   }
 
-  if (username !== ADMIN_USERNAME) {
+  const hashToCompare =
+    username === ADMIN_USERNAME && ADMIN_PASSWORD_HASH
+      ? ADMIN_PASSWORD_HASH
+      : DUMMY_HASH;
+
+  const valid = await bcrypt.compare(password, hashToCompare);
+  if (!valid || username !== ADMIN_USERNAME || !ADMIN_PASSWORD_HASH) {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
 
-  if (!ADMIN_PASSWORD_HASH) {
-    return res.status(401).json({ error: 'Invalid credentials' });
-  }
-
-  const valid = await bcrypt.compare(password, ADMIN_PASSWORD_HASH);
-  if (!valid) {
-    return res.status(401).json({ error: 'Invalid credentials' });
-  }
-
+  const csrfToken = req.session.csrfToken;
   req.session.regenerate((err) => {
     if (err) {
       return res.status(500).json({ error: 'Session error' });
     }
+    req.session.csrfToken = csrfToken;
     req.session.authenticated = true;
     req.session.username = username;
     req.session.loginTime = new Date().toISOString();

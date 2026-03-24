@@ -1,11 +1,23 @@
 const express = require('express');
 const path = require('node:path');
+const AdmZip = require('adm-zip');
 const { requireAuth } = require('../middleware/auth');
 const github = require('../services/github');
 const excel = require('../services/excel');
 const poller = require('../services/poller');
 
 const router = express.Router();
+const MAX_SSE_CLIENTS = 100;
+
+function validateIntParam(value) {
+  const num = parseInt(value, 10);
+  if (!Number.isFinite(num) || num <= 0) return null;
+  return num;
+}
+
+function sanitizeBaseName(name) {
+  return name.replace(/[^a-zA-Z0-9._\- ]/g, '_');
+}
 
 function sanitizeFilename(name) {
   if (!name) return undefined;
@@ -39,7 +51,9 @@ router.get('/runs', async (req, res) => {
 
 router.get('/runs/:runId/artifacts', async (req, res) => {
   try {
-    const data = await github.listRunArtifacts(req.params.runId);
+    const runId = validateIntParam(req.params.runId);
+    if (!runId) return res.status(400).json({ error: 'Invalid run ID' });
+    const data = await github.listRunArtifacts(runId);
     const artifacts = (data.artifacts || []).map((a) => ({
       id: a.id,
       name: a.name,
@@ -57,9 +71,11 @@ router.get('/runs/:runId/artifacts', async (req, res) => {
 
 router.get('/artifacts/:artifactId/download', async (req, res) => {
   try {
-    const zipBuffer = await github.downloadArtifact(req.params.artifactId);
+    const artifactId = validateIntParam(req.params.artifactId);
+    if (!artifactId) return res.status(400).json({ error: 'Invalid artifact ID' });
+    const zipBuffer = await github.downloadArtifact(artifactId);
     res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="artifact-${req.params.artifactId}.zip"`);
+    res.setHeader('Content-Disposition', `attachment; filename="artifact-${artifactId}.zip"`);
     return res.send(zipBuffer);
   } catch (err) {
     console.error('Error downloading artifact:', err.message);
@@ -69,9 +85,10 @@ router.get('/artifacts/:artifactId/download', async (req, res) => {
 
 router.get('/artifacts/:artifactId/view', async (req, res) => {
   try {
-    const zipBuffer = await github.downloadArtifact(req.params.artifactId);
+    const artifactId = validateIntParam(req.params.artifactId);
+    if (!artifactId) return res.status(400).json({ error: 'Invalid artifact ID' });
+    const zipBuffer = await github.downloadArtifact(artifactId);
 
-    const AdmZip = require('adm-zip');
     const zip = new AdmZip(zipBuffer);
     const entries = zip.getEntries();
 
@@ -109,9 +126,10 @@ router.get('/artifacts/:artifactId/view', async (req, res) => {
 
 router.get('/artifacts/:artifactId/files', async (req, res) => {
   try {
-    const zipBuffer = await github.downloadArtifact(req.params.artifactId);
+    const artifactId = validateIntParam(req.params.artifactId);
+    if (!artifactId) return res.status(400).json({ error: 'Invalid artifact ID' });
+    const zipBuffer = await github.downloadArtifact(artifactId);
 
-    const AdmZip = require('adm-zip');
     const zip = new AdmZip(zipBuffer);
     const entries = zip.getEntries();
 
@@ -132,11 +150,16 @@ router.get('/artifacts/:artifactId/files', async (req, res) => {
 
 router.get('/artifacts/:artifactId/export', async (req, res) => {
   try {
+    const artifactId = validateIntParam(req.params.artifactId);
+    if (!artifactId) return res.status(400).json({ error: 'Invalid artifact ID' });
+
     const format = req.query.format || 'xlsx';
+    if (format !== 'xlsx' && format !== 'csv') {
+      return res.status(400).json({ error: 'Unsupported format. Use "xlsx" or "csv".' });
+    }
     const filename = sanitizeFilename(req.query.file);
 
-    const zipBuffer = await github.downloadArtifact(req.params.artifactId);
-    const AdmZip = require('adm-zip');
+    const zipBuffer = await github.downloadArtifact(artifactId);
     const zip = new AdmZip(zipBuffer);
     const entries = zip.getEntries();
 
@@ -161,9 +184,12 @@ router.get('/artifacts/:artifactId/export', async (req, res) => {
         return res.status(404).json({ error: 'Sheet is empty' });
       }
 
-      const maxCol = Math.max(...sheet.rows.map(r =>
-        r.cells.length > 0 ? Math.max(...r.cells.map(c => c.col)) : 0
-      ));
+      let maxCol = 0;
+      for (const r of sheet.rows) {
+        for (const c of r.cells) {
+          if (c.col > maxCol) maxCol = c.col;
+        }
+      }
 
       const csvRows = sheet.rows.map(row => {
         const cellMap = {};
@@ -183,13 +209,15 @@ router.get('/artifacts/:artifactId/export', async (req, res) => {
       });
 
       const csvContent = csvRows.join('\r\n');
+      const safeName = sanitizeBaseName(baseName);
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-      res.setHeader('Content-Disposition', `attachment; filename="${baseName}.csv"`);
+      res.setHeader('Content-Disposition', `attachment; filename="${safeName}.csv"`);
       return res.send(csvContent);
     }
 
+    const safeName = sanitizeBaseName(baseName);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="${baseName}.xlsx"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}.xlsx"`);
     return res.send(excelBuffer);
   } catch (err) {
     console.error('Error exporting artifact:', err.message);
@@ -264,6 +292,9 @@ router.get('/poll', async (req, res) => {
 });
 
 router.get('/events', (req, res) => {
+  if (poller.clients.size >= MAX_SSE_CLIENTS) {
+    return res.status(503).json({ error: 'Too many connections' });
+  }
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');

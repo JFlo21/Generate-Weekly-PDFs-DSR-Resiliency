@@ -21,6 +21,7 @@ export function SearchBar({ value, onChange }: SearchBarProps) {
         type="search"
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        aria-label="Search workflow runs"
         placeholder="Search runs by name or branch…"
         className="w-full pl-9 pr-9 py-2.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-red/30 focus:border-brand-red/40 transition-all"
         whileFocus={{ scale: 1.005 }}

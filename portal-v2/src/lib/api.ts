@@ -1,6 +1,6 @@
 import type { WorkflowRun, Artifact, ExcelSheet } from './types';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
+export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${url}`, {
@@ -31,12 +31,18 @@ export const api = {
     return request<ExcelSheet[]>(`/api/artifacts/${artifactId}/excel`);
   },
 
-  downloadArtifact(artifactId: number, filename: string): void {
-    const url = `${API_BASE}/api/artifacts/${artifactId}/download`;
+  async downloadArtifact(artifactId: number, filename: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/api/artifacts/${artifactId}/download`, {
+      credentials: 'include',
+    });
+    if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = filename;
     a.click();
+    URL.revokeObjectURL(url);
   },
 
   healthCheck(): Promise<{ status: string }> {
