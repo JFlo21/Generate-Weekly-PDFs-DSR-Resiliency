@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "type": "command",
+        "windows": "powershell -NoProfile -Command \"$input = $Input | Out-String; $json = $input | ConvertFrom-Json; if ($json.toolName -eq 'run_in_terminal' -and $json.toolInput.command -match 'git\\s+push') { python -m pytest tests/ -q 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { @{ hookSpecificOutput = @{ hookEventName = 'PreToolUse'; permissionDecision = 'deny'; permissionDecisionReason = 'Tests must pass before pushing. Run pytest tests/ -v to see failures.' } } | ConvertTo-Json -Depth 3 } else { @{ hookSpecificOutput = @{ hookEventName = 'PreToolUse'; permissionDecision = 'allow' } } | ConvertTo-Json -Depth 3 } } else { @{ hookSpecificOutput = @{ hookEventName = 'PreToolUse'; permissionDecision = 'allow' } } | ConvertTo-Json -Depth 3 }\"",
+        "timeout": 120
+      }
+    ]
+  }
+}

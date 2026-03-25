@@ -1,3 +1,6 @@
+---
+description: "Use when: needing full environment variable reference, detailed component inventory, or extended architecture context beyond the workspace-level copilot-instructions."
+---
 # Copilot Instructions for Generate-Weekly-PDFs-DSR-Resiliency
 
 ## Project Overview

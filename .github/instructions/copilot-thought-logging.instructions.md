@@ -1,6 +1,5 @@
 ---
-applyTo: '**'
-description: 'See process Copilot is following where you can edit this to reshape the interaction or save when follow up may be needed'
+description: 'See process Copilot is following where you can edit this to reshape the interaction or save when follow up may be needed. Use when: you want to see Copilot reasoning steps, thought process logging, or debug why Copilot made a decision.'
 ---
 
 # Copilot Process tracking Instructions

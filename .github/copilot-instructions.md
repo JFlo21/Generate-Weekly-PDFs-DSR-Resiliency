@@ -36,7 +36,7 @@ cd portal && npm install && npm run test
 
 - **Python**: PEP 8, type hints, 4-space indent, max 79 chars. See `.github/instructions/python.instructions.md`
 - **Node.js**: ES2022+, async/await, no callbacks, no `null`. See `.github/instructions/nodejs-javascript-vitest.instructions.md`
-- **Config**: All behavior controlled by 30+ env vars via `os.getenv()` with defaults. See `.github/instructions/copilot-instructions.md` (in `instructions/`) for full list
+- **Config**: All behavior controlled by 30+ env vars via `os.getenv()` with defaults. See `.github/instructions/copilot-setup.instructions.md` for full list
 - **Editing philosophy**: Minimal, surgical changes. Preserve existing structure. See `.github/instructions/taming-copilot.instructions.md`
 - **Subcontractor sheets**: Folder-based discovery is primary. See `.github/instructions/subcontractor-pricing-folder-discovery.instructions.md`
 
@@ -53,7 +53,7 @@ cd portal && npm install && npm run test
 
 | File | Purpose |
 |------|---------|
-| `generate_weekly_pdfs.py` | Core billing engine (~2950 lines) |
+| `generate_weekly_pdfs.py` | Core billing engine (~3100 lines) |
 | `audit_billing_changes.py` | Price anomaly detection, imported by main |
 | `.github/workflows/weekly-excel-generation.yml` | Production cron + manual dispatch |
 | `generated_docs/hash_history.json` | Change detection cache |

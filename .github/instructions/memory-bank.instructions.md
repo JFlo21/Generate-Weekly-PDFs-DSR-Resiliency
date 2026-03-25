@@ -1,5 +1,6 @@
 ---
 applyTo: '**'
+description: "Use when: starting a new session, resuming after context reset, or needing to load project memory bank files for continuity."
 ---
 Coding standards, domain knowledge, and preferences that AI should follow.
 

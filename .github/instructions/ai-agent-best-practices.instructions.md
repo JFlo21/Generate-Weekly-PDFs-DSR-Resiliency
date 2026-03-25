@@ -1,3 +1,6 @@
+---
+description: "Use when: onboarding to the codebase, understanding business context, billing pipeline architecture, system conventions, or operational guidelines for the Smartsheet billing engine."
+---
 # AI Agent Instructions & Best Practices
 
 This document provides comprehensive instructions for AI agents working with the Generate-Weekly-PDFs-DSR-Resiliency codebase, establishing context, best practices, and operational guidelines.

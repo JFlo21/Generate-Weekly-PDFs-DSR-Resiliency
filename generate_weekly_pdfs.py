@@ -423,25 +423,24 @@ def parse_price(price_str: str | float | int | None) -> float:
 
 def load_contract_rates(filepath):
     """Loads contract rates into a fast lookup dictionary."""
-    def safe_float(val):
-        try:
-            return float(str(val).replace('$', '').replace(',', ''))
-        except (ValueError, TypeError):
-            return 0.0
-
     rates = {}
+    REQUIRED_HEADERS = {'CU', 'Install Price', 'Removal Price', 'Transfer Price'}
     try:
         with open(filepath, mode='r', encoding='utf-8-sig') as f:
             reader = csv.DictReader(f)
+            if not reader.fieldnames or not REQUIRED_HEADERS.issubset(set(reader.fieldnames)):
+                missing = REQUIRED_HEADERS - set(reader.fieldnames or [])
+                logging.error(f"CSV {filepath} missing required headers: {missing}")
+                return rates
             for row in reader:
                 cu = str(row.get('CU', '')).strip().upper()
                 if not cu:
                     continue
 
                 rates[cu] = {
-                    'install': safe_float(row.get('Install Price', 0)),
-                    'removal': safe_float(row.get('Removal Price', 0)),
-                    'transfer': safe_float(row.get('Transfer Price', 0))
+                    'install': parse_price(row.get('Install Price', 0)),
+                    'removal': parse_price(row.get('Removal Price', 0)),
+                    'transfer': parse_price(row.get('Transfer Price', 0))
                 }
         logging.info(f"Loaded {len(rates)} CU rates from {filepath}")
     except Exception as e:
@@ -549,21 +548,31 @@ def discover_folder_sheets(client, folder_ids: list[int], label: str) -> set[int
         Set of sheet IDs found across all folders.
     """
     discovered: set[int] = set()
-    for fid in folder_ids:
+    if not folder_ids:
+        return discovered
+
+    def _fetch_folder(fid):
+        """Fetch sheets from a single folder."""
         try:
             with sentry_sdk.start_span(op="smartsheet.api", description=f"Get folder {fid} ({label})") as span:
                 folder = client.Folders.get_folder(fid)
                 sheets = getattr(folder, 'sheets', None) or []
-                for s in sheets:
-                    discovered.add(s.id)
+                ids = {s.id for s in sheets}
                 span.set_data("folder_id", fid)
                 span.set_data("sheets_found", len(sheets))
             logging.info(f"📂 Folder {fid} ({label}): found {len(sheets)} sheet(s)")
+            return ids
         except Exception as e:
             logging.warning(f"⚠️ Could not read {label} folder {fid}: {e}")
             sentry_add_breadcrumb("folder_discovery", f"Failed to read folder {fid}", level="error", data={
                 "folder_id": fid, "label": label, "error": str(e)[:200],
             })
+            return set()
+
+    with ThreadPoolExecutor(max_workers=min(len(folder_ids), PARALLEL_WORKERS_DISCOVERY)) as executor:
+        for ids in executor.map(_fetch_folder, folder_ids):
+            discovered |= ids
+
     logging.info(f"📂 Total {label} folder discovery: {len(discovered)} unique sheet(s)")
     return discovered
 
@@ -825,13 +834,14 @@ def cleanup_stale_excels(output_folder: str, kept_filenames: set):
         # Non-conforming files left untouched
     return removed
 
-def cleanup_untracked_sheet_attachments(client, target_sheet_id: int, valid_wr_weeks: set, test_mode: bool, attachment_cache: dict | None = None):
+def cleanup_untracked_sheet_attachments(client, target_sheet_id: int, valid_wr_weeks: set, test_mode: bool, attachment_cache: dict | None = None, target_sheet=None):
     """Prune only older variants for identities processed this run (VARIANT-AWARE).
 
     If KEEP_HISTORICAL_WEEKS=1 (default false here), weeks not in this run are preserved.
     valid_wr_weeks: set of 4-tuples (wr, week_mmddyy, variant, identifier) that were 
                     generated or validated this session.
     attachment_cache: Pre-fetched dict of row_id -> attachment list (avoids per-row API calls).
+    target_sheet: Pre-loaded target sheet object (avoids redundant API call).
     
     CRITICAL: Identity includes variant dimension to prevent primary/helper cross-deletion.
               Each (wr, week, variant, identifier) is treated as independent.
@@ -840,7 +850,7 @@ def cleanup_untracked_sheet_attachments(client, target_sheet_id: int, valid_wr_w
         logging.info("🧪 Test mode – skipping sheet attachment pruning")
         return
     try:
-        sheet = client.Sheets.get_sheet(target_sheet_id)
+        sheet = target_sheet if target_sheet is not None else client.Sheets.get_sheet(target_sheet_id)
     except Exception as e:
         logging.warning(f"⚠️ Could not load target sheet for attachment cleanup: {e}")
         return
@@ -960,7 +970,6 @@ def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, we
                 logging.info(f"   ℹ️ Already gone: {att.name}")
             else:
                 logging.warning(f"   ⚠️ Delete failed {att.name}: {e}")
-        time.sleep(0.05)
     return deleted_count, False
 
 def _has_existing_week_attachment(client, target_sheet_id, target_row, wr_num: str, week_raw: str, variant: str = 'primary', identifier: str | None = None, cached_attachments: list | None = None) -> bool:
@@ -1055,17 +1064,34 @@ def load_hash_history(path: str):
     try:
         with open(path,'r') as f:
             data = json.load(f)
-        if isinstance(data, dict):
-            return data
-        return {}
+        if not isinstance(data, dict):
+            logging.warning("⚠️ Hash history is not a dict; resetting")
+            return {}
+        # Validate entries: keep only those with a 'hash' key
+        valid = {k: v for k, v in data.items() if isinstance(v, dict) and 'hash' in v}
+        dropped = len(data) - len(valid)
+        if dropped:
+            logging.warning(f"⚠️ Dropped {dropped} malformed hash history entries")
+        return valid
     except FileNotFoundError:
         return {}
     except Exception as e:
         logging.warning(f"⚠️ Failed to load hash history: {e}")
         return {}
 
+HASH_HISTORY_MAX_ENTRIES = 1000
+
 def save_hash_history(path: str, history: dict):
     try:
+        # Retention: keep only the most recent entries by timestamp
+        if len(history) > HASH_HISTORY_MAX_ENTRIES:
+            sorted_keys = sorted(
+                history.keys(),
+                key=lambda k: history[k].get('timestamp', ''),
+                reverse=True
+            )
+            history = {k: history[k] for k in sorted_keys[:HASH_HISTORY_MAX_ENTRIES]}
+            logging.info(f"🧹 Pruned hash history to {HASH_HISTORY_MAX_ENTRIES} entries")
         tmp_path = path + '.tmp'
         with open(tmp_path,'w') as f:
             json.dump(history, f, indent=2, default=str)
@@ -1539,8 +1565,8 @@ def get_all_source_rows(client, source_sheets):
                             
                             is_helper_row = bool(helper_name and helping_foreman_completed_checked and units_completed_checked)
                             
-                            # HELPER DETECTION LOGGING: Log criteria evaluation for sample rows
-                            if sheet_row_counter < DEBUG_ESSENTIAL_ROWS:
+                            # HELPER DETECTION LOGGING: Log criteria evaluation for sample rows (gated behind FILTER_DIAGNOSTICS)
+                            if FILTER_DIAGNOSTICS and sheet_row_counter < DEBUG_ESSENTIAL_ROWS:
                                 logging.info(f"🔧 Helper detection criteria for row {sheet_row_counter+1}:")
                                 logging.info(f"   Foreman Helping?: '{foreman_helping_val}' -> helper_name='{helper_name}'")
                                 logging.info(f"   Helping Foreman Completed Unit?: {helping_foreman_completed} -> checked={helping_foreman_completed_checked}")
@@ -1556,8 +1582,8 @@ def get_all_source_rows(client, source_sheets):
                                 row_data['__helper_dept'] = str(helper_dept_val).strip() if helper_dept_val else ''
                                 row_data['__helper_job'] = str(helper_job_val).strip() if helper_job_val else ''
                                 
-                                # HELPER DETECTION LOGGING: Log first 10 helper rows per sheet for transparency
-                                if sheet_row_counter < 10:
+                                # HELPER DETECTION LOGGING: Log first 10 helper rows per sheet for transparency (gated behind FILTER_DIAGNOSTICS)
+                                if FILTER_DIAGNOSTICS and sheet_row_counter < 10:
                                     logging.info(f"🔧 HELPER ROW DETECTED [Row {sheet_row_counter+1}]: WR={wr_key_for_diag}, Helper={helper_name}, Dept={row_data['__helper_dept']}, Job={row_data['__helper_job']}")
                             else:
                                 row_data['__is_helper_row'] = False
@@ -2395,7 +2421,11 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
 # --- TARGET SHEET MANAGEMENT ---
 
 def create_target_sheet_map(client):
-    """Create a map of the target sheet for uploading Excel files."""
+    """Create a map of the target sheet for uploading Excel files.
+    
+    Returns:
+        Tuple of (target_map dict, target_sheet object) for reuse in cleanup.
+    """
     try:
         with sentry_sdk.start_span(op="smartsheet.api", description="Fetch target sheet for WR mapping") as span:
             target_sheet = client.Sheets.get_sheet(TARGET_SHEET_ID)
@@ -2412,7 +2442,7 @@ def create_target_sheet_map(client):
         
         if not wr_column_id:
             logging.error("Work Request # column not found in target sheet")
-            return {}
+            return {}, None
         
         # Map work request numbers to rows
         for row in target_sheet.rows:
@@ -2423,11 +2453,11 @@ def create_target_sheet_map(client):
                     break
         
         logging.info(f"Created target sheet map with {len(target_map)} work requests")
-        return target_map
+        return target_map, target_sheet
         
     except Exception as e:
         logging.error(f"Failed to create target sheet map: {e}")
-        return {}
+        return {}, None
 
 # Modified By cache loading removed - using direct column assignment only
 
@@ -2542,7 +2572,10 @@ def main():
             _txn.set_data("github_actions", GITHUB_ACTIONS_MODE)
 
         # ── Source sheet discovery (includes folder discovery on cache miss) ──
-        logging.info("📊 Discovering source sheets...")
+        _phase_start = datetime.datetime.now()
+        logging.info(f"\n{'='*60}")
+        logging.info("📊 PHASE 1: Discovering source sheets...")
+        logging.info(f"{'='*60}")
         sentry_add_breadcrumb("discovery", "Starting source sheet discovery")
         with sentry_sdk.start_span(op="smartsheet.discovery", description="Discover and validate source sheets") as span:
             source_sheets = discover_source_sheets(client)
@@ -2551,10 +2584,15 @@ def main():
         if not source_sheets:
             raise Exception("No valid source sheets found")
         
+        _phase_elapsed = (datetime.datetime.now() - _phase_start).total_seconds()
+        logging.info(f"⚡ Phase 1 complete: {len(source_sheets)} sheets discovered in {_phase_elapsed:.1f}s")
         sentry_add_breadcrumb("discovery", f"Discovered {len(source_sheets)} source sheets", data={"count": len(source_sheets)})
         
         # Get all source rows
-        logging.info("📋 Fetching source data...")
+        _phase_start = datetime.datetime.now()
+        logging.info(f"\n{'='*60}")
+        logging.info("📋 PHASE 2: Fetching source data...")
+        logging.info(f"{'='*60}")
         with sentry_sdk.start_span(op="smartsheet.fetch_rows", description="Fetch all source rows from Smartsheet") as span:
             all_rows = get_all_source_rows(client, source_sheets)
             span.set_data("source_sheets_count", len(source_sheets))
@@ -2563,6 +2601,8 @@ def main():
         if not all_rows:
             raise Exception("No valid data rows found")
         
+        _phase_elapsed = (datetime.datetime.now() - _phase_start).total_seconds()
+        logging.info(f"⚡ Phase 2 complete: {len(all_rows)} rows fetched from {len(source_sheets)} sheets in {_phase_elapsed:.1f}s")
         sentry_add_breadcrumb("data", f"Fetched {len(all_rows)} source rows from {len(source_sheets)} sheets", data={
             "row_count": len(all_rows),
             "sheet_count": len(source_sheets),
@@ -2640,9 +2680,10 @@ def main():
         
         # Create target sheet map for production uploads
         target_map = {}
+        _target_sheet_obj = None  # Cached for cleanup to avoid redundant API call
         if not TEST_MODE:
             with sentry_sdk.start_span(op="smartsheet.target_map", description="Create target sheet map for uploads") as span:
-                target_map = create_target_sheet_map(client)
+                target_map, _target_sheet_obj = create_target_sheet_map(client)
                 span.set_data("wr_count", len(target_map))
 
         # PERFORMANCE: Pre-fetch all target row attachments into cache to eliminate
@@ -2682,7 +2723,9 @@ def main():
         _groups_uploaded = 0
         _groups_errored = 0
         _api_calls_count = 0
+        _upload_tasks = []  # Collect upload tasks for parallel processing
 
+        _phase_group_start = datetime.datetime.now()
         for group_idx, (group_key, group_rows) in enumerate(groups.items(), 1):
             try:
                 # Calculate data hash for change detection
@@ -2717,7 +2760,7 @@ def main():
                         if ATTACHMENT_REQUIRED_FOR_SKIP and not TEST_MODE:
                             # Need a target row to verify attachment presence
                             if not target_map:
-                                target_map = create_target_sheet_map(client)
+                                target_map, _target_sheet_obj = create_target_sheet_map(client)
                             target_row = target_map.get(str(wr_num)) if target_map else None
                             if target_row is None:
                                 can_skip = False  # Can't verify; safer to regenerate
@@ -2753,75 +2796,23 @@ def main():
                 _groups_generated += 1
                 generated_filenames.append(filename)
                 
-                # Upload to Smartsheet in production mode
+                # Collect upload task for parallel processing (instead of uploading serially)
                 if not TEST_MODE and target_map and wr_numbers:
-                    with sentry_sdk.start_span(op="smartsheet.upload", description=f"Upload WR {wr_numbers[0]}") as upload_span:
-                        wr_num = wr_numbers[0]
-                        upload_span.set_data("wr_num", wr_num)
-                        upload_span.set_data("filename", filename)
-                        if wr_num in target_map:
-                            target_row = target_map[wr_num]
-                            
-                            # Extract variant and identifier from group_rows (set by group_source_rows)
-                            first_row = group_rows[0] if group_rows else {}
-                            variant = first_row.get('__variant', 'primary')
-                            
-                            # Extract identifier based on variant
-                            if variant == 'helper':
-                                # CRITICAL FIX: Include helper dept and job in identifier (matches hash history key)
-                                helper_foreman = first_row.get('__helper_foreman', '')
-                                helper_dept = first_row.get('__helper_dept', '')
-                                helper_job = first_row.get('__helper_job', '')
-                                identifier = f"{helper_foreman}|{helper_dept}|{helper_job}"
-                            else:
-                                # Primary variant: check if user-specific
-                                user_val = first_row.get('User')
-                                # PERFORMANCE: Use pre-compiled regex
-                                identifier = _RE_SANITIZE_IDENTIFIER.sub('_', user_val)[:50] if user_val else None
-                            
-                            # FIXED: Delete old attachments with proper variant-aware implementation
-                            # Determine if this group/week is force-regenerated
-                            try:
-                                week_raw, _wr_tmp = group_key.split('_',1)
-                            except ValueError:
-                                week_raw = ''
-                            force_this = FORCE_GENERATION or (week_raw in REGEN_WEEKS)
-                            # Week component for week-specific deletion (allow multiple weeks per WR)
-                            deleted_count, skipped = delete_old_excel_attachments(
-                                client, TARGET_SHEET_ID, target_row, wr_num, week_raw, data_hash, 
-                                variant=variant, identifier=identifier, force_generation=force_this,
-                                cached_attachments=attachment_cache.get(target_row.id)
-                            )
-                            if force_this and skipped:
-                                # Should not happen because we bypass skip when forced, but guard anyway
-                                skipped = False
-                            if force_this:
-                                logging.info(f"🔁 Forced regeneration applied (FORCE_GENERATION={FORCE_GENERATION}, week_in_REGEN_WEEKS={week_raw in REGEN_WEEKS}) for group {group_key}")
-                            
-                            if not skipped:
-                                # Upload new file to Smartsheet (skip if SKIP_UPLOAD=true for local testing)
-                                if not SKIP_UPLOAD:
-                                    try:
-                                        with open(excel_path, 'rb') as file:
-                                            client.Attachments.attach_file_to_row(
-                                                TARGET_SHEET_ID, 
-                                                target_row.id, 
-                                                (filename, file, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-                                            )
-                                        logging.info(f"✅ Uploaded: {filename}")
-                                        _groups_uploaded += 1
-                                        _api_calls_count += 1
-                                    except Exception as e:
-                                        logging.error(f"❌ Upload failed for {filename}: {e}")
-                                        sentry_add_breadcrumb("upload", f"Upload failed for {filename}", level="error", data={
-                                            "wr": wr_num, "error": str(e)[:200],
-                                        })
-                                else:
-                                    logging.info(f"⏭️  Skipping upload (SKIP_UPLOAD=true): {filename}")
-                                    logging.info(f"📁 File saved locally at: {excel_path}")
-                        else:
-                            logging.warning(f"⚠️ Work request {wr_num} not found in target sheet")
-                            upload_span.set_data("wr_missing_from_target", True)
+                    wr_num_upload = wr_numbers[0]
+                    if wr_num_upload in target_map:
+                        _upload_tasks.append({
+                            'excel_path': excel_path,
+                            'filename': filename,
+                            'wr_num': wr_num_upload,
+                            'target_row': target_map[wr_num_upload],
+                            'variant': variant,
+                            'identifier': identifier,
+                            'data_hash': data_hash,
+                            'week_raw': week_raw,
+                            'group_key': group_key,
+                        })
+                    else:
+                        logging.warning(f"⚠️ Work request {wr_num_upload} not found in target sheet")
 
                 # Update hash history with variant-aware key (even in TEST_MODE so future prod runs can leverage)
                 hash_history[history_key] = {
@@ -2861,6 +2852,67 @@ def main():
                 )
                 continue
         
+        _phase_group_elapsed = (datetime.datetime.now() - _phase_group_start).total_seconds()
+        logging.info(f"⚡ Group processing phase: {_groups_generated} generated, {_groups_skipped} skipped in {_phase_group_elapsed:.1f}s")
+
+        # ── PARALLEL UPLOAD PHASE ─────────────────────────────────────────
+        # Upload all collected tasks in parallel instead of serially per-group.
+        # This is the primary runtime optimization — reduces upload time by ~Nx with N workers.
+        if _upload_tasks:
+            _upload_start = datetime.datetime.now()
+            logging.info(f"\n{'='*60}")
+            logging.info(f"📤 PARALLEL UPLOAD PHASE: {len(_upload_tasks)} files with {PARALLEL_WORKERS} workers")
+            logging.info(f"{'='*60}")
+
+            def _upload_one(task):
+                """Delete old attachment + upload new one for a single group."""
+                try:
+                    target_row = task['target_row']
+                    force_this = FORCE_GENERATION or (task['week_raw'] in REGEN_WEEKS)
+
+                    deleted_count, skipped = delete_old_excel_attachments(
+                        client, TARGET_SHEET_ID, target_row, task['wr_num'],
+                        task['week_raw'], task['data_hash'],
+                        variant=task['variant'], identifier=task['identifier'],
+                        force_generation=force_this,
+                        cached_attachments=attachment_cache.get(target_row.id)
+                    )
+                    if force_this and skipped:
+                        skipped = False
+
+                    if skipped:
+                        return 'skipped'
+
+                    if not SKIP_UPLOAD:
+                        with open(task['excel_path'], 'rb') as file:
+                            client.Attachments.attach_file_to_row(
+                                TARGET_SHEET_ID,
+                                target_row.id,
+                                (task['filename'], file, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                            )
+                        logging.info(f"✅ Uploaded: {task['filename']}")
+                        return 'uploaded'
+                    else:
+                        logging.info(f"⏭️  Skipping upload (SKIP_UPLOAD=true): {task['filename']}")
+                        return 'skip_upload'
+                except Exception as e:
+                    logging.error(f"❌ Upload failed for {task['filename']}: {e}")
+                    sentry_add_breadcrumb("upload", f"Upload failed for {task['filename']}", level="error", data={
+                        "wr": task['wr_num'], "error": str(e)[:200],
+                    })
+                    return 'error'
+
+            with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
+                upload_results = list(executor.map(_upload_one, _upload_tasks))
+
+            _groups_uploaded = sum(1 for r in upload_results if r == 'uploaded')
+            _upload_errors = sum(1 for r in upload_results if r == 'error')
+            _groups_errored += _upload_errors
+            _api_calls_count = _groups_uploaded
+
+            _upload_elapsed = (datetime.datetime.now() - _upload_start).total_seconds()
+            logging.info(f"⚡ Upload phase complete: {_groups_uploaded} uploaded, {_upload_errors} errors in {_upload_elapsed:.1f}s (parallel w/{PARALLEL_WORKERS} workers)")
+
         # Validation summary
         summaries = validate_group_totals(groups)
         if summaries:
@@ -2901,7 +2953,7 @@ def main():
                 valid_wr_weeks.add((wr, week_raw, variant, identifier))
         if not TEST_MODE:
             with sentry_sdk.start_span(op="smartsheet.cleanup", description="Cleanup untracked sheet attachments"):
-                cleanup_untracked_sheet_attachments(client, TARGET_SHEET_ID, valid_wr_weeks, TEST_MODE, attachment_cache=attachment_cache)
+                cleanup_untracked_sheet_attachments(client, TARGET_SHEET_ID, valid_wr_weeks, TEST_MODE, attachment_cache=attachment_cache, target_sheet=_target_sheet_obj)
 
         # Cleanup legacy / stale Excel files so only current system outputs remain
         try:

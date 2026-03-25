@@ -9,6 +9,7 @@ import { UsersPage } from './components/admin/UsersPage';
 import { ActivityPage } from './components/admin/ActivityPage';
 import { PageTransition } from './components/layout/PageTransition';
 import { ToastContainer } from './components/ui/Toast';
+import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { useToast } from './hooks/useToast';
 
 function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -21,6 +22,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <ErrorBoundary>
       <AuthProvider>
         <AnimatePresence mode="wait">
           <Routes>
@@ -66,6 +68,7 @@ export default function App() {
 
         <ToastContainer toasts={toasts} onRemove={removeToast} />
       </AuthProvider>
+      </ErrorBoundary>
     </BrowserRouter>
   );
 }
