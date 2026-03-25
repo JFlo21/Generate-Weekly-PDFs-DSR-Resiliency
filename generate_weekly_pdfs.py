@@ -1081,6 +1081,7 @@ def _title(t):
 
 def discover_source_sheets(client):
     """Strict deterministic discovery: anchored keywords + type filtered. Skips sheets missing Weekly Reference Logged Date."""
+    global _FOLDER_DISCOVERED_SUB_IDS, _FOLDER_DISCOVERED_ORIG_IDS, SUBCONTRACTOR_SHEET_IDS
     # Attempt cache load
     if USE_DISCOVERY_CACHE and os.path.exists(DISCOVERY_CACHE_PATH):
         try:
@@ -1089,12 +1090,25 @@ def discover_source_sheets(client):
             ts = datetime.datetime.fromisoformat(cache.get('timestamp'))
             age_min = (datetime.datetime.now() - ts).total_seconds()/60.0
             if age_min <= DISCOVERY_CACHE_TTL_MIN:
+                # Restore subcontractor sheet IDs from cache so get_all_source_rows() flags them correctly
+                cached_sub_ids = cache.get('subcontractor_sheet_ids', [])
+                if cached_sub_ids:
+                    SUBCONTRACTOR_SHEET_IDS = SUBCONTRACTOR_SHEET_IDS | set(cached_sub_ids)
+                    logging.info(f"📂 Restored {len(cached_sub_ids)} subcontractor sheet IDs from cache (total: {len(SUBCONTRACTOR_SHEET_IDS)})")
                 logging.info(f"⚡ Using cached discovery ({age_min:.1f} min old) with {len(cache.get('sheets',[]))} sheets")
                 return cache.get('sheets', [])
             else:
                 logging.info(f"ℹ️ Discovery cache expired ({age_min:.1f} min old); refreshing")
         except Exception as e:
             logging.info(f"Cache load failed, refreshing discovery: {e}")
+
+    # ── Folder-based sheet discovery (only on cache miss) ─────────────
+    if SUBCONTRACTOR_FOLDER_IDS:
+        _FOLDER_DISCOVERED_SUB_IDS = discover_folder_sheets(client, SUBCONTRACTOR_FOLDER_IDS, 'subcontractor')
+        SUBCONTRACTOR_SHEET_IDS = SUBCONTRACTOR_SHEET_IDS | _FOLDER_DISCOVERED_SUB_IDS
+        logging.info(f"📂 Subcontractor sheet IDs after folder merge: {len(SUBCONTRACTOR_SHEET_IDS)}")
+    if ORIGINAL_CONTRACT_FOLDER_IDS:
+        _FOLDER_DISCOVERED_ORIG_IDS = discover_folder_sheets(client, ORIGINAL_CONTRACT_FOLDER_IDS, 'original contract')
     base_sheet_ids = [
         3239244454645636, 2230129632694148, 1732945426468740, 4126460034895748,
         7899446718189444, 1964558450118532, 5905527830695812, 820644963897220,
@@ -1174,7 +1188,7 @@ def discover_source_sheets(client):
         except Exception as e:
             logging.warning(f"⚠️ LIMITED_SHEET_IDS parse failed '{_limited_ids_raw}': {e}")
     
-    # Merge folder-discovered sheet IDs (populated by discover_folder_sheets() in main())
+    # Merge folder-discovered sheet IDs (populated above on cache miss)
     _folder_ids = _FOLDER_DISCOVERED_SUB_IDS | _FOLDER_DISCOVERED_ORIG_IDS
     if _folder_ids:
         existing = set(base_sheet_ids)
@@ -1322,7 +1336,7 @@ def discover_source_sheets(client):
     if USE_DISCOVERY_CACHE:
         try:
             with open(DISCOVERY_CACHE_PATH,'w') as f:
-                json.dump({'timestamp': datetime.datetime.now().isoformat(), 'sheets': discovered}, f)
+                json.dump({'timestamp': datetime.datetime.now().isoformat(), 'sheets': discovered, 'subcontractor_sheet_ids': sorted(SUBCONTRACTOR_SHEET_IDS)}, f)
         except Exception as e:
             logging.warning(f"Failed to write discovery cache: {e}")
     return discovered
@@ -2527,23 +2541,7 @@ def main():
             _txn.set_data("test_mode", TEST_MODE)
             _txn.set_data("github_actions", GITHUB_ACTIONS_MODE)
 
-        # ── Folder-based sheet discovery ──────────────────────────────
-        global _FOLDER_DISCOVERED_SUB_IDS, _FOLDER_DISCOVERED_ORIG_IDS, SUBCONTRACTOR_SHEET_IDS
-        if SUBCONTRACTOR_FOLDER_IDS:
-            with sentry_sdk.start_span(op="smartsheet.folder_discovery", description="Discover subcontractor folder sheets") as span:
-                _FOLDER_DISCOVERED_SUB_IDS = discover_folder_sheets(client, SUBCONTRACTOR_FOLDER_IDS, 'subcontractor')
-                span.set_data("folder_count", len(SUBCONTRACTOR_FOLDER_IDS))
-                span.set_data("sheets_found", len(_FOLDER_DISCOVERED_SUB_IDS))
-            # Merge into SUBCONTRACTOR_SHEET_IDS so get_all_source_rows() triggers price reversion
-            SUBCONTRACTOR_SHEET_IDS = SUBCONTRACTOR_SHEET_IDS | _FOLDER_DISCOVERED_SUB_IDS
-            logging.info(f"📂 Subcontractor sheet IDs after folder merge: {len(SUBCONTRACTOR_SHEET_IDS)}")
-        if ORIGINAL_CONTRACT_FOLDER_IDS:
-            with sentry_sdk.start_span(op="smartsheet.folder_discovery", description="Discover original contract folder sheets") as span:
-                _FOLDER_DISCOVERED_ORIG_IDS = discover_folder_sheets(client, ORIGINAL_CONTRACT_FOLDER_IDS, 'original contract')
-                span.set_data("folder_count", len(ORIGINAL_CONTRACT_FOLDER_IDS))
-                span.set_data("sheets_found", len(_FOLDER_DISCOVERED_ORIG_IDS))
-
-        # Discover source sheets
+        # ── Source sheet discovery (includes folder discovery on cache miss) ──
         logging.info("📊 Discovering source sheets...")
         sentry_add_breadcrumb("discovery", "Starting source sheet discovery")
         with sentry_sdk.start_span(op="smartsheet.discovery", description="Discover and validate source sheets") as span:

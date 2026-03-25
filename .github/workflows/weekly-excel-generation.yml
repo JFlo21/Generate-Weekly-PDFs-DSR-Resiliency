@@ -127,6 +127,13 @@ jobs:
           key: hash-history-${{ github.ref_name }}
           restore-keys: |
             hash-history-
+      - name: Cache discovery
+        uses: actions/cache@v4
+        with:
+          path: generated_docs/discovery_cache.json
+          key: discovery-cache-${{ github.ref_name }}
+          restore-keys: |
+            discovery-cache-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
