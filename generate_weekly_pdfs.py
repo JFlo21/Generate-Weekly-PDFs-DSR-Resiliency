@@ -1119,6 +1119,9 @@ def discover_source_sheets(client):
     """Strict deterministic discovery: anchored keywords + type filtered. Skips sheets missing Weekly Reference Logged Date."""
     global _FOLDER_DISCOVERED_SUB_IDS, _FOLDER_DISCOVERED_ORIG_IDS, SUBCONTRACTOR_SHEET_IDS
     # Attempt cache load (skip when forced rediscovery requested)
+    _cached_sheets = []          # previously-validated sheets from cache (used for incremental mode)
+    _cached_sheet_ids = set()    # IDs of sheets already validated in cache
+    _incremental = False         # True when cache expired but sheets can be reused
     if FORCE_REDISCOVERY:
         logging.info("🔄 FORCE_REDISCOVERY=true — bypassing discovery cache")
     elif USE_DISCOVERY_CACHE and os.path.exists(DISCOVERY_CACHE_PATH):
@@ -1136,11 +1139,20 @@ def discover_source_sheets(client):
                 logging.info(f"⚡ Using cached discovery ({age_min:.1f} min old) with {len(cache.get('sheets',[]))} sheets")
                 return cache.get('sheets', [])
             else:
-                logging.info(f"ℹ️ Discovery cache expired ({age_min:.1f} min old); refreshing")
+                # Cache expired — use incremental mode: keep existing validated sheets,
+                # only validate NEW sheet IDs found in folders that weren't in the cache.
+                _cached_sheets = cache.get('sheets', [])
+                _cached_sheet_ids = {s['id'] for s in _cached_sheets}
+                cached_sub_ids = cache.get('subcontractor_sheet_ids', [])
+                if cached_sub_ids:
+                    SUBCONTRACTOR_SHEET_IDS = SUBCONTRACTOR_SHEET_IDS | set(cached_sub_ids)
+                _incremental = True
+                logging.info(f"ℹ️ Discovery cache expired ({age_min:.1f} min old); using incremental mode — "
+                             f"keeping {len(_cached_sheets)} cached sheets, scanning folders for new IDs only")
         except Exception as e:
             logging.info(f"Cache load failed, refreshing discovery: {e}")
 
-    # ── Folder-based sheet discovery (only on cache miss) ─────────────
+    # ── Folder-based sheet discovery (only on cache miss / incremental) ─────────────
     if SUBCONTRACTOR_FOLDER_IDS:
         _FOLDER_DISCOVERED_SUB_IDS = discover_folder_sheets(client, SUBCONTRACTOR_FOLDER_IDS, 'subcontractor')
         SUBCONTRACTOR_SHEET_IDS = SUBCONTRACTOR_SHEET_IDS | _FOLDER_DISCOVERED_SUB_IDS
@@ -1355,21 +1367,47 @@ def discover_source_sheets(client):
             logging.warning(f"⚡ Failed to validate sheet {sid}: {e}")
             return None
 
-    # Parallel discovery: validate all sheets concurrently
-    logging.info(f"🚀 Starting parallel discovery with {PARALLEL_WORKERS_DISCOVERY} workers for {len(base_sheet_ids)} sheets...")
-    _discovery_start = datetime.datetime.now()
-    with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS_DISCOVERY) as executor:
-        futures = {executor.submit(_validate_single_sheet, sid): sid for sid in base_sheet_ids}
-        for i, future in enumerate(as_completed(futures), 1):
-            sid = futures[future]
-            result = future.result()
-            if result is not None:
-                discovered.append(result)
-                logging.info(f"   ✅ [{i}/{len(futures)}] Discovered: {result['name']} (ID: {sid})")
-            else:
-                logging.info(f"   ❌ [{i}/{len(futures)}] Skipped sheet ID {sid}")
-    _discovery_elapsed = (datetime.datetime.now() - _discovery_start).total_seconds()
-    logging.info(f"⚡ Discovery complete: {len(discovered)} sheets validated in {_discovery_elapsed:.1f}s (parallel w/{PARALLEL_WORKERS_DISCOVERY} workers)")
+    # ── Incremental mode: only validate NEW sheet IDs, keep cached ones ──
+    if _incremental:
+        all_base_ids = set(base_sheet_ids)
+        new_ids_to_validate = sorted(all_base_ids - _cached_sheet_ids)
+        if new_ids_to_validate:
+            logging.info(f"🆕 Incremental discovery: {len(new_ids_to_validate)} new sheet ID(s) to validate "
+                         f"(skipping {len(_cached_sheet_ids)} already-cached sheets)")
+            _discovery_start = datetime.datetime.now()
+            with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS_DISCOVERY) as executor:
+                futures = {executor.submit(_validate_single_sheet, sid): sid for sid in new_ids_to_validate}
+                for i, future in enumerate(as_completed(futures), 1):
+                    sid = futures[future]
+                    result = future.result()
+                    if result is not None:
+                        discovered.append(result)
+                        logging.info(f"   ✅ [{i}/{len(futures)}] NEW Discovered: {result['name']} (ID: {sid})")
+                    else:
+                        logging.info(f"   ❌ [{i}/{len(futures)}] Skipped new sheet ID {sid}")
+            _discovery_elapsed = (datetime.datetime.now() - _discovery_start).total_seconds()
+            logging.info(f"⚡ Incremental discovery: {len(discovered)} new sheet(s) validated in {_discovery_elapsed:.1f}s")
+        else:
+            logging.info(f"⚡ Incremental discovery: no new sheet IDs found — all {len(_cached_sheet_ids)} sheets already cached")
+        # Merge: cached sheets + newly discovered sheets
+        discovered = _cached_sheets + discovered
+        logging.info(f"📋 Total sheets after incremental merge: {len(discovered)} ({len(_cached_sheets)} cached + {len(discovered) - len(_cached_sheets)} new)")
+    else:
+        # Full discovery: validate all sheets from scratch
+        logging.info(f"🚀 Starting parallel discovery with {PARALLEL_WORKERS_DISCOVERY} workers for {len(base_sheet_ids)} sheets...")
+        _discovery_start = datetime.datetime.now()
+        with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS_DISCOVERY) as executor:
+            futures = {executor.submit(_validate_single_sheet, sid): sid for sid in base_sheet_ids}
+            for i, future in enumerate(as_completed(futures), 1):
+                sid = futures[future]
+                result = future.result()
+                if result is not None:
+                    discovered.append(result)
+                    logging.info(f"   ✅ [{i}/{len(futures)}] Discovered: {result['name']} (ID: {sid})")
+                else:
+                    logging.info(f"   ❌ [{i}/{len(futures)}] Skipped sheet ID {sid}")
+        _discovery_elapsed = (datetime.datetime.now() - _discovery_start).total_seconds()
+        logging.info(f"⚡ Discovery complete: {len(discovered)} sheets validated in {_discovery_elapsed:.1f}s (parallel w/{PARALLEL_WORKERS_DISCOVERY} workers)")
     # Save cache
     if USE_DISCOVERY_CACHE:
         try:
