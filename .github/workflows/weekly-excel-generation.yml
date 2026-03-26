@@ -59,6 +59,12 @@ on:
         default: 'false'
         type: choice
         options: ['false','true']
+      force_rediscovery:
+        description: 'Force full sheet rediscovery (bypass discovery cache)'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false','true']
       
       # Helper/Resiliency Grouping Mode
       res_grouping_mode:
@@ -97,11 +103,13 @@ on:
 
 env:
   TZ: America/Chicago
+  # Opt into Node.js 24 to silence deprecation warnings for actions still on Node.js 20
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
   core:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       PYTHONUNBUFFERED: 1
       GITHUB_ACTIONS: 'true'
@@ -120,19 +128,22 @@ jobs:
           key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
-      - name: Cache hash history
-        uses: actions/cache@v4
+      # Use restore/save split so caches persist even when the job times out or fails
+      - name: Restore hash history cache
+        uses: actions/cache/restore@v4
         with:
           path: generated_docs/hash_history.json
-          key: hash-history-${{ github.ref_name }}
+          key: hash-history-${{ github.ref_name }}-${{ github.run_id }}
           restore-keys: |
+            hash-history-${{ github.ref_name }}-
             hash-history-
-      - name: Cache discovery
-        uses: actions/cache@v4
+      - name: Restore discovery cache
+        uses: actions/cache/restore@v4
         with:
           path: generated_docs/discovery_cache.json
-          key: discovery-cache-${{ github.ref_name }}
+          key: discovery-cache-${{ github.ref_name }}-${{ github.run_id }}
           restore-keys: |
+            discovery-cache-${{ github.ref_name }}-
             discovery-cache-
       - name: Install dependencies
         run: |
@@ -187,7 +198,8 @@ jobs:
           
           # Performance & Caching
           USE_DISCOVERY_CACHE: ${{ github.event.inputs.use_discovery_cache || 'true' }}
-          DISCOVERY_CACHE_TTL_MIN: '60'
+          DISCOVERY_CACHE_TTL_MIN: '10080'
+          FORCE_REDISCOVERY: ${{ github.event.inputs.force_rediscovery || 'false' }}
           SKIP_CELL_HISTORY: 'true'
           PARALLEL_WORKERS: ${{ github.event.inputs.parallel_workers || '8' }}
           PARALLEL_WORKERS_DISCOVERY: ${{ github.event.inputs.parallel_workers_discovery || '8' }}
@@ -218,6 +230,8 @@ jobs:
           DEBUG_SAMPLE_ROWS: '1'
           DEBUG_ESSENTIAL_ROWS: '3'
           UNMAPPED_COLUMN_SAMPLE_LIMIT: '3'
+          # Graceful time budget: stop processing new groups before Actions hard-kills the job
+          TIME_BUDGET_MINUTES: '80'
         run: python generate_weekly_pdfs.py
       
       
@@ -412,6 +426,21 @@ jobs:
           echo "2. **By Work Request** - Individual WR folders" >> $GITHUB_STEP_SUMMARY
           echo "3. **By Week Ending** - Weekly billing periods" >> $GITHUB_STEP_SUMMARY
           echo "4. **Manifest** - JSON index with file metadata" >> $GITHUB_STEP_SUMMARY
+      
+      # ==================== CACHE SAVE (runs even on timeout/failure) ====================
+      - name: Save hash history cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: generated_docs/hash_history.json
+          key: hash-history-${{ github.ref_name }}-${{ github.run_id }}
+      
+      - name: Save discovery cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: generated_docs/discovery_cache.json
+          key: discovery-cache-${{ github.ref_name }}-${{ github.run_id }}
       
       - name: Summary
         if: always()

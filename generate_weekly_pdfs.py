@@ -148,8 +148,18 @@ QUIET_LOGGING = os.getenv('QUIET_LOGGING','0').lower() in ('1','true','yes')
 # because each request blocks ~200ms on network I/O; the SDK auto-retries on 429 with backoff.
 PARALLEL_WORKERS = int(os.getenv('PARALLEL_WORKERS', '8') or 8)
 PARALLEL_WORKERS_DISCOVERY = int(os.getenv('PARALLEL_WORKERS_DISCOVERY', '8') or 8)
+
+# Graceful time budget (minutes). When set and running in GitHub Actions, the script will
+# stop processing new groups once this many minutes have elapsed since session start.
+# This prevents the Actions runner from hard-killing the job and losing cache/artifact saves.
+# Set to 0 to disable.  The workflow sets this to ~80min (leaving 10min for artifact/cache steps).
+TIME_BUDGET_MINUTES = int(os.getenv('TIME_BUDGET_MINUTES', '0') or 0)
+
 USE_DISCOVERY_CACHE = os.getenv('USE_DISCOVERY_CACHE','1').lower() in ('1','true','yes')
-DISCOVERY_CACHE_TTL_MIN = int(os.getenv('DISCOVERY_CACHE_TTL_MIN','60') or 60)
+# Discovery cache TTL: sheet IDs and column mappings are essentially static.
+# Default to 7 days (10080 min). Set FORCE_REDISCOVERY=true to bypass the cache on demand.
+DISCOVERY_CACHE_TTL_MIN = int(os.getenv('DISCOVERY_CACHE_TTL_MIN','10080') or 10080)
+FORCE_REDISCOVERY = os.getenv('FORCE_REDISCOVERY','false').lower() in ('1','true','yes')
 DISCOVERY_CACHE_PATH = os.path.join(OUTPUT_FOLDER, 'discovery_cache.json')
 # Verbose debug tunables
 DEBUG_SAMPLE_ROWS = int(os.getenv('DEBUG_SAMPLE_ROWS','3') or 3)  # How many initial rows (across all sheets) to show full per-cell mapping
@@ -1108,8 +1118,10 @@ def _title(t):
 def discover_source_sheets(client):
     """Strict deterministic discovery: anchored keywords + type filtered. Skips sheets missing Weekly Reference Logged Date."""
     global _FOLDER_DISCOVERED_SUB_IDS, _FOLDER_DISCOVERED_ORIG_IDS, SUBCONTRACTOR_SHEET_IDS
-    # Attempt cache load
-    if USE_DISCOVERY_CACHE and os.path.exists(DISCOVERY_CACHE_PATH):
+    # Attempt cache load (skip when forced rediscovery requested)
+    if FORCE_REDISCOVERY:
+        logging.info("🔄 FORCE_REDISCOVERY=true — bypassing discovery cache")
+    elif USE_DISCOVERY_CACHE and os.path.exists(DISCOVERY_CACHE_PATH):
         try:
             with open(DISCOVERY_CACHE_PATH,'r') as f:
                 cache = json.load(f)
@@ -2726,7 +2738,21 @@ def main():
         _upload_tasks = []  # Collect upload tasks for parallel processing
 
         _phase_group_start = datetime.datetime.now()
+        _time_budget_exceeded = False
         for group_idx, (group_key, group_rows) in enumerate(groups.items(), 1):
+            # Graceful time budget: stop before Actions hard-kills the job
+            if TIME_BUDGET_MINUTES and GITHUB_ACTIONS_MODE:
+                elapsed_min = (datetime.datetime.now() - session_start).total_seconds() / 60.0
+                if elapsed_min >= TIME_BUDGET_MINUTES:
+                    remaining = len(groups) - group_idx + 1
+                    logging.warning(f"⏰ Time budget exhausted ({elapsed_min:.1f}min >= {TIME_BUDGET_MINUTES}min). "
+                                    f"Stopping with {remaining} group(s) remaining. "
+                                    f"They will be processed on the next run (hash history preserved).")
+                    _time_budget_exceeded = True
+                    sentry_add_breadcrumb("time_budget", f"Budget exceeded after {elapsed_min:.1f}min", level="warning", data={
+                        "groups_remaining": remaining, "groups_processed": group_idx - 1,
+                    })
+                    break
             try:
                 # Calculate data hash for change detection
                 data_hash = calculate_data_hash(group_rows)
@@ -2853,7 +2879,8 @@ def main():
                 continue
         
         _phase_group_elapsed = (datetime.datetime.now() - _phase_group_start).total_seconds()
-        logging.info(f"⚡ Group processing phase: {_groups_generated} generated, {_groups_skipped} skipped in {_phase_group_elapsed:.1f}s")
+        logging.info(f"⚡ Group processing phase: {_groups_generated} generated, {_groups_skipped} skipped in {_phase_group_elapsed:.1f}s"
+                     + (f" (stopped early — time budget exceeded)" if _time_budget_exceeded else ""))
 
         # ── PARALLEL UPLOAD PHASE ─────────────────────────────────────────
         # Upload all collected tasks in parallel instead of serially per-group.
