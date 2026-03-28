@@ -17,11 +17,12 @@ interface NavItem {
   icon: React.ElementType;
   label: string;
   adminOnly?: boolean;
+  billerOrAdmin?: boolean;
 }
 
 const navItems: NavItem[] = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/dashboard/downloads', icon: Download, label: 'Downloads' },
+  { to: '/dashboard/downloads', icon: Download, label: 'Downloads', billerOrAdmin: true },
   { to: '/dashboard/admin/users', icon: Users, label: 'Admin Users', adminOnly: true },
   { to: '/dashboard/admin/activity', icon: Activity, label: 'Activity', adminOnly: true },
 ];
@@ -30,6 +31,7 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const { profile } = useAuth();
   const isAdmin = profile?.role === 'admin';
+  const canDownload = profile?.role === 'admin' || profile?.role === 'biller';
 
   return (
     <motion.aside
@@ -40,6 +42,7 @@ export function Sidebar() {
       <nav className="flex-1 py-4 flex flex-col gap-1 px-2">
         {navItems.map((item) => {
           if (item.adminOnly && !isAdmin) return null;
+          if (item.billerOrAdmin && !canDownload) return null;
           const Icon = item.icon;
           return (
             <NavLink
