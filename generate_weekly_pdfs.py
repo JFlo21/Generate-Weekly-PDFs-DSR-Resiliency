@@ -1417,6 +1417,101 @@ def discover_source_sheets(client):
             logging.warning(f"Failed to write discovery cache: {e}")
     return discovered
 
+def _fetch_sheet_with_retry(client, sheet_id, column_ids,
+                            max_retries=3, base_delay=2):
+    """Fetch a Smartsheet sheet with exponential-backoff retry for transient errors.
+
+    Retries on:
+      - ``json.JSONDecodeError`` – non-JSON response body (e.g. 503 HTML page).
+      - ``smartsheet.exceptions.ApiError`` where ``should_retry`` is True
+        (rate limit, server timeout, system maintenance).
+      - ``smartsheet.exceptions.HttpError`` with a 5xx status code.
+
+    Non-retryable errors (4xx client errors, auth failures) are re-raised
+    immediately without consuming retry budget so they surface quickly.
+
+    Args:
+        client: Authenticated Smartsheet client instance.
+        sheet_id: Numeric ID of the sheet to fetch.
+        column_ids: List of column IDs to include in the response.
+        max_retries: Maximum number of attempts (default 3).
+        base_delay: Initial backoff delay in seconds; doubles each attempt
+            (default 2).
+
+    Returns:
+        The fetched ``smartsheet.models.Sheet`` object.
+
+    Raises:
+        The last exception encountered once all retries are exhausted, or
+        immediately for non-retryable errors.
+    """
+    for attempt in range(1, max_retries + 1):
+        try:
+            return client.Sheets.get_sheet(sheet_id, column_ids=column_ids)
+        except json.JSONDecodeError as e:
+            # Non-JSON body usually means a transient error (e.g. 503 HTML page).
+            if attempt < max_retries:
+                delay = base_delay * (2 ** (attempt - 1))
+                logging.warning(
+                    f"⚠️ Attempt {attempt}/{max_retries}: JSONDecodeError fetching sheet "
+                    f"{sheet_id} (likely transient HTTP error from Smartsheet). "
+                    f"Retrying in {delay}s… ({e})"
+                )
+                time.sleep(delay)
+            else:
+                logging.warning(
+                    f"⚠️ Final attempt {attempt}/{max_retries}: JSONDecodeError fetching "
+                    f"sheet {sheet_id} (likely transient HTTP error from Smartsheet). "
+                    f"Giving up after {max_retries} attempts. ({e})"
+                )
+                raise
+        except smartsheet.exceptions.ApiError as e:
+            # Only retry errors the SDK flagged as retryable (rate limit, server
+            # timeout, system maintenance, etc.). Non-retryable API errors such as
+            # 401 Unauthorized or 403 Forbidden are re-raised immediately.
+            if not e.should_retry:
+                logging.warning(
+                    f"⚠️ Non-retryable API error fetching sheet {sheet_id} "
+                    f"(not retrying): {e}"
+                )
+                raise
+            if attempt < max_retries:
+                delay = base_delay * (2 ** (attempt - 1))
+                logging.warning(
+                    f"⚠️ Attempt {attempt}/{max_retries}: Retryable API error fetching "
+                    f"sheet {sheet_id}: {e}. Retrying in {delay}s…"
+                )
+                time.sleep(delay)
+            else:
+                logging.warning(
+                    f"⚠️ Final attempt {attempt}/{max_retries}: Retryable API error "
+                    f"fetching sheet {sheet_id}: {e}. "
+                    f"Giving up after {max_retries} attempts."
+                )
+                raise
+        except smartsheet.exceptions.HttpError as e:
+            # Retry 5xx server errors; immediately re-raise 4xx client errors.
+            if e.status_code < 500:
+                logging.warning(
+                    f"⚠️ Non-retryable HTTP {e.status_code} error fetching sheet "
+                    f"{sheet_id} (not retrying)."
+                )
+                raise
+            if attempt < max_retries:
+                delay = base_delay * (2 ** (attempt - 1))
+                logging.warning(
+                    f"⚠️ Attempt {attempt}/{max_retries}: HTTP {e.status_code} error "
+                    f"fetching sheet {sheet_id}. Retrying in {delay}s…"
+                )
+                time.sleep(delay)
+            else:
+                logging.warning(
+                    f"⚠️ Final attempt {attempt}/{max_retries}: HTTP {e.status_code} "
+                    f"error fetching sheet {sheet_id}. "
+                    f"Giving up after {max_retries} attempts."
+                )
+                raise
+
 # Cell history and Modified By logic removed - using direct column assignment only
 
 def get_all_source_rows(client, source_sheets):
@@ -1485,53 +1580,7 @@ def get_all_source_rows(client, source_sheets):
                 column_mapping = source['column_mapping']
                 required_column_ids = list(column_mapping.values())
                 with sentry_sdk.start_span(op="smartsheet.api", description=f"Fetch sheet {source['name']}") as api_span:
-                    # Retry logic with exponential backoff for transient HTTP errors (e.g. 503 Service Unavailable).
-                    # When Smartsheet returns a non-JSON body (e.g. empty or HTML error page), the SDK raises
-                    # a JSONDecodeError. We catch that and other transient exceptions and retry up to
-                    # MAX_API_RETRIES times before re-raising so the error is visible in Sentry.
-                    MAX_API_RETRIES = 3
-                    RETRY_BASE_DELAY = 2  # seconds; doubles on each attempt
-                    last_exc = None
-                    for attempt in range(1, MAX_API_RETRIES + 1):
-                        try:
-                            sheet = client.Sheets.get_sheet(
-                                source['id'],
-                                column_ids=required_column_ids
-                            )
-                            last_exc = None
-                            break  # success — exit retry loop
-                        except json.JSONDecodeError as e:
-                            last_exc = e
-                            if attempt < MAX_API_RETRIES:
-                                delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
-                                logging.warning(
-                                    f"⚠️ Attempt {attempt}/{MAX_API_RETRIES}: JSONDecodeError fetching sheet "
-                                    f"{source['id']} (likely transient HTTP error from Smartsheet). "
-                                    f"Retrying in {delay}s… ({e})"
-                                )
-                                time.sleep(delay)
-                            else:
-                                logging.warning(
-                                    f"⚠️ Final attempt {attempt}/{MAX_API_RETRIES}: JSONDecodeError fetching "
-                                    f"sheet {source['id']} (likely transient HTTP error from Smartsheet). "
-                                    f"Giving up after {MAX_API_RETRIES} attempts. ({e})"
-                                )
-                        except Exception as e:
-                            last_exc = e
-                            if attempt < MAX_API_RETRIES:
-                                delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
-                                logging.warning(
-                                    f"⚠️ Attempt {attempt}/{MAX_API_RETRIES}: Error fetching sheet "
-                                    f"{source['id']}: {e}. Retrying in {delay}s…"
-                                )
-                                time.sleep(delay)
-                            else:
-                                logging.warning(
-                                    f"⚠️ Final attempt {attempt}/{MAX_API_RETRIES}: Error fetching sheet "
-                                    f"{source['id']}: {e}. Giving up after {MAX_API_RETRIES} attempts."
-                                )
-                    if last_exc is not None:
-                        raise last_exc
+                    sheet = _fetch_sheet_with_retry(client, source['id'], required_column_ids)
                     api_span.set_data("sheet_id", source['id'])
                     api_span.set_data("sheet_name", source['name'])
                     api_span.set_data("row_count", len(sheet.rows) if sheet.rows else 0)
