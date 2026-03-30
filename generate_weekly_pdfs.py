@@ -1502,23 +1502,34 @@ def get_all_source_rows(client, source_sheets):
                             break  # success — exit retry loop
                         except json.JSONDecodeError as e:
                             last_exc = e
-                            delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
-                            logging.warning(
-                                f"⚠️ Attempt {attempt}/{MAX_API_RETRIES}: JSONDecodeError fetching sheet "
-                                f"{source['id']} (likely transient HTTP error from Smartsheet). "
-                                f"Retrying in {delay}s… ({e})"
-                            )
                             if attempt < MAX_API_RETRIES:
+                                delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                                logging.warning(
+                                    f"⚠️ Attempt {attempt}/{MAX_API_RETRIES}: JSONDecodeError fetching sheet "
+                                    f"{source['id']} (likely transient HTTP error from Smartsheet). "
+                                    f"Retrying in {delay}s… ({e})"
+                                )
                                 time.sleep(delay)
+                            else:
+                                logging.warning(
+                                    f"⚠️ Final attempt {attempt}/{MAX_API_RETRIES}: JSONDecodeError fetching "
+                                    f"sheet {source['id']} (likely transient HTTP error from Smartsheet). "
+                                    f"Giving up after {MAX_API_RETRIES} attempts. ({e})"
+                                )
                         except Exception as e:
                             last_exc = e
-                            delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
-                            logging.warning(
-                                f"⚠️ Attempt {attempt}/{MAX_API_RETRIES}: Error fetching sheet "
-                                f"{source['id']}: {e}. Retrying in {delay}s…"
-                            )
                             if attempt < MAX_API_RETRIES:
+                                delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                                logging.warning(
+                                    f"⚠️ Attempt {attempt}/{MAX_API_RETRIES}: Error fetching sheet "
+                                    f"{source['id']}: {e}. Retrying in {delay}s…"
+                                )
                                 time.sleep(delay)
+                            else:
+                                logging.warning(
+                                    f"⚠️ Final attempt {attempt}/{MAX_API_RETRIES}: Error fetching sheet "
+                                    f"{source['id']}: {e}. Giving up after {MAX_API_RETRIES} attempts."
+                                )
                     if last_exc is not None:
                         raise last_exc
                     api_span.set_data("sheet_id", source['id'])
