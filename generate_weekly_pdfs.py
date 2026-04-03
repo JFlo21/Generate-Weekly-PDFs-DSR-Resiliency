@@ -195,9 +195,13 @@ SUBCONTRACTOR_SHEET_IDS = set(_parse_sheet_ids(os.getenv('SUBCONTRACTOR_SHEET_ID
 SUBCONTRACTOR_FOLDER_IDS = _parse_sheet_ids(os.getenv('SUBCONTRACTOR_FOLDER_IDS', '4232010517505924,2588197684307844'))
 # Original contract folders (sheets already at original contract rates)
 ORIGINAL_CONTRACT_FOLDER_IDS = _parse_sheet_ids(os.getenv('ORIGINAL_CONTRACT_FOLDER_IDS', '7644752003786628,8815193070299012'))
+# VAC Crew folders: sheets containing VAC Crew Promax data (generates separate VacCrew-variant Excel files)
+VAC_CREW_SHEET_IDS: set[int] = set(_parse_sheet_ids(os.getenv('VAC_CREW_SHEET_IDS', '')))
+VAC_CREW_FOLDER_IDS: list[int] = _parse_sheet_ids(os.getenv('VAC_CREW_FOLDER_IDS', ''))
 # Module-level sets populated at runtime by discover_folder_sheets()
 _FOLDER_DISCOVERED_SUB_IDS: set[int] = set()
 _FOLDER_DISCOVERED_ORIG_IDS: set[int] = set()
+_FOLDER_DISCOVERED_VAC_CREW_IDS: set[int] = set()
 
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
 RESET_WR_LIST = {w.strip() for w in os.getenv('RESET_WR_LIST','').split(',') if w.strip()}  # When provided, only purge these WR numbers (overrides full reset)
@@ -786,7 +790,7 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
     variant = 'primary'
     identifier = None
     
-    # Look for Helper or User markers
+    # Look for Helper, VacCrew, or User markers
     if 'Helper' in parts:
         variant = 'helper'
         helper_idx = parts.index('Helper')
@@ -794,6 +798,9 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
             # Join all parts between Helper and hash (last part)
             # Format: ...Helper_{name}_{hash} or ...Helper_{name}_part2_{hash}
             identifier = '_'.join(parts[helper_idx + 1:-1])
+    elif 'VacCrew' in parts:
+        variant = 'vac_crew'
+        identifier = None
     elif 'User' in parts:
         variant = 'primary'
         user_idx = parts.index('User')
@@ -1117,7 +1124,7 @@ def _title(t):
 
 def discover_source_sheets(client):
     """Strict deterministic discovery: anchored keywords + type filtered. Skips sheets missing Weekly Reference Logged Date."""
-    global _FOLDER_DISCOVERED_SUB_IDS, _FOLDER_DISCOVERED_ORIG_IDS, SUBCONTRACTOR_SHEET_IDS
+    global _FOLDER_DISCOVERED_SUB_IDS, _FOLDER_DISCOVERED_ORIG_IDS, _FOLDER_DISCOVERED_VAC_CREW_IDS, SUBCONTRACTOR_SHEET_IDS, VAC_CREW_SHEET_IDS
     # Attempt cache load (skip when forced rediscovery requested)
     _cached_sheets = []          # previously-validated sheets from cache (used for incremental mode)
     _cached_sheet_ids = set()    # IDs of sheets already validated in cache
@@ -1136,6 +1143,10 @@ def discover_source_sheets(client):
                 if cached_sub_ids:
                     SUBCONTRACTOR_SHEET_IDS = SUBCONTRACTOR_SHEET_IDS | set(cached_sub_ids)
                     logging.info(f"📂 Restored {len(cached_sub_ids)} subcontractor sheet IDs from cache (total: {len(SUBCONTRACTOR_SHEET_IDS)})")
+                cached_vac_crew_ids = cache.get('vac_crew_sheet_ids', [])
+                if cached_vac_crew_ids:
+                    VAC_CREW_SHEET_IDS = VAC_CREW_SHEET_IDS | set(cached_vac_crew_ids)
+                    logging.info(f"📂 Restored {len(cached_vac_crew_ids)} VAC Crew sheet IDs from cache (total: {len(VAC_CREW_SHEET_IDS)})")
                 logging.info(f"⚡ Using cached discovery ({age_min:.1f} min old) with {len(cache.get('sheets',[]))} sheets")
                 return cache.get('sheets', [])
             else:
@@ -1146,6 +1157,9 @@ def discover_source_sheets(client):
                 cached_sub_ids = cache.get('subcontractor_sheet_ids', [])
                 if cached_sub_ids:
                     SUBCONTRACTOR_SHEET_IDS = SUBCONTRACTOR_SHEET_IDS | set(cached_sub_ids)
+                cached_vac_crew_ids = cache.get('vac_crew_sheet_ids', [])
+                if cached_vac_crew_ids:
+                    VAC_CREW_SHEET_IDS = VAC_CREW_SHEET_IDS | set(cached_vac_crew_ids)
                 _incremental = True
                 logging.info(f"ℹ️ Discovery cache expired ({age_min:.1f} min old); using incremental mode — "
                              f"keeping {len(_cached_sheets)} cached sheets, scanning folders for new IDs only")
@@ -1159,6 +1173,10 @@ def discover_source_sheets(client):
         logging.info(f"📂 Subcontractor sheet IDs after folder merge: {len(SUBCONTRACTOR_SHEET_IDS)}")
     if ORIGINAL_CONTRACT_FOLDER_IDS:
         _FOLDER_DISCOVERED_ORIG_IDS = discover_folder_sheets(client, ORIGINAL_CONTRACT_FOLDER_IDS, 'original contract')
+    if VAC_CREW_FOLDER_IDS:
+        _FOLDER_DISCOVERED_VAC_CREW_IDS = discover_folder_sheets(client, VAC_CREW_FOLDER_IDS, 'vac crew')
+        VAC_CREW_SHEET_IDS = VAC_CREW_SHEET_IDS | _FOLDER_DISCOVERED_VAC_CREW_IDS
+        logging.info(f"📂 VAC Crew sheet IDs after folder merge: {len(VAC_CREW_SHEET_IDS)}")
     base_sheet_ids = [
         3239244454645636, 2230129632694148, 1732945426468740, 4126460034895748,
         7899446718189444, 1964558450118532, 5905527830695812, 820644963897220,
@@ -1412,7 +1430,12 @@ def discover_source_sheets(client):
     if USE_DISCOVERY_CACHE:
         try:
             with open(DISCOVERY_CACHE_PATH,'w') as f:
-                json.dump({'timestamp': datetime.datetime.now().isoformat(), 'sheets': discovered, 'subcontractor_sheet_ids': sorted(SUBCONTRACTOR_SHEET_IDS)}, f)
+                json.dump({
+                    'timestamp': datetime.datetime.now().isoformat(),
+                    'sheets': discovered,
+                    'subcontractor_sheet_ids': sorted(SUBCONTRACTOR_SHEET_IDS),
+                    'vac_crew_sheet_ids': sorted(VAC_CREW_SHEET_IDS),
+                }, f)
         except Exception as e:
             logging.warning(f"Failed to write discovery cache: {e}")
     return discovered
@@ -1478,6 +1501,7 @@ def get_all_source_rows(client, source_sheets):
         try:
             logging.info(f"⚡ Processing: {source['name']} (ID: {source['id']})")
             is_subcontractor_sheet = source['id'] in SUBCONTRACTOR_SHEET_IDS
+            is_vac_crew_sheet = source['id'] in VAC_CREW_SHEET_IDS
 
             try:
                 # Fetch sheet once (no column history); include columns to support unmapped summary
@@ -1664,6 +1688,8 @@ def get_all_source_rows(client, source_sheets):
                             # Store effective user and method for grouping
                             row_data['__effective_user'] = effective_user
                             row_data['__assignment_method'] = assignment_method
+                            # Tag VAC Crew rows so grouping creates the vac_crew variant
+                            row_data['__is_vac_crew'] = is_vac_crew_sheet
                             
                             sheet_rows.append(row_data)
                             sheet_exclusion_counts['accepted'] += 1
@@ -1789,7 +1815,7 @@ def get_all_source_rows(client, source_sheets):
 
 def group_source_rows(rows):
     """
-    VARIANT-AWARE GROUPING: Groups rows by Work Request #, Week Ending Date, and Variant (primary/helper).
+    VARIANT-AWARE GROUPING: Groups rows by Work Request #, Week Ending Date, and Variant (primary/helper/vac_crew).
     
     Primary Variant:
     - Standard WR-based grouping (one Excel per WR/Week)
@@ -1800,11 +1826,17 @@ def group_source_rows(rows):
     - Key format: MMDDYY_WRNUMBER_HELPER_<sanitized_helper_name>
     - Only created for rows where __is_helper_row = True
     
+    VAC Crew Variant:
+    - VAC Crew Promax grouping (one Excel per WR/Week for VAC Crew sheets)
+    - Key format: MMDDYY_WRNUMBER_VACCREW
+    - Only created for rows where __is_vac_crew = True (sheet ID in VAC_CREW_SHEET_IDS)
+    - Generates a separate Excel file with _VacCrew suffix in the filename
+    
     Activity Log (DECOMMISSIONED - only in primary mode):
     - No longer uses Modified By cache - direct column assignment only
     - Appends user identifier: MMDDYY_WRNUMBER_USER_<sanitized_user>
     
-    RES_GROUPING_MODE controls which variants are generated:
+    RES_GROUPING_MODE controls primary/helper variants only (not vac_crew):
     - "primary": Only primary variant (may include user if activity log enabled)
     - "helper": Helper variant for helper rows + primary variant for non-helper rows (conditional filter)
     - "both": Both primary and helper variants for all applicable rows
@@ -1816,6 +1848,7 @@ def group_source_rows(rows):
     - Primary: WR_{work_request_number}_WeekEnding_{MMDDYY}_{hash}.xlsx
     - Primary+User: WR_{work_request_number}_WeekEnding_{MMDDYY}_User_{user_sanitized}_{hash}.xlsx
     - Helper: WR_{work_request_number}_WeekEnding_{MMDDYY}_Helper_{helper_sanitized}_{hash}.xlsx
+    - VAC Crew: WR_{work_request_number}_WeekEnding_{MMDDYY}_VacCrew_{hash}.xlsx
     
     This ensures:
     - Each Excel file contains ONLY one work request
@@ -1862,51 +1895,60 @@ def group_source_rows(rows):
             # VARIANT-AWARE GROUPING: Build keys based on RES_GROUPING_MODE and row type
             keys_to_add = []
             
-            # Check if helper mode is enabled
-            helper_mode_enabled = RES_GROUPING_MODE in ('helper', 'both')
+            # Check if this row is from a VAC Crew sheet
+            is_vac_crew_row = r.get('__is_vac_crew', False)
             
-            # Check if this is a valid helper row (both checkboxes checked, has helper info)
-            valid_helper_row = False
-            if helper_mode_enabled and is_helper_row and helper_foreman:
-                helper_dept = r.get('__helper_dept', '')
-                helper_job = r.get('__helper_job', '')
-                # Validate helper row: helper_dept is required, helper_job is OPTIONAL
-                # This allows rows to sync even when Helper Job # is missing
-                if helper_dept:  # helper_job is now optional
-                    valid_helper_row = True
-            
-            # Primary variant logic
-            if RES_GROUPING_MODE == 'primary':
-                # In primary mode, ALL rows go to main (including helper rows)
-                primary_key = f"{week_end_for_key}_{wr_key}"
-                keys_to_add.append(('primary', primary_key, None))
-            elif RES_GROUPING_MODE in ('helper', 'both'):
-                # In helper/both mode, exclude valid helper rows from main
-                if not valid_helper_row:
+            # VAC Crew rows get their own dedicated group key (separate from primary/helper)
+            if is_vac_crew_row:
+                vac_crew_key = f"{week_end_for_key}_{wr_key}_VACCREW"
+                keys_to_add.append(('vac_crew', vac_crew_key, effective_user))
+                logging.info(f"🏗️ VAC CREW GROUP CREATED: WR={wr_key}, Week={week_end_for_key}")
+            else:
+                # Check if helper mode is enabled
+                helper_mode_enabled = RES_GROUPING_MODE in ('helper', 'both')
+                
+                # Check if this is a valid helper row (both checkboxes checked, has helper info)
+                valid_helper_row = False
+                if helper_mode_enabled and is_helper_row and helper_foreman:
+                    helper_dept = r.get('__helper_dept', '')
+                    helper_job = r.get('__helper_job', '')
+                    # Validate helper row: helper_dept is required, helper_job is OPTIONAL
+                    # This allows rows to sync even when Helper Job # is missing
+                    if helper_dept:  # helper_job is now optional
+                        valid_helper_row = True
+                
+                # Primary variant logic
+                if RES_GROUPING_MODE == 'primary':
+                    # In primary mode, ALL rows go to main (including helper rows)
                     primary_key = f"{week_end_for_key}_{wr_key}"
                     keys_to_add.append(('primary', primary_key, None))
-                else:
-                    # Log when excluding from main Excel due to helper status
-                    logging.info(f"➖ EXCLUDING from main Excel: WR={wr_key}, Week={week_end_for_key} (Helper row with both checkboxes)")
-            
-            # Helper variant - ONLY created when mode allows it
-            if valid_helper_row and helper_mode_enabled:
-                helper_dept = r.get('__helper_dept', '')
-                helper_job = r.get('__helper_job', '')
-                # PERFORMANCE: Use pre-compiled regex for helper name sanitization
-                helper_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50]
-                helper_key = f"{week_end_for_key}_{wr_key}_HELPER_{helper_sanitized}"
-                keys_to_add.append(('helper', helper_key, helper_foreman))
-                # HELPER GROUP LOGGING: Always log when helper group is created
-                logging.info(f"🔧 HELPER GROUP CREATED: WR={wr_key}, Week={week_end_for_key}, Helper={helper_foreman}, Dept={helper_dept}, Job={helper_job}")
-            elif is_helper_row and not helper_mode_enabled:
-                # In primary mode, helper rows go to main
-                logging.info(f"ℹ️ Helper row found but RES_GROUPING_MODE={RES_GROUPING_MODE} - including in main Excel")
-            elif is_helper_row:
-                # Helper row missing required helper_dept (helper_job is optional)
-                helper_dept = r.get('__helper_dept', '')
-                helper_job = r.get('__helper_job', '')
-                logging.warning(f"⚠️ Helper row for WR {wr_key} missing required Helper Dept # (Job: '{helper_job}') - including in main Excel")
+                elif RES_GROUPING_MODE in ('helper', 'both'):
+                    # In helper/both mode, exclude valid helper rows from main
+                    if not valid_helper_row:
+                        primary_key = f"{week_end_for_key}_{wr_key}"
+                        keys_to_add.append(('primary', primary_key, None))
+                    else:
+                        # Log when excluding from main Excel due to helper status
+                        logging.info(f"➖ EXCLUDING from main Excel: WR={wr_key}, Week={week_end_for_key} (Helper row with both checkboxes)")
+                
+                # Helper variant - ONLY created when mode allows it
+                if valid_helper_row and helper_mode_enabled:
+                    helper_dept = r.get('__helper_dept', '')
+                    helper_job = r.get('__helper_job', '')
+                    # PERFORMANCE: Use pre-compiled regex for helper name sanitization
+                    helper_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50]
+                    helper_key = f"{week_end_for_key}_{wr_key}_HELPER_{helper_sanitized}"
+                    keys_to_add.append(('helper', helper_key, helper_foreman))
+                    # HELPER GROUP LOGGING: Always log when helper group is created
+                    logging.info(f"🔧 HELPER GROUP CREATED: WR={wr_key}, Week={week_end_for_key}, Helper={helper_foreman}, Dept={helper_dept}, Job={helper_job}")
+                elif is_helper_row and not helper_mode_enabled:
+                    # In primary mode, helper rows go to main
+                    logging.info(f"ℹ️ Helper row found but RES_GROUPING_MODE={RES_GROUPING_MODE} - including in main Excel")
+                elif is_helper_row:
+                    # Helper row missing required helper_dept (helper_job is optional)
+                    helper_dept = r.get('__helper_dept', '')
+                    helper_job = r.get('__helper_job', '')
+                    logging.warning(f"⚠️ Helper row for WR {wr_key} missing required Helper Dept # (Job: '{helper_job}') - including in main Excel")
             
             # Add row to all applicable groups
             for variant, key, current_foreman in keys_to_add:
@@ -1951,7 +1993,8 @@ def group_source_rows(rows):
     
     # HELPER GROUP SUMMARY LOGGING
     helper_groups = [k for k in groups.keys() if '_HELPER_' in k]
-    primary_groups = [k for k in groups.keys() if '_HELPER_' not in k]
+    vac_crew_groups = [k for k in groups.keys() if '_VACCREW' in k]
+    primary_groups = [k for k in groups.keys() if '_HELPER_' not in k and '_VACCREW' not in k]
     if helper_groups:
         logging.info(f"🔧 HELPER GROUP SUMMARY: Created {len(helper_groups)} helper groups out of {len(groups)} total groups")
         logging.info(f"   Primary groups: {len(primary_groups)}")
@@ -1962,22 +2005,27 @@ def group_source_rows(rows):
             logging.info(f"   Helper group '{helper_key}': {row_count} rows")
     else:
         logging.warning(f"⚠️ HELPER GROUP SUMMARY: No helper groups created out of {len(groups)} total groups - check RES_GROUPING_MODE and helper row detection")
+    if vac_crew_groups:
+        logging.info(f"🏗️ VAC CREW GROUP SUMMARY: Created {len(vac_crew_groups)} VAC Crew group(s) out of {len(groups)} total groups")
+        for vac_key in vac_crew_groups[:5]:
+            logging.info(f"   VAC Crew group '{vac_key}': {len(groups[vac_key])} rows")
     
-    # Optional filtering by WR_FILTER (retain both primary and helper variants)
+    # Optional filtering by WR_FILTER (retain primary, helper, and vac_crew variants)
     if WR_FILTER and TEST_MODE:
         before = len(groups)
         def _key_matches_wr(k: str, wr: str) -> bool:
             # k format examples:
             #   MMDDYY_WR
             #   MMDDYY_WR_HELPER_<name>
+            #   MMDDYY_WR_VACCREW
             try:
                 suffix = k.split('_', 1)[1]  # take everything after first underscore (WR...)
             except Exception:
                 return False
-            return suffix == wr or suffix.startswith(f"{wr}_HELPER_")
+            return suffix == wr or suffix.startswith(f"{wr}_HELPER_") or suffix == f"{wr}_VACCREW"
 
         groups = {k: v for k, v in groups.items() if any(_key_matches_wr(k, wr) for wr in WR_FILTER)}
-        logging.info(f"🔎 WR_FILTER applied (primary + helper): {len(groups)}/{before} groups retained ({','.join(WR_FILTER)})")
+        logging.info(f"🔎 WR_FILTER applied (primary + helper + vac_crew): {len(groups)}/{before} groups retained ({','.join(WR_FILTER)})")
     
     # EXCLUDE_WRS: Remove specific Work Requests from generation (applies always, not just TEST_MODE)
     if EXCLUDE_WRS:
@@ -1993,12 +2041,13 @@ def group_source_rows(rows):
             #   MMDDYY_WR               → suffix = WR
             #   MMDDYY_WR_HELPER_<name> → suffix = WR_HELPER_<name>
             #   MMDDYY_WR_USER_<name>   → suffix = WR_USER_<name>
+            #   MMDDYY_WR_VACCREW       → suffix = WR_VACCREW
             try:
                 suffix = k.split('_', 1)[1]  # take everything after first underscore (WR...)
             except Exception:
                 return False
-            # Match exact WR, or WR followed by _HELPER_ or _USER_ variants
-            return suffix == wr or suffix.startswith(f"{wr}_HELPER_") or suffix.startswith(f"{wr}_USER_")
+            # Match exact WR, or WR followed by _HELPER_, _USER_, or _VACCREW variants
+            return suffix == wr or suffix.startswith(f"{wr}_HELPER_") or suffix.startswith(f"{wr}_USER_") or suffix == f"{wr}_VACCREW"
         
         # Remove groups that match any excluded WR
         groups = {k: v for k, v in groups.items() if not any(_key_matches_excluded_wr(k, wr) for wr in EXCLUDE_WRS)}
@@ -2150,6 +2199,9 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
             # PERFORMANCE: Use pre-compiled regex for filename sanitization
             helper_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50]
             variant_suffix = f"_Helper_{helper_sanitized}"
+    elif variant == 'vac_crew':
+        # VAC Crew variant: fixed suffix to distinguish from primary/helper
+        variant_suffix = '_VacCrew'
     elif variant == 'primary':
         # Primary variant (no suffix needed)
         variant_suffix = ''
@@ -2807,6 +2859,9 @@ def main():
                     helper_dept = first_row.get('__helper_dept', '')
                     helper_job = first_row.get('__helper_job', '')
                     identifier = f"{helper_foreman}|{helper_dept}|{helper_job}"
+                elif variant == 'vac_crew':
+                    # VAC Crew variant: no sub-identifier needed (all vac_crew rows for WR/week go together)
+                    identifier = ''
                 else:
                     user_val = first_row.get('User')
                     # PERFORMANCE: Use pre-compiled regex for identifier sanitization
@@ -3011,6 +3066,8 @@ def main():
                     helper_dept = group_rows[0].get('__helper_dept', '')
                     helper_job = group_rows[0].get('__helper_job', '')
                     identifier = f"{helper_foreman}|{helper_dept}|{helper_job}"
+                elif variant == 'vac_crew':
+                    identifier = ''
                 else:
                     user_val = group_rows[0].get('User')
                     # PERFORMANCE: Use pre-compiled regex
