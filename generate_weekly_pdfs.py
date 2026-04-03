@@ -1898,7 +1898,10 @@ def group_source_rows(rows):
             # Check if this row is from a VAC Crew sheet
             is_vac_crew_row = r.get('__is_vac_crew', False)
             
-            # VAC Crew rows get their own dedicated group key (separate from primary/helper)
+            # VAC Crew rows get their own dedicated group key (separate from primary/helper).
+            # A row from a VAC Crew sheet is always treated as vac_crew variant — it cannot
+            # simultaneously be a helper row, because VAC Crew sheets are distinct Smartsheet
+            # sources that do not contain the helper columns (Foreman Helping?, Helper Dept #, etc.).
             if is_vac_crew_row:
                 vac_crew_key = f"{week_end_for_key}_{wr_key}_VACCREW"
                 keys_to_add.append(('vac_crew', vac_crew_key, effective_user))
