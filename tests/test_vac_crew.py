@@ -193,6 +193,36 @@ class TestVacCrewGroupingLogic(unittest.TestCase):
         self.assertIn('vac_crew', variants)
         self.assertIn('primary', variants)
 
+    def test_vac_crew_group_created_log_fires_once_per_group(self):
+        """'VAC CREW GROUP CREATED' should log info only on the first row of each group.
+
+        Multiple VAC Crew rows sharing the same WR+week must not produce duplicate
+        info-level log messages — only the first row creates the group; the rest
+        add to an existing group and should log at debug level only.
+        """
+        wr = '11112222'
+        date = '2025-08-17'
+        rows = [
+            self._make_row(wr, date, '$50.00', is_vac_crew=True),
+            self._make_row(wr, date, '$75.00', is_vac_crew=True),
+            self._make_row(wr, date, '$25.00', is_vac_crew=True),
+        ]
+        with self.assertLogs('root', level='INFO') as log_ctx:
+            groups = generate_weekly_pdfs.group_source_rows(rows)
+
+        vaccrew_created_msgs = [
+            m for m in log_ctx.output
+            if 'VAC CREW GROUP CREATED' in m and 'INFO' in m
+        ]
+        self.assertEqual(
+            len(vaccrew_created_msgs), 1,
+            f"Expected exactly 1 info-level 'VAC CREW GROUP CREATED' message for "
+            f"3 rows in the same group; got {len(vaccrew_created_msgs)}: {vaccrew_created_msgs}"
+        )
+        vaccrew_key = [k for k in groups if '_VACCREW' in k]
+        self.assertEqual(len(vaccrew_key), 1)
+        self.assertEqual(len(groups[vaccrew_key[0]]), 3)
+
 
 if __name__ == '__main__':
     unittest.main()

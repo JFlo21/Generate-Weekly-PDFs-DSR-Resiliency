@@ -1907,7 +1907,13 @@ def group_source_rows(rows):
             if is_vac_crew_row:
                 vac_crew_key = f"{week_end_for_key}_{wr_key}_VACCREW"
                 keys_to_add.append(('vac_crew', vac_crew_key, effective_user))
-                logging.info(f"🏗️ VAC CREW GROUP CREATED: WR={wr_key}, Week={week_end_for_key}")
+                # Only log at info level the first time a new group key is seen; subsequent
+                # rows belonging to the same WR/week VAC Crew group log at debug to avoid
+                # flooding logs with hundreds of identical "GROUP CREATED" messages.
+                if vac_crew_key not in groups:
+                    logging.info(f"🏗️ VAC CREW GROUP CREATED: WR={wr_key}, Week={week_end_for_key}")
+                else:
+                    logging.debug(f"Adding row to existing VAC Crew group: WR={wr_key}, Week={week_end_for_key}")
             else:
                 # Check if helper mode is enabled
                 helper_mode_enabled = RES_GROUPING_MODE in ('helper', 'both')
