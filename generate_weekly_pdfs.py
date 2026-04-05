@@ -761,6 +761,7 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
         - Primary: (wr, week, 'primary', None)
         - Primary+User: (wr, week, 'primary', user_identifier)
         - Helper: (wr, week, 'helper', helper_name)
+        - VAC Crew: (wr, week, 'vac_crew', '')
         
         Legacy format without variant: (wr, week, 'primary', None)
         
@@ -771,6 +772,7 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
     - WR_{wr}_WeekEnding_{week}_{timestamp}_{hash}.xlsx (primary)
     - WR_{wr}_WeekEnding_{week}_{timestamp}_User_{user}_{hash}.xlsx (primary+user)
     - WR_{wr}_WeekEnding_{week}_{timestamp}_Helper_{helper}_{hash}.xlsx (helper)
+    - WR_{wr}_WeekEnding_{week}_{timestamp}_VacCrew_{hash}.xlsx (VAC Crew)
     """
     if not filename.startswith('WR_'):
         return None
@@ -800,7 +802,7 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
             identifier = '_'.join(parts[helper_idx + 1:-1])
     elif 'VacCrew' in parts:
         variant = 'vac_crew'
-        identifier = None
+        identifier = ''  # No sub-identifier for VAC Crew; use '' to match main() and valid_wr_weeks
     elif 'User' in parts:
         variant = 'primary'
         user_idx = parts.index('User')

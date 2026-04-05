@@ -42,9 +42,12 @@ class TestVacCrewFolderDiscovery(unittest.TestCase):
     def test_vac_crew_folder_discovery_returns_ids(self):
         """discover_folder_sheets returns correct sheet IDs for vac_crew label."""
         mock_client = MagicMock()
-        sheet_a = MagicMock(); sheet_a.id = 5001
-        sheet_b = MagicMock(); sheet_b.id = 5002
-        folder = MagicMock(); folder.sheets = [sheet_a, sheet_b]
+        sheet_a = MagicMock()
+        sheet_a.id = 5001
+        sheet_b = MagicMock()
+        sheet_b.id = 5002
+        folder = MagicMock()
+        folder.sheets = [sheet_a, sheet_b]
         mock_client.Folders.get_folder.return_value = folder
 
         result = generate_weekly_pdfs.discover_folder_sheets(mock_client, [8888], 'vac crew')
@@ -58,10 +61,12 @@ class TestVacCrewFolderDiscovery(unittest.TestCase):
         def _get_folder(fid):
             folder = MagicMock()
             if fid == 1111:
-                s = MagicMock(); s.id = 5001
+                s = MagicMock()
+                s.id = 5001
                 folder.sheets = [s]
             else:
-                s = MagicMock(); s.id = 5002
+                s = MagicMock()
+                s.id = 5002
                 folder.sheets = [s]
             return folder
 
@@ -98,7 +103,7 @@ class TestVacCrewGroupIdentityParsing(unittest.TestCase):
         self.assertEqual(wr, '90093002')
         self.assertEqual(week, '081725')
         self.assertEqual(variant, 'vac_crew')
-        self.assertIsNone(identifier)
+        self.assertEqual(identifier, '')
 
     def test_primary_filename_not_affected(self):
         """build_group_identity still returns primary for standard filenames."""
