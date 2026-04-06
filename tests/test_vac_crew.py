@@ -6,7 +6,7 @@ filename identity parsing for the vac_crew variant.
 
 import os
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 import generate_weekly_pdfs
 
 
@@ -269,19 +269,156 @@ class TestVacCrewGroupingLogic(unittest.TestCase):
         self.assertTrue(any('_VACCREW' in k for k in keys),
                         f"Expected _VACCREW group key; got: {keys}")
 
-    def test_vac_crew_completed_unit_synonym_in_column_synonyms(self):
-        """'Vac Crew Completed Unit?' must be present in the discover_source_sheets synonyms
-        so the column is mapped and its checkbox value is read from Smartsheet rows."""
-        # Re-create the synonyms dict as it appears in discover_source_sheets() and assert
-        # that 'Vac Crew Completed Unit?' is a key that maps to itself.
-        synonyms = {
-            'Foreman': 'Foreman', 'Work Request #': 'Work Request #',
-            'Units Completed?': 'Units Completed?', 'Units Completed': 'Units Completed?',
-            'Vac Crew Completed Unit?': 'Vac Crew Completed Unit?',
-            'Helping Foreman Completed Unit?': 'Helping Foreman Completed Unit?',
+    def test_discover_source_sheets_maps_vac_crew_completed_unit_column(self):
+        """discover_source_sheets() must include 'Vac Crew Completed Unit?' in the returned
+        column_mapping when the Smartsheet sheet contains that column.
+
+        This validates the real production synonyms dict inside discover_source_sheets()
+        rather than a locally-recreated copy, so the test will fail if the entry is ever
+        removed from the production code.
+        """
+        SHEET_ID = 88887777
+        COL_DATE_ID = 200
+        COL_VAC_ID = 201
+
+        def _mock_col(title, col_type, col_id):
+            c = MagicMock()
+            c.title = title
+            c.type = col_type
+            c.id = col_id
+            return c
+
+        # Column metadata sheet (include='columns' call)
+        cols_meta = [
+            _mock_col('Weekly Reference Logged Date', 'DATE', COL_DATE_ID),
+            _mock_col('Vac Crew Completed Unit?', 'CHECKBOX', COL_VAC_ID),
+        ]
+        meta_sheet = MagicMock()
+        meta_sheet.name = 'Test VAC Crew Sheet'
+        meta_sheet.columns = cols_meta
+
+        # Sample-rows sheet (row_numbers=[1,2,3] call) — provides date sample for validation
+        sample_cell = MagicMock()
+        sample_cell.column_id = COL_DATE_ID
+        sample_cell.value = '2025-08-17'
+        sample_cell.display_value = '2025-08-17'
+        sample_row = MagicMock()
+        sample_row.cells = [sample_cell]
+        sample_sheet = MagicMock()
+        sample_sheet.rows = [sample_row]
+
+        def _get_sheet(sid, **kwargs):
+            if kwargs.get('include') == 'columns':
+                return meta_sheet
+            return sample_sheet
+
+        mock_client = MagicMock()
+        mock_client.Sheets.get_sheet.side_effect = _get_sheet
+
+        # Temporarily override module-level state to isolate this test from real data
+        orig_force = generate_weekly_pdfs.FORCE_REDISCOVERY
+        orig_use_cache = generate_weekly_pdfs.USE_DISCOVERY_CACHE
+        orig_sub = generate_weekly_pdfs.SUBCONTRACTOR_FOLDER_IDS
+        orig_orig = generate_weekly_pdfs.ORIGINAL_CONTRACT_FOLDER_IDS
+        orig_vac = generate_weekly_pdfs.VAC_CREW_FOLDER_IDS
+        try:
+            generate_weekly_pdfs.FORCE_REDISCOVERY = True
+            generate_weekly_pdfs.USE_DISCOVERY_CACHE = False
+            generate_weekly_pdfs.SUBCONTRACTOR_FOLDER_IDS = []
+            generate_weekly_pdfs.ORIGINAL_CONTRACT_FOLDER_IDS = []
+            generate_weekly_pdfs.VAC_CREW_FOLDER_IDS = []
+            with patch.dict(os.environ, {'LIMITED_SHEET_IDS': str(SHEET_ID)}):
+                discovered = generate_weekly_pdfs.discover_source_sheets(mock_client)
+        finally:
+            generate_weekly_pdfs.FORCE_REDISCOVERY = orig_force
+            generate_weekly_pdfs.USE_DISCOVERY_CACHE = orig_use_cache
+            generate_weekly_pdfs.SUBCONTRACTOR_FOLDER_IDS = orig_sub
+            generate_weekly_pdfs.ORIGINAL_CONTRACT_FOLDER_IDS = orig_orig
+            generate_weekly_pdfs.VAC_CREW_FOLDER_IDS = orig_vac
+
+        self.assertEqual(len(discovered), 1,
+                         f"Expected exactly 1 discovered sheet; got: {discovered}")
+        col_mapping = discovered[0]['column_mapping']
+        self.assertIn(
+            'Vac Crew Completed Unit?', col_mapping,
+            "'Vac Crew Completed Unit?' must appear in the column_mapping returned by "
+            "discover_source_sheets(). Its absence means the production synonyms dict "
+            "is missing the entry and checkbox values will never be read from rows."
+        )
+
+
+class TestVacCrewRowIngest(unittest.TestCase):
+    """Tests that get_all_source_rows() correctly accepts and tags VAC Crew rows.
+
+    These tests exercise the actual row-ingest code path with a mocked Smartsheet
+    client and verify that the acceptance filter and __is_vac_crew tagging work
+    correctly based on the 'Vac Crew Completed Unit?' checkbox alone (without the
+    sheet needing to be in VAC_CREW_SHEET_IDS).
+    """
+
+    def test_row_ingest_vac_crew_checkbox_accepted_and_flagged(self):
+        """A row with Units Completed?=False and Vac Crew Completed Unit?=True is
+        accepted by get_all_source_rows() and has __is_vac_crew=True.
+
+        This verifies the column-based detection path that was added in the fix:
+        rows on any sheet are accepted and flagged as VAC Crew when the
+        'Vac Crew Completed Unit?' checkbox is checked, even when the sheet is
+        not explicitly listed in VAC_CREW_SHEET_IDS.
+        """
+        COL_WR = 100
+        COL_DATE = 101
+        COL_PRICE = 102
+        COL_UNITS_COMPLETED = 103
+        COL_VAC_CREW_COMPLETED = 104
+        SHEET_ID = 77778888  # not in VAC_CREW_SHEET_IDS — exercises column-based path
+
+        # Build a source config as returned by discover_source_sheets()
+        source = {
+            'id': SHEET_ID,
+            'name': 'Test VAC Crew Sheet',
+            'column_mapping': {
+                'Work Request #': COL_WR,
+                'Weekly Reference Logged Date': COL_DATE,
+                'Units Total Price': COL_PRICE,
+                'Units Completed?': COL_UNITS_COMPLETED,
+                'Vac Crew Completed Unit?': COL_VAC_CREW_COMPLETED,
+            },
         }
-        self.assertIn('Vac Crew Completed Unit?', synonyms)
-        self.assertEqual(synonyms['Vac Crew Completed Unit?'], 'Vac Crew Completed Unit?')
+
+        def _make_cell(col_id, value):
+            cell = MagicMock()
+            cell.column_id = col_id
+            cell.value = value
+            cell.display_value = str(value) if value is not None else None
+            return cell
+
+        mock_row = MagicMock()
+        mock_row.id = 1
+        mock_row.cells = [
+            _make_cell(COL_WR, '12345678'),
+            _make_cell(COL_DATE, '2025-08-17'),
+            _make_cell(COL_PRICE, 100.0),
+            _make_cell(COL_UNITS_COMPLETED, False),   # standard checkbox NOT checked
+            _make_cell(COL_VAC_CREW_COMPLETED, True),  # VAC Crew checkbox IS checked
+        ]
+
+        mock_sheet = MagicMock()
+        mock_sheet.rows = [mock_row]
+        mock_client = MagicMock()
+        mock_client.Sheets.get_sheet.return_value = mock_sheet
+
+        result = generate_weekly_pdfs.get_all_source_rows(mock_client, [source])
+
+        self.assertEqual(
+            len(result), 1,
+            "Expected exactly one row to be accepted when Vac Crew Completed Unit? "
+            "is checked and Units Completed? is not"
+        )
+        self.assertTrue(
+            result[0].get('__is_vac_crew'),
+            "__is_vac_crew must be True when the 'Vac Crew Completed Unit?' checkbox "
+            "is checked, even when the sheet is not in VAC_CREW_SHEET_IDS"
+        )
 
 
 if __name__ == '__main__':
