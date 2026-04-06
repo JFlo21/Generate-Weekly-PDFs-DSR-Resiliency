@@ -195,13 +195,12 @@ SUBCONTRACTOR_SHEET_IDS = set(_parse_sheet_ids(os.getenv('SUBCONTRACTOR_SHEET_ID
 SUBCONTRACTOR_FOLDER_IDS = _parse_sheet_ids(os.getenv('SUBCONTRACTOR_FOLDER_IDS', '4232010517505924,2588197684307844'))
 # Original contract folders (sheets already at original contract rates)
 ORIGINAL_CONTRACT_FOLDER_IDS = _parse_sheet_ids(os.getenv('ORIGINAL_CONTRACT_FOLDER_IDS', '7644752003786628,8815193070299012'))
-# VAC Crew folders: sheets containing VAC Crew Promax data (generates separate VacCrew-variant Excel files)
-VAC_CREW_SHEET_IDS: set[int] = set(_parse_sheet_ids(os.getenv('VAC_CREW_SHEET_IDS', '')))
-VAC_CREW_FOLDER_IDS: list[int] = _parse_sheet_ids(os.getenv('VAC_CREW_FOLDER_IDS', ''))
+# VAC Crew detection is now row-level (column-presence-based, no folder/sheet ID config needed).
+# Sheets with columns like 'VAC Crew Helping?' and 'Vac Crew Completed Unit?' automatically
+# produce vac_crew variant rows during row processing.
 # Module-level sets populated at runtime by discover_folder_sheets()
 _FOLDER_DISCOVERED_SUB_IDS: set[int] = set()
 _FOLDER_DISCOVERED_ORIG_IDS: set[int] = set()
-_FOLDER_DISCOVERED_VAC_CREW_IDS: set[int] = set()
 
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
 RESET_WR_LIST = {w.strip() for w in os.getenv('RESET_WR_LIST','').split(',') if w.strip()}  # When provided, only purge these WR numbers (overrides full reset)
@@ -551,7 +550,7 @@ def excel_serial_to_date(value):
         return None
 
 def discover_folder_sheets(client, folder_ids: list[int], label: str) -> set[int]:
-    """Discover all sheet IDs inside the given Smartsheet folders.
+    """Discover all sheet IDs inside the given Smartsheet folders (recursively including subfolders).
 
     Args:
         client: Authenticated Smartsheet client instance.
@@ -559,35 +558,48 @@ def discover_folder_sheets(client, folder_ids: list[int], label: str) -> set[int
         label: Human-readable label for logging (e.g. 'subcontractor', 'original contract').
 
     Returns:
-        Set of sheet IDs found across all folders.
+        Set of sheet IDs found across all folders and their subfolders.
     """
     discovered: set[int] = set()
     if not folder_ids:
         return discovered
 
-    def _fetch_folder(fid):
-        """Fetch sheets from a single folder."""
+    def _fetch_folder_recursive(fid, depth=0, max_depth=5):
+        """Fetch sheets from a single folder, recursing into subfolders."""
+        if depth > max_depth:
+            logging.warning(f"⚠️ Max folder recursion depth ({max_depth}) reached for {label} folder {fid}")
+            return set()
         try:
-            with sentry_sdk.start_span(op="smartsheet.api", description=f"Get folder {fid} ({label})") as span:
+            with sentry_sdk.start_span(op="smartsheet.api", description=f"Get folder {fid} ({label} depth={depth})") as span:
                 folder = client.Folders.get_folder(fid)
                 sheets = getattr(folder, 'sheets', None) or []
                 ids = {s.id for s in sheets}
                 span.set_data("folder_id", fid)
                 span.set_data("sheets_found", len(sheets))
-            logging.info(f"📂 Folder {fid} ({label}): found {len(sheets)} sheet(s)")
+                span.set_data("depth", depth)
+            logging.info(f"{'  ' * depth}📂 Folder {fid} ({label}): found {len(sheets)} direct sheet(s)")
+            # Recurse into subfolders to discover ALL sheets in the hierarchy
+            subfolders = getattr(folder, 'folders', None) or []
+            for subfolder in subfolders:
+                sub_id = subfolder.id
+                sub_ids = _fetch_folder_recursive(sub_id, depth + 1, max_depth)
+                if sub_ids:
+                    logging.info(f"{'  ' * (depth + 1)}📁 Subfolder {sub_id}: contributed {len(sub_ids)} sheet(s)")
+                ids |= sub_ids
+
             return ids
         except Exception as e:
             logging.warning(f"⚠️ Could not read {label} folder {fid}: {e}")
             sentry_add_breadcrumb("folder_discovery", f"Failed to read folder {fid}", level="error", data={
-                "folder_id": fid, "label": label, "error": str(e)[:200],
+                "folder_id": fid, "label": label, "depth": depth, "error": str(e)[:200],
             })
             return set()
 
     with ThreadPoolExecutor(max_workers=min(len(folder_ids), PARALLEL_WORKERS_DISCOVERY)) as executor:
-        for ids in executor.map(_fetch_folder, folder_ids):
+        for ids in executor.map(lambda fid: _fetch_folder_recursive(fid), folder_ids):
             discovered |= ids
 
-    logging.info(f"📂 Total {label} folder discovery: {len(discovered)} unique sheet(s)")
+    logging.info(f"📂 Total {label} folder discovery (recursive): {len(discovered)} unique sheet(s)")
     return discovered
 
 def calculate_data_hash(group_rows: list[dict]) -> str:
@@ -1126,8 +1138,21 @@ def _title(t):
 
 def discover_source_sheets(client):
     """Strict deterministic discovery: anchored keywords + type filtered. Skips sheets missing Weekly Reference Logged Date."""
-    global _FOLDER_DISCOVERED_SUB_IDS, _FOLDER_DISCOVERED_ORIG_IDS, _FOLDER_DISCOVERED_VAC_CREW_IDS, SUBCONTRACTOR_SHEET_IDS, VAC_CREW_SHEET_IDS
-    # Attempt cache load (skip when forced rediscovery requested)
+    global _FOLDER_DISCOVERED_SUB_IDS, _FOLDER_DISCOVERED_ORIG_IDS, SUBCONTRACTOR_SHEET_IDS
+
+    # ── ALWAYS run folder discovery FIRST (detects new sheets every run) ──────────
+    # Folder listing is cheap (2-4 API calls + subfolder recursion).  Running it
+    # unconditionally ensures sheets added to configured folders between runs are
+    # detected even when the discovery cache is still within TTL.
+    if SUBCONTRACTOR_FOLDER_IDS:
+        _FOLDER_DISCOVERED_SUB_IDS = discover_folder_sheets(client, SUBCONTRACTOR_FOLDER_IDS, 'subcontractor')
+        SUBCONTRACTOR_SHEET_IDS = SUBCONTRACTOR_SHEET_IDS | _FOLDER_DISCOVERED_SUB_IDS
+        logging.info(f"📂 Subcontractor sheet IDs after folder merge: {len(SUBCONTRACTOR_SHEET_IDS)}")
+    if ORIGINAL_CONTRACT_FOLDER_IDS:
+        _FOLDER_DISCOVERED_ORIG_IDS = discover_folder_sheets(client, ORIGINAL_CONTRACT_FOLDER_IDS, 'original contract')
+    _all_folder_discovered_ids = _FOLDER_DISCOVERED_SUB_IDS | _FOLDER_DISCOVERED_ORIG_IDS
+
+    # ── Attempt cache load (skip when forced rediscovery requested) ──
     _cached_sheets = []          # previously-validated sheets from cache (used for incremental mode)
     _cached_sheet_ids = set()    # IDs of sheets already validated in cache
     _incremental = False         # True when cache expired but sheets can be reused
@@ -1139,46 +1164,34 @@ def discover_source_sheets(client):
                 cache = json.load(f)
             ts = datetime.datetime.fromisoformat(cache.get('timestamp'))
             age_min = (datetime.datetime.now() - ts).total_seconds()/60.0
-            if age_min <= DISCOVERY_CACHE_TTL_MIN:
-                # Restore subcontractor sheet IDs from cache so get_all_source_rows() flags them correctly
+            _cached_sheet_ids_from_file = {s['id'] for s in cache.get('sheets', [])}
+            # Compare folder-discovered sheet IDs against cache to detect new sheets
+            _new_from_folders = _all_folder_discovered_ids - _cached_sheet_ids_from_file
+            if age_min <= DISCOVERY_CACHE_TTL_MIN and not _new_from_folders:
+                # Cache is fresh AND no new sheets in folders → safe to use cache
                 cached_sub_ids = cache.get('subcontractor_sheet_ids', [])
                 if cached_sub_ids:
                     SUBCONTRACTOR_SHEET_IDS = SUBCONTRACTOR_SHEET_IDS | set(cached_sub_ids)
                     logging.info(f"📂 Restored {len(cached_sub_ids)} subcontractor sheet IDs from cache (total: {len(SUBCONTRACTOR_SHEET_IDS)})")
-                cached_vac_crew_ids = cache.get('vac_crew_sheet_ids', [])
-                if cached_vac_crew_ids:
-                    VAC_CREW_SHEET_IDS = VAC_CREW_SHEET_IDS | set(cached_vac_crew_ids)
-                    logging.info(f"📂 Restored {len(cached_vac_crew_ids)} VAC Crew sheet IDs from cache (total: {len(VAC_CREW_SHEET_IDS)})")
-                logging.info(f"⚡ Using cached discovery ({age_min:.1f} min old) with {len(cache.get('sheets',[]))} sheets")
+                logging.info(f"⚡ Using cached discovery ({age_min:.1f} min old) with {len(cache.get('sheets',[]))} sheets (folders unchanged)")
                 return cache.get('sheets', [])
             else:
-                # Cache expired — use incremental mode: keep existing validated sheets,
-                # only validate NEW sheet IDs found in folders that weren't in the cache.
+                # Cache expired OR new sheets found in folders → incremental mode
                 _cached_sheets = cache.get('sheets', [])
-                _cached_sheet_ids = {s['id'] for s in _cached_sheets}
+                _cached_sheet_ids = _cached_sheet_ids_from_file
                 cached_sub_ids = cache.get('subcontractor_sheet_ids', [])
                 if cached_sub_ids:
                     SUBCONTRACTOR_SHEET_IDS = SUBCONTRACTOR_SHEET_IDS | set(cached_sub_ids)
-                cached_vac_crew_ids = cache.get('vac_crew_sheet_ids', [])
-                if cached_vac_crew_ids:
-                    VAC_CREW_SHEET_IDS = VAC_CREW_SHEET_IDS | set(cached_vac_crew_ids)
                 _incremental = True
-                logging.info(f"ℹ️ Discovery cache expired ({age_min:.1f} min old); using incremental mode — "
-                             f"keeping {len(_cached_sheets)} cached sheets, scanning folders for new IDs only")
+                if _new_from_folders:
+                    logging.info(f"🆕 {len(_new_from_folders)} new sheet(s) detected in folders — "
+                                 f"cache invalidated, using incremental mode "
+                                 f"(keeping {len(_cached_sheets)} cached + validating new sheets)")
+                else:
+                    logging.info(f"ℹ️ Discovery cache expired ({age_min:.1f} min old); using incremental mode — "
+                                 f"keeping {len(_cached_sheets)} cached sheets, scanning for new IDs only")
         except Exception as e:
             logging.info(f"Cache load failed, refreshing discovery: {e}")
-
-    # ── Folder-based sheet discovery (only on cache miss / incremental) ─────────────
-    if SUBCONTRACTOR_FOLDER_IDS:
-        _FOLDER_DISCOVERED_SUB_IDS = discover_folder_sheets(client, SUBCONTRACTOR_FOLDER_IDS, 'subcontractor')
-        SUBCONTRACTOR_SHEET_IDS = SUBCONTRACTOR_SHEET_IDS | _FOLDER_DISCOVERED_SUB_IDS
-        logging.info(f"📂 Subcontractor sheet IDs after folder merge: {len(SUBCONTRACTOR_SHEET_IDS)}")
-    if ORIGINAL_CONTRACT_FOLDER_IDS:
-        _FOLDER_DISCOVERED_ORIG_IDS = discover_folder_sheets(client, ORIGINAL_CONTRACT_FOLDER_IDS, 'original contract')
-    if VAC_CREW_FOLDER_IDS:
-        _FOLDER_DISCOVERED_VAC_CREW_IDS = discover_folder_sheets(client, VAC_CREW_FOLDER_IDS, 'vac crew')
-        VAC_CREW_SHEET_IDS = VAC_CREW_SHEET_IDS | _FOLDER_DISCOVERED_VAC_CREW_IDS
-        logging.info(f"📂 VAC Crew sheet IDs after folder merge: {len(VAC_CREW_SHEET_IDS)}")
     base_sheet_ids = [
         3239244454645636, 2230129632694148, 1732945426468740, 4126460034895748,
         7899446718189444, 1964558450118532, 5905527830695812, 820644963897220,
@@ -1258,7 +1271,7 @@ def discover_source_sheets(client):
         except Exception as e:
             logging.warning(f"⚠️ LIMITED_SHEET_IDS parse failed '{_limited_ids_raw}': {e}")
     
-    # Merge folder-discovered sheet IDs (populated above on cache miss)
+    # Merge folder-discovered sheet IDs (populated unconditionally at top of function)
     _folder_ids = _FOLDER_DISCOVERED_SUB_IDS | _FOLDER_DISCOVERED_ORIG_IDS
     if _folder_ids:
         existing = set(base_sheet_ids)
@@ -1350,24 +1363,45 @@ def discover_source_sheets(client):
                 'Helper Job #':'Helper Job #',    # Ensure direct exact match is captured
                 'Helper Dept #':'Helper Dept #',
                 'Foreman Helping?':'Foreman Helping?',
-                'Helping Foreman Completed Unit?':'Helping Foreman Completed Unit?'
+                'Helping Foreman Completed Unit?':'Helping Foreman Completed Unit?',
+                # VAC Crew variant columns (row-level detection — mirrors helper pattern)
+                'VAC Crew Helping?':'VAC Crew Helping?',
+                'Vac Crew Helping?':'VAC Crew Helping?',          # Case variant
+                'Vac Crew Completed Unit?':'Vac Crew Completed Unit?',
+                'VAC Crew Completed Unit?':'Vac Crew Completed Unit?',  # Case variant
+                'VAC Crew Dept #':'VAC Crew Dept #',
+                'Vac Crew Dept #':'VAC Crew Dept #',              # Case variant
+                'Vac Crew Job #':'Vac Crew Job #',
+                'VAC Crew Job #':'Vac Crew Job #',                # Case variant
+                'Vac Crew Email Address':'Vac Crew Email Address',
+                'VAC Crew Email Address':'Vac Crew Email Address', # Case variant
             }
-            # COLUMN MAPPING DEBUG: Log all column titles to verify helper columns
+            # COLUMN MAPPING DEBUG: Log all column titles to verify helper and VAC Crew columns
             helper_columns_found = []
+            vac_crew_columns_found = []
             for c in cols:
                 # Check for helper-related columns specifically
                 if 'Helper' in c.title or 'Helping' in c.title:
                     helper_columns_found.append(c.title)
+                # Check for VAC Crew-related columns
+                if 'Vac Crew' in c.title or 'VAC Crew' in c.title:
+                    vac_crew_columns_found.append(c.title)
                 
                 if c.title in synonyms and synonyms[c.title] not in mapping:
                     mapping[synonyms[c.title]] = c.id
                     # Log helper column mappings specifically
                     if 'Helper' in c.title:
                         logging.info(f"🔧 MAPPED HELPER COLUMN: '{c.title}' -> '{synonyms[c.title]}' (column ID: {c.id})")
+                    # Log VAC Crew column mappings
+                    if 'Vac Crew' in c.title or 'VAC Crew' in c.title:
+                        logging.info(f"🚐 MAPPED VAC CREW COLUMN: '{c.title}' -> '{synonyms[c.title]}' (column ID: {c.id})")
             
             # Log summary of helper columns found
             if helper_columns_found:
                 logging.info(f"🔧 All helper/helping columns found in sheet: {helper_columns_found}")
+            # Log summary of VAC Crew columns found
+            if vac_crew_columns_found:
+                logging.info(f"🚐 VAC Crew columns found in sheet: {vac_crew_columns_found}")
             
             if 'Weekly Reference Logged Date' in mapping:
                 w_id = mapping['Weekly Reference Logged Date']
@@ -1436,7 +1470,6 @@ def discover_source_sheets(client):
                     'timestamp': datetime.datetime.now().isoformat(),
                     'sheets': discovered,
                     'subcontractor_sheet_ids': sorted(SUBCONTRACTOR_SHEET_IDS),
-                    'vac_crew_sheet_ids': sorted(VAC_CREW_SHEET_IDS),
                 }, f)
         except Exception as e:
             logging.warning(f"Failed to write discovery cache: {e}")
@@ -1503,7 +1536,6 @@ def get_all_source_rows(client, source_sheets):
         try:
             logging.info(f"⚡ Processing: {source['name']} (ID: {source['id']})")
             is_subcontractor_sheet = source['id'] in SUBCONTRACTOR_SHEET_IDS
-            is_vac_crew_sheet = source['id'] in VAC_CREW_SHEET_IDS
 
             try:
                 # Fetch sheet once (no column history); include columns to support unmapped summary
@@ -1544,6 +1576,21 @@ def get_all_source_rows(client, source_sheets):
                         logging.warning(f"⚠️ Missing helper columns in {source['name']}: {missing}")
                 else:
                     logging.info(f"ℹ️ No helper columns found in {source['name']} - helper detection disabled for this sheet")
+
+                # VAC CREW DETECTION: Check if VAC Crew columns are present (row-level detection)
+                vac_crew_columns = ['VAC Crew Helping?', 'Vac Crew Completed Unit?', 'VAC Crew Dept #', 'Vac Crew Job #']
+                found_vac_crew_cols = [col for col in vac_crew_columns if col in column_mapping]
+                # Sheet has VAC Crew capability if at least the two key columns are mapped
+                sheet_has_vac_crew_columns = 'VAC Crew Helping?' in column_mapping and 'Vac Crew Completed Unit?' in column_mapping
+                if found_vac_crew_cols:
+                    logging.info(f"🚐 VAC Crew columns found in {source['name']}: {found_vac_crew_cols}")
+                    if sheet_has_vac_crew_columns:
+                        logging.info(f"✅ VAC Crew detection active for this sheet (key columns present)")
+                    else:
+                        missing = [col for col in vac_crew_columns if col not in column_mapping]
+                        logging.warning(f"⚠️ Missing VAC Crew columns in {source['name']}: {missing}")
+                else:
+                    logging.debug(f"ℹ️ No VAC Crew columns in {source['name']} - VAC Crew detection disabled for this sheet")
 
                 # Note: Unmapped column logging skipped - we now only fetch mapped columns for performance
                 # This reduces API payload size by ~64% and prevents Error 4000 for large sheets
@@ -1690,8 +1737,38 @@ def get_all_source_rows(client, source_sheets):
                             # Store effective user and method for grouping
                             row_data['__effective_user'] = effective_user
                             row_data['__assignment_method'] = assignment_method
-                            # Tag VAC Crew rows so grouping creates the vac_crew variant
-                            row_data['__is_vac_crew'] = is_vac_crew_sheet
+                            
+                            # VAC Crew row-level detection (mirrors helper pattern)
+                            # A row is VAC Crew when: VAC Crew Helping? is non-blank AND
+                            # Vac Crew Completed Unit? checkbox is checked.
+                            # This is column-presence-driven — only sheets with these columns
+                            # can produce VAC Crew rows, no sheet-level ID tagging needed.
+                            is_vac_crew_row = False
+                            if sheet_has_vac_crew_columns:
+                                vac_crew_helping_val = row_data.get('VAC Crew Helping?')
+                                vac_crew_name = str(vac_crew_helping_val).strip() if vac_crew_helping_val else ''
+                                vac_crew_completed = row_data.get('Vac Crew Completed Unit?')
+                                vac_crew_completed_checked = is_checked(vac_crew_completed)
+                                is_vac_crew_row = bool(vac_crew_name and vac_crew_completed_checked and units_completed_checked)
+                                
+                                if FILTER_DIAGNOSTICS and sheet_row_counter < DEBUG_ESSENTIAL_ROWS:
+                                    logging.info(f"🚐 VAC Crew detection for row {sheet_row_counter+1}:")
+                                    logging.info(f"   VAC Crew Helping?: '{vac_crew_helping_val}' -> name='{vac_crew_name}'")
+                                    logging.info(f"   Vac Crew Completed Unit?: {vac_crew_completed} -> checked={vac_crew_completed_checked}")
+                                    logging.info(f"   is_vac_crew_row: {is_vac_crew_row}")
+                                
+                                if is_vac_crew_row:
+                                    vac_crew_dept_val = row_data.get('VAC Crew Dept #')
+                                    vac_crew_job_val = row_data.get('Vac Crew Job #')
+                                    row_data['__vac_crew_name'] = vac_crew_name
+                                    row_data['__vac_crew_dept'] = str(vac_crew_dept_val).strip() if vac_crew_dept_val else ''
+                                    row_data['__vac_crew_job'] = str(vac_crew_job_val).strip() if vac_crew_job_val else ''
+                                    vac_crew_email_val = row_data.get('Vac Crew Email Address')
+                                    row_data['__vac_crew_email'] = str(vac_crew_email_val).strip() if vac_crew_email_val else ''
+                                    if FILTER_DIAGNOSTICS and sheet_row_counter < 10:
+                                        logging.info(f"🚐 VAC CREW ROW DETECTED [Row {sheet_row_counter+1}]: WR={wr_key_for_diag}, Name={vac_crew_name}, Dept={row_data['__vac_crew_dept']}, Job={row_data['__vac_crew_job']}")
+                            
+                            row_data['__is_vac_crew'] = is_vac_crew_row
                             
                             sheet_rows.append(row_data)
                             sheet_exclusion_counts['accepted'] += 1
@@ -1831,7 +1908,7 @@ def group_source_rows(rows):
     VAC Crew Variant:
     - VAC Crew Promax grouping (one Excel per WR/Week for VAC Crew sheets)
     - Key format: MMDDYY_WRNUMBER_VACCREW
-    - Only created for rows where __is_vac_crew = True (sheet ID in VAC_CREW_SHEET_IDS)
+    - Only created for rows where __is_vac_crew = True (row-level column-based detection)
     - Generates a separate Excel file with _VacCrew suffix in the filename
     
     Activity Log (DECOMMISSIONED - only in primary mode):
@@ -1897,13 +1974,14 @@ def group_source_rows(rows):
             # VARIANT-AWARE GROUPING: Build keys based on RES_GROUPING_MODE and row type
             keys_to_add = []
             
-            # Check if this row is from a VAC Crew sheet
+            # Check if this row was detected as VAC Crew (row-level column-based detection)
             is_vac_crew_row = r.get('__is_vac_crew', False)
             
             # VAC Crew rows get their own dedicated group key (separate from primary/helper).
-            # A row from a VAC Crew sheet is always treated as vac_crew variant — it cannot
-            # simultaneously be a helper row, because VAC Crew sheets are distinct Smartsheet
-            # sources that do not contain the helper columns (Foreman Helping?, Helper Dept #, etc.).
+            # Detection is row-level: a row is VAC Crew when VAC Crew Helping? is non-blank
+            # AND Vac Crew Completed Unit? is checked. This means the same sheet can produce
+            # both primary/helper rows AND VAC Crew rows — they are mutually exclusive per-row
+            # because a single row is either a VAC Crew row or a regular/helper row.
             if is_vac_crew_row:
                 vac_crew_key = f"{week_end_for_key}_{wr_key}_VACCREW"
                 keys_to_add.append(('vac_crew', vac_crew_key, effective_user))
