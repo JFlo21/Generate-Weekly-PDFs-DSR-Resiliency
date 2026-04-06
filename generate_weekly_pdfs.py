@@ -21,6 +21,7 @@ from datetime import timedelta
 import logging
 from dateutil import parser
 import smartsheet
+import smartsheet.exceptions as ss_exc
 import openpyxl
 from openpyxl.styles import Font, numbers, Alignment, PatternFill
 from openpyxl.drawing.image import Image
@@ -2916,16 +2917,32 @@ def main():
 
                 def _fetch_row_attachments(row_item):
                     wr_num, target_row = row_item
-                    max_retries = 3
+                    max_retries = 4
                     for attempt in range(max_retries):
                         try:
                             atts = client.Attachments.list_row_attachments(TARGET_SHEET_ID, target_row.id).data
                             return (target_row.id, atts)
+                        except (ss_exc.RateLimitExceededError,) as e:
+                            if attempt < max_retries - 1:
+                                backoff = 15 * (attempt + 1)  # 15s, 30s, 45s for rate limits
+                                logging.warning(f"⚠️ Rate limited on attachment fetch for row {target_row.id}, backoff {backoff}s (attempt {attempt+1}/{max_retries})")
+                                time.sleep(backoff)
+                            else:
+                                logging.warning(f"⚠️ Attachment fetch failed after {max_retries} rate-limit retries for row {target_row.id}")
+                                return (target_row.id, [])
+                        except (ss_exc.UnexpectedErrorShouldRetryError, ss_exc.InternalServerError, ss_exc.ServerTimeoutExceededError) as e:
+                            if attempt < max_retries - 1:
+                                backoff = 2 ** attempt + 0.5
+                                logging.warning(f"⚠️ Attachment fetch retry {attempt+1}/{max_retries} for row {target_row.id} ({type(e).__name__}), backoff {backoff:.1f}s")
+                                time.sleep(backoff)
+                            else:
+                                logging.warning(f"⚠️ Attachment fetch failed after {max_retries} attempts for row {target_row.id}: {type(e).__name__}")
+                                return (target_row.id, [])
                         except Exception as e:
                             err_name = type(e).__name__
-                            is_transient = 'RemoteDisconnected' in err_name or 'ConnectionError' in err_name or 'ConnectionReset' in err_name
+                            is_transient = any(tag in err_name for tag in ('RemoteDisconnected', 'ConnectionError', 'ConnectionReset', 'SSLError', 'SSLEOFError', 'Timeout'))
                             if is_transient and attempt < max_retries - 1:
-                                backoff = 2 ** attempt + 0.5  # 1.5s, 2.5s
+                                backoff = 2 ** attempt + 0.5
                                 logging.warning(f"⚠️ Attachment fetch retry {attempt+1}/{max_retries} for row {target_row.id} ({err_name}), backoff {backoff:.1f}s")
                                 time.sleep(backoff)
                             else:
@@ -2988,13 +3005,17 @@ def main():
                     helper_dept = first_row.get('__helper_dept', '')
                     helper_job = first_row.get('__helper_job', '')
                     identifier = f"{helper_foreman}|{helper_dept}|{helper_job}"
+                    # file_identifier matches the sanitized name that generate_excel() puts in the filename
+                    file_identifier = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50] if helper_foreman else ''
                 elif variant == 'vac_crew':
                     # VAC Crew variant: no sub-identifier needed (all vac_crew rows for WR/week go together)
                     identifier = ''
+                    file_identifier = ''
                 else:
                     user_val = first_row.get('User')
                     # PERFORMANCE: Use pre-compiled regex for identifier sanitization
                     identifier = _RE_SANITIZE_IDENTIFIER.sub('_', user_val)[:50] if user_val else ''
+                    file_identifier = identifier
                 
                 # History key includes variant dimension to prevent collisions
                 history_key = f"{wr_num}|{week_raw}|{variant}|{identifier}"
@@ -3055,6 +3076,7 @@ def main():
                             'target_row': target_map[wr_num_upload],
                             'variant': variant,
                             'identifier': identifier,
+                            'file_identifier': file_identifier,
                             'data_hash': data_hash,
                             'week_raw': week_raw,
                             'group_key': group_key,
@@ -3115,7 +3137,7 @@ def main():
 
             def _upload_one(task):
                 """Delete old attachment + upload new one for a single group."""
-                max_retries = 3
+                max_retries = 4
                 last_err = None
                 for attempt in range(max_retries):
                     try:
@@ -3125,7 +3147,7 @@ def main():
                         deleted_count, skipped = delete_old_excel_attachments(
                             client, TARGET_SHEET_ID, target_row, task['wr_num'],
                             task['week_raw'], task['data_hash'],
-                            variant=task['variant'], identifier=task['identifier'],
+                            variant=task['variant'], identifier=task['file_identifier'],
                             force_generation=force_this,
                             cached_attachments=attachment_cache.get(target_row.id)
                         )
@@ -3147,10 +3169,26 @@ def main():
                         else:
                             logging.info(f"⏭️  Skipping upload (SKIP_UPLOAD=true): {task['filename']}")
                             return 'skip_upload'
+                    except ss_exc.RateLimitExceededError as e:
+                        last_err = e
+                        if attempt < max_retries - 1:
+                            backoff = 15 * (attempt + 1)  # 15s, 30s, 45s for rate limits
+                            logging.warning(f"⚠️ Rate limited on upload for {task['filename']}, backoff {backoff}s (attempt {attempt+1}/{max_retries})")
+                            time.sleep(backoff)
+                        else:
+                            break
+                    except (ss_exc.UnexpectedErrorShouldRetryError, ss_exc.InternalServerError, ss_exc.ServerTimeoutExceededError) as e:
+                        last_err = e
+                        if attempt < max_retries - 1:
+                            backoff = 2 ** attempt + 0.5
+                            logging.warning(f"⚠️ Upload retry {attempt+1}/{max_retries} for {task['filename']} ({type(e).__name__}), backoff {backoff:.1f}s")
+                            time.sleep(backoff)
+                        else:
+                            break
                     except Exception as e:
                         last_err = e
                         err_name = type(e).__name__
-                        is_transient = 'RemoteDisconnected' in err_name or 'ConnectionError' in err_name or 'ConnectionReset' in err_name
+                        is_transient = any(tag in err_name for tag in ('RemoteDisconnected', 'ConnectionError', 'ConnectionReset', 'SSLError', 'SSLEOFError', 'Timeout'))
                         if is_transient and attempt < max_retries - 1:
                             backoff = 2 ** attempt + 0.5
                             logging.warning(f"⚠️ Upload retry {attempt+1}/{max_retries} for {task['filename']} ({err_name}), backoff {backoff:.1f}s")
@@ -3203,21 +3241,21 @@ def main():
                 wr = str(wr_raw).split('.')[0] if wr_raw else ''
                 variant = group_rows[0].get('__variant', 'primary')
                 if variant == 'helper':
-                    # CRITICAL FIX: Include helper dept and job in identifier (matches hash history key)
+                    # Use filename-level identifier (sanitized foreman only) to match build_group_identity output
                     helper_foreman = group_rows[0].get('__helper_foreman', '')
-                    helper_dept = group_rows[0].get('__helper_dept', '')
-                    helper_job = group_rows[0].get('__helper_job', '')
-                    identifier = f"{helper_foreman}|{helper_dept}|{helper_job}"
+                    file_id = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50] if helper_foreman else ''
                 elif variant == 'vac_crew':
-                    identifier = ''
+                    file_id = ''
                 else:
                     user_val = group_rows[0].get('User')
                     # PERFORMANCE: Use pre-compiled regex
-                    identifier = _RE_SANITIZE_IDENTIFIER.sub('_', user_val)[:50] if user_val else ''
-                valid_wr_weeks.add((wr, week_raw, variant, identifier))
+                    file_id = _RE_SANITIZE_IDENTIFIER.sub('_', user_val)[:50] if user_val else ''
+                valid_wr_weeks.add((wr, week_raw, variant, file_id))
         if not TEST_MODE:
+            # Invalidate stale attachment cache after upload phase — uploads added/deleted attachments
+            _cleanup_cache = attachment_cache if not _upload_tasks else None
             with sentry_sdk.start_span(op="smartsheet.cleanup", description="Cleanup untracked sheet attachments"):
-                cleanup_untracked_sheet_attachments(client, TARGET_SHEET_ID, valid_wr_weeks, TEST_MODE, attachment_cache=attachment_cache, target_sheet=_target_sheet_obj)
+                cleanup_untracked_sheet_attachments(client, TARGET_SHEET_ID, valid_wr_weeks, TEST_MODE, attachment_cache=_cleanup_cache, target_sheet=_target_sheet_obj)
 
         # Cleanup legacy / stale Excel files so only current system outputs remain
         try:
@@ -3237,6 +3275,33 @@ def main():
         
         # Persist hash history if updated
         if history_updates:
+            # Prune stale hash_history entries for groups no longer in source data.
+            # Only prune on FULL runs (not time-budget-truncated runs) to avoid
+            # deleting entries for groups that simply weren't reached this run.
+            if not _time_budget_exceeded:
+                current_keys = set()
+                for key, group_rows in groups.items():
+                    if '_' in key:
+                        _wr_raw = group_rows[0].get('Work Request #')
+                        _wr = str(_wr_raw).split('.')[0] if _wr_raw else ''
+                        _week = key.split('_',1)[0]
+                        _variant = group_rows[0].get('__variant', 'primary')
+                        if _variant == 'helper':
+                            _hf = group_rows[0].get('__helper_foreman', '')
+                            _hd = group_rows[0].get('__helper_dept', '')
+                            _hj = group_rows[0].get('__helper_job', '')
+                            _ident = f"{_hf}|{_hd}|{_hj}"
+                        elif _variant == 'vac_crew':
+                            _ident = ''
+                        else:
+                            _uv = group_rows[0].get('User')
+                            _ident = _RE_SANITIZE_IDENTIFIER.sub('_', _uv)[:50] if _uv else ''
+                        current_keys.add(f"{_wr}|{_week}|{_variant}|{_ident}")
+                stale_keys = [k for k in hash_history if k not in current_keys]
+                if stale_keys:
+                    for sk in stale_keys:
+                        del hash_history[sk]
+                    logging.info(f"🧹 Pruned {len(stale_keys)} stale hash history entries (groups no longer in source data)")
             save_hash_history(HASH_HISTORY_PATH, hash_history)
 
         # Write run summary JSON for downstream consumers (Notion sync, dashboards)
