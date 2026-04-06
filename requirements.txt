@@ -18,3 +18,4 @@ psutil==6.0.0
 # Testing and Coverage
 pytest==8.3.3
 pytest-cov==6.0.0
+requests>=2.33.0 # not directly required, pinned by Snyk to avoid a vulnerability
