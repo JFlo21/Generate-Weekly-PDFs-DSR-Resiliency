@@ -3,66 +3,74 @@
 ## Last Updated: April 6, 2026
 
 ## Current State
-All planned changes for this session are **COMPLETE** and syntax-validated.
+VAC Crew data isolation fixes are **COMPLETE** and syntax-validated. Three additional runtime fixes (RemoteDisconnected retry, WR float normalization, utcnow deprecation) also applied in this session.
 
-## What Was Just Completed
-The VAC Crew refactor from sheet-level to row-level detection is fully implemented and all stale sheet-level artifacts have been removed. The code compiles cleanly.
+## What Was Just Completed (VAC Crew Data Isolation - April 6 2026)
 
-### Changes Made to `generate_weekly_pdfs.py` (by section):
+### Root Cause: Incorrect VAC Crew foreman name
+- `generate_excel()` header section (lines ~2430-2446) only checked `variant == 'helper'` and fell through to `else` for both `primary` AND `vac_crew`
+- VAC Crew sheets displayed `current_foreman` (the primary foreman from `Foreman Assigned?` / `Foreman` columns) instead of `__vac_crew_name` (from `VAC Crew Helping?` column)
+- Additionally, group key creation (line ~1987) passed `effective_user` (primary foreman) as the foreman for VAC Crew groups, setting `__current_foreman` to the wrong person
 
-#### 1. Config Section (~line 198-203)
-- **Removed**: `VAC_CREW_SHEET_IDS`, `VAC_CREW_FOLDER_IDS` env var config
-- **Removed**: `_FOLDER_DISCOVERED_VAC_CREW_IDS` runtime set
-- **Added**: Comment block explaining VAC Crew is now row-level detection
+### Root Cause: Arrowhead job number leakage
+- No "Arrowhead" code exists in the codebase — Arrowhead is a **contract type** whose data lives in the same Smartsheet rows
+- When a row belongs to an Arrowhead contract, its `Job #` column contains the Arrowhead job number
+- `generate_excel()` read `job_number` from the generic `Job #` column for all non-helper variants
+- VAC Crew rows on Arrowhead-contract sheets had `Job #` = Arrowhead job number, which leaked into Excel output
+- VAC Crew should use `__vac_crew_job` (from `Vac Crew Job #` column) instead
 
-#### 2. Column Synonyms Dict (~line 1368-1379)
-- **Added**: 10 VAC Crew synonym entries mapping case variants to canonical names:
-  - `VAC Crew Helping?`, `Vac Crew Helping?` → `VAC Crew Helping?`
-  - `Vac Crew Completed Unit?`, `VAC Crew Completed Unit?` → `Vac Crew Completed Unit?`
-  - `VAC Crew Dept #`, `Vac Crew Dept #` → `VAC Crew Dept #`
-  - `Vac Crew Job #`, `VAC Crew Job #` → `Vac Crew Job #`
-  - `Vac Crew Email Address`, `VAC Crew Email Address` → `Vac Crew Email Address`
+### Fixes Applied
 
-#### 3. Column Mapping Debug (~line 1384-1396)
-- **Added**: `vac_crew_columns_found` list tracking
-- **Added**: VAC Crew column title detection (`'Vac Crew' in c.title or 'VAC Crew' in c.title`)
-- **Added**: 🚐 emoji logging for mapped VAC Crew columns
+#### 1. Excel header variant branching (generate_excel ~line 2432-2441)
+- Added `elif variant == 'vac_crew':` clause between helper and primary
+- `display_foreman = first_row.get('__vac_crew_name', 'Unknown VAC Crew')`
+- `display_dept = first_row.get('__vac_crew_dept', '')`
+- `display_job = first_row.get('__vac_crew_job', '')`
 
-#### 4. Column Presence Detection (~line 1581-1596)
-- **Added**: `vac_crew_columns` list of 4 expected columns
-- **Added**: `found_vac_crew_cols` for presence reporting
-- **Added**: `sheet_has_vac_crew_columns` boolean = `'VAC Crew Helping?' in column_mapping and 'Vac Crew Completed Unit?' in column_mapping`
-- **Added**: Logging for VAC Crew column presence/absence per sheet
+#### 2. Group key foreman assignment (~line 1997-2000)
+- Changed from `keys_to_add.append(('vac_crew', vac_crew_key, effective_user))`
+- To: `vac_crew_foreman = r.get('__vac_crew_name') or effective_user`
+- Then: `keys_to_add.append(('vac_crew', vac_crew_key, vac_crew_foreman))`
+- This ensures `__current_foreman` on VAC Crew row copies is the VAC Crew name
 
-#### 5. Row-Level Detection (~line 1742-1771)
-- **Removed**: `is_vac_crew_sheet = source['id'] in VAC_CREW_SHEET_IDS`
-- **Removed**: `row_data['__is_vac_crew'] = is_vac_crew_sheet`
-- **Added**: Full row-level detection block:
-  - Gated by `sheet_has_vac_crew_columns`
-  - Gets `VAC Crew Helping?` value → `vac_crew_name`
-  - Gets `Vac Crew Completed Unit?` checkbox → `vac_crew_completed_checked`
-  - `is_vac_crew_row = bool(vac_crew_name and vac_crew_completed_checked and units_completed_checked)`
-  - Populates `__vac_crew_name`, `__vac_crew_dept`, `__vac_crew_job`, `__vac_crew_email`
-  - FILTER_DIAGNOSTICS logging with 🚐 emoji
+#### 3. Hash calculation VAC Crew metadata (~line 721-730)
+- Added `elif variant == 'vac_crew':` clause mirroring helper pattern
+- Includes `VACCREW=`, `VACCREW_DEPT=`, `VACCREW_JOB=` in hash metadata
+- Changes to VAC Crew name/dept/job will now correctly trigger file regeneration
 
-#### 6. Grouping Section (~line 1978-1993)
-- **Updated**: Comment from "sheet-level" to "row-level column-based detection"
-- **Updated**: Notes that same sheet can produce both primary/helper AND VAC Crew rows
+### How VAC Crew data isolation now works
+```
+Row Input → Row Detection (lines 1740-1770)
+  ├── __vac_crew_name    ← from "VAC Crew Helping?" column
+  ├── __vac_crew_dept    ← from "VAC Crew Dept #" column
+  ├── __vac_crew_job     ← from "Vac Crew Job #" column
+  └── __vac_crew_email   ← from "Vac Crew Email Address" column
 
-#### 7. Discovery Function (~line 1140-1470)
-- **Cleaned**: Removed `_FOLDER_DISCOVERED_VAC_CREW_IDS` from global declaration
-- **Cleaned**: Removed `if VAC_CREW_FOLDER_IDS:` folder discovery block
-- **Cleaned**: Removed `_FOLDER_DISCOVERED_VAC_CREW_IDS` from `_all_folder_discovered_ids` union
-- **Cleaned**: Removed `vac_crew_sheet_ids` from cache-hit restore path
-- **Cleaned**: Removed `vac_crew_sheet_ids` from incremental mode restore path
-- **Cleaned**: Removed `_FOLDER_DISCOVERED_VAC_CREW_IDS` from folder merge union
-- **Cleaned**: Removed `'vac_crew_sheet_ids': sorted(VAC_CREW_SHEET_IDS)` from cache save
+Grouping (line ~1997)
+  └── __current_foreman = __vac_crew_name (NOT effective_user)
+
+Excel Generation (lines ~2432-2441)
+  ├── display_foreman = __vac_crew_name     (NOT current_foreman from primary)
+  ├── display_dept    = __vac_crew_dept     (NOT Dept # from row)
+  └── display_job     = __vac_crew_job      (NOT Job # from row — blocks Arrowhead leakage)
+
+Hash (lines ~721-730)
+  ├── VACCREW={name}
+  ├── VACCREW_DEPT={dept}
+  └── VACCREW_JOB={job}
+```
+
+### Cross-contamination prevention
+- **Primary variant**: Uses `current_foreman`, `Dept #`, `job_number` (from `Job #` column) — UNCHANGED
+- **Helper variant**: Uses `__helper_foreman`, `__helper_dept`, `__helper_job` — UNCHANGED  
+- **VAC Crew variant**: Uses `__vac_crew_name`, `__vac_crew_dept`, `__vac_crew_job` — NOW ISOLATED
+- Each variant has explicit `if/elif/else` branching; no fallthrough contamination possible
 
 ## What Needs Attention Next
-1. **End-to-end test**: Run the workflow against real Smartsheet data to verify VAC Crew rows are correctly detected and grouped
-2. **VAC Crew Excel output**: Verify the generated Excel files for VAC Crew groups contain the correct metadata fields
-3. **Unit tests**: Consider adding tests for VAC Crew row-level detection logic
-4. **Git commit**: All changes are local — need to commit and push to master
+1. **Git commit & push**: All VAC Crew data isolation fixes + runtime fixes are local — need to commit and push to master
+2. **End-to-end test**: Run the workflow against real Smartsheet data to verify VAC Crew Excel sheets now show correct names and job numbers
+3. **Arrowhead validation**: Specifically check VAC Crew sheets generated from Arrowhead-contract rows — Job # should be VAC Crew Job #, not Arrowhead Job #
+4. **Unit tests**: Consider adding tests for VAC Crew Excel header population
 
 ## Key Architecture Fact
 VAC Crew rows live in the **same sheets** as regular/helper rows (folder `8815193070299012`). The 5 VAC Crew columns discovered from sheet `1413438401105796`:

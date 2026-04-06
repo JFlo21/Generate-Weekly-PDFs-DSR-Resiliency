@@ -718,6 +718,16 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
         meta_parts.append(f"HELPER={helper_foreman}")
         meta_parts.append(f"HELPER_DEPT={helper_dept}")
         meta_parts.append(f"HELPER_JOB={helper_job}")  # Include even if empty for hash consistency
+    elif variant == 'vac_crew':
+        # VAC Crew variant: include VAC Crew-specific metadata so hash changes
+        # when VAC Crew name/dept/job change (mirrors helper pattern)
+        _first = sorted_rows[0] if sorted_rows else {}
+        vac_crew_name = _first.get('__vac_crew_name', '')
+        vac_crew_dept = _first.get('__vac_crew_dept', '')
+        vac_crew_job = _first.get('__vac_crew_job', '')
+        meta_parts.append(f"VACCREW={vac_crew_name}")
+        meta_parts.append(f"VACCREW_DEPT={vac_crew_dept}")
+        meta_parts.append(f"VACCREW_JOB={vac_crew_job}")
     
     meta_parts.append(f"DEPTS={','.join(unique_depts)}")
     meta_parts.append(f"TOTAL={total_price:.2f}")
@@ -1984,7 +1994,10 @@ def group_source_rows(rows):
             # because a single row is either a VAC Crew row or a regular/helper row.
             if is_vac_crew_row:
                 vac_crew_key = f"{week_end_for_key}_{wr_key}_VACCREW"
-                keys_to_add.append(('vac_crew', vac_crew_key, effective_user))
+                # Use VAC Crew name (from 'VAC Crew Helping?' column) as the foreman
+                # for this group — NOT the primary foreman (effective_user).
+                vac_crew_foreman = r.get('__vac_crew_name') or effective_user
+                keys_to_add.append(('vac_crew', vac_crew_key, vac_crew_foreman))
                 # Only log at info level the first time a new group key is seen; subsequent
                 # rows belonging to the same WR/week VAC Crew group log at debug to avoid
                 # flooding logs with hundreds of identical "GROUP CREATED" messages.
@@ -2420,6 +2433,12 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         display_foreman = first_row.get('__helper_foreman', 'Unknown Helper')
         display_dept = first_row.get('__helper_dept', '')
         display_job = first_row.get('__helper_job', '')
+    elif variant == 'vac_crew':
+        # VAC Crew variant: use VAC Crew-specific name, dept, and job fields.
+        # Must NOT fall back to primary foreman or primary Job # (which may be Arrowhead).
+        display_foreman = first_row.get('__vac_crew_name', 'Unknown VAC Crew')
+        display_dept = first_row.get('__vac_crew_dept', '')
+        display_job = first_row.get('__vac_crew_job', '')
     else:
         # Primary variant: show primary foreman with standard dept/job from row data
         display_foreman = current_foreman
@@ -2888,11 +2907,22 @@ def main():
 
                 def _fetch_row_attachments(row_item):
                     wr_num, target_row = row_item
-                    try:
-                        atts = client.Attachments.list_row_attachments(TARGET_SHEET_ID, target_row.id).data
-                        return (target_row.id, atts)
-                    except Exception:
-                        return (target_row.id, [])
+                    max_retries = 3
+                    for attempt in range(max_retries):
+                        try:
+                            atts = client.Attachments.list_row_attachments(TARGET_SHEET_ID, target_row.id).data
+                            return (target_row.id, atts)
+                        except Exception as e:
+                            err_name = type(e).__name__
+                            is_transient = 'RemoteDisconnected' in err_name or 'ConnectionError' in err_name or 'ConnectionReset' in err_name
+                            if is_transient and attempt < max_retries - 1:
+                                backoff = 2 ** attempt + 0.5  # 1.5s, 2.5s
+                                logging.warning(f"⚠️ Attachment fetch retry {attempt+1}/{max_retries} for row {target_row.id} ({err_name}), backoff {backoff:.1f}s")
+                                time.sleep(backoff)
+                            else:
+                                if attempt > 0:
+                                    logging.warning(f"⚠️ Attachment fetch failed after {max_retries} attempts for row {target_row.id}: {err_name}")
+                                return (target_row.id, [])
                 
                 with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
                     futures = [executor.submit(_fetch_row_attachments, item) for item in target_map.items()]
@@ -2935,7 +2965,8 @@ def main():
             try:
                 # Calculate data hash for change detection
                 data_hash = calculate_data_hash(group_rows)
-                wr_num = group_rows[0].get('Work Request #')
+                wr_num_raw = group_rows[0].get('Work Request #')
+                wr_num = str(wr_num_raw).split('.')[0] if wr_num_raw else ''
                 week_raw = group_key.split('_',1)[0] if '_' in group_key else ''
                 
                 # Extract variant and identifier for variant-aware hash history
@@ -3026,7 +3057,7 @@ def main():
                 hash_history[history_key] = {
                     'hash': data_hash,
                     'rows': len(group_rows),
-                    'updated_at': datetime.datetime.utcnow().isoformat() + 'Z',
+                    'updated_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
                     'foreman': group_rows[0].get('__current_foreman'),
                     'week': week_raw,
                     'variant': variant,
@@ -3075,41 +3106,53 @@ def main():
 
             def _upload_one(task):
                 """Delete old attachment + upload new one for a single group."""
-                try:
-                    target_row = task['target_row']
-                    force_this = FORCE_GENERATION or (task['week_raw'] in REGEN_WEEKS)
+                max_retries = 3
+                last_err = None
+                for attempt in range(max_retries):
+                    try:
+                        target_row = task['target_row']
+                        force_this = FORCE_GENERATION or (task['week_raw'] in REGEN_WEEKS)
 
-                    deleted_count, skipped = delete_old_excel_attachments(
-                        client, TARGET_SHEET_ID, target_row, task['wr_num'],
-                        task['week_raw'], task['data_hash'],
-                        variant=task['variant'], identifier=task['identifier'],
-                        force_generation=force_this,
-                        cached_attachments=attachment_cache.get(target_row.id)
-                    )
-                    if force_this and skipped:
-                        skipped = False
+                        deleted_count, skipped = delete_old_excel_attachments(
+                            client, TARGET_SHEET_ID, target_row, task['wr_num'],
+                            task['week_raw'], task['data_hash'],
+                            variant=task['variant'], identifier=task['identifier'],
+                            force_generation=force_this,
+                            cached_attachments=attachment_cache.get(target_row.id)
+                        )
+                        if force_this and skipped:
+                            skipped = False
 
-                    if skipped:
-                        return 'skipped'
+                        if skipped:
+                            return 'skipped'
 
-                    if not SKIP_UPLOAD:
-                        with open(task['excel_path'], 'rb') as file:
-                            client.Attachments.attach_file_to_row(
-                                TARGET_SHEET_ID,
-                                target_row.id,
-                                (task['filename'], file, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-                            )
-                        logging.info(f"✅ Uploaded: {task['filename']}")
-                        return 'uploaded'
-                    else:
-                        logging.info(f"⏭️  Skipping upload (SKIP_UPLOAD=true): {task['filename']}")
-                        return 'skip_upload'
-                except Exception as e:
-                    logging.error(f"❌ Upload failed for {task['filename']}: {e}")
-                    sentry_add_breadcrumb("upload", f"Upload failed for {task['filename']}", level="error", data={
-                        "wr": task['wr_num'], "error": str(e)[:200],
-                    })
-                    return 'error'
+                        if not SKIP_UPLOAD:
+                            with open(task['excel_path'], 'rb') as file:
+                                client.Attachments.attach_file_to_row(
+                                    TARGET_SHEET_ID,
+                                    target_row.id,
+                                    (task['filename'], file, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                                )
+                            logging.info(f"✅ Uploaded: {task['filename']}")
+                            return 'uploaded'
+                        else:
+                            logging.info(f"⏭️  Skipping upload (SKIP_UPLOAD=true): {task['filename']}")
+                            return 'skip_upload'
+                    except Exception as e:
+                        last_err = e
+                        err_name = type(e).__name__
+                        is_transient = 'RemoteDisconnected' in err_name or 'ConnectionError' in err_name or 'ConnectionReset' in err_name
+                        if is_transient and attempt < max_retries - 1:
+                            backoff = 2 ** attempt + 0.5
+                            logging.warning(f"⚠️ Upload retry {attempt+1}/{max_retries} for {task['filename']} ({err_name}), backoff {backoff:.1f}s")
+                            time.sleep(backoff)
+                        else:
+                            break
+                logging.error(f"❌ Upload failed for {task['filename']}: {last_err}")
+                sentry_add_breadcrumb("upload", f"Upload failed for {task['filename']}", level="error", data={
+                    "wr": task['wr_num'], "error": str(last_err)[:200],
+                })
+                return 'error'
 
             with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
                 upload_results = list(executor.map(_upload_one, _upload_tasks))
