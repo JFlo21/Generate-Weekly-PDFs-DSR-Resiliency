@@ -108,7 +108,7 @@ env:
 
 jobs:
   core:
-    runs-on: ubuntu-latest-m
+    runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
       PYTHONUNBUFFERED: 1
