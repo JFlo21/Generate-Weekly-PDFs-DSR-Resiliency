@@ -161,6 +161,9 @@ USE_DISCOVERY_CACHE = os.getenv('USE_DISCOVERY_CACHE','1').lower() in ('1','true
 DISCOVERY_CACHE_TTL_MIN = int(os.getenv('DISCOVERY_CACHE_TTL_MIN','10080') or 10080)
 FORCE_REDISCOVERY = os.getenv('FORCE_REDISCOVERY','false').lower() in ('1','true','yes')
 DISCOVERY_CACHE_PATH = os.path.join(OUTPUT_FOLDER, 'discovery_cache.json')
+# Bump this version whenever the column synonym dictionary changes so that stale caches
+# (missing newly-mapped columns like VAC Crew) are automatically invalidated.
+DISCOVERY_CACHE_VERSION = 2  # v2: added VAC Crew column synonyms
 # Verbose debug tunables
 DEBUG_SAMPLE_ROWS = int(os.getenv('DEBUG_SAMPLE_ROWS','3') or 3)  # How many initial rows (across all sheets) to show full per-cell mapping
 DEBUG_ESSENTIAL_ROWS = int(os.getenv('DEBUG_ESSENTIAL_ROWS','5') or 5)  # How many initial rows to log essential field summary
@@ -1172,6 +1175,11 @@ def discover_source_sheets(client):
         try:
             with open(DISCOVERY_CACHE_PATH,'r') as f:
                 cache = json.load(f)
+            # Check cache schema version — invalidate if column synonyms have changed
+            cached_version = cache.get('schema_version', 1)
+            if cached_version < DISCOVERY_CACHE_VERSION:
+                logging.info(f"🔄 Discovery cache schema outdated (v{cached_version} < v{DISCOVERY_CACHE_VERSION}) — forcing full rediscovery")
+                raise ValueError('cache schema outdated')
             ts = datetime.datetime.fromisoformat(cache.get('timestamp'))
             age_min = (datetime.datetime.now() - ts).total_seconds()/60.0
             _cached_sheet_ids_from_file = {s['id'] for s in cache.get('sheets', [])}
@@ -1477,6 +1485,7 @@ def discover_source_sheets(client):
         try:
             with open(DISCOVERY_CACHE_PATH,'w') as f:
                 json.dump({
+                    'schema_version': DISCOVERY_CACHE_VERSION,
                     'timestamp': datetime.datetime.now().isoformat(),
                     'sheets': discovered,
                     'subcontractor_sheet_ids': sorted(SUBCONTRACTOR_SHEET_IDS),
@@ -3190,7 +3199,8 @@ def main():
         for key, group_rows in groups.items():
             if '_' in key:
                 week_raw = key.split('_',1)[0]
-                wr = group_rows[0].get('Work Request #')
+                wr_raw = group_rows[0].get('Work Request #')
+                wr = str(wr_raw).split('.')[0] if wr_raw else ''
                 variant = group_rows[0].get('__variant', 'primary')
                 if variant == 'helper':
                     # CRITICAL FIX: Include helper dept and job in identifier (matches hash history key)
