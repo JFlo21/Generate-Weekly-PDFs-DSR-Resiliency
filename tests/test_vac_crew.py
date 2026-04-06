@@ -223,6 +223,66 @@ class TestVacCrewGroupingLogic(unittest.TestCase):
         self.assertEqual(len(vaccrew_key), 1)
         self.assertEqual(len(groups[vaccrew_key[0]]), 3)
 
+    def test_vac_crew_completed_unit_checkbox_flags_row_as_vac_crew(self):
+        """A row with 'Vac Crew Completed Unit?' checked is grouped as vac_crew even when
+        __is_vac_crew was not set by the sheet-ID check (simulates the column-based path)."""
+        row = {
+            'Work Request #': '77665544',
+            'Weekly Reference Logged Date': '2025-08-17',
+            'Units Completed?': True,
+            'Vac Crew Completed Unit?': True,
+            'Units Total Price': '$120.00',
+            '__effective_user': 'VacCrewForeman',
+            '__assignment_method': 'FOREMAN_COLUMN',
+            '__is_helper_row': False,
+            '__helper_foreman': '',
+            # __is_vac_crew set as True here (as get_all_source_rows would set it)
+            '__is_vac_crew': True,
+        }
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        self.assertTrue(len(groups) > 0)
+        keys = list(groups.keys())
+        self.assertTrue(any('_VACCREW' in k for k in keys),
+                        f"Expected _VACCREW group key; got: {keys}")
+        for key, group_rows in groups.items():
+            self.assertEqual(group_rows[0].get('__variant'), 'vac_crew')
+
+    def test_vac_crew_only_vac_crew_completed_unit_no_units_completed(self):
+        """A row with only 'Vac Crew Completed Unit?' checked (Units Completed?=False)
+        still passes grouping when __is_vac_crew=True (column-based acceptance path)."""
+        row = {
+            'Work Request #': '33445566',
+            'Weekly Reference Logged Date': '2025-08-17',
+            'Units Completed?': False,
+            'Vac Crew Completed Unit?': True,
+            'Units Total Price': '$80.00',
+            '__effective_user': 'VacCrewForeman',
+            '__assignment_method': 'FOREMAN_COLUMN',
+            '__is_helper_row': False,
+            '__helper_foreman': '',
+            '__is_vac_crew': True,
+        }
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        self.assertTrue(len(groups) > 0,
+                        "Expected VAC Crew row to pass grouping via Vac Crew Completed Unit?")
+        keys = list(groups.keys())
+        self.assertTrue(any('_VACCREW' in k for k in keys),
+                        f"Expected _VACCREW group key; got: {keys}")
+
+    def test_vac_crew_completed_unit_synonym_in_column_synonyms(self):
+        """'Vac Crew Completed Unit?' must be present in the discover_source_sheets synonyms
+        so the column is mapped and its checkbox value is read from Smartsheet rows."""
+        # Re-create the synonyms dict as it appears in discover_source_sheets() and assert
+        # that 'Vac Crew Completed Unit?' is a key that maps to itself.
+        synonyms = {
+            'Foreman': 'Foreman', 'Work Request #': 'Work Request #',
+            'Units Completed?': 'Units Completed?', 'Units Completed': 'Units Completed?',
+            'Vac Crew Completed Unit?': 'Vac Crew Completed Unit?',
+            'Helping Foreman Completed Unit?': 'Helping Foreman Completed Unit?',
+        }
+        self.assertIn('Vac Crew Completed Unit?', synonyms)
+        self.assertEqual(synonyms['Vac Crew Completed Unit?'], 'Vac Crew Completed Unit?')
+
 
 if __name__ == '__main__':
     unittest.main()

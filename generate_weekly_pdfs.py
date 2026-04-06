@@ -1344,6 +1344,8 @@ def discover_source_sheets(client):
                 'Unit Description':'CU Description','Unit of Measure':'Unit of Measure','UOM':'Unit of Measure','Quantity':'Quantity','Qty':'Quantity','# Units':'Quantity',
                 'Units Total Price':'Units Total Price','Total Price':'Units Total Price','Redlined Total Price':'Units Total Price','Scope #':'Scope #','Scope ID':'Scope #',
                 'Job #':'Job #','Units Completed?':'Units Completed?','Units Completed':'Units Completed?',
+                # VAC Crew completion checkbox — when checked, row is treated as a VAC Crew row
+                'Vac Crew Completed Unit?':'Vac Crew Completed Unit?',
                 # Helper variant columns (exact names with brackets as authoritative)
                 'Helper Job [#]':'Helper Job #',  # Exact spelling with brackets
                 'Helper Job':'Helper Job #',      # Fallback synonym
@@ -1605,9 +1607,15 @@ def get_all_source_rows(client, source_sheets):
                         has_price = (price_raw not in (None, "", "$0", "$0.00", "0", "0.0")) and price_val > 0
                         units_completed = row_data.get('Units Completed?')
                         units_completed_checked = is_checked(units_completed)
+                        # "Vac Crew Completed Unit?" is the VAC Crew-specific completion checkbox.
+                        # When checked it acts as a secondary completion signal and forces the row
+                        # into the vac_crew variant even if the sheet is not in VAC_CREW_SHEET_IDS.
+                        vac_crew_completed_checked = is_checked(row_data.get('Vac Crew Completed Unit?'))
+                        # Effective completion: either standard checkbox OR vac crew checkbox
+                        effective_completed = units_completed_checked or vac_crew_completed_checked
 
                         if sheet_row_counter < DEBUG_ESSENTIAL_ROWS:
-                            logging.info(f"🔍 Row data sample: WR={work_request}, Price={price_val}, Date={weekly_date}, Units Completed={units_completed} ({units_completed_checked})")
+                            logging.info(f"🔍 Row data sample: WR={work_request}, Price={price_val}, Date={weekly_date}, Units Completed={units_completed} ({units_completed_checked}), Vac Crew Completed={vac_crew_completed_checked}")
 
                         # Record raw foreman regardless of acceptance (if WR exists)
                         wr_key_for_diag = None
@@ -1616,8 +1624,8 @@ def get_all_source_rows(client, source_sheets):
                             fr_val = (row_data.get('Foreman') or '').strip() or '<<blank>>'
                             sheet_foreman_counts[wr_key_for_diag][fr_val] += 1
 
-                        # Acceptance logic (STRICT: Units Completed? must be checked/true)
-                        if work_request and weekly_date and units_completed_checked and has_price:
+                        # Acceptance logic: Units Completed? OR Vac Crew Completed Unit? must be checked
+                        if work_request and weekly_date and effective_completed and has_price:
                             # CU no-match exclusion: drop backend placeholder rows like "#NO MATCH..."
                             cu_raw = (row_data.get('CU') or row_data.get('Billable Unit Code') or '')
                             cu_text = str(cu_raw).strip().upper()
@@ -1690,8 +1698,10 @@ def get_all_source_rows(client, source_sheets):
                             # Store effective user and method for grouping
                             row_data['__effective_user'] = effective_user
                             row_data['__assignment_method'] = assignment_method
-                            # Tag VAC Crew rows so grouping creates the vac_crew variant
-                            row_data['__is_vac_crew'] = is_vac_crew_sheet
+                            # Tag VAC Crew rows so grouping creates the vac_crew variant.
+                            # A row is VAC Crew if the sheet is in VAC_CREW_SHEET_IDS OR if
+                            # the "Vac Crew Completed Unit?" checkbox is checked on this row.
+                            row_data['__is_vac_crew'] = is_vac_crew_sheet or vac_crew_completed_checked
                             
                             sheet_rows.append(row_data)
                             sheet_exclusion_counts['accepted'] += 1
@@ -1705,7 +1715,7 @@ def get_all_source_rows(client, source_sheets):
                                 sheet_exclusion_counts['missing_weekly_reference_logged_date'] += 1
                                 if wr_key_for_diag:
                                     sheet_wr_exclusion_reasons[wr_key_for_diag]['missing_weekly_reference_logged_date'] += 1
-                            elif not units_completed_checked:
+                            elif not effective_completed:
                                 sheet_exclusion_counts['units_not_completed'] += 1
                                 if wr_key_for_diag:
                                     sheet_wr_exclusion_reasons[wr_key_for_diag]['units_not_completed'] += 1
@@ -1876,9 +1886,15 @@ def group_source_rows(rows):
         
         # Check if Units Completed? is true/1
         units_completed_checked = is_checked(units_completed)
+        
+        # Check VAC Crew status early — rows flagged by the "Vac Crew Completed Unit?"
+        # checkbox may have units_completed_checked=False; they must still pass the guard.
+        is_vac_crew_row = r.get('__is_vac_crew', False)
+        vac_crew_completed_checked = is_checked(r.get('Vac Crew Completed Unit?'))
+        effective_completed = units_completed_checked or (is_vac_crew_row and vac_crew_completed_checked)
 
-        # REQUIRE: Work Request # AND Weekly Reference Logged Date AND Units Completed? = true/1 AND Units Total Price exists
-        if not wr or not log_date_str or not units_completed_checked or total_price is None:
+        # REQUIRE: Work Request # AND Weekly Reference Logged Date AND completion AND Units Total Price exists
+        if not wr or not log_date_str or not effective_completed or total_price is None:
             continue # Skip if any essential grouping information is missing
 
         wr_key = str(wr).split('.')[0]
@@ -1896,9 +1912,6 @@ def group_source_rows(rows):
             
             # VARIANT-AWARE GROUPING: Build keys based on RES_GROUPING_MODE and row type
             keys_to_add = []
-            
-            # Check if this row is from a VAC Crew sheet
-            is_vac_crew_row = r.get('__is_vac_crew', False)
             
             # VAC Crew rows get their own dedicated group key (separate from primary/helper).
             # A row from a VAC Crew sheet is always treated as vac_crew variant — it cannot
