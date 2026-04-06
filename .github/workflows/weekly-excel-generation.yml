@@ -327,6 +327,7 @@ jobs:
             generated_docs/artifact_manifest.json
             generated_docs/hash_history.json
             generated_docs/audit_state.json
+            generated_docs/run_summary.json
           retention-days: ${{ github.event.inputs.test_mode == 'true' && '30' || '90' }}
           compression-level: 6
           if-no-files-found: warn
@@ -468,3 +469,36 @@ jobs:
             find generated_docs -name 'WR_*.xlsx' -type f 2>/dev/null | head -n 25
           fi
           echo "============================================"
+      
+      # ==================== NOTION DASHBOARD SYNC ====================
+      - name: Sync run to Notion
+        if: always() && vars.NOTION_ENABLED == 'true'
+        continue-on-error: true
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_PIPELINE_DB: ${{ secrets.NOTION_PIPELINE_DB }}
+          NOTION_CHANGELOG_DB: ${{ secrets.NOTION_CHANGELOG_DB }}
+          NOTION_METRICS_DB: ${{ secrets.NOTION_METRICS_DB }}
+          NOTION_INCIDENTS_DB: ${{ secrets.NOTION_INCIDENTS_DB }}
+          EXECUTION_TYPE: ${{ steps.exec.outputs.execution_type }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          pip install -q "notion-client==2.2.1"
+          # Load metrics from run_summary.json written by generate_weekly_pdfs.py
+          if [ -f generated_docs/run_summary.json ]; then
+            export FILES_GENERATED=$(jq -r '.files_generated // 0' generated_docs/run_summary.json)
+            export FILES_UPLOADED=$(jq -r '.groups_uploaded // 0' generated_docs/run_summary.json)
+            export FILES_SKIPPED=$(jq -r '.groups_skipped // 0' generated_docs/run_summary.json)
+            export GROUPS_TOTAL=$(jq -r '.groups_total // 0' generated_docs/run_summary.json)
+            export GROUPS_ERRORED=$(jq -r '.groups_errored // 0' generated_docs/run_summary.json)
+            export SHEETS_DISCOVERED=$(jq -r '.sheets_discovered // 0' generated_docs/run_summary.json)
+            export ROWS_FETCHED=$(jq -r '.rows_fetched // 0' generated_docs/run_summary.json)
+            export DURATION_MINUTES=$(jq -r '.duration_minutes // 0' generated_docs/run_summary.json)
+            export HASH_UPDATES=$(jq -r '.history_updates // 0' generated_docs/run_summary.json)
+            export API_CALLS=$(jq -r '.api_calls // 0' generated_docs/run_summary.json)
+            export AUDIT_RISK_LEVEL=$(jq -r '.audit_risk_level // "UNKNOWN"' generated_docs/run_summary.json)
+          else
+            echo "⚠️ run_summary.json not found — using defaults"
+            export FILES_GENERATED="${{ steps.manifest.outputs.total_files || '0' }}"
+          fi
+          python scripts/notion_sync.py --mode run

@@ -1,0 +1,74 @@
+name: Notion Dashboard Sync
+
+# Auto-sync repository data to Notion on every push (commits + metrics)
+# Pipeline run data is synced by the main workflow after each execution.
+
+on:
+  push:
+    branches: [master]
+  schedule:
+    # Daily metrics snapshot at 6 AM CT (11:00 UTC)
+    - cron: '0 11 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Sync mode'
+        required: false
+        default: 'all'
+        type: choice
+        options: ['all', 'commits', 'metrics']
+      since_days:
+        description: 'Commit lookback days'
+        required: false
+        default: '30'
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  TZ: America/Chicago
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Only run if Notion is configured
+    if: ${{ vars.NOTION_ENABLED == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100  # Enough history for commit sync
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install "notion-client==2.2.1"
+
+      - name: Sync to Notion
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_PIPELINE_DB: ${{ secrets.NOTION_PIPELINE_DB }}
+          NOTION_CHANGELOG_DB: ${{ secrets.NOTION_CHANGELOG_DB }}
+          NOTION_METRICS_DB: ${{ secrets.NOTION_METRICS_DB }}
+          NOTION_INCIDENTS_DB: ${{ secrets.NOTION_INCIDENTS_DB }}
+        run: |
+          MODE="${{ github.event.inputs.mode || 'all' }}"
+          SINCE="${{ github.event.inputs.since_days || '7' }}"
+
+          # On push events, sync commits + metrics (not run — no pipeline data)
+          if [ "${{ github.event_name }}" = "push" ]; then
+            MODE="commits"
+            SINCE="3"
+          fi
+
+          # On schedule, sync metrics only
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            MODE="metrics"
+          fi
+
+          python scripts/notion_sync.py --mode "$MODE" --since "$SINCE"

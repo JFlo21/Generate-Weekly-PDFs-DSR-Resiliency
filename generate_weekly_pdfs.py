@@ -3239,6 +3239,31 @@ def main():
         if history_updates:
             save_hash_history(HASH_HISTORY_PATH, hash_history)
 
+        # Write run summary JSON for downstream consumers (Notion sync, dashboards)
+        _run_summary = {
+            "success": True,
+            "files_generated": generated_files_count,
+            "groups_total": len(groups),
+            "groups_skipped": _groups_skipped,
+            "groups_generated": _groups_generated,
+            "groups_uploaded": _groups_uploaded,
+            "groups_errored": _groups_errored,
+            "duration_seconds": session_duration.total_seconds(),
+            "duration_minutes": round(session_duration.total_seconds() / 60.0, 2),
+            "history_updates": history_updates,
+            "sheets_discovered": len(source_sheets) if 'source_sheets' in dir() else 0,
+            "rows_fetched": len(all_rows) if 'all_rows' in dir() else 0,
+            "api_calls": _api_calls_count,
+            "audit_risk_level": audit_results.get('summary', {}).get('risk_level', 'UNKNOWN') if audit_results else 'UNKNOWN',
+            "mode": "TEST" if TEST_MODE else "PRODUCTION",
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        }
+        try:
+            with open(os.path.join(OUTPUT_FOLDER, 'run_summary.json'), 'w') as _rsf:
+                json.dump(_run_summary, _rsf, indent=2)
+        except Exception as _rse:
+            logging.warning(f"⚠️ Could not write run_summary.json: {_rse}")
+
         # SDK 2.x: Use get_isolation_scope() instead of configure_scope()
         if SENTRY_DSN:
             scope = sentry_sdk.get_isolation_scope()

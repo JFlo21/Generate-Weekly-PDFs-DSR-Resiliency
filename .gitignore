@@ -79,7 +79,11 @@ generated_docs/*.xlsx
 generated_docs/audit_state.json
 generated_docs/discovery_cache.json
 generated_docs/risk_trend.json
+generated_docs/run_summary.json
 !generated_docs/README.md
+
+# Notion integration local config (contains database IDs)
+scripts/notion_config.json
 
 # Backup files
 *.bak
