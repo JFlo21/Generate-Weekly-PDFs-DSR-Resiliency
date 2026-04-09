@@ -1,7 +1,7 @@
 
 import unittest
 import hashlib
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 import generate_weekly_pdfs
 
 class TestPerformanceOptimizations(unittest.TestCase):
@@ -105,6 +105,146 @@ class TestPerformanceOptimizations(unittest.TestCase):
 
         groups = generate_weekly_pdfs.group_source_rows(rows)
         self.assertTrue(len(groups) > 0)
+
+class TestAttachmentCacheOptimization(unittest.TestCase):
+    """Tests that verify the cached_attachments parameter eliminates redundant API calls.
+
+    Both _has_existing_week_attachment() and delete_old_excel_attachments() accept a
+    cached_attachments list. When provided, neither function should call
+    client.Attachments.list_row_attachments(); when omitted they must fall back to it.
+    This prevents ~200 duplicate API calls per run when the pre-fetch cache is populated.
+    """
+
+    def _make_attachment(self, name):
+        """Build a minimal mock attachment object with a given filename."""
+        att = MagicMock()
+        att.name = name
+        att.id = abs(hash(name)) % 100000
+        return att
+
+    # ── _has_existing_week_attachment ──────────────────────────────────────
+
+    def test_has_existing_week_attachment_uses_cache_no_api_call(self):
+        """When cached_attachments is provided, no API call should be made."""
+        client = MagicMock()
+        target_row = MagicMock()
+        target_row.id = 42
+
+        cached = [self._make_attachment("WR_12345_WeekEnding_081725_163045_abcd1234abcd1234.xlsx")]
+
+        result = generate_weekly_pdfs._has_existing_week_attachment(
+            client, 9999, target_row, "12345", "081725",
+            cached_attachments=cached
+        )
+
+        self.assertTrue(result)
+        client.Attachments.list_row_attachments.assert_not_called()
+
+    def test_has_existing_week_attachment_falls_back_to_api_when_no_cache(self):
+        """When cached_attachments is None, the function must call the API."""
+        client = MagicMock()
+        target_row = MagicMock()
+        target_row.id = 42
+
+        api_att = self._make_attachment("WR_12345_WeekEnding_081725_163045_abcd1234abcd1234.xlsx")
+        client.Attachments.list_row_attachments.return_value.data = [api_att]
+
+        result = generate_weekly_pdfs._has_existing_week_attachment(
+            client, 9999, target_row, "12345", "081725",
+            cached_attachments=None
+        )
+
+        self.assertTrue(result)
+        client.Attachments.list_row_attachments.assert_called_once_with(9999, 42)
+
+    def test_has_existing_week_attachment_empty_cache_returns_false_no_api_call(self):
+        """An empty cached list should return False without making any API call."""
+        client = MagicMock()
+        target_row = MagicMock()
+        target_row.id = 42
+
+        result = generate_weekly_pdfs._has_existing_week_attachment(
+            client, 9999, target_row, "12345", "081725",
+            cached_attachments=[]
+        )
+
+        self.assertFalse(result)
+        client.Attachments.list_row_attachments.assert_not_called()
+
+    # ── delete_old_excel_attachments ──────────────────────────────────────
+
+    def test_delete_old_attachments_uses_cache_no_api_call(self):
+        """When cached_attachments is provided, no list_row_attachments API call is made."""
+        client = MagicMock()
+        target_row = MagicMock()
+        target_row.id = 42
+
+        cached = [self._make_attachment("WR_12345_WeekEnding_081725_163045_oldhash1oldhash1.xlsx")]
+
+        generate_weekly_pdfs.delete_old_excel_attachments(
+            client, 9999, target_row, "12345", "081725",
+            current_data_hash="newhash1newhash1",
+            cached_attachments=cached
+        )
+
+        client.Attachments.list_row_attachments.assert_not_called()
+
+    def test_delete_old_attachments_falls_back_to_api_when_no_cache(self):
+        """When cached_attachments is None, the function must call the API to list attachments."""
+        client = MagicMock()
+        target_row = MagicMock()
+        target_row.id = 42
+        client.Attachments.list_row_attachments.return_value.data = []
+
+        generate_weekly_pdfs.delete_old_excel_attachments(
+            client, 9999, target_row, "12345", "081725",
+            current_data_hash="newhash1newhash1",
+            cached_attachments=None
+        )
+
+        client.Attachments.list_row_attachments.assert_called_once_with(9999, 42)
+
+    def test_delete_old_attachments_skips_when_hash_matches(self):
+        """If the cached attachment already has the current hash, deletion is skipped."""
+        client = MagicMock()
+        target_row = MagicMock()
+        target_row.id = 42
+
+        current_hash = "aabbccdd11223344"
+        cached = [self._make_attachment(f"WR_12345_WeekEnding_081725_163045_{current_hash}.xlsx")]
+
+        deleted, skipped = generate_weekly_pdfs.delete_old_excel_attachments(
+            client, 9999, target_row, "12345", "081725",
+            current_data_hash=current_hash,
+            cached_attachments=cached
+        )
+
+        self.assertEqual(deleted, 0)
+        self.assertTrue(skipped)
+        client.Attachments.list_row_attachments.assert_not_called()
+        client.Attachments.delete_attachment.assert_not_called()
+
+    def test_delete_old_attachments_deletes_when_hash_differs(self):
+        """When cached attachment has a different hash, it should be deleted without an extra API call."""
+        client = MagicMock()
+        target_row = MagicMock()
+        target_row.id = 42
+
+        old_hash = "oldhash1oldhash10"
+        new_hash = "newhash1newhash10"
+        old_att = self._make_attachment(f"WR_12345_WeekEnding_081725_163045_{old_hash}.xlsx")
+        cached = [old_att]
+
+        deleted, skipped = generate_weekly_pdfs.delete_old_excel_attachments(
+            client, 9999, target_row, "12345", "081725",
+            current_data_hash=new_hash,
+            cached_attachments=cached
+        )
+
+        self.assertFalse(skipped)
+        client.Attachments.delete_attachment.assert_called_once_with(9999, old_att.id)
+        client.Attachments.list_row_attachments.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()
