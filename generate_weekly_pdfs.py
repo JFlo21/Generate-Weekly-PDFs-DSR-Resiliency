@@ -38,6 +38,7 @@ import inspect
 import json
 import signal
 import csv
+from typing import Any, Literal, Optional
 
 # Load environment variables
 load_dotenv()
@@ -107,7 +108,7 @@ API_TOKEN = os.getenv("SMARTSHEET_API_TOKEN")
 _target_sheet_id_env = os.getenv("TARGET_SHEET_ID")
 AUDIT_SHEET_ID = os.getenv("AUDIT_SHEET_ID") or os.getenv("BILLING_AUDIT_SHEET_ID")
 
-def _coerce_sheet_id(raw_value, default=None):
+def _coerce_sheet_id(raw_value: Any, default: int | None = None) -> int | None:
     if not raw_value:
         return default
     try:
@@ -179,7 +180,7 @@ FILTER_DIAGNOSTICS = os.getenv('FILTER_DIAGNOSTICS','0').lower() in ('1','true',
 FOREMAN_DIAGNOSTICS = os.getenv('FOREMAN_DIAGNOSTICS','0').lower() in ('1','true','yes')  # When enabled, logs per-WR foreman value distributions & exclusion reasons
 FORCE_GENERATION = os.getenv('FORCE_GENERATION','0').lower() in ('1','true','yes')  # When true, ignore hash short‑circuit and always regenerate
 REGEN_WEEKS = {w.strip() for w in os.getenv('REGEN_WEEKS','').split(',') if w.strip()}  # Comma list of MMDDYY week ending codes to force regenerate
-def _parse_sheet_ids(env_val):
+def _parse_sheet_ids(env_val: str) -> list[int]:
     """Parse comma-separated sheet IDs, skipping non-integer tokens."""
     ids = []
     for s in env_val.split(','):
@@ -240,7 +241,7 @@ DISABLE_AUDIT_FOR_TESTING = False  # Audit system ENABLED for production monitor
 SENTRY_DSN = os.getenv("SENTRY_DSN")
 
 # Sentry helper functions for enhanced error context
-def sentry_add_breadcrumb(category: str, message: str, level: str = "info", data: dict | None = None):
+def sentry_add_breadcrumb(category: str, message: str, level: str = "info", data: dict | None = None) -> None:
     """Add a breadcrumb for execution flow tracking in Sentry dashboard."""
     if SENTRY_DSN:
         sentry_sdk.add_breadcrumb(
@@ -252,7 +253,7 @@ def sentry_add_breadcrumb(category: str, message: str, level: str = "info", data
 
 def sentry_capture_with_context(exception: Exception, context_name: str | None = None, 
                                   context_data: dict | None = None, tags: dict | None = None,
-                                  fingerprint: list | None = None):
+                                  fingerprint: list | None = None) -> None:
     """Capture exception with rich context, tags, and custom fingerprinting.
     
     Args:
@@ -283,14 +284,12 @@ def sentry_capture_with_context(exception: Exception, context_name: str | None =
     # Capture with full context
     sentry_sdk.capture_exception(exception)
 
-from typing import Literal
-
 # Log level type for Sentry SDK 2.x
 SentryLogLevel = Literal["fatal", "critical", "error", "warning", "info", "debug"]
 
 def sentry_capture_message_with_context(message: str, level: SentryLogLevel = "error",
                                          context_name: str | None = None, context_data: dict | None = None,
-                                         tags: dict | None = None):
+                                         tags: dict | None = None) -> None:
     """Capture a message with rich context for Sentry dashboard visibility."""
     if not SENTRY_DSN:
         return
@@ -438,7 +437,7 @@ def parse_price(price_str: str | float | int | None) -> float:
     except (ValueError, TypeError):
         return 0.0
 
-def load_contract_rates(filepath):
+def load_contract_rates(filepath: str) -> dict[str, dict[str, float]]:
     """Loads contract rates into a fast lookup dictionary."""
     rates = {}
     REQUIRED_HEADERS = {'CU', 'Install Price', 'Removal Price', 'Transfer Price'}
@@ -464,7 +463,7 @@ def load_contract_rates(filepath):
         logging.error(f"Failed to load rates from {filepath}: {e}")
     return rates
 
-def revert_subcontractor_price(row_data, original_rates):
+def revert_subcontractor_price(row_data: dict[str, Any], original_rates: dict[str, dict[str, float]]) -> float:
     """Revert a subcontractor row's price to the 100% original contract rate.
 
     Looks up the CU code from row_data (preferring CU Helper, then CU,
@@ -524,7 +523,7 @@ def is_checked(value: bool | int | str | None) -> bool:
         return value.strip().lower() in ('true', 'checked', 'yes', '1', 'on')
     return False
 
-def excel_serial_to_date(value):
+def excel_serial_to_date(value: Any) -> datetime.datetime | None:
     """Strict date parsing: return datetime or None. No numeric/serial fallbacks.
     
     PERFORMANCE: Fast-path for ISO format dates (YYYY-MM-DD) before falling back
@@ -553,7 +552,7 @@ def excel_serial_to_date(value):
     except Exception:
         return None
 
-def discover_folder_sheets(client, folder_ids: list[int], label: str) -> set[int]:
+def discover_folder_sheets(client: smartsheet.Smartsheet, folder_ids: list[int], label: str) -> set[int]:
     """Discover all sheet IDs inside the given Smartsheet folders (recursively including subfolders).
 
     Args:
@@ -837,7 +836,7 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
     
     return (wr, week, variant, identifier)
 
-def cleanup_stale_excels(output_folder: str, kept_filenames: set):
+def cleanup_stale_excels(output_folder: str, kept_filenames: set) -> list[str]:
     """Remove Excel files not generated in current run (VARIANT-AWARE).
 
     Strategy:
@@ -879,7 +878,7 @@ def cleanup_stale_excels(output_folder: str, kept_filenames: set):
         # Non-conforming files left untouched
     return removed
 
-def cleanup_untracked_sheet_attachments(client, target_sheet_id: int, valid_wr_weeks: set, test_mode: bool, attachment_cache: dict | None = None, target_sheet=None):
+def cleanup_untracked_sheet_attachments(client: smartsheet.Smartsheet, target_sheet_id: int, valid_wr_weeks: set, test_mode: bool, attachment_cache: dict | None = None, target_sheet: Any = None) -> None:
     """Prune only older variants for identities processed this run (VARIANT-AWARE).
 
     If KEEP_HISTORICAL_WEEKS=1 (default false here), weeks not in this run are preserved.
@@ -941,7 +940,7 @@ def cleanup_untracked_sheet_attachments(client, target_sheet_id: int, valid_wr_w
                     logging.warning(f"⚠️ Could not delete variant {old.name}: {e}")
     logging.info(f"🧹 Variant pruning done: removed_variants={removed_variants}")
 
-def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, week_raw, current_data_hash, variant='primary', identifier=None, force_generation=False, cached_attachments: list | None = None):
+def delete_old_excel_attachments(client: smartsheet.Smartsheet, target_sheet_id: int, target_row: Any, wr_num: str, week_raw: str, current_data_hash: str, variant: str = 'primary', identifier: str | None = None, force_generation: bool = False, cached_attachments: list | None = None) -> tuple[int, bool]:
     """Delete prior Excel attachment(s) ONLY for the specific (WR, week, variant, identifier) identity.
 
     VARIANT-AWARE BEHAVIOR:
@@ -1017,7 +1016,7 @@ def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, we
                 logging.warning(f"   ⚠️ Delete failed {att.name}: {e}")
     return deleted_count, False
 
-def _has_existing_week_attachment(client, target_sheet_id, target_row, wr_num: str, week_raw: str, variant: str = 'primary', identifier: str | None = None, cached_attachments: list | None = None) -> bool:
+def _has_existing_week_attachment(client: smartsheet.Smartsheet, target_sheet_id: int, target_row: Any, wr_num: str, week_raw: str, variant: str = 'primary', identifier: str | None = None, cached_attachments: list | None = None) -> bool:
     """Return True if at least one attachment exists for this (WR, week, variant, identifier) identity."""
     try:
         attachments = cached_attachments if cached_attachments is not None else client.Attachments.list_row_attachments(target_sheet_id, target_row.id).data
@@ -1047,7 +1046,7 @@ def _has_existing_week_attachment(client, target_sheet_id, target_row, wr_num: s
     
     return False
 
-def purge_existing_hashed_outputs(client, target_sheet_id: int, wr_subset: set | None, test_mode: bool):
+def purge_existing_hashed_outputs(client: smartsheet.Smartsheet, target_sheet_id: int, wr_subset: set | None, test_mode: bool) -> None:
     """Delete existing hashed Excel attachments and local files so hashes recompute fresh.
 
     wr_subset: if provided, only purge attachments for these WR numbers; otherwise purge all WR_*.xlsx attachments.
@@ -1102,7 +1101,7 @@ def purge_existing_hashed_outputs(client, target_sheet_id: int, wr_subset: set |
 
 # --- HASH HISTORY PERSISTENCE ---
 
-def load_hash_history(path: str):
+def load_hash_history(path: str) -> dict[str, Any]:
     if RESET_HASH_HISTORY:
         logging.info("♻️ Hash history reset requested; ignoring existing history file")
         return {}
@@ -1126,7 +1125,7 @@ def load_hash_history(path: str):
 
 HASH_HISTORY_MAX_ENTRIES = 1000
 
-def save_hash_history(path: str, history: dict):
+def save_hash_history(path: str, history: dict) -> None:
     try:
         # Retention: keep only the most recent entries by timestamp
         if len(history) > HASH_HISTORY_MAX_ENTRIES:
@@ -1147,10 +1146,10 @@ def save_hash_history(path: str, history: dict):
 
 # --- DATA DISCOVERY AND PROCESSING ---
 
-def _title(t):
+def _title(t: Any) -> str:
     return (t or "").strip().lower()
 
-def discover_source_sheets(client):
+def discover_source_sheets(client: smartsheet.Smartsheet) -> list[dict[str, Any]]:
     """Strict deterministic discovery: anchored keywords + type filtered. Skips sheets missing Weekly Reference Logged Date."""
     global _FOLDER_DISCOVERED_SUB_IDS, _FOLDER_DISCOVERED_ORIG_IDS, SUBCONTRACTOR_SHEET_IDS
 
@@ -1497,7 +1496,7 @@ def discover_source_sheets(client):
 
 # Cell history and Modified By logic removed - using direct column assignment only
 
-def get_all_source_rows(client, source_sheets):
+def get_all_source_rows(client: smartsheet.Smartsheet, source_sheets: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Fetch rows from all source sheets with filtering.
     
     Implements direct column-based foreman assignment with helper row detection.
@@ -1912,7 +1911,7 @@ def get_all_source_rows(client, source_sheets):
 
     return merged_rows
 
-def group_source_rows(rows):
+def group_source_rows(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     """
     VARIANT-AWARE GROUPING: Groups rows by Work Request #, Week Ending Date, and Variant (primary/helper/vac_crew).
     
@@ -2171,7 +2170,7 @@ def group_source_rows(rows):
     
     return groups
 
-def validate_group_totals(groups):
+def validate_group_totals(groups: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
     """Compute and validate totals per group, returning summary list of dicts."""
     summaries = []
     for key, rows in groups.items():
@@ -2179,7 +2178,7 @@ def validate_group_totals(groups):
         summaries.append({'group_key': key, 'rows': len(rows), 'total': round(total,2)})
     return summaries
 
-def safe_merge_cells(ws, range_str):
+def safe_merge_cells(ws: Any, range_str: str) -> bool:
     """
     Safely merge cells, avoiding duplicates and overlaps that cause XML errors.
     
@@ -2213,7 +2212,7 @@ def safe_merge_cells(ws, range_str):
         logging.warning(f"Failed to merge cells {range_str}: {e}")
         return False
 
-def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=None, data_hash=None):
+def generate_excel(group_key: str, group_rows: list[dict[str, Any]], snapshot_date: str, ai_analysis_results: dict[str, Any] | None = None, data_hash: str | None = None) -> tuple[str, str, list[str]]:
     """
     FIXED: Generate a formatted Excel report for a group of rows.
     
@@ -2640,7 +2639,7 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
 
 # --- TARGET SHEET MANAGEMENT ---
 
-def create_target_sheet_map(client):
+def create_target_sheet_map(client: smartsheet.Smartsheet) -> tuple[dict[str, Any], Any]:
     """Create a map of the target sheet for uploading Excel files.
     
     Returns:
@@ -2683,7 +2682,7 @@ def create_target_sheet_map(client):
 
 # --- MAIN EXECUTION ---
 
-def main():
+def main() -> None:
     """Main execution function with all fixes implemented."""
     session_start = datetime.datetime.now()
     generated_files_count = 0
