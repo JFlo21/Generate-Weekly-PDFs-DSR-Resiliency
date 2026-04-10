@@ -836,7 +836,7 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
     
     return (wr, week, variant, identifier)
 
-def cleanup_stale_excels(output_folder: str, kept_filenames: set) -> list[str]:
+def cleanup_stale_excels(output_folder: str, kept_filenames: set[str]) -> list[str]:
     """Remove Excel files not generated in current run (VARIANT-AWARE).
 
     Strategy:
@@ -878,7 +878,7 @@ def cleanup_stale_excels(output_folder: str, kept_filenames: set) -> list[str]:
         # Non-conforming files left untouched
     return removed
 
-def cleanup_untracked_sheet_attachments(client: smartsheet.Smartsheet, target_sheet_id: int, valid_wr_weeks: set, test_mode: bool, attachment_cache: dict | None = None, target_sheet: Any = None) -> None:
+def cleanup_untracked_sheet_attachments(client: smartsheet.Smartsheet, target_sheet_id: int, valid_wr_weeks: set[tuple[str, ...]], test_mode: bool, attachment_cache: dict[int, list[Any]] | None = None, target_sheet: Any = None) -> None:
     """Prune only older variants for identities processed this run (VARIANT-AWARE).
 
     If KEEP_HISTORICAL_WEEKS=1 (default false here), weeks not in this run are preserved.
@@ -940,7 +940,7 @@ def cleanup_untracked_sheet_attachments(client: smartsheet.Smartsheet, target_sh
                     logging.warning(f"⚠️ Could not delete variant {old.name}: {e}")
     logging.info(f"🧹 Variant pruning done: removed_variants={removed_variants}")
 
-def delete_old_excel_attachments(client: smartsheet.Smartsheet, target_sheet_id: int, target_row: Any, wr_num: str, week_raw: str, current_data_hash: str, variant: str = 'primary', identifier: str | None = None, force_generation: bool = False, cached_attachments: list | None = None) -> tuple[int, bool]:
+def delete_old_excel_attachments(client: smartsheet.Smartsheet, target_sheet_id: int, target_row: Any, wr_num: str, week_raw: str, current_data_hash: str, variant: str = 'primary', identifier: str | None = None, force_generation: bool = False, cached_attachments: list[Any] | None = None) -> tuple[int, bool]:
     """Delete prior Excel attachment(s) ONLY for the specific (WR, week, variant, identifier) identity.
 
     VARIANT-AWARE BEHAVIOR:
@@ -1016,7 +1016,7 @@ def delete_old_excel_attachments(client: smartsheet.Smartsheet, target_sheet_id:
                 logging.warning(f"   ⚠️ Delete failed {att.name}: {e}")
     return deleted_count, False
 
-def _has_existing_week_attachment(client: smartsheet.Smartsheet, target_sheet_id: int, target_row: Any, wr_num: str, week_raw: str, variant: str = 'primary', identifier: str | None = None, cached_attachments: list | None = None) -> bool:
+def _has_existing_week_attachment(client: smartsheet.Smartsheet, target_sheet_id: int, target_row: Any, wr_num: str, week_raw: str, variant: str = 'primary', identifier: str | None = None, cached_attachments: list[Any] | None = None) -> bool:
     """Return True if at least one attachment exists for this (WR, week, variant, identifier) identity."""
     try:
         attachments = cached_attachments if cached_attachments is not None else client.Attachments.list_row_attachments(target_sheet_id, target_row.id).data
@@ -1046,7 +1046,7 @@ def _has_existing_week_attachment(client: smartsheet.Smartsheet, target_sheet_id
     
     return False
 
-def purge_existing_hashed_outputs(client: smartsheet.Smartsheet, target_sheet_id: int, wr_subset: set | None, test_mode: bool) -> None:
+def purge_existing_hashed_outputs(client: smartsheet.Smartsheet, target_sheet_id: int, wr_subset: set[str] | None, test_mode: bool) -> None:
     """Delete existing hashed Excel attachments and local files so hashes recompute fresh.
 
     wr_subset: if provided, only purge attachments for these WR numbers; otherwise purge all WR_*.xlsx attachments.
@@ -1125,7 +1125,7 @@ def load_hash_history(path: str) -> dict[str, Any]:
 
 HASH_HISTORY_MAX_ENTRIES = 1000
 
-def save_hash_history(path: str, history: dict) -> None:
+def save_hash_history(path: str, history: dict[str, Any]) -> None:
     try:
         # Retention: keep only the most recent entries by timestamp
         if len(history) > HASH_HISTORY_MAX_ENTRIES:
