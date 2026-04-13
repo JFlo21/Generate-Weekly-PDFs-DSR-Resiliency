@@ -227,7 +227,7 @@ def _sanitize_csv_path(env_var, default, label):
     resolved = os.path.normpath(os.path.abspath(raw))
     cwd = os.path.normpath(os.path.abspath('.'))
     if not resolved.startswith(cwd + os.sep) and resolved != cwd:
-        logging.warning(f"⚠️ {env_var} resolves outside working directory: '{raw}'. Using default: '{default}'")
+        logging.warning(f"⚠️ {env_var} ({label}) resolves outside working directory: '{raw}'. Using default: '{default}'")
         return default
     return raw
 
