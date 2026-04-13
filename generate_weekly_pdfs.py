@@ -223,7 +223,7 @@ ARROWHEAD_DISCOUNT = 0.90  # 10% reduction for subcontractors (Arrowhead)
 
 def _sanitize_csv_path(env_var, default):
     """Validate a CSV path from env var, preventing directory traversal and symlink escapes."""
-    raw = os.getenv(env_var, default)
+    raw = (os.getenv(env_var, '') or '').strip() or default
     resolved = os.path.normpath(os.path.realpath(raw))
     cwd = os.path.normpath(os.path.realpath('.'))
     if not resolved.startswith(cwd + os.sep) and resolved != cwd:
