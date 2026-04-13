@@ -33,6 +33,25 @@ def sanitize_docs_folder(docs_folder):
 
     return normalized
 
+def sanitize_output_file(output_file):
+    """
+    Sanitize the user-provided output_file argument to avoid unsafe paths.
+
+    Same rules as docs_folder: relative only, no parent-directory traversal.
+    """
+    if not output_file:
+        raise ValueError("output_file must not be empty")
+
+    normalized = os.path.normpath(output_file)
+
+    if os.path.isabs(normalized):
+        raise ValueError(f"Absolute paths are not allowed for output_file: {normalized}")
+
+    if normalized == os.pardir or normalized.startswith(os.pardir + os.sep):
+        raise ValueError(f"Parent-directory traversal is not allowed for output_file: {normalized}")
+
+    return normalized
+
 def calculate_file_hash(filepath):
     """Calculate SHA256 hash of a file."""
     sha256_hash = hashlib.sha256()
@@ -235,6 +254,7 @@ if __name__ == '__main__':
 
     try:
         docs_folder = sanitize_docs_folder(docs_folder_arg)
+        output_file = sanitize_output_file(output_file)
     except ValueError as e:
         print(f"Error: {e}")
         sys.exit(1)
