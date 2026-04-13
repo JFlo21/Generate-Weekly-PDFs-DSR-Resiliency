@@ -222,10 +222,10 @@ except ValueError:
 ARROWHEAD_DISCOUNT = 0.90  # 10% reduction for subcontractors (Arrowhead)
 
 def _sanitize_csv_path(env_var, default):
-    """Validate a CSV path from env var, preventing directory traversal."""
+    """Validate a CSV path from env var, preventing directory traversal and symlink escapes."""
     raw = os.getenv(env_var, default)
-    resolved = os.path.normpath(os.path.abspath(raw))
-    cwd = os.path.normpath(os.path.abspath('.'))
+    resolved = os.path.normpath(os.path.realpath(raw))
+    cwd = os.path.normpath(os.path.realpath('.'))
     if not resolved.startswith(cwd + os.sep) and resolved != cwd:
         logging.warning(f"⚠️ {env_var} resolves outside working directory: '{raw}'. Using default: '{default}'")
         return default
@@ -1728,7 +1728,7 @@ def get_all_source_rows(client, source_sheets):
     """
     merged_rows = []
     global_row_counter = 0
-    original_rates = load_contract_rates('CU List - Corpus North & South.csv')
+    original_rates = load_contract_rates(OLD_RATES_CSV)
     # Load new rate versions if rate cutoff is configured
     global _RATES_FINGERPRINT
     _rate_cu_to_group = {}
