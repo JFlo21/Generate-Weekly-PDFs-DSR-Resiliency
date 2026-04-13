@@ -221,7 +221,7 @@ except ValueError:
     RATE_CUTOFF_DATE = None
 ARROWHEAD_DISCOUNT = 0.90  # 10% reduction for subcontractors (Arrowhead)
 
-def _sanitize_csv_path(env_var, default, label):
+def _sanitize_csv_path(env_var, default):
     """Validate a CSV path from env var, preventing directory traversal."""
     raw = os.getenv(env_var, default)
     resolved = os.path.normpath(os.path.abspath(raw))
@@ -231,8 +231,8 @@ def _sanitize_csv_path(env_var, default, label):
         return default
     return raw
 
-NEW_RATES_CSV = _sanitize_csv_path('NEW_RATES_CSV', 'New Contract Rates copy regenerated again.csv', 'new rates')
-OLD_RATES_CSV = _sanitize_csv_path('OLD_RATES_CSV', 'CU List - Corpus North & South.csv', 'old rates')
+NEW_RATES_CSV = _sanitize_csv_path('NEW_RATES_CSV', 'New Contract Rates copy regenerated again.csv')
+OLD_RATES_CSV = _sanitize_csv_path('OLD_RATES_CSV', 'CU List - Corpus North & South.csv')
 
 _RATES_FINGERPRINT = ''  # Populated at runtime by load_rate_versions()
 
