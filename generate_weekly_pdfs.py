@@ -220,9 +220,19 @@ except ValueError:
     logging.error(f"Invalid RATE_CUTOFF_DATE format: '{_cutoff_str}', expected YYYY-MM-DD. Rate versioning disabled.")
     RATE_CUTOFF_DATE = None
 ARROWHEAD_DISCOUNT = 0.90  # 10% reduction for subcontractors (Arrowhead)
-# Sanitize CSV paths: only allow basenames (no directory traversal)
-NEW_RATES_CSV = os.path.basename(os.getenv('NEW_RATES_CSV', 'New Contract Rates copy regenerated again.csv'))
-OLD_RATES_CSV = os.path.basename(os.getenv('OLD_RATES_CSV', 'CU List - Corpus North & South.csv'))
+
+def _sanitize_csv_path(env_var, default, label):
+    """Validate a CSV path from env var, preventing directory traversal."""
+    raw = os.getenv(env_var, default)
+    resolved = os.path.normpath(os.path.abspath(raw))
+    cwd = os.path.normpath(os.path.abspath('.'))
+    if not resolved.startswith(cwd + os.sep) and resolved != cwd:
+        logging.warning(f"⚠️ {env_var} resolves outside working directory: '{raw}'. Using default: '{default}'")
+        return default
+    return raw
+
+NEW_RATES_CSV = _sanitize_csv_path('NEW_RATES_CSV', 'New Contract Rates copy regenerated again.csv', 'new rates')
+OLD_RATES_CSV = _sanitize_csv_path('OLD_RATES_CSV', 'CU List - Corpus North & South.csv', 'old rates')
 
 _RATES_FINGERPRINT = ''  # Populated at runtime by load_rate_versions()
 
