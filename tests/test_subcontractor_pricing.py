@@ -299,6 +299,230 @@ class TestIdentityNormalization(unittest.TestCase):
         self.assertNotEqual((ident_identifier or ''), (identifier or ''))
 
 
+class TestLoadNewContractRates(unittest.TestCase):
+    """Tests for loading the 2026-format new contract rates CSV."""
+
+    def test_loads_new_format_csv(self):
+        """Test loading a CSV with 3 metadata rows and positional columns."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, newline='') as f:
+            writer = csv.writer(f)
+            # 3 metadata rows
+            writer.writerow(['', '', '', '', '', '', '2026 Update', '', '0.03'])
+            writer.writerow(['', '', '', '', '', '', 'Revised Pricing', '', ''])
+            writer.writerow(['', '', '', '', '', '', 'Install', 'Remove ', 'Transfer'])
+            # Data rows
+            writer.writerow(['ANC-H', 'Anchor Assembly (Hand)', 'EA', 'Overhead', 'AEP TX', '01-18-26', '814.28', '29.45', '0'])
+            writer.writerow(['ANC-M', 'Anchor Assembly (Machine)', 'EA', 'Overhead', 'AEP TX', '01-18-26', '224.06', '29.46', '0'])
+            writer.writerow(['ARM-DW', 'Double Wood Crossarm', 'EA', 'Overhead', 'AEP TX', '01-18-26', '330.24', '75.94', '183.98'])
+            tmp_path = f.name
+
+        try:
+            rates = generate_weekly_pdfs.load_new_contract_rates(tmp_path)
+            self.assertEqual(len(rates), 3)
+            self.assertIn('ANC-H', rates)
+            self.assertIn('ANC-M', rates)
+            self.assertIn('ARM-DW', rates)
+            self.assertAlmostEqual(rates['ANC-H']['install'], 814.28)
+            self.assertAlmostEqual(rates['ANC-H']['removal'], 29.45)
+            self.assertAlmostEqual(rates['ANC-H']['transfer'], 0.0)
+            self.assertAlmostEqual(rates['ANC-M']['install'], 224.06)
+            self.assertAlmostEqual(rates['ARM-DW']['transfer'], 183.98)
+        finally:
+            os.unlink(tmp_path)
+
+    def test_missing_file_returns_empty(self):
+        """Test that a missing file returns empty dict."""
+        rates = generate_weekly_pdfs.load_new_contract_rates('/nonexistent/new_rates.csv')
+        self.assertEqual(rates, {})
+
+    def test_skips_short_rows(self):
+        """Test that rows with fewer than 9 columns are skipped."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['', '', '', '', '', '', 'Header', '', ''])
+            writer.writerow(['', '', '', '', '', '', '', '', ''])
+            writer.writerow(['', '', '', '', '', '', '', '', ''])
+            writer.writerow(['SHORT', 'Only 5 cols', 'EA', 'Cat', 'Region'])  # Too short
+            writer.writerow(['VALID', 'Full row', 'EA', 'Cat', 'Region', '01-18-26', '100', '50', '25'])
+            tmp_path = f.name
+
+        try:
+            rates = generate_weekly_pdfs.load_new_contract_rates(tmp_path)
+            self.assertEqual(len(rates), 1)
+            self.assertIn('VALID', rates)
+        finally:
+            os.unlink(tmp_path)
+
+    def test_group_code_uppercased(self):
+        """Test that group codes are normalized to uppercase."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, newline='') as f:
+            writer = csv.writer(f)
+            for _ in range(3):
+                writer.writerow([''] * 9)
+            writer.writerow(['anc-h', 'Anchor', 'EA', 'OH', 'AEP', '01-18-26', '100', '50', '25'])
+            tmp_path = f.name
+
+        try:
+            rates = generate_weekly_pdfs.load_new_contract_rates(tmp_path)
+            self.assertIn('ANC-H', rates)
+            self.assertNotIn('anc-h', rates)
+        finally:
+            os.unlink(tmp_path)
+
+
+class TestBuildCuToGroupMapping(unittest.TestCase):
+    """Tests for building the CU-to-group code mapping."""
+
+    def test_builds_mapping_from_old_csv(self):
+        """Test building CU -> Compatible Unit Group mapping."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                'CU WBS #', 'CU', 'Unit Of Measure', 'Description',
+                'Compatible Unit Group', 'Install Hours', 'Removal Hours',
+                'Transfer Hours', 'Install Price', 'Removal Price', 'Transfer Price'
+            ])
+            writer.writerow(['100', 'ANC-DHM-10-84-D1', 'EA', 'Anchor', 'ANC-M', '0.24', '0.14', '0', '217.53', '28.60', '0'])
+            writer.writerow(['101', 'ANC-DSC-16-96-D1', 'EA', 'Anchor Disc', 'ANC-H', '0.90', '0.14', '0', '790.56', '28.59', '0'])
+            writer.writerow(['102', 'ARM-10D-60HS', 'EA', 'Crossarm', 'ARM-DW', '0.66', '0.38', '0.93', '320.62', '73.73', '178.62'])
+            tmp_path = f.name
+
+        try:
+            mapping = generate_weekly_pdfs.build_cu_to_group_mapping(tmp_path)
+            self.assertEqual(len(mapping), 3)
+            self.assertEqual(mapping['ANC-DHM-10-84-D1'], 'ANC-M')
+            self.assertEqual(mapping['ANC-DSC-16-96-D1'], 'ANC-H')
+            self.assertEqual(mapping['ARM-10D-60HS'], 'ARM-DW')
+        finally:
+            os.unlink(tmp_path)
+
+    def test_missing_file_returns_empty(self):
+        """Test that missing file returns empty mapping."""
+        mapping = generate_weekly_pdfs.build_cu_to_group_mapping('/nonexistent/old.csv')
+        self.assertEqual(mapping, {})
+
+    def test_cu_codes_uppercased(self):
+        """Test that CU codes and group codes are uppercased."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                'CU WBS #', 'CU', 'Unit Of Measure', 'Description',
+                'Compatible Unit Group', 'Install Hours', 'Removal Hours',
+                'Transfer Hours', 'Install Price', 'Removal Price', 'Transfer Price'
+            ])
+            writer.writerow(['100', 'lower-cu', 'EA', 'Test', 'lower-group', '1', '0', '0', '100', '50', '25'])
+            tmp_path = f.name
+
+        try:
+            mapping = generate_weekly_pdfs.build_cu_to_group_mapping(tmp_path)
+            self.assertIn('LOWER-CU', mapping)
+            self.assertEqual(mapping['LOWER-CU'], 'LOWER-GROUP')
+        finally:
+            os.unlink(tmp_path)
+
+
+class TestRecalculateRowPrice(unittest.TestCase):
+    """Tests for the date-based rate recalculation function."""
+
+    def setUp(self):
+        self.cu_to_group = {
+            'ANC-DHM-10-84-D1': 'ANC-M',
+            'ANC-DSC-16-96-D1': 'ANC-H',
+            'ARM-10D-60HS': 'ARM-DW',
+        }
+        self.rates_primary = {
+            'ANC-M': {'install': 224.06, 'removal': 29.46, 'transfer': 0.0},
+            'ANC-H': {'install': 814.28, 'removal': 29.45, 'transfer': 0.0},
+            'ARM-DW': {'install': 330.24, 'removal': 75.94, 'transfer': 183.98},
+        }
+
+    def test_basic_install_recalculation(self):
+        """Test basic install price recalculation via CU-to-group mapping."""
+        row = {'CU': 'ANC-DHM-10-84-D1', 'Work Type': 'Install', 'Quantity': '3', 'Units Total Price': '$650.00'}
+        result = generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary)
+        expected = round(224.06 * 3, 2)  # 672.18
+        self.assertAlmostEqual(result, expected)
+        self.assertAlmostEqual(row['Units Total Price'], expected)
+
+    def test_removal_work_type(self):
+        """Test removal work type mapping."""
+        row = {'CU': 'ARM-10D-60HS', 'Work Type': 'Removal', 'Quantity': '2', 'Units Total Price': '$100.00'}
+        result = generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary)
+        expected = round(75.94 * 2, 2)  # 151.88
+        self.assertAlmostEqual(result, expected)
+
+    def test_transfer_work_type(self):
+        """Test transfer work type mapping."""
+        row = {'CU': 'ARM-10D-60HS', 'Work Type': 'Transfer', 'Quantity': '1', 'Units Total Price': '$150.00'}
+        result = generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary)
+        self.assertAlmostEqual(result, 183.98)
+
+    def test_xfr_work_type(self):
+        """Test that 'xfr' maps to transfer rates."""
+        row = {'CU': 'ARM-10D-60HS', 'Work Type': 'XFR', 'Quantity': '1', 'Units Total Price': '$150.00'}
+        result = generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary)
+        self.assertAlmostEqual(result, 183.98)
+
+    def test_unknown_cu_keeps_smartsheet_price(self):
+        """Test that unknown CU codes keep the original SmartSheet price."""
+        row = {'CU': 'UNKNOWN-CU-999', 'Work Type': 'Install', 'Quantity': '1', 'Units Total Price': '$55.00'}
+        result = generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary)
+        self.assertAlmostEqual(result, 55.0)
+        # Original string should be unchanged
+        self.assertEqual(row['Units Total Price'], '$55.00')
+
+    def test_direct_group_code_lookup(self):
+        """Test that if SmartSheet row uses a group code directly, it still works."""
+        row = {'CU': 'ANC-M', 'Work Type': 'Install', 'Quantity': '2', 'Units Total Price': '$400.00'}
+        result = generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary)
+        expected = round(224.06 * 2, 2)  # 448.12
+        self.assertAlmostEqual(result, expected)
+
+    def test_cu_helper_preferred(self):
+        """Test that CU Helper field is preferred over CU field."""
+        row = {'CU Helper': 'ANC-DSC-16-96-D1', 'CU': 'ARM-10D-60HS', 'Work Type': 'Install', 'Quantity': '1', 'Units Total Price': '$300.00'}
+        result = generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary)
+        self.assertAlmostEqual(result, 814.28)  # ANC-H install rate
+
+    def test_arrowhead_discount_rates(self):
+        """Test that Arrowhead (subcontractor) rates are 90% of primary."""
+        arrowhead_rates = {
+            group: {
+                'install': round(r['install'] * 0.90, 2),
+                'removal': round(r['removal'] * 0.90, 2),
+                'transfer': round(r['transfer'] * 0.90, 2),
+            }
+            for group, r in self.rates_primary.items()
+        }
+        row = {'CU': 'ANC-DHM-10-84-D1', 'Work Type': 'Install', 'Quantity': '1', 'Units Total Price': '$200.00'}
+        result = generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, arrowhead_rates)
+        expected = round(224.06 * 0.90, 2)  # 201.65
+        self.assertAlmostEqual(result, expected)
+
+    def test_zero_quantity(self):
+        """Test that zero quantity yields zero price."""
+        row = {'CU': 'ANC-DHM-10-84-D1', 'Work Type': 'Install', 'Quantity': '0', 'Units Total Price': '$0.00'}
+        result = generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary)
+        self.assertAlmostEqual(result, 0.0)
+
+
+class TestRateCutoffConfig(unittest.TestCase):
+    """Tests for rate cutoff configuration."""
+
+    def test_rate_cutoff_attribute_exists(self):
+        """Test that RATE_CUTOFF_DATE attribute exists on the module."""
+        self.assertTrue(hasattr(generate_weekly_pdfs, 'RATE_CUTOFF_DATE'))
+
+    def test_arrowhead_discount_value(self):
+        """Test that ARROWHEAD_DISCOUNT is 0.90 (10% reduction)."""
+        self.assertAlmostEqual(generate_weekly_pdfs.ARROWHEAD_DISCOUNT, 0.90)
+
+    def test_new_rates_csv_attribute(self):
+        """Test that NEW_RATES_CSV attribute exists and points to the new file."""
+        self.assertTrue(hasattr(generate_weekly_pdfs, 'NEW_RATES_CSV'))
+        self.assertIn('New Contract Rates', generate_weekly_pdfs.NEW_RATES_CSV)
+
+
 class TestExpandedHashCoverage(unittest.TestCase):
     """Tests for the expanded calculate_data_hash field coverage."""
 
