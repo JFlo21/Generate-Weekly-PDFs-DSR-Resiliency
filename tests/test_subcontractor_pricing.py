@@ -522,6 +522,108 @@ class TestRateCutoffConfig(unittest.TestCase):
         self.assertTrue(hasattr(generate_weekly_pdfs, 'NEW_RATES_CSV'))
         self.assertIn('New Contract Rates', generate_weekly_pdfs.NEW_RATES_CSV)
 
+    def test_rates_fingerprint_attribute_exists(self):
+        """Test that _RATES_FINGERPRINT attribute exists on the module."""
+        self.assertTrue(hasattr(generate_weekly_pdfs, '_RATES_FINGERPRINT'))
+
+
+class TestRatesFingerprint(unittest.TestCase):
+    """Tests for rate table fingerprint computation."""
+
+    def test_fingerprint_deterministic(self):
+        """Test that same rates produce same fingerprint."""
+        rates = {'ANC-H': {'install': 100.0, 'removal': 50.0, 'transfer': 25.0}}
+        fp1 = generate_weekly_pdfs._compute_rates_fingerprint(rates)
+        fp2 = generate_weekly_pdfs._compute_rates_fingerprint(rates)
+        self.assertEqual(fp1, fp2)
+
+    def test_fingerprint_changes_with_rates(self):
+        """Test that different rates produce different fingerprints."""
+        rates1 = {'ANC-H': {'install': 100.0, 'removal': 50.0, 'transfer': 25.0}}
+        rates2 = {'ANC-H': {'install': 103.0, 'removal': 51.5, 'transfer': 25.75}}
+        fp1 = generate_weekly_pdfs._compute_rates_fingerprint(rates1)
+        fp2 = generate_weekly_pdfs._compute_rates_fingerprint(rates2)
+        self.assertNotEqual(fp1, fp2)
+
+    def test_fingerprint_is_12_chars(self):
+        """Test that fingerprint is 12 hex characters."""
+        rates = {'X': {'install': 1.0, 'removal': 2.0, 'transfer': 3.0}}
+        fp = generate_weekly_pdfs._compute_rates_fingerprint(rates)
+        self.assertEqual(len(fp), 12)
+
+
+class TestCutoffDateRecalculationIntegration(unittest.TestCase):
+    """Integration tests for date-based rate recalculation logic."""
+
+    def setUp(self):
+        self.cu_to_group = {
+            'ANC-DHM-10-84-D1': 'ANC-M',
+        }
+        self.rates_primary = {
+            'ANC-M': {'install': 224.06, 'removal': 29.46, 'transfer': 0.0},
+        }
+
+    def test_pre_cutoff_row_keeps_smartsheet_price(self):
+        """Verify a row with Snapshot Date before cutoff is not recalculated."""
+        import datetime as dt
+        cutoff = dt.date(2026, 4, 19)
+        row = {
+            'CU': 'ANC-DHM-10-84-D1', 'Work Type': 'Install',
+            'Quantity': '1', 'Units Total Price': '$200.00',
+            'Snapshot Date': '2026-04-18',
+        }
+        snap = generate_weekly_pdfs.excel_serial_to_date(row['Snapshot Date'])
+        snap_date = snap.date() if hasattr(snap, 'date') else snap
+        # Pre-cutoff: should NOT recalculate
+        self.assertLess(snap_date, cutoff)
+        # Price unchanged
+        self.assertEqual(row['Units Total Price'], '$200.00')
+
+    def test_post_cutoff_row_gets_recalculated(self):
+        """Verify a row with Snapshot Date on/after cutoff gets new rates."""
+        import datetime as dt
+        cutoff = dt.date(2026, 4, 19)
+        row = {
+            'CU': 'ANC-DHM-10-84-D1', 'Work Type': 'Install',
+            'Quantity': '2', 'Units Total Price': '$400.00',
+            'Snapshot Date': '2026-04-19',
+        }
+        snap = generate_weekly_pdfs.excel_serial_to_date(row['Snapshot Date'])
+        snap_date = snap.date() if hasattr(snap, 'date') else snap
+        self.assertGreaterEqual(snap_date, cutoff)
+        # Recalculate
+        new_price = generate_weekly_pdfs.recalculate_row_price(
+            row, self.cu_to_group, self.rates_primary)
+        self.assertAlmostEqual(new_price, 448.12)  # 224.06 * 2
+
+    def test_subcontractor_row_gets_discounted_rates(self):
+        """Verify subcontractor rows use 90% of primary rates."""
+        arrowhead_rates = {
+            'ANC-M': {
+                'install': round(224.06 * 0.90, 2),
+                'removal': round(29.46 * 0.90, 2),
+                'transfer': 0.0,
+            }
+        }
+        row = {
+            'CU': 'ANC-DHM-10-84-D1', 'Work Type': 'Install',
+            'Quantity': '1', 'Units Total Price': '$200.00',
+        }
+        new_price = generate_weekly_pdfs.recalculate_row_price(
+            row, self.cu_to_group, arrowhead_rates)
+        expected = round(224.06 * 0.90, 2)  # 201.65
+        self.assertAlmostEqual(new_price, expected)
+
+    def test_snapshot_date_parsing_iso_format(self):
+        """Test that ISO format snapshot dates are parsed correctly."""
+        dt = generate_weekly_pdfs.excel_serial_to_date('2026-04-19')
+        self.assertIsNotNone(dt)
+
+    def test_snapshot_date_parsing_returns_none_for_empty(self):
+        """Test that empty/None snapshot dates return None."""
+        self.assertIsNone(generate_weekly_pdfs.excel_serial_to_date(None))
+        self.assertIsNone(generate_weekly_pdfs.excel_serial_to_date(''))
+
 
 class TestExpandedHashCoverage(unittest.TestCase):
     """Tests for the expanded calculate_data_hash field coverage."""

@@ -211,13 +211,19 @@ _FOLDER_DISCOVERED_ORIG_IDS: set[int] = set()
 # When set, rows with Snapshot Date >= cutoff get prices recalculated from new rate tables.
 # When unset (empty string), all rows keep their SmartSheet Units Total Price (current behavior).
 _cutoff_str = os.getenv('RATE_CUTOFF_DATE', '')
-RATE_CUTOFF_DATE = (
-    datetime.datetime.strptime(_cutoff_str, '%Y-%m-%d').date()
-    if _cutoff_str else None
-)
+try:
+    RATE_CUTOFF_DATE = (
+        datetime.datetime.strptime(_cutoff_str, '%Y-%m-%d').date()
+        if _cutoff_str else None
+    )
+except ValueError:
+    logging.error(f"Invalid RATE_CUTOFF_DATE format: '{_cutoff_str}', expected YYYY-MM-DD. Rate versioning disabled.")
+    RATE_CUTOFF_DATE = None
 ARROWHEAD_DISCOUNT = 0.90  # 10% reduction for subcontractors (Arrowhead)
-NEW_RATES_CSV = 'New Contract Rates copy regenerated again.csv'
-OLD_RATES_CSV = 'CU List - Corpus North & South.csv'
+NEW_RATES_CSV = os.getenv('NEW_RATES_CSV', 'New Contract Rates copy regenerated again.csv')
+OLD_RATES_CSV = os.getenv('OLD_RATES_CSV', 'CU List - Corpus North & South.csv')
+
+_RATES_FINGERPRINT = ''  # Populated at runtime by load_rate_versions()
 
 if RATE_CUTOFF_DATE:
     logging.info(f"📊 Rate contract versioning ENABLED: cutoff date = {RATE_CUTOFF_DATE.isoformat()}")
@@ -544,14 +550,24 @@ def build_cu_to_group_mapping(old_csv_path):
     return mapping
 
 
+def _compute_rates_fingerprint(rates_dict):
+    """Compute a short SHA256 fingerprint of a rates dictionary for hash invalidation."""
+    h = hashlib.sha256()
+    for code in sorted(rates_dict.keys()):
+        r = rates_dict[code]
+        h.update(f"{code}:{r['install']:.2f},{r['removal']:.2f},{r['transfer']:.2f}\n".encode())
+    return h.hexdigest()[:12]
+
+
 def load_rate_versions():
     """Load new rate versions and build all necessary lookup structures.
 
     Returns:
-        tuple: (cu_to_group, new_rates_primary, new_rates_arrowhead)
+        tuple: (cu_to_group, new_rates_primary, new_rates_arrowhead, rates_fingerprint)
             - cu_to_group: {DETAILED_CU: GROUP_CODE}
             - new_rates_primary: {GROUP_CODE: {install, removal, transfer}}
             - new_rates_arrowhead: {GROUP_CODE: {install, removal, transfer}} (rates * 0.90)
+            - rates_fingerprint: short hash of rate table contents for cache invalidation
     """
     cu_to_group = build_cu_to_group_mapping(OLD_RATES_CSV)
     new_rates_primary = load_new_contract_rates(NEW_RATES_CSV)
@@ -565,10 +581,13 @@ def load_rate_versions():
             'transfer': round(rates['transfer'] * ARROWHEAD_DISCOUNT, 2),
         }
 
+    rates_fingerprint = _compute_rates_fingerprint(new_rates_primary)
+
     logging.info(f"Rate versions loaded: {len(new_rates_primary)} primary groups, "
                  f"{len(new_rates_arrowhead)} Arrowhead groups, "
-                 f"{len(cu_to_group)} CU-to-group mappings")
-    return cu_to_group, new_rates_primary, new_rates_arrowhead
+                 f"{len(cu_to_group)} CU-to-group mappings, "
+                 f"fingerprint={rates_fingerprint}")
+    return cu_to_group, new_rates_primary, new_rates_arrowhead, rates_fingerprint
 
 
 def recalculate_row_price(row_data, cu_to_group, rates_dict):
@@ -902,6 +921,8 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
     meta_parts.append(f"ROWCOUNT={len(sorted_rows)}")
     if RATE_CUTOFF_DATE:
         meta_parts.append(f"RATE_CUTOFF={RATE_CUTOFF_DATE.isoformat()}")
+        if _RATES_FINGERPRINT:
+            meta_parts.append(f"RATES_FP={_RATES_FINGERPRINT}")
 
     # Update hash with metadata
     if meta_parts:
@@ -1694,11 +1715,12 @@ def get_all_source_rows(client, source_sheets):
     global_row_counter = 0
     original_rates = load_contract_rates('CU List - Corpus North & South.csv')
     # Load new rate versions if rate cutoff is configured
+    global _RATES_FINGERPRINT
     _rate_cu_to_group = {}
     _rate_new_primary = {}
     _rate_new_arrowhead = {}
     if RATE_CUTOFF_DATE:
-        _rate_cu_to_group, _rate_new_primary, _rate_new_arrowhead = load_rate_versions()
+        _rate_cu_to_group, _rate_new_primary, _rate_new_arrowhead, _RATES_FINGERPRINT = load_rate_versions()
     exclusion_counts = {
         'missing_work_request': 0,
         'missing_weekly_reference_logged_date': 0,
@@ -1835,10 +1857,30 @@ def get_all_source_rows(client, source_sheets):
                         price_val = parse_price(price_raw)
 
                         # --- SUBCONTRACTOR PRICING ---
-                        # Subcontractor sheets keep their reduced 10% pricing as-is.
-                        # The Excel files will reflect the actual subcontractor rates
-                        # captured from Smartsheet without reversion to original contract rates.
+                        # When RATE_CUTOFF_DATE is NOT set: subcontractor sheets keep
+                        # their SmartSheet pricing as-is (reduced 10% rates from upstream).
+                        # When RATE_CUTOFF_DATE IS set: post-cutoff rows get prices
+                        # recalculated from new rate tables (subcontractors at new_rate × 0.90).
                         # --- END SUBCONTRACTOR PRICING ---
+
+                        # Pre-acceptance rate recalculation: for cutoff-eligible rows,
+                        # recalculate price BEFORE the has_price check so rows with
+                        # zero/blank SmartSheet prices can still be accepted if the
+                        # new rate produces a valid non-zero amount.
+                        if RATE_CUTOFF_DATE and _rate_new_primary:
+                            snapshot_raw_pre = row_data.get('Snapshot Date')
+                            if snapshot_raw_pre:
+                                snap_dt_pre = excel_serial_to_date(snapshot_raw_pre)
+                                if snap_dt_pre:
+                                    snap_date_pre = snap_dt_pre.date() if hasattr(snap_dt_pre, 'date') else snap_dt_pre
+                                    if snap_date_pre >= RATE_CUTOFF_DATE:
+                                        target_rates = _rate_new_arrowhead if is_subcontractor_sheet else _rate_new_primary
+                                        old_price = price_val
+                                        price_val = recalculate_row_price(row_data, _rate_cu_to_group, target_rates)
+                                        if price_val != old_price:
+                                            logging.debug(f"Rate recalc: CU={row_data.get('CU')}, "
+                                                          f"old=${old_price:.2f} -> new=${price_val:.2f}, "
+                                                          f"sub={is_subcontractor_sheet}, date={snap_date_pre}")
 
                         price_raw = row_data.get('Units Total Price')
                         has_price = (price_raw not in (None, "", "$0", "$0.00", "0", "0.0")) and price_val > 0
@@ -1962,28 +2004,6 @@ def get_all_source_rows(client, source_sheets):
                             
                             row_data['__is_vac_crew'] = is_vac_crew_row
                             row_data['__is_subcontractor'] = is_subcontractor_sheet
-
-                            # --- DATE-BASED RATE RECALCULATION ---
-                            # When RATE_CUTOFF_DATE is set, rows with Snapshot Date on/after
-                            # the cutoff get prices recalculated from new contract rates.
-                            # Pre-cutoff rows keep their SmartSheet Units Total Price.
-                            if RATE_CUTOFF_DATE and _rate_new_primary:
-                                snapshot_raw = row_data.get('Snapshot Date')
-                                if snapshot_raw:
-                                    snap_dt = excel_serial_to_date(snapshot_raw)
-                                    if snap_dt:
-                                        snap_date = snap_dt.date() if hasattr(snap_dt, 'date') else snap_dt
-                                        if snap_date >= RATE_CUTOFF_DATE:
-                                            target_rates = _rate_new_arrowhead if is_subcontractor_sheet else _rate_new_primary
-                                            old_price = parse_price(row_data.get('Units Total Price'))
-                                            new_price = recalculate_row_price(row_data, _rate_cu_to_group, target_rates)
-                                            if new_price != old_price:
-                                                logging.debug(f"Rate recalc: CU={row_data.get('CU')}, "
-                                                              f"old=${old_price:.2f} -> new=${new_price:.2f}, "
-                                                              f"sub={is_subcontractor_sheet}, date={snap_date}")
-                                                # Update price_val and has_price after recalculation
-                                                price_val = new_price
-                                                has_price = price_val > 0
 
                             sheet_rows.append(row_data)
                             sheet_exclusion_counts['accepted'] += 1
