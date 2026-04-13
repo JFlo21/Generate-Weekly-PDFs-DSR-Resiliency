@@ -220,8 +220,9 @@ except ValueError:
     logging.error(f"Invalid RATE_CUTOFF_DATE format: '{_cutoff_str}', expected YYYY-MM-DD. Rate versioning disabled.")
     RATE_CUTOFF_DATE = None
 ARROWHEAD_DISCOUNT = 0.90  # 10% reduction for subcontractors (Arrowhead)
-NEW_RATES_CSV = os.getenv('NEW_RATES_CSV', 'New Contract Rates copy regenerated again.csv')
-OLD_RATES_CSV = os.getenv('OLD_RATES_CSV', 'CU List - Corpus North & South.csv')
+# Sanitize CSV paths: only allow basenames (no directory traversal)
+NEW_RATES_CSV = os.path.basename(os.getenv('NEW_RATES_CSV', 'New Contract Rates copy regenerated again.csv'))
+OLD_RATES_CSV = os.path.basename(os.getenv('OLD_RATES_CSV', 'CU List - Corpus North & South.csv'))
 
 _RATES_FINGERPRINT = ''  # Populated at runtime by load_rate_versions()
 
