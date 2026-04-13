@@ -645,12 +645,16 @@ def recalculate_row_price(row_data, cu_to_group, rates_dict):
     elif 'tran' in work_type_raw or 'xfr' in work_type_raw:
         wt_key = 'transfer'
 
-    # Parse quantity
-    qty_str = str(row_data.get('Quantity', '') or '0')
+    # Parse quantity — if missing or unparseable, keep SmartSheet price
+    qty_str = str(row_data.get('Quantity', '') or '')
     try:
         qty = float(_RE_EXTRACT_NUMBERS.sub('', qty_str) or 0)
     except ValueError:
         qty = 0.0
+
+    if qty <= 0:
+        logging.debug(f"Rate recalculation: quantity '{qty_str}' is zero/missing for CU '{cu_code}', keeping SmartSheet price")
+        return price_val
 
     rate = rates_dict[group_code].get(wt_key, 0.0)
     new_price = round(rate * qty, 2)

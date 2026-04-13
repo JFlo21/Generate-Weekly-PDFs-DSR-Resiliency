@@ -499,11 +499,20 @@ class TestRecalculateRowPrice(unittest.TestCase):
         expected = round(224.06 * 0.90, 2)  # 201.65
         self.assertAlmostEqual(result, expected)
 
-    def test_zero_quantity(self):
-        """Test that zero quantity yields zero price."""
-        row = {'CU': 'ANC-DHM-10-84-D1', 'Work Type': 'Install', 'Quantity': '0', 'Units Total Price': '$0.00'}
+    def test_zero_quantity_keeps_smartsheet_price(self):
+        """Test that zero quantity keeps original SmartSheet price instead of zeroing it out."""
+        row = {'CU': 'ANC-DHM-10-84-D1', 'Work Type': 'Install', 'Quantity': '0', 'Units Total Price': '$55.00'}
         result = generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary)
-        self.assertAlmostEqual(result, 0.0)
+        self.assertAlmostEqual(result, 55.0)
+        # Original string should be unchanged
+        self.assertEqual(row['Units Total Price'], '$55.00')
+
+    def test_missing_quantity_keeps_smartsheet_price(self):
+        """Test that missing/empty quantity keeps original SmartSheet price."""
+        row = {'CU': 'ANC-DHM-10-84-D1', 'Work Type': 'Install', 'Units Total Price': '$100.00'}
+        result = generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary)
+        self.assertAlmostEqual(result, 100.0)
+        self.assertEqual(row['Units Total Price'], '$100.00')
 
 
 class TestRateCutoffConfig(unittest.TestCase):
