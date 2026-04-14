@@ -1,0 +1,122 @@
+name: Webhook Security Audit
+
+permissions:
+  contents: read
+
+on:
+  schedule:
+    # Weekly on Mondays at 3:00 AM UTC
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for insecure default secrets in template files
+        run: |
+          echo "Scanning template files for insecure default secret values..."
+          INSECURE_PATTERNS="audit_webhook_secret|changeme|default_secret|password123|your_secret_here|example_secret|test_secret_key"
+          FOUND=0
+          for f in .env.template .env.example .env.*.example portal/.env.example portal-v2/.env.example; do
+            if [ -f "$f" ]; then
+              if grep -iEq "$INSECURE_PATTERNS" "$f"; then
+                echo "::warning file=$f::Potentially insecure default value detected"
+                grep -inE "$INSECURE_PATTERNS" "$f"
+                FOUND=1
+              else
+                echo "OK: $f"
+              fi
+            fi
+          done
+          if [ $FOUND -eq 1 ]; then
+            echo ""
+            echo "::warning::Insecure default values detected in one or more template files. Review and update them."
+          else
+            echo ""
+            echo "All template files look clean."
+          fi
+
+      - name: Verify webhook secret rotation status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PYEOF'
+          import os
+          import json
+          import sys
+          from urllib.request import Request, urlopen
+          from urllib.error import HTTPError
+          from datetime import datetime, timezone
+
+          token = os.environ.get("GH_TOKEN", "")
+          if not token:
+              print("No GH_TOKEN available, skipping webhook rotation check.")
+              sys.exit(0)
+
+          # The compromise window ended on January 6, 2026.
+          # Any webhook updated after this date has likely been rotated.
+          COMPROMISE_END = datetime(2026, 1, 6, tzinfo=timezone.utc)
+
+          owner = "JFlo21"
+          repo = "Generate-Weekly-PDFs-DSR-Resiliency"
+          url = f"https://api.github.com/repos/{owner}/{repo}/hooks"
+
+          req = Request(url, headers={
+              "Authorization": f"Bearer {token}",
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "WebhookSecurityAudit/1.0",
+          })
+
+          try:
+              with urlopen(req) as resp:
+                  hooks = json.loads(resp.read().decode("utf-8"))
+          except HTTPError as e:
+              if e.code in (401, 403):
+                  print("Token lacks admin:repo_hook scope -- skipping webhook API check.")
+                  print("Template file scanning above still provides value independently.")
+                  sys.exit(0)
+              print(f"::warning::Could not check webhooks: HTTP {e.code}")
+              sys.exit(0)
+
+          if not hooks:
+              print("No webhooks configured on this repository.")
+              sys.exit(0)
+
+          all_ok = True
+          for hook in hooks:
+              hook_id = hook.get("id", "unknown")
+              updated_str = hook.get("updated_at", "")
+              if not updated_str:
+                  print(f"::warning::Webhook {hook_id} has no updated_at timestamp.")
+                  all_ok = False
+                  continue
+
+              updated = datetime.fromisoformat(updated_str.replace("Z", "+00:00"))
+              if updated < COMPROMISE_END:
+                  print(f"::error::Webhook {hook_id} was last updated {updated_str}, "
+                        f"BEFORE the compromise window ended (2026-01-06). "
+                        f"The secret may NOT have been rotated yet!")
+                  all_ok = False
+              else:
+                  print(f"Webhook {hook_id} last updated {updated_str} -- appears rotated.")
+
+          if not all_ok:
+              print("")
+              print("ACTION REQUIRED: Rotate webhook secrets that have not been updated.")
+              print("Run: GITHUB_TOKEN=ghp_xxx python scripts/rotate_webhook_secret.py --hook-id <ID>")
+              sys.exit(1)
+          else:
+              print("")
+              print("All webhooks appear to have been rotated after the compromise window.")
+          PYEOF
+
+      - name: Summary
+        if: always()
+        run: echo "Webhook security audit completed."
