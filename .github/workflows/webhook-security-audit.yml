@@ -21,7 +21,7 @@ jobs:
       - name: Check for insecure default secrets in template files
         run: |
           echo "Scanning template files for insecure default secret values..."
-          INSECURE_PATTERNS="audit_webhook_secret|changeme|default_secret|password123|your_secret_here|example_secret|test_secret_key"
+          INSECURE_PATTERNS="audit_webhook_secret|changeme|change_me|default_secret|password123|your_secret_here|example_secret|test_secret_key"
           FOUND=0
           for f in .env.template .env.example .env.*.example portal/.env.example portal-v2/.env.example; do
             if [ -f "$f" ]; then

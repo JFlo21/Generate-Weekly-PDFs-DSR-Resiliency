@@ -39,14 +39,12 @@ def rotate_webhook_secret(hook_id, token, owner, repo):
     """
     new_secret = secrets.token_hex(32)
 
-    url = f"https://api.github.com/repos/{owner}/{repo}/hooks/{hook_id}"
+    url = (
+        f"https://api.github.com/repos/{owner}/{repo}/hooks/{hook_id}/config"
+    )
 
-    # Only update the secret; preserve all other webhook configuration
-    payload = json.dumps({
-        "config": {
-            "secret": new_secret,
-        }
-    }).encode("utf-8")
+    # Partial config update: only secret; url/content_type/insecure_ssl unchanged
+    payload = json.dumps({"secret": new_secret}).encode("utf-8")
 
     req = Request(url, data=payload, method="PATCH", headers={
         "Authorization": f"Bearer {token}",
