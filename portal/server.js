@@ -6,6 +6,7 @@ const cors = require('cors');
 const path = require('node:path');
 const config = require('./config/default');
 const { setupSecurity, csrfProtection } = require('./middleware/security');
+const { verifyWebhookSignature } = require('./middleware/webhook');
 const authRoutes = require('./routes/auth');
 const apiRoutes = require('./routes/api');
 const healthRoutes = require('./routes/health');
@@ -48,6 +49,15 @@ app.use('/vendor/react-dom', express.static(path.join(__dirname, 'node_modules/r
 app.use('/vendor/htm', express.static(path.join(__dirname, 'node_modules/htm/dist'), { maxAge: '7d' }));
 
 app.use(express.static(config.staticDir));
+
+// GitHub webhooks: raw body + signature verification (before CSRF — no browser session)
+app.post('/webhook',
+  express.raw({ type: 'application/json' }),
+  verifyWebhookSignature,
+  (_req, res) => {
+    res.status(200).json({ received: true });
+  }
+);
 
 app.get('/csrf-token', (req, res) => {
   const crypto = require('node:crypto');
