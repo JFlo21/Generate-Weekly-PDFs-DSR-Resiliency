@@ -15,7 +15,7 @@ Requirements:
 
 Background:
     Created in response to GitHub security notification GH-9951654-7992-a1
-    regarding webhook secret exposure via X-Github-Encoded-Secret header
+    regarding webhook secret exposure via X-GitHub-Encoded-Secret header
     (September-December 2025). See: https://docs.github.com/en/webhooks/using-webhooks/editing-webhooks
 """
 
