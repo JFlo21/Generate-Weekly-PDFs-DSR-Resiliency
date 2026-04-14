@@ -241,6 +241,7 @@ describe('CSV export sanitization', () => {
   it('preserves normal values', () => {
     expect(sanitizeCsvCellValue('safe')).toBe('safe');
     expect(sanitizeCsvCellValue('  42')).toBe('  42');
+    expect(sanitizeCsvCellValue(-42)).toBe('-42');
   });
 });
 

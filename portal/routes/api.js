@@ -18,6 +18,9 @@ function sanitizeFilename(name) {
 }
 
 function sanitizeCsvCellValue(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value);
+  }
   let safeValue = String(value ?? '');
   const trimmed = safeValue.trimStart();
   if (/^[=+\-@]/.test(trimmed)) {
