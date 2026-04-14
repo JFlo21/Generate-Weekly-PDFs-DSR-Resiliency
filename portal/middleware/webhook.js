@@ -44,10 +44,17 @@ function verifyWebhookSignature(req, res, next) {
     return res.status(500).json({ error: 'Webhook not configured' });
   }
 
-  const signature = req.headers['x-hub-signature-256'];
-  if (!signature) {
+  const signatureHeader = req.headers['x-hub-signature-256'];
+  if (!signatureHeader) {
     return res.status(401).json({ error: 'Missing X-Hub-Signature-256 header' });
   }
+
+  // Express can return an array for duplicate headers; reject that case
+  if (Array.isArray(signatureHeader)) {
+    return res.status(401).json({ error: 'Invalid X-Hub-Signature-256 header' });
+  }
+
+  const signature = signatureHeader;
 
   if (!Buffer.isBuffer(req.body)) {
     console.error('Webhook route must use express.raw(), not express.json()');

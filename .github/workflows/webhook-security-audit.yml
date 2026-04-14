@@ -21,13 +21,13 @@ jobs:
       - name: Check for insecure default secrets in template files
         run: |
           echo "Scanning template files for insecure default secret values..."
-          INSECURE_PATTERNS="audit_webhook_secret|changeme|default_secret|password123|your_secret_here|example_secret|test_secret_key"
+          INSECURE_PATTERNS="audit_webhook_secret|change.?me|default_secret|password123|your_secret_here|example_secret|test_secret_key"
           FOUND=0
           for f in .env.template .env.example .env.*.example portal/.env.example portal-v2/.env.example; do
             if [ -f "$f" ]; then
               if grep -iEq "$INSECURE_PATTERNS" "$f"; then
                 echo "::warning file=$f::Potentially insecure default value detected"
-                grep -inE "$INSECURE_PATTERNS" "$f"
+                grep -inEi "$INSECURE_PATTERNS" "$f"
                 FOUND=1
               else
                 echo "OK: $f"
@@ -45,6 +45,7 @@ jobs:
       - name: Verify webhook secret rotation status
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPOSITORY: ${{ github.repository }}
         run: |
           python3 - <<'PYEOF'
           import os
@@ -63,9 +64,8 @@ jobs:
           # Any webhook updated after this date has likely been rotated.
           COMPROMISE_END = datetime(2026, 1, 6, tzinfo=timezone.utc)
 
-          owner = "JFlo21"
-          repo = "Generate-Weekly-PDFs-DSR-Resiliency"
-          url = f"https://api.github.com/repos/{owner}/{repo}/hooks"
+          repository = os.environ.get("GH_REPOSITORY", "JFlo21/Generate-Weekly-PDFs-DSR-Resiliency")
+          url = f"https://api.github.com/repos/{repository}/hooks"
 
           req = Request(url, headers={
               "Authorization": f"Bearer {token}",

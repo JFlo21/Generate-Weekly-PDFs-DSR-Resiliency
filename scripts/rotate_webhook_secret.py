@@ -23,7 +23,9 @@ import argparse
 import json
 import os
 import secrets
+import stat
 import sys
+import tempfile
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -39,13 +41,12 @@ def rotate_webhook_secret(hook_id, token, owner, repo):
     """
     new_secret = secrets.token_hex(32)
 
-    url = f"https://api.github.com/repos/{owner}/{repo}/hooks/{hook_id}"
+    # Use the /config endpoint for partial updates to avoid overwriting
+    # the webhook's url, content_type, or insecure_ssl settings
+    url = f"https://api.github.com/repos/{owner}/{repo}/hooks/{hook_id}/config"
 
-    # Only update the secret; preserve all other webhook configuration
     payload = json.dumps({
-        "config": {
-            "secret": new_secret,
-        }
+        "secret": new_secret,
     }).encode("utf-8")
 
     req = Request(url, data=payload, method="PATCH", headers={
@@ -57,7 +58,7 @@ def rotate_webhook_secret(hook_id, token, owner, repo):
     })
 
     try:
-        with urlopen(req) as resp:
+        with urlopen(req, timeout=30) as resp:
             if resp.status == 200:
                 return new_secret
             body = resp.read().decode("utf-8", errors="replace")
@@ -109,18 +110,29 @@ def main():
     print(f"Rotating webhook secret for {owner}/{repo} hook {args.hook_id}...")
     new_secret = rotate_webhook_secret(args.hook_id, token, owner, repo)
 
+    # Write the new secret to a temporary file with owner-only read permissions
+    # to avoid leaking it in terminal scrollback, CI logs, or shell history
+    fd, secret_path = tempfile.mkstemp(prefix="webhook_secret_", suffix=".txt")
+    try:
+        os.write(fd, new_secret.encode("utf-8"))
+    finally:
+        os.close(fd)
+    os.chmod(secret_path, stat.S_IRUSR)
+
     print()
     print("=" * 64)
     print("  Webhook secret rotated successfully!")
     print("=" * 64)
     print()
-    print(f"  New secret: {new_secret}")
+    print(f"  New secret saved to: {secret_path}")
+    print(f"  Read it with: cat {secret_path}")
     print()
     print("  Next steps:")
-    print("  1. Store this secret securely (password manager, etc.)")
+    print("  1. Copy the secret from the file above into your password manager")
     print("  2. Update WEBHOOK_SECRET in your .env file if applicable")
     print("  3. Update any systems that validate webhook signatures")
-    print("  4. Do NOT commit this secret to version control")
+    print(f"  4. Delete the file: rm {secret_path}")
+    print("  5. Do NOT commit the secret to version control")
     print()
     print("=" * 64)
 
