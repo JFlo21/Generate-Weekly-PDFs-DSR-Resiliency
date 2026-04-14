@@ -77,15 +77,15 @@ jobs:
           try:
               with urlopen(req, timeout=30) as resp:
                   hooks = json.loads(resp.read().decode("utf-8"))
-          except (URLError, TimeoutError) as e:
-              print(f"::warning::Network error checking webhooks: {e}")
-              sys.exit(0)
           except HTTPError as e:
               if e.code in (401, 403):
                   print("Token lacks admin:repo_hook scope -- skipping webhook API check.")
                   print("Template file scanning above still provides value independently.")
                   sys.exit(0)
               print(f"::warning::Could not check webhooks: HTTP {e.code}")
+              sys.exit(0)
+          except (URLError, TimeoutError) as e:
+              print(f"::warning::Network error checking webhooks: {e}")
               sys.exit(0)
 
           if not hooks:
