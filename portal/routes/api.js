@@ -6,12 +6,46 @@ const excel = require('../services/excel');
 const poller = require('../services/poller');
 
 const router = express.Router();
+const MAX_ARTIFACT_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
+const MAX_ZIP_ENTRIES = 1000;
+const MAX_ZIP_ENTRY_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
 
 function sanitizeFilename(name) {
   if (!name) return undefined;
   const normalized = path.posix.normalize(name);
   if (path.posix.isAbsolute(normalized) || normalized.includes('..')) return undefined;
   return normalized;
+}
+
+function sanitizeCsvCellValue(value) {
+  let safeValue = String(value ?? '');
+  const trimmed = safeValue.trimStart();
+  if (/^[=+\-@]/.test(trimmed)) {
+    safeValue = `'${safeValue}`;
+  }
+  return safeValue;
+}
+
+function validateArtifactZip(zipBuffer, entries) {
+  if (zipBuffer.length > MAX_ARTIFACT_SIZE_BYTES) {
+    const err = new Error('Artifact zip exceeds maximum allowed size');
+    err.statusCode = 413;
+    throw err;
+  }
+  if (entries.length > MAX_ZIP_ENTRIES) {
+    const err = new Error('Artifact zip has too many files');
+    err.statusCode = 413;
+    throw err;
+  }
+}
+
+function validateZipEntry(entry) {
+  if (!entry || entry.isDirectory) return;
+  if (entry.header && entry.header.size > MAX_ZIP_ENTRY_SIZE_BYTES) {
+    const err = new Error('Artifact file exceeds maximum allowed size');
+    err.statusCode = 413;
+    throw err;
+  }
 }
 
 router.use(requireAuth);
@@ -74,6 +108,7 @@ router.get('/artifacts/:artifactId/view', async (req, res) => {
     const AdmZip = require('adm-zip');
     const zip = new AdmZip(zipBuffer);
     const entries = zip.getEntries();
+    validateArtifactZip(zipBuffer, entries);
 
     const filename = sanitizeFilename(req.query.file);
     let targetEntry;
@@ -94,6 +129,7 @@ router.get('/artifacts/:artifactId/view', async (req, res) => {
       return res.json({ files: fileList, message: 'No Excel file found. Listing contents.' });
     }
 
+    validateZipEntry(targetEntry);
     const excelBuffer = targetEntry.getData();
     const parsed = await excel.parseExcelBuffer(excelBuffer);
 
@@ -103,7 +139,7 @@ router.get('/artifacts/:artifactId/view', async (req, res) => {
     });
   } catch (err) {
     console.error('Error viewing artifact:', err.message);
-    return res.status(502).json({ error: 'Failed to parse artifact' });
+    return res.status(err.statusCode || 502).json({ error: 'Failed to parse artifact' });
   }
 });
 
@@ -114,6 +150,7 @@ router.get('/artifacts/:artifactId/files', async (req, res) => {
     const AdmZip = require('adm-zip');
     const zip = new AdmZip(zipBuffer);
     const entries = zip.getEntries();
+    validateArtifactZip(zipBuffer, entries);
 
     const files = entries
       .filter((e) => !e.isDirectory)
@@ -126,7 +163,7 @@ router.get('/artifacts/:artifactId/files', async (req, res) => {
     return res.json({ files });
   } catch (err) {
     console.error('Error listing files:', err.message);
-    return res.status(502).json({ error: 'Failed to list artifact files' });
+    return res.status(err.statusCode || 502).json({ error: 'Failed to list artifact files' });
   }
 });
 
@@ -139,6 +176,7 @@ router.get('/artifacts/:artifactId/export', async (req, res) => {
     const AdmZip = require('adm-zip');
     const zip = new AdmZip(zipBuffer);
     const entries = zip.getEntries();
+    validateArtifactZip(zipBuffer, entries);
 
     let targetEntry;
     if (filename) {
@@ -151,6 +189,7 @@ router.get('/artifacts/:artifactId/export', async (req, res) => {
       return res.status(404).json({ error: 'No file found in artifact' });
     }
 
+    validateZipEntry(targetEntry);
     const excelBuffer = targetEntry.getData();
     const baseName = path.basename(targetEntry.entryName, '.xlsx');
 
@@ -173,7 +212,7 @@ router.get('/artifacts/:artifactId/export', async (req, res) => {
         const cols = [];
         for (let col = 1; col <= maxCol; col++) {
           const cell = cellMap[col];
-          let val = cell ? String(cell.value ?? '') : '';
+          let val = cell ? sanitizeCsvCellValue(cell.value) : '';
           if (val.includes(',') || val.includes('"') || val.includes('\n')) {
             val = '"' + val.replace(/"/g, '""') + '"';
           }
@@ -193,7 +232,7 @@ router.get('/artifacts/:artifactId/export', async (req, res) => {
     return res.send(excelBuffer);
   } catch (err) {
     console.error('Error exporting artifact:', err.message);
-    return res.status(502).json({ error: 'Failed to export artifact' });
+    return res.status(err.statusCode || 502).json({ error: 'Failed to export artifact' });
   }
 });
 
@@ -293,3 +332,4 @@ router.get('/poller-status', (req, res) => {
 
 module.exports = router;
 module.exports.sanitizeFilename = sanitizeFilename;
+module.exports.sanitizeCsvCellValue = sanitizeCsvCellValue;

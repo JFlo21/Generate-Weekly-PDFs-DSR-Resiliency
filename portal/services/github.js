@@ -3,14 +3,31 @@ const { Readable } = require('node:stream');
 const config = require('../config/default');
 
 const API_BASE = 'https://api.github.com';
+const REDIRECT_HOST_ALLOWLIST = [
+  'api.github.com',
+  'github.com',
+  'objects.githubusercontent.com',
+  'pipelines.actions.githubusercontent.com',
+  'productionresultssa0.blob.core.windows.net',
+  'productionresultssa1.blob.core.windows.net',
+  'productionresultssa2.blob.core.windows.net',
+];
 
-function makeHeaders() {
+function isAllowedRedirectHost(hostname) {
+  return REDIRECT_HOST_ALLOWLIST.includes(hostname);
+}
+
+function shouldAttachGithubAuth(hostname) {
+  return hostname === 'api.github.com';
+}
+
+function makeHeaders(hostname) {
   const headers = {
     'Accept': 'application/vnd.github+json',
     'User-Agent': 'LinetecReportPortal/1.0',
     'X-GitHub-Api-Version': '2022-11-28',
   };
-  if (config.github.token) {
+  if (config.github.token && shouldAttachGithubAuth(hostname)) {
     headers['Authorization'] = `Bearer ${config.github.token}`;
   }
   return headers;
@@ -19,11 +36,19 @@ function makeHeaders() {
 function request(urlPath, options = {}) {
   return new Promise((resolve, reject) => {
     const url = urlPath.startsWith('http') ? new URL(urlPath) : new URL(`${API_BASE}${urlPath}`);
+    if (url.protocol !== 'https:') {
+      return reject(new Error(`Refusing non-HTTPS request: ${url.protocol}`));
+    }
+
+    if (urlPath.startsWith('http') && !isAllowedRedirectHost(url.hostname)) {
+      return reject(new Error(`Blocked redirect to untrusted host: ${url.hostname}`));
+    }
+
     const reqOptions = {
       hostname: url.hostname,
       path: url.pathname + url.search,
       method: options.method || 'GET',
-      headers: { ...makeHeaders(), ...options.headers },
+      headers: { ...makeHeaders(url.hostname), ...options.headers },
     };
 
     const req = https.request(reqOptions, (res) => {
@@ -127,4 +152,8 @@ module.exports = {
   listRunArtifacts,
   downloadArtifact,
   getArtifactsByWorkRequest,
+  _internal: {
+    shouldAttachGithubAuth,
+    isAllowedRedirectHost,
+  },
 };

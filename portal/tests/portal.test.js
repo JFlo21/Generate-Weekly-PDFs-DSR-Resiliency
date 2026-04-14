@@ -176,6 +176,25 @@ describe('Excel service', () => {
     expect(csvRows[1]).toContain('"with, comma"');
     expect(csvRows[2]).toBe('Beta,2000,clean');
   });
+
+  it('enforces parse limits for oversized worksheets', async () => {
+    const ExcelJS = require('exceljs');
+    const excel = require('../services/excel');
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('TooWide');
+    sheet.addRow(['a', 'b', 'c', 'd', 'e']);
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    await expect(
+      excel.parseExcelBuffer(buffer, {
+        maxSheets: 5,
+        maxRowsPerSheet: 100,
+        maxColsPerRow: 3,
+        maxTotalCells: 500,
+      })
+    ).rejects.toThrow('Excel parse limit exceeded');
+  });
 });
 
 describe('sanitizeFilename', () => {
@@ -206,6 +225,37 @@ describe('sanitizeFilename', () => {
   it('blocks encoded traversal patterns after normalization', () => {
     expect(sanitizeFilename('folder/..%2f..%2fetc/passwd')).toBeUndefined();
     expect(sanitizeFilename('a/b/../../../c')).toBeUndefined();
+  });
+});
+
+describe('CSV export sanitization', () => {
+  const { sanitizeCsvCellValue } = require('../routes/api');
+
+  it('neutralizes spreadsheet formulas', () => {
+    expect(sanitizeCsvCellValue('=SUM(A1:A2)')).toBe("'=SUM(A1:A2)");
+    expect(sanitizeCsvCellValue('+2+3')).toBe("'+2+3");
+    expect(sanitizeCsvCellValue('-cmd')).toBe("'-cmd");
+    expect(sanitizeCsvCellValue('@NOW()')).toBe("'@NOW()");
+  });
+
+  it('preserves normal values', () => {
+    expect(sanitizeCsvCellValue('safe')).toBe('safe');
+    expect(sanitizeCsvCellValue('  42')).toBe('  42');
+  });
+});
+
+describe('GitHub redirect hardening helpers', () => {
+  const github = require('../services/github');
+
+  it('only attaches auth to api.github.com', () => {
+    expect(github._internal.shouldAttachGithubAuth('api.github.com')).toBe(true);
+    expect(github._internal.shouldAttachGithubAuth('github.com')).toBe(false);
+    expect(github._internal.shouldAttachGithubAuth('objects.githubusercontent.com')).toBe(false);
+  });
+
+  it('allows only trusted redirect hosts', () => {
+    expect(github._internal.isAllowedRedirectHost('objects.githubusercontent.com')).toBe(true);
+    expect(github._internal.isAllowedRedirectHost('evil.example.com')).toBe(false);
   });
 });
 
