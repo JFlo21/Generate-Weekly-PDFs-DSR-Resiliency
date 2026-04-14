@@ -52,7 +52,7 @@ jobs:
           import json
           import sys
           from urllib.request import Request, urlopen
-          from urllib.error import HTTPError
+          from urllib.error import HTTPError, URLError
           from datetime import datetime, timezone
 
           token = os.environ.get("GH_TOKEN", "")
@@ -75,8 +75,11 @@ jobs:
           })
 
           try:
-              with urlopen(req) as resp:
+              with urlopen(req, timeout=30) as resp:
                   hooks = json.loads(resp.read().decode("utf-8"))
+          except (URLError, TimeoutError) as e:
+              print(f"::warning::Network error checking webhooks: {e}")
+              sys.exit(0)
           except HTTPError as e:
               if e.code in (401, 403):
                   print("Token lacks admin:repo_hook scope -- skipping webhook API check.")

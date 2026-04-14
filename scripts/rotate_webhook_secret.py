@@ -26,7 +26,7 @@ import secrets
 import stat
 import sys
 import tempfile
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 OWNER = "JFlo21"
@@ -74,6 +74,10 @@ def rotate_webhook_secret(hook_id, token, owner, repo):
                   f"admin:repo_hook scope.", file=sys.stderr)
         else:
             print(f"GitHub API error (HTTP {e.code}): {body}", file=sys.stderr)
+        sys.exit(1)
+    except (URLError, TimeoutError) as e:
+        print(f"Network error: {e}", file=sys.stderr)
+        print("Check your internet connection and try again.", file=sys.stderr)
         sys.exit(1)
 
 

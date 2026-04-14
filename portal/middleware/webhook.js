@@ -11,8 +11,13 @@
  *   const express = require('express');
  *   const { verifyWebhookSignature } = require('./middleware/webhook');
  *
- *   // IMPORTANT: Use express.raw(), NOT express.json(), on the webhook route.
- *   // The raw body bytes are required for HMAC computation.
+ *   // IMPORTANT:
+ *   // 1. Mount the webhook route BEFORE the global csrfProtection middleware
+ *   //    in server.js, or explicitly exempt /webhook from CSRF checks.
+ *   //    GitHub POST deliveries do not include your app's X-CSRF-Token and
+ *   //    will be rejected before signature validation runs.
+ *   // 2. Use express.raw(), NOT express.json(), on the webhook route.
+ *   //    The raw body bytes are required for HMAC computation.
  *   app.post('/webhook',
  *     express.raw({ type: 'application/json' }),
  *     verifyWebhookSignature,
