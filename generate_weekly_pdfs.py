@@ -202,6 +202,9 @@ ORIGINAL_CONTRACT_FOLDER_IDS = _parse_sheet_ids(os.getenv('ORIGINAL_CONTRACT_FOL
 # VAC Crew detection is now row-level (column-presence-based, no folder/sheet ID config needed).
 # Sheets with columns like 'VAC Crew Helping?' and 'Vac Crew Completed Unit?' automatically
 # produce vac_crew variant rows during row processing.
+# Legacy variables for backward compatibility with tests (no longer used in production)
+VAC_CREW_SHEET_IDS = set(_parse_sheet_ids(os.getenv('VAC_CREW_SHEET_IDS', '')))
+VAC_CREW_FOLDER_IDS = _parse_sheet_ids(os.getenv('VAC_CREW_FOLDER_IDS', ''))
 # Module-level sets populated at runtime by discover_folder_sheets()
 _FOLDER_DISCOVERED_SUB_IDS: set[int] = set()
 _FOLDER_DISCOVERED_ORIG_IDS: set[int] = set()
