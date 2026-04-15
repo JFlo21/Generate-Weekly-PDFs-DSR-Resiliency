@@ -23,10 +23,11 @@ Excel generated with subcontractor's reduced 10% pricing as-is
 ## Critical Constraints
 
 ### Subcontractor Pricing Behavior
-- **When `RATE_CUTOFF_DATE` is NOT set (default):** Subcontractor sheets keep their reduced 10% pricing as-is — no price changes are performed. SmartSheet `Units Total Price` flows through unchanged.
-- **When `RATE_CUTOFF_DATE` IS set:** Post-cutoff rows on subcontractor sheets get prices recalculated using new contract rates × 0.90 (Arrowhead discount). Pre-cutoff rows still keep SmartSheet pricing as-is.
+- Subcontractor (Arrowhead) sheets **always keep their SmartSheet pricing as-is** — no rate recalculation is performed, regardless of whether `RATE_CUTOFF_DATE` is set
+- Rate recalculation only applies to primary (non-subcontractor) sheets
+- Subcontractor new rates will be enabled separately in a future update when a subcontractor cutoff date is provided
+- The Arrowhead rate tables (`_rate_new_arrowhead`) are precomputed and ready for when subcontractor recalculation is enabled
 - `revert_subcontractor_price()` exists in the codebase but is **not called** during row processing
-- The `__is_subcontractor` flag on each row determines whether primary or Arrowhead (discounted) rate tables are used for recalculation
 
 ### Folder-Based Discovery Over Individual Sheet IDs
 - Subcontractor sheets live in stable Smartsheet folders that never change location

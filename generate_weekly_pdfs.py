@@ -596,12 +596,16 @@ def load_rate_versions():
             'transfer': round(rates['transfer'] * ARROWHEAD_DISCOUNT, 2),
         }
 
-    rates_fingerprint = _compute_rates_fingerprint(new_rates_primary)
+    # Only compute fingerprint if rates were successfully loaded
+    rates_fingerprint = _compute_rates_fingerprint(new_rates_primary) if new_rates_primary else ''
 
-    logging.info(f"Rate versions loaded: {len(new_rates_primary)} primary groups, "
-                 f"{len(new_rates_arrowhead)} Arrowhead groups, "
-                 f"{len(cu_to_group)} CU-to-group mappings, "
-                 f"fingerprint={rates_fingerprint}")
+    if not new_rates_primary:
+        logging.warning("⚠️ New rate table is empty — rate recalculation will be skipped even though RATE_CUTOFF_DATE is set")
+    else:
+        logging.info(f"Rate versions loaded: {len(new_rates_primary)} primary groups, "
+                     f"{len(new_rates_arrowhead)} Arrowhead groups (precomputed, not yet active), "
+                     f"{len(cu_to_group)} CU-to-group mappings, "
+                     f"fingerprint={rates_fingerprint}")
     return cu_to_group, new_rates_primary, new_rates_arrowhead, rates_fingerprint
 
 

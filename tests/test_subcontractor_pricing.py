@@ -613,8 +613,8 @@ class TestCutoffDateRecalculationIntegration(unittest.TestCase):
             row, self.cu_to_group, self.rates_primary)
         self.assertAlmostEqual(new_price, 448.12)  # 224.06 * 2
 
-    def test_subcontractor_row_gets_discounted_rates(self):
-        """Verify subcontractor rows use 90% of primary rates."""
+    def test_discounted_rate_table_math(self):
+        """Verify recalculate_row_price correctly applies a 90% discounted rate table (for future Arrowhead use)."""
         arrowhead_rates = {
             'ANC-M': {
                 'install': round(224.06 * 0.90, 2),
