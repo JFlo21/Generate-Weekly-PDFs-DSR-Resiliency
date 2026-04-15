@@ -222,14 +222,18 @@ except ValueError:
 ARROWHEAD_DISCOUNT = 0.90  # 10% reduction for subcontractors (Arrowhead)
 
 def _sanitize_csv_path(env_var, default):
-    """Validate a CSV path from env var, preventing directory traversal and symlink escapes."""
+    """Validate a CSV path from env var, preventing directory traversal and symlink escapes.
+
+    Returns the fully resolved path so that the value passed to open() is
+    the same value that was validated (satisfies CodeQL taint analysis).
+    """
     raw = (os.getenv(env_var, '') or '').strip() or default
     resolved = os.path.normpath(os.path.realpath(raw))
     cwd = os.path.normpath(os.path.realpath('.'))
     if not resolved.startswith(cwd + os.sep) and resolved != cwd:
         logging.warning(f"⚠️ {env_var} resolves outside working directory: '{raw}'. Using default: '{default}'")
-        return default
-    return raw
+        return os.path.normpath(os.path.realpath(default))
+    return resolved
 
 NEW_RATES_CSV = _sanitize_csv_path('NEW_RATES_CSV', 'New Contract Rates copy regenerated again.csv')
 OLD_RATES_CSV = _sanitize_csv_path('OLD_RATES_CSV', 'CU List - Corpus North & South.csv')
