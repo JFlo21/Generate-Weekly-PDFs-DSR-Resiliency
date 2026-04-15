@@ -26,7 +26,8 @@ Sentry.init({
   environment: import.meta.env.VITE_SENTRY_ENVIRONMENT ?? import.meta.env.MODE ?? 'development',
   release: import.meta.env.VITE_SENTRY_RELEASE ?? 'dev',
 
-  // Conservative tracing — no session replay
+  // Tracing: 20 % sample rate — appropriate for an internal billing portal with
+  // low user traffic. Increase only when spans are needed for specific debugging.
   tracesSampleRate: 0.2,
 
   // Never send personally identifiable information automatically

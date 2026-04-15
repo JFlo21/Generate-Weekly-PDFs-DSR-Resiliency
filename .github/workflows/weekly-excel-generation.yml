@@ -242,7 +242,7 @@ jobs:
         run: python generate_weekly_pdfs.py
       
       - name: Create Sentry release (optional)
-        if: always() && secrets.SENTRY_AUTH_TOKEN != ''
+        if: always() && secrets.SENTRY_AUTH_TOKEN
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ vars.SENTRY_ORG || '' }}

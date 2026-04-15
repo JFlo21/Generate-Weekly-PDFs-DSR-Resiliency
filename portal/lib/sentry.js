@@ -59,7 +59,8 @@ Sentry.init({
   environment,
   release,
 
-  // Conservative tracing — avoids overloading Sentry on high-frequency routes
+  // Tracing: 20 % sample rate — conservative for an internal billing portal with
+  // low traffic volume. Increase only when spans are needed for specific debugging.
   tracesSampleRate: 0.2,
 
   // Never send personally identifiable information automatically

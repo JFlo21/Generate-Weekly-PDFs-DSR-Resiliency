@@ -51,7 +51,7 @@ export default defineConfig({
     outDir: 'dist',
     // Enable hidden source maps when SENTRY_AUTH_TOKEN is set (for Sentry upload).
     // Otherwise keep sourcemaps disabled to avoid exposing source in production.
-    sourcemap: !!process.env.SENTRY_AUTH_TOKEN ? 'hidden' : false,
+    sourcemap: process.env.SENTRY_AUTH_TOKEN ? 'hidden' : false,
     rollupOptions: {
       output: {
         manualChunks: {
