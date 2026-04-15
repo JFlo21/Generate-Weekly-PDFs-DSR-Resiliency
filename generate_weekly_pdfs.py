@@ -1880,30 +1880,32 @@ def get_all_source_rows(client, source_sheets):
                         price_val = parse_price(price_raw)
 
                         # --- SUBCONTRACTOR PRICING ---
-                        # When RATE_CUTOFF_DATE is NOT set: subcontractor sheets keep
-                        # their SmartSheet pricing as-is (reduced 10% rates from upstream).
-                        # When RATE_CUTOFF_DATE IS set: post-cutoff rows get prices
-                        # recalculated from new rate tables (subcontractors at new_rate × 0.90).
+                        # Subcontractor (Arrowhead) sheets always keep their SmartSheet
+                        # pricing as-is. Rate recalculation only applies to primary
+                        # (non-subcontractor) sheets. Subcontractor new rates will be
+                        # enabled separately when a subcontractor cutoff date is provided.
                         # --- END SUBCONTRACTOR PRICING ---
 
                         # Pre-acceptance rate recalculation: for cutoff-eligible rows,
                         # recalculate price BEFORE the has_price check so rows with
                         # zero/blank SmartSheet prices can still be accepted if the
                         # new rate produces a valid non-zero amount.
-                        if RATE_CUTOFF_DATE and _rate_new_primary:
+                        # NOTE: Subcontractor (Arrowhead) sheets are EXCLUDED from
+                        # recalculation until a separate subcontractor cutoff date is
+                        # provided. They keep SmartSheet pricing as-is for now.
+                        if RATE_CUTOFF_DATE and _rate_new_primary and not is_subcontractor_sheet:
                             snapshot_raw_pre = row_data.get('Snapshot Date')
                             if snapshot_raw_pre:
                                 snap_dt_pre = excel_serial_to_date(snapshot_raw_pre)
                                 if snap_dt_pre:
                                     snap_date_pre = snap_dt_pre.date() if hasattr(snap_dt_pre, 'date') else snap_dt_pre
                                     if snap_date_pre >= RATE_CUTOFF_DATE:
-                                        target_rates = _rate_new_arrowhead if is_subcontractor_sheet else _rate_new_primary
                                         old_price = price_val
-                                        price_val = recalculate_row_price(row_data, _rate_cu_to_group, target_rates)
+                                        price_val = recalculate_row_price(row_data, _rate_cu_to_group, _rate_new_primary)
                                         if price_val != old_price:
                                             logging.debug(f"Rate recalc: CU={row_data.get('CU')}, "
                                                           f"old=${old_price:.2f} -> new=${price_val:.2f}, "
-                                                          f"sub={is_subcontractor_sheet}, date={snap_date_pre}")
+                                                          f"date={snap_date_pre}")
 
                         price_raw = row_data.get('Units Total Price')
                         has_price = (price_raw not in (None, "", "$0", "$0.00", "0", "0.0")) and price_val > 0
