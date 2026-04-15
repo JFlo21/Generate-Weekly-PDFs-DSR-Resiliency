@@ -1,4 +1,6 @@
 require('dotenv').config();
+// Sentry must be initialised as early as possible so it can instrument later requires
+const Sentry = require('./lib/sentry');
 
 const express = require('express');
 const session = require('express-session');
@@ -62,6 +64,12 @@ app.use(csrfProtection);
 app.use('/auth', authRoutes);
 app.use('/api', apiRoutes);
 app.use('/health', healthRoutes);
+
+// Sentry error handler must come after all routes and before the custom error middleware.
+// setupExpressErrorHandler is the Sentry Node v8 API; guard for forward-compat.
+if (typeof Sentry.setupExpressErrorHandler === 'function') {
+  Sentry.setupExpressErrorHandler(app);
+}
 
 app.get('/dashboard', (req, res) => {
   if (!req.session || !req.session.authenticated) {

@@ -183,6 +183,7 @@ jobs:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           ENVIRONMENT: production
           RELEASE: ${{ github.sha }}
+          SENTRY_RELEASE: ${{ github.repository }}@${{ github.sha }}
           EXECUTION_TYPE: ${{ steps.exec.outputs.execution_type }}
           
           # Basic Operation Controls
@@ -239,6 +240,19 @@ jobs:
           # Graceful time budget: stop processing new groups before Actions hard-kills the job
           TIME_BUDGET_MINUTES: '80'
         run: python generate_weekly_pdfs.py
+      
+      - name: Create Sentry release (optional)
+        if: always() && env.SENTRY_AUTH_TOKEN != ''
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG || '' }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT_WORKFLOW || '' }}
+        run: |
+          RELEASE="${{ github.repository }}@${{ github.sha }}"
+          npx --yes @sentry/cli releases new "$RELEASE" || true
+          npx @sentry/cli releases set-commits "$RELEASE" --auto || true
+          npx @sentry/cli releases finalize "$RELEASE" || true
+          npx @sentry/cli releases deploys "$RELEASE" new -e production || true
       
       
       # ==================== ARTIFACT PRESERVATION SYSTEM ====================

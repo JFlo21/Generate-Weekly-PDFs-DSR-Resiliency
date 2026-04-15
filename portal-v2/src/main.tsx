@@ -1,3 +1,5 @@
+// Sentry must be the very first import so it can instrument subsequent modules
+import './lib/sentry';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';

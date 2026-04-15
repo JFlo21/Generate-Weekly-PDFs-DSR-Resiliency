@@ -407,9 +407,9 @@ if SENTRY_DSN:
             traces_sampler=traces_sampler,
             profiles_sample_rate=0.5,  # SDK 2.x: No longer experimental
             
-            # Environment configuration
-            environment=os.getenv("ENVIRONMENT", "production"),
-            release=os.getenv("RELEASE", "weekly-excel-generator@1.0.0"),
+            # Environment configuration — SENTRY_* vars take priority over legacy fallbacks
+            environment=os.getenv("SENTRY_ENVIRONMENT") or os.getenv("ENVIRONMENT", "production"),
+            release=os.getenv("SENTRY_RELEASE") or os.getenv("RELEASE", "weekly-excel-generator@1.0.0"),
             server_name=os.getenv("HOSTNAME", "local"),
             
             # Error enrichment
