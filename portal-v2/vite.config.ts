@@ -15,7 +15,7 @@ export default defineConfig({
             org: process.env.SENTRY_ORG,
             project: process.env.SENTRY_PROJECT_FRONTEND,
             authToken: process.env.SENTRY_AUTH_TOKEN,
-            release: { name: process.env.VITE_SENTRY_RELEASE },
+            release: { name: process.env.VITE_SENTRY_RELEASE || 'dev' },
             sourcemaps: { deleteFilesAfterUpload: ['./dist/**/*.map'] },
           }),
         ]

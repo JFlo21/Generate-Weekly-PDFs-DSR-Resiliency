@@ -65,18 +65,18 @@ app.use('/auth', authRoutes);
 app.use('/api', apiRoutes);
 app.use('/health', healthRoutes);
 
-// Sentry error handler must come after all routes and before the custom error middleware.
-// setupExpressErrorHandler is the Sentry Node v8 API; guard for forward-compat.
-if (typeof Sentry.setupExpressErrorHandler === 'function') {
-  Sentry.setupExpressErrorHandler(app);
-}
-
 app.get('/dashboard', (req, res) => {
   if (!req.session || !req.session.authenticated) {
     return res.redirect('/');
   }
   res.sendFile(path.join(config.staticDir, 'dashboard.html'));
 });
+
+// Sentry error handler must come after all routes and before the custom error middleware.
+// setupExpressErrorHandler is the Sentry Node v8 API; guard for forward-compat.
+if (typeof Sentry.setupExpressErrorHandler === 'function') {
+  Sentry.setupExpressErrorHandler(app);
+}
 
 app.use((err, req, res, _next) => {
   console.error('Unhandled error:', err);
