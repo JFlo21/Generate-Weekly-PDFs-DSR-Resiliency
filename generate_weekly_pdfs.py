@@ -661,6 +661,10 @@ def recalculate_row_price(row_data, cu_to_group, rates_dict):
         return price_val
 
     rate = rates_dict[group_code].get(wt_key, 0.0)
+    if rate <= 0:
+        logging.debug(f"Rate recalculation: rate is zero for group '{group_code}' work type '{wt_key}', keeping SmartSheet price")
+        return price_val
+
     new_price = round(rate * qty, 2)
     row_data['Units Total Price'] = new_price
     return new_price
