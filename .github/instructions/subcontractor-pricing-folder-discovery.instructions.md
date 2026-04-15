@@ -22,11 +22,12 @@ Excel generated with subcontractor's reduced 10% pricing as-is
 
 ## Critical Constraints
 
-### No Price Reversion
-- Subcontractor sheets keep their reduced 10% pricing as-is
+### Subcontractor Pricing Behavior
+- Subcontractor (Arrowhead) sheets **always keep their SmartSheet pricing as-is** — no rate recalculation is performed, regardless of whether `RATE_CUTOFF_DATE` is set
+- Rate recalculation only applies to primary (non-subcontractor) sheets
+- Subcontractor new rates will be enabled separately in a future update when a subcontractor cutoff date is provided
+- The Arrowhead rate tables (`_rate_new_arrowhead`) are precomputed and ready for when subcontractor recalculation is enabled
 - `revert_subcontractor_price()` exists in the codebase but is **not called** during row processing
-- The CSV rate files (`CU List - Corpus North & South.csv`, `CU List Contract - Arrowhead Contract.csv`) are reference documentation only
-- `load_contract_rates()` still loads on startup but the rates are not used for price modification
 
 ### Folder-Based Discovery Over Individual Sheet IDs
 - Subcontractor sheets live in stable Smartsheet folders that never change location

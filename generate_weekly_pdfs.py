@@ -206,6 +206,45 @@ ORIGINAL_CONTRACT_FOLDER_IDS = _parse_sheet_ids(os.getenv('ORIGINAL_CONTRACT_FOL
 _FOLDER_DISCOVERED_SUB_IDS: set[int] = set()
 _FOLDER_DISCOVERED_ORIG_IDS: set[int] = set()
 
+# --- RATE CONTRACT VERSIONING ---
+# Set RATE_CUTOFF_DATE (YYYY-MM-DD) to activate new rate recalculation.
+# When set, rows with Snapshot Date >= cutoff get prices recalculated from new rate tables.
+# When unset (empty string), all rows keep their SmartSheet Units Total Price (current behavior).
+_cutoff_str = os.getenv('RATE_CUTOFF_DATE', '')
+try:
+    RATE_CUTOFF_DATE = (
+        datetime.datetime.strptime(_cutoff_str, '%Y-%m-%d').date()
+        if _cutoff_str else None
+    )
+except ValueError:
+    logging.error(f"Invalid RATE_CUTOFF_DATE format: '{_cutoff_str}', expected YYYY-MM-DD. Rate versioning disabled.")
+    RATE_CUTOFF_DATE = None
+ARROWHEAD_DISCOUNT = 0.90  # 10% reduction for subcontractors (Arrowhead)
+
+def _sanitize_csv_path(env_var, default):
+    """Validate a CSV path from env var, preventing directory traversal and symlink escapes.
+
+    Returns the fully resolved path so that the value passed to open() is
+    the same value that was validated (satisfies CodeQL taint analysis).
+    """
+    raw = (os.getenv(env_var, '') or '').strip() or default
+    resolved = os.path.normpath(os.path.realpath(raw))
+    cwd = os.path.normpath(os.path.realpath('.'))
+    if not resolved.startswith(cwd + os.sep) and resolved != cwd:
+        logging.warning(f"⚠️ {env_var} resolves outside working directory: '{raw}'. Using default: '{default}'")
+        return os.path.normpath(os.path.realpath(default))
+    return resolved
+
+NEW_RATES_CSV = _sanitize_csv_path('NEW_RATES_CSV', 'New Contract Rates copy regenerated again.csv')
+OLD_RATES_CSV = _sanitize_csv_path('OLD_RATES_CSV', 'CU List - Corpus North & South.csv')
+
+_RATES_FINGERPRINT = ''  # Populated at runtime by load_rate_versions()
+
+if RATE_CUTOFF_DATE:
+    logging.info(f"📊 Rate contract versioning ENABLED: cutoff date = {RATE_CUTOFF_DATE.isoformat()}")
+else:
+    logging.info("📊 Rate contract versioning DISABLED (RATE_CUTOFF_DATE not set)")
+
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
 RESET_WR_LIST = {w.strip() for w in os.getenv('RESET_WR_LIST','').split(',') if w.strip()}  # When provided, only purge these WR numbers (overrides full reset)
 _env_hist_path = os.getenv('HASH_HISTORY_PATH')
@@ -463,6 +502,177 @@ def load_contract_rates(filepath):
     except Exception as e:
         logging.error(f"Failed to load rates from {filepath}: {e}")
     return rates
+
+
+def load_new_contract_rates(filepath):
+    """Load new contract rates from the 2026 format CSV (group-level codes).
+
+    The new CSV has 3 metadata rows before data, with columns by position:
+    [0]=Group Code, [1]=Description, [2]=UOM, [3]=Category, [4]=Region,
+    [5]=Date, [6]=Install Price, [7]=Removal Price, [8]=Transfer Price.
+
+    Returns:
+        dict: {GROUP_CODE: {install: float, removal: float, transfer: float}}
+    """
+    rates = {}
+    try:
+        with open(filepath, mode='r', encoding='utf-8-sig') as f:
+            reader = csv.reader(f)
+            # Skip 3 metadata/header rows
+            for _ in range(3):
+                next(reader, None)
+            for row in reader:
+                if len(row) < 9:
+                    continue
+                group_code = row[0].strip().upper()
+                if not group_code:
+                    continue
+                rates[group_code] = {
+                    'install': parse_price(row[6]),
+                    'removal': parse_price(row[7]),
+                    'transfer': parse_price(row[8]),
+                }
+        logging.info(f"Loaded {len(rates)} group-level rates from {filepath}")
+    except Exception as e:
+        logging.error(f"Failed to load new contract rates from {filepath}: {e}")
+    return rates
+
+
+def build_cu_to_group_mapping(old_csv_path):
+    """Build a mapping from detailed CU codes to Compatible Unit Group codes.
+
+    Reads the old-format CSV which has both 'CU' (detailed code) and
+    'Compatible Unit Group' columns.
+
+    Returns:
+        dict: {DETAILED_CU_CODE: GROUP_CODE} e.g. {'ANC-DHM-10-84-D1': 'ANC-M'}
+    """
+    mapping = {}
+    try:
+        with open(old_csv_path, mode='r', encoding='utf-8-sig') as f:
+            reader = csv.DictReader(f)
+            if not reader.fieldnames or 'CU' not in reader.fieldnames or 'Compatible Unit Group' not in reader.fieldnames:
+                logging.error(f"CSV {old_csv_path} missing 'CU' or 'Compatible Unit Group' columns for mapping")
+                return mapping
+            for row in reader:
+                cu = str(row.get('CU', '')).strip().upper()
+                group = str(row.get('Compatible Unit Group', '')).strip().upper()
+                if cu and group:
+                    mapping[cu] = group
+        logging.info(f"Built CU-to-group mapping: {len(mapping)} CU codes -> groups")
+    except Exception as e:
+        logging.error(f"Failed to build CU-to-group mapping from {old_csv_path}: {e}")
+    return mapping
+
+
+def _compute_rates_fingerprint(rates_dict):
+    """Compute a short SHA256 fingerprint of a rates dictionary for hash invalidation."""
+    h = hashlib.sha256()
+    for code in sorted(rates_dict.keys()):
+        r = rates_dict[code]
+        h.update(f"{code}:{r['install']:.2f},{r['removal']:.2f},{r['transfer']:.2f}\n".encode())
+    return h.hexdigest()[:12]
+
+
+def load_rate_versions():
+    """Load new rate versions and build all necessary lookup structures.
+
+    Returns:
+        tuple: (cu_to_group, new_rates_primary, new_rates_arrowhead, rates_fingerprint)
+            - cu_to_group: {DETAILED_CU: GROUP_CODE}
+            - new_rates_primary: {GROUP_CODE: {install, removal, transfer}}
+            - new_rates_arrowhead: {GROUP_CODE: {install, removal, transfer}} (rates * 0.90)
+            - rates_fingerprint: short hash of rate table contents for cache invalidation
+    """
+    cu_to_group = build_cu_to_group_mapping(OLD_RATES_CSV)
+    new_rates_primary = load_new_contract_rates(NEW_RATES_CSV)
+
+    # Precompute Arrowhead (subcontractor) rates: primary rate * ARROWHEAD_DISCOUNT
+    new_rates_arrowhead = {}
+    for group_code, rates in new_rates_primary.items():
+        new_rates_arrowhead[group_code] = {
+            'install': round(rates['install'] * ARROWHEAD_DISCOUNT, 2),
+            'removal': round(rates['removal'] * ARROWHEAD_DISCOUNT, 2),
+            'transfer': round(rates['transfer'] * ARROWHEAD_DISCOUNT, 2),
+        }
+
+    # Only compute fingerprint if rates were successfully loaded
+    rates_fingerprint = _compute_rates_fingerprint(new_rates_primary) if new_rates_primary else ''
+
+    if not new_rates_primary:
+        logging.warning("⚠️ New rate table is empty — rate recalculation will be skipped even though RATE_CUTOFF_DATE is set")
+    else:
+        logging.info(f"Rate versions loaded: {len(new_rates_primary)} primary groups, "
+                     f"{len(new_rates_arrowhead)} Arrowhead groups (precomputed, not yet active), "
+                     f"{len(cu_to_group)} CU-to-group mappings, "
+                     f"fingerprint={rates_fingerprint}")
+    return cu_to_group, new_rates_primary, new_rates_arrowhead, rates_fingerprint
+
+
+def recalculate_row_price(row_data, cu_to_group, rates_dict):
+    """Recalculate a row's price using new contract rates.
+
+    Looks up the CU code, maps it to its Compatible Unit Group, then
+    calculates price as rate × quantity using the provided rates dict.
+    Modifies row_data['Units Total Price'] in-place if a matching rate is found.
+
+    Args:
+        row_data: Dict of row field values (modified in-place).
+        cu_to_group: Dict mapping detailed CU codes to group codes.
+        rates_dict: Dict mapping group codes to {install, removal, transfer} rates.
+
+    Returns:
+        float: The (possibly recalculated) price value.
+    """
+    price_val = parse_price(row_data.get('Units Total Price'))
+
+    # Resolve CU code (same chain as revert_subcontractor_price)
+    cu_code = str(row_data.get('CU Helper') or row_data.get('CU') or row_data.get('Billable Unit Code') or '').strip().upper()
+    if cu_code == 'NAN':
+        cu_code = str(row_data.get('CU') or '').strip().upper()
+
+    # Map detailed CU code to group code
+    group_code = cu_to_group.get(cu_code)
+    if not group_code:
+        # CU code not found in mapping — try direct group lookup (in case SmartSheet uses group codes)
+        if cu_code in rates_dict:
+            group_code = cu_code
+        else:
+            logging.debug(f"Rate recalculation: CU '{cu_code}' not found in CU-to-group mapping or rates, keeping SmartSheet price")
+            return price_val
+
+    if group_code not in rates_dict:
+        logging.debug(f"Rate recalculation: group '{group_code}' (from CU '{cu_code}') not found in new rates, keeping SmartSheet price")
+        return price_val
+
+    # Determine work type
+    work_type_raw = str(row_data.get('Work Type') or '').strip().lower()
+    wt_key = 'install'
+    if 'rem' in work_type_raw:
+        wt_key = 'removal'
+    elif 'tran' in work_type_raw or 'xfr' in work_type_raw:
+        wt_key = 'transfer'
+
+    # Parse quantity — if missing or unparseable, keep SmartSheet price
+    qty_str = str(row_data.get('Quantity', '') or '')
+    try:
+        qty = float(_RE_EXTRACT_NUMBERS.sub('', qty_str) or 0)
+    except ValueError:
+        qty = 0.0
+
+    if qty <= 0:
+        logging.debug(f"Rate recalculation: quantity '{qty_str}' is zero/missing for CU '{cu_code}', keeping SmartSheet price")
+        return price_val
+
+    rate = rates_dict[group_code].get(wt_key, 0.0)
+    if rate <= 0:
+        logging.debug(f"Rate recalculation: rate is zero for group '{group_code}' work type '{wt_key}', keeping SmartSheet price")
+        return price_val
+
+    new_price = round(rate * qty, 2)
+    row_data['Units Total Price'] = new_price
+    return new_price
+
 
 def revert_subcontractor_price(row_data, original_rates):
     """Revert a subcontractor row's price to the 100% original contract rate.
@@ -736,6 +946,10 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
     meta_parts.append(f"DEPTS={','.join(unique_depts)}")
     meta_parts.append(f"TOTAL={total_price:.2f}")
     meta_parts.append(f"ROWCOUNT={len(sorted_rows)}")
+    if RATE_CUTOFF_DATE:
+        meta_parts.append(f"RATE_CUTOFF={RATE_CUTOFF_DATE.isoformat()}")
+        if _RATES_FINGERPRINT:
+            meta_parts.append(f"RATES_FP={_RATES_FINGERPRINT}")
 
     # Update hash with metadata
     if meta_parts:
@@ -1526,7 +1740,14 @@ def get_all_source_rows(client, source_sheets):
     """
     merged_rows = []
     global_row_counter = 0
-    original_rates = load_contract_rates('CU List - Corpus North & South.csv')
+    original_rates = load_contract_rates(OLD_RATES_CSV)
+    # Load new rate versions if rate cutoff is configured
+    global _RATES_FINGERPRINT
+    _rate_cu_to_group = {}
+    _rate_new_primary = {}
+    _rate_new_arrowhead = {}
+    if RATE_CUTOFF_DATE:
+        _rate_cu_to_group, _rate_new_primary, _rate_new_arrowhead, _RATES_FINGERPRINT = load_rate_versions()
     exclusion_counts = {
         'missing_work_request': 0,
         'missing_weekly_reference_logged_date': 0,
@@ -1663,10 +1884,32 @@ def get_all_source_rows(client, source_sheets):
                         price_val = parse_price(price_raw)
 
                         # --- SUBCONTRACTOR PRICING ---
-                        # Subcontractor sheets keep their reduced 10% pricing as-is.
-                        # The Excel files will reflect the actual subcontractor rates
-                        # captured from Smartsheet without reversion to original contract rates.
+                        # Subcontractor (Arrowhead) sheets always keep their SmartSheet
+                        # pricing as-is. Rate recalculation only applies to primary
+                        # (non-subcontractor) sheets. Subcontractor new rates will be
+                        # enabled separately when a subcontractor cutoff date is provided.
                         # --- END SUBCONTRACTOR PRICING ---
+
+                        # Pre-acceptance rate recalculation: for cutoff-eligible rows,
+                        # recalculate price BEFORE the has_price check so rows with
+                        # zero/blank SmartSheet prices can still be accepted if the
+                        # new rate produces a valid non-zero amount.
+                        # NOTE: Subcontractor (Arrowhead) sheets are EXCLUDED from
+                        # recalculation until a separate subcontractor cutoff date is
+                        # provided. They keep SmartSheet pricing as-is for now.
+                        if RATE_CUTOFF_DATE and _rate_new_primary and not is_subcontractor_sheet:
+                            snapshot_raw_pre = row_data.get('Snapshot Date')
+                            if snapshot_raw_pre:
+                                snap_dt_pre = excel_serial_to_date(snapshot_raw_pre)
+                                if snap_dt_pre:
+                                    snap_date_pre = snap_dt_pre.date() if hasattr(snap_dt_pre, 'date') else snap_dt_pre
+                                    if snap_date_pre >= RATE_CUTOFF_DATE:
+                                        old_price = price_val
+                                        price_val = recalculate_row_price(row_data, _rate_cu_to_group, _rate_new_primary)
+                                        if price_val != old_price:
+                                            logging.debug(f"Rate recalc: CU={row_data.get('CU')}, "
+                                                          f"old=${old_price:.2f} -> new=${price_val:.2f}, "
+                                                          f"date={snap_date_pre}")
 
                         price_raw = row_data.get('Units Total Price')
                         has_price = (price_raw not in (None, "", "$0", "$0.00", "0", "0.0")) and price_val > 0
@@ -1789,7 +2032,8 @@ def get_all_source_rows(client, source_sheets):
                                         logging.info(f"🚐 VAC CREW ROW DETECTED [Row {sheet_row_counter+1}]: WR={wr_key_for_diag}, Name={vac_crew_name}, Dept={row_data['__vac_crew_dept']}, Job={row_data['__vac_crew_job']}")
                             
                             row_data['__is_vac_crew'] = is_vac_crew_row
-                            
+                            row_data['__is_subcontractor'] = is_subcontractor_sheet
+
                             sheet_rows.append(row_data)
                             sheet_exclusion_counts['accepted'] += 1
                         else:

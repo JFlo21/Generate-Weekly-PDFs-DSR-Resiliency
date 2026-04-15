@@ -220,6 +220,12 @@ jobs:
           # Helper/Resiliency Grouping Mode
           RES_GROUPING_MODE: ${{ github.event.inputs.res_grouping_mode || 'both' }}
           
+          # Rate Contract Versioning (set via repo Variables in Settings > Secrets and variables > Actions)
+          # RATE_CUTOFF_DATE: YYYY-MM-DD date when new rates take effect (empty = disabled)
+          RATE_CUTOFF_DATE: ${{ vars.RATE_CUTOFF_DATE || '' }}
+          NEW_RATES_CSV: ${{ vars.NEW_RATES_CSV || '' }}
+          OLD_RATES_CSV: ${{ vars.OLD_RATES_CSV || '' }}
+
           # Advanced Filters
           WR_FILTER: ${{ github.event.inputs.wr_filter || '' }}
           # EXCLUDE_WRS: Manual input overrides repo variable; repo variable is persistent default
