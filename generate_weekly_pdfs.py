@@ -793,7 +793,10 @@ def discover_folder_sheets(client, folder_ids: list[int], label: str) -> set[int
                 sheets: list = []
                 subfolders: list = []
                 last_key = None
-                while True:
+                # Safety cap: guards against a misbehaving API that perpetually
+                # returns a non-falsy last_key, which would otherwise hang production.
+                max_pages = 1000
+                for _page_num in range(max_pages):
                     page = client.Folders.get_folder_children(
                         fid,
                         children_resource_types=["sheets", "folders"],
@@ -807,6 +810,11 @@ def discover_folder_sheets(client, folder_ids: list[int], label: str) -> set[int
                     last_key = getattr(page, 'last_key', None)
                     if not last_key:
                         break
+                else:
+                    logging.warning(
+                        f"⚠️ Pagination safety cap ({max_pages}) reached for {label} folder {fid}; "
+                        f"truncating results at {len(sheets)} sheet(s)"
+                    )
                 ids = {s.id for s in sheets}
                 span.set_data("folder_id", fid)
                 span.set_data("sheets_found", len(sheets))
