@@ -216,7 +216,7 @@ MAX_GROUPS=50 REGEN_WEEKS=081725,082425 RESET_WR_LIST=WR123,WR456
 **Configuration & Deployment:**
 - `.github/workflows/weekly-excel-generation.yml` - Production workflow with 10-input consolidation
 - `.env.example`, `.env.template`, `.env.audit.example` - Environment variable references
-- `requirements.txt` - Dependencies (sentry-sdk>=2.35.0, smartsheet-python-sdk==3.0.3, etc.)
+- `requirements.txt` - Dependencies (sentry-sdk>=2.35.0, smartsheet-python-sdk>=3.1.0, etc.)
 
 **Runtime Artifacts:**
 - `generated_docs/` - Output directory (safe to clear)
