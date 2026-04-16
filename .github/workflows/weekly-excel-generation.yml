@@ -114,6 +114,10 @@ jobs:
       PYTHONUNBUFFERED: 1
       GITHUB_ACTIONS: 'true'
       SKIP_CELL_HISTORY: 'true'
+      # Exposed at job level so the Sentry release step's `if:` can reliably
+      # gate on its presence — step-level env is not guaranteed to be in scope
+      # during that step's own `if:` evaluation.
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -245,7 +249,6 @@ jobs:
         if: always() && env.SENTRY_AUTH_TOKEN != ''
         continue-on-error: true
         env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ vars.SENTRY_ORG || '' }}
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT_WORKFLOW || '' }}
         run: |
