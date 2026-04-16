@@ -20,10 +20,22 @@ On every push to `master`, `.github/workflows/docs-changelog.yml` runs
 4. Writes a Markdown post at
    `website/blog/YYYY-MM-DD-<short-sha>-<slug>.md` with frontmatter
    (title, authors, tags).
-5. Commits the new file with `[skip ci]` on `master`.
 
-Vercel is connected to the repo, so the commit triggers a rebuild of the
-Docusaurus site.
+The workflow then opens a **pull request** via
+[`peter-evans/create-pull-request`](https://github.com/peter-evans/create-pull-request)
+on a branch named `runbook/log-<short-sha>`, scoped to only paths under
+`website/blog/`. Reviewers merge it — that merge is the push Vercel picks
+up to rebuild the Docusaurus site.
+
+:::info Why a PR instead of a direct push?
+Branch protection on `master` (required reviews, status checks, linear
+history) would block a direct push from `github-actions[bot]`. Opening a
+PR keeps the workflow compatible with any protection rules and lets a
+human skim the entry before it ships. The PR's commit is tagged
+`[skip ci]`, and because `GITHUB_TOKEN`-authored events don't re-fire
+`push`/`pull_request` workflows, there is no risk of a loop with
+`notion-sync`, `snyk-security`, `codecov`, or this workflow itself.
+:::
 
 ## 2. Manual runbook edits
 

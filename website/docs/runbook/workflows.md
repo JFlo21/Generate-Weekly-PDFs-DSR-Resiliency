@@ -61,6 +61,9 @@ setup.
 Triggers on push to `master`. Runs `scripts/generate_runbook_entry.py`
 which inspects the diff between the previous and current commit, groups
 changed files into buckets (Python scripts, workflows, portals, docs),
-and writes a new blog post under `website/blog/`. The post is committed
-back with `[skip ci]`. See
+and writes a new blog post under `website/blog/`. The workflow then
+opens a pull request via `peter-evans/create-pull-request` on a
+`runbook/log-<short-sha>` branch so branch protection rules on `master`
+stay intact. The commit is tagged `[skip ci]` to prevent re-firing
+other workflows. See
 [How this site updates](../reference/how-this-site-updates.md).
