@@ -19,6 +19,7 @@
  */
 
 const Sentry = require('@sentry/node');
+const { nodeProfilingIntegration } = require('@sentry/profiling-node');
 
 const dsn = process.env.PORTAL_SENTRY_DSN || '';
 
@@ -61,9 +62,22 @@ Sentry.init({
   environment,
   release,
 
+  integrations: [
+    // Node.js profiling — captures CPU profiles during traced spans.
+    // Profiling data is only collected while a trace is active (profileLifecycle: 'trace').
+    nodeProfilingIntegration(),
+  ],
+
+  // Send structured logs to Sentry (SDK 8.x+)
+  enableLogs: true,
+
   // Tracing: 20 % sample rate — conservative for an internal billing portal with
   // low traffic volume. Increase only when spans are needed for specific debugging.
   tracesSampleRate: 0.2,
+
+  // Profiling: sample 20 % of sessions; only profile during active traces.
+  profileSessionSampleRate: 0.2,
+  profileLifecycle: 'trace',
 
   // Never send personally identifiable information automatically
   sendDefaultPii: false,
