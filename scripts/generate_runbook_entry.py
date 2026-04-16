@@ -83,29 +83,42 @@ def is_zero_sha(sha: str) -> bool:
     return not sha or set(sha) <= {"0"}
 
 
+def resolve_range(before: str, after: str) -> tuple[str | None, str]:
+    """Resolve the base/head pair used for diff + log across the push.
+
+    - A real `before` SHA is used as-is.
+    - When `before` is empty/zero (e.g. `workflow_dispatch`, where
+      `github.event.before` is undefined), fall back to the first parent
+      of `after` so merge commits enumerate the PR's actual changes.
+    - If `after` is a root commit with no parent, return `(None, after)`
+      so callers can pick a sensible fallback.
+    """
+    if not is_zero_sha(before):
+        return before, after
+    try:
+        parent = run_git("rev-parse", f"{after}^1")
+    except subprocess.CalledProcessError:
+        return None, after
+    return parent, after
+
+
 def changed_files(before: str, after: str) -> list[str]:
-    if is_zero_sha(before):
-        # No `before` SHA — typically a workflow_dispatch run, where
-        # `github.event.before` is undefined. Diff `after` against its
-        # first parent so merge commits (the common shape on master via
-        # "Merge pull request") still enumerate the PR's files. `git show`
-        # would emit a combined diff that is empty for clean merges.
-        try:
-            diff = run_git("diff", "--name-only", f"{after}^1", after)
-        except subprocess.CalledProcessError:
-            # `after` is the root commit (no parent) — fall back to listing
-            # the full tree so callers still get a usable file set.
-            diff = run_git("ls-tree", "-r", "--name-only", after)
+    base, head = resolve_range(before, after)
+    if base is None:
+        # Root commit — list the whole tree so the caller still has a
+        # usable file set to bucket and report on.
+        diff = run_git("ls-tree", "-r", "--name-only", head)
     else:
-        diff = run_git("diff", "--name-only", f"{before}..{after}")
+        diff = run_git("diff", "--name-only", f"{base}..{head}")
     return sorted({line for line in diff.splitlines() if line.strip()})
 
 
 def commits_in_range(before: str, after: str) -> list[tuple[str, str]]:
-    if is_zero_sha(before):
-        log = run_git("log", "--pretty=format:%h%x1f%s", "-n", "20", after)
+    base, head = resolve_range(before, after)
+    if base is None:
+        log = run_git("log", "--pretty=format:%h%x1f%s", "-n", "1", head)
     else:
-        log = run_git("log", "--pretty=format:%h%x1f%s", f"{before}..{after}")
+        log = run_git("log", "--pretty=format:%h%x1f%s", f"{base}..{head}")
     commits: list[tuple[str, str]] = []
     for line in log.splitlines():
         if "\x1f" not in line:
@@ -113,6 +126,16 @@ def commits_in_range(before: str, after: str) -> list[tuple[str, str]]:
         sha, subject = line.split("\x1f", 1)
         commits.append((sha.strip(), subject.strip()))
     return commits
+
+
+def skip_markers_in_range(before: str, after: str) -> bool:
+    """Scan commit messages in the resolved push range for a skip marker."""
+    base, head = resolve_range(before, after)
+    if base is None:
+        messages = run_git("log", "-n", "1", "--pretty=%B", head)
+    else:
+        messages = run_git("log", "--pretty=%B", f"{base}..{head}")
+    return any(marker in messages for marker in SKIP_MARKERS)
 
 
 def bucket_files(files: list[str]) -> dict[str, list[str]]:
@@ -204,15 +227,11 @@ def main() -> int:
         print("GITHUB_SHA is empty; nothing to document.", file=sys.stderr)
         return 0
 
-    # Check every commit in the push range for a skip marker, not just
-    # HEAD — otherwise a mid-push `[skip docs]` would be ignored.
-    if is_zero_sha(ctx.before):
-        commit_messages = run_git("log", "-n", "20", "--pretty=%B", ctx.after)
-    else:
-        commit_messages = run_git(
-            "log", "--pretty=%B", f"{ctx.before}..{ctx.after}"
-        )
-    if any(marker in commit_messages for marker in SKIP_MARKERS):
+    # Check every commit in the resolved push range for a skip marker so
+    # that `[skip docs]` on any non-HEAD commit is honored — but the scan
+    # is scoped to the same range as `changed_files`, not the branch's
+    # last 20 commits.
+    if skip_markers_in_range(ctx.before, ctx.after):
         print("Skip marker present in push range; not writing a post.")
         return 0
 
