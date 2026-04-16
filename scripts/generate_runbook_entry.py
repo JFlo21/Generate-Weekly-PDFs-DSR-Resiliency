@@ -142,8 +142,10 @@ def build_post(ctx: PushContext, files: list[str], commits: list[tuple[str, str]
     lines.append("---")
     lines.append(f"slug: {slug}")
     title = f"{headline_subject} ({short_sha})"
-    # Escape colons in titles so YAML parses cleanly.
-    title_safe = title.replace('"', '\\"')
+    # YAML double-quoted strings interpret backslashes as escape characters,
+    # so escape `\` first and then `"` to keep the frontmatter valid for
+    # commit subjects that contain either.
+    title_safe = title.replace("\\", "\\\\").replace('"', '\\"')
     lines.append(f'title: "{title_safe}"')
     lines.append("authors: [runbook-bot]")
     if tags:
@@ -208,13 +210,14 @@ def main() -> int:
     BLOG_DIR.mkdir(parents=True, exist_ok=True)
     path, body = build_post(ctx, files, commits)
     path.write_text(body, encoding="utf-8")
-    print(f"Wrote {path.relative_to(REPO_ROOT)}")
+    rel_path = path.relative_to(REPO_ROOT)
+    print(f"Wrote {rel_path}")
 
-    # Export the path for the workflow to pick up.
-    gh_output = os.environ.get("GITHUB_OUTPUT")
-    if gh_output:
-        with open(gh_output, "a", encoding="utf-8") as fh:
-            fh.write(f"post_path={path.relative_to(REPO_ROOT)}\n")
+    # Emit the post path on stdout so the caller (the workflow) can forward
+    # it to $GITHUB_OUTPUT. Writing to $GITHUB_OUTPUT from Python opens a
+    # filesystem path sourced from an environment variable, which static
+    # analyzers flag even though the runner controls that path.
+    print(f"POST_PATH={rel_path}")
     return 0
 
 

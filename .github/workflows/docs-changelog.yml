@@ -43,7 +43,14 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: python scripts/generate_runbook_entry.py
+        run: |
+          set -euo pipefail
+          log="$(mktemp)"
+          python scripts/generate_runbook_entry.py | tee "$log"
+          post_path="$(awk -F= '/^POST_PATH=/{print $2; exit}' "$log")"
+          if [ -n "$post_path" ]; then
+            printf 'post_path=%s\n' "$post_path" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Compute short SHA
         id: sha
