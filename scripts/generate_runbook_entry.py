@@ -85,8 +85,17 @@ def is_zero_sha(sha: str) -> bool:
 
 def changed_files(before: str, after: str) -> list[str]:
     if is_zero_sha(before):
-        # First push to the branch — diff against the root of history.
-        diff = run_git("show", "--name-only", "--pretty=format:", after)
+        # No `before` SHA — typically a workflow_dispatch run, where
+        # `github.event.before` is undefined. Diff `after` against its
+        # first parent so merge commits (the common shape on master via
+        # "Merge pull request") still enumerate the PR's files. `git show`
+        # would emit a combined diff that is empty for clean merges.
+        try:
+            diff = run_git("diff", "--name-only", f"{after}^1", after)
+        except subprocess.CalledProcessError:
+            # `after` is the root commit (no parent) — fall back to listing
+            # the full tree so callers still get a usable file set.
+            diff = run_git("ls-tree", "-r", "--name-only", after)
     else:
         diff = run_git("diff", "--name-only", f"{before}..{after}")
     return sorted({line for line in diff.splitlines() if line.strip()})
