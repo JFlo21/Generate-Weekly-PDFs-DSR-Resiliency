@@ -192,11 +192,12 @@ Or run a workflow dispatch in GitHub Actions — Sentry will receive the cron ch
 
 ```bash
 cd portal && npm start
-# In a separate terminal, trigger an error by requesting a protected route
-# without authentication — the error middleware will handle it:
-curl http://localhost:3000/dashboard
-# Or add a temporary throw to any route handler for a one-off test:
-#   app.get('/api/sentry-test', (req, res) => { throw new Error('Sentry test'); });
+# To test Sentry error capture, add a temporary test route in server.js:
+#   app.get('/sentry-test', (req, res) => { throw new Error('Sentry test'); });
+# Then trigger it:
+#   curl http://localhost:3000/sentry-test
+# Or use Sentry.captureMessage() directly in Node.js:
+node -e "require('dotenv').config(); const Sentry = require('./lib/sentry'); Sentry.captureMessage('Test from Express backend', 'info'); setTimeout(() => {}, 1000);"
 # Check your Sentry project for the captured event.
 ```
 

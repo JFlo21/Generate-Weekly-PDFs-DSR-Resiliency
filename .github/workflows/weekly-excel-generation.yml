@@ -243,16 +243,17 @@ jobs:
       
       - name: Create Sentry release (optional)
         if: always() && secrets.SENTRY_AUTH_TOKEN
+        continue-on-error: true
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ vars.SENTRY_ORG || '' }}
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT_WORKFLOW || '' }}
         run: |
           RELEASE="${{ github.repository }}@${{ github.sha }}"
-          npx --yes @sentry/cli releases new "$RELEASE" || true
-          npx --yes @sentry/cli releases set-commits "$RELEASE" --auto || true
-          npx --yes @sentry/cli releases finalize "$RELEASE" || true
-          npx --yes @sentry/cli releases deploys "$RELEASE" new -e production || true
+          npx --yes @sentry/cli releases new "$RELEASE"
+          npx --yes @sentry/cli releases set-commits "$RELEASE" --auto
+          npx --yes @sentry/cli releases finalize "$RELEASE"
+          npx --yes @sentry/cli releases deploys "$RELEASE" new -e production
       
       
       # ==================== ARTIFACT PRESERVATION SYSTEM ====================
