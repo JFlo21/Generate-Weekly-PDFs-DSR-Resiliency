@@ -5,7 +5,7 @@ sentry-sdk>=2.35.0
 # 3.1.0+ required for Folders.get_folder_children (replacement for deprecated get_folder)
 smartsheet-python-sdk>=3.1.0
 openpyxl==3.1.5
-Pillow==12.1.1
+Pillow==12.2.0
 python-dateutil==2.9.0.post0
 python-dotenv==1.0.1
 
@@ -17,7 +17,7 @@ pandera==0.20.3
 psutil==6.0.0
 
 # Testing and Coverage
-pytest==8.3.3
+pytest==9.0.3
 pytest-cov==6.0.0
 
 # Notion Dashboard Integration (used by scripts/notion_sync.py)
