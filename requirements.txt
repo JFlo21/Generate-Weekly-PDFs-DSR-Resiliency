@@ -2,7 +2,7 @@
 sentry-sdk>=2.35.0
 
 # Core Dependencies
-smartsheet-python-sdk>=3.0.3
+smartsheet-python-sdk>=3.1.0
 openpyxl==3.1.5
 Pillow==12.1.1
 python-dateutil==2.9.0.post0
