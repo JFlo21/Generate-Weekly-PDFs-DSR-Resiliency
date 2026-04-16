@@ -230,6 +230,19 @@ class TestRevertSubcontractorPrice(unittest.TestCase):
         self.assertAlmostEqual(result, 0.0)
 
 
+def _make_children_page(sheet_ids=(), subfolder_ids=(), last_key=None):
+    """Build a MagicMock paginated children result containing real Sheet/Folder instances."""
+    from unittest.mock import MagicMock
+    from smartsheet.models.sheet import Sheet
+    from smartsheet.models.folder import Folder
+    data = [Sheet({'id': sid, 'name': f'sheet-{sid}'}) for sid in sheet_ids]
+    data += [Folder({'id': fid, 'name': f'folder-{fid}'}) for fid in subfolder_ids]
+    page = MagicMock()
+    page.data = data
+    page.last_key = last_key
+    return page
+
+
 class TestDiscoverFolderSheets(unittest.TestCase):
     """Tests for folder-based sheet discovery."""
 
@@ -237,20 +250,19 @@ class TestDiscoverFolderSheets(unittest.TestCase):
         """Test discover_folder_sheets returns a set of ints."""
         from unittest.mock import MagicMock
         mock_client = MagicMock()
-        sheet1 = MagicMock(); sheet1.id = 111
-        sheet2 = MagicMock(); sheet2.id = 222
-        folder = MagicMock(); folder.sheets = [sheet1, sheet2]
-        mock_client.Folders.get_folder.return_value = folder
+        mock_client.Folders.get_folder_children.return_value = _make_children_page(sheet_ids=[111, 222])
 
         result = generate_weekly_pdfs.discover_folder_sheets(mock_client, [9999], 'test')
         self.assertEqual(result, {111, 222})
-        mock_client.Folders.get_folder.assert_called_once_with(9999)
+        mock_client.Folders.get_folder_children.assert_called_once()
+        call_args = mock_client.Folders.get_folder_children.call_args
+        self.assertEqual(call_args.args[0], 9999)
 
     def test_discover_folder_sheets_handles_api_error(self):
         """Test graceful handling when folder API call fails."""
         from unittest.mock import MagicMock
         mock_client = MagicMock()
-        mock_client.Folders.get_folder.side_effect = Exception("API error")
+        mock_client.Folders.get_folder_children.side_effect = Exception("API error")
 
         result = generate_weekly_pdfs.discover_folder_sheets(mock_client, [9999], 'test')
         self.assertEqual(result, set())
@@ -259,12 +271,10 @@ class TestDiscoverFolderSheets(unittest.TestCase):
         """Test discovery across multiple folder IDs with deduplication."""
         from unittest.mock import MagicMock
         mock_client = MagicMock()
-        sheet_a = MagicMock(); sheet_a.id = 100
-        sheet_b = MagicMock(); sheet_b.id = 200
-        sheet_c = MagicMock(); sheet_c.id = 100  # duplicate
-        folder1 = MagicMock(); folder1.sheets = [sheet_a, sheet_b]
-        folder2 = MagicMock(); folder2.sheets = [sheet_c]
-        mock_client.Folders.get_folder.side_effect = [folder1, folder2]
+        mock_client.Folders.get_folder_children.side_effect = [
+            _make_children_page(sheet_ids=[100, 200]),
+            _make_children_page(sheet_ids=[100]),  # duplicate 100
+        ]
 
         result = generate_weekly_pdfs.discover_folder_sheets(mock_client, [1, 2], 'test')
         self.assertEqual(result, {100, 200})
