@@ -159,6 +159,23 @@ def slugify(text: str, max_len: int = 40) -> str:
     return cleaned[:max_len].strip("-") or "update"
 
 
+def escape_mdx_plain_text(s: str) -> str:
+    """Make text safe inside MDX/Markdown body (not in JSX or YAML).
+
+    MDX treats ``<`` as JSX and ``{`` as expression starts; escape those and
+    related characters so commit subjects cannot break the site build.
+    ``&`` is escaped first so subsequent entity replacements stay correct.
+    """
+    return (
+        s.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("{", "&#123;")
+        .replace("}", "&#125;")
+        .replace("|", "\\|")
+    )
+
+
 def build_post(ctx: PushContext, files: list[str], commits: list[tuple[str, str]]) -> tuple[Path, str]:
     now = datetime.now(timezone.utc)
     date_str = now.strftime("%Y-%m-%d")
@@ -199,7 +216,7 @@ def build_post(ctx: PushContext, files: list[str], commits: list[tuple[str, str]
         lines.append("## Commits in this push")
         lines.append("")
         for sha, subject in commits:
-            subject_md = subject.replace("|", "\\|")
+            subject_md = escape_mdx_plain_text(subject)
             lines.append(
                 f"- [`{sha}`](https://github.com/{ctx.repo}/commit/{sha}) — {subject_md}"
             )
