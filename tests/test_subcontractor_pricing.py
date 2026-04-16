@@ -325,6 +325,47 @@ class TestDiscoverFolderSheets(unittest.TestCase):
         self.assertIn(10, called_ids)
         self.assertIn(11, called_ids)
 
+    def test_discover_folder_sheets_stops_on_repeated_last_key(self):
+        """A repeated last_key must short-circuit pagination to avoid an API burst."""
+        from unittest.mock import MagicMock
+        mock_client = MagicMock()
+        # A misbehaving API keeps returning the same continuation token forever.
+        # The discovery loop should stop after detecting the repeat rather than
+        # calling through to max_pages.
+        mock_client.Folders.get_folder_children.side_effect = [
+            _make_children_page(sheet_ids=[501], last_key='stuck'),
+            _make_children_page(sheet_ids=[502], last_key='stuck'),
+            _make_children_page(sheet_ids=[503], last_key='stuck'),
+        ]
+
+        result = generate_weekly_pdfs.discover_folder_sheets(mock_client, [7777], 'test')
+        # Sheets from pages fetched before the repeat-stop are preserved.
+        self.assertEqual(result, {501, 502})
+        # Exactly 2 calls: page 1 (token 'stuck' recorded), page 2 (token repeats → stop).
+        self.assertEqual(mock_client.Folders.get_folder_children.call_count, 2)
+
+    def test_discover_folder_sheets_stops_at_max_pages(self):
+        """Pagination must terminate at the 100-page safety cap."""
+        from unittest.mock import MagicMock
+        mock_client = MagicMock()
+        # Generate a unique last_key per call so the repeated-token guard never trips —
+        # only the max_pages ceiling can terminate the loop.
+        counter = {'n': 0}
+
+        def _children(fid, **kwargs):
+            counter['n'] += 1
+            return _make_children_page(
+                sheet_ids=[1000 + counter['n']],
+                last_key=f"token-{counter['n']}",
+            )
+
+        mock_client.Folders.get_folder_children.side_effect = _children
+
+        result = generate_weekly_pdfs.discover_folder_sheets(mock_client, [8888], 'test')
+        # Exactly max_pages (100) calls — not unbounded.
+        self.assertEqual(mock_client.Folders.get_folder_children.call_count, 100)
+        self.assertEqual(len(result), 100)
+
 
 class TestIdentityNormalization(unittest.TestCase):
     """Tests for the None vs '' identity comparison fix."""
