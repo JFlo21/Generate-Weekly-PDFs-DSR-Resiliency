@@ -36,41 +36,41 @@ class TestVacCrewSheetIdsConfig(unittest.TestCase):
             self.assertEqual(len(generate_weekly_pdfs.VAC_CREW_FOLDER_IDS), 0)
 
 
+def _make_children_page(sheet_ids=(), subfolder_ids=(), last_key=None):
+    """Build a MagicMock paginated children result containing real Sheet/Folder instances."""
+    from smartsheet.models.sheet import Sheet
+    from smartsheet.models.folder import Folder
+    data = [Sheet({'id': sid, 'name': f'sheet-{sid}'}) for sid in sheet_ids]
+    data += [Folder({'id': fid, 'name': f'folder-{fid}'}) for fid in subfolder_ids]
+    page = MagicMock()
+    page.data = data
+    page.last_key = last_key
+    return page
+
+
 class TestVacCrewFolderDiscovery(unittest.TestCase):
     """Tests for VAC Crew folder-based sheet discovery using discover_folder_sheets."""
 
     def test_vac_crew_folder_discovery_returns_ids(self):
         """discover_folder_sheets returns correct sheet IDs for vac_crew label."""
         mock_client = MagicMock()
-        sheet_a = MagicMock()
-        sheet_a.id = 5001
-        sheet_b = MagicMock()
-        sheet_b.id = 5002
-        folder = MagicMock()
-        folder.sheets = [sheet_a, sheet_b]
-        mock_client.Folders.get_folder.return_value = folder
+        mock_client.Folders.get_folder_children.return_value = _make_children_page(sheet_ids=[5001, 5002])
 
         result = generate_weekly_pdfs.discover_folder_sheets(mock_client, [8888], 'vac crew')
         self.assertEqual(result, {5001, 5002})
-        mock_client.Folders.get_folder.assert_called_once_with(8888)
+        mock_client.Folders.get_folder_children.assert_called_once()
+        self.assertEqual(mock_client.Folders.get_folder_children.call_args.args[0], 8888)
 
     def test_vac_crew_folder_discovery_multiple_folders(self):
         """discover_folder_sheets merges IDs across multiple VAC Crew folder IDs."""
         mock_client = MagicMock()
 
-        def _get_folder(fid):
-            folder = MagicMock()
+        def _children(fid, **kwargs):
             if fid == 1111:
-                s = MagicMock()
-                s.id = 5001
-                folder.sheets = [s]
-            else:
-                s = MagicMock()
-                s.id = 5002
-                folder.sheets = [s]
-            return folder
+                return _make_children_page(sheet_ids=[5001])
+            return _make_children_page(sheet_ids=[5002])
 
-        mock_client.Folders.get_folder.side_effect = _get_folder
+        mock_client.Folders.get_folder_children.side_effect = _children
 
         result = generate_weekly_pdfs.discover_folder_sheets(mock_client, [1111, 2222], 'vac crew')
         self.assertEqual(result, {5001, 5002})
@@ -80,12 +80,12 @@ class TestVacCrewFolderDiscovery(unittest.TestCase):
         mock_client = MagicMock()
         result = generate_weekly_pdfs.discover_folder_sheets(mock_client, [], 'vac crew')
         self.assertEqual(result, set())
-        mock_client.Folders.get_folder.assert_not_called()
+        mock_client.Folders.get_folder_children.assert_not_called()
 
     def test_vac_crew_folder_discovery_api_error_graceful(self):
         """discover_folder_sheets handles API errors gracefully for vac_crew folders."""
         mock_client = MagicMock()
-        mock_client.Folders.get_folder.side_effect = Exception("Smartsheet API error")
+        mock_client.Folders.get_folder_children.side_effect = Exception("Smartsheet API error")
 
         result = generate_weekly_pdfs.discover_folder_sheets(mock_client, [9999], 'vac crew')
         self.assertEqual(result, set())

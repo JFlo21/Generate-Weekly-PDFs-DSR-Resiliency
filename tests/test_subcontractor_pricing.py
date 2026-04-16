@@ -230,6 +230,19 @@ class TestRevertSubcontractorPrice(unittest.TestCase):
         self.assertAlmostEqual(result, 0.0)
 
 
+def _make_children_page(sheet_ids=(), subfolder_ids=(), last_key=None):
+    """Build a MagicMock paginated children result containing real Sheet/Folder instances."""
+    from unittest.mock import MagicMock
+    from smartsheet.models.sheet import Sheet
+    from smartsheet.models.folder import Folder
+    data = [Sheet({'id': sid, 'name': f'sheet-{sid}'}) for sid in sheet_ids]
+    data += [Folder({'id': fid, 'name': f'folder-{fid}'}) for fid in subfolder_ids]
+    page = MagicMock()
+    page.data = data
+    page.last_key = last_key
+    return page
+
+
 class TestDiscoverFolderSheets(unittest.TestCase):
     """Tests for folder-based sheet discovery."""
 
@@ -237,20 +250,19 @@ class TestDiscoverFolderSheets(unittest.TestCase):
         """Test discover_folder_sheets returns a set of ints."""
         from unittest.mock import MagicMock
         mock_client = MagicMock()
-        sheet1 = MagicMock(); sheet1.id = 111
-        sheet2 = MagicMock(); sheet2.id = 222
-        folder = MagicMock(); folder.sheets = [sheet1, sheet2]
-        mock_client.Folders.get_folder.return_value = folder
+        mock_client.Folders.get_folder_children.return_value = _make_children_page(sheet_ids=[111, 222])
 
         result = generate_weekly_pdfs.discover_folder_sheets(mock_client, [9999], 'test')
         self.assertEqual(result, {111, 222})
-        mock_client.Folders.get_folder.assert_called_once_with(9999)
+        mock_client.Folders.get_folder_children.assert_called_once()
+        call_args = mock_client.Folders.get_folder_children.call_args
+        self.assertEqual(call_args.args[0], 9999)
 
     def test_discover_folder_sheets_handles_api_error(self):
         """Test graceful handling when folder API call fails."""
         from unittest.mock import MagicMock
         mock_client = MagicMock()
-        mock_client.Folders.get_folder.side_effect = Exception("API error")
+        mock_client.Folders.get_folder_children.side_effect = Exception("API error")
 
         result = generate_weekly_pdfs.discover_folder_sheets(mock_client, [9999], 'test')
         self.assertEqual(result, set())
@@ -259,12 +271,10 @@ class TestDiscoverFolderSheets(unittest.TestCase):
         """Test discovery across multiple folder IDs with deduplication."""
         from unittest.mock import MagicMock
         mock_client = MagicMock()
-        sheet_a = MagicMock(); sheet_a.id = 100
-        sheet_b = MagicMock(); sheet_b.id = 200
-        sheet_c = MagicMock(); sheet_c.id = 100  # duplicate
-        folder1 = MagicMock(); folder1.sheets = [sheet_a, sheet_b]
-        folder2 = MagicMock(); folder2.sheets = [sheet_c]
-        mock_client.Folders.get_folder.side_effect = [folder1, folder2]
+        mock_client.Folders.get_folder_children.side_effect = [
+            _make_children_page(sheet_ids=[100, 200]),
+            _make_children_page(sheet_ids=[100]),  # duplicate 100
+        ]
 
         result = generate_weekly_pdfs.discover_folder_sheets(mock_client, [1, 2], 'test')
         self.assertEqual(result, {100, 200})
@@ -275,6 +285,86 @@ class TestDiscoverFolderSheets(unittest.TestCase):
         mock_client = MagicMock()
         result = generate_weekly_pdfs.discover_folder_sheets(mock_client, [], 'test')
         self.assertEqual(result, set())
+
+    def test_discover_folder_sheets_paginates_last_key(self):
+        """Multi-page last_key pagination is followed until last_key is falsy."""
+        from unittest.mock import MagicMock
+        mock_client = MagicMock()
+        # Page 1 returns two sheets + a continuation token; page 2 returns one more and terminates.
+        mock_client.Folders.get_folder_children.side_effect = [
+            _make_children_page(sheet_ids=[301, 302], last_key='k1'),
+            _make_children_page(sheet_ids=[303], last_key=None),
+        ]
+
+        result = generate_weekly_pdfs.discover_folder_sheets(mock_client, [4242], 'test')
+        self.assertEqual(result, {301, 302, 303})
+        self.assertEqual(mock_client.Folders.get_folder_children.call_count, 2)
+        # The second call should forward the last_key from the first response.
+        second_kwargs = mock_client.Folders.get_folder_children.call_args_list[1].kwargs
+        self.assertEqual(second_kwargs.get('last_key'), 'k1')
+
+    def test_discover_folder_sheets_recurses_into_subfolders(self):
+        """Folder children returned as subfolders trigger recursive discovery."""
+        from unittest.mock import MagicMock
+        mock_client = MagicMock()
+
+        def _children(fid, **kwargs):
+            if fid == 10:
+                # Top folder has one sheet and one subfolder child
+                return _make_children_page(sheet_ids=[401], subfolder_ids=[11])
+            if fid == 11:
+                # Subfolder has two sheets and no further nesting
+                return _make_children_page(sheet_ids=[402, 403])
+            return _make_children_page()
+
+        mock_client.Folders.get_folder_children.side_effect = _children
+
+        result = generate_weekly_pdfs.discover_folder_sheets(mock_client, [10], 'test')
+        self.assertEqual(result, {401, 402, 403})
+        called_ids = [c.args[0] for c in mock_client.Folders.get_folder_children.call_args_list]
+        self.assertIn(10, called_ids)
+        self.assertIn(11, called_ids)
+
+    def test_discover_folder_sheets_stops_on_repeated_last_key(self):
+        """A repeated last_key must short-circuit pagination to avoid an API burst."""
+        from unittest.mock import MagicMock
+        mock_client = MagicMock()
+        # A misbehaving API keeps returning the same continuation token forever.
+        # The discovery loop should stop after detecting the repeat rather than
+        # calling through to max_pages.
+        mock_client.Folders.get_folder_children.side_effect = [
+            _make_children_page(sheet_ids=[501], last_key='stuck'),
+            _make_children_page(sheet_ids=[502], last_key='stuck'),
+            _make_children_page(sheet_ids=[503], last_key='stuck'),
+        ]
+
+        result = generate_weekly_pdfs.discover_folder_sheets(mock_client, [7777], 'test')
+        # Sheets from pages fetched before the repeat-stop are preserved.
+        self.assertEqual(result, {501, 502})
+        # Exactly 2 calls: page 1 (token 'stuck' recorded), page 2 (token repeats → stop).
+        self.assertEqual(mock_client.Folders.get_folder_children.call_count, 2)
+
+    def test_discover_folder_sheets_stops_at_max_pages(self):
+        """Pagination must terminate at the 100-page safety cap."""
+        from unittest.mock import MagicMock
+        mock_client = MagicMock()
+        # Generate a unique last_key per call so the repeated-token guard never trips —
+        # only the max_pages ceiling can terminate the loop.
+        counter = {'n': 0}
+
+        def _children(fid, **kwargs):
+            counter['n'] += 1
+            return _make_children_page(
+                sheet_ids=[1000 + counter['n']],
+                last_key=f"token-{counter['n']}",
+            )
+
+        mock_client.Folders.get_folder_children.side_effect = _children
+
+        result = generate_weekly_pdfs.discover_folder_sheets(mock_client, [8888], 'test')
+        # Exactly max_pages (100) calls — not unbounded.
+        self.assertEqual(mock_client.Folders.get_folder_children.call_count, 100)
+        self.assertEqual(len(result), 100)
 
 
 class TestIdentityNormalization(unittest.TestCase):

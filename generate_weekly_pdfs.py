@@ -787,16 +787,57 @@ def discover_folder_sheets(client, folder_ids: list[int], label: str) -> set[int
             logging.warning(f"⚠️ Max folder recursion depth ({max_depth}) reached for {label} folder {fid}")
             return set()
         try:
-            with sentry_sdk.start_span(op="smartsheet.api", description=f"Get folder {fid} ({label} depth={depth})") as span:
-                folder = client.Folders.get_folder(fid)
-                sheets = getattr(folder, 'sheets', None) or []
+            with sentry_sdk.start_span(op="smartsheet.api", name=f"Get folder {fid} ({label} depth={depth})") as span:
+                from smartsheet.models.sheet import Sheet as _SmartsheetSheet
+                from smartsheet.models.folder import Folder as _SmartsheetFolder
+                sheets: list = []
+                subfolders: list = []
+                last_key = None
+                # Safety caps: guard against a misbehaving API that perpetually
+                # returns a non-falsy or repeated last_key, which would otherwise
+                # create a large API burst (amplifying Smartsheet 300 req/min limits).
+                max_pages = 100
+                pages_fetched = 0
+                page_start_time = time.monotonic()
+                seen_last_keys: set = set()
+                for _page_num in range(max_pages):
+                    page = client.Folders.get_folder_children(
+                        fid,
+                        children_resource_types=["sheets", "folders"],
+                        last_key=last_key,
+                    )
+                    pages_fetched += 1
+                    for item in getattr(page, 'data', None) or []:
+                        if isinstance(item, _SmartsheetSheet):
+                            sheets.append(item)
+                        elif isinstance(item, _SmartsheetFolder):
+                            subfolders.append(item)
+                    next_last_key = getattr(page, 'last_key', None)
+                    if not next_last_key:
+                        break
+                    if next_last_key in seen_last_keys:
+                        elapsed = time.monotonic() - page_start_time
+                        logging.warning(
+                            f"⚠️ Repeated pagination token detected for {label} folder {fid}; "
+                            f"stopping after {pages_fetched} page(s) in {elapsed:.2f}s "
+                            f"with {len(sheets)} sheet(s)"
+                        )
+                        break
+                    seen_last_keys.add(next_last_key)
+                    last_key = next_last_key
+                else:
+                    elapsed = time.monotonic() - page_start_time
+                    logging.warning(
+                        f"⚠️ Pagination safety cap ({max_pages}) reached for {label} folder {fid}; "
+                        f"stopping after {pages_fetched} page(s) in {elapsed:.2f}s "
+                        f"with {len(sheets)} sheet(s)"
+                    )
                 ids = {s.id for s in sheets}
                 span.set_data("folder_id", fid)
                 span.set_data("sheets_found", len(sheets))
                 span.set_data("depth", depth)
             logging.info(f"{'  ' * depth}📂 Folder {fid} ({label}): found {len(sheets)} direct sheet(s)")
             # Recurse into subfolders to discover ALL sheets in the hierarchy
-            subfolders = getattr(folder, 'folders', None) or []
             for subfolder in subfolders:
                 sub_id = subfolder.id
                 sub_ids = _fetch_folder_recursive(sub_id, depth + 1, max_depth)
@@ -1786,7 +1827,7 @@ def get_all_source_rows(client, source_sheets):
                 # PERFORMANCE FIX: Use column_ids parameter to only fetch mapped columns
                 column_mapping = source['column_mapping']
                 required_column_ids = list(column_mapping.values())
-                with sentry_sdk.start_span(op="smartsheet.api", description=f"Fetch sheet {source['name']}") as api_span:
+                with sentry_sdk.start_span(op="smartsheet.api", name=f"Fetch sheet {source['name']}") as api_span:
                     sheet = client.Sheets.get_sheet(
                         source['id'], 
                         column_ids=required_column_ids
@@ -2894,7 +2935,7 @@ def create_target_sheet_map(client):
         Tuple of (target_map dict, target_sheet object) for reuse in cleanup.
     """
     try:
-        with sentry_sdk.start_span(op="smartsheet.api", description="Fetch target sheet for WR mapping") as span:
+        with sentry_sdk.start_span(op="smartsheet.api", name="Fetch target sheet for WR mapping") as span:
             target_sheet = client.Sheets.get_sheet(TARGET_SHEET_ID)
             span.set_data("target_sheet_id", TARGET_SHEET_ID)
             span.set_data("row_count", len(target_sheet.rows) if target_sheet.rows else 0)
@@ -3044,7 +3085,7 @@ def main():
         logging.info("📊 PHASE 1: Discovering source sheets...")
         logging.info(f"{'='*60}")
         sentry_add_breadcrumb("discovery", "Starting source sheet discovery")
-        with sentry_sdk.start_span(op="smartsheet.discovery", description="Discover and validate source sheets") as span:
+        with sentry_sdk.start_span(op="smartsheet.discovery", name="Discover and validate source sheets") as span:
             source_sheets = discover_source_sheets(client)
             span.set_data("sheets_discovered", len(source_sheets) if source_sheets else 0)
         
@@ -3060,7 +3101,7 @@ def main():
         logging.info(f"\n{'='*60}")
         logging.info("📋 PHASE 2: Fetching source data...")
         logging.info(f"{'='*60}")
-        with sentry_sdk.start_span(op="smartsheet.fetch_rows", description="Fetch all source rows from Smartsheet") as span:
+        with sentry_sdk.start_span(op="smartsheet.fetch_rows", name="Fetch all source rows from Smartsheet") as span:
             all_rows = get_all_source_rows(client, source_sheets)
             span.set_data("source_sheets_count", len(source_sheets))
             span.set_data("rows_fetched", len(all_rows) if all_rows else 0)
@@ -3081,7 +3122,7 @@ def main():
         if AUDIT_SYSTEM_AVAILABLE and not DISABLE_AUDIT_FOR_TESTING:
             try:
                 sentry_add_breadcrumb("audit", "Starting billing audit", data={"skip_cell_history": SKIP_CELL_HISTORY})
-                with sentry_sdk.start_span(op="audit.financial", description="Run billing audit on source data") as audit_span:
+                with sentry_sdk.start_span(op="audit.financial", name="Run billing audit on source data") as audit_span:
                     audit_system = BillingAudit(client, skip_cell_history=SKIP_CELL_HISTORY)
                     audit_results = audit_system.audit_financial_data(source_sheets, all_rows)
                     audit_span.set_data("risk_level", audit_results.get('summary', {}).get('risk_level', 'UNKNOWN'))
@@ -3111,14 +3152,14 @@ def main():
 
     # Group rows by work request and week ending
         logging.info("📂 Grouping data...")
-        with sentry_sdk.start_span(op="data.grouping", description="Group source rows by WR/week/variant") as span:
+        with sentry_sdk.start_span(op="data.grouping", name="Group source rows by WR/week/variant") as span:
             groups = group_source_rows(all_rows)
             span.set_data("input_rows", len(all_rows))
             span.set_data("groups_created", len(groups) if groups else 0)
 
         # Optional full/partial hash reset purge BEFORE processing groups if requested
         if RESET_HASH_HISTORY or RESET_WR_LIST:
-            with sentry_sdk.start_span(op="smartsheet.purge", description="Purge existing hashed outputs") as span:
+            with sentry_sdk.start_span(op="smartsheet.purge", name="Purge existing hashed outputs") as span:
                 if RESET_WR_LIST:
                     logging.info(f"🧨 Hash reset requested for specific WRs: {sorted(list(RESET_WR_LIST))}")
                     span.set_data("purge_type", "wr_subset")
@@ -3149,7 +3190,7 @@ def main():
         target_map = {}
         _target_sheet_obj = None  # Cached for cleanup to avoid redundant API call
         if not TEST_MODE:
-            with sentry_sdk.start_span(op="smartsheet.target_map", description="Create target sheet map for uploads") as span:
+            with sentry_sdk.start_span(op="smartsheet.target_map", name="Create target sheet map for uploads") as span:
                 target_map, _target_sheet_obj = create_target_sheet_map(client)
                 span.set_data("wr_count", len(target_map))
 
@@ -3158,7 +3199,7 @@ def main():
         # Each row's attachments are fetched once here instead of 2-3 times in the group loop.
         attachment_cache = {}  # row_id -> list of attachment objects
         if target_map and not TEST_MODE:
-            with sentry_sdk.start_span(op="smartsheet.attachment_prefetch", description="Pre-fetch row attachments") as span:
+            with sentry_sdk.start_span(op="smartsheet.attachment_prefetch", name="Pre-fetch row attachments") as span:
                 logging.info(f"🚀 Starting parallel attachment pre-fetch with {PARALLEL_WORKERS} workers for {len(target_map)} target rows...")
                 _att_start = datetime.datetime.now()
 
@@ -3298,7 +3339,7 @@ def main():
                             })
                 
                 # Generate Excel file with complete fixes
-                with sentry_sdk.start_span(op="excel.generate", description=f"Generate Excel for WR {wr_num}") as gen_span:
+                with sentry_sdk.start_span(op="excel.generate", name=f"Generate Excel for WR {wr_num}") as gen_span:
                     gen_span.set_data("group_key", group_key)
                     gen_span.set_data("row_count", len(group_rows))
                     gen_span.set_data("variant", variant)
@@ -3501,12 +3542,12 @@ def main():
         if not TEST_MODE:
             # Invalidate stale attachment cache after upload phase — uploads added/deleted attachments
             _cleanup_cache = attachment_cache if not _upload_tasks else None
-            with sentry_sdk.start_span(op="smartsheet.cleanup", description="Cleanup untracked sheet attachments"):
+            with sentry_sdk.start_span(op="smartsheet.cleanup", name="Cleanup untracked sheet attachments"):
                 cleanup_untracked_sheet_attachments(client, TARGET_SHEET_ID, valid_wr_weeks, TEST_MODE, attachment_cache=_cleanup_cache, target_sheet=_target_sheet_obj)
 
         # Cleanup legacy / stale Excel files so only current system outputs remain
         try:
-            with sentry_sdk.start_span(op="file.cleanup", description="Cleanup stale local Excel files"):
+            with sentry_sdk.start_span(op="file.cleanup", name="Cleanup stale local Excel files"):
                 removed = cleanup_stale_excels(OUTPUT_FOLDER, set(generated_filenames))
             logging.info(f"🧹 Cleanup complete: removed {len(removed)} stale file(s)")
         except Exception as e:
