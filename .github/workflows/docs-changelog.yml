@@ -93,12 +93,15 @@ jobs:
 
       - name: Summarize
         if: always()
+        env:
+          POST_PATH: ${{ steps.generate.outputs.post_path }}
+          PR_URL: ${{ steps.open_pr.outputs.pull-request-url }}
         run: |
-          if [ -n "${{ steps.generate.outputs.post_path || '' }}" ]; then
-            echo "Generated: ${{ steps.generate.outputs.post_path }}" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "${POST_PATH:-}" ]; then
+            printf 'Generated: %s\n' "$POST_PATH" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "No runbook entry generated (empty diff, skip marker, or blog-only push)." >> "$GITHUB_STEP_SUMMARY"
+            printf 'No runbook entry generated (empty diff, skip marker, or blog-only push).\n' >> "$GITHUB_STEP_SUMMARY"
           fi
-          if [ -n "${{ steps.open_pr.outputs.pull-request-url || '' }}" ]; then
-            echo "PR: ${{ steps.open_pr.outputs.pull-request-url }}" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "${PR_URL:-}" ]; then
+            printf 'PR: %s\n' "$PR_URL" >> "$GITHUB_STEP_SUMMARY"
           fi
