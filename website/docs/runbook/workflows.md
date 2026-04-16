@@ -6,7 +6,9 @@ sidebar_position: 3
 
 # GitHub Actions workflows
 
-All workflows live under `.github/workflows/`.
+GitHub Actions workflows live under `.github/workflows/`. The repo also
+ships a root-level `azure-pipelines.yml` consumed by Azure DevOps — it
+is not a GitHub Actions workflow and is documented separately below.
 
 ## `weekly-excel-generation.yml`
 
@@ -52,10 +54,11 @@ Security scanning for vulnerable dependencies.
 
 Test coverage upload for PRs.
 
-## `azure-pipelines.yml`
+## `azure-pipelines.yml` *(root of repo)*
 
-Mirror pipeline for Azure DevOps. See `AZURE_*` docs in the repo root for
-setup.
+Not a GitHub Actions workflow. Azure DevOps auto-discovers this file at
+the repository root and uses it to mirror `master` from GitHub to Azure
+DevOps. See `AZURE_*` docs in the repo root for setup.
 
 ## `docs-changelog.yml` *(new)*
 

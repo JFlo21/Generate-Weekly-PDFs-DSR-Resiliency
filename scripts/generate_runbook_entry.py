@@ -204,9 +204,16 @@ def main() -> int:
         print("GITHUB_SHA is empty; nothing to document.", file=sys.stderr)
         return 0
 
-    head_message = run_git("log", "-1", "--pretty=%B", ctx.after)
-    if any(marker in head_message for marker in SKIP_MARKERS):
-        print(f"Skip marker present in commit message; not writing a post.")
+    # Check every commit in the push range for a skip marker, not just
+    # HEAD — otherwise a mid-push `[skip docs]` would be ignored.
+    if is_zero_sha(ctx.before):
+        commit_messages = run_git("log", "-n", "20", "--pretty=%B", ctx.after)
+    else:
+        commit_messages = run_git(
+            "log", "--pretty=%B", f"{ctx.before}..{ctx.after}"
+        )
+    if any(marker in commit_messages for marker in SKIP_MARKERS):
+        print("Skip marker present in push range; not writing a post.")
         return 0
 
     files = changed_files(ctx.before, ctx.after)

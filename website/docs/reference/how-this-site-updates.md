@@ -13,9 +13,14 @@ This runbook is intentionally low-ceremony. Two moving parts keep it fresh.
 On every push to `master`, `.github/workflows/docs-changelog.yml` runs
 `scripts/generate_runbook_entry.py`. That script:
 
-1. Compares `${{ github.event.before }}` with `${{ github.sha }}`.
-2. Buckets the changed files into **Python**, **Workflows**, **Portal**,
-   **Docs**, **Scripts**, and **Other**.
+1. Compares `${{ github.event.before }}` with `${{ github.sha }}`. On a
+   manual `workflow_dispatch` (where `before` is empty), it falls back
+   to diffing the HEAD commit against its first parent so merge
+   commits are enumerated correctly.
+2. Buckets the changed files into **Workflows & CI**, **GitHub config**,
+   **Python — entry points / diagnostics / scripts/**, **Tests**,
+   **Portal (Express)**, **Portal v2 (React)**, **Docs site**,
+   **Project docs**, **Configuration**, **Data files**, and **Other**.
 3. Lists commits in the push range with short SHA and subject.
 4. Writes a Markdown post at
    `website/blog/YYYY-MM-DD-<short-sha>-<slug>.md` with frontmatter
@@ -31,10 +36,17 @@ up to rebuild the Docusaurus site.
 Branch protection on `master` (required reviews, status checks, linear
 history) would block a direct push from `github-actions[bot]`. Opening a
 PR keeps the workflow compatible with any protection rules and lets a
-human skim the entry before it ships. The PR's commit is tagged
-`[skip ci]`, and because `GITHUB_TOKEN`-authored events don't re-fire
-`push`/`pull_request` workflows, there is no risk of a loop with
-`notion-sync`, `snyk-security`, `codecov`, or this workflow itself.
+human skim the entry before it ships.
+
+The PR's own commit is tagged `[skip ci]`, and GitHub won't re-trigger
+`push`/`pull_request` workflows from events authored by the default
+`GITHUB_TOKEN`, so the act of opening the PR is safe. When the PR is
+eventually merged into `master`, however, the resulting commit is a
+normal human-authored push — `notion-sync`, `snyk-security`, and
+`codecov` run as they would for any other merge, and this workflow may
+generate a follow-up entry. The generator's own guards (skip markers
+and the "only `website/blog/`" short-circuit) keep that from turning
+into a feedback loop.
 :::
 
 ## 2. Manual runbook edits
