@@ -165,7 +165,7 @@ The following data is **intentionally NOT captured** or sent to Sentry:
 | Session cookies | `Authorization`, `Cookie`, `Set-Cookie` headers stripped in backend `beforeSend`/`beforeSendTransaction` |
 | CSRF tokens | `X-CSRF-Token` header stripped in backend |
 | Supabase keys | Only VITE_SUPABASE_ANON_KEY is in the frontend bundle; it is not added to Sentry context |
-| Raw request bodies | `sendDefaultPii: false`; backend uses `max_request_body_size: "medium"` |
+| Raw request bodies | `sendDefaultPii: false` on all surfaces; Python engine uses `max_request_body_size: "medium"` (not applicable to Express backend) |
 | Session Replay | `replaysSessionSampleRate` and `replaysOnErrorSampleRate` are **not set** |
 | Excel file binaries | Not included in any Sentry context |
 | PII from billing rows | Python `before_send_filter` does not forward row data |
@@ -192,9 +192,11 @@ Or run a workflow dispatch in GitHub Actions — Sentry will receive the cron ch
 
 ```bash
 cd portal && npm start
-# In a separate terminal:
-curl -X POST http://localhost:3000/api/test-error || true
-# The custom error middleware returns { error: 'Internal server error' }.
+# In a separate terminal, trigger an error by requesting a protected route
+# without authentication — the error middleware will handle it:
+curl http://localhost:3000/dashboard
+# Or add a temporary throw to any route handler for a one-off test:
+#   app.get('/api/sentry-test', (req, res) => { throw new Error('Sentry test'); });
 # Check your Sentry project for the captured event.
 ```
 
@@ -203,9 +205,14 @@ curl -X POST http://localhost:3000/api/test-error || true
 Open the browser console on the deployed/local frontend and run:
 
 ```js
-import('/src/lib/sentry.js').then(({ Sentry }) => {
+// Sentry is already initialised by the app's entry point.
+// Use the global SDK namespace to send a test event:
+window.__SENTRY__ && import('@sentry/react').then(Sentry => {
   Sentry.captureMessage('Frontend test event', 'info');
 });
+// Or simply call from any component:
+//   import * as Sentry from '@sentry/react';
+//   Sentry.captureMessage('Frontend test event', 'info');
 ```
 
 Or deliberately throw an error inside the app to exercise the `ErrorBoundary`.

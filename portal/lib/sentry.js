@@ -44,10 +44,12 @@ const environment =
  */
 function stripSensitiveHeaders(requestData) {
   if (!requestData || !requestData.headers) return requestData;
-  const SENSITIVE = ['authorization', 'cookie', 'set-cookie', 'x-csrf-token'];
+  const SENSITIVE = new Set([
+    'authorization', 'cookie', 'set-cookie', 'x-csrf-token',
+  ]);
   const headers = Object.assign({}, requestData.headers);
-  for (const key of SENSITIVE) {
-    if (headers[key] !== undefined) {
+  for (const key of Object.keys(headers)) {
+    if (SENSITIVE.has(key.toLowerCase())) {
       headers[key] = '[Filtered]';
     }
   }
