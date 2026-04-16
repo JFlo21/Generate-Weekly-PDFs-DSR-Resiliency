@@ -45,7 +45,7 @@ workflow. Copy `.env.example` to `.env` for local dev.
 | `DISCOVERY_CACHE_TTL_MIN` | `10080` | Cache age ceiling, minutes. |
 | `PARALLEL_WORKERS` | `8` | Threads for data fetch + attachment pre-fetch. |
 | `PARALLEL_WORKERS_DISCOVERY` | `8` | Threads for sheet discovery. |
-| `TIME_BUDGET_MINUTES` | `80` | Graceful stop before Actions hard-kill. |
+| `TIME_BUDGET_MINUTES` | `0` (code) / `80` (workflow) | Graceful stop budget in minutes. `0` disables the early-exit. The weekly workflow sets `80` so the job bails out before Actions hard-kills it; local runs default to disabled. |
 
 ## Change detection & history
 

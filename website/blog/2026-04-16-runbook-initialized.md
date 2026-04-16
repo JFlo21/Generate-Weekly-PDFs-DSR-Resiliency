@@ -5,7 +5,11 @@ authors: [runbook-bot]
 tags: [meta]
 ---
 
-The Docusaurus runbook is live. From this point forward, every merge into
+The Docusaurus runbook is live.
+
+<!-- truncate -->
+
+From this point forward, every merge into
 `master` produces a post like this one, describing:
 
 - The commits that landed.

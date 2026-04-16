@@ -80,7 +80,7 @@ const config: Config = {
         {
           title: 'Runbook',
           items: [
-            { label: 'Overview', to: '/docs/intro' },
+            { label: 'Overview', to: '/docs/' },
             { label: 'Workflows', to: '/docs/runbook/workflows' },
             { label: 'Python modules', to: '/docs/runbook/python-modules' },
           ],

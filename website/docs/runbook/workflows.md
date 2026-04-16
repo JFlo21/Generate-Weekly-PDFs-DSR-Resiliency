@@ -10,8 +10,9 @@ All workflows live under `.github/workflows/`.
 
 ## `weekly-excel-generation.yml`
 
-The production workhorse. Runs on schedule (weekday business-hour cadence +
-weekend maintenance + Monday-morning comprehensive) and on
+The production workhorse. Runs on schedule (weekday business-hour cadence,
+weekend maintenance, and a weekly comprehensive run at Monday 05:00 UTC —
+around midnight America/Chicago depending on DST) and on
 `workflow_dispatch` with a wide set of inputs for debugging and manual
 reruns.
 

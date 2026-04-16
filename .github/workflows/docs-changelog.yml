@@ -16,6 +16,7 @@ concurrency:
 jobs:
   append-entry:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # Belt-and-suspenders loop protection: skip when this workflow itself
     # authored the triggering commit. GitHub also prevents GITHUB_TOKEN-
     # authored pushes from re-triggering push workflows, and our post-

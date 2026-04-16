@@ -16,6 +16,7 @@ import os
 import re
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,7 +26,7 @@ BLOG_DIR = REPO_ROOT / "website" / "blog"
 SKIP_MARKERS = ("[skip docs]", "[docs skip]")
 
 # (label, predicate) — first match wins, so ordering matters.
-BUCKETS: list[tuple[str, callable]] = [
+BUCKETS: list[tuple[str, Callable[[str], bool]]] = [
     ("Workflows & CI", lambda p: p.startswith(".github/workflows/") or p == "azure-pipelines.yml"),
     ("GitHub config", lambda p: p.startswith(".github/") and not p.startswith(".github/workflows/")),
     ("Python — entry points", lambda p: p in {
