@@ -793,27 +793,44 @@ def discover_folder_sheets(client, folder_ids: list[int], label: str) -> set[int
                 sheets: list = []
                 subfolders: list = []
                 last_key = None
-                # Safety cap: guards against a misbehaving API that perpetually
-                # returns a non-falsy last_key, which would otherwise hang production.
-                max_pages = 1000
+                # Safety caps: guard against a misbehaving API that perpetually
+                # returns a non-falsy or repeated last_key, which would otherwise
+                # create a large API burst (amplifying Smartsheet 300 req/min limits).
+                max_pages = 100
+                pages_fetched = 0
+                page_start_time = time.monotonic()
+                seen_last_keys: set = set()
                 for _page_num in range(max_pages):
                     page = client.Folders.get_folder_children(
                         fid,
                         children_resource_types=["sheets", "folders"],
                         last_key=last_key,
                     )
+                    pages_fetched += 1
                     for item in getattr(page, 'data', None) or []:
                         if isinstance(item, _SmartsheetSheet):
                             sheets.append(item)
                         elif isinstance(item, _SmartsheetFolder):
                             subfolders.append(item)
-                    last_key = getattr(page, 'last_key', None)
-                    if not last_key:
+                    next_last_key = getattr(page, 'last_key', None)
+                    if not next_last_key:
                         break
+                    if next_last_key in seen_last_keys:
+                        elapsed = time.monotonic() - page_start_time
+                        logging.warning(
+                            f"⚠️ Repeated pagination token detected for {label} folder {fid}; "
+                            f"stopping after {pages_fetched} page(s) in {elapsed:.2f}s "
+                            f"with {len(sheets)} sheet(s)"
+                        )
+                        break
+                    seen_last_keys.add(next_last_key)
+                    last_key = next_last_key
                 else:
+                    elapsed = time.monotonic() - page_start_time
                     logging.warning(
                         f"⚠️ Pagination safety cap ({max_pages}) reached for {label} folder {fid}; "
-                        f"truncating results at {len(sheets)} sheet(s)"
+                        f"stopping after {pages_fetched} page(s) in {elapsed:.2f}s "
+                        f"with {len(sheets)} sheet(s)"
                     )
                 ids = {s.id for s in sheets}
                 span.set_data("folder_id", fid)

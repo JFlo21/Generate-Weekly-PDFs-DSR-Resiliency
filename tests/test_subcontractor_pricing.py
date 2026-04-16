@@ -286,6 +286,45 @@ class TestDiscoverFolderSheets(unittest.TestCase):
         result = generate_weekly_pdfs.discover_folder_sheets(mock_client, [], 'test')
         self.assertEqual(result, set())
 
+    def test_discover_folder_sheets_paginates_last_key(self):
+        """Multi-page last_key pagination is followed until last_key is falsy."""
+        from unittest.mock import MagicMock
+        mock_client = MagicMock()
+        # Page 1 returns two sheets + a continuation token; page 2 returns one more and terminates.
+        mock_client.Folders.get_folder_children.side_effect = [
+            _make_children_page(sheet_ids=[301, 302], last_key='k1'),
+            _make_children_page(sheet_ids=[303], last_key=None),
+        ]
+
+        result = generate_weekly_pdfs.discover_folder_sheets(mock_client, [4242], 'test')
+        self.assertEqual(result, {301, 302, 303})
+        self.assertEqual(mock_client.Folders.get_folder_children.call_count, 2)
+        # The second call should forward the last_key from the first response.
+        second_kwargs = mock_client.Folders.get_folder_children.call_args_list[1].kwargs
+        self.assertEqual(second_kwargs.get('last_key'), 'k1')
+
+    def test_discover_folder_sheets_recurses_into_subfolders(self):
+        """Folder children returned as subfolders trigger recursive discovery."""
+        from unittest.mock import MagicMock
+        mock_client = MagicMock()
+
+        def _children(fid, **kwargs):
+            if fid == 10:
+                # Top folder has one sheet and one subfolder child
+                return _make_children_page(sheet_ids=[401], subfolder_ids=[11])
+            if fid == 11:
+                # Subfolder has two sheets and no further nesting
+                return _make_children_page(sheet_ids=[402, 403])
+            return _make_children_page()
+
+        mock_client.Folders.get_folder_children.side_effect = _children
+
+        result = generate_weekly_pdfs.discover_folder_sheets(mock_client, [10], 'test')
+        self.assertEqual(result, {401, 402, 403})
+        called_ids = [c.args[0] for c in mock_client.Folders.get_folder_children.call_args_list]
+        self.assertIn(10, called_ids)
+        self.assertIn(11, called_ids)
+
 
 class TestIdentityNormalization(unittest.TestCase):
     """Tests for the None vs '' identity comparison fix."""
