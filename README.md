@@ -134,6 +134,10 @@ This project uses:
 
 ## 📖 More Documentation
 
+- **Living runbook site** → `website/` (Docusaurus). Runs locally with
+  `cd website && npm install && npm run start`. Deploys to Vercel; every
+  merge to `master` appends a change-log entry via
+  `.github/workflows/docs-changelog.yml`.
 - `README_AZURE.md` - Azure DevOps pipeline documentation
 - `AZURE_QUICKSTART.md` - Quick setup guide  
 - `AZURE_PIPELINE_SETUP.md` - Complete setup guide
