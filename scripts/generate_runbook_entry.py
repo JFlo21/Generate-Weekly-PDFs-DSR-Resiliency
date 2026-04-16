@@ -159,6 +159,22 @@ def slugify(text: str, max_len: int = 40) -> str:
     return cleaned[:max_len].strip("-") or "update"
 
 
+def escape_mdx_inline(text: str) -> str:
+    """Escape characters that MDX v3 would parse as JSX or expressions.
+
+    Docusaurus 3.x treats `.md` blog posts as MDX, so raw `<` starts a
+    JSX tag and `{` starts a JS expression. Escaping the opening tokens
+    prevents commit subjects like `Update <Component> props` or
+    `Fix {config}` from breaking the site build. `|` is also escaped so
+    subjects can safely appear in a Markdown table cell.
+    """
+    return (
+        text.replace("<", "\\<")
+        .replace("{", "\\{")
+        .replace("|", "\\|")
+    )
+
+
 def build_post(ctx: PushContext, files: list[str], commits: list[tuple[str, str]]) -> tuple[Path, str]:
     now = datetime.now(timezone.utc)
     date_str = now.strftime("%Y-%m-%d")
@@ -199,7 +215,7 @@ def build_post(ctx: PushContext, files: list[str], commits: list[tuple[str, str]
         lines.append("## Commits in this push")
         lines.append("")
         for sha, subject in commits:
-            subject_md = subject.replace("|", "\\|")
+            subject_md = escape_mdx_inline(subject)
             lines.append(
                 f"- [`{sha}`](https://github.com/{ctx.repo}/commit/{sha}) — {subject_md}"
             )

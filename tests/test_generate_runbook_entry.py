@@ -204,6 +204,36 @@ def test_slugify_respects_max_length() -> None:
 
 # ---------- build_post frontmatter escaping ----------
 
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("plain subject", "plain subject"),
+        ("Update <Component> props", "Update \\<Component> props"),
+        ("Fix {config} handling", "Fix \\{config} handling"),
+        ("Table | cell escape", "Table \\| cell escape"),
+        ("Mix <A> {b} | c", "Mix \\<A> \\{b} \\| c"),
+    ],
+)
+def test_escape_mdx_inline(raw: str, expected: str) -> None:
+    assert gre.escape_mdx_inline(raw) == expected
+
+
+def test_build_post_escapes_mdx_specials_in_commit_subjects() -> None:
+    ctx = gre.PushContext(
+        before="a" * 40, after="b" * 40, branch="master",
+        repo="x/y", run_url=None, pusher=None,
+    )
+    _, body = gre.build_post(
+        ctx,
+        ["foo.py"],
+        [("deadbee", "Update <Component> and fix {config}")],
+    )
+    # The subject must be escaped so MDX doesn't try to parse <Component>
+    # as JSX or {config} as an expression.
+    assert "\\<Component> and fix \\{config}" in body
+    assert "<Component>" not in body.split("deadbee")[1]
+
+
 def test_build_post_escapes_backslashes_and_quotes_in_title() -> None:
     ctx = gre.PushContext(
         before="a" * 40, after="b" * 40, branch="master",
