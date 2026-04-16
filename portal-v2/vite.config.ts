@@ -1,10 +1,26 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { sentryVitePlugin } from '@sentry/vite-plugin';
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    // Upload source maps to Sentry during production builds when auth is configured.
+    // When SENTRY_AUTH_TOKEN is absent this array is empty and the plugin is skipped.
+    ...(process.env.SENTRY_AUTH_TOKEN
+      ? [
+          sentryVitePlugin({
+            org: process.env.SENTRY_ORG,
+            project: process.env.SENTRY_PROJECT_FRONTEND,
+            authToken: process.env.SENTRY_AUTH_TOKEN,
+            release: { name: process.env.VITE_SENTRY_RELEASE || 'dev' },
+            sourcemaps: { deleteFilesAfterUpload: ['./dist/**/*.map'] },
+          }),
+        ]
+      : []),
+  ],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -33,7 +49,9 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: false,
+    // Enable hidden source maps when SENTRY_AUTH_TOKEN is set (for Sentry upload).
+    // Otherwise keep sourcemaps disabled to avoid exposing source in production.
+    sourcemap: process.env.SENTRY_AUTH_TOKEN ? 'hidden' : false,
     rollupOptions: {
       output: {
         manualChunks: {

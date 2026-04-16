@@ -1,4 +1,5 @@
 import type { WorkflowRun, Artifact, ExcelSheet } from './types';
+import * as Sentry from '@sentry/react';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 
@@ -8,6 +9,12 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     ...options,
   });
   if (!res.ok) {
+    Sentry.addBreadcrumb({
+      category: 'api',
+      message: `${options?.method ?? 'GET'} ${url} → ${res.status}`,
+      level: 'error',
+      data: { status: res.status, statusText: res.statusText },
+    });
     const text = await res.text().catch(() => res.statusText);
     throw new Error(text || `HTTP ${res.status}`);
   }
