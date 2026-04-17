@@ -1,0 +1,138 @@
+name: Claude Code — PR Auto-Update
+
+# Triggered by @claude mentions in PR comments / reviews, or when a reviewer
+# requests changes. Claude reads the review feedback, applies code edits, and
+# pushes them back to the PR branch. Keep blast radius small: this workflow
+# runs ONLY on pull requests (never on master) and the action itself is
+# scoped to the current PR branch via GITHUB_TOKEN.
+#
+# See docs/sentry-implementation.md and .github/copilot-instructions.md for
+# the project conventions Claude should respect while editing.
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: write          # Claude pushes commits back to the PR branch
+  pull-requests: write     # Claude posts replies / updates PR body
+  issues: write            # Needed for issue_comment events on PRs
+  id-token: write          # OIDC for secretless auth if/when enabled
+
+concurrency:
+  group: claude-pr-${{ github.event.pull_request.number || github.event.issue.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  claude:
+    # Only run when:
+    #   - a PR comment / review comment / review body contains "@claude", OR
+    #   - a reviewer submitted a "changes_requested" review (auto-fix mode), OR
+    #   - the PR event itself is a fresh open/synchronize (lightweight check)
+    if: >-
+      (github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request != null &&
+        contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' &&
+        contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' &&
+        (contains(github.event.review.body, '@claude') ||
+         github.event.review.state == 'changes_requested')) ||
+      (github.event_name == 'pull_request')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          # Check out the PR head, not the merge ref, so Claude can commit
+          # back to the same branch. fetch-depth: 0 keeps full history for
+          # conventional-commit context.
+          ref: ${{ github.event.pull_request.head.ref || github.head_ref }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run Claude Code
+        uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # Trigger phrase in comments (default is @claude). Reviews that are
+          # "changes_requested" also invoke Claude even without the phrase.
+          trigger_phrase: "@claude"
+          # Claude must follow repo conventions documented in CLAUDE.md:
+          #   - Surgical edits, no refactor of untouched code
+          #   - Conventional Commits subject ≤ 50 chars
+          #   - Never break generate_weekly_pdfs.py production logic
+          #   - Run pytest tests/ before pushing (pre-push parity)
+          #   - Append Living Ledger entry if introducing a new standard
+          direct_prompt: |
+            You are running inside PR
+            ${{ github.event.pull_request.html_url || github.event.issue.html_url }}
+            on branch `${{ github.event.pull_request.head.ref || github.head_ref }}`.
+
+            Read CLAUDE.md and .github/copilot-instructions.md before editing.
+
+            For review feedback:
+            1. Address each actionable comment with the minimum necessary
+               change — do NOT refactor code the reviewer didn't flag.
+            2. Preserve the production pipeline in generate_weekly_pdfs.py.
+               Never lower PARALLEL_WORKERS guards, never drop the
+               foreman/dept/job keys from the hash-detection tuple.
+            3. Run `pytest tests/ -v` locally before pushing. If any test
+               fails, fix it rather than bypassing.
+            4. Commit with Conventional Commits (`fix:`, `refactor:`, etc.),
+               subject ≤ 50 chars, detailed body for non-trivial changes.
+            5. If a new architectural standard emerged from this review,
+               append an entry under CLAUDE.md → Living Ledger with a
+               `[YYYY-MM-DD HH:MM]` timestamp in the same commit.
+            6. Reply on the review thread summarising what you changed and
+               anything you deliberately did not change (with reasoning).
+
+            If you cannot confidently apply a change (ambiguous feedback,
+            architectural decision needed, or blocked by missing context),
+            post a clarifying reply instead of guessing.
+          # Allow the tools Claude needs to investigate + validate changes.
+          allowed_tools: >-
+            Bash(pytest tests/ -v),
+            Bash(pytest tests/ -q),
+            Bash(python -m py_compile generate_weekly_pdfs.py),
+            Bash(npm ci),
+            Bash(npm test),
+            Bash(npm run lint),
+            Bash(npm run build),
+            Bash(git status),
+            Bash(git diff),
+            Bash(git log --oneline -20)
+
+      - name: Summarize
+        if: always()
+        run: |
+          {
+            echo "## Claude PR Auto-Update";
+            echo "- Event: \`${{ github.event_name }}\`";
+            echo "- PR: #${{ github.event.pull_request.number || github.event.issue.number }}";
+            echo "- Branch: \`${{ github.event.pull_request.head.ref || github.head_ref }}\`";
+          } >> "$GITHUB_STEP_SUMMARY"
