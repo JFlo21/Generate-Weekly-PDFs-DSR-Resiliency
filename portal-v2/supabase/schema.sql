@@ -127,7 +127,12 @@ CREATE POLICY "activity_logs_select"
 
 CREATE POLICY "activity_logs_insert"
   ON activity_logs FOR INSERT
-  WITH CHECK (auth.uid() IS NOT NULL);
+  WITH CHECK (
+    user_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
 
 -- artifact_downloads: own rows; admins see all
 CREATE POLICY "artifact_downloads_select"

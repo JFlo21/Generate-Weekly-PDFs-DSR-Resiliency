@@ -1,5 +1,6 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const rateLimit = require('express-rate-limit');
 const router = express.Router();
 
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
@@ -9,7 +10,15 @@ if (!ADMIN_PASSWORD_HASH) {
   console.warn('WARNING: ADMIN_PASSWORD_HASH not set. Generate one with: node -e "console.log(require(\'bcryptjs\').hashSync(\'yourpassword\', 12))"');
 }
 
-router.post('/login', express.json(), async (req, res) => {
+const loginLimiter = rateLimit({
+  windowMs: parseInt(process.env.LOGIN_RATE_LIMIT_WINDOW_MS, 10) || (15 * 60 * 1000),
+  max: parseInt(process.env.LOGIN_RATE_LIMIT_MAX_ATTEMPTS, 10) || 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts. Please try again later.' },
+});
+
+router.post('/login', loginLimiter, express.json(), async (req, res) => {
   const { username, password } = req.body;
 
   if (!username || !password) {

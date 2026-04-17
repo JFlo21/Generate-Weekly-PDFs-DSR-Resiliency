@@ -1,14 +1,27 @@
 const ExcelJS = require('exceljs');
 
-async function parseExcelBuffer(buffer) {
+const DEFAULT_PARSE_LIMITS = {
+  maxSheets: 25,
+  maxRowsPerSheet: 10000,
+  maxColsPerRow: 250,
+  maxTotalCells: 750000,
+};
+
+async function parseExcelBuffer(buffer, limits = DEFAULT_PARSE_LIMITS) {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer);
 
   const sheets = [];
+  let totalCells = 0;
+
+  if (workbook.worksheets.length > limits.maxSheets) {
+    throw new Error(`Excel parse limit exceeded: too many sheets (${workbook.worksheets.length})`);
+  }
 
   workbook.eachSheet((worksheet) => {
     const rows = [];
     const merges = [];
+    let processedRows = 0;
 
     if (worksheet.merges) {
       for (const merge of Object.values(worksheet.merges)) {
@@ -17,8 +30,24 @@ async function parseExcelBuffer(buffer) {
     }
 
     worksheet.eachRow({ includeEmpty: true }, (row, rowNumber) => {
+      processedRows += 1;
+      if (processedRows > limits.maxRowsPerSheet) {
+        throw new Error(`Excel parse limit exceeded: too many rows in worksheet "${worksheet.name}"`);
+      }
+
       const cells = [];
+      let processedCols = 0;
       row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+        processedCols += 1;
+        if (processedCols > limits.maxColsPerRow) {
+          throw new Error(`Excel parse limit exceeded: too many columns in worksheet "${worksheet.name}"`);
+        }
+
+        totalCells += 1;
+        if (totalCells > limits.maxTotalCells) {
+          throw new Error('Excel parse limit exceeded: too many cells');
+        }
+
         let value = cell.value;
 
         if (value && typeof value === 'object') {
