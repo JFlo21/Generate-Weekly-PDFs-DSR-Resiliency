@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { Package, Eye, Download, X } from 'lucide-react';
+import { Package, FolderOpen, Download, X } from 'lucide-react';
 import type { Artifact, WorkflowRun } from '../../lib/types';
 import { formatSize } from '../../lib/utils';
 import { Skeleton } from '../ui/Skeleton';
@@ -10,7 +10,7 @@ interface ArtifactPanelProps {
   artifacts: Artifact[];
   loading: boolean;
   onClose: () => void;
-  onViewExcel: (artifact: Artifact) => void;
+  onExplore: (artifact: Artifact) => void;
 }
 
 export function ArtifactPanel({
@@ -18,7 +18,7 @@ export function ArtifactPanel({
   artifacts,
   loading,
   onClose,
-  onViewExcel,
+  onExplore,
 }: ArtifactPanelProps) {
   return (
     <AnimatePresence>
@@ -81,22 +81,20 @@ export function ArtifactPanel({
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      {/\.(xlsx|xls)$/i.test(artifact.name) ||
-                      artifact.name.toLowerCase().includes('excel') ? (
-                        <button
-                          onClick={() => onViewExcel(artifact)}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-violet-50 text-violet-700 hover:bg-violet-100 transition-colors"
-                        >
-                          <Eye size={12} />
-                          View
-                        </button>
-                      ) : null}
+                      <button
+                        onClick={() => onExplore(artifact)}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-900 text-white hover:bg-slate-800 transition-colors"
+                      >
+                        <FolderOpen size={12} />
+                        Explore
+                      </button>
                       <button
                         onClick={() => api.downloadArtifact(artifact.id, artifact.name)}
                         className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-brand-red/10 text-brand-red hover:bg-brand-red/20 transition-colors"
+                        title="Download full zip"
                       >
                         <Download size={12} />
-                        Download
+                        Zip
                       </button>
                     </div>
                   </motion.div>

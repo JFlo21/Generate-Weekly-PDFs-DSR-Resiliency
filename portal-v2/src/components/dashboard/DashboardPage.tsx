@@ -1,51 +1,91 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useArtifacts } from '../../hooks/useArtifacts';
 import { api } from '../../lib/api';
-import type { WorkflowRun, Artifact, ExcelSheet } from '../../lib/types';
+import type { WorkflowRun, Artifact } from '../../lib/types';
 import type { DashboardOutletContext } from '../layout/DashboardLayout';
 import { StatsGrid } from './StatsGrid';
 import { SearchBar } from './SearchBar';
 import { RunList } from './RunList';
 import { ArtifactPanel } from './ArtifactPanel';
-import { ExcelViewer } from './ExcelViewer';
+import { ArtifactExplorer } from './ArtifactExplorer';
 
 export function DashboardPage() {
-  const { runs, loading, error } = useOutletContext<DashboardOutletContext>();
+  const {
+    runs,
+    loading,
+    error,
+    paletteTarget,
+    clearPaletteTarget,
+  } = useOutletContext<DashboardOutletContext>();
+
   const [selectedRun, setSelectedRun] = useState<WorkflowRun | null>(null);
   const [search, setSearch] = useState('');
-  const [excelArtifact, setExcelArtifact] = useState<Artifact | null>(null);
-  const [excelSheets, setExcelSheets] = useState<ExcelSheet[]>([]);
-  const [excelLoading, setExcelLoading] = useState(false);
-  const [excelError, setExcelError] = useState<string | null>(null);
+  const [exploringArtifact, setExploringArtifact] = useState<Artifact | null>(null);
+  const [pendingArtifactId, setPendingArtifactId] = useState<number | null>(null);
+  const [pendingFile, setPendingFile] = useState<string | null>(null);
 
   const { artifacts, loading: artifactsLoading } = useArtifacts(
     selectedRun?.id ?? null
   );
+
+  // Respond to a Cmd+K selection: focus the run, remember the target artifact
+  // (to be opened when useArtifacts returns), and optionally remember the
+  // file to auto-select inside the explorer.
+  useEffect(() => {
+    if (!paletteTarget) return;
+    const { runId, artifactId, file } = paletteTarget;
+    const match = runs.find((r) => r.id === runId);
+    if (match) setSelectedRun(match);
+    setPendingArtifactId(artifactId ?? null);
+    setPendingFile(file ?? null);
+    clearPaletteTarget();
+  }, [paletteTarget, runs, clearPaletteTarget]);
+
+  // Once artifacts load for the selected run, open the stashed target.
+  useEffect(() => {
+    if (!pendingArtifactId) return;
+    if (artifacts.length === 0) return;
+    const art = artifacts.find((a) => a.id === pendingArtifactId);
+    if (art) {
+      setExploringArtifact(art);
+      setPendingArtifactId(null);
+    }
+  }, [pendingArtifactId, artifacts]);
+
+  // If the palette pointed at an artifact whose parent run is outside the
+  // currently-loaded list, fetch it directly so the Explorer can still open.
+  useEffect(() => {
+    if (!pendingArtifactId) return;
+    if (selectedRun) return; // will be picked up by the effect above
+    let cancelled = false;
+    api
+      .getArtifactFiles(pendingArtifactId)
+      .then(() => {
+        if (cancelled) return;
+        setExploringArtifact({
+          id: pendingArtifactId,
+          name: `Artifact #${pendingArtifactId}`,
+          size_in_bytes: 0,
+          archive_download_url: '',
+          expired: false,
+          created_at: new Date().toISOString(),
+          expires_at: new Date().toISOString(),
+        });
+        setPendingArtifactId(null);
+      })
+      .catch(() => !cancelled && setPendingArtifactId(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingArtifactId, selectedRun]);
 
   const filtered = runs.filter(
     (r) =>
       r.name.toLowerCase().includes(search.toLowerCase()) ||
       r.head_branch.toLowerCase().includes(search.toLowerCase())
   );
-
-  async function handleViewExcel(artifact: Artifact) {
-    setExcelArtifact(artifact);
-    setExcelSheets([]);
-    setExcelLoading(true);
-    setExcelError(null);
-    try {
-      const sheets = await api.getExcelData(artifact.id);
-      setExcelSheets(sheets);
-    } catch (err) {
-      setExcelError(
-        err instanceof Error ? err.message : 'Failed to load Excel data'
-      );
-    } finally {
-      setExcelLoading(false);
-    }
-  }
 
   return (
     <motion.div
@@ -57,14 +97,17 @@ export function DashboardPage() {
       <div>
         <h1 className="text-xl font-bold text-slate-900">Dashboard</h1>
         <p className="text-sm text-slate-500 mt-0.5">
-          Monitor workflow runs and download artifacts
+          Monitor workflow runs and explore artifact contents. Press{' '}
+          <kbd className="font-mono text-[10px] border border-slate-200 rounded px-1 py-0.5 bg-white">
+            ⌘K
+          </kbd>{' '}
+          to search.
         </p>
       </div>
 
       <StatsGrid runs={runs} artifacts={artifacts} />
 
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
-        {/* Run list */}
         <div className="xl:col-span-3 space-y-4">
           <SearchBar value={search} onChange={setSearch} />
           <RunList
@@ -78,24 +121,25 @@ export function DashboardPage() {
           />
         </div>
 
-        {/* Artifact panel */}
         <div className="xl:col-span-2">
           <ArtifactPanel
             run={selectedRun}
             artifacts={artifacts}
             loading={artifactsLoading}
             onClose={() => setSelectedRun(null)}
-            onViewExcel={handleViewExcel}
+            onExplore={setExploringArtifact}
           />
         </div>
       </div>
 
-      <ExcelViewer
-        artifact={excelArtifact}
-        sheets={excelSheets}
-        loading={excelLoading}
-        error={excelError}
-        onClose={() => setExcelArtifact(null)}
+      <ArtifactExplorer
+        run={selectedRun}
+        artifact={exploringArtifact}
+        initialFile={pendingFile}
+        onClose={() => {
+          setExploringArtifact(null);
+          setPendingFile(null);
+        }}
       />
     </motion.div>
   );

@@ -1,5 +1,6 @@
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { RefreshCw, LogOut, Wifi, WifiOff } from 'lucide-react';
+import { RefreshCw, LogOut, Wifi, WifiOff, Search } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { cn } from '../../lib/utils';
 
@@ -10,9 +11,16 @@ interface NavbarProps {
   countdown: number;
   isConnected: boolean;
   onRefresh: () => void;
+  onOpenCommandPalette?: () => void;
 }
 
-export function Navbar({ countdown, isConnected, onRefresh }: NavbarProps) {
+export function Navbar({ countdown, isConnected, onRefresh, onOpenCommandPalette }: NavbarProps) {
+  const [isMac, setIsMac] = useState(false);
+  useEffect(() => {
+    if (typeof navigator !== 'undefined') {
+      setIsMac(/Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent));
+    }
+  }, []);
   const { profile, logout } = useAuth();
   const progress = countdown / POLL_SECONDS;
   const dashOffset = CIRCUMFERENCE * (1 - progress);
@@ -31,6 +39,22 @@ export function Navbar({ countdown, isConnected, onRefresh }: NavbarProps) {
 
       {/* Right side */}
       <div className="flex items-center gap-4">
+        {/* Command palette trigger */}
+        {onOpenCommandPalette && (
+          <button
+            onClick={onOpenCommandPalette}
+            className="hidden md:flex items-center gap-2 pl-2.5 pr-1.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-500 hover:bg-white hover:border-slate-300 transition-colors min-w-[220px]"
+            title="Search runs and artifacts"
+            type="button"
+          >
+            <Search size={13} className="shrink-0" />
+            <span className="text-xs flex-1 text-left">Search runs, artifacts…</span>
+            <kbd className="text-[10px] font-mono text-slate-400 border border-slate-200 rounded px-1.5 py-0.5 bg-white">
+              {isMac ? '⌘K' : 'Ctrl K'}
+            </kbd>
+          </button>
+        )}
+
         {/* Connection status */}
         <div
           className={cn(

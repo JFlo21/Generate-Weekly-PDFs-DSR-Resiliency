@@ -1,0 +1,72 @@
+# Render Blueprint — Linetec Report Portal backend
+# Reference: https://render.com/docs/blueprint-spec
+#
+# This file is the single source of truth for the Express backend deploy.
+# It is used during Phase 1 of docs/railway-to-render-transition-plan.md
+# to stand up a staging service in parallel with the existing Railway host.
+#
+# After this is committed, from Render:
+#   New -> Blueprint -> point at this repo -> choose branch -> Apply
+#
+# Fill in any `sync: false` env vars from the Railway export before the
+# first deploy. Do NOT commit real secrets to this file.
+
+services:
+  - type: web
+    name: linetec-report-portal
+    runtime: node
+    region: oregon
+    plan: starter                       # paid tier keeps SSE + poller warm
+    rootDir: portal
+    buildCommand: npm ci
+    startCommand: node server.js
+    healthCheckPath: /health
+    autoDeploy: true
+    branch: master
+    numInstances: 1
+
+    # Allow long-lived SSE (/api/events). Render's default proxy is fine here;
+    # the Express route already emits a keepalive every 30s.
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000                    # Render expects the app to listen on $PORT
+
+      # --- GitHub integration (copy from Railway) ---
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GITHUB_OWNER
+        sync: false
+      - key: GITHUB_REPO
+        sync: false
+      - key: GITHUB_WORKFLOW
+        sync: false
+      - key: GITHUB_BRANCH
+        sync: false
+
+      # --- Session + CORS ---
+      - key: SESSION_SECRET
+        generateValue: true             # Render generates on first deploy, then keeps it
+      - key: CORS_ORIGIN
+        sync: false                     # e.g. https://linetec-portal.vercel.app
+
+      # --- Poller cadence ---
+      - key: POLL_INTERVAL_MS
+        value: 60000
+
+      # --- Sentry (optional; leave unset to disable) ---
+      - key: PORTAL_SENTRY_DSN
+        sync: false
+      - key: SENTRY_ENVIRONMENT
+        value: production
+      - key: SENTRY_TRACES_SAMPLE_RATE
+        value: "0.1"
+
+      # --- Artifact cache tuning (new, see portal/services/artifactCache.js) ---
+      - key: ARTIFACT_CACHE_MAX
+        value: "32"                     # max parsed artifacts held in memory
+      - key: ARTIFACT_CACHE_TTL_MS
+        value: "900000"                 # 15 minutes
+      - key: SEARCH_INDEX_RUN_LIMIT
+        value: "50"                     # recent runs scanned by global search
