@@ -10,7 +10,7 @@ const resolvedBaseUrl =
 const config: Config = {
   title: 'Weekly PDFs Runbook',
   tagline: 'Living documentation for the Smartsheet Weekly PDF Generator',
-  favicon: 'img/company-logo.svg',
+  favicon: 'img/favicon.svg',
 
   url:
     process.env.DOCS_SITE_URL ??

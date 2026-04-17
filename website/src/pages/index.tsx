@@ -20,7 +20,10 @@ export default function Home(): React.JSX.Element {
               <Link className="button button--secondary button--lg" to="/docs/">
                 Open Runbook
               </Link>
-              <Link className="button button--outline button--lg" to="/blog">
+              <Link
+                className="button button--outline button--secondary button--lg"
+                to="/blog"
+              >
                 View Change Log
               </Link>
             </div>
