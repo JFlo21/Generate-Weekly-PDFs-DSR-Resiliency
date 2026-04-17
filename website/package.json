@@ -30,6 +30,9 @@
     "@docusaurus/types": "^3.7.0",
     "typescript": "~5.5.2"
   },
+  "overrides": {
+    "webpackbar": "7.0.0"
+  },
   "browserslist": {
     "production": [">0.5%", "not dead", "not op_mini all"],
     "development": [
@@ -39,6 +42,6 @@
     ]
   },
   "engines": {
-    "node": ">=18.0"
+    "node": "20.x"
   }
 }
