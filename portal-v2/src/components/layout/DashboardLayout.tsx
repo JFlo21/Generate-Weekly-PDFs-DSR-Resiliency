@@ -1,10 +1,12 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
+import { Beaker } from 'lucide-react';
 import { Navbar } from './Navbar';
 import { Sidebar } from './Sidebar';
 import { useRuns } from '../../hooks/useRuns';
 import { useCommandPalette } from '../../hooks/useCommandPalette';
 import { CommandPalette } from '../dashboard/CommandPalette';
+import { USE_MOCK } from '../../lib/mockData';
 import type { SearchHit, WorkflowRun } from '../../lib/types';
 
 export interface DashboardOutletContext {
@@ -60,6 +62,12 @@ export function DashboardLayout() {
 
   return (
     <div className="flex flex-col h-screen bg-slate-50">
+      {USE_MOCK && (
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-center gap-2 text-amber-800 text-xs font-medium">
+          <Beaker size={14} />
+          <span>Demo Mode — Viewing sample data. Connect a backend to see real artifacts.</span>
+        </div>
+      )}
       <Navbar
         countdown={countdown}
         isConnected={isConnected}

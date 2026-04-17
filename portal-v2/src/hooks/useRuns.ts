@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../lib/api';
+import { USE_MOCK } from '../lib/mockData';
 import type { WorkflowRun } from '../lib/types';
 
 const POLL_INTERVAL_MS = 120_000; // 2 minutes
@@ -55,10 +56,19 @@ export function useRuns() {
   useEffect(() => {
     fetchRef.current?.();
 
+    // In mock/demo mode, mark as connected (simulated) and skip SSE entirely.
+    if (USE_MOCK) {
+      setIsConnected(true);
+      countdownRef.current = setInterval(() => {
+        setCountdown((c) => Math.max(0, c - 1));
+      }, 1000);
+      return () => {
+        if (timerRef.current) clearTimeout(timerRef.current);
+        if (countdownRef.current) clearInterval(countdownRef.current);
+      };
+    }
+
     // Only open an SSE connection if we have a backend URL configured.
-    // When API_BASE is empty (no VITE_API_BASE_URL) and the Vite dev
-    // server doesn't proxy /api/events, EventSource would continuously
-    // error-loop and flood the console.
     let es: EventSource | null = null;
     const sseUrl = `${API_BASE}/api/events`;
     try {
@@ -70,15 +80,12 @@ export function useRuns() {
       });
       es.addEventListener('error', () => {
         setIsConnected(false);
-        // If the backend is unreachable, close the EventSource to stop the
-        // automatic reconnect loop that browsers do every ~3s.
         if (es && es.readyState === EventSource.CLOSED) {
           es.close();
           es = null;
         }
       });
     } catch {
-      // EventSource constructor can throw if the URL is invalid.
       setIsConnected(false);
     }
 
