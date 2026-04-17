@@ -2,6 +2,61 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Project Summary — Generate to Excel & Data Sync
+
+### Project Overview
+This repository handles high-volume data orchestration, extraction,
+and formatting. Its primary function is the secure, high-speed batch
+synchronization of 210,000+ rows from Smartsheet to Supabase,
+alongside subsequent data transformations (including Excel
+generation). Python handles heavy, batch-driven data movement, while
+n8n acts as the AI orchestrator for low-volume, event-driven tasks.
+
+### Tech Stack & Constraints
+* Primary Language: Python 3.10+
+* Data Sources/Destinations: Smartsheet API, Supabase (Postgres),
+  Notion API (via n8n)
+* Task Automation: Node.js & npm (for specific utility scripts)
+* Documentation: Docusaurus
+* Monitoring & CI/CD: Sentry (Error Monitoring), GitHub Actions,
+  Azure DevOps
+* Constraint: Do not suggest replacing the Python/Smartsheet workflow
+  with n8n. n8n is strictly reserved for low-volume Notion syncs to
+  avoid task quota exhaustion.
+
+### Architecture Decisions
+* Vectorized Bulk Upserts: Single-row processing is strictly
+  prohibited. Use `supabase-py` or direct Postgres COPY commands.
+* Sentry Telemetry: Environment and release variables must be
+  standardized. All optimizations must be wrapped in Sentry error
+  handling for instant visibility and rollback.
+
+### Development Conventions
+* Code Style: Adhere to strict PEP 8 guidelines. Enforce comprehensive
+  type hinting.
+* Additive Logic Only: Wrap core logic in faster transport methods
+  without altering the fundamental shape of data sent to Supabase.
+* Release Tagging: Updates must be compatible with GitHub Actions
+  release workflows.
+
+### Boundaries & Guardrails
+* Smartsheet Formula Restriction: NEVER use, write, or suggest the
+  `@cell` function when writing Python scripts or interacting with
+  the Smartsheet API. It is strictly an internal UI formula and will
+  fail.
+* Data Integrity: Do not drop tables or overwrite production logic
+  without explicit verification.
+
+### Validation Commands
+Current (authoritative):
+* Run Tests: `pytest tests/ -v`
+* Syntax check: `python -m py_compile generate_weekly_pdfs.py`
+
+Aspirational (future `uv` migration — not yet wired up):
+* `uv run pytest tests/`
+* `uv run ruff check .`
+* `uv run mypy .`
+
 ## ⚠️ AUTONOMOUS CLOUD MEMORY INJECTION (CRITICAL)
 
 **You are self-documenting in the cloud.** When triggered via `@claude` in a GitHub issue or CLI to implement a fix or feature, you must evaluate if the solution introduced a new architectural standard, a recurring fix, or a new operational rule. If it did, you MUST autonomously edit this `CLAUDE.md` file to append that new rule under the **Living Ledger** section at the bottom. **You must include a Date and Timestamp for every new entry (`[YYYY-MM-DD HH:MM]`).** Include the `CLAUDE.md` modification as a commit in the exact same Pull Request as the code changes. Never open a PR without capturing critical new context.
@@ -229,3 +284,14 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
 ## Living Ledger (Auto-Updated Context)
 
 *(Claude: Append new repo-specific learnings, architectural decisions, and established standards below this line. Always prepend each entry with a date + timestamp in `[YYYY-MM-DD HH:MM]` format.)*
+
+- [2026-04-17 15:26 UTC] Initialized Claude Code workspace layout: added
+  `.claude/rules/smartsheet-python-optimization.md` (scope: new scripts
+  only — `generate_weekly_pdfs.py` stays on `openpyxl`) and
+  `.claude/rules/documentation-maintenance.md` (Docusaurus runbook +
+  changelog synthesis, Python/n8n tier boundaries); seeded
+  `.claude/commands/` with a `.gitkeep`; prepended `## Project Summary
+  — Generate to Excel & Data Sync` block to `CLAUDE.md` (tech stack,
+  architecture, conventions, guardrails, validation commands — with
+  `uv` flagged aspirational and `pytest tests/ -v` kept authoritative)
+  while preserving every pre-existing section verbatim.
