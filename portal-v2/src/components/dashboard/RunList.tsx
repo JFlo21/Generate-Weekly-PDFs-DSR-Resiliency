@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
+import { AlertCircle } from 'lucide-react';
 import type { WorkflowRun } from '../../lib/types';
 import { RunCard } from './RunCard';
 import { Skeleton } from '../ui/Skeleton';
@@ -25,11 +26,15 @@ export function RunList({ runs, loading, error, selectedId, onSelect }: RunListP
   if (error) {
     return (
       <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        className="text-center py-12 text-sm text-red-500"
+        initial={{ opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="flex flex-col items-center justify-center py-16 px-4"
       >
-        {error}
+        <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-red-50 mb-4">
+          <AlertCircle size={20} className="text-red-600" />
+        </div>
+        <p className="text-sm font-medium text-slate-900 mb-1">Failed to load runs</p>
+        <p className="text-xs text-slate-500 max-w-sm">{error}</p>
       </motion.div>
     );
   }
