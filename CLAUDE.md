@@ -45,7 +45,6 @@ SKIP_UPLOAD=true python generate_weekly_pdfs.py
 # Synthetic test mode (no API token required)
 TEST_MODE=true python generate_weekly_pdfs.py
 TEST_MODE=true WR_FILTER=WR_12345,WR_67890 python generate_weekly_pdfs.py
-TEST_MODE=true SKIP_FILE_OPERATIONS=true python generate_weekly_pdfs.py
 
 # Diagnostics
 python diagnose_pricing_issues.py
@@ -91,7 +90,8 @@ Understanding the flow requires reading across several files — the "big pictur
 
 ```
 Smartsheet API
-   ↓ (folder-based discovery via SOURCE_FOLDER_IDS, cached for
+   ↓ (folder-based discovery via SUBCONTRACTOR_FOLDER_IDS,
+   ↓  ORIGINAL_CONTRACT_FOLDER_IDS, and VAC_CREW_FOLDER_IDS, cached for
    ↓  DISCOVERY_CACHE_TTL_MIN minutes — default 10080 = 7 days — in
    ↓  generated_docs/discovery_cache.json)
 Auto-discover source sheets → validate column mappings (synonyms for
