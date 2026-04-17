@@ -115,13 +115,13 @@ Vite automatically proxies `/api`, `/auth`, `/csrf-token`, and `/health` to `htt
 
 ## Vercel Deployment
 
-### Option A — Frontend on Vercel + Express backend elsewhere (Recommended)
+### Option A — Frontend on Vercel + Express backend on Render (Recommended)
 
-This is the simplest approach. Deploy the Vite frontend on Vercel and host the Express backend separately on [Railway](https://railway.app), [Render](https://render.com), or a VPS.
+This is the simplest approach. Deploy the Vite frontend on Vercel and host the Express backend separately on [Render](https://render.com) (or a comparable host such as Fly.io / a VPS).
 
-**Why separate?** The Express backend uses SSE (`/api/events`), in-memory polling state, and long-lived connections that don't work with Vercel's serverless model.
+**Why separate?** The Express backend uses SSE (`/api/events`), in-memory polling state, and long-lived connections that don't work with Vercel's serverless model. Render's standard Web Service plan keeps the process warm and supports long-lived HTTP, which is what `/api/events` needs.
 
-**Steps:**
+**Frontend steps (Vercel):**
 
 1. Push your branch to GitHub.
 2. Go to [vercel.com](https://vercel.com) → **Add New Project** → import this repo.
@@ -131,9 +131,19 @@ This is the simplest approach. Deploy the Vite frontend on Vercel and host the E
 6. Add environment variables:
    - `VITE_SUPABASE_URL` — your Supabase project URL
    - `VITE_SUPABASE_ANON_KEY` — your Supabase anon key
-   - `VITE_API_BASE_URL` — the URL of your deployed Express backend (e.g. `https://your-backend.railway.app`)
-7. Deploy the Express backend (`portal/`) to Railway or Render separately.
-8. Click **Deploy**.
+   - `VITE_API_BASE_URL` — the URL of your deployed Express backend (e.g. `https://your-backend.onrender.com`)
+7. Click **Deploy**.
+
+**Backend steps (Render):**
+
+1. In Render, click **New → Web Service** and connect this repo.
+2. Set **Root Directory** to `portal`.
+3. Set **Build Command** to `npm ci`.
+4. Set **Start Command** to `node server.js`.
+5. Choose the **Starter** instance type (free tier spins down on idle, which breaks SSE and the poller).
+6. Set **Health Check Path** to `/health`.
+7. Add environment variables (`GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPO`, `GITHUB_WORKFLOW`, `GITHUB_BRANCH`, `SESSION_SECRET`, `CORS_ORIGIN` set to your Vercel domain, `POLL_INTERVAL_MS`, plus any `PORTAL_SENTRY_DSN` / `SENTRY_ENVIRONMENT` you want).
+8. Deploy and copy the resulting `https://<service>.onrender.com` URL into the Vercel `VITE_API_BASE_URL`.
 
 ### Option B — Full stack on Vercel (Advanced)
 
