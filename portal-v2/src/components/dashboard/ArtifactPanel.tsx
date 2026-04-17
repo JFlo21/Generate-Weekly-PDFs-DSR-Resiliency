@@ -1,9 +1,10 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { Package, Eye, Download, X } from 'lucide-react';
+import { Package, Eye, Download, X, Lock } from 'lucide-react';
 import type { Artifact, WorkflowRun } from '../../lib/types';
 import { formatSize } from '../../lib/utils';
 import { Skeleton } from '../ui/Skeleton';
 import { api } from '../../lib/api';
+import { useAuth } from '../../hooks/useAuth';
 
 interface ArtifactPanelProps {
   run: WorkflowRun | null;
@@ -20,6 +21,8 @@ export function ArtifactPanel({
   onClose,
   onViewExcel,
 }: ArtifactPanelProps) {
+  const { profile } = useAuth();
+  const canDownload = profile?.role === 'admin' || profile?.role === 'biller';
   return (
     <AnimatePresence>
       {run && (
@@ -91,13 +94,24 @@ export function ArtifactPanel({
                           View
                         </button>
                       ) : null}
-                      <button
-                        onClick={() => api.downloadArtifact(artifact.id, artifact.name)}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-brand-red/10 text-brand-red hover:bg-brand-red/20 transition-colors"
-                      >
-                        <Download size={12} />
-                        Download
-                      </button>
+                      {canDownload ? (
+                        <button
+                          onClick={() => api.downloadArtifact(artifact.id, artifact.name)}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-brand-red/10 text-brand-red hover:bg-brand-red/20 transition-colors"
+                        >
+                          <Download size={12} />
+                          Download
+                        </button>
+                      ) : (
+                        <button
+                          disabled
+                          aria-label="Download not available — Biller or Admin role required"
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-400 cursor-not-allowed select-none"
+                        >
+                          <Lock size={12} />
+                          Download
+                        </button>
+                      )}
                     </div>
                   </motion.div>
                 ))}

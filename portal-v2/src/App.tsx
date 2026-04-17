@@ -3,6 +3,7 @@ import { AnimatePresence } from 'framer-motion';
 import { AuthContext, useAuthState } from './hooks/useAuth';
 import { AuthGuard } from './components/auth/AuthGuard';
 import { LoginPage } from './components/auth/LoginPage';
+import { UnauthorizedPage } from './components/auth/UnauthorizedPage';
 import { DashboardLayout } from './components/layout/DashboardLayout';
 import { DashboardPage } from './components/dashboard/DashboardPage';
 import { UsersPage } from './components/admin/UsersPage';
@@ -27,6 +28,7 @@ export default function App() {
         <AnimatePresence mode="wait">
           <Routes>
             <Route path="/login" element={<PageTransition><LoginPage /></PageTransition>} />
+            <Route path="/unauthorized" element={<PageTransition><UnauthorizedPage /></PageTransition>} />
 
             <Route
               path="/dashboard"
@@ -47,17 +49,21 @@ export default function App() {
               <Route
                 path="admin/users"
                 element={
-                  <PageTransition>
-                    <UsersPage />
-                  </PageTransition>
+                  <AuthGuard requiredRole="admin">
+                    <PageTransition>
+                      <UsersPage />
+                    </PageTransition>
+                  </AuthGuard>
                 }
               />
               <Route
                 path="admin/activity"
                 element={
-                  <PageTransition>
-                    <ActivityPage />
-                  </PageTransition>
+                  <AuthGuard requiredRole="admin">
+                    <PageTransition>
+                      <ActivityPage />
+                    </PageTransition>
+                  </AuthGuard>
                 }
               />
             </Route>
