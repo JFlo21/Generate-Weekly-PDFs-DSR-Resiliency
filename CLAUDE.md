@@ -2,6 +2,69 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Project Summary — Billing Automation & Excel Generation
+
+### Project Overview
+This repository's primary production workflow is a Python-based
+billing automation pipeline: data is fetched from Smartsheet, rows
+are filtered and grouped by billing logic, Excel workbooks are
+generated, and the finished files are uploaded back to Smartsheet as
+attachments. The main workflow processes roughly 550 rows across 13+
+sheets on a scheduled basis. Supabase is used in `portal-v2`, not as
+the core destination for the repository's main data pipeline.
+
+### Tech Stack & Constraints
+* Primary Language: Python 3.10+
+* Core Production Systems: Smartsheet API, Excel generation
+  (`openpyxl`), GitHub Actions, Azure DevOps
+* Additional App Surfaces: `portal/` (legacy Express backend) and
+  `portal-v2/` (React + TypeScript frontend using Supabase)
+* Task Automation: Node.js & npm (for portal apps and utility
+  scripts)
+* Documentation: Docusaurus (runbook in `website/`)
+* Monitoring: Sentry (Python + Node + React)
+* Constraint: Do not suggest replacing or redesigning the core
+  Python/Smartsheet billing workflow unless explicitly requested.
+  Preserve the existing Smartsheet → Excel → Smartsheet attachment
+  pipeline.
+
+### Architecture Decisions
+* Preserve the production billing pipeline: Smartsheet API → row
+  filtering → WR grouping → Excel generation → upload.
+* Keep changes additive and operationally safe: optimize within the
+  existing workflow rather than replacing the transport or storage
+  model described by the production scripts.
+* Sentry Telemetry: Environment and release variables must be
+  standardized. Wrap new optimizations in Sentry error handling for
+  instant visibility and rollback.
+
+### Development Conventions
+* Code Style: Adhere to strict PEP 8 guidelines. Enforce comprehensive
+  type hinting.
+* Additive Logic Only: Improve or extend the existing billing
+  workflow without changing its fundamental behavior unless
+  explicitly requested.
+* Release Tagging: Updates must be compatible with GitHub Actions
+  release workflows.
+
+### Boundaries & Guardrails
+* Smartsheet Formula Restriction: NEVER use, write, or suggest the
+  `@cell` function when writing Python scripts or interacting with
+  the Smartsheet API. It is strictly an internal UI formula and will
+  fail.
+* Data Integrity: Do not drop tables or overwrite production logic
+  without explicit verification.
+
+### Validation Commands
+Current (authoritative):
+* Run Tests: `pytest tests/ -v`
+* Syntax check: `python -m py_compile generate_weekly_pdfs.py`
+
+Aspirational (future `uv` migration — not yet wired up):
+* `uv run pytest tests/`
+* `uv run ruff check .`
+* `uv run mypy .`
+
 ## ⚠️ AUTONOMOUS CLOUD MEMORY INJECTION (CRITICAL)
 
 **You are self-documenting in the cloud.** When triggered via `@claude` in a GitHub issue or CLI to implement a fix or feature, you must evaluate if the solution introduced a new architectural standard, a recurring fix, or a new operational rule. If it did, you MUST autonomously edit this `CLAUDE.md` file to append that new rule under the **Living Ledger** section at the bottom. **You must include a Date and Timestamp for every new entry (`[YYYY-MM-DD HH:MM]`).** Include the `CLAUDE.md` modification as a commit in the exact same Pull Request as the code changes. Never open a PR without capturing critical new context.
@@ -229,3 +292,14 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
 ## Living Ledger (Auto-Updated Context)
 
 *(Claude: Append new repo-specific learnings, architectural decisions, and established standards below this line. Always prepend each entry with a date + timestamp in `[YYYY-MM-DD HH:MM]` format.)*
+
+- [2026-04-17 15:26] Initialized Claude Code workspace layout: added
+  `.claude/rules/smartsheet-python-optimization.md` (scope: new scripts
+  only — `generate_weekly_pdfs.py` stays on `openpyxl`) and
+  `.claude/rules/documentation-maintenance.md` (Docusaurus runbook +
+  changelog synthesis, Python/n8n tier boundaries); seeded
+  `.claude/commands/` with a `.gitkeep`; prepended `## Project Summary
+  — Generate to Excel & Data Sync` block to `CLAUDE.md` (tech stack,
+  architecture, conventions, guardrails, validation commands — with
+  `uv` flagged aspirational and `pytest tests/ -v` kept authoritative)
+  while preserving every pre-existing section verbatim.
