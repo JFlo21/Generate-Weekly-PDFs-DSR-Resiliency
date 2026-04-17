@@ -5,11 +5,16 @@ import type * as Preset from '@docusaurus/preset-classic';
 const config: Config = {
   title: 'Weekly PDFs Runbook',
   tagline: 'Living documentation for the Smartsheet Weekly PDF Generator',
-  // Add `favicon: 'img/favicon.ico'` (and create website/static/img/favicon.ico)
-  // once branding assets exist. Docusaurus uses a sensible default without it.
+  favicon: 'img/favicon.ico',
 
   url: process.env.DOCS_SITE_URL ?? 'https://weekly-pdfs-runbook.vercel.app',
   baseUrl: '/',
+
+  // Must match vercel.json's `"trailingSlash": false`. If these disagree, the
+  // Docusaurus router emits canonical URLs with a trailing slash while Vercel
+  // 308s to the non-slashed path — landing on a route the client router then
+  // renders as "Page Not Found".
+  trailingSlash: false,
 
   organizationName: 'jflo21',
   projectName: 'generate-weekly-pdfs-dsr-resiliency',
@@ -64,8 +69,15 @@ const config: Config = {
   themeConfig: {
     // `image: 'img/social-card.png'` would populate og:image for rich link
     // previews. Add once website/static/img/social-card.png exists.
+    colorMode: {
+      respectPrefersColorScheme: true,
+    },
     navbar: {
       title: 'Weekly PDFs Runbook',
+      logo: {
+        alt: 'Linetec Services — A Centuri Company',
+        src: 'img/logo.png',
+      },
       items: [
         {
           type: 'docSidebar',
@@ -87,7 +99,7 @@ const config: Config = {
         {
           title: 'Runbook',
           items: [
-            { label: 'Overview', to: '/docs/' },
+            { label: 'Overview', to: '/docs' },
             { label: 'Workflows', to: '/docs/runbook/workflows' },
             { label: 'Python modules', to: '/docs/runbook/python-modules' },
           ],
@@ -103,7 +115,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Generated with Docusaurus. Updated automatically on every merge to master.`,
+      copyright: `© ${new Date().getFullYear()} Linetec Services — A Centuri Company. Generated with Docusaurus, updated on every merge to master.`,
     },
     prism: {
       theme: prismThemes.github,
