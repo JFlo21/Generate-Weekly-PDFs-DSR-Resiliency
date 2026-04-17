@@ -1,6 +1,6 @@
 import { useState, useEffect, createContext, useContext } from 'react';
 import type { User, Session } from '@supabase/supabase-js';
-import { supabase } from '../lib/supabase';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import type { Profile } from '../lib/types';
 
 interface AuthContextValue {
@@ -35,10 +35,20 @@ export function useAuthState(): AuthContextValue {
   }
 
   useEffect(() => {
+    if (!isSupabaseConfigured) {
+      // Supabase env vars are missing — stop the loading spinner so the
+      // auth guard redirects to login instead of spinning indefinitely.
+      setLoading(false);
+      return;
+    }
+
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       setSession(s);
       setUser(s?.user ?? null);
       if (s?.user) fetchProfile(s.user.id);
+      setLoading(false);
+    }).catch(() => {
+      // Network/config error — stop spinning.
       setLoading(false);
     });
 

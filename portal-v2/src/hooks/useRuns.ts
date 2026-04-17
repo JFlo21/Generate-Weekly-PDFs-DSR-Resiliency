@@ -55,14 +55,32 @@ export function useRuns() {
   useEffect(() => {
     fetchRef.current?.();
 
-    // SSE for real-time updates
-    const es = new EventSource(`${API_BASE}/api/events`);
-    es.addEventListener('open', () => setIsConnected(true));
-    es.addEventListener('runs-updated', () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-      fetchRef.current?.();
-    });
-    es.addEventListener('error', () => setIsConnected(false));
+    // Only open an SSE connection if we have a backend URL configured.
+    // When API_BASE is empty (no VITE_API_BASE_URL) and the Vite dev
+    // server doesn't proxy /api/events, EventSource would continuously
+    // error-loop and flood the console.
+    let es: EventSource | null = null;
+    const sseUrl = `${API_BASE}/api/events`;
+    try {
+      es = new EventSource(sseUrl);
+      es.addEventListener('open', () => setIsConnected(true));
+      es.addEventListener('runs-updated', () => {
+        if (timerRef.current) clearTimeout(timerRef.current);
+        fetchRef.current?.();
+      });
+      es.addEventListener('error', () => {
+        setIsConnected(false);
+        // If the backend is unreachable, close the EventSource to stop the
+        // automatic reconnect loop that browsers do every ~3s.
+        if (es && es.readyState === EventSource.CLOSED) {
+          es.close();
+          es = null;
+        }
+      });
+    } catch {
+      // EventSource constructor can throw if the URL is invalid.
+      setIsConnected(false);
+    }
 
     // Countdown ticker
     countdownRef.current = setInterval(() => {
@@ -72,7 +90,7 @@ export function useRuns() {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
       if (countdownRef.current) clearInterval(countdownRef.current);
-      es.close();
+      es?.close();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

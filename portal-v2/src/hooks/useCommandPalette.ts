@@ -18,9 +18,10 @@ export function useCommandPalette() {
       if (isModifier && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setOpen((v) => !v);
-      } else if (e.key === 'Escape') {
-        setOpen(false);
       }
+      // Escape is handled inside CommandPalette's own onKeyDown so that
+      // we don't accidentally swallow Escape events meant for other modals
+      // (like ArtifactExplorer) when the palette isn't even open.
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
