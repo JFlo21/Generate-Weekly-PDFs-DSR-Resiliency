@@ -11,7 +11,7 @@ export default function Home(): React.JSX.Element {
   const blogUrl = useBaseUrl('/blog');
 
   return (
-    <Layout title={siteConfig.title} description={siteConfig.tagline}>
+    <Layout description={siteConfig.tagline}>
       <main className="homePage">
         <section className="hero hero--primary homeHero">
           <div className="container">
