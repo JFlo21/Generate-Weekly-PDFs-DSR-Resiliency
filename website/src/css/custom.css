@@ -1,27 +1,72 @@
 /**
  * Docusaurus uses Infima (https://infimacss.com). Override CSS variables to
- * retheme the site without swizzling components.
+ * retheme the site around the Linetec Services brand (Centuri red on a
+ * near-black neutral) without swizzling any components.
  */
 
 :root {
-  --ifm-color-primary: #1f6feb;
-  --ifm-color-primary-dark: #1d63d3;
-  --ifm-color-primary-darker: #1b5dc7;
-  --ifm-color-primary-darkest: #164ca3;
-  --ifm-color-primary-light: #3780ee;
-  --ifm-color-primary-lighter: #4388f0;
-  --ifm-color-primary-lightest: #6ba2f3;
+  /* Primary palette anchored on Linetec/Centuri red #c8102e. Variants were
+     generated via https://docusaurus.io/docs/styling-layout#styling-your-site-with-infima
+     so contrast remains WCAG-friendly. */
+  --ifm-color-primary: #c8102e;
+  --ifm-color-primary-dark: #b40e29;
+  --ifm-color-primary-darker: #aa0d27;
+  --ifm-color-primary-darkest: #8c0b20;
+  --ifm-color-primary-light: #de1233;
+  --ifm-color-primary-lighter: #e3263f;
+  --ifm-color-primary-lightest: #ea5069;
+
+  /* Neutral surface: near-black title row, off-white body. Matches the
+     dark silhouette of the "Linetec Services" wordmark in the logo. */
+  --ifm-navbar-background-color: #1a1a1a;
+  --ifm-navbar-link-color: #f5f5f5;
+  --ifm-navbar-link-hover-color: #ffffff;
+  --ifm-navbar-search-input-background-color: #2a2a2a;
+  --ifm-navbar-search-input-color: #f5f5f5;
+  --ifm-navbar-search-input-placeholder-color: #9a9a9a;
+
+  --ifm-footer-background-color: #111111;
+  --ifm-footer-color: #e5e5e5;
+  --ifm-footer-link-color: #e5e5e5;
+  --ifm-footer-link-hover-color: #ffffff;
+  --ifm-footer-title-color: #ffffff;
+
   --ifm-code-font-size: 95%;
-  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+  --docusaurus-highlighted-code-line-bg: rgba(200, 16, 46, 0.1);
 }
 
 [data-theme='dark'] {
-  --ifm-color-primary: #6ba2f3;
-  --ifm-color-primary-dark: #4d8ff0;
-  --ifm-color-primary-darker: #3e86ee;
-  --ifm-color-primary-darkest: #1468e5;
-  --ifm-color-primary-light: #89b5f6;
-  --ifm-color-primary-lighter: #97bef7;
-  --ifm-color-primary-lightest: #c2d9fb;
-  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+  /* Dark mode red has to run a little lighter so it still hits AA contrast
+     against the near-black surface. */
+  --ifm-color-primary: #ee5166;
+  --ifm-color-primary-dark: #eb3047;
+  --ifm-color-primary-darker: #ea2038;
+  --ifm-color-primary-darkest: #c51228;
+  --ifm-color-primary-light: #f17285;
+  --ifm-color-primary-lighter: #f38394;
+  --ifm-color-primary-lightest: #f8b4be;
+
+  --ifm-background-color: #0f0f0f;
+  --ifm-background-surface-color: #161616;
+  --ifm-navbar-background-color: #161616;
+  --ifm-footer-background-color: #0a0a0a;
+
+  --docusaurus-highlighted-code-line-bg: rgba(238, 81, 102, 0.18);
+}
+
+/* The stock navbar caps logos at ~2rem, which makes the detailed Linetec
+   wordmark illegible. Give it a bit more room without breaking layout. */
+.navbar__logo {
+  height: 2.5rem;
+}
+.navbar__logo img {
+  height: 100%;
+  width: auto;
+}
+
+/* Keep the title text readable alongside the logo on the dark navbar. */
+.navbar__title {
+  color: var(--ifm-navbar-link-color);
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
