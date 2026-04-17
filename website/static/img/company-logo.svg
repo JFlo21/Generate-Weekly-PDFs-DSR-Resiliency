@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 495" role="img" aria-labelledby="title desc">
+  <title id="title">Linetec Services logo</title>
+  <desc id="desc">Stylized LS mark with company name in maroon and slate colors.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1d2230"/>
+      <stop offset="100%" stop-color="#2a3347"/>
+    </linearGradient>
+  </defs>
+  <rect width="900" height="495" rx="36" fill="url(#bg)"/>
+  <g transform="translate(70,72)">
+    <rect width="350" height="350" rx="42" fill="#ffffff" opacity="0.96"/>
+    <path d="M95 95h52v160h120v52H95z" fill="#b11328"/>
+    <path d="M292 95h-52v212h52z" fill="#1d2230"/>
+    <path d="M170 95h52l95 160h-52z" fill="#e13d52"/>
+  </g>
+  <g transform="translate(455,185)">
+    <text x="0" y="0" font-family="Inter, Segoe UI, Arial, sans-serif" font-weight="800" font-size="68" fill="#ffffff">Linetec</text>
+    <text x="0" y="74" font-family="Inter, Segoe UI, Arial, sans-serif" font-weight="500" font-size="54" fill="#e6e8ee">Services</text>
+  </g>
+</svg>

@@ -75,6 +75,20 @@ npm run start
 
 Then visit [http://localhost:3000](http://localhost:3000).
 
+## Deployment target and base URL
+
+The site now supports both Vercel and GitHub Pages without changing source:
+
+- **Vercel (default):** `DOCS_DEPLOY_TARGET` unset, resulting in
+  `url=https://weekly-pdfs-runbook.vercel.app` and `baseUrl=/`.
+- **GitHub Pages:** set `DOCS_DEPLOY_TARGET=github-pages`, resulting in
+  `url=https://jflo21.github.io` and
+  `baseUrl=/generate-weekly-pdfs-dsr-resiliency/`.
+
+If the homepage ever loads the Docusaurus "Page Not Found" shell with navbar
+and footer, the first thing to verify is that deployment target / base URL
+pairing above.
+
 ## Opting a commit out of the change log
 
 Add `[skip docs]` anywhere in the commit message (or merge commit message)

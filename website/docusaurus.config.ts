@@ -2,14 +2,20 @@ import { themes as prismThemes } from 'prism-react-renderer';
 import type { Config } from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
+const isGitHubPages = process.env.DOCS_DEPLOY_TARGET === 'github-pages';
+const resolvedBaseUrl =
+  process.env.DOCS_BASE_URL ??
+  (isGitHubPages ? '/generate-weekly-pdfs-dsr-resiliency/' : '/');
+
 const config: Config = {
   title: 'Weekly PDFs Runbook',
   tagline: 'Living documentation for the Smartsheet Weekly PDF Generator',
-  // Add `favicon: 'img/favicon.ico'` (and create website/static/img/favicon.ico)
-  // once branding assets exist. Docusaurus uses a sensible default without it.
+  favicon: 'img/company-logo.svg',
 
-  url: process.env.DOCS_SITE_URL ?? 'https://weekly-pdfs-runbook.vercel.app',
-  baseUrl: '/',
+  url:
+    process.env.DOCS_SITE_URL ??
+    (isGitHubPages ? 'https://jflo21.github.io' : 'https://weekly-pdfs-runbook.vercel.app'),
+  baseUrl: resolvedBaseUrl,
 
   organizationName: 'jflo21',
   projectName: 'generate-weekly-pdfs-dsr-resiliency',
@@ -60,12 +66,16 @@ const config: Config = {
       } satisfies Preset.Options,
     ],
   ],
-
   themeConfig: {
     // `image: 'img/social-card.png'` would populate og:image for rich link
     // previews. Add once website/static/img/social-card.png exists.
     navbar: {
       title: 'Weekly PDFs Runbook',
+      logo: {
+        alt: 'Linetec Services logo',
+        src: 'img/company-logo.svg',
+        href: resolvedBaseUrl,
+      },
       items: [
         {
           type: 'docSidebar',
@@ -83,6 +93,13 @@ const config: Config = {
     },
     footer: {
       style: 'dark',
+      logo: {
+        alt: 'Linetec Services',
+        src: 'img/company-logo.svg',
+        href: resolvedBaseUrl,
+        width: 160,
+        height: 88,
+      },
       links: [
         {
           title: 'Runbook',
