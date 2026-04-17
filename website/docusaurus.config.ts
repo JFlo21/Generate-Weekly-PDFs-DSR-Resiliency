@@ -5,7 +5,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 const config: Config = {
   title: 'Weekly PDFs Runbook',
   tagline: 'Living documentation for the Smartsheet Weekly PDF Generator',
-  favicon: 'img/logo.png',
+  favicon: 'img/favicon.ico',
 
   url: process.env.DOCS_SITE_URL ?? 'https://weekly-pdfs-runbook.vercel.app',
   baseUrl: '/',
