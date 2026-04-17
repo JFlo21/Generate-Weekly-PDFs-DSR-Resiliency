@@ -72,6 +72,17 @@ Hash (lines ~721-730)
 3. **Arrowhead validation**: Specifically check VAC Crew sheets generated from Arrowhead-contract rows — Job # should be VAC Crew Job #, not Arrowhead Job #
 4. **Unit tests**: Consider adding tests for VAC Crew Excel header population
 
+## Active Initiative: Railway → Render Transition + Artifact Explorer
+- **Plan of record**: `docs/railway-to-render-transition-plan.md`
+- **Status**: Plan approved, pre-implementation. Docs pass already landed on branch `railway-disconnection-plan` (Railway references removed from `portal-v2/README.md` and `docs/sentry-implementation.md`; repo-wide grep for `railway` returns zero matches).
+- **Locked decisions**:
+  - Backend hosting: Render Web Service, Starter plan, Oregon region, `/health` health check, root dir `portal/`.
+  - Search/preview backend: **in-memory LRU** on the Render process (artifact parse cache + tokenized search index). No Supabase search table, no external search service in v1.
+  - Download format (v1): **original `.xlsx` only**. CSV/PDF/JSON deferred to v2+.
+  - Filtering: per-artifact filter bar + global `Cmd+K` palette scoped to recent runs / artifacts / contents.
+  - Rollback: Railway held hot-standby for 48 h post-cutover; revert via `VITE_API_BASE_URL` flip in Vercel.
+- **Next step when work resumes**: Phase 1 of the plan — stand up the Render Web Service on a staging custom domain in parallel with Railway; do NOT touch production `VITE_API_BASE_URL` yet.
+
 ## Key Architecture Fact
 VAC Crew rows live in the **same sheets** as regular/helper rows (folder `8815193070299012`). The 5 VAC Crew columns discovered from sheet `1413438401105796`:
 - `Vac Crew Email Address` (TEXT_NUMBER)
