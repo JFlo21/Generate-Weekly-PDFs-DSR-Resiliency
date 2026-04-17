@@ -2,40 +2,48 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Summary — Generate to Excel & Data Sync
+## Project Summary — Billing Automation & Excel Generation
 
 ### Project Overview
-This repository handles high-volume data orchestration, extraction,
-and formatting. Its primary function is the secure, high-speed batch
-synchronization of 210,000+ rows from Smartsheet to Supabase,
-alongside subsequent data transformations (including Excel
-generation). Python handles heavy, batch-driven data movement, while
-n8n acts as the AI orchestrator for low-volume, event-driven tasks.
+This repository's primary production workflow is a Python-based
+billing automation pipeline: data is fetched from Smartsheet, rows
+are filtered and grouped by billing logic, Excel workbooks are
+generated, and the finished files are uploaded back to Smartsheet as
+attachments. The main workflow processes roughly 550 rows across 13+
+sheets on a scheduled basis. Supabase is used in `portal-v2`, not as
+the core destination for the repository's main data pipeline.
 
 ### Tech Stack & Constraints
 * Primary Language: Python 3.10+
-* Data Sources/Destinations: Smartsheet API, Supabase (Postgres),
-  Notion API (via n8n)
-* Task Automation: Node.js & npm (for specific utility scripts)
-* Documentation: Docusaurus
-* Monitoring & CI/CD: Sentry (Error Monitoring), GitHub Actions,
-  Azure DevOps
-* Constraint: Do not suggest replacing the Python/Smartsheet workflow
-  with n8n. n8n is strictly reserved for low-volume Notion syncs to
-  avoid task quota exhaustion.
+* Core Production Systems: Smartsheet API, Excel generation
+  (`openpyxl`), GitHub Actions, Azure DevOps
+* Additional App Surfaces: `portal/` (legacy Express backend) and
+  `portal-v2/` (React + TypeScript frontend using Supabase)
+* Task Automation: Node.js & npm (for portal apps and utility
+  scripts)
+* Documentation: Docusaurus (runbook in `website/`)
+* Monitoring: Sentry (Python + Node + React)
+* Constraint: Do not suggest replacing or redesigning the core
+  Python/Smartsheet billing workflow unless explicitly requested.
+  Preserve the existing Smartsheet → Excel → Smartsheet attachment
+  pipeline.
 
 ### Architecture Decisions
-* Vectorized Bulk Upserts: Single-row processing is strictly
-  prohibited. Use `supabase-py` or direct Postgres COPY commands.
+* Preserve the production billing pipeline: Smartsheet API → row
+  filtering → WR grouping → Excel generation → upload.
+* Keep changes additive and operationally safe: optimize within the
+  existing workflow rather than replacing the transport or storage
+  model described by the production scripts.
 * Sentry Telemetry: Environment and release variables must be
-  standardized. All optimizations must be wrapped in Sentry error
-  handling for instant visibility and rollback.
+  standardized. Wrap new optimizations in Sentry error handling for
+  instant visibility and rollback.
 
 ### Development Conventions
 * Code Style: Adhere to strict PEP 8 guidelines. Enforce comprehensive
   type hinting.
-* Additive Logic Only: Wrap core logic in faster transport methods
-  without altering the fundamental shape of data sent to Supabase.
+* Additive Logic Only: Improve or extend the existing billing
+  workflow without changing its fundamental behavior unless
+  explicitly requested.
 * Release Tagging: Updates must be compatible with GitHub Actions
   release workflows.
 
@@ -285,7 +293,7 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
 
 *(Claude: Append new repo-specific learnings, architectural decisions, and established standards below this line. Always prepend each entry with a date + timestamp in `[YYYY-MM-DD HH:MM]` format.)*
 
-- [2026-04-17 15:26 UTC] Initialized Claude Code workspace layout: added
+- [2026-04-17 15:26] Initialized Claude Code workspace layout: added
   `.claude/rules/smartsheet-python-optimization.md` (scope: new scripts
   only — `generate_weekly_pdfs.py` stays on `openpyxl`) and
   `.claude/rules/documentation-maintenance.md` (Docusaurus runbook +

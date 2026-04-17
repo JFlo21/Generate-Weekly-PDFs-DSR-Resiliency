@@ -35,6 +35,14 @@ let the SDK return the full sheet in a single response.
 `xlsxwriter` in streaming (constant-memory) mode over row-by-row
 `openpyxl` writes.
 
+> **Dependency note.** `xlsxwriter` is **not** currently declared in
+> `requirements.txt`. Any new script that adopts this rule must add
+> `XlsxWriter` to `requirements.txt` (and any relevant
+> `requirements-*.txt` lockfile) in the same PR — otherwise the
+> script will raise `ModuleNotFoundError: No module named
+> 'xlsxwriter'` in CI. Do not add the dependency globally until a
+> script actually imports it.
+
 - Use one of the following idioms:
 
   ```python

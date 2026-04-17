@@ -39,17 +39,20 @@ content.
 - Organize pages around operator workflows (e.g. "Rerun a failed
   weekly job", "Force full regeneration", "Investigate a price
   anomaly"), not around code modules.
-- **Hybrid ecosystem clarity.** Explicitly call out which tier of
-  the stack handles each workflow:
-  - **Python** (`generate_weekly_pdfs.py`, sibling scripts) — owns
-    high-volume, batch-driven Smartsheet ⇄ Supabase synchronization
-    and Excel generation. Runs on GitHub Actions cron.
-  - **n8n** — owns **low-volume, event-driven** Notion syncs only.
-    Reserved for AI orchestration and sporadic webhook work to
-    avoid task-quota exhaustion.
+- **Hybrid ecosystem clarity.** Explicitly call out which component
+  in this repo handles each workflow:
+  - **Python billing pipeline** (`generate_weekly_pdfs.py`, sibling
+    scripts) — owns high-volume, batch-driven Smartsheet processing:
+    row filtering, WR grouping, Excel generation, and attachment
+    upload. Runs on GitHub Actions cron.
+  - **Notion sync** (`scripts/notion_sync.py` via GitHub Actions) —
+    owns Notion synchronization documented in this repository.
+  - **Supabase web app tier** (`portal-v2/`) — uses Supabase for the
+    application backend/data layer; it is separate from the Python
+    billing pipeline.
   - Every runbook page that involves automation must state which
-    tier owns the flow so operators never try to move a Python
-    workload into n8n (or vice-versa).
+    component owns the flow so operators route changes and incident
+    response to the correct system.
 - Validate docs locally before pushing:
 
   ```bash
