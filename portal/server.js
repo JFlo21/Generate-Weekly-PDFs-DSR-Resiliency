@@ -12,6 +12,7 @@ const authRoutes = require('./routes/auth');
 const apiRoutes = require('./routes/api');
 const healthRoutes = require('./routes/health');
 const poller = require('./services/poller');
+const searchIndex = require('./services/searchIndex');
 
 const app = express();
 
@@ -83,6 +84,14 @@ app.use((err, req, res, _next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
+// Keep the in-memory LRU search index warm: rebuild when the poller reports a
+// new run so Cmd+K results stay current without a user-initiated refresh.
+poller.on('newRun', () => {
+  searchIndex.rebuild().catch((err) => {
+    console.warn('[searchIndex] rebuild after newRun failed:', err.message);
+  });
+});
+
 if (require.main === module) {
   app.listen(config.port, () => {
     console.log(`Linetec Report Portal running on http://localhost:${config.port}`);
@@ -90,6 +99,10 @@ if (require.main === module) {
       poller.start();
       console.log(`Artifact polling started (interval: ${config.polling.intervalMs}ms)`);
     }
+    // Prime the search index on boot so the first Cmd+K query returns instantly.
+    searchIndex.ensureBuilt().catch((err) => {
+      console.warn('[searchIndex] initial build failed:', err.message);
+    });
   });
 }
 
