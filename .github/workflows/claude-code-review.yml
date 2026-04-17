@@ -2,12 +2,21 @@ name: Claude Code — PR Auto-Update
 
 # Triggered by @claude mentions in PR comments / reviews, or when a reviewer
 # requests changes. Claude reads the review feedback, applies code edits, and
-# pushes them back to the PR branch. Keep blast radius small: this workflow
-# runs ONLY on pull requests (never on master) and the action itself is
-# scoped to the current PR branch via GITHUB_TOKEN.
+# pushes them back to the PR branch.
 #
-# See docs/sentry-implementation.md and .github/copilot-instructions.md for
-# the project conventions Claude should respect while editing.
+# Security design:
+#   - Trigger only on comment/review events — NOT on every pull_request push
+#     (that would spend Anthropic API quota and grant privileged checkout on
+#     every sync with no operator intent).
+#   - Require author_association ∈ {OWNER, MEMBER, COLLABORATOR} so an
+#     external commenter cannot invoke the privileged path.
+#   - Resolve the PR head via GitHub API (not `github.event.pull_request.head`,
+#     which is empty for issue_comment) and refuse to run if the head repo is
+#     not this repository — blocks fork-PR supply-chain attacks.
+#   - Check out the resolved head SHA (immutable), not a mutable branch ref.
+#
+# See CLAUDE.md and .github/copilot-instructions.md for the project
+# conventions Claude should respect while editing.
 
 on:
   issue_comment:
@@ -16,14 +25,12 @@ on:
     types: [created]
   pull_request_review:
     types: [submitted]
-  pull_request:
-    types: [opened, reopened, synchronize]
 
 permissions:
   contents: write          # Claude pushes commits back to the PR branch
   pull-requests: write     # Claude posts replies / updates PR body
   issues: write            # Needed for issue_comment events on PRs
-  id-token: write          # OIDC for secretless auth if/when enabled
+  # id-token is intentionally NOT granted — this workflow does not use OIDC.
 
 concurrency:
   group: claude-pr-${{ github.event.pull_request.number || github.event.issue.number || github.ref }}
@@ -31,15 +38,9 @@ concurrency:
 
 jobs:
   claude:
-    # Only run when:
-    #   - a PR comment / review comment / review body contains "@claude", OR
-    #   - a reviewer submitted a "changes_requested" review (auto-fix mode), OR
-    #   - the PR event itself is a fresh open/synchronize (lightweight check)
-    #
-    # Security: also require the actor to be a trusted author_association
-    # (OWNER / MEMBER / COLLABORATOR). This blocks the classic privileged
-    # issue_comment checkout attack where an external user posts `@claude` on
-    # a fork-based PR and we run their code with contents: write.
+    # Gate by event + trigger phrase + trusted author. We keep the checks
+    # simple and readable; the heavy fork-PR check happens inside the
+    # `Resolve PR metadata` step below, where we actually have the data.
     if: >-
       (github.event.sender.type != 'Bot') &&
       (
@@ -59,41 +60,86 @@ jobs:
            github.event.review.state == 'changes_requested') &&
           (github.event.review.author_association == 'OWNER' ||
            github.event.review.author_association == 'MEMBER' ||
-           github.event.review.author_association == 'COLLABORATOR')) ||
-        (github.event_name == 'pull_request' &&
-          github.event.pull_request.head.repo.full_name == github.repository)
+           github.event.review.author_association == 'COLLABORATOR'))
       )
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout PR branch
+      - name: Resolve PR metadata (head ref, head sha, head repo)
+        id: pr
+        # For issue_comment events, `github.event.pull_request.head.ref` and
+        # `github.head_ref` are both empty — checkout would silently fall back
+        # to the default branch and Claude would edit master. We resolve the
+        # head via the REST API using the PR number (available on all event
+        # types this workflow listens to) and validate the head repo matches
+        # this repository before emitting any outputs.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          pr_json=$(gh api "repos/$REPO/pulls/$PR_NUMBER")
+          head_ref=$(printf '%s' "$pr_json" | jq -r '.head.ref')
+          head_sha=$(printf '%s' "$pr_json" | jq -r '.head.sha')
+          head_repo=$(printf '%s' "$pr_json" | jq -r '.head.repo.full_name')
+
+          if [ "$head_repo" != "$REPO" ]; then
+            printf '::warning::Skipping Claude auto-update: PR head is in fork repo %s, not %s\n' \
+              "$head_repo" "$REPO"
+            {
+              printf 'skip=true\n'
+              printf 'pr_number=%s\n' "$PR_NUMBER"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          {
+            printf 'skip=false\n'
+            printf 'pr_number=%s\n' "$PR_NUMBER"
+            printf 'head_ref=%s\n' "$head_ref"
+            printf 'head_sha=%s\n' "$head_sha"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout PR head (by SHA, immutable)
+        if: steps.pr.outputs.skip != 'true'
         uses: actions/checkout@v4
         with:
-          # Check out the PR head, not the merge ref, so Claude can commit
-          # back to the same branch. fetch-depth: 0 keeps full history for
-          # conventional-commit context.
-          ref: ${{ github.event.pull_request.head.ref || github.head_ref }}
+          # Checking out the resolved SHA (not a mutable branch name) closes
+          # the TOCTOU window between the author_association gate and the
+          # actual checkout that CodeQL warned about.
+          ref: ${{ steps.pr.outputs.head_sha }}
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Set up Python 3.11
+      - name: Set up Python 3.12
+        if: steps.pr.outputs.skip != 'true'
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          # Match the primary CI workflow (weekly-excel-generation.yml) so
+          # any `pytest tests/` run here reproduces production behavior.
+          python-version: '3.12'
           cache: pip
 
       - name: Install Python dependencies
+        if: steps.pr.outputs.skip != 'true'
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Set up Node.js 20
+        if: steps.pr.outputs.skip != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
       - name: Run Claude Code
-        uses: anthropics/claude-code-action@beta
+        if: steps.pr.outputs.skip != 'true'
+        # Pinned to the stable v1 major-version tag rather than the mutable
+        # `@beta` ref, since this workflow runs with `contents: write` and
+        # access to the Anthropic API key — any change to the action code
+        # warrants an explicit bump here.
+        uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -107,9 +153,9 @@ jobs:
           #   - Run pytest tests/ before pushing (pre-push parity)
           #   - Append Living Ledger entry if introducing a new standard
           direct_prompt: |
-            You are running inside PR
-            ${{ github.event.pull_request.html_url || github.event.issue.html_url }}
-            on branch `${{ github.event.pull_request.head.ref || github.head_ref }}`.
+            You are running inside PR #${{ steps.pr.outputs.pr_number }}
+            on branch `${{ steps.pr.outputs.head_ref }}` (SHA
+            `${{ steps.pr.outputs.head_sha }}`).
 
             Read CLAUDE.md and .github/copilot-instructions.md before editing.
 
@@ -132,15 +178,21 @@ jobs:
             If you cannot confidently apply a change (ambiguous feedback,
             architectural decision needed, or blocked by missing context),
             post a clarifying reply instead of guessing.
-          # Allow the tools Claude needs to investigate + validate changes.
+          # Scope Node commands to the correct subdirectory — there is no
+          # root package.json; Node projects live under portal/, portal-v2/,
+          # and website/.
           allowed_tools: >-
             Bash(pytest tests/ -v),
             Bash(pytest tests/ -q),
             Bash(python -m py_compile generate_weekly_pdfs.py),
-            Bash(npm ci),
-            Bash(npm test),
-            Bash(npm run lint),
-            Bash(npm run build),
+            Bash(cd portal && npm ci),
+            Bash(cd portal && npm test),
+            Bash(cd portal-v2 && npm ci),
+            Bash(cd portal-v2 && npm run lint),
+            Bash(cd portal-v2 && npm run build),
+            Bash(cd website && npm ci),
+            Bash(cd website && npm run build),
+            Bash(cd website && npm run typecheck),
             Bash(git status),
             Bash(git diff),
             Bash(git log --oneline -20)
@@ -153,12 +205,17 @@ jobs:
         # Actions code-injection sink (CodeQL js/actions/command-injection).
         env:
           EVENT_NAME: ${{ github.event_name }}
-          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref || github.head_ref }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          HEAD_REF: ${{ steps.pr.outputs.head_ref }}
+          SKIPPED: ${{ steps.pr.outputs.skip }}
         run: |
           {
             printf '## Claude PR Auto-Update\n'
             printf -- '- Event: `%s`\n' "$EVENT_NAME"
             printf -- '- PR: #%s\n' "$PR_NUMBER"
-            printf -- '- Branch: `%s`\n' "$HEAD_REF"
+            if [ "$SKIPPED" = "true" ]; then
+              printf -- '- Status: skipped (fork PR or missing metadata)\n'
+            else
+              printf -- '- Branch: `%s`\n' "$HEAD_REF"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
