@@ -5,7 +5,8 @@ import type * as Preset from '@docusaurus/preset-classic';
 const config: Config = {
   title: 'Weekly PDFs Runbook',
   tagline: 'Living documentation for the Smartsheet Weekly PDF Generator',
-  favicon: 'img/favicon.ico',
+  // Add `favicon: 'img/favicon.ico'` (and create website/static/img/favicon.ico)
+  // once branding assets exist. Docusaurus uses a sensible default without it.
 
   url: process.env.DOCS_SITE_URL ?? 'https://weekly-pdfs-runbook.vercel.app',
   baseUrl: '/',
@@ -56,7 +57,8 @@ const config: Config = {
   ],
 
   themeConfig: {
-    image: 'img/social-card.png',
+    // `image: 'img/social-card.png'` would populate og:image for rich link
+    // previews. Add once website/static/img/social-card.png exists.
     navbar: {
       title: 'Weekly PDFs Runbook',
       items: [
