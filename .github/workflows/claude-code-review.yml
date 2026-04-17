@@ -35,16 +35,34 @@ jobs:
     #   - a PR comment / review comment / review body contains "@claude", OR
     #   - a reviewer submitted a "changes_requested" review (auto-fix mode), OR
     #   - the PR event itself is a fresh open/synchronize (lightweight check)
+    #
+    # Security: also require the actor to be a trusted author_association
+    # (OWNER / MEMBER / COLLABORATOR). This blocks the classic privileged
+    # issue_comment checkout attack where an external user posts `@claude` on
+    # a fork-based PR and we run their code with contents: write.
     if: >-
-      (github.event_name == 'issue_comment' &&
-        github.event.issue.pull_request != null &&
-        contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review_comment' &&
-        contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review' &&
-        (contains(github.event.review.body, '@claude') ||
-         github.event.review.state == 'changes_requested')) ||
-      (github.event_name == 'pull_request')
+      (github.event.sender.type != 'Bot') &&
+      (
+        (github.event_name == 'issue_comment' &&
+          github.event.issue.pull_request != null &&
+          contains(github.event.comment.body, '@claude') &&
+          (github.event.comment.author_association == 'OWNER' ||
+           github.event.comment.author_association == 'MEMBER' ||
+           github.event.comment.author_association == 'COLLABORATOR')) ||
+        (github.event_name == 'pull_request_review_comment' &&
+          contains(github.event.comment.body, '@claude') &&
+          (github.event.comment.author_association == 'OWNER' ||
+           github.event.comment.author_association == 'MEMBER' ||
+           github.event.comment.author_association == 'COLLABORATOR')) ||
+        (github.event_name == 'pull_request_review' &&
+          (contains(github.event.review.body, '@claude') ||
+           github.event.review.state == 'changes_requested') &&
+          (github.event.review.author_association == 'OWNER' ||
+           github.event.review.author_association == 'MEMBER' ||
+           github.event.review.author_association == 'COLLABORATOR')) ||
+        (github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository)
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -129,10 +147,18 @@ jobs:
 
       - name: Summarize
         if: always()
+        # Security: pass untrusted refs (branch names, PR numbers) through env
+        # instead of interpolating them directly into the shell script body.
+        # Direct `${{ ... }}` interpolation into `run:` is a classic GitHub
+        # Actions code-injection sink (CodeQL js/actions/command-injection).
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref || github.head_ref }}
         run: |
           {
-            echo "## Claude PR Auto-Update";
-            echo "- Event: \`${{ github.event_name }}\`";
-            echo "- PR: #${{ github.event.pull_request.number || github.event.issue.number }}";
-            echo "- Branch: \`${{ github.event.pull_request.head.ref || github.head_ref }}\`";
+            printf '## Claude PR Auto-Update\n'
+            printf -- '- Event: `%s`\n' "$EVENT_NAME"
+            printf -- '- PR: #%s\n' "$PR_NUMBER"
+            printf -- '- Branch: `%s`\n' "$HEAD_REF"
           } >> "$GITHUB_STEP_SUMMARY"

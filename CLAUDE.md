@@ -54,7 +54,7 @@ python cleanup_excels.py
 python run_info.py                        # shows available scripts
 ```
 
-A pre-push hook (`.github/hooks/pre-push-tests.json`) blocks `git push` if `pytest tests/` fails.
+`.github/hooks/pre-push-tests.json` is a **Claude Code hook** (not a standard Git `pre-push` hook). When running Claude Code, it denies the terminal `git push` tool if `pytest tests/` fails. Developers pushing from a normal shell are not gated by it — run `pytest tests/` manually before pushing.
 
 ### Portal (Express backend, `portal/`)
 
@@ -91,7 +91,8 @@ Understanding the flow requires reading across several files — the "big pictur
 
 ```
 Smartsheet API
-   ↓ (folder-based discovery via SOURCE_FOLDER_IDS, cached 60 min in
+   ↓ (folder-based discovery via SOURCE_FOLDER_IDS, cached for
+   ↓  DISCOVERY_CACHE_TTL_MIN minutes — default 10080 = 7 days — in
    ↓  generated_docs/discovery_cache.json)
 Auto-discover source sheets → validate column mappings (synonyms for
    "Weekly Reference Logged Date", helper_dept, helper_foreman, Job #)
@@ -106,7 +107,9 @@ Change detection: SHA256 hash per group key →
    ↓
 Excel generation (openpyxl) — logo, headers, formatting, totals
    Use safe_merge_cells() (overlap detection); never write oddFooter.right.text
-   Output to generated_docs/WR_<num>_<week>.xlsx
+   Output to generated_docs/WR_{wr}_WeekEnding_{MMDDYY}_{timestamp}{variant_suffix}_{hash}.xlsx
+   (variant_suffix ∈ {``, `_User_<foreman>`, `_Helper_<foreman>`, `_VacCrew`};
+    the workflow's artifact organizer globs WR_*_WeekEnding_*)
    ↓
 Audit (audit_billing_changes.py) — price anomaly detection, LOW/MEDIUM/HIGH
    risk levels with delta tracking, optional selective cell-history enrichment
@@ -124,24 +127,32 @@ All behavior is controlled by `os.getenv()` with defaults. Full reference lives 
 
 **Required:** `SMARTSHEET_API_TOKEN`.
 
-**Commonly touched:**
+**Commonly touched (implemented in `generate_weekly_pdfs.py`):**
 - `TARGET_SHEET_ID` (default `5723337641643908`), `AUDIT_SHEET_ID`, `SENTRY_DSN`
-- `SKIP_UPLOAD`, `SKIP_CELL_HISTORY`, `SKIP_FILE_OPERATIONS`, `DRY_RUN_UPLOADS`, `MOCK_SMARTSHEET_UPLOAD`
+- `SKIP_UPLOAD`, `SKIP_CELL_HISTORY`
 - `RES_GROUPING_MODE` ∈ {`primary`, `helper`, `both`} (default `both`)
 - `TEST_MODE`, `FORCE_GENERATION`, `WR_FILTER` (comma list), `MAX_GROUPS`
 - `RESET_HASH_HISTORY=true` for full CI regeneration (hash history is ephemeral in CI)
 - `REGEN_WEEKS` (MMDDYY list), `RESET_WR_LIST`, `KEEP_HISTORICAL_WEEKS`
+- `DISCOVERY_CACHE_TTL_MIN` (default `10080` = 7 days), `USE_DISCOVERY_CACHE`, `EXTENDED_CHANGE_DETECTION`
 - Debug flags: `DEBUG_MODE`, `QUIET_LOGGING`, `PER_CELL_DEBUG_ENABLED`, `FILTER_DIAGNOSTICS`, `FOREMAN_DIAGNOSTICS`, `LOG_UNKNOWN_COLUMNS`, `DEBUG_SAMPLE_ROWS`
 
-## GitHub Actions Workflow — 10-Input Limit Workaround
+**Documented in `.github/prompts/` but not currently consumed by `generate_weekly_pdfs.py`:** `SKIP_FILE_OPERATIONS`, `DRY_RUN_UPLOADS`, `MOCK_SMARTSHEET_UPLOAD`. Treat these as aspirational until they are wired up — setting them today has no effect on the production pipeline.
 
-`.github/workflows/weekly-excel-generation.yml` drives production. GitHub restricts `workflow_dispatch` to 10 inputs, so complex controls are packed into an `advanced_options` field parsed with `tr`/`cut`:
+## GitHub Actions Workflow — `advanced_options` Parser
+
+`.github/workflows/weekly-excel-generation.yml` drives production. The `workflow_dispatch` surface packs rarely-used controls into a single `advanced_options` field parsed with `tr`/`cut` so operators don't have to hunt through a long input list:
 
 ```
 max_groups:50,regen_weeks:081725;082425,reset_wr_list:WR123;WR456
 ```
 
-Scheduled: every 2 hrs weekdays, 4×/weekends, weekly comprehensive Monday 11 PM.
+Do not delete this parser even if the top-level input count is below GitHub's limit today — several operational runbooks depend on this exact `key:value,key:value` format.
+
+**Schedule (UTC crons, `TZ: America/Chicago` inside the job):**
+- Weekdays (Mon–Fri): 7 runs/day at UTC `13,15,17,19,21,23,01` (`0 13,15,17,19,21,23,1 * * 1-5`) → roughly every 2 hours during US business hours.
+- Weekends (Sat, Sun): 3 runs/day at UTC `15,19,23` (`0 15,19,23 * * 0,6`).
+- Weekly deep run: `0 5 * * 1` (UTC Monday 05:00 = Sunday 23:00 CST / Monday 00:00 CDT Central). The job's `if: day==1 && hour==23` guard in Central time is what flips the run into the "weekly comprehensive" branch.
 
 Other workflows: `docs-changelog.yml` (appends runbook changelog on every merge to `master`), `notion-sync.yml`, `snyk-security.yml`, `system-health-check.yml`, `azure-pipelines.yml` (GitHub → Azure DevOps mirror).
 
@@ -155,7 +166,7 @@ Other workflows: `docs-changelog.yml` (appends runbook changelog on every merge 
 ## Current Stack & Ecosystem Context
 
 - **Frontend:** React 18, Vite, TypeScript, Tailwind CSS, Framer Motion (`portal-v2/`).
-- **Backend/Database:** Node.js 20+ Express (`portal/`), Python 3.11, Supabase (auth + Postgres + RLS for `portal-v2`).
+- **Backend/Database:** Node.js 20+ Express (`portal/`), Python 3.12 in CI (3.11+ locally is fine), Supabase (auth + Postgres + RLS for `portal-v2`).
 - **Data Analytics & Visualization:** Power BI, Hex, Excel (`openpyxl`), Google Sheets, `pandas` + `pandera`.
 - **CI/CD, Source Control & Error Tracking:** GitHub Actions, Azure DevOps mirror, Sentry (Python + Node + React with source-map upload).
 - **Project Management, Operations & Task Tracking:** Smartsheet, Linear, Notion, Todoist, Microsoft Project, Planner.
@@ -165,7 +176,7 @@ Other workflows: `docs-changelog.yml` (appends runbook changelog on every merge 
 ## Conventions (Language-Specific)
 
 - **Python:** PEP 8, type hints, 4-space indent, ≤79 char lines, PEP 257 docstrings. See `.github/instructions/python.instructions.md`.
-- **Node.js:** ES2022+ ESM, `async`/`await` only (no callbacks), **prefer `undefined` over `null`**, prefer functions over classes, minimize external deps. See `.github/instructions/nodejs-javascript-vitest.instructions.md`.
+- **Node.js:** Module system differs by component. **`portal/` is CommonJS** (`"type": "commonjs"`, `require()` / `module.exports`) — do **not** introduce `import`/`export` there. **`portal-v2/` is ES2022+ ESM**. Across both: `async`/`await` only (no callbacks), **prefer `undefined` over `null`**, prefer functions over classes, minimize external deps. See `.github/instructions/nodejs-javascript-vitest.instructions.md`.
 - **Testing (Node):** Vitest. Never change production code to make it testable — write tests around the code as-is.
 - **Subcontractor pricing:** folder-based discovery is the primary path; see `.github/instructions/subcontractor-pricing-folder-discovery.instructions.md`.
 
