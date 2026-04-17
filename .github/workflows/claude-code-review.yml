@@ -72,7 +72,10 @@ jobs:
           # Check out the PR head, not the merge ref, so Claude can commit
           # back to the same branch. fetch-depth: 0 keeps full history for
           # conventional-commit context.
-          ref: ${{ github.event.pull_request.head.ref || github.head_ref }}
+          ref: >-
+            ${{ github.event.pull_request.head.ref || github.head_ref ||
+            format('refs/pull/{0}/head', github.event.pull_request.number ||
+            github.event.issue.number) }}
           fetch-depth: 0
           persist-credentials: true
 
@@ -109,7 +112,9 @@ jobs:
           direct_prompt: |
             You are running inside PR
             ${{ github.event.pull_request.html_url || github.event.issue.html_url }}
-            on branch `${{ github.event.pull_request.head.ref || github.head_ref }}`.
+            on branch `${{ github.event.pull_request.head.ref || github.head_ref ||
+            format('refs/pull/{0}/head', github.event.pull_request.number ||
+            github.event.issue.number) }}`.
 
             Read CLAUDE.md and .github/copilot-instructions.md before editing.
 
@@ -154,7 +159,10 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref || github.head_ref }}
+          HEAD_REF: >-
+            ${{ github.event.pull_request.head.ref || github.head_ref ||
+            format('refs/pull/{0}/head', github.event.pull_request.number ||
+            github.event.issue.number) }}
         run: |
           {
             printf '## Claude PR Auto-Update\n'
