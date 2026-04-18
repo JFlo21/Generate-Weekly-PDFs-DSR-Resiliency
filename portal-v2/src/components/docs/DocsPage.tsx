@@ -1,44 +1,52 @@
+import { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { BookOpen, ExternalLink, FileText, History, Rocket, AlertCircle } from 'lucide-react';
-
-// Docusaurus URL — same env var as sidebar/navbar for consistency.
-const DOCS_URL = (import.meta.env.VITE_DOCS_URL ?? '').trim();
 
 interface QuickLink {
   title: string;
   description: string;
-  href: string;
+  path: string;
   icon: React.ElementType;
 }
 
-const quickLinks: QuickLink[] = [
+const quickLinkDefs: QuickLink[] = [
   {
     title: 'Getting Started',
     description: 'Learn how to set up and use the Linetec Portal',
-    href: DOCS_URL ? `${DOCS_URL}/docs/intro` : '#',
+    path: '/docs/intro',
     icon: Rocket,
   },
   {
     title: 'Changelog',
     description: 'View recent updates, fixes, and new features',
-    href: DOCS_URL ? `${DOCS_URL}/changelog` : '#',
+    path: '/changelog',
     icon: History,
   },
   {
     title: 'Run Logs',
     description: 'Detailed logs from workflow runs and artifact generation',
-    href: DOCS_URL ? `${DOCS_URL}/docs/run-logs` : '#',
+    path: '/docs/run-logs',
     icon: FileText,
   },
   {
     title: 'Release Notes',
     description: 'Major version releases and migration guides',
-    href: DOCS_URL ? `${DOCS_URL}/docs/releases` : '#',
+    path: '/docs/releases',
     icon: AlertCircle,
   },
 ];
 
 export function DocsPage() {
+  // Read env var inside component to avoid module-level reference issues
+  const docsUrl = useMemo(() => (import.meta.env.VITE_DOCS_URL ?? '').trim(), []);
+  const quickLinks = useMemo(
+    () =>
+      quickLinkDefs.map((link) => ({
+        ...link,
+        href: docsUrl ? `${docsUrl}${link.path}` : '#',
+      })),
+    [docsUrl]
+  );
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -99,7 +107,7 @@ export function DocsPage() {
       </div>
 
       {/* Embedded Docs (iframe) */}
-      {DOCS_URL ? (
+      {docsUrl ? (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -109,7 +117,7 @@ export function DocsPage() {
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-slate-700">Full Documentation</h2>
             <a
-              href={DOCS_URL}
+              href={docsUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-brand-red transition-colors"
@@ -120,7 +128,7 @@ export function DocsPage() {
           </div>
           <div className="relative w-full h-[600px] rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white">
             <iframe
-              src={DOCS_URL}
+              src={docsUrl}
               title="Linetec Documentation"
               className="absolute inset-0 w-full h-full"
               sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
