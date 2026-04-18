@@ -5,7 +5,6 @@
   "type": "module",
   "scripts": {
     "start": "serve -s dist",
-    "postinstall": "yarn build",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",

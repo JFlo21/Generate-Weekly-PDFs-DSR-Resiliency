@@ -70,3 +70,14 @@ services:
         value: "900000"                 # 15 minutes
       - key: SEARCH_INDEX_RUN_LIMIT
         value: "50"                     # recent runs scanned by global search
+
+  # Vite + React static frontend (monorepo rootDir — paths are relative to portal-v2/)
+  - type: web
+    name: linetec-report-portal-v2
+    runtime: static
+    region: oregon
+    rootDir: portal-v2
+    buildCommand: yarn install --frozen-lockfile --production=false && yarn build
+    staticPublishPath: ./dist
+    branch: master
+    autoDeploy: true
