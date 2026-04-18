@@ -14,7 +14,16 @@ import type {
   Job,
 } from './types';
 
-export const USE_MOCK = !import.meta.env.VITE_API_BASE_URL;
+/**
+ * Activate mock mode when:
+ *  - VITE_API_BASE_URL is missing or an empty string (no backend configured)
+ *  - VITE_USE_MOCK is explicitly "true" (force demo mode)
+ * We treat the trimmed empty string as "not configured" because Vite sometimes
+ * bakes an empty env var into the bundle.
+ */
+const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').trim();
+const forceMock = String(import.meta.env.VITE_USE_MOCK ?? '').toLowerCase() === 'true';
+export const USE_MOCK = !apiBase || forceMock;
 
 // ---------------------------------------------------------------------------
 // Sample Runs

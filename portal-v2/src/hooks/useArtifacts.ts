@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../lib/api';
+import { MOCK_ARTIFACTS } from '../lib/mockData';
 import type { Artifact } from '../lib/types';
 
 export function useArtifacts(runId: number | null) {
@@ -21,9 +22,17 @@ export function useArtifacts(runId: number | null) {
         setArtifacts(data);
       })
       .catch((err) => {
-        setError(
-          err instanceof Error ? err.message : 'Failed to fetch artifacts'
-        );
+        // Runtime fallback: if the run id matches a mock run, serve mock
+        // artifacts instead of an error so the preview stays interactive.
+        const mock = MOCK_ARTIFACTS[runId];
+        if (import.meta.env.DEV && mock) {
+          setArtifacts(mock);
+          setError(null);
+        } else {
+          setError(
+            err instanceof Error ? err.message : 'Failed to fetch artifacts'
+          );
+        }
       })
       .finally(() => setLoading(false));
   }, [runId]);

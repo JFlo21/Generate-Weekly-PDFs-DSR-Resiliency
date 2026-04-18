@@ -92,18 +92,28 @@ export function DashboardPage() {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="p-6 space-y-6 max-w-6xl mx-auto"
+      className="p-6 lg:p-8 space-y-6 max-w-6xl mx-auto"
     >
-      <div>
-        <h1 className="text-xl font-bold text-slate-900">Dashboard</h1>
-        <p className="text-sm text-slate-500 mt-0.5">
+      <motion.div
+        initial={{ opacity: 0, y: -4 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.05 }}
+        className="flex flex-col gap-1.5"
+      >
+        <div className="flex items-center gap-2">
+          <div className="w-1 h-6 rounded-full bg-gradient-to-b from-brand-red to-red-700" />
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+            Dashboard
+          </h1>
+        </div>
+        <p className="text-sm text-slate-500 ml-3">
           Monitor workflow runs and explore artifact contents. Press{' '}
-          <kbd className="font-mono text-[10px] border border-slate-200 rounded px-1 py-0.5 bg-white">
+          <kbd className="inline-flex items-center font-mono text-[10px] border border-slate-200 rounded px-1.5 py-0.5 bg-white shadow-[0_1px_0_rgba(0,0,0,0.04)] text-slate-700">
             ⌘K
           </kbd>{' '}
-          to search.
+          to search runs and artifacts.
         </p>
-      </div>
+      </motion.div>
 
       <StatsGrid runs={runs} artifacts={artifacts} />
 

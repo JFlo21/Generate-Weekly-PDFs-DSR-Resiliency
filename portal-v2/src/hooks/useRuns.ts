@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../lib/api';
-import { USE_MOCK } from '../lib/mockData';
+import { USE_MOCK, MOCK_RUNS } from '../lib/mockData';
 import type { WorkflowRun } from '../lib/types';
 
 const POLL_INTERVAL_MS = 120_000; // 2 minutes
@@ -34,7 +34,17 @@ export function useRuns() {
       setLastUpdated(new Date());
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch runs');
+      // Runtime fallback: if the real backend is unreachable in dev/preview,
+      // swap in mock data so the UI is still usable instead of an error screen.
+      if (import.meta.env.DEV) {
+        console.warn('[v0] Backend unreachable, falling back to mock data.', err);
+        setRuns(MOCK_RUNS);
+        setLastUpdated(new Date());
+        setError(null);
+        setIsConnected(true);
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to fetch runs');
+      }
     } finally {
       setLoading(false);
     }
