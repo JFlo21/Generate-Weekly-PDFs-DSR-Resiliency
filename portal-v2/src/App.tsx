@@ -7,6 +7,7 @@ import { DashboardLayout } from './components/layout/DashboardLayout';
 import { DashboardPage } from './components/dashboard/DashboardPage';
 import { UsersPage } from './components/admin/UsersPage';
 import { ActivityPage } from './components/admin/ActivityPage';
+import { DocsPage } from './components/docs/DocsPage';
 import { PageTransition } from './components/layout/PageTransition';
 import { ToastContainer } from './components/ui/Toast';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
@@ -41,6 +42,14 @@ export default function App() {
                 element={
                   <PageTransition>
                     <DashboardPage />
+                  </PageTransition>
+                }
+              />
+              <Route
+                path="docs"
+                element={
+                  <PageTransition>
+                    <DocsPage />
                   </PageTransition>
                 }
               />

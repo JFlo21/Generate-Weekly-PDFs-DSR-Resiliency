@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { RefreshCw, LogOut, Wifi, WifiOff, Search, Beaker, BookOpen } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
@@ -6,9 +7,6 @@ import { cn } from '../../lib/utils';
 
 const POLL_SECONDS = 120;
 const CIRCUMFERENCE = 2 * Math.PI * 16; // r=16
-
-// Docusaurus docs URL. Same env var as the sidebar link so they stay in sync.
-const DOCS_URL = (import.meta.env.VITE_DOCS_URL ?? '').trim();
 
 interface NavbarProps {
   countdown: number;
@@ -65,20 +63,15 @@ export function Navbar({
           </button>
         )}
 
-        {/* Docs shortcut — opens the Docusaurus site in a new tab.
-            Hidden when VITE_DOCS_URL is not configured. */}
-        {DOCS_URL && (
-          <a
-            href={DOCS_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
-            title="Docs & Updates (opens in a new tab)"
-          >
-            <BookOpen size={13} />
-            <span>Docs</span>
-          </a>
-        )}
+        {/* Docs shortcut — internal link to /dashboard/docs page */}
+        <Link
+          to="/dashboard/docs"
+          className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+          title="Docs & Updates"
+        >
+          <BookOpen size={13} />
+          <span>Docs</span>
+        </Link>
 
         {/* Connection status — three distinct visual states:
             sample data (amber), live (emerald), offline (slate). */}
