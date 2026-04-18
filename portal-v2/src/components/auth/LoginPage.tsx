@@ -5,6 +5,7 @@ import { Mail, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { ParticleBackground } from '../ui/ParticleBackground';
 import { GlassCard } from '../ui/GlassCard';
+import { LinetecLogo } from '../ui/LinetecLogo';
 import { cn } from '../../lib/utils';
 
 type Mode = 'signin' | 'signup';
@@ -69,11 +70,12 @@ export function LoginPage() {
             transition={{ delay: 0.1 }}
             className="text-center mb-8"
           >
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-brand-red shadow-lg mb-4">
-              <span className="text-white text-2xl font-bold">L</span>
+            {/* Logo sits on the glass/dark card — wrap in a soft white
+                surface so the gray "SERVICES" wordmark stays legible. */}
+            <div className="inline-flex items-center justify-center px-5 py-3 rounded-2xl bg-white/95 shadow-lg shadow-black/20 mb-4">
+              <LinetecLogo size="lg" />
             </div>
-            <h1 className="text-2xl font-bold text-white">Linetec Portal</h1>
-            <p className="text-white/60 text-sm mt-1">
+            <p className="text-white/60 text-sm">
               {mode === 'signin' ? 'Sign in to your account' : 'Create a new account'}
             </p>
           </motion.div>

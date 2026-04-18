@@ -72,39 +72,43 @@ export function DocsPage() {
         </p>
       </motion.div>
 
-      {/* Quick Links Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {quickLinks.map((link, i) => {
-          const Icon = link.icon;
-          return (
-            <motion.a
-              key={link.title}
-              href={link.href}
-              target="_blank"
-              rel="noopener noreferrer"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 + i * 0.05 }}
-              className="group relative flex flex-col gap-3 p-5 bg-white border border-slate-200 rounded-2xl shadow-sm hover:shadow-md hover:border-brand-red/30 transition-all"
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-slate-100 to-slate-50 border border-slate-200 group-hover:from-brand-red/10 group-hover:to-red-50 group-hover:border-brand-red/20 transition-colors">
-                  <Icon size={18} className="text-slate-600 group-hover:text-brand-red transition-colors" />
+      {/* Quick Links Grid — only shown when a docs URL is configured.
+          Without a base URL these would be dead links that produce
+          "page not found" errors, so we hide the entire grid. */}
+      {docsUrl && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {quickLinks.map((link, i) => {
+            const Icon = link.icon;
+            return (
+              <motion.a
+                key={link.title}
+                href={link.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 + i * 0.05 }}
+                className="group relative flex flex-col gap-3 p-5 bg-white border border-slate-200 rounded-2xl shadow-sm hover:shadow-md hover:border-brand-red/30 transition-all"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-slate-100 to-slate-50 border border-slate-200 group-hover:from-brand-red/10 group-hover:to-red-50 group-hover:border-brand-red/20 transition-colors">
+                    <Icon size={18} className="text-slate-600 group-hover:text-brand-red transition-colors" />
+                  </div>
+                  <ExternalLink size={14} className="text-slate-300 group-hover:text-brand-red transition-colors" />
                 </div>
-                <ExternalLink size={14} className="text-slate-300 group-hover:text-brand-red transition-colors" />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold text-slate-900 group-hover:text-brand-red transition-colors">
-                  {link.title}
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-                  {link.description}
-                </p>
-              </div>
-            </motion.a>
-          );
-        })}
-      </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900 group-hover:text-brand-red transition-colors">
+                    {link.title}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                    {link.description}
+                  </p>
+                </div>
+              </motion.a>
+            );
+          })}
+        </div>
+      )}
 
       {/* Embedded Docs (iframe) */}
       {docsUrl ? (
