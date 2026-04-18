@@ -19,6 +19,10 @@ export interface DashboardOutletContext {
 }
 
 export function DashboardLayout() {
+  // NOTE: this component previously referenced a `USE_MOCK` global that was
+  // removed in favor of the runtime `isSampleData` flag on useRuns. If you
+  // see a "USE_MOCK is not defined" error here, hard-refresh the browser —
+  // it's a stale Vite HMR module cache.
   const { runs, loading, error, countdown, refresh, isConnected, isSampleData } = useRuns();
   const { open, close, openPalette } = useCommandPalette();
   const navigate = useNavigate();
