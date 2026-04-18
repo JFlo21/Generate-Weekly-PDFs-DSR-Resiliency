@@ -11,6 +11,10 @@ export interface WorkflowRun {
   html_url: string;
   head_branch: string;
   head_sha: string;
+  /** Optional: GitHub event trigger (e.g. 'schedule', 'workflow_dispatch'). */
+  event?: string;
+  /** Optional: GitHub actor that triggered the run. */
+  actor?: { login: string; avatar_url: string };
   isNew?: boolean;
 }
 
