@@ -77,7 +77,7 @@ Add these in **Settings → Secrets and variables → Actions**:
 | `SENTRY_PROJECT_WORKFLOW` | `weekly-excel-generation.yml` | Sentry project slug for the Python workflow |
 | `SENTRY_PROJECT_FRONTEND` | `portal-v2` build | Sentry project slug for the React frontend |
 
-> **Note:** `PORTAL_SENTRY_DSN` and `VITE_SENTRY_DSN` should be set on the hosting provider (Railway/Render for backend, Vercel for frontend), not in GitHub Actions unless the portal is deployed from CI.
+> **Note:** `PORTAL_SENTRY_DSN` and `VITE_SENTRY_DSN` should be set on the hosting provider (Render for the Express backend, Vercel for the frontend), not in GitHub Actions unless the portal is deployed from CI.
 
 ---
 
@@ -141,16 +141,16 @@ SENTRY_ORG=your-org-slug
 SENTRY_PROJECT_FRONTEND=your-project-slug
 ```
 
-### Railway / Render / VPS (Express backend)
+### Render / VPS (Express backend)
 
 Add these environment variables in your hosting dashboard:
 
 ```
 PORTAL_SENTRY_DSN=https://...
 SENTRY_ENVIRONMENT=production
-# SENTRY_RELEASE is set automatically by RENDER_GIT_COMMIT on Render,
-# or VERCEL_GIT_COMMIT_SHA on Vercel. For Railway/VPS, set it manually
-# or in your deploy script: SENTRY_RELEASE=myrepo@$(git rev-parse HEAD)
+# SENTRY_RELEASE is set automatically by RENDER_GIT_COMMIT on Render.
+# For a VPS or other host, set it manually in your deploy script:
+#   SENTRY_RELEASE=myrepo@$(git rev-parse HEAD)
 ```
 
 ---

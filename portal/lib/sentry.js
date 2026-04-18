@@ -19,7 +19,15 @@
  */
 
 const Sentry = require('@sentry/node');
-const { nodeProfilingIntegration } = require('@sentry/profiling-node');
+
+// Profiling integration requires a pre-compiled native binary. Gracefully
+// degrade if the binary is missing (e.g. Node.js version not yet supported).
+let nodeProfilingIntegration = null;
+try {
+  nodeProfilingIntegration = require('@sentry/profiling-node').nodeProfilingIntegration;
+} catch {
+  // Native profiling binary unavailable for this Node.js version — no-op.
+}
 
 const dsn = process.env.PORTAL_SENTRY_DSN || '';
 
@@ -63,9 +71,8 @@ Sentry.init({
   release,
 
   integrations: [
-    // Node.js profiling — captures CPU profiles during traced spans.
-    // Profiling data is only collected while a trace is active (profileLifecycle: 'trace').
-    nodeProfilingIntegration(),
+    // Node.js profiling — only enabled when the native binary is available.
+    ...(nodeProfilingIntegration ? [nodeProfilingIntegration()] : []),
   ],
 
   // Send structured logs to Sentry (SDK 8.x+)

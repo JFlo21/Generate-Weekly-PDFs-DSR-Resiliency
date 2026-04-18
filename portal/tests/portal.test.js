@@ -329,3 +329,174 @@ describe('Authenticated API endpoints', () => {
     expect(res.body).toHaveProperty('intervalMs');
   });
 });
+
+describe('New API routes: auth protection', () => {
+  it('blocks unauthenticated GET /api/search', async () => {
+    const res = await request('/api/search?q=test');
+    expect(res.status).toBe(302);
+  });
+
+  it('blocks unauthenticated GET /api/cache/stats', async () => {
+    const res = await request('/api/cache/stats');
+    expect(res.status).toBe(302);
+  });
+
+  it('blocks unauthenticated GET /api/runs/:runId/jobs', async () => {
+    const res = await request('/api/runs/1/jobs');
+    expect(res.status).toBe(302);
+  });
+
+  it('blocks unauthenticated GET /api/artifacts/:id/file', async () => {
+    const res = await request('/api/artifacts/1/file?file=report.xlsx');
+    expect(res.status).toBe(302);
+  });
+
+  it('blocks unauthenticated GET /api/artifacts/:id/preview', async () => {
+    const res = await request('/api/artifacts/1/preview?file=report.xlsx');
+    expect(res.status).toBe(302);
+  });
+
+  it('blocks unauthenticated POST /api/search/rebuild without CSRF token', async () => {
+    // CSRF middleware fires before auth for POST requests; expect 403
+    const res = await request('/api/search/rebuild', { method: 'POST' });
+    expect(res.status).toBe(403);
+  });
+});
+
+describe('New API routes: authenticated happy path', () => {
+  let sessionCookie;
+
+  beforeAll(async () => {
+    const csrfRes = await request('/csrf-token');
+    const csrfCookie = csrfRes.headers['set-cookie']?.[0]?.split(';')[0] || '';
+    const loginRes = await request('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfRes.body.token, 'Cookie': csrfCookie },
+      body: { username: 'admin', password: 'testpass' },
+    });
+    sessionCookie = loginRes.headers['set-cookie']?.[0]?.split(';')[0] || '';
+  });
+
+  it('GET /api/cache/stats returns stats object shape', async () => {
+    const res = await request('/api/cache/stats', { headers: { Cookie: sessionCookie } });
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('artifactCache');
+    expect(res.body).toHaveProperty('searchIndex');
+    expect(res.body.searchIndex).toHaveProperty('documents');
+    expect(res.body.searchIndex).toHaveProperty('tokens');
+    expect(typeof res.body.searchIndex.documents).toBe('number');
+  });
+
+  it('GET /api/search?q=test reaches handler when authenticated', async () => {
+    const res = await request('/api/search?q=test', { headers: { Cookie: sessionCookie } });
+    // 502 if GitHub is unreachable in test env; 200 on success
+    expect([200, 502]).toContain(res.status);
+    if (res.status === 200) {
+      expect(res.body).toHaveProperty('hits');
+      expect(Array.isArray(res.body.hits)).toBe(true);
+      expect(res.body).toHaveProperty('total');
+      expect(typeof res.body.total).toBe('number');
+    }
+  });
+
+  it('GET /api/artifacts/:id/file returns 400 when file param is missing', async () => {
+    const res = await request('/api/artifacts/999/file', { headers: { Cookie: sessionCookie } });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/file/i);
+  });
+
+  it('GET /api/artifacts/:id/preview returns 400 when file param is missing', async () => {
+    const res = await request('/api/artifacts/999/preview', { headers: { Cookie: sessionCookie } });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/file/i);
+  });
+
+  it('GET /api/runs/:runId/jobs reaches handler when authenticated', async () => {
+    const res = await request('/api/runs/1/jobs', { headers: { Cookie: sessionCookie } });
+    // 502 if GitHub is unreachable in test env; 200 on success
+    expect([200, 502]).toContain(res.status);
+    if (res.status === 200) {
+      expect(res.body).toHaveProperty('jobs');
+      expect(Array.isArray(res.body.jobs)).toBe(true);
+    }
+  });
+
+  it('POST /api/search/rebuild reaches handler with valid session and CSRF', async () => {
+    // Get a CSRF token for the existing session
+    const csrfRes = await request('/csrf-token', { headers: { Cookie: sessionCookie } });
+    const csrfToken = csrfRes.body.token;
+    const res = await request('/api/search/rebuild', {
+      method: 'POST',
+      headers: { 'X-CSRF-Token': csrfToken, Cookie: sessionCookie },
+    });
+    // 502 if GitHub is unreachable in test env; 200 on success
+    expect([200, 502]).toContain(res.status);
+    if (res.status === 200) {
+      expect(res.body).toHaveProperty('status', 'ok');
+      expect(res.body).toHaveProperty('documents');
+      expect(res.body).toHaveProperty('tokens');
+    }
+  });
+});
+
+describe('searchIndex service', () => {
+  it('exports expected functions', () => {
+    const searchIndex = require('../services/searchIndex');
+    expect(typeof searchIndex.search).toBe('function');
+    expect(typeof searchIndex.rebuild).toBe('function');
+    expect(typeof searchIndex.ensureBuilt).toBe('function');
+    expect(typeof searchIndex.indexArtifact).toBe('function');
+    expect(typeof searchIndex.stats).toBe('function');
+  });
+
+  it('stats() returns expected shape without network calls', () => {
+    const searchIndex = require('../services/searchIndex');
+    const s = searchIndex.stats();
+    expect(s).toHaveProperty('documents');
+    expect(s).toHaveProperty('tokens');
+    expect(s).toHaveProperty('lastBuiltAt');
+    expect(typeof s.documents).toBe('number');
+    expect(typeof s.tokens).toBe('number');
+    // lastBuiltAt is null until a successful rebuild completes
+    expect(s.lastBuiltAt === null || typeof s.lastBuiltAt === 'string').toBe(true);
+  });
+
+  it('stats() reports non-negative document and token counts', () => {
+    const searchIndex = require('../services/searchIndex');
+    const s = searchIndex.stats();
+    expect(s.documents).toBeGreaterThanOrEqual(0);
+    expect(s.tokens).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('artifactCache service', () => {
+  it('exports expected functions', () => {
+    const artifactCache = require('../services/artifactCache');
+    expect(typeof artifactCache.get).toBe('function');
+    expect(typeof artifactCache.invalidate).toBe('function');
+    expect(typeof artifactCache.stats).toBe('function');
+  });
+
+  it('stats() returns cache stats shape without network calls', () => {
+    const artifactCache = require('../services/artifactCache');
+    const s = artifactCache.stats();
+    expect(s).toHaveProperty('inflight');
+    expect(typeof s.inflight).toBe('number');
+    expect(s).toHaveProperty('size');
+    expect(typeof s.size).toBe('number');
+  });
+
+  it('invalidate() removes an entry without throwing', () => {
+    const artifactCache = require('../services/artifactCache');
+    // Invalidating a non-existent key should be a no-op
+    expect(() => artifactCache.invalidate('nonexistent-id')).not.toThrow();
+    const s = artifactCache.stats();
+    expect(s.inflight).toBe(0);
+  });
+
+  it('get() rejects for a non-existent artifact (network unavailable)', async () => {
+    const artifactCache = require('../services/artifactCache');
+    // In test env GitHub is blocked, so get() should reject rather than hang
+    await expect(artifactCache.get('999999')).rejects.toThrow();
+  });
+});

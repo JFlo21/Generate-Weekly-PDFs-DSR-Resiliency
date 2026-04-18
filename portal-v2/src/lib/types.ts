@@ -11,6 +11,10 @@ export interface WorkflowRun {
   html_url: string;
   head_branch: string;
   head_sha: string;
+  /** Optional: GitHub event trigger (e.g. 'schedule', 'workflow_dispatch'). */
+  event?: string;
+  /** Optional: GitHub actor that triggered the run. */
+  actor?: { login: string; avatar_url: string };
   isNew?: boolean;
 }
 
@@ -64,4 +68,90 @@ export interface Toast {
 export interface ExcelSheet {
   name: string;
   rows: (string | number | null)[][];
+}
+
+/** Cell format as returned by the backend /view and /preview endpoints. */
+export interface ParsedExcelCell {
+  col: number;
+  value: string | number | null;
+  style?: {
+    bold?: boolean;
+    fontSize?: number;
+    color?: string;
+    bgColor?: string;
+    align?: string;
+  };
+}
+
+export interface ParsedExcelRow {
+  rowNumber: number;
+  cells: ParsedExcelCell[];
+}
+
+export interface ParsedExcelSheet {
+  name: string;
+  rowCount: number;
+  columnCount: number;
+  rows: ParsedExcelRow[];
+  merges?: Array<{ top: number; left: number; bottom: number; right: number }>;
+}
+
+export interface ParsedWorkbook {
+  filename?: string;
+  sheetCount: number;
+  sheets: ParsedExcelSheet[];
+}
+
+/** Entry in an artifact zip, as returned by /api/artifacts/:id/files. */
+export interface ArtifactFile {
+  name: string;
+  size: number;
+  isExcel: boolean;
+  isText: boolean;
+  isImage: boolean;
+  isJson: boolean;
+  isMarkdown: boolean;
+  isCsv: boolean;
+  isLog: boolean;
+}
+
+export type PreviewMode = 'json' | 'html' | 'csv' | 'text';
+
+export interface TextPreview {
+  filename: string;
+  text: string;
+  truncated: boolean;
+  totalSize: number;
+}
+
+/** Hit shape returned by /api/search for the Cmd+K palette. */
+export interface SearchHit {
+  kind: 'run' | 'artifact' | 'file';
+  runId?: number;
+  artifactId?: number;
+  file?: string;
+  title: string;
+  subtitle: string;
+  score: number;
+  meta?: Record<string, unknown>;
+}
+
+export interface JobStep {
+  name: string;
+  status: string;
+  conclusion: string | null;
+  number: number;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
+export interface Job {
+  id: number;
+  name: string;
+  status: string;
+  conclusion: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  htmlUrl: string;
+  steps: JobStep[];
 }

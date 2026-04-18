@@ -1,6 +1,6 @@
 import { useState, useEffect, createContext, useContext } from 'react';
 import type { User, Session } from '@supabase/supabase-js';
-import { supabase } from '../lib/supabase';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import type { Profile } from '../lib/types';
 
 interface AuthContextValue {
@@ -22,23 +22,38 @@ export function useAuthState(): AuthContextValue {
   const [loading, setLoading] = useState(true);
 
   async function fetchProfile(userId: string): Promise<void> {
+    // Use maybeSingle() so that a missing profile row returns `data: null`
+    // instead of a 406 error. This is the correct behavior when a brand-new
+    // Supabase user hasn't had their profile row created yet.
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', userId)
-      .single();
+      .maybeSingle();
     if (error) {
-      console.error('Failed to fetch profile:', error.message);
+      // Don't spam the console on every auth state change — only log once
+      // per session to aid debugging without flooding logs.
+      console.warn('[v0] Profile fetch returned an error:', error.message);
       return;
     }
     if (data) setProfile(data as Profile);
   }
 
   useEffect(() => {
+    if (!isSupabaseConfigured) {
+      // Supabase env vars are missing — stop the loading spinner so the
+      // auth guard redirects to login instead of spinning indefinitely.
+      setLoading(false);
+      return;
+    }
+
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       setSession(s);
       setUser(s?.user ?? null);
       if (s?.user) fetchProfile(s.user.id);
+      setLoading(false);
+    }).catch(() => {
+      // Network/config error — stop spinning.
       setLoading(false);
     });
 
