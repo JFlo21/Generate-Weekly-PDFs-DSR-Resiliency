@@ -6,7 +6,6 @@ import { Sidebar } from './Sidebar';
 import { useRuns } from '../../hooks/useRuns';
 import { useCommandPalette } from '../../hooks/useCommandPalette';
 import { CommandPalette } from '../dashboard/CommandPalette';
-import { USE_MOCK } from '../../lib/mockData';
 import type { SearchHit, WorkflowRun } from '../../lib/types';
 
 export interface DashboardOutletContext {
@@ -20,7 +19,7 @@ export interface DashboardOutletContext {
 }
 
 export function DashboardLayout() {
-  const { runs, loading, error, countdown, refresh, isConnected } = useRuns();
+  const { runs, loading, error, countdown, refresh, isConnected, isSampleData } = useRuns();
   const { open, close, openPalette } = useCommandPalette();
   const navigate = useNavigate();
 
@@ -62,15 +61,19 @@ export function DashboardLayout() {
 
   return (
     <div className="flex flex-col h-screen bg-slate-50">
-      {USE_MOCK && (
+      {isSampleData && (
         <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-center gap-2 text-amber-800 text-xs font-medium">
           <Beaker size={14} />
-          <span>Demo Mode — Viewing sample data. Connect a backend to see real artifacts.</span>
+          <span>
+            Showing sample data &mdash; the backend is unreachable (CORS or offline).
+            Real runs will appear automatically once the API is reachable.
+          </span>
         </div>
       )}
       <Navbar
         countdown={countdown}
         isConnected={isConnected}
+        isSampleData={isSampleData}
         onRefresh={refresh}
         onOpenCommandPalette={openPalette}
       />

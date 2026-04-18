@@ -13,6 +13,9 @@ export function useRuns() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [countdown, setCountdown] = useState(POLL_INTERVAL_MS / 1000);
   const [isConnected, setIsConnected] = useState(false);
+  // True when the current `runs` array came from the MOCK_RUNS fallback
+  // instead of a live API call. Used to drive UI indicators (banner, pill).
+  const [isSampleData, setIsSampleData] = useState<boolean>(USE_MOCK);
   const runsRef = useRef(runs);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -33,6 +36,9 @@ export function useRuns() {
       setRuns(withNew);
       setLastUpdated(new Date());
       setError(null);
+      // A successful real response clears any prior sample-data state
+      // unless we were started in forced mock mode.
+      if (!USE_MOCK) setIsSampleData(false);
     } catch (err) {
       // Distinguish network errors (CORS blocks, offline, DNS failures) from
       // legitimate HTTP errors (4xx/5xx where the backend DID respond).
@@ -49,6 +55,7 @@ export function useRuns() {
         setLastUpdated(new Date());
         setError(null);
         setIsConnected(true);
+        setIsSampleData(true);
       } else {
         setError(msg || 'Failed to fetch runs');
       }
@@ -122,5 +129,14 @@ export function useRuns() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { runs, loading, error, lastUpdated, countdown, isConnected, refresh: fetchRuns };
+  return {
+    runs,
+    loading,
+    error,
+    lastUpdated,
+    countdown,
+    isConnected,
+    isSampleData,
+    refresh: fetchRuns,
+  };
 }

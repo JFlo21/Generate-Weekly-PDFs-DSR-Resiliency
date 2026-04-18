@@ -83,6 +83,17 @@ Hash (lines ~721-730)
   - Rollback: Railway held hot-standby for 48 h post-cutover; revert via `VITE_API_BASE_URL` flip in Vercel.
 - **Next step when work resumes**: Phase 1 of the plan — stand up the Render Web Service on a staging custom domain in parallel with Railway; do NOT touch production `VITE_API_BASE_URL` yet.
 
+### 2026-04-18 — Dashboard stabilization pass
+- **Log**: `docs/update-log-v2-dashboard-fixes.md`
+- **Problem**: v0 preview was reporting "artifacts not loading" because the Railway backend blocked the preview origin via CORS (`Access to fetch … has been blocked by CORS policy`), the Supabase `profiles.single()` call was 406-ing for users without a profile row, and `DashboardPage` never auto-selected a run so the artifact panel looked empty.
+- **Fixes landed**:
+  - Network-error detection + mock fallback in `useRuns`, `useArtifacts`, and `api.search()` so the UI stays populated during CORS/offline.
+  - `useRuns` now exports `isSampleData` which drives a runtime-accurate "Sample data" banner and a tri-state Navbar pill (live / sample / offline).
+  - `useAuth` switched to `.maybeSingle()` to eliminate the 406 console spam.
+  - `DashboardPage` auto-selects `runs[0]` on mount so the Artifact Panel (with downloadable `.xlsx`) renders without a click.
+  - SSE `EventSource` now closes on any error to stop the ~3s reconnect flood.
+- **Outstanding**: add the v0 preview origin (or `https://*.vusercontent.net`) to backend `CORS_ORIGIN` once the service moves to Render; add a Supabase trigger to auto-create `profiles` rows on `auth.users` insert.
+
 ## Key Architecture Fact
 VAC Crew rows live in the **same sheets** as regular/helper rows (folder `8815193070299012`). The 5 VAC Crew columns discovered from sheet `1413438401105796`:
 - `Vac Crew Email Address` (TEXT_NUMBER)

@@ -25,10 +25,24 @@ export function DashboardPage() {
   const [exploringArtifact, setExploringArtifact] = useState<Artifact | null>(null);
   const [pendingArtifactId, setPendingArtifactId] = useState<number | null>(null);
   const [pendingFile, setPendingFile] = useState<string | null>(null);
+  // Tracks whether the user has manually interacted with run selection yet.
+  // Prevents the auto-select effect from clobbering a deliberate deselection.
+  const [userHasSelected, setUserHasSelected] = useState(false);
 
   const { artifacts, loading: artifactsLoading } = useArtifacts(
     selectedRun?.id ?? null
   );
+
+  // Auto-select the most recent run once data loads so the ArtifactPanel
+  // (and its list of downloadable Excel files) is visible immediately.
+  // Without this, users see an empty right-hand column until they click
+  // a run card — which reads as "artifacts not loading".
+  useEffect(() => {
+    if (userHasSelected) return;
+    if (selectedRun) return;
+    if (runs.length === 0) return;
+    setSelectedRun(runs[0]);
+  }, [runs, selectedRun, userHasSelected]);
 
   // Respond to a Cmd+K selection: focus the run, remember the target artifact
   // (to be opened when useArtifacts returns), and optionally remember the
@@ -125,9 +139,10 @@ export function DashboardPage() {
             loading={loading}
             error={error}
             selectedId={selectedRun?.id ?? null}
-            onSelect={(run) =>
-              setSelectedRun((prev) => (prev?.id === run.id ? null : run))
-            }
+            onSelect={(run) => {
+              setUserHasSelected(true);
+              setSelectedRun((prev) => (prev?.id === run.id ? null : run));
+            }}
           />
         </div>
 
@@ -136,7 +151,10 @@ export function DashboardPage() {
             run={selectedRun}
             artifacts={artifacts}
             loading={artifactsLoading}
-            onClose={() => setSelectedRun(null)}
+            onClose={() => {
+              setUserHasSelected(true);
+              setSelectedRun(null);
+            }}
             onExplore={setExploringArtifact}
           />
         </div>

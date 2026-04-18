@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { RefreshCw, LogOut, Wifi, WifiOff, Search } from 'lucide-react';
+import { RefreshCw, LogOut, Wifi, WifiOff, Search, Beaker } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { cn } from '../../lib/utils';
 
@@ -10,11 +10,18 @@ const CIRCUMFERENCE = 2 * Math.PI * 16; // r=16
 interface NavbarProps {
   countdown: number;
   isConnected: boolean;
+  isSampleData?: boolean;
   onRefresh: () => void;
   onOpenCommandPalette?: () => void;
 }
 
-export function Navbar({ countdown, isConnected, onRefresh, onOpenCommandPalette }: NavbarProps) {
+export function Navbar({
+  countdown,
+  isConnected,
+  isSampleData = false,
+  onRefresh,
+  onOpenCommandPalette,
+}: NavbarProps) {
   const [isMac, setIsMac] = useState(false);
   useEffect(() => {
     if (typeof navigator !== 'undefined') {
@@ -55,17 +62,34 @@ export function Navbar({ countdown, isConnected, onRefresh, onOpenCommandPalette
           </button>
         )}
 
-        {/* Connection status */}
+        {/* Connection status — three distinct visual states:
+            sample data (amber), live (emerald), offline (slate). */}
         <div
           className={cn(
-            'flex items-center gap-1.5 text-xs font-medium',
-            isConnected ? 'text-emerald-600' : 'text-slate-400'
+            'flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-full border',
+            isSampleData
+              ? 'text-amber-700 bg-amber-50 border-amber-200'
+              : isConnected
+              ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+              : 'text-slate-500 bg-slate-50 border-slate-200'
           )}
-          title={isConnected ? 'Live' : 'Offline'}
+          title={
+            isSampleData
+              ? 'Sample data — backend unreachable'
+              : isConnected
+              ? 'Live — backend connected'
+              : 'Offline — no backend connection'
+          }
         >
-          {isConnected ? <Wifi size={14} /> : <WifiOff size={14} />}
+          {isSampleData ? (
+            <Beaker size={12} />
+          ) : isConnected ? (
+            <Wifi size={12} />
+          ) : (
+            <WifiOff size={12} />
+          )}
           <span className="hidden sm:inline">
-            {isConnected ? 'Live' : 'Offline'}
+            {isSampleData ? 'Sample data' : isConnected ? 'Live' : 'Offline'}
           </span>
         </div>
 
