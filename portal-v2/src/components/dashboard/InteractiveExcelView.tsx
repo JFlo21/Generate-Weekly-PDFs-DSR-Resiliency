@@ -7,6 +7,8 @@ interface InteractiveExcelViewProps {
   artifactId: number;
   file: string;
   activeSheetName?: string;
+  /** When set (e.g. from a parent fetch), skips a duplicate getExcelPreview request. */
+  prefetchedWorkbook?: ParsedWorkbook | null;
   onSheetsLoaded?: (sheets: ParsedExcelSheet[]) => void;
 }
 
@@ -38,6 +40,7 @@ export function InteractiveExcelView({
   artifactId,
   file,
   activeSheetName,
+  prefetchedWorkbook,
   onSheetsLoaded,
 }: InteractiveExcelViewProps) {
   const [workbook, setWorkbook] = useState<ParsedWorkbook | null>(null);
@@ -45,6 +48,13 @@ export function InteractiveExcelView({
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    if (prefetchedWorkbook) {
+      setWorkbook(prefetchedWorkbook);
+      setError(null);
+      setLoading(false);
+      onSheetsLoaded?.(prefetchedWorkbook.sheets);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -64,7 +74,7 @@ export function InteractiveExcelView({
     return () => {
       cancelled = true;
     };
-  }, [artifactId, file, onSheetsLoaded]);
+  }, [artifactId, file, prefetchedWorkbook, onSheetsLoaded]);
 
   const sheet = useMemo(() => {
     if (!workbook) return null;
@@ -76,11 +86,11 @@ export function InteractiveExcelView({
 
   const maxCol = useMemo(() => {
     if (!sheet) return 0;
-    let m = 0;
+    let maxIdx = -1;
     for (const r of sheet.rows) {
-      for (const c of r.cells) if (c.col > m) m = c.col;
+      for (const c of r.cells) if (c.col > maxIdx) maxIdx = c.col;
     }
-    return m;
+    return maxIdx + 1;
   }, [sheet]);
 
   if (loading) {
@@ -130,7 +140,7 @@ export function InteractiveExcelView({
                     {row.rowNumber}
                   </td>
                   {Array.from({ length: maxCol }).map((_, i) => {
-                    const col = i + 1;
+                    const col = i;
                     const cell = cellMap.get(col);
                     return (
                       <td

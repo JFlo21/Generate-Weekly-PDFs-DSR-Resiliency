@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Download, ExternalLink, FileText, Image as ImageIcon, Sparkles, Table as TableIcon } from 'lucide-react';
 import { api } from '../../lib/api';
-import type { ArtifactFile, ParsedExcelSheet } from '../../lib/types';
+import type { ArtifactFile, ParsedExcelSheet, ParsedWorkbook } from '../../lib/types';
 import { formatSize, cn } from '../../lib/utils';
 import { Skeleton } from '../ui/Skeleton';
 import { StyledExcelView } from './StyledExcelView';
@@ -148,6 +148,7 @@ function PreviewBody({
 function ExcelPreview({ artifactId, file }: { artifactId: number; file: ArtifactFile }) {
   const [mode, setMode] = useExcelMode();
   const [sheets, setSheets] = useState<ParsedExcelSheet[]>([]);
+  const [excelWorkbook, setExcelWorkbook] = useState<ParsedWorkbook | null>(null);
   const [activeSheet, setActiveSheet] = useState<string | undefined>(undefined);
 
   // When file changes, reset sheet selection and fetch sheet metadata once.
@@ -155,11 +156,13 @@ function ExcelPreview({ artifactId, file }: { artifactId: number; file: Artifact
     let cancelled = false;
     setActiveSheet(undefined);
     setSheets([]);
+    setExcelWorkbook(null);
     api
       .getExcelPreview(artifactId, file.name)
       .then((wb) => {
         if (cancelled) return;
         setSheets(wb.sheets);
+        setExcelWorkbook(wb);
         if (wb.sheets.length > 0) setActiveSheet(wb.sheets[0].name);
       })
       .catch(() => {
@@ -230,6 +233,7 @@ function ExcelPreview({ artifactId, file }: { artifactId: number; file: Artifact
             artifactId={artifactId}
             file={file.name}
             activeSheetName={activeSheet}
+            prefetchedWorkbook={excelWorkbook}
           />
         )}
       </div>
