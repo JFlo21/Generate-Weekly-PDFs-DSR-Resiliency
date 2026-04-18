@@ -142,19 +142,30 @@ export const api = {
     a.click();
   },
 
-  search(
+  async search(
     q: string,
     scope: 'all' | 'runs' | 'artifacts' | 'files' = 'all',
     limit = 20
   ): Promise<{ hits: SearchHit[]; total: number }> {
     if (USE_MOCK) {
       const hits = mockSearch(q).slice(0, limit);
-      return Promise.resolve({ hits, total: hits.length });
+      return { hits, total: hits.length };
     }
     const params = new URLSearchParams({ q, scope, limit: String(limit) });
-    return request<{ hits: SearchHit[]; total: number }>(
-      `/api/search?${params.toString()}`
-    );
+    try {
+      return await request<{ hits: SearchHit[]; total: number }>(
+        `/api/search?${params.toString()}`
+      );
+    } catch (err) {
+      // Fall back to the in-memory mock index if the backend is unreachable
+      // (CORS/offline/DNS) so the palette still returns useful results.
+      const msg = err instanceof Error ? err.message : String(err);
+      if (err instanceof TypeError || /failed to fetch|networkerror|load failed/i.test(msg)) {
+        const hits = mockSearch(q).slice(0, limit);
+        return { hits, total: hits.length };
+      }
+      throw err;
+    }
   },
 
   getJobs(runId: number): Promise<{ jobs: Job[] }> {

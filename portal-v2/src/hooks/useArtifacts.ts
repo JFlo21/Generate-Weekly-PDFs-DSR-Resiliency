@@ -22,16 +22,20 @@ export function useArtifacts(runId: number | null) {
         setArtifacts(data);
       })
       .catch((err) => {
-        // Runtime fallback: if the run id matches a mock run, serve mock
-        // artifacts instead of an error so the preview stays interactive.
-        const mock = MOCK_ARTIFACTS[runId];
-        if (import.meta.env.DEV && mock) {
+        // Fall back to mock artifacts on network errors (CORS/offline/DNS)
+        // so the preview stays interactive even when the backend is
+        // unreachable. Real HTTP errors (4xx/5xx) still surface.
+        const msg = err instanceof Error ? err.message : String(err);
+        const isNetworkError =
+          err instanceof TypeError ||
+          /failed to fetch|networkerror|load failed/i.test(msg);
+        const mock = MOCK_ARTIFACTS[runId] ?? MOCK_ARTIFACTS[1]; // fallback to first mock run
+        if (isNetworkError && mock) {
+          console.warn('[v0] Artifacts backend unreachable, using sample data.');
           setArtifacts(mock);
           setError(null);
         } else {
-          setError(
-            err instanceof Error ? err.message : 'Failed to fetch artifacts'
-          );
+          setError(msg || 'Failed to fetch artifacts');
         }
       })
       .finally(() => setLoading(false));

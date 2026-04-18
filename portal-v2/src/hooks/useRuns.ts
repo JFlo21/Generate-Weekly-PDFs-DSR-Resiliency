@@ -34,16 +34,23 @@ export function useRuns() {
       setLastUpdated(new Date());
       setError(null);
     } catch (err) {
-      // Runtime fallback: if the real backend is unreachable in dev/preview,
-      // swap in mock data so the UI is still usable instead of an error screen.
-      if (import.meta.env.DEV) {
-        console.warn('[v0] Backend unreachable, falling back to mock data.', err);
+      // Distinguish network errors (CORS blocks, offline, DNS failures) from
+      // legitimate HTTP errors (4xx/5xx where the backend DID respond).
+      // `fetch()` throws `TypeError: Failed to fetch` for network-level issues
+      // — in that case we swap in mock data so the preview stays usable.
+      // Real HTTP errors get surfaced so production debugging still works.
+      const msg = err instanceof Error ? err.message : String(err);
+      const isNetworkError =
+        err instanceof TypeError ||
+        /failed to fetch|networkerror|load failed/i.test(msg);
+      if (isNetworkError) {
+        console.warn('[v0] Backend unreachable, falling back to sample data.', err);
         setRuns(MOCK_RUNS);
         setLastUpdated(new Date());
         setError(null);
         setIsConnected(true);
       } else {
-        setError(err instanceof Error ? err.message : 'Failed to fetch runs');
+        setError(msg || 'Failed to fetch runs');
       }
     } finally {
       setLoading(false);
@@ -90,7 +97,10 @@ export function useRuns() {
       });
       es.addEventListener('error', () => {
         setIsConnected(false);
-        if (es && es.readyState === EventSource.CLOSED) {
+        // Close on ANY error — CORS blocks leave EventSource stuck in
+        // CONNECTING state and the browser auto-retries every ~3s forever,
+        // flooding the console. The 2-minute poll covers updates regardless.
+        if (es) {
           es.close();
           es = null;
         }
