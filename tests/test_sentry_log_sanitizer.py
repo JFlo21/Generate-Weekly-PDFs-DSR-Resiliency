@@ -9,7 +9,12 @@ import importlib
 import os
 from unittest.mock import patch
 
-import generate_weekly_pdfs as gwp
+# Import under a patched environment so a developer's real SENTRY_DSN
+# cannot trigger import-time Sentry initialization (and the network /
+# side effects it entails) during pytest collection. The init-wiring
+# tests below reload the module explicitly with their own env patches.
+with patch.dict(os.environ, {"SENTRY_DSN": ""}, clear=False):
+    import generate_weekly_pdfs as gwp
 
 
 class TestParseSentryEnableLogs:
@@ -564,3 +569,25 @@ class TestSentryInitWiring:
         # Guard against a typo / stale reference: the hook must be the
         # module-scope sanitizer so the PII markers apply.
         assert kwargs["before_send_log"] is reloaded.sentry_before_send_log
+
+    def test_installed_sdk_accepts_enable_logs_and_before_send_log(self):
+        """Verify the *real* sentry_sdk.init accepts both new kwargs.
+
+        The other tests in this class patch ``sentry_sdk.init`` with a
+        ``MagicMock``, which happily swallows any keyword. If the
+        installed SDK ever dropped / renamed ``enable_logs`` or
+        ``before_send_log`` (or pinned to a version that predates
+        them), production would raise ``TypeError`` at init time but
+        the mocked tests above would still pass. This test calls the
+        real SDK with ``dsn=None`` (no transport, no network) to surface
+        a keyword mismatch at test time.
+        """
+        import sentry_sdk
+
+        # ``dsn=None`` disables the transport — no data is sent.
+        # A TypeError on an unknown kwarg would fail the test.
+        sentry_sdk.init(
+            dsn=None,
+            enable_logs=False,
+            before_send_log=lambda record, hint: record,
+        )
