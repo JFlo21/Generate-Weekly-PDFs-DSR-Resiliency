@@ -4,6 +4,7 @@
   "version": "2.0.0",
   "type": "module",
   "scripts": {
+    "postinstall": "yarn build",
     "start": "serve -s dist",
     "dev": "vite",
     "build": "tsc -b && vite build",
