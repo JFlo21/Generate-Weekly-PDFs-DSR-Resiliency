@@ -77,13 +77,12 @@ services:
         value: "50"                     # recent runs scanned by global search
 
   # Vite + React static frontend (monorepo rootDir — paths are relative to portal-v2/)
-  # Deployed as a Render static site: no Node server process, just the built
-  # `dist/` directory served via Render's CDN.
-  - type: static
-    name: linetec-report-portal-v2
+  - type: web
+    name: Generate-Weekly-PDFs-DSR-Resiliency
+    runtime: node
     region: oregon
     rootDir: portal-v2
     buildCommand: yarn install --production=false && yarn build
-    publishDir: dist
+    startCommand: yarn start
     branch: master
     autoDeploy: true
