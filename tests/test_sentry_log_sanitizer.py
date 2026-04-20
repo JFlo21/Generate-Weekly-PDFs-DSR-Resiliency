@@ -60,6 +60,10 @@ class TestPiiLogMarkers:
             "for WR ",
             "Work request ",
             "Job # not found",
+            "_HELPER_",
+            "_VACCREW",
+            "Totals Validation",
+            "total=$",
             "Skip (unchanged",
             "Regenerating ",
             "_WeekEnding_",
@@ -250,6 +254,41 @@ class TestSentryBeforeSendLog:
         # {wr}" shape should be dropped via the "for WR " marker.
         record = {
             "body": "Something unexpected happened for WR WR42 during run",
+        }
+        assert gwp.sentry_before_send_log(record, {}) is None
+
+    def test_drops_totals_validation_header(self):
+        record = {"body": "🧮 Totals Validation (first 10 groups):"}
+        assert gwp.sentry_before_send_log(record, {}) is None
+
+    def test_drops_totals_validation_per_group_line(self):
+        # group_key shapes:
+        #   {week}_{wr}                          → primary
+        #   {week}_{wr}_HELPER_{sanitized_name}  → helper
+        #   {week}_{wr}_VACCREW                  → vac crew
+        for body in (
+            "   010124_WR42: rows=5 total=$1234.56",
+            "   010124_WR42_HELPER_Jane_Doe: rows=3 total=$789.00",
+            "   010124_WR42_VACCREW: rows=2 total=$420.69",
+        ):
+            assert gwp.sentry_before_send_log({"body": body}, {}) is None, body
+
+    def test_drops_helper_groupkey_catchall(self):
+        # Any log body containing the helper group_key infix must be
+        # dropped (e.g. error logs that interpolate the raw key).
+        record = {
+            "body": (
+                "❌ Failed to process group "
+                "010124_WR42_HELPER_Jane_Doe: KeyError('foo')"
+            ),
+        }
+        assert gwp.sentry_before_send_log(record, {}) is None
+
+    def test_drops_vaccrew_groupkey_catchall(self):
+        record = {
+            "body": (
+                "Synthetic group failure 010124_WR42_VACCREW: boom"
+            ),
         }
         assert gwp.sentry_before_send_log(record, {}) is None
 

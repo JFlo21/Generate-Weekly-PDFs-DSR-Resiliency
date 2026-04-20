@@ -397,6 +397,19 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     "Work request ",
     "Job # not found",
     "Sample group keys",
+    # Group keys / totals validation. group_key shapes are
+    # ``{week}_{wr}`` (primary), ``{week}_{wr}_HELPER_{foreman}``
+    # (helper), ``{week}_{wr}_VACCREW`` (vac crew). Any log body
+    # carrying ``_HELPER_`` or ``_VACCREW`` is therefore emitting a
+    # group key (which embeds WR + week + foreman). Plus the
+    # always-on totals validation block at the end of a run, which
+    # logs ``{group_key}: rows=N total=$X.YY`` per group.
+    "_HELPER_",
+    "_VACCREW",
+    "Totals Validation",
+    "total=$",
+    "Failed to process group ",
+    "Synthetic group failure ",
     # Attachment / regeneration lifecycle (WR + week embedded)
     "Removing ",
     "Unchanged (",
