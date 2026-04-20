@@ -432,9 +432,15 @@ if SENTRY_DSN:
 
             # Sentry Logs (SDK >= 2.35.0): forward records captured by
             # LoggingIntegration into the Sentry Logs product in addition
-            # to breadcrumbs/events. Purely additive — does not change
-            # the existing event_level=ERROR issue-creation behavior.
-            enable_logs=True,
+            # to breadcrumbs/events. Gated opt-in via SENTRY_ENABLE_LOGS
+            # because INFO-level call sites in this engine can include
+            # row/cell debug content (foreman, dept, job, WR, prices)
+            # that must not be exfiltrated to Sentry by default. Set
+            # SENTRY_ENABLE_LOGS=true only after auditing log call sites
+            # and keeping PER_CELL_DEBUG_ENABLED / row sampling off.
+            enable_logs=os.getenv(
+                "SENTRY_ENABLE_LOGS", "false"
+            ).strip().lower() in ("1", "true", "yes", "on"),
         )
         
         # Set user context (SDK 2.x: top-level API)

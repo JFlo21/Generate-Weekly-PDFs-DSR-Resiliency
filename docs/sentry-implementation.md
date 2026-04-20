@@ -28,6 +28,7 @@ All three surfaces are **opt-in via DSN**. When the DSN is absent or empty, Sent
 | `RELEASE` | Optional | Legacy fallback release (e.g. git SHA). |
 | `ENVIRONMENT` | Optional | Legacy fallback environment (default `production`). |
 | `SENTRY_DEBUG` | Optional | Set to `true` to enable Sentry SDK debug logging. |
+| `SENTRY_ENABLE_LOGS` | Optional | Set to `1`/`true`/`yes`/`on` to forward stdlib `logging` records to the Sentry **Logs** product (SDK ≥ 2.35.0). **Default: off.** See the [Sentry Logs](#sentry-logs-structured-logs-product) section for the required audit of log call sites before enabling — INFO-level debug paths can emit billing-row PII. |
 
 ### Express Backend (`portal/`)
 
@@ -190,20 +191,27 @@ Or run a workflow dispatch in GitHub Actions — Sentry will receive the cron ch
 
 #### Sentry Logs (structured logs product)
 
-`generate_weekly_pdfs.py` initializes the SDK with `enable_logs=True` (requires `sentry-sdk>=2.35.0`, already pinned in `requirements.txt`). With that flag on, two paths reach the Sentry **Logs** product:
+`generate_weekly_pdfs.py` wires the SDK to support the Sentry **Logs** product (requires `sentry-sdk>=2.35.0`, already pinned in `requirements.txt`). Log forwarding is **gated and opt-in**: it activates only when the environment variable `SENTRY_ENABLE_LOGS` is set to `1` / `true` / `yes` / `on`. When unset (default) or `false`, `enable_logs` is `False` and no stdlib records are shipped to the Logs product — existing breadcrumb and event behavior is unaffected.
 
-1. **Stdlib `logging` → Sentry Logs.** Existing `logger.info(...)`, `logger.warning(...)`, `logger.error(...)` calls throughout the billing engine are forwarded automatically via `LoggingIntegration`. No call-site changes are required.
-2. **Direct `sentry_sdk.logger` API.** For log records that should bypass the stdlib logger (e.g. structured spans or attribute-rich events), use the SDK's logger directly:
+> **Privacy note.** Enabling `SENTRY_ENABLE_LOGS` ships every stdlib `logging` record captured by `LoggingIntegration(level=logging.INFO, ...)` to Sentry. This engine has INFO-level debug paths (e.g. `PER_CELL_DEBUG_ENABLED`, row-sample logs) that can include raw cell values, foreman names, dept/job numbers, WR numbers, and price values — all of which are billing-row PII per the [Privacy / Security](#privacy--security) section above. Before flipping `SENTRY_ENABLE_LOGS=true` in any environment, audit the log call sites, keep `PER_CELL_DEBUG_ENABLED` and row-sample debug flags **off** in production, and never add new log lines that embed billing row/cell content.
+
+With the gate on, two paths are relevant in this repo:
+
+1. **Stdlib `logging` → Sentry Logs.** Existing `logger.info(...)`, `logger.warning(...)`, `logger.error(...)` calls throughout the billing engine are forwarded automatically via `LoggingIntegration`. No call-site changes are required, and whatever is written to stdlib `logging` will be shipped to Sentry Logs.
+2. **Direct-to-Sentry helper functions.** If you need to send something to Sentry without going through the stdlib logger, prefer the existing helper functions already used by the Python billing engine, for example `sentry_capture_message_with_context(...)`:
 
    ```python
-   import sentry_sdk
-
-   sentry_sdk.logger.info("This is an info log message")
-   sentry_sdk.logger.warning("This is a warning message")
-   sentry_sdk.logger.error("This is an error message")
+   sentry_capture_message_with_context(
+       "This is an error message",
+       level="error",
+       context_name="billing_engine",
+       context_data={"source": "billing-engine"},
+   )
    ```
 
-Issue-creation behavior is unchanged — the `LoggingIntegration` is still configured with `event_level=logging.ERROR`, so only `ERROR`+ records create Sentry issues. Lower-level records (`INFO`, `WARNING`) now surface as searchable logs instead of being dropped.
+   If you specifically want to use the upstream `sentry_sdk.logger` API, check the upstream Sentry Python SDK documentation first and confirm the installed SDK version supports that surface before adopting it here.
+
+Issue-creation behavior is unchanged — the `LoggingIntegration` is still configured with `event_level=logging.ERROR`, so only `ERROR`+ records create Sentry issues. Lower-level records (`INFO`, `WARNING`) were already captured as breadcrumbs and now also surface as searchable logs in Sentry Logs when `SENTRY_ENABLE_LOGS` is enabled.
 
 ### Express backend
 
