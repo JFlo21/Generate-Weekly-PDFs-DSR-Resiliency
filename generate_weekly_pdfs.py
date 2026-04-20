@@ -364,6 +364,9 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     # Helper detection + grouping
     "HELPER ROW DETECTED",
     "HELPER GROUP CREATED",
+    "HELPER GROUP SUMMARY",
+    "Helper group '",
+    "Helper groups: ",
     "Helper detection criteria",
     "Helper variant",
     "Helper row for WR",
@@ -374,6 +377,8 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     "VAC Crew detection",
     "VAC CREW ROW DETECTED",
     "VAC CREW GROUP CREATED",
+    "VAC CREW GROUP SUMMARY",
+    "VAC Crew group '",
     "Adding row to existing VAC Crew group",
     "MAPPED VAC CREW COLUMN",
     "VAC Crew Helping?",

@@ -42,11 +42,15 @@ class TestPiiLogMarkers:
             "ESSENTIAL FIELDS",
             "HELPER ROW DETECTED",
             "HELPER GROUP CREATED",
+            "HELPER GROUP SUMMARY",
+            "Helper group '",
             "Helper row for WR",
             "Sample Helper",
             "VAC Crew detection",
             "VAC CREW ROW DETECTED",
             "VAC CREW GROUP CREATED",
+            "VAC CREW GROUP SUMMARY",
+            "VAC Crew group '",
             "Rate recalculation",
             "Foreman Assignment",
             "foremen(top5)",
@@ -154,6 +158,35 @@ class TestSentryBeforeSendLog:
                 "Helper=Jane, Dept=200, Job=J7"
             ),
         }
+        assert gwp.sentry_before_send_log(record, {}) is None
+
+    def test_drops_helper_group_summary(self):
+        record = {
+            "body": (
+                "🔧 HELPER GROUP SUMMARY: Created 3 helper groups "
+                "out of 12 total groups"
+            ),
+        }
+        assert gwp.sentry_before_send_log(record, {}) is None
+
+    def test_drops_helper_group_sample_line(self):
+        # helper_key is "{week}_{wr}_HELPER_{sanitized_foreman_name}"
+        record = {
+            "body": "   Helper group '010124_WR42_HELPER_Jane_Doe': 7 rows",
+        }
+        assert gwp.sentry_before_send_log(record, {}) is None
+
+    def test_drops_vac_crew_group_summary(self):
+        record = {
+            "body": (
+                "🏗️ VAC CREW GROUP SUMMARY: Created 2 VAC Crew "
+                "group(s) out of 10 total groups"
+            ),
+        }
+        assert gwp.sentry_before_send_log(record, {}) is None
+
+    def test_drops_vac_crew_group_sample_line(self):
+        record = {"body": "   VAC Crew group '010124_WR42_VACCREW': 5 rows"}
         assert gwp.sentry_before_send_log(record, {}) is None
 
     def test_drops_excluding_from_main_excel(self):
