@@ -316,27 +316,36 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   follow this same pattern — do not reintroduce the raw
   `${{ github.repository }}@${{ github.sha }}` form.
 - [2026-04-20 12:00] Sentry Logs support wired for the Python
-  billing engine, **gated opt-in**. `sentry_sdk.init(...)` in
-  `generate_weekly_pdfs.py` sets `enable_logs=` from a new
-  `SENTRY_ENABLE_LOGS` env var (truthy values: `1`, `true`, `yes`,
-  `on`; default `false`). Requires `sentry-sdk>=2.35.0`, already
-  pinned in `requirements.txt`. Rationale: the engine has INFO-level
-  debug paths (`PER_CELL_DEBUG_ENABLED`, row-sample logs, helper /
-  vac-crew diagnostics) that can emit billing-row PII — WR, Job #,
-  dept, foreman, cell values, prices. Per
+  billing engine, **gated opt-in + defense-in-depth sanitizer**.
+  `sentry_sdk.init(...)` in `generate_weekly_pdfs.py` sets
+  `enable_logs=` from a new `SENTRY_ENABLE_LOGS` env var (truthy
+  values: `1`, `true`, `yes`, `on`; default `false`) AND registers a
+  `before_send_log` hook that drops records whose body matches any
+  entry in `_PII_LOG_MARKERS` (row-sample diagnostics, cell dumps,
+  helper / vac-crew detection logs, rate-recalc traces, foreman
+  assignment logs, `Removing …` / `Unchanged (…` / `FORCE
+  GENERATION for …` lines — all known INFO paths that embed WR /
+  dept / job / foreman / cell / price data). Requires
+  `sentry-sdk>=2.35.0`, already pinned in `requirements.txt`.
+  Rationale: the engine has INFO-level debug paths
+  (`PER_CELL_DEBUG_ENABLED`, row-sample logs, helper / vac-crew
+  diagnostics) that can emit billing-row PII; per
   `docs/sentry-implementation.md` "Privacy / Security", that data is
   *intentionally not captured* in Sentry, so forwarding INFO logs by
   default would regress an existing privacy guarantee. New rules:
   (1) Any new Python script that initializes Sentry in this repo
   must route `enable_logs` through the same `SENTRY_ENABLE_LOGS` env
-  gate — do not hard-code `True`. (2) Before flipping
+  gate — do not hard-code `True`. (2) Adding a new INFO log that
+  embeds row content? Either strip the PII from the message or
+  extend `_PII_LOG_MARKERS` in the same PR so the sanitizer keeps
+  up. Never rely on the env gate alone. (3) Before flipping
   `SENTRY_ENABLE_LOGS=true` in any environment, audit log call sites
   and keep `PER_CELL_DEBUG_ENABLED` and row-sample debug flags off
-  in production. (3) For direct-to-Sentry sends, prefer the existing
+  in production. (4) For direct-to-Sentry sends, prefer the existing
   `sentry_capture_message_with_context(...)` helper over the
   upstream `sentry_sdk.logger.*` API, which is less established in
   this codebase and depends on SDK internals that may shift.
   Issue-creation behavior is unchanged regardless of the gate
   (`event_level=logging.ERROR`, so only ERROR+ creates issues;
   INFO/WARNING were already breadcrumbs and become searchable Logs
-  only when the gate is on).
+  only when the gate is on and the sanitizer lets them through).

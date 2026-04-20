@@ -354,9 +354,56 @@ if SENTRY_DSN:
         event_level=logging.ERROR
     )
     
+    # Substring markers that identify billing-engine log messages
+    # known to embed row-level PII (WR, dept, job, foreman, helper /
+    # vac-crew names, cell values, prices). If any of these appear in
+    # a log body, the record is dropped before it ships to the Sentry
+    # Logs product. Applied in addition to the `SENTRY_ENABLE_LOGS`
+    # env gate — defense in depth.
+    _PII_LOG_MARKERS = (
+        "Row data sample",
+        "Cell ",
+        "HELPER ROW DETECTED",
+        "Helper detection criteria",
+        "Helper variant",
+        "VAC Crew detection",
+        "MAPPED HELPER COLUMN",
+        "MAPPED VAC CREW COLUMN",
+        "Rate recalculation",
+        "Rate recalc",
+        "Foreman Assignment",
+        "Excluding row",
+        "Removing ",
+        "Unchanged (",
+        "FORCE GENERATION for ",
+    )
+
+    def before_send_log(record, hint):
+        """Drop Sentry Logs records that embed billing-row PII.
+
+        Runs only when ``SENTRY_ENABLE_LOGS`` is truthy (otherwise the
+        SDK never invokes this hook). Matches against the rendered log
+        body; returns ``None`` to drop, or the record dict unchanged
+        to forward.
+        """
+        try:
+            if isinstance(record, dict):
+                body = record.get("body", "") or ""
+            else:
+                body = getattr(record, "body", "") or ""
+            if not isinstance(body, str):
+                return record
+            for marker in _PII_LOG_MARKERS:
+                if marker in body:
+                    return None
+        except Exception:
+            # Never let the sanitizer crash the SDK — forward on error.
+            return record
+        return record
+
     def before_send_filter(event, hint):
         """Filter out normal Smartsheet 404 errors during cleanup operations.
-        
+
         Sentry 2.x compatible: Enriches events with additional context.
         """
         # Filter Smartsheet internal logger noise
@@ -441,6 +488,11 @@ if SENTRY_DSN:
             enable_logs=os.getenv(
                 "SENTRY_ENABLE_LOGS", "false"
             ).strip().lower() in ("1", "true", "yes", "on"),
+
+            # Defense-in-depth PII sanitizer for the Logs product. Even
+            # when the env gate is on, drop records that embed known
+            # row-level markers (see _PII_LOG_MARKERS above).
+            before_send_log=before_send_log,
         )
         
         # Set user context (SDK 2.x: top-level API)
