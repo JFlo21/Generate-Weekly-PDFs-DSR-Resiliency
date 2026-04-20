@@ -303,3 +303,15 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   architecture, conventions, guardrails, validation commands — with
   `uv` flagged aspirational and `pytest tests/ -v` kept authoritative)
   while preserving every pre-existing section verbatim.
+- [2026-04-20 00:00] Sentry release naming in GitHub Actions: release
+  versions must be slash-free or `sentry-cli releases new` fails with
+  `Invalid release version`. Standardized on composing
+  `SENTRY_RELEASE` via a "Compute Sentry release" step that exports
+  `${GITHUB_REPOSITORY//\//-}@${GITHUB_SHA}` into `$GITHUB_ENV`, then
+  reusing that single value for both the Python process and the
+  `sentry-cli` release step. Applied in
+  `.github/workflows/weekly-excel-generation.yml` and
+  `.github/workflows/system-health-check.yml`. Any new workflow that
+  creates a Sentry release or tags events with `SENTRY_RELEASE` MUST
+  follow this same pattern — do not reintroduce the raw
+  `${{ github.repository }}@${{ github.sha }}` form.

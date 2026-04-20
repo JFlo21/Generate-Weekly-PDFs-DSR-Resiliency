@@ -22,10 +22,15 @@ jobs:
       SMARTSHEET_API_TOKEN: ${{ secrets.SMARTSHEET_API_TOKEN }}
       SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
       SENTRY_ENVIRONMENT: production
-      SENTRY_RELEASE: ${{ github.repository }}@${{ github.sha }}
+      # SENTRY_RELEASE is exported slash-free via $GITHUB_ENV in the
+      # "Compute Sentry release" step below — Sentry rejects slashes in
+      # release versions, so we sanitize `owner/repo` to `owner-repo`.
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Compute Sentry release
+        run: echo "SENTRY_RELEASE=${GITHUB_REPOSITORY//\//-}@${GITHUB_SHA}" >> "$GITHUB_ENV"
       
       - name: Setup Python
         uses: actions/setup-python@v5
