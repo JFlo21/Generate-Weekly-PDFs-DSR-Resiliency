@@ -1,7 +1,12 @@
-# Render Blueprint — Linetec Report Portal backend
+# Render Blueprint — Linetec Report Portal (backend + portal-v2 frontend)
 # Reference: https://render.com/docs/blueprint-spec
 #
-# This file is the single source of truth for the Express backend deploy.
+# This file is the single source of truth for both Render deploys in this
+# repo:
+#   1. `linetec-report-portal`    — Express backend (portal/), type: web
+#   2. `linetec-report-portal-v2` — Vite + React frontend (portal-v2/),
+#                                   type: static (publishes dist/)
+#
 # It is used during Phase 1 of docs/railway-to-render-transition-plan.md
 # to stand up a staging service in parallel with the existing Railway host.
 #
@@ -72,12 +77,12 @@ services:
         value: "50"                     # recent runs scanned by global search
 
   # Vite + React static frontend (monorepo rootDir — paths are relative to portal-v2/)
-  - type: web
-    name: Generate-Weekly-PDFs-DSR-Resiliency
-    runtime: node
-    region: oregon
+  # Deployed as a Render static site: no Node server process, just the built
+  # `dist/` directory served via Render's CDN.
+  - type: static
+    name: linetec-report-portal-v2
     rootDir: portal-v2
     buildCommand: yarn install --production=false && yarn build
-    startCommand: yarn start
+    publishDir: dist
     branch: master
     autoDeploy: true
