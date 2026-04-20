@@ -64,6 +64,9 @@ class TestPiiLogMarkers:
             "for WR ",
             "Work request ",
             "Job # not found",
+            "WR_FILTER applied",
+            "EXCLUDE_WRS:",
+            "Hash reset requested for specific WRs",
             "_HELPER_",
             "_VACCREW",
             "Totals Validation",
@@ -258,6 +261,35 @@ class TestSentryBeforeSendLog:
         # {wr}" shape should be dropped via the "for WR " marker.
         record = {
             "body": "Something unexpected happened for WR WR42 during run",
+        }
+        assert gwp.sentry_before_send_log(record, {}) is None
+
+    def test_drops_wr_filter_applied(self):
+        record = {
+            "body": (
+                "🔎 WR_FILTER applied (primary + helper + vac_crew): "
+                "3/12 groups retained (WR42,WR99,WR123)"
+            ),
+        }
+        assert gwp.sentry_before_send_log(record, {}) is None
+
+    def test_drops_exclude_wrs_lines(self):
+        for body in (
+            "🔍 EXCLUDE_WRS check: Attempting to exclude WRs "
+            "['WR42', 'WR99'] from 12 groups",
+            "🚫 EXCLUDE_WRS applied: 2 groups excluded (WR42,WR99) "
+            "- 10 groups remaining",
+            "🚫 EXCLUDE_WRS specified but no matching groups found "
+            "to exclude (WR42,WR99)",
+        ):
+            assert gwp.sentry_before_send_log({"body": body}, {}) is None, body
+
+    def test_drops_hash_reset_specific_wrs(self):
+        record = {
+            "body": (
+                "🧨 Hash reset requested for specific WRs: "
+                "['WR42', 'WR99', 'WR123']"
+            ),
         }
         assert gwp.sentry_before_send_log(record, {}) is None
 

@@ -397,6 +397,12 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     "Work request ",
     "Job # not found",
     "Sample group keys",
+    # Runtime WR lists (operator-supplied filter / exclusion / reset
+    # lists that print every WR identifier they contain).
+    "WR_FILTER applied",
+    "EXCLUDE_WRS ",
+    "EXCLUDE_WRS:",
+    "Hash reset requested for specific WRs",
     # Group keys / totals validation. group_key shapes are
     # ``{week}_{wr}`` (primary), ``{week}_{wr}_HELPER_{foreman}``
     # (helper), ``{week}_{wr}_VACCREW`` (vac crew). Any log body
