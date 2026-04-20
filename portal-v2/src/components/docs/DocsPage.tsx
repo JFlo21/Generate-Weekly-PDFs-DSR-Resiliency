@@ -19,7 +19,7 @@ const quickLinkDefs: QuickLink[] = [
   {
     title: 'Changelog',
     description: 'View recent updates, fixes, and new features',
-    path: '/changelog',
+    path: '/blog',
     icon: History,
   },
   {
