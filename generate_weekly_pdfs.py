@@ -400,6 +400,23 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     "Skip (unchanged",
     "Regenerating ",
     "FORCE GENERATION for ",
+    # Output filenames interpolate
+    # ``WR_{wr}_WeekEnding_{MMDDYY}_{timestamp}[_Helper_<foreman>|
+    # _User_<foreman>|_VacCrew]_{hash}.xlsx``, so any log body that
+    # contains ``_WeekEnding_`` is carrying an artifact name that
+    # embeds WR + week + foreman. Broad catch-all + explicit prefixes
+    # for the upload / delete / generate lifecycle.
+    "_WeekEnding_",
+    "Generating Excel file",
+    "Generated Excel",
+    "Uploaded: ",
+    "Skipping upload ",
+    "Rate limited on upload",
+    "Upload retry ",
+    "Upload failed for ",
+    "Deleted: ",
+    "Already gone: ",
+    "Delete failed ",
 )
 
 

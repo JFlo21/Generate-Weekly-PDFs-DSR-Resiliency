@@ -59,6 +59,11 @@ class TestPiiLogMarkers:
             "Sample group keys",
             "Skip (unchanged",
             "Regenerating ",
+            "_WeekEnding_",
+            "Generated Excel",
+            "Uploaded: ",
+            "Upload failed for ",
+            "Deleted: ",
         }
         assert required.issubset(set(gwp._PII_LOG_MARKERS))
 
@@ -229,6 +234,63 @@ class TestSentryBeforeSendLog:
     def test_drops_regenerating(self):
         record = {
             "body": "🔁 Regenerating primary WR 42 week 010124 despite unchanged hash",
+        }
+        assert gwp.sentry_before_send_log(record, {}) is None
+
+    def test_drops_generated_excel_filename(self):
+        # Filename embeds WR, week, helper foreman name, and hash.
+        record = {
+            "body": (
+                "📄 Generated Excel: 'WR_WR42_WeekEnding_010124_"
+                "20260420T120000Z_Helper_Jane_Doe_abcd1234.xlsx'"
+            ),
+        }
+        assert gwp.sentry_before_send_log(record, {}) is None
+
+    def test_drops_generating_excel_file(self):
+        record = {
+            "body": (
+                "📊 Generating Excel file "
+                "'WR_WR42_WeekEnding_010124_20260420T120000Z.xlsx' "
+                "for WR#WR42"
+            ),
+        }
+        assert gwp.sentry_before_send_log(record, {}) is None
+
+    def test_drops_uploaded_filename(self):
+        record = {
+            "body": (
+                "✅ Uploaded: "
+                "WR_WR42_WeekEnding_010124_Helper_Jane_abcd.xlsx"
+            ),
+        }
+        assert gwp.sentry_before_send_log(record, {}) is None
+
+    def test_drops_upload_retry_and_rate_limit(self):
+        for body in (
+            "⚠️ Upload retry 2/5 for WR_WR42_WeekEnding_010124_abcd.xlsx (TimeoutError), backoff 1.0s",
+            "⚠️ Rate limited on upload for WR_WR42_WeekEnding_010124_abcd.xlsx, backoff 2s (attempt 1/5)",
+            "❌ Upload failed for WR_WR42_WeekEnding_010124_abcd.xlsx: boom",
+        ):
+            assert gwp.sentry_before_send_log({"body": body}, {}) is None, body
+
+    def test_drops_attachment_delete_lifecycle(self):
+        for body in (
+            "   ✅ Deleted: WR_WR42_WeekEnding_010124_abcd.xlsx",
+            "   ℹ️ Already gone: WR_WR42_WeekEnding_010124_abcd.xlsx",
+            "   ⚠️ Delete failed WR_WR42_WeekEnding_010124_abcd.xlsx: boom",
+        ):
+            assert gwp.sentry_before_send_log({"body": body}, {}) is None, body
+
+    def test_drops_weekending_substring_catchall(self):
+        # Even outside the known prefixes, any body carrying a
+        # canonical artifact filename (which always contains
+        # ``_WeekEnding_``) must be dropped.
+        record = {
+            "body": (
+                "some future log message referencing "
+                "WR_WR42_WeekEnding_010124_Helper_Jane_abcd.xlsx"
+            ),
         }
         assert gwp.sentry_before_send_log(record, {}) is None
 
