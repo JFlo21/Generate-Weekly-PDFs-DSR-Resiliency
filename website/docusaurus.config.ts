@@ -7,7 +7,7 @@ const config: Config = {
   tagline: 'Living documentation for the Smartsheet Weekly PDF Generator',
   favicon: 'img/favicon.ico',
 
-  url: process.env.DOCS_SITE_URL ?? 'https://weekly-pdfs-runbook.vercel.app',
+  url: process.env.DOCS_SITE_URL ?? 'https://excel-website-documentation-runbook.vercel.app',
   baseUrl: '/',
 
   // Must match vercel.json's `"trailingSlash": false`. If these disagree, the
