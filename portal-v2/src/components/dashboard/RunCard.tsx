@@ -31,8 +31,13 @@ export function RunCard({ run, index, isSelected, onClick }: RunCardProps) {
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, x: -16 }}
-      animate={{ opacity: 1, x: 0 }}
+      // Set `boxShadow` on both `initial` and `animate` so Framer Motion has
+      // a valid, parseable starting value when `whileHover` interpolates to
+      // a new boxShadow. Without this Framer reads Tailwind's `shadow-sm`
+      // CSS variable chain and produces `NaN NaNpx NaNpx rgba(NaN, ...)`
+      // which spams the console on every hover.
+      initial={{ opacity: 0, x: -16, boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)' }}
+      animate={{ opacity: 1, x: 0, boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)' }}
       exit={{ opacity: 0, x: -16 }}
       transition={{ delay: index * 0.05, type: 'spring', stiffness: 200, damping: 22 }}
       whileHover={{ y: -2, boxShadow: '0 6px 24px rgba(0,0,0,0.07)' }}
@@ -40,9 +45,11 @@ export function RunCard({ run, index, isSelected, onClick }: RunCardProps) {
       onClick={onClick}
       className={cn(
         'relative flex items-start gap-4 p-4 rounded-2xl bg-white border cursor-pointer transition-colors overflow-hidden',
+        // Removed `shadow-sm` Tailwind class — the shadow is now controlled
+        // entirely by Framer Motion's animate prop to avoid conflicts.
         isSelected
-          ? 'border-brand-red ring-1 ring-brand-red/30 shadow-sm'
-          : 'border-slate-100 hover:border-slate-200 shadow-sm'
+          ? 'border-brand-red ring-1 ring-brand-red/30'
+          : 'border-slate-100 hover:border-slate-200'
       )}
       role="button"
       tabIndex={0}
