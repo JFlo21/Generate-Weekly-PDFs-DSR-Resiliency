@@ -348,58 +348,105 @@ def sentry_capture_message_with_context(message: str, level: SentryLogLevel = "e
     
     sentry_sdk.capture_message(message, level=level)
 
+# Substring markers that identify billing-engine log messages known
+# to embed row-level PII (WR, dept, job, foreman, helper / vac-crew
+# names, cell values, prices). If any of these appear in a log body,
+# the record is dropped before it ships to the Sentry Logs product.
+# Applied in addition to the ``SENTRY_ENABLE_LOGS`` env gate —
+# defense in depth. Defined at module scope (not inside the
+# ``if SENTRY_DSN:`` block) so it is importable and unit-testable
+# without a live DSN.
+_PII_LOG_MARKERS: tuple[str, ...] = (
+    # Per-row / per-cell debug dumps
+    "Row data sample",
+    "Cell ",
+    # Helper detection + grouping
+    "HELPER ROW DETECTED",
+    "HELPER GROUP CREATED",
+    "Helper detection criteria",
+    "Helper variant",
+    "Helper row for WR",
+    "MAPPED HELPER COLUMN",
+    "Sample Helper",
+    "Foreman Helping?",
+    # VAC Crew detection + grouping
+    "VAC Crew detection",
+    "VAC CREW ROW DETECTED",
+    "VAC CREW GROUP CREATED",
+    "Adding row to existing VAC Crew group",
+    "MAPPED VAC CREW COLUMN",
+    "VAC Crew Helping?",
+    # Rate / pricing recalc (CU + group codes + quantities + rates)
+    "Rate recalculation",
+    "Rate recalc",
+    # Foreman / assignment / exclusion diagnostics
+    "Foreman Assignment",
+    "foremen(top5)",
+    "Excluding row",
+    "EXCLUDING from main Excel",
+    # WR-keyed log lines
+    "for WR#",
+    "WR# ",
+    "Sample group keys",
+    # Attachment / regeneration lifecycle (WR + week embedded)
+    "Removing ",
+    "Unchanged (",
+    "Skip (unchanged",
+    "Regenerating ",
+    "FORCE GENERATION for ",
+)
+
+
+def sentry_before_send_log(record, hint):
+    """Drop Sentry Logs records that embed billing-row PII.
+
+    Runs only when ``SENTRY_ENABLE_LOGS`` is truthy (otherwise the
+    SDK never invokes this hook). Matches against the rendered log
+    body; returns ``None`` to drop, or the record unchanged to forward.
+    Defined at module scope so it is importable and unit-testable.
+
+    Fails **closed**: any unexpected body shape (non-string, missing)
+    or an exception raised while inspecting the record results in the
+    record being dropped, so an uninspectable payload can never
+    bypass the marker checks.
+    """
+    try:
+        if isinstance(record, dict):
+            body = record.get("body", "") or ""
+        else:
+            body = getattr(record, "body", "") or ""
+        if not isinstance(body, str):
+            # Fail closed for unexpected body types so uninspectable
+            # records cannot bypass PII marker checks.
+            return None
+        for marker in _PII_LOG_MARKERS:
+            if marker in body:
+                return None
+    except Exception:
+        # Never let the sanitizer crash the SDK — drop on error so
+        # unclassified records don't slip through to Sentry Logs.
+        return None
+    return record
+
+
+def _parse_sentry_enable_logs(raw: str | None) -> bool:
+    """Parse the SENTRY_ENABLE_LOGS env value into a bool.
+
+    Truthy: ``1``, ``true``, ``yes``, ``on`` (case-insensitive,
+    whitespace-tolerant). Anything else — including unset / empty —
+    is falsy. Extracted so tests can cover both branches without
+    needing a live DSN.
+    """
+    if raw is None:
+        return False
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
 if SENTRY_DSN:
     sentry_logging = LoggingIntegration(
         level=logging.INFO,
         event_level=logging.ERROR
     )
-    
-    # Substring markers that identify billing-engine log messages
-    # known to embed row-level PII (WR, dept, job, foreman, helper /
-    # vac-crew names, cell values, prices). If any of these appear in
-    # a log body, the record is dropped before it ships to the Sentry
-    # Logs product. Applied in addition to the `SENTRY_ENABLE_LOGS`
-    # env gate — defense in depth.
-    _PII_LOG_MARKERS = (
-        "Row data sample",
-        "Cell ",
-        "HELPER ROW DETECTED",
-        "Helper detection criteria",
-        "Helper variant",
-        "VAC Crew detection",
-        "MAPPED HELPER COLUMN",
-        "MAPPED VAC CREW COLUMN",
-        "Rate recalculation",
-        "Rate recalc",
-        "Foreman Assignment",
-        "Excluding row",
-        "Removing ",
-        "Unchanged (",
-        "FORCE GENERATION for ",
-    )
-
-    def before_send_log(record, hint):
-        """Drop Sentry Logs records that embed billing-row PII.
-
-        Runs only when ``SENTRY_ENABLE_LOGS`` is truthy (otherwise the
-        SDK never invokes this hook). Matches against the rendered log
-        body; returns ``None`` to drop, or the record dict unchanged
-        to forward.
-        """
-        try:
-            if isinstance(record, dict):
-                body = record.get("body", "") or ""
-            else:
-                body = getattr(record, "body", "") or ""
-            if not isinstance(body, str):
-                return record
-            for marker in _PII_LOG_MARKERS:
-                if marker in body:
-                    return None
-        except Exception:
-            # Never let the sanitizer crash the SDK — forward on error.
-            return record
-        return record
 
     def before_send_filter(event, hint):
         """Filter out normal Smartsheet 404 errors during cleanup operations.
@@ -485,14 +532,14 @@ if SENTRY_DSN:
             # that must not be exfiltrated to Sentry by default. Set
             # SENTRY_ENABLE_LOGS=true only after auditing log call sites
             # and keeping PER_CELL_DEBUG_ENABLED / row sampling off.
-            enable_logs=os.getenv(
-                "SENTRY_ENABLE_LOGS", "false"
-            ).strip().lower() in ("1", "true", "yes", "on"),
+            enable_logs=_parse_sentry_enable_logs(
+                os.getenv("SENTRY_ENABLE_LOGS")
+            ),
 
             # Defense-in-depth PII sanitizer for the Logs product. Even
             # when the env gate is on, drop records that embed known
             # row-level markers (see _PII_LOG_MARKERS above).
-            before_send_log=before_send_log,
+            before_send_log=sentry_before_send_log,
         )
         
         # Set user context (SDK 2.x: top-level API)

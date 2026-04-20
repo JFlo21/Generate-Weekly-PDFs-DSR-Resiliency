@@ -8,7 +8,7 @@ This document describes the Sentry error-monitoring setup across all three compo
 
 | Component | Instrumented? | DSN env var | Notes |
 |-----------|---------------|-------------|-------|
-| Python billing engine (`generate_weekly_pdfs.py`) | ✅ Yes (existing + standardised) | `SENTRY_DSN` | Cron check-in, tracing, custom helpers, **Sentry Logs (`enable_logs=True`)** |
+| Python billing engine (`generate_weekly_pdfs.py`) | ✅ Yes (existing + standardised) | `SENTRY_DSN` | Cron check-in, tracing, custom helpers, **Sentry Logs (opt-in via `SENTRY_ENABLE_LOGS`; default off)** |
 | Express backend (`portal/`) | ✅ Yes (new) | `PORTAL_SENTRY_DSN` | Error handler, header scrubbing |
 | React frontend (`portal-v2/`) | ✅ Yes (new) | `VITE_SENTRY_DSN` | Browser tracing, ErrorBoundary, API breadcrumbs |
 
