@@ -419,10 +419,18 @@ def sentry_before_send_log(record, hint):
     marker checks.
     """
     try:
+        # Resolve the body without ``or ""`` coercion — falsy non-string
+        # values (0, False, [], {}) must reach the isinstance check so
+        # they hit the fail-closed branch instead of being silently
+        # converted to "" and forwarded.
         if isinstance(record, dict):
-            body = record.get("body", "") or ""
+            body = record["body"] if "body" in record else ""
         else:
-            body = getattr(record, "body", "") or ""
+            body = (
+                getattr(record, "body")
+                if hasattr(record, "body")
+                else ""
+            )
         if not isinstance(body, str):
             # Fail closed for unexpected body types so uninspectable
             # records cannot bypass PII marker checks.

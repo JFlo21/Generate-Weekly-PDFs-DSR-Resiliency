@@ -260,6 +260,24 @@ class TestSentryBeforeSendLog:
         record = {"body": 12345}
         assert gwp.sentry_before_send_log(record, {}) is None
 
+    def test_fails_closed_on_falsy_non_string_body(self):
+        # Regression guard: falsy non-string bodies must also fail
+        # closed. Previously a ``body or ""`` coercion converted
+        # these to "" and forwarded them, bypassing the isinstance
+        # check.
+        for bogus in (0, False, [], {}, (), 0.0):
+            record = {"body": bogus}
+            assert gwp.sentry_before_send_log(record, {}) is None, bogus
+
+    def test_fails_closed_on_falsy_non_string_attr_body(self):
+        # Same regression guard for object-shaped records accessed
+        # via getattr().
+        class _Rec:
+            body = 0
+
+        rec = _Rec()
+        assert gwp.sentry_before_send_log(rec, {}) is None
+
     def test_forwards_object_style_record(self):
         # Some SDK versions may pass an object with attributes rather
         # than a dict; the sanitizer uses ``getattr`` for that shape.
