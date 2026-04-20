@@ -121,6 +121,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Compute Sentry release
+        # Sentry release versions disallow slashes, so sanitize the
+        # `owner/repo` form into `owner-repo` before composing the
+        # release tag. This must run before any step that references
+        # $SENTRY_RELEASE (Python job env below and the sentry-cli
+        # release step further down) so both use an identical value.
+        run: echo "SENTRY_RELEASE=${GITHUB_REPOSITORY//\//-}@${GITHUB_SHA}" >> "$GITHUB_ENV"
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -187,7 +194,10 @@ jobs:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           ENVIRONMENT: production
           RELEASE: ${{ github.sha }}
-          SENTRY_RELEASE: ${{ github.repository }}@${{ github.sha }}
+          # SENTRY_RELEASE is exported slash-free via $GITHUB_ENV in the
+          # "Compute Sentry release" step above so it satisfies Sentry's
+          # version constraints and matches the tag used by the
+          # sentry-cli release step below.
           EXECUTION_TYPE: ${{ steps.exec.outputs.execution_type }}
           
           # Basic Operation Controls
@@ -252,7 +262,11 @@ jobs:
           SENTRY_ORG: ${{ vars.SENTRY_ORG || '' }}
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT_WORKFLOW || '' }}
         run: |
-          RELEASE="${{ github.repository }}@${{ github.sha }}"
+          # Sentry release versions cannot contain slashes; reuse the
+          # sanitized SENTRY_RELEASE exported by the "Compute Sentry
+          # release" step so the CLI-created release matches the tag
+          # the Python process reports events against.
+          RELEASE="$SENTRY_RELEASE"
           npx --yes @sentry/cli releases new "$RELEASE"
           npx --yes @sentry/cli releases set-commits "$RELEASE" --auto
           npx --yes @sentry/cli releases finalize "$RELEASE"
