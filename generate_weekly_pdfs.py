@@ -393,6 +393,9 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     # WR-keyed log lines
     "for WR#",
     "WR# ",
+    "for WR ",
+    "Work request ",
+    "Job # not found",
     "Sample group keys",
     # Attachment / regeneration lifecycle (WR + week embedded)
     "Removing ",

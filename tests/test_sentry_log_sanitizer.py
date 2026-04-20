@@ -57,6 +57,9 @@ class TestPiiLogMarkers:
             "Excluding row",
             "EXCLUDING from main Excel",
             "Sample group keys",
+            "for WR ",
+            "Work request ",
+            "Job # not found",
             "Skip (unchanged",
             "Regenerating ",
             "_WeekEnding_",
@@ -223,6 +226,31 @@ class TestSentryBeforeSendLog:
 
     def test_drops_sample_group_keys(self):
         record = {"body": "🔍 Sample group keys: [('WR42', '010124')]"}
+        assert gwp.sentry_before_send_log(record, {}) is None
+
+    def test_drops_work_request_not_found(self):
+        # "Work request {wr_num_upload} not found in target sheet"
+        record = {
+            "body": "⚠️ Work request WR42 not found in target sheet",
+        }
+        assert gwp.sentry_before_send_log(record, {}) is None
+
+    def test_drops_job_not_found_for_wr(self):
+        # "Job # not found for WR {wr_num}. Available columns: ..."
+        record = {
+            "body": (
+                "Job # not found for WR WR42. Available columns: "
+                "['Col A', 'Col B']"
+            ),
+        }
+        assert gwp.sentry_before_send_log(record, {}) is None
+
+    def test_drops_generic_for_wr_line(self):
+        # Forward-compat: any future log matching the "... for WR
+        # {wr}" shape should be dropped via the "for WR " marker.
+        record = {
+            "body": "Something unexpected happened for WR WR42 during run",
+        }
         assert gwp.sentry_before_send_log(record, {}) is None
 
     def test_drops_skip_unchanged(self):
