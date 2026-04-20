@@ -348,15 +348,170 @@ def sentry_capture_message_with_context(message: str, level: SentryLogLevel = "e
     
     sentry_sdk.capture_message(message, level=level)
 
+# Substring markers that identify billing-engine log messages known
+# to embed row-level PII (WR, dept, job, foreman, helper / vac-crew
+# names, cell values, prices). If any of these appear in a log body,
+# the record is dropped before it ships to the Sentry Logs product.
+# Applied in addition to the ``SENTRY_ENABLE_LOGS`` env gate —
+# defense in depth. Defined at module scope (not inside the
+# ``if SENTRY_DSN:`` block) so it is importable and unit-testable
+# without a live DSN.
+_PII_LOG_MARKERS: tuple[str, ...] = (
+    # Per-row / per-cell debug dumps
+    "Row data sample",
+    "Cell ",
+    "ESSENTIAL FIELDS",
+    # Helper detection + grouping
+    "HELPER ROW DETECTED",
+    "HELPER GROUP CREATED",
+    "HELPER GROUP SUMMARY",
+    "Helper group '",
+    "Helper groups: ",
+    "Helper detection criteria",
+    "Helper variant",
+    "Helper row for WR",
+    "MAPPED HELPER COLUMN",
+    "Sample Helper",
+    "Foreman Helping?",
+    # VAC Crew detection + grouping
+    "VAC Crew detection",
+    "VAC CREW ROW DETECTED",
+    "VAC CREW GROUP CREATED",
+    "VAC CREW GROUP SUMMARY",
+    "VAC Crew group '",
+    "Adding row to existing VAC Crew group",
+    "MAPPED VAC CREW COLUMN",
+    "VAC Crew Helping?",
+    # Rate / pricing recalc (CU + group codes + quantities + rates)
+    "Rate recalculation",
+    "Rate recalc",
+    # Foreman / assignment / exclusion diagnostics
+    "Foreman Assignment",
+    "foremen(top5)",
+    "Excluding row",
+    "EXCLUDING from main Excel",
+    # WR-keyed log lines
+    "for WR#",
+    "WR# ",
+    "for WR ",
+    "Work request ",
+    "Job # not found",
+    "Sample group keys",
+    # Runtime WR lists (operator-supplied filter / exclusion / reset
+    # lists that print every WR identifier they contain).
+    "WR_FILTER applied",
+    "EXCLUDE_WRS ",
+    "EXCLUDE_WRS:",
+    "Hash reset requested for specific WRs",
+    # Group keys / totals validation. group_key shapes are
+    # ``{week}_{wr}`` (primary), ``{week}_{wr}_HELPER_{foreman}``
+    # (helper), ``{week}_{wr}_VACCREW`` (vac crew). Any log body
+    # carrying ``_HELPER_`` or ``_VACCREW`` is therefore emitting a
+    # group key (which embeds WR + week + foreman). Plus the
+    # always-on totals validation block at the end of a run, which
+    # logs ``{group_key}: rows=N total=$X.YY`` per group.
+    "_HELPER_",
+    "_VACCREW",
+    "Totals Validation",
+    "total=$",
+    "Failed to process group ",
+    "Synthetic group failure ",
+    # Attachment / regeneration lifecycle (WR + week embedded)
+    "Removing ",
+    "Unchanged (",
+    "Skip (unchanged",
+    "Regenerating ",
+    "FORCE GENERATION for ",
+    # Output filenames interpolate
+    # ``WR_{wr}_WeekEnding_{MMDDYY}_{timestamp}[_Helper_<foreman>|
+    # _User_<foreman>|_VacCrew]_{hash}.xlsx``, so any log body that
+    # contains ``_WeekEnding_`` is carrying an artifact name that
+    # embeds WR + week + foreman. Broad catch-all + explicit prefixes
+    # for the upload / delete / generate lifecycle.
+    "_WeekEnding_",
+    "Generating Excel file",
+    "Generated Excel",
+    "Uploaded: ",
+    "Skipping upload ",
+    "Rate limited on upload",
+    "Upload retry ",
+    "Upload failed for ",
+    "Deleted: ",
+    "Already gone: ",
+    "Delete failed ",
+    # Legacy / manual attachment cleanup. `purge_existing_hashed_outputs`
+    # logs any ``WR_*.xlsx`` name — including short legacy forms like
+    # ``WR_42.xlsx`` that don't contain ``_WeekEnding_`` — so the broad
+    # filename catch-all is not sufficient for these paths.
+    "Purged attachment:",
+    "Failed to purge attachment",
+)
+
+
+def sentry_before_send_log(record, hint):
+    """Drop Sentry Logs records that embed billing-row PII.
+
+    Runs only when ``SENTRY_ENABLE_LOGS`` is truthy (otherwise the
+    SDK never invokes this hook). Matches against the rendered log
+    body; returns ``None`` to drop, or the record unchanged to forward.
+    Defined at module scope so it is importable and unit-testable.
+
+    Missing or empty bodies are normalized to ``""`` and forwarded
+    unless a configured marker is present. The hook fails **closed**
+    for unexpected inspectable payloads: non-string body values, or
+    any exception raised while inspecting the record, cause the
+    record to be dropped so uninspectable payloads cannot bypass the
+    marker checks.
+    """
+    try:
+        # Resolve the body without ``or ""`` coercion — falsy non-string
+        # values (0, False, [], {}) must reach the isinstance check so
+        # they hit the fail-closed branch instead of being silently
+        # converted to "" and forwarded.
+        if isinstance(record, dict):
+            body = record["body"] if "body" in record else ""
+        else:
+            body = (
+                getattr(record, "body")
+                if hasattr(record, "body")
+                else ""
+            )
+        if not isinstance(body, str):
+            # Fail closed for unexpected body types so uninspectable
+            # records cannot bypass PII marker checks.
+            return None
+        for marker in _PII_LOG_MARKERS:
+            if marker in body:
+                return None
+    except Exception:
+        # Never let the sanitizer crash the SDK — drop on error so
+        # unclassified records don't slip through to Sentry Logs.
+        return None
+    return record
+
+
+def _parse_sentry_enable_logs(raw: str | None) -> bool:
+    """Parse the SENTRY_ENABLE_LOGS env value into a bool.
+
+    Truthy: ``1``, ``true``, ``yes``, ``on`` (case-insensitive,
+    whitespace-tolerant). Anything else — including unset / empty —
+    is falsy. Extracted so tests can cover both branches without
+    needing a live DSN.
+    """
+    if raw is None:
+        return False
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
 if SENTRY_DSN:
     sentry_logging = LoggingIntegration(
         level=logging.INFO,
         event_level=logging.ERROR
     )
-    
+
     def before_send_filter(event, hint):
         """Filter out normal Smartsheet 404 errors during cleanup operations.
-        
+
         Sentry 2.x compatible: Enriches events with additional context.
         """
         # Filter Smartsheet internal logger noise
@@ -426,9 +581,26 @@ if SENTRY_DSN:
             
             # Enable source context for better stack traces
             include_source_context=True,
-            
+
             # Shutdown timeout for graceful error flushing
             shutdown_timeout=5,
+
+            # Sentry Logs (SDK >= 2.35.0): forward records captured by
+            # LoggingIntegration into the Sentry Logs product in addition
+            # to breadcrumbs/events. Gated opt-in via SENTRY_ENABLE_LOGS
+            # because INFO-level call sites in this engine can include
+            # row/cell debug content (foreman, dept, job, WR, prices)
+            # that must not be exfiltrated to Sentry by default. Set
+            # SENTRY_ENABLE_LOGS=true only after auditing log call sites
+            # and keeping PER_CELL_DEBUG_ENABLED / row sampling off.
+            enable_logs=_parse_sentry_enable_logs(
+                os.getenv("SENTRY_ENABLE_LOGS")
+            ),
+
+            # Defense-in-depth PII sanitizer for the Logs product. Even
+            # when the env gate is on, drop records that embed known
+            # row-level markers (see _PII_LOG_MARKERS above).
+            before_send_log=sentry_before_send_log,
         )
         
         # Set user context (SDK 2.x: top-level API)
