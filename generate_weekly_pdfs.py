@@ -406,10 +406,12 @@ def sentry_before_send_log(record, hint):
     body; returns ``None`` to drop, or the record unchanged to forward.
     Defined at module scope so it is importable and unit-testable.
 
-    Fails **closed**: any unexpected body shape (non-string, missing)
-    or an exception raised while inspecting the record results in the
-    record being dropped, so an uninspectable payload can never
-    bypass the marker checks.
+    Missing or empty bodies are normalized to ``""`` and forwarded
+    unless a configured marker is present. The hook fails **closed**
+    for unexpected inspectable payloads: non-string body values, or
+    any exception raised while inspecting the record, cause the
+    record to be dropped so uninspectable payloads cannot bypass the
+    marker checks.
     """
     try:
         if isinstance(record, dict):
