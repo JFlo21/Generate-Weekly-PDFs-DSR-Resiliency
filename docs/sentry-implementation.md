@@ -8,7 +8,7 @@ This document describes the Sentry error-monitoring setup across all three compo
 
 | Component | Instrumented? | DSN env var | Notes |
 |-----------|---------------|-------------|-------|
-| Python billing engine (`generate_weekly_pdfs.py`) | ✅ Yes (existing + standardised) | `SENTRY_DSN` | Cron check-in, tracing, custom helpers |
+| Python billing engine (`generate_weekly_pdfs.py`) | ✅ Yes (existing + standardised) | `SENTRY_DSN` | Cron check-in, tracing, custom helpers, **Sentry Logs (`enable_logs=True`)** |
 | Express backend (`portal/`) | ✅ Yes (new) | `PORTAL_SENTRY_DSN` | Error handler, header scrubbing |
 | React frontend (`portal-v2/`) | ✅ Yes (new) | `VITE_SENTRY_DSN` | Browser tracing, ErrorBoundary, API breadcrumbs |
 
@@ -187,6 +187,23 @@ sentry_sdk.flush()
 ```
 
 Or run a workflow dispatch in GitHub Actions — Sentry will receive the cron check-in event.
+
+#### Sentry Logs (structured logs product)
+
+`generate_weekly_pdfs.py` initializes the SDK with `enable_logs=True` (requires `sentry-sdk>=2.35.0`, already pinned in `requirements.txt`). With that flag on, two paths reach the Sentry **Logs** product:
+
+1. **Stdlib `logging` → Sentry Logs.** Existing `logger.info(...)`, `logger.warning(...)`, `logger.error(...)` calls throughout the billing engine are forwarded automatically via `LoggingIntegration`. No call-site changes are required.
+2. **Direct `sentry_sdk.logger` API.** For log records that should bypass the stdlib logger (e.g. structured spans or attribute-rich events), use the SDK's logger directly:
+
+   ```python
+   import sentry_sdk
+
+   sentry_sdk.logger.info("This is an info log message")
+   sentry_sdk.logger.warning("This is a warning message")
+   sentry_sdk.logger.error("This is an error message")
+   ```
+
+Issue-creation behavior is unchanged — the `LoggingIntegration` is still configured with `event_level=logging.ERROR`, so only `ERROR`+ records create Sentry issues. Lower-level records (`INFO`, `WARNING`) now surface as searchable logs instead of being dropped.
 
 ### Express backend
 

@@ -426,9 +426,15 @@ if SENTRY_DSN:
             
             # Enable source context for better stack traces
             include_source_context=True,
-            
+
             # Shutdown timeout for graceful error flushing
             shutdown_timeout=5,
+
+            # Sentry Logs (SDK >= 2.35.0): forward records captured by
+            # LoggingIntegration into the Sentry Logs product in addition
+            # to breadcrumbs/events. Purely additive — does not change
+            # the existing event_level=ERROR issue-creation behavior.
+            enable_logs=True,
         )
         
         # Set user context (SDK 2.x: top-level API)

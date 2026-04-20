@@ -315,3 +315,17 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   creates a Sentry release or tags events with `SENTRY_RELEASE` MUST
   follow this same pattern — do not reintroduce the raw
   `${{ github.repository }}@${{ github.sha }}` form.
+- [2026-04-20 12:00] Sentry Logs enabled for the Python billing
+  engine. `sentry_sdk.init(...)` in `generate_weekly_pdfs.py` now
+  passes `enable_logs=True` (requires `sentry-sdk>=2.35.0`, already
+  pinned in `requirements.txt`). Effect: existing stdlib `logging`
+  calls — including every `logger.info/warning/error` in the
+  pipeline — are forwarded to the Sentry Logs product via the
+  already-configured `LoggingIntegration`, *without* changing
+  issue-creation behavior (`event_level=logging.ERROR` is unchanged,
+  so only ERROR+ still creates issues). New rule: any new Python
+  script that initializes Sentry in this repo must set
+  `enable_logs=True` so its stdlib logs land in the same Logs
+  product. For ad-hoc structured records that should bypass the
+  stdlib logger, use `sentry_sdk.logger.info/.warning/.error(...)`
+  directly — do not invent a parallel capture path.
