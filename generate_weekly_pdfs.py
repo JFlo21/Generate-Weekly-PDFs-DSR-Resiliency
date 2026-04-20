@@ -360,6 +360,7 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     # Per-row / per-cell debug dumps
     "Row data sample",
     "Cell ",
+    "ESSENTIAL FIELDS",
     # Helper detection + grouping
     "HELPER ROW DETECTED",
     "HELPER GROUP CREATED",

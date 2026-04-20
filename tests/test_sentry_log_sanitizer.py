@@ -39,6 +39,7 @@ class TestPiiLogMarkers:
         # billing engine are each represented by at least one marker.
         required = {
             "Row data sample",
+            "ESSENTIAL FIELDS",
             "HELPER ROW DETECTED",
             "HELPER GROUP CREATED",
             "Helper row for WR",
@@ -72,6 +73,17 @@ class TestSentryBeforeSendLog:
 
     def test_drops_cell_dump(self):
         record = {"body": "   Cell 12345: 'Foreman' = 'Jane Doe'"}
+        assert gwp.sentry_before_send_log(record, {}) is None
+
+    def test_drops_essential_fields_dump(self):
+        record = {
+            "body": (
+                "   ESSENTIAL FIELDS: {'Weekly Reference Logged Date': "
+                "'2024-01-01', 'Snapshot Date': '2024-01-01', "
+                "'Units Completed?': 'true', 'Units Total Price': "
+                "'$100.00', 'Work Request #': 'WR123'}"
+            ),
+        }
         assert gwp.sentry_before_send_log(record, {}) is None
 
     def test_drops_helper_row_detected(self):
