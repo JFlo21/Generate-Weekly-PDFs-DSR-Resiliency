@@ -5,6 +5,10 @@ for the Sentry Logs opt-in: ``sentry_before_send_log``,
 ``_parse_sentry_enable_logs``, and the ``_PII_LOG_MARKERS`` tuple.
 """
 
+import importlib
+import os
+from unittest.mock import patch
+
 import generate_weekly_pdfs as gwp
 
 
@@ -426,3 +430,105 @@ class TestSentryBeforeSendLog:
 
         rec = _Boom()
         assert gwp.sentry_before_send_log(rec, {}) is None
+
+
+def _reload_gwp_with_env(env_overrides):
+    """Reload ``generate_weekly_pdfs`` under the given env overrides
+    with ``sentry_sdk.init`` patched. Returns the mock (so the caller
+    can inspect ``call_args``) and the freshly reloaded module.
+
+    The module's Sentry init block runs at import time inside
+    ``if SENTRY_DSN:``, so reloading with a fake DSN while the real
+    ``sentry_sdk.init`` is replaced by a ``MagicMock`` is the only way
+    to verify the init kwargs without a live DSN.
+    """
+    with patch.dict(os.environ, env_overrides, clear=False):
+        with patch("sentry_sdk.init") as mock_init:
+            importlib.reload(gwp)
+            return mock_init, gwp
+
+
+class TestSentryInitWiring:
+    """Integration-style tests for the kwargs passed to ``sentry_sdk.init``.
+
+    The unit tests for ``sentry_before_send_log`` and
+    ``_parse_sentry_enable_logs`` cover the helpers in isolation, but
+    neither exercises the real init block (which only runs when
+    ``SENTRY_DSN`` is set). These tests guard against typos / SDK
+    keyword mismatches in the ``sentry_sdk.init(...)`` call itself:
+    ``enable_logs`` must honor the env gate and ``before_send_log``
+    must point at the sanitizer.
+    """
+
+    @classmethod
+    def teardown_class(cls):
+        # Restore the module to its unpatched, DSN-less state so any
+        # subsequent tests in the run see the production code path.
+        with patch.dict(
+            os.environ,
+            {"SENTRY_DSN": "", "SENTRY_ENABLE_LOGS": ""},
+            clear=False,
+        ):
+            importlib.reload(gwp)
+
+    def test_init_called_when_dsn_is_set(self):
+        mock_init, _ = _reload_gwp_with_env({
+            "SENTRY_DSN": "https://fake@localhost/0",
+            "SENTRY_ENABLE_LOGS": "",
+        })
+        assert mock_init.called, "sentry_sdk.init should run when SENTRY_DSN is set"
+
+    def test_enable_logs_defaults_to_false(self):
+        mock_init, _ = _reload_gwp_with_env({
+            "SENTRY_DSN": "https://fake@localhost/0",
+            "SENTRY_ENABLE_LOGS": "",
+        })
+        kwargs = mock_init.call_args.kwargs
+        assert "enable_logs" in kwargs, (
+            "sentry_sdk.init must receive the enable_logs keyword"
+        )
+        assert kwargs["enable_logs"] is False
+
+    def test_enable_logs_honors_env_gate_true(self):
+        mock_init, _ = _reload_gwp_with_env({
+            "SENTRY_DSN": "https://fake@localhost/0",
+            "SENTRY_ENABLE_LOGS": "true",
+        })
+        kwargs = mock_init.call_args.kwargs
+        assert kwargs["enable_logs"] is True
+
+    def test_enable_logs_matches_parse_helper(self):
+        # Sanity: whatever enable_logs value is wired into init must
+        # equal the parser's opinion for the same env input. This
+        # catches drift if the env var name or parser is ever changed
+        # without updating the init call site.
+        for raw, expected in (
+            ("", False),
+            ("0", False),
+            ("false", False),
+            ("1", True),
+            ("true", True),
+            ("On", True),
+        ):
+            mock_init, reloaded = _reload_gwp_with_env({
+                "SENTRY_DSN": "https://fake@localhost/0",
+                "SENTRY_ENABLE_LOGS": raw,
+            })
+            kwargs = mock_init.call_args.kwargs
+            assert kwargs["enable_logs"] is expected, raw
+            assert (
+                kwargs["enable_logs"]
+                == reloaded._parse_sentry_enable_logs(raw)
+            ), raw
+
+    def test_before_send_log_is_sanitizer(self):
+        mock_init, reloaded = _reload_gwp_with_env({
+            "SENTRY_DSN": "https://fake@localhost/0",
+        })
+        kwargs = mock_init.call_args.kwargs
+        assert "before_send_log" in kwargs, (
+            "sentry_sdk.init must receive the before_send_log keyword"
+        )
+        # Guard against a typo / stale reference: the hook must be the
+        # module-scope sanitizer so the PII markers apply.
+        assert kwargs["before_send_log"] is reloaded.sentry_before_send_log
