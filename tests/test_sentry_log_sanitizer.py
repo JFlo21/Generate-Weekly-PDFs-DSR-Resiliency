@@ -83,6 +83,8 @@ class TestPiiLogMarkers:
             "Uploaded: ",
             "Upload failed for ",
             "Deleted: ",
+            "Purged attachment:",
+            "Failed to purge attachment",
         }
         assert required.issubset(set(gwp._PII_LOG_MARKERS))
 
@@ -387,6 +389,21 @@ class TestSentryBeforeSendLog:
             "   ✅ Deleted: WR_WR42_WeekEnding_010124_abcd.xlsx",
             "   ℹ️ Already gone: WR_WR42_WeekEnding_010124_abcd.xlsx",
             "   ⚠️ Delete failed WR_WR42_WeekEnding_010124_abcd.xlsx: boom",
+        ):
+            assert gwp.sentry_before_send_log({"body": body}, {}) is None, body
+
+    def test_drops_legacy_wr_only_purge_logs(self):
+        # purge_existing_hashed_outputs scans every ``WR_*.xlsx`` and
+        # logs the raw name — including short / legacy forms that do
+        # not contain the ``_WeekEnding_`` catch-all substring. The
+        # `Purged attachment:` and `Failed to purge attachment`
+        # prefixes must drop those records regardless of filename
+        # shape.
+        for body in (
+            "🗑️ Purged attachment: WR_42.xlsx",
+            "🗑️ Purged attachment: WR_WR42_WeekEnding_010124_abcd.xlsx",
+            "⚠️ Failed to purge attachment WR_42.xlsx: boom",
+            "⚠️ Failed to purge attachment WR_WR99_Legacy_Name.xlsx: timeout",
         ):
             assert gwp.sentry_before_send_log({"body": body}, {}) is None, body
 

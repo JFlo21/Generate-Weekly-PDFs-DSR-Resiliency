@@ -439,6 +439,12 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     "Deleted: ",
     "Already gone: ",
     "Delete failed ",
+    # Legacy / manual attachment cleanup. `purge_existing_hashed_outputs`
+    # logs any ``WR_*.xlsx`` name — including short legacy forms like
+    # ``WR_42.xlsx`` that don't contain ``_WeekEnding_`` — so the broad
+    # filename catch-all is not sufficient for these paths.
+    "Purged attachment:",
+    "Failed to purge attachment",
 )
 
 
