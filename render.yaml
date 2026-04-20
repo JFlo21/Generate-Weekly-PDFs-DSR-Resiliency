@@ -81,6 +81,7 @@ services:
   # `dist/` directory served via Render's CDN.
   - type: static
     name: linetec-report-portal-v2
+    region: oregon
     rootDir: portal-v2
     buildCommand: yarn install --production=false && yarn build
     publishDir: dist
