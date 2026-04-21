@@ -459,6 +459,65 @@ class TestLoadNewContractRates(unittest.TestCase):
         finally:
             os.unlink(tmp_path)
 
+    def test_header_validation_passes_on_canonical_labels(self):
+        """Row 3 carrying Install/Remove/Transfer labels must not warn."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['', '', '', '', '', '', '2026 Update', '', '0.03'])
+            writer.writerow(['', '', '', '', '', '', 'Revised Pricing', '', ''])
+            writer.writerow(['', '', '', '', '', '', 'Install', 'Remove ', 'Transfer'])
+            writer.writerow(['ANC-H', 'Desc', 'EA', 'OH', 'AEP', '01-18-26', '100', '50', '25'])
+            tmp_path = f.name
+        try:
+            with self.assertLogs(level='WARNING') as caught:
+                # Emit at least one warning so assertLogs doesn't fail
+                # when validation produces none.
+                import logging as _logging
+                _logging.warning("anchor")
+                generate_weekly_pdfs.load_new_contract_rates(tmp_path)
+            # No header-validation warning should be present.
+            joined = "\n".join(caught.output)
+            self.assertNotIn("header validation failed", joined.lower())
+        finally:
+            os.unlink(tmp_path)
+
+    def test_header_validation_warns_on_missing_labels(self):
+        """Row 3 missing Install/Remove/Transfer must emit a WARNING."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['', '', '', '', '', '', 'Metadata', '', ''])
+            writer.writerow(['', '', '', '', '', '', '', '', ''])
+            # Row 3 has wrong labels — the contract header has shifted.
+            writer.writerow(['', '', '', '', '', '', 'Cost', 'Fee', 'Other'])
+            writer.writerow(['ANC-H', 'Desc', 'EA', 'OH', 'AEP', '01-18-26', '100', '50', '25'])
+            tmp_path = f.name
+        try:
+            with self.assertLogs(level='WARNING') as caught:
+                generate_weekly_pdfs.load_new_contract_rates(tmp_path)
+            joined = "\n".join(caught.output)
+            self.assertIn("header validation failed", joined.lower())
+        finally:
+            os.unlink(tmp_path)
+
+    def test_header_validation_accepts_removal_variant(self):
+        """``Removal`` must also satisfy the ``remov`` keyword check."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['', '', '', '', '', '', '', '', ''])
+            writer.writerow(['', '', '', '', '', '', '', '', ''])
+            writer.writerow(['', '', '', '', '', '', 'Install Price', 'Removal Price', 'Transfer Price'])
+            writer.writerow(['ANC-H', 'Desc', 'EA', 'OH', 'AEP', '01-18-26', '100', '50', '25'])
+            tmp_path = f.name
+        try:
+            with self.assertLogs(level='WARNING') as caught:
+                import logging as _logging
+                _logging.warning("anchor")
+                generate_weekly_pdfs.load_new_contract_rates(tmp_path)
+            joined = "\n".join(caught.output)
+            self.assertNotIn("header validation failed", joined.lower())
+        finally:
+            os.unlink(tmp_path)
+
 
 class TestBuildCuToGroupMapping(unittest.TestCase):
     """Tests for building the CU-to-group code mapping."""

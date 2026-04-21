@@ -266,6 +266,16 @@ else:
 HISTORY_SKIP_ENABLED = os.getenv('HISTORY_SKIP_ENABLED','1').lower() in ('1','true','yes')  # Allow skip based on identical stored hash ONLY if attachment still present
 ATTACHMENT_REQUIRED_FOR_SKIP = os.getenv('ATTACHMENT_REQUIRED_FOR_SKIP','1').lower() in ('1','true','yes')  # If true, even identical hash regenerates when attachment missing
 KEEP_HISTORICAL_WEEKS = os.getenv('KEEP_HISTORICAL_WEEKS','0').lower() in ('1','true','yes')  # Preserve attachments for weeks not processed this run
+# Safety guard for cleanup_stale_excels(): when two runs overlap
+# (manual workflow_dispatch can bypass the workflow's concurrency
+# group), the second run's "not in kept_filenames" set can include
+# files the first run just wrote. Skip deletion for any file whose
+# mtime is younger than this threshold so a concurrent run can't
+# race-delete another run's fresh output. Default 600s (10 min)
+# covers typical run duration; tune via env if needed.
+STALE_EXCEL_MIN_AGE_SECONDS = int(
+    os.getenv('STALE_EXCEL_MIN_AGE_SECONDS', '600') or 600
+)
 if EXTENDED_CHANGE_DETECTION:
     logging.info("🔄 Extended change detection ENABLED (hash includes Foreman, Dept #, Scope, totals, etc.)")
 else:
@@ -447,21 +457,75 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     "Failed to purge attachment",
 )
 
+# Case-folded mirror of ``_PII_LOG_MARKERS`` so the sanitizer can
+# match payloads regardless of source casing. Existing markers use
+# mixed case ("Row data sample", "Rate recalculation") which the
+# original case-sensitive ``in`` check would miss if a caller logged
+# "row data sample" or "RATE RECALCULATION". Computed once at module
+# load so the hot path stays allocation-free.
+_PII_LOG_MARKERS_LOWER: tuple[str, ...] = tuple(
+    m.lower() for m in _PII_LOG_MARKERS
+)
+
+
+def _log_body_contains_pii(body: str) -> bool:
+    """Return True if ``body`` contains any configured PII marker.
+
+    Case-insensitive: compares against the precomputed lowercase
+    marker mirror. Assumes ``body`` is already a string; callers are
+    responsible for the isinstance / fail-closed guard.
+    """
+    body_lower = body.lower()
+    for marker in _PII_LOG_MARKERS_LOWER:
+        if marker in body_lower:
+            return True
+    return False
+
+
+def _log_attributes_contain_pii(attributes) -> bool:
+    """Return True if any string value in ``attributes`` carries PII.
+
+    Sentry log records may ship context via an ``attributes`` dict
+    (either raw primitive values or SDK-wrapped ``{"value": ...,
+    "type": ...}`` entries). The body-only scan would miss PII
+    forwarded that way. This helper inspects every string attribute
+    value; non-string values are converted via ``str()`` so embedded
+    row data in lists / dicts still gets checked. Non-dict
+    ``attributes`` are ignored.
+    """
+    if not isinstance(attributes, dict):
+        return False
+    for value in attributes.values():
+        if isinstance(value, dict) and "value" in value:
+            value = value["value"]
+        try:
+            rendered = value if isinstance(value, str) else str(value)
+        except Exception:
+            # A __str__ that blows up on an attribute value is
+            # uninspectable — fall through to the sanitizer's
+            # fail-closed branch by treating it as PII.
+            return True
+        if _log_body_contains_pii(rendered):
+            return True
+    return False
+
 
 def sentry_before_send_log(record, hint):
     """Drop Sentry Logs records that embed billing-row PII.
 
     Runs only when ``SENTRY_ENABLE_LOGS`` is truthy (otherwise the
     SDK never invokes this hook). Matches against the rendered log
-    body; returns ``None`` to drop, or the record unchanged to forward.
-    Defined at module scope so it is importable and unit-testable.
+    body **and** any string-valued ``attributes`` entry (case-
+    insensitive); returns ``None`` to drop, or the record unchanged
+    to forward. Defined at module scope so it is importable and
+    unit-testable.
 
     Missing or empty bodies are normalized to ``""`` and forwarded
-    unless a configured marker is present. The hook fails **closed**
-    for unexpected inspectable payloads: non-string body values, or
-    any exception raised while inspecting the record, cause the
-    record to be dropped so uninspectable payloads cannot bypass the
-    marker checks.
+    unless a configured marker is present in the attributes. The
+    hook fails **closed** for unexpected inspectable payloads: non-
+    string body values, or any exception raised while inspecting
+    the record, cause the record to be dropped so uninspectable
+    payloads cannot bypass the marker checks.
     """
     try:
         # Resolve the body without ``or ""`` coercion — falsy non-string
@@ -470,19 +534,22 @@ def sentry_before_send_log(record, hint):
         # converted to "" and forwarded.
         if isinstance(record, dict):
             body = record["body"] if "body" in record else ""
+            attributes = record.get("attributes")
         else:
             body = (
                 getattr(record, "body")
                 if hasattr(record, "body")
                 else ""
             )
+            attributes = getattr(record, "attributes", None)
         if not isinstance(body, str):
             # Fail closed for unexpected body types so uninspectable
             # records cannot bypass PII marker checks.
             return None
-        for marker in _PII_LOG_MARKERS:
-            if marker in body:
-                return None
+        if body and _log_body_contains_pii(body):
+            return None
+        if _log_attributes_contain_pii(attributes):
+            return None
     except Exception:
         # Never let the sanitizer crash the SDK — drop on error so
         # unclassified records don't slip through to Sentry Logs.
@@ -503,6 +570,85 @@ def _parse_sentry_enable_logs(raw: str | None) -> bool:
     return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
+# Substring hints identifying frame-local variable **names** known
+# to carry billing-row PII in this engine. Matched case-insensitively
+# against the var name; a single hit scrubs the value. Intentionally
+# targeted — these roots are unambiguous in this codebase (``row`` is
+# always a Smartsheet row, ``foreman`` is always a person name, etc.).
+_PII_VAR_NAME_HINTS: tuple[str, ...] = (
+    "row", "foreman", "foremen", "helper", "dept", "job", "price",
+    "rate", "cell", "group_key", "group_data", "groups",
+    "wr_num", "wr_number", "work_request", "attachment",
+    "filename", "artifact",
+)
+
+# Regex covering the structural PII shapes that leak through stack
+# frames regardless of the holding variable's name: WR identifiers
+# and dollar-price literals. Compiled once; searched against each
+# frame-local's rendered ``str(value)``.
+_PII_VAR_VALUE_RE = re.compile(
+    r"\bWR\d+\b|\$\d[\d,]*\.?\d*", re.IGNORECASE
+)
+
+_SCRUBBED_SENTINEL = "[scrubbed:pii]"
+
+
+def _is_pii_var_name(name) -> bool:
+    """Return True if ``name`` resembles a PII-bearing local."""
+    if not isinstance(name, str):
+        return False
+    lower = name.lower()
+    return any(hint in lower for hint in _PII_VAR_NAME_HINTS)
+
+
+def _is_pii_var_value(value) -> bool:
+    """Return True if the rendered ``value`` carries PII markers.
+
+    Fails closed: anything that raises on ``str()`` is treated as
+    PII so opaque objects can't smuggle row data through.
+    """
+    try:
+        rendered = value if isinstance(value, str) else str(value)
+    except Exception:
+        return True
+    if _PII_VAR_VALUE_RE.search(rendered):
+        return True
+    return _log_body_contains_pii(rendered)
+
+
+def _scrub_frame_locals(event) -> None:
+    """Redact PII from exception / thread stacktrace frame locals.
+
+    Mutates ``event`` in place. ``include_local_variables=True`` is
+    retained for meaningful tracebacks, but frame ``vars`` routinely
+    capture row dicts, WR numbers, foreman names, and price fields.
+    For each captured frame, any var whose name hints at PII or
+    whose rendered value carries WR / $-price / marker patterns is
+    replaced with ``_SCRUBBED_SENTINEL``. Never raises — a partial
+    scrub is preferable to losing the event entirely.
+    """
+    if not isinstance(event, dict):
+        return
+    try:
+        for container in ("exception", "threads"):
+            payload = event.get(container) or {}
+            for entry in payload.get("values") or []:
+                stack = entry.get("stacktrace") or {}
+                for frame in stack.get("frames") or []:
+                    frame_vars = frame.get("vars")
+                    if not isinstance(frame_vars, dict):
+                        continue
+                    for name in list(frame_vars.keys()):
+                        if _is_pii_var_name(name):
+                            frame_vars[name] = _SCRUBBED_SENTINEL
+                            continue
+                        if _is_pii_var_value(frame_vars[name]):
+                            frame_vars[name] = _SCRUBBED_SENTINEL
+    except Exception:
+        # Partial scrub is acceptable; never fail the send path.
+        pass
+
+
 if SENTRY_DSN:
     sentry_logging = LoggingIntegration(
         level=logging.INFO,
@@ -512,12 +658,13 @@ if SENTRY_DSN:
     def before_send_filter(event, hint):
         """Filter out normal Smartsheet 404 errors during cleanup operations.
 
-        Sentry 2.x compatible: Enriches events with additional context.
+        Sentry 2.x compatible: enriches events with additional context
+        and scrubs PII from captured frame locals before dispatch.
         """
         # Filter Smartsheet internal logger noise
         if event.get('logger') == 'smartsheet.smartsheet':
             return None
-        
+
         # Filter out 404 attachment deletion errors (normal operations)
         if 'exception' in event and event['exception'].get('values'):
             for exc_value in event['exception']['values']:
@@ -526,7 +673,16 @@ if SENTRY_DSN:
                     if ("404" in error_msg or "not found" in error_msg) and "attachment" in error_msg:
                         logging.info("⚠️ Filtered 404 attachment error from Sentry (normal operation)")
                         return None
-        
+
+        # Scrub PII from frame locals. ``include_local_variables=True``
+        # (set in sentry_sdk.init below) gives actionable tracebacks,
+        # but captured ``vars`` routinely include row dicts, WR
+        # numbers, foreman names, and price data. Redact before the
+        # event leaves the process so the privacy guarantee in
+        # docs/sentry-implementation.md holds for error events too,
+        # not just for Sentry Logs.
+        _scrub_frame_locals(event)
+
         # Enrich all events with runtime context
         event.setdefault('contexts', {})
         event['contexts']['runtime_info'] = {
@@ -536,7 +692,7 @@ if SENTRY_DSN:
             'extended_change_detection': EXTENDED_CHANGE_DETECTION,
             'python_version': sys.version,
         }
-        
+
         return event
     
     def traces_sampler(sampling_context):
@@ -686,6 +842,12 @@ def load_new_contract_rates(filepath):
     [0]=Group Code, [1]=Description, [2]=UOM, [3]=Category, [4]=Region,
     [5]=Date, [6]=Install Price, [7]=Removal Price, [8]=Transfer Price.
 
+    Validates that row 3 (the expected label row) contains
+    ``Install`` / ``Remove`` / ``Transfer`` at columns 6–8. If the
+    labels are missing, emit a WARNING with the actual row contents
+    and capture a Sentry message — a silent format shift would apply
+    wrong prices to every downstream invoice.
+
     Returns:
         dict: {GROUP_CODE: {install: float, removal: float, transfer: float}}
     """
@@ -693,9 +855,14 @@ def load_new_contract_rates(filepath):
     try:
         with open(filepath, mode='r', encoding='utf-8-sig') as f:
             reader = csv.reader(f)
-            # Skip 3 metadata/header rows
+            # Capture the 3 metadata/header rows so we can validate
+            # the label row (row 3) before committing to the
+            # positional column contract.
+            metadata_rows = []
             for _ in range(3):
-                next(reader, None)
+                row = next(reader, None)
+                metadata_rows.append(row if row is not None else [])
+            _validate_new_contract_header(filepath, metadata_rows)
             for row in reader:
                 if len(row) < 9:
                     continue
@@ -711,6 +878,62 @@ def load_new_contract_rates(filepath):
     except Exception as e:
         logging.error(f"Failed to load new contract rates from {filepath}: {e}")
     return rates
+
+
+def _validate_new_contract_header(filepath, metadata_rows):
+    """Sanity-check the 2026-format new-contract-rates CSV header.
+
+    Row 3 of the CSV is expected to carry the labels
+    ``Install`` / ``Remove`` / ``Transfer`` at columns 6, 7, 8. If
+    the file format shifts (column reorder, row-count change,
+    different label set), ``load_new_contract_rates`` would silently
+    load the wrong positional prices. This helper does not raise —
+    pricing fallbacks downstream are intentional — but it emits a
+    WARNING and a Sentry message with the actual row contents so an
+    operator can investigate before a full run lands in production.
+    """
+    def _cell(row, idx):
+        if not row or len(row) <= idx:
+            return ""
+        cell = row[idx]
+        return cell.strip().lower() if isinstance(cell, str) else ""
+
+    header = metadata_rows[2] if len(metadata_rows) >= 3 else []
+    expected = (
+        (6, "install"),
+        (7, "remov"),  # matches both "remove" and "removal"
+        (8, "transfer"),
+    )
+    missing = [
+        (idx, keyword)
+        for idx, keyword in expected
+        if keyword not in _cell(header, idx)
+    ]
+    if not missing:
+        return
+    preview = (header or [])[:9]
+    logging.warning(
+        "⚠️ New contract rates CSV header validation failed for "
+        f"{filepath}: expected Install/Remove/Transfer at columns "
+        f"6-8, got {preview!r}. Pricing may be wrong — verify the "
+        "source file format has not changed."
+    )
+    try:
+        sentry_capture_message_with_context(
+            "New contract rates CSV header validation failed",
+            level="warning",
+            context_name="csv_header_validation",
+            context_data={
+                "filepath": filepath,
+                "row3_preview": preview,
+                "missing_labels": missing,
+            },
+            tags={"component": "load_new_contract_rates"},
+        )
+    except Exception:
+        # Sentry may not be initialized (e.g. in tests); never let
+        # telemetry failures mask the core warning path.
+        pass
 
 
 def build_cu_to_group_mapping(old_csv_path):
@@ -1272,12 +1495,17 @@ def cleanup_stale_excels(output_folder: str, kept_filenames: set):
 
     Strategy:
       1. Keep all names in kept_filenames.
-      2. For identities (wr, week, variant, identifier) present in kept_filenames, 
+      2. For identities (wr, week, variant, identifier) present in kept_filenames,
          remove any other files with same identity (older timestamp/hash).
-      3. Remove any other WR_*.xlsx whose identity is not in current run 
+      3. Remove any other WR_*.xlsx whose identity is not in current run
          (per user requirement to only keep new system outputs).
       4. CRITICAL: Never cross-delete between variants (primary vs helper).
-    
+      5. Skip any file whose mtime is younger than
+         ``STALE_EXCEL_MIN_AGE_SECONDS`` — this prevents a concurrent
+         run from deleting another run's freshly generated output when
+         the workflow's concurrency group is bypassed (e.g. manual
+         workflow_dispatch).
+
     Identity includes variant dimension to prevent primary/helper cross-deletion.
     Returns list of removed filenames.
     """
@@ -1288,25 +1516,36 @@ def cleanup_stale_excels(output_folder: str, kept_filenames: set):
         ident = build_group_identity(fname)
         if ident:
             identities_to_keep.add(ident)
+    now = time.time()
+    min_age = STALE_EXCEL_MIN_AGE_SECONDS
     for fname in existing:
         if fname in kept_filenames:
             continue
         ident = build_group_identity(fname)
-        if ident and ident in identities_to_keep:
-            # Variant of identity we already produced this run
-            try:
-                os.remove(os.path.join(output_folder, fname))
-                removed.append(fname)
-            except Exception as e:
-                logging.warning(f"⚠️ Failed to remove stale variant {fname}: {e}")
-        elif ident:
-            # Different identity (older run) – remove per requirement
-            try:
-                os.remove(os.path.join(output_folder, fname))
-                removed.append(fname)
-            except Exception as e:
-                logging.warning(f"⚠️ Failed to remove legacy file {fname}: {e}")
-        # Non-conforming files left untouched
+        if not ident:
+            continue  # Non-conforming files left untouched
+        full_path = os.path.join(output_folder, fname)
+        # Age guard: newly created files belong to a concurrent run.
+        try:
+            age = now - os.path.getmtime(full_path)
+        except OSError as e:
+            logging.warning(f"⚠️ Could not stat {fname} for age check: {e}")
+            continue
+        if min_age > 0 and age < min_age:
+            logging.info(
+                f"⏭️ Skipping recent file (age={age:.1f}s < "
+                f"{min_age}s, possible concurrent run)"
+            )
+            continue
+        label = (
+            "stale variant" if ident in identities_to_keep
+            else "legacy file"
+        )
+        try:
+            os.remove(full_path)
+            removed.append(fname)
+        except Exception as e:
+            logging.warning(f"⚠️ Failed to remove {label} {fname}: {e}")
     return removed
 
 def cleanup_untracked_sheet_attachments(client, target_sheet_id: int, valid_wr_weeks: set, test_mode: bool, attachment_cache: dict | None = None, target_sheet=None):

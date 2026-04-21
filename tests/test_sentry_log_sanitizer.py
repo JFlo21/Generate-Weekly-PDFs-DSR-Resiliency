@@ -485,6 +485,138 @@ class TestSentryBeforeSendLog:
         rec = _Boom()
         assert gwp.sentry_before_send_log(rec, {}) is None
 
+    def test_drops_case_insensitive_body(self):
+        # Case-sensitive ``in`` would have let these through. The
+        # sanitizer now matches against the lowercase mirror.
+        for body in (
+            "row data sample: WR=WR42, Price=$100.00",
+            "RATE RECALCULATION: CU 'X' not found",
+            "FOREMAN ASSIGNMENT: Using 'Alice'",
+            "some future log: _weekending_010124_abcd.xlsx",
+        ):
+            assert gwp.sentry_before_send_log({"body": body}, {}) is None, body
+
+    def test_drops_pii_in_string_attribute(self):
+        # Sentry log records may ship context via ``attributes``;
+        # body-only scanning would miss PII forwarded that way.
+        record = {
+            "body": "benign message",
+            "attributes": {
+                "source": "pipeline",
+                "detail": "HELPER ROW DETECTED [Row 5]: WR=WR42",
+            },
+        }
+        assert gwp.sentry_before_send_log(record, {}) is None
+
+    def test_drops_pii_in_wrapped_attribute(self):
+        # SDK-wrapped attribute shape: ``{"value": ..., "type": ...}``.
+        record = {
+            "body": "benign message",
+            "attributes": {
+                "custom.detail": {
+                    "value": "Rate recalculation: CU not found",
+                    "type": "string",
+                },
+            },
+        }
+        assert gwp.sentry_before_send_log(record, {}) is None
+
+    def test_forwards_benign_attributes(self):
+        # Attributes containing no PII markers must not cause a drop.
+        record = {
+            "body": "startup complete",
+            "attributes": {"component": "excel_generator", "retries": 3},
+        }
+        assert gwp.sentry_before_send_log(record, {}) is record
+
+
+class TestScrubFrameLocals:
+    """Redact PII from ``event['exception'|'threads'].values[*].stacktrace.frames[*].vars``."""
+
+    def _event_with_vars(self, vars_):
+        return {
+            "exception": {
+                "values": [
+                    {
+                        "stacktrace": {
+                            "frames": [
+                                {"filename": "generate_weekly_pdfs.py", "vars": vars_},
+                            ],
+                        },
+                    },
+                ],
+            },
+        }
+
+    def _frame_vars(self, event):
+        return event["exception"]["values"][0]["stacktrace"]["frames"][0]["vars"]
+
+    def test_scrubs_row_dict_by_name(self):
+        event = self._event_with_vars({
+            "row": {"Work Request #": "WR42", "Foreman": "Alice"},
+            "benign_count": 5,
+        })
+        gwp._scrub_frame_locals(event)
+        vars_ = self._frame_vars(event)
+        assert vars_["row"] == gwp._SCRUBBED_SENTINEL
+        assert vars_["benign_count"] == 5
+
+    def test_scrubs_pii_value_by_content(self):
+        # Variable name doesn't match a hint but value embeds WR.
+        event = self._event_with_vars({
+            "message": "Processing WR42 for Alice",
+            "count": 7,
+        })
+        gwp._scrub_frame_locals(event)
+        vars_ = self._frame_vars(event)
+        assert vars_["message"] == gwp._SCRUBBED_SENTINEL
+        assert vars_["count"] == 7
+
+    def test_scrubs_dollar_price_value(self):
+        event = self._event_with_vars({"audit_note": "delta $1,234.56"})
+        gwp._scrub_frame_locals(event)
+        assert (
+            self._frame_vars(event)["audit_note"]
+            == gwp._SCRUBBED_SENTINEL
+        )
+
+    def test_walks_threads_container(self):
+        event = {
+            "threads": {
+                "values": [
+                    {
+                        "stacktrace": {
+                            "frames": [
+                                {"vars": {"foreman": "Bob"}},
+                            ],
+                        },
+                    },
+                ],
+            },
+        }
+        gwp._scrub_frame_locals(event)
+        assert (
+            event["threads"]["values"][0]["stacktrace"]["frames"][0]
+            ["vars"]["foreman"] == gwp._SCRUBBED_SENTINEL
+        )
+
+    def test_no_raise_on_malformed_event(self):
+        # Invalid shapes must not crash the send path.
+        for event in (None, "not a dict", {}, {"exception": None}):
+            gwp._scrub_frame_locals(event)
+
+    def test_preserves_non_pii_frames(self):
+        event = self._event_with_vars({
+            "response_code": 500,
+            "elapsed_ms": 1234,
+            "flag": True,
+        })
+        gwp._scrub_frame_locals(event)
+        vars_ = self._frame_vars(event)
+        assert vars_["response_code"] == 500
+        assert vars_["elapsed_ms"] == 1234
+        assert vars_["flag"] is True
+
 
 def _reload_gwp_with_env(env_overrides):
     """Reload ``generate_weekly_pdfs`` under the given env overrides
