@@ -349,3 +349,64 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   (`event_level=logging.ERROR`, so only ERROR+ creates issues;
   INFO/WARNING were already breadcrumbs and become searchable Logs
   only when the gate is on and the sanitizer lets them through).
+- [2026-04-21 12:00] Hardened Sentry privacy surface along three
+  axes — all defense-in-depth, no change to production behavior
+  when no PII is present. (1) **PII log sanitizer is now case-
+  insensitive and scans `attributes`**: added
+  `_PII_LOG_MARKERS_LOWER` (precomputed lowercase mirror) and the
+  `_log_body_contains_pii` / `_log_attributes_contain_pii` helpers
+  in `generate_weekly_pdfs.py`. `sentry_before_send_log` folds
+  the body to lowercase before checking markers and also inspects
+  every string-valued entry (including SDK-wrapped
+  `{"value": ..., "type": ...}` shapes) in the record's
+  `attributes` dict. Casing drift like "RATE RECALCULATION" and
+  PII leaked via log attributes now drop. Tuple shape of
+  `_PII_LOG_MARKERS` unchanged. (2) **Frame-local PII scrubber
+  runs in `before_send_filter`**: new `_scrub_frame_locals(event)`
+  walks `event['exception'|'threads'].values[*].stacktrace.frames[*]
+  .vars`, redacting any var whose name matches
+  `_PII_VAR_NAME_HINTS` (`row`, `foreman`, `helper`, `dept`, `job`,
+  `price`, `rate`, `cell`, `group_key`, `wr_num`, `attachment`,
+  `filename`, …) or whose rendered value matches
+  `_PII_VAR_VALUE_RE` (WR identifiers, `$`-prices) or a PII marker.
+  `include_local_variables=True` stays on so tracebacks remain
+  actionable, but captured row dicts, WR numbers, foreman names,
+  and price fields are replaced with `_SCRUBBED_SENTINEL`
+  (`"[scrubbed:pii]"`) before the event leaves the process. Fails
+  open on malformed events; never raises. **New rule:** any new
+  exception path that introduces a Python local whose name or
+  contents can carry billing-row data must either use an already-
+  scrubbed name (match an entry in `_PII_VAR_NAME_HINTS`) or
+  extend that tuple in the same PR — otherwise the raw value
+  ships to Sentry. (3) **`cleanup_stale_excels` concurrent-run
+  race guard**: added `STALE_EXCEL_MIN_AGE_SECONDS` env var
+  (default `600` = 10 minutes). Files younger than the threshold
+  are skipped during cleanup so that when
+  `workflow_dispatch` bypasses the workflow's `concurrency:`
+  group, two overlapping runs can't race-delete each other's
+  freshly generated artifacts. Setting the env to `0` restores
+  legacy behavior. **New rule:** any script that deletes
+  generated artifacts from a shared folder must adopt an age-
+  based guard (or explicit lock) — don't trust
+  ``concurrency:`` for manual-dispatch workflows.
+  (4) **CSV header validation in `load_new_contract_rates`**:
+  the loader still skips 3 metadata rows before data (the 2026
+  format contract), but now calls `_validate_new_contract_header`
+  to peek at row 3 and verify columns 6–8 contain ``install`` /
+  ``remov`` (matches ``Remove`` *and* ``Removal``) / ``transfer``
+  case-insensitively. On mismatch, emits a WARNING with a preview
+  of the offending row and fires
+  `sentry_capture_message_with_context(level="warning", ...)`
+  (no-ops without a DSN). Loading continues — downstream pricing
+  has its own fallbacks — but the format shift is now surfaced
+  instead of silently yielding wrong invoices. **New rule:** any
+  positional CSV loader in this repo must validate its header
+  row before committing to positional column access; silent
+  format drift in a pricing source is a direct path to wrong
+  invoices. New tests: `tests/test_sentry_log_sanitizer.py`
+  (case-insensitive body, PII in attributes, `_scrub_frame_locals`
+  contract — 7 new cases under `TestScrubFrameLocals` + 3 under
+  `TestSentryBeforeSendLog`), `tests/test_subcontractor_pricing.py`
+  (3 header-validation cases under `TestLoadNewContractRates`),
+  and a new `tests/test_cleanup_stale_excels.py` (5 cases for the
+  age guard). Full suite: **193 passed** (was 175).
