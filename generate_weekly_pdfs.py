@@ -22,6 +22,32 @@ import logging
 from dateutil import parser
 import smartsheet
 import smartsheet.exceptions as ss_exc
+
+# Upstream SDK workaround: smartsheet-python-sdk 3.8.0 raises an
+# AttributeError from smartsheet.smartsheet.Smartsheet._request_with_retry
+# whenever the API returns a retryable error (429, 5xx). At
+# smartsheet/smartsheet.py:303 it does
+# ``getattr(sys.modules[__name__], native.result.name)`` to look up the
+# exception class to raise, but that module's top-level imports only
+# expose ApiError / HttpError / UnexpectedRequestError. The retryable
+# exception classes (RateLimitExceededError, UnexpectedErrorShouldRetry-
+# Error, InternalServerError, ServerTimeoutExceededError, SystemMainte-
+# nanceError) live in smartsheet.exceptions and were never re-exported
+# into smartsheet.smartsheet, so the getattr fails and our retry
+# wrapper never gets the real exception. Re-export the missing names
+# here so the SDK's internal lookup succeeds. The ``if not hasattr``
+# guard makes this a no-op if the upstream SDK ever re-exports them.
+import smartsheet.smartsheet as _ss_smartsheet_module
+for _exc_name in (
+    'RateLimitExceededError',
+    'UnexpectedErrorShouldRetryError',
+    'InternalServerError',
+    'ServerTimeoutExceededError',
+    'SystemMaintenanceError',
+):
+    if not hasattr(_ss_smartsheet_module, _exc_name) and hasattr(ss_exc, _exc_name):
+        setattr(_ss_smartsheet_module, _exc_name, getattr(ss_exc, _exc_name))
+del _ss_smartsheet_module, _exc_name
 import openpyxl
 from openpyxl.styles import Font, numbers, Alignment, PatternFill
 from openpyxl.drawing.image import Image
@@ -2297,6 +2323,36 @@ def get_all_source_rows(client, source_sheets):
                                 sheet_exclusion_counts['price_missing_or_zero'] += 1
                                 if wr_key_for_diag:
                                     sheet_wr_exclusion_reasons[wr_key_for_diag]['price_missing_or_zero'] += 1
+                                # Row-level visibility: surface drops that
+                                # otherwise look "correct" to operators —
+                                # specifically VAC crew / helper rows whose
+                                # only missing piece is a zero or blank
+                                # SmartSheet price. These previously
+                                # disappeared into the per-sheet counter
+                                # with no per-row log, which is why VAC
+                                # crew / helping-foreman Excel files could
+                                # silently fail to generate even after
+                                # RESET_HASH_HISTORY.
+                                _vc_helping = str(row_data.get('VAC Crew Helping?') or '').strip()
+                                _vc_completed = is_checked(row_data.get('Vac Crew Completed Unit?'))
+                                _fh_helping = str(row_data.get('Foreman Helping?') or '').strip()
+                                _fh_completed = is_checked(row_data.get('Helping Foreman Completed Unit?'))
+                                _is_specialized = (
+                                    (bool(_vc_helping) and _vc_completed)
+                                    or (bool(_fh_helping) and _fh_completed)
+                                )
+                                if _is_specialized:
+                                    _variant_tag = 'VAC crew' if (_vc_helping and _vc_completed) else 'helper'
+                                    logging.warning(
+                                        f"⚠️ Dropped {_variant_tag} row (price missing or zero): "
+                                        f"WR={wr_key_for_diag}, Weekly={weekly_date}, "
+                                        f"Snapshot={row_data.get('Snapshot Date') or '<blank>'}, "
+                                        f"CU={row_data.get('CU') or row_data.get('Billable Unit Code') or '<blank>'}, "
+                                        f"Qty={row_data.get('Quantity') or '<blank>'}, "
+                                        f"SmartSheet price={row_data.get('Units Total Price') or '<blank>'}. "
+                                        f"Row has VAC/helper criteria checked but Units Total Price is zero/blank and "
+                                        f"rate recalc could not price it (see 'Rate recalc summary' WARNING for reason)."
+                                    )
 
                     sheet_row_counter += 1
 
