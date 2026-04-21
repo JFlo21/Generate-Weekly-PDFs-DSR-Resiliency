@@ -617,6 +617,24 @@ class TestScrubFrameLocals:
         assert vars_["elapsed_ms"] == 1234
         assert vars_["flag"] is True
 
+    def test_preserves_names_that_embedded_old_hints_as_substrings(self):
+        # Token matching must not scrub ``generate`` (contains ``rate``),
+        # ``growth`` / ``arrowhead`` (contain ``row``), etc.
+        event = self._event_with_vars({
+            "generate": "ok",
+            "growth": 1,
+            "new_rates_arrowhead": "ok",
+            "cancellation": "ok",
+            "adept": True,
+        })
+        gwp._scrub_frame_locals(event)
+        vars_ = self._frame_vars(event)
+        assert vars_["generate"] == "ok"
+        assert vars_["growth"] == 1
+        assert vars_["new_rates_arrowhead"] == "ok"
+        assert vars_["cancellation"] == "ok"
+        assert vars_["adept"] is True
+
 
 def _reload_gwp_with_env(env_overrides):
     """Reload ``generate_weekly_pdfs`` under the given env overrides

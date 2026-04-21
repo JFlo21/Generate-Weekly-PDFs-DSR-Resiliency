@@ -570,11 +570,11 @@ def _parse_sentry_enable_logs(raw: str | None) -> bool:
     return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
-# Substring hints identifying frame-local variable **names** known
-# to carry billing-row PII in this engine. Matched case-insensitively
-# against the var name; a single hit scrubs the value. Intentionally
-# targeted — these roots are unambiguous in this codebase (``row`` is
-# always a Smartsheet row, ``foreman`` is always a person name, etc.).
+# Identifiers / underscore-delimited tokens identifying frame-local
+# variable **names** known to carry billing-row PII in this engine.
+# Matched case-insensitively with ``(?:^|_)hint(?:_|$)`` so short
+# roots like ``row`` / ``rate`` do not match unrelated English words
+# (e.g. ``arrowhead``, ``generate``).
 _PII_VAR_NAME_HINTS: tuple[str, ...] = (
     "row", "foreman", "foremen", "helper", "dept", "job", "price",
     "rate", "cell", "group_key", "group_data", "groups",
@@ -598,7 +598,11 @@ def _is_pii_var_name(name) -> bool:
     if not isinstance(name, str):
         return False
     lower = name.lower()
-    return any(hint in lower for hint in _PII_VAR_NAME_HINTS)
+    for hint in _PII_VAR_NAME_HINTS:
+        pat = rf"(?:^|_){re.escape(hint.lower())}(?:_|$)"
+        if re.search(pat, lower):
+            return True
+    return False
 
 
 def _is_pii_var_value(value) -> bool:
@@ -1533,8 +1537,9 @@ def cleanup_stale_excels(output_folder: str, kept_filenames: set):
             continue
         if min_age > 0 and age < min_age:
             logging.info(
-                f"⏭️ Skipping recent file (age={age:.1f}s < "
-                f"{min_age}s, possible concurrent run)"
+                f"⏭️ Skipping recent file {fname} "
+                f"(age={age:.1f}s < {min_age}s, "
+                "possible concurrent run)"
             )
             continue
         label = (
