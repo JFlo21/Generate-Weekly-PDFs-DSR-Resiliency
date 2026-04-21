@@ -945,9 +945,7 @@ def revert_subcontractor_price(row_data, original_rates):
     """
     price_val = parse_price(row_data.get('Units Total Price'))
 
-    cu_code = str(row_data.get('CU Helper') or row_data.get('CU') or row_data.get('Billable Unit Code') or '').strip().upper()
-    if cu_code == 'NAN':
-        cu_code = str(row_data.get('CU') or '').strip().upper()
+    cu_code = _resolve_cu_code(row_data)
 
     work_type_raw = str(row_data.get('Work Type') or '').strip().lower()
 
@@ -2238,9 +2236,16 @@ def get_all_source_rows(client, source_sheets):
                                             # excluded so the summary WARNING
                                             # and top-CU list stay accurate.
                                             sheet_rate_recalc_counts['skipped'] += 1
-                                            cu_val = _resolve_cu_code(row_data)
-                                            if cu_val:
-                                                sheet_rate_recalc_skipped_cus[cu_val] += 1
+                                            # Always attribute the skip to a
+                                            # CU bucket so the per-sheet
+                                            # "N skipped / Top CUs: ..."
+                                            # summary totals stay aligned.
+                                            # Blank CU rows are attributed to
+                                            # '<blank>' so operators can see
+                                            # that category and investigate
+                                            # the missing CU code separately.
+                                            cu_val = _resolve_cu_code(row_data) or '<blank>'
+                                            sheet_rate_recalc_skipped_cus[cu_val] += 1
 
                         price_raw = row_data.get('Units Total Price')
                         has_price = (price_raw not in (None, "", "$0", "$0.00", "0", "0.0")) and price_val > 0
