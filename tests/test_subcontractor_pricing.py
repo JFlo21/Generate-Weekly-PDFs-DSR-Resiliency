@@ -612,6 +612,45 @@ class TestRecalculateRowPrice(unittest.TestCase):
         self.assertAlmostEqual(result, 75.0)
         self.assertEqual(row['Units Total Price'], '$75.00')
 
+    def test_cu_direct_fallback_when_mapped_group_absent_from_new_rates(self):
+        """Regression for VAC crew pricing lag: when the old CSV maps a CU to
+        a verbose group name that is NOT a key in the new rates table, the
+        recalc should fall back to looking up the CU code directly before
+        giving up. Prevents silent old-price retention on specialized work
+        items (e.g. vacuum switches) whose CU codes are themselves the key
+        in the new contract rates.
+        """
+        cu_to_group = {'CPD-VS-15-20': 'VACUUM SWITCH'}  # verbose group name
+        rates = {
+            'CPD-VS-15-20': {'install': 500.00, 'removal': 100.00, 'transfer': 0.0},
+        }
+        row = {
+            'CU': 'CPD-VS-15-20',
+            'Work Type': 'Install',
+            'Quantity': '2',
+            'Units Total Price': '$250.00',
+        }
+        result = generate_weekly_pdfs.recalculate_row_price(row, cu_to_group, rates)
+        self.assertAlmostEqual(result, 1000.00)
+        self.assertAlmostEqual(row['Units Total Price'], 1000.00)
+
+    def test_silent_fallthrough_when_neither_group_nor_cu_in_new_rates(self):
+        """When the mapped group is absent AND the CU is also absent from the
+        new rates, the row must retain its SmartSheet price unchanged — no
+        invented rate. This guards against the CU-direct fallback being too
+        aggressive."""
+        cu_to_group = {'CPD-VS-15-20': 'VACUUM SWITCH'}
+        rates = {'ANC-M': {'install': 224.06, 'removal': 29.46, 'transfer': 0.0}}
+        row = {
+            'CU': 'CPD-VS-15-20',
+            'Work Type': 'Install',
+            'Quantity': '2',
+            'Units Total Price': '$250.00',
+        }
+        result = generate_weekly_pdfs.recalculate_row_price(row, cu_to_group, rates)
+        self.assertAlmostEqual(result, 250.00)
+        self.assertEqual(row['Units Total Price'], '$250.00')
+
 
 class TestRateCutoffConfig(unittest.TestCase):
     """Tests for rate cutoff configuration."""
