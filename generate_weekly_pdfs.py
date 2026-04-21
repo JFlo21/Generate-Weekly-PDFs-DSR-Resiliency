@@ -2200,6 +2200,7 @@ def get_all_source_rows(client, source_sheets):
                         # recalculation until a separate subcontractor cutoff date is
                         # provided. They keep SmartSheet pricing as-is for now.
                         _rate_recalc_ran_for_row = False
+                        _recalc_outcome = None
                         if RATE_CUTOFF_DATE and _rate_new_primary and not is_subcontractor_sheet:
                             snapshot_raw_pre = row_data.get('Snapshot Date')
                             if snapshot_raw_pre:
@@ -2404,16 +2405,25 @@ def get_all_source_rows(client, source_sheets):
                                 )
                                 if _is_specialized:
                                     _variant_tag = 'VAC crew' if (_vc_helping and _vc_completed) else 'helper'
-                                    # Only mention rate recalc when it actually
-                                    # ran for this row. The drop can fire when
-                                    # RATE_CUTOFF_DATE is unset, the row is
-                                    # pre-cutoff, Snapshot Date is blank, or
-                                    # the sheet is a subcontractor sheet — in
-                                    # all of which cases recalc was bypassed,
-                                    # not "failed".
+                                    # Only point operators at the per-sheet
+                                    # "Rate recalc summary" WARNING when that
+                                    # summary will actually contain this row:
+                                    # the summary is emitted only when at
+                                    # least one row in the sheet has outcome
+                                    # 'missing_rate', so the note is valid
+                                    # exactly when this row's outcome is
+                                    # 'missing_rate'. For other outcomes
+                                    # ('invalid_quantity', 'zero_rate', or
+                                    # recalc-bypassed rows where
+                                    # RATE_CUTOFF_DATE is unset, pre-cutoff,
+                                    # Snapshot Date blank, or subcontractor
+                                    # sheet), skip the breadcrumb so we
+                                    # don't send operators hunting for a
+                                    # summary line that isn't there.
                                     _recalc_note = (
-                                        " Rate recalc also ran; see 'Rate recalc summary' WARNING for the CU that could not be priced."
-                                        if _rate_recalc_ran_for_row else ""
+                                        " Rate recalc ran and reported no matching new-contract rate for this CU; see 'Rate recalc summary' WARNING on this sheet for the full CU list."
+                                        if _rate_recalc_ran_for_row and _recalc_outcome == 'missing_rate'
+                                        else ""
                                     )
                                     logging.warning(
                                         f"⚠️ Dropped {_variant_tag} row (price missing or zero): "
