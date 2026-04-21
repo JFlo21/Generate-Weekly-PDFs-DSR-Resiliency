@@ -396,3 +396,13 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   and the safety guard that still retains SmartSheet price when
   neither group nor CU is in new rates
   (`test_silent_fallthrough_when_neither_group_nor_cu_in_new_rates`).
+- [2026-04-21 23:50] `recalculate_row_price()` now returns
+  `(price, priced_from_rates: bool)` instead of inferring success from
+  `new_price != old_price` — identical SmartSheet and contract math
+  must still count as **recalculated** for per-sheet counters and must
+  not inflate **skipped** / top-CU noise. Callers that branch on
+  post-cutoff outcomes must use the boolean. The VAC/helper
+  zero-price WARNING tail only references the rate-recalc summary when
+  `row_rate_recalc_attempted` is true (same nested conditions as the
+  recalc block); otherwise it explains that recalc was not run.
+  Regression: `test_recalc_success_when_new_price_equals_old_price`.

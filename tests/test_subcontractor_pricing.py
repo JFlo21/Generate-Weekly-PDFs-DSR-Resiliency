@@ -529,34 +529,44 @@ class TestRecalculateRowPrice(unittest.TestCase):
     def test_basic_install_recalculation(self):
         """Test basic install price recalculation via CU-to-group mapping."""
         row = {'CU': 'ANC-DHM-10-84-D1', 'Work Type': 'Install', 'Quantity': '3', 'Units Total Price': '$650.00'}
-        result = generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary)
+        result, priced = generate_weekly_pdfs.recalculate_row_price(
+            row, self.cu_to_group, self.rates_primary)
         expected = round(224.06 * 3, 2)  # 672.18
+        self.assertTrue(priced)
         self.assertAlmostEqual(result, expected)
         self.assertAlmostEqual(row['Units Total Price'], expected)
 
     def test_removal_work_type(self):
         """Test removal work type mapping."""
         row = {'CU': 'ARM-10D-60HS', 'Work Type': 'Removal', 'Quantity': '2', 'Units Total Price': '$100.00'}
-        result = generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary)
+        result, priced = generate_weekly_pdfs.recalculate_row_price(
+            row, self.cu_to_group, self.rates_primary)
         expected = round(75.94 * 2, 2)  # 151.88
+        self.assertTrue(priced)
         self.assertAlmostEqual(result, expected)
 
     def test_transfer_work_type(self):
         """Test transfer work type mapping."""
         row = {'CU': 'ARM-10D-60HS', 'Work Type': 'Transfer', 'Quantity': '1', 'Units Total Price': '$150.00'}
-        result = generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary)
+        result, priced = generate_weekly_pdfs.recalculate_row_price(
+            row, self.cu_to_group, self.rates_primary)
+        self.assertTrue(priced)
         self.assertAlmostEqual(result, 183.98)
 
     def test_xfr_work_type(self):
         """Test that 'xfr' maps to transfer rates."""
         row = {'CU': 'ARM-10D-60HS', 'Work Type': 'XFR', 'Quantity': '1', 'Units Total Price': '$150.00'}
-        result = generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary)
+        result, priced = generate_weekly_pdfs.recalculate_row_price(
+            row, self.cu_to_group, self.rates_primary)
+        self.assertTrue(priced)
         self.assertAlmostEqual(result, 183.98)
 
     def test_unknown_cu_keeps_smartsheet_price(self):
         """Test that unknown CU codes keep the original SmartSheet price."""
         row = {'CU': 'UNKNOWN-CU-999', 'Work Type': 'Install', 'Quantity': '1', 'Units Total Price': '$55.00'}
-        result = generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary)
+        result, priced = generate_weekly_pdfs.recalculate_row_price(
+            row, self.cu_to_group, self.rates_primary)
+        self.assertFalse(priced)
         self.assertAlmostEqual(result, 55.0)
         # Original string should be unchanged
         self.assertEqual(row['Units Total Price'], '$55.00')
@@ -564,14 +574,18 @@ class TestRecalculateRowPrice(unittest.TestCase):
     def test_direct_group_code_lookup(self):
         """Test that if SmartSheet row uses a group code directly, it still works."""
         row = {'CU': 'ANC-M', 'Work Type': 'Install', 'Quantity': '2', 'Units Total Price': '$400.00'}
-        result = generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary)
+        result, priced = generate_weekly_pdfs.recalculate_row_price(
+            row, self.cu_to_group, self.rates_primary)
         expected = round(224.06 * 2, 2)  # 448.12
+        self.assertTrue(priced)
         self.assertAlmostEqual(result, expected)
 
     def test_cu_helper_preferred(self):
         """Test that CU Helper field is preferred over CU field."""
         row = {'CU Helper': 'ANC-DSC-16-96-D1', 'CU': 'ARM-10D-60HS', 'Work Type': 'Install', 'Quantity': '1', 'Units Total Price': '$300.00'}
-        result = generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary)
+        result, priced = generate_weekly_pdfs.recalculate_row_price(
+            row, self.cu_to_group, self.rates_primary)
+        self.assertTrue(priced)
         self.assertAlmostEqual(result, 814.28)  # ANC-H install rate
 
     def test_arrowhead_discount_rates(self):
@@ -585,14 +599,33 @@ class TestRecalculateRowPrice(unittest.TestCase):
             for group, r in self.rates_primary.items()
         }
         row = {'CU': 'ANC-DHM-10-84-D1', 'Work Type': 'Install', 'Quantity': '1', 'Units Total Price': '$200.00'}
-        result = generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, arrowhead_rates)
+        result, priced = generate_weekly_pdfs.recalculate_row_price(
+            row, self.cu_to_group, arrowhead_rates)
         expected = round(224.06 * 0.90, 2)  # 201.65
+        self.assertTrue(priced)
         self.assertAlmostEqual(result, expected)
+
+    def test_recalc_success_when_new_price_equals_old_price(self):
+        """Same rate × qty as SmartSheet: price unchanged but still a success."""
+        row = {
+            'CU': 'ANC-M',
+            'Work Type': 'Install',
+            'Quantity': '2',
+            'Units Total Price': '$448.12',
+        }
+        result, priced = generate_weekly_pdfs.recalculate_row_price(
+            row, self.cu_to_group, self.rates_primary)
+        expected = round(224.06 * 2, 2)
+        self.assertTrue(priced)
+        self.assertAlmostEqual(result, expected)
+        self.assertAlmostEqual(row['Units Total Price'], expected)
 
     def test_zero_quantity_keeps_smartsheet_price(self):
         """Test that zero quantity keeps original SmartSheet price instead of zeroing it out."""
         row = {'CU': 'ANC-DHM-10-84-D1', 'Work Type': 'Install', 'Quantity': '0', 'Units Total Price': '$55.00'}
-        result = generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary)
+        result, priced = generate_weekly_pdfs.recalculate_row_price(
+            row, self.cu_to_group, self.rates_primary)
+        self.assertFalse(priced)
         self.assertAlmostEqual(result, 55.0)
         # Original string should be unchanged
         self.assertEqual(row['Units Total Price'], '$55.00')
@@ -600,7 +633,9 @@ class TestRecalculateRowPrice(unittest.TestCase):
     def test_missing_quantity_keeps_smartsheet_price(self):
         """Test that missing/empty quantity keeps original SmartSheet price."""
         row = {'CU': 'ANC-DHM-10-84-D1', 'Work Type': 'Install', 'Units Total Price': '$100.00'}
-        result = generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary)
+        result, priced = generate_weekly_pdfs.recalculate_row_price(
+            row, self.cu_to_group, self.rates_primary)
+        self.assertFalse(priced)
         self.assertAlmostEqual(result, 100.0)
         self.assertEqual(row['Units Total Price'], '$100.00')
 
@@ -608,7 +643,9 @@ class TestRecalculateRowPrice(unittest.TestCase):
         """Test that a zero rate for a work type keeps the original SmartSheet price."""
         # ANC-M has transfer rate of 0.0 in the test data
         row = {'CU': 'ANC-DHM-10-84-D1', 'Work Type': 'Transfer', 'Quantity': '2', 'Units Total Price': '$75.00'}
-        result = generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary)
+        result, priced = generate_weekly_pdfs.recalculate_row_price(
+            row, self.cu_to_group, self.rates_primary)
+        self.assertFalse(priced)
         self.assertAlmostEqual(result, 75.0)
         self.assertEqual(row['Units Total Price'], '$75.00')
 
@@ -630,7 +667,8 @@ class TestRecalculateRowPrice(unittest.TestCase):
             'Quantity': '2',
             'Units Total Price': '$250.00',
         }
-        result = generate_weekly_pdfs.recalculate_row_price(row, cu_to_group, rates)
+        result, priced = generate_weekly_pdfs.recalculate_row_price(row, cu_to_group, rates)
+        self.assertTrue(priced)
         self.assertAlmostEqual(result, 1000.00)
         self.assertAlmostEqual(row['Units Total Price'], 1000.00)
 
@@ -647,7 +685,8 @@ class TestRecalculateRowPrice(unittest.TestCase):
             'Quantity': '2',
             'Units Total Price': '$250.00',
         }
-        result = generate_weekly_pdfs.recalculate_row_price(row, cu_to_group, rates)
+        result, priced = generate_weekly_pdfs.recalculate_row_price(row, cu_to_group, rates)
+        self.assertFalse(priced)
         self.assertAlmostEqual(result, 250.00)
         self.assertEqual(row['Units Total Price'], '$250.00')
 
@@ -738,8 +777,9 @@ class TestCutoffDateRecalculationIntegration(unittest.TestCase):
         snap_date = snap.date() if hasattr(snap, 'date') else snap
         self.assertGreaterEqual(snap_date, cutoff)
         # Recalculate
-        new_price = generate_weekly_pdfs.recalculate_row_price(
+        new_price, priced = generate_weekly_pdfs.recalculate_row_price(
             row, self.cu_to_group, self.rates_primary)
+        self.assertTrue(priced)
         self.assertAlmostEqual(new_price, 448.12)  # 224.06 * 2
 
     def test_discounted_rate_table_math(self):
@@ -755,9 +795,10 @@ class TestCutoffDateRecalculationIntegration(unittest.TestCase):
             'CU': 'ANC-DHM-10-84-D1', 'Work Type': 'Install',
             'Quantity': '1', 'Units Total Price': '$200.00',
         }
-        new_price = generate_weekly_pdfs.recalculate_row_price(
+        new_price, priced = generate_weekly_pdfs.recalculate_row_price(
             row, self.cu_to_group, arrowhead_rates)
         expected = round(224.06 * 0.90, 2)  # 201.65
+        self.assertTrue(priced)
         self.assertAlmostEqual(new_price, expected)
 
     def test_snapshot_date_parsing_iso_format(self):
