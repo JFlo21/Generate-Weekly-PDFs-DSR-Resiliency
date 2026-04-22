@@ -224,5 +224,198 @@ class TestVacCrewGroupingLogic(unittest.TestCase):
         self.assertEqual(len(groups[vaccrew_key[0]]), 3)
 
 
+class TestVacCrewHashAggregation(unittest.TestCase):
+    """Regression tests for the VAC crew hash aggregation bug.
+
+    VAC crew groups are not split per foreman in the group key (all VAC
+    crew rows for a given WR+week share a single `_VACCREW` group), so a
+    single group can contain multiple VAC crew members. Prior to the fix,
+    the hash metadata read VAC crew name/dept/job only from sorted_rows[0],
+    which meant edits to VAC crew fields on any non-first row left the hash
+    unchanged and the file was skipped as "unchanged + attachment exists".
+
+    The final fix embeds VAC crew name/dept/job in the *per-row* row_str
+    (scoped to the vac_crew variant), which is strictly more sensitive than
+    meta_parts aggregation and is not vulnerable to set-dedup collisions or
+    comma-in-name delimiter collisions.
+    """
+
+    def setUp(self):
+        # Pin module globals that calculate_data_hash() reads so tests are
+        # robust against env-var overrides in developer shells. The test
+        # suite intentionally covers the `EXTENDED_CHANGE_DETECTION=True`
+        # path — the production default — so other values are not exercised
+        # here.
+        self._saved_ext = generate_weekly_pdfs.EXTENDED_CHANGE_DETECTION
+        self._saved_cutoff = generate_weekly_pdfs.RATE_CUTOFF_DATE
+        self._saved_fp = generate_weekly_pdfs._RATES_FINGERPRINT
+        generate_weekly_pdfs.EXTENDED_CHANGE_DETECTION = True
+        generate_weekly_pdfs.RATE_CUTOFF_DATE = None
+        generate_weekly_pdfs._RATES_FINGERPRINT = ''
+
+    def tearDown(self):
+        generate_weekly_pdfs.EXTENDED_CHANGE_DETECTION = self._saved_ext
+        generate_weekly_pdfs.RATE_CUTOFF_DATE = self._saved_cutoff
+        generate_weekly_pdfs._RATES_FINGERPRINT = self._saved_fp
+
+    def _row(self, wr, cu, qty, price, name, dept, job, snapshot='2026-04-19'):
+        return {
+            'Work Request #': wr,
+            'Snapshot Date': snapshot,
+            'CU': cu,
+            'Quantity': qty,
+            'Units Total Price': price,
+            'Units Completed?': True,
+            '__variant': 'vac_crew',
+            '__is_vac_crew': True,
+            '__vac_crew_name': name,
+            '__vac_crew_dept': dept,
+            '__vac_crew_job': job,
+        }
+
+    def test_hash_changes_when_non_first_row_vac_crew_dept_edited(self):
+        """Editing VAC crew dept on a non-first sorted row must change the hash."""
+        base = [
+            self._row('12345', 'CU-A', 1, '$100', 'Alice', '1000', 'J1'),
+            self._row('12345', 'CU-B', 1, '$200', 'Bob',   '2000', 'J2'),
+        ]
+        edited = [
+            self._row('12345', 'CU-A', 1, '$100', 'Alice', '1000', 'J1'),
+            self._row('12345', 'CU-B', 1, '$200', 'Bob',   '2099', 'J2'),
+        ]
+        self.assertNotEqual(
+            generate_weekly_pdfs.calculate_data_hash(base),
+            generate_weekly_pdfs.calculate_data_hash(edited),
+            "Hash did not change after editing a non-first row's VAC crew "
+            "dept — regression: multi-member VAC crew groups will silently "
+            "skip regeneration."
+        )
+
+    def test_hash_changes_when_non_first_row_vac_crew_name_edited(self):
+        """Editing VAC crew name on a non-first sorted row must change the hash."""
+        base = [
+            self._row('12345', 'CU-A', 1, '$100', 'Alice', '1000', 'J1'),
+            self._row('12345', 'CU-B', 1, '$200', 'Bob',   '2000', 'J2'),
+        ]
+        edited = [
+            self._row('12345', 'CU-A', 1, '$100', 'Alice',   '1000', 'J1'),
+            self._row('12345', 'CU-B', 1, '$200', 'Bob Jr.', '2000', 'J2'),
+        ]
+        self.assertNotEqual(
+            generate_weekly_pdfs.calculate_data_hash(base),
+            generate_weekly_pdfs.calculate_data_hash(edited),
+        )
+
+    def test_hash_changes_when_edited_value_collides_with_another_member(self):
+        """Regression: set-based dedup of VAC crew metadata silently missed
+        edits to a shared value. With three members having depts
+        {500, 500, 600}, editing one row's dept from 500→600 leaves the
+        set {500, 600} unchanged. Per-row row_str inclusion must still
+        register the change."""
+        base = [
+            self._row('12345', 'CU-A', 1, '$100', 'Alice',   '500', 'J1'),
+            self._row('12345', 'CU-B', 1, '$200', 'Bob',     '500', 'J2'),
+            self._row('12345', 'CU-C', 1, '$300', 'Charlie', '600', 'J3'),
+        ]
+        edited = [
+            self._row('12345', 'CU-A', 1, '$100', 'Alice',   '500', 'J1'),
+            self._row('12345', 'CU-B', 1, '$200', 'Bob',     '600', 'J2'),  # 500 → 600
+            self._row('12345', 'CU-C', 1, '$300', 'Charlie', '600', 'J3'),
+        ]
+        self.assertNotEqual(
+            generate_weekly_pdfs.calculate_data_hash(base),
+            generate_weekly_pdfs.calculate_data_hash(edited),
+            "Hash did not change when a VAC crew dept edit collided with "
+            "another member's dept — the old set-dedup behavior would "
+            "silently skip regeneration."
+        )
+
+    def test_hash_distinguishes_comma_in_name_edge_case(self):
+        """Regression: delimiter collision in ','.join aggregation.
+        Names 'A,B' + 'C' and 'A' + 'B,C' both produced the literal
+        token 'A,B,C', causing distinct group states to share a hash.
+        Per-row row_str inclusion isolates each row's fields, so these
+        two states must hash differently."""
+        state_1 = [
+            self._row('12345', 'CU-A', 1, '$100', 'A,B', '1', 'J'),
+            self._row('12345', 'CU-B', 1, '$200', 'C',   '2', 'J'),
+        ]
+        state_2 = [
+            self._row('12345', 'CU-A', 1, '$100', 'A',   '1', 'J'),
+            self._row('12345', 'CU-B', 1, '$200', 'B,C', '2', 'J'),
+        ]
+        self.assertNotEqual(
+            generate_weekly_pdfs.calculate_data_hash(state_1),
+            generate_weekly_pdfs.calculate_data_hash(state_2),
+            "Distinct VAC crew states collapsed to the same hash — "
+            "delimiter collision in aggregated metadata."
+        )
+
+    def test_hash_stable_when_no_vac_crew_fields_change(self):
+        """Same VAC crew data (in any row order) must produce the same hash."""
+        rows = [
+            self._row('12345', 'CU-A', 1, '$100', 'Alice', '1000', 'J1'),
+            self._row('12345', 'CU-B', 1, '$200', 'Bob',   '2000', 'J2'),
+        ]
+        # calculate_data_hash sorts rows deterministically before hashing,
+        # so input order must not affect the result.
+        self.assertEqual(
+            generate_weekly_pdfs.calculate_data_hash(rows),
+            generate_weekly_pdfs.calculate_data_hash(list(reversed(rows))),
+        )
+
+    def test_legacy_mode_ignores_vac_crew_metadata_edits(self):
+        """Regression: legacy mode (EXTENDED_CHANGE_DETECTION=0) must remain
+        insensitive to VAC crew field edits. The docstring promises
+        legacy uses only the original minimal fields so hashes stay
+        bit-stable for rollbacks, and legacy row_data does not include
+        VAC crew fields. Applying VAC crew tie-breakers unconditionally
+        to the sort key would let VAC crew edits change the hash
+        indirectly by reordering rows whose legacy row_data differs on
+        non-primary fields (Work Type / Units Completed? / price)."""
+        generate_weekly_pdfs.EXTENDED_CHANGE_DETECTION = False
+        # Tied on primary sort keys but with differing legacy row_data
+        # (Work Type differs) — order matters for the hasher.
+        row_a = self._row('12345', 'CU-SAME', 1, '$100', 'Alice', '1000', 'J1')
+        row_b = self._row('12345', 'CU-SAME', 1, '$100', 'Bob',   '2000', 'J2')
+        row_a['Work Type'] = 'Install'
+        row_b['Work Type'] = 'Remove'
+
+        base_hash = generate_weekly_pdfs.calculate_data_hash([row_a, row_b])
+
+        # Edit a VAC crew field only — legacy hash must not change.
+        row_a_edited = dict(row_a, __vac_crew_dept='9999')
+        edited_hash = generate_weekly_pdfs.calculate_data_hash(
+            [row_a_edited, row_b]
+        )
+        self.assertEqual(
+            base_hash, edited_hash,
+            "Legacy hash changed after a VAC crew field edit — "
+            "tie-breakers must be gated behind EXTENDED_CHANGE_DETECTION "
+            "to preserve rollback-stability of legacy mode."
+        )
+
+    def test_hash_stable_when_vac_crew_rows_share_primary_sort_keys(self):
+        """Regression: including VAC crew fields in row_str made the hash
+        sensitive to insertion order when multiple VAC crew rows share
+        (WR, Snapshot, CU, Pole, Qty). Because rows are merged from
+        parallel `as_completed` futures in `get_all_source_rows`,
+        insertion order is non-deterministic across runs. VAC crew fields
+        must act as tie-breakers in the sort key so identical datasets
+        hash identically regardless of which future returned first."""
+        rows = [
+            self._row('12345', 'CU-SAME', 1, '$100', 'Alice', '1000', 'J1'),
+            self._row('12345', 'CU-SAME', 1, '$100', 'Bob',   '2000', 'J2'),
+        ]
+        # All five primary sort keys match; only VAC crew fields differ.
+        self.assertEqual(
+            generate_weekly_pdfs.calculate_data_hash(rows),
+            generate_weekly_pdfs.calculate_data_hash(list(reversed(rows))),
+            "Hash changed when VAC crew rows with identical primary sort "
+            "keys were reversed — missing tie-breaker makes production "
+            "runs subject to insertion-order churn."
+        )
+
+
 if __name__ == '__main__':
     unittest.main()

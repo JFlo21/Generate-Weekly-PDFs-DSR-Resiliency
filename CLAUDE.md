@@ -396,3 +396,57 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   and the safety guard that still retains SmartSheet price when
   neither group nor CU is in new rates
   (`test_silent_fallthrough_when_neither_group_nor_cu_in_new_rates`).
+- [2026-04-22 00:00] VAC crew Excel files silently not regenerating
+  when a non-first-sorted row's VAC crew fields change. **Root
+  cause:** `calculate_data_hash()` built `vac_crew` variant
+  metadata (VACCREW / VACCREW_DEPT / VACCREW_JOB) from
+  `sorted_rows[0]` only — mirroring the helper pattern — but the
+  `vac_crew` group key (`{week}_{wr}_VACCREW`, created in
+  `group_source_rows`) does NOT split per foreman the way helper
+  groups do (`{week}_{wr}_HELPER_{helper}`). A single VAC crew
+  group therefore contains every VAC crew member for that
+  WR+week. Editing the dept/job/name on a member that didn't sort
+  first left the hash unchanged, the "unchanged + attachment
+  exists" skip path fired, and no Excel regenerated even though
+  the row fully met VAC crew criteria (dept #, name, both
+  `Vac Crew Completed Unit?` and `Units Completed?` checked).
+  Adding a row already regenerated (ROWCOUNT changed), so only
+  *modifications* to existing rows were silently lost. **Fix:**
+  include `__vac_crew_name`, `__vac_crew_dept`, `__vac_crew_job`
+  directly in the per-row `row_str` that feeds the hash (scoped
+  to the `vac_crew` variant so primary/helper hash stability is
+  preserved). Per-row inclusion is strictly more sensitive than
+  aggregating values into `meta_parts` and avoids two review-caught
+  pitfalls of set-based aggregation: **set dedup** (depts
+  `{500, 500, 600}` + editing one row 500→600 leaves the set
+  unchanged) and **delimiter collision** (`','.join` on free-text
+  names cannot distinguish `['A,B','C']` from `['A','B,C']`).
+  Helper metadata was left on `sorted_rows[0]` because helper
+  groups already partition by foreman and every row in a helper
+  group shares identical helper info. **Secondary fix:** bumped
+  `DISCOVERY_CACHE_VERSION` from 2 → 3 so any discovery cache
+  created before VAC crew columns were added to a particular
+  existing sheet in Smartsheet is re-validated on the next run
+  rather than waiting up to `DISCOVERY_CACHE_TTL_MIN` (default 7
+  days) for the mapping to refresh. **New rules:** (1) Whenever a
+  group key variant does NOT include a disambiguating identifier
+  (the way `_VACCREW` doesn't include the VAC crew name the way
+  `_HELPER_<name>` does), the corresponding hash MUST capture
+  per-row field changes at the row level — a set-based
+  `meta_parts` aggregation of free-text values is a two-way
+  silent-skip trap (dedup + delimiter collision). (2) When fixing
+  a bug that could leave existing discovery caches with incorrect
+  column mappings, bump `DISCOVERY_CACHE_VERSION` so the fix takes
+  effect immediately instead of eventually. (3) Living-ledger
+  entries and code comments in this codebase must refer to
+  functions / group-key formats / env-var names — not hard-coded
+  line numbers — because line numbers drift as the file grows.
+  Regression tests:
+  `tests/test_vac_crew.py::TestVacCrewHashAggregation` covers
+  dept-edit and name-edit on non-first rows, the set-dedup
+  collision case (`{500, 500, 600}` with a 500→600 edit), the
+  delimiter-collision case (commas in free-text names), and
+  hash stability when nothing changes. The test class pins
+  `EXTENDED_CHANGE_DETECTION`, `RATE_CUTOFF_DATE`, and
+  `_RATES_FINGERPRINT` in `setUp`/`tearDown` so developer env-var
+  overrides don't destabilize the suite.
