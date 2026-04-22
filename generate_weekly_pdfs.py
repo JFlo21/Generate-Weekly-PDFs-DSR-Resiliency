@@ -1138,7 +1138,15 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
     if not group_rows:
         return "0" * 16
 
-    # Deterministic sorting across key business fields
+    # Deterministic sorting across key business fields.
+    # VAC crew fields appear as tie-breakers so that multi-member VAC crew
+    # groups — where two rows can share (WR, Snapshot, CU, Pole, Qty) while
+    # belonging to different crew members — hash stably across runs. Without
+    # the tie-breaker, row insertion order (merged from parallel
+    # `as_completed` futures in `get_all_source_rows`) bleeds into the hash
+    # because VAC crew fields are included per-row in row_str. Non-VAC-crew
+    # rows have empty VAC crew fields, so these keys are a no-op tie-breaker
+    # for primary/helper groups and do not change their hashes.
     sorted_rows = sorted(
         group_rows,
         key=lambda x: (
@@ -1147,6 +1155,9 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
             str(x.get('CU', '')),
             str(x.get('Pole #') or x.get('Point #') or x.get('Point Number') or ''),
             str(x.get('Quantity', '')),
+            str(x.get('__vac_crew_name') or ''),
+            str(x.get('__vac_crew_dept') or ''),
+            str(x.get('__vac_crew_job') or ''),
         )
     )
 

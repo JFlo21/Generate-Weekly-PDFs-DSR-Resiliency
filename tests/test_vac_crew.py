@@ -364,6 +364,27 @@ class TestVacCrewHashAggregation(unittest.TestCase):
             generate_weekly_pdfs.calculate_data_hash(list(reversed(rows))),
         )
 
+    def test_hash_stable_when_vac_crew_rows_share_primary_sort_keys(self):
+        """Regression: including VAC crew fields in row_str made the hash
+        sensitive to insertion order when multiple VAC crew rows share
+        (WR, Snapshot, CU, Pole, Qty). Because rows are merged from
+        parallel `as_completed` futures in `get_all_source_rows`,
+        insertion order is non-deterministic across runs. VAC crew fields
+        must act as tie-breakers in the sort key so identical datasets
+        hash identically regardless of which future returned first."""
+        rows = [
+            self._row('12345', 'CU-SAME', 1, '$100', 'Alice', '1000', 'J1'),
+            self._row('12345', 'CU-SAME', 1, '$100', 'Bob',   '2000', 'J2'),
+        ]
+        # All five primary sort keys match; only VAC crew fields differ.
+        self.assertEqual(
+            generate_weekly_pdfs.calculate_data_hash(rows),
+            generate_weekly_pdfs.calculate_data_hash(list(reversed(rows))),
+            "Hash changed when VAC crew rows with identical primary sort "
+            "keys were reversed — missing tie-breaker makes production "
+            "runs subject to insertion-order churn."
+        )
+
 
 if __name__ == '__main__':
     unittest.main()
