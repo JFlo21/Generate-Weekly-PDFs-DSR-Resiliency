@@ -165,6 +165,16 @@ Fetch rows in parallel (ThreadPoolExecutor, PARALLEL_WORKERS≤8; SDK handles
    ↓
 Filter + group by (WR, week_ending, variant, foreman, dept, job)
    ↓
+Pre-fetch target-row attachments (ThreadPoolExecutor, PARALLEL_WORKERS≤8)
+   into an in-memory cache to avoid 2-3 per-row API calls per group later.
+   **Sub-budget** ATTACHMENT_PREFETCH_MAX_MINUTES (default 10) + **per-future
+   timeout** ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC (default 45s) ensure a
+   stuck HTTP call cannot consume the session budget. Pre-flight guard
+   skips the phase entirely if less than the pre-fetch budget is left of
+   TIME_BUDGET_MINUTES. Consumers (_has_existing_week_attachment,
+   delete_old_excel_attachments, cleanup_untracked_sheet_attachments) all
+   accept a missing cache entry and fall back to per-row on-demand lookup.
+   ↓
 Change detection: SHA256 hash per group key →
    skip unchanged (generated_docs/hash_history.json, capped at 1000 entries)
    ↓
@@ -198,7 +208,23 @@ All behavior is controlled by `os.getenv()` with defaults. Full reference lives 
 - `RESET_HASH_HISTORY=true` for full CI regeneration (hash history is ephemeral in CI)
 - `REGEN_WEEKS` (MMDDYY list), `RESET_WR_LIST`, `KEEP_HISTORICAL_WEEKS`
 - `DISCOVERY_CACHE_TTL_MIN` (default `10080` = 7 days), `USE_DISCOVERY_CACHE`, `EXTENDED_CHANGE_DETECTION`
+- Time-budget family (GitHub Actions only):
+  - `TIME_BUDGET_MINUTES` — session graceful-stop budget. Default `0`
+    (disabled) for local runs; the weekly workflow sets `180` (3h). Raised
+    from `80` on 2026-04-22 after a pre-fetch stall consumed the whole
+    session with zero output. Must stay strictly less than the workflow's
+    `timeout-minutes` (currently `195`).
+  - `ATTACHMENT_PREFETCH_MAX_MINUTES` (default `10`) — phase sub-budget
+    for the target-row attachment pre-fetch. Also the threshold for the
+    pre-flight guard that skips pre-fetch entirely when the session
+    budget is already mostly consumed.
+  - `ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC` (default `45`) — per-future
+    wait inside the pre-fetch consumer loop. A stuck HTTP call cannot
+    block the consumer beyond this; its row falls back to per-row lookup.
 - Debug flags: `DEBUG_MODE`, `QUIET_LOGGING`, `PER_CELL_DEBUG_ENABLED`, `FILTER_DIAGNOSTICS`, `FOREMAN_DIAGNOSTICS`, `LOG_UNKNOWN_COLUMNS`, `DEBUG_SAMPLE_ROWS`
+- Sentry Logs gate: `SENTRY_ENABLE_LOGS` (default `false`). Keep off by
+  default because INFO-path logs can embed row PII; the `before_send_log`
+  sanitizer in `generate_weekly_pdfs.py` is the defense-in-depth backstop.
 
 **Documented in `.github/prompts/` but not currently consumed by `generate_weekly_pdfs.py`:** `SKIP_FILE_OPERATIONS`, `DRY_RUN_UPLOADS`, `MOCK_SMARTSHEET_UPLOAD`. Treat these as aspirational until they are wired up — setting them today has no effect on the production pipeline.
 
@@ -216,6 +242,15 @@ Do not delete this parser even if the top-level input count is below GitHub's li
 - Weekdays (Mon–Fri): 7 runs/day at UTC `13,15,17,19,21,23,01` (`0 13,15,17,19,21,23,1 * * 1-5`) → roughly every 2 hours during US business hours.
 - Weekends (Sat, Sun): 3 runs/day at UTC `15,19,23` (`0 15,19,23 * * 0,6`).
 - Weekly deep run: `0 5 * * 1` (UTC Monday 05:00 = Sunday 23:00 CST / Monday 00:00 CDT Central). The job's `if: day==1 && hour==23` guard in Central time is what flips the run into the "weekly comprehensive" branch.
+
+**Runner timeouts (the `core` job in `weekly-excel-generation.yml`):**
+- `timeout-minutes: 195` — hard Actions ceiling.
+- `TIME_BUDGET_MINUTES: '180'` — Python graceful-stop budget.
+- The 15-minute gap is reserved for post-job cache-save and artifact-
+  upload steps. Never raise `TIME_BUDGET_MINUTES` without also raising
+  `timeout-minutes` by at least as much — otherwise Actions hard-kills
+  the job before the graceful stop fires and cache/attachment-upload
+  progress is lost.
 
 Other workflows: `docs-changelog.yml` (appends runbook changelog on every merge to `master`), `notion-sync.yml`, `snyk-security.yml`, `system-health-check.yml`, `azure-pipelines.yml` (GitHub → Azure DevOps mirror).
 
@@ -450,3 +485,134 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   `EXTENDED_CHANGE_DETECTION`, `RATE_CUTOFF_DATE`, and
   `_RATES_FINGERPRINT` in `setUp`/`tearDown` so developer env-var
   overrides don't destabilize the suite.
+- [2026-04-22 16:05] Production incident: a scheduled run finished
+  with **0 Excel files generated, 0 uploaded** despite completing
+  discovery, row fetch, and grouping (1910 groups identified). Root
+  cause was the attachment pre-fetch phase — a `ThreadPoolExecutor`
+  + `as_completed` consumer loop around
+  `client.Attachments.list_row_attachments` — stalling for ~16
+  minutes on the last ~14 of 539 target rows after 4
+  `RemoteDisconnected` retries on the Smartsheet `/attachments`
+  endpoint. The consumer used a blocking `future.result()` with no
+  per-future timeout, so one stuck HTTP worker serialized the tail
+  of the batch. Combined with the preceding discovery + row fetch,
+  total elapsed hit 82.4 min **before** the group-processing loop
+  ran its first iteration; the existing `TIME_BUDGET_MINUTES=80`
+  guard then exited immediately with "1910 group(s) remaining" and
+  no generation occurred. **Fix (additive, production-safe):**
+  (1) Introduced `ATTACHMENT_PREFETCH_MAX_MINUTES` (default 10) and
+  `ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC` (default 45) env vars.
+  (2) Pre-flight guard: if `session elapsed` already leaves less
+  than `ATTACHMENT_PREFETCH_MAX_MINUTES` of the session budget,
+  skip the pre-fetch entirely — per-row fallback paths in
+  `_has_existing_week_attachment` and `delete_old_excel_attachments`
+  already handle a missing cache entry transparently.
+  (3) Phase sub-budget is enforced on the **wait itself**:
+  `as_completed(futures, timeout=ATTACHMENT_PREFETCH_MAX_MINUTES*60)`.
+  The iterator raises `FuturesTimeoutError` if no further future
+  completes inside that window — this is the only timeout that can
+  break out of a stall. An earlier revision of this fix put the
+  timeout on `future.result(timeout=...)` alone, which was dead
+  code: `as_completed` only yields futures that are already done,
+  so their `.result(timeout=...)` returns immediately and the
+  timeout branch can never fire.
+  (4) Non-blocking executor shutdown. The pre-fetch must NOT use
+  `with ThreadPoolExecutor(...)` — that forces `shutdown(wait=True)`
+  on exit, which still blocks on stuck in-flight threads and
+  defeats the whole point of the sub-budget. The code uses
+  explicit `executor.shutdown(wait=False, cancel_futures=True)` in
+  `finally`; queued-but-not-started futures are cancelled and
+  still-running threads are abandoned to the background (SDK retry
+  backoff is bounded; the workflow's `timeout-minutes: 195` is the
+  hard ceiling).
+  (5) Counters reflect reality: the log / Sentry span report
+  `cancelled` (futures where `f.cancel() == True`) and
+  `still_running` (in-flight futures we abandoned) separately
+  instead of conflating them via `not f.done()` — which overcounts
+  abandons because `cancel()` returns `False` once a task has
+  started.
+  **New rules:** (1) Any pre-flight / pre-processing phase that
+  shares `TIME_BUDGET_MINUTES` with the main generation loop MUST
+  have its own sub-budget sized well below the session budget. A
+  pre-flight phase burning the entire session budget with zero
+  output is an existential bug, not a performance bug — treat it
+  as P0. (2) When timing out a `ThreadPoolExecutor.submit` +
+  `as_completed` consumer hitting an external API, the timeout
+  MUST be on `as_completed(..., timeout=...)` (or an equivalent
+  `wait(..., timeout=...)`) — the iterator is where blocking
+  happens, not `future.result()`. Relying on the upstream SDK's
+  HTTP timeout is insufficient because urllib3 retries can
+  multiply it. (3) Also never use `with ThreadPoolExecutor(...)`
+  for such a consumer: the context manager's implicit
+  `shutdown(wait=True)` will re-block on whatever the timeout was
+  meant to escape. Always manage the executor explicitly and call
+  `shutdown(wait=False, cancel_futures=True)` when time-boxing.
+  (4) When skipping an optimization on a budget-exceeded path,
+  verify the fallback path still works end-to-end — partial /
+  skipped pre-fetch here is safe *only* because both attachment
+  consumers already accept `cached_attachments=None`; adding a new
+  consumer that assumes the cache is populated would reintroduce
+  this class of bug. (5) `Future.cancel()` returns `True` only for
+  queued futures — running threads cannot be cancelled. Account
+  for this in any abandoned/cancelled metric or the number will
+  mislead Sentry. (6) **Three things block interpreter exit for
+  a non-daemon worker and ALL THREE must be addressed to actually
+  bound a stall:** (a) `concurrent.futures.thread._python_exit`
+  (registered via `threading._register_atexit`) joins every worker
+  in `_threads_queues`; (b) `threading._shutdown` joins every
+  tstate lock in `_shutdown_locks` — non-daemon threads add
+  themselves there via `_set_tstate_lock` at startup; (c) the
+  executor's own `shutdown(wait=True)` joins all workers on
+  `with`-block exit. The pre-fetch defeats all three by (a)
+  popping from `_threads_queues` on the budget-exceeded path (see
+  `_detach_from_atexit_registry`), (b) using
+  `_DaemonThreadPoolExecutor` — a subclass that creates
+  `daemon=True` workers, so `_set_tstate_lock` skips adding them
+  to `_shutdown_locks` — and (c) explicit
+  `shutdown(wait=False, cancel_futures=True)` instead of `with`.
+  Empirical note: an earlier revision did only (a) and still hung
+  ~5s at interpreter exit in a repro; (a)+(b)+(c) exits in ~0.05s.
+  This trifecta is safe ONLY because the pre-fetch cache is an
+  optimization with an always-available per-row fallback. Do NOT
+  copy this pattern onto a `ThreadPoolExecutor` whose workers
+  produce results the main flow depends on (generation, upload,
+  hash_history) — the atexit join is what guarantees those
+  workers' side effects are flushed before `return 0` is visible
+  to the shell.
+  (7) The pre-flight skip condition must reserve
+  *generation headroom* beyond the pre-fetch budget
+  (`ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN`, default 2
+  minutes). Without it, a setup with remaining ==
+  `ATTACHMENT_PREFETCH_MAX_MINUTES` would still run pre-fetch and
+  leave zero time for the generation loop — recreating the
+  original incident's zero-output failure mode.
+  (8) Test files that `importlib.reload(generate_weekly_pdfs)`
+  MUST patch `SENTRY_DSN=""` + `sentry_sdk.init` around the
+  reload (see `_safe_reload_gwp` in
+  `tests/test_performance_optimizations.py`); otherwise a dev
+  shell with a real `SENTRY_DSN` causes each reload to fire a
+  live Sentry init during test runs. Mirrors the pattern in
+  `tests/test_sentry_log_sanitizer.py`. Regression tests:
+  `tests/test_performance_optimizations.py::TestAttachmentPrefetchBudget`
+  locks in the new constants (with env-isolated `patch.dict` +
+  `importlib.reload` so a developer's local env doesn't leak into
+  the assertions) and the `FuturesTimeoutError` import.
+- [2026-04-22 17:10] Raised weekly-workflow session time budget from
+  `TIME_BUDGET_MINUTES=80` → `180` (3h) and the matching runner
+  `timeout-minutes` from `90` → `195`. Rationale: even with the
+  pre-fetch sub-budget landed earlier today, the main generation
+  loop still needs enough headroom to process the full group set
+  (1910 groups on the incident run) in a single session rather
+  than always relying on backlog catch-up. **Rule:** the workflow
+  `timeout-minutes` value must always exceed `TIME_BUDGET_MINUTES`
+  by the length of the post-job cache-save + artifact-upload
+  steps (~10-15min). Today's cushion is 15min. Never raise
+  `TIME_BUDGET_MINUTES` without also raising `timeout-minutes` by
+  at least as much, or Actions hard-kills the job before the
+  graceful stop fires and the `save_hash_history` / Sentry flush
+  / attachment upload tails are lost. Code changes were
+  additive-only (config values + comments + one dead-variable
+  cleanup — the unused `wr_num` unpack in `_fetch_row_attachments`
+  became `_, target_row = row_item` since only `target_row.id` is
+  referenced inside the closure). No behavioral change to
+  discovery, row fetch, grouping, hashing, generation, or upload.

@@ -14,7 +14,10 @@ FIXES IMPLEMENTED:
 import os
 import datetime
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
+import weakref
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
+import concurrent.futures.thread as _cf_thread
 import re
 import hashlib
 from datetime import timedelta
@@ -179,8 +182,89 @@ PARALLEL_WORKERS_DISCOVERY = int(os.getenv('PARALLEL_WORKERS_DISCOVERY', '8') or
 # Graceful time budget (minutes). When set and running in GitHub Actions, the script will
 # stop processing new groups once this many minutes have elapsed since session start.
 # This prevents the Actions runner from hard-killing the job and losing cache/artifact saves.
-# Set to 0 to disable.  The workflow sets this to ~80min (leaving 10min for artifact/cache steps).
+# Set to 0 to disable. The weekly workflow sets this to 180 (3h) with a matching
+# timeout-minutes: 195 on the runner (15min cushion for cache/artifact save steps).
 TIME_BUDGET_MINUTES = int(os.getenv('TIME_BUDGET_MINUTES', '0') or 0)
+
+# Sub-budget for the attachment pre-fetch phase. Prevents a flaky Smartsheet
+# connection from consuming the entire session budget before group processing
+# can start: on 2026-04-22 a run lost 16 minutes to ~14 stuck rows after
+# RemoteDisconnected retries, exhausted the 80min TIME_BUDGET_MINUTES before
+# generating a single file, and finished with 0 Excel files generated.
+# When the pre-fetch exceeds this budget, remaining rows fall back to on-demand
+# per-row fetches (already supported in _has_existing_week_attachment and
+# delete_old_excel_attachments).
+ATTACHMENT_PREFETCH_MAX_MINUTES = int(os.getenv('ATTACHMENT_PREFETCH_MAX_MINUTES', '10') or 10)
+# Per-future wait (seconds) inside the pre-fetch consumer loop. One stuck HTTP
+# call cannot block the consumer beyond this — the future is left behind and
+# its row falls back to the per-row path at generation time.
+ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC = int(os.getenv('ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC', '45') or 45)
+# Minimum "generation headroom" (minutes) the pre-flight guard reserves
+# beyond the pre-fetch budget. Without this, a setup where the session
+# has exactly `ATTACHMENT_PREFETCH_MAX_MINUTES` remaining would still
+# run pre-fetch and leave ~0 minutes for group processing — the same
+# zero-output failure mode this guard is meant to prevent.
+ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN = int(os.getenv('ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN', '2') or 2)
+
+
+class _DaemonThreadPoolExecutor(ThreadPoolExecutor):
+    """ThreadPoolExecutor whose workers are daemonized so stuck I/O
+    cannot hold the interpreter open past ``main()`` return.
+
+    Three things can block process exit for a non-daemon worker:
+    1. ``concurrent.futures.thread._python_exit`` (registered via
+       ``threading._register_atexit``) joins every worker still in
+       ``_threads_queues``.
+    2. ``threading._shutdown`` joins every lock in
+       ``_shutdown_locks`` — non-daemon threads add their tstate
+       lock to this set at startup.
+    3. The executor's ``shutdown(wait=True)`` joins all workers.
+
+    This subclass addresses (2) by setting ``daemon=True`` at thread
+    creation (``_set_tstate_lock`` only adds to ``_shutdown_locks``
+    when ``not self.daemon``). Callers addressing a stall must still
+    pop from ``_threads_queues`` (addresses 1) and call
+    ``shutdown(wait=False, cancel_futures=True)`` (addresses 3).
+
+    **Safety invariant — use this ONLY when the worker's work is
+    discardable.** The pre-fetch cache has a per-row fallback path,
+    so abandoning a mid-flight HTTP worker is safe; the OS reclaims
+    the socket. Do NOT use this executor for workers that produce
+    results the main flow depends on (generation, upload,
+    ``hash_history.save``) — the atexit join is what guarantees
+    those side effects are flushed before exit.
+
+    Re-implements upstream's private ``_adjust_thread_count`` to
+    flip ``daemon=True``. Pinned to the Python 3.11 / 3.12 shape;
+    falls back to the superclass (non-daemon workers, atexit hang
+    returns) if a future Python rearranges the private helpers.
+    """
+
+    def _adjust_thread_count(self):
+        if not hasattr(_cf_thread, '_worker') or not hasattr(_cf_thread, '_threads_queues'):
+            return super()._adjust_thread_count()
+        if self._idle_semaphore.acquire(timeout=0):
+            return
+
+        def _weakref_cb(_, q=self._work_queue):
+            q.put(None)
+
+        num_threads = len(self._threads)
+        if num_threads < self._max_workers:
+            thread_name = '%s_%d' % (self._thread_name_prefix or self, num_threads)
+            t = threading.Thread(
+                name=thread_name,
+                target=_cf_thread._worker,
+                args=(weakref.ref(self, _weakref_cb),
+                      self._work_queue,
+                      self._initializer,
+                      self._initargs),
+                daemon=True,
+            )
+            t.start()
+            self._threads.add(t)
+            _cf_thread._threads_queues[t] = self._work_queue
+
 
 USE_DISCOVERY_CACHE = os.getenv('USE_DISCOVERY_CACHE','1').lower() in ('1','true','yes')
 # Discovery cache TTL: sheet IDs and column mappings are essentially static.
@@ -3612,13 +3696,50 @@ def main():
         # redundant per-row API calls in _has_existing_week_attachment and delete_old_excel_attachments.
         # Each row's attachments are fetched once here instead of 2-3 times in the group loop.
         attachment_cache = {}  # row_id -> list of attachment objects
+        target_map_to_prefetch = {}
         if target_map and not TEST_MODE:
+            target_map_to_prefetch = target_map
+            # Pre-flight session-budget guard: if discovery + row fetch already consumed most
+            # of TIME_BUDGET_MINUTES, skip pre-fetch entirely so we have time for generation.
+            # Reserve ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN beyond the pre-fetch budget
+            # so we don't end up with exactly enough time to pre-fetch and then zero time to
+            # generate — that would recreate the original incident's zero-output failure mode.
+            # Per-row fallback paths handle an empty cache transparently.
+            if TIME_BUDGET_MINUTES and GITHUB_ACTIONS_MODE:
+                _pre_elapsed_min = (datetime.datetime.now() - session_start).total_seconds() / 60.0
+                _remaining_min = TIME_BUDGET_MINUTES - _pre_elapsed_min
+                _required_remaining_min = ATTACHMENT_PREFETCH_MAX_MINUTES + ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN
+                if _remaining_min <= _required_remaining_min:
+                    logging.warning(
+                        f"⏩ Skipping attachment pre-fetch: {_pre_elapsed_min:.1f}min already elapsed, "
+                        f"only {_remaining_min:.1f}min left in session budget "
+                        f"(need > {_required_remaining_min}min = "
+                        f"{ATTACHMENT_PREFETCH_MAX_MINUTES}min pre-fetch budget + "
+                        f"{ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN}min generation headroom). "
+                        f"Attachment lookups will fall back to per-row fetches during generation."
+                    )
+                    sentry_add_breadcrumb(
+                        "prefetch_skipped",
+                        f"Pre-fetch skipped, {_remaining_min:.1f}min remaining",
+                        level="warning",
+                        data={
+                            "elapsed_min": round(_pre_elapsed_min, 1),
+                            "remaining_min": round(_remaining_min, 1),
+                            "prefetch_budget_min": ATTACHMENT_PREFETCH_MAX_MINUTES,
+                            "generation_headroom_min": ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN,
+                            "required_remaining_min": _required_remaining_min,
+                        },
+                    )
+                    target_map_to_prefetch = {}
+
+        if target_map_to_prefetch:
             with sentry_sdk.start_span(op="smartsheet.attachment_prefetch", name="Pre-fetch row attachments") as span:
-                logging.info(f"🚀 Starting parallel attachment pre-fetch with {PARALLEL_WORKERS} workers for {len(target_map)} target rows...")
+                logging.info(f"🚀 Starting parallel attachment pre-fetch with {PARALLEL_WORKERS} workers for {len(target_map_to_prefetch)} target rows (max {ATTACHMENT_PREFETCH_MAX_MINUTES}min)...")
                 _att_start = datetime.datetime.now()
 
                 def _fetch_row_attachments(row_item):
-                    wr_num, target_row = row_item
+                    # row_item is (wr_num, target_row); only target_row is needed.
+                    _, target_row = row_item
                     max_retries = 4
                     for attempt in range(max_retries):
                         try:
@@ -3651,18 +3772,115 @@ def main():
                                 if attempt > 0:
                                     logging.warning(f"⚠️ Attachment fetch failed after {max_retries} attempts for row {target_row.id}: {err_name}")
                                 return (target_row.id, [])
-                
-                with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
-                    futures = [executor.submit(_fetch_row_attachments, item) for item in target_map.items()]
-                    for i, future in enumerate(as_completed(futures), 1):
-                        row_id, atts = future.result()
-                        attachment_cache[row_id] = atts
-                        if i % 25 == 0 or i == len(futures):
-                            logging.info(f"   📎 [{i}/{len(futures)}] Attachment pre-fetch progress...")
-                
+
+                _prefetch_budget_exceeded = False
+                _prefetch_stuck_futures = 0     # future.result timed out after as_completed yielded
+                _prefetch_cancelled = 0         # queued futures we successfully cancelled
+                _prefetch_still_running = 0     # in-flight futures we abandoned to the background
+                # Manual executor lifecycle with daemon workers. Three things can
+                # block process exit for a non-daemon worker and all three matter
+                # here: (1) _python_exit joins _threads_queues, (2) threading.
+                # _shutdown joins _shutdown_locks, (3) executor.shutdown(wait=True)
+                # joins via the `with` block. Using _DaemonThreadPoolExecutor
+                # addresses (2) — daemon threads don't add their tstate lock to
+                # _shutdown_locks. Using explicit shutdown(wait=False,
+                # cancel_futures=True) in finally addresses (3). The detach helper
+                # below addresses (1) — but only on the budget-exceeded path
+                # (Copilot review: don't touch private APIs when everything
+                # completed normally; the workers are already done and there's
+                # nothing to skip). See _DaemonThreadPoolExecutor docstring for
+                # the full three-defense story and the safety invariant.
+                executor = _DaemonThreadPoolExecutor(max_workers=PARALLEL_WORKERS)
+                futures = [executor.submit(_fetch_row_attachments, item) for item in target_map_to_prefetch.items()]
+                total_futures = len(futures)
+                _phase_budget_sec = ATTACHMENT_PREFETCH_MAX_MINUTES * 60
+
+                # Helper: pop workers from concurrent.futures' atexit join
+                # registry so _python_exit doesn't t.join() them at interpreter
+                # shutdown (daemon-ness doesn't help here — join() blocks
+                # unconditionally). Called only when we're abandoning in-flight
+                # work. Uses private APIs; getattr guards keep the main path
+                # working if a future Python rearranges the names.
+                def _detach_from_atexit_registry():
+                    try:
+                        registry = getattr(_cf_thread, '_threads_queues', None)
+                        if registry is None:
+                            return
+                        for _t in list(getattr(executor, '_threads', ()) or ()):
+                            registry.pop(_t, None)
+                    except Exception as _det_e:
+                        logging.debug(f"Could not detach pre-fetch workers from atexit registry: {_det_e}")
+                try:
+                    try:
+                        # timeout= is measured from this call; the iterator itself raises
+                        # FuturesTimeoutError if nothing else completes within that window,
+                        # so a stuck HTTP call can't pin the consumer loop.
+                        for i, future in enumerate(as_completed(futures, timeout=_phase_budget_sec), 1):
+                            try:
+                                row_id, atts = future.result(timeout=ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC)
+                            except FuturesTimeoutError:
+                                # Defensive — as_completed only yields done futures, so in
+                                # practice this branch is unreachable; keep it so a future
+                                # refactor that yields not-yet-done futures still degrades
+                                # gracefully instead of raising.
+                                _prefetch_stuck_futures += 1
+                                continue
+                            attachment_cache[row_id] = atts
+                            if i % 25 == 0 or i == total_futures:
+                                logging.info(f"   📎 [{i}/{total_futures}] Attachment pre-fetch progress...")
+                    except FuturesTimeoutError:
+                        # Phase sub-budget exhausted — stuck HTTP call(s) held the iterator.
+                        # Bail out; remaining rows fall back to the per-row path.
+                        _prefetch_budget_exceeded = True
+                finally:
+                    # Classify remaining work so the log / Sentry span reflects reality:
+                    # cancel() returns True only for queued futures that hadn't started
+                    # (Copilot review: the old code overcounted by calling `not f.done()`
+                    # alone, conflating started-but-running with still-queued).
+                    for f in futures:
+                        if f.done():
+                            continue
+                        if f.cancel():
+                            _prefetch_cancelled += 1
+                        else:
+                            _prefetch_still_running += 1
+                    # wait=False so stuck in-flight threads don't block the critical path
+                    # (the main generation loop). They'll either complete via SDK retry
+                    # backoff or be hard-killed by the workflow's timeout-minutes ceiling.
+                    # Only touch the atexit registry when we're actually abandoning
+                    # work (budget exceeded + still-running threads remain).
+                    # Normal completion leaves the workers done; _python_exit will
+                    # find them complete and return immediately from its join().
+                    if _prefetch_still_running:
+                        _detach_from_atexit_registry()
+                    executor.shutdown(wait=False, cancel_futures=True)
+
                 _att_elapsed = (datetime.datetime.now() - _att_start).total_seconds()
                 span.set_data("rows_cached", len(attachment_cache))
-                logging.info(f"⚡ Pre-fetched attachments for {len(attachment_cache)} target rows in {_att_elapsed:.1f}s (parallel w/{PARALLEL_WORKERS} workers)")
+                span.set_data("rows_cancelled", _prefetch_cancelled)
+                span.set_data("rows_still_running", _prefetch_still_running)
+                span.set_data("rows_stuck", _prefetch_stuck_futures)
+                if _prefetch_budget_exceeded:
+                    logging.warning(
+                        f"⏰ Attachment pre-fetch budget hit ({ATTACHMENT_PREFETCH_MAX_MINUTES}min). "
+                        f"Cached {len(attachment_cache)}/{total_futures} rows in {_att_elapsed:.1f}s; "
+                        f"{_prefetch_cancelled} cancelled, {_prefetch_still_running} still running in background, "
+                        f"{_prefetch_stuck_futures} stuck. Remaining rows will use per-row fallback."
+                    )
+                    sentry_add_breadcrumb(
+                        "prefetch_truncated",
+                        f"Pre-fetch truncated at {ATTACHMENT_PREFETCH_MAX_MINUTES}min",
+                        level="warning",
+                        data={
+                            "cached": len(attachment_cache),
+                            "total": total_futures,
+                            "cancelled": _prefetch_cancelled,
+                            "still_running": _prefetch_still_running,
+                            "stuck": _prefetch_stuck_futures,
+                        },
+                    )
+                else:
+                    logging.info(f"⚡ Pre-fetched attachments for {len(attachment_cache)} target rows in {_att_elapsed:.1f}s (parallel w/{PARALLEL_WORKERS} workers)")
 
         # Load hash history AFTER optional purge so we don't rely on stale attachments
         hash_history = load_hash_history(HASH_HISTORY_PATH)
