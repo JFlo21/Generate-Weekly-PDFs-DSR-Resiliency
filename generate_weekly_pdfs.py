@@ -3699,18 +3699,27 @@ def main():
                 with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
                     futures = [executor.submit(_fetch_row_attachments, item) for item in target_map_to_prefetch.items()]
                     total_futures = len(futures)
+                    _ac_iter = as_completed(
+                        futures,
+                        timeout=ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC,
+                    )
                     try:
-                        for i, future in enumerate(as_completed(futures), 1):
+                        i = 0
+                        while True:
                             # Phase sub-budget: one stuck HTTP call must not consume the session budget.
                             if datetime.datetime.now() >= _prefetch_deadline:
                                 _prefetch_budget_exceeded = True
                                 break
                             try:
-                                row_id, atts = future.result(timeout=ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC)
+                                future = next(_ac_iter)
+                            except StopIteration:
+                                break
                             except FuturesTimeoutError:
-                                # Abandon this specific row; per-row fallback at generation time will cover it.
+                                # `as_completed` waited past timeout for any worker to finish.
                                 _prefetch_stuck_futures += 1
                                 continue
+                            i += 1
+                            row_id, atts = future.result()
                             attachment_cache[row_id] = atts
                             if i % 25 == 0 or i == total_futures:
                                 logging.info(f"   📎 [{i}/{total_futures}] Attachment pre-fetch progress...")
