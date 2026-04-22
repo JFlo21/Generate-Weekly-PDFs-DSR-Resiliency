@@ -507,33 +507,59 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   skip the pre-fetch entirely — per-row fallback paths in
   `_has_existing_week_attachment` and `delete_old_excel_attachments`
   already handle a missing cache entry transparently.
-  (3) Phase sub-budget: the consumer loop checks a
-  `_prefetch_deadline` on every iteration and breaks out when
-  exceeded; pending futures are cancelled in a `finally`.
-  (4) Per-future timeout: `future.result(timeout=...)` raises
-  `FuturesTimeoutError` on a stuck HTTP call so the consumer moves
-  on to the next completed row instead of blocking. Imported
-  `TimeoutError as FuturesTimeoutError` from `concurrent.futures`.
+  (3) Phase sub-budget is enforced on the **wait itself**:
+  `as_completed(futures, timeout=ATTACHMENT_PREFETCH_MAX_MINUTES*60)`.
+  The iterator raises `FuturesTimeoutError` if no further future
+  completes inside that window — this is the only timeout that can
+  break out of a stall. An earlier revision of this fix put the
+  timeout on `future.result(timeout=...)` alone, which was dead
+  code: `as_completed` only yields futures that are already done,
+  so their `.result(timeout=...)` returns immediately and the
+  timeout branch can never fire.
+  (4) Non-blocking executor shutdown. The pre-fetch must NOT use
+  `with ThreadPoolExecutor(...)` — that forces `shutdown(wait=True)`
+  on exit, which still blocks on stuck in-flight threads and
+  defeats the whole point of the sub-budget. The code uses
+  explicit `executor.shutdown(wait=False, cancel_futures=True)` in
+  `finally`; queued-but-not-started futures are cancelled and
+  still-running threads are abandoned to the background (SDK retry
+  backoff is bounded; the workflow's `timeout-minutes: 195` is the
+  hard ceiling).
+  (5) Counters reflect reality: the log / Sentry span report
+  `cancelled` (futures where `f.cancel() == True`) and
+  `still_running` (in-flight futures we abandoned) separately
+  instead of conflating them via `not f.done()` — which overcounts
+  abandons because `cancel()` returns `False` once a task has
+  started.
   **New rules:** (1) Any pre-flight / pre-processing phase that
   shares `TIME_BUDGET_MINUTES` with the main generation loop MUST
   have its own sub-budget sized well below the session budget. A
   pre-flight phase burning the entire session budget with zero
   output is an existential bug, not a performance bug — treat it
-  as P0. (2) Consumers of `ThreadPoolExecutor.submit` + `as_completed`
-  hitting external APIs MUST use `future.result(timeout=...)`;
-  relying on the upstream SDK's HTTP timeout is insufficient because
-  urllib3 retries can multiply it. (3) When skipping an
-  optimization on a budget-exceeded path, verify the fallback path
-  still works end-to-end — partial / skipped pre-fetch here is
-  safe *only* because both attachment consumers already accept
-  `cached_attachments=None`; adding a new consumer that assumes the
-  cache is populated would reintroduce this class of bug.
-  (4) Never let a single row stall the attachment pre-fetch
-  indefinitely. Regression tests:
+  as P0. (2) When timing out a `ThreadPoolExecutor.submit` +
+  `as_completed` consumer hitting an external API, the timeout
+  MUST be on `as_completed(..., timeout=...)` (or an equivalent
+  `wait(..., timeout=...)`) — the iterator is where blocking
+  happens, not `future.result()`. Relying on the upstream SDK's
+  HTTP timeout is insufficient because urllib3 retries can
+  multiply it. (3) Also never use `with ThreadPoolExecutor(...)`
+  for such a consumer: the context manager's implicit
+  `shutdown(wait=True)` will re-block on whatever the timeout was
+  meant to escape. Always manage the executor explicitly and call
+  `shutdown(wait=False, cancel_futures=True)` when time-boxing.
+  (4) When skipping an optimization on a budget-exceeded path,
+  verify the fallback path still works end-to-end — partial /
+  skipped pre-fetch here is safe *only* because both attachment
+  consumers already accept `cached_attachments=None`; adding a new
+  consumer that assumes the cache is populated would reintroduce
+  this class of bug. (5) `Future.cancel()` returns `True` only for
+  queued futures — running threads cannot be cancelled. Account
+  for this in any abandoned/cancelled metric or the number will
+  mislead Sentry. Regression tests:
   `tests/test_performance_optimizations.py::TestAttachmentPrefetchBudget`
-  locks in the new constants (with upper bounds to prevent
-  accidental defaults ≥ session budget) and the
-  `FuturesTimeoutError` import.
+  locks in the new constants (with env-isolated `patch.dict` +
+  `importlib.reload` so a developer's local env doesn't leak into
+  the assertions) and the `FuturesTimeoutError` import.
 - [2026-04-22 17:10] Raised weekly-workflow session time budget from
   `TIME_BUDGET_MINUTES=80` → `180` (3h) and the matching runner
   `timeout-minutes` from `90` → `195`. Rationale: even with the

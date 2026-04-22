@@ -46,8 +46,8 @@ workflow. Copy `.env.example` to `.env` for local dev.
 | `PARALLEL_WORKERS` | `8` | Threads for data fetch + attachment pre-fetch. |
 | `PARALLEL_WORKERS_DISCOVERY` | `8` | Threads for sheet discovery. |
 | `TIME_BUDGET_MINUTES` | `0` (code) / `180` (workflow) | Graceful stop budget in minutes. `0` disables the early-exit. The weekly workflow sets `180` (3h) with a matching runner `timeout-minutes: 195` (15min cushion for cache/artifact save steps); local runs default to disabled. |
-| `ATTACHMENT_PREFETCH_MAX_MINUTES` | `10` | Phase sub-budget for the target-row attachment pre-fetch (introduced 2026-04-22). If the pre-fetch exceeds this, the consumer loop bails out and remaining rows fall back to per-row on-demand lookups. Also used by the pre-flight guard: if less than this many minutes remain in the session budget, pre-fetch is skipped entirely. |
-| `ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC` | `45` | Per-future wait inside the pre-fetch consumer loop. A stuck HTTP call cannot block the consumer beyond this; its row falls back to the per-row path at generation time. |
+| `ATTACHMENT_PREFETCH_MAX_MINUTES` | `10` | Phase sub-budget for the target-row attachment pre-fetch (introduced 2026-04-22). Passed as `timeout=` to `as_completed(...)` so the iterator itself raises `FuturesTimeoutError` if stuck HTTP calls prevent progress. When it fires, the consumer loop exits, in-flight threads are abandoned via `executor.shutdown(wait=False, cancel_futures=True)`, and the remaining rows fall back to per-row on-demand lookups. Also used by the pre-flight guard: if less than this many minutes remain in the session budget, pre-fetch is skipped entirely. |
+| `ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC` | `45` | Defensive per-future timeout passed to `future.result(timeout=...)` inside the pre-fetch consumer loop. In the current code path this is belt-and-suspenders — `as_completed` only yields already-done futures, so `.result()` returns immediately — but a future refactor that yielded not-yet-done futures would still degrade gracefully instead of raising. |
 
 ## Change detection & history
 

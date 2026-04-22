@@ -3655,7 +3655,6 @@ def main():
             with sentry_sdk.start_span(op="smartsheet.attachment_prefetch", name="Pre-fetch row attachments") as span:
                 logging.info(f"🚀 Starting parallel attachment pre-fetch with {PARALLEL_WORKERS} workers for {len(target_map_to_prefetch)} target rows (max {ATTACHMENT_PREFETCH_MAX_MINUTES}min)...")
                 _att_start = datetime.datetime.now()
-                _prefetch_deadline = _att_start + datetime.timedelta(minutes=ATTACHMENT_PREFETCH_MAX_MINUTES)
 
                 def _fetch_row_attachments(row_item):
                     # row_item is (wr_num, target_row); only target_row is needed.
@@ -3694,45 +3693,68 @@ def main():
                                 return (target_row.id, [])
 
                 _prefetch_budget_exceeded = False
-                _prefetch_stuck_futures = 0
-                _prefetch_abandoned = 0
-                with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
-                    futures = [executor.submit(_fetch_row_attachments, item) for item in target_map_to_prefetch.items()]
-                    total_futures = len(futures)
+                _prefetch_stuck_futures = 0     # future.result timed out after as_completed yielded
+                _prefetch_cancelled = 0         # queued futures we successfully cancelled
+                _prefetch_still_running = 0     # in-flight futures we abandoned to the background
+                # Manual executor lifecycle: the `with` block forces shutdown(wait=True),
+                # which blocks on stuck in-flight HTTP calls and would defeat the whole
+                # point of the phase sub-budget. Using explicit shutdown(wait=False,
+                # cancel_futures=True) below lets the main generation loop run even
+                # while a hung thread is still spinning in the background.
+                executor = ThreadPoolExecutor(max_workers=PARALLEL_WORKERS)
+                futures = [executor.submit(_fetch_row_attachments, item) for item in target_map_to_prefetch.items()]
+                total_futures = len(futures)
+                _phase_budget_sec = ATTACHMENT_PREFETCH_MAX_MINUTES * 60
+                try:
                     try:
-                        for i, future in enumerate(as_completed(futures), 1):
-                            # Phase sub-budget: one stuck HTTP call must not consume the session budget.
-                            if datetime.datetime.now() >= _prefetch_deadline:
-                                _prefetch_budget_exceeded = True
-                                break
+                        # timeout= is measured from this call; the iterator itself raises
+                        # FuturesTimeoutError if nothing else completes within that window,
+                        # so a stuck HTTP call can't pin the consumer loop.
+                        for i, future in enumerate(as_completed(futures, timeout=_phase_budget_sec), 1):
                             try:
                                 row_id, atts = future.result(timeout=ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC)
                             except FuturesTimeoutError:
-                                # Abandon this specific row; per-row fallback at generation time will cover it.
+                                # Defensive — as_completed only yields done futures, so in
+                                # practice this branch is unreachable; keep it so a future
+                                # refactor that yields not-yet-done futures still degrades
+                                # gracefully instead of raising.
                                 _prefetch_stuck_futures += 1
                                 continue
                             attachment_cache[row_id] = atts
                             if i % 25 == 0 or i == total_futures:
                                 logging.info(f"   📎 [{i}/{total_futures}] Attachment pre-fetch progress...")
-                    finally:
-                        if _prefetch_budget_exceeded:
-                            # Cancel anything still queued; in-flight threads will finish on their own but
-                            # we stop waiting on them. Their rows fall back to per-row lookups.
-                            for f in futures:
-                                if not f.done():
-                                    f.cancel()
-                                    _prefetch_abandoned += 1
+                    except FuturesTimeoutError:
+                        # Phase sub-budget exhausted — stuck HTTP call(s) held the iterator.
+                        # Bail out; remaining rows fall back to the per-row path.
+                        _prefetch_budget_exceeded = True
+                finally:
+                    # Classify remaining work so the log / Sentry span reflects reality:
+                    # cancel() returns True only for queued futures that hadn't started
+                    # (Copilot review: the old code overcounted by calling `not f.done()`
+                    # alone, conflating started-but-running with still-queued).
+                    for f in futures:
+                        if f.done():
+                            continue
+                        if f.cancel():
+                            _prefetch_cancelled += 1
+                        else:
+                            _prefetch_still_running += 1
+                    # wait=False so stuck in-flight threads don't block the critical path
+                    # (the main generation loop). They'll either complete via SDK retry
+                    # backoff or be hard-killed by the workflow's timeout-minutes ceiling.
+                    executor.shutdown(wait=False, cancel_futures=True)
 
                 _att_elapsed = (datetime.datetime.now() - _att_start).total_seconds()
                 span.set_data("rows_cached", len(attachment_cache))
-                span.set_data("rows_abandoned", _prefetch_abandoned)
+                span.set_data("rows_cancelled", _prefetch_cancelled)
+                span.set_data("rows_still_running", _prefetch_still_running)
                 span.set_data("rows_stuck", _prefetch_stuck_futures)
                 if _prefetch_budget_exceeded:
                     logging.warning(
                         f"⏰ Attachment pre-fetch budget hit ({ATTACHMENT_PREFETCH_MAX_MINUTES}min). "
                         f"Cached {len(attachment_cache)}/{total_futures} rows in {_att_elapsed:.1f}s; "
-                        f"{_prefetch_abandoned} row(s) abandoned, {_prefetch_stuck_futures} stuck. "
-                        f"Remaining rows will use per-row fallback."
+                        f"{_prefetch_cancelled} cancelled, {_prefetch_still_running} still running in background, "
+                        f"{_prefetch_stuck_futures} stuck. Remaining rows will use per-row fallback."
                     )
                     sentry_add_breadcrumb(
                         "prefetch_truncated",
@@ -3741,7 +3763,8 @@ def main():
                         data={
                             "cached": len(attachment_cache),
                             "total": total_futures,
-                            "abandoned": _prefetch_abandoned,
+                            "cancelled": _prefetch_cancelled,
+                            "still_running": _prefetch_still_running,
                             "stuck": _prefetch_stuck_futures,
                         },
                     )

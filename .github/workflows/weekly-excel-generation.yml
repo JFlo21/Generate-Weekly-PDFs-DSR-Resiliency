@@ -3,6 +3,18 @@ name: Weekly Excel Generation with Sentry Monitoring (Every 2 Hours + Weekly)
 permissions:
   contents: read
 
+# Serialize runs per-ref. With timeout-minutes: 195 and a cron every ~2h
+# (120min), a slow run would otherwise overlap with the next fire,
+# doubling Smartsheet API pressure and increasing the chance of
+# cascading RemoteDisconnected stalls. cancel-in-progress: false
+# (queue mode) is the safer choice for billing: a near-complete run
+# must NEVER be cancelled right before hash_history.save / attachment
+# upload finishes. The 195min hard ceiling already bounds how long a
+# stuck run can hold the queue.
+concurrency:
+  group: weekly-excel-${{ github.ref }}
+  cancel-in-progress: false
+
 on:
   schedule:
     - cron: '0 13,15,17,19,21,23,1 * * 1-5'

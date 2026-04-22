@@ -1,7 +1,9 @@
 
+import importlib
+import os
 import unittest
 import hashlib
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 import generate_weekly_pdfs
 
 class TestPerformanceOptimizations(unittest.TestCase):
@@ -114,28 +116,51 @@ class TestAttachmentPrefetchBudget(unittest.TestCase):
     TIME_BUDGET_MINUTES before a single Excel file could be generated.
     """
 
-    def test_prefetch_budget_constants_exist_with_sane_defaults(self):
+    def test_prefetch_budget_constants_exist(self):
         # Must exist so the pre-fetch can time-box itself.
         self.assertTrue(hasattr(generate_weekly_pdfs, 'ATTACHMENT_PREFETCH_MAX_MINUTES'))
         self.assertTrue(hasattr(generate_weekly_pdfs, 'ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC'))
 
-        # Must be strictly smaller than the session budget, otherwise the
-        # pre-fetch alone could burn the whole session with zero generation.
-        # The weekly workflow sets TIME_BUDGET_MINUTES=180 (3h); the upper
-        # bound here intentionally stays well below that so any future tweak
-        # can't accidentally starve the group-processing phase.
-        self.assertGreater(generate_weekly_pdfs.ATTACHMENT_PREFETCH_MAX_MINUTES, 0)
-        self.assertLess(generate_weekly_pdfs.ATTACHMENT_PREFETCH_MAX_MINUTES, 60)
+    def test_prefetch_budget_defaults_with_isolated_env(self):
+        # The constants are read at import time via os.getenv(). If the dev
+        # shell / CI has ATTACHMENT_PREFETCH_* set, testing the raw module
+        # values leaks the environment into the assertion. Clear both vars
+        # and reload the module so the defaults are what we actually check.
+        env_overrides = {
+            "ATTACHMENT_PREFETCH_MAX_MINUTES": "",
+            "ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC": "",
+        }
+        # clear=False preserves unrelated test env (SMARTSHEET_API_TOKEN etc.).
+        with patch.dict(os.environ, env_overrides, clear=False):
+            # Empty string makes os.getenv('...', '10') return '' which the
+            # `int(os.getenv(...) or 10)` idiom in module scope resolves to 10.
+            # Using pop would also work but patch.dict is restore-safe.
+            for _k in list(env_overrides):
+                os.environ.pop(_k, None)
+            importlib.reload(generate_weekly_pdfs)
+            try:
+                self.assertEqual(generate_weekly_pdfs.ATTACHMENT_PREFETCH_MAX_MINUTES, 10)
+                self.assertEqual(generate_weekly_pdfs.ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC, 45)
 
-        # Per-future timeout must be finite and short enough that a single stuck
-        # HTTP call cannot serialize the consumer loop for many minutes.
-        self.assertGreater(generate_weekly_pdfs.ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC, 0)
-        self.assertLessEqual(generate_weekly_pdfs.ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC, 120)
+                # Upper-bound invariants — prevent a future tweak from
+                # accidentally setting a pre-fetch budget that could burn
+                # the whole session. Weekly workflow runs at
+                # TIME_BUDGET_MINUTES=180; the pre-fetch budget must stay
+                # well below that.
+                self.assertGreater(generate_weekly_pdfs.ATTACHMENT_PREFETCH_MAX_MINUTES, 0)
+                self.assertLess(generate_weekly_pdfs.ATTACHMENT_PREFETCH_MAX_MINUTES, 60)
+                self.assertGreater(generate_weekly_pdfs.ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC, 0)
+                self.assertLessEqual(generate_weekly_pdfs.ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC, 120)
+            finally:
+                # Restore the module to whatever the outer environment says
+                # so subsequent tests see the module in its normal shape.
+                importlib.reload(generate_weekly_pdfs)
 
     def test_futures_timeout_error_imported(self):
-        # The consumer loop raises FuturesTimeoutError per future. If this
-        # import is removed the pre-fetch will crash instead of falling back
-        # to the per-row path when a future stalls.
+        # The consumer loop catches FuturesTimeoutError from the as_completed
+        # wait (phase sub-budget) and from future.result (per-future guard).
+        # If this import is removed the pre-fetch will crash on a stall
+        # instead of falling back to the per-row path.
         self.assertTrue(hasattr(generate_weekly_pdfs, 'FuturesTimeoutError'))
 
 if __name__ == '__main__':
