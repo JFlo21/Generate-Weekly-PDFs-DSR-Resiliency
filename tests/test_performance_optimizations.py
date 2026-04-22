@@ -106,5 +106,35 @@ class TestPerformanceOptimizations(unittest.TestCase):
         groups = generate_weekly_pdfs.group_source_rows(rows)
         self.assertTrue(len(groups) > 0)
 
+
+class TestAttachmentPrefetchBudget(unittest.TestCase):
+    """Lock in the pre-fetch sub-budget guardrails added after the 2026-04-22
+    production incident where a flaky Smartsheet connection stalled the
+    attachment pre-fetch for ~17 minutes and consumed the entire
+    TIME_BUDGET_MINUTES before a single Excel file could be generated.
+    """
+
+    def test_prefetch_budget_constants_exist_with_sane_defaults(self):
+        # Must exist so the pre-fetch can time-box itself.
+        self.assertTrue(hasattr(generate_weekly_pdfs, 'ATTACHMENT_PREFETCH_MAX_MINUTES'))
+        self.assertTrue(hasattr(generate_weekly_pdfs, 'ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC'))
+
+        # Must be strictly smaller than the default session budget, otherwise
+        # the pre-fetch alone could burn the whole session with zero generation.
+        # The workflow sets TIME_BUDGET_MINUTES=80; keep a wide safety margin.
+        self.assertGreater(generate_weekly_pdfs.ATTACHMENT_PREFETCH_MAX_MINUTES, 0)
+        self.assertLess(generate_weekly_pdfs.ATTACHMENT_PREFETCH_MAX_MINUTES, 60)
+
+        # Per-future timeout must be finite and short enough that a single stuck
+        # HTTP call cannot serialize the consumer loop for many minutes.
+        self.assertGreater(generate_weekly_pdfs.ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC, 0)
+        self.assertLessEqual(generate_weekly_pdfs.ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC, 120)
+
+    def test_futures_timeout_error_imported(self):
+        # The consumer loop raises FuturesTimeoutError per future. If this
+        # import is removed the pre-fetch will crash instead of falling back
+        # to the per-row path when a future stalls.
+        self.assertTrue(hasattr(generate_weekly_pdfs, 'FuturesTimeoutError'))
+
 if __name__ == '__main__':
     unittest.main()

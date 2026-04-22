@@ -14,7 +14,7 @@ FIXES IMPLEMENTED:
 import os
 import datetime
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
 import re
 import hashlib
 from datetime import timedelta
@@ -181,6 +181,20 @@ PARALLEL_WORKERS_DISCOVERY = int(os.getenv('PARALLEL_WORKERS_DISCOVERY', '8') or
 # This prevents the Actions runner from hard-killing the job and losing cache/artifact saves.
 # Set to 0 to disable.  The workflow sets this to ~80min (leaving 10min for artifact/cache steps).
 TIME_BUDGET_MINUTES = int(os.getenv('TIME_BUDGET_MINUTES', '0') or 0)
+
+# Sub-budget for the attachment pre-fetch phase. Prevents a flaky Smartsheet
+# connection from consuming the entire session budget before group processing
+# can start: on 2026-04-22 a run lost 16 minutes to ~14 stuck rows after
+# RemoteDisconnected retries, exhausted the 80min TIME_BUDGET_MINUTES before
+# generating a single file, and finished with 0 Excel files generated.
+# When the pre-fetch exceeds this budget, remaining rows fall back to on-demand
+# per-row fetches (already supported in _has_existing_week_attachment and
+# delete_old_excel_attachments).
+ATTACHMENT_PREFETCH_MAX_MINUTES = int(os.getenv('ATTACHMENT_PREFETCH_MAX_MINUTES', '10') or 10)
+# Per-future wait (seconds) inside the pre-fetch consumer loop. One stuck HTTP
+# call cannot block the consumer beyond this — the future is left behind and
+# its row falls back to the per-row path at generation time.
+ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC = int(os.getenv('ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC', '45') or 45)
 
 USE_DISCOVERY_CACHE = os.getenv('USE_DISCOVERY_CACHE','1').lower() in ('1','true','yes')
 # Discovery cache TTL: sheet IDs and column mappings are essentially static.
@@ -3612,10 +3626,35 @@ def main():
         # redundant per-row API calls in _has_existing_week_attachment and delete_old_excel_attachments.
         # Each row's attachments are fetched once here instead of 2-3 times in the group loop.
         attachment_cache = {}  # row_id -> list of attachment objects
+        target_map_to_prefetch = {}
         if target_map and not TEST_MODE:
+            target_map_to_prefetch = target_map
+            # Pre-flight session-budget guard: if discovery + row fetch already consumed most
+            # of TIME_BUDGET_MINUTES, skip pre-fetch entirely so we have time for generation.
+            # Per-row fallback paths handle an empty cache transparently.
+            if TIME_BUDGET_MINUTES and GITHUB_ACTIONS_MODE:
+                _pre_elapsed_min = (datetime.datetime.now() - session_start).total_seconds() / 60.0
+                _remaining_min = TIME_BUDGET_MINUTES - _pre_elapsed_min
+                if _remaining_min <= ATTACHMENT_PREFETCH_MAX_MINUTES:
+                    logging.warning(
+                        f"⏩ Skipping attachment pre-fetch: {_pre_elapsed_min:.1f}min already elapsed, "
+                        f"only {_remaining_min:.1f}min left in session budget "
+                        f"(need > {ATTACHMENT_PREFETCH_MAX_MINUTES}min). "
+                        f"Attachment lookups will fall back to per-row fetches during generation."
+                    )
+                    sentry_add_breadcrumb(
+                        "prefetch_skipped",
+                        f"Pre-fetch skipped, {_remaining_min:.1f}min remaining",
+                        level="warning",
+                        data={"elapsed_min": round(_pre_elapsed_min, 1), "remaining_min": round(_remaining_min, 1)},
+                    )
+                    target_map_to_prefetch = {}
+
+        if target_map_to_prefetch:
             with sentry_sdk.start_span(op="smartsheet.attachment_prefetch", name="Pre-fetch row attachments") as span:
-                logging.info(f"🚀 Starting parallel attachment pre-fetch with {PARALLEL_WORKERS} workers for {len(target_map)} target rows...")
+                logging.info(f"🚀 Starting parallel attachment pre-fetch with {PARALLEL_WORKERS} workers for {len(target_map_to_prefetch)} target rows (max {ATTACHMENT_PREFETCH_MAX_MINUTES}min)...")
                 _att_start = datetime.datetime.now()
+                _prefetch_deadline = _att_start + datetime.timedelta(minutes=ATTACHMENT_PREFETCH_MAX_MINUTES)
 
                 def _fetch_row_attachments(row_item):
                     wr_num, target_row = row_item
@@ -3651,18 +3690,61 @@ def main():
                                 if attempt > 0:
                                     logging.warning(f"⚠️ Attachment fetch failed after {max_retries} attempts for row {target_row.id}: {err_name}")
                                 return (target_row.id, [])
-                
+
+                _prefetch_budget_exceeded = False
+                _prefetch_stuck_futures = 0
+                _prefetch_abandoned = 0
                 with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
-                    futures = [executor.submit(_fetch_row_attachments, item) for item in target_map.items()]
-                    for i, future in enumerate(as_completed(futures), 1):
-                        row_id, atts = future.result()
-                        attachment_cache[row_id] = atts
-                        if i % 25 == 0 or i == len(futures):
-                            logging.info(f"   📎 [{i}/{len(futures)}] Attachment pre-fetch progress...")
-                
+                    futures = [executor.submit(_fetch_row_attachments, item) for item in target_map_to_prefetch.items()]
+                    total_futures = len(futures)
+                    try:
+                        for i, future in enumerate(as_completed(futures), 1):
+                            # Phase sub-budget: one stuck HTTP call must not consume the session budget.
+                            if datetime.datetime.now() >= _prefetch_deadline:
+                                _prefetch_budget_exceeded = True
+                                break
+                            try:
+                                row_id, atts = future.result(timeout=ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC)
+                            except FuturesTimeoutError:
+                                # Abandon this specific row; per-row fallback at generation time will cover it.
+                                _prefetch_stuck_futures += 1
+                                continue
+                            attachment_cache[row_id] = atts
+                            if i % 25 == 0 or i == total_futures:
+                                logging.info(f"   📎 [{i}/{total_futures}] Attachment pre-fetch progress...")
+                    finally:
+                        if _prefetch_budget_exceeded:
+                            # Cancel anything still queued; in-flight threads will finish on their own but
+                            # we stop waiting on them. Their rows fall back to per-row lookups.
+                            for f in futures:
+                                if not f.done():
+                                    f.cancel()
+                                    _prefetch_abandoned += 1
+
                 _att_elapsed = (datetime.datetime.now() - _att_start).total_seconds()
                 span.set_data("rows_cached", len(attachment_cache))
-                logging.info(f"⚡ Pre-fetched attachments for {len(attachment_cache)} target rows in {_att_elapsed:.1f}s (parallel w/{PARALLEL_WORKERS} workers)")
+                span.set_data("rows_abandoned", _prefetch_abandoned)
+                span.set_data("rows_stuck", _prefetch_stuck_futures)
+                if _prefetch_budget_exceeded:
+                    logging.warning(
+                        f"⏰ Attachment pre-fetch budget hit ({ATTACHMENT_PREFETCH_MAX_MINUTES}min). "
+                        f"Cached {len(attachment_cache)}/{total_futures} rows in {_att_elapsed:.1f}s; "
+                        f"{_prefetch_abandoned} row(s) abandoned, {_prefetch_stuck_futures} stuck. "
+                        f"Remaining rows will use per-row fallback."
+                    )
+                    sentry_add_breadcrumb(
+                        "prefetch_truncated",
+                        f"Pre-fetch truncated at {ATTACHMENT_PREFETCH_MAX_MINUTES}min",
+                        level="warning",
+                        data={
+                            "cached": len(attachment_cache),
+                            "total": total_futures,
+                            "abandoned": _prefetch_abandoned,
+                            "stuck": _prefetch_stuck_futures,
+                        },
+                    )
+                else:
+                    logging.info(f"⚡ Pre-fetched attachments for {len(attachment_cache)} target rows in {_att_elapsed:.1f}s (parallel w/{PARALLEL_WORKERS} workers)")
 
         # Load hash history AFTER optional purge so we don't rely on stale attachments
         hash_history = load_hash_history(HASH_HISTORY_PATH)

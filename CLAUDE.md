@@ -450,3 +450,52 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   `EXTENDED_CHANGE_DETECTION`, `RATE_CUTOFF_DATE`, and
   `_RATES_FINGERPRINT` in `setUp`/`tearDown` so developer env-var
   overrides don't destabilize the suite.
+- [2026-04-22 16:05] Production incident: a scheduled run finished
+  with **0 Excel files generated, 0 uploaded** despite completing
+  discovery, row fetch, and grouping (1910 groups identified). Root
+  cause was the attachment pre-fetch phase — a `ThreadPoolExecutor`
+  + `as_completed` consumer loop around
+  `client.Attachments.list_row_attachments` — stalling for ~16
+  minutes on the last ~14 of 539 target rows after 4
+  `RemoteDisconnected` retries on the Smartsheet `/attachments`
+  endpoint. The consumer used a blocking `future.result()` with no
+  per-future timeout, so one stuck HTTP worker serialized the tail
+  of the batch. Combined with the preceding discovery + row fetch,
+  total elapsed hit 82.4 min **before** the group-processing loop
+  ran its first iteration; the existing `TIME_BUDGET_MINUTES=80`
+  guard then exited immediately with "1910 group(s) remaining" and
+  no generation occurred. **Fix (additive, production-safe):**
+  (1) Introduced `ATTACHMENT_PREFETCH_MAX_MINUTES` (default 10) and
+  `ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC` (default 45) env vars.
+  (2) Pre-flight guard: if `session elapsed` already leaves less
+  than `ATTACHMENT_PREFETCH_MAX_MINUTES` of the session budget,
+  skip the pre-fetch entirely — per-row fallback paths in
+  `_has_existing_week_attachment` and `delete_old_excel_attachments`
+  already handle a missing cache entry transparently.
+  (3) Phase sub-budget: the consumer loop checks a
+  `_prefetch_deadline` on every iteration and breaks out when
+  exceeded; pending futures are cancelled in a `finally`.
+  (4) Per-future timeout: `future.result(timeout=...)` raises
+  `FuturesTimeoutError` on a stuck HTTP call so the consumer moves
+  on to the next completed row instead of blocking. Imported
+  `TimeoutError as FuturesTimeoutError` from `concurrent.futures`.
+  **New rules:** (1) Any pre-flight / pre-processing phase that
+  shares `TIME_BUDGET_MINUTES` with the main generation loop MUST
+  have its own sub-budget sized well below the session budget. A
+  pre-flight phase burning the entire session budget with zero
+  output is an existential bug, not a performance bug — treat it
+  as P0. (2) Consumers of `ThreadPoolExecutor.submit` + `as_completed`
+  hitting external APIs MUST use `future.result(timeout=...)`;
+  relying on the upstream SDK's HTTP timeout is insufficient because
+  urllib3 retries can multiply it. (3) When skipping an
+  optimization on a budget-exceeded path, verify the fallback path
+  still works end-to-end — partial / skipped pre-fetch here is
+  safe *only* because both attachment consumers already accept
+  `cached_attachments=None`; adding a new consumer that assumes the
+  cache is populated would reintroduce this class of bug.
+  (4) Never let a single row stall the attachment pre-fetch
+  indefinitely. Regression tests:
+  `tests/test_performance_optimizations.py::TestAttachmentPrefetchBudget`
+  locks in the new constants (with upper bounds to prevent
+  accidental defaults ≥ session budget) and the
+  `FuturesTimeoutError` import.
