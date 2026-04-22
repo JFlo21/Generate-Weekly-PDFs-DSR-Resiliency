@@ -396,3 +396,42 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   and the safety guard that still retains SmartSheet price when
   neither group nor CU is in new rates
   (`test_silent_fallthrough_when_neither_group_nor_cu_in_new_rates`).
+- [2026-04-22 00:00] VAC crew Excel files silently not regenerating
+  when a non-first-sorted row's VAC crew fields change. **Root
+  cause:** `calculate_data_hash()` builds `vac_crew` variant
+  metadata (VACCREW / VACCREW_DEPT / VACCREW_JOB) from
+  `sorted_rows[0]` only — mirroring the helper pattern — but the
+  `vac_crew` group key at `generate_weekly_pdfs.py:2660`
+  (`{week}_{wr}_VACCREW`) does NOT split per foreman the way helper
+  groups do (`{week}_{wr}_HELPER_{helper}`). A single VAC crew
+  group therefore contains every VAC crew member for that
+  WR+week. Editing the dept/job/name on a member that doesn't
+  sort first left the hash unchanged, the "unchanged + attachment
+  exists" skip at line 3695 fired, and no Excel regenerated even
+  though the row fully met VAC crew criteria (dept #, name, both
+  `Vac Crew Completed Unit?` and `Units Completed?` checked).
+  Adding a row already regenerated (ROWCOUNT changed), so only
+  *modifications* to existing rows were silently lost. **Fix:**
+  aggregate `__vac_crew_name`, `__vac_crew_dept`, `__vac_crew_job`
+  across ALL rows in the group (sorted, deduped, comma-joined)
+  instead of reading `sorted_rows[0]` — so any per-row VAC crew
+  field edit forces the hash to change. Helper metadata was left
+  alone because helper groups already partition by foreman and
+  every row in a helper group shares identical helper info.
+  **Secondary fix:** bumped `DISCOVERY_CACHE_VERSION` from 2 → 3
+  at `generate_weekly_pdfs.py:193` so any discovery cache created
+  before VAC crew columns were added to a particular existing
+  sheet in Smartsheet is re-validated on the next run rather than
+  waiting up to `DISCOVERY_CACHE_TTL_MIN` (default 7 days) for
+  the mapping to refresh. **New rules:** (1) Whenever a group key
+  variant does NOT include a disambiguating identifier (the way
+  `_VACCREW` doesn't include the VAC crew name the way
+  `_HELPER_<name>` does), the corresponding hash metadata MUST
+  aggregate across all rows in the group — `sorted_rows[0]`-only
+  metadata is a silent-skip trap. (2) When fixing a bug that
+  could leave existing discovery caches with incorrect column
+  mappings, bump `DISCOVERY_CACHE_VERSION` so the fix takes
+  effect immediately instead of eventually. Regression tests:
+  `tests/test_vac_crew.py::TestVacCrewHashAggregation` covers
+  dept-edit and name-edit on non-first rows plus hash stability
+  when nothing changes.

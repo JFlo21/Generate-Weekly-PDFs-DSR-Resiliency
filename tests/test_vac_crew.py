@@ -224,5 +224,79 @@ class TestVacCrewGroupingLogic(unittest.TestCase):
         self.assertEqual(len(groups[vaccrew_key[0]]), 3)
 
 
+class TestVacCrewHashAggregation(unittest.TestCase):
+    """Regression tests for the VAC crew hash metadata aggregation bug.
+
+    VAC crew groups are not split per foreman in the group key (all VAC crew
+    rows for a given WR+week share a single `_VACCREW` group), so a single
+    group can contain multiple VAC crew members. Prior to the fix, the hash
+    metadata read VAC crew name/dept/job only from sorted_rows[0], which meant
+    edits to VAC crew fields on any non-first row left the hash unchanged and
+    the file was skipped as "unchanged + attachment exists".
+    """
+
+    def _row(self, wr, cu, qty, price, name, dept, job, snapshot='2026-04-19'):
+        return {
+            'Work Request #': wr,
+            'Snapshot Date': snapshot,
+            'CU': cu,
+            'Quantity': qty,
+            'Units Total Price': price,
+            'Units Completed?': True,
+            '__variant': 'vac_crew',
+            '__is_vac_crew': True,
+            '__vac_crew_name': name,
+            '__vac_crew_dept': dept,
+            '__vac_crew_job': job,
+        }
+
+    def test_hash_changes_when_non_first_row_vac_crew_dept_edited(self):
+        """Editing VAC crew dept on a non-first sorted row must change the hash."""
+        base = [
+            self._row('12345', 'CU-A', 1, '$100', 'Alice', '1000', 'J1'),
+            self._row('12345', 'CU-B', 1, '$200', 'Bob',   '2000', 'J2'),
+        ]
+        edited = [
+            self._row('12345', 'CU-A', 1, '$100', 'Alice', '1000', 'J1'),
+            self._row('12345', 'CU-B', 1, '$200', 'Bob',   '2099', 'J2'),
+        ]
+        self.assertNotEqual(
+            generate_weekly_pdfs.calculate_data_hash(base),
+            generate_weekly_pdfs.calculate_data_hash(edited),
+            "Hash did not change after editing a non-first row's VAC crew "
+            "dept — regression: multi-member VAC crew groups will silently "
+            "skip regeneration."
+        )
+
+    def test_hash_changes_when_non_first_row_vac_crew_name_edited(self):
+        """Editing VAC crew name on a non-first sorted row must change the hash."""
+        base = [
+            self._row('12345', 'CU-A', 1, '$100', 'Alice', '1000', 'J1'),
+            self._row('12345', 'CU-B', 1, '$200', 'Bob',   '2000', 'J2'),
+        ]
+        edited = [
+            self._row('12345', 'CU-A', 1, '$100', 'Alice',   '1000', 'J1'),
+            self._row('12345', 'CU-B', 1, '$200', 'Bob Jr.', '2000', 'J2'),
+        ]
+        self.assertNotEqual(
+            generate_weekly_pdfs.calculate_data_hash(base),
+            generate_weekly_pdfs.calculate_data_hash(edited),
+        )
+
+    def test_hash_stable_when_no_vac_crew_fields_change(self):
+        """Same VAC crew data (in any row order) must produce the same hash."""
+        rows = [
+            self._row('12345', 'CU-A', 1, '$100', 'Alice', '1000', 'J1'),
+            self._row('12345', 'CU-B', 1, '$200', 'Bob',   '2000', 'J2'),
+        ]
+        # Shuffled input order must not change hash — calculate_data_hash
+        # already sorts deterministically, and the aggregated VAC crew
+        # metadata is sorted too.
+        self.assertEqual(
+            generate_weekly_pdfs.calculate_data_hash(rows),
+            generate_weekly_pdfs.calculate_data_hash(list(reversed(rows))),
+        )
+
+
 if __name__ == '__main__':
     unittest.main()
