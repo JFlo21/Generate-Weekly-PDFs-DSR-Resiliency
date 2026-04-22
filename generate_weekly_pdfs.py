@@ -1172,6 +1172,11 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
     # Extended mode: Use incremental hashing
     hasher = hashlib.sha256()
 
+    # Variant is a group-level property (all rows in a group share the same
+    # __variant). Compute it once before the row loop so per-row hash can
+    # include variant-scoped fields deterministically.
+    group_variant = sorted_rows[0].get('__variant', 'primary') if sorted_rows else 'primary'
+
     group_foreman = None
     for row in sorted_rows:
         foreman = row.get('__current_foreman') or row.get('Foreman') or ''
@@ -1180,7 +1185,7 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
         # CRITICAL: Use parse_price() for normalization to avoid format-based false changes
         normalized_price = f"{parse_price(row.get('Units Total Price', 0)):.2f}"
 
-        row_str = "|".join([
+        row_fields = [
             str(row.get('Work Request #', '')),
             str(row.get('Snapshot Date', '') or ''),
             str(row.get('CU', '') or ''),
@@ -1198,7 +1203,27 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
             str(row.get('CU Description', '') or ''),
             str(row.get('Unit of Measure', '') or ''),
             str(row.get('Area', '') or ''),
-        ])
+        ]
+        # VAC crew groups use a single `_VACCREW` key with no foreman suffix,
+        # so one group can hold multiple crew members. Including per-row VAC
+        # crew fields here lets each row contribute its own name/dept/job to
+        # the hash independently. This avoids two pitfalls of aggregating
+        # values into `meta_parts` as a set:
+        #   1. Set dedup — e.g. depts {500, 500, 600}: editing one row's dept
+        #      from 500→600 leaves {500, 600} unchanged, silently skipping
+        #      regeneration.
+        #   2. Delimiter collision — ','.join on free-text names cannot
+        #      distinguish ['A,B', 'C'] from ['A', 'B,C'].
+        # Scoped to vac_crew so hash stability for primary/helper rows is
+        # preserved (non-vac_crew row_str structure is unchanged).
+        if group_variant == 'vac_crew':
+            row_fields.extend([
+                str(row.get('__vac_crew_name') or ''),
+                str(row.get('__vac_crew_dept') or ''),
+                str(row.get('__vac_crew_job') or ''),
+            ])
+
+        row_str = "|".join(row_fields)
         # Update hash incrementally with newline separator
         hasher.update(row_str.encode('utf-8'))
         hasher.update(b"\n")
@@ -1211,12 +1236,14 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
     meta_parts.append(f"FOREMAN={group_foreman or ''}")
     
     # Variant-specific hash tokens (replaces activity log USER= token)
-    variant = sorted_rows[0].get('__variant', 'primary') if sorted_rows else 'primary'
+    variant = group_variant
     meta_parts.append(f"VARIANT={variant}")
-    
+
     if variant == 'helper':
-        # Helper variant: include helper-specific metadata (helper_job is OPTIONAL)
-        # PERFORMANCE: Access row once, avoid repeated dict lookups
+        # Helper variant: include helper-specific metadata (helper_job is OPTIONAL).
+        # Helper groups are split per foreman (group key: `_HELPER_{helper}`),
+        # so every row in a helper group shares identical helper info —
+        # reading sorted_rows[0] here is safe.
         _first = sorted_rows[0] if sorted_rows else {}
         helper_foreman = _first.get('__helper_foreman', '')
         helper_dept = _first.get('__helper_dept', '')
@@ -1229,27 +1256,10 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
         meta_parts.append(f"HELPER={helper_foreman}")
         meta_parts.append(f"HELPER_DEPT={helper_dept}")
         meta_parts.append(f"HELPER_JOB={helper_job}")  # Include even if empty for hash consistency
-    elif variant == 'vac_crew':
-        # VAC Crew variant is NOT split per foreman in the group key
-        # (line 2660 uses `_VACCREW` with no foreman suffix), so a single
-        # group can contain multiple VAC crew members. Reading only
-        # sorted_rows[0] would miss hash changes when VAC crew
-        # fields (name/dept/job) are edited on any row that is not first
-        # in sort order — the known "VAC crew sheet not regenerating even
-        # though criteria is met" bug. Aggregate across all rows so any
-        # per-row VAC crew field change forces a new hash.
-        vac_crew_names = sorted({
-            str(r.get('__vac_crew_name') or '') for r in sorted_rows
-        })
-        vac_crew_depts = sorted({
-            str(r.get('__vac_crew_dept') or '') for r in sorted_rows
-        })
-        vac_crew_jobs = sorted({
-            str(r.get('__vac_crew_job') or '') for r in sorted_rows
-        })
-        meta_parts.append(f"VACCREW={','.join(vac_crew_names)}")
-        meta_parts.append(f"VACCREW_DEPT={','.join(vac_crew_depts)}")
-        meta_parts.append(f"VACCREW_JOB={','.join(vac_crew_jobs)}")
+    # vac_crew variant intentionally has no meta_parts block: VAC crew
+    # name/dept/job are already captured per-row in the row_str loop above,
+    # which is strictly more sensitive than meta_parts aggregation and is not
+    # vulnerable to set-dedup collisions or comma-in-name delimiter collisions.
     
     meta_parts.append(f"DEPTS={','.join(unique_depts)}")
     meta_parts.append(f"TOTAL={total_price:.2f}")
