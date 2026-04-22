@@ -364,6 +364,37 @@ class TestVacCrewHashAggregation(unittest.TestCase):
             generate_weekly_pdfs.calculate_data_hash(list(reversed(rows))),
         )
 
+    def test_legacy_mode_ignores_vac_crew_metadata_edits(self):
+        """Regression: legacy mode (EXTENDED_CHANGE_DETECTION=0) must remain
+        insensitive to VAC crew field edits. The docstring promises
+        legacy uses only the original minimal fields so hashes stay
+        bit-stable for rollbacks, and legacy row_data does not include
+        VAC crew fields. Applying VAC crew tie-breakers unconditionally
+        to the sort key would let VAC crew edits change the hash
+        indirectly by reordering rows whose legacy row_data differs on
+        non-primary fields (Work Type / Units Completed? / price)."""
+        generate_weekly_pdfs.EXTENDED_CHANGE_DETECTION = False
+        # Tied on primary sort keys but with differing legacy row_data
+        # (Work Type differs) — order matters for the hasher.
+        row_a = self._row('12345', 'CU-SAME', 1, '$100', 'Alice', '1000', 'J1')
+        row_b = self._row('12345', 'CU-SAME', 1, '$100', 'Bob',   '2000', 'J2')
+        row_a['Work Type'] = 'Install'
+        row_b['Work Type'] = 'Remove'
+
+        base_hash = generate_weekly_pdfs.calculate_data_hash([row_a, row_b])
+
+        # Edit a VAC crew field only — legacy hash must not change.
+        row_a_edited = dict(row_a, __vac_crew_dept='9999')
+        edited_hash = generate_weekly_pdfs.calculate_data_hash(
+            [row_a_edited, row_b]
+        )
+        self.assertEqual(
+            base_hash, edited_hash,
+            "Legacy hash changed after a VAC crew field edit — "
+            "tie-breakers must be gated behind EXTENDED_CHANGE_DETECTION "
+            "to preserve rollback-stability of legacy mode."
+        )
+
     def test_hash_stable_when_vac_crew_rows_share_primary_sort_keys(self):
         """Regression: including VAC crew fields in row_str made the hash
         sensitive to insertion order when multiple VAC crew rows share

@@ -1139,27 +1139,40 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
         return "0" * 16
 
     # Deterministic sorting across key business fields.
-    # VAC crew fields appear as tie-breakers so that multi-member VAC crew
-    # groups — where two rows can share (WR, Snapshot, CU, Pole, Qty) while
-    # belonging to different crew members — hash stably across runs. Without
-    # the tie-breaker, row insertion order (merged from parallel
+    #
+    # In EXTENDED mode, VAC crew fields appear as tie-breakers so multi-member
+    # VAC crew groups — where two rows can share (WR, Snapshot, CU, Pole, Qty)
+    # while belonging to different crew members — hash stably across runs.
+    # Without the tie-breaker, row insertion order (merged from parallel
     # `as_completed` futures in `get_all_source_rows`) bleeds into the hash
-    # because VAC crew fields are included per-row in row_str. Non-VAC-crew
-    # rows have empty VAC crew fields, so these keys are a no-op tie-breaker
-    # for primary/helper groups and do not change their hashes.
-    sorted_rows = sorted(
-        group_rows,
-        key=lambda x: (
-            str(x.get('Work Request #', '')),
-            str(x.get('Snapshot Date', '')),
-            str(x.get('CU', '')),
-            str(x.get('Pole #') or x.get('Point #') or x.get('Point Number') or ''),
-            str(x.get('Quantity', '')),
-            str(x.get('__vac_crew_name') or ''),
-            str(x.get('__vac_crew_dept') or ''),
-            str(x.get('__vac_crew_job') or ''),
-        )
+    # because VAC crew fields are included per-row in row_str.
+    #
+    # LEGACY mode (EXTENDED_CHANGE_DETECTION=0) intentionally keeps the
+    # original 5-key sort: the docstring promises legacy uses only the
+    # original minimal fields so hashes stay bit-stable for rollbacks.
+    # Adding tie-breakers there would change row order for tied rows whose
+    # legacy row_data still differs (Work Type / Units Completed? / price),
+    # invalidating the rollback-stability guarantee. Legacy mode's row_data
+    # also excludes VAC crew fields, so a vac_crew-specific tie-breaker
+    # there would be purely cosmetic — skip it.
+    _sort_base = lambda x: (
+        str(x.get('Work Request #', '')),
+        str(x.get('Snapshot Date', '')),
+        str(x.get('CU', '')),
+        str(x.get('Pole #') or x.get('Point #') or x.get('Point Number') or ''),
+        str(x.get('Quantity', '')),
     )
+    if EXTENDED_CHANGE_DETECTION:
+        sorted_rows = sorted(
+            group_rows,
+            key=lambda x: _sort_base(x) + (
+                str(x.get('__vac_crew_name') or ''),
+                str(x.get('__vac_crew_dept') or ''),
+                str(x.get('__vac_crew_job') or ''),
+            ),
+        )
+    else:
+        sorted_rows = sorted(group_rows, key=_sort_base)
 
     if not EXTENDED_CHANGE_DETECTION:
         # OPTIMIZATION: Use incremental hashing to avoid large string allocation
