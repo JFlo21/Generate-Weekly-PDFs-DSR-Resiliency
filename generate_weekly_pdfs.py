@@ -277,7 +277,7 @@ DISCOVERY_CACHE_PATH = os.path.join(OUTPUT_FOLDER, 'discovery_cache.json')
 # Also bump when a known bug would leave existing caches with incorrect mappings —
 # invalidating the cache is cheaper than waiting up to DISCOVERY_CACHE_TTL_MIN
 # (7 days by default) for those mappings to refresh on their own.
-DISCOVERY_CACHE_VERSION = 3  # v3: force re-validation to pick up VAC Crew columns added to existing sheets post-v2
+DISCOVERY_CACHE_VERSION = 4  # v4: fuzzy VAC Crew column fallback — invalidate caches whose column_mapping missed title variants like trailing whitespace or case drift
 # Verbose debug tunables
 DEBUG_SAMPLE_ROWS = int(os.getenv('DEBUG_SAMPLE_ROWS','3') or 3)  # How many initial rows (across all sheets) to show full per-cell mapping
 DEBUG_ESSENTIAL_ROWS = int(os.getenv('DEBUG_ESSENTIAL_ROWS','5') or 5)  # How many initial rows to log essential field summary
@@ -1790,6 +1790,24 @@ def save_hash_history(path: str, history: dict):
 def _title(t):
     return (t or "").strip().lower()
 
+
+def _normalize_column_title_for_vac_crew(t):
+    """Normalize a Smartsheet column title for fuzzy VAC Crew matching.
+
+    Lowercases, collapses runs of whitespace to a single space, and strips
+    decorative trailing '?' or '#' (with optional surrounding spaces) so that
+    operator-introduced variants like ``'Vac Crew Helping ?'``,
+    ``'VAC CREW Helping?'``, ``'vac  crew helping'`` or ``'Vac Crew Dept#'``
+    collapse to the same key as the canonical ``'VAC Crew Helping?'`` /
+    ``'VAC Crew Dept #'``. Scoped intentionally narrow — only used by the VAC
+    Crew fuzzy fallback in ``_validate_single_sheet`` — so primary/helper
+    exact-match behaviour is preserved.
+    """
+    s = re.sub(r"\s+", " ", (t or "").strip().lower())
+    s = re.sub(r"\s*[\?#]+\s*$", "", s)
+    return s
+
+
 def discover_source_sheets(client):
     """Strict deterministic discovery: anchored keywords + type filtered. Skips sheets missing Weekly Reference Logged Date."""
     global _FOLDER_DISCOVERED_SUB_IDS, _FOLDER_DISCOVERED_ORIG_IDS, SUBCONTRACTOR_SHEET_IDS
@@ -2042,10 +2060,13 @@ def discover_source_sheets(client):
                 # Check for helper-related columns specifically
                 if 'Helper' in c.title or 'Helping' in c.title:
                     helper_columns_found.append(c.title)
-                # Check for VAC Crew-related columns
-                if 'Vac Crew' in c.title or 'VAC Crew' in c.title:
+                # Check for VAC Crew-related columns (case-insensitive so lowercase
+                # or hyphenated variants like 'vac crew' / 'vac-crew' still surface
+                # in logs and feed the fuzzy fallback pass below).
+                _ct_lower = (c.title or '').lower()
+                if 'vac crew' in _ct_lower or 'vaccrew' in _ct_lower or 'vac-crew' in _ct_lower:
                     vac_crew_columns_found.append(c.title)
-                
+
                 if c.title in synonyms and synonyms[c.title] not in mapping:
                     mapping[synonyms[c.title]] = c.id
                     # Log helper column mappings specifically
@@ -2054,14 +2075,72 @@ def discover_source_sheets(client):
                     # Log VAC Crew column mappings
                     if 'Vac Crew' in c.title or 'VAC Crew' in c.title:
                         logging.info(f"🚐 MAPPED VAC CREW COLUMN: '{c.title}' -> '{synonyms[c.title]}' (column ID: {c.id})")
-            
+
+            # ── VAC Crew column fuzzy fallback ──
+            # The exact-match pass above only catches the two literal case variants
+            # declared in `synonyms` (e.g. 'VAC Crew Helping?' and 'Vac Crew Helping?').
+            # Operators occasionally introduce subtle variants on a new sheet —
+            # trailing / leading whitespace, missing or extra '?', double internal
+            # spaces, all-caps 'VAC CREW', all-lowercase 'vac crew' — and any such
+            # variant silently fails to map. When the two KEY columns
+            # ('VAC Crew Helping?' and 'Vac Crew Completed Unit?') aren't in
+            # `mapping`, `sheet_has_vac_crew_columns` in _fetch_and_process_sheet
+            # evaluates False and the row-level VAC Crew detection block is
+            # skipped wholesale — the sheet produces zero _VacCrew Excel files
+            # regardless of row content. This fallback runs ONLY when a canonical
+            # VAC Crew key is missing, so helper/primary mappings are unaffected
+            # and existing exact-match behaviour is preserved.
+            _vac_crew_fuzzy_canonicals = [
+                'VAC Crew Helping?',
+                'Vac Crew Completed Unit?',
+                'VAC Crew Dept #',
+                'Vac Crew Job #',
+                'Vac Crew Email Address',
+            ]
+            _already_mapped_ids = set(mapping.values())
+            for _canonical in _vac_crew_fuzzy_canonicals:
+                if _canonical in mapping:
+                    continue
+                _target_norm = _normalize_column_title_for_vac_crew(_canonical)
+                for c in cols:
+                    if c.id in _already_mapped_ids:
+                        continue
+                    if _normalize_column_title_for_vac_crew(c.title) == _target_norm:
+                        mapping[_canonical] = c.id
+                        _already_mapped_ids.add(c.id)
+                        logging.warning(
+                            f"🚐 VAC Crew column FUZZY-MATCHED on sheet ID {sid}: "
+                            f"'{c.title}' -> '{_canonical}'. Consider adding '{c.title}' "
+                            f"as an explicit synonym if this variant is permanent."
+                        )
+                        break
+
             # Log summary of helper columns found
             if helper_columns_found:
                 logging.info(f"🔧 All helper/helping columns found in sheet: {helper_columns_found}")
             # Log summary of VAC Crew columns found
             if vac_crew_columns_found:
                 logging.info(f"🚐 VAC Crew columns found in sheet: {vac_crew_columns_found}")
-            
+
+            # Actionable WARNING: VAC Crew-looking columns exist but the two key
+            # mappings still didn't resolve after the fuzzy pass — detection will
+            # be DISABLED for this sheet until the column titles are aligned with
+            # `_vac_crew_fuzzy_canonicals`. Surface the raw titles so operators
+            # can see exactly which variant is on the sheet.
+            if vac_crew_columns_found and not (
+                'VAC Crew Helping?' in mapping
+                and 'Vac Crew Completed Unit?' in mapping
+            ):
+                logging.warning(
+                    f"🚐⚠️ VAC Crew columns visible on sheet ID {sid} but key "
+                    f"mappings incomplete after fuzzy pass: "
+                    f"titles_seen={vac_crew_columns_found}, "
+                    f"mapped_vac_crew_keys={[k for k in _vac_crew_fuzzy_canonicals if k in mapping]}. "
+                    f"VAC Crew row detection will be DISABLED for this sheet until "
+                    f"titles match a canonical form in _vac_crew_fuzzy_canonicals."
+                )
+
+
             if 'Weekly Reference Logged Date' in mapping:
                 w_id = mapping['Weekly Reference Logged Date']
                 s_id = mapping.get('Snapshot Date')
