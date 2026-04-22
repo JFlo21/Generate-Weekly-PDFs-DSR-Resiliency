@@ -555,7 +555,25 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   this class of bug. (5) `Future.cancel()` returns `True` only for
   queued futures — running threads cannot be cancelled. Account
   for this in any abandoned/cancelled metric or the number will
-  mislead Sentry. Regression tests:
+  mislead Sentry. (6) `shutdown(wait=False, cancel_futures=True)`
+  lets `main()` return but does NOT prevent the interpreter from
+  blocking on stuck workers at exit: `concurrent.futures.thread`
+  registers `_python_exit` via `threading._register_atexit`, which
+  walks `_threads_queues` and calls `t.join()` on every remaining
+  worker. So if a stuck HTTP thread is still in-flight when the
+  script finishes, interpreter shutdown hangs until that thread
+  returns — which on a long urllib3 retry can push total runtime
+  past `timeout-minutes: 195` and skip post-job cache / artifact /
+  Sentry-flush steps. The pre-fetch works around this by popping
+  its worker threads out of `_threads_queues` (see
+  `_detach_from_atexit_registry` in `_fetch_row_attachments`'s
+  surrounding block), which is safe ONLY because the pre-fetch
+  cache is an optimization with an always-available per-row
+  fallback. Do NOT copy this pattern onto a `ThreadPoolExecutor`
+  whose workers produce results the main flow depends on
+  (generation, upload, hash_history) — the atexit join is what
+  guarantees those workers' side effects are flushed before
+  `return 0` is visible to the shell. Regression tests:
   `tests/test_performance_optimizations.py::TestAttachmentPrefetchBudget`
   locks in the new constants (with env-isolated `patch.dict` +
   `importlib.reload` so a developer's local env doesn't leak into

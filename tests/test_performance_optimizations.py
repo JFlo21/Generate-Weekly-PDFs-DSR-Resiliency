@@ -130,15 +130,12 @@ class TestAttachmentPrefetchBudget(unittest.TestCase):
             "ATTACHMENT_PREFETCH_MAX_MINUTES": "",
             "ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC": "",
         }
-        # clear=False preserves unrelated test env (SMARTSHEET_API_TOKEN etc.).
-        with patch.dict(os.environ, env_overrides, clear=False):
-            # Empty string makes os.getenv('...', '10') return '' which the
-            # `int(os.getenv(...) or 10)` idiom in module scope resolves to 10.
-            # Using pop would also work but patch.dict is restore-safe.
-            for _k in list(env_overrides):
-                os.environ.pop(_k, None)
-            importlib.reload(generate_weekly_pdfs)
-            try:
+        try:
+            # clear=False preserves unrelated test env (SMARTSHEET_API_TOKEN etc.).
+            with patch.dict(os.environ, env_overrides, clear=False):
+                for _k in list(env_overrides):
+                    os.environ.pop(_k, None)
+                importlib.reload(generate_weekly_pdfs)
                 self.assertEqual(generate_weekly_pdfs.ATTACHMENT_PREFETCH_MAX_MINUTES, 10)
                 self.assertEqual(generate_weekly_pdfs.ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC, 45)
 
@@ -151,10 +148,14 @@ class TestAttachmentPrefetchBudget(unittest.TestCase):
                 self.assertLess(generate_weekly_pdfs.ATTACHMENT_PREFETCH_MAX_MINUTES, 60)
                 self.assertGreater(generate_weekly_pdfs.ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC, 0)
                 self.assertLessEqual(generate_weekly_pdfs.ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC, 120)
-            finally:
-                # Restore the module to whatever the outer environment says
-                # so subsequent tests see the module in its normal shape.
-                importlib.reload(generate_weekly_pdfs)
+        finally:
+            # Reload AFTER the `with patch.dict(...)` block exits, so
+            # os.environ has already been restored to whatever the outer
+            # shell said. Reloading inside the `with` (as an earlier
+            # revision did) picks up the popped env instead — the module
+            # would stay pinned at defaults even when the outer env has
+            # ATTACHMENT_PREFETCH_* set. Thanks @cursor[bot] for catching.
+            importlib.reload(generate_weekly_pdfs)
 
     def test_futures_timeout_error_imported(self):
         # The consumer loop catches FuturesTimeoutError from the as_completed

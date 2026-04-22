@@ -3705,6 +3705,40 @@ def main():
                 futures = [executor.submit(_fetch_row_attachments, item) for item in target_map_to_prefetch.items()]
                 total_futures = len(futures)
                 _phase_budget_sec = ATTACHMENT_PREFETCH_MAX_MINUTES * 60
+
+                # Detach worker threads from concurrent.futures' atexit join
+                # registry. By default, `_python_exit()` (registered via
+                # threading._register_atexit) walks `_threads_queues` and
+                # calls `t.join()` on every ThreadPoolExecutor worker at
+                # interpreter shutdown — which means a stuck urllib3 retry
+                # inside `list_row_attachments` can block process exit past
+                # main() return, pushing total runtime past the runner's
+                # `timeout-minutes: 195` ceiling and skipping post-job
+                # cache save / artifact upload / Sentry flush. Popping our
+                # threads from the registry leaves them running in the
+                # background but makes them invisible to `_python_exit`,
+                # so the interpreter can exit as soon as main() returns
+                # without waiting on abandoned I/O. Pre-fetch is a pure
+                # optimization (every consumer has a per-row fallback), so
+                # walking away from a mid-flight HTTP worker is safe; the
+                # process dies and the OS reclaims the thread's socket.
+                # Uses `concurrent.futures.thread._threads_queues` + the
+                # executor's `_threads` attribute, both private but stable
+                # from Python 3.7 through 3.13. The getattr guards keep
+                # the main path working even if a future Python rearranges
+                # these names — we'd simply fall back to the prior
+                # behavior (blocking on atexit join).
+                def _detach_from_atexit_registry():
+                    try:
+                        import concurrent.futures.thread as _cf_thread
+                        registry = getattr(_cf_thread, '_threads_queues', None)
+                        if registry is None:
+                            return
+                        for _t in list(getattr(executor, '_threads', ()) or ()):
+                            registry.pop(_t, None)
+                    except Exception as _det_e:
+                        logging.debug(f"Could not detach pre-fetch workers from atexit registry: {_det_e}")
+                _detach_from_atexit_registry()
                 try:
                     try:
                         # timeout= is measured from this call; the iterator itself raises
@@ -3742,6 +3776,10 @@ def main():
                     # wait=False so stuck in-flight threads don't block the critical path
                     # (the main generation loop). They'll either complete via SDK retry
                     # backoff or be hard-killed by the workflow's timeout-minutes ceiling.
+                    # Re-run the atexit detach in case any new worker threads spawned
+                    # mid-run; otherwise _python_exit would still join them at
+                    # interpreter shutdown and defeat the phase sub-budget.
+                    _detach_from_atexit_registry()
                     executor.shutdown(wait=False, cancel_futures=True)
 
                 _att_elapsed = (datetime.datetime.now() - _att_start).total_seconds()
