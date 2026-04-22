@@ -4,7 +4,28 @@ import os
 import unittest
 import hashlib
 from unittest.mock import MagicMock, patch
-import generate_weekly_pdfs
+
+
+def _safe_reload_gwp():
+    """Reload ``generate_weekly_pdfs`` without re-running its Sentry
+    init side effects.
+
+    The module's top-level ``if SENTRY_DSN: sentry_sdk.init(...)`` runs
+    at import time, so a plain ``importlib.reload`` in a dev shell with
+    ``SENTRY_DSN`` set would make unit tests network-dependent. We
+    force an empty DSN and mock the init for the duration of the
+    reload, following the pattern in ``tests/test_sentry_log_sanitizer.py``.
+    """
+    with patch.dict(os.environ, {"SENTRY_DSN": ""}, clear=False):
+        with patch("sentry_sdk.init"):
+            return importlib.reload(generate_weekly_pdfs)
+
+
+# Initial import under the same guard so test collection doesn't fire
+# a real sentry_sdk.init either (Copilot review on test line 8).
+with patch.dict(os.environ, {"SENTRY_DSN": ""}, clear=False):
+    with patch("sentry_sdk.init"):
+        import generate_weekly_pdfs
 
 class TestPerformanceOptimizations(unittest.TestCase):
 
@@ -135,7 +156,7 @@ class TestAttachmentPrefetchBudget(unittest.TestCase):
             with patch.dict(os.environ, env_overrides, clear=False):
                 for _k in list(env_overrides):
                     os.environ.pop(_k, None)
-                importlib.reload(generate_weekly_pdfs)
+                _safe_reload_gwp()
                 self.assertEqual(generate_weekly_pdfs.ATTACHMENT_PREFETCH_MAX_MINUTES, 10)
                 self.assertEqual(generate_weekly_pdfs.ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC, 45)
 
@@ -155,7 +176,7 @@ class TestAttachmentPrefetchBudget(unittest.TestCase):
             # revision did) picks up the popped env instead — the module
             # would stay pinned at defaults even when the outer env has
             # ATTACHMENT_PREFETCH_* set. Thanks @cursor[bot] for catching.
-            importlib.reload(generate_weekly_pdfs)
+            _safe_reload_gwp()
 
     def test_futures_timeout_error_imported(self):
         # The consumer loop catches FuturesTimeoutError from the as_completed

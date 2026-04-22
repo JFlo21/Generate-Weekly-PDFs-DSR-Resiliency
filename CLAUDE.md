@@ -555,25 +555,44 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   this class of bug. (5) `Future.cancel()` returns `True` only for
   queued futures — running threads cannot be cancelled. Account
   for this in any abandoned/cancelled metric or the number will
-  mislead Sentry. (6) `shutdown(wait=False, cancel_futures=True)`
-  lets `main()` return but does NOT prevent the interpreter from
-  blocking on stuck workers at exit: `concurrent.futures.thread`
-  registers `_python_exit` via `threading._register_atexit`, which
-  walks `_threads_queues` and calls `t.join()` on every remaining
-  worker. So if a stuck HTTP thread is still in-flight when the
-  script finishes, interpreter shutdown hangs until that thread
-  returns — which on a long urllib3 retry can push total runtime
-  past `timeout-minutes: 195` and skip post-job cache / artifact /
-  Sentry-flush steps. The pre-fetch works around this by popping
-  its worker threads out of `_threads_queues` (see
-  `_detach_from_atexit_registry` in `_fetch_row_attachments`'s
-  surrounding block), which is safe ONLY because the pre-fetch
-  cache is an optimization with an always-available per-row
-  fallback. Do NOT copy this pattern onto a `ThreadPoolExecutor`
-  whose workers produce results the main flow depends on
-  (generation, upload, hash_history) — the atexit join is what
-  guarantees those workers' side effects are flushed before
-  `return 0` is visible to the shell. Regression tests:
+  mislead Sentry. (6) **Three things block interpreter exit for
+  a non-daemon worker and ALL THREE must be addressed to actually
+  bound a stall:** (a) `concurrent.futures.thread._python_exit`
+  (registered via `threading._register_atexit`) joins every worker
+  in `_threads_queues`; (b) `threading._shutdown` joins every
+  tstate lock in `_shutdown_locks` — non-daemon threads add
+  themselves there via `_set_tstate_lock` at startup; (c) the
+  executor's own `shutdown(wait=True)` joins all workers on
+  `with`-block exit. The pre-fetch defeats all three by (a)
+  popping from `_threads_queues` on the budget-exceeded path (see
+  `_detach_from_atexit_registry`), (b) using
+  `_DaemonThreadPoolExecutor` — a subclass that creates
+  `daemon=True` workers, so `_set_tstate_lock` skips adding them
+  to `_shutdown_locks` — and (c) explicit
+  `shutdown(wait=False, cancel_futures=True)` instead of `with`.
+  Empirical note: an earlier revision did only (a) and still hung
+  ~5s at interpreter exit in a repro; (a)+(b)+(c) exits in ~0.05s.
+  This trifecta is safe ONLY because the pre-fetch cache is an
+  optimization with an always-available per-row fallback. Do NOT
+  copy this pattern onto a `ThreadPoolExecutor` whose workers
+  produce results the main flow depends on (generation, upload,
+  hash_history) — the atexit join is what guarantees those
+  workers' side effects are flushed before `return 0` is visible
+  to the shell.
+  (7) The pre-flight skip condition must reserve
+  *generation headroom* beyond the pre-fetch budget
+  (`ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN`, default 2
+  minutes). Without it, a setup with remaining ==
+  `ATTACHMENT_PREFETCH_MAX_MINUTES` would still run pre-fetch and
+  leave zero time for the generation loop — recreating the
+  original incident's zero-output failure mode.
+  (8) Test files that `importlib.reload(generate_weekly_pdfs)`
+  MUST patch `SENTRY_DSN=""` + `sentry_sdk.init` around the
+  reload (see `_safe_reload_gwp` in
+  `tests/test_performance_optimizations.py`); otherwise a dev
+  shell with a real `SENTRY_DSN` causes each reload to fire a
+  live Sentry init during test runs. Mirrors the pattern in
+  `tests/test_sentry_log_sanitizer.py`. Regression tests:
   `tests/test_performance_optimizations.py::TestAttachmentPrefetchBudget`
   locks in the new constants (with env-isolated `patch.dict` +
   `importlib.reload` so a developer's local env doesn't leak into

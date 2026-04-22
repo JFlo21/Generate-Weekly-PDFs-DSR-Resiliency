@@ -14,7 +14,10 @@ FIXES IMPLEMENTED:
 import os
 import datetime
 import time
+import threading
+import weakref
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
+import concurrent.futures.thread as _cf_thread
 import re
 import hashlib
 from datetime import timedelta
@@ -196,6 +199,72 @@ ATTACHMENT_PREFETCH_MAX_MINUTES = int(os.getenv('ATTACHMENT_PREFETCH_MAX_MINUTES
 # call cannot block the consumer beyond this — the future is left behind and
 # its row falls back to the per-row path at generation time.
 ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC = int(os.getenv('ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC', '45') or 45)
+# Minimum "generation headroom" (minutes) the pre-flight guard reserves
+# beyond the pre-fetch budget. Without this, a setup where the session
+# has exactly `ATTACHMENT_PREFETCH_MAX_MINUTES` remaining would still
+# run pre-fetch and leave ~0 minutes for group processing — the same
+# zero-output failure mode this guard is meant to prevent.
+ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN = int(os.getenv('ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN', '2') or 2)
+
+
+class _DaemonThreadPoolExecutor(ThreadPoolExecutor):
+    """ThreadPoolExecutor whose workers are daemonized so stuck I/O
+    cannot hold the interpreter open past ``main()`` return.
+
+    Three things can block process exit for a non-daemon worker:
+    1. ``concurrent.futures.thread._python_exit`` (registered via
+       ``threading._register_atexit``) joins every worker still in
+       ``_threads_queues``.
+    2. ``threading._shutdown`` joins every lock in
+       ``_shutdown_locks`` — non-daemon threads add their tstate
+       lock to this set at startup.
+    3. The executor's ``shutdown(wait=True)`` joins all workers.
+
+    This subclass addresses (2) by setting ``daemon=True`` at thread
+    creation (``_set_tstate_lock`` only adds to ``_shutdown_locks``
+    when ``not self.daemon``). Callers addressing a stall must still
+    pop from ``_threads_queues`` (addresses 1) and call
+    ``shutdown(wait=False, cancel_futures=True)`` (addresses 3).
+
+    **Safety invariant — use this ONLY when the worker's work is
+    discardable.** The pre-fetch cache has a per-row fallback path,
+    so abandoning a mid-flight HTTP worker is safe; the OS reclaims
+    the socket. Do NOT use this executor for workers that produce
+    results the main flow depends on (generation, upload,
+    ``hash_history.save``) — the atexit join is what guarantees
+    those side effects are flushed before exit.
+
+    Re-implements upstream's private ``_adjust_thread_count`` to
+    flip ``daemon=True``. Pinned to the Python 3.11 / 3.12 shape;
+    falls back to the superclass (non-daemon workers, atexit hang
+    returns) if a future Python rearranges the private helpers.
+    """
+
+    def _adjust_thread_count(self):
+        if not hasattr(_cf_thread, '_worker') or not hasattr(_cf_thread, '_threads_queues'):
+            return super()._adjust_thread_count()
+        if self._idle_semaphore.acquire(timeout=0):
+            return
+
+        def _weakref_cb(_, q=self._work_queue):
+            q.put(None)
+
+        num_threads = len(self._threads)
+        if num_threads < self._max_workers:
+            thread_name = '%s_%d' % (self._thread_name_prefix or self, num_threads)
+            t = threading.Thread(
+                name=thread_name,
+                target=_cf_thread._worker,
+                args=(weakref.ref(self, _weakref_cb),
+                      self._work_queue,
+                      self._initializer,
+                      self._initargs),
+                daemon=True,
+            )
+            t.start()
+            self._threads.add(t)
+            _cf_thread._threads_queues[t] = self._work_queue
+
 
 USE_DISCOVERY_CACHE = os.getenv('USE_DISCOVERY_CACHE','1').lower() in ('1','true','yes')
 # Discovery cache TTL: sheet IDs and column mappings are essentially static.
@@ -3632,22 +3701,34 @@ def main():
             target_map_to_prefetch = target_map
             # Pre-flight session-budget guard: if discovery + row fetch already consumed most
             # of TIME_BUDGET_MINUTES, skip pre-fetch entirely so we have time for generation.
+            # Reserve ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN beyond the pre-fetch budget
+            # so we don't end up with exactly enough time to pre-fetch and then zero time to
+            # generate — that would recreate the original incident's zero-output failure mode.
             # Per-row fallback paths handle an empty cache transparently.
             if TIME_BUDGET_MINUTES and GITHUB_ACTIONS_MODE:
                 _pre_elapsed_min = (datetime.datetime.now() - session_start).total_seconds() / 60.0
                 _remaining_min = TIME_BUDGET_MINUTES - _pre_elapsed_min
-                if _remaining_min <= ATTACHMENT_PREFETCH_MAX_MINUTES:
+                _required_remaining_min = ATTACHMENT_PREFETCH_MAX_MINUTES + ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN
+                if _remaining_min <= _required_remaining_min:
                     logging.warning(
                         f"⏩ Skipping attachment pre-fetch: {_pre_elapsed_min:.1f}min already elapsed, "
                         f"only {_remaining_min:.1f}min left in session budget "
-                        f"(need > {ATTACHMENT_PREFETCH_MAX_MINUTES}min). "
+                        f"(need > {_required_remaining_min}min = "
+                        f"{ATTACHMENT_PREFETCH_MAX_MINUTES}min pre-fetch budget + "
+                        f"{ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN}min generation headroom). "
                         f"Attachment lookups will fall back to per-row fetches during generation."
                     )
                     sentry_add_breadcrumb(
                         "prefetch_skipped",
                         f"Pre-fetch skipped, {_remaining_min:.1f}min remaining",
                         level="warning",
-                        data={"elapsed_min": round(_pre_elapsed_min, 1), "remaining_min": round(_remaining_min, 1)},
+                        data={
+                            "elapsed_min": round(_pre_elapsed_min, 1),
+                            "remaining_min": round(_remaining_min, 1),
+                            "prefetch_budget_min": ATTACHMENT_PREFETCH_MAX_MINUTES,
+                            "generation_headroom_min": ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN,
+                            "required_remaining_min": _required_remaining_min,
+                        },
                     )
                     target_map_to_prefetch = {}
 
@@ -3696,41 +3777,32 @@ def main():
                 _prefetch_stuck_futures = 0     # future.result timed out after as_completed yielded
                 _prefetch_cancelled = 0         # queued futures we successfully cancelled
                 _prefetch_still_running = 0     # in-flight futures we abandoned to the background
-                # Manual executor lifecycle: the `with` block forces shutdown(wait=True),
-                # which blocks on stuck in-flight HTTP calls and would defeat the whole
-                # point of the phase sub-budget. Using explicit shutdown(wait=False,
-                # cancel_futures=True) below lets the main generation loop run even
-                # while a hung thread is still spinning in the background.
-                executor = ThreadPoolExecutor(max_workers=PARALLEL_WORKERS)
+                # Manual executor lifecycle with daemon workers. Three things can
+                # block process exit for a non-daemon worker and all three matter
+                # here: (1) _python_exit joins _threads_queues, (2) threading.
+                # _shutdown joins _shutdown_locks, (3) executor.shutdown(wait=True)
+                # joins via the `with` block. Using _DaemonThreadPoolExecutor
+                # addresses (2) — daemon threads don't add their tstate lock to
+                # _shutdown_locks. Using explicit shutdown(wait=False,
+                # cancel_futures=True) in finally addresses (3). The detach helper
+                # below addresses (1) — but only on the budget-exceeded path
+                # (Copilot review: don't touch private APIs when everything
+                # completed normally; the workers are already done and there's
+                # nothing to skip). See _DaemonThreadPoolExecutor docstring for
+                # the full three-defense story and the safety invariant.
+                executor = _DaemonThreadPoolExecutor(max_workers=PARALLEL_WORKERS)
                 futures = [executor.submit(_fetch_row_attachments, item) for item in target_map_to_prefetch.items()]
                 total_futures = len(futures)
                 _phase_budget_sec = ATTACHMENT_PREFETCH_MAX_MINUTES * 60
 
-                # Detach worker threads from concurrent.futures' atexit join
-                # registry. By default, `_python_exit()` (registered via
-                # threading._register_atexit) walks `_threads_queues` and
-                # calls `t.join()` on every ThreadPoolExecutor worker at
-                # interpreter shutdown — which means a stuck urllib3 retry
-                # inside `list_row_attachments` can block process exit past
-                # main() return, pushing total runtime past the runner's
-                # `timeout-minutes: 195` ceiling and skipping post-job
-                # cache save / artifact upload / Sentry flush. Popping our
-                # threads from the registry leaves them running in the
-                # background but makes them invisible to `_python_exit`,
-                # so the interpreter can exit as soon as main() returns
-                # without waiting on abandoned I/O. Pre-fetch is a pure
-                # optimization (every consumer has a per-row fallback), so
-                # walking away from a mid-flight HTTP worker is safe; the
-                # process dies and the OS reclaims the thread's socket.
-                # Uses `concurrent.futures.thread._threads_queues` + the
-                # executor's `_threads` attribute, both private but stable
-                # from Python 3.7 through 3.13. The getattr guards keep
-                # the main path working even if a future Python rearranges
-                # these names — we'd simply fall back to the prior
-                # behavior (blocking on atexit join).
+                # Helper: pop workers from concurrent.futures' atexit join
+                # registry so _python_exit doesn't t.join() them at interpreter
+                # shutdown (daemon-ness doesn't help here — join() blocks
+                # unconditionally). Called only when we're abandoning in-flight
+                # work. Uses private APIs; getattr guards keep the main path
+                # working if a future Python rearranges the names.
                 def _detach_from_atexit_registry():
                     try:
-                        import concurrent.futures.thread as _cf_thread
                         registry = getattr(_cf_thread, '_threads_queues', None)
                         if registry is None:
                             return
@@ -3738,7 +3810,6 @@ def main():
                             registry.pop(_t, None)
                     except Exception as _det_e:
                         logging.debug(f"Could not detach pre-fetch workers from atexit registry: {_det_e}")
-                _detach_from_atexit_registry()
                 try:
                     try:
                         # timeout= is measured from this call; the iterator itself raises
@@ -3776,10 +3847,12 @@ def main():
                     # wait=False so stuck in-flight threads don't block the critical path
                     # (the main generation loop). They'll either complete via SDK retry
                     # backoff or be hard-killed by the workflow's timeout-minutes ceiling.
-                    # Re-run the atexit detach in case any new worker threads spawned
-                    # mid-run; otherwise _python_exit would still join them at
-                    # interpreter shutdown and defeat the phase sub-budget.
-                    _detach_from_atexit_registry()
+                    # Only touch the atexit registry when we're actually abandoning
+                    # work (budget exceeded + still-running threads remain).
+                    # Normal completion leaves the workers done; _python_exit will
+                    # find them complete and return immediately from its join().
+                    if _prefetch_still_running:
+                        _detach_from_atexit_registry()
                     executor.shutdown(wait=False, cancel_futures=True)
 
                 _att_elapsed = (datetime.datetime.now() - _att_start).total_seconds()
