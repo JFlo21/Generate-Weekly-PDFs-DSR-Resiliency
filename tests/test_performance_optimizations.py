@@ -119,9 +119,11 @@ class TestAttachmentPrefetchBudget(unittest.TestCase):
         self.assertTrue(hasattr(generate_weekly_pdfs, 'ATTACHMENT_PREFETCH_MAX_MINUTES'))
         self.assertTrue(hasattr(generate_weekly_pdfs, 'ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC'))
 
-        # Must be strictly smaller than the default session budget, otherwise
-        # the pre-fetch alone could burn the whole session with zero generation.
-        # The workflow sets TIME_BUDGET_MINUTES=80; keep a wide safety margin.
+        # Must be strictly smaller than the session budget, otherwise the
+        # pre-fetch alone could burn the whole session with zero generation.
+        # The weekly workflow sets TIME_BUDGET_MINUTES=180 (3h); the upper
+        # bound here intentionally stays well below that so any future tweak
+        # can't accidentally starve the group-processing phase.
         self.assertGreater(generate_weekly_pdfs.ATTACHMENT_PREFETCH_MAX_MINUTES, 0)
         self.assertLess(generate_weekly_pdfs.ATTACHMENT_PREFETCH_MAX_MINUTES, 60)
 

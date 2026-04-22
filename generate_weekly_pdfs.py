@@ -179,7 +179,8 @@ PARALLEL_WORKERS_DISCOVERY = int(os.getenv('PARALLEL_WORKERS_DISCOVERY', '8') or
 # Graceful time budget (minutes). When set and running in GitHub Actions, the script will
 # stop processing new groups once this many minutes have elapsed since session start.
 # This prevents the Actions runner from hard-killing the job and losing cache/artifact saves.
-# Set to 0 to disable.  The workflow sets this to ~80min (leaving 10min for artifact/cache steps).
+# Set to 0 to disable. The weekly workflow sets this to 180 (3h) with a matching
+# timeout-minutes: 195 on the runner (15min cushion for cache/artifact save steps).
 TIME_BUDGET_MINUTES = int(os.getenv('TIME_BUDGET_MINUTES', '0') or 0)
 
 # Sub-budget for the attachment pre-fetch phase. Prevents a flaky Smartsheet
@@ -3657,7 +3658,8 @@ def main():
                 _prefetch_deadline = _att_start + datetime.timedelta(minutes=ATTACHMENT_PREFETCH_MAX_MINUTES)
 
                 def _fetch_row_attachments(row_item):
-                    wr_num, target_row = row_item
+                    # row_item is (wr_num, target_row); only target_row is needed.
+                    _, target_row = row_item
                     max_retries = 4
                     for attempt in range(max_retries):
                         try:

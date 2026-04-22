@@ -109,7 +109,11 @@ env:
 jobs:
   core:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # Hard ceiling for the Actions runner. Must exceed TIME_BUDGET_MINUTES
+    # (currently 180 = 3h) so the Python process always exits gracefully
+    # before Actions kills it; the extra 15min is reserved for post-job
+    # cache-save and artifact-upload steps.
+    timeout-minutes: 195
     env:
       PYTHONUNBUFFERED: 1
       GITHUB_ACTIONS: 'true'
@@ -251,8 +255,13 @@ jobs:
           DEBUG_SAMPLE_ROWS: '1'
           DEBUG_ESSENTIAL_ROWS: '3'
           UNMAPPED_COLUMN_SAMPLE_LIMIT: '3'
-          # Graceful time budget: stop processing new groups before Actions hard-kills the job
-          TIME_BUDGET_MINUTES: '80'
+          # Graceful time budget: stop processing new groups before Actions hard-kills the job.
+          # Raised to 180min (3h) on 2026-04-22 to cover long pre-flight phases
+          # (discovery + target-row-attachment pre-fetch) that can occasionally stall on
+          # transient Smartsheet connection drops. timeout-minutes is set to 195 (180 budget
+          # + 15min cushion for post-job cache/artifact save steps) so the Python process
+          # always exits gracefully before Actions hard-kills it.
+          TIME_BUDGET_MINUTES: '180'
         run: python generate_weekly_pdfs.py
       
       - name: Create Sentry release (optional)
