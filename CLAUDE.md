@@ -631,8 +631,11 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   `sheet_has_vac_crew_columns` in `_fetch_and_process_sheet`
   evaluated `False`, the row-level detection block was skipped
   wholesale, and every VAC crew row for that sheet — including
-  Hugo Garcia's — flowed through the primary variant and never
-  produced a `_VacCrew` Excel. The deceptive part: the diagnostic
+  a foreman's whose production data the reporter surfaced to us —
+  flowed through the primary variant and never produced a
+  `_VacCrew` Excel. (Foreman name redacted: billing-row foreman
+  names are PII and must not be committed to this repository per
+  the Sentry Logs sanitizer rule earlier in this ledger.) The deceptive part: the diagnostic
   log `"🚐 VAC Crew columns found in sheet: [...]"` still fired
   because it uses a broader substring check
   (`'Vac Crew' in c.title or 'VAC Crew' in c.title`), so operators

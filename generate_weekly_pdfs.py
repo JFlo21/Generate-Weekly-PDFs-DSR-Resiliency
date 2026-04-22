@@ -1794,16 +1794,28 @@ def _title(t):
 def _normalize_column_title_for_vac_crew(t):
     """Normalize a Smartsheet column title for fuzzy VAC Crew matching.
 
-    Lowercases, collapses runs of whitespace to a single space, and strips
-    decorative trailing '?' or '#' (with optional surrounding spaces) so that
-    operator-introduced variants like ``'Vac Crew Helping ?'``,
-    ``'VAC CREW Helping?'``, ``'vac  crew helping'`` or ``'Vac Crew Dept#'``
-    collapse to the same key as the canonical ``'VAC Crew Helping?'`` /
-    ``'VAC Crew Dept #'``. Scoped intentionally narrow — only used by the VAC
-    Crew fuzzy fallback in ``_validate_single_sheet`` — so primary/helper
-    exact-match behaviour is preserved.
+    Lowercases, canonicalises hyphenated (``vac-crew``) and joined-word
+    (``vaccrew``) variants into the ``vac crew`` token, collapses runs of
+    whitespace to a single space, and strips decorative trailing ``?`` or
+    ``#`` (with optional surrounding spaces) so that operator-introduced
+    variants like ``'Vac Crew Helping ?'``, ``'VAC CREW Helping?'``,
+    ``'vac  crew helping'``, ``'Vac-Crew Helping?'``, ``'VacCrew Dept#'``
+    or ``'Vac Crew Dept#'`` collapse to the same key as the canonical
+    ``'VAC Crew Helping?'`` / ``'VAC Crew Dept #'``. Scoped intentionally
+    narrow — only used by the VAC Crew fuzzy fallback in
+    ``_validate_single_sheet`` — so primary/helper exact-match behaviour
+    is preserved.
     """
-    s = re.sub(r"\s+", " ", (t or "").strip().lower())
+    s = (t or "").strip().lower()
+    # Hyphenated variants ('vac-crew') → space-separated.
+    s = s.replace("-", " ")
+    # Joined-word variants ('vaccrew') → space-separated. Word-boundary
+    # guarded so unrelated tokens that happen to contain 'vaccrew' as a
+    # substring are left untouched.
+    s = re.sub(r"\bvaccrew\b", "vac crew", s)
+    # Collapse any whitespace runs introduced by the substitutions above.
+    s = re.sub(r"\s+", " ", s).strip()
+    # Strip decorative trailing '?' / '#' with optional surrounding spaces.
     s = re.sub(r"\s*[\?#]+\s*$", "", s)
     return s
 

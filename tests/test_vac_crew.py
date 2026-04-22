@@ -447,6 +447,27 @@ class TestVacCrewColumnTitleNormalizer(unittest.TestCase):
         self.assertEqual(norm('vac crew helping?'), norm('VAC Crew Helping?'))
         self.assertEqual(norm('VAC CREW HELPING?'), norm('VAC Crew Helping?'))
 
+    def test_canonicalises_hyphenated_variants(self):
+        """'vac-crew' variants must normalize to the canonical 'vac crew' token
+        so the broadened substring detector and the fuzzy fallback stay in sync
+        — otherwise a hyphenated column title advertises itself in logs but
+        still silently fails to map."""
+        norm = generate_weekly_pdfs._normalize_column_title_for_vac_crew
+        self.assertEqual(norm('Vac-Crew Helping?'), norm('VAC Crew Helping?'))
+        self.assertEqual(norm('VAC-CREW Completed Unit?'),
+                         norm('Vac Crew Completed Unit?'))
+        self.assertEqual(norm('vac-crew dept#'), norm('VAC Crew Dept #'))
+
+    def test_canonicalises_joined_word_variants(self):
+        """'vaccrew' (no separator) variants must normalize to 'vac crew' so
+        the fuzzy fallback resolves them — same synchronization concern as the
+        hyphenated case."""
+        norm = generate_weekly_pdfs._normalize_column_title_for_vac_crew
+        self.assertEqual(norm('VacCrew Helping?'), norm('VAC Crew Helping?'))
+        self.assertEqual(norm('VACCREW Completed Unit?'),
+                         norm('Vac Crew Completed Unit?'))
+        self.assertEqual(norm('vaccrew job#'), norm('Vac Crew Job #'))
+
     def test_handles_none_and_empty(self):
         norm = generate_weekly_pdfs._normalize_column_title_for_vac_crew
         self.assertEqual(norm(None), '')
@@ -566,6 +587,32 @@ class TestVacCrewColumnFuzzyFallback(unittest.TestCase):
         titles = [
             'VAC CREW HELPING?',
             'vac crew completed unit?',
+            'Work Request #',
+        ]
+        client = self._build_mock_client(titles)
+        discovered = self._run_discovery(client)
+        self._assert_vac_crew_mapped(discovered)
+
+    def test_hyphenated_variant_resolves_via_fuzzy_fallback(self):
+        """'Vac-Crew' hyphenated variants must map via the normalizer's
+        hyphen→space canonicalisation. Without this, the broadened substring
+        detector would log the title as 'found' while the mapping silently
+        failed — the same failure class this PR is fixing."""
+        titles = [
+            'Vac-Crew Helping?',
+            'VAC-CREW Completed Unit?',
+            'Work Request #',
+        ]
+        client = self._build_mock_client(titles)
+        discovered = self._run_discovery(client)
+        self._assert_vac_crew_mapped(discovered)
+
+    def test_joined_word_variant_resolves_via_fuzzy_fallback(self):
+        """'VacCrew' / 'VACCREW' (no separator) variants must map via the
+        normalizer's joined-word canonicalisation."""
+        titles = [
+            'VacCrew Helping?',
+            'VACCREW Completed Unit?',
             'Work Request #',
         ]
         client = self._build_mock_client(titles)
