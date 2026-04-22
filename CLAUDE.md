@@ -165,6 +165,16 @@ Fetch rows in parallel (ThreadPoolExecutor, PARALLEL_WORKERS≤8; SDK handles
    ↓
 Filter + group by (WR, week_ending, variant, foreman, dept, job)
    ↓
+Pre-fetch target-row attachments (ThreadPoolExecutor, PARALLEL_WORKERS≤8)
+   into an in-memory cache to avoid 2-3 per-row API calls per group later.
+   **Sub-budget** ATTACHMENT_PREFETCH_MAX_MINUTES (default 10) + **per-future
+   timeout** ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC (default 45s) ensure a
+   stuck HTTP call cannot consume the session budget. Pre-flight guard
+   skips the phase entirely if less than the pre-fetch budget is left of
+   TIME_BUDGET_MINUTES. Consumers (_has_existing_week_attachment,
+   delete_old_excel_attachments, cleanup_untracked_sheet_attachments) all
+   accept a missing cache entry and fall back to per-row on-demand lookup.
+   ↓
 Change detection: SHA256 hash per group key →
    skip unchanged (generated_docs/hash_history.json, capped at 1000 entries)
    ↓
@@ -198,7 +208,23 @@ All behavior is controlled by `os.getenv()` with defaults. Full reference lives 
 - `RESET_HASH_HISTORY=true` for full CI regeneration (hash history is ephemeral in CI)
 - `REGEN_WEEKS` (MMDDYY list), `RESET_WR_LIST`, `KEEP_HISTORICAL_WEEKS`
 - `DISCOVERY_CACHE_TTL_MIN` (default `10080` = 7 days), `USE_DISCOVERY_CACHE`, `EXTENDED_CHANGE_DETECTION`
+- Time-budget family (GitHub Actions only):
+  - `TIME_BUDGET_MINUTES` — session graceful-stop budget. Default `0`
+    (disabled) for local runs; the weekly workflow sets `180` (3h). Raised
+    from `80` on 2026-04-22 after a pre-fetch stall consumed the whole
+    session with zero output. Must stay strictly less than the workflow's
+    `timeout-minutes` (currently `195`).
+  - `ATTACHMENT_PREFETCH_MAX_MINUTES` (default `10`) — phase sub-budget
+    for the target-row attachment pre-fetch. Also the threshold for the
+    pre-flight guard that skips pre-fetch entirely when the session
+    budget is already mostly consumed.
+  - `ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC` (default `45`) — per-future
+    wait inside the pre-fetch consumer loop. A stuck HTTP call cannot
+    block the consumer beyond this; its row falls back to per-row lookup.
 - Debug flags: `DEBUG_MODE`, `QUIET_LOGGING`, `PER_CELL_DEBUG_ENABLED`, `FILTER_DIAGNOSTICS`, `FOREMAN_DIAGNOSTICS`, `LOG_UNKNOWN_COLUMNS`, `DEBUG_SAMPLE_ROWS`
+- Sentry Logs gate: `SENTRY_ENABLE_LOGS` (default `false`). Keep off by
+  default because INFO-path logs can embed row PII; the `before_send_log`
+  sanitizer in `generate_weekly_pdfs.py` is the defense-in-depth backstop.
 
 **Documented in `.github/prompts/` but not currently consumed by `generate_weekly_pdfs.py`:** `SKIP_FILE_OPERATIONS`, `DRY_RUN_UPLOADS`, `MOCK_SMARTSHEET_UPLOAD`. Treat these as aspirational until they are wired up — setting them today has no effect on the production pipeline.
 
@@ -216,6 +242,15 @@ Do not delete this parser even if the top-level input count is below GitHub's li
 - Weekdays (Mon–Fri): 7 runs/day at UTC `13,15,17,19,21,23,01` (`0 13,15,17,19,21,23,1 * * 1-5`) → roughly every 2 hours during US business hours.
 - Weekends (Sat, Sun): 3 runs/day at UTC `15,19,23` (`0 15,19,23 * * 0,6`).
 - Weekly deep run: `0 5 * * 1` (UTC Monday 05:00 = Sunday 23:00 CST / Monday 00:00 CDT Central). The job's `if: day==1 && hour==23` guard in Central time is what flips the run into the "weekly comprehensive" branch.
+
+**Runner timeouts (the `core` job in `weekly-excel-generation.yml`):**
+- `timeout-minutes: 195` — hard Actions ceiling.
+- `TIME_BUDGET_MINUTES: '180'` — Python graceful-stop budget.
+- The 15-minute gap is reserved for post-job cache-save and artifact-
+  upload steps. Never raise `TIME_BUDGET_MINUTES` without also raising
+  `timeout-minutes` by at least as much — otherwise Actions hard-kills
+  the job before the graceful stop fires and cache/attachment-upload
+  progress is lost.
 
 Other workflows: `docs-changelog.yml` (appends runbook changelog on every merge to `master`), `notion-sync.yml`, `snyk-security.yml`, `system-health-check.yml`, `azure-pipelines.yml` (GitHub → Azure DevOps mirror).
 
@@ -499,3 +534,22 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   locks in the new constants (with upper bounds to prevent
   accidental defaults ≥ session budget) and the
   `FuturesTimeoutError` import.
+- [2026-04-22 17:10] Raised weekly-workflow session time budget from
+  `TIME_BUDGET_MINUTES=80` → `180` (3h) and the matching runner
+  `timeout-minutes` from `90` → `195`. Rationale: even with the
+  pre-fetch sub-budget landed earlier today, the main generation
+  loop still needs enough headroom to process the full group set
+  (1910 groups on the incident run) in a single session rather
+  than always relying on backlog catch-up. **Rule:** the workflow
+  `timeout-minutes` value must always exceed `TIME_BUDGET_MINUTES`
+  by the length of the post-job cache-save + artifact-upload
+  steps (~10-15min). Today's cushion is 15min. Never raise
+  `TIME_BUDGET_MINUTES` without also raising `timeout-minutes` by
+  at least as much, or Actions hard-kills the job before the
+  graceful stop fires and the `save_hash_history` / Sentry flush
+  / attachment upload tails are lost. Code changes were
+  additive-only (config values + comments + one dead-variable
+  cleanup — the unused `wr_num` unpack in `_fetch_row_attachments`
+  became `_, target_row = row_item` since only `target_row.id` is
+  referenced inside the closure). No behavioral change to
+  discovery, row fetch, grouping, hashing, generation, or upload.
