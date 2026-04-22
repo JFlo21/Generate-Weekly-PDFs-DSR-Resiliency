@@ -290,11 +290,29 @@ class TestVacCrewHashAggregation(unittest.TestCase):
             self._row('12345', 'CU-B', 1, '$200', 'Bob',   '2000', 'J2'),
         ]
         # Shuffled input order must not change hash — calculate_data_hash
-        # already sorts deterministically, and the aggregated VAC crew
-        # metadata is sorted too.
+        # already sorts deterministically, and VAC crew fields are per-row
+        # in the row hash.
         self.assertEqual(
             generate_weekly_pdfs.calculate_data_hash(rows),
             generate_weekly_pdfs.calculate_data_hash(list(reversed(rows))),
+        )
+
+    def test_hash_changes_when_dept_edited_to_existing_member_value(self):
+        """A dept edit that only duplicates another member's dept must change
+        the hash (set-only aggregation would miss this)."""
+        base = [
+            self._row('12345', 'CU-A', 1, '$100', 'Alice', '500',  'J1'),
+            self._row('12345', 'CU-B', 1, '$200', 'Bob',   '600',  'J2'),
+            self._row('12345', 'CU-C', 1, '$300', 'Carol', '500',  'J3'),
+        ]
+        edited = [
+            self._row('12345', 'CU-A', 1, '$100', 'Alice', '600',  'J1'),
+            self._row('12345', 'CU-B', 1, '$200', 'Bob',   '600',  'J2'),
+            self._row('12345', 'CU-C', 1, '$300', 'Carol', '500',  'J3'),
+        ]
+        self.assertNotEqual(
+            generate_weekly_pdfs.calculate_data_hash(base),
+            generate_weekly_pdfs.calculate_data_hash(edited),
         )
 
 
