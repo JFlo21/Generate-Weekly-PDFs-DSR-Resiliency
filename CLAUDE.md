@@ -349,3 +349,50 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   (`event_level=logging.ERROR`, so only ERROR+ creates issues;
   INFO/WARNING were already breadcrumbs and become searchable Logs
   only when the gate is on and the sanitizer lets them through).
+- [2026-04-21 22:35] VAC crew post-cutoff pricing lag was a *silent
+  fall-through* in `recalculate_row_price()`, not a cutoff-column
+  bug. **Context:** The cutoff rule is correctly keyed on
+  `Snapshot Date >= RATE_CUTOFF_DATE` at
+  `generate_weekly_pdfs.py:2127`; Weekly Reference Logged Date is
+  the wrong column for this check and must NOT be substituted —
+  operators depend on Snapshot Date semantics. **Real root cause:**
+  `build_cu_to_group_mapping()` reads the old CSV's
+  `Compatible Unit Group` column, which mixes short codes (e.g.
+  `ANC-M`, `CPD-SW`) with verbose names (e.g. `Vacuum Switch`,
+  `Overhead Switching"`, `Softswitch Type K"`, `1200 KVAR Switched
+  Bank`). The new contract CSV keys rates ONLY by short codes. So
+  any CU whose old-CSV group is a verbose name that isn't a key in
+  the new rates table (heavily concentrated on VAC crew specialty
+  work — vacuum switches, softswitches, switched banks) hit the
+  "group not in rates_dict" branch in `recalculate_row_price` and
+  returned the SmartSheet price unchanged with only a
+  `logging.debug` — invisible in production logs. **Fix (additive,
+  production-safe):** (1) In `recalculate_row_price` at the
+  "group not in rates_dict" branch, fall back to a direct CU-code
+  lookup in `rates_dict` before giving up; only activates on exact
+  match so it cannot mis-apply a rate. (2) When even the direct CU
+  lookup misses, elevate the log to WARNING with CU, mapped group,
+  qty, and work type so operators see it immediately. (3) Track
+  `{'recalculated', 'skipped'}` counters and a top-CU Counter per
+  sheet inside `_fetch_and_process_sheet`, and emit a per-sheet
+  WARNING summary when any skips happened — this surfaces the list
+  of CU codes the data team needs to add to
+  `NEW_RATES_CSV` / `New Contract Rates copy regenerated again.csv`
+  (the usual actual resolution). **New rules:** (1) When adding a
+  new CU classification (VAC crew, subcontractor variant, etc.),
+  verify at least one end-to-end row produces a WARNING-free rate
+  recalc before going to production — if the per-sheet summary
+  logs `N skipped`, those CUs are missing from the new rates CSV.
+  (2) Do NOT change the cutoff column from `Snapshot Date` to
+  `Weekly Reference Logged Date` — that was an earlier speculative
+  fix and was rolled back; the business rule is explicitly
+  snapshot-keyed. (3) Never promote recalc fall-through logs back
+  to DEBUG without adding an alternate visibility path — silent
+  price retention directly drives billing inaccuracy. Regression
+  tests:
+  `tests/test_subcontractor_pricing.py::TestRecalculateRowPrice`
+  now covers both the CU-direct fallback
+  (`test_cu_direct_fallback_when_mapped_group_absent_from_new_rates`)
+  and the safety guard that still retains SmartSheet price when
+  neither group nor CU is in new rates
+  (`test_silent_fallthrough_when_neither_group_nor_cu_in_new_rates`).

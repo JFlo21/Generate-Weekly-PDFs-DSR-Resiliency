@@ -22,6 +22,32 @@ import logging
 from dateutil import parser
 import smartsheet
 import smartsheet.exceptions as ss_exc
+
+# Upstream SDK workaround: smartsheet-python-sdk 3.8.0 raises an
+# AttributeError from smartsheet.smartsheet.Smartsheet._request_with_retry
+# whenever the API returns a retryable error (429, 5xx). At
+# smartsheet/smartsheet.py:303 it does
+# ``getattr(sys.modules[__name__], native.result.name)`` to look up the
+# exception class to raise, but that module's top-level imports only
+# expose ApiError / HttpError / UnexpectedRequestError. The retryable
+# exception classes (RateLimitExceededError, UnexpectedErrorShouldRetry-
+# Error, InternalServerError, ServerTimeoutExceededError, SystemMainte-
+# nanceError) live in smartsheet.exceptions and were never re-exported
+# into smartsheet.smartsheet, so the getattr fails and our retry
+# wrapper never gets the real exception. Re-export the missing names
+# here so the SDK's internal lookup succeeds. The ``if not hasattr``
+# guard makes this a no-op if the upstream SDK ever re-exports them.
+import smartsheet.smartsheet as _ss_smartsheet_module
+for _exc_name in (
+    'RateLimitExceededError',
+    'UnexpectedErrorShouldRetryError',
+    'InternalServerError',
+    'ServerTimeoutExceededError',
+    'SystemMaintenanceError',
+):
+    if not hasattr(_ss_smartsheet_module, _exc_name) and hasattr(ss_exc, _exc_name):
+        setattr(_ss_smartsheet_module, _exc_name, getattr(ss_exc, _exc_name))
+del _ss_smartsheet_module, _exc_name
 import openpyxl
 from openpyxl.styles import Font, numbers, Alignment, PatternFill
 from openpyxl.drawing.image import Image
@@ -784,7 +810,27 @@ def load_rate_versions():
     return cu_to_group, new_rates_primary, new_rates_arrowhead, rates_fingerprint
 
 
-def recalculate_row_price(row_data, cu_to_group, rates_dict):
+def _resolve_cu_code(row_data):
+    """Return the CU code for a row using the same priority chain as
+    ``recalculate_row_price`` and ``revert_subcontractor_price``.
+
+    Resolution order: ``CU Helper`` → ``CU`` → ``Billable Unit Code``,
+    with the sentinel string ``'NAN'`` (produced by pandas when a float
+    NaN is stringified) falling back to ``CU``. Returns an uppercased,
+    stripped string (possibly empty if no column yields a value).
+    """
+    cu_code = str(
+        row_data.get('CU Helper')
+        or row_data.get('CU')
+        or row_data.get('Billable Unit Code')
+        or ''
+    ).strip().upper()
+    if cu_code == 'NAN':
+        cu_code = str(row_data.get('CU') or '').strip().upper()
+    return cu_code
+
+
+def recalculate_row_price(row_data, cu_to_group, rates_dict, *, out_status=None):
     """Recalculate a row's price using new contract rates.
 
     Looks up the CU code, maps it to its Compatible Unit Group, then
@@ -795,16 +841,34 @@ def recalculate_row_price(row_data, cu_to_group, rates_dict):
         row_data: Dict of row field values (modified in-place).
         cu_to_group: Dict mapping detailed CU codes to group codes.
         rates_dict: Dict mapping group codes to {install, removal, transfer} rates.
+        out_status: Optional dict that, when provided, receives an
+            ``'outcome'`` key describing why the function returned:
+              * ``'recalculated'`` — a rate was successfully applied
+                (the returned price may still equal the original
+                SmartSheet price if the computed rate × qty matches it
+                exactly; lookup succeeded either way).
+              * ``'missing_rate'`` — neither the mapped group nor the
+                CU code is present in ``rates_dict``; SmartSheet price
+                retained. This is the only outcome the per-sheet
+                "skipped" summary counts toward, because it is the
+                actionable signal that ``NEW_RATES_CSV`` needs a new
+                entry.
+              * ``'invalid_quantity'`` — quantity is zero/missing/
+                unparseable; SmartSheet price retained.
+              * ``'zero_rate'`` — new rate for the resolved work type
+                is zero; SmartSheet price retained.
 
     Returns:
         float: The (possibly recalculated) price value.
     """
+    def _set_status(s):
+        if out_status is not None:
+            out_status['outcome'] = s
+
     price_val = parse_price(row_data.get('Units Total Price'))
 
     # Resolve CU code (same chain as revert_subcontractor_price)
-    cu_code = str(row_data.get('CU Helper') or row_data.get('CU') or row_data.get('Billable Unit Code') or '').strip().upper()
-    if cu_code == 'NAN':
-        cu_code = str(row_data.get('CU') or '').strip().upper()
+    cu_code = _resolve_cu_code(row_data)
 
     # Map detailed CU code to group code
     group_code = cu_to_group.get(cu_code)
@@ -814,11 +878,24 @@ def recalculate_row_price(row_data, cu_to_group, rates_dict):
             group_code = cu_code
         else:
             logging.debug(f"Rate recalculation: CU '{cu_code}' not found in CU-to-group mapping or rates, keeping SmartSheet price")
+            _set_status('missing_rate')
             return price_val
 
+    # If the mapped group isn't in the new rates table (e.g. old CSV maps
+    # CU -> a verbose group name like "Vacuum Switch" that never appears
+    # in the new rates' short-code keys), fall back to looking up the CU
+    # code directly in the rates table. This recovers specialized work
+    # items (common on VAC crew sheets) where the detailed CU code is
+    # itself a key in the new contract rates. Only activates on exact
+    # match, so no chance of mis-applying a rate.
     if group_code not in rates_dict:
-        logging.debug(f"Rate recalculation: group '{group_code}' (from CU '{cu_code}') not found in new rates, keeping SmartSheet price")
-        return price_val
+        if cu_code in rates_dict:
+            logging.debug(f"Rate recalculation: mapped group '{group_code}' not in new rates for CU '{cu_code}'; matched CU directly")
+            group_code = cu_code
+        else:
+            logging.warning(f"Rate recalculation SKIPPED: CU '{cu_code}' maps to group '{group_code}' but neither is in new rates — keeping SmartSheet price (Qty={row_data.get('Quantity')}, Work Type={row_data.get('Work Type')})")
+            _set_status('missing_rate')
+            return price_val
 
     # Determine work type
     work_type_raw = str(row_data.get('Work Type') or '').strip().lower()
@@ -837,15 +914,18 @@ def recalculate_row_price(row_data, cu_to_group, rates_dict):
 
     if qty <= 0:
         logging.debug(f"Rate recalculation: quantity '{qty_str}' is zero/missing for CU '{cu_code}', keeping SmartSheet price")
+        _set_status('invalid_quantity')
         return price_val
 
     rate = rates_dict[group_code].get(wt_key, 0.0)
     if rate <= 0:
         logging.debug(f"Rate recalculation: rate is zero for group '{group_code}' work type '{wt_key}', keeping SmartSheet price")
+        _set_status('zero_rate')
         return price_val
 
     new_price = round(rate * qty, 2)
     row_data['Units Total Price'] = new_price
+    _set_status('recalculated')
     return new_price
 
 
@@ -865,9 +945,7 @@ def revert_subcontractor_price(row_data, original_rates):
     """
     price_val = parse_price(row_data.get('Units Total Price'))
 
-    cu_code = str(row_data.get('CU Helper') or row_data.get('CU') or row_data.get('Billable Unit Code') or '').strip().upper()
-    if cu_code == 'NAN':
-        cu_code = str(row_data.get('CU') or '').strip().upper()
+    cu_code = _resolve_cu_code(row_data)
 
     work_type_raw = str(row_data.get('Work Type') or '').strip().lower()
 
@@ -1990,6 +2068,12 @@ def get_all_source_rows(client, source_sheets):
         sheet_foreman_counts = collections.defaultdict(lambda: collections.Counter())
         sheet_wr_exclusion_reasons = collections.defaultdict(lambda: collections.Counter())
         sheet_row_counter = 0
+        # Track post-cutoff rate recalc outcomes for operator visibility
+        # ('skipped' covers rows where Snapshot Date>=cutoff but the new
+        # rates table has no matching group/CU, so the SmartSheet price
+        # is retained — the known VAC-crew pricing-lag signal).
+        sheet_rate_recalc_counts = {'recalculated': 0, 'skipped': 0}
+        sheet_rate_recalc_skipped_cus = collections.Counter()
         try:
             logging.info(f"⚡ Processing: {source['name']} (ID: {source['id']})")
             is_subcontractor_sheet = source['id'] in SUBCONTRACTOR_SHEET_IDS
@@ -2113,6 +2197,8 @@ def get_all_source_rows(client, source_sheets):
                         # NOTE: Subcontractor (Arrowhead) sheets are EXCLUDED from
                         # recalculation until a separate subcontractor cutoff date is
                         # provided. They keep SmartSheet pricing as-is for now.
+                        _rate_recalc_ran_for_row = False
+                        _recalc_outcome = None
                         if RATE_CUTOFF_DATE and _rate_new_primary and not is_subcontractor_sheet:
                             snapshot_raw_pre = row_data.get('Snapshot Date')
                             if snapshot_raw_pre:
@@ -2121,11 +2207,45 @@ def get_all_source_rows(client, source_sheets):
                                     snap_date_pre = snap_dt_pre.date() if hasattr(snap_dt_pre, 'date') else snap_dt_pre
                                     if snap_date_pre >= RATE_CUTOFF_DATE:
                                         old_price = price_val
-                                        price_val = recalculate_row_price(row_data, _rate_cu_to_group, _rate_new_primary)
-                                        if price_val != old_price:
-                                            logging.debug(f"Rate recalc: CU={row_data.get('CU')}, "
-                                                          f"old=${old_price:.2f} -> new=${price_val:.2f}, "
-                                                          f"date={snap_date_pre}")
+                                        _recalc_status = {}
+                                        price_val = recalculate_row_price(
+                                            row_data,
+                                            _rate_cu_to_group,
+                                            _rate_new_primary,
+                                            out_status=_recalc_status,
+                                        )
+                                        _rate_recalc_ran_for_row = True
+                                        _recalc_outcome = _recalc_status.get('outcome')
+                                        if _recalc_outcome == 'recalculated':
+                                            sheet_rate_recalc_counts['recalculated'] += 1
+                                            if price_val != old_price:
+                                                logging.debug(f"Rate recalc: CU={row_data.get('CU')}, "
+                                                              f"old=${old_price:.2f} -> new=${price_val:.2f}, "
+                                                              f"date={snap_date_pre}")
+                                        elif _recalc_outcome == 'missing_rate':
+                                            # Only count as "skipped" in the
+                                            # per-sheet summary when recalc
+                                            # explicitly reported that neither
+                                            # the mapped group nor the CU code
+                                            # is in the new rates table — that
+                                            # is the actionable signal for
+                                            # updating NEW_RATES_CSV. Outcomes
+                                            # like 'invalid_quantity' /
+                                            # 'zero_rate' are data-entry or
+                                            # contract gaps and are intentionally
+                                            # excluded so the summary WARNING
+                                            # and top-CU list stay accurate.
+                                            sheet_rate_recalc_counts['skipped'] += 1
+                                            # Always attribute the skip to a
+                                            # CU bucket so the per-sheet
+                                            # "N skipped / Top CUs: ..."
+                                            # summary totals stay aligned.
+                                            # Blank CU rows are attributed to
+                                            # '<blank>' so operators can see
+                                            # that category and investigate
+                                            # the missing CU code separately.
+                                            cu_val = _resolve_cu_code(row_data) or '<blank>'
+                                            sheet_rate_recalc_skipped_cus[cu_val] += 1
 
                         price_raw = row_data.get('Units Total Price')
                         has_price = (price_raw not in (None, "", "$0", "$0.00", "0", "0.0")) and price_val > 0
@@ -2270,6 +2390,56 @@ def get_all_source_rows(client, source_sheets):
                                 sheet_exclusion_counts['price_missing_or_zero'] += 1
                                 if wr_key_for_diag:
                                     sheet_wr_exclusion_reasons[wr_key_for_diag]['price_missing_or_zero'] += 1
+                                # Row-level visibility: surface drops that
+                                # otherwise look "correct" to operators —
+                                # specifically VAC crew / helper rows whose
+                                # only missing piece is a zero or blank
+                                # SmartSheet price. These previously
+                                # disappeared into the per-sheet counter
+                                # with no per-row log, which is why VAC
+                                # crew / helping-foreman Excel files could
+                                # silently fail to generate even after
+                                # RESET_HASH_HISTORY.
+                                _vc_helping = str(row_data.get('VAC Crew Helping?') or '').strip()
+                                _vc_completed = is_checked(row_data.get('Vac Crew Completed Unit?'))
+                                _fh_helping = str(row_data.get('Foreman Helping?') or '').strip()
+                                _fh_completed = is_checked(row_data.get('Helping Foreman Completed Unit?'))
+                                _is_specialized = (
+                                    (bool(_vc_helping) and _vc_completed)
+                                    or (bool(_fh_helping) and _fh_completed)
+                                )
+                                if _is_specialized:
+                                    _variant_tag = 'VAC crew' if (_vc_helping and _vc_completed) else 'helper'
+                                    # Only point operators at the per-sheet
+                                    # "Rate recalc summary" WARNING when that
+                                    # summary will actually contain this row:
+                                    # the summary is emitted only when at
+                                    # least one row in the sheet has outcome
+                                    # 'missing_rate', so the note is valid
+                                    # exactly when this row's outcome is
+                                    # 'missing_rate'. For other outcomes
+                                    # ('invalid_quantity', 'zero_rate', or
+                                    # recalc-bypassed rows where
+                                    # RATE_CUTOFF_DATE is unset, pre-cutoff,
+                                    # Snapshot Date blank, or subcontractor
+                                    # sheet), skip the breadcrumb so we
+                                    # don't send operators hunting for a
+                                    # summary line that isn't there.
+                                    _recalc_note = (
+                                        " Rate recalc ran and reported no matching new-contract rate for this CU; see 'Rate recalc summary' WARNING on this sheet for the full CU list."
+                                        if _rate_recalc_ran_for_row and _recalc_outcome == 'missing_rate'
+                                        else ""
+                                    )
+                                    logging.warning(
+                                        f"⚠️ Dropped {_variant_tag} row (price missing or zero): "
+                                        f"WR={wr_key_for_diag}, Weekly={weekly_date}, "
+                                        f"Snapshot={row_data.get('Snapshot Date') or '<blank>'}, "
+                                        f"CU={_resolve_cu_code(row_data) or '<blank>'}, "
+                                        f"Qty={row_data.get('Quantity') or '<blank>'}, "
+                                        f"SmartSheet price={row_data.get('Units Total Price') or '<blank>'}. "
+                                        f"Row has VAC/helper criteria checked but Units Total Price is zero/blank."
+                                        f"{_recalc_note}"
+                                    )
 
                     sheet_row_counter += 1
 
@@ -2279,6 +2449,30 @@ def get_all_source_rows(client, source_sheets):
                     "accepted_so_far": sheet_exclusion_counts['accepted'],
                     "is_subcontractor": is_subcontractor_sheet,
                 })
+
+                # Per-sheet summary of post-cutoff rate-recalc outcomes.
+                # A non-zero 'skipped' count means rows qualified by
+                # Snapshot Date but the new rates table could not price
+                # them, so they kept their SmartSheet price. This is the
+                # signal operators need to investigate missing entries
+                # in NEW_RATES_CSV (common on VAC crew specialized work
+                # like vacuum switches, softswitches, switched banks).
+                if RATE_CUTOFF_DATE and _rate_new_primary:
+                    skipped = sheet_rate_recalc_counts['skipped']
+                    recalculated = sheet_rate_recalc_counts['recalculated']
+                    if skipped:
+                        top_cus = ', '.join(f"{cu}×{cnt}" for cu, cnt in sheet_rate_recalc_skipped_cus.most_common(10))
+                        logging.warning(
+                            f"⚠️ Rate recalc summary for {source['name']}: "
+                            f"{recalculated} recalculated, {skipped} skipped "
+                            f"(post-cutoff rows that kept SmartSheet price because no matching "
+                            f"new-contract rate was found). Top CUs: {top_cus}"
+                        )
+                    elif recalculated:
+                        logging.info(
+                            f"📊 Rate recalc summary for {source['name']}: "
+                            f"{recalculated} rows recalculated, 0 skipped"
+                        )
 
             except Exception as e:
                 logging.error(f"Error processing sheet {source['id']}: {e}")

@@ -612,6 +612,120 @@ class TestRecalculateRowPrice(unittest.TestCase):
         self.assertAlmostEqual(result, 75.0)
         self.assertEqual(row['Units Total Price'], '$75.00')
 
+    def test_cu_direct_fallback_when_mapped_group_absent_from_new_rates(self):
+        """Regression for VAC crew pricing lag: when the old CSV maps a CU to
+        a verbose group name that is NOT a key in the new rates table, the
+        recalc should fall back to looking up the CU code directly before
+        giving up. Prevents silent old-price retention on specialized work
+        items (e.g. vacuum switches) whose CU codes are themselves the key
+        in the new contract rates.
+        """
+        cu_to_group = {'CPD-VS-15-20': 'VACUUM SWITCH'}  # verbose group name
+        rates = {
+            'CPD-VS-15-20': {'install': 500.00, 'removal': 100.00, 'transfer': 0.0},
+        }
+        row = {
+            'CU': 'CPD-VS-15-20',
+            'Work Type': 'Install',
+            'Quantity': '2',
+            'Units Total Price': '$250.00',
+        }
+        result = generate_weekly_pdfs.recalculate_row_price(row, cu_to_group, rates)
+        self.assertAlmostEqual(result, 1000.00)
+        self.assertAlmostEqual(row['Units Total Price'], 1000.00)
+
+    def test_retains_smartsheet_price_when_neither_group_nor_cu_in_new_rates(self):
+        """When the mapped group is absent AND the CU is also absent from the
+        new rates, the row must retain its SmartSheet price unchanged rather
+        than inventing a rate. This guards against the CU-direct fallback
+        being too aggressive."""
+        cu_to_group = {'CPD-VS-15-20': 'VACUUM SWITCH'}
+        rates = {'ANC-M': {'install': 224.06, 'removal': 29.46, 'transfer': 0.0}}
+        row = {
+            'CU': 'CPD-VS-15-20',
+            'Work Type': 'Install',
+            'Quantity': '2',
+            'Units Total Price': '$250.00',
+        }
+        result = generate_weekly_pdfs.recalculate_row_price(row, cu_to_group, rates)
+        self.assertAlmostEqual(result, 250.00)
+        self.assertEqual(row['Units Total Price'], '$250.00')
+
+    def test_out_status_recalculated_on_successful_lookup(self):
+        """recalculate_row_price writes outcome='recalculated' when a rate
+        was successfully applied (even if the new price equals the existing
+        SmartSheet price)."""
+        row = {'CU': 'ANC-DHM-10-84-D1', 'Work Type': 'Install', 'Quantity': '3', 'Units Total Price': '$672.18'}
+        status = {}
+        generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary, out_status=status)
+        self.assertEqual(status.get('outcome'), 'recalculated')
+
+    def test_out_status_missing_rate_when_cu_unmapped_and_absent(self):
+        """When the CU isn't in cu_to_group and also isn't a direct key in
+        the rates dict, out_status['outcome'] must be 'missing_rate' — this
+        is the only outcome the per-sheet 'skipped' summary should count."""
+        row = {'CU': 'UNKNOWN-999', 'Work Type': 'Install', 'Quantity': '2', 'Units Total Price': '$100.00'}
+        status = {}
+        generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary, out_status=status)
+        self.assertEqual(status.get('outcome'), 'missing_rate')
+
+    def test_out_status_missing_rate_when_group_absent_and_no_cu_fallback(self):
+        """When CU maps to a verbose group name that isn't in the new rates
+        table AND the CU itself also isn't a direct key, out_status reports
+        'missing_rate'."""
+        cu_to_group = {'CPD-VS-15-20': 'VACUUM SWITCH'}
+        rates = {'ANC-M': {'install': 224.06, 'removal': 29.46, 'transfer': 0.0}}
+        row = {'CU': 'CPD-VS-15-20', 'Work Type': 'Install', 'Quantity': '2', 'Units Total Price': '$250.00'}
+        status = {}
+        generate_weekly_pdfs.recalculate_row_price(row, cu_to_group, rates, out_status=status)
+        self.assertEqual(status.get('outcome'), 'missing_rate')
+
+    def test_out_status_invalid_quantity(self):
+        """Zero/missing quantity short-circuits with outcome='invalid_quantity',
+        not 'missing_rate' — the per-sheet 'skipped' summary must not
+        attribute this to CSV coverage gaps."""
+        row = {'CU': 'ANC-DHM-10-84-D1', 'Work Type': 'Install', 'Quantity': '0', 'Units Total Price': '$55.00'}
+        status = {}
+        generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary, out_status=status)
+        self.assertEqual(status.get('outcome'), 'invalid_quantity')
+
+    def test_out_status_zero_rate(self):
+        """Zero rate for the resolved work type yields outcome='zero_rate'."""
+        # ANC-M has transfer rate = 0.0 in the fixture
+        row = {'CU': 'ANC-DHM-10-84-D1', 'Work Type': 'Transfer', 'Quantity': '2', 'Units Total Price': '$75.00'}
+        status = {}
+        generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary, out_status=status)
+        self.assertEqual(status.get('outcome'), 'zero_rate')
+
+    def test_out_status_optional_preserves_backward_compat(self):
+        """Callers that omit out_status must continue to get a float price."""
+        row = {'CU': 'ANC-DHM-10-84-D1', 'Work Type': 'Install', 'Quantity': '3', 'Units Total Price': '$650.00'}
+        result = generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary)
+        self.assertIsInstance(result, float)
+        self.assertAlmostEqual(result, round(224.06 * 3, 2))
+
+
+class TestResolveCuCode(unittest.TestCase):
+    """Tests for the _resolve_cu_code helper used by both recalc and the
+    per-sheet skipped-CU summary counter, so they agree on which CU a row
+    is attributed to."""
+
+    def test_prefers_cu_helper_over_cu(self):
+        row = {'CU Helper': 'ANC-DSC-16-96-D1', 'CU': 'ARM-10D-60HS', 'Billable Unit Code': 'BLT-12'}
+        self.assertEqual(generate_weekly_pdfs._resolve_cu_code(row), 'ANC-DSC-16-96-D1')
+
+    def test_nan_helper_falls_back_to_cu(self):
+        row = {'CU Helper': 'nan', 'CU': 'ARM-10D-60HS'}
+        self.assertEqual(generate_weekly_pdfs._resolve_cu_code(row), 'ARM-10D-60HS')
+
+    def test_falls_back_to_billable_unit_code(self):
+        row = {'Billable Unit Code': 'Something-Mixed'}
+        self.assertEqual(generate_weekly_pdfs._resolve_cu_code(row), 'SOMETHING-MIXED')
+
+    def test_returns_empty_when_all_blank(self):
+        self.assertEqual(generate_weekly_pdfs._resolve_cu_code({}), '')
+        self.assertEqual(generate_weekly_pdfs._resolve_cu_code({'CU': None, 'Billable Unit Code': ''}), '')
+
 
 class TestRateCutoffConfig(unittest.TestCase):
     """Tests for rate cutoff configuration."""
