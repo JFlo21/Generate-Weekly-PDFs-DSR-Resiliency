@@ -1051,6 +1051,26 @@ class TestBuildGroupIdentityWithUnderscoresInWr(unittest.TestCase):
         self.assertEqual(variant, 'primary')  # User variant is still 'primary'
         self.assertEqual(identifier, 'WeekEnding_Smith')
 
+    def test_wr_token_containing_weekending_six_digit_segment(self):
+        """Codex round-11: if the sanitized WR itself contains a
+        ``WeekEnding_<6digits>`` segment, the parser must still
+        identify the RIGHTMOST valid marker as the structural
+        delimiter. First-valid would truncate the WR; rightmost-
+        valid correctly walks past the WR-internal candidates.
+
+        Pathological source: raw WR = ``foo.WeekEnding.041926.bar``
+        would sanitize to ``foo_WeekEnding_041926_bar`` and generate
+        filename ``WR_foo_WeekEnding_041926_bar_WeekEnding_041926_...xlsx``.
+        """
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_foo_WeekEnding_041926_bar_WeekEnding_041926_123456_ab12cd34ef.xlsx'
+        )
+        self.assertIsNotNone(ident)
+        wr, week, variant, identifier = ident
+        self.assertEqual(wr, 'foo_WeekEnding_041926_bar')
+        self.assertEqual(week, '041926')
+        self.assertEqual(variant, 'primary')
+
     def test_parser_rejects_filename_without_six_digit_week_follower(self):
         """Defence-in-depth: if the ``WeekEnding`` token is NOT
         followed by a 6-digit week, the parser refuses to guess.
