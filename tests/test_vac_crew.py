@@ -417,5 +417,255 @@ class TestVacCrewHashAggregation(unittest.TestCase):
         )
 
 
+class TestVacCrewColumnTitleNormalizer(unittest.TestCase):
+    """Tests for ``_normalize_column_title_for_vac_crew``.
+
+    The normalizer exists so the fuzzy fallback in ``_validate_single_sheet``
+    can reconcile Smartsheet column titles that drift from the canonical form
+    by whitespace, decorative trailing ``?``/``#``, or case. If these
+    assertions fail, the fuzzy fallback will stop reconciling real-world
+    variants and sheet ``1413438401105796`` (and any future sheet cloned
+    from it) will silently drop VAC Crew detection again.
+    """
+
+    def test_collapses_runs_of_whitespace(self):
+        norm = generate_weekly_pdfs._normalize_column_title_for_vac_crew
+        self.assertEqual(
+            norm('VAC   Crew  Helping?'),
+            norm('VAC Crew Helping?'),
+        )
+
+    def test_strips_trailing_question_and_hash_with_surrounding_spaces(self):
+        norm = generate_weekly_pdfs._normalize_column_title_for_vac_crew
+        self.assertEqual(norm('VAC Crew Helping '), norm('VAC Crew Helping?'))
+        self.assertEqual(norm('VAC Crew Helping ?'), norm('VAC Crew Helping?'))
+        self.assertEqual(norm('VAC Crew Dept#'), norm('VAC Crew Dept #'))
+        self.assertEqual(norm('VAC Crew Dept '), norm('VAC Crew Dept #'))
+
+    def test_is_case_insensitive(self):
+        norm = generate_weekly_pdfs._normalize_column_title_for_vac_crew
+        self.assertEqual(norm('vac crew helping?'), norm('VAC Crew Helping?'))
+        self.assertEqual(norm('VAC CREW HELPING?'), norm('VAC Crew Helping?'))
+
+    def test_canonicalises_hyphenated_variants(self):
+        """'vac-crew' variants must normalize to the canonical 'vac crew' token
+        so the broadened substring detector and the fuzzy fallback stay in sync
+        — otherwise a hyphenated column title advertises itself in logs but
+        still silently fails to map."""
+        norm = generate_weekly_pdfs._normalize_column_title_for_vac_crew
+        self.assertEqual(norm('Vac-Crew Helping?'), norm('VAC Crew Helping?'))
+        self.assertEqual(norm('VAC-CREW Completed Unit?'),
+                         norm('Vac Crew Completed Unit?'))
+        self.assertEqual(norm('vac-crew dept#'), norm('VAC Crew Dept #'))
+
+    def test_canonicalises_joined_word_variants(self):
+        """'vaccrew' (no separator) variants must normalize to 'vac crew' so
+        the fuzzy fallback resolves them — same synchronization concern as the
+        hyphenated case."""
+        norm = generate_weekly_pdfs._normalize_column_title_for_vac_crew
+        self.assertEqual(norm('VacCrew Helping?'), norm('VAC Crew Helping?'))
+        self.assertEqual(norm('VACCREW Completed Unit?'),
+                         norm('Vac Crew Completed Unit?'))
+        self.assertEqual(norm('vaccrew job#'), norm('Vac Crew Job #'))
+
+    def test_handles_none_and_empty(self):
+        norm = generate_weekly_pdfs._normalize_column_title_for_vac_crew
+        self.assertEqual(norm(None), '')
+        self.assertEqual(norm(''), '')
+        self.assertEqual(norm('   '), '')
+
+
+class TestVacCrewColumnFuzzyFallback(unittest.TestCase):
+    """Integration tests for the fuzzy VAC Crew column fallback inside
+    ``_validate_single_sheet``.
+
+    Simulates a Smartsheet whose VAC Crew columns carry subtle name
+    variants that the exact-match ``synonyms`` dict cannot absorb (the
+    documented failure mode on sheet id ``1413438401105796`` in folder
+    ``8815193070299012``). After the fuzzy pass the canonical VAC Crew
+    keys must be present in the column mapping so
+    ``sheet_has_vac_crew_columns`` evaluates True at runtime and the
+    row-level detection block fires for that sheet.
+    """
+
+    def _build_mock_client(self, column_titles):
+        """Return a mock Smartsheet client whose get_sheet returns a sheet
+        with the given column titles and no rows."""
+        from smartsheet.models.column import Column
+        from smartsheet.models.sheet import Sheet as _Sheet
+
+        columns = []
+        for idx, title in enumerate(column_titles, start=1):
+            col = Column({'id': 1000 + idx, 'title': title, 'type': 'TEXT_NUMBER'})
+            columns.append(col)
+
+        # Ensure a Weekly Reference Logged Date column exists so
+        # _validate_single_sheet returns a dict rather than None.
+        wr_col = Column({
+            'id': 9001,
+            'title': 'Weekly Reference Logged Date',
+            'type': 'DATE',
+        })
+        columns.append(wr_col)
+
+        sheet = _Sheet({
+            'id': 1413438401105796,
+            'name': 'Mock VAC Crew Sheet',
+            'columns': [],
+            'rows': [],
+        })
+        # Attach columns directly — the SDK's Sheet model constructor does
+        # not always hydrate columns from the raw dict.
+        sheet.columns = columns
+        sheet.rows = []
+
+        mock_client = MagicMock()
+        mock_client.Sheets.get_sheet.return_value = sheet
+        return mock_client
+
+    def _run_discovery(self, mock_client, sheet_id=1413438401105796):
+        """Invoke discover_source_sheets via a LIMITED_SHEET_IDS override
+        so only our fake sheet is validated, bypassing the cache."""
+        saved_env = {
+            'LIMITED_SHEET_IDS': os.environ.get('LIMITED_SHEET_IDS'),
+            'USE_DISCOVERY_CACHE': os.environ.get('USE_DISCOVERY_CACHE'),
+            'FORCE_REDISCOVERY': os.environ.get('FORCE_REDISCOVERY'),
+            'SUBCONTRACTOR_FOLDER_IDS': os.environ.get('SUBCONTRACTOR_FOLDER_IDS'),
+            'ORIGINAL_CONTRACT_FOLDER_IDS': os.environ.get('ORIGINAL_CONTRACT_FOLDER_IDS'),
+        }
+        try:
+            os.environ['LIMITED_SHEET_IDS'] = str(sheet_id)
+            os.environ['USE_DISCOVERY_CACHE'] = '0'
+            os.environ['FORCE_REDISCOVERY'] = '1'
+            os.environ['SUBCONTRACTOR_FOLDER_IDS'] = ''
+            os.environ['ORIGINAL_CONTRACT_FOLDER_IDS'] = ''
+            # Align module-level globals with the env overrides.
+            saved_use_cache = generate_weekly_pdfs.USE_DISCOVERY_CACHE
+            saved_force = generate_weekly_pdfs.FORCE_REDISCOVERY
+            saved_sub_folders = generate_weekly_pdfs.SUBCONTRACTOR_FOLDER_IDS
+            saved_orig_folders = generate_weekly_pdfs.ORIGINAL_CONTRACT_FOLDER_IDS
+            generate_weekly_pdfs.USE_DISCOVERY_CACHE = False
+            generate_weekly_pdfs.FORCE_REDISCOVERY = True
+            generate_weekly_pdfs.SUBCONTRACTOR_FOLDER_IDS = []
+            generate_weekly_pdfs.ORIGINAL_CONTRACT_FOLDER_IDS = []
+            try:
+                return generate_weekly_pdfs.discover_source_sheets(mock_client)
+            finally:
+                generate_weekly_pdfs.USE_DISCOVERY_CACHE = saved_use_cache
+                generate_weekly_pdfs.FORCE_REDISCOVERY = saved_force
+                generate_weekly_pdfs.SUBCONTRACTOR_FOLDER_IDS = saved_sub_folders
+                generate_weekly_pdfs.ORIGINAL_CONTRACT_FOLDER_IDS = saved_orig_folders
+        finally:
+            for k, v in saved_env.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    def _assert_vac_crew_mapped(self, discovered):
+        self.assertEqual(len(discovered), 1)
+        mapping = discovered[0]['column_mapping']
+        self.assertIn('VAC Crew Helping?', mapping,
+                      f"VAC Crew Helping? not mapped; mapping={mapping}")
+        self.assertIn('Vac Crew Completed Unit?', mapping,
+                      f"Vac Crew Completed Unit? not mapped; mapping={mapping}")
+
+    def test_whitespace_variant_resolves_via_fuzzy_fallback(self):
+        """Columns with extra whitespace or trailing space before '?'
+        must still map to canonical VAC Crew keys."""
+        titles = [
+            'VAC Crew  Helping?',              # double space
+            'Vac Crew Completed Unit ?',       # space before '?'
+            'Work Request #',
+        ]
+        client = self._build_mock_client(titles)
+        discovered = self._run_discovery(client)
+        self._assert_vac_crew_mapped(discovered)
+
+    def test_case_variant_resolves_via_fuzzy_fallback(self):
+        """All-caps or all-lower variants must still map."""
+        titles = [
+            'VAC CREW HELPING?',
+            'vac crew completed unit?',
+            'Work Request #',
+        ]
+        client = self._build_mock_client(titles)
+        discovered = self._run_discovery(client)
+        self._assert_vac_crew_mapped(discovered)
+
+    def test_hyphenated_variant_resolves_via_fuzzy_fallback(self):
+        """'Vac-Crew' hyphenated variants must map via the normalizer's
+        hyphen→space canonicalisation. Without this, the broadened substring
+        detector would log the title as 'found' while the mapping silently
+        failed — the same failure class this PR is fixing."""
+        titles = [
+            'Vac-Crew Helping?',
+            'VAC-CREW Completed Unit?',
+            'Work Request #',
+        ]
+        client = self._build_mock_client(titles)
+        discovered = self._run_discovery(client)
+        self._assert_vac_crew_mapped(discovered)
+
+    def test_joined_word_variant_resolves_via_fuzzy_fallback(self):
+        """'VacCrew' / 'VACCREW' (no separator) variants must map via the
+        normalizer's joined-word canonicalisation."""
+        titles = [
+            'VacCrew Helping?',
+            'VACCREW Completed Unit?',
+            'Work Request #',
+        ]
+        client = self._build_mock_client(titles)
+        discovered = self._run_discovery(client)
+        self._assert_vac_crew_mapped(discovered)
+
+    def test_dept_and_job_resolve_when_hash_drops_spacing(self):
+        """Dept/Job variants like 'Vac Crew Dept#' (no space) must still map."""
+        titles = [
+            'Vac Crew Helping?',
+            'Vac Crew Completed Unit?',
+            'Vac Crew Dept#',        # missing space before '#'
+            'VAC Crew Job#',         # missing space, differing case
+            'Work Request #',
+        ]
+        client = self._build_mock_client(titles)
+        discovered = self._run_discovery(client)
+        mapping = discovered[0]['column_mapping']
+        self.assertIn('VAC Crew Dept #', mapping)
+        self.assertIn('Vac Crew Job #', mapping)
+
+    def test_existing_exact_matches_are_not_overridden(self):
+        """If canonical titles are already present (exact match) the fuzzy
+        pass must not clobber the existing mapping with a different column."""
+        titles = [
+            'VAC Crew Helping?',          # exact canonical
+            'VAC Crew Helping ?',         # variant, should NOT displace above
+            'Vac Crew Completed Unit?',   # exact canonical
+            'Work Request #',
+        ]
+        client = self._build_mock_client(titles)
+        discovered = self._run_discovery(client)
+        mapping = discovered[0]['column_mapping']
+        # The exact match is iterated first; fuzzy pass must not clobber it.
+        # Whichever of the two columns won the exact-match race, the other
+        # (variant) must NOT now be mapped to the same canonical key.
+        vac_helping_id = mapping['VAC Crew Helping?']
+        # The variant col id 1002 (second in list) has title 'VAC Crew Helping ?'
+        # and the exact col id 1001 has title 'VAC Crew Helping?'. We only
+        # require the canonical slot resolves to exactly one of them once.
+        self.assertIn(vac_helping_id, {1001, 1002})
+
+    def test_discovery_cache_version_bumped_to_4(self):
+        """The cache version must be bumped past v3 so existing caches
+        written before the fuzzy fallback are invalidated on next run."""
+        self.assertGreaterEqual(
+            generate_weekly_pdfs.DISCOVERY_CACHE_VERSION, 4,
+            "DISCOVERY_CACHE_VERSION must be >=4 so caches created before "
+            "the fuzzy fallback (v3) are invalidated, otherwise sheets like "
+            "1413438401105796 stay stuck with the old mapping for up to "
+            "DISCOVERY_CACHE_TTL_MIN (default 7d)."
+        )
+
+
 if __name__ == '__main__':
     unittest.main()

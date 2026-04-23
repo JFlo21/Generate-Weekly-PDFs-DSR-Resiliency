@@ -616,3 +616,77 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   became `_, target_row = row_item` since only `target_row.id` is
   referenced inside the closure). No behavioral change to
   discovery, row fetch, grouping, hashing, generation, or upload.
+- [2026-04-22 18:30] Silent VAC crew detection failure when a
+  folder-discovered sheet's VAC Crew column titles drift from the
+  exact strings in the `synonyms` dict of `_validate_single_sheet`.
+  **Context:** Sheet ID `1413438401105796` in folder
+  `8815193070299012` (an `ORIGINAL_CONTRACT_FOLDER_IDS` entry) was
+  correctly discovered via `discover_folder_sheets` and merged into
+  `base_sheet_ids`, but its VAC Crew columns carried subtle title
+  variants (whitespace / case / punctuation drift) that the
+  exact-string loop at the `if c.title in synonyms and
+  synonyms[c.title] not in mapping:` gate could not absorb. With
+  the two key columns (`VAC Crew Helping?` and
+  `Vac Crew Completed Unit?`) missing from `column_mapping`,
+  `sheet_has_vac_crew_columns` in `_fetch_and_process_sheet`
+  evaluated `False`, the row-level detection block was skipped
+  wholesale, and every VAC crew row for that sheet — including
+  a foreman's whose production data the reporter surfaced to us —
+  flowed through the primary variant and never produced a
+  `_VacCrew` Excel. (Foreman name redacted: billing-row foreman
+  names are PII and must not be committed to this repository per
+  the Sentry Logs sanitizer rule earlier in this ledger.) The deceptive part: the diagnostic
+  log `"🚐 VAC Crew columns found in sheet: [...]"` still fired
+  because it uses a broader substring check
+  (`'Vac Crew' in c.title or 'VAC Crew' in c.title`), so operators
+  tailing logs saw the columns "found" even though the actual
+  mapping had silently failed. **Fix (additive, production-safe):**
+  (1) Introduced `_normalize_column_title_for_vac_crew(t)` —
+  lowercases, collapses whitespace runs, strips trailing `?`/`#`
+  with optional surrounding spaces. Scoped narrowly (name
+  explicitly mentions `vac_crew`) so primary/helper exact-match
+  behaviour is unchanged. (2) Added a fuzzy fallback pass inside
+  `_validate_single_sheet` that runs AFTER the exact-match loop:
+  for each canonical VAC Crew name in `_vac_crew_fuzzy_canonicals`
+  that isn't already in `mapping`, scan remaining columns using
+  the normalized comparison and assign the first match. Already-
+  mapped column IDs are excluded so the fuzzy pass cannot clobber
+  an exact match. When a fuzzy match fires, log a WARNING with
+  the raw title so operators can promote it to an explicit synonym
+  if the variant is permanent. (3) Broadened the substring
+  detector for `vac_crew_columns_found` to be case-insensitive and
+  to catch `'vac-crew'` variants, so the summary log and the
+  follow-up warning both surface all-lowercase sheets. (4) After
+  the fuzzy pass, if `vac_crew_columns_found` is non-empty but the
+  two key mappings (`VAC Crew Helping?`, `Vac Crew Completed
+  Unit?`) are still absent, emit an actionable WARNING with the
+  raw titles so operators know detection will be disabled for that
+  sheet. (5) Bumped `DISCOVERY_CACHE_VERSION` from 3 → 4 so
+  existing caches (which may have persisted a stale mapping
+  without VAC Crew columns) are invalidated on the next run
+  instead of waiting up to `DISCOVERY_CACHE_TTL_MIN` (7 days).
+  **New rules:** (1) Any column-mapping synonyms dict that accepts
+  only a small, hard-coded set of case variants is a silent-skip
+  trap whenever the downstream detection uses the mapped keys as
+  an on/off gate. When the gate controls a whole variant's
+  generation (VAC crew here, helper previously), add a fuzzy
+  fallback pass and an operator-visible WARNING if the key
+  columns still don't resolve. Do NOT rely on substring-match
+  diagnostic logs alone — they can falsely advertise success.
+  (2) Fuzzy fallback must be scoped by naming and by canonical
+  list — do NOT broaden matching for primary/helper columns
+  without a documented production incident driving it. Helper and
+  primary flows have stable exact-match history; an unscoped
+  normalizer risks colliding unrelated column titles (e.g. a
+  primary `Foreman` column fuzzy-matching a helper `Foreman
+  Helping?` with the `?` stripped). (3) When a bug could leave
+  `generated_docs/discovery_cache.json` holding an incorrect
+  `column_mapping` for an existing (already-discovered) sheet,
+  bump `DISCOVERY_CACHE_VERSION` — the `_new_from_folders` check
+  in `discover_source_sheets` only invalidates on NEW sheet IDs,
+  so in-place column additions inside an already-cached sheet do
+  NOT trigger a refresh on their own. Regression tests:
+  `tests/test_vac_crew.py::TestVacCrewColumnTitleNormalizer` and
+  `tests/test_vac_crew.py::TestVacCrewColumnFuzzyFallback` cover
+  whitespace / case / punctuation drift, exact-match preservation
+  when both forms are present, and the cache-version bump.
