@@ -1109,6 +1109,24 @@ class TestBuildGroupIdentityWithUnderscoresInWr(unittest.TestCase):
         self.assertEqual(week, '041926')
         self.assertEqual(variant, 'helper')
 
+    def test_helper_identifier_sanitizing_to_weekending_6dig_6dig(self):
+        """Codex round-13: pathological helper identifier that
+        sanitizes to ``WeekEnding_<6digits>_<6digits>`` (e.g. foreman
+        literally named ``WeekEnding 041926 123456``). Rightmost-
+        strong would pick the identifier's strong match and corrupt
+        the parse; leftmost-strong correctly picks the actual
+        structural delimiter at position 2.
+        """
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_12345_WeekEnding_041926_123456_Helper_WeekEnding_041926_123456_ab12cd34ef.xlsx'
+        )
+        self.assertIsNotNone(ident)
+        wr, week, variant, identifier = ident
+        self.assertEqual(wr, '12345')
+        self.assertEqual(week, '041926')
+        self.assertEqual(variant, 'helper')
+        self.assertEqual(identifier, 'WeekEnding_041926_123456')
+
     def test_legacy_format_without_timestamp_still_parses(self):
         """The pre-timestamp filename shape must continue to parse.
 
