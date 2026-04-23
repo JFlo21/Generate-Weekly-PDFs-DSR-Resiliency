@@ -822,13 +822,13 @@ class CircuitBreakerTests(unittest.TestCase):
             # THRESHOLD exhaustions open the breaker. Each
             # exhaustion = 4 attempts.
             for _ in range(ba_client._CIRCUIT_BREAKER_THRESHOLD):
-                result = ba_client.with_retry(failing)
+                result = ba_client.with_retry(failing, op="default")
                 self.assertIsNone(result)
-            # Breaker should now be open.
-            self.assertTrue(ba_client._circuit_open)
+            # Breaker should now be open for this op.
+            self.assertIn("default", ba_client._open_circuits)
             calls_after_threshold = calls["n"]
             # Next call must fast-fail WITHOUT retrying.
-            result = ba_client.with_retry(failing)
+            result = ba_client.with_retry(failing, op="default")
             self.assertIsNone(result)
             self.assertEqual(calls["n"], calls_after_threshold)
 
@@ -849,13 +849,19 @@ class CircuitBreakerTests(unittest.TestCase):
 
         with mock.patch("billing_audit.client.time.sleep"):
             # First call exhausts retries.
-            self.assertIsNone(ba_client.with_retry(toggling))
-            self.assertEqual(ba_client._consecutive_failures, 1)
+            self.assertIsNone(ba_client.with_retry(toggling, op="default"))
+            self.assertEqual(
+                ba_client._consecutive_failures.get("default"), 1
+            )
             # Next call succeeds — counter resets.
             state["fail"] = False
-            self.assertEqual(ba_client.with_retry(toggling), "ok")
-            self.assertEqual(ba_client._consecutive_failures, 0)
-            self.assertFalse(ba_client._circuit_open)
+            self.assertEqual(
+                ba_client.with_retry(toggling, op="default"), "ok"
+            )
+            self.assertEqual(
+                ba_client._consecutive_failures.get("default"), 0
+            )
+            self.assertNotIn("default", ba_client._open_circuits)
 
     def test_non_transient_error_still_counts_toward_breaker(self):
         """Non-transient errors are a failure just the same; the
@@ -868,8 +874,189 @@ class CircuitBreakerTests(unittest.TestCase):
 
         with mock.patch("billing_audit.client.time.sleep"):
             for _ in range(ba_client._CIRCUIT_BREAKER_THRESHOLD):
-                self.assertIsNone(ba_client.with_retry(failing))
-            self.assertTrue(ba_client._circuit_open)
+                self.assertIsNone(ba_client.with_retry(failing, op="default"))
+            self.assertIn("default", ba_client._open_circuits)
+
+    def test_breaker_is_per_operation(self):
+        """An outage on one op must NOT cascade into disabling
+        unrelated ops. This is the Codex P1 we landed: if the
+        ``pipeline_run`` upsert is down, ``freeze_attribution``
+        must continue working so attribution snapshots still land.
+        """
+        from billing_audit import client as ba_client
+
+        class Transient(Exception):
+            pass
+
+        Transient.__name__ = "ConnectionResetError"
+
+        freeze_calls = {"n": 0}
+
+        def failing_fingerprint():
+            raise Transient("pipeline_run down")
+
+        def healthy_freeze():
+            freeze_calls["n"] += 1
+            return "ok"
+
+        with mock.patch("billing_audit.client.time.sleep"):
+            # Trip the pipeline_run breaker.
+            for _ in range(ba_client._CIRCUIT_BREAKER_THRESHOLD):
+                self.assertIsNone(
+                    ba_client.with_retry(
+                        failing_fingerprint, op="pipeline_run"
+                    )
+                )
+            self.assertIn("pipeline_run", ba_client._open_circuits)
+            self.assertNotIn(
+                "freeze_attribution", ba_client._open_circuits
+            )
+
+            # freeze_attribution must still work.
+            for _ in range(5):
+                self.assertEqual(
+                    ba_client.with_retry(
+                        healthy_freeze, op="freeze_attribution"
+                    ),
+                    "ok",
+                )
+            self.assertEqual(freeze_calls["n"], 5)
+            # pipeline_run continues to fast-fail.
+            self.assertIsNone(
+                ba_client.with_retry(
+                    failing_fingerprint, op="pipeline_run"
+                )
+            )
+
+
+class WithRetryAttemptReportingTests(unittest.TestCase):
+    """with_retry must report the *actual* number of attempts
+    executed in both its log line and Sentry breadcrumb — not
+    max_attempts — so operators can distinguish transient-retry
+    exhaustion from single-attempt non-transient failures."""
+
+    def setUp(self):
+        _reset_all()
+
+    def tearDown(self):
+        _reset_all()
+
+    def test_non_transient_reports_one_attempt(self):
+        from billing_audit import client as ba_client
+
+        captured: list = []
+
+        def _spy_breadcrumb(category, message, level="info", data=None):
+            captured.append({
+                "category": category,
+                "message": message,
+                "level": level,
+                "data": dict(data or {}),
+            })
+
+        def failing():
+            raise ValueError("bug")
+
+        with mock.patch(
+            "billing_audit.client._sentry_breadcrumb",
+            side_effect=_spy_breadcrumb,
+        ), mock.patch("billing_audit.client.time.sleep"), \
+                self.assertLogs(level="WARNING") as cm:
+            result = ba_client.with_retry(failing)
+
+        self.assertIsNone(result)
+        # The final failure crumb must carry attempts=1, not 4.
+        rpc_failed = [
+            c for c in captured if c["message"] == "RPC failed"
+        ]
+        self.assertEqual(len(rpc_failed), 1)
+        self.assertEqual(rpc_failed[0]["data"]["attempts"], 1)
+        self.assertFalse(rpc_failed[0]["data"]["was_transient"])
+        # Log line should reflect the actual count too.
+        self.assertTrue(
+            any("1/4 attempt" in line for line in cm.output),
+            cm.output,
+        )
+
+    def test_transient_reports_max_attempts(self):
+        from billing_audit import client as ba_client
+
+        class Transient(Exception):
+            pass
+
+        Transient.__name__ = "ConnectionResetError"
+
+        captured: list = []
+
+        def _spy_breadcrumb(category, message, level="info", data=None):
+            captured.append({
+                "message": message,
+                "data": dict(data or {}),
+            })
+
+        def failing():
+            raise Transient("down")
+
+        with mock.patch(
+            "billing_audit.client._sentry_breadcrumb",
+            side_effect=_spy_breadcrumb,
+        ), mock.patch("billing_audit.client.time.sleep"):
+            result = ba_client.with_retry(failing)
+
+        self.assertIsNone(result)
+        rpc_failed = [
+            c for c in captured if c["message"] == "RPC failed"
+        ]
+        self.assertEqual(rpc_failed[0]["data"]["attempts"], 4)
+        self.assertTrue(rpc_failed[0]["data"]["was_transient"])
+
+
+class BackfillCliDateValidationTests(unittest.TestCase):
+    """_parse_week_mmddyy must reject invalid calendar dates with
+    argparse.ArgumentTypeError so argparse surfaces a usage message
+    instead of an unhandled ValueError traceback."""
+
+    def test_invalid_calendar_date_raises_arg_error(self):
+        import argparse
+        from scripts import backfill_attribution_snapshot as bf
+        # Feb 31, 1999 — well-formed shape, invalid calendar date.
+        with self.assertRaises(argparse.ArgumentTypeError):
+            bf._parse_week_mmddyy("023199")
+
+    def test_wrong_shape_raises_arg_error(self):
+        import argparse
+        from scripts import backfill_attribution_snapshot as bf
+        with self.assertRaises(argparse.ArgumentTypeError):
+            bf._parse_week_mmddyy("abc")
+        with self.assertRaises(argparse.ArgumentTypeError):
+            bf._parse_week_mmddyy("12345")   # too short
+
+    def test_valid_date_returns_date(self):
+        import datetime as _dt
+        from scripts import backfill_attribution_snapshot as bf
+        self.assertEqual(
+            bf._parse_week_mmddyy("112624"),
+            _dt.date(2024, 11, 26),
+        )
+
+
+class HoistedEnvVarDefaultsTests(unittest.TestCase):
+    """Confirms the main-script hoisted env vars default to '' so
+    the 'empty-string sentinel' comment matches behaviour even
+    when the env is completely unset."""
+
+    def test_main_script_hoists_env_vars_with_empty_default(self):
+        from pathlib import Path
+        src = Path("generate_weekly_pdfs.py").read_text()
+        # Exact substrings we expect in the hoisted block.
+        self.assertIn(
+            "_billing_audit_release_env = os.getenv('SENTRY_RELEASE', '') or ''",
+            src,
+        )
+        self.assertIn(
+            "_billing_audit_run_id_env = os.getenv('GITHUB_RUN_ID', '') or ''",
+            src,
+        )
 
 
 class NoSelfImportTests(unittest.TestCase):

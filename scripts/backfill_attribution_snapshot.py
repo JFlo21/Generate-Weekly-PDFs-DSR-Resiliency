@@ -29,7 +29,13 @@ if str(_REPO_ROOT) not in sys.path:
 
 
 def _parse_week_mmddyy(token: str) -> datetime.date:
-    """Parse a MMDDYY token into a date (two-digit year → 2000+YY)."""
+    """Parse a MMDDYY token into a date (two-digit year → 2000+YY).
+
+    Raises ``argparse.ArgumentTypeError`` (not ``ValueError``) for
+    both shape problems and invalid calendar dates (e.g. ``023199``
+    → Feb 31), so argparse surfaces a clean usage message instead
+    of an unhandled traceback.
+    """
     if len(token) != 6 or not token.isdigit():
         raise argparse.ArgumentTypeError(
             f"--week must be MMDDYY (e.g. 112624); got {token!r}"
@@ -37,7 +43,13 @@ def _parse_week_mmddyy(token: str) -> datetime.date:
     month = int(token[0:2])
     day = int(token[2:4])
     year = 2000 + int(token[4:6])
-    return datetime.date(year, month, day)
+    try:
+        return datetime.date(year, month, day)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"--week {token!r} is not a valid calendar date "
+            f"({month:02d}/{day:02d}/{year}): {exc}"
+        )
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:

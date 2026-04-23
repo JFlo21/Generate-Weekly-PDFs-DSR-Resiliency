@@ -254,7 +254,7 @@ def freeze_row(row: dict, release: str | None,
             .execute()
         )
 
-    result = with_retry(_invoke)
+    result = with_retry(_invoke, op="freeze_attribution")
     if result is None:
         _counters["snapshots_errored"] += 1
         return
@@ -324,7 +324,7 @@ def emit_run_fingerprint(wr: str, week_ending: datetime.date,
             .execute()
         )
 
-    prior = with_retry(_fetch_prior)
+    prior = with_retry(_fetch_prior, op="pipeline_run")
     prior_fp: str | None = None
     if prior is not None:
         rows = getattr(prior, "data", None) or []
@@ -351,7 +351,7 @@ def emit_run_fingerprint(wr: str, week_ending: datetime.date,
             .execute()
         )
 
-    upsert_result = with_retry(_upsert)
+    upsert_result = with_retry(_upsert, op="pipeline_run")
     if upsert_result is None:
         # Upsert exhausted its retry budget. Do NOT record the dedup
         # key — a subsequent variant call in the same run gets a

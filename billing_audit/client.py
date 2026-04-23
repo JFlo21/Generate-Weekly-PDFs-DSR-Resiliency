@@ -43,15 +43,25 @@ _flag_cache: dict[str, bool] = {}
 
 # Circuit breaker state. When a run is operating against an
 # unavailable Supabase (extended outage, DNS failure, expired key),
-# every ``with_retry`` call would otherwise burn the full 9.5s
-# backoff budget (2.5 + 4.5 + 8.5 ≈ 15.5s total for one call). With
-# 550 rows per run, that's ~2.4 hours of pure backoff on a dead
-# endpoint. After ``_CIRCUIT_BREAKER_THRESHOLD`` consecutive
-# exhausted retries the breaker trips and every subsequent call
-# fast-fails with no retries — bounded per-run cost.
+# every ``with_retry`` call would otherwise burn the full
+# 1.5s + 2.5s + 4.5s = 8.5s backoff budget (4 attempts with
+# ``2**attempt + 0.5`` seconds between them; the 4th attempt has no
+# following sleep). With ~550 rows per run, that's ~78 minutes of
+# pure backoff on a dead endpoint. After
+# ``_CIRCUIT_BREAKER_THRESHOLD`` consecutive exhausted retries the
+# breaker trips and every subsequent call fast-fails with no
+# retries — bounded per-run cost ≈ THRESHOLD × 8.5s plus fast-fail
+# no-ops for the rest of the run.
+#
+# State is tracked PER OPERATION (per ``op`` argument to
+# ``with_retry``). An outage on one endpoint (e.g.
+# ``pipeline_run`` upsert) must not cascade into disabling
+# independent endpoints (``freeze_attribution`` RPC, feature_flag
+# read) that are still healthy — otherwise a localized fingerprint
+# issue turns into broad attribution-snapshot data loss.
 _CIRCUIT_BREAKER_THRESHOLD = 3
-_consecutive_failures: int = 0
-_circuit_open: bool = False
+_consecutive_failures: dict[str, int] = {}
+_open_circuits: set[str] = set()
 
 
 def _is_test_mode() -> bool:
@@ -157,12 +167,11 @@ def get_client() -> Any:
 def reset_cache_for_tests() -> None:
     """Clear module-level caches. Test-only helper."""
     global _client_cache, _client_initialized, _flag_cache
-    global _consecutive_failures, _circuit_open
     _client_cache = None
     _client_initialized = False
     _flag_cache = {}
-    _consecutive_failures = 0
-    _circuit_open = False
+    _consecutive_failures.clear()
+    _open_circuits.clear()
 
 
 def get_flag(key: str, default: bool = False) -> bool:
@@ -221,7 +230,8 @@ def get_flag(key: str, default: bool = False) -> bool:
     return value
 
 
-def with_retry(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+def with_retry(fn: Callable[..., Any], *args: Any,
+               op: str = "default", **kwargs: Any) -> Any:
     """Run ``fn`` with exponential backoff on transient errors.
 
     4 attempts, backoff ``2**attempt + 0.5`` seconds. Retries on:
@@ -231,30 +241,38 @@ def with_retry(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
       ``_TRANSIENT_ERROR_MARKERS`` (RemoteDisconnected, ConnectionError,
       ConnectionReset, SSLError, SSLEOFError, Timeout).
 
-    A module-level circuit breaker trips after
+    A circuit breaker is tracked PER ``op`` — an outage on one
+    endpoint must not cascade into disabling healthy ones. The
+    breaker for a given op trips after
     ``_CIRCUIT_BREAKER_THRESHOLD`` consecutive retry exhaustions;
     once open it stays open for the remainder of the run and every
-    subsequent call returns ``None`` immediately. This bounds the
-    worst-case per-run cost of a prolonged Supabase outage. A single
-    successful call resets the failure counter (but not an open
-    breaker — the breaker is per-run by design so we don't
-    oscillate).
+    subsequent call for that op returns ``None`` immediately. A
+    single successful call resets that op's failure counter (but
+    not an open breaker — the breaker is per-run by design so we
+    don't oscillate).
+
+    Callers in ``billing_audit.writer`` should pass a stable ``op``
+    identifier (e.g. ``"freeze_attribution"``, ``"pipeline_run"``,
+    ``"feature_flag"``). The default ``"default"`` exists only so
+    non-writer callers need not adopt the convention.
 
     Returns ``fn``'s return value on success. On final failure, logs
     a WARNING, emits a Sentry breadcrumb, and returns ``None``.
     """
-    global _consecutive_failures, _circuit_open
-
-    if _circuit_open:
-        # Fast path: breaker is open, skip all RPC work.
+    if op in _open_circuits:
+        # Fast path: breaker is open for THIS op; skip all RPC
+        # work. Other ops are unaffected.
         return None
 
     max_attempts = 4
     last_error_name = "Unknown"
+    attempts_made = 0
+    final_was_transient = False
     for attempt in range(max_attempts):
         try:
             result = fn(*args, **kwargs)
         except Exception as exc:
+            attempts_made = attempt + 1
             err_name = type(exc).__name__
             last_error_name = err_name
             is_transient = False
@@ -264,11 +282,12 @@ def with_retry(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
                 is_transient = True
             if any(marker in err_name for marker in _TRANSIENT_ERROR_MARKERS):
                 is_transient = True
+            final_was_transient = is_transient
 
             if is_transient and attempt < max_attempts - 1:
                 backoff = 2 ** attempt + 0.5
                 logging.warning(
-                    f"⚠️ billing_audit RPC retry "
+                    f"⚠️ billing_audit[{op}] RPC retry "
                     f"{attempt + 1}/{max_attempts} ({err_name}), "
                     f"backoff {backoff:.1f}s"
                 )
@@ -277,36 +296,57 @@ def with_retry(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
             # Non-transient OR last attempt — fall through to failure.
             break
         else:
-            _consecutive_failures = 0
+            _consecutive_failures[op] = 0
             return result
 
-    _consecutive_failures += 1
-    if _consecutive_failures >= _CIRCUIT_BREAKER_THRESHOLD and not _circuit_open:
-        _circuit_open = True
+    # Increment this op's consecutive-failure counter.
+    new_count = _consecutive_failures.get(op, 0) + 1
+    _consecutive_failures[op] = new_count
+
+    # Word the trip message correctly for both modes — "exhausted
+    # retries" only applies to transient failures; non-transient
+    # failures bail on the first attempt by design.
+    trip_label = (
+        "exhausted retries" if final_was_transient else "immediate failures"
+    )
+    if new_count >= _CIRCUIT_BREAKER_THRESHOLD and op not in _open_circuits:
+        _open_circuits.add(op)
         logging.warning(
-            f"🔌 billing_audit circuit breaker OPEN after "
-            f"{_consecutive_failures} consecutive exhausted retries; "
-            "remaining RPC calls this run will fast-fail to avoid "
-            "burning the pipeline's time budget on backoff waits"
+            f"🔌 billing_audit[{op}] circuit breaker OPEN after "
+            f"{new_count} consecutive {trip_label}; "
+            f"remaining {op!r} RPC calls this run will fast-fail. "
+            "Other billing_audit operations remain unaffected."
         )
         _sentry_breadcrumb(
             "billing_audit",
             "Circuit breaker opened",
             level="warning",
             data={
-                "consecutive_failures": _consecutive_failures,
+                "op": op,
+                "consecutive_failures": new_count,
                 "threshold": _CIRCUIT_BREAKER_THRESHOLD,
+                "last_trip_mode": trip_label,
             },
         )
 
+    # ``attempts_made`` reflects how many times ``fn`` actually ran
+    # — 1 for a non-transient failure, up to ``max_attempts`` for a
+    # transient-retry exhaustion. Misreporting this to operators
+    # made Supabase-outage postmortems harder than they needed to be.
     logging.warning(
-        "⚠️ billing_audit RPC failed after "
-        f"{max_attempts} attempts ({last_error_name})"
+        f"⚠️ billing_audit[{op}] RPC failed after "
+        f"{attempts_made}/{max_attempts} attempt(s) ({last_error_name})"
     )
     _sentry_breadcrumb(
         "billing_audit",
-        "RPC failed after retries",
+        "RPC failed",
         level="warning",
-        data={"error_type": last_error_name, "attempts": max_attempts},
+        data={
+            "op": op,
+            "error_type": last_error_name,
+            "attempts": attempts_made,
+            "max_attempts": max_attempts,
+            "was_transient": final_was_transient,
+        },
     )
     return None

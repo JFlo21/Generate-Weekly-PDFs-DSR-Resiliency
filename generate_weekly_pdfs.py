@@ -4553,8 +4553,10 @@ def main():
         # Hoist static env var lookups once per run (not per row) —
         # these never change during execution and were previously
         # being read on every freeze_row call for every row in every
-        # group. One-time read; empty string sentinels match the
-        # per-call behaviour the writer expects.
+        # group. One-time read. Empty-string defaults (instead of
+        # None) keep the values valid as Supabase RPC parameters
+        # whether or not the deployment target applies NOT NULL to
+        # ``release`` / ``run_id``.
         #
         # NOTE: the fingerprint flag state is NOT hoisted here. Flag
         # reads are per-call so a transient early-run ``get_flag``
@@ -4562,8 +4564,8 @@ def main():
         # non-caching-on-failure fix) can recover on subsequent
         # calls. Hoisting the boolean would lock the whole run into
         # the first-read result and silently drop pipeline_run rows.
-        _billing_audit_release_env = os.getenv('SENTRY_RELEASE')
-        _billing_audit_run_id_env = os.getenv('GITHUB_RUN_ID')
+        _billing_audit_release_env = os.getenv('SENTRY_RELEASE', '') or ''
+        _billing_audit_run_id_env = os.getenv('GITHUB_RUN_ID', '') or ''
 
         for group_idx, (group_key, group_rows) in enumerate(groups.items(), 1):
             # Graceful time budget: stop before Actions hard-kills the job
@@ -4688,8 +4690,8 @@ def main():
                                     assignment_fp=_fp,
                                     completed_count=_completed,
                                     total_count=len(group_rows),
-                                    release=_billing_audit_release_env or '',
-                                    run_id=_billing_audit_run_id_env or '',
+                                    release=_billing_audit_release_env,
+                                    run_id=_billing_audit_run_id_env,
                                 )
                             _bas.set_data("rows", len(group_rows))
                             _bas.set_data("variant", variant)
