@@ -130,15 +130,19 @@ def reset_cache_for_tests() -> None:
 def get_flag(key: str, default: bool = False) -> bool:
     """Read a boolean from ``billing_audit.feature_flag``.
 
-    Cached per-process: flags are read once per run. On any failure
-    (client unavailable, RPC error, missing row, non-boolean value)
-    return ``default`` and log at WARNING.
+    Cached per-process on successful reads only. Missing rows cache
+    as ``default`` (authoritative DB state). On transport / RPC
+    failures the result is NOT cached, so subsequent calls in the
+    same run retry the read instead of disabling the feature for
+    the remainder of the process on a single transient error.
     """
     if key in _flag_cache:
         return _flag_cache[key]
 
     client = get_client()
     if client is None:
+        # Client unavailable is a stable disabled state; cache it so
+        # the hot path doesn't re-enter get_client() on every call.
         _flag_cache[key] = default
         return default
 
@@ -151,17 +155,11 @@ def get_flag(key: str, default: bool = False) -> bool:
             .limit(1)
             .execute()
         )
-        rows = getattr(res, "data", None) or []
-        if rows and isinstance(rows[0], dict) and isinstance(
-            rows[0].get("enabled"), bool
-        ):
-            value = rows[0]["enabled"]
-        else:
-            value = default
     except Exception as exc:
         logging.warning(
             f"⚠️ billing_audit.feature_flag read failed for {key!r}: "
-            f"{type(exc).__name__} — defaulting to {default}"
+            f"{type(exc).__name__} — returning {default} without "
+            "caching (will retry on next call)"
         )
         _sentry_breadcrumb(
             "billing_audit",
@@ -169,8 +167,18 @@ def get_flag(key: str, default: bool = False) -> bool:
             level="warning",
             data={"flag": key, "error_type": type(exc).__name__},
         )
-        value = default
+        # Do NOT cache on transport failure — let the next call
+        # retry. A single early-run blip would otherwise disable
+        # the feature for the whole process.
+        return default
 
+    rows = getattr(res, "data", None) or []
+    if rows and isinstance(rows[0], dict) and isinstance(
+        rows[0].get("enabled"), bool
+    ):
+        value = rows[0]["enabled"]
+    else:
+        value = default
     _flag_cache[key] = value
     return value
 

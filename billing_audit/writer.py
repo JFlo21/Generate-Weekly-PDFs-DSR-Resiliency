@@ -42,11 +42,23 @@ _counters: dict[str, int] = {
     "fingerprint_changes_detected": 0,
 }
 
+# Deduplication set for ``emit_run_fingerprint``. The
+# ``pipeline_run`` PK is ``(wr, week_ending, run_id)`` — no variant
+# dimension — so calling ``emit_run_fingerprint`` once per
+# ``(wr, week, variant)`` group from the main loop would overwrite
+# the same row multiple times per run AND cause spurious drift
+# alerts when variants legitimately differ in fingerprint
+# (primary rows vs helper rows vs VAC crew rows carry different
+# personnel populations by construction). First-seen-wins matches
+# the schema's PK intent.
+_emitted_run_keys: set[tuple[str, str, str]] = set()
+
 
 def _reset_counters_for_tests() -> None:
     """Zero the module counters. Test-only helper."""
     for k in _counters:
         _counters[k] = 0
+    _emitted_run_keys.clear()
 
 
 def get_counters() -> dict:
@@ -56,6 +68,28 @@ def get_counters() -> dict:
     ``snapshots_errored``, ``fingerprint_changes_detected``.
     """
     return dict(_counters)
+
+
+def any_flag_enabled() -> bool:
+    """Cheap probe for whether any writer flag is currently on.
+
+    Returns True if either ``write_attribution_snapshot`` or
+    ``emit_assignment_fingerprint`` is enabled AND the Supabase
+    client is reachable. Callers in the main pipeline can use this
+    to skip per-group work (fingerprint computation, row loops) when
+    both flags are off — otherwise we'd do the expensive prep for
+    every group only for the writer to early-return inside each call.
+
+    Flag reads are cached inside ``get_flag`` on success, so the
+    first call fires one Supabase read and every subsequent call is
+    a dict lookup.
+    """
+    if get_client() is None:
+        return False
+    return (
+        get_flag(_FLAG_WRITE, default=False)
+        or get_flag(_FLAG_FINGERPRINT, default=False)
+    )
 
 
 def _coerce_week_ending(value: Any) -> datetime.date | None:
@@ -93,10 +127,15 @@ def _sentry_capture_warning(tag_key: str, tag_value: Any,
                             extras: dict | None = None) -> None:
     """Emit a Sentry warning for a mid-week assignment change.
 
-    Uses the pipeline's ``sentry_capture_message_with_context`` helper
-    when available; otherwise silently degrades. No per-row PII is
-    included — tags/extras are aggregate identifiers only (WR number
-    and week ending which are operational context, not personnel).
+    Uses ``sentry_sdk.capture_message`` directly inside a
+    ``push_scope()`` so the tags scope cleanly and don't leak into
+    unrelated events. The pipeline's
+    ``sentry_capture_message_with_context`` helper is deliberately
+    avoided here to keep this path callable from the backfill script
+    (which does not import ``generate_weekly_pdfs``). No per-row PII
+    is included — tags/extras are aggregate identifiers only (WR
+    number and week ending, which are operational context, not
+    personnel).
     """
     try:
         import sentry_sdk  # type: ignore
@@ -236,6 +275,16 @@ def emit_run_fingerprint(wr: str, week_ending: datetime.date,
         return
 
     wr_sanitized = _WR_SANITIZE.sub("_", str(wr).split(".")[0])[:50]
+
+    # Dedup: emit at most once per (wr, week_ending, run_id) in this
+    # process. Subsequent callers for the same key (e.g. helper /
+    # vac_crew variants in the same group loop) no-op. Matches the
+    # ``pipeline_run`` schema PK and avoids pipeline_run overwrites
+    # + cross-variant drift false-positives.
+    dedup_key = (wr_sanitized, week_ending.isoformat(), run_id or "")
+    if dedup_key in _emitted_run_keys:
+        return
+    _emitted_run_keys.add(dedup_key)
 
     # ── Look up prior fingerprint for this (wr, week_ending) ──
     def _fetch_prior():

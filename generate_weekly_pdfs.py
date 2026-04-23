@@ -98,14 +98,20 @@ except ImportError as e:
 
 # Import billing audit attribution snapshot writer (shadow mode).
 # Failures here must NEVER break Excel generation — the writer is a
-# strictly additive, flag-gated, no-op-on-failure surface.
+# strictly additive, flag-gated, no-op-on-failure surface. Catch
+# broad Exception (not just ImportError) so a runtime error inside
+# billing_audit/* during module init cannot crash the pipeline. We
+# log the class name only to avoid leaking any contextual detail.
 try:
     from billing_audit import writer as _billing_audit_writer
     from billing_audit.fingerprint import compute_assignment_fingerprint
     BILLING_AUDIT_AVAILABLE = True
     print("❄️ Billing audit snapshot writer loaded successfully")
-except ImportError as e:
-    print(f"⚠️ Billing audit snapshot writer not available: {e}")
+except Exception as e:
+    print(
+        "⚠️ Billing audit snapshot writer not available: "
+        f"{type(e).__name__}"
+    )
     BILLING_AUDIT_AVAILABLE = False
 
 # 🎯 SHOW OUR FIXES ARE ACTIVE
@@ -4621,8 +4627,14 @@ def main():
                 # subsequent runs (first-write-wins makes repeat calls cheap). Writes
                 # happen in shadow mode — no read path yet. Failures must never break
                 # Excel generation. Skipped in TEST_MODE to prevent polluting production
-                # Supabase with synthetic test data.
-                if BILLING_AUDIT_AVAILABLE and not TEST_MODE:
+                # Supabase with synthetic test data. ``any_flag_enabled()`` is a cheap
+                # cached probe — it skips fingerprint computation and the per-row
+                # freeze_row loop entirely when both writer flags are off.
+                if (
+                    BILLING_AUDIT_AVAILABLE
+                    and not TEST_MODE
+                    and _billing_audit_writer.any_flag_enabled()
+                ):
                     try:
                         with sentry_sdk.start_span(
                             op="billing_audit.freeze",

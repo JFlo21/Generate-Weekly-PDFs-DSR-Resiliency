@@ -597,5 +597,233 @@ class LoggingDisciplineTests(unittest.TestCase):
                 )
 
 
+class EmitFingerprintDedupTests(unittest.TestCase):
+    """Per-variant emission must dedupe to one row per (wr, week, run).
+
+    ``pipeline_run`` PK is ``(wr, week_ending, run_id)`` with no
+    variant column. Before the dedup fix, primary + helper +
+    vac_crew groups for the same WR/week all wrote through, each
+    overwriting the prior variant's row and computing drift against
+    the wrong prior fingerprint.
+    """
+
+    def setUp(self):
+        _reset_all()
+
+    def tearDown(self):
+        _reset_all()
+
+    def test_second_variant_same_key_noops(self):
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            ba_writer.emit_run_fingerprint(
+                wr="WR1",
+                week_ending=datetime.date(2026, 4, 19),
+                content_hash="h",
+                assignment_fp="fp-primary",
+                completed_count=2,
+                total_count=3,
+                release="rel",
+                run_id="run-1",
+            )
+            # Helper variant — same (wr, week, run_id). Should no-op.
+            ba_writer.emit_run_fingerprint(
+                wr="WR1",
+                week_ending=datetime.date(2026, 4, 19),
+                content_hash="h",
+                assignment_fp="fp-helper-different",
+                completed_count=5,
+                total_count=5,
+                release="rel",
+                run_id="run-1",
+            )
+
+        # Exactly ONE upsert — the second call must be a no-op.
+        table_obj = client.schema.return_value.table.return_value
+        self.assertEqual(table_obj.upsert.call_count, 1)
+
+    def test_different_run_id_still_writes(self):
+        """Dedup is per-run; subsequent runs must still emit."""
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            ba_writer.emit_run_fingerprint(
+                wr="WR1",
+                week_ending=datetime.date(2026, 4, 19),
+                content_hash="h",
+                assignment_fp="fp-A",
+                completed_count=1,
+                total_count=1,
+                release="rel",
+                run_id="run-1",
+            )
+            ba_writer.emit_run_fingerprint(
+                wr="WR1",
+                week_ending=datetime.date(2026, 4, 19),
+                content_hash="h",
+                assignment_fp="fp-A",
+                completed_count=1,
+                total_count=1,
+                release="rel",
+                run_id="run-2",
+            )
+        table_obj = client.schema.return_value.table.return_value
+        self.assertEqual(table_obj.upsert.call_count, 2)
+
+
+class AnyFlagEnabledTests(unittest.TestCase):
+    """``any_flag_enabled()`` drives the main loop's fast-skip gate."""
+
+    def setUp(self):
+        _reset_all()
+
+    def tearDown(self):
+        _reset_all()
+
+    def test_false_when_client_unavailable(self):
+        from billing_audit import writer as ba_writer
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=None
+        ):
+            self.assertFalse(ba_writer.any_flag_enabled())
+
+    def test_false_when_both_flags_off(self):
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=False
+        ):
+            self.assertFalse(ba_writer.any_flag_enabled())
+
+    def test_true_when_write_flag_on(self):
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+
+        def _flag_side(key, default=False):
+            return key == "write_attribution_snapshot"
+
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", side_effect=_flag_side
+        ):
+            self.assertTrue(ba_writer.any_flag_enabled())
+
+    def test_true_when_fingerprint_flag_on(self):
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+
+        def _flag_side(key, default=False):
+            return key == "emit_assignment_fingerprint"
+
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", side_effect=_flag_side
+        ):
+            self.assertTrue(ba_writer.any_flag_enabled())
+
+
+class GetFlagCachingTests(unittest.TestCase):
+    """Flag reads must not cache transport failures."""
+
+    def setUp(self):
+        _reset_all()
+
+    def tearDown(self):
+        _reset_all()
+
+    def test_transport_failure_not_cached(self):
+        from billing_audit import client as ba_client
+        fake_client = mock.Mock()
+        call_count = {"n": 0}
+
+        class FailingBuilder:
+            def execute(self):
+                raise RuntimeError("ConnectionResetError: reset")
+
+        def _select(*_a, **_kw):
+            return mock.Mock(
+                eq=mock.Mock(
+                    return_value=mock.Mock(
+                        limit=mock.Mock(return_value=FailingBuilder())
+                    )
+                )
+            )
+
+        def _schema_factory(*_a, **_kw):
+            call_count["n"] += 1
+            return mock.Mock(
+                table=mock.Mock(
+                    return_value=mock.Mock(select=_select)
+                )
+            )
+
+        fake_client.schema.side_effect = _schema_factory
+
+        with mock.patch(
+            "billing_audit.client.get_client", return_value=fake_client
+        ):
+            first = ba_client.get_flag("flag_x", default=False)
+            second = ba_client.get_flag("flag_x", default=False)
+
+        self.assertFalse(first)
+        self.assertFalse(second)
+        # Must have tried the read BOTH times — the failure must not
+        # have cached the default.
+        self.assertEqual(call_count["n"], 2)
+
+    def test_successful_read_is_cached(self):
+        from billing_audit import client as ba_client
+        fake_client = mock.Mock()
+        call_count = {"n": 0}
+
+        def _execute():
+            return mock.Mock(data=[{"enabled": True}])
+
+        def _select(*_a, **_kw):
+            return mock.Mock(
+                eq=mock.Mock(
+                    return_value=mock.Mock(
+                        limit=mock.Mock(
+                            return_value=mock.Mock(execute=_execute)
+                        )
+                    )
+                )
+            )
+
+        def _schema_factory(*_a, **_kw):
+            call_count["n"] += 1
+            return mock.Mock(
+                table=mock.Mock(
+                    return_value=mock.Mock(select=_select)
+                )
+            )
+
+        fake_client.schema.side_effect = _schema_factory
+
+        with mock.patch(
+            "billing_audit.client.get_client", return_value=fake_client
+        ):
+            first = ba_client.get_flag("flag_y", default=False)
+            second = ba_client.get_flag("flag_y", default=False)
+
+        self.assertTrue(first)
+        self.assertTrue(second)
+        # Second call served from the cache — schema() called once.
+        self.assertEqual(call_count["n"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

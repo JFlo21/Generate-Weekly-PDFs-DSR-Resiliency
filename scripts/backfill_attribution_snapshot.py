@@ -73,7 +73,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     from billing_audit import writer as ba_writer
-    from billing_audit.client import get_client
+    from billing_audit.client import get_client, get_flag
 
     client = get_client()
     if client is None:
@@ -83,6 +83,21 @@ def main(argv: list[str] | None = None) -> int:
             "running the backfill."
         )
         return 2
+
+    # Fail fast if the feature flag is off. ``freeze_row`` is a
+    # silent no-op when ``write_attribution_snapshot`` is disabled,
+    # and a one-shot backfill that reports success while writing
+    # zero rows is the worst of both worlds — it gives operators
+    # false confidence that the snapshot table is populated.
+    if not get_flag("write_attribution_snapshot", default=False):
+        logging.error(
+            "❌ billing_audit.feature_flag.write_attribution_snapshot "
+            "is DISABLED. freeze_row() would no-op for every row. "
+            "Enable the flag in Supabase before running the backfill "
+            "(UPDATE billing_audit.feature_flag SET enabled=TRUE "
+            "WHERE flag_key='write_attribution_snapshot';)."
+        )
+        return 5
 
     # Import the main pipeline's discovery/fetch helpers. Must match
     # the function names exported by ``generate_weekly_pdfs``.
