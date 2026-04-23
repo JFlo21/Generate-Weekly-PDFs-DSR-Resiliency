@@ -1987,6 +1987,7 @@ def discover_source_sheets(client):
                 if isinstance(s, dict)
                 and isinstance(s.get('id'), int)
                 and isinstance(s.get('column_mapping'), dict)
+                and isinstance(s.get('name'), str)
             ]
             if len(_valid_cached_sheets) != len(_raw_cached_sheets):
                 logging.warning(
@@ -1996,6 +1997,18 @@ def discover_source_sheets(client):
                     f"(keeping {len(_valid_cached_sheets)} valid). "
                     f"Delete {DISCOVERY_CACHE_PATH} to force a clean rediscovery."
                 )
+                # If *every* cached entry was malformed, the fresh-cache
+                # return path below would otherwise hand back an empty
+                # source list and the run would silently process zero
+                # sheets. Escalate to the outer cache-load-failed handler
+                # so we fall through to a full rediscovery from
+                # ``base_sheet_ids`` — same behaviour as an outdated
+                # schema or unreadable JSON.
+                if _raw_cached_sheets and not _valid_cached_sheets:
+                    raise ValueError(
+                        f"all {len(_raw_cached_sheets)} cached sheet "
+                        f"entries malformed; forcing full rediscovery"
+                    )
             _cached_sheet_ids_from_file = {s['id'] for s in _valid_cached_sheets}
             # Compare folder-discovered sheet IDs against cache to detect new sheets
             _new_from_folders = _all_folder_discovered_ids - _cached_sheet_ids_from_file
@@ -2830,18 +2843,30 @@ def get_all_source_rows(client, source_sheets):
                                         not _rate_recalc_ran_for_row
                                         and RATE_CUTOFF_DATE
                                         and not RATE_RECALC_WEEKLY_FALLBACK
-                                        and not row_data.get('Snapshot Date')
+                                        # Use the same parser the recalc
+                                        # gate uses so an unparseable
+                                        # Snapshot Date (treated as blank
+                                        # by _resolve_rate_recalc_cutoff_date)
+                                        # triggers this note too — raw
+                                        # truthiness would miss it and
+                                        # leave operators chasing a
+                                        # missing-rate explanation that
+                                        # doesn't apply.
+                                        and excel_serial_to_date(
+                                            row_data.get('Snapshot Date')
+                                        ) is None
                                     ):
-                                        # Snapshot Date is blank, the
-                                        # fallback is disabled, and
-                                        # recalc was skipped for that
-                                        # reason. Tell operators exactly
-                                        # why so they don't chase a CU
-                                        # that isn't actually missing
-                                        # from NEW_RATES_CSV.
+                                        # Snapshot Date is blank or
+                                        # unparseable, the fallback is
+                                        # disabled, and recalc was
+                                        # skipped for that reason. Tell
+                                        # operators exactly why so they
+                                        # don't chase a CU that isn't
+                                        # actually missing from
+                                        # NEW_RATES_CSV.
                                         _recalc_note = (
-                                            " Rate recalc skipped because Snapshot Date is blank and "
-                                            "RATE_RECALC_WEEKLY_FALLBACK is disabled; set it to '1' (default) "
+                                            " Rate recalc skipped because Snapshot Date is blank or unparseable "
+                                            "and RATE_RECALC_WEEKLY_FALLBACK is disabled; set it to '1' (default) "
                                             "to let rows with a future-dated Weekly Reference Logged Date "
                                             "get priced from the new-contract rates table."
                                         )

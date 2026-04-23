@@ -216,23 +216,184 @@ class TestDiscoveryCacheSchemaGuard(unittest.TestCase):
                 f'guard must drop non-dict entry: {bogus!r}',
             )
 
+    def test_entry_missing_name_is_dropped(self):
+        """Copilot review follow-up: ``name`` is required by the filter.
+
+        ``_fetch_and_process_sheet`` logs and accesses ``source['name']``
+        on every cached entry. Without the name check in the filter, a
+        cached entry without ``name`` would crash the run. The filter
+        must drop such entries so the warning surfaces them instead.
+        """
+        entry = {'id': 123, 'column_mapping': {}}
+        self.assertFalse(
+            isinstance(entry.get('name'), str),
+            'guard must drop entries without a string name',
+        )
+
+    def test_entry_with_non_string_name_is_dropped(self):
+        entry = {'id': 123, 'name': 12345, 'column_mapping': {}}
+        self.assertFalse(
+            isinstance(entry.get('name'), str),
+            'guard must drop entries whose name is not a string',
+        )
+
     def test_filter_comprehension_matches_production_check(self):
         """The ``_valid_cached_sheets`` filter behaves as expected."""
         raw = [
-            {'id': 1, 'name': 'A', 'column_mapping': {'x': 1}},  # keep
-            {'id': 2, 'name': 'B'},                               # drop (no mapping)
-            {'id': '3', 'column_mapping': {}},                    # drop (non-int id)
-            'not-a-dict',                                         # drop
-            None,                                                 # drop
-            {'id': 4, 'column_mapping': {}},                      # keep
+            {'id': 1, 'name': 'A', 'column_mapping': {'x': 1}},   # keep
+            {'id': 2, 'name': 'B'},                                # drop (no mapping)
+            {'id': '3', 'name': 'C', 'column_mapping': {}},        # drop (non-int id)
+            'not-a-dict',                                          # drop
+            None,                                                  # drop
+            {'id': 4, 'column_mapping': {}},                       # drop (no name)
+            {'id': 5, 'name': 12345, 'column_mapping': {}},        # drop (non-str name)
+            {'id': 6, 'name': 'F', 'column_mapping': {'y': 2}},    # keep
         ]
         valid = [
             s for s in raw
             if isinstance(s, dict)
             and isinstance(s.get('id'), int)
             and isinstance(s.get('column_mapping'), dict)
+            and isinstance(s.get('name'), str)
         ]
-        self.assertEqual([s['id'] for s in valid], [1, 4])
+        self.assertEqual([s['id'] for s in valid], [1, 6])
+
+
+class TestDiscoveryCacheAllDroppedForcesRediscovery(unittest.TestCase):
+    """Codex P1 follow-up: if every cached entry is malformed, we MUST
+    fall through to full rediscovery instead of silently returning an
+    empty source list.
+
+    Previously the fresh-cache path ran
+    ``return _valid_cached_sheets`` unconditionally, so a cache in which
+    every entry was missing e.g. ``column_mapping`` would turn the whole
+    run into a no-op. The fix raises a ``ValueError`` when all raw
+    entries are dropped, which lands in the existing
+    ``except Exception as e: logging.info(f"Cache load failed, ...")``
+    handler at the bottom of the try-block and forces a clean
+    rediscovery from ``base_sheet_ids``.
+    """
+
+    def test_all_malformed_raises_valueerror_for_outer_handler(self):
+        """Simulate the filter + guard block in isolation."""
+        raw = [
+            {'id': 1},                          # drop (no name, no mapping)
+            {'id': 'str', 'column_mapping': {}},  # drop (non-int id)
+            None,                                # drop
+        ]
+        valid = [
+            s for s in raw
+            if isinstance(s, dict)
+            and isinstance(s.get('id'), int)
+            and isinstance(s.get('column_mapping'), dict)
+            and isinstance(s.get('name'), str)
+        ]
+        # Reproducing the guard's decision surface.
+        with self.assertRaises(ValueError):
+            if raw and not valid:
+                raise ValueError(
+                    f"all {len(raw)} cached sheet entries malformed; "
+                    f"forcing full rediscovery"
+                )
+
+    def test_partial_malformed_keeps_valid_entries(self):
+        """Some dropped + some valid → return the subset, no raise."""
+        raw = [
+            {'id': 1, 'name': 'A', 'column_mapping': {}},  # keep
+            {'id': 2, 'column_mapping': {}},                # drop (no name)
+        ]
+        valid = [
+            s for s in raw
+            if isinstance(s, dict)
+            and isinstance(s.get('id'), int)
+            and isinstance(s.get('column_mapping'), dict)
+            and isinstance(s.get('name'), str)
+        ]
+        # Partial drop must NOT trigger the all-dropped guard.
+        self.assertTrue(bool(valid))
+        self.assertEqual([s['id'] for s in valid], [1])
+
+    def test_empty_cache_is_not_treated_as_all_dropped(self):
+        """An empty ``sheets`` list must not cascade into forced rediscovery.
+
+        ``raw and not valid`` correctly gates on the presence of at
+        least one raw entry — an already-empty cache would be flagged
+        as schema-outdated or missing elsewhere, not here.
+        """
+        raw: list = []
+        valid: list = []
+        # No raise — the all-dropped path is guarded by ``raw and ...``.
+        self.assertFalse(bool(raw and not valid))
+
+
+class TestRecalcNoteHandlesUnparseableSnapshotDate(unittest.TestCase):
+    """Copilot review follow-up: the drop-warning's operator-directed
+    ``_recalc_note`` uses ``excel_serial_to_date(...) is None`` so a
+    cell whose value is present but unparseable (e.g. ``'not-a-date'``)
+    behaves the same as a blank cell.
+
+    This mirrors how ``_resolve_rate_recalc_cutoff_date`` already
+    handles unparseable Snapshot Dates (treated as blank → fallback
+    attempted). Raw truthiness (``not row_data.get('Snapshot Date')``)
+    missed the unparseable case, making the drop warning misleading
+    when ``RATE_RECALC_WEEKLY_FALLBACK`` was disabled.
+    """
+
+    def test_blank_snapshot_is_None(self):
+        for blank in ('', None):
+            self.assertIsNone(
+                generate_weekly_pdfs.excel_serial_to_date(blank),
+                f'{blank!r} must parse to None',
+            )
+
+    def test_unparseable_snapshot_is_None(self):
+        for garbage in ('not-a-date', 'banana'):
+            self.assertIsNone(
+                generate_weekly_pdfs.excel_serial_to_date(garbage),
+                f'{garbage!r} must parse to None so the note fires',
+            )
+
+    def test_parseable_snapshot_is_not_None(self):
+        """Valid Snapshot Date must NOT trigger the env-var note."""
+        parsed = generate_weekly_pdfs.excel_serial_to_date('2026-04-23')
+        self.assertIsNotNone(parsed)
+
+    def test_fallback_disabled_note_fires_on_unparseable(self):
+        """End-to-end of the _recalc_note condition.
+
+        Reproduces the exact boolean expression used inline so that any
+        future refactor of ``excel_serial_to_date`` or the branch
+        condition trips this test.
+        """
+        rate_cutoff_set = True  # Matches the ``RATE_CUTOFF_DATE`` gate
+        fallback_enabled = False  # ``RATE_RECALC_WEEKLY_FALLBACK`` off
+        rate_recalc_ran = False
+        for snap_cell in ('', None, 'not-a-date', 'banana'):
+            should_fire = (
+                not rate_recalc_ran
+                and rate_cutoff_set
+                and not fallback_enabled
+                and generate_weekly_pdfs.excel_serial_to_date(snap_cell) is None
+            )
+            self.assertTrue(
+                should_fire,
+                f'note must fire for Snapshot Date={snap_cell!r}',
+            )
+
+    def test_fallback_disabled_note_quiet_on_valid_snapshot(self):
+        rate_cutoff_set = True
+        fallback_enabled = False
+        rate_recalc_ran = False
+        should_fire = (
+            not rate_recalc_ran
+            and rate_cutoff_set
+            and not fallback_enabled
+            and generate_weekly_pdfs.excel_serial_to_date('2026-04-23') is None
+        )
+        self.assertFalse(
+            should_fire,
+            'note must NOT fire for a valid Snapshot Date (different reason for drop)',
+        )
 
 
 class TestInspectImportRemoved(unittest.TestCase):

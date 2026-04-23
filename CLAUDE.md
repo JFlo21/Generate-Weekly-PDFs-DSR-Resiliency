@@ -836,3 +836,51 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   end-to-end), the discovery-cache schema guard (kept / dropped
   variants, matches-production-filter comprehension), and the
   `inspect` import removal.
+- [2026-04-23 18:05] PR #176 review-driven tightening on top of the
+  2026-04-23 12:00 security audit. Three follow-ups addressed:
+  **(1) Cache `name` field guard.** The original
+  `_valid_cached_sheets` filter validated `id` and `column_mapping`
+  but not `name` — `_fetch_and_process_sheet` accesses
+  `source['name']` directly in several log lines / Sentry
+  breadcrumbs and would KeyError on a cached entry missing the
+  field. Filter now also requires `isinstance(s.get('name'), str)`.
+  **(2) All-dropped → forced rediscovery (P1).** With the new
+  filter in place, a cache where *every* entry was malformed would
+  have made the fresh-cache path return `[]`, silently turning the
+  run into a no-op. Added a guard: when `_raw_cached_sheets` is
+  non-empty but `_valid_cached_sheets` is empty, raise `ValueError`
+  so the outer `except Exception as e:
+  logging.info("Cache load failed, refreshing discovery: {e}")`
+  handler catches it and falls through to full rediscovery from
+  `base_sheet_ids` — same failure mode as the existing
+  schema-outdated / unreadable-cache paths. Partial-drop cases
+  (some valid, some malformed) still succeed with the valid
+  subset.
+  **(3) `_recalc_note` branch handles unparseable Snapshot Date.**
+  The fallback-disabled drop warning previously keyed on
+  `not row_data.get('Snapshot Date')`, which treats a present but
+  unparseable cell (e.g. `'not-a-date'`) as "populated" and
+  suppresses the note — yet
+  `_resolve_rate_recalc_cutoff_date` treats unparseable Snapshot
+  Date *the same* as blank (skipping recalc). The condition now
+  reuses `excel_serial_to_date(row_data.get('Snapshot Date')) is
+  None`, so the note fires consistently with the recalc gate. The
+  warning text also updated to read
+  "Snapshot Date is blank or unparseable". **New rules:**
+  (1) Any filter that drops untrusted data structures MUST also
+  handle the all-dropped case — either by forcing the calling
+  path to rediscover or by failing loudly. A filter that returns
+  an empty list through a success path is a silent-no-op trap.
+  (2) Operator-facing "why was this dropped?" notes MUST be
+  based on the *parsed/derived* state (the same helper used by
+  the business-logic gate), not on raw cell truthiness. Keying
+  on raw cells drifts as parser behaviour evolves and produces
+  misleading guidance when the cell is malformed. Regression
+  tests: new classes in `tests/test_security_audit_followup.py`
+  — `TestDiscoveryCacheSchemaGuard` (extended for the `name`
+  field), `TestDiscoveryCacheAllDroppedForcesRediscovery`
+  (all-malformed raises, partial-drop preserves valid subset,
+  empty-cache is not miscategorised), and
+  `TestRecalcNoteHandlesUnparseableSnapshotDate` (blank /
+  unparseable / valid Snapshot Date behaviour of the note's
+  condition).
