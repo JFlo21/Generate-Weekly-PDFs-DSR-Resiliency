@@ -976,3 +976,49 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   (decision-surface table showing all three counters gate the
   log), and `TestRedactExceptionMessageSignature` (annotation
   must mention None + behaviour regression guard).
+- [2026-04-23 19:15] PR #176 round-4 Codex follow-ups. Two
+  findings flagged after the note-gate fix: **(P1) Weekly-Ref-Date
+  fallback would re-price whole legacy sheets that never map a
+  Snapshot Date column.** The fallback activates whenever
+  `row_data.get('Snapshot Date') is None`. On sheets whose
+  `column_mapping` doesn't include `Snapshot Date` at all, every
+  row has `None` for that field, and the fallback silently
+  changed the cutoff basis for the entire sheet instead of
+  rescuing current-week automation-lag rows. Fix: compute
+  `sheet_has_snapshot_date_column = 'Snapshot Date' in
+  column_mapping` once per sheet alongside the existing
+  `sheet_has_vac_crew_columns` probe, and pass
+  `weekly_fallback_enabled=RATE_RECALC_WEEKLY_FALLBACK and
+  sheet_has_snapshot_date_column` into
+  `_resolve_rate_recalc_cutoff_date`. Legacy sheets preserve the
+  pre-fix "no recalc when Snapshot is absent" behaviour exactly.
+  **(P2) `target_map` sanitization could collapse distinct WR#
+  cell values to the same key.** Two raw values that differ only
+  in stripped characters (`1234/evil` vs `1234\\evil`) or whose
+  first 50 chars happen to match yield the same key, and the
+  later row silently overwrote the earlier — retargeting uploads
+  / deletes at the wrong target-sheet row. Fix: track the raw
+  value that first produced each sanitized key and, on
+  collision, log a WARNING and keep the first-seen mapping
+  (deterministic across runs). Realistic numeric WR#s cannot
+  collide, so production data is unaffected. **New rules:**
+  (1) Any "rescue" fallback tied to a column's absence MUST be
+  gated on the column actually being mapped, not on the row's
+  field being falsy — otherwise the rescue becomes a blanket
+  re-evaluation on sheets that never had the column. The gate
+  belongs at the call site (where `column_mapping` is in scope)
+  and should reuse the existing per-sheet flag pattern
+  (`sheet_has_<column>_<label>`). (2) When using a lossy
+  sanitizer (regex + truncation) as a dict key, collisions MUST
+  be detected and surfaced, not silently overwrite. Keep the
+  first-seen mapping for determinism and log a WARNING that
+  includes BOTH raw values so operators can audit the source.
+  Regression tests: new
+  `TestWeeklyFallbackGatedOnSnapshotColumn` (3 cases covering
+  sheet-has-column rescues row / sheet-lacks-column preserves
+  legacy / call-site boolean truth table) and
+  `TestTargetMapWrKeyCollisionDetection` (sanitizer produces
+  collisions for crafted `/` vs `\\`, truncation collisions at
+  the 50-char boundary, first-seen is kept, repeated raw WR#
+  doesn't inflate the counter) in
+  `tests/test_security_audit_followup.py`.

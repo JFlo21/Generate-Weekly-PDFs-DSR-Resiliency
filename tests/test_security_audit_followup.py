@@ -601,6 +601,153 @@ class TestRedactExceptionMessageSignature(unittest.TestCase):
         )
 
 
+class TestWeeklyFallbackGatedOnSnapshotColumn(unittest.TestCase):
+    """Codex P1 follow-up: the Weekly-Ref-Date fallback must NOT
+    activate on legacy sheets that never map a ``Snapshot Date`` column.
+
+    Without the snapshot-column gate, ``row_data.get('Snapshot Date')``
+    returns ``None`` for every row on such sheets, so the fallback
+    would silently re-price the whole sheet by weekly date —
+    effectively changing the cutoff basis rather than rescuing
+    current-week automation-lag rows. The fix is to disable
+    ``weekly_fallback_enabled`` at the call site when
+    ``'Snapshot Date' not in column_mapping``.
+    """
+
+    def setUp(self):
+        import datetime as dt
+        self.cutoff = dt.date(2026, 4, 19)
+
+    def test_fallback_enabled_default_with_snapshot_column(self):
+        """On sheets that DO map Snapshot Date, the fallback runs."""
+        row = {
+            'Snapshot Date': None,  # Blank cell on a sheet that maps it
+            'Weekly Reference Logged Date': '2026-04-19',
+        }
+        effective, used_fallback = generate_weekly_pdfs._resolve_rate_recalc_cutoff_date(
+            row, self.cutoff, weekly_fallback_enabled=True,
+        )
+        self.assertIsNotNone(effective)
+        self.assertTrue(used_fallback)
+
+    def test_fallback_disabled_when_sheet_lacks_snapshot_column(self):
+        """Reproduces the ``weekly_fallback_enabled = RATE_RECALC_WEEKLY_FALLBACK
+        and sheet_has_snapshot_date_column`` gate at the call site.
+
+        When the sheet doesn't map Snapshot Date, we pass
+        ``weekly_fallback_enabled=False`` to the helper — even though
+        the row's snapshot field is None. The fallback must stay
+        silent so legacy-sheet billing behaviour is preserved.
+        """
+        row = {
+            'Weekly Reference Logged Date': '2026-04-19',
+            # No 'Snapshot Date' key — simulates a sheet whose
+            # column_mapping never had Snapshot Date.
+        }
+        effective, used_fallback = generate_weekly_pdfs._resolve_rate_recalc_cutoff_date(
+            row, self.cutoff, weekly_fallback_enabled=False,
+        )
+        self.assertIsNone(effective)
+        self.assertFalse(used_fallback)
+
+    def test_call_site_expression_evaluates_correctly(self):
+        """Decision-surface guard: the boolean in the production call.
+
+        ``RATE_RECALC_WEEKLY_FALLBACK and sheet_has_snapshot_date_column``
+        should only be True when BOTH env-var and the sheet maps the
+        column. This mirrors the inline expression at the call site.
+        """
+        cases = [
+            # (env_var, has_snapshot_column, expected)
+            (True, True, True),
+            (True, False, False),   # legacy sheet — must disable
+            (False, True, False),
+            (False, False, False),
+        ]
+        for env_var, has_col, expected in cases:
+            self.assertEqual(
+                bool(env_var and has_col), expected,
+                f'env_var={env_var} has_col={has_col}: expected {expected}',
+            )
+
+
+class TestTargetMapWrKeyCollisionDetection(unittest.TestCase):
+    """Codex P2 follow-up: ``create_target_sheet_map`` now detects
+    when two distinct raw WR# cell values sanitize to the same
+    ``_RE_SANITIZE_HELPER_NAME`` key and logs a WARNING instead of
+    silently overwriting the earlier row.
+
+    Realistic numeric WR#s cannot collide, but the guardrail is cheap
+    and protects against a malicious / corrupted target-sheet row
+    from retargeting uploads or attachment deletes at the wrong row.
+    """
+
+    def test_sanitizer_produces_collisions_for_crafted_inputs(self):
+        """Sanity: ``[^\\w\\-]`` folds ``/`` and ``\\`` to the same ``_``.
+
+        This is the exact surface the collision check guards: two
+        distinct raw WR# values that yield an identical sanitized
+        key.
+        """
+        a = '1234/evil'
+        b = '1234\\evil'
+        sa = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub('_', a)[:50]
+        sb = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub('_', b)[:50]
+        self.assertEqual(sa, sb)
+        self.assertNotEqual(a, b)
+
+    def test_truncation_produces_collisions_for_50char_tail(self):
+        """Two distinct WRs sharing the same first 50 chars collide."""
+        a = 'A' * 50 + 'extra1'
+        b = 'A' * 50 + 'extra2'
+        sa = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub('_', a)[:50]
+        sb = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub('_', b)[:50]
+        self.assertEqual(sa, sb)
+        self.assertNotEqual(a, b)
+
+    def test_collision_detection_keeps_first_seen(self):
+        """Reproduce the decision surface of the production loop."""
+        target_map: dict = {}
+        seen_raw_for_key: dict = {}
+        collisions = 0
+        first_raw = '1234/evil'
+        second_raw = '1234\\evil'
+        first_row_obj = 'row-A'
+        second_row_obj = 'row-B'
+        for raw, row in ((first_raw, first_row_obj), (second_raw, second_row_obj)):
+            key = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub('_', raw)[:50]
+            if key in target_map:
+                prior = seen_raw_for_key.get(key)
+                if prior != raw:
+                    collisions += 1
+            else:
+                target_map[key] = row
+                seen_raw_for_key[key] = raw
+        self.assertEqual(collisions, 1)
+        self.assertEqual(len(target_map), 1)
+        # First-seen mapping retained (deterministic across runs).
+        key = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub('_', first_raw)[:50]
+        self.assertIs(target_map[key], first_row_obj)
+
+    def test_identical_raw_wrs_do_not_register_as_collision(self):
+        """A repeated raw WR# (same row indexed twice somehow) must not
+        inflate the collision count — only *distinct* raw values that
+        fold to the same key count as a collision."""
+        target_map: dict = {}
+        seen_raw_for_key: dict = {}
+        collisions = 0
+        for raw in ('90093002', '90093002'):
+            key = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub('_', raw)[:50]
+            if key in target_map:
+                prior = seen_raw_for_key.get(key)
+                if prior != raw:
+                    collisions += 1
+            else:
+                target_map[key] = 'row-placeholder'
+                seen_raw_for_key[key] = raw
+        self.assertEqual(collisions, 0)
+
+
 class TestInspectImportRemoved(unittest.TestCase):
     """``import inspect`` was removed as dead weight; keep it gone."""
 

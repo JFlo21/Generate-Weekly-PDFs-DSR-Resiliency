@@ -2532,6 +2532,19 @@ def get_all_source_rows(client, source_sheets):
                 found_vac_crew_cols = [col for col in vac_crew_columns if col in column_mapping]
                 # Sheet has VAC Crew capability if at least the two key columns are mapped
                 sheet_has_vac_crew_columns = 'VAC Crew Helping?' in column_mapping and 'Vac Crew Completed Unit?' in column_mapping
+                # Codex P1 guardrail: the Weekly-Ref-Date recalc
+                # fallback is ONLY meaningful on sheets that actually
+                # map a Snapshot Date column. When a (legacy) sheet
+                # has ``Weekly Reference Logged Date`` but no
+                # ``Snapshot Date`` mapping, ``row_data.get('Snapshot
+                # Date')`` is None for every row and the fallback
+                # would silently re-price the whole sheet by weekly
+                # date — changing the cutoff basis rather than
+                # rescuing current-week automation-lag rows. Gate the
+                # fallback on the column's presence so legacy sheets
+                # preserve exactly the pre-fix behaviour (no recalc
+                # when Snapshot Date is absent).
+                sheet_has_snapshot_date_column = 'Snapshot Date' in column_mapping
                 if found_vac_crew_cols:
                     logging.info(f"🚐 VAC Crew columns found in {source['name']}: {found_vac_crew_cols}")
                     if sheet_has_vac_crew_columns:
@@ -2622,7 +2635,15 @@ def get_all_source_rows(client, source_sheets):
                                 _resolve_rate_recalc_cutoff_date(
                                     row_data,
                                     RATE_CUTOFF_DATE,
-                                    weekly_fallback_enabled=RATE_RECALC_WEEKLY_FALLBACK,
+                                    # See ``sheet_has_snapshot_date_column``
+                                    # — disable the fallback on sheets
+                                    # that never map Snapshot Date so
+                                    # we don't re-price whole legacy
+                                    # sheets by weekly date.
+                                    weekly_fallback_enabled=(
+                                        RATE_RECALC_WEEKLY_FALLBACK
+                                        and sheet_has_snapshot_date_column
+                                    ),
                                 )
                             )
 
@@ -3831,14 +3852,44 @@ def create_target_sheet_map(client):
         # path-traversal-bearing WR the sanitized key matches the same
         # key the generation pipeline uses, so skip checks, upload
         # tasks, and attachment deletion all agree.
+        #
+        # Codex P2 guardrail: sanitize+truncate can (in principle)
+        # collapse two distinct WR# cell values to the same key — e.g.
+        # values that differ only in stripped characters, or IDs whose
+        # first 50 chars happen to match. A silent overwrite would
+        # retarget uploads / attachment deletes to the wrong row.
+        # Track which raw value first produced a given sanitized key;
+        # on collision, log a WARNING and keep the first-seen mapping
+        # so behaviour stays deterministic across runs.
+        _seen_raw_for_key: dict = {}
+        _collisions = 0
         for row in target_sheet.rows:
             for cell in row.cells:
                 if cell.column_id == wr_column_id and cell.display_value:
-                    wr_num = str(cell.display_value).split('.')[0]
-                    wr_num = _RE_SANITIZE_HELPER_NAME.sub('_', wr_num)[:50]
-                    target_map[wr_num] = row
+                    raw_wr = str(cell.display_value).split('.')[0]
+                    wr_num = _RE_SANITIZE_HELPER_NAME.sub('_', raw_wr)[:50]
+                    if wr_num in target_map:
+                        prior_raw = _seen_raw_for_key.get(wr_num, '<unknown>')
+                        if prior_raw != raw_wr:
+                            _collisions += 1
+                            logging.warning(
+                                f"⚠️ Target-sheet WR# collision after sanitization: "
+                                f"raw={raw_wr!r} and prior raw={prior_raw!r} both "
+                                f"map to sanitized key {wr_num!r}; keeping the "
+                                f"first-seen row. Uploads for one of these WRs "
+                                f"may target the wrong target-sheet row — "
+                                f"operators should audit these WR# values."
+                            )
+                    else:
+                        target_map[wr_num] = row
+                        _seen_raw_for_key[wr_num] = raw_wr
                     break
-        
+
+        if _collisions:
+            logging.warning(
+                f"⚠️ Target sheet map had {_collisions} sanitized-WR# "
+                f"collision(s) — see preceding warnings for the raw values."
+            )
         logging.info(f"Created target sheet map with {len(target_map)} work requests")
         return target_map, target_sheet
         
