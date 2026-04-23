@@ -78,7 +78,7 @@ services:
 
   # Vite + React static frontend (monorepo rootDir — paths are relative to portal-v2/)
   - type: web
-    name: linetec-report-portal-v2
+    name: Generate-Weekly-PDFs-DSR-Resiliency
     runtime: node
     region: oregon
     rootDir: portal-v2
