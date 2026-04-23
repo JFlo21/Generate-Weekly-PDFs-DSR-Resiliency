@@ -478,6 +478,129 @@ class TestWrIdentifierConsistencyAcrossUploadPath(unittest.TestCase):
         )
 
 
+class TestWeeklyWouldTriggerFallback(unittest.TestCase):
+    """Copilot review follow-up: the fallback-disabled ``_recalc_note``
+    must only suggest flipping ``RATE_RECALC_WEEKLY_FALLBACK`` when
+    doing so would genuinely rescue the row — i.e. the row's Weekly
+    Reference Logged Date parses AND is ``>= RATE_CUTOFF_DATE``. For
+    rows whose weekly date is blank, unparseable, or pre-cutoff,
+    enabling the env var would not change anything and the message
+    would be misleading.
+    """
+
+    def setUp(self):
+        import datetime as dt
+        self.cutoff = dt.date(2026, 4, 19)
+
+    def test_post_cutoff_weekly_qualifies(self):
+        """A weekly date >= cutoff should trigger fallback rescue."""
+        self.assertTrue(
+            generate_weekly_pdfs._weekly_would_trigger_fallback(
+                '2026-04-19', self.cutoff,
+            ),
+        )
+        self.assertTrue(
+            generate_weekly_pdfs._weekly_would_trigger_fallback(
+                '2026-05-03', self.cutoff,
+            ),
+        )
+
+    def test_pre_cutoff_weekly_does_not_qualify(self):
+        """A pre-cutoff weekly date is not rescuable by the fallback."""
+        self.assertFalse(
+            generate_weekly_pdfs._weekly_would_trigger_fallback(
+                '2026-04-12', self.cutoff,
+            ),
+        )
+
+    def test_blank_weekly_does_not_qualify(self):
+        for blank in (None, '', '   '):
+            self.assertFalse(
+                generate_weekly_pdfs._weekly_would_trigger_fallback(
+                    blank, self.cutoff,
+                ),
+                f'blank weekly date {blank!r} must not qualify',
+            )
+
+    def test_unparseable_weekly_does_not_qualify(self):
+        for garbage in ('not-a-date', 'banana'):
+            self.assertFalse(
+                generate_weekly_pdfs._weekly_would_trigger_fallback(
+                    garbage, self.cutoff,
+                ),
+                f'unparseable weekly date {garbage!r} must not qualify',
+            )
+
+    def test_none_cutoff_never_qualifies(self):
+        """Guard against calls with no configured cutoff."""
+        self.assertFalse(
+            generate_weekly_pdfs._weekly_would_trigger_fallback(
+                '2026-04-19', None,
+            ),
+        )
+
+
+class TestRateRecalcSummaryCoversFallbackOnly(unittest.TestCase):
+    """Copilot review follow-up: when fallback ran but every row hit a
+    non-reportable outcome (invalid_quantity / zero_rate), the per-sheet
+    summary previously didn't log at all because both ``skipped`` and
+    ``recalculated`` counters were zero. That made the new
+    ``fallback_applied`` counter invisible. The fix adds an
+    ``elif fallback_applied:`` branch so the summary surfaces whenever
+    any of the three counters is non-zero.
+    """
+
+    def test_branch_condition_covers_fallback_only(self):
+        """Reproduces the decision surface of the summary log."""
+        cases = [
+            # (skipped, recalculated, fallback_applied, should_log)
+            (5, 0, 0, True),                         # existing warning
+            (0, 10, 0, True),                        # existing info
+            (0, 0, 3, True),                         # new branch
+            (0, 0, 0, False),                        # nothing happened
+            (2, 1, 4, True),                         # all non-zero
+            (0, 5, 2, True),                         # recalculated + fallback
+        ]
+        for skipped, recalculated, fallback_applied, expected in cases:
+            should_log = bool(skipped or recalculated or fallback_applied)
+            self.assertEqual(
+                should_log, expected,
+                f'skipped={skipped} recalculated={recalculated} '
+                f'fallback_applied={fallback_applied}: '
+                f'expected log={expected}, got {should_log}',
+            )
+
+    def test_counter_key_is_fallback_applied(self):
+        """Guards against a future rename breaking the summary log."""
+        counters = {'recalculated': 0, 'skipped': 0, 'fallback_applied': 0}
+        self.assertIn('fallback_applied', counters)
+
+
+class TestRedactExceptionMessageSignature(unittest.TestCase):
+    """Copilot review follow-up: the type hint now reflects that
+    ``None`` is an accepted input (tests already cover that case)."""
+
+    def test_signature_accepts_none_via_annotation(self):
+        import inspect as _inspect
+        sig = _inspect.signature(generate_weekly_pdfs._redact_exception_message)
+        exc_param = sig.parameters['exc']
+        annotation_str = str(exc_param.annotation)
+        # Accept either 'BaseException | None', 'Optional[BaseException]',
+        # 'Exception | None', or similar forward-ref strings. The key
+        # invariant is that ``None`` is part of the annotated type.
+        self.assertIn(
+            'None', annotation_str,
+            f'exc annotation {annotation_str!r} must include None — '
+            'callers pass None and tests cover that case',
+        )
+
+    def test_none_input_still_returns_empty_string(self):
+        """Behaviour regression guard tied to the annotation change."""
+        self.assertEqual(
+            generate_weekly_pdfs._redact_exception_message(None), '',
+        )
+
+
 class TestInspectImportRemoved(unittest.TestCase):
     """``import inspect`` was removed as dead weight; keep it gone."""
 

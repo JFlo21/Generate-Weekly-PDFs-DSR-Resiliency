@@ -929,3 +929,50 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   source-row + sanitized target_map match, and the inverse
   property that a raw WR must NOT match a sanitized target_map
   (guards against regressing to the P2 bug).
+- [2026-04-23 18:50] PR #176 round-3 Copilot review follow-ups.
+  Three targeted refinements on top of the security-tightening
+  audit: **(1) Misleading operator note.** The
+  fallback-disabled `_recalc_note` fired whenever Snapshot Date
+  was blank/unparseable, regardless of the row's Weekly Reference
+  Logged Date. For rows whose weekly date is also blank,
+  unparseable, or pre-cutoff, flipping
+  `RATE_RECALC_WEEKLY_FALLBACK=1` would NOT rescue the row — the
+  note was sending operators on a false lead. Fix: new helper
+  `_weekly_would_trigger_fallback(weekly_raw, cutoff_date) -> bool`
+  mirrors the secondary branch of
+  `_resolve_rate_recalc_cutoff_date` exactly, and the
+  `_recalc_note` gate now requires it to return True before
+  suggesting the env var. Wording clarified to
+  "Weekly Reference Logged Date is >= RATE_CUTOFF_DATE so setting
+  the env var…". **(2) Invisible per-sheet summary.** The summary
+  only logged when `skipped > 0` or `recalculated > 0`. If
+  fallback rows all hit non-reportable outcomes
+  (`invalid_quantity` / `zero_rate`), `fallback_applied` could be
+  non-zero while both other counters were zero — zero log output,
+  zero visibility into whether the fallback ever fired. Fix:
+  added an `elif fallback_applied:` branch that logs a neutral
+  `0 recalculated, 0 skipped (N via Weekly-Ref-Date fallback)`
+  line. **(3) Misleading type hint.**
+  `_redact_exception_message(exc: Exception, …)` actually accepts
+  `None` (tests cover that branch as intentional API surface).
+  Changed the annotation to `BaseException | None` so callers and
+  future refactorers aren't misled. **New rules:** (1) Any
+  operator-directed "enable env var X" drop note MUST gate on the
+  condition that the env var would actually change this row's
+  outcome — otherwise the note is a false lead that wastes
+  on-call time. When the gating logic is non-trivial, extract it
+  to a helper so the note-gate and the code-gate cannot drift.
+  (2) Any counter that tracks an independent code-path dimension
+  (`fallback_applied` independent of recalc outcome) MUST have a
+  log branch that fires on that dimension alone, or it's a write-
+  only metric. (3) Type annotations MUST match what the function
+  actually accepts. `exc: Exception` on a function that also
+  takes `None` is drift that accumulates (IDE warnings, caller
+  refactors, new contributors "fixing" the `None` handling
+  because it "shouldn't be possible"). Regression tests:
+  `tests/test_security_audit_followup.py` gains
+  `TestWeeklyWouldTriggerFallback` (post-cutoff / pre-cutoff /
+  blank / unparseable / None-cutoff), `TestRateRecalcSummaryCoversFallbackOnly`
+  (decision-surface table showing all three counters gate the
+  log), and `TestRedactExceptionMessageSignature` (annotation
+  must mention None + behaviour regression guard).

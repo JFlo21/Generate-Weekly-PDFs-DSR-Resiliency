@@ -426,7 +426,7 @@ _RE_REDACT_EMAIL = re.compile(r'[\w.+-]+@[\w.-]+\.\w+')
 _RE_REDACT_CUSTOMER = re.compile(r'(?i)\b(customer|foreman|dept|snapshot|cu|job)\s*[#:=]?\s*["\']?[^,;"\')\]}\n]{1,80}')
 
 
-def _redact_exception_message(exc: Exception, *, max_len: int = 240) -> str:
+def _redact_exception_message(exc: BaseException | None, *, max_len: int = 240) -> str:
     """Return a PII-scrubbed single-line form of ``str(exc)``.
 
     Used exclusively for the ``error_message`` field of
@@ -1222,6 +1222,27 @@ def _resolve_rate_recalc_cutoff_date(
                     return (weekly_date, True)
 
     return (None, False)
+
+
+def _weekly_would_trigger_fallback(weekly_raw, cutoff_date) -> bool:
+    """Return True if a blank/unparseable Snapshot Date row would be
+    rescued by flipping ``RATE_RECALC_WEEKLY_FALLBACK`` on.
+
+    Mirrors the secondary branch of
+    ``_resolve_rate_recalc_cutoff_date``: the fallback only fires when
+    the weekly date parses AND is ``>= cutoff_date``. Used to gate the
+    fallback-disabled operator note so it doesn't misleadingly suggest
+    enabling the env var for rows whose weekly date is also blank,
+    unparseable, or pre-cutoff (where flipping the gate wouldn't
+    change anything).
+    """
+    if cutoff_date is None or not weekly_raw:
+        return False
+    dt = excel_serial_to_date(weekly_raw)
+    if dt is None:
+        return False
+    wdate = dt.date() if hasattr(dt, 'date') else dt
+    return wdate >= cutoff_date
 
 
 def discover_folder_sheets(client, folder_ids: list[int], label: str) -> set[int]:
@@ -2855,20 +2876,37 @@ def get_all_source_rows(client, source_sheets):
                                         and excel_serial_to_date(
                                             row_data.get('Snapshot Date')
                                         ) is None
+                                        # Only advise enabling the
+                                        # fallback when doing so would
+                                        # actually rescue the row —
+                                        # i.e. the Weekly Reference
+                                        # Logged Date parses AND is
+                                        # >= RATE_CUTOFF_DATE. For rows
+                                        # whose weekly date is blank /
+                                        # unparseable / pre-cutoff,
+                                        # enabling the env var wouldn't
+                                        # change anything, and the
+                                        # message would send operators
+                                        # on a false lead.
+                                        and _weekly_would_trigger_fallback(
+                                            row_data.get('Weekly Reference Logged Date'),
+                                            RATE_CUTOFF_DATE,
+                                        )
                                     ):
                                         # Snapshot Date is blank or
-                                        # unparseable, the fallback is
-                                        # disabled, and recalc was
-                                        # skipped for that reason. Tell
-                                        # operators exactly why so they
-                                        # don't chase a CU that isn't
-                                        # actually missing from
-                                        # NEW_RATES_CSV.
+                                        # unparseable, Weekly Reference
+                                        # Logged Date IS post-cutoff,
+                                        # and the fallback is disabled.
+                                        # Enabling RATE_RECALC_WEEKLY_FALLBACK
+                                        # would genuinely rescue this
+                                        # row — tell operators so they
+                                        # don't hunt the CU in
+                                        # NEW_RATES_CSV instead.
                                         _recalc_note = (
                                             " Rate recalc skipped because Snapshot Date is blank or unparseable "
-                                            "and RATE_RECALC_WEEKLY_FALLBACK is disabled; set it to '1' (default) "
-                                            "to let rows with a future-dated Weekly Reference Logged Date "
-                                            "get priced from the new-contract rates table."
+                                            "and RATE_RECALC_WEEKLY_FALLBACK is disabled; Weekly Reference Logged "
+                                            "Date is >= RATE_CUTOFF_DATE so setting the env var to '1' (default) "
+                                            "would let this row get priced from the new-contract rates table."
                                         )
                                     else:
                                         _recalc_note = ""
@@ -2919,6 +2957,18 @@ def get_all_source_rows(client, source_sheets):
                         logging.info(
                             f"📊 Rate recalc summary for {source['name']}: "
                             f"{recalculated} rows recalculated, 0 skipped{_fallback_suffix}"
+                        )
+                    elif fallback_applied:
+                        # Fallback ran but every row hit a non-reportable
+                        # outcome (invalid_quantity / zero_rate / etc.).
+                        # Without this branch the new fallback_applied
+                        # counter would be completely invisible in the
+                        # logs for those runs — operators would have no
+                        # visibility into whether the Weekly-Ref-Date
+                        # fallback ever fired.
+                        logging.info(
+                            f"📊 Rate recalc summary for {source['name']}: "
+                            f"0 recalculated, 0 skipped{_fallback_suffix}"
                         )
 
             except Exception as e:
