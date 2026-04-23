@@ -690,3 +690,508 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   `tests/test_vac_crew.py::TestVacCrewColumnFuzzyFallback` cover
   whitespace / case / punctuation drift, exact-match preservation
   when both forms are present, and the cache-version bump.
+- [2026-04-23 00:00] Current-week VAC crew Excel files silently not
+  generating because the pre-acceptance rate recalc required a
+  populated `Snapshot Date`. **Reported symptom:** VAC crew
+  attachments produced for week ending 04/12/26 but nothing for
+  week ending 04/19/26, despite operators confirming the usual
+  criteria (VAC Crew Helping? populated, Vac Crew Completed Unit?
+  and Units Completed? both checked) on those current-week rows.
+  **Root cause:** The recalc block in `_fetch_and_process_sheet`
+  was gated strictly on `Snapshot Date >= RATE_CUTOFF_DATE`. For
+  rows freshly logged in the most recent week, Smartsheet's
+  snapshot automation has not yet populated `Snapshot Date`, so
+  the outer `if snapshot_raw_pre:` short-circuited and recalc was
+  entirely skipped. The row's `Units Total Price` therefore
+  retained whatever SmartSheet had — which for VAC crew specialty
+  CUs is often 0 or blank because the upstream Smartsheet price
+  formula itself depends on the CU being present in the legacy
+  rates map. The downstream `has_price` gate then evaluated
+  False and the row was dropped before VAC crew detection or
+  grouping could run. WE 04/12 rows escaped the trap only because
+  they'd been on the sheet long enough for the snapshot
+  automation to fire. **Fix (additive, production-safe):**
+  (1) Introduced `RATE_RECALC_WEEKLY_FALLBACK` env var (default
+  `true`; truthy values `1`/`true`/`yes`/`on`) that enables a
+  Weekly-Ref-Date fallback path when `Snapshot Date` is blank or
+  unparseable. (2) Extracted the recalc gating into a new helper
+  `_resolve_rate_recalc_cutoff_date(row_data, cutoff_date, *,
+  weekly_fallback_enabled=True) -> (effective_cutoff_date,
+  used_fallback)`. The helper returns the snapshot date when that
+  is populated and `>= cutoff` (primary rule, unchanged); it
+  falls back to `Weekly Reference Logged Date` only when the
+  snapshot value is blank/unparseable AND the weekly date parses
+  AND the weekly date is `>= cutoff`. Rows with a populated
+  snapshot date that is *pre-cutoff* still return `None` — the
+  fallback does NOT override the snapshot-keyed business rule.
+  (3) Added `fallback_applied` counter alongside the existing
+  `recalculated` / `skipped` counters and surfaced it in the
+  per-sheet "Rate recalc summary" log. (4) Updated the per-row
+  "Dropped VAC/helper row" WARNING's `_recalc_note` to distinguish
+  three cases for operators: recalc ran with `missing_rate`,
+  recalc ran via Weekly-Ref-Date fallback with `missing_rate`,
+  and recalc skipped because the fallback was disabled AND
+  `Snapshot Date` was blank (points operators at the env var
+  instead of at `NEW_RATES_CSV`). **New rules:** (1) The ledger
+  guardrail from 2026-04-21 — "Do NOT change the cutoff column
+  from `Snapshot Date` to `Weekly Reference Logged Date`" —
+  stands. A *fallback* when Snapshot Date is missing is
+  explicitly NOT the same as replacing the primary column; the
+  snapshot rule still controls every row that has a snapshot
+  value. Any future broadening of the recalc gate (e.g. allowing
+  the fallback to trump a pre-cutoff snapshot date) would
+  violate the guardrail and must be rejected without a documented
+  production-incident justification. (2) Any new pre-acceptance /
+  pre-`has_price` data transformation tied to a business cutoff
+  MUST degrade gracefully when the driving column is blank.
+  Silent skip-on-blank is a current-week failure trap: the
+  freshly entered rows operators expect to see on Monday morning
+  are exactly the rows most likely to have blank
+  automation-populated columns. (3) When a config env var's
+  default changes observable production behaviour (here:
+  `RATE_RECALC_WEEKLY_FALLBACK=1` rescues rows that previously
+  silently dropped), the `if RATE_CUTOFF_DATE:` boot-up log block
+  MUST print the fallback's resolved state so operators grepping
+  the startup banner can tell at a glance whether the rescue is
+  active. Regression tests:
+  `tests/test_subcontractor_pricing.py::TestWeeklyRefDateFallbackCutoff`
+  covers the env constant's presence, the snapshot-post-cutoff
+  primary path (no fallback), the snapshot-pre-cutoff guardrail
+  (fallback must NOT override), the incident case (blank
+  Snapshot + post-cutoff Weekly → fallback triggers), the
+  all-blank and pre-cutoff-Weekly no-op cases, the
+  `weekly_fallback_enabled=False` legacy-behaviour preservation
+  path, unparseable-Snapshot fallthrough, the `cutoff=None`
+  defensive guard, and an end-to-end check that drives
+  `_resolve_rate_recalc_cutoff_date` → `recalculate_row_price`
+  and asserts the row's `Units Total Price` is updated in-place
+  so the downstream `has_price` gate will accept it.
+- [2026-04-23 12:00] Security-tightening audit on
+  `generate_weekly_pdfs.py`. Two real attack surfaces fixed, plus
+  a hygiene cleanup. **(1) Path traversal via `wr_num` in Excel
+  filenames.** `wr_num` is derived from the row's
+  `Work Request #` column at two sites (inside `generate_excel`
+  and in the main group-processing loop) and embedded directly
+  into `os.path.join(week_output_folder, output_filename)` →
+  `workbook.save(final_output_path)`. Realistic production WR#s
+  are numeric, so normal data is unaffected, but a malicious
+  `1234/../evil` value would have escaped `generated_docs/<week>/`.
+  Fix: apply `_RE_SANITIZE_HELPER_NAME.sub('_', wr_num)[:50]`
+  at BOTH derivation sites — in-place numeric WR#s pass through
+  unchanged (`\w` includes 0-9), and sanitizing consistently at
+  both sites keeps `history_key`, `_has_existing_week_attachment`
+  prefix matching, and the actual on-disk filename all lined up
+  (sanitizing only one site would break attachment matching).
+  **(2) PII leakage via Sentry `context_data['error_message']`.**
+  Five `sentry_capture_with_context(...)` call sites passed
+  `str(e)` straight into `context_data`, which is attached as
+  Sentry event context — bypassing the `before_send_log` hook
+  (that hook only scrubs logging records, not `event['contexts']`).
+  Fix: new helper `_redact_exception_message(exc, *, max_len=240)`
+  strips WR identifiers (`WR=<redacted>`), dollar amounts
+  (`$<redacted>`), emails (`<email>`), and
+  `customer=`/`foreman=`/`dept=`/`snapshot=`/`cu=`/`job=` key-
+  value pairs, prefixes the exception class name for event-
+  grouping stability, collapses whitespace, and truncates.
+  All five sites now use it. **(3) Discovery cache schema guard.**
+  `cache.get('sheets', [])` was trusted blindly — a malformed
+  entry without `column_mapping` would crash
+  `_fetch_and_process_sheet` later with a KeyError.
+  Fix: filter to `_valid_cached_sheets` (requires dict with
+  int `id` and dict `column_mapping`), log an operator WARNING
+  when entries are dropped with a pointer to delete
+  `DISCOVERY_CACHE_PATH` for a clean rediscovery. **(4) Hygiene:**
+  removed unused `import inspect`. **Legacy-code note:**
+  `VAC_CREW_SHEET_IDS` / `VAC_CREW_FOLDER_IDS` at line ~319-320
+  are intentionally retained — the line 318 comment correctly
+  flags them as test-only, and they're read exclusively by
+  `tests/test_vac_crew.py::TestVacCrewSheetIdsConfig` (4 tests).
+  No production code path touches them. Removing the pair is a
+  separate coordinated change with those tests; it is not a
+  conflict risk in its current form. **New rules:**
+  (1) Any user-controllable string (row field, Smartsheet cell
+  value, env-var-derived identifier) that flows into
+  `os.path.join(...)` / `workbook.save(...)` / any `open(path,
+  'w')` MUST pass through a filesystem-safety sanitizer at each
+  derivation site — not just at the final filename assembly —
+  so downstream comparisons (history keys, attachment prefix
+  matching) stay consistent. Reuse `_RE_SANITIZE_HELPER_NAME`
+  (`[^\w\-]`) or a tighter pattern; do not invent new ones
+  per-site. (2) Never pass raw `str(exc)` into
+  `sentry_capture_with_context(...)`'s `context_data` payload.
+  That dict lands in `event['contexts']` and bypasses the
+  `before_send_log` sanitizer. Use
+  `_redact_exception_message(e)` so row PII stays out of the
+  Sentry dashboard. (3) Any JSON file loaded from disk into a
+  typed shape (discovery cache, hash history, future caches)
+  MUST guard each entry with `isinstance(...)` checks before
+  trusting `entry['id']` / `entry['column_mapping']` / similar
+  — a corrupt cache should WARN and drop the bad entries, not
+  crash the whole run. Regression tests:
+  `tests/test_security_audit_followup.py` covers WR#
+  sanitization (regex, no-op for numeric, cannot-escape-
+  OUTPUT_FOLDER, filename shape), `_redact_exception_message`
+  (WR / money / customer+foreman tokens / email / class prefix
+  / truncation / unrepresentable exception / None / realistic
+  end-to-end), the discovery-cache schema guard (kept / dropped
+  variants, matches-production-filter comprehension), and the
+  `inspect` import removal.
+- [2026-04-23 18:05] PR #176 review-driven tightening on top of the
+  2026-04-23 12:00 security audit. Three follow-ups addressed:
+  **(1) Cache `name` field guard.** The original
+  `_valid_cached_sheets` filter validated `id` and `column_mapping`
+  but not `name` — `_fetch_and_process_sheet` accesses
+  `source['name']` directly in several log lines / Sentry
+  breadcrumbs and would KeyError on a cached entry missing the
+  field. Filter now also requires `isinstance(s.get('name'), str)`.
+  **(2) All-dropped → forced rediscovery (P1).** With the new
+  filter in place, a cache where *every* entry was malformed would
+  have made the fresh-cache path return `[]`, silently turning the
+  run into a no-op. Added a guard: when `_raw_cached_sheets` is
+  non-empty but `_valid_cached_sheets` is empty, raise `ValueError`
+  so the outer `except Exception as e:
+  logging.info("Cache load failed, refreshing discovery: {e}")`
+  handler catches it and falls through to full rediscovery from
+  `base_sheet_ids` — same failure mode as the existing
+  schema-outdated / unreadable-cache paths. Partial-drop cases
+  (some valid, some malformed) still succeed with the valid
+  subset.
+  **(3) `_recalc_note` branch handles unparseable Snapshot Date.**
+  The fallback-disabled drop warning previously keyed on
+  `not row_data.get('Snapshot Date')`, which treats a present but
+  unparseable cell (e.g. `'not-a-date'`) as "populated" and
+  suppresses the note — yet
+  `_resolve_rate_recalc_cutoff_date` treats unparseable Snapshot
+  Date *the same* as blank (skipping recalc). The condition now
+  reuses `excel_serial_to_date(row_data.get('Snapshot Date')) is
+  None`, so the note fires consistently with the recalc gate. The
+  warning text also updated to read
+  "Snapshot Date is blank or unparseable". **New rules:**
+  (1) Any filter that drops untrusted data structures MUST also
+  handle the all-dropped case — either by forcing the calling
+  path to rediscover or by failing loudly. A filter that returns
+  an empty list through a success path is a silent-no-op trap.
+  (2) Operator-facing "why was this dropped?" notes MUST be
+  based on the *parsed/derived* state (the same helper used by
+  the business-logic gate), not on raw cell truthiness. Keying
+  on raw cells drifts as parser behaviour evolves and produces
+  misleading guidance when the cell is malformed. Regression
+  tests: new classes in `tests/test_security_audit_followup.py`
+  — `TestDiscoveryCacheSchemaGuard` (extended for the `name`
+  field), `TestDiscoveryCacheAllDroppedForcesRediscovery`
+  (all-malformed raises, partial-drop preserves valid subset,
+  empty-cache is not miscategorised), and
+  `TestRecalcNoteHandlesUnparseableSnapshotDate` (blank /
+  unparseable / valid Snapshot Date behaviour of the note's
+  condition).
+- [2026-04-23 18:25] PR #176 P2 follow-up: the `wr_num`
+  sanitization landed earlier today was inconsistent across the
+  upload/delete pipeline. The main loop sanitized `wr_num` at
+  derivation (line ~4138) and `generate_excel` sanitized its
+  local copy before filename construction, but the upload-task
+  builder was reading `wr_numbers[0]` from `generate_excel`'s
+  raw return tuple — and `create_target_sheet_map` populated
+  `target_map` with *unsanitized* WR# keys pulled straight from
+  the target sheet's cells. For any WR whose value gets rewritten
+  by `_RE_SANITIZE_HELPER_NAME` (the path-traversal test case
+  being the motivating example), the pipeline disagreed with
+  itself: the skip-check at line 4283 looked up a sanitized key
+  in a raw-keyed map and missed, the upload path at line 4321
+  looked up a raw key that diverged from the sanitized filename
+  actually on disk, and `delete_old_excel_attachments` received
+  a raw WR that did NOT match the sanitized filename prefix of
+  the prior run's attachment — causing repeated regeneration and
+  orphaned duplicate attachments over time. **Fix:**
+  (1) Sanitize target_map keys at populate time inside
+  `create_target_sheet_map` using the same
+  `_RE_SANITIZE_HELPER_NAME.sub('_', wr_num)[:50]` expression as
+  every other site. For realistic numeric WR#s this is a no-op,
+  so production data is unaffected. (2) Build the upload task
+  from the main-loop sanitized `wr_num` instead of reading
+  `wr_numbers[0]` from `generate_excel`'s raw return. The "not
+  found in target sheet" warning now also reports the sanitized
+  identifier so logs are internally consistent. **New rule:**
+  When a sanitizer is added at a derivation site, EVERY
+  downstream consumer of that identifier — target-sheet maps
+  populated from cells, upload-task dicts, hash-history keys,
+  attachment prefix matches, delete-old-attachment filters —
+  MUST consume the sanitized value. Sanitization that's only
+  applied to ONE path creates a silent split-brain where some
+  lookups succeed and others fail, which is worse than no
+  sanitization at all. Helper audit: `_RE_SANITIZE_HELPER_NAME`
+  is idempotent (applying it twice gives the same result), so
+  it's safe to apply at both producer and consumer sites without
+  having to reason about which one "owns" the canonicalisation.
+  Regression tests: new
+  `TestWrIdentifierConsistencyAcrossUploadPath` class in
+  `tests/test_security_audit_followup.py` locks in numeric
+  no-op behaviour, sanitizer idempotence, sanitized
+  source-row + sanitized target_map match, and the inverse
+  property that a raw WR must NOT match a sanitized target_map
+  (guards against regressing to the P2 bug).
+- [2026-04-23 18:50] PR #176 round-3 Copilot review follow-ups.
+  Three targeted refinements on top of the security-tightening
+  audit: **(1) Misleading operator note.** The
+  fallback-disabled `_recalc_note` fired whenever Snapshot Date
+  was blank/unparseable, regardless of the row's Weekly Reference
+  Logged Date. For rows whose weekly date is also blank,
+  unparseable, or pre-cutoff, flipping
+  `RATE_RECALC_WEEKLY_FALLBACK=1` would NOT rescue the row — the
+  note was sending operators on a false lead. Fix: new helper
+  `_weekly_would_trigger_fallback(weekly_raw, cutoff_date) -> bool`
+  mirrors the secondary branch of
+  `_resolve_rate_recalc_cutoff_date` exactly, and the
+  `_recalc_note` gate now requires it to return True before
+  suggesting the env var. Wording clarified to
+  "Weekly Reference Logged Date is >= RATE_CUTOFF_DATE so setting
+  the env var…". **(2) Invisible per-sheet summary.** The summary
+  only logged when `skipped > 0` or `recalculated > 0`. If
+  fallback rows all hit non-reportable outcomes
+  (`invalid_quantity` / `zero_rate`), `fallback_applied` could be
+  non-zero while both other counters were zero — zero log output,
+  zero visibility into whether the fallback ever fired. Fix:
+  added an `elif fallback_applied:` branch that logs a neutral
+  `0 recalculated, 0 skipped (N via Weekly-Ref-Date fallback)`
+  line. **(3) Misleading type hint.**
+  `_redact_exception_message(exc: Exception, …)` actually accepts
+  `None` (tests cover that branch as intentional API surface).
+  Changed the annotation to `BaseException | None` so callers and
+  future refactorers aren't misled. **New rules:** (1) Any
+  operator-directed "enable env var X" drop note MUST gate on the
+  condition that the env var would actually change this row's
+  outcome — otherwise the note is a false lead that wastes
+  on-call time. When the gating logic is non-trivial, extract it
+  to a helper so the note-gate and the code-gate cannot drift.
+  (2) Any counter that tracks an independent code-path dimension
+  (`fallback_applied` independent of recalc outcome) MUST have a
+  log branch that fires on that dimension alone, or it's a write-
+  only metric. (3) Type annotations MUST match what the function
+  actually accepts. `exc: Exception` on a function that also
+  takes `None` is drift that accumulates (IDE warnings, caller
+  refactors, new contributors "fixing" the `None` handling
+  because it "shouldn't be possible"). Regression tests:
+  `tests/test_security_audit_followup.py` gains
+  `TestWeeklyWouldTriggerFallback` (post-cutoff / pre-cutoff /
+  blank / unparseable / None-cutoff), `TestRateRecalcSummaryCoversFallbackOnly`
+  (decision-surface table showing all three counters gate the
+  log), and `TestRedactExceptionMessageSignature` (annotation
+  must mention None + behaviour regression guard).
+- [2026-04-23 19:15] PR #176 round-4 Codex follow-ups. Two
+  findings flagged after the note-gate fix: **(P1) Weekly-Ref-Date
+  fallback would re-price whole legacy sheets that never map a
+  Snapshot Date column.** The fallback activates whenever
+  `row_data.get('Snapshot Date') is None`. On sheets whose
+  `column_mapping` doesn't include `Snapshot Date` at all, every
+  row has `None` for that field, and the fallback silently
+  changed the cutoff basis for the entire sheet instead of
+  rescuing current-week automation-lag rows. Fix: compute
+  `sheet_has_snapshot_date_column = 'Snapshot Date' in
+  column_mapping` once per sheet alongside the existing
+  `sheet_has_vac_crew_columns` probe, and pass
+  `weekly_fallback_enabled=RATE_RECALC_WEEKLY_FALLBACK and
+  sheet_has_snapshot_date_column` into
+  `_resolve_rate_recalc_cutoff_date`. Legacy sheets preserve the
+  pre-fix "no recalc when Snapshot is absent" behaviour exactly.
+  **(P2) `target_map` sanitization could collapse distinct WR#
+  cell values to the same key.** Two raw values that differ only
+  in stripped characters (`1234/evil` vs `1234\\evil`) or whose
+  first 50 chars happen to match yield the same key, and the
+  later row silently overwrote the earlier — retargeting uploads
+  / deletes at the wrong target-sheet row. Fix: track the raw
+  value that first produced each sanitized key and, on
+  collision, log a WARNING and keep the first-seen mapping
+  (deterministic across runs). Realistic numeric WR#s cannot
+  collide, so production data is unaffected. **New rules:**
+  (1) Any "rescue" fallback tied to a column's absence MUST be
+  gated on the column actually being mapped, not on the row's
+  field being falsy — otherwise the rescue becomes a blanket
+  re-evaluation on sheets that never had the column. The gate
+  belongs at the call site (where `column_mapping` is in scope)
+  and should reuse the existing per-sheet flag pattern
+  (`sheet_has_<column>_<label>`). (2) When using a lossy
+  sanitizer (regex + truncation) as a dict key, collisions MUST
+  be detected and surfaced, not silently overwrite. Keep the
+  first-seen mapping for determinism and log a WARNING that
+  includes BOTH raw values so operators can audit the source.
+  Regression tests: new
+  `TestWeeklyFallbackGatedOnSnapshotColumn` (3 cases covering
+  sheet-has-column rescues row / sheet-lacks-column preserves
+  legacy / call-site boolean truth table) and
+  `TestTargetMapWrKeyCollisionDetection` (sanitizer produces
+  collisions for crafted `/` vs `\\`, truncation collisions at
+  the 50-char boundary, first-seen is kept, repeated raw WR#
+  doesn't inflate the counter) in
+  `tests/test_security_audit_followup.py`.
+- [2026-04-23 19:40] PR #176 round-5 Codex P2: `_RE_REDACT_WR` was
+  too narrow — it only matched digit-only WR tokens
+  (`\bWR\s*[#:=]?\s*\d+`), which caused two leaks into Sentry
+  `context_data`: (1) alphanumeric identifiers like
+  `WR=ABCD-123` passed through unredacted entirely; and (2)
+  path-traversal suffixes like `WR=1234/../evil` redacted only
+  the `1234`, leaving `/../evil` in the payload. Fix: broadened
+  to `\bWR(?![a-zA-Z])\s*[#:=]?\s*[\w/\\\-.]+`. The negative
+  lookahead `(?![a-zA-Z])` prevents over-matching English words
+  that start with `WR` (`WRITE`, `WRAP`, `WRITTEN`), and the
+  identifier char class includes word chars plus `/ \ . -` so
+  decorated, alphanumeric, or path-traversal tokens are captured
+  in full. The `+` stops at the first whitespace/delimiter so
+  only the identifier itself is redacted, leaving surrounding
+  prose intact. **New rule:** When writing a redaction regex for
+  an identifier, do NOT assume the identifier shape (digits vs
+  alphanumerics vs decorated). The identifier body should accept
+  any non-delimiter character and stop at a clear terminator
+  (whitespace, comma, quote, paren). Overly-restrictive bodies
+  leak attacker-controlled suffixes; the negative lookahead
+  guards against over-matching natural-language words. Regression
+  tests: `TestRedactExceptionMessage` gains `test_redacts_alphanumeric_wr_identifier`,
+  `test_redacts_path_traversal_wr_fully`,
+  `test_redact_wr_does_not_swallow_english_prose`, and
+  `test_redact_wr_handles_backslash_paths`.
+- [2026-04-23 20:10] PR #176 round-6 Codex follow-ups. Two
+  correctness gaps promoted by the previous fixes themselves:
+  **(P1) target_map collision detection was advisory, not
+  protective.** The earlier fix logged a WARNING on sanitized-WR#
+  collisions but kept the first-seen mapping and left the key
+  usable — a later code path could still upload/delete
+  attachments on the wrong target-sheet row when the two WRs
+  differed only by stripped characters or shared the first 50
+  chars. Fix: on collision, `del target_map[key]` AND add the
+  key to a `_quarantined_keys` set. Subsequent re-collisions for
+  the same key are also counted and logged. Downstream
+  `if wr_num in target_map:` check returns False for BOTH
+  (or ALL) ambiguous WRs, so the existing "not found in target
+  sheet" warning fires for each, uploads are skipped, and
+  operators know to deduplicate the target sheet. A loud
+  not-found failure is strictly safer than a silent
+  wrong-row upload. **(P2) Fresh-cache fast path could return a
+  reduced sheet list on partial cache corruption.** The only
+  gate was `_new_from_folders`; a malformed cached entry that
+  belonged to a static base sheet (not in
+  `_all_folder_discovered_ids`) wouldn't flag new_from_folders,
+  so the function returned `_valid_cached_sheets` with one sheet
+  silently missing — and it stayed missing until
+  `DISCOVERY_CACHE_TTL_MIN` (default 7 days). Fix: introduce
+  `_partial_cache_corruption = bool(_raw_cached_sheets) and
+  len(_valid_cached_sheets) != len(_raw_cached_sheets)` and add
+  `and not _partial_cache_corruption` to the fast-path gate.
+  Any drop now forces incremental mode, which re-validates
+  base_sheet_ids and rediscovers the dropped sheet on this run.
+  A dedicated log line announces the revalidation so the cause
+  is visible. **New rules:** (1) A collision-detection guard
+  that logs but still returns a value is advisory, not
+  protective. If an ambiguous key could drive a side-effecting
+  downstream operation (upload, delete, state mutation), the
+  guard MUST remove/reject the key, not merely note that it's
+  ambiguous. Use "quarantine sets" to guarantee the ambiguity
+  cannot leak. (2) Cache fresh-path gates must consider ALL
+  failure modes of the preceding validation step, not just the
+  externally-visible ones. If a schema filter could have
+  dropped an entry that belongs to a statically-required set
+  (base_sheet_ids here), the fast path cannot trust its own
+  cached output — force incremental/full rediscovery instead.
+  Regression tests updated:
+  `TestTargetMapWrKeyCollisionDetection::test_collision_quarantines_both_rows`
+  (replaces the keep-first-seen test),
+  `test_third_colliding_row_is_also_rejected`, and the existing
+  `test_identical_raw_wrs_do_not_register_as_collision` now
+  asserts the quarantine set stays empty. New class
+  `TestDiscoveryCacheFastPathSkipsOnPartialCorruption` covers
+  the truth-table of the new gate and the
+  `_partial_cache_corruption` detection boolean (empty-cache,
+  no-drops, one-dropped, all-dropped).
+- [2026-04-23 20:40] PR #176 round-7 Codex follow-ups. Two
+  companion issues to the round-6 sanitizer work:
+  **(P2) ``build_group_identity`` broke on sanitized WR tokens
+  containing underscores.** The parser assumed
+  ``parts[2] == 'WeekEnding'`` and extracted ``wr = parts[1]``,
+  which is only valid when the WR token has zero underscores.
+  But ``_RE_SANITIZE_HELPER_NAME`` converts any non-word / non-
+  dash character to ``_``, so an input like ``1234/../evil``
+  produces a filename ``WR_1234____evil_WeekEnding_...`` and the
+  parser returned ``None``. Downstream attachment-identity flows
+  (``_has_existing_week_attachment``,
+  ``delete_old_excel_attachments``, stale-variant cleanup) then
+  failed to match prior runs' files on disk, causing repeated
+  regeneration and orphaned attachment accumulation on any WR#
+  whose raw value was sanitization-sensitive. Fix: the parser
+  now locates ``WeekEnding`` via ``parts.index(...)`` and joins
+  ``parts[1:we_idx]`` for the WR token. Variant-marker detection
+  (``Helper`` / ``VacCrew`` / ``User``) is scoped to the
+  post-``WeekEnding`` tail so a sanitized WR that happens to
+  contain one of those literal tokens cannot false-positive the
+  variant. Realistic numeric WR#s still parse identically via
+  the same code path. **(P1) Source-side WR# collisions across
+  groups.** The main loop uses the sanitized WR as the canonical
+  key for ``history_key``, ``target_map`` lookups, and Excel
+  filenames. If two source groups have raw WR# values that fold
+  to the same sanitized key (within the same week + variant),
+  one group's hash history overwrites the other's and both
+  groups target the same target-sheet row. Fix: pre-scan
+  ``groups.items()`` once before the main loop, build a
+  ``defaultdict(set)`` keyed by ``(sanitized_wr, week, variant)``,
+  and flag any key mapped by more than one distinct raw WR as
+  a ``_quarantined_source_wr_keys`` entry. The per-group skip
+  is gated on that set immediately after the main loop's
+  sanitization step — a quarantined group is skipped with an
+  operator-visible WARNING before touching ``history_key``,
+  ``target_map``, or ``generate_excel``. **New rules:**
+  (1) Any filename parser that splits on a character and
+  asserts a fixed-position marker is fragile if the filename's
+  components can legitimately contain that character. Use
+  ``list.index(marker)`` + span-joins so the parser degrades
+  gracefully rather than returning ``None`` silently — a
+  silent-return-None from an attachment-identity parser is a
+  repeated-regeneration trap. (2) Whenever a sanitizer collapses
+  the keyspace (regex + truncation), the pre-pass that detects
+  same-key collisions must run at BOTH endpoints of the key —
+  the place the key is constructed (source side, here
+  ``groups.items()``) AND the place the key is consumed (target
+  side, here ``target_map``). Round-6 fixed the target side;
+  this round adds the source side. The symmetry is what keeps
+  hash history, upload tasks, and target-row lookups from ever
+  being driven by the same ambiguous key. Regression tests:
+  new ``TestBuildGroupIdentityWithUnderscoresInWr`` (5 cases —
+  plain numeric, sanitized-underscore WR round-trip, VacCrew
+  filename, Helper filename, no-``WeekEnding`` fails, WR that
+  is literally ``Helper`` but variant stays ``primary``) and
+  ``TestSourceWrCollisionQuarantine`` (3 cases — slash/backslash
+  collision detected, noise-free on realistic numeric WRs,
+  scoped by week AND variant tuple).
+- [2026-04-23 21:00] PR #176 round-9 Codex P1: the round-7
+  source-collision pre-scan was too narrowly scoped. Keying on
+  ``(sanitized_wr, week, variant)`` missed cross-week and
+  cross-variant collisions, which still reach ``target_map``
+  because downstream routing uses the sanitized WR alone — not
+  the tuple. Attack surface: if the target sheet has WR A but
+  not WR B (both folding to sanitized K), the target-side
+  quarantine at ``create_target_sheet_map`` doesn't fire
+  (only one raw seen), and B's source group resolves
+  ``target_map[K]`` to A's row, uploading B's Excel to A's
+  target-sheet row → cross-WR data corruption. Fix: broaden
+  the source-side quarantine key from
+  ``(sanitized_wr, week, variant)`` to the sanitized WR alone.
+  Any pair of distinct raw WRs folding to the same sanitized
+  key anywhere in the run is a collision, and every affected
+  group is skipped — regardless of week or variant — with a
+  WARNING listing all raw values. Realistic numeric WR#s still
+  can't collide (same numeric WR across multiple weeks is
+  ONE raw, not a collision), so production remains zero-impact.
+  **New rule:** When a sanitizer collapses a keyspace and the
+  sanitized key drives downstream routing (target_map,
+  attachment identity, filename), collision detection MUST be
+  keyed on the sanitized value ALONE — not on any tuple that
+  includes context the router doesn't use. Otherwise
+  cross-context collisions can slip past the quarantine and
+  corrupt routing. The per-context variables (``week``,
+  ``variant``) are still part of the *downstream* key that
+  disambiguates properly-distinct entries; they are NOT part of
+  the collision-detection key because that key tracks "can two
+  raws masquerade as one" and is a pure sanitizer-level
+  property. Regression tests updated: existing
+  ``test_pre_scan_scoped_by_week_and_variant`` removed
+  (asserted the old, unsafe invariant); new
+  ``test_pre_scan_catches_cross_week_collisions`` and
+  ``test_pre_scan_catches_cross_variant_collisions`` lock in
+  the broader quarantine. A reusable ``_run_pre_scan`` test
+  helper mirrors the production pre-scan so the test drift
+  between case-setups is eliminated.

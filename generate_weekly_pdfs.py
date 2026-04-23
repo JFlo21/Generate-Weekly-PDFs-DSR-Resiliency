@@ -63,7 +63,6 @@ from sentry_sdk.crons import capture_checkin
 from sentry_sdk.crons.consts import MonitorStatus
 import traceback
 import sys
-import inspect
 import json
 import signal
 import csv
@@ -356,8 +355,26 @@ OLD_RATES_CSV = _sanitize_csv_path('OLD_RATES_CSV', 'CU List - Corpus North & So
 
 _RATES_FINGERPRINT = ''  # Populated at runtime by load_rate_versions()
 
+# Weekly-Ref-Date fallback for pre-acceptance rate recalculation.
+# Default-ON: when a row has a blank/unparseable Snapshot Date (common on
+# current-week VAC crew / helper rows before Smartsheet's snapshot
+# automation has fired), fall back to 'Weekly Reference Logged Date'
+# for the cutoff comparison. Rows that DO have a Snapshot Date are
+# unaffected — the snapshot-keyed business rule stays primary. Set
+# RATE_RECALC_WEEKLY_FALLBACK=0 (or false/no/off) to disable.
+RATE_RECALC_WEEKLY_FALLBACK = os.getenv(
+    'RATE_RECALC_WEEKLY_FALLBACK', '1'
+).lower() in ('1', 'true', 'yes', 'on')
+
 if RATE_CUTOFF_DATE:
     logging.info(f"📊 Rate contract versioning ENABLED: cutoff date = {RATE_CUTOFF_DATE.isoformat()}")
+    if RATE_RECALC_WEEKLY_FALLBACK:
+        logging.info(
+            "📊 Rate recalc Weekly-Ref-Date fallback ENABLED "
+            "(blank Snapshot Date → use Weekly Reference Logged Date for cutoff gate)"
+        )
+    else:
+        logging.info("📊 Rate recalc Weekly-Ref-Date fallback DISABLED (RATE_RECALC_WEEKLY_FALLBACK=false)")
 else:
     logging.info("📊 Rate contract versioning DISABLED (RATE_CUTOFF_DATE not set)")
 
@@ -393,6 +410,65 @@ DISABLE_AUDIT_FOR_TESTING = False  # Audit system ENABLED for production monitor
 
 # --- SENTRY CONFIGURATION (SDK 2.x) ---
 SENTRY_DSN = os.getenv("SENTRY_DSN")
+
+# Compiled patterns used to scrub billing-row PII out of exception
+# messages before they land in Sentry event context_data. The
+# ``before_send_log`` hook further down only sanitizes logging records
+# — it does NOT walk ``event['contexts']`` — so any raw ``str(e)``
+# passed into ``sentry_capture_with_context(...)``'s context_data
+# payload would bypass that defense. Keep these patterns conservative:
+# they only strip recognised PII tokens, leaving the rest of the
+# exception message intact so operators can still diagnose the root
+# cause from the Sentry dashboard.
+# Match any ``WR``-prefixed identifier, not just digit-only tokens.
+# Earlier ``\d+`` missed alphanumeric WR values (``WR=ABCD-123``) and
+# only partially matched path-traversal suffixes (``WR=1234/../evil``
+# would redact only ``1234``, leaking ``/../evil`` through the
+# Sentry context). The negative lookahead ``(?![a-zA-Z])`` keeps the
+# pattern from over-matching English words that happen to start with
+# ``WR`` (e.g. ``WRITE``). The identifier char class accepts word
+# characters plus ``/ \ . -`` so path-traversal tokens and decorated
+# IDs are captured in full, and the ``+`` stops at the first
+# whitespace / delimiter so only the identifier itself is redacted.
+_RE_REDACT_WR = re.compile(r'(?i)\bWR(?![a-zA-Z])\s*[#:=]?\s*[\w/\\\-.]+')
+_RE_REDACT_MONEY = re.compile(r'\$\s*\d[\d,]*(?:\.\d+)?')
+_RE_REDACT_EMAIL = re.compile(r'[\w.+-]+@[\w.-]+\.\w+')
+_RE_REDACT_CUSTOMER = re.compile(r'(?i)\b(customer|foreman|dept|snapshot|cu|job)\s*[#:=]?\s*["\']?[^,;"\')\]}\n]{1,80}')
+
+
+def _redact_exception_message(exc: BaseException | None, *, max_len: int = 240) -> str:
+    """Return a PII-scrubbed single-line form of ``str(exc)``.
+
+    Used exclusively for the ``error_message`` field of
+    ``sentry_capture_with_context(...)``'s context_data payload — that
+    dict bypasses the INFO-log ``before_send_log`` sanitizer because
+    Sentry attaches it directly as event context. The redactor strips
+    WR identifiers, dollar amounts, emails, and ``customer=``/
+    ``foreman=``/``dept=``/``snapshot=``/``cu=``/``job=`` key-value
+    pairs, collapses whitespace, prefixes the exception class name for
+    event-grouping stability, and truncates the result.
+    """
+    if exc is None:
+        return ''
+    try:
+        raw = str(exc)
+    except Exception:
+        return f"{type(exc).__name__}: <unrepresentable>"
+    if not raw:
+        return type(exc).__name__
+    redacted = _RE_REDACT_CUSTOMER.sub(r'\1=<redacted>', raw)
+    redacted = _RE_REDACT_WR.sub('WR=<redacted>', redacted)
+    redacted = _RE_REDACT_MONEY.sub('$<redacted>', redacted)
+    redacted = _RE_REDACT_EMAIL.sub('<email>', redacted)
+    redacted = re.sub(r'\s+', ' ', redacted).strip()
+    # Codex: truncate AFTER adding the class prefix so ``max_len``
+    # caps the full returned payload (what actually lands in the
+    # Sentry event), not just the body portion.
+    result = f"{type(exc).__name__}: {redacted}"
+    if len(result) > max_len:
+        result = result[:max_len - 3] + '...'
+    return result
+
 
 # Sentry helper functions for enhanced error context
 def sentry_add_breadcrumb(category: str, message: str, level: str = "info", data: dict | None = None):
@@ -1103,6 +1179,86 @@ def excel_serial_to_date(value):
     except Exception:
         return None
 
+
+def _resolve_rate_recalc_cutoff_date(
+    row_data,
+    cutoff_date,
+    *,
+    weekly_fallback_enabled: bool = True,
+):
+    """Return the effective cutoff date for a row's pre-acceptance recalc.
+
+    The snapshot-keyed business rule remains primary: any row with a
+    populated ``Snapshot Date`` is gated on that date alone. The
+    Weekly-Ref-Date fallback only activates when ``Snapshot Date`` is
+    blank or unparseable — it rescues current-week rows that would
+    otherwise silently skip recalc because Smartsheet's snapshot
+    automation has not fired yet (the observed VAC crew failure mode).
+
+    Args:
+        row_data: Mapping that may contain ``'Snapshot Date'`` and
+            ``'Weekly Reference Logged Date'`` entries.
+        cutoff_date: ``datetime.date`` used as the ``>=`` threshold.
+        weekly_fallback_enabled: Set False to reproduce the legacy
+            snapshot-only behaviour (the ``RATE_RECALC_WEEKLY_FALLBACK``
+            env var wires this in production).
+
+    Returns:
+        ``(effective_cutoff_date, used_fallback)``. Returns
+        ``(None, False)`` when recalc should not run.
+    """
+    if cutoff_date is None:
+        return (None, False)
+
+    snapshot_raw = row_data.get('Snapshot Date')
+    snap_date = None
+    if snapshot_raw:
+        snap_dt = excel_serial_to_date(snapshot_raw)
+        if snap_dt:
+            snap_date = (
+                snap_dt.date() if hasattr(snap_dt, 'date') else snap_dt
+            )
+
+    if snap_date is not None and snap_date >= cutoff_date:
+        return (snap_date, False)
+
+    if snap_date is None and weekly_fallback_enabled:
+        weekly_raw = row_data.get('Weekly Reference Logged Date')
+        if weekly_raw:
+            weekly_dt = excel_serial_to_date(weekly_raw)
+            if weekly_dt:
+                weekly_date = (
+                    weekly_dt.date()
+                    if hasattr(weekly_dt, 'date')
+                    else weekly_dt
+                )
+                if weekly_date >= cutoff_date:
+                    return (weekly_date, True)
+
+    return (None, False)
+
+
+def _weekly_would_trigger_fallback(weekly_raw, cutoff_date) -> bool:
+    """Return True if a blank/unparseable Snapshot Date row would be
+    rescued by flipping ``RATE_RECALC_WEEKLY_FALLBACK`` on.
+
+    Mirrors the secondary branch of
+    ``_resolve_rate_recalc_cutoff_date``: the fallback only fires when
+    the weekly date parses AND is ``>= cutoff_date``. Used to gate the
+    fallback-disabled operator note so it doesn't misleadingly suggest
+    enabling the env var for rows whose weekly date is also blank,
+    unparseable, or pre-cutoff (where flipping the gate wouldn't
+    change anything).
+    """
+    if cutoff_date is None or not weekly_raw:
+        return False
+    dt = excel_serial_to_date(weekly_raw)
+    if dt is None:
+        return False
+    wdate = dt.date() if hasattr(dt, 'date') else dt
+    return wdate >= cutoff_date
+
+
 def discover_folder_sheets(client, folder_ids: list[int], label: str) -> set[int]:
     """Discover all sheet IDs inside the given Smartsheet folders (recursively including subfolders).
 
@@ -1444,37 +1600,113 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
         return None
     base = filename[:-5] if filename.lower().endswith('.xlsx') else filename
     parts = base.split('_')
-    
+
     # Minimum: WR_<wr>_WeekEnding_<week>
     if len(parts) < 4:
         return None
-    if parts[0] != 'WR' or parts[2] != 'WeekEnding':
+    if parts[0] != 'WR':
         return None
-    
-    wr = parts[1]
-    week = parts[3]
-    
-    # Detect variant from filename structure
+    # Find ``WeekEnding`` by search rather than fixed position so
+    # filenames whose WR token itself contains ``_`` (possible when
+    # ``_RE_SANITIZE_HELPER_NAME`` rewrote a sanitization-sensitive
+    # source WR#) still parse correctly. For realistic numeric WR#s
+    # the marker is at position 2 exactly — this preserves the
+    # legacy layout while hardening against the edge case.
+    #
+    # Disambiguate via the filename format itself. The STRUCTURAL
+    # ``WeekEnding`` in the modern format is followed by TWO
+    # consecutive 6-digit tokens:
+    #   ``WeekEnding_{MMDDYY week}_{HHMMSS timestamp}_...``
+    # while the legacy format (still readable off disk but no longer
+    # produced) is:
+    #   ``WeekEnding_{MMDDYY week}_{hash}.xlsx``
+    # where the hash is hex and is essentially never exactly 6
+    # digits. Helper/user identifier segments that happen to contain
+    # ``WeekEnding_<6digits>`` (pathological but possible, see
+    # rounds 10/11) are followed by the HASH, not a second 6-digit
+    # token. So we rank candidates:
+    #   * STRONG match: ``WeekEnding`` + 6-digit week + 6-digit
+    #     timestamp (new format's unambiguous marker).
+    #   * WEAK match: ``WeekEnding`` + 6-digit week (accepts legacy
+    #     format + any other filename where a second 6-digit token
+    #     isn't present).
+    # Pick the RIGHTMOST strong match if any — it's always the real
+    # structural delimiter because no identifier segment is ever
+    # followed by two 6-digit tokens in a row. Fall back to the
+    # rightmost weak match only for legacy-format filenames whose
+    # hash happens not to be 6 digits (vanishingly rare collision
+    # window for the weak-match path).
+    _strong_candidates: list[int] = []
+    _weak_candidates: list[int] = []
+    for _i, _p in enumerate(parts):
+        if _p != 'WeekEnding' or _i < 2 or _i + 1 >= len(parts):
+            continue
+        _week = parts[_i + 1]
+        if not (len(_week) == 6 and _week.isdigit()):
+            continue
+        _weak_candidates.append(_i)
+        if _i + 2 < len(parts):
+            _timestamp = parts[_i + 2]
+            if len(_timestamp) == 6 and _timestamp.isdigit():
+                _strong_candidates.append(_i)
+    # Pick the LEFTMOST strong match if any — the structural
+    # delimiter always comes before any identifier-internal
+    # candidate in a filename generated by ``generate_excel``
+    # (variant marker + identifier are appended AFTER the
+    # timestamp). Using leftmost rather than rightmost resolves
+    # the final known pathology: a pathological identifier that
+    # sanitizes to ``WeekEnding_<6digits>_<6digits>`` (e.g. from
+    # a foreman literally named "WeekEnding 041926 123456")
+    # would produce a second strong candidate inside the tail,
+    # and rightmost would incorrectly pick it. Fall back to the
+    # leftmost weak match only for legacy-format filenames.
+    #
+    # The remaining residual — a WR token that itself sanitizes
+    # to ``WeekEnding_<6digits>_<6digits>`` (which would then
+    # provide its own strong match at a position earlier than
+    # the structural one) — is the last unreachable edge. It
+    # requires a raw WR# literally equal to that pattern, which
+    # is not a realistic data-entry scenario for numeric WR#s;
+    # the source-side collision quarantine (pre-scan on
+    # sanitized WR alone) would also flag such a pathological
+    # value long before the parser is exercised.
+    if _strong_candidates:
+        we_idx = _strong_candidates[0]
+    elif _weak_candidates:
+        we_idx = _weak_candidates[0]
+    else:
+        return None
+
+    # WR may span one or more parts depending on whether the
+    # sanitizer introduced underscores. Rejoin them so the returned
+    # WR token round-trips with the generator's output.
+    wr = '_'.join(parts[1:we_idx])
+    week = parts[we_idx + 1]
+
+    # Detect variant from filename structure. Scope the marker search
+    # to the tail (everything after ``WeekEnding <week>``) so any
+    # accidental ``Helper`` / ``User`` / ``VacCrew`` token inside a
+    # sanitized WR does not false-positive the variant detection.
     variant = 'primary'
     identifier = None
-    
-    # Look for Helper, VacCrew, or User markers
-    if 'Helper' in parts:
+    tail = parts[we_idx + 2:]
+
+    if 'Helper' in tail:
         variant = 'helper'
-        helper_idx = parts.index('Helper')
-        if helper_idx + 1 < len(parts):
+        helper_idx_rel = tail.index('Helper')
+        if helper_idx_rel + 1 < len(tail):
             # Join all parts between Helper and hash (last part)
             # Format: ...Helper_{name}_{hash} or ...Helper_{name}_part2_{hash}
-            identifier = '_'.join(parts[helper_idx + 1:-1])
-    elif 'VacCrew' in parts:
+            identifier = '_'.join(tail[helper_idx_rel + 1:-1])
+    elif 'VacCrew' in tail:
         variant = 'vac_crew'
         identifier = ''  # No sub-identifier for VAC Crew; use '' to match main() and valid_wr_weeks
-    elif 'User' in parts:
+    elif 'User' in tail:
         variant = 'primary'
-        user_idx = parts.index('User')
-        if user_idx + 1 < len(parts):
-            identifier = '_'.join(parts[user_idx + 1:-1])
-    
+        user_idx_rel = tail.index('User')
+        if user_idx_rel + 1 < len(tail):
+            identifier = '_'.join(tail[user_idx_rel + 1:-1])
+
     return (wr, week, variant, identifier)
 
 def cleanup_stale_excels(output_folder: str, kept_filenames: set):
@@ -1853,26 +2085,89 @@ def discover_source_sheets(client):
                 raise ValueError('cache schema outdated')
             ts = datetime.datetime.fromisoformat(cache.get('timestamp'))
             age_min = (datetime.datetime.now() - ts).total_seconds()/60.0
-            _cached_sheet_ids_from_file = {s['id'] for s in cache.get('sheets', [])}
+            # Schema guard: each cached sheet must be a dict with an
+            # integer ``id`` and a dict ``column_mapping`` — anything
+            # else would crash ``_fetch_and_process_sheet`` when it
+            # reads ``source['column_mapping']`` / ``source['id']``.
+            # Drop malformed entries and WARN so operators can see
+            # a corrupted cache immediately rather than debugging a
+            # later AttributeError / KeyError.
+            _raw_cached_sheets = cache.get('sheets', []) or []
+            _valid_cached_sheets = [
+                s for s in _raw_cached_sheets
+                if isinstance(s, dict)
+                and isinstance(s.get('id'), int)
+                and isinstance(s.get('column_mapping'), dict)
+                and isinstance(s.get('name'), str)
+            ]
+            if len(_valid_cached_sheets) != len(_raw_cached_sheets):
+                logging.warning(
+                    f"⚠️ Discovery cache contains "
+                    f"{len(_raw_cached_sheets) - len(_valid_cached_sheets)} "
+                    f"malformed sheet entry(ies); dropping them "
+                    f"(keeping {len(_valid_cached_sheets)} valid). "
+                    f"Delete {DISCOVERY_CACHE_PATH} to force a clean rediscovery."
+                )
+                # If *every* cached entry was malformed, the fresh-cache
+                # return path below would otherwise hand back an empty
+                # source list and the run would silently process zero
+                # sheets. Escalate to the outer cache-load-failed handler
+                # so we fall through to a full rediscovery from
+                # ``base_sheet_ids`` — same behaviour as an outdated
+                # schema or unreadable JSON.
+                if _raw_cached_sheets and not _valid_cached_sheets:
+                    raise ValueError(
+                        f"all {len(_raw_cached_sheets)} cached sheet "
+                        f"entries malformed; forcing full rediscovery"
+                    )
+            _cached_sheet_ids_from_file = {s['id'] for s in _valid_cached_sheets}
             # Compare folder-discovered sheet IDs against cache to detect new sheets
             _new_from_folders = _all_folder_discovered_ids - _cached_sheet_ids_from_file
-            if age_min <= DISCOVERY_CACHE_TTL_MIN and not _new_from_folders:
-                # Cache is fresh AND no new sheets in folders → safe to use cache
+            # Codex P2 guardrail: if the schema filter dropped ANY
+            # entry, skip the fresh-cache fast path. A dropped entry
+            # may have been a required static base sheet that isn't
+            # in _all_folder_discovered_ids, so _new_from_folders
+            # wouldn't flag it. Falling through to incremental mode
+            # forces base_sheet_ids to be re-validated and the
+            # dropped sheet to be rediscovered on this run instead
+            # of waiting until cache expiry (up to
+            # DISCOVERY_CACHE_TTL_MIN — default 7 days).
+            _partial_cache_corruption = bool(_raw_cached_sheets) and (
+                len(_valid_cached_sheets) != len(_raw_cached_sheets)
+            )
+            if (
+                age_min <= DISCOVERY_CACHE_TTL_MIN
+                and not _new_from_folders
+                and not _partial_cache_corruption
+            ):
+                # Cache is fresh AND no new sheets in folders AND no
+                # malformed entries were dropped → safe to use cache
                 cached_sub_ids = cache.get('subcontractor_sheet_ids', [])
                 if cached_sub_ids:
                     SUBCONTRACTOR_SHEET_IDS = SUBCONTRACTOR_SHEET_IDS | set(cached_sub_ids)
                     logging.info(f"📂 Restored {len(cached_sub_ids)} subcontractor sheet IDs from cache (total: {len(SUBCONTRACTOR_SHEET_IDS)})")
-                logging.info(f"⚡ Using cached discovery ({age_min:.1f} min old) with {len(cache.get('sheets',[]))} sheets (folders unchanged)")
-                return cache.get('sheets', [])
+                logging.info(f"⚡ Using cached discovery ({age_min:.1f} min old) with {len(_valid_cached_sheets)} sheets (folders unchanged)")
+                return _valid_cached_sheets
             else:
                 # Cache expired OR new sheets found in folders → incremental mode
-                _cached_sheets = cache.get('sheets', [])
+                _cached_sheets = _valid_cached_sheets
                 _cached_sheet_ids = _cached_sheet_ids_from_file
                 cached_sub_ids = cache.get('subcontractor_sheet_ids', [])
                 if cached_sub_ids:
                     SUBCONTRACTOR_SHEET_IDS = SUBCONTRACTOR_SHEET_IDS | set(cached_sub_ids)
                 _incremental = True
-                if _new_from_folders:
+                if _partial_cache_corruption:
+                    _dropped_count = (
+                        len(_raw_cached_sheets) - len(_valid_cached_sheets)
+                    )
+                    logging.info(
+                        f"🛡️ {_dropped_count} malformed cached entry(ies) "
+                        f"dropped — forcing incremental revalidation against "
+                        f"base_sheet_ids so any required sheet among the "
+                        f"dropped entries is rediscovered this run instead "
+                        f"of waiting until cache expiry."
+                    )
+                elif _new_from_folders:
                     logging.info(f"🆕 {len(_new_from_folders)} new sheet(s) detected in folders — "
                                  f"cache invalidated, using incremental mode "
                                  f"(keeping {len(_cached_sheets)} cached + validating new sheets)")
@@ -2295,7 +2590,16 @@ def get_all_source_rows(client, source_sheets):
         # ('skipped' covers rows where Snapshot Date>=cutoff but the new
         # rates table has no matching group/CU, so the SmartSheet price
         # is retained — the known VAC-crew pricing-lag signal).
-        sheet_rate_recalc_counts = {'recalculated': 0, 'skipped': 0}
+        # 'fallback_applied' counts rows routed through the
+        # Weekly-Ref-Date fallback (blank Snapshot Date with
+        # Weekly Reference Logged Date>=cutoff); it is path-tracking and
+        # is independent of recalc outcome, so it is NOT mutually
+        # exclusive with 'recalculated' / 'skipped'.
+        sheet_rate_recalc_counts = {
+            'recalculated': 0,
+            'skipped': 0,
+            'fallback_applied': 0,
+        }
         sheet_rate_recalc_skipped_cus = collections.Counter()
         try:
             logging.info(f"⚡ Processing: {source['name']} (ID: {source['id']})")
@@ -2346,6 +2650,19 @@ def get_all_source_rows(client, source_sheets):
                 found_vac_crew_cols = [col for col in vac_crew_columns if col in column_mapping]
                 # Sheet has VAC Crew capability if at least the two key columns are mapped
                 sheet_has_vac_crew_columns = 'VAC Crew Helping?' in column_mapping and 'Vac Crew Completed Unit?' in column_mapping
+                # Codex P1 guardrail: the Weekly-Ref-Date recalc
+                # fallback is ONLY meaningful on sheets that actually
+                # map a Snapshot Date column. When a (legacy) sheet
+                # has ``Weekly Reference Logged Date`` but no
+                # ``Snapshot Date`` mapping, ``row_data.get('Snapshot
+                # Date')`` is None for every row and the fallback
+                # would silently re-price the whole sheet by weekly
+                # date — changing the cutoff basis rather than
+                # rescuing current-week automation-lag rows. Gate the
+                # fallback on the column's presence so legacy sheets
+                # preserve exactly the pre-fix behaviour (no recalc
+                # when Snapshot Date is absent).
+                sheet_has_snapshot_date_column = 'Snapshot Date' in column_mapping
                 if found_vac_crew_cols:
                     logging.info(f"🚐 VAC Crew columns found in {source['name']}: {found_vac_crew_cols}")
                     if sheet_has_vac_crew_columns:
@@ -2422,53 +2739,78 @@ def get_all_source_rows(client, source_sheets):
                         # provided. They keep SmartSheet pricing as-is for now.
                         _rate_recalc_ran_for_row = False
                         _recalc_outcome = None
+                        _recalc_via_fallback = False
                         if RATE_CUTOFF_DATE and _rate_new_primary and not is_subcontractor_sheet:
-                            snapshot_raw_pre = row_data.get('Snapshot Date')
-                            if snapshot_raw_pre:
-                                snap_dt_pre = excel_serial_to_date(snapshot_raw_pre)
-                                if snap_dt_pre:
-                                    snap_date_pre = snap_dt_pre.date() if hasattr(snap_dt_pre, 'date') else snap_dt_pre
-                                    if snap_date_pre >= RATE_CUTOFF_DATE:
-                                        old_price = price_val
-                                        _recalc_status = {}
-                                        price_val = recalculate_row_price(
-                                            row_data,
-                                            _rate_cu_to_group,
-                                            _rate_new_primary,
-                                            out_status=_recalc_status,
+                            # Primary gate is Snapshot Date; the helper
+                            # transparently falls back to Weekly
+                            # Reference Logged Date when Snapshot Date
+                            # is blank AND RATE_RECALC_WEEKLY_FALLBACK
+                            # is enabled. This rescues current-week
+                            # rows (VAC crew / helper) that would
+                            # otherwise silently drop at the has_price
+                            # gate with zero price.
+                            effective_cutoff_date, _recalc_via_fallback = (
+                                _resolve_rate_recalc_cutoff_date(
+                                    row_data,
+                                    RATE_CUTOFF_DATE,
+                                    # See ``sheet_has_snapshot_date_column``
+                                    # — disable the fallback on sheets
+                                    # that never map Snapshot Date so
+                                    # we don't re-price whole legacy
+                                    # sheets by weekly date.
+                                    weekly_fallback_enabled=(
+                                        RATE_RECALC_WEEKLY_FALLBACK
+                                        and sheet_has_snapshot_date_column
+                                    ),
+                                )
+                            )
+
+                            if effective_cutoff_date is not None:
+                                old_price = price_val
+                                _recalc_status = {}
+                                price_val = recalculate_row_price(
+                                    row_data,
+                                    _rate_cu_to_group,
+                                    _rate_new_primary,
+                                    out_status=_recalc_status,
+                                )
+                                _rate_recalc_ran_for_row = True
+                                _recalc_outcome = _recalc_status.get('outcome')
+                                if _recalc_via_fallback:
+                                    sheet_rate_recalc_counts['fallback_applied'] += 1
+                                if _recalc_outcome == 'recalculated':
+                                    sheet_rate_recalc_counts['recalculated'] += 1
+                                    if price_val != old_price:
+                                        _via = ' via Weekly-Ref-Date fallback' if _recalc_via_fallback else ''
+                                        logging.debug(
+                                            f"Rate recalc{_via}: CU={row_data.get('CU')}, "
+                                            f"old=${old_price:.2f} -> new=${price_val:.2f}, "
+                                            f"effective_cutoff_date={effective_cutoff_date}"
                                         )
-                                        _rate_recalc_ran_for_row = True
-                                        _recalc_outcome = _recalc_status.get('outcome')
-                                        if _recalc_outcome == 'recalculated':
-                                            sheet_rate_recalc_counts['recalculated'] += 1
-                                            if price_val != old_price:
-                                                logging.debug(f"Rate recalc: CU={row_data.get('CU')}, "
-                                                              f"old=${old_price:.2f} -> new=${price_val:.2f}, "
-                                                              f"date={snap_date_pre}")
-                                        elif _recalc_outcome == 'missing_rate':
-                                            # Only count as "skipped" in the
-                                            # per-sheet summary when recalc
-                                            # explicitly reported that neither
-                                            # the mapped group nor the CU code
-                                            # is in the new rates table — that
-                                            # is the actionable signal for
-                                            # updating NEW_RATES_CSV. Outcomes
-                                            # like 'invalid_quantity' /
-                                            # 'zero_rate' are data-entry or
-                                            # contract gaps and are intentionally
-                                            # excluded so the summary WARNING
-                                            # and top-CU list stay accurate.
-                                            sheet_rate_recalc_counts['skipped'] += 1
-                                            # Always attribute the skip to a
-                                            # CU bucket so the per-sheet
-                                            # "N skipped / Top CUs: ..."
-                                            # summary totals stay aligned.
-                                            # Blank CU rows are attributed to
-                                            # '<blank>' so operators can see
-                                            # that category and investigate
-                                            # the missing CU code separately.
-                                            cu_val = _resolve_cu_code(row_data) or '<blank>'
-                                            sheet_rate_recalc_skipped_cus[cu_val] += 1
+                                elif _recalc_outcome == 'missing_rate':
+                                    # Only count as "skipped" in the
+                                    # per-sheet summary when recalc
+                                    # explicitly reported that neither
+                                    # the mapped group nor the CU code
+                                    # is in the new rates table — that
+                                    # is the actionable signal for
+                                    # updating NEW_RATES_CSV. Outcomes
+                                    # like 'invalid_quantity' /
+                                    # 'zero_rate' are data-entry or
+                                    # contract gaps and are intentionally
+                                    # excluded so the summary WARNING
+                                    # and top-CU list stay accurate.
+                                    sheet_rate_recalc_counts['skipped'] += 1
+                                    # Always attribute the skip to a
+                                    # CU bucket so the per-sheet
+                                    # "N skipped / Top CUs: ..." summary
+                                    # totals stay aligned. Blank CU rows
+                                    # are attributed to '<blank>' so
+                                    # operators can see that category
+                                    # and investigate the missing CU
+                                    # code separately.
+                                    cu_val = _resolve_cu_code(row_data) or '<blank>'
+                                    sheet_rate_recalc_skipped_cus[cu_val] += 1
 
                         price_raw = row_data.get('Units Total Price')
                         has_price = (price_raw not in (None, "", "$0", "$0.00", "0", "0.0")) and price_val > 0
@@ -2648,11 +2990,65 @@ def get_all_source_rows(client, source_sheets):
                                     # sheet), skip the breadcrumb so we
                                     # don't send operators hunting for a
                                     # summary line that isn't there.
-                                    _recalc_note = (
-                                        " Rate recalc ran and reported no matching new-contract rate for this CU; see 'Rate recalc summary' WARNING on this sheet for the full CU list."
-                                        if _rate_recalc_ran_for_row and _recalc_outcome == 'missing_rate'
-                                        else ""
-                                    )
+                                    if _rate_recalc_ran_for_row and _recalc_outcome == 'missing_rate':
+                                        _via_txt = (
+                                            ' via Weekly-Ref-Date fallback'
+                                            if _recalc_via_fallback else ''
+                                        )
+                                        _recalc_note = (
+                                            f" Rate recalc ran{_via_txt} and reported no matching new-contract rate for this CU; "
+                                            "see 'Rate recalc summary' WARNING on this sheet for the full CU list."
+                                        )
+                                    elif (
+                                        not _rate_recalc_ran_for_row
+                                        and RATE_CUTOFF_DATE
+                                        and not RATE_RECALC_WEEKLY_FALLBACK
+                                        # Use the same parser the recalc
+                                        # gate uses so an unparseable
+                                        # Snapshot Date (treated as blank
+                                        # by _resolve_rate_recalc_cutoff_date)
+                                        # triggers this note too — raw
+                                        # truthiness would miss it and
+                                        # leave operators chasing a
+                                        # missing-rate explanation that
+                                        # doesn't apply.
+                                        and excel_serial_to_date(
+                                            row_data.get('Snapshot Date')
+                                        ) is None
+                                        # Only advise enabling the
+                                        # fallback when doing so would
+                                        # actually rescue the row —
+                                        # i.e. the Weekly Reference
+                                        # Logged Date parses AND is
+                                        # >= RATE_CUTOFF_DATE. For rows
+                                        # whose weekly date is blank /
+                                        # unparseable / pre-cutoff,
+                                        # enabling the env var wouldn't
+                                        # change anything, and the
+                                        # message would send operators
+                                        # on a false lead.
+                                        and _weekly_would_trigger_fallback(
+                                            row_data.get('Weekly Reference Logged Date'),
+                                            RATE_CUTOFF_DATE,
+                                        )
+                                    ):
+                                        # Snapshot Date is blank or
+                                        # unparseable, Weekly Reference
+                                        # Logged Date IS post-cutoff,
+                                        # and the fallback is disabled.
+                                        # Enabling RATE_RECALC_WEEKLY_FALLBACK
+                                        # would genuinely rescue this
+                                        # row — tell operators so they
+                                        # don't hunt the CU in
+                                        # NEW_RATES_CSV instead.
+                                        _recalc_note = (
+                                            " Rate recalc skipped because Snapshot Date is blank or unparseable "
+                                            "and RATE_RECALC_WEEKLY_FALLBACK is disabled; Weekly Reference Logged "
+                                            "Date is >= RATE_CUTOFF_DATE so setting the env var to '1' (default) "
+                                            "would let this row get priced from the new-contract rates table."
+                                        )
+                                    else:
+                                        _recalc_note = ""
                                     logging.warning(
                                         f"⚠️ Dropped {_variant_tag} row (price missing or zero): "
                                         f"WR={wr_key_for_diag}, Weekly={weekly_date}, "
@@ -2683,18 +3079,35 @@ def get_all_source_rows(client, source_sheets):
                 if RATE_CUTOFF_DATE and _rate_new_primary:
                     skipped = sheet_rate_recalc_counts['skipped']
                     recalculated = sheet_rate_recalc_counts['recalculated']
+                    fallback_applied = sheet_rate_recalc_counts['fallback_applied']
+                    _fallback_suffix = (
+                        f" ({fallback_applied} via Weekly-Ref-Date fallback)"
+                        if fallback_applied else ""
+                    )
                     if skipped:
                         top_cus = ', '.join(f"{cu}×{cnt}" for cu, cnt in sheet_rate_recalc_skipped_cus.most_common(10))
                         logging.warning(
                             f"⚠️ Rate recalc summary for {source['name']}: "
-                            f"{recalculated} recalculated, {skipped} skipped "
+                            f"{recalculated} recalculated, {skipped} skipped{_fallback_suffix} "
                             f"(post-cutoff rows that kept SmartSheet price because no matching "
                             f"new-contract rate was found). Top CUs: {top_cus}"
                         )
                     elif recalculated:
                         logging.info(
                             f"📊 Rate recalc summary for {source['name']}: "
-                            f"{recalculated} rows recalculated, 0 skipped"
+                            f"{recalculated} rows recalculated, 0 skipped{_fallback_suffix}"
+                        )
+                    elif fallback_applied:
+                        # Fallback ran but every row hit a non-reportable
+                        # outcome (invalid_quantity / zero_rate / etc.).
+                        # Without this branch the new fallback_applied
+                        # counter would be completely invisible in the
+                        # logs for those runs — operators would have no
+                        # visibility into whether the Weekly-Ref-Date
+                        # fallback ever fired.
+                        logging.info(
+                            f"📊 Rate recalc summary for {source['name']}: "
+                            f"0 recalculated, 0 skipped{_fallback_suffix}"
                         )
 
             except Exception as e:
@@ -2707,7 +3120,7 @@ def get_all_source_rows(client, source_sheets):
                         "sheet_name": source.get('name', 'Unknown'),
                         "rows_processed": sheet_row_counter,
                         "error_type": type(e).__name__,
-                        "error_message": str(e),
+                        "error_message": _redact_exception_message(e),
                     },
                     tags={"error_location": "sheet_row_processing", "sheet_id": source['id']},
                     fingerprint=["sheet-processing", str(source['id']), type(e).__name__]
@@ -2722,7 +3135,7 @@ def get_all_source_rows(client, source_sheets):
                     "sheet_id": source.get('id', 'N/A'),
                     "sheet_name": source.get('name', 'Unknown'),
                     "error_type": type(e).__name__,
-                    "error_message": str(e),
+                    "error_message": _redact_exception_message(e),
                 },
                 tags={"error_location": "sheet_access", "sheet_id": str(source.get('id', 'N/A'))},
                 fingerprint=["sheet-access", str(source.get('id', 'N/A')), type(e).__name__]
@@ -3127,7 +3540,16 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     
     # SUCCESS: Exactly one work request in this group
     wr_num = wr_numbers[0]
-    
+
+    # Filesystem-safety: strip any path-traversal / separator characters
+    # from the WR identifier before it reaches ``os.path.join`` and
+    # ``workbook.save``. Numeric production WR#s pass through unchanged
+    # (\w matches 0-9), so this is a no-op for realistic data and a
+    # defense-in-depth guard against a pathological row value. Must use
+    # the same regex used by the main-loop derivation site so
+    # attachment / hash-history comparisons stay consistent.
+    wr_num = _RE_SANITIZE_HELPER_NAME.sub('_', wr_num)[:50]
+
     # SPECIFIC FIX FOR WR 90093002 and WR 89954686
     if wr_num in ['90093002', '89954686']:
         logging.info(f"🔧 Applying specific fixes for WR# {wr_num}")
@@ -3541,14 +3963,87 @@ def create_target_sheet_map(client):
             logging.error("Work Request # column not found in target sheet")
             return {}, None
         
-        # Map work request numbers to rows
+        # Map work request numbers to rows. Sanitize with the same
+        # filesystem-safety regex used on source-row WR#s so downstream
+        # ``target_map.get(sanitized_wr)`` lookups are consistent. For
+        # realistic numeric WR#s this is a no-op; for any row with a
+        # path-traversal-bearing WR the sanitized key matches the same
+        # key the generation pipeline uses, so skip checks, upload
+        # tasks, and attachment deletion all agree.
+        #
+        # Codex P2 guardrail: sanitize+truncate can (in principle)
+        # collapse two distinct WR# cell values to the same key — e.g.
+        # values that differ only in stripped characters, or IDs whose
+        # first 50 chars happen to match. A silent overwrite would
+        # retarget uploads / attachment deletes to the wrong row.
+        # Track which raw value first produced a given sanitized key;
+        # on collision, log a WARNING, quarantine the sanitized key,
+        # and remove any existing mapping so both (or all) ambiguous
+        # WRs are skipped deterministically until the target sheet is
+        # deduplicated. A loud "not found in target sheet" warning
+        # is strictly safer than a silent wrong-row upload.
+        _seen_raw_for_key: dict = {}
+        _quarantined_keys: set = set()
+        _collisions = 0
         for row in target_sheet.rows:
             for cell in row.cells:
                 if cell.column_id == wr_column_id and cell.display_value:
-                    wr_num = str(cell.display_value).split('.')[0]
-                    target_map[wr_num] = row
+                    raw_wr = str(cell.display_value).split('.')[0]
+                    wr_num = _RE_SANITIZE_HELPER_NAME.sub('_', raw_wr)[:50]
+                    if wr_num in _quarantined_keys:
+                        # Already ambiguous — don't re-add under any
+                        # raw value. Log once per collision instance
+                        # so operators see every colliding row.
+                        _collisions += 1
+                        prior_raw = _seen_raw_for_key.get(
+                            wr_num, '<quarantined>',
+                        )
+                        logging.warning(
+                            f"⚠️ Target-sheet WR# collision (already quarantined): "
+                            f"raw={raw_wr!r} also maps to sanitized key "
+                            f"{wr_num!r} (prior seen: {prior_raw!r}). "
+                            f"Uploads for this WR will be skipped until the "
+                            f"target sheet is deduplicated."
+                        )
+                    elif wr_num in target_map:
+                        prior_raw = _seen_raw_for_key.get(wr_num, '<unknown>')
+                        if prior_raw != raw_wr:
+                            # Collision: quarantine the key to prevent
+                            # uploads from silently targeting the wrong
+                            # row. The upload site's
+                            # ``if wr_num in target_map`` check will
+                            # then correctly return False for BOTH
+                            # WRs, and the existing "not found in
+                            # target sheet" warning fires so operators
+                            # know to audit the target sheet. Removing
+                            # both is strictly safer than keeping one
+                            # — a silent wrong-row upload corrupts
+                            # Smartsheet attachments; a loud
+                            # not-found failure prompts cleanup.
+                            _collisions += 1
+                            del target_map[wr_num]
+                            _quarantined_keys.add(wr_num)
+                            logging.warning(
+                                f"⚠️ Target-sheet WR# collision after sanitization: "
+                                f"raw={raw_wr!r} and prior raw={prior_raw!r} both "
+                                f"map to sanitized key {wr_num!r}; QUARANTINING "
+                                f"the key from target_map. Uploads for both WRs "
+                                f"will be skipped until the target sheet is "
+                                f"deduplicated — log a 'not found in target "
+                                f"sheet' warning will follow for each."
+                            )
+                    else:
+                        target_map[wr_num] = row
+                        _seen_raw_for_key[wr_num] = raw_wr
                     break
-        
+
+        if _collisions:
+            logging.warning(
+                f"⚠️ Target sheet map had {_collisions} sanitized-WR# "
+                f"collision event(s) across {len(_quarantined_keys)} "
+                f"quarantined key(s) — affected uploads will be skipped "
+                f"with 'not found in target sheet' warnings."
+            )
         logging.info(f"Created target sheet map with {len(target_map)} work requests")
         return target_map, target_sheet
         
@@ -3731,7 +4226,7 @@ def main():
                         "total_rows": len(all_rows),
                         "skip_cell_history": SKIP_CELL_HISTORY,
                         "error_type": type(e).__name__,
-                        "error_message": str(e),
+                        "error_message": _redact_exception_message(e),
                     },
                     tags={"error_location": "audit_system", "subsystem": "billing_audit"},
                     fingerprint=["audit-system", type(e).__name__]
@@ -3985,6 +4480,58 @@ def main():
 
         _phase_group_start = datetime.datetime.now()
         _time_budget_exceeded = False
+
+        # Codex P1: source-side WR# collision quarantine.
+        # ``_RE_SANITIZE_HELPER_NAME`` on the raw row value is a lossy
+        # transform — two distinct raw WR# values may fold to the
+        # same sanitized key. Downstream routing uses that sanitized
+        # key for ``target_map`` lookups AND for attachment-identity
+        # matching (filenames, hash_history), so an unquarantined
+        # collision can cause cross-WR data corruption:
+        #   * If target_map has BOTH colliding raws, round-6 quarantine
+        #     removes the key from target_map so both uploads fail
+        #     loudly at ``if wr_num in target_map`` — safe.
+        #   * If target_map has only ONE of the raws (the other WR
+        #     simply isn't in the target sheet yet), the source-side
+        #     scan is the only defence. The second raw's group would
+        #     otherwise resolve ``target_map[sanitized]`` to the first
+        #     raw's row and upload to the wrong row.
+        # We therefore key the quarantine on the sanitized WR ALONE
+        # (not on ``(wr, week, variant)``): any pair of distinct raw
+        # WRs that fold to the same sanitized key, anywhere in the
+        # run's groups, is a collision regardless of week or variant.
+        # Realistic numeric WR#s can't collide, so the scan is
+        # zero-impact on production data.
+        _source_wr_raws_per_key: dict = collections.defaultdict(set)
+        for _g_rows in groups.values():
+            if not _g_rows:
+                continue
+            _g_raw = str(_g_rows[0].get('Work Request #') or '').split('.')[0]
+            if not _g_raw:
+                continue
+            _g_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', _g_raw)[:50]
+            _source_wr_raws_per_key[_g_sanitized].add(_g_raw)
+        _quarantined_source_wr_keys: set = {
+            key for key, raws in _source_wr_raws_per_key.items()
+            if len(raws) > 1
+        }
+        if _quarantined_source_wr_keys:
+            for _qk in _quarantined_source_wr_keys:
+                _raws = sorted(_source_wr_raws_per_key[_qk])
+                logging.warning(
+                    f"⚠️ Source WR# sanitization collision: raws={_raws} "
+                    f"all fold to sanitized_key={_qk!r}. All affected "
+                    f"groups (across every week + variant combination) "
+                    f"will be SKIPPED to prevent cross-WR contamination "
+                    f"of target_map uploads and attachment identity. "
+                    f"Deduplicate the source WR# values and rerun."
+                )
+            logging.warning(
+                f"⚠️ Total source WR# collision quarantines: "
+                f"{len(_quarantined_source_wr_keys)} sanitized key(s); "
+                f"see preceding warnings for raw values."
+            )
+
         for group_idx, (group_key, group_rows) in enumerate(groups.items(), 1):
             # Graceful time budget: stop before Actions hard-kills the job
             if TIME_BUDGET_MINUTES and GITHUB_ACTIONS_MODE:
@@ -4004,11 +4551,37 @@ def main():
                 data_hash = calculate_data_hash(group_rows)
                 wr_num_raw = group_rows[0].get('Work Request #')
                 wr_num = str(wr_num_raw).split('.')[0] if wr_num_raw else ''
+                # Apply the same filesystem-safety sanitizer used inside
+                # generate_excel so history keys, attachment prefix
+                # matching, and Excel filenames all use the identical
+                # WR identifier. Realistic numeric WR#s are unchanged;
+                # path-traversal metacharacters get replaced with ``_``.
+                wr_num = _RE_SANITIZE_HELPER_NAME.sub('_', wr_num)[:50]
                 week_raw = group_key.split('_',1)[0] if '_' in group_key else ''
-                
+
                 # Extract variant and identifier for variant-aware hash history
                 first_row = group_rows[0] if group_rows else {}
                 variant = first_row.get('__variant', 'primary')
+
+                # Source-side collision quarantine (see pre-scan above).
+                # If this group's sanitized WR was flagged as colliding
+                # with another group's raw WR anywhere in the run —
+                # regardless of week or variant — skip it entirely. The
+                # broader key is required because downstream
+                # ``target_map`` lookups and attachment-identity
+                # matching use only the sanitized WR; they do not
+                # disambiguate by week or variant, so an unquarantined
+                # cross-context collision can still route uploads /
+                # deletes to the wrong target-sheet row.
+                if wr_num in _quarantined_source_wr_keys:
+                    logging.warning(
+                        f"⚠️ Skipping group {group_key}: sanitized WR# "
+                        f"{wr_num!r} collides with another group (see "
+                        f"'Source WR# sanitization collision' WARNING "
+                        f"above for the full raw-value list)."
+                    )
+                    _groups_skipped += 1
+                    continue
                 if variant == 'helper':
                     # CRITICAL FIX: Include helper dept and job in identifier for unique hash keys
                     # This ensures helper files regenerate when new helper rows are added
@@ -4045,7 +4618,23 @@ def main():
                             if target_row is None:
                                 can_skip = False  # Can't verify; safer to regenerate
                             else:
-                                has_attachment = _has_existing_week_attachment(client, TARGET_SHEET_ID, target_row, str(wr_num), week_raw, variant, identifier, cached_attachments=attachment_cache.get(target_row.id))
+                                # Use file_identifier (the value
+                                # actually embedded in the filename)
+                                # rather than identifier (the
+                                # hash-history-tuple form that includes
+                                # helper_dept/helper_job). For the
+                                # helper variant the two diverge —
+                                # filename only carries the sanitized
+                                # helper_foreman, so comparing against
+                                # the tuple form would always miss and
+                                # force regeneration of unchanged
+                                # helper groups.
+                                has_attachment = _has_existing_week_attachment(
+                                    client, TARGET_SHEET_ID, target_row,
+                                    str(wr_num), week_raw, variant,
+                                    file_identifier,
+                                    cached_attachments=attachment_cache.get(target_row.id),
+                                )
                                 if not has_attachment:
                                     can_skip = False
                         if can_skip:
@@ -4076,15 +4665,21 @@ def main():
                 _groups_generated += 1
                 generated_filenames.append(filename)
                 
-                # Collect upload task for parallel processing (instead of uploading serially)
-                if not TEST_MODE and target_map and wr_numbers:
-                    wr_num_upload = wr_numbers[0]
-                    if wr_num_upload in target_map:
+                # Collect upload task for parallel processing (instead
+                # of uploading serially). ``wr_numbers`` is returned raw
+                # by ``generate_excel`` — do NOT read from it here; the
+                # filename, hash-history key, attachment prefix match,
+                # and target_map key all use the sanitized main-loop
+                # ``wr_num`` and must stay aligned to avoid repeated
+                # regeneration and orphaned duplicate attachments on
+                # subsequent runs.
+                if not TEST_MODE and target_map and wr_num:
+                    if wr_num in target_map:
                         _upload_tasks.append({
                             'excel_path': excel_path,
                             'filename': filename,
-                            'wr_num': wr_num_upload,
-                            'target_row': target_map[wr_num_upload],
+                            'wr_num': wr_num,
+                            'target_row': target_map[wr_num],
                             'variant': variant,
                             'identifier': identifier,
                             'file_identifier': file_identifier,
@@ -4093,7 +4688,7 @@ def main():
                             'group_key': group_key,
                         })
                     else:
-                        logging.warning(f"⚠️ Work request {wr_num_upload} not found in target sheet")
+                        logging.warning(f"⚠️ Work request {wr_num} not found in target sheet")
 
                 # Update hash history with variant-aware key (even in TEST_MODE so future prod runs can leverage)
                 hash_history[history_key] = {
@@ -4122,7 +4717,7 @@ def main():
                         "variant": variant if 'variant' in dir() else 'unknown',
                         "row_count": len(group_rows),
                         "error_type": type(e).__name__,
-                        "error_message": str(e),
+                        "error_message": _redact_exception_message(e),
                         "traceback": traceback.format_exc(),
                     },
                     tags={
@@ -4250,6 +4845,18 @@ def main():
                 week_raw = key.split('_',1)[0]
                 wr_raw = group_rows[0].get('Work Request #')
                 wr = str(wr_raw).split('.')[0] if wr_raw else ''
+                # Apply the same sanitizer used at every other site
+                # (generate_excel, main-loop derivation, hash-prune
+                # loop, create_target_sheet_map). Without this,
+                # ``build_group_identity`` (which returns sanitized
+                # WR tokens for filenames with rewritten WR#s) would
+                # produce identity tuples that don't match the
+                # unsanitized entries this loop adds to
+                # valid_wr_weeks — causing
+                # cleanup_untracked_sheet_attachments to incorrectly
+                # prune attachments for sanitization-sensitive WRs
+                # when KEEP_HISTORICAL_WEEKS is enabled.
+                wr = _RE_SANITIZE_HELPER_NAME.sub('_', wr)[:50]
                 variant = group_rows[0].get('__variant', 'primary')
                 if variant == 'helper':
                     # Use filename-level identifier (sanitized foreman only) to match build_group_identity output
@@ -4295,6 +4902,16 @@ def main():
                     if '_' in key:
                         _wr_raw = group_rows[0].get('Work Request #')
                         _wr = str(_wr_raw).split('.')[0] if _wr_raw else ''
+                        # Codex P2: apply the same filesystem-safety
+                        # sanitizer used by the main loop (line ~4493)
+                        # so the current_keys tuple matches the
+                        # history_key actually written for this group.
+                        # Without this, any WR# containing
+                        # sanitization-sensitive characters would have
+                        # its freshly-written entry treated as stale
+                        # and deleted before save, so hash-skip could
+                        # never persist across runs for those WRs.
+                        _wr = _RE_SANITIZE_HELPER_NAME.sub('_', _wr)[:50]
                         _week = key.split('_',1)[0]
                         _variant = group_rows[0].get('__variant', 'primary')
                         if _variant == 'helper':
@@ -4429,7 +5046,7 @@ def main():
                     "duration_seconds": session_duration.total_seconds(),
                     "duration_human": str(session_duration),
                     "error_type": type(e).__name__,
-                    "error_message": str(e),
+                    "error_message": _redact_exception_message(e),
                     "traceback": traceback.format_exc(),
                     "test_mode": TEST_MODE,
                     "groups_attempted": len(groups) if 'groups' in dir() else 'unknown',
