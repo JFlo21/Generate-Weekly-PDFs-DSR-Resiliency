@@ -356,8 +356,26 @@ OLD_RATES_CSV = _sanitize_csv_path('OLD_RATES_CSV', 'CU List - Corpus North & So
 
 _RATES_FINGERPRINT = ''  # Populated at runtime by load_rate_versions()
 
+# Weekly-Ref-Date fallback for pre-acceptance rate recalculation.
+# Default-ON: when a row has a blank/unparseable Snapshot Date (common on
+# current-week VAC crew / helper rows before Smartsheet's snapshot
+# automation has fired), fall back to 'Weekly Reference Logged Date'
+# for the cutoff comparison. Rows that DO have a Snapshot Date are
+# unaffected — the snapshot-keyed business rule stays primary. Set
+# RATE_RECALC_WEEKLY_FALLBACK=0 (or false/no/off) to disable.
+RATE_RECALC_WEEKLY_FALLBACK = os.getenv(
+    'RATE_RECALC_WEEKLY_FALLBACK', '1'
+).lower() in ('1', 'true', 'yes', 'on')
+
 if RATE_CUTOFF_DATE:
     logging.info(f"📊 Rate contract versioning ENABLED: cutoff date = {RATE_CUTOFF_DATE.isoformat()}")
+    if RATE_RECALC_WEEKLY_FALLBACK:
+        logging.info(
+            "📊 Rate recalc Weekly-Ref-Date fallback ENABLED "
+            "(blank Snapshot Date → use Weekly Reference Logged Date for cutoff gate)"
+        )
+    else:
+        logging.info("📊 Rate recalc Weekly-Ref-Date fallback DISABLED (RATE_RECALC_WEEKLY_FALLBACK=false)")
 else:
     logging.info("📊 Rate contract versioning DISABLED (RATE_CUTOFF_DATE not set)")
 
@@ -1102,6 +1120,65 @@ def excel_serial_to_date(value):
         return datetime.datetime.combine(dt, datetime.time.min)
     except Exception:
         return None
+
+
+def _resolve_rate_recalc_cutoff_date(
+    row_data,
+    cutoff_date,
+    *,
+    weekly_fallback_enabled: bool = True,
+):
+    """Return the effective cutoff date for a row's pre-acceptance recalc.
+
+    The snapshot-keyed business rule remains primary: any row with a
+    populated ``Snapshot Date`` is gated on that date alone. The
+    Weekly-Ref-Date fallback only activates when ``Snapshot Date`` is
+    blank or unparseable — it rescues current-week rows that would
+    otherwise silently skip recalc because Smartsheet's snapshot
+    automation has not fired yet (the observed VAC crew failure mode).
+
+    Args:
+        row_data: Mapping that may contain ``'Snapshot Date'`` and
+            ``'Weekly Reference Logged Date'`` entries.
+        cutoff_date: ``datetime.date`` used as the ``>=`` threshold.
+        weekly_fallback_enabled: Set False to reproduce the legacy
+            snapshot-only behaviour (the ``RATE_RECALC_WEEKLY_FALLBACK``
+            env var wires this in production).
+
+    Returns:
+        ``(effective_cutoff_date, used_fallback)``. Returns
+        ``(None, False)`` when recalc should not run.
+    """
+    if cutoff_date is None:
+        return (None, False)
+
+    snapshot_raw = row_data.get('Snapshot Date')
+    snap_date = None
+    if snapshot_raw:
+        snap_dt = excel_serial_to_date(snapshot_raw)
+        if snap_dt:
+            snap_date = (
+                snap_dt.date() if hasattr(snap_dt, 'date') else snap_dt
+            )
+
+    if snap_date is not None and snap_date >= cutoff_date:
+        return (snap_date, False)
+
+    if snap_date is None and weekly_fallback_enabled:
+        weekly_raw = row_data.get('Weekly Reference Logged Date')
+        if weekly_raw:
+            weekly_dt = excel_serial_to_date(weekly_raw)
+            if weekly_dt:
+                weekly_date = (
+                    weekly_dt.date()
+                    if hasattr(weekly_dt, 'date')
+                    else weekly_dt
+                )
+                if weekly_date >= cutoff_date:
+                    return (weekly_date, True)
+
+    return (None, False)
+
 
 def discover_folder_sheets(client, folder_ids: list[int], label: str) -> set[int]:
     """Discover all sheet IDs inside the given Smartsheet folders (recursively including subfolders).
@@ -2295,7 +2372,16 @@ def get_all_source_rows(client, source_sheets):
         # ('skipped' covers rows where Snapshot Date>=cutoff but the new
         # rates table has no matching group/CU, so the SmartSheet price
         # is retained — the known VAC-crew pricing-lag signal).
-        sheet_rate_recalc_counts = {'recalculated': 0, 'skipped': 0}
+        # 'fallback_applied' counts rows routed through the
+        # Weekly-Ref-Date fallback (blank Snapshot Date with
+        # Weekly Reference Logged Date>=cutoff); it is path-tracking and
+        # is independent of recalc outcome, so it is NOT mutually
+        # exclusive with 'recalculated' / 'skipped'.
+        sheet_rate_recalc_counts = {
+            'recalculated': 0,
+            'skipped': 0,
+            'fallback_applied': 0,
+        }
         sheet_rate_recalc_skipped_cus = collections.Counter()
         try:
             logging.info(f"⚡ Processing: {source['name']} (ID: {source['id']})")
@@ -2422,53 +2508,70 @@ def get_all_source_rows(client, source_sheets):
                         # provided. They keep SmartSheet pricing as-is for now.
                         _rate_recalc_ran_for_row = False
                         _recalc_outcome = None
+                        _recalc_via_fallback = False
                         if RATE_CUTOFF_DATE and _rate_new_primary and not is_subcontractor_sheet:
-                            snapshot_raw_pre = row_data.get('Snapshot Date')
-                            if snapshot_raw_pre:
-                                snap_dt_pre = excel_serial_to_date(snapshot_raw_pre)
-                                if snap_dt_pre:
-                                    snap_date_pre = snap_dt_pre.date() if hasattr(snap_dt_pre, 'date') else snap_dt_pre
-                                    if snap_date_pre >= RATE_CUTOFF_DATE:
-                                        old_price = price_val
-                                        _recalc_status = {}
-                                        price_val = recalculate_row_price(
-                                            row_data,
-                                            _rate_cu_to_group,
-                                            _rate_new_primary,
-                                            out_status=_recalc_status,
+                            # Primary gate is Snapshot Date; the helper
+                            # transparently falls back to Weekly
+                            # Reference Logged Date when Snapshot Date
+                            # is blank AND RATE_RECALC_WEEKLY_FALLBACK
+                            # is enabled. This rescues current-week
+                            # rows (VAC crew / helper) that would
+                            # otherwise silently drop at the has_price
+                            # gate with zero price.
+                            effective_cutoff_date, _recalc_via_fallback = (
+                                _resolve_rate_recalc_cutoff_date(
+                                    row_data,
+                                    RATE_CUTOFF_DATE,
+                                    weekly_fallback_enabled=RATE_RECALC_WEEKLY_FALLBACK,
+                                )
+                            )
+
+                            if effective_cutoff_date is not None:
+                                old_price = price_val
+                                _recalc_status = {}
+                                price_val = recalculate_row_price(
+                                    row_data,
+                                    _rate_cu_to_group,
+                                    _rate_new_primary,
+                                    out_status=_recalc_status,
+                                )
+                                _rate_recalc_ran_for_row = True
+                                _recalc_outcome = _recalc_status.get('outcome')
+                                if _recalc_via_fallback:
+                                    sheet_rate_recalc_counts['fallback_applied'] += 1
+                                if _recalc_outcome == 'recalculated':
+                                    sheet_rate_recalc_counts['recalculated'] += 1
+                                    if price_val != old_price:
+                                        _via = ' via Weekly-Ref-Date fallback' if _recalc_via_fallback else ''
+                                        logging.debug(
+                                            f"Rate recalc{_via}: CU={row_data.get('CU')}, "
+                                            f"old=${old_price:.2f} -> new=${price_val:.2f}, "
+                                            f"effective_cutoff_date={effective_cutoff_date}"
                                         )
-                                        _rate_recalc_ran_for_row = True
-                                        _recalc_outcome = _recalc_status.get('outcome')
-                                        if _recalc_outcome == 'recalculated':
-                                            sheet_rate_recalc_counts['recalculated'] += 1
-                                            if price_val != old_price:
-                                                logging.debug(f"Rate recalc: CU={row_data.get('CU')}, "
-                                                              f"old=${old_price:.2f} -> new=${price_val:.2f}, "
-                                                              f"date={snap_date_pre}")
-                                        elif _recalc_outcome == 'missing_rate':
-                                            # Only count as "skipped" in the
-                                            # per-sheet summary when recalc
-                                            # explicitly reported that neither
-                                            # the mapped group nor the CU code
-                                            # is in the new rates table — that
-                                            # is the actionable signal for
-                                            # updating NEW_RATES_CSV. Outcomes
-                                            # like 'invalid_quantity' /
-                                            # 'zero_rate' are data-entry or
-                                            # contract gaps and are intentionally
-                                            # excluded so the summary WARNING
-                                            # and top-CU list stay accurate.
-                                            sheet_rate_recalc_counts['skipped'] += 1
-                                            # Always attribute the skip to a
-                                            # CU bucket so the per-sheet
-                                            # "N skipped / Top CUs: ..."
-                                            # summary totals stay aligned.
-                                            # Blank CU rows are attributed to
-                                            # '<blank>' so operators can see
-                                            # that category and investigate
-                                            # the missing CU code separately.
-                                            cu_val = _resolve_cu_code(row_data) or '<blank>'
-                                            sheet_rate_recalc_skipped_cus[cu_val] += 1
+                                elif _recalc_outcome == 'missing_rate':
+                                    # Only count as "skipped" in the
+                                    # per-sheet summary when recalc
+                                    # explicitly reported that neither
+                                    # the mapped group nor the CU code
+                                    # is in the new rates table — that
+                                    # is the actionable signal for
+                                    # updating NEW_RATES_CSV. Outcomes
+                                    # like 'invalid_quantity' /
+                                    # 'zero_rate' are data-entry or
+                                    # contract gaps and are intentionally
+                                    # excluded so the summary WARNING
+                                    # and top-CU list stay accurate.
+                                    sheet_rate_recalc_counts['skipped'] += 1
+                                    # Always attribute the skip to a
+                                    # CU bucket so the per-sheet
+                                    # "N skipped / Top CUs: ..." summary
+                                    # totals stay aligned. Blank CU rows
+                                    # are attributed to '<blank>' so
+                                    # operators can see that category
+                                    # and investigate the missing CU
+                                    # code separately.
+                                    cu_val = _resolve_cu_code(row_data) or '<blank>'
+                                    sheet_rate_recalc_skipped_cus[cu_val] += 1
 
                         price_raw = row_data.get('Units Total Price')
                         has_price = (price_raw not in (None, "", "$0", "$0.00", "0", "0.0")) and price_val > 0
@@ -2648,11 +2751,36 @@ def get_all_source_rows(client, source_sheets):
                                     # sheet), skip the breadcrumb so we
                                     # don't send operators hunting for a
                                     # summary line that isn't there.
-                                    _recalc_note = (
-                                        " Rate recalc ran and reported no matching new-contract rate for this CU; see 'Rate recalc summary' WARNING on this sheet for the full CU list."
-                                        if _rate_recalc_ran_for_row and _recalc_outcome == 'missing_rate'
-                                        else ""
-                                    )
+                                    if _rate_recalc_ran_for_row and _recalc_outcome == 'missing_rate':
+                                        _via_txt = (
+                                            ' via Weekly-Ref-Date fallback'
+                                            if _recalc_via_fallback else ''
+                                        )
+                                        _recalc_note = (
+                                            f" Rate recalc ran{_via_txt} and reported no matching new-contract rate for this CU; "
+                                            "see 'Rate recalc summary' WARNING on this sheet for the full CU list."
+                                        )
+                                    elif (
+                                        not _rate_recalc_ran_for_row
+                                        and RATE_CUTOFF_DATE
+                                        and not RATE_RECALC_WEEKLY_FALLBACK
+                                        and not row_data.get('Snapshot Date')
+                                    ):
+                                        # Snapshot Date is blank, the
+                                        # fallback is disabled, and
+                                        # recalc was skipped for that
+                                        # reason. Tell operators exactly
+                                        # why so they don't chase a CU
+                                        # that isn't actually missing
+                                        # from NEW_RATES_CSV.
+                                        _recalc_note = (
+                                            " Rate recalc skipped because Snapshot Date is blank and "
+                                            "RATE_RECALC_WEEKLY_FALLBACK is disabled; set it to '1' (default) "
+                                            "to let rows with a future-dated Weekly Reference Logged Date "
+                                            "get priced from the new-contract rates table."
+                                        )
+                                    else:
+                                        _recalc_note = ""
                                     logging.warning(
                                         f"⚠️ Dropped {_variant_tag} row (price missing or zero): "
                                         f"WR={wr_key_for_diag}, Weekly={weekly_date}, "
@@ -2683,18 +2811,23 @@ def get_all_source_rows(client, source_sheets):
                 if RATE_CUTOFF_DATE and _rate_new_primary:
                     skipped = sheet_rate_recalc_counts['skipped']
                     recalculated = sheet_rate_recalc_counts['recalculated']
+                    fallback_applied = sheet_rate_recalc_counts['fallback_applied']
+                    _fallback_suffix = (
+                        f" ({fallback_applied} via Weekly-Ref-Date fallback)"
+                        if fallback_applied else ""
+                    )
                     if skipped:
                         top_cus = ', '.join(f"{cu}×{cnt}" for cu, cnt in sheet_rate_recalc_skipped_cus.most_common(10))
                         logging.warning(
                             f"⚠️ Rate recalc summary for {source['name']}: "
-                            f"{recalculated} recalculated, {skipped} skipped "
+                            f"{recalculated} recalculated, {skipped} skipped{_fallback_suffix} "
                             f"(post-cutoff rows that kept SmartSheet price because no matching "
                             f"new-contract rate was found). Top CUs: {top_cus}"
                         )
                     elif recalculated:
                         logging.info(
                             f"📊 Rate recalc summary for {source['name']}: "
-                            f"{recalculated} rows recalculated, 0 skipped"
+                            f"{recalculated} rows recalculated, 0 skipped{_fallback_suffix}"
                         )
 
             except Exception as e:

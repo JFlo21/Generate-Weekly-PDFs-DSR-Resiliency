@@ -846,6 +846,197 @@ class TestCutoffDateRecalculationIntegration(unittest.TestCase):
         self.assertIsNone(generate_weekly_pdfs.excel_serial_to_date(''))
 
 
+class TestWeeklyRefDateFallbackCutoff(unittest.TestCase):
+    """Regression tests for the Weekly-Ref-Date rate-recalc fallback.
+
+    Production incident context: VAC crew Excel files were being
+    generated for week ending 04/12/26 but NOT for 04/19/26. Root
+    cause was that the pre-acceptance rate recalc only fired when
+    ``Snapshot Date >= RATE_CUTOFF_DATE``. For current-week rows the
+    Smartsheet snapshot automation had not yet populated Snapshot
+    Date, so recalc was silently skipped, ``Units Total Price`` stayed
+    at 0 for VAC crew specialty CUs, ``has_price`` evaluated False,
+    and the row was dropped before VAC crew detection could even run.
+
+    The fix is a narrowly-scoped fallback inside
+    ``_resolve_rate_recalc_cutoff_date``: when Snapshot Date is blank
+    AND Weekly Reference Logged Date parses to a date >= cutoff, use
+    the weekly date as the effective gate. Rows that DO have a
+    Snapshot Date are unaffected — the snapshot-keyed business rule
+    remains primary.
+    """
+
+    def setUp(self):
+        import datetime as dt
+        self.cutoff = dt.date(2026, 4, 19)
+
+    def test_env_constant_exists_and_is_bool(self):
+        """``RATE_RECALC_WEEKLY_FALLBACK`` is wired into the module."""
+        self.assertTrue(hasattr(generate_weekly_pdfs, 'RATE_RECALC_WEEKLY_FALLBACK'))
+        self.assertIsInstance(generate_weekly_pdfs.RATE_RECALC_WEEKLY_FALLBACK, bool)
+
+    def test_snapshot_post_cutoff_returns_snapshot_no_fallback(self):
+        """Row with Snapshot Date >= cutoff: primary rule wins, no fallback."""
+        import datetime as dt
+        row = {
+            'Snapshot Date': '2026-04-22',
+            'Weekly Reference Logged Date': '2026-04-19',
+        }
+        effective, used_fallback = generate_weekly_pdfs._resolve_rate_recalc_cutoff_date(
+            row, self.cutoff,
+        )
+        self.assertEqual(effective, dt.date(2026, 4, 22))
+        self.assertFalse(used_fallback)
+
+    def test_snapshot_pre_cutoff_returns_none_even_if_weekly_post_cutoff(self):
+        """Genuinely pre-cutoff row: fallback does NOT override snapshot rule.
+
+        The snapshot-keyed business rule is authoritative when Snapshot
+        Date IS populated — even if the weekly date would say
+        otherwise. This preserves the ledger guardrail: "Do NOT change
+        the cutoff column from Snapshot Date to Weekly Reference
+        Logged Date."
+        """
+        row = {
+            'Snapshot Date': '2026-04-10',
+            'Weekly Reference Logged Date': '2026-04-19',
+        }
+        effective, used_fallback = generate_weekly_pdfs._resolve_rate_recalc_cutoff_date(
+            row, self.cutoff,
+        )
+        self.assertIsNone(effective)
+        self.assertFalse(used_fallback)
+
+    def test_blank_snapshot_post_cutoff_weekly_triggers_fallback(self):
+        """The incident case: blank Snapshot Date, current-week weekly date.
+
+        This is what caused WE 04/19 VAC crew rows to silently drop.
+        With the fallback enabled, recalc now runs using the weekly
+        date as the effective gate.
+        """
+        import datetime as dt
+        row = {
+            'Snapshot Date': None,
+            'Weekly Reference Logged Date': '2026-04-19',
+        }
+        effective, used_fallback = generate_weekly_pdfs._resolve_rate_recalc_cutoff_date(
+            row, self.cutoff,
+        )
+        self.assertEqual(effective, dt.date(2026, 4, 19))
+        self.assertTrue(used_fallback)
+
+    def test_blank_snapshot_blank_weekly_returns_none(self):
+        """No usable date on either column → no recalc (unchanged)."""
+        row = {'Snapshot Date': None, 'Weekly Reference Logged Date': ''}
+        effective, used_fallback = generate_weekly_pdfs._resolve_rate_recalc_cutoff_date(
+            row, self.cutoff,
+        )
+        self.assertIsNone(effective)
+        self.assertFalse(used_fallback)
+
+    def test_blank_snapshot_pre_cutoff_weekly_returns_none(self):
+        """Historical row with blank Snapshot and pre-cutoff Weekly: no recalc.
+
+        Ensures the fallback is not a universal override — it still
+        requires the weekly date to be >= cutoff, preserving contract
+        versioning semantics.
+        """
+        row = {
+            'Snapshot Date': None,
+            'Weekly Reference Logged Date': '2026-04-12',
+        }
+        effective, used_fallback = generate_weekly_pdfs._resolve_rate_recalc_cutoff_date(
+            row, self.cutoff,
+        )
+        self.assertIsNone(effective)
+        self.assertFalse(used_fallback)
+
+    def test_fallback_disabled_preserves_legacy_behaviour(self):
+        """With the fallback disabled, blank Snapshot Date → skip recalc.
+
+        This matches the pre-fix behaviour and proves the env gate is
+        respected.
+        """
+        row = {
+            'Snapshot Date': None,
+            'Weekly Reference Logged Date': '2026-04-19',
+        }
+        effective, used_fallback = generate_weekly_pdfs._resolve_rate_recalc_cutoff_date(
+            row, self.cutoff, weekly_fallback_enabled=False,
+        )
+        self.assertIsNone(effective)
+        self.assertFalse(used_fallback)
+
+    def test_unparseable_snapshot_falls_through_to_fallback(self):
+        """A garbage Snapshot Date behaves like a blank one for fallback purposes.
+
+        ``excel_serial_to_date`` returns ``None`` on unparseable input,
+        which the helper treats the same as a blank value. Without
+        this, a corrupted Snapshot Date cell would silently suppress
+        recalc even when Weekly Reference Logged Date is valid.
+        """
+        import datetime as dt
+        row = {
+            'Snapshot Date': 'not-a-real-date',
+            'Weekly Reference Logged Date': '2026-04-19',
+        }
+        effective, used_fallback = generate_weekly_pdfs._resolve_rate_recalc_cutoff_date(
+            row, self.cutoff,
+        )
+        self.assertEqual(effective, dt.date(2026, 4, 19))
+        self.assertTrue(used_fallback)
+
+    def test_none_cutoff_always_returns_none(self):
+        """No configured cutoff → helper must never authorise recalc.
+
+        Matches the outer production guard ``if RATE_CUTOFF_DATE and
+        _rate_new_primary and not is_subcontractor_sheet:`` but is
+        also checked inside the helper as a defensive measure so
+        callers/tests cannot accidentally enable recalc on a
+        cutoff-disabled deployment.
+        """
+        row = {
+            'Snapshot Date': None,
+            'Weekly Reference Logged Date': '2026-04-19',
+        }
+        effective, used_fallback = generate_weekly_pdfs._resolve_rate_recalc_cutoff_date(
+            row, None,
+        )
+        self.assertIsNone(effective)
+        self.assertFalse(used_fallback)
+
+    def test_fallback_end_to_end_produces_recalculated_price(self):
+        """End-to-end: fallback → recalculate_row_price → new price applied.
+
+        Proves the combined effect is what operators need: a VAC crew
+        row with blank Snapshot Date, blank SmartSheet price, CU
+        present in the new rates table, and a current-week Weekly
+        Reference Logged Date comes out with a recalculated non-zero
+        price — so the downstream ``has_price`` gate accepts it
+        instead of dropping it silently.
+        """
+        cu_to_group = {'ANC-DHM-10-84-D1': 'ANC-M'}
+        rates = {'ANC-M': {'install': 224.06, 'removal': 29.46, 'transfer': 0.0}}
+        row = {
+            'Snapshot Date': None,
+            'Weekly Reference Logged Date': '2026-04-19',
+            'CU': 'ANC-DHM-10-84-D1',
+            'Work Type': 'Install',
+            'Quantity': '2',
+            'Units Total Price': 0,
+        }
+        effective, used_fallback = generate_weekly_pdfs._resolve_rate_recalc_cutoff_date(
+            row, self.cutoff,
+        )
+        self.assertIsNotNone(effective)
+        self.assertTrue(used_fallback)
+        new_price = generate_weekly_pdfs.recalculate_row_price(row, cu_to_group, rates)
+        self.assertAlmostEqual(new_price, 448.12)
+        # Confirm row was updated in-place so the downstream has_price
+        # check will pass for this row.
+        self.assertEqual(row['Units Total Price'], 448.12)
+
+
 class TestExpandedHashCoverage(unittest.TestCase):
     """Tests for the expanded calculate_data_hash field coverage."""
 

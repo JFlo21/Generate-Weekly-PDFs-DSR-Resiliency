@@ -690,3 +690,79 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   `tests/test_vac_crew.py::TestVacCrewColumnFuzzyFallback` cover
   whitespace / case / punctuation drift, exact-match preservation
   when both forms are present, and the cache-version bump.
+- [2026-04-23 00:00] Current-week VAC crew Excel files silently not
+  generating because the pre-acceptance rate recalc required a
+  populated `Snapshot Date`. **Reported symptom:** VAC crew
+  attachments produced for week ending 04/12/26 but nothing for
+  week ending 04/19/26, despite operators confirming the usual
+  criteria (VAC Crew Helping? populated, Vac Crew Completed Unit?
+  and Units Completed? both checked) on those current-week rows.
+  **Root cause:** The recalc block in `_fetch_and_process_sheet`
+  was gated strictly on `Snapshot Date >= RATE_CUTOFF_DATE`. For
+  rows freshly logged in the most recent week, Smartsheet's
+  snapshot automation has not yet populated `Snapshot Date`, so
+  the outer `if snapshot_raw_pre:` short-circuited and recalc was
+  entirely skipped. The row's `Units Total Price` therefore
+  retained whatever SmartSheet had — which for VAC crew specialty
+  CUs is often 0 or blank because the upstream Smartsheet price
+  formula itself depends on the CU being present in the legacy
+  rates map. The downstream `has_price` gate then evaluated
+  False and the row was dropped before VAC crew detection or
+  grouping could run. WE 04/12 rows escaped the trap only because
+  they'd been on the sheet long enough for the snapshot
+  automation to fire. **Fix (additive, production-safe):**
+  (1) Introduced `RATE_RECALC_WEEKLY_FALLBACK` env var (default
+  `true`; truthy values `1`/`true`/`yes`/`on`) that enables a
+  Weekly-Ref-Date fallback path when `Snapshot Date` is blank or
+  unparseable. (2) Extracted the recalc gating into a new helper
+  `_resolve_rate_recalc_cutoff_date(row_data, cutoff_date, *,
+  weekly_fallback_enabled=True) -> (effective_cutoff_date,
+  used_fallback)`. The helper returns the snapshot date when that
+  is populated and `>= cutoff` (primary rule, unchanged); it
+  falls back to `Weekly Reference Logged Date` only when the
+  snapshot value is blank/unparseable AND the weekly date parses
+  AND the weekly date is `>= cutoff`. Rows with a populated
+  snapshot date that is *pre-cutoff* still return `None` — the
+  fallback does NOT override the snapshot-keyed business rule.
+  (3) Added `fallback_applied` counter alongside the existing
+  `recalculated` / `skipped` counters and surfaced it in the
+  per-sheet "Rate recalc summary" log. (4) Updated the per-row
+  "Dropped VAC/helper row" WARNING's `_recalc_note` to distinguish
+  three cases for operators: recalc ran with `missing_rate`,
+  recalc ran via Weekly-Ref-Date fallback with `missing_rate`,
+  and recalc skipped because the fallback was disabled AND
+  `Snapshot Date` was blank (points operators at the env var
+  instead of at `NEW_RATES_CSV`). **New rules:** (1) The ledger
+  guardrail from 2026-04-21 — "Do NOT change the cutoff column
+  from `Snapshot Date` to `Weekly Reference Logged Date`" —
+  stands. A *fallback* when Snapshot Date is missing is
+  explicitly NOT the same as replacing the primary column; the
+  snapshot rule still controls every row that has a snapshot
+  value. Any future broadening of the recalc gate (e.g. allowing
+  the fallback to trump a pre-cutoff snapshot date) would
+  violate the guardrail and must be rejected without a documented
+  production-incident justification. (2) Any new pre-acceptance /
+  pre-`has_price` data transformation tied to a business cutoff
+  MUST degrade gracefully when the driving column is blank.
+  Silent skip-on-blank is a current-week failure trap: the
+  freshly entered rows operators expect to see on Monday morning
+  are exactly the rows most likely to have blank
+  automation-populated columns. (3) When a config env var's
+  default changes observable production behaviour (here:
+  `RATE_RECALC_WEEKLY_FALLBACK=1` rescues rows that previously
+  silently dropped), the `if RATE_CUTOFF_DATE:` boot-up log block
+  MUST print the fallback's resolved state so operators grepping
+  the startup banner can tell at a glance whether the rescue is
+  active. Regression tests:
+  `tests/test_subcontractor_pricing.py::TestWeeklyRefDateFallbackCutoff`
+  covers the env constant's presence, the snapshot-post-cutoff
+  primary path (no fallback), the snapshot-pre-cutoff guardrail
+  (fallback must NOT override), the incident case (blank
+  Snapshot + post-cutoff Weekly → fallback triggers), the
+  all-blank and pre-cutoff-Weekly no-op cases, the
+  `weekly_fallback_enabled=False` legacy-behaviour preservation
+  path, unparseable-Snapshot fallthrough, the `cutoff=None`
+  defensive guard, and an end-to-end check that drives
+  `_resolve_rate_recalc_cutoff_date` → `recalculate_row_price`
+  and asserts the row's `Units Total Price` is updated in-place
+  so the downstream `has_price` gate will accept it.
