@@ -147,10 +147,16 @@ def main(argv: list[str] | None = None) -> int:
     target_week = args.week
     wr_filter: set[str] = {str(w) for w in args.wr}
 
-    release = os.getenv("SENTRY_RELEASE")
-    run_id = os.getenv(
-        "GITHUB_RUN_ID",
-        f"backfill-{datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}",
+    # Normalize release / run_id to empty-string sentinels (not
+    # None) so the RPC params stay valid even when the target
+    # deployment applies NOT NULL to ``release`` / ``run_id``. This
+    # matches the main pipeline's hoisted env handling — otherwise
+    # a freshly-deployed backfill in an environment without
+    # ``SENTRY_RELEASE`` set would silently convert every write
+    # into an error and only surface the failure at the end.
+    release = os.getenv("SENTRY_RELEASE", "") or ""
+    run_id = os.getenv("GITHUB_RUN_ID", "") or (
+        f"backfill-{datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}"
     )
 
     considered = 0

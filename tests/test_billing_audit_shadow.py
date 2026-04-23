@@ -1039,6 +1039,18 @@ class BackfillCliDateValidationTests(unittest.TestCase):
             _dt.date(2024, 11, 26),
         )
 
+    def test_backfill_script_normalizes_release_env_to_empty_string(self):
+        """Backfill must mirror the main pipeline's release / run_id
+        normalization so RPC params stay non-null even when
+        SENTRY_RELEASE is unset. Otherwise a deployment that
+        enforces NOT NULL on ``release`` silently turns every
+        backfill write into an error.
+        """
+        from pathlib import Path
+        src = Path("scripts/backfill_attribution_snapshot.py").read_text()
+        self.assertIn('os.getenv("SENTRY_RELEASE", "") or ""', src)
+        self.assertIn('os.getenv("GITHUB_RUN_ID", "") or', src)
+
 
 class HoistedEnvVarDefaultsTests(unittest.TestCase):
     """Confirms the main-script hoisted env vars default to '' so
