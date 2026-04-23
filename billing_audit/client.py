@@ -193,8 +193,14 @@ def get_flag(key: str, default: bool = False) -> bool:
         _flag_cache[key] = default
         return default
 
-    try:
-        res = (
+    # Wrap the SELECT in with_retry so transient network blips get
+    # the same bounded retry behaviour as RPC writers. Uses a
+    # dedicated ``op="feature_flag"`` so the flag read's circuit
+    # breaker is independent of the writer paths — a flag-read
+    # outage must not trip the freeze_attribution or pipeline_run
+    # breakers, and vice versa.
+    def _fetch_flag():
+        return (
             client.schema("billing_audit")
             .table("feature_flag")
             .select("enabled")
@@ -202,21 +208,12 @@ def get_flag(key: str, default: bool = False) -> bool:
             .limit(1)
             .execute()
         )
-    except Exception as exc:
-        logging.warning(
-            f"⚠️ billing_audit.feature_flag read failed for {key!r}: "
-            f"{type(exc).__name__} — returning {default} without "
-            "caching (will retry on next call)"
-        )
-        _sentry_breadcrumb(
-            "billing_audit",
-            "Feature flag read failed",
-            level="warning",
-            data={"flag": key, "error_type": type(exc).__name__},
-        )
-        # Do NOT cache on transport failure — let the next call
-        # retry. A single early-run blip would otherwise disable
-        # the feature for the whole process.
+
+    res = with_retry(_fetch_flag, op="feature_flag")
+    if res is None:
+        # with_retry already logged the failure and emitted a
+        # breadcrumb. Do NOT cache the default — a subsequent call
+        # this run can retry (subject to the feature_flag breaker).
         return default
 
     rows = getattr(res, "data", None) or []

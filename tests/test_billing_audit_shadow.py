@@ -1167,6 +1167,223 @@ class HoistedEnvVarDefaultsTests(unittest.TestCase):
         )
 
 
+class PipelineRunOpSplitTests(unittest.TestCase):
+    """emit_run_fingerprint must use distinct ``op`` keys for the
+    prior-SELECT and the UPSERT so the circuit breaker measures
+    each endpoint independently. A shared op lets a healthy SELECT
+    reset the breaker counter and mask a sustained UPSERT outage.
+    """
+
+    def test_select_and_upsert_use_distinct_ops(self):
+        """Grep-level check on the writer source — the two
+        with_retry calls in emit_run_fingerprint must reference
+        different ``op=`` values."""
+        import inspect
+        from billing_audit import writer as ba_writer
+        src = inspect.getsource(ba_writer.emit_run_fingerprint)
+        self.assertIn('op="pipeline_run_select"', src)
+        self.assertIn('op="pipeline_run_upsert"', src)
+        # No bare "pipeline_run" (without _select/_upsert suffix).
+        # Use a regex that forbids the standalone form but permits
+        # the suffixed variants.
+        import re
+        bare_hits = re.findall(r'op="pipeline_run"(?!_)', src)
+        self.assertEqual(bare_hits, [], "Bare op='pipeline_run' leaked back in")
+
+
+class GetFlagUsesRetryTests(unittest.TestCase):
+    """get_flag must funnel through with_retry so transient network
+    blips get the same bounded retry behaviour as RPC writers,
+    rather than surfacing as a single-attempt WARNING + disabled
+    flag for the rest of the process (mitigated somewhat by the
+    no-cache-on-failure change, but per-call retries are better).
+    """
+
+    def setUp(self):
+        _reset_all()
+
+    def tearDown(self):
+        _reset_all()
+
+    def test_transient_failure_retries_then_succeeds(self):
+        from billing_audit import client as ba_client
+
+        class Transient(Exception):
+            pass
+
+        Transient.__name__ = "ConnectionResetError"
+
+        fake_client = mock.Mock()
+        attempts = {"n": 0}
+
+        def _execute():
+            attempts["n"] += 1
+            if attempts["n"] < 3:
+                raise Transient("blip")
+            return mock.Mock(data=[{"enabled": True}])
+
+        def _select(*_a, **_kw):
+            return mock.Mock(
+                eq=mock.Mock(
+                    return_value=mock.Mock(
+                        limit=mock.Mock(
+                            return_value=mock.Mock(execute=_execute)
+                        )
+                    )
+                )
+            )
+
+        fake_client.schema.return_value = mock.Mock(
+            table=mock.Mock(return_value=mock.Mock(select=_select))
+        )
+
+        with mock.patch(
+            "billing_audit.client.get_client", return_value=fake_client
+        ), mock.patch("billing_audit.client.time.sleep"):
+            result = ba_client.get_flag("flag_z", default=False)
+
+        self.assertTrue(result)
+        # Two transient failures + one success = 3 attempts.
+        self.assertEqual(attempts["n"], 3)
+
+    def test_exhausted_retries_does_not_cache_default(self):
+        from billing_audit import client as ba_client
+
+        class Transient(Exception):
+            pass
+
+        Transient.__name__ = "ConnectionResetError"
+
+        fake_client = mock.Mock()
+        attempts = {"n": 0}
+
+        def _execute():
+            attempts["n"] += 1
+            raise Transient("down")
+
+        def _select(*_a, **_kw):
+            return mock.Mock(
+                eq=mock.Mock(
+                    return_value=mock.Mock(
+                        limit=mock.Mock(
+                            return_value=mock.Mock(execute=_execute)
+                        )
+                    )
+                )
+            )
+
+        fake_client.schema.return_value = mock.Mock(
+            table=mock.Mock(return_value=mock.Mock(select=_select))
+        )
+
+        with mock.patch(
+            "billing_audit.client.get_client", return_value=fake_client
+        ), mock.patch("billing_audit.client.time.sleep"):
+            # First call: 4 retries, all fail, returns default.
+            # Should NOT cache — second call can retry.
+            self.assertFalse(ba_client.get_flag("flag_blip", default=False))
+            self.assertNotIn("flag_blip", ba_client._flag_cache)
+
+    def test_feature_flag_op_isolates_from_writer_breakers(self):
+        """feature_flag breaker must NOT be the same as
+        freeze_attribution or pipeline_run ops — a flag-read
+        outage must not disable writers and vice versa.
+        """
+        from billing_audit import client as ba_client
+        # Trip the feature_flag op breaker directly.
+        with mock.patch("billing_audit.client.time.sleep"):
+            def _fail():
+                raise ValueError("bug")
+            for _ in range(ba_client._CIRCUIT_BREAKER_THRESHOLD):
+                ba_client.with_retry(_fail, op="feature_flag")
+            self.assertIn("feature_flag", ba_client._open_circuits)
+            self.assertNotIn(
+                "freeze_attribution", ba_client._open_circuits
+            )
+            self.assertNotIn(
+                "pipeline_run_select", ba_client._open_circuits
+            )
+            self.assertNotIn(
+                "pipeline_run_upsert", ba_client._open_circuits
+            )
+
+
+class CrossVariantFingerprintAggregationTests(unittest.TestCase):
+    """Confirms the main-script aggregation over
+    ``_billing_audit_fp_buckets`` covers all variants.
+
+    Because the actual aggregation lives inside ``main()`` (hard
+    to unit-test without running the whole pipeline), this test
+    instead verifies the source-level invariants:
+      1. A bucket dict keyed on ``(wr_san, week)`` is built BEFORE
+         the group loop.
+      2. The per-group emit block references
+         ``_billing_audit_fp_buckets.get(...)`` rather than
+         ``compute_assignment_fingerprint(group_rows)`` directly.
+    The pure fingerprint function has its own order-invariance
+    test already; what matters here is that the pipeline wires
+    the aggregated rows through to it.
+    """
+
+    def test_bucket_is_built_before_group_loop(self):
+        from pathlib import Path
+        src = Path("generate_weekly_pdfs.py").read_text()
+        bucket_init = src.find(
+            "_billing_audit_fp_buckets: dict[tuple[str, str], list[dict]] = {}"
+        )
+        group_loop = src.find(
+            "for group_idx, (group_key, group_rows) in enumerate(groups.items(), 1):"
+        )
+        self.assertGreater(bucket_init, 0, "bucket init missing")
+        self.assertGreater(group_loop, 0, "group loop missing")
+        self.assertLess(
+            bucket_init, group_loop,
+            "bucket must be built before the group loop starts",
+        )
+
+    def test_emit_uses_aggregated_rows(self):
+        """The emit call inside the per-group block must pull
+        from ``_billing_audit_fp_buckets`` (aggregated across
+        variants), not ``group_rows`` directly."""
+        from pathlib import Path
+        src = Path("generate_weekly_pdfs.py").read_text()
+        self.assertIn(
+            "_billing_audit_fp_buckets.get(\n                                    (wr_num, week_raw), group_rows\n                                )",
+            src,
+        )
+
+    def test_compute_assignment_fingerprint_covers_all_variants(self):
+        """Sanity check the pure function: rows spanning primary,
+        helper, and vac_crew produce a fingerprint that's
+        sensitive to any of the three."""
+        from billing_audit.fingerprint import compute_assignment_fingerprint
+        all_rows = [
+            {"Foreman": "Alice"},
+            {"Foreman": "Alice", "__helper_foreman": "Bob"},
+            {"Foreman": "Alice", "__vac_crew_name": "Carol"},
+        ]
+        # Swap the helper name — fingerprint must change because
+        # aggregation includes the helper row.
+        swapped_helper = [
+            {"Foreman": "Alice"},
+            {"Foreman": "Alice", "__helper_foreman": "Xavier"},
+            {"Foreman": "Alice", "__vac_crew_name": "Carol"},
+        ]
+        # Swap the vac_crew — must also change.
+        swapped_vac = [
+            {"Foreman": "Alice"},
+            {"Foreman": "Alice", "__helper_foreman": "Bob"},
+            {"Foreman": "Alice", "__vac_crew_name": "Yolanda"},
+        ]
+        baseline = compute_assignment_fingerprint(all_rows)
+        self.assertNotEqual(
+            baseline, compute_assignment_fingerprint(swapped_helper)
+        )
+        self.assertNotEqual(
+            baseline, compute_assignment_fingerprint(swapped_vac)
+        )
+
+
 class NoSelfImportTests(unittest.TestCase):
     """freeze_row must NOT self-import generate_weekly_pdfs.
 

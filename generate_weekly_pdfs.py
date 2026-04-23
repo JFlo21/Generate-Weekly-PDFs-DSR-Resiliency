@@ -4567,6 +4567,37 @@ def main():
         _billing_audit_release_env = os.getenv('SENTRY_RELEASE', '') or ''
         _billing_audit_run_id_env = os.getenv('GITHUB_RUN_ID', '') or ''
 
+        # Pre-aggregate rows per (sanitized_wr, week) across ALL
+        # variants so the assignment fingerprint captures the full
+        # personnel picture. ``group_source_rows`` splits helper-
+        # completed rows out of the primary group (to prevent
+        # double-counting in Excel generation), so each group only
+        # carries ONE variant's rows. With the writer's per-
+        # (wr, week, run_id) dedup, only the first variant emitted
+        # actually writes — meaning a naive fingerprint would miss
+        # helper / vac_crew personnel entirely, defeating the whole
+        # point of this PR (mid-week helper swaps wouldn't change
+        # the primary-only fingerprint → no drift alert).
+        #
+        # Walking ``groups.items()`` once here is O(total rows)
+        # and negligible compared to per-group work.
+        _billing_audit_fp_buckets: dict[tuple[str, str], list[dict]] = {}
+        if BILLING_AUDIT_AVAILABLE and not TEST_MODE:
+            for _agg_gk, _agg_rows in groups.items():
+                if not _agg_rows:
+                    continue
+                _raw_wr = _agg_rows[0].get('Work Request #')
+                _wr_str = str(_raw_wr).split('.')[0] if _raw_wr else ''
+                _wr_san = _RE_SANITIZE_HELPER_NAME.sub('_', _wr_str)[:50]
+                _week_part = (
+                    _agg_gk.split('_', 1)[0] if '_' in _agg_gk else ''
+                )
+                if not _wr_san or not _week_part:
+                    continue
+                _billing_audit_fp_buckets.setdefault(
+                    (_wr_san, _week_part), []
+                ).extend(_agg_rows)
+
         for group_idx, (group_key, group_rows) in enumerate(groups.items(), 1):
             # Graceful time budget: stop before Actions hard-kills the job
             if TIME_BUDGET_MINUTES and GITHUB_ACTIONS_MODE:
@@ -4678,9 +4709,20 @@ def main():
                             # so the steady-state cost is a single
                             # dict lookup per group.
                             if _billing_audit_writer.fingerprint_flag_enabled():
-                                _fp = compute_assignment_fingerprint(group_rows)
+                                # Use the cross-variant aggregation
+                                # so the fingerprint covers all
+                                # personnel (primary + helper + vac)
+                                # for this (wr, week). Falls back to
+                                # group_rows only if the bucket is
+                                # empty (shouldn't happen — the
+                                # bucket is built from the same
+                                # groups dict we're iterating).
+                                _agg_fp_rows = _billing_audit_fp_buckets.get(
+                                    (wr_num, week_raw), group_rows
+                                )
+                                _fp = compute_assignment_fingerprint(_agg_fp_rows)
                                 _completed = sum(
-                                    1 for _r in group_rows
+                                    1 for _r in _agg_fp_rows
                                     if is_checked(_r.get('Units Completed?'))
                                 )
                                 _billing_audit_writer.emit_run_fingerprint(
@@ -4689,7 +4731,7 @@ def main():
                                     content_hash=data_hash,
                                     assignment_fp=_fp,
                                     completed_count=_completed,
-                                    total_count=len(group_rows),
+                                    total_count=len(_agg_fp_rows),
                                     release=_billing_audit_release_env,
                                     run_id=_billing_audit_run_id_env,
                                 )

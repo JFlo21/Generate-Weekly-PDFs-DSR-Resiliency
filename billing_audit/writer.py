@@ -333,7 +333,11 @@ def emit_run_fingerprint(wr: str, week_ending: datetime.date,
             .execute()
         )
 
-    prior = with_retry(_fetch_prior, op="pipeline_run")
+    # Distinct ops for the prior-read vs the upsert so the circuit
+    # breaker measures each endpoint independently. Sharing one op
+    # would let a healthy SELECT continually reset the counter and
+    # mask a sustained UPSERT outage from ever tripping the breaker.
+    prior = with_retry(_fetch_prior, op="pipeline_run_select")
     prior_fp: str | None = None
     if prior is not None:
         rows = getattr(prior, "data", None) or []
@@ -360,7 +364,7 @@ def emit_run_fingerprint(wr: str, week_ending: datetime.date,
             .execute()
         )
 
-    upsert_result = with_retry(_upsert, op="pipeline_run")
+    upsert_result = with_retry(_upsert, op="pipeline_run_upsert")
     if upsert_result is None:
         # Upsert exhausted its retry budget. Do NOT record the dedup
         # key — a subsequent variant call in the same run gets a
