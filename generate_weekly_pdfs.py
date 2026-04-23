@@ -1613,18 +1613,28 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
     # the marker is at position 2 exactly — this preserves the
     # legacy layout while hardening against the edge case.
     #
-    # Pick the LAST occurrence rather than the first: the tokens to
-    # the right of the structural delimiter (week, timestamp,
-    # variant marker, identifier, hash) are deterministic and never
-    # equal the literal ``WeekEnding``, so ``rindex`` semantics are
-    # always correct. ``index`` would mis-locate the marker when a
-    # sanitized WR token happens to contain ``WeekEnding`` itself as
-    # one of its ``_``-separated segments.
-    _we_positions = [i for i, p in enumerate(parts) if p == 'WeekEnding']
-    if not _we_positions:
-        return None
-    we_idx = _we_positions[-1]
-    if we_idx < 2 or we_idx + 1 >= len(parts):
+    # Disambiguate via the next-token format: the STRUCTURAL
+    # ``WeekEnding`` is always immediately followed by a 6-digit
+    # MMDDYY week token. Neither "first" nor "last" is universally
+    # correct on its own — a sanitized WR may contain multiple
+    # ``WeekEnding`` segments (breaking ``.index``), and a sanitized
+    # helper/user identifier may also contain ``WeekEnding`` (breaking
+    # rindex). Scan left-to-right and pick the FIRST position at
+    # index ≥ 2 whose next part matches the week format. That
+    # position is unambiguously the structural delimiter because:
+    #  * positions 0 and 1 are reserved for ``WR`` + first WR chunk
+    #  * only the structural marker is followed by a 6-digit-only
+    #    token (``<week>`` is MMDDYY; identifier / hash / timestamp
+    #    in the tail are not structurally constrained to 6 digits)
+    we_idx = None
+    for _i, _p in enumerate(parts):
+        if _p != 'WeekEnding' or _i < 2 or _i + 1 >= len(parts):
+            continue
+        _next = parts[_i + 1]
+        if len(_next) == 6 and _next.isdigit():
+            we_idx = _i
+            break
+    if we_idx is None:
         return None
 
     # WR may span one or more parts depending on whether the

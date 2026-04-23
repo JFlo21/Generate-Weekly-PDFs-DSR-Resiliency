@@ -1016,6 +1016,60 @@ class TestBuildGroupIdentityWithUnderscoresInWr(unittest.TestCase):
         self.assertEqual(variant, 'primary')
         self.assertIsNone(identifier)
 
+    def test_helper_identifier_containing_weekending_token(self):
+        """Codex round-10: a sanitized helper name that itself
+        contains the literal ``WeekEnding`` token must NOT be treated
+        as the structural delimiter. The parser disambiguates via the
+        format constraint ``<next-token is 6-digit MMDDYY>``, which
+        only the real structural delimiter satisfies.
+
+        E.g. foreman name 'WeekEnding Jones' sanitizes to the
+        filename identifier ``WeekEnding_Jones``. The filename ends
+        up ``...Helper_WeekEnding_Jones_<hash>.xlsx``. Pre-fix,
+        rindex semantics picked THAT ``WeekEnding`` as the delimiter
+        and returned a corrupted (wr, week) tuple.
+        """
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_12345_WeekEnding_041926_123456_Helper_WeekEnding_Jones_ab12cd34ef.xlsx'
+        )
+        self.assertIsNotNone(ident)
+        wr, week, variant, identifier = ident
+        self.assertEqual(wr, '12345')
+        self.assertEqual(week, '041926')
+        self.assertEqual(variant, 'helper')
+        self.assertEqual(identifier, 'WeekEnding_Jones')
+
+    def test_user_identifier_containing_weekending_token(self):
+        """Same as above but for the User variant."""
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_12345_WeekEnding_041926_123456_User_WeekEnding_Smith_ab12cd34ef.xlsx'
+        )
+        self.assertIsNotNone(ident)
+        wr, week, variant, identifier = ident
+        self.assertEqual(wr, '12345')
+        self.assertEqual(week, '041926')
+        self.assertEqual(variant, 'primary')  # User variant is still 'primary'
+        self.assertEqual(identifier, 'WeekEnding_Smith')
+
+    def test_parser_rejects_filename_without_six_digit_week_follower(self):
+        """Defence-in-depth: if the ``WeekEnding`` token is NOT
+        followed by a 6-digit week, the parser refuses to guess.
+        This protects against malformed filenames being silently
+        mis-parsed.
+        """
+        # WeekEnding followed by a non-digit token → no structural
+        # marker found → None.
+        self.assertIsNone(generate_weekly_pdfs.build_group_identity(
+            'WR_12345_WeekEnding_notadate_123456.xlsx'
+        ))
+        # WeekEnding followed by wrong-length numeric → None.
+        self.assertIsNone(generate_weekly_pdfs.build_group_identity(
+            'WR_12345_WeekEnding_1234_123456.xlsx'
+        ))
+        self.assertIsNone(generate_weekly_pdfs.build_group_identity(
+            'WR_12345_WeekEnding_12345678_123456.xlsx'
+        ))
+
 
 class TestSourceWrCollisionQuarantine(unittest.TestCase):
     """Codex round-7 P1: source-side WR# collision detection.
