@@ -22,3 +22,6 @@ pytest-cov==6.0.0
 
 # Notion Dashboard Integration (used by scripts/notion_sync.py)
 notion-client==2.2.1
+
+# Billing audit attribution snapshot (Supabase, shadow mode)
+supabase==2.9.1

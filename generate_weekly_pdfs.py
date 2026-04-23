@@ -96,6 +96,18 @@ except ImportError as e:
         def audit_financial_data(self, *args, **kwargs):
             return {"summary": {"risk_level": "UNKNOWN"}}
 
+# Import billing audit attribution snapshot writer (shadow mode).
+# Failures here must NEVER break Excel generation — the writer is a
+# strictly additive, flag-gated, no-op-on-failure surface.
+try:
+    from billing_audit import writer as _billing_audit_writer
+    from billing_audit.fingerprint import compute_assignment_fingerprint
+    BILLING_AUDIT_AVAILABLE = True
+    print("❄️ Billing audit snapshot writer loaded successfully")
+except ImportError as e:
+    print(f"⚠️ Billing audit snapshot writer not available: {e}")
+    BILLING_AUDIT_AVAILABLE = False
+
 # 🎯 SHOW OUR FIXES ARE ACTIVE
 print("✅ CRITICAL FIXES APPLIED:")
 print("   • WR 90093002 Excel generation fix - ACTIVE")
@@ -4604,6 +4616,58 @@ def main():
                 # History key includes variant dimension to prevent collisions
                 history_key = f"{wr_num}|{week_raw}|{variant}|{identifier}"
 
+                # ── Billing audit snapshot: freeze personnel + emit run fingerprint ──
+                # Runs BEFORE the skip check so stable rows get attribution frozen on
+                # subsequent runs (first-write-wins makes repeat calls cheap). Writes
+                # happen in shadow mode — no read path yet. Failures must never break
+                # Excel generation. Skipped in TEST_MODE to prevent polluting production
+                # Supabase with synthetic test data.
+                if BILLING_AUDIT_AVAILABLE and not TEST_MODE:
+                    try:
+                        with sentry_sdk.start_span(
+                            op="billing_audit.freeze",
+                            name=f"Freeze attribution for WR {wr_num}",
+                        ) as _bas:
+                            _week_snap = first_row.get('__week_ending_date')
+                            if hasattr(_week_snap, 'date'):
+                                _week_snap = _week_snap.date()
+                            for _row in group_rows:
+                                _billing_audit_writer.freeze_row(
+                                    _row,
+                                    release=os.getenv('SENTRY_RELEASE'),
+                                    run_id=os.getenv('GITHUB_RUN_ID'),
+                                )
+                            _fp = compute_assignment_fingerprint(group_rows)
+                            _completed = sum(
+                                1 for _r in group_rows
+                                if is_checked(_r.get('Units Completed?'))
+                            )
+                            _billing_audit_writer.emit_run_fingerprint(
+                                wr=wr_num,
+                                week_ending=_week_snap,
+                                content_hash=data_hash,
+                                assignment_fp=_fp,
+                                completed_count=_completed,
+                                total_count=len(group_rows),
+                                release=os.getenv('SENTRY_RELEASE', ''),
+                                run_id=os.getenv('GITHUB_RUN_ID', ''),
+                            )
+                            _bas.set_data("rows", len(group_rows))
+                            _bas.set_data("variant", variant)
+                    except Exception as _audit_err:
+                        # Class name only — avoids leaking WR / foreman /
+                        # helper names via log bodies (see _PII_LOG_MARKERS).
+                        logging.warning(
+                            f"⚠️ Billing audit snapshot failed for group (suppressed details): "
+                            f"{type(_audit_err).__name__}"
+                        )
+                        sentry_add_breadcrumb(
+                            "billing_audit",
+                            "Snapshot failure (group-level)",
+                            level="warning",
+                            data={"error_type": type(_audit_err).__name__},
+                        )
+
                 # Decide skip based on stored history BEFORE generating Excel (only if FORCE not set)
                 if HISTORY_SKIP_ENABLED and not (FORCE_GENERATION or week_raw in REGEN_WEEKS or RESET_HASH_HISTORY or RESET_WR_LIST):
                     prev = hash_history.get(history_key)
@@ -4950,7 +5014,16 @@ def main():
             "audit_risk_level": audit_results.get('summary', {}).get('risk_level', 'UNKNOWN') if audit_results else 'UNKNOWN',
             "mode": "TEST" if TEST_MODE else "PRODUCTION",
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "snapshots_written": 0,
+            "snapshots_already_frozen": 0,
+            "snapshots_errored": 0,
+            "fingerprint_changes_detected": 0,
         }
+        if BILLING_AUDIT_AVAILABLE:
+            try:
+                _run_summary.update(_billing_audit_writer.get_counters())
+            except Exception:
+                pass  # Counter retrieval must never fail the run summary write.
         try:
             with open(os.path.join(OUTPUT_FOLDER, 'run_summary.json'), 'w') as _rsf:
                 json.dump(_run_summary, _rsf, indent=2)

@@ -215,6 +215,12 @@ jobs:
           # version constraints and matches the tag used by the
           # sentry-cli release step below.
           EXECUTION_TYPE: ${{ steps.exec.outputs.execution_type }}
+          # Billing audit attribution snapshot (shadow mode — writes
+          # only; reader ships in follow-up PR). Writer no-ops
+          # silently if either secret is unset, so this block is
+          # safe to land before the secrets exist at the repo level.
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           
           # Basic Operation Controls
           TEST_MODE: ${{ github.event.inputs.test_mode || 'false' }}
