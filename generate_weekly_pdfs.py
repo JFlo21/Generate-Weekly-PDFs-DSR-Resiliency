@@ -4427,31 +4427,36 @@ def main():
         _phase_group_start = datetime.datetime.now()
         _time_budget_exceeded = False
 
-        # Codex round-7 P1: source-side WR# collision quarantine.
+        # Codex P1: source-side WR# collision quarantine.
         # ``_RE_SANITIZE_HELPER_NAME`` on the raw row value is a lossy
         # transform — two distinct raw WR# values may fold to the
-        # same sanitized key, which would then share a ``history_key``,
-        # a ``target_map`` lookup key, and an Excel filename across
-        # groups. One group's hash history could overwrite another's,
-        # and both could delete/upload on the same target-sheet row.
-        # Pre-scan the groups once; if any sanitized WR (scoped per
-        # week + variant) is produced by more than one distinct raw
-        # WR, quarantine that key and skip all affected groups with a
-        # loud WARNING. Realistic numeric WR#s can't collide, so the
-        # scan is zero-impact on production data.
+        # same sanitized key. Downstream routing uses that sanitized
+        # key for ``target_map`` lookups AND for attachment-identity
+        # matching (filenames, hash_history), so an unquarantined
+        # collision can cause cross-WR data corruption:
+        #   * If target_map has BOTH colliding raws, round-6 quarantine
+        #     removes the key from target_map so both uploads fail
+        #     loudly at ``if wr_num in target_map`` — safe.
+        #   * If target_map has only ONE of the raws (the other WR
+        #     simply isn't in the target sheet yet), the source-side
+        #     scan is the only defence. The second raw's group would
+        #     otherwise resolve ``target_map[sanitized]`` to the first
+        #     raw's row and upload to the wrong row.
+        # We therefore key the quarantine on the sanitized WR ALONE
+        # (not on ``(wr, week, variant)``): any pair of distinct raw
+        # WRs that fold to the same sanitized key, anywhere in the
+        # run's groups, is a collision regardless of week or variant.
+        # Realistic numeric WR#s can't collide, so the scan is
+        # zero-impact on production data.
         _source_wr_raws_per_key: dict = collections.defaultdict(set)
-        for _g_key, _g_rows in groups.items():
+        for _g_rows in groups.values():
             if not _g_rows:
                 continue
             _g_raw = str(_g_rows[0].get('Work Request #') or '').split('.')[0]
             if not _g_raw:
                 continue
             _g_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', _g_raw)[:50]
-            _g_week = _g_key.split('_', 1)[0] if '_' in _g_key else ''
-            _g_variant = _g_rows[0].get('__variant', 'primary')
-            _source_wr_raws_per_key[
-                (_g_sanitized, _g_week, _g_variant)
-            ].add(_g_raw)
+            _source_wr_raws_per_key[_g_sanitized].add(_g_raw)
         _quarantined_source_wr_keys: set = {
             key for key, raws in _source_wr_raws_per_key.items()
             if len(raws) > 1
@@ -4461,12 +4466,11 @@ def main():
                 _raws = sorted(_source_wr_raws_per_key[_qk])
                 logging.warning(
                     f"⚠️ Source WR# sanitization collision: raws={_raws} "
-                    f"all fold to sanitized_key={_qk[0]!r} "
-                    f"(week={_qk[1]!r}, variant={_qk[2]!r}). All "
-                    f"affected groups will be SKIPPED to prevent "
-                    f"cross-contamination of hash history, target_map "
-                    f"lookups, and Excel filenames. Deduplicate the "
-                    f"source WR# values and rerun."
+                    f"all fold to sanitized_key={_qk!r}. All affected "
+                    f"groups (across every week + variant combination) "
+                    f"will be SKIPPED to prevent cross-WR contamination "
+                    f"of target_map uploads and attachment identity. "
+                    f"Deduplicate the source WR# values and rerun."
                 )
             logging.warning(
                 f"⚠️ Total source WR# collision quarantines: "
@@ -4506,11 +4510,16 @@ def main():
                 variant = first_row.get('__variant', 'primary')
 
                 # Source-side collision quarantine (see pre-scan above).
-                # If this group's (sanitized_wr, week, variant) tuple
-                # was flagged as colliding with another group's raw WR,
-                # skip it entirely so we don't overwrite another
-                # group's hash_history / target_map / Excel filename.
-                if (wr_num, week_raw, variant) in _quarantined_source_wr_keys:
+                # If this group's sanitized WR was flagged as colliding
+                # with another group's raw WR anywhere in the run —
+                # regardless of week or variant — skip it entirely. The
+                # broader key is required because downstream
+                # ``target_map`` lookups and attachment-identity
+                # matching use only the sanitized WR; they do not
+                # disambiguate by week or variant, so an unquarantined
+                # cross-context collision can still route uploads /
+                # deletes to the wrong target-sheet row.
+                if wr_num in _quarantined_source_wr_keys:
                     logging.warning(
                         f"⚠️ Skipping group {group_key}: sanitized WR# "
                         f"{wr_num!r} collides with another group (see "

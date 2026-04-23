@@ -1031,88 +1031,94 @@ class TestSourceWrCollisionQuarantine(unittest.TestCase):
     collisions and a per-group skip in the main loop.
     """
 
-    def test_pre_scan_detects_slash_backslash_collision(self):
-        """Reproduce the pre-scan logic against a crafted groups dict."""
+    def _run_pre_scan(self, groups):
+        """Helper that mirrors the production pre-scan logic exactly.
+
+        Keyed on sanitized WR alone (not ``(wr, week, variant)``) so
+        cross-context collisions route through ``target_map`` /
+        attachment-identity are caught.
+        """
         import collections as _collections
-        groups = {
-            '041926_raw1': [{'Work Request #': '1234/evil', '__variant': 'primary'}],
-            '041926_raw2': [{'Work Request #': '1234\\evil', '__variant': 'primary'}],
-            '041926_raw3': [{'Work Request #': '90093002', '__variant': 'primary'}],
-        }
         source_wr_raws_per_key = _collections.defaultdict(set)
-        for g_key, g_rows in groups.items():
+        for g_rows in groups.values():
             if not g_rows:
                 continue
             g_raw = str(g_rows[0].get('Work Request #') or '').split('.')[0]
             if not g_raw:
                 continue
             g_sanitized = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub('_', g_raw)[:50]
-            g_week = g_key.split('_', 1)[0] if '_' in g_key else ''
-            g_variant = g_rows[0].get('__variant', 'primary')
-            source_wr_raws_per_key[(g_sanitized, g_week, g_variant)].add(g_raw)
-        quarantined = {
+            source_wr_raws_per_key[g_sanitized].add(g_raw)
+        return {
             key for key, raws in source_wr_raws_per_key.items()
             if len(raws) > 1
         }
+
+    def test_pre_scan_detects_slash_backslash_collision(self):
+        """Reproduce the pre-scan logic against a crafted groups dict."""
+        groups = {
+            '041926_raw1': [{'Work Request #': '1234/evil', '__variant': 'primary'}],
+            '041926_raw2': [{'Work Request #': '1234\\evil', '__variant': 'primary'}],
+            '041926_raw3': [{'Work Request #': '90093002', '__variant': 'primary'}],
+        }
+        quarantined = self._run_pre_scan(groups)
         # The slash/backslash pair must be quarantined; the lone
         # numeric WR is NOT a collision.
-        self.assertEqual(len(quarantined), 1)
         sanitized_key = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub(
             '_', '1234/evil',
         )[:50]
-        self.assertIn((sanitized_key, '041926', 'primary'), quarantined)
+        self.assertEqual(len(quarantined), 1)
+        self.assertIn(sanitized_key, quarantined)
 
     def test_pre_scan_is_zero_impact_on_realistic_numeric_wrs(self):
         """Realistic numeric WR#s across many groups must never trigger
         a quarantine — the pre-scan is noise-free on production data.
+        Note: the same numeric WR legitimately appearing across
+        multiple weeks is NOT a collision (only one distinct raw
+        value per sanitized key).
         """
-        import collections as _collections
         groups = {
             '041926_90093002': [{'Work Request #': '90093002', '__variant': 'primary'}],
             '041926_89954686': [{'Work Request #': '89954686', '__variant': 'primary'}],
             '041926_12345': [{'Work Request #': '12345', '__variant': 'primary'}],
             '042626_90093002': [{'Work Request #': '90093002', '__variant': 'primary'}],
         }
-        source_wr_raws_per_key = _collections.defaultdict(set)
-        for g_key, g_rows in groups.items():
-            g_raw = str(g_rows[0].get('Work Request #') or '').split('.')[0]
-            g_sanitized = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub('_', g_raw)[:50]
-            g_week = g_key.split('_', 1)[0]
-            g_variant = g_rows[0].get('__variant', 'primary')
-            source_wr_raws_per_key[(g_sanitized, g_week, g_variant)].add(g_raw)
-        quarantined = {
-            key for key, raws in source_wr_raws_per_key.items()
-            if len(raws) > 1
-        }
+        quarantined = self._run_pre_scan(groups)
         self.assertEqual(quarantined, set())
 
-    def test_pre_scan_scoped_by_week_and_variant(self):
-        """Collisions are scoped to the (wr, week, variant) tuple — a
-        sanitized WR matching across DIFFERENT weeks or variants is
-        not a collision because those have independent hash_history
-        entries and target_map lookups."""
-        import collections as _collections
+    def test_pre_scan_catches_cross_week_collisions(self):
+        """Codex P1 (round-9): two distinct raw WRs that sanitize to
+        the same key must be quarantined EVEN if they live in
+        different weeks or variants. Earlier round-7 code scoped
+        collisions by ``(wr, week, variant)`` which missed this case
+        — target_map and attachment-identity routing use only the
+        sanitized WR, so cross-context collisions can still corrupt
+        uploads.
+        """
         groups = {
+            # Same sanitized WR, different weeks → must quarantine.
             '041926_col': [{'Work Request #': '1234/evil', '__variant': 'primary'}],
             '042626_col': [{'Work Request #': '1234\\evil', '__variant': 'primary'}],
-            # Same week, different variant → not a collision either.
+        }
+        quarantined = self._run_pre_scan(groups)
+        sanitized_key = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub(
+            '_', '1234/evil',
+        )[:50]
+        self.assertIn(sanitized_key, quarantined)
+
+    def test_pre_scan_catches_cross_variant_collisions(self):
+        """Codex P1 (round-9): distinct raws that collide across
+        variants (e.g. a primary group and a helper group with
+        sanitization-colliding WR#s) must also be flagged.
+        """
+        groups = {
             '041926_a': [{'Work Request #': '1234/evil', '__variant': 'helper'}],
             '041926_b': [{'Work Request #': '1234\\evil', '__variant': 'vac_crew'}],
         }
-        source_wr_raws_per_key = _collections.defaultdict(set)
-        for g_key, g_rows in groups.items():
-            g_raw = str(g_rows[0].get('Work Request #') or '').split('.')[0]
-            g_sanitized = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub('_', g_raw)[:50]
-            g_week = g_key.split('_', 1)[0]
-            g_variant = g_rows[0].get('__variant', 'primary')
-            source_wr_raws_per_key[(g_sanitized, g_week, g_variant)].add(g_raw)
-        quarantined = {
-            key for key, raws in source_wr_raws_per_key.items()
-            if len(raws) > 1
-        }
-        # Nothing collides: different weeks AND different variants
-        # produce different tuples.
-        self.assertEqual(quarantined, set())
+        quarantined = self._run_pre_scan(groups)
+        sanitized_key = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub(
+            '_', '1234/evil',
+        )[:50]
+        self.assertIn(sanitized_key, quarantined)
 
 
 class TestInspectImportRemoved(unittest.TestCase):

@@ -1157,3 +1157,41 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   ``TestSourceWrCollisionQuarantine`` (3 cases — slash/backslash
   collision detected, noise-free on realistic numeric WRs,
   scoped by week AND variant tuple).
+- [2026-04-23 21:00] PR #176 round-9 Codex P1: the round-7
+  source-collision pre-scan was too narrowly scoped. Keying on
+  ``(sanitized_wr, week, variant)`` missed cross-week and
+  cross-variant collisions, which still reach ``target_map``
+  because downstream routing uses the sanitized WR alone — not
+  the tuple. Attack surface: if the target sheet has WR A but
+  not WR B (both folding to sanitized K), the target-side
+  quarantine at ``create_target_sheet_map`` doesn't fire
+  (only one raw seen), and B's source group resolves
+  ``target_map[K]`` to A's row, uploading B's Excel to A's
+  target-sheet row → cross-WR data corruption. Fix: broaden
+  the source-side quarantine key from
+  ``(sanitized_wr, week, variant)`` to the sanitized WR alone.
+  Any pair of distinct raw WRs folding to the same sanitized
+  key anywhere in the run is a collision, and every affected
+  group is skipped — regardless of week or variant — with a
+  WARNING listing all raw values. Realistic numeric WR#s still
+  can't collide (same numeric WR across multiple weeks is
+  ONE raw, not a collision), so production remains zero-impact.
+  **New rule:** When a sanitizer collapses a keyspace and the
+  sanitized key drives downstream routing (target_map,
+  attachment identity, filename), collision detection MUST be
+  keyed on the sanitized value ALONE — not on any tuple that
+  includes context the router doesn't use. Otherwise
+  cross-context collisions can slip past the quarantine and
+  corrupt routing. The per-context variables (``week``,
+  ``variant``) are still part of the *downstream* key that
+  disambiguates properly-distinct entries; they are NOT part of
+  the collision-detection key because that key tracks "can two
+  raws masquerade as one" and is a pure sanitizer-level
+  property. Regression tests updated: existing
+  ``test_pre_scan_scoped_by_week_and_variant`` removed
+  (asserted the old, unsafe invariant); new
+  ``test_pre_scan_catches_cross_week_collisions`` and
+  ``test_pre_scan_catches_cross_variant_collisions`` lock in
+  the broader quarantine. A reusable ``_run_pre_scan`` test
+  helper mirrors the production pre-scan so the test drift
+  between case-setups is eliminated.
