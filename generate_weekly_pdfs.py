@@ -4582,6 +4582,15 @@ def main():
         # Walking ``groups.items()`` once here is O(total rows)
         # and negligible compared to per-group work.
         _billing_audit_fp_buckets: dict[tuple[str, str], list[dict]] = {}
+        # Aggregated content hash per (wr, week). Like assignment_fp,
+        # the emit_run_fingerprint dedup writes exactly one
+        # ``pipeline_run`` row per (wr, week, run_id) — so
+        # ``content_hash`` must reflect the UNION of all variants'
+        # rows, not whichever variant was iterated first. Without
+        # this, a source-ordering change between runs flips the
+        # stored hash even when the underlying work set is
+        # unchanged, making downstream run comparisons noisy.
+        _billing_audit_agg_content_hashes: dict[tuple[str, str], str] = {}
         if BILLING_AUDIT_AVAILABLE and not TEST_MODE:
             for _agg_gk, _agg_rows in groups.items():
                 if not _agg_rows:
@@ -4597,6 +4606,14 @@ def main():
                 _billing_audit_fp_buckets.setdefault(
                     (_wr_san, _week_part), []
                 ).extend(_agg_rows)
+            # Hash each complete bucket once. ``calculate_data_hash``
+            # already sorts / normalizes internally, so the aggregated
+            # hash is deterministic regardless of variant iteration
+            # order.
+            for _agg_key, _agg_bucket_rows in _billing_audit_fp_buckets.items():
+                _billing_audit_agg_content_hashes[_agg_key] = (
+                    calculate_data_hash(_agg_bucket_rows)
+                )
 
         for group_idx, (group_key, group_rows) in enumerate(groups.items(), 1):
             # Graceful time budget: stop before Actions hard-kills the job
@@ -4710,15 +4727,21 @@ def main():
                             # dict lookup per group.
                             if _billing_audit_writer.fingerprint_flag_enabled():
                                 # Use the cross-variant aggregation
-                                # so the fingerprint covers all
-                                # personnel (primary + helper + vac)
-                                # for this (wr, week). Falls back to
-                                # group_rows only if the bucket is
+                                # so the fingerprint AND content hash
+                                # cover all personnel + all rows
+                                # (primary + helper + vac) for this
+                                # (wr, week). Falls back to group_rows
+                                # / data_hash only if the bucket is
                                 # empty (shouldn't happen — the
                                 # bucket is built from the same
                                 # groups dict we're iterating).
                                 _agg_fp_rows = _billing_audit_fp_buckets.get(
                                     (wr_num, week_raw), group_rows
+                                )
+                                _agg_content_hash = (
+                                    _billing_audit_agg_content_hashes.get(
+                                        (wr_num, week_raw), data_hash
+                                    )
                                 )
                                 _fp = compute_assignment_fingerprint(_agg_fp_rows)
                                 _completed = sum(
@@ -4728,7 +4751,7 @@ def main():
                                 _billing_audit_writer.emit_run_fingerprint(
                                     wr=wr_num,
                                     week_ending=_week_snap,
-                                    content_hash=data_hash,
+                                    content_hash=_agg_content_hash,
                                     assignment_fp=_fp,
                                     completed_count=_completed,
                                     total_count=len(_agg_fp_rows),

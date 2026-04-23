@@ -1352,6 +1352,37 @@ class CrossVariantFingerprintAggregationTests(unittest.TestCase):
             src,
         )
 
+    def test_emit_uses_aggregated_content_hash(self):
+        """content_hash must come from
+        ``_billing_audit_agg_content_hashes`` (per-bucket aggregated
+        hash), not ``data_hash`` (per-variant). Otherwise the
+        stored pipeline_run.content_hash depends on variant
+        iteration order and flips spuriously between runs.
+        """
+        from pathlib import Path
+        src = Path("generate_weekly_pdfs.py").read_text()
+        # The aggregation map must exist and be hashed after the
+        # bucket is fully built.
+        self.assertIn(
+            "_billing_audit_agg_content_hashes: dict[tuple[str, str], str] = {}",
+            src,
+        )
+        self.assertIn(
+            "calculate_data_hash(_agg_bucket_rows)",
+            src,
+        )
+        # The emit call must pass the aggregated value, not data_hash.
+        self.assertIn(
+            "content_hash=_agg_content_hash",
+            src,
+        )
+        self.assertNotIn(
+            "content_hash=data_hash,",
+            src,
+            "content_hash=data_hash leaks per-variant hash into "
+            "pipeline_run, causing cross-run noise",
+        )
+
     def test_compute_assignment_fingerprint_covers_all_variants(self):
         """Sanity check the pure function: rows spanning primary,
         helper, and vac_crew produce a fingerprint that's
