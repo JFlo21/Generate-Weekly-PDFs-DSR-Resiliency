@@ -1608,10 +1608,18 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
     # source WR#) still parse correctly. For realistic numeric WR#s
     # the marker is at position 2 exactly — this preserves the
     # legacy layout while hardening against the edge case.
-    try:
-        we_idx = parts.index('WeekEnding')
-    except ValueError:
+    #
+    # Pick the LAST occurrence rather than the first: the tokens to
+    # the right of the structural delimiter (week, timestamp,
+    # variant marker, identifier, hash) are deterministic and never
+    # equal the literal ``WeekEnding``, so ``rindex`` semantics are
+    # always correct. ``index`` would mis-locate the marker when a
+    # sanitized WR token happens to contain ``WeekEnding`` itself as
+    # one of its ``_``-separated segments.
+    _we_positions = [i for i, p in enumerate(parts) if p == 'WeekEnding']
+    if not _we_positions:
         return None
+    we_idx = _we_positions[-1]
     if we_idx < 2 or we_idx + 1 >= len(parts):
         return None
 

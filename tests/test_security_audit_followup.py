@@ -968,6 +968,42 @@ class TestBuildGroupIdentityWithUnderscoresInWr(unittest.TestCase):
             )
         )
 
+    def test_wr_token_containing_literal_weekending_parses_correctly(self):
+        """Round-8 Copilot follow-up: if a sanitized WR segment is
+        literally ``WeekEnding``, the parser must still locate the
+        *structural* delimiter (the LAST ``WeekEnding``), not the
+        first occurrence embedded in the WR token.
+
+        Without rindex semantics, ``parts.index('WeekEnding')`` would
+        return position 1 (the WR segment), treat position 2 as the
+        week (the real ``WeekEnding`` delimiter), and corrupt the
+        returned WR/week tuple.
+        """
+        # WR literally equals 'WeekEnding' — sanitized identically.
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_WeekEnding_WeekEnding_041926_123456_ab12cd34ef.xlsx'
+        )
+        self.assertIsNotNone(ident)
+        wr, week, variant, identifier = ident
+        self.assertEqual(wr, 'WeekEnding')
+        self.assertEqual(week, '041926')
+        self.assertEqual(variant, 'primary')
+
+    def test_wr_token_with_multiple_weekending_segments_still_parses(self):
+        """Even a pathological WR containing multiple ``WeekEnding``
+        segments must parse — the rightmost marker is unambiguously
+        the structural delimiter because everything after it
+        (week, timestamp, variant, hash) never equals ``WeekEnding``.
+        """
+        # WR is 'WeekEnding_WeekEnding' (two segments that both match).
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_WeekEnding_WeekEnding_WeekEnding_041926_123456_ab12cd34ef.xlsx'
+        )
+        self.assertIsNotNone(ident)
+        wr, week, variant, identifier = ident
+        self.assertEqual(wr, 'WeekEnding_WeekEnding')
+        self.assertEqual(week, '041926')
+
     def test_wr_containing_literal_helper_token_no_false_variant(self):
         """A sanitized WR containing ``Helper`` must NOT be read as
         the helper variant. The marker search is scoped to the tail
