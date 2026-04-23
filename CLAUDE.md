@@ -1099,3 +1099,61 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   the truth-table of the new gate and the
   `_partial_cache_corruption` detection boolean (empty-cache,
   no-drops, one-dropped, all-dropped).
+- [2026-04-23 20:40] PR #176 round-7 Codex follow-ups. Two
+  companion issues to the round-6 sanitizer work:
+  **(P2) ``build_group_identity`` broke on sanitized WR tokens
+  containing underscores.** The parser assumed
+  ``parts[2] == 'WeekEnding'`` and extracted ``wr = parts[1]``,
+  which is only valid when the WR token has zero underscores.
+  But ``_RE_SANITIZE_HELPER_NAME`` converts any non-word / non-
+  dash character to ``_``, so an input like ``1234/../evil``
+  produces a filename ``WR_1234____evil_WeekEnding_...`` and the
+  parser returned ``None``. Downstream attachment-identity flows
+  (``_has_existing_week_attachment``,
+  ``delete_old_excel_attachments``, stale-variant cleanup) then
+  failed to match prior runs' files on disk, causing repeated
+  regeneration and orphaned attachment accumulation on any WR#
+  whose raw value was sanitization-sensitive. Fix: the parser
+  now locates ``WeekEnding`` via ``parts.index(...)`` and joins
+  ``parts[1:we_idx]`` for the WR token. Variant-marker detection
+  (``Helper`` / ``VacCrew`` / ``User``) is scoped to the
+  post-``WeekEnding`` tail so a sanitized WR that happens to
+  contain one of those literal tokens cannot false-positive the
+  variant. Realistic numeric WR#s still parse identically via
+  the same code path. **(P1) Source-side WR# collisions across
+  groups.** The main loop uses the sanitized WR as the canonical
+  key for ``history_key``, ``target_map`` lookups, and Excel
+  filenames. If two source groups have raw WR# values that fold
+  to the same sanitized key (within the same week + variant),
+  one group's hash history overwrites the other's and both
+  groups target the same target-sheet row. Fix: pre-scan
+  ``groups.items()`` once before the main loop, build a
+  ``defaultdict(set)`` keyed by ``(sanitized_wr, week, variant)``,
+  and flag any key mapped by more than one distinct raw WR as
+  a ``_quarantined_source_wr_keys`` entry. The per-group skip
+  is gated on that set immediately after the main loop's
+  sanitization step — a quarantined group is skipped with an
+  operator-visible WARNING before touching ``history_key``,
+  ``target_map``, or ``generate_excel``. **New rules:**
+  (1) Any filename parser that splits on a character and
+  asserts a fixed-position marker is fragile if the filename's
+  components can legitimately contain that character. Use
+  ``list.index(marker)`` + span-joins so the parser degrades
+  gracefully rather than returning ``None`` silently — a
+  silent-return-None from an attachment-identity parser is a
+  repeated-regeneration trap. (2) Whenever a sanitizer collapses
+  the keyspace (regex + truncation), the pre-pass that detects
+  same-key collisions must run at BOTH endpoints of the key —
+  the place the key is constructed (source side, here
+  ``groups.items()``) AND the place the key is consumed (target
+  side, here ``target_map``). Round-6 fixed the target side;
+  this round adds the source side. The symmetry is what keeps
+  hash history, upload tasks, and target-row lookups from ever
+  being driven by the same ambiguous key. Regression tests:
+  new ``TestBuildGroupIdentityWithUnderscoresInWr`` (5 cases —
+  plain numeric, sanitized-underscore WR round-trip, VacCrew
+  filename, Helper filename, no-``WeekEnding`` fails, WR that
+  is literally ``Helper`` but variant stays ``primary``) and
+  ``TestSourceWrCollisionQuarantine`` (3 cases — slash/backslash
+  collision detected, noise-free on realistic numeric WRs,
+  scoped by week AND variant tuple).

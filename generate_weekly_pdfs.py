@@ -1596,37 +1596,55 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
         return None
     base = filename[:-5] if filename.lower().endswith('.xlsx') else filename
     parts = base.split('_')
-    
+
     # Minimum: WR_<wr>_WeekEnding_<week>
     if len(parts) < 4:
         return None
-    if parts[0] != 'WR' or parts[2] != 'WeekEnding':
+    if parts[0] != 'WR':
         return None
-    
-    wr = parts[1]
-    week = parts[3]
-    
-    # Detect variant from filename structure
+    # Find ``WeekEnding`` by search rather than fixed position so
+    # filenames whose WR token itself contains ``_`` (possible when
+    # ``_RE_SANITIZE_HELPER_NAME`` rewrote a sanitization-sensitive
+    # source WR#) still parse correctly. For realistic numeric WR#s
+    # the marker is at position 2 exactly — this preserves the
+    # legacy layout while hardening against the edge case.
+    try:
+        we_idx = parts.index('WeekEnding')
+    except ValueError:
+        return None
+    if we_idx < 2 or we_idx + 1 >= len(parts):
+        return None
+
+    # WR may span one or more parts depending on whether the
+    # sanitizer introduced underscores. Rejoin them so the returned
+    # WR token round-trips with the generator's output.
+    wr = '_'.join(parts[1:we_idx])
+    week = parts[we_idx + 1]
+
+    # Detect variant from filename structure. Scope the marker search
+    # to the tail (everything after ``WeekEnding <week>``) so any
+    # accidental ``Helper`` / ``User`` / ``VacCrew`` token inside a
+    # sanitized WR does not false-positive the variant detection.
     variant = 'primary'
     identifier = None
-    
-    # Look for Helper, VacCrew, or User markers
-    if 'Helper' in parts:
+    tail = parts[we_idx + 2:]
+
+    if 'Helper' in tail:
         variant = 'helper'
-        helper_idx = parts.index('Helper')
-        if helper_idx + 1 < len(parts):
+        helper_idx_rel = tail.index('Helper')
+        if helper_idx_rel + 1 < len(tail):
             # Join all parts between Helper and hash (last part)
             # Format: ...Helper_{name}_{hash} or ...Helper_{name}_part2_{hash}
-            identifier = '_'.join(parts[helper_idx + 1:-1])
-    elif 'VacCrew' in parts:
+            identifier = '_'.join(tail[helper_idx_rel + 1:-1])
+    elif 'VacCrew' in tail:
         variant = 'vac_crew'
         identifier = ''  # No sub-identifier for VAC Crew; use '' to match main() and valid_wr_weeks
-    elif 'User' in parts:
+    elif 'User' in tail:
         variant = 'primary'
-        user_idx = parts.index('User')
-        if user_idx + 1 < len(parts):
-            identifier = '_'.join(parts[user_idx + 1:-1])
-    
+        user_idx_rel = tail.index('User')
+        if user_idx_rel + 1 < len(tail):
+            identifier = '_'.join(tail[user_idx_rel + 1:-1])
+
     return (wr, week, variant, identifier)
 
 def cleanup_stale_excels(output_folder: str, kept_filenames: set):
@@ -4400,6 +4418,54 @@ def main():
 
         _phase_group_start = datetime.datetime.now()
         _time_budget_exceeded = False
+
+        # Codex round-7 P1: source-side WR# collision quarantine.
+        # ``_RE_SANITIZE_HELPER_NAME`` on the raw row value is a lossy
+        # transform — two distinct raw WR# values may fold to the
+        # same sanitized key, which would then share a ``history_key``,
+        # a ``target_map`` lookup key, and an Excel filename across
+        # groups. One group's hash history could overwrite another's,
+        # and both could delete/upload on the same target-sheet row.
+        # Pre-scan the groups once; if any sanitized WR (scoped per
+        # week + variant) is produced by more than one distinct raw
+        # WR, quarantine that key and skip all affected groups with a
+        # loud WARNING. Realistic numeric WR#s can't collide, so the
+        # scan is zero-impact on production data.
+        _source_wr_raws_per_key: dict = collections.defaultdict(set)
+        for _g_key, _g_rows in groups.items():
+            if not _g_rows:
+                continue
+            _g_raw = str(_g_rows[0].get('Work Request #') or '').split('.')[0]
+            if not _g_raw:
+                continue
+            _g_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', _g_raw)[:50]
+            _g_week = _g_key.split('_', 1)[0] if '_' in _g_key else ''
+            _g_variant = _g_rows[0].get('__variant', 'primary')
+            _source_wr_raws_per_key[
+                (_g_sanitized, _g_week, _g_variant)
+            ].add(_g_raw)
+        _quarantined_source_wr_keys: set = {
+            key for key, raws in _source_wr_raws_per_key.items()
+            if len(raws) > 1
+        }
+        if _quarantined_source_wr_keys:
+            for _qk in _quarantined_source_wr_keys:
+                _raws = sorted(_source_wr_raws_per_key[_qk])
+                logging.warning(
+                    f"⚠️ Source WR# sanitization collision: raws={_raws} "
+                    f"all fold to sanitized_key={_qk[0]!r} "
+                    f"(week={_qk[1]!r}, variant={_qk[2]!r}). All "
+                    f"affected groups will be SKIPPED to prevent "
+                    f"cross-contamination of hash history, target_map "
+                    f"lookups, and Excel filenames. Deduplicate the "
+                    f"source WR# values and rerun."
+                )
+            logging.warning(
+                f"⚠️ Total source WR# collision quarantines: "
+                f"{len(_quarantined_source_wr_keys)} sanitized key(s); "
+                f"see preceding warnings for raw values."
+            )
+
         for group_idx, (group_key, group_rows) in enumerate(groups.items(), 1):
             # Graceful time budget: stop before Actions hard-kills the job
             if TIME_BUDGET_MINUTES and GITHUB_ACTIONS_MODE:
@@ -4426,10 +4492,25 @@ def main():
                 # path-traversal metacharacters get replaced with ``_``.
                 wr_num = _RE_SANITIZE_HELPER_NAME.sub('_', wr_num)[:50]
                 week_raw = group_key.split('_',1)[0] if '_' in group_key else ''
-                
+
                 # Extract variant and identifier for variant-aware hash history
                 first_row = group_rows[0] if group_rows else {}
                 variant = first_row.get('__variant', 'primary')
+
+                # Source-side collision quarantine (see pre-scan above).
+                # If this group's (sanitized_wr, week, variant) tuple
+                # was flagged as colliding with another group's raw WR,
+                # skip it entirely so we don't overwrite another
+                # group's hash_history / target_map / Excel filename.
+                if (wr_num, week_raw, variant) in _quarantined_source_wr_keys:
+                    logging.warning(
+                        f"⚠️ Skipping group {group_key}: sanitized WR# "
+                        f"{wr_num!r} collides with another group (see "
+                        f"'Source WR# sanitization collision' WARNING "
+                        f"above for the full raw-value list)."
+                    )
+                    _groups_skipped += 1
+                    continue
                 if variant == 'helper':
                     # CRITICAL FIX: Include helper dept and job in identifier for unique hash keys
                     # This ensures helper files regenerate when new helper rows are added

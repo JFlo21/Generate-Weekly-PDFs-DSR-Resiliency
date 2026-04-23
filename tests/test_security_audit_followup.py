@@ -906,6 +906,179 @@ class TestDiscoveryCacheFastPathSkipsOnPartialCorruption(unittest.TestCase):
             )
 
 
+class TestBuildGroupIdentityWithUnderscoresInWr(unittest.TestCase):
+    """Codex round-7 P2: ``build_group_identity`` must parse filenames
+    whose WR token contains underscores introduced by
+    ``_RE_SANITIZE_HELPER_NAME``. Before the fix, the parser asserted
+    ``parts[2] == 'WeekEnding'`` and thus failed for any sanitized
+    WR containing a rewritten character. That broke
+    ``_has_existing_week_attachment``, ``delete_old_excel_attachments``,
+    and stale-variant cleanup on hardened filenames — each run would
+    keep regenerating/reuploading the same artifact.
+    """
+
+    def test_plain_numeric_wr_still_parses(self):
+        """Realistic production filenames must still round-trip."""
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_90093002_WeekEnding_041926_123456_ab12cd34ef.xlsx'
+        )
+        self.assertIsNotNone(ident)
+        wr, week, variant, identifier = ident
+        self.assertEqual(wr, '90093002')
+        self.assertEqual(week, '041926')
+        self.assertEqual(variant, 'primary')
+
+    def test_sanitized_wr_with_underscores_parses(self):
+        """Input like ``1234/../evil`` sanitizes to ``1234____evil``."""
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_1234____evil_WeekEnding_041926_123456_ab12cd34ef.xlsx'
+        )
+        self.assertIsNotNone(ident)
+        wr, week, variant, identifier = ident
+        self.assertEqual(wr, '1234____evil')
+        self.assertEqual(week, '041926')
+        self.assertEqual(variant, 'primary')
+
+    def test_vac_crew_filename_with_underscored_wr_parses(self):
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_1234____evil_WeekEnding_041926_123456_VacCrew_ab12cd34ef.xlsx'
+        )
+        self.assertIsNotNone(ident)
+        wr, week, variant, identifier = ident
+        self.assertEqual(wr, '1234____evil')
+        self.assertEqual(week, '041926')
+        self.assertEqual(variant, 'vac_crew')
+        self.assertEqual(identifier, '')
+
+    def test_helper_filename_with_underscored_wr_parses(self):
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_1234____evil_WeekEnding_041926_123456_Helper_Jane_Smith_ab12cd34ef.xlsx'
+        )
+        self.assertIsNotNone(ident)
+        wr, week, variant, identifier = ident
+        self.assertEqual(wr, '1234____evil')
+        self.assertEqual(week, '041926')
+        self.assertEqual(variant, 'helper')
+        self.assertEqual(identifier, 'Jane_Smith')
+
+    def test_missing_weekending_marker_still_returns_none(self):
+        self.assertIsNone(
+            generate_weekly_pdfs.build_group_identity(
+                'WR_12345_NotAMarker_041926.xlsx'
+            )
+        )
+
+    def test_wr_containing_literal_helper_token_no_false_variant(self):
+        """A sanitized WR containing ``Helper`` must NOT be read as
+        the helper variant. The marker search is scoped to the tail
+        after ``WeekEnding <week>`` so the WR portion is ignored.
+        """
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_Helper_WeekEnding_041926_123456_ab12cd34ef.xlsx'
+        )
+        self.assertIsNotNone(ident)
+        wr, week, variant, identifier = ident
+        self.assertEqual(wr, 'Helper')
+        self.assertEqual(variant, 'primary')
+        self.assertIsNone(identifier)
+
+
+class TestSourceWrCollisionQuarantine(unittest.TestCase):
+    """Codex round-7 P1: source-side WR# collision detection.
+
+    The main loop uses a sanitized+truncated WR as the canonical key
+    for ``history_key``, ``target_map`` lookups, and Excel filenames.
+    If two distinct source groups have raw WR# values that fold to
+    the same sanitized key, both would target the same hash_history
+    slot and the same target-sheet row — a cross-contamination
+    scenario. The fix is a pre-scan over ``groups`` that detects such
+    collisions and a per-group skip in the main loop.
+    """
+
+    def test_pre_scan_detects_slash_backslash_collision(self):
+        """Reproduce the pre-scan logic against a crafted groups dict."""
+        import collections as _collections
+        groups = {
+            '041926_raw1': [{'Work Request #': '1234/evil', '__variant': 'primary'}],
+            '041926_raw2': [{'Work Request #': '1234\\evil', '__variant': 'primary'}],
+            '041926_raw3': [{'Work Request #': '90093002', '__variant': 'primary'}],
+        }
+        source_wr_raws_per_key = _collections.defaultdict(set)
+        for g_key, g_rows in groups.items():
+            if not g_rows:
+                continue
+            g_raw = str(g_rows[0].get('Work Request #') or '').split('.')[0]
+            if not g_raw:
+                continue
+            g_sanitized = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub('_', g_raw)[:50]
+            g_week = g_key.split('_', 1)[0] if '_' in g_key else ''
+            g_variant = g_rows[0].get('__variant', 'primary')
+            source_wr_raws_per_key[(g_sanitized, g_week, g_variant)].add(g_raw)
+        quarantined = {
+            key for key, raws in source_wr_raws_per_key.items()
+            if len(raws) > 1
+        }
+        # The slash/backslash pair must be quarantined; the lone
+        # numeric WR is NOT a collision.
+        self.assertEqual(len(quarantined), 1)
+        sanitized_key = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub(
+            '_', '1234/evil',
+        )[:50]
+        self.assertIn((sanitized_key, '041926', 'primary'), quarantined)
+
+    def test_pre_scan_is_zero_impact_on_realistic_numeric_wrs(self):
+        """Realistic numeric WR#s across many groups must never trigger
+        a quarantine — the pre-scan is noise-free on production data.
+        """
+        import collections as _collections
+        groups = {
+            '041926_90093002': [{'Work Request #': '90093002', '__variant': 'primary'}],
+            '041926_89954686': [{'Work Request #': '89954686', '__variant': 'primary'}],
+            '041926_12345': [{'Work Request #': '12345', '__variant': 'primary'}],
+            '042626_90093002': [{'Work Request #': '90093002', '__variant': 'primary'}],
+        }
+        source_wr_raws_per_key = _collections.defaultdict(set)
+        for g_key, g_rows in groups.items():
+            g_raw = str(g_rows[0].get('Work Request #') or '').split('.')[0]
+            g_sanitized = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub('_', g_raw)[:50]
+            g_week = g_key.split('_', 1)[0]
+            g_variant = g_rows[0].get('__variant', 'primary')
+            source_wr_raws_per_key[(g_sanitized, g_week, g_variant)].add(g_raw)
+        quarantined = {
+            key for key, raws in source_wr_raws_per_key.items()
+            if len(raws) > 1
+        }
+        self.assertEqual(quarantined, set())
+
+    def test_pre_scan_scoped_by_week_and_variant(self):
+        """Collisions are scoped to the (wr, week, variant) tuple — a
+        sanitized WR matching across DIFFERENT weeks or variants is
+        not a collision because those have independent hash_history
+        entries and target_map lookups."""
+        import collections as _collections
+        groups = {
+            '041926_col': [{'Work Request #': '1234/evil', '__variant': 'primary'}],
+            '042626_col': [{'Work Request #': '1234\\evil', '__variant': 'primary'}],
+            # Same week, different variant → not a collision either.
+            '041926_a': [{'Work Request #': '1234/evil', '__variant': 'helper'}],
+            '041926_b': [{'Work Request #': '1234\\evil', '__variant': 'vac_crew'}],
+        }
+        source_wr_raws_per_key = _collections.defaultdict(set)
+        for g_key, g_rows in groups.items():
+            g_raw = str(g_rows[0].get('Work Request #') or '').split('.')[0]
+            g_sanitized = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub('_', g_raw)[:50]
+            g_week = g_key.split('_', 1)[0]
+            g_variant = g_rows[0].get('__variant', 'primary')
+            source_wr_raws_per_key[(g_sanitized, g_week, g_variant)].add(g_raw)
+        quarantined = {
+            key for key, raws in source_wr_raws_per_key.items()
+            if len(raws) > 1
+        }
+        # Nothing collides: different weeks AND different variants
+        # produce different tuples.
+        self.assertEqual(quarantined, set())
+
+
 class TestInspectImportRemoved(unittest.TestCase):
     """``import inspect`` was removed as dead weight; keep it gone."""
 
