@@ -1613,39 +1613,47 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
     # the marker is at position 2 exactly — this preserves the
     # legacy layout while hardening against the edge case.
     #
-    # Disambiguate via the next-token format: the STRUCTURAL
-    # ``WeekEnding`` is always immediately followed by a 6-digit
-    # MMDDYY week token. Neither "first-occurrence" nor "last-
-    # occurrence" alone is universally correct on this format:
-    #   * First-occurrence breaks if the sanitized WR token contains
-    #     a ``WeekEnding_<6digits>`` segment (e.g. sanitized from
-    #     ``WeekEnding.041926`` in the raw WR#).
-    #   * Last-occurrence breaks if the sanitized helper/user
-    #     identifier contains the literal ``WeekEnding`` token
-    #     (e.g. a foreman named "WeekEnding Jones").
-    # Scan left-to-right, but pick the RIGHTMOST position at index
-    # ≥ 2 whose next part matches the week format. Rationale:
-    #   * Identifier tokens after the variant marker are almost never
-    #     followed by a pure 6-digit token (the week+timestamp pair
-    #     is a *structural* ordering — identifiers come after), so
-    #     candidates inside the tail are usually filtered out by the
-    #     next-token check.
-    #   * When the WR itself is pathologically long and contains
-    #     ``WeekEnding_<6digits>`` segments, rightmost correctly
-    #     walks past those WR-internal candidates to the true
-    #     structural delimiter.
-    # The only unfixable residual is a pathological identifier whose
-    # sanitized form contains ``WeekEnding_<6digits>`` — that would
-    # require a foreman name literally equal to that pattern, which
-    # is not a realistic data-entry scenario for the billing engine.
-    we_idx = None
+    # Disambiguate via the filename format itself. The STRUCTURAL
+    # ``WeekEnding`` in the modern format is followed by TWO
+    # consecutive 6-digit tokens:
+    #   ``WeekEnding_{MMDDYY week}_{HHMMSS timestamp}_...``
+    # while the legacy format (still readable off disk but no longer
+    # produced) is:
+    #   ``WeekEnding_{MMDDYY week}_{hash}.xlsx``
+    # where the hash is hex and is essentially never exactly 6
+    # digits. Helper/user identifier segments that happen to contain
+    # ``WeekEnding_<6digits>`` (pathological but possible, see
+    # rounds 10/11) are followed by the HASH, not a second 6-digit
+    # token. So we rank candidates:
+    #   * STRONG match: ``WeekEnding`` + 6-digit week + 6-digit
+    #     timestamp (new format's unambiguous marker).
+    #   * WEAK match: ``WeekEnding`` + 6-digit week (accepts legacy
+    #     format + any other filename where a second 6-digit token
+    #     isn't present).
+    # Pick the RIGHTMOST strong match if any — it's always the real
+    # structural delimiter because no identifier segment is ever
+    # followed by two 6-digit tokens in a row. Fall back to the
+    # rightmost weak match only for legacy-format filenames whose
+    # hash happens not to be 6 digits (vanishingly rare collision
+    # window for the weak-match path).
+    _strong_candidates: list[int] = []
+    _weak_candidates: list[int] = []
     for _i, _p in enumerate(parts):
         if _p != 'WeekEnding' or _i < 2 or _i + 1 >= len(parts):
             continue
-        _next = parts[_i + 1]
-        if len(_next) == 6 and _next.isdigit():
-            we_idx = _i  # Keep scanning — we want the rightmost valid.
-    if we_idx is None:
+        _week = parts[_i + 1]
+        if not (len(_week) == 6 and _week.isdigit()):
+            continue
+        _weak_candidates.append(_i)
+        if _i + 2 < len(parts):
+            _timestamp = parts[_i + 2]
+            if len(_timestamp) == 6 and _timestamp.isdigit():
+                _strong_candidates.append(_i)
+    if _strong_candidates:
+        we_idx = _strong_candidates[-1]
+    elif _weak_candidates:
+        we_idx = _weak_candidates[-1]
+    else:
         return None
 
     # WR may span one or more parts depending on whether the

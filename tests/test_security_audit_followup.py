@@ -1071,6 +1071,59 @@ class TestBuildGroupIdentityWithUnderscoresInWr(unittest.TestCase):
         self.assertEqual(week, '041926')
         self.assertEqual(variant, 'primary')
 
+    def test_helper_identifier_containing_weekending_six_digit_segment(self):
+        """Codex round-12: if a helper/user identifier itself
+        sanitizes to ``WeekEnding_<6digits>`` (pathological — would
+        require a foreman name like ``WeekEnding 041926 Jones``),
+        rightmost-valid alone would pick the identifier token. The
+        strong/weak candidate split resolves this because the
+        identifier's 6-digit week is followed by the HASH (non-
+        6-digit), while the structural delimiter is followed by a
+        6-digit timestamp — so only the structural position is a
+        STRONG match.
+        """
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_12345_WeekEnding_041926_123456_Helper_WeekEnding_041926_Jones_ab12cd34ef.xlsx'
+        )
+        self.assertIsNotNone(ident)
+        wr, week, variant, identifier = ident
+        self.assertEqual(wr, '12345')
+        self.assertEqual(week, '041926')
+        self.assertEqual(variant, 'helper')
+        self.assertEqual(identifier, 'WeekEnding_041926_Jones')
+
+    def test_helper_identifier_weekending_followed_by_hash_only(self):
+        """Codex's original example: ``..._Helper_WeekEnding_041926_<hash>.xlsx``
+        where the identifier is just ``WeekEnding`` and the hash
+        happens to come right after a 6-digit token. Strong/weak
+        split still correctly identifies position 2 as the structural
+        delimiter because position 6's ``041926`` is followed by the
+        hex hash (non-6-digit).
+        """
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_12345_WeekEnding_041926_123456_Helper_WeekEnding_041926_ab12cd34ef.xlsx'
+        )
+        self.assertIsNotNone(ident)
+        wr, week, variant, identifier = ident
+        self.assertEqual(wr, '12345')
+        self.assertEqual(week, '041926')
+        self.assertEqual(variant, 'helper')
+
+    def test_legacy_format_without_timestamp_still_parses(self):
+        """The pre-timestamp filename shape must continue to parse.
+
+        ``WR_12345_WeekEnding_041926_{hash}.xlsx`` has no second
+        6-digit token; only the weak-match candidate matches, and
+        the parser falls back to it as documented.
+        """
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_12345_WeekEnding_041926_ab12cd34ef.xlsx'
+        )
+        self.assertIsNotNone(ident)
+        wr, week, variant, identifier = ident
+        self.assertEqual(wr, '12345')
+        self.assertEqual(week, '041926')
+
     def test_parser_rejects_filename_without_six_digit_week_follower(self):
         """Defence-in-depth: if the ``WeekEnding`` token is NOT
         followed by a 6-digit week, the parser refuses to guess.
