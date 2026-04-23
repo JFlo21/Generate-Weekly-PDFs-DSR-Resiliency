@@ -1047,3 +1047,55 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   `test_redacts_path_traversal_wr_fully`,
   `test_redact_wr_does_not_swallow_english_prose`, and
   `test_redact_wr_handles_backslash_paths`.
+- [2026-04-23 20:10] PR #176 round-6 Codex follow-ups. Two
+  correctness gaps promoted by the previous fixes themselves:
+  **(P1) target_map collision detection was advisory, not
+  protective.** The earlier fix logged a WARNING on sanitized-WR#
+  collisions but kept the first-seen mapping and left the key
+  usable — a later code path could still upload/delete
+  attachments on the wrong target-sheet row when the two WRs
+  differed only by stripped characters or shared the first 50
+  chars. Fix: on collision, `del target_map[key]` AND add the
+  key to a `_quarantined_keys` set. Subsequent re-collisions for
+  the same key are also counted and logged. Downstream
+  `if wr_num in target_map:` check returns False for BOTH
+  (or ALL) ambiguous WRs, so the existing "not found in target
+  sheet" warning fires for each, uploads are skipped, and
+  operators know to deduplicate the target sheet. A loud
+  not-found failure is strictly safer than a silent
+  wrong-row upload. **(P2) Fresh-cache fast path could return a
+  reduced sheet list on partial cache corruption.** The only
+  gate was `_new_from_folders`; a malformed cached entry that
+  belonged to a static base sheet (not in
+  `_all_folder_discovered_ids`) wouldn't flag new_from_folders,
+  so the function returned `_valid_cached_sheets` with one sheet
+  silently missing — and it stayed missing until
+  `DISCOVERY_CACHE_TTL_MIN` (default 7 days). Fix: introduce
+  `_partial_cache_corruption = bool(_raw_cached_sheets) and
+  len(_valid_cached_sheets) != len(_raw_cached_sheets)` and add
+  `and not _partial_cache_corruption` to the fast-path gate.
+  Any drop now forces incremental mode, which re-validates
+  base_sheet_ids and rediscovers the dropped sheet on this run.
+  A dedicated log line announces the revalidation so the cause
+  is visible. **New rules:** (1) A collision-detection guard
+  that logs but still returns a value is advisory, not
+  protective. If an ambiguous key could drive a side-effecting
+  downstream operation (upload, delete, state mutation), the
+  guard MUST remove/reject the key, not merely note that it's
+  ambiguous. Use "quarantine sets" to guarantee the ambiguity
+  cannot leak. (2) Cache fresh-path gates must consider ALL
+  failure modes of the preceding validation step, not just the
+  externally-visible ones. If a schema filter could have
+  dropped an entry that belongs to a statically-required set
+  (base_sheet_ids here), the fast path cannot trust its own
+  cached output — force incremental/full rediscovery instead.
+  Regression tests updated:
+  `TestTargetMapWrKeyCollisionDetection::test_collision_quarantines_both_rows`
+  (replaces the keep-first-seen test),
+  `test_third_colliding_row_is_also_rejected`, and the existing
+  `test_identical_raw_wrs_do_not_register_as_collision` now
+  asserts the quarantine set stays empty. New class
+  `TestDiscoveryCacheFastPathSkipsOnPartialCorruption` covers
+  the truth-table of the new gate and the
+  `_partial_cache_corruption` detection boolean (empty-cache,
+  no-drops, one-dropped, all-dropped).

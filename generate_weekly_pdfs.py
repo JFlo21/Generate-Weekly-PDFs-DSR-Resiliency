@@ -2043,8 +2043,25 @@ def discover_source_sheets(client):
             _cached_sheet_ids_from_file = {s['id'] for s in _valid_cached_sheets}
             # Compare folder-discovered sheet IDs against cache to detect new sheets
             _new_from_folders = _all_folder_discovered_ids - _cached_sheet_ids_from_file
-            if age_min <= DISCOVERY_CACHE_TTL_MIN and not _new_from_folders:
-                # Cache is fresh AND no new sheets in folders → safe to use cache
+            # Codex P2 guardrail: if the schema filter dropped ANY
+            # entry, skip the fresh-cache fast path. A dropped entry
+            # may have been a required static base sheet that isn't
+            # in _all_folder_discovered_ids, so _new_from_folders
+            # wouldn't flag it. Falling through to incremental mode
+            # forces base_sheet_ids to be re-validated and the
+            # dropped sheet to be rediscovered on this run instead
+            # of waiting until cache expiry (up to
+            # DISCOVERY_CACHE_TTL_MIN — default 7 days).
+            _partial_cache_corruption = bool(_raw_cached_sheets) and (
+                len(_valid_cached_sheets) != len(_raw_cached_sheets)
+            )
+            if (
+                age_min <= DISCOVERY_CACHE_TTL_MIN
+                and not _new_from_folders
+                and not _partial_cache_corruption
+            ):
+                # Cache is fresh AND no new sheets in folders AND no
+                # malformed entries were dropped → safe to use cache
                 cached_sub_ids = cache.get('subcontractor_sheet_ids', [])
                 if cached_sub_ids:
                     SUBCONTRACTOR_SHEET_IDS = SUBCONTRACTOR_SHEET_IDS | set(cached_sub_ids)
@@ -2059,7 +2076,18 @@ def discover_source_sheets(client):
                 if cached_sub_ids:
                     SUBCONTRACTOR_SHEET_IDS = SUBCONTRACTOR_SHEET_IDS | set(cached_sub_ids)
                 _incremental = True
-                if _new_from_folders:
+                if _partial_cache_corruption:
+                    _dropped_count = (
+                        len(_raw_cached_sheets) - len(_valid_cached_sheets)
+                    )
+                    logging.info(
+                        f"🛡️ {_dropped_count} malformed cached entry(ies) "
+                        f"dropped — forcing incremental revalidation against "
+                        f"base_sheet_ids so any required sheet among the "
+                        f"dropped entries is rediscovered this run instead "
+                        f"of waiting until cache expiry."
+                    )
+                elif _new_from_folders:
                     logging.info(f"🆕 {len(_new_from_folders)} new sheet(s) detected in folders — "
                                  f"cache invalidated, using incremental mode "
                                  f"(keeping {len(_cached_sheets)} cached + validating new sheets)")
@@ -3872,23 +3900,54 @@ def create_target_sheet_map(client):
         # on collision, log a WARNING and keep the first-seen mapping
         # so behaviour stays deterministic across runs.
         _seen_raw_for_key: dict = {}
+        _quarantined_keys: set = set()
         _collisions = 0
         for row in target_sheet.rows:
             for cell in row.cells:
                 if cell.column_id == wr_column_id and cell.display_value:
                     raw_wr = str(cell.display_value).split('.')[0]
                     wr_num = _RE_SANITIZE_HELPER_NAME.sub('_', raw_wr)[:50]
-                    if wr_num in target_map:
+                    if wr_num in _quarantined_keys:
+                        # Already ambiguous — don't re-add under any
+                        # raw value. Log once per collision instance
+                        # so operators see every colliding row.
+                        _collisions += 1
+                        prior_raw = _seen_raw_for_key.get(
+                            wr_num, '<quarantined>',
+                        )
+                        logging.warning(
+                            f"⚠️ Target-sheet WR# collision (already quarantined): "
+                            f"raw={raw_wr!r} also maps to sanitized key "
+                            f"{wr_num!r} (prior seen: {prior_raw!r}). "
+                            f"Uploads for this WR will be skipped until the "
+                            f"target sheet is deduplicated."
+                        )
+                    elif wr_num in target_map:
                         prior_raw = _seen_raw_for_key.get(wr_num, '<unknown>')
                         if prior_raw != raw_wr:
+                            # Collision: quarantine the key to prevent
+                            # uploads from silently targeting the wrong
+                            # row. The upload site's
+                            # ``if wr_num in target_map`` check will
+                            # then correctly return False for BOTH
+                            # WRs, and the existing "not found in
+                            # target sheet" warning fires so operators
+                            # know to audit the target sheet. Removing
+                            # both is strictly safer than keeping one
+                            # — a silent wrong-row upload corrupts
+                            # Smartsheet attachments; a loud
+                            # not-found failure prompts cleanup.
                             _collisions += 1
+                            del target_map[wr_num]
+                            _quarantined_keys.add(wr_num)
                             logging.warning(
                                 f"⚠️ Target-sheet WR# collision after sanitization: "
                                 f"raw={raw_wr!r} and prior raw={prior_raw!r} both "
-                                f"map to sanitized key {wr_num!r}; keeping the "
-                                f"first-seen row. Uploads for one of these WRs "
-                                f"may target the wrong target-sheet row — "
-                                f"operators should audit these WR# values."
+                                f"map to sanitized key {wr_num!r}; QUARANTINING "
+                                f"the key from target_map. Uploads for both WRs "
+                                f"will be skipped until the target sheet is "
+                                f"deduplicated — log a 'not found in target "
+                                f"sheet' warning will follow for each."
                             )
                     else:
                         target_map[wr_num] = row
@@ -3898,7 +3957,9 @@ def create_target_sheet_map(client):
         if _collisions:
             logging.warning(
                 f"⚠️ Target sheet map had {_collisions} sanitized-WR# "
-                f"collision(s) — see preceding warnings for the raw values."
+                f"collision event(s) across {len(_quarantined_keys)} "
+                f"quarantined key(s) — affected uploads will be skipped "
+                f"with 'not found in target sheet' warnings."
             )
         logging.info(f"Created target sheet map with {len(target_map)} work requests")
         return target_map, target_sheet

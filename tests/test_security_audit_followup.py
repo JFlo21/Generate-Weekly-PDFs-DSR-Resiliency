@@ -754,29 +754,75 @@ class TestTargetMapWrKeyCollisionDetection(unittest.TestCase):
         self.assertEqual(sa, sb)
         self.assertNotEqual(a, b)
 
-    def test_collision_detection_keeps_first_seen(self):
-        """Reproduce the decision surface of the production loop."""
+    def test_collision_quarantines_both_rows(self):
+        """Codex round-6 P1: quarantine colliding keys instead of
+        keeping first-seen.
+
+        When two distinct raw WR values sanitize to the same key,
+        both are removed from ``target_map`` so the upload site's
+        ``if wr_num in target_map`` check correctly fails for both.
+        That surfaces a loud "not found in target sheet" warning
+        instead of silently uploading to the wrong target-sheet
+        row. Keeping one (the old behaviour) was a silent-data-
+        corruption risk because which mapping won depended on row
+        iteration order.
+        """
         target_map: dict = {}
         seen_raw_for_key: dict = {}
+        quarantined: set = set()
         collisions = 0
         first_raw = '1234/evil'
         second_raw = '1234\\evil'
-        first_row_obj = 'row-A'
-        second_row_obj = 'row-B'
-        for raw, row in ((first_raw, first_row_obj), (second_raw, second_row_obj)):
+        for raw, row in ((first_raw, 'row-A'), (second_raw, 'row-B')):
             key = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub('_', raw)[:50]
-            if key in target_map:
+            if key in quarantined:
+                collisions += 1
+            elif key in target_map:
                 prior = seen_raw_for_key.get(key)
                 if prior != raw:
                     collisions += 1
+                    del target_map[key]
+                    quarantined.add(key)
             else:
                 target_map[key] = row
                 seen_raw_for_key[key] = raw
         self.assertEqual(collisions, 1)
-        self.assertEqual(len(target_map), 1)
-        # First-seen mapping retained (deterministic across runs).
+        self.assertEqual(
+            len(target_map), 0,
+            'both colliding WRs must be quarantined — keeping either '
+            'risks uploading to the wrong row',
+        )
         key = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub('_', first_raw)[:50]
-        self.assertIs(target_map[key], first_row_obj)
+        self.assertIn(key, quarantined)
+
+    def test_third_colliding_row_is_also_rejected(self):
+        """Once a key is quarantined, later raw values folding to the
+        same key are rejected with an additional collision count.
+        """
+        target_map: dict = {}
+        seen_raw_for_key: dict = {}
+        quarantined: set = set()
+        collisions = 0
+        raws = ('1234/evil', '1234\\evil', '1234;evil')
+        for raw in raws:
+            key = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub('_', raw)[:50]
+            if key in quarantined:
+                collisions += 1
+            elif key in target_map:
+                prior = seen_raw_for_key.get(key)
+                if prior != raw:
+                    collisions += 1
+                    del target_map[key]
+                    quarantined.add(key)
+            else:
+                target_map[key] = 'row-placeholder'
+                seen_raw_for_key[key] = raw
+        # First pair triggers the quarantine; third re-collision bumps
+        # the counter. Every collision is logged, none of the three
+        # ambiguous WRs can be uploaded to.
+        self.assertEqual(collisions, 2)
+        self.assertEqual(len(target_map), 0)
+        self.assertEqual(len(quarantined), 1)
 
     def test_identical_raw_wrs_do_not_register_as_collision(self):
         """A repeated raw WR# (same row indexed twice somehow) must not
@@ -784,17 +830,80 @@ class TestTargetMapWrKeyCollisionDetection(unittest.TestCase):
         fold to the same key count as a collision."""
         target_map: dict = {}
         seen_raw_for_key: dict = {}
+        quarantined: set = set()
         collisions = 0
         for raw in ('90093002', '90093002'):
             key = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub('_', raw)[:50]
-            if key in target_map:
+            if key in quarantined:
+                collisions += 1
+            elif key in target_map:
                 prior = seen_raw_for_key.get(key)
                 if prior != raw:
                     collisions += 1
+                    del target_map[key]
+                    quarantined.add(key)
             else:
                 target_map[key] = 'row-placeholder'
                 seen_raw_for_key[key] = raw
         self.assertEqual(collisions, 0)
+        self.assertEqual(len(target_map), 1)
+        self.assertEqual(len(quarantined), 0)
+
+
+class TestDiscoveryCacheFastPathSkipsOnPartialCorruption(unittest.TestCase):
+    """Codex round-6 P2: the fresh-cache fast path must NOT return a
+    reduced sheet list when the schema filter dropped any entry.
+
+    Before the fix, the fast-path only checked
+    ``_new_from_folders``. A dropped entry belonging to a static base
+    sheet (not folder-discovered) wouldn't flag ``_new_from_folders``,
+    so the function returned a reduced list and silently omitted
+    rows until cache expiry (up to ``DISCOVERY_CACHE_TTL_MIN`` = 7d).
+    Fix adds ``not _partial_cache_corruption`` to the gate so any
+    drop forces incremental mode — which will re-validate
+    base_sheet_ids and rediscover the dropped sheet.
+    """
+
+    def test_fast_path_gate_truth_table(self):
+        """Reproduce the production condition
+        ``age_min <= TTL and not new_from_folders and not partial_corruption``.
+        """
+        cases = [
+            # (fresh, new_from_folders, partial_corruption, fast_path_ok)
+            (True,  False, False, True),   # canonical happy path
+            (True,  True,  False, False),  # new sheets → incremental
+            (True,  False, True,  False),  # P2 fix: partial corruption blocks
+            (True,  True,  True,  False),
+            (False, False, False, False),  # TTL expired
+        ]
+        for fresh, new_ff, corrupt, expected in cases:
+            result = (
+                fresh and not new_ff and not corrupt
+            )
+            self.assertEqual(
+                result, expected,
+                f'fresh={fresh} new_ff={new_ff} corrupt={corrupt}: '
+                f'expected fast_path_ok={expected}, got {result}',
+            )
+
+    def test_partial_corruption_detection_is_bool(self):
+        """``_partial_cache_corruption = bool(raw) and len(valid) != len(raw)``
+        must be False when raw is empty (no cache yet) and when
+        nothing was dropped.
+        """
+        cases = [
+            # (raw, valid, expected_partial)
+            ([], [], False),                       # empty cache — not corruption
+            (['a', 'b', 'c'], ['a', 'b', 'c'], False),  # no drops
+            (['a', 'b', 'c'], ['a', 'b'], True),        # one dropped
+            (['a'], [], True),                          # all dropped (also raises above)
+        ]
+        for raw, valid, expected in cases:
+            result = bool(raw) and len(valid) != len(raw)
+            self.assertEqual(
+                result, expected,
+                f'raw={raw!r} valid={valid!r}: expected {expected}, got {result}',
+            )
 
 
 class TestInspectImportRemoved(unittest.TestCase):
