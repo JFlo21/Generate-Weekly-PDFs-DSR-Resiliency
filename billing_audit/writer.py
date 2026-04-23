@@ -86,7 +86,7 @@ def _reset_counters_for_tests() -> None:
     _emitted_run_keys.clear()
 
 
-def get_counters() -> dict:
+def get_counters() -> dict[str, int]:
     """Return a snapshot of module counters for ``run_summary.json``.
 
     Keys: ``snapshots_written``, ``snapshots_already_frozen``,
@@ -105,9 +105,16 @@ def any_flag_enabled() -> bool:
     both flags are off — otherwise we'd do the expensive prep for
     every group only for the writer to early-return inside each call.
 
-    Flag reads are cached inside ``get_flag`` on success, so the
-    first call fires one Supabase read and every subsequent call is
-    a dict lookup.
+    Startup cost depends on flag state:
+    - If ``write_attribution_snapshot`` is True, returns after ONE
+      Supabase feature_flag read (short-circuit ``or``).
+    - If it's False, reads a second flag
+      (``emit_assignment_fingerprint``) — up to TWO reads total
+      on the first call.
+    - If the client is unreachable, returns False immediately
+      with ZERO reads.
+    Successful reads are memoized inside ``get_flag``, so every
+    subsequent call is just dict lookups.
     """
     if get_client() is None:
         return False

@@ -90,14 +90,28 @@ def main(argv: list[str] | None = None) -> int:
     # get_client() — operators relying on the repo's standard
     # ``.env`` workflow would otherwise get a false-positive exit 2
     # (credentials "missing") even when SUPABASE_URL /
-    # SUPABASE_SERVICE_ROLE_KEY are defined in .env. Best-effort:
-    # if python-dotenv isn't installed, fall through silently and
-    # let env-only workflows continue to work.
+    # SUPABASE_SERVICE_ROLE_KEY are defined in .env.
+    #
+    # Split ImportError (python-dotenv not installed — legitimate
+    # shell-only workflow, silent fall-through) from any other
+    # exception (parse error on a malformed .env, permissions
+    # issue, etc.) — the latter gets a WARNING so operators can
+    # diagnose the real cause instead of later mistaking it for a
+    # credentials-missing error.
     try:
         from dotenv import load_dotenv  # type: ignore
-        load_dotenv()
-    except Exception:
+    except ImportError:
         pass
+    else:
+        try:
+            load_dotenv()
+        except Exception as exc:
+            logging.warning(
+                "⚠️ load_dotenv() failed "
+                f"({type(exc).__name__}); falling back to "
+                "pre-exported env vars. Check .env syntax / "
+                "permissions if credentials appear missing below."
+            )
 
     from billing_audit import writer as ba_writer
     from billing_audit.client import get_client, get_flag

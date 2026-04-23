@@ -853,6 +853,52 @@ class AnyFlagEnabledTests(unittest.TestCase):
         ):
             self.assertTrue(ba_writer.any_flag_enabled())
 
+    def test_write_flag_true_short_circuits_second_read(self):
+        """When ``write_attribution_snapshot`` is True, Python's
+        short-circuit ``or`` returns immediately without reading
+        the fingerprint flag. Verifies the docstring claim that
+        the steady-state cost is ONE flag read in that case.
+        """
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        call_log: list[str] = []
+
+        def _flag_side(key, default=False):
+            call_log.append(key)
+            return key == "write_attribution_snapshot"
+
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", side_effect=_flag_side
+        ):
+            self.assertTrue(ba_writer.any_flag_enabled())
+        self.assertEqual(call_log, ["write_attribution_snapshot"])
+
+    def test_write_flag_false_triggers_second_read(self):
+        """When the write flag is False, the fingerprint flag is
+        also read — up to TWO reads on first call, matching the
+        docstring's updated cost profile.
+        """
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        call_log: list[str] = []
+
+        def _flag_side(key, default=False):
+            call_log.append(key)
+            return False
+
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", side_effect=_flag_side
+        ):
+            self.assertFalse(ba_writer.any_flag_enabled())
+        self.assertEqual(
+            call_log,
+            ["write_attribution_snapshot", "emit_assignment_fingerprint"],
+        )
+
     def test_true_when_fingerprint_flag_on(self):
         from billing_audit import writer as ba_writer
         client = _make_fake_supabase_client()
@@ -1112,6 +1158,24 @@ class BackfillCliDateValidationTests(unittest.TestCase):
         self.assertEqual(
             bf._parse_week_mmddyy("112624"),
             _dt.date(2024, 11, 26),
+        )
+
+    def test_backfill_splits_dotenv_import_error_from_runtime_error(self):
+        """ImportError (python-dotenv not installed) must be a
+        silent fall-through — legitimate shell-only workflow.
+        Other exceptions (malformed .env, permissions, etc.) must
+        WARN so operators don't mistake them for credentials-
+        missing errors later.
+        """
+        from pathlib import Path
+        src = Path("scripts/backfill_attribution_snapshot.py").read_text()
+        # ImportError path: explicit except ImportError that falls
+        # through (pass) — no log, no warn.
+        self.assertIn("except ImportError:\n        pass", src)
+        # The runtime-error path must log a warning.
+        self.assertIn(
+            'logging.warning(\n                "⚠️ load_dotenv() failed "',
+            src,
         )
 
     def test_backfill_loads_dotenv_before_client_check(self):
@@ -1390,14 +1454,16 @@ class CrossVariantFingerprintAggregationTests(unittest.TestCase):
             "per-group emit block), not eagerly in the pre-loop",
         )
 
-        # Lazy memoized hash inside the per-group emit block.
+        # Lazy memoized hash inside the per-group emit block —
+        # variant-aware: bucket by __variant, per-variant
+        # calculate_data_hash, SHA-256 combine.
         self.assertIn(
-            "_agg_content_hash = (\n"
-            "                                            calculate_data_hash(_agg_fp_rows)\n"
-            "                                        )",
+            "_billing_audit_agg_content_hashes[\n"
+            "                                            _agg_key\n"
+            "                                        ] = _agg_content_hash",
             src,
-            "per-group emit must lazily compute + memoize the "
-            "aggregated content hash",
+            "per-group emit must memoize the aggregated content "
+            "hash into _billing_audit_agg_content_hashes",
         )
 
     def test_emit_uses_aggregated_rows(self):
@@ -1417,11 +1483,16 @@ class CrossVariantFingerprintAggregationTests(unittest.TestCase):
 
     def test_emit_uses_aggregated_content_hash(self):
         """content_hash must come from the per-bucket aggregated
-        hash, not ``data_hash`` (per-variant). Otherwise the
-        stored pipeline_run.content_hash depends on variant
-        iteration order and flips spuriously between runs. After
-        the lazy-hash refactor, the hash is computed and memoized
-        inside the per-group emit block (not eagerly pre-loop).
+        hash, not ``data_hash`` (per-variant). After the
+        variant-aware refactor, the hash is built by bucketing
+        rows by ``__variant``, calling ``calculate_data_hash``
+        per-bucket, then SHA-256'ing the sorted
+        ``variant=hash`` tokens. ``calculate_data_hash`` is NOT
+        called on the raw mixed-variant ``_agg_fp_rows`` because
+        it reads ``sorted_rows[0].__variant`` and conditionally
+        includes VAC / helper fields — passing mixed variants
+        would yield sort-order-dependent output that can miss
+        variant-specific fields entirely.
         """
         from pathlib import Path
         src = Path("generate_weekly_pdfs.py").read_text()
@@ -1430,11 +1501,36 @@ class CrossVariantFingerprintAggregationTests(unittest.TestCase):
             "_billing_audit_agg_content_hashes: dict[tuple[str, str], str] = {}",
             src,
         )
-        # Lazy computation happens inside the per-group emit,
-        # against ``_agg_fp_rows`` (the aggregated view).
+        # Variant-aware computation: rows are bucketed by __variant.
         self.assertIn(
+            "_by_variant: dict[str, list[dict]] = {}",
+            src,
+        )
+        self.assertIn(
+            "_v = _r.get('__variant', 'primary')",
+            src,
+        )
+        # Per-variant hash is via calculate_data_hash, results are
+        # SHA-256'd in sorted order.
+        self.assertIn(
+            "calculate_data_hash(_by_variant[_v])",
+            src,
+        )
+        self.assertIn(
+            "for _v in sorted(_by_variant.keys())",
+            src,
+        )
+        self.assertIn(
+            "hashlib.sha256(",
+            src,
+        )
+        # Raw-mixed call MUST NOT be present — that's the bug.
+        self.assertNotIn(
             "calculate_data_hash(_agg_fp_rows)",
             src,
+            "calculate_data_hash must not be called with the raw "
+            "mixed-variant bucket — it derives group_variant from "
+            "sorted_rows[0] and can miss VAC/helper fields",
         )
         # The emit call must pass the aggregated value, not data_hash.
         self.assertIn(
@@ -1447,6 +1543,63 @@ class CrossVariantFingerprintAggregationTests(unittest.TestCase):
             "content_hash=data_hash leaks per-variant hash into "
             "pipeline_run, causing cross-run noise",
         )
+
+    def test_agg_hash_is_deterministic_across_row_orderings(self):
+        """Simulates the main loop's variant-bucketing + combine
+        logic with a mixed-variant row set. Result must be
+        stable when the input rows are shuffled (the whole point
+        of the variant-aware hash).
+        """
+        import hashlib as _hl
+        # Monkey-patch a stub calculate_data_hash that's stable
+        # per-variant (mirrors production's internal sorting).
+        def _stub_hash(rows):
+            # Simulate production behaviour: stable per-variant,
+            # sensitive to row field values.
+            concat = "|".join(
+                sorted(
+                    f"{r.get('__variant', 'primary')}:{r.get('id', '')}"
+                    for r in rows
+                )
+            )
+            return _hl.sha256(concat.encode()).hexdigest()[:16]
+
+        def _agg_hash(rows, calc):
+            by_variant: dict[str, list[dict]] = {}
+            for r in rows:
+                v = r.get('__variant', 'primary')
+                by_variant.setdefault(v, []).append(r)
+            parts = [
+                f"{v}={calc(by_variant[v])}"
+                for v in sorted(by_variant.keys())
+            ]
+            return _hl.sha256("|".join(parts).encode()).hexdigest()[:16]
+
+        rows_a = [
+            {"__variant": "primary", "id": 1},
+            {"__variant": "primary", "id": 2},
+            {"__variant": "helper", "id": 3},
+            {"__variant": "vac_crew", "id": 4},
+        ]
+        import random
+        rows_b = list(rows_a)
+        random.Random(42).shuffle(rows_b)
+        rows_c = list(rows_a)
+        random.Random(7).shuffle(rows_c)
+        h_a = _agg_hash(rows_a, _stub_hash)
+        h_b = _agg_hash(rows_b, _stub_hash)
+        h_c = _agg_hash(rows_c, _stub_hash)
+        self.assertEqual(h_a, h_b)
+        self.assertEqual(h_a, h_c)
+
+        # Changing a VAC-crew row's content must change the hash
+        # — variant-aware aggregation cannot silently drop VAC
+        # fields the way a single calculate_data_hash call on
+        # mixed rows would when 'primary' sorts first.
+        rows_d = list(rows_a)
+        rows_d[3] = {"__variant": "vac_crew", "id": 999}
+        h_d = _agg_hash(rows_d, _stub_hash)
+        self.assertNotEqual(h_a, h_d)
 
     def test_compute_assignment_fingerprint_covers_all_variants(self):
         """Sanity check the pure function: rows spanning primary,

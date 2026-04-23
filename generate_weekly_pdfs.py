@@ -4749,12 +4749,31 @@ def main():
                                 )
                                 # Lazy + memoized content-hash
                                 # computation. First emit attempt
-                                # for a bucket pays the
-                                # ``calculate_data_hash`` cost once
-                                # and caches the result; subsequent
-                                # variants that dedup-no-op inside
+                                # for a bucket pays the hashing
+                                # cost once and caches the result;
+                                # subsequent variants that
+                                # dedup-no-op inside
                                 # emit_run_fingerprint get a cache
                                 # hit for free.
+                                #
+                                # ``calculate_data_hash`` assumes
+                                # all rows share one ``__variant``
+                                # (it reads sorted_rows[0]'s
+                                # variant and conditionally
+                                # includes VAC / helper fields
+                                # based on it). Passing it the raw
+                                # cross-variant bucket would make
+                                # the result depend on sort order
+                                # and can miss VAC personnel
+                                # entirely. Instead: bucket rows by
+                                # variant, hash each subset with
+                                # the production helper (so each
+                                # variant gets its own correct
+                                # fields), then SHA-256 the
+                                # variant-sorted
+                                # ``variant=hash`` tokens. Result
+                                # is deterministic and covers
+                                # every variant's full field set.
                                 if _agg_key in _billing_audit_fp_buckets:
                                     _agg_content_hash = (
                                         _billing_audit_agg_content_hashes.get(
@@ -4762,9 +4781,17 @@ def main():
                                         )
                                     )
                                     if _agg_content_hash is None:
-                                        _agg_content_hash = (
-                                            calculate_data_hash(_agg_fp_rows)
-                                        )
+                                        _by_variant: dict[str, list[dict]] = {}
+                                        for _r in _agg_fp_rows:
+                                            _v = _r.get('__variant', 'primary')
+                                            _by_variant.setdefault(_v, []).append(_r)
+                                        _parts = [
+                                            f"{_v}={calculate_data_hash(_by_variant[_v])}"
+                                            for _v in sorted(_by_variant.keys())
+                                        ]
+                                        _agg_content_hash = hashlib.sha256(
+                                            "|".join(_parts).encode('utf-8')
+                                        ).hexdigest()[:16]
                                         _billing_audit_agg_content_hashes[
                                             _agg_key
                                         ] = _agg_content_hash
