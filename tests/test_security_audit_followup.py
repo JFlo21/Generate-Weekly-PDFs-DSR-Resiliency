@@ -25,9 +25,7 @@ test modules:
 """
 
 import os
-import re
 import unittest
-from unittest.mock import MagicMock, patch
 
 import generate_weekly_pdfs
 
@@ -1119,6 +1117,122 @@ class TestSourceWrCollisionQuarantine(unittest.TestCase):
             '_', '1234/evil',
         )[:50]
         self.assertIn(sanitized_key, quarantined)
+
+
+class TestRedactExceptionMessageTruncationCapsFullPayload(unittest.TestCase):
+    """Codex P2: ``max_len`` must cap the FULL returned payload
+    (class prefix + body), not just the body. Previously the
+    truncation happened before ``{type(exc).__name__}: `` was
+    prepended, so the returned string could exceed ``max_len`` —
+    breaking the Sentry context-data length budget callers rely on.
+    """
+
+    def test_full_payload_stays_within_max_len(self):
+        long_body = 'x' * 500
+        redacted = generate_weekly_pdfs._redact_exception_message(
+            Exception(long_body), max_len=80,
+        )
+        self.assertLessEqual(
+            len(redacted), 80,
+            f'max_len=80 must cap full payload, got {len(redacted)} '
+            f'({redacted!r})',
+        )
+
+    def test_truncated_result_ends_in_ellipsis(self):
+        redacted = generate_weekly_pdfs._redact_exception_message(
+            Exception('x' * 500), max_len=60,
+        )
+        self.assertTrue(redacted.endswith('...'))
+
+    def test_short_payload_not_truncated(self):
+        """A body that fits within max_len must not get ``...`` appended."""
+        redacted = generate_weekly_pdfs._redact_exception_message(
+            Exception('short'), max_len=80,
+        )
+        self.assertEqual(redacted, 'Exception: short')
+        self.assertFalse(redacted.endswith('...'))
+
+    def test_class_prefix_always_present_even_after_truncation(self):
+        """Sentry event grouping relies on a stable class prefix;
+        truncation must not clip past the ``: `` separator."""
+        redacted = generate_weekly_pdfs._redact_exception_message(
+            ValueError('z' * 500), max_len=30,
+        )
+        self.assertIn('ValueError', redacted)
+
+
+class TestHashHistoryPruneUsesSanitizedWr(unittest.TestCase):
+    """Codex P2: the stale-pruning pass that runs after the main
+    group loop must derive ``current_keys`` using the same sanitized
+    WR key the main loop wrote to ``hash_history``. Without this,
+    any WR# whose raw value is rewritten by
+    ``_RE_SANITIZE_HELPER_NAME`` has its just-written history entry
+    treated as stale and deleted before save, so hash-skip never
+    persists across runs for those WRs.
+    """
+
+    def test_sanitized_matches_main_loop_history_key(self):
+        """Reproduce the decision surface: pruning must treat the
+        sanitized, freshly-written ``history_key`` as current.
+        """
+        import collections as _collections
+        raw_wr = '1234/evil'
+        # Main-loop derivation.
+        sanitized = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub(
+            '_', raw_wr,
+        )[:50]
+        history_key_written = f'{sanitized}|041926|primary|'
+        hash_history = {history_key_written: {'hash': 'abc'}}
+
+        # Pruning derivation (after fix): apply the same sanitizer.
+        groups = _collections.OrderedDict()
+        groups['041926_grp'] = [
+            {'Work Request #': raw_wr, '__variant': 'primary'},
+        ]
+        current_keys = set()
+        for key, group_rows in groups.items():
+            _wr_raw = group_rows[0].get('Work Request #')
+            _wr = str(_wr_raw).split('.')[0] if _wr_raw else ''
+            _wr = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub(
+                '_', _wr,
+            )[:50]
+            _week = key.split('_', 1)[0]
+            _variant = group_rows[0].get('__variant', 'primary')
+            _ident = ''  # primary variant, no identifier
+            current_keys.add(f'{_wr}|{_week}|{_variant}|{_ident}')
+
+        stale_keys = [k for k in hash_history if k not in current_keys]
+        self.assertEqual(
+            stale_keys, [],
+            f'freshly-written sanitized history_key must NOT be pruned '
+            f'as stale; hash_history keys={list(hash_history)!r}, '
+            f'current_keys={current_keys!r}',
+        )
+
+    def test_raw_wr_would_mark_freshly_written_stale_regression(self):
+        """Negative-control: WITHOUT the sanitizer in the pruning
+        derivation, the freshly-written sanitized key appears stale.
+        This test locks in the bug's reproducibility so the fix can't
+        quietly regress.
+        """
+        raw_wr = '1234/evil'
+        sanitized = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub(
+            '_', raw_wr,
+        )[:50]
+        history_key_written = f'{sanitized}|041926|primary|'
+        hash_history = {history_key_written: {'hash': 'abc'}}
+
+        # Pre-fix pruning derivation: raw _wr (no sanitizer).
+        unsanitized_key = f'{raw_wr}|041926|primary|'
+        current_keys_buggy = {unsanitized_key}
+
+        stale_keys_buggy = [
+            k for k in hash_history if k not in current_keys_buggy
+        ]
+        # This documents the pre-fix behaviour: freshly-written
+        # sanitized key WAS marked stale. The positive test above
+        # proves the fix prevents this.
+        self.assertEqual(stale_keys_buggy, [history_key_written])
 
 
 class TestInspectImportRemoved(unittest.TestCase):

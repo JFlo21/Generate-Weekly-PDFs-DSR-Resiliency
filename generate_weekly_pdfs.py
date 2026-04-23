@@ -461,9 +461,13 @@ def _redact_exception_message(exc: BaseException | None, *, max_len: int = 240) 
     redacted = _RE_REDACT_MONEY.sub('$<redacted>', redacted)
     redacted = _RE_REDACT_EMAIL.sub('<email>', redacted)
     redacted = re.sub(r'\s+', ' ', redacted).strip()
-    if len(redacted) > max_len:
-        redacted = redacted[:max_len - 3] + '...'
-    return f"{type(exc).__name__}: {redacted}"
+    # Codex: truncate AFTER adding the class prefix so ``max_len``
+    # caps the full returned payload (what actually lands in the
+    # Sentry event), not just the body portion.
+    result = f"{type(exc).__name__}: {redacted}"
+    if len(result) > max_len:
+        result = result[:max_len - 3] + '...'
+    return result
 
 
 # Sentry helper functions for enhanced error context
@@ -4820,6 +4824,16 @@ def main():
                     if '_' in key:
                         _wr_raw = group_rows[0].get('Work Request #')
                         _wr = str(_wr_raw).split('.')[0] if _wr_raw else ''
+                        # Codex P2: apply the same filesystem-safety
+                        # sanitizer used by the main loop (line ~4493)
+                        # so the current_keys tuple matches the
+                        # history_key actually written for this group.
+                        # Without this, any WR# containing
+                        # sanitization-sensitive characters would have
+                        # its freshly-written entry treated as stale
+                        # and deleted before save, so hash-skip could
+                        # never persist across runs for those WRs.
+                        _wr = _RE_SANITIZE_HELPER_NAME.sub('_', _wr)[:50]
                         _week = key.split('_',1)[0]
                         _variant = group_rows[0].get('__variant', 'primary')
                         if _variant == 'helper':
