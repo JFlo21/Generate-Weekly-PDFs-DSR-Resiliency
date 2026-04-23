@@ -4550,6 +4550,18 @@ def main():
                 f"see preceding warnings for raw values."
             )
 
+        # Hoist static env var lookups once per run (not per row) —
+        # these never change during execution and were previously
+        # being read on every freeze_row call for every row in every
+        # group. One-time read; empty string sentinels match the
+        # per-call behaviour the writer expects.
+        _billing_audit_release_env = os.getenv('SENTRY_RELEASE')
+        _billing_audit_run_id_env = os.getenv('GITHUB_RUN_ID')
+        _billing_audit_fingerprint_on = (
+            BILLING_AUDIT_AVAILABLE
+            and _billing_audit_writer.fingerprint_flag_enabled()
+        )
+
         for group_idx, (group_key, group_rows) in enumerate(groups.items(), 1):
             # Graceful time budget: stop before Actions hard-kills the job
             if TIME_BUDGET_MINUTES and GITHUB_ACTIONS_MODE:
@@ -4646,24 +4658,30 @@ def main():
                             for _row in group_rows:
                                 _billing_audit_writer.freeze_row(
                                     _row,
-                                    release=os.getenv('SENTRY_RELEASE'),
-                                    run_id=os.getenv('GITHUB_RUN_ID'),
+                                    release=_billing_audit_release_env,
+                                    run_id=_billing_audit_run_id_env,
                                 )
-                            _fp = compute_assignment_fingerprint(group_rows)
-                            _completed = sum(
-                                1 for _r in group_rows
-                                if is_checked(_r.get('Units Completed?'))
-                            )
-                            _billing_audit_writer.emit_run_fingerprint(
-                                wr=wr_num,
-                                week_ending=_week_snap,
-                                content_hash=data_hash,
-                                assignment_fp=_fp,
-                                completed_count=_completed,
-                                total_count=len(group_rows),
-                                release=os.getenv('SENTRY_RELEASE', ''),
-                                run_id=os.getenv('GITHUB_RUN_ID', ''),
-                            )
+                            # Skip fingerprint compute + completed
+                            # count when the fingerprint flag is off
+                            # — emit_run_fingerprint would no-op
+                            # inside otherwise, wasting per-group
+                            # work.
+                            if _billing_audit_fingerprint_on:
+                                _fp = compute_assignment_fingerprint(group_rows)
+                                _completed = sum(
+                                    1 for _r in group_rows
+                                    if is_checked(_r.get('Units Completed?'))
+                                )
+                                _billing_audit_writer.emit_run_fingerprint(
+                                    wr=wr_num,
+                                    week_ending=_week_snap,
+                                    content_hash=data_hash,
+                                    assignment_fp=_fp,
+                                    completed_count=_completed,
+                                    total_count=len(group_rows),
+                                    release=_billing_audit_release_env or '',
+                                    run_id=_billing_audit_run_id_env or '',
+                                )
                             _bas.set_data("rows", len(group_rows))
                             _bas.set_data("variant", variant)
                     except Exception as _audit_err:

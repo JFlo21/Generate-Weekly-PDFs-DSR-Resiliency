@@ -793,6 +793,115 @@ class AnyFlagEnabledTests(unittest.TestCase):
             self.assertTrue(ba_writer.any_flag_enabled())
 
 
+class CircuitBreakerTests(unittest.TestCase):
+    """After N consecutive exhausted retries, with_retry must stop
+    paying the backoff cost and fast-fail for the rest of the run."""
+
+    def setUp(self):
+        _reset_all()
+
+    def tearDown(self):
+        _reset_all()
+
+    def test_breaker_opens_after_threshold_consecutive_failures(self):
+        from billing_audit import client as ba_client
+
+        class Transient(Exception):
+            pass
+
+        # Force the name-match path to fire.
+        Transient.__name__ = "ConnectionResetError"
+
+        calls = {"n": 0}
+
+        def failing():
+            calls["n"] += 1
+            raise Transient("down")
+
+        with mock.patch("billing_audit.client.time.sleep"):
+            # THRESHOLD exhaustions open the breaker. Each
+            # exhaustion = 4 attempts.
+            for _ in range(ba_client._CIRCUIT_BREAKER_THRESHOLD):
+                result = ba_client.with_retry(failing)
+                self.assertIsNone(result)
+            # Breaker should now be open.
+            self.assertTrue(ba_client._circuit_open)
+            calls_after_threshold = calls["n"]
+            # Next call must fast-fail WITHOUT retrying.
+            result = ba_client.with_retry(failing)
+            self.assertIsNone(result)
+            self.assertEqual(calls["n"], calls_after_threshold)
+
+    def test_success_resets_consecutive_failures(self):
+        from billing_audit import client as ba_client
+
+        class Transient(Exception):
+            pass
+
+        Transient.__name__ = "ConnectionResetError"
+
+        state = {"fail": True}
+
+        def toggling():
+            if state["fail"]:
+                raise Transient("down")
+            return "ok"
+
+        with mock.patch("billing_audit.client.time.sleep"):
+            # First call exhausts retries.
+            self.assertIsNone(ba_client.with_retry(toggling))
+            self.assertEqual(ba_client._consecutive_failures, 1)
+            # Next call succeeds — counter resets.
+            state["fail"] = False
+            self.assertEqual(ba_client.with_retry(toggling), "ok")
+            self.assertEqual(ba_client._consecutive_failures, 0)
+            self.assertFalse(ba_client._circuit_open)
+
+    def test_non_transient_error_still_counts_toward_breaker(self):
+        """Non-transient errors are a failure just the same; the
+        breaker must trip on whatever pattern of exhausted retries
+        actually occurs, so the pipeline isn't unbounded."""
+        from billing_audit import client as ba_client
+
+        def failing():
+            raise ValueError("bug")
+
+        with mock.patch("billing_audit.client.time.sleep"):
+            for _ in range(ba_client._CIRCUIT_BREAKER_THRESHOLD):
+                self.assertIsNone(ba_client.with_retry(failing))
+            self.assertTrue(ba_client._circuit_open)
+
+
+class NoSelfImportTests(unittest.TestCase):
+    """freeze_row must NOT self-import generate_weekly_pdfs.
+
+    The pipeline runs as ``python generate_weekly_pdfs.py`` so the
+    running module is ``__main__``. A ``from generate_weekly_pdfs
+    import ...`` inside the hot path would load a second copy of
+    the script and re-execute all module-level side effects
+    (Sentry init, CSV loads, etc.).
+    """
+
+    def test_freeze_row_source_has_no_self_import(self):
+        import inspect
+        from billing_audit import writer as ba_writer
+        src = inspect.getsource(ba_writer.freeze_row)
+        self.assertNotIn("generate_weekly_pdfs", src)
+
+    def test_module_is_checked_handles_expected_values(self):
+        from billing_audit import writer as ba_writer
+        self.assertTrue(ba_writer._is_checked(True))
+        self.assertTrue(ba_writer._is_checked(1))
+        self.assertTrue(ba_writer._is_checked("true"))
+        self.assertTrue(ba_writer._is_checked("Checked"))
+        self.assertTrue(ba_writer._is_checked("YES"))
+        self.assertFalse(ba_writer._is_checked(None))
+        self.assertFalse(ba_writer._is_checked(False))
+        self.assertFalse(ba_writer._is_checked(0))
+        self.assertFalse(ba_writer._is_checked(""))
+        self.assertFalse(ba_writer._is_checked("false"))
+
+
 class GetFlagCachingTests(unittest.TestCase):
     """Flag reads must not cache transport failures."""
 

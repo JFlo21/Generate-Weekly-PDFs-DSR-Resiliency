@@ -33,6 +33,31 @@ _WR_SANITIZE = re.compile(r"[^\w\-]")
 _FLAG_WRITE = "write_attribution_snapshot"
 _FLAG_FINGERPRINT = "emit_assignment_fingerprint"
 
+
+def _is_checked(value: Any) -> bool:
+    """Inline ``is_checked`` clone — mirrors
+    ``generate_weekly_pdfs.is_checked`` without importing it.
+
+    The pipeline runs as ``python generate_weekly_pdfs.py``, so the
+    running module is ``__main__``. Doing
+    ``from generate_weekly_pdfs import is_checked`` from inside the
+    freeze_row hot path would load a SECOND copy of the script
+    module, re-executing Sentry init and every other module-level
+    side effect. Keeping this inline is the only safe option for a
+    writer that's called per-row in a tight loop.
+    """
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value == 1
+    if isinstance(value, str):
+        return value.strip().lower() in (
+            "true", "checked", "yes", "1", "on"
+        )
+    return False
+
 # Module-level counters. Exposed via ``get_counters()`` for
 # ``run_summary.json``.
 _counters: dict[str, int] = {
@@ -90,6 +115,20 @@ def any_flag_enabled() -> bool:
         get_flag(_FLAG_WRITE, default=False)
         or get_flag(_FLAG_FINGERPRINT, default=False)
     )
+
+
+def fingerprint_flag_enabled() -> bool:
+    """Narrower probe for just the fingerprint flag.
+
+    Lets callers skip ``compute_assignment_fingerprint()`` and the
+    per-group completed-count aggregation when only the snapshot
+    write flag is on — the fingerprint path would no-op inside
+    ``emit_run_fingerprint`` otherwise, wasting per-group work.
+    Cached through ``get_flag``.
+    """
+    if get_client() is None:
+        return False
+    return get_flag(_FLAG_FINGERPRINT, default=False)
 
 
 def _coerce_week_ending(value: Any) -> datetime.date | None:
@@ -181,23 +220,7 @@ def freeze_row(row: dict, release: str | None,
         )
         return
 
-    try:
-        from generate_weekly_pdfs import is_checked  # type: ignore
-    except Exception:
-        def is_checked(v: Any) -> bool:  # type: ignore
-            if v is None:
-                return False
-            if isinstance(v, bool):
-                return v
-            if isinstance(v, int):
-                return v == 1
-            if isinstance(v, str):
-                return v.strip().lower() in (
-                    "true", "checked", "yes", "1", "on"
-                )
-            return False
-
-    if not is_checked(row.get("Units Completed?")):
+    if not _is_checked(row.get("Units Completed?")):
         return
 
     wr = _sanitized_wr(row)

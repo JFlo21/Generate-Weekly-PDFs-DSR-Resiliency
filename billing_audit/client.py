@@ -23,9 +23,35 @@ _TRANSIENT_ERROR_MARKERS: tuple[str, ...] = (
     "Timeout",
 )
 
+# One-time best-effort imports of the external exception types we
+# want to treat as transient. Kept at module scope so ``with_retry``
+# (called per-row) doesn't repeat the try/except import dance on
+# every invocation. Missing libraries resolve to ``None`` and are
+# skipped by the ``isinstance`` check inside the retry loop.
+try:
+    from postgrest import APIError as _PGAPIError  # type: ignore
+except Exception:
+    _PGAPIError = None  # type: ignore[assignment]
+try:
+    from httpx import HTTPError as _HTTPError  # type: ignore
+except Exception:
+    _HTTPError = None  # type: ignore[assignment]
+
 _client_cache: Any = None
 _client_initialized: bool = False
 _flag_cache: dict[str, bool] = {}
+
+# Circuit breaker state. When a run is operating against an
+# unavailable Supabase (extended outage, DNS failure, expired key),
+# every ``with_retry`` call would otherwise burn the full 9.5s
+# backoff budget (2.5 + 4.5 + 8.5 ≈ 15.5s total for one call). With
+# 550 rows per run, that's ~2.4 hours of pure backoff on a dead
+# endpoint. After ``_CIRCUIT_BREAKER_THRESHOLD`` consecutive
+# exhausted retries the breaker trips and every subsequent call
+# fast-fails with no retries — bounded per-run cost.
+_CIRCUIT_BREAKER_THRESHOLD = 3
+_consecutive_failures: int = 0
+_circuit_open: bool = False
 
 
 def _is_test_mode() -> bool:
@@ -122,9 +148,12 @@ def get_client() -> Any:
 def reset_cache_for_tests() -> None:
     """Clear module-level caches. Test-only helper."""
     global _client_cache, _client_initialized, _flag_cache
+    global _consecutive_failures, _circuit_open
     _client_cache = None
     _client_initialized = False
     _flag_cache = {}
+    _consecutive_failures = 0
+    _circuit_open = False
 
 
 def get_flag(key: str, default: bool = False) -> bool:
@@ -193,27 +222,29 @@ def with_retry(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
       ``_TRANSIENT_ERROR_MARKERS`` (RemoteDisconnected, ConnectionError,
       ConnectionReset, SSLError, SSLEOFError, Timeout).
 
+    A module-level circuit breaker trips after
+    ``_CIRCUIT_BREAKER_THRESHOLD`` consecutive retry exhaustions;
+    once open it stays open for the remainder of the run and every
+    subsequent call returns ``None`` immediately. This bounds the
+    worst-case per-run cost of a prolonged Supabase outage. A single
+    successful call resets the failure counter (but not an open
+    breaker — the breaker is per-run by design so we don't
+    oscillate).
+
     Returns ``fn``'s return value on success. On final failure, logs
     a WARNING, emits a Sentry breadcrumb, and returns ``None``.
     """
+    global _consecutive_failures, _circuit_open
+
+    if _circuit_open:
+        # Fast path: breaker is open, skip all RPC work.
+        return None
+
     max_attempts = 4
-
-    # Best-effort dynamic imports — keep the writer importable when
-    # these libraries are absent (e.g. under `pytest` with supabase
-    # not installed).
-    try:
-        from postgrest import APIError as _PGAPIError  # type: ignore
-    except Exception:
-        _PGAPIError = None  # type: ignore
-    try:
-        from httpx import HTTPError as _HTTPError  # type: ignore
-    except Exception:
-        _HTTPError = None  # type: ignore
-
     last_error_name = "Unknown"
     for attempt in range(max_attempts):
         try:
-            return fn(*args, **kwargs)
+            result = fn(*args, **kwargs)
         except Exception as exc:
             err_name = type(exc).__name__
             last_error_name = err_name
@@ -236,6 +267,28 @@ def with_retry(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
                 continue
             # Non-transient OR last attempt — fall through to failure.
             break
+        else:
+            _consecutive_failures = 0
+            return result
+
+    _consecutive_failures += 1
+    if _consecutive_failures >= _CIRCUIT_BREAKER_THRESHOLD and not _circuit_open:
+        _circuit_open = True
+        logging.warning(
+            f"🔌 billing_audit circuit breaker OPEN after "
+            f"{_consecutive_failures} consecutive exhausted retries; "
+            "remaining RPC calls this run will fast-fail to avoid "
+            "burning the pipeline's time budget on backoff waits"
+        )
+        _sentry_breadcrumb(
+            "billing_audit",
+            "Circuit breaker opened",
+            level="warning",
+            data={
+                "consecutive_failures": _consecutive_failures,
+                "threshold": _CIRCUIT_BREAKER_THRESHOLD,
+            },
+        )
 
     logging.warning(
         "⚠️ billing_audit RPC failed after "

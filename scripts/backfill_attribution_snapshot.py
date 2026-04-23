@@ -175,13 +175,28 @@ def main(argv: list[str] | None = None) -> int:
             )
 
     counters = ba_writer.get_counters()
-    logging.info("✅ Backfill complete.")
+    errored = int(counters.get("snapshots_errored", 0) or 0)
     logging.info(
         f"   Rows matched week {target_week.strftime('%m/%d/%y')}: "
         f"{considered}"
     )
     logging.info(f"   Freeze attempts: {frozen_attempts}")
     logging.info(f"   Counters: {counters}")
+
+    if errored:
+        # A one-shot backfill that reports success while writing
+        # incomplete data is dangerous — operators rely on this tool
+        # for correctness. Exit non-zero so CI / shell wrappers
+        # treat the partial backfill as a real failure.
+        logging.error(
+            f"❌ Backfill finished with {errored} errored row(s). "
+            "Re-run the backfill after addressing the underlying "
+            "Supabase errors; first-write-wins means already-frozen "
+            "rows will be cheap no-ops on retry."
+        )
+        return 6
+
+    logging.info("✅ Backfill complete.")
     return 0
 
 
