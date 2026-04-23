@@ -84,6 +84,21 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s [%(levelname)s] %(message)s",
     )
 
+    # Load .env BEFORE constructing the Supabase client. The main
+    # pipeline module also calls load_dotenv() at import time, but
+    # this script imports ``generate_weekly_pdfs`` lazily AFTER
+    # get_client() — operators relying on the repo's standard
+    # ``.env`` workflow would otherwise get a false-positive exit 2
+    # (credentials "missing") even when SUPABASE_URL /
+    # SUPABASE_SERVICE_ROLE_KEY are defined in .env. Best-effort:
+    # if python-dotenv isn't installed, fall through silently and
+    # let env-only workflows continue to work.
+    try:
+        from dotenv import load_dotenv  # type: ignore
+        load_dotenv()
+    except Exception:
+        pass
+
     from billing_audit import writer as ba_writer
     from billing_audit.client import get_client, get_flag
 

@@ -1114,6 +1114,27 @@ class BackfillCliDateValidationTests(unittest.TestCase):
             _dt.date(2024, 11, 26),
         )
 
+    def test_backfill_loads_dotenv_before_client_check(self):
+        """Backfill must call load_dotenv() before get_client() so
+        operators relying on the repo's standard .env workflow
+        aren't forced to pre-export SUPABASE_URL and
+        SUPABASE_SERVICE_ROLE_KEY. The check is grep-level on the
+        script source — we verify the load_dotenv call sits above
+        the get_client() call.
+        """
+        from pathlib import Path
+        src = Path("scripts/backfill_attribution_snapshot.py").read_text()
+        # Both must be present.
+        dotenv_idx = src.find("load_dotenv()")
+        get_client_idx = src.find("client = get_client()")
+        self.assertGreater(dotenv_idx, 0, "load_dotenv() call missing")
+        self.assertGreater(get_client_idx, 0, "get_client() call missing")
+        self.assertLess(
+            dotenv_idx, get_client_idx,
+            "load_dotenv() must appear BEFORE get_client() so .env "
+            "credentials are loaded when the client is constructed",
+        )
+
     def test_backfill_script_normalizes_release_env_to_empty_string(self):
         """Backfill must mirror the main pipeline's release / run_id
         normalization so RPC params stay non-null even when
