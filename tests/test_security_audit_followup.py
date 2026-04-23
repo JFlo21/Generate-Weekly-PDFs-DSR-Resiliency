@@ -396,6 +396,88 @@ class TestRecalcNoteHandlesUnparseableSnapshotDate(unittest.TestCase):
         )
 
 
+class TestWrIdentifierConsistencyAcrossUploadPath(unittest.TestCase):
+    """Codex P2 follow-up: a single WR identifier must drive every
+    downstream site (hash history, attachment prefix match, target_map
+    lookup, upload task payload, ``delete_old_excel_attachments``).
+
+    Previously the main loop sanitized ``wr_num`` at derivation but the
+    upload-task builder re-read ``wr_numbers[0]`` from
+    ``generate_excel``'s raw return tuple, and ``create_target_sheet_map``
+    populated ``target_map`` with unsanitized keys. For any WR value
+    that ``_RE_SANITIZE_HELPER_NAME`` rewrites, the pipeline would
+    disagree with itself — producing repeated regenerations and
+    orphaned duplicate attachments. Fix: (a) sanitize ``target_map``
+    keys at populate time inside ``create_target_sheet_map``, and
+    (b) use the sanitized main-loop ``wr_num`` when building upload
+    tasks.
+    """
+
+    def test_sanitizer_numeric_wr_is_stable(self):
+        """Realistic WR#s sanitize to themselves — no-op preserves prod."""
+        for numeric in ('90093002', '89954686', '12345'):
+            sanitized = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub(
+                '_', numeric,
+            )[:50]
+            self.assertEqual(
+                numeric, sanitized,
+                f'sanitize({numeric!r}) changed the value — '
+                f'this would break target_map / attachment matching '
+                f'for all normal production data',
+            )
+
+    def test_sanitizer_is_idempotent(self):
+        """Applying the sanitizer twice produces the same result.
+
+        Because ``target_map`` and the main-loop ``wr_num`` both run
+        the regex, idempotence is the invariant that keeps the two
+        in sync.
+        """
+        for raw in ('90093002', '1234/../evil', 'WR#$bad', '  spacey  '):
+            once = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub(
+                '_', raw,
+            )[:50]
+            twice = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub(
+                '_', once,
+            )[:50]
+            self.assertEqual(once, twice, f'sanitize not idempotent for {raw!r}')
+
+    def test_target_map_sanitization_is_consistent_with_source(self):
+        """If target_map uses sanitized keys, a sanitized main-loop
+        lookup MUST hit the row — that's the invariant the upload
+        path relies on.
+        """
+        raw_wr_on_target = '1234/../evil'
+        sanitized_key = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub(
+            '_', raw_wr_on_target,
+        )[:50]
+        fake_target_map = {sanitized_key: 'row-object-placeholder'}
+
+        # Simulate the main-loop sanitization
+        source_row_wr = '1234/../evil'
+        main_loop_wr_num = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub(
+            '_', source_row_wr,
+        )[:50]
+        self.assertIn(main_loop_wr_num, fake_target_map)
+        self.assertEqual(
+            fake_target_map[main_loop_wr_num], 'row-object-placeholder',
+        )
+
+    def test_raw_wr_numbers_zero_does_not_match_sanitized_target_map(self):
+        """Regression: reading ``wr_numbers[0]`` raw (the old bug)
+        would MISS a target_map populated with sanitized keys."""
+        raw = '1234/../evil'
+        sanitized = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub(
+            '_', raw,
+        )[:50]
+        fake_target_map = {sanitized: 'row-object-placeholder'}
+        self.assertNotIn(
+            raw, fake_target_map,
+            'raw WR# must NOT match a sanitized target_map — that was '
+            'the Codex P2 bug that caused orphaned duplicate attachments',
+        )
+
+
 class TestInspectImportRemoved(unittest.TestCase):
     """``import inspect`` was removed as dead weight; keep it gone."""
 

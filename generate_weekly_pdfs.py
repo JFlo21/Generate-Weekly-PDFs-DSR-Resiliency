@@ -3774,11 +3774,18 @@ def create_target_sheet_map(client):
             logging.error("Work Request # column not found in target sheet")
             return {}, None
         
-        # Map work request numbers to rows
+        # Map work request numbers to rows. Sanitize with the same
+        # filesystem-safety regex used on source-row WR#s so downstream
+        # ``target_map.get(sanitized_wr)`` lookups are consistent. For
+        # realistic numeric WR#s this is a no-op; for any row with a
+        # path-traversal-bearing WR the sanitized key matches the same
+        # key the generation pipeline uses, so skip checks, upload
+        # tasks, and attachment deletion all agree.
         for row in target_sheet.rows:
             for cell in row.cells:
                 if cell.column_id == wr_column_id and cell.display_value:
                     wr_num = str(cell.display_value).split('.')[0]
+                    wr_num = _RE_SANITIZE_HELPER_NAME.sub('_', wr_num)[:50]
                     target_map[wr_num] = row
                     break
         
@@ -4315,15 +4322,21 @@ def main():
                 _groups_generated += 1
                 generated_filenames.append(filename)
                 
-                # Collect upload task for parallel processing (instead of uploading serially)
-                if not TEST_MODE and target_map and wr_numbers:
-                    wr_num_upload = wr_numbers[0]
-                    if wr_num_upload in target_map:
+                # Collect upload task for parallel processing (instead
+                # of uploading serially). ``wr_numbers`` is returned raw
+                # by ``generate_excel`` — do NOT read from it here; the
+                # filename, hash-history key, attachment prefix match,
+                # and target_map key all use the sanitized main-loop
+                # ``wr_num`` and must stay aligned to avoid repeated
+                # regeneration and orphaned duplicate attachments on
+                # subsequent runs.
+                if not TEST_MODE and target_map and wr_num:
+                    if wr_num in target_map:
                         _upload_tasks.append({
                             'excel_path': excel_path,
                             'filename': filename,
-                            'wr_num': wr_num_upload,
-                            'target_row': target_map[wr_num_upload],
+                            'wr_num': wr_num,
+                            'target_row': target_map[wr_num],
                             'variant': variant,
                             'identifier': identifier,
                             'file_identifier': file_identifier,
@@ -4332,7 +4345,7 @@ def main():
                             'group_key': group_key,
                         })
                     else:
-                        logging.warning(f"⚠️ Work request {wr_num_upload} not found in target sheet")
+                        logging.warning(f"⚠️ Work request {wr_num} not found in target sheet")
 
                 # Update hash history with variant-aware key (even in TEST_MODE so future prod runs can leverage)
                 hash_history[history_key] = {

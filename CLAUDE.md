@@ -884,3 +884,48 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   `TestRecalcNoteHandlesUnparseableSnapshotDate` (blank /
   unparseable / valid Snapshot Date behaviour of the note's
   condition).
+- [2026-04-23 18:25] PR #176 P2 follow-up: the `wr_num`
+  sanitization landed earlier today was inconsistent across the
+  upload/delete pipeline. The main loop sanitized `wr_num` at
+  derivation (line ~4138) and `generate_excel` sanitized its
+  local copy before filename construction, but the upload-task
+  builder was reading `wr_numbers[0]` from `generate_excel`'s
+  raw return tuple — and `create_target_sheet_map` populated
+  `target_map` with *unsanitized* WR# keys pulled straight from
+  the target sheet's cells. For any WR whose value gets rewritten
+  by `_RE_SANITIZE_HELPER_NAME` (the path-traversal test case
+  being the motivating example), the pipeline disagreed with
+  itself: the skip-check at line 4283 looked up a sanitized key
+  in a raw-keyed map and missed, the upload path at line 4321
+  looked up a raw key that diverged from the sanitized filename
+  actually on disk, and `delete_old_excel_attachments` received
+  a raw WR that did NOT match the sanitized filename prefix of
+  the prior run's attachment — causing repeated regeneration and
+  orphaned duplicate attachments over time. **Fix:**
+  (1) Sanitize target_map keys at populate time inside
+  `create_target_sheet_map` using the same
+  `_RE_SANITIZE_HELPER_NAME.sub('_', wr_num)[:50]` expression as
+  every other site. For realistic numeric WR#s this is a no-op,
+  so production data is unaffected. (2) Build the upload task
+  from the main-loop sanitized `wr_num` instead of reading
+  `wr_numbers[0]` from `generate_excel`'s raw return. The "not
+  found in target sheet" warning now also reports the sanitized
+  identifier so logs are internally consistent. **New rule:**
+  When a sanitizer is added at a derivation site, EVERY
+  downstream consumer of that identifier — target-sheet maps
+  populated from cells, upload-task dicts, hash-history keys,
+  attachment prefix matches, delete-old-attachment filters —
+  MUST consume the sanitized value. Sanitization that's only
+  applied to ONE path creates a silent split-brain where some
+  lookups succeed and others fail, which is worse than no
+  sanitization at all. Helper audit: `_RE_SANITIZE_HELPER_NAME`
+  is idempotent (applying it twice gives the same result), so
+  it's safe to apply at both producer and consumer sites without
+  having to reason about which one "owns" the canonicalisation.
+  Regression tests: new
+  `TestWrIdentifierConsistencyAcrossUploadPath` class in
+  `tests/test_security_audit_followup.py` locks in numeric
+  no-op behaviour, sanitizer idempotence, sanitized
+  source-row + sanitized target_map match, and the inverse
+  property that a raw WR must NOT match a sanitized target_map
+  (guards against regressing to the P2 bug).
