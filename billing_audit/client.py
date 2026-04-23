@@ -254,9 +254,24 @@ def with_retry(fn: Callable[..., Any], *args: Any,
     design so we don't oscillate).
 
     Callers in ``billing_audit.writer`` should pass a stable ``op``
-    identifier (e.g. ``"freeze_attribution"``, ``"pipeline_run"``,
-    ``"feature_flag"``). The default ``"default"`` exists only so
-    non-writer callers need not adopt the convention.
+    identifier matching the endpoint being called. Current values
+    in use:
+
+    - ``"freeze_attribution"`` — the ``freeze_attribution`` RPC
+    - ``"pipeline_run_select"`` — the ``pipeline_run`` SELECT for
+      prior-fingerprint lookup
+    - ``"pipeline_run_upsert"`` — the ``pipeline_run`` UPSERT for
+      the new fingerprint row
+    - ``"feature_flag"`` — the ``feature_flag`` SELECT for flag
+      reads
+
+    The SELECT and UPSERT sides of ``pipeline_run`` MUST stay on
+    separate ops: sharing one op would let a healthy SELECT reset
+    the breaker counter on every call, masking a sustained UPSERT
+    outage from ever tripping the breaker. In general, any endpoint
+    whose health can diverge from a neighbor's should get its own
+    op. The default ``"default"`` exists only so non-writer callers
+    need not adopt the convention.
 
     Returns ``fn``'s return value on success. On final failure, logs
     a WARNING, emits a Sentry breadcrumb, and returns ``None``.

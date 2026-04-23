@@ -1341,6 +1341,30 @@ class CrossVariantFingerprintAggregationTests(unittest.TestCase):
             "bucket must be built before the group loop starts",
         )
 
+    def test_bucket_precompute_is_gated_on_fingerprint_flag(self):
+        """The per-group emit block is already gated on
+        ``fingerprint_flag_enabled()``. When the fingerprint flag
+        is off, the pre-loop aggregation + per-bucket
+        ``calculate_data_hash`` cost is pure overhead — operators
+        running with the default shadow-off flag state would
+        otherwise pay an avoidable CPU bill every run. Verify the
+        gate is in place.
+        """
+        from pathlib import Path
+        src = Path("generate_weekly_pdfs.py").read_text()
+        # Locate the pre-loop aggregation's guard. The 3-condition
+        # ``if`` must include fingerprint_flag_enabled().
+        self.assertIn(
+            "if (\n            BILLING_AUDIT_AVAILABLE\n"
+            "            and not TEST_MODE\n"
+            "            and _billing_audit_writer.fingerprint_flag_enabled()\n"
+            "        ):",
+            src,
+            "pre-aggregation block must be gated on "
+            "fingerprint_flag_enabled() so flag-off runs don't "
+            "pay the calculate_data_hash cost",
+        )
+
     def test_emit_uses_aggregated_rows(self):
         """The emit call inside the per-group block must pull
         from ``_billing_audit_fp_buckets`` (aggregated across

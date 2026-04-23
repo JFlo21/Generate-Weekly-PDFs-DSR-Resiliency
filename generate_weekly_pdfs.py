@@ -4591,7 +4591,20 @@ def main():
         # stored hash even when the underlying work set is
         # unchanged, making downstream run comparisons noisy.
         _billing_audit_agg_content_hashes: dict[tuple[str, str], str] = {}
-        if BILLING_AUDIT_AVAILABLE and not TEST_MODE:
+        # Gate the pre-aggregation + content-hashing behind the
+        # fingerprint flag so a "shadow off" run (default flag
+        # state, or Supabase unavailable) doesn't pay the per-
+        # bucket ``calculate_data_hash`` cost for nothing. The
+        # per-group emit block is already gated on the same flag
+        # so the aggregation would only ever be consumed when this
+        # condition is true. Empty buckets + the ``.get(...)``
+        # fallback in the emit call keep the flag-off path
+        # byte-identical to pre-PR behaviour.
+        if (
+            BILLING_AUDIT_AVAILABLE
+            and not TEST_MODE
+            and _billing_audit_writer.fingerprint_flag_enabled()
+        ):
             for _agg_gk, _agg_rows in groups.items():
                 if not _agg_rows:
                     continue
