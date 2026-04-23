@@ -3897,8 +3897,11 @@ def create_target_sheet_map(client):
         # first 50 chars happen to match. A silent overwrite would
         # retarget uploads / attachment deletes to the wrong row.
         # Track which raw value first produced a given sanitized key;
-        # on collision, log a WARNING and keep the first-seen mapping
-        # so behaviour stays deterministic across runs.
+        # on collision, log a WARNING, quarantine the sanitized key,
+        # and remove any existing mapping so both (or all) ambiguous
+        # WRs are skipped deterministically until the target sheet is
+        # deduplicated. A loud "not found in target sheet" warning
+        # is strictly safer than a silent wrong-row upload.
         _seen_raw_for_key: dict = {}
         _quarantined_keys: set = set()
         _collisions = 0
