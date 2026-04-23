@@ -1341,28 +1341,63 @@ class CrossVariantFingerprintAggregationTests(unittest.TestCase):
             "bucket must be built before the group loop starts",
         )
 
-    def test_bucket_precompute_is_gated_on_fingerprint_flag(self):
-        """The per-group emit block is already gated on
-        ``fingerprint_flag_enabled()``. When the fingerprint flag
-        is off, the pre-loop aggregation + per-bucket
-        ``calculate_data_hash`` cost is pure overhead — operators
-        running with the default shadow-off flag state would
-        otherwise pay an avoidable CPU bill every run. Verify the
-        gate is in place.
+    def test_bucket_assembly_is_unconditional_but_hash_is_lazy(self):
+        """Split-cost invariant: bucket assembly (cheap dict
+        appends) runs whenever billing_audit is available, but the
+        per-bucket ``calculate_data_hash`` call is lazy and
+        memoized inside the per-group emit block (flag-gated).
+
+        Rationale: gating the WHOLE pre-aggregation on a single
+        pre-loop ``fingerprint_flag_enabled()`` read creates a
+        transient-blip regression — if the initial read fails and
+        later per-group reads recover, the empty bucket forces
+        a fallback to ``group_rows`` / ``data_hash`` (variant-
+        scoped), defeating the cross-variant aggregation fix.
+        Splitting the work keeps the cheap path always-correct
+        while keeping the expensive path flag-gated + per-bucket
+        memoized.
         """
         from pathlib import Path
         src = Path("generate_weekly_pdfs.py").read_text()
-        # Locate the pre-loop aggregation's guard. The 3-condition
-        # ``if`` must include fingerprint_flag_enabled().
+
+        # The pre-loop block must NOT include
+        # fingerprint_flag_enabled() — bucket assembly is
+        # unconditional under BILLING_AUDIT_AVAILABLE + not TEST_MODE.
         self.assertIn(
-            "if (\n            BILLING_AUDIT_AVAILABLE\n"
-            "            and not TEST_MODE\n"
-            "            and _billing_audit_writer.fingerprint_flag_enabled()\n"
-            "        ):",
+            "if BILLING_AUDIT_AVAILABLE and not TEST_MODE:\n"
+            "            for _agg_gk, _agg_rows in groups.items():",
             src,
-            "pre-aggregation block must be gated on "
-            "fingerprint_flag_enabled() so flag-off runs don't "
-            "pay the calculate_data_hash cost",
+            "bucket assembly must run unconditionally so transient "
+            "flag-read blips can't erase cross-variant aggregation",
+        )
+
+        # calculate_data_hash must NOT appear inside the pre-loop
+        # aggregation — it's been pushed into the per-group emit
+        # with memoization.
+        pre_loop_start = src.find(
+            "if BILLING_AUDIT_AVAILABLE and not TEST_MODE:\n"
+            "            for _agg_gk, _agg_rows in groups.items():"
+        )
+        group_loop_start = src.find(
+            "for group_idx, (group_key, group_rows) in enumerate(groups.items(), 1):"
+        )
+        self.assertGreater(pre_loop_start, 0)
+        self.assertGreater(group_loop_start, pre_loop_start)
+        pre_loop_slice = src[pre_loop_start:group_loop_start]
+        self.assertNotIn(
+            "calculate_data_hash(_agg_bucket_rows)", pre_loop_slice,
+            "calculate_data_hash must be lazy (called inside the "
+            "per-group emit block), not eagerly in the pre-loop",
+        )
+
+        # Lazy memoized hash inside the per-group emit block.
+        self.assertIn(
+            "_agg_content_hash = (\n"
+            "                                            calculate_data_hash(_agg_fp_rows)\n"
+            "                                        )",
+            src,
+            "per-group emit must lazily compute + memoize the "
+            "aggregated content hash",
         )
 
     def test_emit_uses_aggregated_rows(self):
@@ -1372,27 +1407,33 @@ class CrossVariantFingerprintAggregationTests(unittest.TestCase):
         from pathlib import Path
         src = Path("generate_weekly_pdfs.py").read_text()
         self.assertIn(
-            "_billing_audit_fp_buckets.get(\n                                    (wr_num, week_raw), group_rows\n                                )",
+            "_agg_fp_rows = _billing_audit_fp_buckets.get(",
+            src,
+        )
+        self.assertIn(
+            "_agg_key, group_rows",
             src,
         )
 
     def test_emit_uses_aggregated_content_hash(self):
-        """content_hash must come from
-        ``_billing_audit_agg_content_hashes`` (per-bucket aggregated
-        hash), not ``data_hash`` (per-variant). Otherwise the
+        """content_hash must come from the per-bucket aggregated
+        hash, not ``data_hash`` (per-variant). Otherwise the
         stored pipeline_run.content_hash depends on variant
-        iteration order and flips spuriously between runs.
+        iteration order and flips spuriously between runs. After
+        the lazy-hash refactor, the hash is computed and memoized
+        inside the per-group emit block (not eagerly pre-loop).
         """
         from pathlib import Path
         src = Path("generate_weekly_pdfs.py").read_text()
-        # The aggregation map must exist and be hashed after the
-        # bucket is fully built.
+        # The aggregation memo must exist.
         self.assertIn(
             "_billing_audit_agg_content_hashes: dict[tuple[str, str], str] = {}",
             src,
         )
+        # Lazy computation happens inside the per-group emit,
+        # against ``_agg_fp_rows`` (the aggregated view).
         self.assertIn(
-            "calculate_data_hash(_agg_bucket_rows)",
+            "calculate_data_hash(_agg_fp_rows)",
             src,
         )
         # The emit call must pass the aggregated value, not data_hash.

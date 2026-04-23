@@ -4591,20 +4591,22 @@ def main():
         # stored hash even when the underlying work set is
         # unchanged, making downstream run comparisons noisy.
         _billing_audit_agg_content_hashes: dict[tuple[str, str], str] = {}
-        # Gate the pre-aggregation + content-hashing behind the
-        # fingerprint flag so a "shadow off" run (default flag
-        # state, or Supabase unavailable) doesn't pay the per-
-        # bucket ``calculate_data_hash`` cost for nothing. The
-        # per-group emit block is already gated on the same flag
-        # so the aggregation would only ever be consumed when this
-        # condition is true. Empty buckets + the ``.get(...)``
-        # fallback in the emit call keep the flag-off path
-        # byte-identical to pre-PR behaviour.
-        if (
-            BILLING_AUDIT_AVAILABLE
-            and not TEST_MODE
-            and _billing_audit_writer.fingerprint_flag_enabled()
-        ):
+        # Split the cheap work from the expensive work:
+        #   • Bucket assembly (dict appends across rows) — always run
+        #     when billing_audit is available. Unconditional because
+        #     the buckets must be ready whenever a later per-group
+        #     ``fingerprint_flag_enabled()`` read succeeds, including
+        #     the case where an initial pre-loop read blipped
+        #     transiently. Cost is O(total rows) of dict appends;
+        #     trivial next to the pipeline's per-group work.
+        #   • ``calculate_data_hash`` per bucket — LAZY, memoized
+        #     into ``_billing_audit_agg_content_hashes`` at first
+        #     emit attempt inside the per-group block. The emit is
+        #     already gated on the fingerprint flag, so flag-off
+        #     runs never pay this cost, and flag-on runs pay it
+        #     exactly once per bucket regardless of variant count
+        #     (dedup no-ops reuse the memo).
+        if BILLING_AUDIT_AVAILABLE and not TEST_MODE:
             for _agg_gk, _agg_rows in groups.items():
                 if not _agg_rows:
                     continue
@@ -4619,14 +4621,6 @@ def main():
                 _billing_audit_fp_buckets.setdefault(
                     (_wr_san, _week_part), []
                 ).extend(_agg_rows)
-            # Hash each complete bucket once. ``calculate_data_hash``
-            # already sorts / normalizes internally, so the aggregated
-            # hash is deterministic regardless of variant iteration
-            # order.
-            for _agg_key, _agg_bucket_rows in _billing_audit_fp_buckets.items():
-                _billing_audit_agg_content_hashes[_agg_key] = (
-                    calculate_data_hash(_agg_bucket_rows)
-                )
 
         for group_idx, (group_key, group_rows) in enumerate(groups.items(), 1):
             # Graceful time budget: stop before Actions hard-kills the job
@@ -4743,19 +4737,39 @@ def main():
                                 # so the fingerprint AND content hash
                                 # cover all personnel + all rows
                                 # (primary + helper + vac) for this
-                                # (wr, week). Falls back to group_rows
-                                # / data_hash only if the bucket is
-                                # empty (shouldn't happen — the
-                                # bucket is built from the same
-                                # groups dict we're iterating).
+                                # (wr, week). Falls back to
+                                # ``group_rows`` / ``data_hash`` only
+                                # if the bucket is empty (shouldn't
+                                # happen — the bucket is built from
+                                # the same groups dict we're
+                                # iterating).
+                                _agg_key = (wr_num, week_raw)
                                 _agg_fp_rows = _billing_audit_fp_buckets.get(
-                                    (wr_num, week_raw), group_rows
+                                    _agg_key, group_rows
                                 )
-                                _agg_content_hash = (
-                                    _billing_audit_agg_content_hashes.get(
-                                        (wr_num, week_raw), data_hash
+                                # Lazy + memoized content-hash
+                                # computation. First emit attempt
+                                # for a bucket pays the
+                                # ``calculate_data_hash`` cost once
+                                # and caches the result; subsequent
+                                # variants that dedup-no-op inside
+                                # emit_run_fingerprint get a cache
+                                # hit for free.
+                                if _agg_key in _billing_audit_fp_buckets:
+                                    _agg_content_hash = (
+                                        _billing_audit_agg_content_hashes.get(
+                                            _agg_key
+                                        )
                                     )
-                                )
+                                    if _agg_content_hash is None:
+                                        _agg_content_hash = (
+                                            calculate_data_hash(_agg_fp_rows)
+                                        )
+                                        _billing_audit_agg_content_hashes[
+                                            _agg_key
+                                        ] = _agg_content_hash
+                                else:
+                                    _agg_content_hash = data_hash
                                 _fp = compute_assignment_fingerprint(_agg_fp_rows)
                                 _completed = sum(
                                     1 for _r in _agg_fp_rows
