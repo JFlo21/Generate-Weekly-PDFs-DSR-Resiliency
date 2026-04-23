@@ -445,6 +445,81 @@ class EmitRunFingerprintTests(unittest.TestCase):
         warn_mock.assert_not_called()
 
 
+class FreezeRowReleaseNormalizationTests(unittest.TestCase):
+    """freeze_row must coerce None release/run_id to empty strings
+    so RPC params stay valid even when the deployment applies
+    NOT NULL to audit-metadata columns."""
+
+    def setUp(self):
+        _reset_all()
+
+    def tearDown(self):
+        _reset_all()
+
+    def _valid_row(self):
+        return {
+            "__row_id": 42,
+            "Work Request #": "12345",
+            "__week_ending_date": datetime.datetime(2026, 4, 19),
+            "Units Completed?": True,
+            "Foreman": "Alice",
+        }
+
+    def test_none_release_becomes_empty_string(self):
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        client.schema.return_value.rpc.return_value.execute.return_value = (
+            _fake_rpc_response("run-x")
+        )
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            ba_writer.freeze_row(
+                self._valid_row(), release=None, run_id=None
+            )
+        _, params = client.schema.return_value.rpc.call_args.args
+        self.assertEqual(params["p_release"], "")
+        self.assertEqual(params["p_run_id"], "")
+
+    def test_empty_release_stays_empty_string(self):
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        client.schema.return_value.rpc.return_value.execute.return_value = (
+            _fake_rpc_response("run-x")
+        )
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            ba_writer.freeze_row(
+                self._valid_row(), release="", run_id=""
+            )
+        _, params = client.schema.return_value.rpc.call_args.args
+        self.assertEqual(params["p_release"], "")
+        self.assertEqual(params["p_run_id"], "")
+
+    def test_populated_release_passed_through_unchanged(self):
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        client.schema.return_value.rpc.return_value.execute.return_value = (
+            _fake_rpc_response("run-x")
+        )
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            ba_writer.freeze_row(
+                self._valid_row(), release="v1.2.3", run_id="abc"
+            )
+        _, params = client.schema.return_value.rpc.call_args.args
+        self.assertEqual(params["p_release"], "v1.2.3")
+        self.assertEqual(params["p_run_id"], "abc")
+
+
 class CountersTests(unittest.TestCase):
     def setUp(self):
         _reset_all()

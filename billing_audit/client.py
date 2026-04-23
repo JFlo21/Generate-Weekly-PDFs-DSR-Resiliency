@@ -244,12 +244,17 @@ def with_retry(fn: Callable[..., Any], *args: Any,
     A circuit breaker is tracked PER ``op`` — an outage on one
     endpoint must not cascade into disabling healthy ones. The
     breaker for a given op trips after
-    ``_CIRCUIT_BREAKER_THRESHOLD`` consecutive retry exhaustions;
-    once open it stays open for the remainder of the run and every
-    subsequent call for that op returns ``None`` immediately. A
-    single successful call resets that op's failure counter (but
-    not an open breaker — the breaker is per-run by design so we
-    don't oscillate).
+    ``_CIRCUIT_BREAKER_THRESHOLD`` consecutive call failures,
+    counting BOTH transient retry exhaustions AND non-transient
+    single-attempt failures. This is intentional: a run that keeps
+    hitting a malformed RPC payload or auth error is just as
+    wasteful to keep attempting as one hitting a dead endpoint, and
+    operators want the same fast-fail protection in both cases.
+    Once open the breaker stays open for the remainder of the run
+    and every subsequent call for that op returns ``None``
+    immediately. A single successful call resets that op's failure
+    counter (but not an open breaker — the breaker is per-run by
+    design so we don't oscillate).
 
     Callers in ``billing_audit.writer`` should pass a stable ``op``
     identifier (e.g. ``"freeze_attribution"``, ``"pipeline_run"``,

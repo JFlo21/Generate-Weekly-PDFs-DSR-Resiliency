@@ -228,6 +228,15 @@ def freeze_row(row: dict, release: str | None,
     if not wr or week_ending is None:
         return
 
+    # Normalize release / run_id to empty-string sentinels so RPC
+    # params stay valid even when the deployment applies NOT NULL
+    # to audit-metadata columns. Mirrors the main pipeline's
+    # hoisted-env normalization and emit_run_fingerprint's own
+    # coercion — keeps the writer API safe regardless of whether
+    # the caller passed ``None`` (typed as Optional) or ``""``.
+    release = release or ""
+    run_id = run_id or ""
+
     params = {
         "p_wr": wr,
         "p_week_ending": week_ending.isoformat(),
