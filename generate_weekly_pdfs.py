@@ -63,7 +63,6 @@ from sentry_sdk.crons import capture_checkin
 from sentry_sdk.crons.consts import MonitorStatus
 import traceback
 import sys
-import inspect
 import json
 import signal
 import csv
@@ -411,6 +410,51 @@ DISABLE_AUDIT_FOR_TESTING = False  # Audit system ENABLED for production monitor
 
 # --- SENTRY CONFIGURATION (SDK 2.x) ---
 SENTRY_DSN = os.getenv("SENTRY_DSN")
+
+# Compiled patterns used to scrub billing-row PII out of exception
+# messages before they land in Sentry event context_data. The
+# ``before_send_log`` hook further down only sanitizes logging records
+# — it does NOT walk ``event['contexts']`` — so any raw ``str(e)``
+# passed into ``sentry_capture_with_context(...)``'s context_data
+# payload would bypass that defense. Keep these patterns conservative:
+# they only strip recognised PII tokens, leaving the rest of the
+# exception message intact so operators can still diagnose the root
+# cause from the Sentry dashboard.
+_RE_REDACT_WR = re.compile(r'(?i)\bWR\s*[#:=]?\s*\d+', )
+_RE_REDACT_MONEY = re.compile(r'\$\s*\d[\d,]*(?:\.\d+)?')
+_RE_REDACT_EMAIL = re.compile(r'[\w.+-]+@[\w.-]+\.\w+')
+_RE_REDACT_CUSTOMER = re.compile(r'(?i)\b(customer|foreman|dept|snapshot|cu|job)\s*[#:=]?\s*["\']?[^,;"\')\]}\n]{1,80}')
+
+
+def _redact_exception_message(exc: Exception, *, max_len: int = 240) -> str:
+    """Return a PII-scrubbed single-line form of ``str(exc)``.
+
+    Used exclusively for the ``error_message`` field of
+    ``sentry_capture_with_context(...)``'s context_data payload — that
+    dict bypasses the INFO-log ``before_send_log`` sanitizer because
+    Sentry attaches it directly as event context. The redactor strips
+    WR identifiers, dollar amounts, emails, and ``customer=``/
+    ``foreman=``/``dept=``/``snapshot=``/``cu=``/``job=`` key-value
+    pairs, collapses whitespace, prefixes the exception class name for
+    event-grouping stability, and truncates the result.
+    """
+    if exc is None:
+        return ''
+    try:
+        raw = str(exc)
+    except Exception:
+        return f"{type(exc).__name__}: <unrepresentable>"
+    if not raw:
+        return type(exc).__name__
+    redacted = _RE_REDACT_CUSTOMER.sub(r'\1=<redacted>', raw)
+    redacted = _RE_REDACT_WR.sub('WR=<redacted>', redacted)
+    redacted = _RE_REDACT_MONEY.sub('$<redacted>', redacted)
+    redacted = _RE_REDACT_EMAIL.sub('<email>', redacted)
+    redacted = re.sub(r'\s+', ' ', redacted).strip()
+    if len(redacted) > max_len:
+        redacted = redacted[:max_len - 3] + '...'
+    return f"{type(exc).__name__}: {redacted}"
+
 
 # Sentry helper functions for enhanced error context
 def sentry_add_breadcrumb(category: str, message: str, level: str = "info", data: dict | None = None):
@@ -1930,7 +1974,29 @@ def discover_source_sheets(client):
                 raise ValueError('cache schema outdated')
             ts = datetime.datetime.fromisoformat(cache.get('timestamp'))
             age_min = (datetime.datetime.now() - ts).total_seconds()/60.0
-            _cached_sheet_ids_from_file = {s['id'] for s in cache.get('sheets', [])}
+            # Schema guard: each cached sheet must be a dict with an
+            # integer ``id`` and a dict ``column_mapping`` — anything
+            # else would crash ``_fetch_and_process_sheet`` when it
+            # reads ``source['column_mapping']`` / ``source['id']``.
+            # Drop malformed entries and WARN so operators can see
+            # a corrupted cache immediately rather than debugging a
+            # later AttributeError / KeyError.
+            _raw_cached_sheets = cache.get('sheets', []) or []
+            _valid_cached_sheets = [
+                s for s in _raw_cached_sheets
+                if isinstance(s, dict)
+                and isinstance(s.get('id'), int)
+                and isinstance(s.get('column_mapping'), dict)
+            ]
+            if len(_valid_cached_sheets) != len(_raw_cached_sheets):
+                logging.warning(
+                    f"⚠️ Discovery cache contains "
+                    f"{len(_raw_cached_sheets) - len(_valid_cached_sheets)} "
+                    f"malformed sheet entry(ies); dropping them "
+                    f"(keeping {len(_valid_cached_sheets)} valid). "
+                    f"Delete {DISCOVERY_CACHE_PATH} to force a clean rediscovery."
+                )
+            _cached_sheet_ids_from_file = {s['id'] for s in _valid_cached_sheets}
             # Compare folder-discovered sheet IDs against cache to detect new sheets
             _new_from_folders = _all_folder_discovered_ids - _cached_sheet_ids_from_file
             if age_min <= DISCOVERY_CACHE_TTL_MIN and not _new_from_folders:
@@ -1939,11 +2005,11 @@ def discover_source_sheets(client):
                 if cached_sub_ids:
                     SUBCONTRACTOR_SHEET_IDS = SUBCONTRACTOR_SHEET_IDS | set(cached_sub_ids)
                     logging.info(f"📂 Restored {len(cached_sub_ids)} subcontractor sheet IDs from cache (total: {len(SUBCONTRACTOR_SHEET_IDS)})")
-                logging.info(f"⚡ Using cached discovery ({age_min:.1f} min old) with {len(cache.get('sheets',[]))} sheets (folders unchanged)")
-                return cache.get('sheets', [])
+                logging.info(f"⚡ Using cached discovery ({age_min:.1f} min old) with {len(_valid_cached_sheets)} sheets (folders unchanged)")
+                return _valid_cached_sheets
             else:
                 # Cache expired OR new sheets found in folders → incremental mode
-                _cached_sheets = cache.get('sheets', [])
+                _cached_sheets = _valid_cached_sheets
                 _cached_sheet_ids = _cached_sheet_ids_from_file
                 cached_sub_ids = cache.get('subcontractor_sheet_ids', [])
                 if cached_sub_ids:
@@ -2840,7 +2906,7 @@ def get_all_source_rows(client, source_sheets):
                         "sheet_name": source.get('name', 'Unknown'),
                         "rows_processed": sheet_row_counter,
                         "error_type": type(e).__name__,
-                        "error_message": str(e),
+                        "error_message": _redact_exception_message(e),
                     },
                     tags={"error_location": "sheet_row_processing", "sheet_id": source['id']},
                     fingerprint=["sheet-processing", str(source['id']), type(e).__name__]
@@ -2855,7 +2921,7 @@ def get_all_source_rows(client, source_sheets):
                     "sheet_id": source.get('id', 'N/A'),
                     "sheet_name": source.get('name', 'Unknown'),
                     "error_type": type(e).__name__,
-                    "error_message": str(e),
+                    "error_message": _redact_exception_message(e),
                 },
                 tags={"error_location": "sheet_access", "sheet_id": str(source.get('id', 'N/A'))},
                 fingerprint=["sheet-access", str(source.get('id', 'N/A')), type(e).__name__]
@@ -3260,7 +3326,16 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     
     # SUCCESS: Exactly one work request in this group
     wr_num = wr_numbers[0]
-    
+
+    # Filesystem-safety: strip any path-traversal / separator characters
+    # from the WR identifier before it reaches ``os.path.join`` and
+    # ``workbook.save``. Numeric production WR#s pass through unchanged
+    # (\w matches 0-9), so this is a no-op for realistic data and a
+    # defense-in-depth guard against a pathological row value. Must use
+    # the same regex used by the main-loop derivation site so
+    # attachment / hash-history comparisons stay consistent.
+    wr_num = _RE_SANITIZE_HELPER_NAME.sub('_', wr_num)[:50]
+
     # SPECIFIC FIX FOR WR 90093002 and WR 89954686
     if wr_num in ['90093002', '89954686']:
         logging.info(f"🔧 Applying specific fixes for WR# {wr_num}")
@@ -3864,7 +3939,7 @@ def main():
                         "total_rows": len(all_rows),
                         "skip_cell_history": SKIP_CELL_HISTORY,
                         "error_type": type(e).__name__,
-                        "error_message": str(e),
+                        "error_message": _redact_exception_message(e),
                     },
                     tags={"error_location": "audit_system", "subsystem": "billing_audit"},
                     fingerprint=["audit-system", type(e).__name__]
@@ -4137,6 +4212,12 @@ def main():
                 data_hash = calculate_data_hash(group_rows)
                 wr_num_raw = group_rows[0].get('Work Request #')
                 wr_num = str(wr_num_raw).split('.')[0] if wr_num_raw else ''
+                # Apply the same filesystem-safety sanitizer used inside
+                # generate_excel so history keys, attachment prefix
+                # matching, and Excel filenames all use the identical
+                # WR identifier. Realistic numeric WR#s are unchanged;
+                # path-traversal metacharacters get replaced with ``_``.
+                wr_num = _RE_SANITIZE_HELPER_NAME.sub('_', wr_num)[:50]
                 week_raw = group_key.split('_',1)[0] if '_' in group_key else ''
                 
                 # Extract variant and identifier for variant-aware hash history
@@ -4255,7 +4336,7 @@ def main():
                         "variant": variant if 'variant' in dir() else 'unknown',
                         "row_count": len(group_rows),
                         "error_type": type(e).__name__,
-                        "error_message": str(e),
+                        "error_message": _redact_exception_message(e),
                         "traceback": traceback.format_exc(),
                     },
                     tags={
@@ -4562,7 +4643,7 @@ def main():
                     "duration_seconds": session_duration.total_seconds(),
                     "duration_human": str(session_duration),
                     "error_type": type(e).__name__,
-                    "error_message": str(e),
+                    "error_message": _redact_exception_message(e),
                     "traceback": traceback.format_exc(),
                     "test_mode": TEST_MODE,
                     "groups_attempted": len(groups) if 'groups' in dir() else 'unknown',

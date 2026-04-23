@@ -766,3 +766,73 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   `_resolve_rate_recalc_cutoff_date` → `recalculate_row_price`
   and asserts the row's `Units Total Price` is updated in-place
   so the downstream `has_price` gate will accept it.
+- [2026-04-23 12:00] Security-tightening audit on
+  `generate_weekly_pdfs.py`. Two real attack surfaces fixed, plus
+  a hygiene cleanup. **(1) Path traversal via `wr_num` in Excel
+  filenames.** `wr_num` is derived from the row's
+  `Work Request #` column at two sites (inside `generate_excel`
+  and in the main group-processing loop) and embedded directly
+  into `os.path.join(week_output_folder, output_filename)` →
+  `workbook.save(final_output_path)`. Realistic production WR#s
+  are numeric, so normal data is unaffected, but a malicious
+  `1234/../evil` value would have escaped `generated_docs/<week>/`.
+  Fix: apply `_RE_SANITIZE_HELPER_NAME.sub('_', wr_num)[:50]`
+  at BOTH derivation sites — in-place numeric WR#s pass through
+  unchanged (`\w` includes 0-9), and sanitizing consistently at
+  both sites keeps `history_key`, `_has_existing_week_attachment`
+  prefix matching, and the actual on-disk filename all lined up
+  (sanitizing only one site would break attachment matching).
+  **(2) PII leakage via Sentry `context_data['error_message']`.**
+  Five `sentry_capture_with_context(...)` call sites passed
+  `str(e)` straight into `context_data`, which is attached as
+  Sentry event context — bypassing the `before_send_log` hook
+  (that hook only scrubs logging records, not `event['contexts']`).
+  Fix: new helper `_redact_exception_message(exc, *, max_len=240)`
+  strips WR identifiers (`WR=<redacted>`), dollar amounts
+  (`$<redacted>`), emails (`<email>`), and
+  `customer=`/`foreman=`/`dept=`/`snapshot=`/`cu=`/`job=` key-
+  value pairs, prefixes the exception class name for event-
+  grouping stability, collapses whitespace, and truncates.
+  All five sites now use it. **(3) Discovery cache schema guard.**
+  `cache.get('sheets', [])` was trusted blindly — a malformed
+  entry without `column_mapping` would crash
+  `_fetch_and_process_sheet` later with a KeyError.
+  Fix: filter to `_valid_cached_sheets` (requires dict with
+  int `id` and dict `column_mapping`), log an operator WARNING
+  when entries are dropped with a pointer to delete
+  `DISCOVERY_CACHE_PATH` for a clean rediscovery. **(4) Hygiene:**
+  removed unused `import inspect`. **Legacy-code note:**
+  `VAC_CREW_SHEET_IDS` / `VAC_CREW_FOLDER_IDS` at line ~319-320
+  are intentionally retained — the line 318 comment correctly
+  flags them as test-only, and they're read exclusively by
+  `tests/test_vac_crew.py::TestVacCrewSheetIdsConfig` (4 tests).
+  No production code path touches them. Removing the pair is a
+  separate coordinated change with those tests; it is not a
+  conflict risk in its current form. **New rules:**
+  (1) Any user-controllable string (row field, Smartsheet cell
+  value, env-var-derived identifier) that flows into
+  `os.path.join(...)` / `workbook.save(...)` / any `open(path,
+  'w')` MUST pass through a filesystem-safety sanitizer at each
+  derivation site — not just at the final filename assembly —
+  so downstream comparisons (history keys, attachment prefix
+  matching) stay consistent. Reuse `_RE_SANITIZE_HELPER_NAME`
+  (`[^\w\-]`) or a tighter pattern; do not invent new ones
+  per-site. (2) Never pass raw `str(exc)` into
+  `sentry_capture_with_context(...)`'s `context_data` payload.
+  That dict lands in `event['contexts']` and bypasses the
+  `before_send_log` sanitizer. Use
+  `_redact_exception_message(e)` so row PII stays out of the
+  Sentry dashboard. (3) Any JSON file loaded from disk into a
+  typed shape (discovery cache, hash history, future caches)
+  MUST guard each entry with `isinstance(...)` checks before
+  trusting `entry['id']` / `entry['column_mapping']` / similar
+  — a corrupt cache should WARN and drop the bad entries, not
+  crash the whole run. Regression tests:
+  `tests/test_security_audit_followup.py` covers WR#
+  sanitization (regex, no-op for numeric, cannot-escape-
+  OUTPUT_FOLDER, filename shape), `_redact_exception_message`
+  (WR / money / customer+foreman tokens / email / class prefix
+  / truncation / unrepresentable exception / None / realistic
+  end-to-end), the discovery-cache schema guard (kept / dropped
+  variants, matches-production-filter comprehension), and the
+  `inspect` import removal.
