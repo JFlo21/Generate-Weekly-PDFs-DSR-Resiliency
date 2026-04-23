@@ -183,6 +183,55 @@ class TestRedactExceptionMessage(unittest.TestCase):
                 f'{leaked!r} leaked into redacted payload: {pii_free_payload!r}',
             )
 
+    def test_redacts_alphanumeric_wr_identifier(self):
+        """Codex P2 follow-up: alphanumeric WR tokens must also redact.
+
+        The original ``_RE_REDACT_WR`` regex required ``\\d+`` after
+        ``WR``, so ``WR=ABCD-123`` slipped through unredacted.
+        """
+        redacted = generate_weekly_pdfs._redact_exception_message(
+            Exception('Invalid row WR=ABCD-123 rejected'),
+        )
+        self.assertNotIn('ABCD-123', redacted)
+        self.assertIn('WR=<redacted>', redacted)
+
+    def test_redacts_path_traversal_wr_fully(self):
+        """Codex P2 follow-up: a path-traversal suffix must not leak.
+
+        Before the fix, ``WR=1234/../evil`` became
+        ``WR=<redacted>/../evil`` — leaking the attacker-controlled
+        suffix into Sentry context. The broadened char class now
+        captures the whole identifier.
+        """
+        redacted = generate_weekly_pdfs._redact_exception_message(
+            Exception('Write failed for WR=1234/../evil during upload'),
+        )
+        self.assertNotIn('1234', redacted)
+        self.assertNotIn('/../evil', redacted)
+        self.assertNotIn('evil', redacted)
+        self.assertIn('WR=<redacted>', redacted)
+
+    def test_redact_wr_does_not_swallow_english_prose(self):
+        """Negative lookahead keeps ``WRITE`` / ``WRAP`` etc. intact.
+
+        The pattern only matches when ``WR`` is NOT followed by another
+        letter, so English words starting with ``WR`` are left alone.
+        """
+        redacted = generate_weekly_pdfs._redact_exception_message(
+            Exception('Failed to WRITE the workbook to disk'),
+        )
+        self.assertIn('WRITE', redacted)
+        self.assertNotIn('<redacted>', redacted)
+
+    def test_redact_wr_handles_backslash_paths(self):
+        """A Windows-style backslash path after WR must be redacted."""
+        redacted = generate_weekly_pdfs._redact_exception_message(
+            Exception(r'Upload failed WR=1234\..\etc'),
+        )
+        self.assertNotIn('1234', redacted)
+        self.assertNotIn('etc', redacted)
+        self.assertIn('WR=<redacted>', redacted)
+
 
 class TestDiscoveryCacheSchemaGuard(unittest.TestCase):
     """The loader must drop malformed cache entries without crashing."""

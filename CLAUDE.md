@@ -1022,3 +1022,28 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   the 50-char boundary, first-seen is kept, repeated raw WR#
   doesn't inflate the counter) in
   `tests/test_security_audit_followup.py`.
+- [2026-04-23 19:40] PR #176 round-5 Codex P2: `_RE_REDACT_WR` was
+  too narrow — it only matched digit-only WR tokens
+  (`\bWR\s*[#:=]?\s*\d+`), which caused two leaks into Sentry
+  `context_data`: (1) alphanumeric identifiers like
+  `WR=ABCD-123` passed through unredacted entirely; and (2)
+  path-traversal suffixes like `WR=1234/../evil` redacted only
+  the `1234`, leaving `/../evil` in the payload. Fix: broadened
+  to `\bWR(?![a-zA-Z])\s*[#:=]?\s*[\w/\\\-.]+`. The negative
+  lookahead `(?![a-zA-Z])` prevents over-matching English words
+  that start with `WR` (`WRITE`, `WRAP`, `WRITTEN`), and the
+  identifier char class includes word chars plus `/ \ . -` so
+  decorated, alphanumeric, or path-traversal tokens are captured
+  in full. The `+` stops at the first whitespace/delimiter so
+  only the identifier itself is redacted, leaving surrounding
+  prose intact. **New rule:** When writing a redaction regex for
+  an identifier, do NOT assume the identifier shape (digits vs
+  alphanumerics vs decorated). The identifier body should accept
+  any non-delimiter character and stop at a clear terminator
+  (whitespace, comma, quote, paren). Overly-restrictive bodies
+  leak attacker-controlled suffixes; the negative lookahead
+  guards against over-matching natural-language words. Regression
+  tests: `TestRedactExceptionMessage` gains `test_redacts_alphanumeric_wr_identifier`,
+  `test_redacts_path_traversal_wr_fully`,
+  `test_redact_wr_does_not_swallow_english_prose`, and
+  `test_redact_wr_handles_backslash_paths`.

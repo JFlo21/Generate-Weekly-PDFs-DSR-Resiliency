@@ -420,7 +420,17 @@ SENTRY_DSN = os.getenv("SENTRY_DSN")
 # they only strip recognised PII tokens, leaving the rest of the
 # exception message intact so operators can still diagnose the root
 # cause from the Sentry dashboard.
-_RE_REDACT_WR = re.compile(r'(?i)\bWR\s*[#:=]?\s*\d+', )
+# Match any ``WR``-prefixed identifier, not just digit-only tokens.
+# Earlier ``\d+`` missed alphanumeric WR values (``WR=ABCD-123``) and
+# only partially matched path-traversal suffixes (``WR=1234/../evil``
+# would redact only ``1234``, leaking ``/../evil`` through the
+# Sentry context). The negative lookahead ``(?![a-zA-Z])`` keeps the
+# pattern from over-matching English words that happen to start with
+# ``WR`` (e.g. ``WRITE``). The identifier char class accepts word
+# characters plus ``/ \ . -`` so path-traversal tokens and decorated
+# IDs are captured in full, and the ``+`` stops at the first
+# whitespace / delimiter so only the identifier itself is redacted.
+_RE_REDACT_WR = re.compile(r'(?i)\bWR(?![a-zA-Z])\s*[#:=]?\s*[\w/\\\-.]+')
 _RE_REDACT_MONEY = re.compile(r'\$\s*\d[\d,]*(?:\.\d+)?')
 _RE_REDACT_EMAIL = re.compile(r'[\w.+-]+@[\w.-]+\.\w+')
 _RE_REDACT_CUSTOMER = re.compile(r'(?i)\b(customer|foreman|dept|snapshot|cu|job)\s*[#:=]?\s*["\']?[^,;"\')\]}\n]{1,80}')
