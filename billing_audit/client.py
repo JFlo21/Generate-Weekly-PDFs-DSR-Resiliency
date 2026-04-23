@@ -174,6 +174,26 @@ def reset_cache_for_tests() -> None:
     _open_circuits.clear()
 
 
+def is_flag_resolved(key: str) -> bool:
+    """Return True iff ``key``'s state has been read DEFINITIVELY
+    from Supabase this run (either a successful value or a
+    confirmed missing-row default — both cache).
+
+    ``get_flag`` caches only on success, so an entry in
+    ``_flag_cache`` means the flag's boolean state is trustworthy.
+    Absence means either the key hasn't been read yet, or the last
+    read exhausted retries and returned the fallback default.
+
+    Callers use this to distinguish a genuine ``False`` flag from a
+    ``False`` that's really a transient-failure fallback — important
+    for fail-open logic where "unknown" should not be treated the
+    same as "known-off" (e.g., to avoid silently dropping writes
+    when a flag-read blip during a group causes the whole group's
+    first-write-wins attribution window to be missed).
+    """
+    return key in _flag_cache
+
+
 def get_flag(key: str, default: bool = False) -> bool:
     """Read a boolean from ``billing_audit.feature_flag``.
 

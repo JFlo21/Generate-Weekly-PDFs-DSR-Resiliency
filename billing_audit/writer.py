@@ -20,7 +20,12 @@ import logging
 import re
 from typing import Any
 
-from billing_audit.client import get_client, get_flag, with_retry
+from billing_audit.client import (
+    get_client,
+    get_flag,
+    is_flag_resolved,
+    with_retry,
+)
 
 # Mirrors ``_RE_SANITIZE_HELPER_NAME`` in ``generate_weekly_pdfs.py``.
 # Anything that is not a word character (``[A-Za-z0-9_]``) or a dash
@@ -96,32 +101,54 @@ def get_counters() -> dict[str, int]:
 
 
 def any_flag_enabled() -> bool:
-    """Cheap probe for whether any writer flag is currently on.
+    """Probe for whether any writer flag is currently on — fail-open.
 
-    Returns True if either ``write_attribution_snapshot`` or
-    ``emit_assignment_fingerprint`` is enabled AND the Supabase
-    client is reachable. Callers in the main pipeline can use this
-    to skip per-group work (fingerprint computation, row loops) when
-    both flags are off — otherwise we'd do the expensive prep for
-    every group only for the writer to early-return inside each call.
+    Returns True when:
+    - Either ``write_attribution_snapshot`` or
+      ``emit_assignment_fingerprint`` reads as True, OR
+    - A flag read failed (``get_flag`` exhausted retries and
+      returned its default) so the true state is indeterminate.
 
-    Startup cost depends on flag state:
-    - If ``write_attribution_snapshot`` is True, returns after ONE
-      Supabase feature_flag read (short-circuit ``or``).
-    - If it's False, reads a second flag
-      (``emit_assignment_fingerprint``) — up to TWO reads total
-      on the first call.
-    - If the client is unreachable, returns False immediately
-      with ZERO reads.
-    Successful reads are memoized inside ``get_flag``, so every
-    subsequent call is just dict lookups.
+    The fail-open semantics are load-bearing: a transient
+    feature_flag read blip would otherwise look identical to
+    "flags are off" and cause the main pipeline to skip the whole
+    per-group writer block for that group. Because
+    ``freeze_attribution`` is first-write-wins, missing the
+    current-run's freeze window for a completed row can
+    permanently record the wrong personnel if assignments change
+    before the next pipeline run. Failing open here just means
+    "let the per-row ``freeze_row`` / ``emit_run_fingerprint``
+    calls decide" — they gate internally on their own flag reads,
+    so a genuinely-off flag still no-ops correctly even when this
+    outer probe fails open.
+
+    Returns False only when:
+    - The Supabase client is unreachable (definitive), OR
+    - Both flags are DEFINITIVELY known-off (both cached False
+      via successful reads).
+
+    Startup cost:
+    - Client unreachable → ZERO flag reads.
+    - ``write_attribution_snapshot=True`` → ONE read (short-circuit).
+    - Otherwise → up to TWO reads on first call; dict lookups after.
     """
     if get_client() is None:
         return False
-    return (
-        get_flag(_FLAG_WRITE, default=False)
-        or get_flag(_FLAG_FINGERPRINT, default=False)
-    )
+    write_on = get_flag(_FLAG_WRITE, default=False)
+    if write_on:
+        return True
+    fp_on = get_flag(_FLAG_FINGERPRINT, default=False)
+    if fp_on:
+        return True
+    # Both read False. If both were resolved definitively by
+    # ``get_flag`` (cache populated via successful reads), the flags
+    # really are off — return False. If either is unresolved (read
+    # failed and returned the fallback default), fail open with True
+    # so the per-group writer block isn't silently skipped on a
+    # transient feature_flag blip.
+    if is_flag_resolved(_FLAG_WRITE) and is_flag_resolved(_FLAG_FINGERPRINT):
+        return False
+    return True
 
 
 def fingerprint_flag_enabled() -> bool:

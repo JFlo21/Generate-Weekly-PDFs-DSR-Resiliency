@@ -832,12 +832,63 @@ class AnyFlagEnabledTests(unittest.TestCase):
     def test_false_when_both_flags_off(self):
         from billing_audit import writer as ba_writer
         client = _make_fake_supabase_client()
+        # Both flags must be DEFINITIVELY resolved (cached) before
+        # any_flag_enabled can return False — otherwise it fails
+        # open to avoid silent write-drops on transient blips.
         with mock.patch(
             "billing_audit.writer.get_client", return_value=client
         ), mock.patch(
             "billing_audit.writer.get_flag", return_value=False
+        ), mock.patch(
+            "billing_audit.writer.is_flag_resolved", return_value=True
         ):
             self.assertFalse(ba_writer.any_flag_enabled())
+
+    def test_fail_open_when_flag_read_is_indeterminate(self):
+        """The P2 bug: a transient feature_flag read blip returns
+        the default (False) from get_flag, looking identical to
+        "flags are off." any_flag_enabled must distinguish these
+        via is_flag_resolved and fail-open on indeterminate state
+        so first-write-wins writes aren't silently skipped for a
+        blipped group.
+        """
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        # Simulate the exact production footprint of a read blip:
+        # get_flag returns default=False AND is_flag_resolved
+        # returns False (because the failed read doesn't cache).
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=False
+        ), mock.patch(
+            "billing_audit.writer.is_flag_resolved", return_value=False
+        ):
+            self.assertTrue(
+                ba_writer.any_flag_enabled(),
+                "fail-open is load-bearing — a transient blip "
+                "must not silently skip per-group writer work",
+            )
+
+    def test_fail_open_only_when_unresolved(self):
+        """Partial resolution: write_flag cached False, fingerprint
+        flag read failed. Still indeterminate overall, so fail open.
+        """
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+
+        def _resolved_side(key):
+            return key == "write_attribution_snapshot"
+
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=False
+        ), mock.patch(
+            "billing_audit.writer.is_flag_resolved",
+            side_effect=_resolved_side,
+        ):
+            self.assertTrue(ba_writer.any_flag_enabled())
 
     def test_true_when_write_flag_on(self):
         from billing_audit import writer as ba_writer
@@ -878,7 +929,9 @@ class AnyFlagEnabledTests(unittest.TestCase):
     def test_write_flag_false_triggers_second_read(self):
         """When the write flag is False, the fingerprint flag is
         also read — up to TWO reads on first call, matching the
-        docstring's updated cost profile.
+        docstring's updated cost profile. Both flags must be
+        resolved (cached-False) for any_flag_enabled to finalize
+        as False; otherwise the fail-open path fires.
         """
         from billing_audit import writer as ba_writer
         client = _make_fake_supabase_client()
@@ -892,6 +945,8 @@ class AnyFlagEnabledTests(unittest.TestCase):
             "billing_audit.writer.get_client", return_value=client
         ), mock.patch(
             "billing_audit.writer.get_flag", side_effect=_flag_side
+        ), mock.patch(
+            "billing_audit.writer.is_flag_resolved", return_value=True
         ):
             self.assertFalse(ba_writer.any_flag_enabled())
         self.assertEqual(
