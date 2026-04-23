@@ -280,11 +280,13 @@ def emit_run_fingerprint(wr: str, week_ending: datetime.date,
     # process. Subsequent callers for the same key (e.g. helper /
     # vac_crew variants in the same group loop) no-op. Matches the
     # ``pipeline_run`` schema PK and avoids pipeline_run overwrites
-    # + cross-variant drift false-positives.
+    # + cross-variant drift false-positives. The dedup key is
+    # recorded only AFTER a successful upsert so a transient failure
+    # on the first variant doesn't permanently suppress the fallback
+    # attempts from subsequent variants in the same run.
     dedup_key = (wr_sanitized, week_ending.isoformat(), run_id or "")
     if dedup_key in _emitted_run_keys:
         return
-    _emitted_run_keys.add(dedup_key)
 
     # ── Look up prior fingerprint for this (wr, week_ending) ──
     def _fetch_prior():
@@ -326,7 +328,16 @@ def emit_run_fingerprint(wr: str, week_ending: datetime.date,
             .execute()
         )
 
-    with_retry(_upsert)
+    upsert_result = with_retry(_upsert)
+    if upsert_result is None:
+        # Upsert exhausted its retry budget. Do NOT record the dedup
+        # key — a subsequent variant call in the same run gets a
+        # fresh attempt, which is the intended resilience behavior
+        # for transient Supabase/network failures.
+        return
+
+    # Only now is it safe to dedup. The row is in Supabase.
+    _emitted_run_keys.add(dedup_key)
 
     # ── Drift detection ──
     if (

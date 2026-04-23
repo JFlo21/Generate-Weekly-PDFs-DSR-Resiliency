@@ -647,6 +647,64 @@ class EmitFingerprintDedupTests(unittest.TestCase):
         table_obj = client.schema.return_value.table.return_value
         self.assertEqual(table_obj.upsert.call_count, 1)
 
+    def test_upsert_failure_does_not_suppress_subsequent_variants(self):
+        """A transient upsert failure on the first variant must NOT
+        permanently suppress subsequent variants for the same
+        (wr, week, run_id) in the same run.
+
+        Before the fix, the dedup key was recorded eagerly, so the
+        first variant's upsert failure would block every later
+        variant from retrying — leaving ``pipeline_run`` empty for
+        the run even though the second variant could have succeeded.
+        """
+        from billing_audit import writer as ba_writer
+
+        # First upsert raises transient error on all 4 retry attempts
+        # (with_retry returns None). Second upsert succeeds.
+        transient = type(
+            "ConnectionResetError", (Exception,), {}
+        )("reset")
+        client = _make_fake_supabase_client()
+        table_obj = client.schema.return_value.table.return_value
+        upsert_obj = table_obj.upsert.return_value
+        upsert_obj.execute.side_effect = [
+            transient, transient, transient, transient,  # 1st call
+            mock.Mock(data=[]),                          # 2nd call
+        ]
+
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ), mock.patch("billing_audit.client.time.sleep"):
+            # Primary variant — upsert fails.
+            ba_writer.emit_run_fingerprint(
+                wr="WR1",
+                week_ending=datetime.date(2026, 4, 19),
+                content_hash="h",
+                assignment_fp="fp-primary",
+                completed_count=1,
+                total_count=1,
+                release="rel",
+                run_id="run-1",
+            )
+            # Helper variant — must NOT be dedup-blocked.
+            ba_writer.emit_run_fingerprint(
+                wr="WR1",
+                week_ending=datetime.date(2026, 4, 19),
+                content_hash="h",
+                assignment_fp="fp-helper",
+                completed_count=1,
+                total_count=1,
+                release="rel",
+                run_id="run-1",
+            )
+
+        # Two upsert attempts — the first exhausted its retries, the
+        # second got through. 5 total execute() calls: 4 retries +
+        # 1 successful second variant.
+        self.assertEqual(upsert_obj.execute.call_count, 5)
+
     def test_different_run_id_still_writes(self):
         """Dedup is per-run; subsequent runs must still emit."""
         from billing_audit import writer as ba_writer
