@@ -882,10 +882,49 @@ class NoSelfImportTests(unittest.TestCase):
     (Sentry init, CSV loads, etc.).
     """
 
+    @staticmethod
+    def _strip_docstring_and_comments(src: str) -> str:
+        """Return source with the leading triple-quoted docstring
+        and all ``#`` comments removed so substring checks don't
+        false-positive on prose mentions of the banned import.
+        """
+        import re
+        out: list[str] = []
+        in_doc = False
+        doc_delim = None
+        for line in src.splitlines():
+            stripped = line.strip()
+            if in_doc:
+                # Look for the closing delimiter on this line.
+                if doc_delim and doc_delim in stripped:
+                    in_doc = False
+                    doc_delim = None
+                continue
+            # Open docstring (either """...""" single-line or start
+            # of a multi-line). We only strip the function-leading
+            # one; subsequent triple-quote strings in code would
+            # count, but none of our target functions use them.
+            m = re.match(r'^(?P<q>"""|\'\'\')', stripped)
+            if m:
+                q = m.group("q")
+                rest = stripped[len(q):]
+                if q in rest:
+                    # Single-line docstring
+                    continue
+                in_doc = True
+                doc_delim = q
+                continue
+            # Strip inline comments.
+            no_comment = re.sub(r'#.*$', '', line)
+            out.append(no_comment)
+        return "\n".join(out)
+
     def test_freeze_row_source_has_no_self_import(self):
         import inspect
         from billing_audit import writer as ba_writer
-        src = inspect.getsource(ba_writer.freeze_row)
+        src = self._strip_docstring_and_comments(
+            inspect.getsource(ba_writer.freeze_row)
+        )
         self.assertNotIn("generate_weekly_pdfs", src)
 
     def test_module_is_checked_handles_expected_values(self):
@@ -900,6 +939,18 @@ class NoSelfImportTests(unittest.TestCase):
         self.assertFalse(ba_writer._is_checked(0))
         self.assertFalse(ba_writer._is_checked(""))
         self.assertFalse(ba_writer._is_checked("false"))
+
+    def test_client_sentry_breadcrumb_source_has_no_self_import(self):
+        """client._sentry_breadcrumb must not self-import the
+        pipeline module — it's called on error paths and would
+        otherwise load a second copy of __main__ under prod.
+        """
+        import inspect
+        from billing_audit import client as ba_client
+        src = self._strip_docstring_and_comments(
+            inspect.getsource(ba_client._sentry_breadcrumb)
+        )
+        self.assertNotIn("generate_weekly_pdfs", src)
 
 
 class GetFlagCachingTests(unittest.TestCase):

@@ -4555,12 +4555,15 @@ def main():
         # being read on every freeze_row call for every row in every
         # group. One-time read; empty string sentinels match the
         # per-call behaviour the writer expects.
+        #
+        # NOTE: the fingerprint flag state is NOT hoisted here. Flag
+        # reads are per-call so a transient early-run ``get_flag``
+        # failure (which deliberately isn't cached per the
+        # non-caching-on-failure fix) can recover on subsequent
+        # calls. Hoisting the boolean would lock the whole run into
+        # the first-read result and silently drop pipeline_run rows.
         _billing_audit_release_env = os.getenv('SENTRY_RELEASE')
         _billing_audit_run_id_env = os.getenv('GITHUB_RUN_ID')
-        _billing_audit_fingerprint_on = (
-            BILLING_AUDIT_AVAILABLE
-            and _billing_audit_writer.fingerprint_flag_enabled()
-        )
 
         for group_idx, (group_key, group_rows) in enumerate(groups.items(), 1):
             # Graceful time budget: stop before Actions hard-kills the job
@@ -4665,8 +4668,14 @@ def main():
                             # count when the fingerprint flag is off
                             # — emit_run_fingerprint would no-op
                             # inside otherwise, wasting per-group
-                            # work.
-                            if _billing_audit_fingerprint_on:
+                            # work. Checked per-group (not hoisted)
+                            # so a transient early-run flag-read
+                            # failure doesn't suppress fingerprint
+                            # emission for the rest of the run.
+                            # ``get_flag`` caches successful reads,
+                            # so the steady-state cost is a single
+                            # dict lookup per group.
+                            if _billing_audit_writer.fingerprint_flag_enabled():
                                 _fp = compute_assignment_fingerprint(group_rows)
                                 _completed = sum(
                                     1 for _r in group_rows

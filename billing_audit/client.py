@@ -66,19 +66,28 @@ def _is_test_mode() -> bool:
 
 def _sentry_breadcrumb(category: str, message: str, level: str = "info",
                        data: dict | None = None) -> None:
-    """Route a breadcrumb through the pipeline's helper when present.
+    """Emit a Sentry breadcrumb without self-importing the pipeline.
 
-    Falls back to a no-op if the main module has not been loaded (for
-    example, when the billing_audit package is imported by the
-    backfill script). Prevents the writer from exploding if Sentry is
-    not wired up in the current process.
+    Calls ``sentry_sdk.add_breadcrumb`` directly. The pipeline runs
+    as ``python generate_weekly_pdfs.py`` so its running module is
+    ``__main__`` — ``from generate_weekly_pdfs import
+    sentry_add_breadcrumb`` would load a SECOND copy of the script
+    during error handling, re-executing module-level Sentry init and
+    duplicating telemetry state exactly when Supabase errors occur.
+    ``sentry_sdk`` itself is a no-op when the SDK has not been
+    initialized, so this is safe even in the backfill script path.
     """
     try:
-        from generate_weekly_pdfs import sentry_add_breadcrumb  # type: ignore
+        import sentry_sdk  # type: ignore
     except Exception:
         return
     try:
-        sentry_add_breadcrumb(category, message, level=level, data=data or {})
+        sentry_sdk.add_breadcrumb(
+            category=category,
+            message=message,
+            level=level,
+            data=data or {},
+        )
     except Exception:
         pass
 
