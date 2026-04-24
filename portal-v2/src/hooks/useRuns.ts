@@ -1,10 +1,102 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { api } from '../lib/api';
+import { api, getApiAuthHeaders } from '../lib/api';
 import { USE_MOCK, MOCK_RUNS } from '../lib/mockData';
 import type { WorkflowRun } from '../lib/types';
 
 const POLL_INTERVAL_MS = 120_000; // 2 minutes
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
+
+type EventStreamHandlers = {
+  onOpen: () => void;
+  onRunsUpdated: () => void;
+  onError: () => void;
+};
+
+function handleSseBlock(block: string, handlers: EventStreamHandlers) {
+  const eventLine = block
+    .split('\n')
+    .find((line) => line.startsWith('event:'));
+  const eventName = eventLine?.slice('event:'.length).trim();
+  if (eventName === 'runs-updated') handlers.onRunsUpdated();
+}
+
+function consumeSseBuffer(buffer: string, handlers: EventStreamHandlers): string {
+  const normalized = buffer.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const blocks = normalized.split('\n\n');
+  for (const block of blocks.slice(0, -1)) {
+    handleSseBlock(block, handlers);
+  }
+  return blocks[blocks.length - 1] ?? '';
+}
+
+function openFetchEventStream(
+  url: string,
+  headers: Headers,
+  handlers: EventStreamHandlers
+): () => void {
+  const controller = new AbortController();
+  let closed = false;
+
+  fetch(url, {
+    credentials: 'include',
+    headers,
+    signal: controller.signal,
+  })
+    .then(async (res) => {
+      if (!res.ok || !res.body) {
+        throw new Error(`SSE connection failed with HTTP ${res.status}`);
+      }
+
+      handlers.onOpen();
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer = consumeSseBuffer(
+          buffer + decoder.decode(value, { stream: true }),
+          handlers
+        );
+      }
+
+      buffer = consumeSseBuffer(buffer + decoder.decode(), handlers);
+      if (!closed) handlers.onError();
+    })
+    .catch(() => {
+      if (!closed) handlers.onError();
+    });
+
+  return () => {
+    closed = true;
+    controller.abort();
+  };
+}
+
+async function openRunsEventStream(
+  url: string,
+  handlers: EventStreamHandlers
+): Promise<() => void> {
+  const authHeaders = await getApiAuthHeaders();
+  if (authHeaders.has('Authorization')) {
+    return openFetchEventStream(url, authHeaders, handlers);
+  }
+
+  let es: EventSource | null = new EventSource(url, { withCredentials: true });
+  es.addEventListener('open', handlers.onOpen);
+  es.addEventListener('runs-updated', handlers.onRunsUpdated);
+  es.addEventListener('error', () => {
+    handlers.onError();
+    es?.close();
+    es = null;
+  });
+
+  return () => {
+    es?.close();
+    es = null;
+  };
+}
 
 export function useRuns() {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
@@ -92,32 +184,37 @@ export function useRuns() {
       };
     }
 
-    // Only open an SSE connection if we have a backend URL configured.
-    let es: EventSource | null = null;
+    let closeEvents: (() => void) | null = null;
     let cancelled = false;
     initialFetch.finally(() => {
       if (cancelled) return;
       const sseUrl = `${API_BASE}/api/events`;
-      try {
-        es = new EventSource(sseUrl, { withCredentials: true });
-        es.addEventListener('open', () => setIsConnected(true));
-        es.addEventListener('runs-updated', () => {
+      openRunsEventStream(sseUrl, {
+        onOpen: () => {
+          if (!cancelled) setIsConnected(true);
+        },
+        onRunsUpdated: () => {
+          if (cancelled) return;
           if (timerRef.current) clearTimeout(timerRef.current);
           fetchRef.current?.();
-        });
-        es.addEventListener('error', () => {
+        },
+        onError: () => {
+          if (cancelled) return;
           setIsConnected(false);
-          // Close on ANY error — CORS blocks leave EventSource stuck in
-          // CONNECTING state and the browser auto-retries every ~3s forever,
-          // flooding the console. The 2-minute poll covers updates regardless.
-          if (es) {
-            es.close();
-            es = null;
+          closeEvents?.();
+          closeEvents = null;
+        },
+      })
+        .then((close) => {
+          if (cancelled) {
+            close();
+            return;
           }
+          closeEvents = close;
+        })
+        .catch(() => {
+          if (!cancelled) setIsConnected(false);
         });
-      } catch {
-        setIsConnected(false);
-      }
     });
 
     // Countdown ticker
@@ -129,7 +226,7 @@ export function useRuns() {
       cancelled = true;
       if (timerRef.current) clearTimeout(timerRef.current);
       if (countdownRef.current) clearInterval(countdownRef.current);
-      es?.close();
+      closeEvents?.();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -27,6 +27,16 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 type RunsResponse = { total?: number; runs?: unknown[] };
 type ArtifactsResponse = { total?: number; artifacts?: unknown[] };
 
+export async function getApiAuthHeaders(): Promise<Headers> {
+  const requestHeaders = new Headers();
+  if (isSupabaseConfigured) {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (token) requestHeaders.set('Authorization', `Bearer ${token}`);
+  }
+  return requestHeaders;
+}
+
 function toRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? value as Record<string, unknown> : {};
 }
@@ -66,9 +76,8 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const { headers, ...rest } = options ?? {};
   const requestHeaders = new Headers(headers);
   if (isSupabaseConfigured && !requestHeaders.has('Authorization')) {
-    const { data } = await supabase.auth.getSession();
-    const token = data.session?.access_token;
-    if (token) requestHeaders.set('Authorization', `Bearer ${token}`);
+    const authHeaders = await getApiAuthHeaders();
+    authHeaders.forEach((value, key) => requestHeaders.set(key, value));
   }
 
   const res = await fetch(`${API_BASE}${url}`, {

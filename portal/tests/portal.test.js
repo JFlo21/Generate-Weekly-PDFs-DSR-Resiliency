@@ -713,4 +713,27 @@ describe('API_AUTH_REQUIRED=true', () => {
       }
     );
   });
+
+  it('accepts a valid Supabase bearer token for SSE events', async () => {
+    const token = signSupabaseJwt({
+      aud: 'authenticated',
+      sub: 'user-123',
+      email: 'user@example.com',
+      exp: Math.floor(Date.now() / 1000) + 300,
+    });
+
+    await withFreshApp(
+      { API_AUTH_REQUIRED: 'true', SUPABASE_JWT_SECRET: 'test-secret' },
+      async (freshRequest) => {
+        const res = await freshRequest('/api/events', {
+          headers: { Authorization: `Bearer ${token}` },
+          resolveOnFirstChunk: true,
+          timeoutMs: 1000,
+        });
+        expect(res.status).toBe(200);
+        expect(res.headers['content-type']).toContain('text/event-stream');
+        expect(res.headers['set-cookie']).toBeUndefined();
+      }
+    );
+  });
 });
