@@ -1195,3 +1195,82 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   the broader quarantine. A reusable ``_run_pre_scan`` test
   helper mirrors the production pre-scan so the test drift
   between case-setups is eliminated.
+- [2026-04-24 10:50] Production incident: the billing_audit
+  attribution-snapshot integration spammed the session log with
+  repeated retries against Supabase — HTTP 406 Not Acceptable on
+  every call to ``feature_flag``, ``freeze_attribution``,
+  ``pipeline_run_select``, and ``pipeline_run_upsert``. Each op
+  burned the full 4-attempt × (1.5 + 2.5 + 4.5s) backoff budget
+  before each op's circuit breaker tripped independently at 3
+  exhaustions. **Root cause:** ``billing_audit/client.py``'s
+  ``with_retry`` treated EVERY ``postgrest.APIError`` as
+  transient. A 406 from PostgREST is actually a PERMANENT
+  rejection — in this case code ``PGRST106`` ("The schema must
+  be one of the following: public"), which means the
+  ``billing_audit`` schema is not in Supabase's exposed-schemas
+  list. No amount of retrying can fix a server-side
+  schema-exposure configuration. **Fix (additive,
+  production-safe):** (1) New ``_classify_postgrest_error(exc)
+  -> (is_transient, is_global_kill, reason_code)`` helper
+  inspects ``APIError.code``: codes starting with ``PGRST1`` /
+  ``PGRST2`` / ``PGRST3`` and HTTP ``4xx`` stringified codes
+  are classified permanent (bail after first attempt); codes
+  in ``_PGRST_GLOBAL_KILL_CODES`` (``PGRST106`` schema not
+  exposed, ``PGRST301`` / ``PGRST302`` JWT invalid/expired)
+  additionally flip a run-global kill switch
+  (``_global_disable_reason``). An APIError with no code
+  (exotic body-parse failure) and HTTP ``5xx`` codes stay
+  transient. (2) ``get_client()`` now returns ``None`` when the
+  kill switch is set, so every downstream writer path
+  (``freeze_row``, ``emit_run_fingerprint``,
+  ``any_flag_enabled``) silently no-ops for the rest of the
+  run — identical to the "missing credentials" and ``TEST_MODE``
+  paths. Preserves the existing fail-safe contract: a
+  misconfigured billing_audit integration must never break the
+  billing pipeline itself. (3) New ``_disable_for_run`` emits
+  exactly ONE operator-facing WARNING on first trip, naming the
+  reason code and pointing at the concrete fix — for PGRST106,
+  "Supabase: Project Settings → API → Data API Settings →
+  'Exposed schemas': add 'billing_audit', save, and reload the
+  schema cache". For PGRST301/302, points at
+  ``SUPABASE_SERVICE_ROLE_KEY`` rotation. (4) Non-global
+  permanent errors (generic PGRST1xx from a malformed payload,
+  etc.) still increment the per-op circuit breaker counter but
+  do NOT poison unrelated ops — the existing per-op breaker
+  isolation contract is preserved. **New rules:** (1) When
+  wrapping a library exception type (``APIError``,
+  ``ClientError``) in a retry helper, classify by the
+  exception's carried metadata (``code``, ``status_code``,
+  SQLSTATE), not by the class itself. Treating a class as
+  uniformly transient burns retry budget on permanent errors
+  and spams operator logs. The classifier is the single place
+  to teach the retry helper which codes are worth retrying.
+  (2) When a failure is INTEGRATION-WIDE (schema exposure,
+  auth key), a per-op circuit breaker alone is insufficient —
+  it measures N endpoints to a schema all failing, which is
+  already known from the first failure. Ship a run-global kill
+  switch that flips ``get_client()`` to ``None`` on detection
+  so the rest of the run skips ALL integration work at the
+  zero-network cost. (3) Permanent-error WARNINGs must tell
+  operators WHERE TO FIX IT, not just WHAT HAPPENED. For every
+  code in ``_PGRST_GLOBAL_KILL_CODES`` the disable message
+  names the exact Supabase Dashboard path or env-var to check
+  — a 2 AM on-call engineer should not have to read the
+  PostgREST docs to understand what to do. (4) The kill
+  switch is test-reset-sensitive: ``reset_cache_for_tests``
+  MUST clear ``_global_disable_reason`` and
+  ``_global_disable_logged`` or one test's tripped state leaks
+  into unrelated tests in the same pytest run. Regression
+  tests: new
+  ``tests/test_billing_audit_shadow.py::PostgrestErrorClassificationTests``
+  (11 tests) — classifier contract (global-kill for PGRST106 /
+  PGRST301, op-permanent for generic PGRST1xx, permanent for
+  HTTP 4xx, transient for HTTP 5xx / missing code), retry
+  short-circuit (one attempt on permanent APIError, no
+  ``time.sleep`` backoff), global kill (one WARNING with
+  "Exposed schemas" text, ``get_client()`` returns None after
+  trip, other ops fast-fail without fn invocation), and
+  ``reset_cache_for_tests`` resets both new state variables.
+  Zero changes to group-processing, Excel-generation, upload,
+  or hash-history paths — the billing pipeline itself is
+  untouched by this fix.
