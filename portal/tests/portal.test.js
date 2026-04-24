@@ -668,6 +668,7 @@ describe('API_AUTH_REQUIRED=true', () => {
   it('accepts a valid Supabase bearer token for cross-origin portal-v2 API calls', async () => {
     const token = signSupabaseJwt({
       aud: 'authenticated',
+      role: 'authenticated',
       sub: 'user-123',
       email: 'user@example.com',
       exp: Math.floor(Date.now() / 1000) + 300,
@@ -689,6 +690,7 @@ describe('API_AUTH_REQUIRED=true', () => {
   it('keeps bearer auth request-scoped so API POSTs do not require session CSRF', async () => {
     const token = signSupabaseJwt({
       aud: 'authenticated',
+      role: 'authenticated',
       sub: 'user-123',
       email: 'user@example.com',
       exp: Math.floor(Date.now() / 1000) + 300,
@@ -717,6 +719,7 @@ describe('API_AUTH_REQUIRED=true', () => {
   it('accepts a valid Supabase bearer token for SSE events', async () => {
     const token = signSupabaseJwt({
       aud: 'authenticated',
+      role: 'authenticated',
       sub: 'user-123',
       email: 'user@example.com',
       exp: Math.floor(Date.now() / 1000) + 300,
@@ -733,6 +736,39 @@ describe('API_AUTH_REQUIRED=true', () => {
         expect(res.status).toBe(200);
         expect(res.headers['content-type']).toContain('text/event-stream');
         expect(res.headers['set-cookie']).toBeUndefined();
+      }
+    );
+  });
+
+  it('rejects Supabase JWTs that do not represent authenticated users', async () => {
+    const expiresAt = Math.floor(Date.now() / 1000) + 300;
+    const missingSubjectToken = signSupabaseJwt({
+      aud: 'authenticated',
+      role: 'authenticated',
+      exp: expiresAt,
+    });
+    const anonRoleToken = signSupabaseJwt({
+      aud: 'authenticated',
+      role: 'anon',
+      sub: 'project-token',
+      exp: expiresAt,
+    });
+
+    await withFreshApp(
+      { API_AUTH_REQUIRED: 'true', SUPABASE_JWT_SECRET: 'test-secret' },
+      async (freshRequest) => {
+        const missingSubjectRes = await freshRequest('/api/poller-status', {
+          headers: { Authorization: `Bearer ${missingSubjectToken}` },
+        });
+        expect(missingSubjectRes.status).toBe(401);
+        expect(missingSubjectRes.body).toHaveProperty('error', 'Authentication required');
+
+        const anonRoleRes = await freshRequest('/api/search/rebuild', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${anonRoleToken}` },
+        });
+        expect(anonRoleRes.status).toBe(401);
+        expect(anonRoleRes.body).toHaveProperty('error', 'Authentication required');
       }
     );
   });
