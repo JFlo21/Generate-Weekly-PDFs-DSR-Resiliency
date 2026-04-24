@@ -1436,6 +1436,18 @@ class WithRetryAttemptReportingTests(unittest.TestCase):
         self.assertTrue(rpc_failed[0]["data"]["was_transient"])
 
 
+try:
+    from postgrest import APIError as _POSTGREST_API_ERROR_CLS  # type: ignore
+except Exception:
+    _POSTGREST_API_ERROR_CLS = None  # type: ignore[assignment]
+
+
+@unittest.skipIf(
+    _POSTGREST_API_ERROR_CLS is None,
+    "postgrest not installed — skipping PostgREST APIError classification "
+    "tests (the classifier itself is a no-op in that environment since "
+    "``with_retry`` also bails on the ``isinstance(exc, _PGAPIError)`` check).",
+)
 class PostgrestErrorClassificationTests(unittest.TestCase):
     """with_retry must classify ``postgrest.APIError`` by its
     ``code`` field instead of blanket-treating every APIError as
@@ -1449,6 +1461,14 @@ class PostgrestErrorClassificationTests(unittest.TestCase):
     permanent codes, and the run-global kill switch that disables
     the entire billing_audit integration on a
     ``_PGRST_GLOBAL_KILL_CODES`` error.
+
+    Skip gating happens at the class decorator (not inside the
+    helper) because several tests invoke ``_make_api_error`` from a
+    callback passed to ``with_retry``. ``with_retry``'s
+    ``except Exception as exc`` catches ``unittest.SkipTest`` — a
+    subclass of ``Exception`` — and converts it into a regular RPC
+    failure, which would turn "postgrest missing" into
+    assertion-failures instead of a proper skip. Codex P2 2026-04-24.
     """
 
     def setUp(self):
@@ -1459,14 +1479,12 @@ class PostgrestErrorClassificationTests(unittest.TestCase):
 
     def _make_api_error(self, code, message="", hint="", details=""):
         """Build a real ``postgrest.APIError`` the same way postgrest-py
-        does when unwrapping the JSON response body. Skips the test
-        if postgrest isn't importable (CI-safety).
+        does when unwrapping the JSON response body. Safe to call from
+        within a ``with_retry`` callback — the missing-dependency check
+        lives on the class decorator, so this helper never raises
+        ``SkipTest`` that would be swallowed by the retry wrapper.
         """
-        try:
-            from postgrest import APIError  # type: ignore
-        except Exception:
-            self.skipTest("postgrest not installed")
-        return APIError({
+        return _POSTGREST_API_ERROR_CLS({
             "code": code,
             "message": message,
             "hint": hint,
@@ -1562,6 +1580,45 @@ class PostgrestErrorClassificationTests(unittest.TestCase):
                 self.assertTrue(is_transient)
                 self.assertFalse(is_global_kill)
 
+    def test_classifier_transient_for_retryable_4xx(self):
+        """HTTP 408 (Request Timeout) and 429 (Too Many Requests)
+        are the two 4xx codes that ARE retryable — they indicate
+        transient server-side conditions rather than permanent
+        client-side rejections. Copilot 2026-04-24.
+        """
+        from billing_audit import client as ba_client
+        for code in ("408", "429"):
+            with self.subTest(code=code):
+                exc = self._make_api_error(code, message=f"HTTP {code}")
+                is_transient, is_global_kill, _ = (
+                    ba_client._classify_postgrest_error(exc)
+                )
+                self.assertTrue(is_transient)
+                self.assertFalse(is_global_kill)
+
+    def test_classifier_permanent_for_full_4xx_range(self):
+        """Any stringified 4xx other than 408/429 must classify as
+        permanent, so a novel PostgREST 4xx (e.g. 411/413/414/418)
+        doesn't silently fall back into the transient retry-spam
+        path the classifier was introduced to close. Copilot
+        2026-04-24.
+        """
+        from billing_audit import client as ba_client
+        transient_4xx = {"408", "429"}
+        # Spot-check the edges and a handful of uncommon codes that
+        # a hand-maintained subset would likely miss.
+        for status_code in (400, 411, 413, 414, 418, 423, 451, 499):
+            code = str(status_code)
+            if code in transient_4xx:
+                continue
+            with self.subTest(code=code):
+                exc = self._make_api_error(code, message=f"HTTP {code}")
+                is_transient, is_global_kill, _ = (
+                    ba_client._classify_postgrest_error(exc)
+                )
+                self.assertFalse(is_transient)
+                self.assertFalse(is_global_kill)
+
     # ── with_retry short-circuit behaviour ───────────────────────
 
     def test_with_retry_bails_after_one_attempt_on_permanent_api_error(self):
@@ -1629,6 +1686,31 @@ class PostgrestErrorClassificationTests(unittest.TestCase):
         self.assertEqual(len(disabled_lines), 1, cm.output)
         self.assertIn("Exposed schemas", disabled_lines[0])
         self.assertIn("billing_audit", disabled_lines[0])
+
+        # Regression guard (Copilot 2026-04-24): the global-kill
+        # path must NOT also emit the generic "RPC failed after N
+        # attempt(s)" WARNING. The disable WARNING is the single
+        # source of truth for this run. If with_retry later
+        # regresses to ``break`` + fall-through, both lines would
+        # fire and this assertion catches it.
+        generic_failure_lines = [
+            line for line in cm.output
+            if "RPC failed after" in line
+        ]
+        self.assertEqual(generic_failure_lines, [], cm.output)
+
+        # Global-kill path must also skip the per-op breaker
+        # bookkeeping: the misleading "circuit breaker OPEN after 1
+        # consecutive immediate failures" line would contradict the
+        # disable WARNING.
+        breaker_lines = [
+            line for line in cm.output
+            if "circuit breaker OPEN" in line
+        ]
+        self.assertEqual(breaker_lines, [], cm.output)
+        self.assertEqual(
+            ba_client._consecutive_failures.get("feature_flag", 0), 0
+        )
 
     def test_with_retry_global_kill_is_logged_once(self):
         """Multiple PGRST106 calls (e.g. because an op captured a
@@ -1706,6 +1788,87 @@ class PostgrestErrorClassificationTests(unittest.TestCase):
         ba_client.reset_cache_for_tests()
         self.assertIsNone(ba_client._global_disable_reason)
         self.assertFalse(ba_client._global_disable_logged)
+
+    def test_disable_for_run_pgrst301_guidance_points_at_service_role_key(self):
+        """JWT invalid/expired must emit an operator-facing message
+        that names the env var to rotate. Asymmetric from the
+        PGRST106 path (which points at the Dashboard), so the
+        branch needs its own test.
+        """
+        from billing_audit import client as ba_client
+
+        def failing():
+            raise self._make_api_error(
+                "PGRST301",
+                message="JWT expired",
+                hint="Refresh your authentication token",
+            )
+
+        ba_client._client_cache = mock.Mock()
+        ba_client._client_initialized = True
+        with mock.patch(
+            "billing_audit.client.time.sleep"
+        ), self.assertLogs(level="WARNING") as cm:
+            ba_client.with_retry(failing, op="feature_flag")
+
+        self.assertEqual(ba_client._global_disable_reason, "PGRST301")
+        disabled_lines = [
+            line for line in cm.output
+            if "disabled for this run" in line
+        ]
+        self.assertEqual(len(disabled_lines), 1, cm.output)
+        self.assertIn("SUPABASE_SERVICE_ROLE_KEY", disabled_lines[0])
+
+    def test_disable_for_run_second_call_is_idempotent(self):
+        """Defense in depth: a caller that invokes ``_disable_for_run``
+        twice directly (e.g. a future code path that flips the kill
+        switch both at the retry loop and at an enclosing guard)
+        must NOT re-emit the operator-facing WARNING — the reason
+        code is captured on the first call and subsequent calls are
+        silent updates. This matches the ``_global_disable_logged``
+        contract documented on the helper.
+        """
+        from billing_audit import client as ba_client
+
+        exc = self._make_api_error(
+            "PGRST106", message="Schema not exposed"
+        )
+        with self.assertLogs(level="WARNING") as cm:
+            ba_client._disable_for_run("PGRST106", exc)
+            ba_client._disable_for_run("PGRST106", exc)
+
+        disabled_lines = [
+            line for line in cm.output
+            if "disabled for this run" in line
+        ]
+        self.assertEqual(len(disabled_lines), 1, cm.output)
+        self.assertEqual(ba_client._global_disable_reason, "PGRST106")
+
+    def test_disable_for_run_defensive_fallback_for_unknown_code(self):
+        """The ``else`` branch in ``_disable_for_run`` is defensive —
+        ``with_retry`` only invokes it for codes in
+        ``_PGRST_GLOBAL_KILL_CODES``, so no production flow reaches
+        the fallback message. Test it directly so a future code
+        addition to ``_PGRST_GLOBAL_KILL_CODES`` that forgets to
+        add a matching operator-facing branch in ``_disable_for_run``
+        still emits a non-empty WARNING naming the unhandled code
+        (rather than crashing or logging an empty hint).
+        """
+        from billing_audit import client as ba_client
+
+        exc = self._make_api_error(
+            "PGRST999", message="Hypothetical future code"
+        )
+        with self.assertLogs(level="WARNING") as cm:
+            ba_client._disable_for_run("PGRST999", exc)
+
+        disabled_lines = [
+            line for line in cm.output
+            if "disabled for this run" in line
+        ]
+        self.assertEqual(len(disabled_lines), 1, cm.output)
+        self.assertIn("PGRST999", disabled_lines[0])
+        self.assertIn("integration disabled", disabled_lines[0])
 
 
 class BackfillCliDateValidationTests(unittest.TestCase):

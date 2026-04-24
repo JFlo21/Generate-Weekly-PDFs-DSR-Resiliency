@@ -87,11 +87,20 @@ _PGRST_PERMANENT_PREFIXES: tuple[str, ...] = (
 # HTTP status codes that PostgREST sometimes surfaces as stringified
 # values via ``generate_default_error_message`` when the response
 # body isn't valid JSON. A 4xx means "client request was rejected"
-# — retrying the same request won't make the server change its mind.
-_HTTP_PERMANENT_CODES: frozenset[str] = frozenset({
-    "400", "401", "403", "404", "405", "406",
-    "409", "410", "415", "422",
-})
+# — retrying the same request won't make the server change its mind
+# — with two documented exceptions that are genuinely retryable:
+# ``408 Request Timeout`` (server-side timeout, transient) and
+# ``429 Too Many Requests`` (rate limit, transient with backoff).
+# Treating the whole 4xx range minus those two as permanent keeps
+# the contract honest against any code PostgREST might stringify
+# in the future, rather than a hand-maintained subset that silently
+# routes novel 4xxs (e.g. 411/413/414/418) into the retry-spam path
+# the classifier was introduced to fix.
+_HTTP_PERMANENT_CODES: frozenset[str] = frozenset(
+    str(status_code)
+    for status_code in range(400, 500)
+    if status_code not in {408, 429}
+)
 
 # PostgREST error codes that indicate the ENTIRE billing_audit
 # integration is misconfigured for this run — not a transient /
@@ -524,9 +533,21 @@ def with_retry(fn: Callable[..., Any], *args: Any,
                 )
                 if is_global_kill:
                     _disable_for_run(reason_code or "UNKNOWN", exc)
-                    # Skip the retry loop entirely — no benefit.
-                    final_was_transient = False
-                    break
+                    # Global kill replaces ALL per-op bookkeeping for
+                    # this call: skip the per-op circuit breaker
+                    # counter, skip the generic "RPC failed after N
+                    # attempt(s)" WARNING, skip the generic Sentry
+                    # breadcrumb. The operator-facing WARNING from
+                    # ``_disable_for_run`` is the single source of
+                    # truth for this run, matching the "exactly one
+                    # WARNING per run" contract in the PR description.
+                    # Incrementing the per-op counter here would also
+                    # race ahead of the breaker threshold (threshold
+                    # = 3 but the integration is already disabled),
+                    # producing a misleading "circuit breaker OPEN
+                    # after 1 consecutive immediate failures" line
+                    # that contradicts the disable message.
+                    return None
             elif _HTTPError is not None and isinstance(exc, _HTTPError):
                 is_transient = True
             if any(marker in err_name for marker in _TRANSIENT_ERROR_MARKERS):
