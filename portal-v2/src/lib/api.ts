@@ -9,6 +9,7 @@ import type {
   Job,
 } from './types';
 import * as Sentry from '@sentry/react';
+import { isSupabaseConfigured, supabase } from './supabase';
 import {
   USE_MOCK,
   MOCK_RUNS,
@@ -23,10 +24,82 @@ import {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
+type RunsResponse = { total?: number; runs?: unknown[] };
+type ArtifactsResponse = { total?: number; artifacts?: unknown[] };
+
+async function getSupabaseAccessToken(): Promise<string | null> {
+  if (!isSupabaseConfigured) return null;
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token ?? null;
+}
+
+export async function getApiAuthHeaders(): Promise<Headers> {
+  const requestHeaders = new Headers();
+  const token = await getSupabaseAccessToken();
+  if (token) requestHeaders.set('Authorization', `Bearer ${token}`);
+  return requestHeaders;
+}
+
+function toRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? value as Record<string, unknown> : {};
+}
+
+function parseFiniteNumber(value: unknown, fieldName: string): number {
+  const parsedValue =
+    typeof value === 'number' || typeof value === 'string'
+      ? Number(value)
+      : Number.NaN;
+
+  if (!Number.isFinite(parsedValue)) {
+    throw new Error(`Invalid ${fieldName}: expected a finite number`);
+  }
+
+  return parsedValue;
+}
+
+function normalizeRun(run: Record<string, unknown>): WorkflowRun {
+  return {
+    id: parseFiniteNumber(run.id, 'workflow run id'),
+    name: String(run.name ?? 'Workflow Run'),
+    status: String(run.status ?? 'unknown'),
+    conclusion: (run.conclusion as string | null) ?? null,
+    run_number: Number(run.run_number ?? run.runNumber ?? 0),
+    created_at: String(run.created_at ?? run.createdAt ?? ''),
+    updated_at: String(run.updated_at ?? run.updatedAt ?? ''),
+    html_url: String(run.html_url ?? run.htmlUrl ?? ''),
+    head_branch: String(run.head_branch ?? run.headBranch ?? ''),
+    head_sha: String(run.head_sha ?? run.headSha ?? ''),
+    event: run.event ? String(run.event) : undefined,
+    actor: run.actor as WorkflowRun['actor'],
+  };
+}
+
+function normalizeArtifact(artifact: Record<string, unknown>): Artifact {
+  return {
+    id: Number(artifact.id),
+    name: String(artifact.name ?? 'artifact.zip'),
+    size_in_bytes: Number(artifact.size_in_bytes ?? artifact.sizeInBytes ?? 0),
+    archive_download_url: String(
+      artifact.archive_download_url ?? artifact.archiveDownloadUrl ?? ''
+    ),
+    expired: Boolean(artifact.expired),
+    created_at: String(artifact.created_at ?? artifact.createdAt ?? ''),
+    expires_at: String(artifact.expires_at ?? artifact.expiresAt ?? ''),
+  };
+}
+
+async function apiFetch(url: string, options?: RequestInit): Promise<Response> {
+  const { headers, ...rest } = options ?? {};
+  const requestHeaders = new Headers(headers);
+  if (isSupabaseConfigured && !requestHeaders.has('Authorization')) {
+    const authHeaders = await getApiAuthHeaders();
+    authHeaders.forEach((value, key) => requestHeaders.set(key, value));
+  }
+
   const res = await fetch(`${API_BASE}${url}`, {
     credentials: 'include',
-    ...options,
+    ...rest,
+    headers: requestHeaders,
   });
   if (!res.ok) {
     Sentry.addBreadcrumb({
@@ -38,18 +111,153 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     const text = await res.text().catch(() => res.statusText);
     throw new Error(text || `HTTP ${res.status}`);
   }
+  return res;
+}
+
+async function request<T>(url: string, options?: RequestInit): Promise<T> {
+  const res = await apiFetch(url, options);
   return res.json() as Promise<T>;
+}
+
+async function requestText(url: string, options?: RequestInit): Promise<string> {
+  const res = await apiFetch(url, options);
+  return res.text();
+}
+
+async function requestBlob(url: string, options?: RequestInit): Promise<Blob> {
+  const res = await apiFetch(url, options);
+  return res.blob();
+}
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function renderMockWorkbookHtml(file: string, sheet?: string): string {
+  const workbook = MOCK_WORKBOOKS[file];
+  const worksheet = sheet
+    ? workbook?.sheets.find((s) => s.name === sheet)
+    : workbook?.sheets[0];
+
+  if (!worksheet) {
+    return '<!doctype html><html><body><p>No preview available.</p></body></html>';
+  }
+
+  const rows = worksheet.rows
+    .map((row) => (
+      `<tr>${row.cells.map((cell) => `<td>${escapeHtml(cell.value)}</td>`).join('')}</tr>`
+    ))
+    .join('');
+
+  return `<!doctype html>
+<html>
+  <head>
+    <style>
+      body { margin: 0; font-family: system-ui, sans-serif; background: #f8fafc; }
+      table { border-collapse: collapse; min-width: 100%; background: white; }
+      td { border: 1px solid #e2e8f0; padding: 6px 8px; font-size: 12px; color: #1e293b; }
+    </style>
+  </head>
+  <body><table>${rows}</table></body>
+</html>`;
+}
+
+function triggerBlobDownload(blob: Blob, filename: string): void {
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = objectUrl;
+  a.download = filename;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+}
+
+function getDirectApiUrl(path: string): string {
+  return `${API_BASE}${path}`;
+}
+
+function openDirectUrl(url: string): void {
+  const a = document.createElement('a');
+  a.href = url;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+function triggerDirectDownload(path: string, filename: string): void {
+  const a = document.createElement('a');
+  a.href = getDirectApiUrl(path);
+  a.download = filename;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+function openBlobInNewTab(blob: Blob): void {
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = objectUrl;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+}
+
+function captureArtifactUrlError(err: unknown): void {
+  Sentry.captureException(err);
+  console.error('[portal-v2] Failed to load artifact content.', err);
+}
+
+function downloadWithBestAuth(path: string, filename: string): void {
+  if (USE_MOCK) {
+    triggerBlobDownload(new Blob(['No download available in sample mode.']), filename);
+    return;
+  }
+
+  if (!isSupabaseConfigured) {
+    triggerDirectDownload(path, filename);
+    return;
+  }
+
+  void getSupabaseAccessToken()
+    .then((token) => {
+      if (!token) {
+        triggerDirectDownload(path, filename);
+        return undefined;
+      }
+
+      return requestBlob(path).then((blob) => triggerBlobDownload(blob, filename));
+    })
+    .catch(captureArtifactUrlError);
 }
 
 export const api = {
   getRuns(): Promise<WorkflowRun[]> {
     if (USE_MOCK) return Promise.resolve(MOCK_RUNS);
-    return request<WorkflowRun[]>('/api/runs');
+    return request<WorkflowRun[] | RunsResponse>('/api/runs').then((payload) => {
+      const runs = Array.isArray(payload) ? payload : payload.runs ?? [];
+      return runs.map((run) => normalizeRun(toRecord(run)));
+    });
   },
 
   getArtifacts(runId: number): Promise<Artifact[]> {
     if (USE_MOCK) return Promise.resolve(MOCK_ARTIFACTS[runId] ?? []);
-    return request<Artifact[]>(`/api/runs/${runId}/artifacts`);
+    return request<Artifact[] | ArtifactsResponse>(`/api/runs/${runId}/artifacts`).then((payload) => {
+      const artifacts = Array.isArray(payload) ? payload : payload.artifacts ?? [];
+      return artifacts.map((artifact) => normalizeArtifact(toRecord(artifact)));
+    });
   },
 
   getLatestRun(): Promise<WorkflowRun> {
@@ -111,35 +319,82 @@ export const api = {
     );
   },
 
-  /** URL for the styled-HTML snapshot — fed straight into <iframe src> */
-  getExcelHtmlUrl(artifactId: number, file: string, sheet?: string): string {
+  getExcelHtml(artifactId: number, file: string, sheet?: string): Promise<string> {
+    if (USE_MOCK) return Promise.resolve(renderMockWorkbookHtml(file, sheet));
     const q = new URLSearchParams({ file, as: 'html' });
     if (sheet) q.set('sheet', sheet);
-    return `${API_BASE}/api/artifacts/${artifactId}/preview?${q.toString()}`;
+    return requestText(`/api/artifacts/${artifactId}/preview?${q.toString()}`);
   },
 
-  /** URL for inline image preview. */
-  getFileInlineUrl(artifactId: number, file: string): string {
+  getFileObjectUrl(artifactId: number, file: string): Promise<string> {
     const q = new URLSearchParams({ file, inline: '1' });
-    return `${API_BASE}/api/artifacts/${artifactId}/file?${q.toString()}`;
+    const path = `/api/artifacts/${artifactId}/file?${q.toString()}`;
+    if (USE_MOCK) {
+      const blob = new Blob(['No image preview available in sample mode.'], {
+        type: 'text/plain',
+      });
+      return Promise.resolve(URL.createObjectURL(blob));
+    }
+    if (!isSupabaseConfigured) return Promise.resolve(getDirectApiUrl(path));
+    return getSupabaseAccessToken().then((token) => {
+      if (!token) return getDirectApiUrl(path);
+      return requestBlob(path).then((blob) => URL.createObjectURL(blob));
+    });
+  },
+
+  openFileInline(artifactId: number, file: string): void {
+    const q = new URLSearchParams({ file, inline: '1' });
+    const path = `/api/artifacts/${artifactId}/file?${q.toString()}`;
+    const directUrl = getDirectApiUrl(path);
+
+    if (USE_MOCK) {
+      openBlobInNewTab(new Blob(['No inline preview available in sample mode.']));
+      return;
+    }
+
+    if (!isSupabaseConfigured) {
+      openDirectUrl(directUrl);
+      return;
+    }
+
+    const previewTab = window.open('about:blank', '_blank');
+    if (previewTab) previewTab.opener = null;
+
+    void getSupabaseAccessToken()
+      .then((token) => {
+        if (!token) {
+          if (previewTab) previewTab.location.href = directUrl;
+          else openDirectUrl(directUrl);
+          return undefined;
+        }
+
+        return requestBlob(path).then((blob) => {
+          const objectUrl = URL.createObjectURL(blob);
+          if (previewTab) {
+            previewTab.location.href = objectUrl;
+            window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+          } else {
+            openBlobInNewTab(blob);
+          }
+        });
+      })
+      .catch((err) => {
+        if (previewTab) previewTab.close();
+        captureArtifactUrlError(err);
+      });
   },
 
   /** Download a single file out of the zip with its original filename. */
   downloadFile(artifactId: number, file: string): void {
     const q = new URLSearchParams({ file });
-    const url = `${API_BASE}/api/artifacts/${artifactId}/file?${q.toString()}`;
-    const a = document.createElement('a');
-    a.href = url;
-    a.rel = 'noopener';
-    a.click();
+    downloadWithBestAuth(
+      `/api/artifacts/${artifactId}/file?${q.toString()}`,
+      file.split('/').pop() ?? file
+    );
   },
 
   downloadArtifact(artifactId: number, filename: string): void {
-    const url = `${API_BASE}/api/artifacts/${artifactId}/download`;
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
+    downloadWithBestAuth(`/api/artifacts/${artifactId}/download`, filename);
   },
 
   async search(

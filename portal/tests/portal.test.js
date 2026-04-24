@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
+import crypto from 'node:crypto';
 import http from 'node:http';
+import path from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -7,6 +9,37 @@ const require = createRequire(import.meta.url);
 // Set test password hash before importing the app
 const bcrypt = require('bcryptjs');
 process.env.ADMIN_PASSWORD_HASH = bcrypt.hashSync('testpass', 4);
+process.env.API_AUTH_REQUIRED = 'false';
+process.env.SEARCH_INDEX_RUN_LIMIT = '0';
+
+const githubServicePath = require.resolve('../services/github');
+const mockWorkflowRun = {
+  id: 123,
+  run_number: 42,
+  status: 'completed',
+  conclusion: 'success',
+  created_at: '2026-04-24T00:00:00Z',
+  updated_at: '2026-04-24T00:01:00Z',
+  event: 'workflow_dispatch',
+  head_branch: 'master',
+};
+
+function installGithubMock() {
+  require.cache[githubServicePath] = {
+    id: githubServicePath,
+    filename: githubServicePath,
+    loaded: true,
+    exports: {
+      listWorkflowRuns: async () => ({ total_count: 1, workflow_runs: [mockWorkflowRun] }),
+      listRunArtifacts: async () => ({ total_count: 0, artifacts: [] }),
+      downloadArtifact: async () => {
+        throw new Error('mock artifact unavailable');
+      },
+    },
+  };
+}
+
+installGithubMock();
 
 let server;
 let baseUrl;
@@ -28,25 +61,105 @@ beforeAll(async () => {
 function request(path, options = {}) {
   return new Promise((resolve, reject) => {
     const url = new URL(path, baseUrl);
+    let settled = false;
+    const settle = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
     const req = http.request(url, {
       method: options.method || 'GET',
       headers: options.headers || {},
     }, (res) => {
       const chunks = [];
-      res.on('data', (c) => chunks.push(c));
+      res.on('data', (c) => {
+        chunks.push(c);
+        if (options.resolveOnFirstChunk) {
+          settle({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString() });
+          req.destroy();
+        }
+      });
       res.on('end', () => {
         const body = Buffer.concat(chunks).toString();
         try {
-          resolve({ status: res.statusCode, headers: res.headers, body: JSON.parse(body) });
+          settle({ status: res.statusCode, headers: res.headers, body: JSON.parse(body) });
         } catch {
-          resolve({ status: res.statusCode, headers: res.headers, body });
+          settle({ status: res.statusCode, headers: res.headers, body });
         }
       });
     });
-    req.on('error', reject);
+    req.on('error', (err) => {
+      if (settled) return;
+      reject(err);
+    });
+    if (options.timeoutMs) {
+      req.setTimeout(options.timeoutMs, () => {
+        settle({ status: 0, headers: {}, body: '' });
+        req.destroy();
+      });
+    }
     if (options.body) req.write(JSON.stringify(options.body));
     req.end();
   });
+}
+
+function clearPortalRequireCache() {
+  const portalRoot = path.resolve(process.cwd());
+  for (const key of Object.keys(require.cache)) {
+    if (key.startsWith(portalRoot + path.sep) && !key.includes(`${path.sep}node_modules${path.sep}`)) {
+      delete require.cache[key];
+    }
+  }
+}
+
+async function withFreshApp(env, callback) {
+  const previousEnv = {};
+  for (const key of Object.keys(env)) {
+    previousEnv[key] = process.env[key];
+    process.env[key] = env[key];
+  }
+  process.env.ADMIN_PASSWORD_HASH = bcrypt.hashSync('testpass', 4);
+  clearPortalRequireCache();
+  installGithubMock();
+
+  const app = require('../server');
+  let freshServer;
+  let freshBaseUrl;
+  try {
+    await new Promise((resolve) => {
+      freshServer = app.listen(0, () => {
+        freshBaseUrl = `http://127.0.0.1:${freshServer.address().port}`;
+        resolve();
+      });
+    });
+    return await callback((requestPath, options = {}) => {
+      const originalBaseUrl = baseUrl;
+      baseUrl = freshBaseUrl;
+      return request(requestPath, options).finally(() => {
+        baseUrl = originalBaseUrl;
+      });
+    });
+  } finally {
+    if (freshServer) {
+      await new Promise((resolve) => freshServer.close(resolve));
+    }
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    clearPortalRequireCache();
+    installGithubMock();
+  }
+}
+
+function signSupabaseJwt(payload, secret = 'test-secret') {
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const signature = crypto
+    .createHmac('sha256', secret)
+    .update(`${header}.${body}`)
+    .digest('base64url');
+  return `${header}.${body}.${signature}`;
 }
 
 describe('Health endpoint', () => {
@@ -98,9 +211,47 @@ describe('Auth endpoints', () => {
 });
 
 describe('API protection', () => {
-  it('blocks unauthenticated API access', async () => {
+  it('allows unauthenticated read API access when API auth is optional', async () => {
     const res = await request('/api/runs');
-    expect(res.status).toBe(302);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.runs)).toBe(true);
+  });
+});
+
+describe('CORS configuration', () => {
+  it('allows configured origins', async () => {
+    const res = await request('/health', {
+      headers: { Origin: 'http://localhost:5173' },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers['access-control-allow-origin']).toBe('http://localhost:5173');
+  });
+
+  it('allows Authorization headers on authenticated API preflight requests', async () => {
+    const res = await request('/api/runs', {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'http://localhost:5173',
+        'Access-Control-Request-Method': 'GET',
+        'Access-Control-Request-Headers': 'authorization',
+      },
+    });
+    expect(res.status).toBe(204);
+    expect(res.headers['access-control-allow-origin']).toBe('http://localhost:5173');
+    expect(res.headers['access-control-allow-headers']).toContain('Authorization');
+  });
+
+  it('denies unexpected origins without raising a server error', async () => {
+    const res = await request('/health', {
+      headers: { Origin: 'https://unexpected.example.com' },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers['access-control-allow-origin']).toBeUndefined();
+  });
+
+  it('allows no-origin server-to-server requests', async () => {
+    const res = await request('/health');
+    expect(res.status).toBe(200);
   });
 });
 
@@ -210,24 +361,44 @@ describe('sanitizeFilename', () => {
 });
 
 describe('New API endpoints protection', () => {
-  it('blocks unauthenticated access to /api/latest', async () => {
+  it('allows unauthenticated access to /api/latest when API auth is optional', async () => {
     const res = await request('/api/latest');
-    expect(res.status).toBe(302);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('application/json');
+    expect(res.body.run).toEqual(expect.objectContaining({
+      id: mockWorkflowRun.id,
+      runNumber: mockWorkflowRun.run_number,
+      status: mockWorkflowRun.status,
+      conclusion: mockWorkflowRun.conclusion,
+      createdAt: mockWorkflowRun.created_at,
+      updatedAt: mockWorkflowRun.updated_at,
+      event: mockWorkflowRun.event,
+      headBranch: mockWorkflowRun.head_branch,
+    }));
+    expect(Array.isArray(res.body.artifacts)).toBe(true);
   });
 
-  it('blocks unauthenticated access to /api/poll', async () => {
+  it('allows unauthenticated access to /api/poll when API auth is optional', async () => {
     const res = await request('/api/poll');
-    expect(res.status).toBe(302);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('hasNew', true);
+    expect(Array.isArray(res.body.runs)).toBe(true);
+    expect(res.body.runs[0]).toEqual(expect.objectContaining({
+      id: mockWorkflowRun.id,
+      runNumber: mockWorkflowRun.run_number,
+      status: mockWorkflowRun.status,
+    }));
   });
 
-  it('blocks unauthenticated access to /api/events', async () => {
-    const res = await request('/api/events');
-    expect(res.status).toBe(302);
+  it('allows unauthenticated access to /api/events when API auth is optional', async () => {
+    const res = await request('/api/events', { resolveOnFirstChunk: true, timeoutMs: 1000 });
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/event-stream');
   });
 
-  it('blocks unauthenticated access to /api/poller-status', async () => {
+  it('keeps unauthenticated access to /api/poller-status protected', async () => {
     const res = await request('/api/poller-status');
-    expect(res.status).toBe(302);
+    expect(res.status).toBe(401);
   });
 });
 
@@ -312,13 +483,20 @@ describe('Authenticated API endpoints', () => {
 
   it('returns data from /api/latest when authenticated', async () => {
     const res = await request('/api/latest', { headers: { 'Cookie': sessionCookie } });
-    // 502 means it reached the handler but GitHub token is not set — not a 302 redirect
-    expect([200, 502]).toContain(res.status);
+    expect(res.status).toBe(200);
+    expect(res.body.run).toEqual(expect.objectContaining({
+      id: mockWorkflowRun.id,
+      runNumber: mockWorkflowRun.run_number,
+      status: mockWorkflowRun.status,
+    }));
+    expect(Array.isArray(res.body.artifacts)).toBe(true);
   });
 
   it('returns data from /api/poll when authenticated', async () => {
     const res = await request('/api/poll', { headers: { 'Cookie': sessionCookie } });
-    expect([200, 502]).toContain(res.status);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('hasNew', true);
+    expect(Array.isArray(res.body.runs)).toBe(true);
   });
 
   it('returns data from /api/poller-status when authenticated', async () => {
@@ -331,35 +509,39 @@ describe('Authenticated API endpoints', () => {
 });
 
 describe('New API routes: auth protection', () => {
-  it('blocks unauthenticated GET /api/search', async () => {
+  it('allows unauthenticated GET /api/search when API auth is optional', async () => {
     const res = await request('/api/search?q=test');
-    expect(res.status).toBe(302);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('hits');
+    expect(Array.isArray(res.body.hits)).toBe(true);
+    expect(res.body).toHaveProperty('total');
+    expect(typeof res.body.total).toBe('number');
   });
 
   it('blocks unauthenticated GET /api/cache/stats', async () => {
     const res = await request('/api/cache/stats');
-    expect(res.status).toBe(302);
+    expect(res.status).toBe(401);
   });
 
-  it('blocks unauthenticated GET /api/runs/:runId/jobs', async () => {
-    const res = await request('/api/runs/1/jobs');
-    expect(res.status).toBe(302);
+  it('allows unauthenticated GET /api/runs when API auth is optional', async () => {
+    const res = await request('/api/runs');
+    expect(res.status).toBe(200);
+    expect(res.body.runs).toHaveLength(1);
   });
 
-  it('blocks unauthenticated GET /api/artifacts/:id/file', async () => {
-    const res = await request('/api/artifacts/1/file?file=report.xlsx');
-    expect(res.status).toBe(302);
+  it('allows unauthenticated GET /api/artifacts/:id/file validation when API auth is optional', async () => {
+    const res = await request('/api/artifacts/1/file');
+    expect(res.status).toBe(400);
   });
 
-  it('blocks unauthenticated GET /api/artifacts/:id/preview', async () => {
-    const res = await request('/api/artifacts/1/preview?file=report.xlsx');
-    expect(res.status).toBe(302);
+  it('allows unauthenticated GET /api/artifacts/:id/preview validation when API auth is optional', async () => {
+    const res = await request('/api/artifacts/1/preview');
+    expect(res.status).toBe(400);
   });
 
-  it('blocks unauthenticated POST /api/search/rebuild without CSRF token', async () => {
-    // CSRF middleware fires before auth for POST requests; expect 403
+  it('blocks unauthenticated POST /api/search/rebuild before rebuilding the index', async () => {
     const res = await request('/api/search/rebuild', { method: 'POST' });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(401);
   });
 });
 
@@ -389,14 +571,11 @@ describe('New API routes: authenticated happy path', () => {
 
   it('GET /api/search?q=test reaches handler when authenticated', async () => {
     const res = await request('/api/search?q=test', { headers: { Cookie: sessionCookie } });
-    // 502 if GitHub is unreachable in test env; 200 on success
-    expect([200, 502]).toContain(res.status);
-    if (res.status === 200) {
-      expect(res.body).toHaveProperty('hits');
-      expect(Array.isArray(res.body.hits)).toBe(true);
-      expect(res.body).toHaveProperty('total');
-      expect(typeof res.body.total).toBe('number');
-    }
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('hits');
+    expect(Array.isArray(res.body.hits)).toBe(true);
+    expect(res.body).toHaveProperty('total');
+    expect(typeof res.body.total).toBe('number');
   });
 
   it('GET /api/artifacts/:id/file returns 400 when file param is missing', async () => {
@@ -411,14 +590,18 @@ describe('New API routes: authenticated happy path', () => {
     expect(res.body.error).toMatch(/file/i);
   });
 
-  it('GET /api/runs/:runId/jobs reaches handler when authenticated', async () => {
-    const res = await request('/api/runs/1/jobs', { headers: { Cookie: sessionCookie } });
-    // 502 if GitHub is unreachable in test env; 200 on success
-    expect([200, 502]).toContain(res.status);
-    if (res.status === 200) {
-      expect(res.body).toHaveProperty('jobs');
-      expect(Array.isArray(res.body.jobs)).toBe(true);
-    }
+  it('GET /api/runs reaches handler when authenticated', async () => {
+    const res = await request('/api/runs', { headers: { Cookie: sessionCookie } });
+    expect(res.status).toBe(200);
+    expect(res.body.runs).toHaveLength(1);
+  });
+
+  it('POST /api/search/rebuild still requires CSRF when authenticated', async () => {
+    const res = await request('/api/search/rebuild', {
+      method: 'POST',
+      headers: { Cookie: sessionCookie },
+    });
+    expect(res.status).toBe(403);
   });
 
   it('POST /api/search/rebuild reaches handler with valid session and CSRF', async () => {
@@ -429,13 +612,10 @@ describe('New API routes: authenticated happy path', () => {
       method: 'POST',
       headers: { 'X-CSRF-Token': csrfToken, Cookie: sessionCookie },
     });
-    // 502 if GitHub is unreachable in test env; 200 on success
-    expect([200, 502]).toContain(res.status);
-    if (res.status === 200) {
-      expect(res.body).toHaveProperty('status', 'ok');
-      expect(res.body).toHaveProperty('documents');
-      expect(res.body).toHaveProperty('tokens');
-    }
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('status', 'ok');
+    expect(res.body).toHaveProperty('documents');
+    expect(res.body).toHaveProperty('tokens');
   });
 });
 
@@ -498,5 +678,134 @@ describe('artifactCache service', () => {
     const artifactCache = require('../services/artifactCache');
     // In test env GitHub is blocked, so get() should reject rather than hang
     await expect(artifactCache.get('999999')).rejects.toThrow();
+  });
+});
+
+describe('API_AUTH_REQUIRED=true', () => {
+  it('gates read API endpoints with the legacy session auth flow', async () => {
+    await withFreshApp({ API_AUTH_REQUIRED: 'true' }, async (freshRequest) => {
+      const res = await freshRequest('/api/latest');
+      expect(res.status).toBe(401);
+      expect(res.body).toHaveProperty('error', 'Authentication required');
+    });
+  });
+
+  it('accepts a valid Supabase bearer token for cross-origin portal-v2 API calls', async () => {
+    const token = signSupabaseJwt({
+      aud: 'authenticated',
+      role: 'authenticated',
+      sub: 'user-123',
+      email: 'user@example.com',
+      exp: Math.floor(Date.now() / 1000) + 300,
+    });
+
+    await withFreshApp(
+      { API_AUTH_REQUIRED: 'true', SUPABASE_JWT_SECRET: 'test-secret' },
+      async (freshRequest) => {
+        const res = await freshRequest('/api/search?q=test', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        expect(res.status).toBe(200);
+        expect(res.body).toHaveProperty('hits');
+        expect(res.headers['set-cookie']).toBeUndefined();
+      }
+    );
+  });
+
+  it('keeps bearer auth request-scoped so API POSTs do not require session CSRF', async () => {
+    const token = signSupabaseJwt({
+      aud: 'authenticated',
+      role: 'authenticated',
+      sub: 'user-123',
+      email: 'user@example.com',
+      exp: Math.floor(Date.now() / 1000) + 300,
+    });
+    const authHeaders = { Authorization: `Bearer ${token}` };
+
+    await withFreshApp(
+      { API_AUTH_REQUIRED: 'true', SUPABASE_JWT_SECRET: 'test-secret' },
+      async (freshRequest) => {
+        const readRes = await freshRequest('/api/search?q=test', {
+          headers: authHeaders,
+        });
+        expect(readRes.status).toBe(200);
+        expect(readRes.headers['set-cookie']).toBeUndefined();
+
+        const postRes = await freshRequest('/api/search/rebuild', {
+          method: 'POST',
+          headers: authHeaders,
+        });
+        expect(postRes.status).toBe(200);
+        expect(postRes.body).toHaveProperty('status', 'ok');
+      }
+    );
+  });
+
+  it('accepts a valid Supabase bearer token for SSE events', async () => {
+    const token = signSupabaseJwt({
+      aud: 'authenticated',
+      role: 'authenticated',
+      sub: 'user-123',
+      email: 'user@example.com',
+      exp: Math.floor(Date.now() / 1000) + 300,
+    });
+
+    await withFreshApp(
+      { API_AUTH_REQUIRED: 'true', SUPABASE_JWT_SECRET: 'test-secret' },
+      async (freshRequest) => {
+        const res = await freshRequest('/api/events', {
+          headers: { Authorization: `Bearer ${token}` },
+          resolveOnFirstChunk: true,
+          timeoutMs: 1000,
+        });
+        expect(res.status).toBe(200);
+        expect(res.headers['content-type']).toContain('text/event-stream');
+        expect(res.headers['set-cookie']).toBeUndefined();
+      }
+    );
+  });
+
+  it('rejects Supabase JWTs that do not represent authenticated users', async () => {
+    const expiresAt = Math.floor(Date.now() / 1000) + 300;
+    const missingSubjectToken = signSupabaseJwt({
+      aud: 'authenticated',
+      role: 'authenticated',
+      exp: expiresAt,
+    });
+    const anonRoleToken = signSupabaseJwt({
+      aud: 'authenticated',
+      role: 'anon',
+      sub: 'project-token',
+      exp: expiresAt,
+    });
+    const missingExpiryToken = signSupabaseJwt({
+      aud: 'authenticated',
+      role: 'authenticated',
+      sub: 'user-123',
+    });
+
+    await withFreshApp(
+      { API_AUTH_REQUIRED: 'true', SUPABASE_JWT_SECRET: 'test-secret' },
+      async (freshRequest) => {
+        const missingSubjectRes = await freshRequest('/api/poller-status', {
+          headers: { Authorization: `Bearer ${missingSubjectToken}` },
+        });
+        expect(missingSubjectRes.status).toBe(401);
+        expect(missingSubjectRes.body).toHaveProperty('error', 'Authentication required');
+
+        const anonRoleRes = await freshRequest('/api/search/rebuild', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${anonRoleToken}` },
+        });
+        expect(anonRoleRes.status).toBe(401);
+        expect(anonRoleRes.body).toHaveProperty('error', 'Authentication required');
+
+        const missingExpiryRes = await freshRequest('/api/poller-status', {
+          headers: { Authorization: `Bearer ${missingExpiryToken}` },
+        });
+        expect(missingExpiryRes.status).toBe(401);
+        expect(missingExpiryRes.body).toHaveProperty('error', 'Authentication required');
+      }
+    );
   });
 });

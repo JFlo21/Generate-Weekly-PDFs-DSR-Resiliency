@@ -7,6 +7,7 @@ const excelHtml = require('../services/excelHtml');
 const poller = require('../services/poller');
 const artifactCache = require('../services/artifactCache');
 const searchIndex = require('../services/searchIndex');
+const config = require('../config/default');
 
 const router = express.Router();
 
@@ -17,7 +18,20 @@ function sanitizeFilename(name) {
   return normalized;
 }
 
-router.use(requireAuth);
+if (config.auth.apiRequired) {
+  router.use(requireAuth);
+} else {
+  router.use((req, res, next) => {
+    if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+      return next();
+    }
+    return requireAuth(req, res, next);
+  });
+}
+
+const requireOperationalAuth = config.auth.apiRequired
+  ? (_req, _res, next) => next()
+  : requireAuth;
 
 router.get('/runs', async (req, res) => {
   try {
@@ -66,7 +80,6 @@ router.get('/runs/:runId/jobs', async (req, res) => {
   try {
     // github.js doesn't have listRunJobs; inline a minimal fetch.
     const https = require('node:https');
-    const config = require('../config/default');
     const { owner, repo, token } = config.github;
 
     const jobs = await new Promise((resolve, reject) => {
@@ -380,7 +393,7 @@ router.get('/search', async (req, res) => {
 /**
  * Force a search-index rebuild (admin / debugging).
  */
-router.post('/search/rebuild', async (req, res) => {
+router.post('/search/rebuild', requireOperationalAuth, async (req, res) => {
   try {
     await searchIndex.rebuild();
     return res.json({ status: 'ok', ...searchIndex.stats() });
@@ -390,7 +403,7 @@ router.post('/search/rebuild', async (req, res) => {
   }
 });
 
-router.get('/cache/stats', (req, res) => {
+router.get('/cache/stats', requireOperationalAuth, (req, res) => {
   return res.json({
     artifactCache: artifactCache.stats(),
     searchIndex: searchIndex.stats(),
@@ -487,7 +500,7 @@ router.get('/events', (req, res) => {
   });
 });
 
-router.get('/poller-status', (req, res) => {
+router.get('/poller-status', requireOperationalAuth, (req, res) => {
   return res.json(poller.getStatus());
 });
 

@@ -9,6 +9,13 @@ function csrfProtection(req, res, next) {
   }
   if (!req.session) return next();
 
+  const isApiRequest =
+    (typeof req.originalUrl === 'string' && req.originalUrl.startsWith('/api/')) ||
+    (typeof req.baseUrl === 'string' && req.baseUrl.startsWith('/api'));
+  if (isApiRequest && !req.session.authenticated) {
+    return next();
+  }
+
   const token = req.headers['x-csrf-token'];
   if (!token || token !== req.session.csrfToken) {
     return res.status(403).json({ error: 'Invalid CSRF token' });
@@ -17,6 +24,12 @@ function csrfProtection(req, res, next) {
 }
 
 function setupSecurity(app) {
+  const connectSources = [
+    "'self'",
+    ...(process.env.CORS_ORIGIN || '').split(',').map((v) => v.trim()).filter(Boolean),
+    ...(process.env.CORS_ORIGINS || '').split(',').map((v) => v.trim()).filter(Boolean),
+  ];
+
   app.use(helmet({
     contentSecurityPolicy: {
       directives: {
@@ -24,7 +37,7 @@ function setupSecurity(app) {
         styleSrc: ["'self'", "'unsafe-inline'"],
         scriptSrc: ["'self'"],
         imgSrc: ["'self'", "data:"],
-        connectSrc: ["'self'", process.env.CORS_ORIGIN].filter(Boolean),
+        connectSrc: connectSources,
         fontSrc: ["'self'"],
         objectSrc: ["'none'"],
         frameAncestors: ["'none'"],
