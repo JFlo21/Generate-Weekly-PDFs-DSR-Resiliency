@@ -9,6 +9,13 @@ function csrfProtection(req, res, next) {
   }
   if (!req.session) return next();
 
+  const isApiRequest =
+    (typeof req.originalUrl === 'string' && req.originalUrl.startsWith('/api/')) ||
+    (typeof req.baseUrl === 'string' && req.baseUrl.startsWith('/api'));
+  if (isApiRequest && !req.session.authenticated) {
+    return next();
+  }
+
   const token = req.headers['x-csrf-token'];
   if (!token || token !== req.session.csrfToken) {
     return res.status(403).json({ error: 'Invalid CSRF token' });

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import http from 'node:http';
+import path from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -7,6 +8,8 @@ const require = createRequire(import.meta.url);
 // Set test password hash before importing the app
 const bcrypt = require('bcryptjs');
 process.env.ADMIN_PASSWORD_HASH = bcrypt.hashSync('testpass', 4);
+process.env.API_AUTH_REQUIRED = 'false';
+process.env.SEARCH_INDEX_RUN_LIMIT = '0';
 
 let server;
 let baseUrl;
@@ -28,25 +31,93 @@ beforeAll(async () => {
 function request(path, options = {}) {
   return new Promise((resolve, reject) => {
     const url = new URL(path, baseUrl);
+    let settled = false;
+    const settle = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
     const req = http.request(url, {
       method: options.method || 'GET',
       headers: options.headers || {},
     }, (res) => {
       const chunks = [];
-      res.on('data', (c) => chunks.push(c));
+      res.on('data', (c) => {
+        chunks.push(c);
+        if (options.resolveOnFirstChunk) {
+          settle({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString() });
+          req.destroy();
+        }
+      });
       res.on('end', () => {
         const body = Buffer.concat(chunks).toString();
         try {
-          resolve({ status: res.statusCode, headers: res.headers, body: JSON.parse(body) });
+          settle({ status: res.statusCode, headers: res.headers, body: JSON.parse(body) });
         } catch {
-          resolve({ status: res.statusCode, headers: res.headers, body });
+          settle({ status: res.statusCode, headers: res.headers, body });
         }
       });
     });
-    req.on('error', reject);
+    req.on('error', (err) => {
+      if (settled) return;
+      reject(err);
+    });
+    if (options.timeoutMs) {
+      req.setTimeout(options.timeoutMs, () => {
+        settle({ status: 0, headers: {}, body: '' });
+        req.destroy();
+      });
+    }
     if (options.body) req.write(JSON.stringify(options.body));
     req.end();
   });
+}
+
+function clearPortalRequireCache() {
+  const portalRoot = path.resolve(process.cwd());
+  for (const key of Object.keys(require.cache)) {
+    if (key.startsWith(portalRoot + path.sep) && !key.includes(`${path.sep}node_modules${path.sep}`)) {
+      delete require.cache[key];
+    }
+  }
+}
+
+async function withFreshApp(env, callback) {
+  const previousEnv = {};
+  for (const key of Object.keys(env)) {
+    previousEnv[key] = process.env[key];
+    process.env[key] = env[key];
+  }
+  process.env.ADMIN_PASSWORD_HASH = bcrypt.hashSync('testpass', 4);
+  clearPortalRequireCache();
+
+  const app = require('../server');
+  let freshServer;
+  let freshBaseUrl;
+  try {
+    await new Promise((resolve) => {
+      freshServer = app.listen(0, () => {
+        freshBaseUrl = `http://127.0.0.1:${freshServer.address().port}`;
+        resolve();
+      });
+    });
+    return await callback((requestPath, options = {}) => {
+      const originalBaseUrl = baseUrl;
+      baseUrl = freshBaseUrl;
+      return request(requestPath, options).finally(() => {
+        baseUrl = originalBaseUrl;
+      });
+    });
+  } finally {
+    if (freshServer) {
+      await new Promise((resolve) => freshServer.close(resolve));
+    }
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    clearPortalRequireCache();
+  }
 }
 
 describe('Health endpoint', () => {
@@ -98,9 +169,32 @@ describe('Auth endpoints', () => {
 });
 
 describe('API protection', () => {
-  it('blocks unauthenticated API access', async () => {
+  it('allows unauthenticated read API access when API auth is optional', async () => {
     const res = await request('/api/runs');
-    expect(res.status).toBe(302);
+    expect([200, 502]).toContain(res.status);
+  });
+});
+
+describe('CORS configuration', () => {
+  it('allows configured origins', async () => {
+    const res = await request('/health', {
+      headers: { Origin: 'http://localhost:5173' },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers['access-control-allow-origin']).toBe('http://localhost:5173');
+  });
+
+  it('denies unexpected origins without raising a server error', async () => {
+    const res = await request('/health', {
+      headers: { Origin: 'https://unexpected.example.com' },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers['access-control-allow-origin']).toBeUndefined();
+  });
+
+  it('allows no-origin server-to-server requests', async () => {
+    const res = await request('/health');
+    expect(res.status).toBe(200);
   });
 });
 
@@ -210,24 +304,25 @@ describe('sanitizeFilename', () => {
 });
 
 describe('New API endpoints protection', () => {
-  it('blocks unauthenticated access to /api/latest', async () => {
+  it('allows unauthenticated access to /api/latest when API auth is optional', async () => {
     const res = await request('/api/latest');
-    expect(res.status).toBe(302);
+    expect([200, 502]).toContain(res.status);
   });
 
-  it('blocks unauthenticated access to /api/poll', async () => {
+  it('allows unauthenticated access to /api/poll when API auth is optional', async () => {
     const res = await request('/api/poll');
-    expect(res.status).toBe(302);
+    expect([200, 502]).toContain(res.status);
   });
 
-  it('blocks unauthenticated access to /api/events', async () => {
-    const res = await request('/api/events');
-    expect(res.status).toBe(302);
+  it('allows unauthenticated access to /api/events when API auth is optional', async () => {
+    const res = await request('/api/events', { resolveOnFirstChunk: true, timeoutMs: 1000 });
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/event-stream');
   });
 
-  it('blocks unauthenticated access to /api/poller-status', async () => {
+  it('keeps unauthenticated access to /api/poller-status protected', async () => {
     const res = await request('/api/poller-status');
-    expect(res.status).toBe(302);
+    expect(res.status).toBe(401);
   });
 });
 
@@ -331,35 +426,34 @@ describe('Authenticated API endpoints', () => {
 });
 
 describe('New API routes: auth protection', () => {
-  it('blocks unauthenticated GET /api/search', async () => {
+  it('allows unauthenticated GET /api/search when API auth is optional', async () => {
     const res = await request('/api/search?q=test');
-    expect(res.status).toBe(302);
+    expect([200, 502]).toContain(res.status);
   });
 
   it('blocks unauthenticated GET /api/cache/stats', async () => {
     const res = await request('/api/cache/stats');
-    expect(res.status).toBe(302);
+    expect(res.status).toBe(401);
   });
 
-  it('blocks unauthenticated GET /api/runs/:runId/jobs', async () => {
+  it('allows unauthenticated GET /api/runs/:runId/jobs when API auth is optional', async () => {
     const res = await request('/api/runs/1/jobs');
-    expect(res.status).toBe(302);
+    expect([200, 502]).toContain(res.status);
   });
 
-  it('blocks unauthenticated GET /api/artifacts/:id/file', async () => {
-    const res = await request('/api/artifacts/1/file?file=report.xlsx');
-    expect(res.status).toBe(302);
+  it('allows unauthenticated GET /api/artifacts/:id/file validation when API auth is optional', async () => {
+    const res = await request('/api/artifacts/1/file');
+    expect(res.status).toBe(400);
   });
 
-  it('blocks unauthenticated GET /api/artifacts/:id/preview', async () => {
-    const res = await request('/api/artifacts/1/preview?file=report.xlsx');
-    expect(res.status).toBe(302);
+  it('allows unauthenticated GET /api/artifacts/:id/preview validation when API auth is optional', async () => {
+    const res = await request('/api/artifacts/1/preview');
+    expect(res.status).toBe(400);
   });
 
-  it('blocks unauthenticated POST /api/search/rebuild without CSRF token', async () => {
-    // CSRF middleware fires before auth for POST requests; expect 403
+  it('blocks unauthenticated POST /api/search/rebuild before rebuilding the index', async () => {
     const res = await request('/api/search/rebuild', { method: 'POST' });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(401);
   });
 });
 
@@ -419,6 +513,14 @@ describe('New API routes: authenticated happy path', () => {
       expect(res.body).toHaveProperty('jobs');
       expect(Array.isArray(res.body.jobs)).toBe(true);
     }
+  });
+
+  it('POST /api/search/rebuild still requires CSRF when authenticated', async () => {
+    const res = await request('/api/search/rebuild', {
+      method: 'POST',
+      headers: { Cookie: sessionCookie },
+    });
+    expect(res.status).toBe(403);
   });
 
   it('POST /api/search/rebuild reaches handler with valid session and CSRF', async () => {
@@ -498,5 +600,15 @@ describe('artifactCache service', () => {
     const artifactCache = require('../services/artifactCache');
     // In test env GitHub is blocked, so get() should reject rather than hang
     await expect(artifactCache.get('999999')).rejects.toThrow();
+  });
+});
+
+describe('API_AUTH_REQUIRED=true', () => {
+  it('gates read API endpoints with the legacy session auth flow', async () => {
+    await withFreshApp({ API_AUTH_REQUIRED: 'true' }, async (freshRequest) => {
+      const res = await freshRequest('/api/latest');
+      expect(res.status).toBe(401);
+      expect(res.body).toHaveProperty('error', 'Authentication required');
+    });
   });
 });
