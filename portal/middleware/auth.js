@@ -15,8 +15,11 @@ function parseJsonSegment(value) {
 function getBearerToken(req) {
   const header = req.headers && req.headers.authorization;
   if (typeof header !== 'string') return null;
-  const match = header.match(/^Bearer\s+(.+)$/i);
-  return match ? match[1].trim() : null;
+  const trimmed = header.trim();
+  if (trimmed.length <= 7 || trimmed.slice(0, 6).toLowerCase() !== 'bearer') return null;
+  const separator = trimmed.charAt(6);
+  if (separator !== ' ' && separator !== '\t') return null;
+  return trimmed.slice(7).trim() || null;
 }
 
 function verifySupabaseJwt(token) {
