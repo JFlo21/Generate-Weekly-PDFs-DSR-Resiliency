@@ -226,6 +226,20 @@ describe('CORS configuration', () => {
     expect(res.headers['access-control-allow-origin']).toBe('http://localhost:5173');
   });
 
+  it('allows Authorization headers on authenticated API preflight requests', async () => {
+    const res = await request('/api/runs', {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'http://localhost:5173',
+        'Access-Control-Request-Method': 'GET',
+        'Access-Control-Request-Headers': 'authorization',
+      },
+    });
+    expect(res.status).toBe(204);
+    expect(res.headers['access-control-allow-origin']).toBe('http://localhost:5173');
+    expect(res.headers['access-control-allow-headers']).toContain('Authorization');
+  });
+
   it('denies unexpected origins without raising a server error', async () => {
     const res = await request('/health', {
       headers: { Origin: 'https://unexpected.example.com' },
@@ -667,7 +681,35 @@ describe('API_AUTH_REQUIRED=true', () => {
         });
         expect(res.status).toBe(200);
         expect(res.body).toHaveProperty('hits');
-        expect(res.headers['set-cookie']?.[0]).toContain('linetec.sid');
+        expect(res.headers['set-cookie']).toBeUndefined();
+      }
+    );
+  });
+
+  it('keeps bearer auth request-scoped so API POSTs do not require session CSRF', async () => {
+    const token = signSupabaseJwt({
+      aud: 'authenticated',
+      sub: 'user-123',
+      email: 'user@example.com',
+      exp: Math.floor(Date.now() / 1000) + 300,
+    });
+    const authHeaders = { Authorization: `Bearer ${token}` };
+
+    await withFreshApp(
+      { API_AUTH_REQUIRED: 'true', SUPABASE_JWT_SECRET: 'test-secret' },
+      async (freshRequest) => {
+        const readRes = await freshRequest('/api/search?q=test', {
+          headers: authHeaders,
+        });
+        expect(readRes.status).toBe(200);
+        expect(readRes.headers['set-cookie']).toBeUndefined();
+
+        const postRes = await freshRequest('/api/search/rebuild', {
+          method: 'POST',
+          headers: authHeaders,
+        });
+        expect(postRes.status).toBe(200);
+        expect(postRes.body).toHaveProperty('status', 'ok');
       }
     );
   });

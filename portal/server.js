@@ -40,7 +40,7 @@ app.use(cors({
   },
   credentials: true,                      // Required — api.ts uses { credentials: 'include' }
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'X-CSRF-Token'],
+  allowedHeaders: ['Content-Type', 'X-CSRF-Token', 'Authorization'],
 }));
 // ──────────────────────────────────────────────────────────────
 

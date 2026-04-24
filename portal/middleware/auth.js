@@ -71,11 +71,7 @@ function authenticateSupabaseRequest(req) {
     email: payload.email,
     provider: 'supabase',
   };
-
-  if (req.session) {
-    req.session.authenticated = true;
-    req.session.user = req.user;
-  }
+  req.auth = { type: 'bearer', provider: 'supabase' };
 
   return true;
 }
