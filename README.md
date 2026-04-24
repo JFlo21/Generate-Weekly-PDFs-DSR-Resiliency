@@ -2,6 +2,18 @@
 
 Automated billing system that generates weekly Excel reports from Smartsheet data.
 
+## 📊 Visual Documentation
+
+**[View Interactive Diagrams & Architecture →](docs/index.md)**
+
+See Mermaid-based flowcharts showing:
+- System Architecture
+- Data Flow Pipeline
+- Filtering Logic
+- Helper Row Detection
+- Change Detection Flow
+- GitHub Actions Workflow
+
 ## 🚀 Quick Start on Replit
 
 This project is now configured to run on Replit! Here's how to get started:
