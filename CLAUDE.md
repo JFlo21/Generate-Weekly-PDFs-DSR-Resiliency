@@ -1274,3 +1274,162 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   Zero changes to group-processing, Excel-generation, upload,
   or hash-history paths — the billing pipeline itself is
   untouched by this fix.
+- [2026-04-24 11:30] Production over-pricing risk on the two
+  original-contract folders. Operators report Smartsheet has now
+  implemented the post-cutoff rates natively inside each sheet's
+  ``Units Total Price`` column for sheets in folders
+  ``7644752003786628`` and ``8815193070299012``
+  (``ORIGINAL_CONTRACT_FOLDER_IDS``) whenever ``Snapshot Date >=
+  2026-04-12`` and ``Units Completed? = true``. The Python-side
+  pre-acceptance rate recalc in ``_fetch_and_process_sheet`` was
+  still firing on those sheets (the existing gate only excluded
+  subcontractor sheets), so for every post-cutoff row the
+  Smartsheet-authoritative price was being overwritten in-place
+  by ``rate × qty`` from ``NEW_RATES_CSV`` via
+  ``recalculate_row_price``. Where the CSV and Smartsheet's
+  formula agreed this was a no-op; where they disagreed (CU
+  naming drift, work-type parsing edge cases, quantity
+  interpretation), the row shipped with an over- or under-billed
+  ``Units Total Price``. Root cause, not a symptom — running two
+  pricing systems sequentially on the same row is the bug;
+  fixing Smartsheet's formula or the CSV individually would not
+  have closed the hole. **Fix (additive, production-safe):**
+  (1) New env var ``RATE_RECALC_SKIP_ORIGINAL_CONTRACT``
+  (default ``'1'`` / True; accepts ``1``/``true``/``yes``/``on``)
+  wired into the startup banner alongside
+  ``RATE_RECALC_WEEKLY_FALLBACK`` so its resolved state is
+  visible on every run. (2) New per-sheet flag
+  ``is_original_contract_sheet = source['id'] in
+  _FOLDER_DISCOVERED_ORIG_IDS`` computed once alongside
+  ``is_subcontractor_sheet`` in ``_fetch_and_process_sheet``;
+  ``_FOLDER_DISCOVERED_ORIG_IDS`` is populated unconditionally
+  by ``discover_folder_sheets`` at the top of
+  ``discover_source_sheets`` on every run (before the
+  discovery-cache branch), so the membership test is reliable
+  even when the cache is served warm. (3) Composite
+  short-circuit ``_skip_recalc_original_contract`` fires only
+  when ``RATE_CUTOFF_DATE`` is set AND the env var is on AND
+  the sheet is in the ORIG folder AND the sheet is NOT a
+  subcontractor sheet — preserving the existing subcontractor
+  exclusion as primary (a sheet misconfigured into both sets
+  still skips via the subcontractor path and the ORIG skip log
+  never duplicates). (4) One ``🛡️`` info log per sheet when the
+  guard fires; the row-level gate adds ``and not
+  _skip_recalc_original_contract`` to short-circuit at zero
+  cost per row without spamming logs. (5) Per-sheet "Rate
+  recalc summary" is suppressed on skipped sheets (all counters
+  are zero by construction — the summary would be noise). The
+  single 🛡️ info log is the authoritative per-sheet signal.
+  (6) The "Dropped VAC/helper row" warning's fallback-disabled
+  ``_recalc_note`` branch gains ``and not
+  _skip_recalc_original_contract`` so operators are not told
+  to flip ``RATE_RECALC_WEEKLY_FALLBACK=1`` on sheets where
+  doing so would not change anything (recalc is skipped by
+  design). **What stays unchanged:** ``recalculate_row_price``,
+  ``_resolve_rate_recalc_cutoff_date``,
+  ``build_cu_to_group_mapping``, ``load_rate_versions``, the
+  Weekly-Ref-Date fallback, the snapshot-keyed primary cutoff
+  rule, subcontractor (Arrowhead) sheets' existing "keep
+  SmartSheet price" behaviour, and every test currently locking
+  in recalc behaviour for non-ORIG sheets. The fix is purely
+  additive. **New rules:** (1) When an external system
+  (Smartsheet here, any SaaS with server-side formulas) starts
+  emitting authoritative values for a column we also compute
+  locally, add a per-sheet / per-scope guard that short-circuits
+  the local computation rather than trying to reconcile two
+  independent sources row-by-row. Sequential double-writes on
+  the same field are a silent-corruption trap: where the two
+  systems agree, it's a no-op and no one notices; where they
+  disagree, the last write wins and the disagreement ships to
+  production unaudited. (2) Any such guard MUST be env-gated
+  with a default-ON kill switch
+  (``RATE_RECALC_SKIP_ORIGINAL_CONTRACT=0`` here) so operators
+  can restore pre-fix behaviour if the external system's
+  authoritative source breaks, without shipping a code change.
+  (3) Log the guard's active state in the startup banner and
+  emit one info log per sheet when it fires. Do NOT spam the
+  row-level gate with a log — use the per-sheet flag as the
+  single announcement surface. (4) Any follow-up operator note
+  that suggests an env-var flip (e.g. "set
+  ``RATE_RECALC_WEEKLY_FALLBACK=1`` to rescue this row") MUST
+  gate on whether the flip would actually change this sheet's
+  behaviour. On skipped sheets, tell the operator the correct
+  story (or stay silent) — a false lead wastes on-call time.
+  Regression tests:
+  ``tests/test_subcontractor_pricing.py::TestOriginalContractFolderSkipsRateRecalc``
+  (8 tests) covers the env-var wiring (exists + is ``bool``),
+  the default folder-ID list (contains ``7644752003786628`` and
+  ``8815193070299012``), the truth-table of the guard (fires on
+  ORIG + cutoff + env on; does NOT fire on non-ORIG; does NOT
+  fire with env off; does NOT fire without cutoff; does NOT
+  fire on subcontractor sheets — subcontractor exclusion stays
+  primary), and an isolation test that ``recalculate_row_price``
+  itself is unchanged by the guard (callers invoking the helper
+  directly still get the full recalc behaviour regardless of
+  env vars).
+- [2026-04-24 14:30] Retired the Python CSV-side rate recalc
+  feature in production. Follow-up to the 11:30 entry above:
+  rather than rely solely on the per-sheet
+  ``RATE_RECALC_SKIP_ORIGINAL_CONTRACT`` guard to protect the
+  two original-contract folders, operators decided that since
+  Smartsheet's native pricing is now authoritative for those
+  folders, the entire CSV-side recalc path should be treated as
+  legacy across the production workflow — there is no remaining
+  production sheet that needs Python-side post-cutoff rate
+  recalculation. **Change:** ``.github/workflows/weekly-excel-
+  generation.yml`` now hardcodes ``RATE_CUTOFF_DATE: ''``,
+  ``NEW_RATES_CSV: ''``, ``OLD_RATES_CSV: ''`` (was
+  ``${{ vars.<NAME> || '' }}``) with a prominent LEGACY comment
+  block explaining the retirement and revert path. A repo
+  Variable that re-introduces a value is now ignored by the
+  workflow — pinning the value at the workflow layer makes the
+  decision code-reviewable through git history rather than
+  hidden in GitHub Actions UI. **Defense-in-depth on the Python
+  side:** ``generate_weekly_pdfs.py`` now emits a WARNING in the
+  startup banner whenever ``RATE_CUTOFF_DATE`` is detected,
+  pointing operators at this ledger entry. This catches local
+  dev shells, ad-hoc scripts, or future workflows that might
+  re-introduce the env var by accident. **What stays:** every
+  recalc helper (``recalculate_row_price``,
+  ``_resolve_rate_recalc_cutoff_date``,
+  ``build_cu_to_group_mapping``, ``load_rate_versions``), the
+  ``RATE_RECALC_SKIP_ORIGINAL_CONTRACT`` guard from the prior
+  commit on this branch, and every existing test. The code is
+  retained intentionally so re-enablement is a one-line workflow
+  revert (restore the three ``${{ vars.<NAME> || '' }}`` lines)
+  rather than a code rewrite. **Docs:** ``website/docs/reference/
+  environment.md`` "Rate contract versioning" section now leads
+  with a Docusaurus ``:::caution LEGACY`` admonition pointing
+  at this entry, and each row in the variable table is prefixed
+  with ``(LEGACY)``. **New rules:** (1) When an external system
+  takes over a column we used to compute locally AND there is no
+  remaining local consumer that benefits from the local
+  computation, retire the local feature in the workflow layer
+  — do NOT just leave it env-gated. Workflow pinning is
+  enforceable through git history; repo-Variable defaults are
+  not. (2) Retire vs. delete: keep the code paths intact behind
+  the workflow pin if the underlying business problem (post-
+  cutoff billing) could realistically come back (rate contract
+  renegotiation, new subcontractor, Smartsheet formula
+  regression). The marginal carrying cost of retained code +
+  tests is much lower than the cost of rewriting the recalc
+  pipeline from scratch under incident pressure. (3) When
+  retiring an env-var-gated feature, ALSO emit a runtime
+  WARNING when the env var is detected — silent retirement is
+  a footgun for any developer running locally with stale
+  ``.env`` files. The WARNING must point at the ledger entry
+  that explains why, not just say "deprecated". (4) Any future
+  un-retire of this feature MUST be paired with explicit
+  verification that the rows being re-priced are NOT already
+  Smartsheet-priced for the same column. The
+  ``RATE_RECALC_SKIP_ORIGINAL_CONTRACT`` guard remains the
+  default-on protection for the two folders documented in the
+  11:30 entry above; if a future engineer disables the guard
+  without confirming Smartsheet's formula has been removed
+  first, the same silent-corruption trap reopens. No new tests
+  are added for this retirement — existing tests in
+  ``tests/test_subcontractor_pricing.py``, ``tests/test_vac_crew.py``,
+  and ``tests/test_security_audit_followup.py`` already cover
+  the retained code paths because they explicitly set
+  ``RATE_CUTOFF_DATE`` in setUp/tearDown for isolation. Verified
+  via ``pytest tests/`` (393 passed / 17 skipped) post-change.

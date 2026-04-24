@@ -257,11 +257,34 @@ jobs:
           # Helper/Resiliency Grouping Mode
           RES_GROUPING_MODE: ${{ github.event.inputs.res_grouping_mode || 'both' }}
           
-          # Rate Contract Versioning (set via repo Variables in Settings > Secrets and variables > Actions)
-          # RATE_CUTOFF_DATE: YYYY-MM-DD date when new rates take effect (empty = disabled)
-          RATE_CUTOFF_DATE: ${{ vars.RATE_CUTOFF_DATE || '' }}
-          NEW_RATES_CSV: ${{ vars.NEW_RATES_CSV || '' }}
-          OLD_RATES_CSV: ${{ vars.OLD_RATES_CSV || '' }}
+          # ─────────────────────────────────────────────────────────────
+          # LEGACY: Python CSV-side rate recalc — RETIRED 2026-04-24.
+          # ─────────────────────────────────────────────────────────────
+          # Smartsheet now emits the authoritative Units Total Price
+          # natively for sheets in ORIGINAL_CONTRACT_FOLDER_IDS
+          # (7644752003786628, 8815193070299012) on rows whose
+          # Snapshot Date >= 2026-04-12 and Units Completed? = true.
+          # Running the Python recalc on top of Smartsheet's
+          # authoritative price was a silent-corruption trap — see
+          # CLAUDE.md Living Ledger entry [2026-04-24] for the full
+          # incident write-up.
+          #
+          # These env vars are pinned to empty strings here so the
+          # production workflow CANNOT pass through a stray value
+          # from repo Variables. The Python code paths
+          # (recalculate_row_price, _resolve_rate_recalc_cutoff_date,
+          # build_cu_to_group_mapping, load_rate_versions) are
+          # retained intentionally so re-enablement is a one-line
+          # workflow revert, not a code rewrite.
+          #
+          # Revert path: replace each '' with the previous
+          # ${{ vars.<NAME> || '' }} form. The Python
+          # RATE_RECALC_SKIP_ORIGINAL_CONTRACT guard (default on)
+          # still protects the two folders even if cutoff is
+          # re-enabled, so a revert is safe by default.
+          RATE_CUTOFF_DATE: ''
+          NEW_RATES_CSV: ''
+          OLD_RATES_CSV: ''
 
           # Advanced Filters
           WR_FILTER: ${{ github.event.inputs.wr_filter || '' }}
