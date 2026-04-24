@@ -27,13 +27,16 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 type RunsResponse = { total?: number; runs?: unknown[] };
 type ArtifactsResponse = { total?: number; artifacts?: unknown[] };
 
+async function getSupabaseAccessToken(): Promise<string | null> {
+  if (!isSupabaseConfigured) return null;
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token ?? null;
+}
+
 export async function getApiAuthHeaders(): Promise<Headers> {
   const requestHeaders = new Headers();
-  if (isSupabaseConfigured) {
-    const { data } = await supabase.auth.getSession();
-    const token = data.session?.access_token;
-    if (token) requestHeaders.set('Authorization', `Bearer ${token}`);
-  }
+  const token = await getSupabaseAccessToken();
+  if (token) requestHeaders.set('Authorization', `Bearer ${token}`);
   return requestHeaders;
 }
 
@@ -163,6 +166,30 @@ function triggerBlobDownload(blob: Blob, filename: string): void {
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
 }
 
+function getDirectApiUrl(path: string): string {
+  return `${API_BASE}${path}`;
+}
+
+function openDirectUrl(url: string): void {
+  const a = document.createElement('a');
+  a.href = url;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+function triggerDirectDownload(path: string, filename: string): void {
+  const a = document.createElement('a');
+  a.href = getDirectApiUrl(path);
+  a.download = filename;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 function openBlobInNewTab(blob: Blob): void {
   const objectUrl = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -178,6 +205,29 @@ function openBlobInNewTab(blob: Blob): void {
 function captureArtifactUrlError(err: unknown): void {
   Sentry.captureException(err);
   console.error('[portal-v2] Failed to load artifact content.', err);
+}
+
+function downloadWithBestAuth(path: string, filename: string): void {
+  if (USE_MOCK) {
+    triggerBlobDownload(new Blob(['No download available in sample mode.']), filename);
+    return;
+  }
+
+  if (!isSupabaseConfigured) {
+    triggerDirectDownload(path, filename);
+    return;
+  }
+
+  void getSupabaseAccessToken()
+    .then((token) => {
+      if (!token) {
+        triggerDirectDownload(path, filename);
+        return undefined;
+      }
+
+      return requestBlob(path).then((blob) => triggerBlobDownload(blob, filename));
+    })
+    .catch(captureArtifactUrlError);
 }
 
 export const api = {
@@ -265,35 +315,73 @@ export const api = {
 
   getFileObjectUrl(artifactId: number, file: string): Promise<string> {
     const q = new URLSearchParams({ file, inline: '1' });
+    const path = `/api/artifacts/${artifactId}/file?${q.toString()}`;
     if (USE_MOCK) {
       const blob = new Blob(['No image preview available in sample mode.'], {
         type: 'text/plain',
       });
       return Promise.resolve(URL.createObjectURL(blob));
     }
-    return requestBlob(`/api/artifacts/${artifactId}/file?${q.toString()}`)
-      .then((blob) => URL.createObjectURL(blob));
+    if (!isSupabaseConfigured) return Promise.resolve(getDirectApiUrl(path));
+    return getSupabaseAccessToken().then((token) => {
+      if (!token) return getDirectApiUrl(path);
+      return requestBlob(path).then((blob) => URL.createObjectURL(blob));
+    });
   },
 
   openFileInline(artifactId: number, file: string): void {
     const q = new URLSearchParams({ file, inline: '1' });
-    void requestBlob(`/api/artifacts/${artifactId}/file?${q.toString()}`)
-      .then(openBlobInNewTab)
-      .catch(captureArtifactUrlError);
+    const path = `/api/artifacts/${artifactId}/file?${q.toString()}`;
+    const directUrl = getDirectApiUrl(path);
+
+    if (USE_MOCK) {
+      openBlobInNewTab(new Blob(['No inline preview available in sample mode.']));
+      return;
+    }
+
+    if (!isSupabaseConfigured) {
+      openDirectUrl(directUrl);
+      return;
+    }
+
+    const previewTab = window.open('about:blank', '_blank');
+    if (previewTab) previewTab.opener = null;
+
+    void getSupabaseAccessToken()
+      .then((token) => {
+        if (!token) {
+          if (previewTab) previewTab.location.href = directUrl;
+          else openDirectUrl(directUrl);
+          return undefined;
+        }
+
+        return requestBlob(path).then((blob) => {
+          const objectUrl = URL.createObjectURL(blob);
+          if (previewTab) {
+            previewTab.location.href = objectUrl;
+            window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+          } else {
+            openBlobInNewTab(blob);
+          }
+        });
+      })
+      .catch((err) => {
+        if (previewTab) previewTab.close();
+        captureArtifactUrlError(err);
+      });
   },
 
   /** Download a single file out of the zip with its original filename. */
   downloadFile(artifactId: number, file: string): void {
     const q = new URLSearchParams({ file });
-    void requestBlob(`/api/artifacts/${artifactId}/file?${q.toString()}`)
-      .then((blob) => triggerBlobDownload(blob, file.split('/').pop() ?? file))
-      .catch(captureArtifactUrlError);
+    downloadWithBestAuth(
+      `/api/artifacts/${artifactId}/file?${q.toString()}`,
+      file.split('/').pop() ?? file
+    );
   },
 
   downloadArtifact(artifactId: number, filename: string): void {
-    void requestBlob(`/api/artifacts/${artifactId}/download`)
-      .then((blob) => triggerBlobDownload(blob, filename))
-      .catch(captureArtifactUrlError);
+    downloadWithBestAuth(`/api/artifacts/${artifactId}/download`, filename);
   },
 
   async search(
