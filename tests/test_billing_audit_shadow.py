@@ -1436,6 +1436,278 @@ class WithRetryAttemptReportingTests(unittest.TestCase):
         self.assertTrue(rpc_failed[0]["data"]["was_transient"])
 
 
+class PostgrestErrorClassificationTests(unittest.TestCase):
+    """with_retry must classify ``postgrest.APIError`` by its
+    ``code`` field instead of blanket-treating every APIError as
+    transient. The pre-fix behaviour burned the full 4-attempt ×
+    8.5s backoff budget on a schema-not-exposed misconfiguration
+    (HTTP 406 / PGRST106), per op, before each op's circuit
+    breaker tripped — ~60-120s of doomed retries per session
+    against a permanent server-side rejection.
+
+    Covers the classifier contract, the retry short-circuit for
+    permanent codes, and the run-global kill switch that disables
+    the entire billing_audit integration on a
+    ``_PGRST_GLOBAL_KILL_CODES`` error.
+    """
+
+    def setUp(self):
+        _reset_all()
+
+    def tearDown(self):
+        _reset_all()
+
+    def _make_api_error(self, code, message="", hint="", details=""):
+        """Build a real ``postgrest.APIError`` the same way postgrest-py
+        does when unwrapping the JSON response body. Skips the test
+        if postgrest isn't importable (CI-safety).
+        """
+        try:
+            from postgrest import APIError  # type: ignore
+        except Exception:
+            self.skipTest("postgrest not installed")
+        return APIError({
+            "code": code,
+            "message": message,
+            "hint": hint,
+            "details": details,
+        })
+
+    # ── Classifier contract ──────────────────────────────────────
+
+    def test_classifier_global_kill_for_schema_not_exposed(self):
+        """PGRST106 ("The schema must be one of the following: ...")
+        is the exact code PostgREST returns when the requested
+        ``Accept-Profile`` / ``Content-Profile`` schema is not in
+        the project's exposed-schemas list. This is a run-global
+        misconfiguration — every table + RPC in the schema will
+        fail the same way.
+        """
+        from billing_audit import client as ba_client
+        exc = self._make_api_error(
+            "PGRST106",
+            message="The schema must be one of the following: public",
+            hint="Only the following schemas are exposed: public",
+        )
+        is_transient, is_global_kill, reason = (
+            ba_client._classify_postgrest_error(exc)
+        )
+        self.assertFalse(is_transient)
+        self.assertTrue(is_global_kill)
+        self.assertEqual(reason, "PGRST106")
+
+    def test_classifier_global_kill_for_jwt_expired(self):
+        from billing_audit import client as ba_client
+        exc = self._make_api_error("PGRST301", message="JWT expired")
+        is_transient, is_global_kill, _ = (
+            ba_client._classify_postgrest_error(exc)
+        )
+        self.assertFalse(is_transient)
+        self.assertTrue(is_global_kill)
+
+    def test_classifier_permanent_but_not_global_kill_for_pgrst1xx(self):
+        """Generic PGRST1xx / PGRST2xx / PGRST3xx codes are permanent
+        but op-scoped — a malformed payload or single-endpoint
+        contract violation. Bail after one attempt; keep the per-op
+        circuit breaker behaviour but don't poison the whole run.
+        """
+        from billing_audit import client as ba_client
+        exc = self._make_api_error(
+            "PGRST100", message="Unrecognised operator"
+        )
+        is_transient, is_global_kill, _ = (
+            ba_client._classify_postgrest_error(exc)
+        )
+        self.assertFalse(is_transient)
+        self.assertFalse(is_global_kill)
+
+    def test_classifier_permanent_for_http_4xx_stringified(self):
+        """When PostgREST can't return JSON, postgrest-py synthesises
+        an APIError with ``code=str(r.status_code)`` via
+        ``generate_default_error_message``. HTTP 4xx → permanent.
+        """
+        from billing_audit import client as ba_client
+        for code in ("400", "401", "403", "404", "406", "422"):
+            with self.subTest(code=code):
+                exc = self._make_api_error(code, message=f"HTTP {code}")
+                is_transient, is_global_kill, _ = (
+                    ba_client._classify_postgrest_error(exc)
+                )
+                self.assertFalse(is_transient)
+                self.assertFalse(is_global_kill)
+
+    def test_classifier_transient_for_missing_code(self):
+        """An APIError whose dict carries no ``code`` field (exotic
+        shape from a body-parse failure) falls back to transient so
+        novel 5xx-style blips still retry — matches the pre-fix
+        behaviour for unclassified APIError bodies.
+        """
+        from billing_audit import client as ba_client
+        exc = self._make_api_error(None, message="no code")
+        is_transient, is_global_kill, reason = (
+            ba_client._classify_postgrest_error(exc)
+        )
+        self.assertTrue(is_transient)
+        self.assertFalse(is_global_kill)
+        self.assertIsNone(reason)
+
+    def test_classifier_transient_for_http_5xx_stringified(self):
+        from billing_audit import client as ba_client
+        for code in ("500", "502", "503", "504"):
+            with self.subTest(code=code):
+                exc = self._make_api_error(code, message=f"HTTP {code}")
+                is_transient, is_global_kill, _ = (
+                    ba_client._classify_postgrest_error(exc)
+                )
+                self.assertTrue(is_transient)
+                self.assertFalse(is_global_kill)
+
+    # ── with_retry short-circuit behaviour ───────────────────────
+
+    def test_with_retry_bails_after_one_attempt_on_permanent_api_error(self):
+        """Before the fix, any APIError burned all 4 attempts. After
+        the fix, a permanent PGRST1xx code fails fast.
+        """
+        from billing_audit import client as ba_client
+        calls = {"n": 0}
+
+        def failing():
+            calls["n"] += 1
+            raise self._make_api_error(
+                "PGRST100", message="Bad query"
+            )
+
+        with mock.patch("billing_audit.client.time.sleep") as msleep:
+            result = ba_client.with_retry(failing, op="feature_flag")
+
+        self.assertIsNone(result)
+        self.assertEqual(calls["n"], 1)
+        # time.sleep must NOT have been called — no retry backoff.
+        msleep.assert_not_called()
+
+    def test_with_retry_global_kill_fires_once_and_disables_client(self):
+        """PGRST106 on the first op must (a) short-circuit the retry
+        loop, (b) flip the global kill switch so ``get_client()``
+        returns None, and (c) emit exactly ONE operator-facing
+        WARNING pointing at the Supabase exposed-schemas setting.
+        """
+        from billing_audit import client as ba_client
+
+        # Pre-seed an initialized client so the kill switch, not
+        # missing credentials, is what drives ``get_client()`` to
+        # return None.
+        ba_client._client_cache = mock.Mock()
+        ba_client._client_initialized = True
+        self.assertIsNotNone(ba_client.get_client())
+
+        def failing():
+            raise self._make_api_error(
+                "PGRST106",
+                message="The schema must be one of the following: public",
+                hint="Only the following schemas are exposed: public",
+            )
+
+        with mock.patch(
+            "billing_audit.client.time.sleep"
+        ), self.assertLogs(level="WARNING") as cm:
+            result = ba_client.with_retry(failing, op="feature_flag")
+
+        self.assertIsNone(result)
+        # Global kill is set.
+        self.assertEqual(ba_client._global_disable_reason, "PGRST106")
+        # get_client now returns None even though the client cache
+        # object is still populated — the kill switch takes priority.
+        self.assertIsNone(ba_client.get_client())
+
+        # Operator-facing WARNING must mention the actionable fix
+        # path: 'Exposed schemas' in Supabase. The exact string
+        # appears in _disable_for_run.
+        disabled_lines = [
+            line for line in cm.output
+            if "disabled for this run" in line
+        ]
+        self.assertEqual(len(disabled_lines), 1, cm.output)
+        self.assertIn("Exposed schemas", disabled_lines[0])
+        self.assertIn("billing_audit", disabled_lines[0])
+
+    def test_with_retry_global_kill_is_logged_once(self):
+        """Multiple PGRST106 calls (e.g. because an op captured a
+        client reference before the kill switch tripped) must not
+        re-emit the operator-facing WARNING on every call — one
+        clear message per run is the contract.
+        """
+        from billing_audit import client as ba_client
+
+        def failing():
+            raise self._make_api_error(
+                "PGRST106", message="Schema not exposed"
+            )
+
+        with mock.patch(
+            "billing_audit.client.time.sleep"
+        ), self.assertLogs(level="WARNING") as cm:
+            # First call trips the kill switch and logs.
+            ba_client.with_retry(failing, op="feature_flag")
+            # Reset the client-cached short-circuit path: directly
+            # invoke with_retry again, simulating a captured-client
+            # caller bypassing get_client.
+            ba_client.with_retry(failing, op="feature_flag")
+            ba_client.with_retry(failing, op="freeze_attribution")
+
+        disabled_lines = [
+            line for line in cm.output
+            if "disabled for this run" in line
+        ]
+        self.assertEqual(len(disabled_lines), 1, cm.output)
+
+    def test_with_retry_short_circuits_other_ops_after_kill(self):
+        """After the kill switch trips on one op, every OTHER op
+        must short-circuit to None without making a network call.
+        Saves ~8.5s × (N-1) ops of doomed retry budget per run.
+        """
+        from billing_audit import client as ba_client
+
+        def trip():
+            raise self._make_api_error(
+                "PGRST106", message="Schema not exposed"
+            )
+
+        unrelated_calls = {"n": 0}
+
+        def unrelated():
+            unrelated_calls["n"] += 1
+            return mock.Mock(data=[{"something": True}])
+
+        with mock.patch("billing_audit.client.time.sleep"):
+            # Trip on feature_flag.
+            self.assertIsNone(
+                ba_client.with_retry(trip, op="feature_flag")
+            )
+            # Every other op now fast-fails to None without invoking fn.
+            for op in (
+                "freeze_attribution",
+                "pipeline_run_select",
+                "pipeline_run_upsert",
+            ):
+                with self.subTest(op=op):
+                    self.assertIsNone(
+                        ba_client.with_retry(unrelated, op=op)
+                    )
+            self.assertEqual(unrelated_calls["n"], 0)
+
+    def test_reset_cache_for_tests_clears_kill_switch(self):
+        """Test isolation: the kill switch must reset so one test's
+        tripped state can't leak into unrelated tests in the same
+        run.
+        """
+        from billing_audit import client as ba_client
+        ba_client._global_disable_reason = "PGRST106"
+        ba_client._global_disable_logged = True
+        ba_client.reset_cache_for_tests()
+        self.assertIsNone(ba_client._global_disable_reason)
+        self.assertFalse(ba_client._global_disable_logged)
+
+
 class BackfillCliDateValidationTests(unittest.TestCase):
     """_parse_week_mmddyy must reject invalid calendar dates with
     argparse.ArgumentTypeError so argparse surfaces a usage message

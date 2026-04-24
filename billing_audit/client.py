@@ -63,6 +63,59 @@ _CIRCUIT_BREAKER_THRESHOLD = 3
 _consecutive_failures: dict[str, int] = {}
 _open_circuits: set[str] = set()
 
+# ── PostgREST error classification ────────────────────────────────
+# PostgREST returns a JSON error body with a ``code`` field.
+# postgrest-py lifts that into ``APIError.code`` (a string). Some
+# codes indicate a PERMANENT error that no amount of retrying will
+# fix (schema not exposed, JWT invalid, malformed query), while
+# others (or a missing code on a transient body-parse failure) can
+# still be transient.
+#
+# The pre-fix behaviour treated EVERY ``APIError`` as transient, so
+# a misconfigured Supabase (e.g. ``billing_audit`` schema not in the
+# project's "Exposed schemas" list → HTTP 406 / ``PGRST106`` on every
+# call) burned the full 4-attempt × 8.5s backoff budget per call,
+# per op, before each op's circuit breaker tripped. The result was
+# ~60-120s of log-spammed retries per session with zero chance of
+# success.
+_PGRST_PERMANENT_PREFIXES: tuple[str, ...] = (
+    "PGRST1",  # parser / schema / content-negotiation errors
+    "PGRST2",  # auth errors (JWT invalid/expired, RLS denial)
+    "PGRST3",  # miscellaneous permanent (e.g. profile-switching)
+)
+
+# HTTP status codes that PostgREST sometimes surfaces as stringified
+# values via ``generate_default_error_message`` when the response
+# body isn't valid JSON. A 4xx means "client request was rejected"
+# — retrying the same request won't make the server change its mind.
+_HTTP_PERMANENT_CODES: frozenset[str] = frozenset({
+    "400", "401", "403", "404", "405", "406",
+    "409", "410", "415", "422",
+})
+
+# PostgREST error codes that indicate the ENTIRE billing_audit
+# integration is misconfigured for this run — not a transient /
+# per-endpoint issue. The schema-exposure / JWT problems here affect
+# every table + RPC in ``billing_audit`` equally, so letting each op
+# independently exhaust its per-op circuit breaker is pure waste.
+# Detecting these once flips a run-global kill switch that makes
+# ``get_client()`` return None for the rest of the run.
+_PGRST_GLOBAL_KILL_CODES: frozenset[str] = frozenset({
+    "PGRST106",  # Schema not in db-schemas (Supabase "Exposed schemas")
+    "PGRST301",  # JWT expired
+    "PGRST302",  # Anonymous access forbidden / JWT invalid
+})
+
+# Run-global kill switch. Set the first time a ``_PGRST_GLOBAL_KILL_CODES``
+# error is observed by ``with_retry``. Once set, ``get_client()``
+# short-circuits to ``None`` and the main pipeline's per-row
+# ``freeze_row`` / ``emit_run_fingerprint`` calls all silently no-op
+# — identical to the "credentials missing" path. Preserves the
+# fail-safe contract: a misconfigured billing_audit integration must
+# never break the billing pipeline itself.
+_global_disable_reason: str | None = None
+_global_disable_logged: bool = False
+
 
 def _is_test_mode() -> bool:
     """Match the pipeline's TEST_MODE semantics without importing it.
@@ -110,8 +163,22 @@ def get_client() -> Any:
     - ``SUPABASE_URL`` or ``SUPABASE_SERVICE_ROLE_KEY`` is missing.
     - The ``supabase`` package is not installed.
     - Client construction raises.
+    - A run-global PostgREST misconfiguration was detected earlier
+      this run (schema not exposed, JWT invalid); see
+      ``_PGRST_GLOBAL_KILL_CODES`` and ``with_retry``.
     """
     global _client_cache, _client_initialized
+
+    # Run-global kill switch: a prior call tripped a permanent,
+    # integration-wide PostgREST error (e.g. the ``billing_audit``
+    # schema is not in Supabase's exposed-schemas list). Every
+    # subsequent RPC would hit the same error — short-circuit all
+    # downstream callers to the same "client unavailable" path that
+    # missing credentials and TEST_MODE already use. No log spam
+    # (the disable WARNING was already emitted once by
+    # ``_disable_for_run``).
+    if _global_disable_reason is not None:
+        return None
 
     if _client_initialized:
         return _client_cache
@@ -167,11 +234,125 @@ def get_client() -> Any:
 def reset_cache_for_tests() -> None:
     """Clear module-level caches. Test-only helper."""
     global _client_cache, _client_initialized, _flag_cache
+    global _global_disable_reason, _global_disable_logged
     _client_cache = None
     _client_initialized = False
     _flag_cache = {}
     _consecutive_failures.clear()
     _open_circuits.clear()
+    _global_disable_reason = None
+    _global_disable_logged = False
+
+
+def _classify_postgrest_error(
+    exc: Exception,
+) -> tuple[bool, bool, str | None]:
+    """Classify a ``postgrest.APIError`` for retry purposes.
+
+    Returns ``(is_transient, is_global_kill, reason_code)``.
+
+    - ``is_transient`` — True when retrying MIGHT succeed. Network-
+      level issues surface as ``httpx.HTTPError`` / name-matched
+      exceptions (handled separately in ``with_retry``); the only
+      APIError shape we keep as transient is "no code field" (rare;
+      usually a 5xx whose body wasn't valid JSON).
+    - ``is_global_kill`` — True when the error applies to every
+      table + RPC in the ``billing_audit`` schema (schema not
+      exposed, auth invalid). Tripping the per-op breaker four
+      times doesn't fix a schema-exposure problem.
+    - ``reason_code`` — the ``APIError.code`` string for logs /
+      breadcrumbs. ``None`` when the exception carries no code.
+
+    Called only for already-confirmed APIError instances, so the
+    ``getattr`` fallback is defensive — a malformed subclass with
+    no ``code`` attribute still classifies cleanly.
+    """
+    code = getattr(exc, "code", None)
+    if not isinstance(code, str) or not code:
+        # No code field — assume transient. This matches the
+        # pre-fix behaviour for exotic APIError shapes and keeps
+        # unrelated 5xx body-parse blips retryable.
+        return True, False, None
+
+    if code in _PGRST_GLOBAL_KILL_CODES:
+        return False, True, code
+
+    if code.startswith(_PGRST_PERMANENT_PREFIXES):
+        return False, False, code
+
+    if code in _HTTP_PERMANENT_CODES:
+        return False, False, code
+
+    # Unknown code — default to transient. Better to waste one
+    # backoff budget on a novel error than to silently suppress
+    # a genuinely-retryable condition.
+    return True, False, code
+
+
+def _disable_for_run(reason_code: str, exc: Exception) -> None:
+    """Trip the run-global kill switch.
+
+    Subsequent ``get_client()`` calls return ``None``, which makes
+    every downstream writer path (``freeze_row``,
+    ``emit_run_fingerprint``, flag probes) silently no-op for the
+    rest of the session. The pipeline's Excel generation, upload,
+    and hash-history paths are unaffected.
+
+    Idempotent in its user-visible output: the operator-facing
+    WARNING fires only on the first trip. Subsequent calls update
+    ``_global_disable_reason`` without re-emitting the log line.
+    """
+    global _global_disable_reason, _global_disable_logged
+    _global_disable_reason = reason_code
+
+    if _global_disable_logged:
+        return
+    _global_disable_logged = True
+
+    message = getattr(exc, "message", None) or ""
+    hint = getattr(exc, "hint", None) or ""
+
+    if reason_code == "PGRST106":
+        operator_hint = (
+            "The 'billing_audit' schema is not exposed by PostgREST. "
+            "In Supabase: Project Settings → API → Data API Settings "
+            "→ 'Exposed schemas': add 'billing_audit', save, and "
+            "reload the schema cache. The billing pipeline itself "
+            "continues unaffected."
+        )
+    elif reason_code in ("PGRST301", "PGRST302"):
+        operator_hint = (
+            "Supabase authentication rejected the service-role key. "
+            "Verify SUPABASE_SERVICE_ROLE_KEY is current (check for "
+            "rotation) and that the key grants access to the "
+            "'billing_audit' schema. The billing pipeline itself "
+            "continues unaffected."
+        )
+    else:  # Defensive — only codes in _PGRST_GLOBAL_KILL_CODES reach here.
+        operator_hint = (
+            f"billing_audit returned permanent error {reason_code}; "
+            "integration disabled for this run."
+        )
+
+    # Keep the message sanitized — server response bodies can quote
+    # identifiers, but for PGRST106/301/302 they only quote schema /
+    # role names, which are operational context (not row PII).
+    logging.warning(
+        f"🔌 billing_audit disabled for this run "
+        f"(code={reason_code}). {operator_hint} "
+        f"Server message: {message.strip()!r}. "
+        f"Server hint: {hint.strip()!r}."
+    )
+    _sentry_breadcrumb(
+        "billing_audit",
+        "Integration globally disabled",
+        level="warning",
+        data={
+            "reason_code": reason_code,
+            "server_message": message,
+            "server_hint": hint,
+        },
+    )
 
 
 def is_flag_resolved(key: str) -> bool:
@@ -302,6 +483,16 @@ def with_retry(fn: Callable[..., Any], *args: Any,
     Returns ``fn``'s return value on success. On final failure, logs
     a WARNING, emits a Sentry breadcrumb, and returns ``None``.
     """
+    # Run-global kill switch check: a prior op detected a
+    # schema-exposure / auth misconfiguration. All subsequent calls
+    # to any op short-circuit. ``get_client()`` already short-
+    # circuits at the writer layer, but a caller that captured the
+    # client reference before the kill switch tripped could still
+    # reach here — this guard is the belt to the ``get_client``
+    # suspenders.
+    if _global_disable_reason is not None:
+        return None
+
     if op in _open_circuits:
         # Fast path: breaker is open for THIS op; skip all RPC
         # work. Other ops are unaffected.
@@ -320,8 +511,23 @@ def with_retry(fn: Callable[..., Any], *args: Any,
             last_error_name = err_name
             is_transient = False
             if _PGAPIError is not None and isinstance(exc, _PGAPIError):
-                is_transient = True
-            if _HTTPError is not None and isinstance(exc, _HTTPError):
+                # Classify by the PostgREST error code. Permanent
+                # PGRST1xx / PGRST2xx / PGRST3xx codes and HTTP
+                # 4xx codes bail after the first attempt — no
+                # retry will fix a schema-not-exposed or auth
+                # rejection. Run-global kill codes also trip the
+                # module-wide kill switch so every other op
+                # short-circuits to ``None`` without making the
+                # doomed round trip.
+                is_transient, is_global_kill, reason_code = (
+                    _classify_postgrest_error(exc)
+                )
+                if is_global_kill:
+                    _disable_for_run(reason_code or "UNKNOWN", exc)
+                    # Skip the retry loop entirely — no benefit.
+                    final_was_transient = False
+                    break
+            elif _HTTPError is not None and isinstance(exc, _HTTPError):
                 is_transient = True
             if any(marker in err_name for marker in _TRANSIENT_ERROR_MARKERS):
                 is_transient = True
