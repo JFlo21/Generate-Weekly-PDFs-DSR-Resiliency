@@ -100,6 +100,33 @@ def get_counters() -> dict[str, int]:
     return dict(_counters)
 
 
+def _flag_enabled_or_unknown(key: str) -> bool:
+    """Fail-open flag probe: True if the flag reads True OR its
+    state is indeterminate (read failure).
+
+    A naive ``if not get_flag(key, default=False): return`` check
+    treats a transient read blip (retries exhausted → default=False)
+    identically to a definitive off-state. Because
+    ``freeze_attribution`` is first-write-wins, letting such blips
+    suppress writes means completed rows can lose their correct
+    freeze window permanently if personnel change before the next
+    pipeline run. Failing open here is safe because:
+
+    1. The write RPC has its own ``with_retry`` + circuit breaker
+       (op=``freeze_attribution`` / ``pipeline_run_*``), so an
+       actual write-endpoint outage is bounded separately.
+    2. A genuinely-off flag stays off-cached and this probe returns
+       False for it — operators retain the ability to disable
+       writes via the feature_flag table.
+    """
+    if get_flag(key, default=False):
+        return True
+    # get_flag returned False. If the read was definitively resolved
+    # (value is cached), it's a real off-state. If not cached, the
+    # read blipped — treat as unknown and fail open.
+    return not is_flag_resolved(key)
+
+
 def any_flag_enabled() -> bool:
     """Probe for whether any writer flag is currently on — fail-open.
 
@@ -134,35 +161,26 @@ def any_flag_enabled() -> bool:
     """
     if get_client() is None:
         return False
-    write_on = get_flag(_FLAG_WRITE, default=False)
-    if write_on:
-        return True
-    fp_on = get_flag(_FLAG_FINGERPRINT, default=False)
-    if fp_on:
-        return True
-    # Both read False. If both were resolved definitively by
-    # ``get_flag`` (cache populated via successful reads), the flags
-    # really are off — return False. If either is unresolved (read
-    # failed and returned the fallback default), fail open with True
-    # so the per-group writer block isn't silently skipped on a
-    # transient feature_flag blip.
-    if is_flag_resolved(_FLAG_WRITE) and is_flag_resolved(_FLAG_FINGERPRINT):
-        return False
-    return True
+    return (
+        _flag_enabled_or_unknown(_FLAG_WRITE)
+        or _flag_enabled_or_unknown(_FLAG_FINGERPRINT)
+    )
 
 
 def fingerprint_flag_enabled() -> bool:
-    """Narrower probe for just the fingerprint flag.
+    """Narrower probe for just the fingerprint flag — fail-open.
 
     Lets callers skip ``compute_assignment_fingerprint()`` and the
     per-group completed-count aggregation when only the snapshot
     write flag is on — the fingerprint path would no-op inside
     ``emit_run_fingerprint`` otherwise, wasting per-group work.
-    Cached through ``get_flag``.
+    Fails open on indeterminate flag state (see
+    ``_flag_enabled_or_unknown``) so a transient read blip cannot
+    silently suppress fingerprint emission for this run.
     """
     if get_client() is None:
         return False
-    return get_flag(_FLAG_FINGERPRINT, default=False)
+    return _flag_enabled_or_unknown(_FLAG_FINGERPRINT)
 
 
 def _coerce_week_ending(value: Any) -> datetime.date | None:
@@ -243,7 +261,13 @@ def freeze_row(row: dict, release: str | None,
     client = get_client()
     if client is None:
         return
-    if not get_flag(_FLAG_WRITE, default=False):
+    # Fail-open on indeterminate flag state — see
+    # _flag_enabled_or_unknown for the rationale. A transient
+    # feature_flag read blip must not be treated as definitive
+    # off-state or we silently drop writes for this run and can
+    # permanently miss the first-write-wins freeze window for
+    # completed rows.
+    if not _flag_enabled_or_unknown(_FLAG_WRITE):
         return
 
     row_id = row.get("__row_id")
@@ -335,7 +359,8 @@ def emit_run_fingerprint(wr: str, week_ending: datetime.date,
     client = get_client()
     if client is None:
         return
-    if not get_flag(_FLAG_FINGERPRINT, default=False):
+    # Fail-open on indeterminate flag state (see _flag_enabled_or_unknown).
+    if not _flag_enabled_or_unknown(_FLAG_FINGERPRINT):
         return
     if not wr or week_ending is None:
         return

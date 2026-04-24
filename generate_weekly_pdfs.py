@@ -4592,21 +4592,27 @@ def main():
         # unchanged, making downstream run comparisons noisy.
         _billing_audit_agg_content_hashes: dict[tuple[str, str], str] = {}
         # Split the cheap work from the expensive work:
-        #   • Bucket assembly (dict appends across rows) — always run
-        #     when billing_audit is available. Unconditional because
-        #     the buckets must be ready whenever a later per-group
-        #     ``fingerprint_flag_enabled()`` read succeeds, including
-        #     the case where an initial pre-loop read blipped
-        #     transiently. Cost is O(total rows) of dict appends;
-        #     trivial next to the pipeline's per-group work.
+        #   • Bucket assembly (dict appends across rows) — runs
+        #     when billing_audit is available AND at least one
+        #     writer flag is enabled (or the flag state is
+        #     indeterminate via a transient read blip).
+        #     ``any_flag_enabled()`` fails OPEN — a transient
+        #     feature_flag read blip returns True so we still
+        #     build buckets and don't miss the first-write-wins
+        #     freeze window for this run's completed rows. Cost
+        #     is O(total rows) of dict appends.
         #   • ``calculate_data_hash`` per bucket — LAZY, memoized
         #     into ``_billing_audit_agg_content_hashes`` at first
         #     emit attempt inside the per-group block. The emit is
-        #     already gated on the fingerprint flag, so flag-off
-        #     runs never pay this cost, and flag-on runs pay it
-        #     exactly once per bucket regardless of variant count
-        #     (dedup no-ops reuse the memo).
-        if BILLING_AUDIT_AVAILABLE and not TEST_MODE:
+        #     already fingerprint-flag-gated, so flag-off runs
+        #     never pay this cost, and flag-on runs pay it exactly
+        #     once per bucket regardless of variant count (dedup
+        #     no-ops reuse the memo).
+        if (
+            BILLING_AUDIT_AVAILABLE
+            and not TEST_MODE
+            and _billing_audit_writer.any_flag_enabled()
+        ):
             for _agg_gk, _agg_rows in groups.items():
                 if not _agg_rows:
                     continue

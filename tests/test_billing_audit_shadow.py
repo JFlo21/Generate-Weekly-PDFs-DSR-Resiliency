@@ -15,6 +15,7 @@ from __future__ import annotations
 import datetime
 import logging
 import os
+import re
 import sys
 import types
 import unittest
@@ -24,6 +25,25 @@ from unittest import mock
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
+
+
+def _read_source(relpath: str) -> str:
+    """Read a repo source file with explicit UTF-8 encoding.
+
+    The repo intentionally uses emoji / non-ASCII characters in log
+    strings and comments, so relying on locale default encoding
+    would fail under CI runners with C/ASCII locales.
+    """
+    return (_REPO_ROOT / relpath).read_text(encoding="utf-8")
+
+
+def _collapse_ws(text: str) -> str:
+    """Collapse consecutive whitespace in ``text`` to single spaces.
+
+    Used with assertion helpers so exact-substring checks on source
+    code aren't brittle to harmless indentation / line-break edits.
+    """
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def _reset_all():
@@ -195,12 +215,51 @@ class FreezeRowTests(unittest.TestCase):
         self.assertEqual(ba_writer.get_counters()["snapshots_written"], 0)
 
     def test_noop_when_flag_off(self):
+        """A DEFINITIVELY-off flag (get_flag=False AND
+        is_flag_resolved=True → flag state is known-off, not a blip)
+        must no-op. The fail-open path (is_flag_resolved=False)
+        takes a separate code branch covered by other tests.
+        """
         from billing_audit import writer as ba_writer
         client = _make_fake_supabase_client()
-        with mock.patch("billing_audit.writer.get_client", return_value=client), \
-             mock.patch("billing_audit.writer.get_flag", return_value=False):
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=False
+        ), mock.patch(
+            "billing_audit.writer.is_flag_resolved", return_value=True
+        ):
             ba_writer.freeze_row(self._valid_row(), release="r", run_id="x")
         client.schema.return_value.rpc.assert_not_called()
+
+    def test_freeze_row_fails_open_when_flag_blipped(self):
+        """Codex P1: a transient feature_flag read blip (get_flag
+        returns default=False AND is_flag_resolved=False because
+        the failed read didn't cache) must NOT be treated as a
+        definitive off-state. freeze_row must attempt the RPC —
+        the write endpoint's own circuit breaker can bound any
+        actual write outage separately, and first-write-wins means
+        skipping the blipped window risks permanent data loss.
+        """
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        client.schema.return_value.rpc.return_value.execute.return_value = (
+            _fake_rpc_response("run-blip")
+        )
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=False
+        ), mock.patch(
+            "billing_audit.writer.is_flag_resolved", return_value=False
+        ):
+            ba_writer.freeze_row(
+                self._valid_row(), release="r", run_id="run-blip"
+            )
+        client.schema.return_value.rpc.assert_called_once()
+        self.assertEqual(
+            ba_writer.get_counters()["snapshots_written"], 1
+        )
 
     def test_valid_row_calls_rpc_with_sanitized_wr(self):
         from billing_audit import writer as ba_writer
@@ -334,10 +393,14 @@ class EmitRunFingerprintTests(unittest.TestCase):
     def test_noop_when_flag_off(self):
         from billing_audit import writer as ba_writer
         client = _make_fake_supabase_client()
+        # Definitive off-state: flag resolved False (cached). Fail-
+        # open blip coverage lives in a sibling test.
         with mock.patch(
             "billing_audit.writer.get_client", return_value=client
         ), mock.patch(
             "billing_audit.writer.get_flag", return_value=False
+        ), mock.patch(
+            "billing_audit.writer.is_flag_resolved", return_value=True
         ):
             ba_writer.emit_run_fingerprint(
                 wr="WR1", week_ending=datetime.date(2026, 4, 19),
@@ -347,6 +410,35 @@ class EmitRunFingerprintTests(unittest.TestCase):
             )
         # Neither select nor upsert should have been called.
         client.schema.return_value.table.assert_not_called()
+
+    def test_emit_fingerprint_fails_open_when_flag_blipped(self):
+        """Codex P1 sibling: a blipped feature_flag read (get_flag
+        default=False, is_flag_resolved=False) must let
+        emit_run_fingerprint proceed so pipeline_run rows aren't
+        silently dropped for this run.
+        """
+        from billing_audit import writer as ba_writer
+        upserts: list = []
+        client = _make_fake_supabase_client(
+            prior_fp_rows=[], upsert_capture=upserts
+        )
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=False
+        ), mock.patch(
+            "billing_audit.writer.is_flag_resolved", return_value=False
+        ), mock.patch(
+            "billing_audit.writer._sentry_capture_warning"
+        ):
+            ba_writer.emit_run_fingerprint(
+                wr="WR1", week_ending=datetime.date(2026, 4, 19),
+                content_hash="h", assignment_fp="fp-1",
+                completed_count=1, total_count=1,
+                release="rel", run_id="run-1",
+            )
+        # Upsert must have fired — fail-open lets the write attempt.
+        self.assertEqual(len(upserts), 1)
 
     def test_first_run_no_warning(self):
         from billing_audit import writer as ba_writer
@@ -1222,15 +1314,20 @@ class BackfillCliDateValidationTests(unittest.TestCase):
         WARN so operators don't mistake them for credentials-
         missing errors later.
         """
-        from pathlib import Path
-        src = Path("scripts/backfill_attribution_snapshot.py").read_text()
-        # ImportError path: explicit except ImportError that falls
-        # through (pass) — no log, no warn.
-        self.assertIn("except ImportError:\n        pass", src)
-        # The runtime-error path must log a warning.
-        self.assertIn(
-            'logging.warning(\n                "⚠️ load_dotenv() failed "',
-            src,
+        src = _read_source("scripts/backfill_attribution_snapshot.py")
+        collapsed = _collapse_ws(src)
+        # ImportError path: explicit except ImportError followed
+        # by a pass. Whitespace-tolerant.
+        self.assertRegex(
+            collapsed, r"except\s+ImportError\s*:\s*pass"
+        )
+        # The runtime-error path must log a warning. Match the
+        # emoji / wording loosely — the important contract is that
+        # ``load_dotenv() failed`` text appears inside a warning
+        # call.
+        self.assertRegex(
+            collapsed,
+            r"logging\.warning\([^)]*load_dotenv\(\)\s+failed",
         )
 
     def test_backfill_loads_dotenv_before_client_check(self):
@@ -1241,8 +1338,7 @@ class BackfillCliDateValidationTests(unittest.TestCase):
         script source — we verify the load_dotenv call sits above
         the get_client() call.
         """
-        from pathlib import Path
-        src = Path("scripts/backfill_attribution_snapshot.py").read_text()
+        src = _read_source("scripts/backfill_attribution_snapshot.py")
         # Both must be present.
         dotenv_idx = src.find("load_dotenv()")
         get_client_idx = src.find("client = get_client()")
@@ -1261,10 +1357,20 @@ class BackfillCliDateValidationTests(unittest.TestCase):
         enforces NOT NULL on ``release`` silently turns every
         backfill write into an error.
         """
-        from pathlib import Path
-        src = Path("scripts/backfill_attribution_snapshot.py").read_text()
-        self.assertIn('os.getenv("SENTRY_RELEASE", "") or ""', src)
-        self.assertIn('os.getenv("GITHUB_RUN_ID", "") or', src)
+        src = _read_source("scripts/backfill_attribution_snapshot.py")
+        collapsed = _collapse_ws(src)
+        # Whitespace-tolerant: either single or double quote wrap,
+        # any spacing around ``, ''`` and the ``or ''``.
+        self.assertRegex(
+            collapsed,
+            r'os\.getenv\(\s*["\']SENTRY_RELEASE["\']\s*,\s*["\']["\']\s*\)'
+            r"\s*or\s*[\"']{2}",
+        )
+        self.assertRegex(
+            collapsed,
+            r'os\.getenv\(\s*["\']GITHUB_RUN_ID["\']\s*,\s*["\']["\']\s*\)'
+            r"\s*or",
+        )
 
 
 class HoistedEnvVarDefaultsTests(unittest.TestCase):
@@ -1273,16 +1379,20 @@ class HoistedEnvVarDefaultsTests(unittest.TestCase):
     when the env is completely unset."""
 
     def test_main_script_hoists_env_vars_with_empty_default(self):
-        from pathlib import Path
-        src = Path("generate_weekly_pdfs.py").read_text()
-        # Exact substrings we expect in the hoisted block.
-        self.assertIn(
-            "_billing_audit_release_env = os.getenv('SENTRY_RELEASE', '') or ''",
-            src,
+        src = _read_source("generate_weekly_pdfs.py")
+        collapsed = _collapse_ws(src)
+        # Quote-form and whitespace-tolerant.
+        self.assertRegex(
+            collapsed,
+            r"_billing_audit_release_env\s*=\s*os\.getenv\("
+            r'\s*["\']SENTRY_RELEASE["\']\s*,\s*["\']["\']\s*\)'
+            r"\s*or\s*[\"']{2}",
         )
-        self.assertIn(
-            "_billing_audit_run_id_env = os.getenv('GITHUB_RUN_ID', '') or ''",
-            src,
+        self.assertRegex(
+            collapsed,
+            r"_billing_audit_run_id_env\s*=\s*os\.getenv\("
+            r'\s*["\']GITHUB_RUN_ID["\']\s*,\s*["\']["\']\s*\)'
+            r"\s*or\s*[\"']{2}",
         )
 
 
@@ -1445,8 +1555,7 @@ class CrossVariantFingerprintAggregationTests(unittest.TestCase):
     """
 
     def test_bucket_is_built_before_group_loop(self):
-        from pathlib import Path
-        src = Path("generate_weekly_pdfs.py").read_text()
+        src = _read_source("generate_weekly_pdfs.py")
         bucket_init = src.find(
             "_billing_audit_fp_buckets: dict[tuple[str, str], list[dict]] = {}"
         )
@@ -1460,63 +1569,61 @@ class CrossVariantFingerprintAggregationTests(unittest.TestCase):
             "bucket must be built before the group loop starts",
         )
 
-    def test_bucket_assembly_is_unconditional_but_hash_is_lazy(self):
-        """Split-cost invariant: bucket assembly (cheap dict
-        appends) runs whenever billing_audit is available, but the
-        per-bucket ``calculate_data_hash`` call is lazy and
-        memoized inside the per-group emit block (flag-gated).
+    def test_bucket_assembly_gate_and_lazy_hash(self):
+        """Split-cost invariant, whitespace-tolerant:
 
-        Rationale: gating the WHOLE pre-aggregation on a single
-        pre-loop ``fingerprint_flag_enabled()`` read creates a
-        transient-blip regression — if the initial read fails and
-        later per-group reads recover, the empty bucket forces
-        a fallback to ``group_rows`` / ``data_hash`` (variant-
-        scoped), defeating the cross-variant aggregation fix.
-        Splitting the work keeps the cheap path always-correct
-        while keeping the expensive path flag-gated + per-bucket
-        memoized.
+          • Bucket assembly runs under a 3-condition gate:
+            BILLING_AUDIT_AVAILABLE, not TEST_MODE, and
+            ``any_flag_enabled()`` (which fails open on transient
+            flag-read blips — so this gate preserves correctness
+            while allowing disabled runs to skip the O(total rows)
+            walk entirely).
+          • Per-bucket ``calculate_data_hash`` is lazy + memoized
+            inside the per-group emit block, not eagerly pre-loop.
         """
-        from pathlib import Path
-        src = Path("generate_weekly_pdfs.py").read_text()
+        src = _read_source("generate_weekly_pdfs.py")
+        collapsed = _collapse_ws(src)
 
-        # The pre-loop block must NOT include
-        # fingerprint_flag_enabled() — bucket assembly is
-        # unconditional under BILLING_AUDIT_AVAILABLE + not TEST_MODE.
-        self.assertIn(
-            "if BILLING_AUDIT_AVAILABLE and not TEST_MODE:\n"
-            "            for _agg_gk, _agg_rows in groups.items():",
+        # Gate shape — whitespace-tolerant regex. Must contain all
+        # three conditions in order, separated by ``and``.
+        self.assertRegex(
+            collapsed,
+            r"if\s*\(\s*BILLING_AUDIT_AVAILABLE\s+and\s+not\s+TEST_MODE"
+            r"\s+and\s+_billing_audit_writer\.any_flag_enabled\(\)\s*\)"
+            r"\s*:\s*for\s+_agg_gk,\s*_agg_rows\s+in\s+groups\.items\(\)"
+            r"\s*:",
+            "bucket-assembly gate must be 3-condition (includes "
+            "any_flag_enabled for CPU-cheap disabled runs — safe "
+            "because any_flag_enabled fails open on blips)",
+        )
+
+        # Locate the pre-loop block by the opening of the
+        # assembly gate, end at the start of the main group loop.
+        gate_match = re.search(
+            r"if\s*\(\s*BILLING_AUDIT_AVAILABLE\s+and\s+not\s+TEST_MODE"
+            r"\s+and\s+_billing_audit_writer\.any_flag_enabled\(\)\s*\)\s*:",
             src,
-            "bucket assembly must run unconditionally so transient "
-            "flag-read blips can't erase cross-variant aggregation",
         )
-
-        # calculate_data_hash must NOT appear inside the pre-loop
-        # aggregation — it's been pushed into the per-group emit
-        # with memoization.
-        pre_loop_start = src.find(
-            "if BILLING_AUDIT_AVAILABLE and not TEST_MODE:\n"
-            "            for _agg_gk, _agg_rows in groups.items():"
-        )
+        self.assertIsNotNone(gate_match, "bucket-assembly gate missing")
         group_loop_start = src.find(
             "for group_idx, (group_key, group_rows) in enumerate(groups.items(), 1):"
         )
-        self.assertGreater(pre_loop_start, 0)
-        self.assertGreater(group_loop_start, pre_loop_start)
-        pre_loop_slice = src[pre_loop_start:group_loop_start]
+        self.assertGreater(group_loop_start, 0)
+        pre_loop_slice = src[gate_match.end():group_loop_start]
+
+        # Eager hash call must NOT live in the pre-loop.
         self.assertNotIn(
             "calculate_data_hash(_agg_bucket_rows)", pre_loop_slice,
             "calculate_data_hash must be lazy (called inside the "
             "per-group emit block), not eagerly in the pre-loop",
         )
 
-        # Lazy memoized hash inside the per-group emit block —
-        # variant-aware: bucket by __variant, per-variant
-        # calculate_data_hash, SHA-256 combine.
-        self.assertIn(
-            "_billing_audit_agg_content_hashes[\n"
-            "                                            _agg_key\n"
-            "                                        ] = _agg_content_hash",
-            src,
+        # Lazy memoization must appear SOMEWHERE in the source —
+        # tolerant to indentation / line-break changes.
+        self.assertRegex(
+            collapsed,
+            r"_billing_audit_agg_content_hashes\s*\[\s*_agg_key\s*\]"
+            r"\s*=\s*_agg_content_hash",
             "per-group emit must memoize the aggregated content "
             "hash into _billing_audit_agg_content_hashes",
         )
@@ -1525,15 +1632,11 @@ class CrossVariantFingerprintAggregationTests(unittest.TestCase):
         """The emit call inside the per-group block must pull
         from ``_billing_audit_fp_buckets`` (aggregated across
         variants), not ``group_rows`` directly."""
-        from pathlib import Path
-        src = Path("generate_weekly_pdfs.py").read_text()
-        self.assertIn(
-            "_agg_fp_rows = _billing_audit_fp_buckets.get(",
-            src,
-        )
-        self.assertIn(
-            "_agg_key, group_rows",
-            src,
+        collapsed = _collapse_ws(_read_source("generate_weekly_pdfs.py"))
+        self.assertRegex(
+            collapsed,
+            r"_agg_fp_rows\s*=\s*_billing_audit_fp_buckets\.get\("
+            r"\s*_agg_key\s*,\s*group_rows\s*\)",
         )
 
     def test_emit_uses_aggregated_content_hash(self):
@@ -1549,12 +1652,13 @@ class CrossVariantFingerprintAggregationTests(unittest.TestCase):
         would yield sort-order-dependent output that can miss
         variant-specific fields entirely.
         """
-        from pathlib import Path
-        src = Path("generate_weekly_pdfs.py").read_text()
+        src = _read_source("generate_weekly_pdfs.py")
+        collapsed = _collapse_ws(src)
         # The aggregation memo must exist.
-        self.assertIn(
-            "_billing_audit_agg_content_hashes: dict[tuple[str, str], str] = {}",
-            src,
+        self.assertRegex(
+            collapsed,
+            r"_billing_audit_agg_content_hashes\s*:\s*dict\[\s*"
+            r"tuple\[\s*str\s*,\s*str\s*\]\s*,\s*str\s*\]\s*=\s*\{\s*\}",
         )
         # Variant-aware computation: rows are bucketed by __variant.
         self.assertIn(
