@@ -61,5 +61,12 @@ module.exports = {
     enabled: process.env.POLLING_ENABLED !== 'false',
   },
 
+  auth: {
+    // Portal v2 uses Supabase auth on the frontend and calls this backend
+    // cross-origin from Vercel. Keep API auth optional so Render can serve
+    // artifact data without the legacy session login flow.
+    apiRequired: process.env.API_AUTH_REQUIRED === 'true',
+  },
+
   staticDir: path.join(__dirname, '..', 'public'),
 };

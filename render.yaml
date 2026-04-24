@@ -50,6 +50,10 @@ services:
         generateValue: true             # Render generates on first deploy, then keeps it
       - key: CORS_ORIGIN
         sync: false                     # e.g. https://linetec-portal.vercel.app
+      - key: CORS_ORIGINS
+        sync: false                     # optional comma-separated preview + prod domains
+      - key: API_AUTH_REQUIRED
+        value: "false"                  # portal-v2 uses Supabase auth; keep GitHub artifact API readable
 
       # --- Poller cadence ---
       - key: POLL_INTERVAL_MS

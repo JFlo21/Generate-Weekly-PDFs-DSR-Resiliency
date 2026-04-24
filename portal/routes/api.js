@@ -7,6 +7,7 @@ const excelHtml = require('../services/excelHtml');
 const poller = require('../services/poller');
 const artifactCache = require('../services/artifactCache');
 const searchIndex = require('../services/searchIndex');
+const config = require('../config/default');
 
 const router = express.Router();
 
@@ -17,7 +18,9 @@ function sanitizeFilename(name) {
   return normalized;
 }
 
-router.use(requireAuth);
+if (config.auth.apiRequired) {
+  router.use(requireAuth);
+}
 
 router.get('/runs', async (req, res) => {
   try {

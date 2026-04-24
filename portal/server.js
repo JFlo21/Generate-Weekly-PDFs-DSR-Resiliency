@@ -15,16 +15,29 @@ const poller = require('./services/poller');
 const searchIndex = require('./services/searchIndex');
 
 const app = express();
+app.set('trust proxy', 1);
 
 // ─── CORS (must be before Helmet/security) ───────────────────
 // Allows the Vercel-hosted frontend to call this backend
+function splitCsv(input) {
+  return String(input || '')
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
 const ALLOWED_ORIGINS = [
-  process.env.CORS_ORIGIN,               // e.g. https://linetec-portal.vercel.app
+  ...splitCsv(process.env.CORS_ORIGIN),   // backward-compatible single value
+  ...splitCsv(process.env.CORS_ORIGINS),  // preferred: comma-separated list
   'http://localhost:5173',                // local Vite dev server
-].filter(Boolean);
+];
 
 app.use(cors({
-  origin: ALLOWED_ORIGINS,
+  origin(origin, callback) {
+    if (!origin) return callback(null, true);
+    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    return callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,                      // Required — api.ts uses { credentials: 'include' }
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'X-CSRF-Token'],
@@ -41,7 +54,9 @@ app.use(session({
   cookie: {
     httpOnly: true,
     secure: config.env === 'production',
-    sameSite: 'lax',
+    // Cross-site cookies are required for Vercel(frontend) -> Render(api)
+    // when credentials: 'include' is used.
+    sameSite: config.env === 'production' ? 'none' : 'lax',
     maxAge: config.session.maxAge,
   },
 }));

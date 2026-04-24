@@ -23,6 +23,40 @@ import {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 
+type RunsResponse = { total?: number; runs?: WorkflowRun[] };
+type ArtifactsResponse = { total?: number; artifacts?: Artifact[] };
+
+function normalizeRun(run: Record<string, unknown>): WorkflowRun {
+  return {
+    id: Number(run.id),
+    name: String(run.name ?? 'Workflow Run'),
+    status: String(run.status ?? 'unknown'),
+    conclusion: (run.conclusion as string | null) ?? null,
+    run_number: Number(run.run_number ?? run.runNumber ?? 0),
+    created_at: String(run.created_at ?? run.createdAt ?? ''),
+    updated_at: String(run.updated_at ?? run.updatedAt ?? ''),
+    html_url: String(run.html_url ?? run.htmlUrl ?? ''),
+    head_branch: String(run.head_branch ?? run.headBranch ?? ''),
+    head_sha: String(run.head_sha ?? run.headSha ?? ''),
+    event: run.event ? String(run.event) : undefined,
+    actor: run.actor as WorkflowRun['actor'],
+  };
+}
+
+function normalizeArtifact(artifact: Record<string, unknown>): Artifact {
+  return {
+    id: Number(artifact.id),
+    name: String(artifact.name ?? 'artifact.zip'),
+    size_in_bytes: Number(artifact.size_in_bytes ?? artifact.sizeInBytes ?? 0),
+    archive_download_url: String(
+      artifact.archive_download_url ?? artifact.archiveDownloadUrl ?? ''
+    ),
+    expired: Boolean(artifact.expired),
+    created_at: String(artifact.created_at ?? artifact.createdAt ?? ''),
+    expires_at: String(artifact.expires_at ?? artifact.expiresAt ?? ''),
+  };
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${url}`, {
     credentials: 'include',
@@ -44,12 +78,18 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 export const api = {
   getRuns(): Promise<WorkflowRun[]> {
     if (USE_MOCK) return Promise.resolve(MOCK_RUNS);
-    return request<WorkflowRun[]>('/api/runs');
+    return request<WorkflowRun[] | RunsResponse>('/api/runs').then((payload) => {
+      const runs = Array.isArray(payload) ? payload : payload.runs ?? [];
+      return runs.map((run) => normalizeRun(run as unknown as Record<string, unknown>));
+    });
   },
 
   getArtifacts(runId: number): Promise<Artifact[]> {
     if (USE_MOCK) return Promise.resolve(MOCK_ARTIFACTS[runId] ?? []);
-    return request<Artifact[]>(`/api/runs/${runId}/artifacts`);
+    return request<Artifact[] | ArtifactsResponse>(`/api/runs/${runId}/artifacts`).then((payload) => {
+      const artifacts = Array.isArray(payload) ? payload : payload.artifacts ?? [];
+      return artifacts.map((artifact) => normalizeArtifact(artifact as unknown as Record<string, unknown>));
+    });
   },
 
   getLatestRun(): Promise<WorkflowRun> {

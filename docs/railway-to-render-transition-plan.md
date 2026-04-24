@@ -93,6 +93,8 @@ GITHUB_WORKFLOW
 GITHUB_BRANCH
 SESSION_SECRET
 CORS_ORIGIN            # set to the Vercel production domain at cutover
+CORS_ORIGINS           # optional comma-separated preview + production Vercel domains
+API_AUTH_REQUIRED=false  # keep /api/* readable from portal-v2 (Supabase handles app auth)
 PORT                   # Render injects its own; leave unset unless required
 NODE_ENV=production
 POLL_INTERVAL_MS

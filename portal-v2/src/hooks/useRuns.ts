@@ -96,7 +96,7 @@ export function useRuns() {
     let es: EventSource | null = null;
     const sseUrl = `${API_BASE}/api/events`;
     try {
-      es = new EventSource(sseUrl);
+      es = new EventSource(sseUrl, { withCredentials: true });
       es.addEventListener('open', () => setIsConnected(true));
       es.addEventListener('runs-updated', () => {
         if (timerRef.current) clearTimeout(timerRef.current);
