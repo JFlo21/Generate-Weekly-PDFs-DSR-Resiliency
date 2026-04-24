@@ -491,11 +491,27 @@ def validate_no_pii_in_logs() -> None:
 
 # ──────────────────────────────────────────────────────────────────
 # Claim 8: Per-run total latency impact bound when flags=ON and
-# Supabase is healthy. Per-row RPC mocked to realistic 50ms.
+# Supabase is healthy. By default uses a SAMPLED version (50
+# iterations × 50ms = ~2.5s CI cost) and extrapolates to the full
+# 550-row budget check. Set BILLING_AUDIT_FULL_LATENCY=1 to run the
+# full 550-iteration measurement (~27.5s wallclock) — useful
+# locally when reasoning about the integration's cost profile.
 # ──────────────────────────────────────────────────────────────────
 def validate_latency_impact_under_healthy_rpc() -> None:
-    name = ("Claim 8 (measurement): 550-row freeze at 50ms/RPC fits "
-            "within a 2-min budget (advisory, not a hard guarantee)")
+    # Default to a sampled run so the validation suite stays fast
+    # in CI. Full 550-row measurement opts in via env flag.
+    full_run = os.getenv("BILLING_AUDIT_FULL_LATENCY", "").lower() in (
+        "1", "true", "yes", "on",
+    )
+    iterations = 550 if full_run else 50
+    per_call_sleep = 0.05
+    budget_seconds = 120.0
+    name = (
+        f"Claim 8 (measurement, {'full' if full_run else 'sampled'}): "
+        f"{iterations}-row freeze at 50ms/RPC extrapolates to <120s "
+        "for 550 rows (advisory; set BILLING_AUDIT_FULL_LATENCY=1 "
+        "for the full 550-row run)"
+    )
     _fresh_billing_audit()
     from billing_audit import writer as ba_writer
 
@@ -503,7 +519,7 @@ def validate_latency_impact_under_healthy_rpc() -> None:
 
     def slow_execute():
         rpc_calls["n"] += 1
-        time.sleep(0.05)
+        time.sleep(per_call_sleep)
         return mock.Mock(data={"source_run_id": "run-x"})
 
     fake_client = mock.Mock()
@@ -534,15 +550,20 @@ def validate_latency_impact_under_healthy_rpc() -> None:
         return_value=True,
     ):
         t0 = time.perf_counter()
-        for _ in range(550):
+        for _ in range(iterations):
             ba_writer.freeze_row(row, release="r", run_id="run-x")
         elapsed = time.perf_counter() - t0
 
-    within_budget = elapsed < 120.0
+    # Extrapolate: scale the sampled result to 550 rows for the
+    # advisory budget check.
+    extrapolated_550 = (elapsed / iterations) * 550.0
+    within_budget = extrapolated_550 < budget_seconds
     _record(
-        name, within_budget and rpc_calls["n"] == 550,
-        f"rpc_calls={rpc_calls['n']}/550 elapsed={elapsed:.1f}s "
-        f"(budget: 120s)",
+        name, within_budget and rpc_calls["n"] == iterations,
+        f"rpc_calls={rpc_calls['n']}/{iterations} "
+        f"elapsed={elapsed:.2f}s "
+        f"extrapolated_to_550rows={extrapolated_550:.1f}s "
+        f"(budget: {budget_seconds:.0f}s)",
     )
 
 

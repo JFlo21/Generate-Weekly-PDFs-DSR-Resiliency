@@ -4840,10 +4840,22 @@ def main():
                     and _billing_audit_writer.any_flag_enabled()
                 ):
                     try:
+                        # Generic span name — the WR number is
+                        # attached as span data below. The pipeline's
+                        # _PII_LOG_MARKERS (see log sanitizer) treats
+                        # "for WR " as a PII signal that gets
+                        # dropped from Sentry Logs; span names
+                        # bypass that sanitizer entirely and end up
+                        # in performance/trace data regardless. Keep
+                        # the name structural and route the
+                        # identifier through set_data where it can
+                        # be scoped, filtered, and (if needed) later
+                        # scrubbed via before_send.
                         with sentry_sdk.start_span(
                             op="billing_audit.freeze",
-                            name=f"Freeze attribution for WR {wr_num}",
+                            name="billing_audit.freeze_attribution",
                         ) as _bas:
+                            _bas.set_data("wr", wr_num)
                             _week_snap = first_row.get('__week_ending_date')
                             if hasattr(_week_snap, 'date'):
                                 _week_snap = _week_snap.date()
