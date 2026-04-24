@@ -1487,6 +1487,29 @@ class BackfillCliDateValidationTests(unittest.TestCase):
             r"logging\.warning\([^)]*load_dotenv\(\)\s+failed",
         )
 
+    def test_backfill_fails_on_unexpected_freeze_row_exception(self):
+        """Codex P2: a ``freeze_row`` exception that doesn't
+        increment ``snapshots_errored`` (e.g. a bug before the
+        writer's retry/exhaustion path fires) must still flip the
+        backfill exit code. Grep-level check that the final gate
+        reads BOTH ``errored`` AND ``local_exceptions``.
+        """
+        src = _read_source("scripts/backfill_attribution_snapshot.py")
+        collapsed = _collapse_ws(src)
+        # The counter is initialized.
+        self.assertIn("local_exceptions = 0", src)
+        # It's incremented inside the except block.
+        self.assertRegex(
+            collapsed,
+            r"except\s+Exception\s+as\s+exc\s*:\s*local_exceptions\s*\+=\s*1",
+        )
+        # The exit gate OR-combines errored and local_exceptions
+        # so either signal flips the non-zero exit.
+        self.assertRegex(
+            collapsed,
+            r"if\s+errored\s+or\s+local_exceptions\s*:",
+        )
+
     def test_backfill_splits_flag_disabled_from_flag_read_failure(self):
         """When the write_attribution_snapshot read returns False,
         the backfill must distinguish a definitive off-state (flag

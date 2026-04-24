@@ -224,6 +224,14 @@ def main(argv: list[str] | None = None) -> int:
 
     considered = 0
     frozen_attempts = 0
+    # Count exceptions raised out of ``freeze_row`` locally
+    # (rather than relying on ``snapshots_errored``, which only
+    # increments when with_retry exhausts cleanly inside the
+    # writer). A bug in parameter construction or an unexpected
+    # runtime error in writer/client code would otherwise raise,
+    # get caught here, increment NOTHING in the writer counters,
+    # and let the backfill exit 0 despite skipped writes.
+    local_exceptions = 0
     for row in all_rows:
         logged_raw = row.get("Weekly Reference Logged Date")
         logged_date = excel_serial_to_date(logged_raw)
@@ -250,6 +258,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             ba_writer.freeze_row(row, release=release, run_id=run_id)
         except Exception as exc:
+            local_exceptions += 1
             logging.warning(
                 f"⚠️ freeze_row failed: {type(exc).__name__} "
                 "(continuing backfill)"
@@ -262,15 +271,22 @@ def main(argv: list[str] | None = None) -> int:
         f"{considered}"
     )
     logging.info(f"   Freeze attempts: {frozen_attempts}")
+    logging.info(
+        f"   Local freeze_row exceptions: {local_exceptions}"
+    )
     logging.info(f"   Counters: {counters}")
 
-    if errored:
+    if errored or local_exceptions:
         # A one-shot backfill that reports success while writing
         # incomplete data is dangerous — operators rely on this tool
         # for correctness. Exit non-zero so CI / shell wrappers
-        # treat the partial backfill as a real failure.
+        # treat the partial backfill as a real failure. Both
+        # writer-reported ``snapshots_errored`` (clean retry
+        # exhaustion) and locally-caught exceptions (unexpected
+        # runtime errors) flip this gate.
         logging.error(
-            f"❌ Backfill finished with {errored} errored row(s). "
+            f"❌ Backfill finished with {errored} errored row(s) + "
+            f"{local_exceptions} unexpected freeze_row exception(s). "
             "Re-run the backfill after addressing the underlying "
             "Supabase errors; first-write-wins means already-frozen "
             "rows will be cheap no-ops on retry."
