@@ -1070,12 +1070,24 @@ class TestOriginalContractFolderSkipsRateRecalc(unittest.TestCase):
         generate_weekly_pdfs.RATE_RECALC_SKIP_ORIGINAL_CONTRACT = self._orig_skip_flag
 
     def _evaluate_gate(self, sheet_id):
-        """Mirror the exact boolean used in ``_fetch_and_process_sheet``.
+        """Mirror the original-contract-skip portion of the production gate.
 
-        Keeping this tiny helper inline (vs. importing a production
-        helper) is intentional — if the production expression drifts,
-        these tests must be updated in the same PR so the invariant
-        stays locked.
+        The full row-level recalc gate in ``_fetch_and_process_sheet``
+        also requires ``_rate_new_primary`` to be populated (the new
+        rates dict, loaded by ``load_rate_versions()`` only when
+        ``RATE_CUTOFF_DATE`` is set). That branch is exercised by the
+        existing recalc-integration tests in
+        ``TestCutoffDateRecalculationIntegration`` and
+        ``TestWeeklyRefDateFallbackCutoff``. This helper deliberately
+        narrows the surface to the **original-contract skip
+        composite** so the truth-table tests below stay fast and don't
+        require seeding a CSV-loaded rates dict for what is purely a
+        boolean-gating concern.
+
+        Keeping the boolean inline (vs. importing a production helper)
+        is intentional — if the production ``_skip_recalc_original_contract``
+        expression drifts, these tests must be updated in the same PR
+        so the invariant stays locked.
         """
         is_subcontractor_sheet = sheet_id in generate_weekly_pdfs.SUBCONTRACTOR_SHEET_IDS
         is_original_contract_sheet = (
@@ -1221,7 +1233,7 @@ class TestOriginalContractFolderSkipsRateRecalc(unittest.TestCase):
             'Quantity': '2',
             'Units Total Price': 0,
         }
-        # Flip the env flag off — helper should still recalc, proving
+        # Flip the env flag on — helper should still recalc, proving
         # the guard is at the caller (sheet-level gate), not here.
         generate_weekly_pdfs.RATE_RECALC_SKIP_ORIGINAL_CONTRACT = True
         new_price = generate_weekly_pdfs.recalculate_row_price(row, cu_to_group, rates)
