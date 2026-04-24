@@ -1274,3 +1274,96 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   Zero changes to group-processing, Excel-generation, upload,
   or hash-history paths — the billing pipeline itself is
   untouched by this fix.
+- [2026-04-24 11:30] Production over-pricing risk on the two
+  original-contract folders. Operators report Smartsheet has now
+  implemented the post-cutoff rates natively inside each sheet's
+  ``Units Total Price`` column for sheets in folders
+  ``7644752003786628`` and ``8815193070299012``
+  (``ORIGINAL_CONTRACT_FOLDER_IDS``) whenever ``Snapshot Date >=
+  2026-04-12`` and ``Units Completed? = true``. The Python-side
+  pre-acceptance rate recalc in ``_fetch_and_process_sheet`` was
+  still firing on those sheets (the existing gate only excluded
+  subcontractor sheets), so for every post-cutoff row the
+  Smartsheet-authoritative price was being overwritten in-place
+  by ``rate × qty`` from ``NEW_RATES_CSV`` via
+  ``recalculate_row_price``. Where the CSV and Smartsheet's
+  formula agreed this was a no-op; where they disagreed (CU
+  naming drift, work-type parsing edge cases, quantity
+  interpretation), the row shipped with an over- or under-billed
+  ``Units Total Price``. Root cause, not a symptom — running two
+  pricing systems sequentially on the same row is the bug;
+  fixing Smartsheet's formula or the CSV individually would not
+  have closed the hole. **Fix (additive, production-safe):**
+  (1) New env var ``RATE_RECALC_SKIP_ORIGINAL_CONTRACT``
+  (default ``'1'`` / True; accepts ``1``/``true``/``yes``/``on``)
+  wired into the startup banner alongside
+  ``RATE_RECALC_WEEKLY_FALLBACK`` so its resolved state is
+  visible on every run. (2) New per-sheet flag
+  ``is_original_contract_sheet = source['id'] in
+  _FOLDER_DISCOVERED_ORIG_IDS`` computed once alongside
+  ``is_subcontractor_sheet`` in ``_fetch_and_process_sheet``;
+  ``_FOLDER_DISCOVERED_ORIG_IDS`` is populated unconditionally
+  by ``discover_folder_sheets`` at the top of
+  ``discover_source_sheets`` on every run (before the
+  discovery-cache branch), so the membership test is reliable
+  even when the cache is served warm. (3) Composite
+  short-circuit ``_skip_recalc_original_contract`` fires only
+  when ``RATE_CUTOFF_DATE`` is set AND the env var is on AND
+  the sheet is in the ORIG folder AND the sheet is NOT a
+  subcontractor sheet — preserving the existing subcontractor
+  exclusion as primary (a sheet misconfigured into both sets
+  still skips via the subcontractor path and the ORIG skip log
+  never duplicates). (4) One ``🛡️`` info log per sheet when the
+  guard fires; the row-level gate adds ``and not
+  _skip_recalc_original_contract`` to short-circuit at zero
+  cost per row without spamming logs. (5) Per-sheet "Rate
+  recalc summary" is suppressed on skipped sheets (all counters
+  are zero by construction — the summary would be noise). The
+  single 🛡️ info log is the authoritative per-sheet signal.
+  (6) The "Dropped VAC/helper row" warning's fallback-disabled
+  ``_recalc_note`` branch gains ``and not
+  _skip_recalc_original_contract`` so operators are not told
+  to flip ``RATE_RECALC_WEEKLY_FALLBACK=1`` on sheets where
+  doing so would not change anything (recalc is skipped by
+  design). **What stays unchanged:** ``recalculate_row_price``,
+  ``_resolve_rate_recalc_cutoff_date``,
+  ``build_cu_to_group_mapping``, ``load_rate_versions``, the
+  Weekly-Ref-Date fallback, the snapshot-keyed primary cutoff
+  rule, subcontractor (Arrowhead) sheets' existing "keep
+  SmartSheet price" behaviour, and every test currently locking
+  in recalc behaviour for non-ORIG sheets. The fix is purely
+  additive. **New rules:** (1) When an external system
+  (Smartsheet here, any SaaS with server-side formulas) starts
+  emitting authoritative values for a column we also compute
+  locally, add a per-sheet / per-scope guard that short-circuits
+  the local computation rather than trying to reconcile two
+  independent sources row-by-row. Sequential double-writes on
+  the same field are a silent-corruption trap: where the two
+  systems agree, it's a no-op and no one notices; where they
+  disagree, the last write wins and the disagreement ships to
+  production unaudited. (2) Any such guard MUST be env-gated
+  with a default-ON kill switch
+  (``RATE_RECALC_SKIP_ORIGINAL_CONTRACT=0`` here) so operators
+  can restore pre-fix behaviour if the external system's
+  authoritative source breaks, without shipping a code change.
+  (3) Log the guard's active state in the startup banner and
+  emit one info log per sheet when it fires. Do NOT spam the
+  row-level gate with a log — use the per-sheet flag as the
+  single announcement surface. (4) Any follow-up operator note
+  that suggests an env-var flip (e.g. "set
+  ``RATE_RECALC_WEEKLY_FALLBACK=1`` to rescue this row") MUST
+  gate on whether the flip would actually change this sheet's
+  behaviour. On skipped sheets, tell the operator the correct
+  story (or stay silent) — a false lead wastes on-call time.
+  Regression tests:
+  ``tests/test_subcontractor_pricing.py::TestOriginalContractFolderSkipsRateRecalc``
+  (8 tests) covers the env-var wiring (exists + is ``bool``),
+  the default folder-ID list (contains ``7644752003786628`` and
+  ``8815193070299012``), the truth-table of the guard (fires on
+  ORIG + cutoff + env on; does NOT fire on non-ORIG; does NOT
+  fire with env off; does NOT fire without cutoff; does NOT
+  fire on subcontractor sheets — subcontractor exclusion stays
+  primary), and an isolation test that ``recalculate_row_price``
+  itself is unchanged by the guard (callers invoking the helper
+  directly still get the full recalc behaviour regardless of
+  env vars).

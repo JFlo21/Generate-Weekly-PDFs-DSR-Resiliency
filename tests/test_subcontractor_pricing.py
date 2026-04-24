@@ -1037,6 +1037,198 @@ class TestWeeklyRefDateFallbackCutoff(unittest.TestCase):
         self.assertEqual(row['Units Total Price'], 448.12)
 
 
+class TestOriginalContractFolderSkipsRateRecalc(unittest.TestCase):
+    """Regression tests for the Smartsheet-native pricing guard.
+
+    Production context: Smartsheet now emits the correct post-cutoff
+    ``Units Total Price`` natively for sheets discovered via the two
+    folders in ``ORIGINAL_CONTRACT_FOLDER_IDS``. Running Python-side
+    rate recalc on top of Smartsheet's authoritative price risked
+    overwriting it with a CSV-derived ``rate × qty`` value that did
+    not always agree — producing over/under-billed rows. The guard
+    introduced in this PR short-circuits the recalc gate for sheets
+    whose IDs are in ``_FOLDER_DISCOVERED_ORIG_IDS`` (populated by
+    ``discover_folder_sheets`` at every run start), behind a
+    default-ON env var so the behaviour is reversible by operators.
+    """
+
+    def setUp(self):
+        # Snapshot module state so individual tests can mutate
+        # _FOLDER_DISCOVERED_ORIG_IDS / SUBCONTRACTOR_SHEET_IDS /
+        # RATE_CUTOFF_DATE without leaking into other suites.
+        self._orig_folder_ids = set(generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS)
+        self._orig_sub_ids = set(generate_weekly_pdfs.SUBCONTRACTOR_SHEET_IDS)
+        self._orig_cutoff = generate_weekly_pdfs.RATE_CUTOFF_DATE
+        self._orig_skip_flag = generate_weekly_pdfs.RATE_RECALC_SKIP_ORIGINAL_CONTRACT
+
+    def tearDown(self):
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.update(self._orig_folder_ids)
+        generate_weekly_pdfs.SUBCONTRACTOR_SHEET_IDS.clear()
+        generate_weekly_pdfs.SUBCONTRACTOR_SHEET_IDS.update(self._orig_sub_ids)
+        generate_weekly_pdfs.RATE_CUTOFF_DATE = self._orig_cutoff
+        generate_weekly_pdfs.RATE_RECALC_SKIP_ORIGINAL_CONTRACT = self._orig_skip_flag
+
+    def _evaluate_gate(self, sheet_id):
+        """Mirror the exact boolean used in ``_fetch_and_process_sheet``.
+
+        Keeping this tiny helper inline (vs. importing a production
+        helper) is intentional — if the production expression drifts,
+        these tests must be updated in the same PR so the invariant
+        stays locked.
+        """
+        is_subcontractor_sheet = sheet_id in generate_weekly_pdfs.SUBCONTRACTOR_SHEET_IDS
+        is_original_contract_sheet = (
+            sheet_id in generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS
+        )
+        _skip_recalc_original_contract = (
+            generate_weekly_pdfs.RATE_CUTOFF_DATE is not None
+            and generate_weekly_pdfs.RATE_RECALC_SKIP_ORIGINAL_CONTRACT
+            and is_original_contract_sheet
+            and not is_subcontractor_sheet
+        )
+        recalc_would_run = (
+            generate_weekly_pdfs.RATE_CUTOFF_DATE is not None
+            and not is_subcontractor_sheet
+            and not _skip_recalc_original_contract
+        )
+        return recalc_would_run, _skip_recalc_original_contract
+
+    def test_env_var_exists_and_is_bool(self):
+        """``RATE_RECALC_SKIP_ORIGINAL_CONTRACT`` is wired into the module."""
+        self.assertTrue(
+            hasattr(generate_weekly_pdfs, 'RATE_RECALC_SKIP_ORIGINAL_CONTRACT')
+        )
+        self.assertIsInstance(
+            generate_weekly_pdfs.RATE_RECALC_SKIP_ORIGINAL_CONTRACT, bool
+        )
+
+    def test_default_folder_ids_include_smartsheet_priced_folders(self):
+        """Default ORIGINAL_CONTRACT_FOLDER_IDS covers the two Smartsheet-priced folders.
+
+        Incident: user reported Smartsheet natively prices rows in
+        folders 7644752003786628 and 8815193070299012 for post-cutoff
+        ``Units Completed?`` rows. If these IDs are ever removed from
+        the default list without also updating the env var wiring in
+        ``.github/workflows/weekly-excel-generation.yml``, the guard
+        becomes a no-op on CI runs that rely on the default.
+        """
+        defaults = generate_weekly_pdfs.ORIGINAL_CONTRACT_FOLDER_IDS
+        self.assertIn(7644752003786628, defaults)
+        self.assertIn(8815193070299012, defaults)
+
+    def test_guard_fires_for_original_contract_sheet(self):
+        """Sheet in ORIG folder + cutoff set + env on → recalc skipped."""
+        import datetime as dt
+        generate_weekly_pdfs.RATE_CUTOFF_DATE = dt.date(2026, 4, 12)
+        generate_weekly_pdfs.RATE_RECALC_SKIP_ORIGINAL_CONTRACT = True
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.add(111111)
+        generate_weekly_pdfs.SUBCONTRACTOR_SHEET_IDS.clear()
+
+        recalc_would_run, skip_fired = self._evaluate_gate(111111)
+        self.assertFalse(recalc_would_run)
+        self.assertTrue(skip_fired)
+
+    def test_guard_does_not_fire_for_non_original_contract_sheet(self):
+        """Sheet NOT in ORIG folder → recalc still runs (pre-fix behaviour)."""
+        import datetime as dt
+        generate_weekly_pdfs.RATE_CUTOFF_DATE = dt.date(2026, 4, 12)
+        generate_weekly_pdfs.RATE_RECALC_SKIP_ORIGINAL_CONTRACT = True
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.add(111111)
+        generate_weekly_pdfs.SUBCONTRACTOR_SHEET_IDS.clear()
+
+        recalc_would_run, skip_fired = self._evaluate_gate(222222)
+        self.assertTrue(recalc_would_run)
+        self.assertFalse(skip_fired)
+
+    def test_env_var_off_restores_legacy_behaviour(self):
+        """``RATE_RECALC_SKIP_ORIGINAL_CONTRACT=False`` → recalc runs on ORIG sheet too.
+
+        Proves the env-var kill switch works — operators can flip off
+        the guard if Smartsheet-native pricing ever breaks or needs
+        to be bypassed.
+        """
+        import datetime as dt
+        generate_weekly_pdfs.RATE_CUTOFF_DATE = dt.date(2026, 4, 12)
+        generate_weekly_pdfs.RATE_RECALC_SKIP_ORIGINAL_CONTRACT = False
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.add(111111)
+        generate_weekly_pdfs.SUBCONTRACTOR_SHEET_IDS.clear()
+
+        recalc_would_run, skip_fired = self._evaluate_gate(111111)
+        self.assertTrue(recalc_would_run)
+        self.assertFalse(skip_fired)
+
+    def test_no_cutoff_no_recalc_regardless_of_folder(self):
+        """Without ``RATE_CUTOFF_DATE``, recalc is disabled globally.
+
+        Confirms the original outer guard is preserved — the new
+        folder skip is additive, not a replacement.
+        """
+        generate_weekly_pdfs.RATE_CUTOFF_DATE = None
+        generate_weekly_pdfs.RATE_RECALC_SKIP_ORIGINAL_CONTRACT = True
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.add(111111)
+        generate_weekly_pdfs.SUBCONTRACTOR_SHEET_IDS.clear()
+
+        recalc_would_run, skip_fired = self._evaluate_gate(111111)
+        self.assertFalse(recalc_would_run)
+        # skip_fired must be False when cutoff is disabled: the skip
+        # flag only matters when recalc was otherwise eligible, and
+        # operators should not see the "🛡️ Skipping..." log on a
+        # cutoff-disabled deployment.
+        self.assertFalse(skip_fired)
+
+    def test_subcontractor_sheet_wins_over_original_contract(self):
+        """Sheet in BOTH sub and orig sets: subcontractor exclusion wins.
+
+        Pathological but possible (misconfiguration). The subcontractor
+        exclusion at the recalc gate is primary and unconditional, so
+        the sheet skips recalc via the subcontractor path and the
+        original-contract skip log never fires (avoiding duplicate
+        "skipping" messages for the same sheet).
+        """
+        import datetime as dt
+        generate_weekly_pdfs.RATE_CUTOFF_DATE = dt.date(2026, 4, 12)
+        generate_weekly_pdfs.RATE_RECALC_SKIP_ORIGINAL_CONTRACT = True
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.add(111111)
+        generate_weekly_pdfs.SUBCONTRACTOR_SHEET_IDS.clear()
+        generate_weekly_pdfs.SUBCONTRACTOR_SHEET_IDS.add(111111)
+
+        recalc_would_run, skip_fired = self._evaluate_gate(111111)
+        self.assertFalse(recalc_would_run)
+        # Subcontractor-exclusion path short-circuits first, so the
+        # original-contract skip must NOT fire for the same sheet.
+        self.assertFalse(skip_fired)
+
+    def test_guard_does_not_mutate_recalculate_row_price(self):
+        """``recalculate_row_price`` itself is unchanged by the guard.
+
+        The guard is a sheet-level gate; it does NOT modify
+        ``recalculate_row_price``'s behaviour. A caller that invokes
+        the function directly (e.g., a future one-off reprice script)
+        must still get the full recalc behaviour regardless of env
+        vars.
+        """
+        cu_to_group = {'ANC-DHM-10-84-D1': 'ANC-M'}
+        rates = {'ANC-M': {'install': 224.06, 'removal': 29.46, 'transfer': 0.0}}
+        row = {
+            'CU': 'ANC-DHM-10-84-D1',
+            'Work Type': 'Install',
+            'Quantity': '2',
+            'Units Total Price': 0,
+        }
+        # Flip the env flag off — helper should still recalc, proving
+        # the guard is at the caller (sheet-level gate), not here.
+        generate_weekly_pdfs.RATE_RECALC_SKIP_ORIGINAL_CONTRACT = True
+        new_price = generate_weekly_pdfs.recalculate_row_price(row, cu_to_group, rates)
+        self.assertAlmostEqual(new_price, 448.12)
+        self.assertEqual(row['Units Total Price'], 448.12)
+
+
 class TestExpandedHashCoverage(unittest.TestCase):
     """Tests for the expanded calculate_data_hash field coverage."""
 

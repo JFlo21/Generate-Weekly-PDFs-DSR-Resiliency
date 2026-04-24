@@ -384,6 +384,22 @@ RATE_RECALC_WEEKLY_FALLBACK = os.getenv(
     'RATE_RECALC_WEEKLY_FALLBACK', '1'
 ).lower() in ('1', 'true', 'yes', 'on')
 
+# Smartsheet-native pricing guard for original-contract folders.
+# Default-ON: sheets discovered via ORIGINAL_CONTRACT_FOLDER_IDS (folders
+# whose Smartsheet formula already emits the correct post-cutoff
+# Units Total Price for rows with Snapshot Date >= RATE_CUTOFF_DATE
+# and Units Completed? = true) are excluded from Python-side recalc.
+# Running recalc on top of Smartsheet's already-correct price risked
+# overwriting the Smartsheet-authoritative value with a CSV-derived
+# rate × qty that did not always match, producing over/under-billed
+# rows. Set RATE_RECALC_SKIP_ORIGINAL_CONTRACT=0 (or false/no/off) to
+# restore the pre-fix behaviour (run recalc on these folders too).
+# Subcontractor sheets are excluded unconditionally regardless of this
+# flag (same as before this guard existed).
+RATE_RECALC_SKIP_ORIGINAL_CONTRACT = os.getenv(
+    'RATE_RECALC_SKIP_ORIGINAL_CONTRACT', '1'
+).lower() in ('1', 'true', 'yes', 'on')
+
 if RATE_CUTOFF_DATE:
     logging.info(f"📊 Rate contract versioning ENABLED: cutoff date = {RATE_CUTOFF_DATE.isoformat()}")
     if RATE_RECALC_WEEKLY_FALLBACK:
@@ -393,6 +409,18 @@ if RATE_CUTOFF_DATE:
         )
     else:
         logging.info("📊 Rate recalc Weekly-Ref-Date fallback DISABLED (RATE_RECALC_WEEKLY_FALLBACK=false)")
+    if RATE_RECALC_SKIP_ORIGINAL_CONTRACT:
+        logging.info(
+            "📊 Rate recalc ORIGINAL_CONTRACT folder skip ENABLED "
+            "(sheets discovered via ORIGINAL_CONTRACT_FOLDER_IDS keep "
+            "Smartsheet-native Units Total Price, no CSV-side recalc)"
+        )
+    else:
+        logging.info(
+            "📊 Rate recalc ORIGINAL_CONTRACT folder skip DISABLED "
+            "(RATE_RECALC_SKIP_ORIGINAL_CONTRACT=false) — recalc will "
+            "run on original-contract folder sheets too"
+        )
 else:
     logging.info("📊 Rate contract versioning DISABLED (RATE_CUTOFF_DATE not set)")
 
@@ -2689,6 +2717,26 @@ def get_all_source_rows(client, source_sheets):
         try:
             logging.info(f"⚡ Processing: {source['name']} (ID: {source['id']})")
             is_subcontractor_sheet = source['id'] in SUBCONTRACTOR_SHEET_IDS
+            # Smartsheet-native pricing guard: sheets discovered via
+            # ORIGINAL_CONTRACT_FOLDER_IDS already produce their
+            # Units Total Price from Smartsheet's internal formula for
+            # post-cutoff rows with Units Completed? = true. The
+            # Python-side recalc must NOT overwrite that value.
+            # See RATE_RECALC_SKIP_ORIGINAL_CONTRACT env var declaration
+            # for the full rationale and the kill-switch.
+            is_original_contract_sheet = source['id'] in _FOLDER_DISCOVERED_ORIG_IDS
+            _skip_recalc_original_contract = (
+                RATE_CUTOFF_DATE is not None
+                and RATE_RECALC_SKIP_ORIGINAL_CONTRACT
+                and is_original_contract_sheet
+                and not is_subcontractor_sheet
+            )
+            if _skip_recalc_original_contract:
+                logging.info(
+                    f"🛡️ Skipping Python rate recalc for {source['name']} "
+                    f"(ID: {source['id']}) — sheet is in ORIGINAL_CONTRACT_FOLDER_IDS "
+                    f"and Smartsheet-native pricing is authoritative for post-cutoff rows"
+                )
 
             try:
                 # Fetch sheet once (no column history); include columns to support unmapped summary
@@ -2825,7 +2873,20 @@ def get_all_source_rows(client, source_sheets):
                         _rate_recalc_ran_for_row = False
                         _recalc_outcome = None
                         _recalc_via_fallback = False
-                        if RATE_CUTOFF_DATE and _rate_new_primary and not is_subcontractor_sheet:
+                        # ``_skip_recalc_original_contract`` is sheet-level
+                        # (computed once above, logged once per sheet) —
+                        # adding it to this row-level gate avoids per-row
+                        # log spam while still short-circuiting every row
+                        # on an original-contract folder sheet. Subcontractor
+                        # exclusion stays primary; the original-contract
+                        # skip only kicks in when Smartsheet-native pricing
+                        # is authoritative for the whole sheet.
+                        if (
+                            RATE_CUTOFF_DATE
+                            and _rate_new_primary
+                            and not is_subcontractor_sheet
+                            and not _skip_recalc_original_contract
+                        ):
                             # Primary gate is Snapshot Date; the helper
                             # transparently falls back to Weekly
                             # Reference Logged Date when Snapshot Date
@@ -3088,6 +3149,16 @@ def get_all_source_rows(client, source_sheets):
                                         not _rate_recalc_ran_for_row
                                         and RATE_CUTOFF_DATE
                                         and not RATE_RECALC_WEEKLY_FALLBACK
+                                        # The Weekly-Ref-Date-fallback note
+                                        # is only valid when recalc was
+                                        # genuinely eligible to run on this
+                                        # sheet. Original-contract folder
+                                        # sheets skip recalc by design
+                                        # (Smartsheet-native pricing is
+                                        # authoritative), so enabling the
+                                        # fallback env var would not change
+                                        # anything on those sheets.
+                                        and not _skip_recalc_original_contract
                                         # Use the same parser the recalc
                                         # gate uses so an unparseable
                                         # Snapshot Date (treated as blank
@@ -3161,7 +3232,17 @@ def get_all_source_rows(client, source_sheets):
                 # signal operators need to investigate missing entries
                 # in NEW_RATES_CSV (common on VAC crew specialized work
                 # like vacuum switches, softswitches, switched banks).
-                if RATE_CUTOFF_DATE and _rate_new_primary:
+                # Suppress the summary entirely on sheets where the
+                # original-contract skip fired — every counter is zero by
+                # construction, so the summary would be noise. The
+                # single "🛡️ Skipping Python rate recalc…" info log
+                # emitted at the start of _fetch_and_process_sheet is
+                # the authoritative per-sheet signal here.
+                if (
+                    RATE_CUTOFF_DATE
+                    and _rate_new_primary
+                    and not _skip_recalc_original_contract
+                ):
                     skipped = sheet_rate_recalc_counts['skipped']
                     recalculated = sheet_rate_recalc_counts['recalculated']
                     fallback_applied = sheet_rate_recalc_counts['fallback_applied']
