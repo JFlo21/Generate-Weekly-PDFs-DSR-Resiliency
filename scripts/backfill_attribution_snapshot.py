@@ -1,0 +1,301 @@
+"""One-shot backfill CLI for the attribution snapshot table.
+
+Populates ``billing_audit.attribution_snapshot`` from current
+completed rows in Smartsheet for a specified week. Idempotent
+because of the first-write-wins RPC, so it can safely be rerun.
+
+Usage:
+    python scripts/backfill_attribution_snapshot.py --week=112624
+    python scripts/backfill_attribution_snapshot.py --week=112624 --wr=91467680
+
+Requires ``SUPABASE_URL`` + ``SUPABASE_SERVICE_ROLE_KEY`` and
+``SMARTSHEET_API_TOKEN`` in the environment. Exits non-zero if the
+Supabase client cannot initialize (backfill cannot run without it).
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime
+import logging
+import os
+import sys
+from pathlib import Path
+
+# Allow running the script from anywhere in the repo.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+
+def _parse_week_mmddyy(token: str) -> datetime.date:
+    """Parse a MMDDYY token into a date (two-digit year → 2000+YY).
+
+    Raises ``argparse.ArgumentTypeError`` (not ``ValueError``) for
+    both shape problems and invalid calendar dates (e.g. ``023199``
+    → Feb 31), so argparse surfaces a clean usage message instead
+    of an unhandled traceback.
+    """
+    if len(token) != 6 or not token.isdigit():
+        raise argparse.ArgumentTypeError(
+            f"--week must be MMDDYY (e.g. 112624); got {token!r}"
+        )
+    month = int(token[0:2])
+    day = int(token[2:4])
+    year = 2000 + int(token[4:6])
+    try:
+        return datetime.date(year, month, day)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"--week {token!r} is not a valid calendar date "
+            f"({month:02d}/{day:02d}/{year}): {exc}"
+        )
+
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Backfill billing_audit.attribution_snapshot for a given "
+            "week's completed rows."
+        )
+    )
+    parser.add_argument(
+        "--week",
+        required=True,
+        type=_parse_week_mmddyy,
+        help="Target week ending date in MMDDYY format (e.g. 112624).",
+    )
+    parser.add_argument(
+        "--wr",
+        action="append",
+        default=[],
+        help=(
+            "Restrict to one or more WR numbers. Repeat flag for "
+            "multiple (e.g. --wr 91467680 --wr 91467681)."
+        ),
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+    )
+
+    # Load .env BEFORE constructing the Supabase client. The main
+    # pipeline module also calls load_dotenv() at import time, but
+    # this script imports ``generate_weekly_pdfs`` lazily AFTER
+    # get_client() — operators relying on the repo's standard
+    # ``.env`` workflow would otherwise get a false-positive exit 2
+    # (credentials "missing") even when SUPABASE_URL /
+    # SUPABASE_SERVICE_ROLE_KEY are defined in .env.
+    #
+    # Split ImportError (python-dotenv not installed — legitimate
+    # shell-only workflow, silent fall-through) from any other
+    # exception (parse error on a malformed .env, permissions
+    # issue, etc.) — the latter gets a WARNING so operators can
+    # diagnose the real cause instead of later mistaking it for a
+    # credentials-missing error.
+    try:
+        from dotenv import load_dotenv  # type: ignore
+    except ImportError:
+        pass
+    else:
+        try:
+            load_dotenv()
+        except Exception as exc:
+            logging.warning(
+                "⚠️ load_dotenv() failed "
+                f"({type(exc).__name__}); falling back to "
+                "pre-exported env vars. Check .env syntax / "
+                "permissions if credentials appear missing below."
+            )
+
+    from billing_audit import writer as ba_writer
+    from billing_audit.client import get_client, get_flag, is_flag_resolved
+
+    client = get_client()
+    if client is None:
+        logging.error(
+            "❌ Supabase client unavailable — set SUPABASE_URL and "
+            "SUPABASE_SERVICE_ROLE_KEY (and unset TEST_MODE) before "
+            "running the backfill."
+        )
+        return 2
+
+    # Fail fast if the feature flag is off. ``freeze_row`` is a
+    # silent no-op when ``write_attribution_snapshot`` is disabled,
+    # and a one-shot backfill that reports success while writing
+    # zero rows is the worst of both worlds — it gives operators
+    # false confidence that the snapshot table is populated.
+    #
+    # Distinguish two failure modes via ``is_flag_resolved`` so the
+    # error message + exit code guide operators to the right
+    # remediation:
+    #   • Flag is DEFINITIVELY False (value cached via successful
+    #     read) → exit 5, "enable the flag in Supabase."
+    #   • Flag read FAILED (retries exhausted, nothing cached) →
+    #     exit 7, "connectivity issue, investigate Supabase /
+    #     network, this is NOT the same as a disabled flag."
+    if not get_flag("write_attribution_snapshot", default=False):
+        if is_flag_resolved("write_attribution_snapshot"):
+            logging.error(
+                "❌ billing_audit.feature_flag.write_attribution_snapshot "
+                "is DISABLED. freeze_row() would no-op for every row. "
+                "Enable the flag in Supabase before running the backfill "
+                "(UPDATE billing_audit.feature_flag SET enabled=TRUE "
+                "WHERE flag_key='write_attribution_snapshot';)."
+            )
+            return 5
+        logging.error(
+            "❌ Could not read "
+            "billing_audit.feature_flag.write_attribution_snapshot "
+            "from Supabase (retries exhausted). This is a "
+            "CONNECTIVITY / AUTH issue, not a disabled flag — do "
+            "not 'UPDATE feature_flag SET enabled=TRUE' in response. "
+            "Check SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and "
+            "network reachability, then re-run."
+        )
+        return 7
+
+    # Import the main pipeline's discovery/fetch helpers. Must match
+    # the function names exported by ``generate_weekly_pdfs``.
+    try:
+        from generate_weekly_pdfs import (  # type: ignore
+            discover_source_sheets,
+            get_all_source_rows,
+            excel_serial_to_date,
+            is_checked,
+        )
+        import smartsheet  # type: ignore
+    except Exception as exc:
+        logging.error(
+            f"❌ Could not import pipeline helpers: "
+            f"{type(exc).__name__}: {exc}"
+        )
+        return 3
+
+    token = os.getenv("SMARTSHEET_API_TOKEN")
+    if not token:
+        logging.error("❌ SMARTSHEET_API_TOKEN is not set.")
+        return 4
+
+    ss_client = smartsheet.Smartsheet(token)
+    ss_client.errors_as_exceptions(True)
+
+    logging.info("🔎 Discovering source sheets …")
+    sheets = discover_source_sheets(ss_client)
+    logging.info(f"📄 Discovered {len(sheets)} source sheet(s).")
+
+    logging.info("📥 Fetching rows from all source sheets …")
+    all_rows = get_all_source_rows(ss_client, sheets)
+    logging.info(f"📦 Fetched {len(all_rows)} total row(s).")
+
+    target_week = args.week
+    wr_filter: set[str] = {str(w) for w in args.wr}
+
+    # Normalize release / run_id to empty-string sentinels (not
+    # None) so the RPC params stay valid even when the target
+    # deployment applies NOT NULL to ``release`` / ``run_id``. This
+    # matches the main pipeline's hoisted env handling — otherwise
+    # a freshly-deployed backfill in an environment without
+    # ``SENTRY_RELEASE`` set would silently convert every write
+    # into an error and only surface the failure at the end.
+    release = os.getenv("SENTRY_RELEASE", "") or ""
+    # GitHub Actions re-runs preserve GITHUB_RUN_ID and only
+    # increment GITHUB_RUN_ATTEMPT. Append the attempt number so
+    # rerun attempts create distinct pipeline_run rows instead of
+    # overwriting each other on the (wr, week_ending, run_id) PK.
+    # Mirrors the convention in generate_weekly_pdfs.py.
+    _ga_run_id = os.getenv("GITHUB_RUN_ID", "")
+    _ga_run_attempt = os.getenv("GITHUB_RUN_ATTEMPT", "")
+    if _ga_run_id:
+        run_id = (
+            f"{_ga_run_id}.{_ga_run_attempt}"
+            if _ga_run_attempt
+            else _ga_run_id
+        )
+    else:
+        run_id = (
+            f"backfill-{datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}"
+        )
+
+    considered = 0
+    frozen_attempts = 0
+    # Count exceptions raised out of ``freeze_row`` locally
+    # (rather than relying on ``snapshots_errored``, which only
+    # increments when with_retry exhausts cleanly inside the
+    # writer). A bug in parameter construction or an unexpected
+    # runtime error in writer/client code would otherwise raise,
+    # get caught here, increment NOTHING in the writer counters,
+    # and let the backfill exit 0 despite skipped writes.
+    local_exceptions = 0
+    for row in all_rows:
+        logged_raw = row.get("Weekly Reference Logged Date")
+        logged_date = excel_serial_to_date(logged_raw)
+        if not logged_date:
+            continue
+        if hasattr(logged_date, "date"):
+            logged_date = logged_date.date()
+        if logged_date != target_week:
+            continue
+        considered += 1
+        if wr_filter:
+            raw_wr = row.get("Work Request #")
+            wr_str = str(raw_wr).split(".")[0] if raw_wr is not None else ""
+            if wr_str not in wr_filter:
+                continue
+        if not is_checked(row.get("Units Completed?")):
+            continue
+        # Inject __week_ending_date so freeze_row doesn't have to
+        # re-parse. Matches the main loop's contract.
+        row["__week_ending_date"] = datetime.datetime.combine(
+            target_week, datetime.time.min
+        )
+        frozen_attempts += 1
+        try:
+            ba_writer.freeze_row(row, release=release, run_id=run_id)
+        except Exception as exc:
+            local_exceptions += 1
+            logging.warning(
+                f"⚠️ freeze_row failed: {type(exc).__name__} "
+                "(continuing backfill)"
+            )
+
+    counters = ba_writer.get_counters()
+    errored = int(counters.get("snapshots_errored", 0) or 0)
+    logging.info(
+        f"   Rows matched week {target_week.strftime('%m/%d/%y')}: "
+        f"{considered}"
+    )
+    logging.info(f"   Freeze attempts: {frozen_attempts}")
+    logging.info(
+        f"   Local freeze_row exceptions: {local_exceptions}"
+    )
+    logging.info(f"   Counters: {counters}")
+
+    if errored or local_exceptions:
+        # A one-shot backfill that reports success while writing
+        # incomplete data is dangerous — operators rely on this tool
+        # for correctness. Exit non-zero so CI / shell wrappers
+        # treat the partial backfill as a real failure. Both
+        # writer-reported ``snapshots_errored`` (clean retry
+        # exhaustion) and locally-caught exceptions (unexpected
+        # runtime errors) flip this gate.
+        logging.error(
+            f"❌ Backfill finished with {errored} errored row(s) + "
+            f"{local_exceptions} unexpected freeze_row exception(s). "
+            "Re-run the backfill after addressing the underlying "
+            "Supabase errors; first-write-wins means already-frozen "
+            "rows will be cheap no-ops on retry."
+        )
+        return 6
+
+    logging.info("✅ Backfill complete.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

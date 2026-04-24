@@ -96,6 +96,24 @@ except ImportError as e:
         def audit_financial_data(self, *args, **kwargs):
             return {"summary": {"risk_level": "UNKNOWN"}}
 
+# Import billing audit attribution snapshot writer (shadow mode).
+# Failures here must NEVER break Excel generation — the writer is a
+# strictly additive, flag-gated, no-op-on-failure surface. Catch
+# broad Exception (not just ImportError) so a runtime error inside
+# billing_audit/* during module init cannot crash the pipeline. We
+# log the class name only to avoid leaking any contextual detail.
+try:
+    from billing_audit import writer as _billing_audit_writer
+    from billing_audit.fingerprint import compute_assignment_fingerprint
+    BILLING_AUDIT_AVAILABLE = True
+    print("❄️ Billing audit snapshot writer loaded successfully")
+except Exception as e:
+    print(
+        "⚠️ Billing audit snapshot writer not available: "
+        f"{type(e).__name__}"
+    )
+    BILLING_AUDIT_AVAILABLE = False
+
 # 🎯 SHOW OUR FIXES ARE ACTIVE
 print("✅ CRITICAL FIXES APPLIED:")
 print("   • WR 90093002 Excel generation fix - ACTIVE")
@@ -1538,6 +1556,73 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
         hasher.update("\n".join(meta_parts).encode('utf-8'))
 
     return hasher.hexdigest()[:16]
+
+
+def _compute_aggregated_content_hash(rows: list[dict]) -> str:
+    """Deterministic content hash for a cross-variant row bucket.
+
+    Used by the billing_audit integration to produce a
+    ``pipeline_run.content_hash`` that covers every variant's rows
+    for a given (WR, week). ``calculate_data_hash()`` assumes the
+    rows it's called with all come from a single production
+    ``group_source_rows`` group; that assumption breaks for an
+    aggregation bucket that unions multiple groups of the same
+    variant. In particular, helper groups are split per-foreman
+    (group key ``{week}_{wr}_HELPER_{sanitized_foreman}``) — so
+    multiple helper groups can exist for the same (WR, week) and
+    calling ``calculate_data_hash(variant='helper', rows=...)``
+    with all of them at once would:
+
+      1. Read helper_foreman/dept/job from ``sorted_rows[0]`` only
+         (variant-specific meta block), so identity changes on
+         non-first helpers never reach the hash.
+      2. Depend on row sort order for which helper's identity
+         gets recorded — flips spuriously between runs.
+
+    Primary groups are keyed on ``{week}_{wr}`` alone (one group
+    per WR/week, no user suffix) and vac_crew on
+    ``{week}_{wr}_VACCREW`` (one group, multi-member handled
+    internally by ``calculate_data_hash``'s per-row VAC fields)
+    — so only the ``helper`` variant needs sub-bucketing here.
+
+    The combined hash is SHA-256 over the sorted
+    ``variant=hash`` tokens (sub-bucketed for helper).
+    """
+    by_variant: dict[str, list[dict]] = {}
+    for r in rows:
+        v = r.get('__variant', 'primary')
+        by_variant.setdefault(v, []).append(r)
+
+    parts: list[str] = []
+    for v in sorted(by_variant.keys()):
+        variant_rows = by_variant[v]
+        if v == 'helper':
+            # Sub-bucket by helper identity to match the per-
+            # foreman group structure assumed by
+            # calculate_data_hash's helper branch.
+            sub: dict[tuple[str, str, str], list[dict]] = {}
+            for r in variant_rows:
+                sk = (
+                    str(r.get('__helper_foreman', '')),
+                    str(r.get('__helper_dept', '')),
+                    str(r.get('__helper_job', '')),
+                )
+                sub.setdefault(sk, []).append(r)
+            sub_parts = [
+                f"{sk}={calculate_data_hash(sub[sk])}"
+                for sk in sorted(sub.keys())
+            ]
+            variant_hash = hashlib.sha256(
+                "|".join(sub_parts).encode('utf-8')
+            ).hexdigest()[:16]
+        else:
+            variant_hash = calculate_data_hash(variant_rows)
+        parts.append(f"{v}={variant_hash}")
+
+    return hashlib.sha256(
+        "|".join(parts).encode('utf-8')
+    ).hexdigest()[:16]
+
 
 def extract_data_hash_from_filename(filename: str) -> str | None:
     """Extract data hash from filename format: WR_{wr_num}_WeekEnding_{week_end}_{data_hash}.xlsx
@@ -4532,6 +4617,143 @@ def main():
                 f"see preceding warnings for raw values."
             )
 
+        # Hoist static env var lookups once per run (not per row) —
+        # these never change during execution and were previously
+        # being read on every freeze_row call for every row in every
+        # group. One-time read. Empty-string defaults (instead of
+        # None) keep the values valid as Supabase RPC parameters
+        # whether or not the deployment target applies NOT NULL to
+        # ``release`` / ``run_id``.
+        #
+        # NOTE: the fingerprint flag state is NOT hoisted here. Flag
+        # reads are per-call so a transient early-run ``get_flag``
+        # failure (which deliberately isn't cached per the
+        # non-caching-on-failure fix) can recover on subsequent
+        # calls. Hoisting the boolean would lock the whole run into
+        # the first-read result and silently drop pipeline_run rows.
+        _billing_audit_release_env = os.getenv('SENTRY_RELEASE', '') or ''
+        # ``run_id`` is part of the ``pipeline_run`` on_conflict key
+        # ``(wr, week_ending, run_id)``. An empty string would make
+        # every non-GitHub-Actions execution (manual reruns, local
+        # debugging, crontab on a bare host, etc.) collide into the
+        # same row for a given (wr, week), overwriting prior runs'
+        # records and destroying run history.
+        #
+        # GitHub Actions re-runs preserve ``GITHUB_RUN_ID`` and only
+        # increment ``GITHUB_RUN_ATTEMPT``. Appending the attempt
+        # number makes each rerun create a distinct pipeline_run
+        # row instead of overwriting the prior attempt — critical
+        # for preserving drift-detection context when an earlier
+        # attempt already wrote the key. Falls back to a microsecond
+        # timestamp outside Actions.
+        _ga_run_id = os.getenv('GITHUB_RUN_ID', '')
+        _ga_run_attempt = os.getenv('GITHUB_RUN_ATTEMPT', '')
+        if _ga_run_id:
+            _billing_audit_run_id_env = (
+                f"{_ga_run_id}.{_ga_run_attempt}"
+                if _ga_run_attempt
+                else _ga_run_id
+            )
+        else:
+            _billing_audit_run_id_env = (
+                f"local-{datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%S%fZ')}"
+            )
+
+        # Pre-aggregate rows per (sanitized_wr, week) across ALL
+        # variants so the assignment fingerprint captures the full
+        # personnel picture. ``group_source_rows`` splits helper-
+        # completed rows out of the primary group (to prevent
+        # double-counting in Excel generation), so each group only
+        # carries ONE variant's rows. With the writer's per-
+        # (wr, week, run_id) dedup, only the first variant emitted
+        # actually writes — meaning a naive fingerprint would miss
+        # helper / vac_crew personnel entirely, defeating the whole
+        # point of this PR (mid-week helper swaps wouldn't change
+        # the primary-only fingerprint → no drift alert).
+        #
+        # Walking ``groups.items()`` once here is O(total rows)
+        # and negligible compared to per-group work.
+        _billing_audit_fp_buckets: dict[tuple[str, str], list[dict]] = {}
+        # Aggregated content hash per (wr, week). Like assignment_fp,
+        # the emit_run_fingerprint dedup writes exactly one
+        # ``pipeline_run`` row per (wr, week, run_id) — so
+        # ``content_hash`` must reflect the UNION of all variants'
+        # rows, not whichever variant was iterated first. Without
+        # this, a source-ordering change between runs flips the
+        # stored hash even when the underlying work set is
+        # unchanged, making downstream run comparisons noisy.
+        _billing_audit_agg_content_hashes: dict[tuple[str, str], str] = {}
+        # Split the cheap work from the expensive work:
+        #   • Bucket assembly (dict appends across rows) — runs
+        #     when billing_audit is available AND at least one
+        #     writer flag is enabled (or the flag state is
+        #     indeterminate via a transient read blip).
+        #     ``any_flag_enabled()`` fails OPEN — a transient
+        #     feature_flag read blip returns True so we still
+        #     build buckets and don't miss the first-write-wins
+        #     freeze window for this run's completed rows. Cost
+        #     is O(total rows) of dict appends.
+        #   • ``calculate_data_hash`` per bucket — LAZY, memoized
+        #     into ``_billing_audit_agg_content_hashes`` at first
+        #     emit attempt inside the per-group block. The emit is
+        #     already fingerprint-flag-gated, so flag-off runs
+        #     never pay this cost, and flag-on runs pay it exactly
+        #     once per bucket regardless of variant count (dedup
+        #     no-ops reuse the memo).
+        #
+        # Wrapped in try/except Exception so any unexpected failure
+        # (malformed row data, novel exception from ``any_flag_enabled``,
+        # future code additions that introduce a bug) degrades
+        # gracefully: buckets stay empty, the per-group emit falls
+        # back to ``group_rows`` / ``data_hash`` via its
+        # ``.get(key, fallback)`` calls, and Excel generation is
+        # completely untouched. Class-name-only logging preserves
+        # the _PII_LOG_MARKERS discipline.
+        try:
+            if (
+                BILLING_AUDIT_AVAILABLE
+                and not TEST_MODE
+                and _billing_audit_writer.any_flag_enabled()
+            ):
+                for _agg_gk, _agg_rows in groups.items():
+                    if not _agg_rows:
+                        continue
+                    # Defensive isinstance: group_source_rows always
+                    # emits dicts, but a future mutation or bug
+                    # upstream could violate that — don't let it
+                    # raise AttributeError into the main loop.
+                    _first = _agg_rows[0]
+                    if not isinstance(_first, dict):
+                        continue
+                    _raw_wr = _first.get('Work Request #')
+                    _wr_str = str(_raw_wr).split('.')[0] if _raw_wr else ''
+                    _wr_san = _RE_SANITIZE_HELPER_NAME.sub('_', _wr_str)[:50]
+                    _week_part = (
+                        _agg_gk.split('_', 1)[0] if '_' in _agg_gk else ''
+                    )
+                    if not _wr_san or not _week_part:
+                        continue
+                    _billing_audit_fp_buckets.setdefault(
+                        (_wr_san, _week_part), []
+                    ).extend(_agg_rows)
+        except Exception as _preloop_err:
+            # Graceful degradation. Empty buckets + the per-group
+            # emit's ``.get(key, fallback)`` calls preserve correct
+            # Excel generation; only cross-variant fingerprint
+            # aggregation is lost for this run.
+            logging.warning(
+                "⚠️ Billing audit pre-loop aggregation failed "
+                f"(suppressed details): {type(_preloop_err).__name__}"
+            )
+            sentry_add_breadcrumb(
+                "billing_audit",
+                "Pre-loop aggregation failure",
+                level="warning",
+                data={"error_type": type(_preloop_err).__name__},
+            )
+            _billing_audit_fp_buckets = {}
+            _billing_audit_agg_content_hashes = {}
+
         for group_idx, (group_key, group_rows) in enumerate(groups.items(), 1):
             # Graceful time budget: stop before Actions hard-kills the job
             if TIME_BUDGET_MINUTES and GITHUB_ACTIONS_MODE:
@@ -4603,6 +4825,152 @@ def main():
                 
                 # History key includes variant dimension to prevent collisions
                 history_key = f"{wr_num}|{week_raw}|{variant}|{identifier}"
+
+                # ── Billing audit snapshot: freeze personnel + emit run fingerprint ──
+                # Runs BEFORE the skip check so stable rows get attribution frozen on
+                # subsequent runs (first-write-wins makes repeat calls cheap). Writes
+                # happen in shadow mode — no read path yet. Failures must never break
+                # Excel generation. Skipped in TEST_MODE to prevent polluting production
+                # Supabase with synthetic test data. ``any_flag_enabled()`` is a cheap
+                # cached probe — it skips fingerprint computation and the per-row
+                # freeze_row loop entirely when both writer flags are off.
+                if (
+                    BILLING_AUDIT_AVAILABLE
+                    and not TEST_MODE
+                    and _billing_audit_writer.any_flag_enabled()
+                ):
+                    try:
+                        # Generic span name — the WR number is
+                        # attached as span data below. The pipeline's
+                        # _PII_LOG_MARKERS (see log sanitizer) treats
+                        # "for WR " as a PII signal that gets
+                        # dropped from Sentry Logs; span names
+                        # bypass that sanitizer entirely and end up
+                        # in performance/trace data regardless. Keep
+                        # the name structural and route the
+                        # identifier through set_data where it can
+                        # be scoped, filtered, and (if needed) later
+                        # scrubbed via before_send.
+                        with sentry_sdk.start_span(
+                            op="billing_audit.freeze",
+                            name="billing_audit.freeze_attribution",
+                        ) as _bas:
+                            _bas.set_data("wr", wr_num)
+                            _week_snap = first_row.get('__week_ending_date')
+                            if hasattr(_week_snap, 'date'):
+                                _week_snap = _week_snap.date()
+                            for _row in group_rows:
+                                _billing_audit_writer.freeze_row(
+                                    _row,
+                                    release=_billing_audit_release_env,
+                                    run_id=_billing_audit_run_id_env,
+                                )
+                            # Skip fingerprint compute + completed
+                            # count when the fingerprint flag is off
+                            # — emit_run_fingerprint would no-op
+                            # inside otherwise, wasting per-group
+                            # work. Checked per-group (not hoisted)
+                            # so a transient early-run flag-read
+                            # failure doesn't suppress fingerprint
+                            # emission for the rest of the run.
+                            # ``get_flag`` caches successful reads,
+                            # so the steady-state cost is a single
+                            # dict lookup per group.
+                            if _billing_audit_writer.fingerprint_flag_enabled():
+                                # Use the cross-variant aggregation
+                                # so the fingerprint AND content hash
+                                # cover all personnel + all rows
+                                # (primary + helper + vac) for this
+                                # (wr, week). Falls back to
+                                # ``group_rows`` / ``data_hash`` only
+                                # if the bucket is empty (shouldn't
+                                # happen — the bucket is built from
+                                # the same groups dict we're
+                                # iterating).
+                                _agg_key = (wr_num, week_raw)
+                                _agg_fp_rows = _billing_audit_fp_buckets.get(
+                                    _agg_key, group_rows
+                                )
+                                # Lazy + memoized content-hash
+                                # computation. First emit attempt
+                                # for a bucket pays the hashing
+                                # cost once and caches the result;
+                                # subsequent variants that
+                                # dedup-no-op inside
+                                # emit_run_fingerprint get a cache
+                                # hit for free.
+                                #
+                                # ``calculate_data_hash`` assumes
+                                # all rows share one ``__variant``
+                                # (it reads sorted_rows[0]'s
+                                # variant and conditionally
+                                # includes VAC / helper fields
+                                # based on it). Passing it the raw
+                                # cross-variant bucket would make
+                                # the result depend on sort order
+                                # and can miss VAC personnel
+                                # entirely. Instead: bucket rows by
+                                # variant, hash each subset with
+                                # the production helper (so each
+                                # variant gets its own correct
+                                # fields), then SHA-256 the
+                                # variant-sorted
+                                # ``variant=hash`` tokens. Result
+                                # is deterministic and covers
+                                # every variant's full field set.
+                                if _agg_key in _billing_audit_fp_buckets:
+                                    _agg_content_hash = (
+                                        _billing_audit_agg_content_hashes.get(
+                                            _agg_key
+                                        )
+                                    )
+                                    if _agg_content_hash is None:
+                                        # Variant-aware aggregated
+                                        # hash, with per-helper sub-
+                                        # bucketing so multi-helper
+                                        # WRs produce a stable
+                                        # content_hash (see
+                                        # _compute_aggregated_content_hash).
+                                        _agg_content_hash = (
+                                            _compute_aggregated_content_hash(
+                                                _agg_fp_rows
+                                            )
+                                        )
+                                        _billing_audit_agg_content_hashes[
+                                            _agg_key
+                                        ] = _agg_content_hash
+                                else:
+                                    _agg_content_hash = data_hash
+                                _fp = compute_assignment_fingerprint(_agg_fp_rows)
+                                _completed = sum(
+                                    1 for _r in _agg_fp_rows
+                                    if is_checked(_r.get('Units Completed?'))
+                                )
+                                _billing_audit_writer.emit_run_fingerprint(
+                                    wr=wr_num,
+                                    week_ending=_week_snap,
+                                    content_hash=_agg_content_hash,
+                                    assignment_fp=_fp,
+                                    completed_count=_completed,
+                                    total_count=len(_agg_fp_rows),
+                                    release=_billing_audit_release_env,
+                                    run_id=_billing_audit_run_id_env,
+                                )
+                            _bas.set_data("rows", len(group_rows))
+                            _bas.set_data("variant", variant)
+                    except Exception as _audit_err:
+                        # Class name only — avoids leaking WR / foreman /
+                        # helper names via log bodies (see _PII_LOG_MARKERS).
+                        logging.warning(
+                            f"⚠️ Billing audit snapshot failed for group (suppressed details): "
+                            f"{type(_audit_err).__name__}"
+                        )
+                        sentry_add_breadcrumb(
+                            "billing_audit",
+                            "Snapshot failure (group-level)",
+                            level="warning",
+                            data={"error_type": type(_audit_err).__name__},
+                        )
 
                 # Decide skip based on stored history BEFORE generating Excel (only if FORCE not set)
                 if HISTORY_SKIP_ENABLED and not (FORCE_GENERATION or week_raw in REGEN_WEEKS or RESET_HASH_HISTORY or RESET_WR_LIST):
@@ -4950,7 +5318,16 @@ def main():
             "audit_risk_level": audit_results.get('summary', {}).get('risk_level', 'UNKNOWN') if audit_results else 'UNKNOWN',
             "mode": "TEST" if TEST_MODE else "PRODUCTION",
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "snapshots_written": 0,
+            "snapshots_already_frozen": 0,
+            "snapshots_errored": 0,
+            "fingerprint_changes_detected": 0,
         }
+        if BILLING_AUDIT_AVAILABLE:
+            try:
+                _run_summary.update(_billing_audit_writer.get_counters())
+            except Exception:
+                pass  # Counter retrieval must never fail the run summary write.
         try:
             with open(os.path.join(OUTPUT_FOLDER, 'run_summary.json'), 'w') as _rsf:
                 json.dump(_run_summary, _rsf, indent=2)
