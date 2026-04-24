@@ -49,7 +49,7 @@ function verifySupabaseJwt(token) {
   }
 
   const now = Math.floor(Date.now() / 1000);
-  if (typeof payload.exp === 'number' && payload.exp <= now) return null;
+  if (typeof payload.exp !== 'number' || payload.exp <= now) return null;
   if (typeof payload.nbf === 'number' && payload.nbf > now) return null;
   if (payload.aud !== 'authenticated') return null;
   if (payload.role !== 'authenticated') return null;

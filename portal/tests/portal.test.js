@@ -213,7 +213,8 @@ describe('Auth endpoints', () => {
 describe('API protection', () => {
   it('allows unauthenticated read API access when API auth is optional', async () => {
     const res = await request('/api/runs');
-    expect([200, 502]).toContain(res.status);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.runs)).toBe(true);
   });
 });
 
@@ -362,12 +363,31 @@ describe('sanitizeFilename', () => {
 describe('New API endpoints protection', () => {
   it('allows unauthenticated access to /api/latest when API auth is optional', async () => {
     const res = await request('/api/latest');
-    expect([200, 502]).toContain(res.status);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('application/json');
+    expect(res.body.run).toEqual(expect.objectContaining({
+      id: mockWorkflowRun.id,
+      runNumber: mockWorkflowRun.run_number,
+      status: mockWorkflowRun.status,
+      conclusion: mockWorkflowRun.conclusion,
+      createdAt: mockWorkflowRun.created_at,
+      updatedAt: mockWorkflowRun.updated_at,
+      event: mockWorkflowRun.event,
+      headBranch: mockWorkflowRun.head_branch,
+    }));
+    expect(Array.isArray(res.body.artifacts)).toBe(true);
   });
 
   it('allows unauthenticated access to /api/poll when API auth is optional', async () => {
     const res = await request('/api/poll');
-    expect([200, 502]).toContain(res.status);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('hasNew', true);
+    expect(Array.isArray(res.body.runs)).toBe(true);
+    expect(res.body.runs[0]).toEqual(expect.objectContaining({
+      id: mockWorkflowRun.id,
+      runNumber: mockWorkflowRun.run_number,
+      status: mockWorkflowRun.status,
+    }));
   });
 
   it('allows unauthenticated access to /api/events when API auth is optional', async () => {
@@ -463,13 +483,20 @@ describe('Authenticated API endpoints', () => {
 
   it('returns data from /api/latest when authenticated', async () => {
     const res = await request('/api/latest', { headers: { 'Cookie': sessionCookie } });
-    // 502 means it reached the handler but GitHub token is not set — not a 302 redirect
-    expect([200, 502]).toContain(res.status);
+    expect(res.status).toBe(200);
+    expect(res.body.run).toEqual(expect.objectContaining({
+      id: mockWorkflowRun.id,
+      runNumber: mockWorkflowRun.run_number,
+      status: mockWorkflowRun.status,
+    }));
+    expect(Array.isArray(res.body.artifacts)).toBe(true);
   });
 
   it('returns data from /api/poll when authenticated', async () => {
     const res = await request('/api/poll', { headers: { 'Cookie': sessionCookie } });
-    expect([200, 502]).toContain(res.status);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('hasNew', true);
+    expect(Array.isArray(res.body.runs)).toBe(true);
   });
 
   it('returns data from /api/poller-status when authenticated', async () => {
@@ -484,7 +511,11 @@ describe('Authenticated API endpoints', () => {
 describe('New API routes: auth protection', () => {
   it('allows unauthenticated GET /api/search when API auth is optional', async () => {
     const res = await request('/api/search?q=test');
-    expect([200, 502]).toContain(res.status);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('hits');
+    expect(Array.isArray(res.body.hits)).toBe(true);
+    expect(res.body).toHaveProperty('total');
+    expect(typeof res.body.total).toBe('number');
   });
 
   it('blocks unauthenticated GET /api/cache/stats', async () => {
@@ -540,14 +571,11 @@ describe('New API routes: authenticated happy path', () => {
 
   it('GET /api/search?q=test reaches handler when authenticated', async () => {
     const res = await request('/api/search?q=test', { headers: { Cookie: sessionCookie } });
-    // 502 if GitHub is unreachable in test env; 200 on success
-    expect([200, 502]).toContain(res.status);
-    if (res.status === 200) {
-      expect(res.body).toHaveProperty('hits');
-      expect(Array.isArray(res.body.hits)).toBe(true);
-      expect(res.body).toHaveProperty('total');
-      expect(typeof res.body.total).toBe('number');
-    }
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('hits');
+    expect(Array.isArray(res.body.hits)).toBe(true);
+    expect(res.body).toHaveProperty('total');
+    expect(typeof res.body.total).toBe('number');
   });
 
   it('GET /api/artifacts/:id/file returns 400 when file param is missing', async () => {
@@ -584,13 +612,10 @@ describe('New API routes: authenticated happy path', () => {
       method: 'POST',
       headers: { 'X-CSRF-Token': csrfToken, Cookie: sessionCookie },
     });
-    // 502 if GitHub is unreachable in test env; 200 on success
-    expect([200, 502]).toContain(res.status);
-    if (res.status === 200) {
-      expect(res.body).toHaveProperty('status', 'ok');
-      expect(res.body).toHaveProperty('documents');
-      expect(res.body).toHaveProperty('tokens');
-    }
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('status', 'ok');
+    expect(res.body).toHaveProperty('documents');
+    expect(res.body).toHaveProperty('tokens');
   });
 });
 
@@ -753,6 +778,11 @@ describe('API_AUTH_REQUIRED=true', () => {
       sub: 'project-token',
       exp: expiresAt,
     });
+    const missingExpiryToken = signSupabaseJwt({
+      aud: 'authenticated',
+      role: 'authenticated',
+      sub: 'user-123',
+    });
 
     await withFreshApp(
       { API_AUTH_REQUIRED: 'true', SUPABASE_JWT_SECRET: 'test-secret' },
@@ -769,6 +799,12 @@ describe('API_AUTH_REQUIRED=true', () => {
         });
         expect(anonRoleRes.status).toBe(401);
         expect(anonRoleRes.body).toHaveProperty('error', 'Authentication required');
+
+        const missingExpiryRes = await freshRequest('/api/poller-status', {
+          headers: { Authorization: `Bearer ${missingExpiryToken}` },
+        });
+        expect(missingExpiryRes.status).toBe(401);
+        expect(missingExpiryRes.body).toHaveProperty('error', 'Authentication required');
       }
     );
   });

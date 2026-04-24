@@ -44,9 +44,22 @@ function toRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? value as Record<string, unknown> : {};
 }
 
+function parseFiniteNumber(value: unknown, fieldName: string): number {
+  const parsedValue =
+    typeof value === 'number' || typeof value === 'string'
+      ? Number(value)
+      : Number.NaN;
+
+  if (!Number.isFinite(parsedValue)) {
+    throw new Error(`Invalid ${fieldName}: expected a finite number`);
+  }
+
+  return parsedValue;
+}
+
 function normalizeRun(run: Record<string, unknown>): WorkflowRun {
   return {
-    id: Number(run.id),
+    id: parseFiniteNumber(run.id, 'workflow run id'),
     name: String(run.name ?? 'Workflow Run'),
     status: String(run.status ?? 'unknown'),
     conclusion: (run.conclusion as string | null) ?? null,

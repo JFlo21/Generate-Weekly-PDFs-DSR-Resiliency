@@ -80,7 +80,6 @@ router.get('/runs/:runId/jobs', async (req, res) => {
   try {
     // github.js doesn't have listRunJobs; inline a minimal fetch.
     const https = require('node:https');
-    const config = require('../config/default');
     const { owner, repo, token } = config.github;
 
     const jobs = await new Promise((resolve, reject) => {
