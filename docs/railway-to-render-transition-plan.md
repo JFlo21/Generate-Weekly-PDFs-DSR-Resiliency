@@ -94,7 +94,8 @@ GITHUB_BRANCH
 SESSION_SECRET
 CORS_ORIGIN            # set to the Vercel production domain at cutover
 CORS_ORIGINS           # optional comma-separated preview + production Vercel domains
-API_AUTH_REQUIRED=false  # keep /api/* readable from portal-v2 (Supabase handles app auth)
+API_AUTH_REQUIRED=true   # require legacy session or Supabase JWT for /api/*
+SUPABASE_JWT_SECRET      # verifies portal-v2 Supabase access tokens
 PORT                   # Render injects its own; leave unset unless required
 NODE_ENV=production
 POLL_INTERVAL_MS

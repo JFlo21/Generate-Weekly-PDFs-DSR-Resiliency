@@ -1,5 +1,87 @@
+const crypto = require('node:crypto');
+
+function decodeBase64Url(value) {
+  return Buffer.from(value.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+}
+
+function parseJsonSegment(value) {
+  try {
+    return JSON.parse(decodeBase64Url(value));
+  } catch {
+    return null;
+  }
+}
+
+function getBearerToken(req) {
+  const header = req.headers && req.headers.authorization;
+  if (typeof header !== 'string') return null;
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : null;
+}
+
+function verifySupabaseJwt(token) {
+  const secret = process.env.SUPABASE_JWT_SECRET;
+  if (!secret || !token) return null;
+
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+
+  const [encodedHeader, encodedPayload, signature] = parts;
+  const header = parseJsonSegment(encodedHeader);
+  const payload = parseJsonSegment(encodedPayload);
+  if (!header || !payload || header.alg !== 'HS256') return null;
+
+  const expected = crypto
+    .createHmac('sha256', secret)
+    .update(`${encodedHeader}.${encodedPayload}`)
+    .digest('base64url');
+
+  const expectedBuffer = Buffer.from(expected);
+  const actualBuffer = Buffer.from(signature);
+  if (
+    expectedBuffer.length !== actualBuffer.length ||
+    !crypto.timingSafeEqual(expectedBuffer, actualBuffer)
+  ) {
+    return null;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  if (typeof payload.exp === 'number' && payload.exp <= now) return null;
+  if (typeof payload.nbf === 'number' && payload.nbf > now) return null;
+  if (payload.aud && payload.aud !== 'authenticated') return null;
+
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  if (supabaseUrl) {
+    const expectedIssuer = `${supabaseUrl.replace(/\/+$/, '')}/auth/v1`;
+    if (payload.iss && payload.iss !== expectedIssuer) return null;
+  }
+
+  return payload;
+}
+
+function authenticateSupabaseRequest(req) {
+  const payload = verifySupabaseJwt(getBearerToken(req));
+  if (!payload) return false;
+
+  req.user = {
+    id: payload.sub,
+    email: payload.email,
+    provider: 'supabase',
+  };
+
+  if (req.session) {
+    req.session.authenticated = true;
+    req.session.user = req.user;
+  }
+
+  return true;
+}
+
 function requireAuth(req, res, next) {
   if (req.session && req.session.authenticated) {
+    return next();
+  }
+  if (authenticateSupabaseRequest(req)) {
     return next();
   }
 
@@ -17,4 +99,4 @@ function requireAuth(req, res, next) {
   return res.redirect('/');
 }
 
-module.exports = { requireAuth };
+module.exports = { requireAuth, verifySupabaseJwt };

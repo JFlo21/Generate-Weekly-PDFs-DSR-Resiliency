@@ -53,7 +53,11 @@ services:
       - key: CORS_ORIGINS
         sync: false                     # optional comma-separated preview + prod domains
       - key: API_AUTH_REQUIRED
-        value: "false"                  # portal-v2 uses Supabase auth; keep GitHub artifact API readable
+        value: "true"                   # require session or Supabase JWT auth in production
+      - key: SUPABASE_URL
+        sync: false                     # e.g. https://your-project.supabase.co
+      - key: SUPABASE_JWT_SECRET
+        sync: false                     # verifies portal-v2 Supabase access tokens
 
       # --- Poller cadence ---
       - key: POLL_INTERVAL_MS

@@ -9,6 +9,7 @@ import type {
   Job,
 } from './types';
 import * as Sentry from '@sentry/react';
+import { isSupabaseConfigured, supabase } from './supabase';
 import {
   USE_MOCK,
   MOCK_RUNS,
@@ -23,8 +24,12 @@ import {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 
-type RunsResponse = { total?: number; runs?: WorkflowRun[] };
-type ArtifactsResponse = { total?: number; artifacts?: Artifact[] };
+type RunsResponse = { total?: number; runs?: unknown[] };
+type ArtifactsResponse = { total?: number; artifacts?: unknown[] };
+
+function toRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? value as Record<string, unknown> : {};
+}
 
 function normalizeRun(run: Record<string, unknown>): WorkflowRun {
   return {
@@ -58,9 +63,18 @@ function normalizeArtifact(artifact: Record<string, unknown>): Artifact {
 }
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
+  const { headers, ...rest } = options ?? {};
+  const requestHeaders = new Headers(headers);
+  if (isSupabaseConfigured && !requestHeaders.has('Authorization')) {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (token) requestHeaders.set('Authorization', `Bearer ${token}`);
+  }
+
   const res = await fetch(`${API_BASE}${url}`, {
     credentials: 'include',
-    ...options,
+    ...rest,
+    headers: requestHeaders,
   });
   if (!res.ok) {
     Sentry.addBreadcrumb({
@@ -80,7 +94,7 @@ export const api = {
     if (USE_MOCK) return Promise.resolve(MOCK_RUNS);
     return request<WorkflowRun[] | RunsResponse>('/api/runs').then((payload) => {
       const runs = Array.isArray(payload) ? payload : payload.runs ?? [];
-      return runs.map((run) => normalizeRun(run as unknown as Record<string, unknown>));
+      return runs.map((run) => normalizeRun(toRecord(run)));
     });
   },
 
@@ -88,7 +102,7 @@ export const api = {
     if (USE_MOCK) return Promise.resolve(MOCK_ARTIFACTS[runId] ?? []);
     return request<Artifact[] | ArtifactsResponse>(`/api/runs/${runId}/artifacts`).then((payload) => {
       const artifacts = Array.isArray(payload) ? payload : payload.artifacts ?? [];
-      return artifacts.map((artifact) => normalizeArtifact(artifact as unknown as Record<string, unknown>));
+      return artifacts.map((artifact) => normalizeArtifact(toRecord(artifact)));
     });
   },
 

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
+import crypto from 'node:crypto';
 import http from 'node:http';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -10,6 +11,35 @@ const bcrypt = require('bcryptjs');
 process.env.ADMIN_PASSWORD_HASH = bcrypt.hashSync('testpass', 4);
 process.env.API_AUTH_REQUIRED = 'false';
 process.env.SEARCH_INDEX_RUN_LIMIT = '0';
+
+const githubServicePath = require.resolve('../services/github');
+const mockWorkflowRun = {
+  id: 123,
+  run_number: 42,
+  status: 'completed',
+  conclusion: 'success',
+  created_at: '2026-04-24T00:00:00Z',
+  updated_at: '2026-04-24T00:01:00Z',
+  event: 'workflow_dispatch',
+  head_branch: 'master',
+};
+
+function installGithubMock() {
+  require.cache[githubServicePath] = {
+    id: githubServicePath,
+    filename: githubServicePath,
+    loaded: true,
+    exports: {
+      listWorkflowRuns: async () => ({ total_count: 1, workflow_runs: [mockWorkflowRun] }),
+      listRunArtifacts: async () => ({ total_count: 0, artifacts: [] }),
+      downloadArtifact: async () => {
+        throw new Error('mock artifact unavailable');
+      },
+    },
+  };
+}
+
+installGithubMock();
 
 let server;
 let baseUrl;
@@ -90,6 +120,7 @@ async function withFreshApp(env, callback) {
   }
   process.env.ADMIN_PASSWORD_HASH = bcrypt.hashSync('testpass', 4);
   clearPortalRequireCache();
+  installGithubMock();
 
   const app = require('../server');
   let freshServer;
@@ -117,7 +148,18 @@ async function withFreshApp(env, callback) {
       else process.env[key] = value;
     }
     clearPortalRequireCache();
+    installGithubMock();
   }
+}
+
+function signSupabaseJwt(payload, secret = 'test-secret') {
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const signature = crypto
+    .createHmac('sha256', secret)
+    .update(`${header}.${body}`)
+    .digest('base64url');
+  return `${header}.${body}.${signature}`;
 }
 
 describe('Health endpoint', () => {
@@ -436,9 +478,10 @@ describe('New API routes: auth protection', () => {
     expect(res.status).toBe(401);
   });
 
-  it('allows unauthenticated GET /api/runs/:runId/jobs when API auth is optional', async () => {
-    const res = await request('/api/runs/1/jobs');
-    expect([200, 502]).toContain(res.status);
+  it('allows unauthenticated GET /api/runs when API auth is optional', async () => {
+    const res = await request('/api/runs');
+    expect(res.status).toBe(200);
+    expect(res.body.runs).toHaveLength(1);
   });
 
   it('allows unauthenticated GET /api/artifacts/:id/file validation when API auth is optional', async () => {
@@ -505,14 +548,10 @@ describe('New API routes: authenticated happy path', () => {
     expect(res.body.error).toMatch(/file/i);
   });
 
-  it('GET /api/runs/:runId/jobs reaches handler when authenticated', async () => {
-    const res = await request('/api/runs/1/jobs', { headers: { Cookie: sessionCookie } });
-    // 502 if GitHub is unreachable in test env; 200 on success
-    expect([200, 502]).toContain(res.status);
-    if (res.status === 200) {
-      expect(res.body).toHaveProperty('jobs');
-      expect(Array.isArray(res.body.jobs)).toBe(true);
-    }
+  it('GET /api/runs reaches handler when authenticated', async () => {
+    const res = await request('/api/runs', { headers: { Cookie: sessionCookie } });
+    expect(res.status).toBe(200);
+    expect(res.body.runs).toHaveLength(1);
   });
 
   it('POST /api/search/rebuild still requires CSRF when authenticated', async () => {
@@ -610,5 +649,26 @@ describe('API_AUTH_REQUIRED=true', () => {
       expect(res.status).toBe(401);
       expect(res.body).toHaveProperty('error', 'Authentication required');
     });
+  });
+
+  it('accepts a valid Supabase bearer token for cross-origin portal-v2 API calls', async () => {
+    const token = signSupabaseJwt({
+      aud: 'authenticated',
+      sub: 'user-123',
+      email: 'user@example.com',
+      exp: Math.floor(Date.now() / 1000) + 300,
+    });
+
+    await withFreshApp(
+      { API_AUTH_REQUIRED: 'true', SUPABASE_JWT_SECRET: 'test-secret' },
+      async (freshRequest) => {
+        const res = await freshRequest('/api/search?q=test', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        expect(res.status).toBe(200);
+        expect(res.body).toHaveProperty('hits');
+        expect(res.headers['set-cookie']?.[0]).toContain('linetec.sid');
+      }
+    );
   });
 });

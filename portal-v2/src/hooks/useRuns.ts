@@ -78,7 +78,7 @@ export function useRuns() {
 
   // Initial fetch + SSE — runs once on mount
   useEffect(() => {
-    fetchRef.current?.();
+    const initialFetch = fetchRef.current?.() ?? Promise.resolve();
 
     // In mock/demo mode, mark as connected (simulated) and skip SSE entirely.
     if (USE_MOCK) {
@@ -94,27 +94,31 @@ export function useRuns() {
 
     // Only open an SSE connection if we have a backend URL configured.
     let es: EventSource | null = null;
-    const sseUrl = `${API_BASE}/api/events`;
-    try {
-      es = new EventSource(sseUrl, { withCredentials: true });
-      es.addEventListener('open', () => setIsConnected(true));
-      es.addEventListener('runs-updated', () => {
-        if (timerRef.current) clearTimeout(timerRef.current);
-        fetchRef.current?.();
-      });
-      es.addEventListener('error', () => {
+    let cancelled = false;
+    initialFetch.finally(() => {
+      if (cancelled) return;
+      const sseUrl = `${API_BASE}/api/events`;
+      try {
+        es = new EventSource(sseUrl, { withCredentials: true });
+        es.addEventListener('open', () => setIsConnected(true));
+        es.addEventListener('runs-updated', () => {
+          if (timerRef.current) clearTimeout(timerRef.current);
+          fetchRef.current?.();
+        });
+        es.addEventListener('error', () => {
+          setIsConnected(false);
+          // Close on ANY error — CORS blocks leave EventSource stuck in
+          // CONNECTING state and the browser auto-retries every ~3s forever,
+          // flooding the console. The 2-minute poll covers updates regardless.
+          if (es) {
+            es.close();
+            es = null;
+          }
+        });
+      } catch {
         setIsConnected(false);
-        // Close on ANY error — CORS blocks leave EventSource stuck in
-        // CONNECTING state and the browser auto-retries every ~3s forever,
-        // flooding the console. The 2-minute poll covers updates regardless.
-        if (es) {
-          es.close();
-          es = null;
-        }
-      });
-    } catch {
-      setIsConnected(false);
-    }
+      }
+    });
 
     // Countdown ticker
     countdownRef.current = setInterval(() => {
@@ -122,6 +126,7 @@ export function useRuns() {
     }, 1000);
 
     return () => {
+      cancelled = true;
       if (timerRef.current) clearTimeout(timerRef.current);
       if (countdownRef.current) clearInterval(countdownRef.current);
       es?.close();
