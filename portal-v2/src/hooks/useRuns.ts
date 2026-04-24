@@ -5,6 +5,7 @@ import type { WorkflowRun } from '../lib/types';
 
 const POLL_INTERVAL_MS = 120_000; // 2 minutes
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
+const RUN_UPDATE_EVENTS = new Set(['newRun', 'runs-updated']);
 
 type EventStreamHandlers = {
   onOpen: () => void;
@@ -17,7 +18,7 @@ function handleSseBlock(block: string, handlers: EventStreamHandlers) {
     .split('\n')
     .find((line) => line.startsWith('event:'));
   const eventName = eventLine?.slice('event:'.length).trim();
-  if (eventName === 'runs-updated') handlers.onRunsUpdated();
+  if (eventName && RUN_UPDATE_EVENTS.has(eventName)) handlers.onRunsUpdated();
 }
 
 function consumeSseBuffer(buffer: string, handlers: EventStreamHandlers): string {
@@ -85,7 +86,9 @@ async function openRunsEventStream(
 
   let es: EventSource | null = new EventSource(url, { withCredentials: true });
   es.addEventListener('open', handlers.onOpen);
-  es.addEventListener('runs-updated', handlers.onRunsUpdated);
+  for (const eventName of RUN_UPDATE_EVENTS) {
+    es.addEventListener(eventName, handlers.onRunsUpdated);
+  }
   es.addEventListener('error', () => {
     handlers.onError();
     es?.close();
