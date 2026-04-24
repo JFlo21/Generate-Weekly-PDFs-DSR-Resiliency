@@ -204,9 +204,23 @@ def main(argv: list[str] | None = None) -> int:
     # ``SENTRY_RELEASE`` set would silently convert every write
     # into an error and only surface the failure at the end.
     release = os.getenv("SENTRY_RELEASE", "") or ""
-    run_id = os.getenv("GITHUB_RUN_ID", "") or (
-        f"backfill-{datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}"
-    )
+    # GitHub Actions re-runs preserve GITHUB_RUN_ID and only
+    # increment GITHUB_RUN_ATTEMPT. Append the attempt number so
+    # rerun attempts create distinct pipeline_run rows instead of
+    # overwriting each other on the (wr, week_ending, run_id) PK.
+    # Mirrors the convention in generate_weekly_pdfs.py.
+    _ga_run_id = os.getenv("GITHUB_RUN_ID", "")
+    _ga_run_attempt = os.getenv("GITHUB_RUN_ATTEMPT", "")
+    if _ga_run_id:
+        run_id = (
+            f"{_ga_run_id}.{_ga_run_attempt}"
+            if _ga_run_attempt
+            else _ga_run_id
+        )
+    else:
+        run_id = (
+            f"backfill-{datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}"
+        )
 
     considered = 0
     frozen_attempts = 0

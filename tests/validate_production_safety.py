@@ -150,18 +150,23 @@ def validate_per_group_try_catches_all() -> None:
 def validate_pre_loop_has_outer_try() -> None:
     name = ("Claim 4: pre-loop bucket block is wrapped in try/except "
             "(after hardening)")
+    import re as _re
     src = Path(REPO_ROOT / "generate_weekly_pdfs.py").read_text(encoding="utf-8")
-    # Search for the outer try wrapping the pre-loop block.
-    expected = (
-        "try:\n"
-        "            if (\n"
-        "                BILLING_AUDIT_AVAILABLE\n"
-        "                and not TEST_MODE\n"
-        "                and _billing_audit_writer.any_flag_enabled()\n"
-        "            ):"
+    # Whitespace-tolerant regex: look for a ``try:`` whose body's
+    # first ``if`` statement is the three-condition gate, and for
+    # the paired ``except Exception as _preloop_err:``. Survives
+    # harmless indentation / line-break changes to the block.
+    collapsed = _re.sub(r"\s+", " ", src)
+    pattern = _re.compile(
+        r"try\s*:\s*"
+        r"if\s*\(\s*"
+        r"BILLING_AUDIT_AVAILABLE\s+and\s+not\s+TEST_MODE\s+"
+        r"and\s+_billing_audit_writer\.any_flag_enabled\(\)\s*\)\s*:"
     )
-    wrapped = expected in src
-    has_broad_catch = "except Exception as _preloop_err:" in src
+    wrapped = bool(pattern.search(collapsed))
+    has_broad_catch = bool(
+        _re.search(r"except\s+Exception\s+as\s+_preloop_err\s*:", src)
+    )
     ok = wrapped and has_broad_catch
     _record(
         name, ok,

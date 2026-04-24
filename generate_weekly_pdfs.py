@@ -4637,13 +4637,27 @@ def main():
         # every non-GitHub-Actions execution (manual reruns, local
         # debugging, crontab on a bare host, etc.) collide into the
         # same row for a given (wr, week), overwriting prior runs'
-        # records and destroying run history. Use the same
-        # timestamp fallback pattern as
-        # ``scripts/backfill_attribution_snapshot.py``. Microsecond
-        # precision makes same-second manual re-runs distinguishable.
-        _billing_audit_run_id_env = os.getenv('GITHUB_RUN_ID', '') or (
-            f"local-{datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%S%fZ')}"
-        )
+        # records and destroying run history.
+        #
+        # GitHub Actions re-runs preserve ``GITHUB_RUN_ID`` and only
+        # increment ``GITHUB_RUN_ATTEMPT``. Appending the attempt
+        # number makes each rerun create a distinct pipeline_run
+        # row instead of overwriting the prior attempt — critical
+        # for preserving drift-detection context when an earlier
+        # attempt already wrote the key. Falls back to a microsecond
+        # timestamp outside Actions.
+        _ga_run_id = os.getenv('GITHUB_RUN_ID', '')
+        _ga_run_attempt = os.getenv('GITHUB_RUN_ATTEMPT', '')
+        if _ga_run_id:
+            _billing_audit_run_id_env = (
+                f"{_ga_run_id}.{_ga_run_attempt}"
+                if _ga_run_attempt
+                else _ga_run_id
+            )
+        else:
+            _billing_audit_run_id_env = (
+                f"local-{datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%S%fZ')}"
+            )
 
         # Pre-aggregate rows per (sanitized_wr, week) across ALL
         # variants so the assignment fingerprint captures the full

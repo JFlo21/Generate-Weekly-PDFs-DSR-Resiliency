@@ -1539,20 +1539,30 @@ class BackfillCliDateValidationTests(unittest.TestCase):
         SENTRY_RELEASE is unset. Otherwise a deployment that
         enforces NOT NULL on ``release`` silently turns every
         backfill write into an error.
+
+        run_id composition must also be rerun-aware: read both
+        GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT so Actions re-runs
+        don't collide on the (wr, week_ending, run_id) PK.
         """
         src = _read_source("scripts/backfill_attribution_snapshot.py")
         collapsed = _collapse_ws(src)
-        # Whitespace-tolerant: either single or double quote wrap,
-        # any spacing around ``, ''`` and the ``or ''``.
         self.assertRegex(
             collapsed,
             r'os\.getenv\(\s*["\']SENTRY_RELEASE["\']\s*,\s*["\']["\']\s*\)'
             r"\s*or\s*[\"']{2}",
         )
+        # Rerun-aware run_id composition — both env vars must be read.
         self.assertRegex(
             collapsed,
-            r'os\.getenv\(\s*["\']GITHUB_RUN_ID["\']\s*,\s*["\']["\']\s*\)'
-            r"\s*or",
+            r'os\.getenv\(\s*["\']GITHUB_RUN_ID["\']',
+        )
+        self.assertRegex(
+            collapsed,
+            r'os\.getenv\(\s*["\']GITHUB_RUN_ATTEMPT["\']',
+        )
+        self.assertRegex(
+            collapsed,
+            r'f["\']\{_ga_run_id\}\.\{_ga_run_attempt\}["\']',
         )
 
 
@@ -1572,22 +1582,29 @@ class HoistedEnvVarDefaultsTests(unittest.TestCase):
             r'\s*["\']SENTRY_RELEASE["\']\s*,\s*["\']["\']\s*\)'
             r"\s*or\s*[\"']{2}",
         )
-        # GITHUB_RUN_ID → timestamp fallback (NOT an empty string).
-        # An empty run_id collides on the pipeline_run
-        # on_conflict=(wr, week_ending, run_id) key and destroys
-        # run history for manual / non-Actions executions.
+        # GITHUB_RUN_ID composition: reads both GITHUB_RUN_ID and
+        # GITHUB_RUN_ATTEMPT (rerun-aware), with a timestamped
+        # local fallback. Re-runs must NOT overwrite prior attempt
+        # pipeline_run rows on the (wr, week, run_id) PK.
         self.assertRegex(
             collapsed,
-            r"_billing_audit_run_id_env\s*=\s*os\.getenv\("
-            r'\s*["\']GITHUB_RUN_ID["\']\s*,\s*["\']["\']\s*\)'
-            r"\s*or\s*\(\s*f[\"']local-",
+            r"_ga_run_id\s*=\s*os\.getenv\(\s*"
+            r'["\']GITHUB_RUN_ID["\']',
         )
-        # Negative: the old empty-string form must NOT be present.
-        self.assertNotRegex(
+        self.assertRegex(
             collapsed,
-            r"_billing_audit_run_id_env\s*=\s*os\.getenv\("
-            r'\s*["\']GITHUB_RUN_ID["\']\s*,\s*["\']["\']\s*\)'
-            r"\s*or\s*[\"']{2}\b",
+            r"_ga_run_attempt\s*=\s*os\.getenv\(\s*"
+            r'["\']GITHUB_RUN_ATTEMPT["\']',
+        )
+        self.assertRegex(
+            collapsed,
+            r'f["\']\{_ga_run_id\}\.\{_ga_run_attempt\}["\']',
+        )
+        # Local fallback must still be present for non-Actions runs.
+        self.assertRegex(
+            collapsed,
+            r"_billing_audit_run_id_env\s*=\s*\(\s*"
+            r"f[\"']local-",
         )
 
 
@@ -2181,6 +2198,29 @@ class GetFlagCachingTests(unittest.TestCase):
 
     def tearDown(self):
         _reset_all()
+
+    def test_client_unavailable_does_not_cache(self):
+        """``is_flag_resolved`` contract: True iff the flag was
+        read definitively from Supabase. Caching the ``default``
+        when ``get_client()`` returned None would incorrectly make
+        ``is_flag_resolved`` True for a state where no read
+        happened at all, breaking callers (like the backfill
+        script) that use the resolved/unresolved split to distinguish
+        genuine off-state from transient blips.
+        """
+        from billing_audit import client as ba_client
+
+        with mock.patch(
+            "billing_audit.client.get_client", return_value=None
+        ):
+            result = ba_client.get_flag("flag_unavailable", default=False)
+
+        self.assertFalse(result)
+        # Cache must NOT contain the key — is_flag_resolved stays
+        # False to accurately signal "client unavailable, no read
+        # happened."
+        self.assertNotIn("flag_unavailable", ba_client._flag_cache)
+        self.assertFalse(ba_client.is_flag_resolved("flag_unavailable"))
 
     def test_transport_failure_not_cached(self):
         from billing_audit import client as ba_client

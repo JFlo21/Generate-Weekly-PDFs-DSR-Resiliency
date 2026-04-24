@@ -208,9 +208,15 @@ def get_flag(key: str, default: bool = False) -> bool:
 
     client = get_client()
     if client is None:
-        # Client unavailable is a stable disabled state; cache it so
-        # the hot path doesn't re-enter get_client() on every call.
-        _flag_cache[key] = default
+        # Client unavailable. Do NOT cache here — that would make
+        # ``is_flag_resolved(key)`` return True and contradict its
+        # contract ("key's state has been read DEFINITIVELY from
+        # Supabase"). ``get_client()`` is already memoized via
+        # ``_client_cache`` + ``_client_initialized``, so the hot
+        # path doesn't re-enter client creation on every call.
+        # Callers that need "client unavailable" semantics check
+        # ``get_client() is None`` directly (as ``any_flag_enabled``
+        # does).
         return default
 
     # Wrap the SELECT in with_retry so transient network blips get
