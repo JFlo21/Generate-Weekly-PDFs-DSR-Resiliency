@@ -4686,25 +4686,59 @@ def main():
         #     never pay this cost, and flag-on runs pay it exactly
         #     once per bucket regardless of variant count (dedup
         #     no-ops reuse the memo).
-        if (
-            BILLING_AUDIT_AVAILABLE
-            and not TEST_MODE
-            and _billing_audit_writer.any_flag_enabled()
-        ):
-            for _agg_gk, _agg_rows in groups.items():
-                if not _agg_rows:
-                    continue
-                _raw_wr = _agg_rows[0].get('Work Request #')
-                _wr_str = str(_raw_wr).split('.')[0] if _raw_wr else ''
-                _wr_san = _RE_SANITIZE_HELPER_NAME.sub('_', _wr_str)[:50]
-                _week_part = (
-                    _agg_gk.split('_', 1)[0] if '_' in _agg_gk else ''
-                )
-                if not _wr_san or not _week_part:
-                    continue
-                _billing_audit_fp_buckets.setdefault(
-                    (_wr_san, _week_part), []
-                ).extend(_agg_rows)
+        #
+        # Wrapped in try/except Exception so any unexpected failure
+        # (malformed row data, novel exception from ``any_flag_enabled``,
+        # future code additions that introduce a bug) degrades
+        # gracefully: buckets stay empty, the per-group emit falls
+        # back to ``group_rows`` / ``data_hash`` via its
+        # ``.get(key, fallback)`` calls, and Excel generation is
+        # completely untouched. Class-name-only logging preserves
+        # the _PII_LOG_MARKERS discipline.
+        try:
+            if (
+                BILLING_AUDIT_AVAILABLE
+                and not TEST_MODE
+                and _billing_audit_writer.any_flag_enabled()
+            ):
+                for _agg_gk, _agg_rows in groups.items():
+                    if not _agg_rows:
+                        continue
+                    # Defensive isinstance: group_source_rows always
+                    # emits dicts, but a future mutation or bug
+                    # upstream could violate that — don't let it
+                    # raise AttributeError into the main loop.
+                    _first = _agg_rows[0]
+                    if not isinstance(_first, dict):
+                        continue
+                    _raw_wr = _first.get('Work Request #')
+                    _wr_str = str(_raw_wr).split('.')[0] if _raw_wr else ''
+                    _wr_san = _RE_SANITIZE_HELPER_NAME.sub('_', _wr_str)[:50]
+                    _week_part = (
+                        _agg_gk.split('_', 1)[0] if '_' in _agg_gk else ''
+                    )
+                    if not _wr_san or not _week_part:
+                        continue
+                    _billing_audit_fp_buckets.setdefault(
+                        (_wr_san, _week_part), []
+                    ).extend(_agg_rows)
+        except Exception as _preloop_err:
+            # Graceful degradation. Empty buckets + the per-group
+            # emit's ``.get(key, fallback)`` calls preserve correct
+            # Excel generation; only cross-variant fingerprint
+            # aggregation is lost for this run.
+            logging.warning(
+                "⚠️ Billing audit pre-loop aggregation failed "
+                f"(suppressed details): {type(_preloop_err).__name__}"
+            )
+            sentry_add_breadcrumb(
+                "billing_audit",
+                "Pre-loop aggregation failure",
+                level="warning",
+                data={"error_type": type(_preloop_err).__name__},
+            )
+            _billing_audit_fp_buckets = {}
+            _billing_audit_agg_content_hashes = {}
 
         for group_idx, (group_key, group_rows) in enumerate(groups.items(), 1):
             # Graceful time budget: stop before Actions hard-kills the job
