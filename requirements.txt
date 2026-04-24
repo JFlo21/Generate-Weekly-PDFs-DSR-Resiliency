@@ -7,7 +7,7 @@ smartsheet-python-sdk>=3.1.0
 openpyxl==3.1.5
 Pillow==12.2.0
 python-dateutil==2.9.0.post0
-python-dotenv==1.0.1
+python-dotenv==1.2.2
 
 # Data Processing and Validation
 pandas==2.2.2
