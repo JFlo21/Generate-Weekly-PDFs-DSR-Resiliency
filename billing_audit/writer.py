@@ -299,16 +299,22 @@ def freeze_row(row: dict, release: str | None,
         "p_wr": wr,
         "p_week_ending": week_ending.isoformat(),
         "p_smartsheet_row_id": row_id,
-        # ``__current_foreman`` is the resolved effective assignee
-        # (``Foreman Assigned?`` override → ``Foreman`` fallback)
-        # that the pipeline computes during row ingest. The raw
-        # ``Foreman`` field can be blank or stale when an override
-        # applies, so freezing it directly would record the wrong
-        # primary assignee in attribution_snapshot. Mirror the
-        # main pipeline's resolution: prefer __current_foreman,
-        # fall back to Foreman, then to None.
+        # ``__effective_user`` is the pipeline's RESOLVED primary
+        # foreman: set at row-ingest time via the
+        # ``Foreman Assigned?`` → ``Foreman`` → ``"Unknown Foreman"``
+        # fallback chain, and is variant-agnostic (identical across
+        # primary / helper / vac_crew copies of the row).
+        #
+        # Do NOT use ``__current_foreman`` here — that field is
+        # variant-scoped in ``group_source_rows``: it holds the
+        # helper foreman for helper variants and the VAC crew
+        # member's name for vac_crew variants. Using it would
+        # duplicate ``p_helper`` / ``p_vac_crew`` into
+        # ``p_primary`` and lose the true primary assignment.
+        # Raw ``Foreman`` is the final fallback for edge-case
+        # rows missing ``__effective_user``.
         "p_primary": (
-            row.get("__current_foreman")
+            row.get("__effective_user")
             or row.get("Foreman")
             or None
         ),

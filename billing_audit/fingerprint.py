@@ -33,19 +33,23 @@ def compute_assignment_fingerprint(rows: list[dict]) -> str:
     Truncated to 16 chars. Used to detect mid-week assignment
     changes.
 
-    Primary input is the effective assignee — ``__current_foreman``
-    (resolved during row ingest from ``Foreman Assigned?`` →
-    ``Foreman`` → ``Unknown Foreman``), falling back to raw
-    ``Foreman`` if the resolved value isn't on the row. Hashing
-    the raw ``Foreman`` field alone would miss reassignments that
-    happen via the ``Foreman Assigned?`` override while raw
-    ``Foreman`` text is unchanged — exactly the mid-week-drift
-    scenario this fingerprint is meant to detect. Helper and
-    vac_crew use their dedicated dunder fields populated by the
-    pipeline.
+    Primary input is ``__effective_user`` — the pipeline's
+    RESOLVED primary foreman set at row-ingest time via
+    ``Foreman Assigned?`` → ``Foreman`` → ``"Unknown Foreman"``.
+    Falls back to raw ``Foreman`` for rows missing the resolved
+    dunder. Hashing only raw ``Foreman`` would miss reassignments
+    that happen via the ``Foreman Assigned?`` override while the
+    raw text stays unchanged — exactly the mid-week-drift
+    scenario this fingerprint is meant to detect.
+
+    ``__current_foreman`` is NOT used here: it's variant-scoped
+    (helper foreman for helper rows, VAC crew name for vac_crew
+    rows) and would collapse the primary / helper / vac_crew
+    buckets into effectively one set. Helper and vac_crew use
+    their dedicated dunder fields.
     """
     primary = _normalize_names([
-        r.get("__current_foreman") or r.get("Foreman") for r in rows
+        r.get("__effective_user") or r.get("Foreman") for r in rows
     ])
     helper = _normalize_names([r.get("__helper_foreman") for r in rows])
     vac = _normalize_names([r.get("__vac_crew_name") for r in rows])
