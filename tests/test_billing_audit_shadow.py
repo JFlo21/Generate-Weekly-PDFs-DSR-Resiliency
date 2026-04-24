@@ -1569,6 +1569,73 @@ class PostgrestErrorClassificationTests(unittest.TestCase):
         self.assertFalse(is_global_kill)
         self.assertIsNone(reason)
 
+    def test_classifier_coerces_integer_code_from_default_error(self):
+        """``postgrest.exceptions.generate_default_error_message`` is
+        invoked whenever the HTTP response body isn't valid JSON
+        (common for misconfigured proxies, WAF-intercepted errors,
+        and 5xx HTML bodies). It populates ``APIError.code`` with
+        the raw ``httpx.Response.status_code`` — an ``int``, not a
+        ``str``. The classifier must coerce before the
+        ``isinstance(code, str)`` gate; otherwise an integer 406
+        would land in the "no code → transient" branch and
+        reintroduce the retry-spam this fix was written to close.
+
+        Codex P2 2026-04-24.
+        """
+        from billing_audit import client as ba_client
+        # Permanent 4xx returned with a non-JSON body — postgrest-
+        # py constructs ``APIError({"code": 406, ...})`` with the
+        # status code as an int. Round-trip through APIError
+        # confirms the classifier sees what postgrest-py produces
+        # in the wild, not a mocked string.
+        for status_code in (400, 401, 403, 404, 406, 422):
+            with self.subTest(status_code=status_code):
+                exc = _POSTGREST_API_ERROR_CLS({
+                    "message": "JSON could not be generated",
+                    "code": status_code,  # int, as in the real path
+                    "hint": "Refer to full message for details",
+                    "details": "<html>...</html>",
+                })
+                self.assertIsInstance(exc.code, int)  # sanity
+                is_transient, is_global_kill, reason = (
+                    ba_client._classify_postgrest_error(exc)
+                )
+                self.assertFalse(
+                    is_transient,
+                    f"HTTP {status_code} (int code) must be permanent",
+                )
+                self.assertFalse(is_global_kill)
+                self.assertEqual(reason, str(status_code))
+
+        # And the transient 4xx escape hatches still work when the
+        # code arrives as int: 408/429 remain retryable.
+        for status_code in (408, 429):
+            with self.subTest(status_code=status_code):
+                exc = _POSTGREST_API_ERROR_CLS({
+                    "message": "JSON could not be generated",
+                    "code": status_code,
+                    "hint": "",
+                    "details": "",
+                })
+                is_transient, _, _ = (
+                    ba_client._classify_postgrest_error(exc)
+                )
+                self.assertTrue(is_transient)
+
+        # 5xx as int still transient.
+        for status_code in (500, 502, 503):
+            with self.subTest(status_code=status_code):
+                exc = _POSTGREST_API_ERROR_CLS({
+                    "message": "JSON could not be generated",
+                    "code": status_code,
+                    "hint": "",
+                    "details": "",
+                })
+                is_transient, _, _ = (
+                    ba_client._classify_postgrest_error(exc)
+                )
+                self.assertTrue(is_transient)
+
     def test_classifier_transient_for_http_5xx_stringified(self):
         from billing_audit import client as ba_client
         for code in ("500", "502", "503", "504"):

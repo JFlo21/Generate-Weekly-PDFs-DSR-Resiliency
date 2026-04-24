@@ -277,6 +277,20 @@ def _classify_postgrest_error(
     no ``code`` attribute still classifies cleanly.
     """
     code = getattr(exc, "code", None)
+
+    # Coerce integer codes to string. ``postgrest.exceptions.
+    # generate_default_error_message`` (invoked when the HTTP
+    # response body isn't valid JSON) populates ``APIError.code``
+    # with the raw ``httpx.Response.status_code`` — an ``int``.
+    # Without this coercion a non-JSON 406 / 401 / 404 body would
+    # fail the ``isinstance(code, str)`` check, fall into the
+    # "no code → transient" branch, and burn the full retry
+    # budget on an inherently-permanent HTTP rejection — exactly
+    # the retry-spam mode this classifier exists to prevent.
+    # (Codex P2 2026-04-24.)
+    if isinstance(code, int):
+        code = str(code)
+
     if not isinstance(code, str) or not code:
         # No code field — assume transient. This matches the
         # pre-fix behaviour for exotic APIError shapes and keeps
