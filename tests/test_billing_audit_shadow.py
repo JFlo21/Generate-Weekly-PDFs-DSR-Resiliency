@@ -170,6 +170,42 @@ class FingerprintTests(unittest.TestCase):
             compute_assignment_fingerprint(rows_b),
         )
 
+    def test_primary_uses_current_foreman_when_present(self):
+        """Codex P2: a reassignment via ``Foreman Assigned?`` (which
+        the pipeline resolves into ``__current_foreman``) while the
+        raw ``Foreman`` cell stays unchanged must change the
+        fingerprint. Hashing the raw field alone would miss
+        this drift class entirely.
+        """
+        from billing_audit.fingerprint import compute_assignment_fingerprint
+        before = [
+            {"Foreman": "Alice", "__current_foreman": "Alice"}
+        ]
+        after = [
+            # Same ``Foreman`` text, but ``Foreman Assigned?``
+            # override resolved to a different person —
+            # __current_foreman reflects that.
+            {"Foreman": "Alice", "__current_foreman": "Xavier"}
+        ]
+        self.assertNotEqual(
+            compute_assignment_fingerprint(before),
+            compute_assignment_fingerprint(after),
+        )
+
+    def test_primary_falls_back_to_foreman_when_current_missing(self):
+        """When the pipeline didn't populate ``__current_foreman``
+        (e.g. older row data, edge cases), fall back to ``Foreman``
+        so the fingerprint still reflects something useful.
+        """
+        from billing_audit.fingerprint import compute_assignment_fingerprint
+        rows_a = [{"Foreman": "Alice"}]
+        rows_b = [{"__current_foreman": "Alice"}]
+        # Both should produce the same hash — fallback semantics.
+        self.assertEqual(
+            compute_assignment_fingerprint(rows_a),
+            compute_assignment_fingerprint(rows_b),
+        )
+
     def test_casefold_and_whitespace_normalization(self):
         from billing_audit.fingerprint import compute_assignment_fingerprint
         a = compute_assignment_fingerprint(
@@ -231,6 +267,63 @@ class FreezeRowTests(unittest.TestCase):
         ):
             ba_writer.freeze_row(self._valid_row(), release="r", run_id="x")
         client.schema.return_value.rpc.assert_not_called()
+
+    def test_freeze_row_uses_current_foreman_for_primary(self):
+        """Codex P1: ``p_primary`` must record the resolved
+        effective assignee (``__current_foreman``) when present,
+        not the raw ``Foreman`` cell. The pipeline ingest layer
+        resolves ``Foreman Assigned?`` → ``Foreman`` → ``Unknown
+        Foreman`` and writes the result into ``__current_foreman``
+        on each row; freezing the raw ``Foreman`` field would
+        record the wrong assignee whenever ``Foreman Assigned?``
+        overrides apply.
+        """
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        client.schema.return_value.rpc.return_value.execute.return_value = (
+            _fake_rpc_response("run-x")
+        )
+        row = self._valid_row()
+        # Simulate Foreman Assigned? override: raw Foreman is
+        # "Alice Primary" but the resolved effective assignee is
+        # someone else.
+        row["__current_foreman"] = "Xavier Override"
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            ba_writer.freeze_row(row, release="r", run_id="run-x")
+        _, params = client.schema.return_value.rpc.call_args.args
+        self.assertEqual(
+            params["p_primary"], "Xavier Override",
+            "freeze_row must prefer __current_foreman over raw "
+            "Foreman so Foreman-Assigned-? overrides land in "
+            "attribution_snapshot",
+        )
+
+    def test_freeze_row_falls_back_to_foreman_when_current_missing(self):
+        """When __current_foreman is not on the row (e.g. older
+        data, edge cases), fall back to raw Foreman so we still
+        record something instead of NULL.
+        """
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        client.schema.return_value.rpc.return_value.execute.return_value = (
+            _fake_rpc_response("run-x")
+        )
+        row = self._valid_row()
+        # Make sure no __current_foreman is set; raw Foreman is the
+        # only signal.
+        row.pop("__current_foreman", None)
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            ba_writer.freeze_row(row, release="r", run_id="run-x")
+        _, params = client.schema.return_value.rpc.call_args.args
+        self.assertEqual(params["p_primary"], "Alice Primary")
 
     def test_freeze_row_fails_open_when_flag_blipped(self):
         """Codex P1: a transient feature_flag read blip (get_flag

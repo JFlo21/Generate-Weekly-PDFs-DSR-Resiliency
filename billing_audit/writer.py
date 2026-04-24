@@ -299,7 +299,19 @@ def freeze_row(row: dict, release: str | None,
         "p_wr": wr,
         "p_week_ending": week_ending.isoformat(),
         "p_smartsheet_row_id": row_id,
-        "p_primary": row.get("Foreman"),
+        # ``__current_foreman`` is the resolved effective assignee
+        # (``Foreman Assigned?`` override → ``Foreman`` fallback)
+        # that the pipeline computes during row ingest. The raw
+        # ``Foreman`` field can be blank or stale when an override
+        # applies, so freezing it directly would record the wrong
+        # primary assignee in attribution_snapshot. Mirror the
+        # main pipeline's resolution: prefer __current_foreman,
+        # fall back to Foreman, then to None.
+        "p_primary": (
+            row.get("__current_foreman")
+            or row.get("Foreman")
+            or None
+        ),
         "p_helper": row.get("__helper_foreman"),
         "p_helper_dept": row.get("__helper_dept"),
         "p_vac_crew": row.get("__vac_crew_name"),

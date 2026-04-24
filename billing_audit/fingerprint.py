@@ -31,10 +31,22 @@ def compute_assignment_fingerprint(rows: list[dict]) -> str:
     """SHA-256 of sorted personnel sets — primary, helper, vac_crew.
 
     Truncated to 16 chars. Used to detect mid-week assignment
-    changes. Reads ``Foreman``, ``__helper_foreman``, and
-    ``__vac_crew_name`` from each row.
+    changes.
+
+    Primary input is the effective assignee — ``__current_foreman``
+    (resolved during row ingest from ``Foreman Assigned?`` →
+    ``Foreman`` → ``Unknown Foreman``), falling back to raw
+    ``Foreman`` if the resolved value isn't on the row. Hashing
+    the raw ``Foreman`` field alone would miss reassignments that
+    happen via the ``Foreman Assigned?`` override while raw
+    ``Foreman`` text is unchanged — exactly the mid-week-drift
+    scenario this fingerprint is meant to detect. Helper and
+    vac_crew use their dedicated dunder fields populated by the
+    pipeline.
     """
-    primary = _normalize_names([r.get("Foreman") for r in rows])
+    primary = _normalize_names([
+        r.get("__current_foreman") or r.get("Foreman") for r in rows
+    ])
     helper = _normalize_names([r.get("__helper_foreman") for r in rows])
     vac = _normalize_names([r.get("__vac_crew_name") for r in rows])
 
