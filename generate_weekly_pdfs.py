@@ -4565,7 +4565,18 @@ def main():
         # calls. Hoisting the boolean would lock the whole run into
         # the first-read result and silently drop pipeline_run rows.
         _billing_audit_release_env = os.getenv('SENTRY_RELEASE', '') or ''
-        _billing_audit_run_id_env = os.getenv('GITHUB_RUN_ID', '') or ''
+        # ``run_id`` is part of the ``pipeline_run`` on_conflict key
+        # ``(wr, week_ending, run_id)``. An empty string would make
+        # every non-GitHub-Actions execution (manual reruns, local
+        # debugging, crontab on a bare host, etc.) collide into the
+        # same row for a given (wr, week), overwriting prior runs'
+        # records and destroying run history. Use the same
+        # timestamp fallback pattern as
+        # ``scripts/backfill_attribution_snapshot.py``. Microsecond
+        # precision makes same-second manual re-runs distinguishable.
+        _billing_audit_run_id_env = os.getenv('GITHUB_RUN_ID', '') or (
+            f"local-{datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%S%fZ')}"
+        )
 
         # Pre-aggregate rows per (sanitized_wr, week) across ALL
         # variants so the assignment fingerprint captures the full

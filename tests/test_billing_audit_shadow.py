@@ -1330,6 +1330,32 @@ class BackfillCliDateValidationTests(unittest.TestCase):
             r"logging\.warning\([^)]*load_dotenv\(\)\s+failed",
         )
 
+    def test_backfill_splits_flag_disabled_from_flag_read_failure(self):
+        """When the write_attribution_snapshot read returns False,
+        the backfill must distinguish a definitive off-state (flag
+        resolved, exit 5) from a retry-exhausted blip (flag not
+        resolved, exit 7) so operators see the right remediation.
+        """
+        src = _read_source("scripts/backfill_attribution_snapshot.py")
+        collapsed = _collapse_ws(src)
+        # is_flag_resolved is imported and used.
+        self.assertIn("is_flag_resolved", src)
+        self.assertRegex(
+            collapsed,
+            r"if\s+is_flag_resolved\(\s*"
+            r"[\"']write_attribution_snapshot[\"']\s*\)\s*:",
+        )
+        # Both exit codes must be present.
+        self.assertRegex(collapsed, r"return\s+5\b")
+        self.assertRegex(collapsed, r"return\s+7\b")
+        # Connectivity-error path must warn operators NOT to flip
+        # the flag — the exact false-remediation trap the reviewer
+        # flagged.
+        self.assertRegex(
+            collapsed,
+            r"CONNECTIVITY\s*/\s*AUTH\s+issue[^.]*not\s+a\s+disabled\s+flag",
+        )
+
     def test_backfill_loads_dotenv_before_client_check(self):
         """Backfill must call load_dotenv() before get_client() so
         operators relying on the repo's standard .env workflow
@@ -1381,18 +1407,30 @@ class HoistedEnvVarDefaultsTests(unittest.TestCase):
     def test_main_script_hoists_env_vars_with_empty_default(self):
         src = _read_source("generate_weekly_pdfs.py")
         collapsed = _collapse_ws(src)
-        # Quote-form and whitespace-tolerant.
+        # SENTRY_RELEASE → empty-string sentinel. Quote-form and
+        # whitespace-tolerant.
         self.assertRegex(
             collapsed,
             r"_billing_audit_release_env\s*=\s*os\.getenv\("
             r'\s*["\']SENTRY_RELEASE["\']\s*,\s*["\']["\']\s*\)'
             r"\s*or\s*[\"']{2}",
         )
+        # GITHUB_RUN_ID → timestamp fallback (NOT an empty string).
+        # An empty run_id collides on the pipeline_run
+        # on_conflict=(wr, week_ending, run_id) key and destroys
+        # run history for manual / non-Actions executions.
         self.assertRegex(
             collapsed,
             r"_billing_audit_run_id_env\s*=\s*os\.getenv\("
             r'\s*["\']GITHUB_RUN_ID["\']\s*,\s*["\']["\']\s*\)'
-            r"\s*or\s*[\"']{2}",
+            r"\s*or\s*\(\s*f[\"']local-",
+        )
+        # Negative: the old empty-string form must NOT be present.
+        self.assertNotRegex(
+            collapsed,
+            r"_billing_audit_run_id_env\s*=\s*os\.getenv\("
+            r'\s*["\']GITHUB_RUN_ID["\']\s*,\s*["\']["\']\s*\)'
+            r"\s*or\s*[\"']{2}\b",
         )
 
 

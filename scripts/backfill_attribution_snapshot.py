@@ -114,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
             )
 
     from billing_audit import writer as ba_writer
-    from billing_audit.client import get_client, get_flag
+    from billing_audit.client import get_client, get_flag, is_flag_resolved
 
     client = get_client()
     if client is None:
@@ -130,15 +130,35 @@ def main(argv: list[str] | None = None) -> int:
     # and a one-shot backfill that reports success while writing
     # zero rows is the worst of both worlds — it gives operators
     # false confidence that the snapshot table is populated.
+    #
+    # Distinguish two failure modes via ``is_flag_resolved`` so the
+    # error message + exit code guide operators to the right
+    # remediation:
+    #   • Flag is DEFINITIVELY False (value cached via successful
+    #     read) → exit 5, "enable the flag in Supabase."
+    #   • Flag read FAILED (retries exhausted, nothing cached) →
+    #     exit 7, "connectivity issue, investigate Supabase /
+    #     network, this is NOT the same as a disabled flag."
     if not get_flag("write_attribution_snapshot", default=False):
+        if is_flag_resolved("write_attribution_snapshot"):
+            logging.error(
+                "❌ billing_audit.feature_flag.write_attribution_snapshot "
+                "is DISABLED. freeze_row() would no-op for every row. "
+                "Enable the flag in Supabase before running the backfill "
+                "(UPDATE billing_audit.feature_flag SET enabled=TRUE "
+                "WHERE flag_key='write_attribution_snapshot';)."
+            )
+            return 5
         logging.error(
-            "❌ billing_audit.feature_flag.write_attribution_snapshot "
-            "is DISABLED. freeze_row() would no-op for every row. "
-            "Enable the flag in Supabase before running the backfill "
-            "(UPDATE billing_audit.feature_flag SET enabled=TRUE "
-            "WHERE flag_key='write_attribution_snapshot';)."
+            "❌ Could not read "
+            "billing_audit.feature_flag.write_attribution_snapshot "
+            "from Supabase (retries exhausted). This is a "
+            "CONNECTIVITY / AUTH issue, not a disabled flag — do "
+            "not 'UPDATE feature_flag SET enabled=TRUE' in response. "
+            "Check SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and "
+            "network reachability, then re-run."
         )
-        return 5
+        return 7
 
     # Import the main pipeline's discovery/fetch helpers. Must match
     # the function names exported by ``generate_weekly_pdfs``.
