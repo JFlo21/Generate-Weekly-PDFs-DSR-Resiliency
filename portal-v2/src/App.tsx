@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { AuthContext, useAuthState } from './hooks/useAuth';
 import { AuthGuard } from './components/auth/AuthGuard';
 import { LoginPage } from './components/auth/LoginPage';
@@ -67,6 +68,7 @@ export default function App() {
         </AnimatePresence>
 
         <ToastContainer toasts={toasts} onRemove={removeToast} />
+        <SpeedInsights />
       </AuthProvider>
       </ErrorBoundary>
     </BrowserRouter>
