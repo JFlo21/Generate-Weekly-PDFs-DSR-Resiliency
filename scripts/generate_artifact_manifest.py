@@ -11,6 +11,28 @@ import hashlib
 import datetime
 from pathlib import Path
 
+def sanitize_docs_folder(docs_folder):
+    """
+    Sanitize the user-provided docs_folder argument to avoid unsafe paths.
+
+    Only allow normalized, non-absolute paths that do not traverse upwards (no "..").
+    """
+    if not docs_folder:
+        raise ValueError("docs_folder must not be empty")
+
+    # Normalize the path to collapse any '..' or '.' segments
+    normalized = os.path.normpath(docs_folder)
+
+    # Disallow absolute paths to avoid referencing arbitrary locations
+    if os.path.isabs(normalized):
+        raise ValueError(f"Absolute paths are not allowed for docs_folder: {normalized}")
+
+    # Disallow directory traversal outside the working directory
+    if normalized == os.pardir or normalized.startswith(os.pardir + os.sep):
+        raise ValueError(f"Parent-directory traversal is not allowed for docs_folder: {normalized}")
+
+    return normalized
+
 def calculate_file_hash(filepath):
     """Calculate SHA256 hash of a file."""
     sha256_hash = hashlib.sha256()
@@ -208,7 +230,13 @@ def generate_manifest(docs_folder='generated_docs', output_file='artifact_manife
 
 if __name__ == '__main__':
     import sys
-    docs_folder = sys.argv[1] if len(sys.argv) > 1 else 'generated_docs'
+    docs_folder_arg = sys.argv[1] if len(sys.argv) > 1 else 'generated_docs'
     output_file = sys.argv[2] if len(sys.argv) > 2 else 'artifact_manifest.json'
+
+    try:
+        docs_folder = sanitize_docs_folder(docs_folder_arg)
+    except ValueError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
     
     manifest = generate_manifest(docs_folder, output_file)
