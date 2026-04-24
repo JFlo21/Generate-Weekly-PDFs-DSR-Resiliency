@@ -1557,6 +1557,73 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
 
     return hasher.hexdigest()[:16]
 
+
+def _compute_aggregated_content_hash(rows: list[dict]) -> str:
+    """Deterministic content hash for a cross-variant row bucket.
+
+    Used by the billing_audit integration to produce a
+    ``pipeline_run.content_hash`` that covers every variant's rows
+    for a given (WR, week). ``calculate_data_hash()`` assumes the
+    rows it's called with all come from a single production
+    ``group_source_rows`` group; that assumption breaks for an
+    aggregation bucket that unions multiple groups of the same
+    variant. In particular, helper groups are split per-foreman
+    (group key ``{week}_{wr}_HELPER_{sanitized_foreman}``) — so
+    multiple helper groups can exist for the same (WR, week) and
+    calling ``calculate_data_hash(variant='helper', rows=...)``
+    with all of them at once would:
+
+      1. Read helper_foreman/dept/job from ``sorted_rows[0]`` only
+         (variant-specific meta block), so identity changes on
+         non-first helpers never reach the hash.
+      2. Depend on row sort order for which helper's identity
+         gets recorded — flips spuriously between runs.
+
+    Primary groups are keyed on ``{week}_{wr}`` alone (one group
+    per WR/week, no user suffix) and vac_crew on
+    ``{week}_{wr}_VACCREW`` (one group, multi-member handled
+    internally by ``calculate_data_hash``'s per-row VAC fields)
+    — so only the ``helper`` variant needs sub-bucketing here.
+
+    The combined hash is SHA-256 over the sorted
+    ``variant=hash`` tokens (sub-bucketed for helper).
+    """
+    by_variant: dict[str, list[dict]] = {}
+    for r in rows:
+        v = r.get('__variant', 'primary')
+        by_variant.setdefault(v, []).append(r)
+
+    parts: list[str] = []
+    for v in sorted(by_variant.keys()):
+        variant_rows = by_variant[v]
+        if v == 'helper':
+            # Sub-bucket by helper identity to match the per-
+            # foreman group structure assumed by
+            # calculate_data_hash's helper branch.
+            sub: dict[tuple[str, str, str], list[dict]] = {}
+            for r in variant_rows:
+                sk = (
+                    str(r.get('__helper_foreman', '')),
+                    str(r.get('__helper_dept', '')),
+                    str(r.get('__helper_job', '')),
+                )
+                sub.setdefault(sk, []).append(r)
+            sub_parts = [
+                f"{sk}={calculate_data_hash(sub[sk])}"
+                for sk in sorted(sub.keys())
+            ]
+            variant_hash = hashlib.sha256(
+                "|".join(sub_parts).encode('utf-8')
+            ).hexdigest()[:16]
+        else:
+            variant_hash = calculate_data_hash(variant_rows)
+        parts.append(f"{v}={variant_hash}")
+
+    return hashlib.sha256(
+        "|".join(parts).encode('utf-8')
+    ).hexdigest()[:16]
+
+
 def extract_data_hash_from_filename(filename: str) -> str | None:
     """Extract data hash from filename format: WR_{wr_num}_WeekEnding_{week_end}_{data_hash}.xlsx
     
@@ -4798,17 +4865,17 @@ def main():
                                         )
                                     )
                                     if _agg_content_hash is None:
-                                        _by_variant: dict[str, list[dict]] = {}
-                                        for _r in _agg_fp_rows:
-                                            _v = _r.get('__variant', 'primary')
-                                            _by_variant.setdefault(_v, []).append(_r)
-                                        _parts = [
-                                            f"{_v}={calculate_data_hash(_by_variant[_v])}"
-                                            for _v in sorted(_by_variant.keys())
-                                        ]
-                                        _agg_content_hash = hashlib.sha256(
-                                            "|".join(_parts).encode('utf-8')
-                                        ).hexdigest()[:16]
+                                        # Variant-aware aggregated
+                                        # hash, with per-helper sub-
+                                        # bucketing so multi-helper
+                                        # WRs produce a stable
+                                        # content_hash (see
+                                        # _compute_aggregated_content_hash).
+                                        _agg_content_hash = (
+                                            _compute_aggregated_content_hash(
+                                                _agg_fp_rows
+                                            )
+                                        )
                                         _billing_audit_agg_content_hashes[
                                             _agg_key
                                         ] = _agg_content_hash

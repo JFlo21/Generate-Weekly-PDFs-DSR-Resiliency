@@ -1679,16 +1679,15 @@ class CrossVariantFingerprintAggregationTests(unittest.TestCase):
 
     def test_emit_uses_aggregated_content_hash(self):
         """content_hash must come from the per-bucket aggregated
-        hash, not ``data_hash`` (per-variant). After the
-        variant-aware refactor, the hash is built by bucketing
-        rows by ``__variant``, calling ``calculate_data_hash``
-        per-bucket, then SHA-256'ing the sorted
-        ``variant=hash`` tokens. ``calculate_data_hash`` is NOT
-        called on the raw mixed-variant ``_agg_fp_rows`` because
-        it reads ``sorted_rows[0].__variant`` and conditionally
-        includes VAC / helper fields — passing mixed variants
-        would yield sort-order-dependent output that can miss
-        variant-specific fields entirely.
+        hash via ``_compute_aggregated_content_hash`` — which
+        bucket rows by ``__variant``, sub-buckets helper rows by
+        helper identity, then combines per-variant hashes in
+        sorted order. ``calculate_data_hash`` is NOT called on
+        the raw mixed-variant ``_agg_fp_rows`` because it reads
+        ``sorted_rows[0].__variant`` and conditionally includes
+        VAC / helper fields — passing mixed variants would yield
+        sort-order-dependent output that can miss variant-
+        specific fields entirely.
         """
         src = _read_source("generate_weekly_pdfs.py")
         collapsed = _collapse_ws(src)
@@ -1698,30 +1697,39 @@ class CrossVariantFingerprintAggregationTests(unittest.TestCase):
             r"_billing_audit_agg_content_hashes\s*:\s*dict\[\s*"
             r"tuple\[\s*str\s*,\s*str\s*\]\s*,\s*str\s*\]\s*=\s*\{\s*\}",
         )
-        # Variant-aware computation: rows are bucketed by __variant.
+        # The helper function is defined and used.
         self.assertIn(
-            "_by_variant: dict[str, list[dict]] = {}",
+            "def _compute_aggregated_content_hash(",
             src,
         )
         self.assertIn(
-            "_v = _r.get('__variant', 'primary')",
+            "_compute_aggregated_content_hash(\n",
             src,
         )
-        # Per-variant hash is via calculate_data_hash, results are
-        # SHA-256'd in sorted order.
+        # Helper function contract: bucket by __variant, sub-split
+        # helper rows by (helper_foreman, helper_dept, helper_job),
+        # combine with SHA-256 over sorted variant=hash tokens.
         self.assertIn(
-            "calculate_data_hash(_by_variant[_v])",
+            "by_variant: dict[str, list[dict]] = {}",
             src,
         )
         self.assertIn(
-            "for _v in sorted(_by_variant.keys())",
+            "v = r.get('__variant', 'primary')",
+            src,
+        )
+        self.assertIn(
+            "calculate_data_hash(sub[sk])",
+            src,
+        )
+        self.assertIn(
+            "calculate_data_hash(variant_rows)",
             src,
         )
         self.assertIn(
             "hashlib.sha256(",
             src,
         )
-        # Raw-mixed call MUST NOT be present — that's the bug.
+        # Raw-mixed call MUST NOT be present — that's the original bug.
         self.assertNotIn(
             "calculate_data_hash(_agg_fp_rows)",
             src,
@@ -1797,6 +1805,103 @@ class CrossVariantFingerprintAggregationTests(unittest.TestCase):
         rows_d[3] = {"__variant": "vac_crew", "id": 999}
         h_d = _agg_hash(rows_d, _stub_hash)
         self.assertNotEqual(h_a, h_d)
+
+    def test_aggregated_hash_subsplits_multiple_helpers(self):
+        """``_compute_aggregated_content_hash`` must sub-bucket
+        helper rows by (helper_foreman, helper_dept, helper_job)
+        before hashing, since ``calculate_data_hash`` reads the
+        helper metadata from ``sorted_rows[0]`` only. Without sub-
+        bucketing, changing a non-first helper's identity would
+        not change the aggregated hash, and source row-ordering
+        could flip the stored hash between runs.
+        """
+        import generate_weekly_pdfs as gwp
+
+        def _make_helper_row(foreman, dept, job, cu, qty):
+            return {
+                "__variant": "helper",
+                "__helper_foreman": foreman,
+                "__helper_dept": dept,
+                "__helper_job": job,
+                "Work Request #": "91467680",
+                "Snapshot Date": "2026-04-19",
+                "CU": cu,
+                "Quantity": qty,
+                "Units Total Price": "10.00",
+            }
+
+        # Two helpers under one (WR, week) bucket — primary
+        # production would emit these as TWO separate helper
+        # groups (one per helper_foreman).
+        rows_a = [
+            _make_helper_row("Alice", "500", "J1", "ANC-M", 1),
+            _make_helper_row("Alice", "500", "J1", "ANC-M", 2),
+            _make_helper_row("Bob",   "600", "J2", "CPD-SW", 3),
+            _make_helper_row("Bob",   "600", "J2", "CPD-SW", 4),
+        ]
+        # Same rows, shuffled — sub-bucketing makes the order
+        # irrelevant.
+        rows_b = [rows_a[2], rows_a[0], rows_a[3], rows_a[1]]
+
+        h_a = gwp._compute_aggregated_content_hash(rows_a)
+        h_b = gwp._compute_aggregated_content_hash(rows_b)
+        self.assertEqual(
+            h_a, h_b,
+            "shuffled rows must produce the same aggregated hash",
+        )
+
+        # Changing a NON-first helper's identity must be caught.
+        # Without sub-bucketing, the meta from sorted_rows[0]
+        # (Alice's identity) would be unchanged and the hash
+        # would match.
+        rows_c = [
+            _make_helper_row("Alice", "500", "J1", "ANC-M", 1),
+            _make_helper_row("Alice", "500", "J1", "ANC-M", 2),
+            _make_helper_row("Xavier", "600", "J2", "CPD-SW", 3),
+            _make_helper_row("Xavier", "600", "J2", "CPD-SW", 4),
+        ]
+        h_c = gwp._compute_aggregated_content_hash(rows_c)
+        self.assertNotEqual(
+            h_a, h_c,
+            "swapping a non-first helper's identity must change "
+            "the aggregated hash — otherwise multi-helper WRs "
+            "would silently lose drift detection",
+        )
+
+        # Dept change on the non-first helper's rows must also
+        # register.
+        rows_d = [
+            _make_helper_row("Alice", "500", "J1", "ANC-M", 1),
+            _make_helper_row("Alice", "500", "J1", "ANC-M", 2),
+            _make_helper_row("Bob",   "700", "J2", "CPD-SW", 3),
+            _make_helper_row("Bob",   "700", "J2", "CPD-SW", 4),
+        ]
+        h_d = gwp._compute_aggregated_content_hash(rows_d)
+        self.assertNotEqual(h_a, h_d)
+
+    def test_aggregated_hash_combines_variants_deterministically(self):
+        """Mixed-variant bucket: primary + helper + vac_crew rows
+        hash to a stable value regardless of iteration order.
+        """
+        import generate_weekly_pdfs as gwp
+        mixed_a = [
+            {"__variant": "primary", "Work Request #": "1",
+             "Foreman": "Alice", "Snapshot Date": "2026-04-19",
+             "CU": "X", "Quantity": 1, "Units Total Price": "5"},
+            {"__variant": "helper", "Work Request #": "1",
+             "__helper_foreman": "Bob", "__helper_dept": "500",
+             "__helper_job": "J1", "Snapshot Date": "2026-04-19",
+             "CU": "Y", "Quantity": 2, "Units Total Price": "10"},
+            {"__variant": "vac_crew", "Work Request #": "1",
+             "__vac_crew_name": "Carol", "__vac_crew_dept": "700",
+             "__vac_crew_job": "J3", "Snapshot Date": "2026-04-19",
+             "CU": "Z", "Quantity": 3, "Units Total Price": "15"},
+        ]
+        mixed_b = list(reversed(mixed_a))
+        self.assertEqual(
+            gwp._compute_aggregated_content_hash(mixed_a),
+            gwp._compute_aggregated_content_hash(mixed_b),
+        )
 
     def test_compute_assignment_fingerprint_covers_all_variants(self):
         """Sanity check the pure function: rows spanning primary,
