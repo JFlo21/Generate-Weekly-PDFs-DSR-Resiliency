@@ -64,12 +64,17 @@ _consecutive_failures: dict[str, int] = {}
 _open_circuits: set[str] = set()
 
 # ── PostgREST error classification ────────────────────────────────
-# PostgREST returns a JSON error body with a ``code`` field.
-# postgrest-py lifts that into ``APIError.code`` (a string). Some
-# codes indicate a PERMANENT error that no amount of retrying will
-# fix (schema not exposed, JWT invalid, malformed query), while
-# others (or a missing code on a transient body-parse failure) can
-# still be transient.
+# PostgREST returns a JSON error body with a ``code`` field, and
+# postgrest-py lifts that into ``APIError.code`` — **``str | int``**:
+# usually a PostgREST error-code string (``PGRST106``, ``PGRST301``,
+# …) or a SQLSTATE, but sometimes an HTTP status-code integer when
+# the response body isn't valid JSON and the library falls back to
+# ``generate_default_error_message``. The classifier normalizes
+# both shapes to ``str`` before prefix / membership checks.
+# Some codes indicate a PERMANENT error that no amount of retrying
+# will fix (schema not exposed, JWT invalid, malformed query),
+# while others (or a missing code on a transient body-parse
+# failure) can still be transient.
 #
 # The pre-fix behaviour treated EVERY ``APIError`` as transient, so
 # a misconfigured Supabase (e.g. ``billing_audit`` schema not in the
@@ -262,15 +267,24 @@ def _classify_postgrest_error(
 
     - ``is_transient`` — True when retrying MIGHT succeed. Network-
       level issues surface as ``httpx.HTTPError`` / name-matched
-      exceptions (handled separately in ``with_retry``); the only
-      APIError shape we keep as transient is "no code field" (rare;
-      usually a 5xx whose body wasn't valid JSON).
+      exceptions (handled separately in ``with_retry``). For
+      ``APIError`` instances, transient cases are:
+        * missing / malformed ``code`` (``None`` or empty string,
+          after the ``int`` → ``str`` coercion);
+        * unknown codes that don't match any ``PGRST`` prefix or
+          ``_HTTP_PERMANENT_CODES`` membership;
+        * HTTP status codes NOT listed as permanent, which includes
+          the retryable 4xx escape hatches (``408`` request
+          timeout, ``429`` rate-limit) and all 5xx server errors
+          when ``APIError.code`` is populated from the raw HTTP
+          status via ``generate_default_error_message``.
     - ``is_global_kill`` — True when the error applies to every
       table + RPC in the ``billing_audit`` schema (schema not
       exposed, auth invalid). Tripping the per-op breaker four
       times doesn't fix a schema-exposure problem.
-    - ``reason_code`` — the ``APIError.code`` string for logs /
-      breadcrumbs. ``None`` when the exception carries no code.
+    - ``reason_code`` — the ``APIError.code`` (stringified, after
+      int coercion) for logs / breadcrumbs. ``None`` when the
+      exception carries no code at all.
 
     Called only for already-confirmed APIError instances, so the
     ``getattr`` fallback is defensive — a malformed subclass with
