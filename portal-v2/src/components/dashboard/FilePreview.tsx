@@ -92,16 +92,14 @@ function PreviewHeader({
           <Download size={12} />
           Download
         </button>
-        <a
-          href={api.getFileInlineUrl(artifactId, file.name)}
-          target="_blank"
-          rel="noopener noreferrer"
+        <button
+          onClick={() => api.openFileInline(artifactId, file.name)}
           className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors"
           title="Open in new tab"
         >
           <ExternalLink size={12} />
           Open
-        </a>
+        </button>
       </div>
     </div>
   );
@@ -238,10 +236,53 @@ function ExcelPreview({ artifactId, file }: { artifactId: number; file: Artifact
 }
 
 function ImagePreview({ artifactId, file }: { artifactId: number; file: ArtifactFile }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setSrc(null);
+    setError(null);
+
+    api
+      .getFileObjectUrl(artifactId, file.name)
+      .then((url) => {
+        objectUrl = url;
+        if (cancelled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        setSrc(url);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to load image');
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [artifactId, file.name]);
+
+  if (error) {
+    return <div className="p-6 text-sm text-red-500">{error}</div>;
+  }
+
+  if (!src) {
+    return (
+      <div className="h-full overflow-auto p-4 bg-slate-100 flex items-center justify-center">
+        <Skeleton className="h-64 w-64 rounded-lg" />
+      </div>
+    );
+  }
+
   return (
     <div className="h-full overflow-auto p-4 bg-slate-100 flex items-center justify-center">
       <img
-        src={api.getFileInlineUrl(artifactId, file.name)}
+        src={src}
         alt={file.name}
         className="max-w-full max-h-full rounded-lg shadow-md bg-white"
       />
