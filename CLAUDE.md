@@ -1367,3 +1367,69 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   itself is unchanged by the guard (callers invoking the helper
   directly still get the full recalc behaviour regardless of
   env vars).
+- [2026-04-24 14:30] Retired the Python CSV-side rate recalc
+  feature in production. Follow-up to the 11:30 entry above:
+  rather than rely solely on the per-sheet
+  ``RATE_RECALC_SKIP_ORIGINAL_CONTRACT`` guard to protect the
+  two original-contract folders, operators decided that since
+  Smartsheet's native pricing is now authoritative for those
+  folders, the entire CSV-side recalc path should be treated as
+  legacy across the production workflow — there is no remaining
+  production sheet that needs Python-side post-cutoff rate
+  recalculation. **Change:** ``.github/workflows/weekly-excel-
+  generation.yml`` now hardcodes ``RATE_CUTOFF_DATE: ''``,
+  ``NEW_RATES_CSV: ''``, ``OLD_RATES_CSV: ''`` (was
+  ``${{ vars.<NAME> || '' }}``) with a prominent LEGACY comment
+  block explaining the retirement and revert path. A repo
+  Variable that re-introduces a value is now ignored by the
+  workflow — pinning the value at the workflow layer makes the
+  decision code-reviewable through git history rather than
+  hidden in GitHub Actions UI. **Defense-in-depth on the Python
+  side:** ``generate_weekly_pdfs.py`` now emits a WARNING in the
+  startup banner whenever ``RATE_CUTOFF_DATE`` is detected,
+  pointing operators at this ledger entry. This catches local
+  dev shells, ad-hoc scripts, or future workflows that might
+  re-introduce the env var by accident. **What stays:** every
+  recalc helper (``recalculate_row_price``,
+  ``_resolve_rate_recalc_cutoff_date``,
+  ``build_cu_to_group_mapping``, ``load_rate_versions``), the
+  ``RATE_RECALC_SKIP_ORIGINAL_CONTRACT`` guard from the prior
+  commit on this branch, and every existing test. The code is
+  retained intentionally so re-enablement is a one-line workflow
+  revert (restore the three ``${{ vars.<NAME> || '' }}`` lines)
+  rather than a code rewrite. **Docs:** ``website/docs/reference/
+  environment.md`` "Rate contract versioning" section now leads
+  with a Docusaurus ``:::caution LEGACY`` admonition pointing
+  at this entry, and each row in the variable table is prefixed
+  with ``(LEGACY)``. **New rules:** (1) When an external system
+  takes over a column we used to compute locally AND there is no
+  remaining local consumer that benefits from the local
+  computation, retire the local feature in the workflow layer
+  — do NOT just leave it env-gated. Workflow pinning is
+  enforceable through git history; repo-Variable defaults are
+  not. (2) Retire vs. delete: keep the code paths intact behind
+  the workflow pin if the underlying business problem (post-
+  cutoff billing) could realistically come back (rate contract
+  renegotiation, new subcontractor, Smartsheet formula
+  regression). The marginal carrying cost of retained code +
+  tests is much lower than the cost of rewriting the recalc
+  pipeline from scratch under incident pressure. (3) When
+  retiring an env-var-gated feature, ALSO emit a runtime
+  WARNING when the env var is detected — silent retirement is
+  a footgun for any developer running locally with stale
+  ``.env`` files. The WARNING must point at the ledger entry
+  that explains why, not just say "deprecated". (4) Any future
+  un-retire of this feature MUST be paired with explicit
+  verification that the rows being re-priced are NOT already
+  Smartsheet-priced for the same column. The
+  ``RATE_RECALC_SKIP_ORIGINAL_CONTRACT`` guard remains the
+  default-on protection for the two folders documented in the
+  11:30 entry above; if a future engineer disables the guard
+  without confirming Smartsheet's formula has been removed
+  first, the same silent-corruption trap reopens. No new tests
+  are added for this retirement — existing tests in
+  ``tests/test_subcontractor_pricing.py``, ``tests/test_vac_crew.py``,
+  and ``tests/test_security_audit_followup.py`` already cover
+  the retained code paths because they explicitly set
+  ``RATE_CUTOFF_DATE`` in setUp/tearDown for isolation. Verified
+  via ``pytest tests/`` (393 passed / 17 skipped) post-change.

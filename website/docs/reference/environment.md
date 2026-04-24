@@ -61,11 +61,25 @@ workflow. Copy `.env.example` to `.env` for local dev.
 
 ## Rate contract versioning
 
+:::caution LEGACY — retired 2026-04-24
+The Python CSV-side rate recalc was retired on 2026-04-24.
+Smartsheet now emits the authoritative `Units Total Price`
+natively on `ORIGINAL_CONTRACT_FOLDER_IDS` sheets for rows whose
+`Snapshot Date >= 2026-04-12` and `Units Completed?` is checked.
+Running the Python recalc on top of Smartsheet's authoritative
+price was a silent-corruption trap. The production workflow
+(`.github/workflows/weekly-excel-generation.yml`) now pins all
+three variables below to empty strings; the env vars themselves
+are retained so re-enablement is a one-line workflow revert if
+ever needed. See the `[2026-04-24]` Living Ledger entry in
+`CLAUDE.md` for the full incident context and revert path.
+:::
+
 | Variable | Purpose |
 | --- | --- |
-| `RATE_CUTOFF_DATE` | `YYYY-MM-DD` switch date for new rates. |
-| `NEW_RATES_CSV` | Path to the new rate CSV. |
-| `OLD_RATES_CSV` | Path to the prior rate CSV. |
+| `RATE_CUTOFF_DATE` (LEGACY) | `YYYY-MM-DD` switch date for new rates. Production workflow pins this to `''`. |
+| `NEW_RATES_CSV` (LEGACY) | Path to the new rate CSV. Production workflow pins this to `''`. |
+| `OLD_RATES_CSV` (LEGACY) | Path to the prior rate CSV. Production workflow pins this to `''`. |
 
 ## Observability
 

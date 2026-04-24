@@ -402,6 +402,25 @@ RATE_RECALC_SKIP_ORIGINAL_CONTRACT = os.getenv(
 
 if RATE_CUTOFF_DATE:
     logging.info(f"📊 Rate contract versioning ENABLED: cutoff date = {RATE_CUTOFF_DATE.isoformat()}")
+    # The CSV-side rate recalc was retired in production on
+    # 2026-04-24 because Smartsheet now emits the authoritative
+    # Units Total Price natively for ORIGINAL_CONTRACT_FOLDER_IDS
+    # post-cutoff rows. The production workflow pins
+    # RATE_CUTOFF_DATE='' so this branch should not fire on
+    # scheduled runs anymore. If it DOES fire, something has
+    # bypassed the workflow pinning (local dev shell, an ad-hoc
+    # script, a re-introduced repo Variable) — surface that loudly
+    # so operators can double-check the pricing source before
+    # trusting the output.
+    logging.warning(
+        "⚠️ RATE_CUTOFF_DATE is set, but the Python CSV-side rate "
+        "recalc feature has been retired — Smartsheet now emits "
+        "the authoritative Units Total Price natively on "
+        "ORIGINAL_CONTRACT_FOLDER_IDS sheets, and the production "
+        "workflow pins RATE_CUTOFF_DATE='' as of 2026-04-24. "
+        "Unset RATE_CUTOFF_DATE to silence this warning. See "
+        "CLAUDE.md Living Ledger entry [2026-04-24] for context."
+    )
     if RATE_RECALC_WEEKLY_FALLBACK:
         logging.info(
             "📊 Rate recalc Weekly-Ref-Date fallback ENABLED "
