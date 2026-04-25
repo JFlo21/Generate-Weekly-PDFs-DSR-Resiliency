@@ -655,6 +655,30 @@ def with_retry(fn: Callable[..., Any], *args: Any,
                     f"backoff {backoff:.1f}s"
                 )
                 time.sleep(backoff)
+                # Re-check kill switch + circuit breaker BEFORE the
+                # next attempt. The 2026-04-25 parallelization of
+                # ``freeze_row`` in the main pipeline can put up to
+                # ``PARALLEL_WORKERS`` (8 by default) concurrent
+                # callers into ``with_retry`` for the same op
+                # simultaneously. Without this re-check, an outage
+                # on Supabase would let every in-flight worker
+                # exhaust all 4 attempts even after another worker
+                # tripped the breaker — recreating the per-op retry
+                # storm (8 workers × 4 attempts = 32 doomed RPCs)
+                # the breaker exists to bound. Checking AFTER the
+                # backoff sleep (where the cross-thread state has
+                # had time to update) ensures every worker observes
+                # the breaker trip from any neighbor.
+                if _global_disable_reason is not None:
+                    return None
+                if op in _open_circuits:
+                    logging.warning(
+                        f"⚠️ billing_audit[{op}] aborting retries: "
+                        "circuit breaker opened by a concurrent "
+                        f"worker mid-attempt (after {attempt + 1}/"
+                        f"{max_attempts})"
+                    )
+                    return None
                 continue
             # Non-transient OR last attempt — fall through to failure.
             break

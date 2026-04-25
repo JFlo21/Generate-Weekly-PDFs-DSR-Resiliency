@@ -1538,20 +1538,37 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   loop in the codebase). Single-row groups skip the executor to
   avoid setup overhead. Future-result iteration via
   ``as_completed`` swallows any unexpected exception per-row with a
-  defensive ``logging.exception`` so one bad row cannot kill the
-  group's billing_audit work — ``freeze_row`` is already fail-safe
-  (catches its own errors, increments ``_counters`` under the GIL),
-  so a future raising would be a programming bug rather than a
-  routine network failure. Expected speedup: 5-8× on the per-row
-  RPC phase, restoring runtime to ~1.2h for a typical run with
-  ~80% completed-row coverage. **Thread-safety analysis (the
-  property the parallelization relies on):** (1) ``_counters``
-  increments under the GIL — each ``+= 1`` is a single bytecode op
-  so concurrent writers cannot lose updates. (2) ``with_retry``
-  reads/writes ``_consecutive_failures`` and ``_open_circuits``
-  under the GIL. Worst-case race: two threads see the counter at
-  2 and 3 simultaneously — both classify "below threshold" and
-  produce one extra retry attempt before the breaker trips.
+  defensive ``logging.exception`` (including the sanitized
+  ``__row_id`` so one bad row in a 100-row group can be pinpointed)
+  so one bad row cannot kill the group's billing_audit work —
+  ``freeze_row`` is fail-safe (catches its own errors). Expected
+  speedup: 5-8× on the per-row RPC phase, restoring runtime to
+  ~1.2h for a typical run with ~80% completed-row coverage.
+  **Thread-safety analysis (the property the parallelization
+  relies on, corrected after Copilot review feedback on PR #189):**
+  (1) ``_counters`` writes go through ``_bump_counter`` which takes
+  ``_counters_lock``. The bare ``dict[k] += 1`` is a multi-bytecode
+  read-modify-write (``BINARY_SUBSCR`` → ``BINARY_ADD`` →
+  ``STORE_SUBSCR``); the GIL holds each bytecode atomic but a
+  thread can be preempted between them, so without the lock two
+  threads can both read the counter at N, both compute N+1, and
+  both store N+1 — losing one increment. The lock makes counter
+  writes exact under any contention level; ``get_counters()``
+  also takes the lock so the snapshot is internally consistent.
+  (2) ``with_retry`` writes to ``_consecutive_failures`` /
+  ``_open_circuits`` are NOT lock-protected today. Without
+  protection a worker could observe the counter at 2 and another
+  at 3 simultaneously, both classifying "below threshold" and
+  producing one extra retry attempt before the breaker trips.
+  **The 2026-04-25 inter-attempt re-check** ensures workers that
+  started before the breaker opened will exit at the next retry
+  boundary (``time.sleep(backoff)`` followed by a re-check of
+  ``_open_circuits`` and ``_global_disable_reason``), bounding
+  the worst-case retry storm to one extra round per in-flight
+  worker. This addresses Codex P1 review feedback that
+  parallelization without the inter-attempt check would let an
+  outage generate up to 8 workers × 4 attempts = 32 doomed RPCs
+  per op before the breaker engaged.
   Acceptable for a fail-safe metrics path. (3) ``get_client()``
   is memoized via ``_client_cache`` so concurrent ``freeze_row``
   callers share the same ``supabase.Client`` instance; the

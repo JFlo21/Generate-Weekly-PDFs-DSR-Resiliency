@@ -552,15 +552,24 @@ class FreezeRowConcurrencyTests(unittest.TestCase):
     runs from 1h to 3h+).
 
     The thread-safety we rely on:
-      * ``_counters`` increments under the GIL — each ``+= 1`` is a
-        single bytecode op, so concurrent writers may interleave but
-        cannot lose updates within the freeze_row code path.
-      * ``with_retry`` reads/writes ``_consecutive_failures`` and
-        ``_open_circuits`` under the GIL too. Worst-case race: one
-        thread observes the counter at 2 and the other at 3
-        simultaneously — both classify as "below threshold" and
-        retry, producing one extra attempt before the breaker trips.
-        Acceptable for a fail-safe metrics path.
+      * ``_counters`` writes go through ``_bump_counter`` which
+        takes ``_counters_lock``. The bare ``dict[k] += 1`` is a
+        multi-bytecode read-modify-write (``BINARY_SUBSCR`` →
+        ``BINARY_ADD`` → ``STORE_SUBSCR``) and can lose increments
+        under contention even with the GIL — the lock makes
+        increments exact under any contention level. ``get_counters``
+        also takes the lock so the returned snapshot is internally
+        consistent.
+      * ``with_retry`` writes to ``_consecutive_failures`` /
+        ``_open_circuits`` are NOT lock-protected today — under
+        contention they can produce off-by-one races where two
+        threads both observe a counter at threshold-1 and both
+        increment to threshold, generating one extra retry attempt
+        before the breaker actually opens. The 2026-04-25
+        inter-attempt re-check ensures workers that started before
+        the breaker opened will exit at the next retry boundary,
+        bounding the worst-case retry storm to one extra round per
+        in-flight worker.
       * The Supabase client itself (``client.schema(...)`` chain)
         is built fresh per-thread when each thread enters
         ``with_retry``'s ``fn`` closure, but ``get_client()`` is
@@ -697,6 +706,128 @@ class FreezeRowConcurrencyTests(unittest.TestCase):
             f"Expected 13 RPC outcomes for completed rows; got "
             f"{completed_outcomes}: {counters}",
         )
+
+    def test_bump_counter_is_lock_protected_under_heavy_contention(self):
+        """Direct stress test of ``_bump_counter``: 32 threads each
+        bump the same counter 500 times. The final total must be
+        exactly 16000. Without ``_counters_lock`` the bare
+        ``dict[k] += 1`` would race and produce a number lower
+        than 16000 — this test would fail intermittently. With the
+        lock, the total is exact every time. Locks down the
+        2026-04-25 review-driven correction (Copilot flagged the
+        original "+= is atomic under the GIL" claim as wrong).
+        """
+        from concurrent.futures import ThreadPoolExecutor
+        from billing_audit import writer as ba_writer
+        bumps_per_thread = 500
+        thread_count = 32
+
+        def _hammer():
+            for _ in range(bumps_per_thread):
+                ba_writer._bump_counter("snapshots_written")
+
+        with ThreadPoolExecutor(max_workers=thread_count) as ex:
+            futures = [ex.submit(_hammer) for _ in range(thread_count)]
+            for f in futures:
+                f.result()
+
+        counters = ba_writer.get_counters()
+        self.assertEqual(
+            counters["snapshots_written"],
+            bumps_per_thread * thread_count,
+            f"_bump_counter lost increments under contention: "
+            f"expected {bumps_per_thread * thread_count}, got "
+            f"{counters['snapshots_written']}",
+        )
+
+    def test_get_freeze_row_executor_is_singleton(self):
+        """Two concurrent first-callers must NOT create two executors.
+        The lazy initialization in ``get_freeze_row_executor`` is
+        guarded by a double-checked lock so the singleton is exactly
+        one instance regardless of how many threads race the first
+        call.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+        from billing_audit import writer as ba_writer
+        # Reset to ensure no prior test leaked an executor.
+        ba_writer._reset_executor_for_tests()
+
+        results: list = []
+
+        def _race():
+            results.append(ba_writer.get_freeze_row_executor())
+
+        with ThreadPoolExecutor(max_workers=16) as ex:
+            futures = [ex.submit(_race) for _ in range(16)]
+            for f in futures:
+                f.result()
+
+        self.assertEqual(len(results), 16)
+        self.assertTrue(
+            all(r is results[0] for r in results),
+            "get_freeze_row_executor returned multiple instances "
+            "under concurrent first-call — singleton guard broken",
+        )
+
+    def test_with_retry_inter_attempt_circuit_breaker_check(self):
+        """When concurrent workers enter ``with_retry`` for the
+        same op simultaneously and one trips the breaker, the
+        OTHER in-flight workers must abort at their next retry
+        boundary instead of exhausting all 4 attempts.
+
+        Pre-2026-04-25, the breaker was checked only once at
+        function entry. After Codex P1 review feedback, the check
+        also fires after each ``time.sleep(backoff)`` so concurrent
+        workers observe a neighbor's trip. This test simulates the
+        race directly: a worker mid-retry has the breaker forced
+        open externally, then must short-circuit on the next
+        attempt rather than firing more RPCs.
+        """
+        from billing_audit import client as ba_client
+        ba_client.reset_cache_for_tests()
+
+        attempts_made = []
+
+        def _failing_then_breaker_opens():
+            attempts_made.append(1)
+            if len(attempts_made) == 1:
+                # Simulate a concurrent worker tripping the breaker
+                # for THIS op while we're between retry attempts.
+                ba_client._open_circuits.add("test_op_concurrent")
+            raise self._make_api_error(
+                None,  # no code → transient → would normally retry
+                message="simulated transient",
+            )
+
+        with mock.patch("billing_audit.client.time.sleep"):
+            result = ba_client.with_retry(
+                _failing_then_breaker_opens,
+                op="test_op_concurrent",
+            )
+
+        self.assertIsNone(result)
+        # Exactly 1 attempt: the function ran once, raised, slept,
+        # then the inter-attempt check found the breaker open and
+        # short-circuited. Without the new check, attempts_made
+        # would be 4 (full retry budget).
+        self.assertEqual(
+            len(attempts_made),
+            1,
+            f"Expected exactly 1 attempt before inter-attempt "
+            f"breaker short-circuit; got {len(attempts_made)} "
+            f"(retry-storm regression)",
+        )
+
+    def _make_api_error(self, code, message=""):
+        """Mirror the helper in PostgrestErrorClassificationTests so
+        the inter-attempt-breaker test can build a real APIError
+        without depending on that class's setUp.
+        """
+        if _POSTGREST_API_ERROR_CLS is None:
+            self.skipTest("postgrest not installed")
+        return _POSTGREST_API_ERROR_CLS({
+            "code": code, "message": message, "hint": "", "details": "",
+        })
 
 
 class EmitRunFingerprintTests(unittest.TestCase):

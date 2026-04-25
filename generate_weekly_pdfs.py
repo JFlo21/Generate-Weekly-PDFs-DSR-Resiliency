@@ -4974,22 +4974,31 @@ def main():
                             # consuming TIME_BUDGET_MINUTES before the
                             # main loop reached Excel generation.
                             #
-                            # ``freeze_row`` is fail-safe: it catches
-                            # its own errors, increments
-                            # ``_counters`` under the GIL, and never
-                            # raises to the caller. So a future raising
-                            # is a programming bug rather than a
-                            # routine network failure — log it and
-                            # continue with the rest of the group's
-                            # writes.
+                            # ``freeze_row`` is intended to be fail-
+                            # safe: it handles routine errors
+                            # internally and records best-effort
+                            # diagnostic counters. Counter writes are
+                            # protected by ``_counters_lock`` so the
+                            # totals stay exact even under concurrent
+                            # invocation (the bare ``dict[k] += 1``
+                            # is a multi-bytecode read-modify-write
+                            # and CAN lose increments without the
+                            # lock). A future raising here is still
+                            # unexpected; log it (with sanitized row
+                            # id) and continue with the rest of the
+                            # group's writes.
                             #
-                            # Cap at ``PARALLEL_WORKERS`` (≤ 8 by
-                            # convention; Smartsheet caps the rest of
-                            # the pipeline there too) so concurrent
-                            # Supabase round-trips stay well within
-                            # the project's connection budget. Single-
-                            # row groups skip the executor to avoid
-                            # ThreadPoolExecutor setup overhead.
+                            # Executor reuse: ``get_freeze_row_executor()``
+                            # returns a process-wide singleton lazily
+                            # created on first use. With ~1900 groups
+                            # per typical run, creating a per-group
+                            # executor would mean ~1900 executor
+                            # constructions and ~15,000 thread-join
+                            # operations — each cheap individually
+                            # but non-trivial in aggregate, and
+                            # noisy in operational debugging.
+                            # ``atexit`` handles shutdown when the
+                            # interpreter exits.
                             if len(group_rows) <= 1:
                                 for _row in group_rows:
                                     _billing_audit_writer.freeze_row(
@@ -4998,41 +5007,52 @@ def main():
                                         run_id=_billing_audit_run_id_env,
                                     )
                             else:
-                                _bas_workers = min(
-                                    PARALLEL_WORKERS, len(group_rows)
+                                # Singleton executor sized once at
+                                # first use; subsequent calls share
+                                # the same worker pool.
+                                _bas_ex = (
+                                    _billing_audit_writer
+                                    .get_freeze_row_executor(
+                                        max_workers=PARALLEL_WORKERS,
+                                    )
                                 )
-                                _bas.set_data("workers", _bas_workers)
-                                with ThreadPoolExecutor(
-                                    max_workers=_bas_workers,
-                                    thread_name_prefix="freeze_row",
-                                ) as _bas_ex:
-                                    _bas_futures = [
-                                        _bas_ex.submit(
-                                            _billing_audit_writer.freeze_row,
-                                            _row,
-                                            release=_billing_audit_release_env,
-                                            run_id=_billing_audit_run_id_env,
+                                _bas.set_data(
+                                    "in_flight", len(group_rows)
+                                )
+                                # Track future → row so an unexpected
+                                # raise can be pinpointed to the
+                                # specific row that triggered it,
+                                # not just the WR — useful when one
+                                # row in a 100-row group has malformed
+                                # data the writer didn't anticipate.
+                                _bas_future_to_row: dict[Any, dict] = {}
+                                for _row in group_rows:
+                                    _bas_f = _bas_ex.submit(
+                                        _billing_audit_writer.freeze_row,
+                                        _row,
+                                        release=_billing_audit_release_env,
+                                        run_id=_billing_audit_run_id_env,
+                                    )
+                                    _bas_future_to_row[_bas_f] = _row
+                                for _bas_f in as_completed(_bas_future_to_row):
+                                    try:
+                                        _bas_f.result()
+                                    except Exception:
+                                        # Sanitized row identifier:
+                                        # ``__row_id`` is a Smartsheet
+                                        # numeric ID (not PII) — safe
+                                        # to log. Skip Pole / CU /
+                                        # Foreman fields per the
+                                        # _PII_LOG_MARKERS rule.
+                                        _bad_row = _bas_future_to_row.get(_bas_f, {})
+                                        _bad_row_id = _bad_row.get("__row_id")
+                                        logging.exception(
+                                            "billing_audit.freeze_row "
+                                            "raised unexpectedly for "
+                                            "WR %s row_id=%s",
+                                            wr_num,
+                                            _bad_row_id,
                                         )
-                                        for _row in group_rows
-                                    ]
-                                    for _bas_f in as_completed(_bas_futures):
-                                        try:
-                                            _bas_f.result()
-                                        except Exception:
-                                            # Defensive: freeze_row
-                                            # already swallows its
-                                            # own errors. A bubble-up
-                                            # here means a programming
-                                            # bug; log and continue so
-                                            # one bad row can't kill
-                                            # the rest of the group's
-                                            # billing_audit work.
-                                            logging.exception(
-                                                "billing_audit.freeze_row "
-                                                "raised unexpectedly for "
-                                                "WR %s",
-                                                wr_num,
-                                            )
                             # Skip fingerprint compute + completed
                             # count when the fingerprint flag is off
                             # — emit_run_fingerprint would no-op
