@@ -172,6 +172,14 @@ jobs:
           restore-keys: |
             discovery-cache-${{ github.ref_name }}-
             discovery-cache-
+      - name: Restore billing-audit row cache
+        uses: actions/cache/restore@v4
+        with:
+          path: generated_docs/billing_audit_frozen_rows.json
+          key: billing-audit-rows-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            billing-audit-rows-${{ github.ref_name }}-
+            billing-audit-rows-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -527,6 +535,13 @@ jobs:
         with:
           path: generated_docs/discovery_cache.json
           key: discovery-cache-${{ github.ref_name }}-${{ github.run_id }}
+
+      - name: Save billing-audit row cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: generated_docs/billing_audit_frozen_rows.json
+          key: billing-audit-rows-${{ github.ref_name }}-${{ github.run_id }}
       
       - name: Summary
         if: always()

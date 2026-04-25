@@ -2183,18 +2183,20 @@ def load_billing_audit_row_cache(path: str) -> set[str]:
 def save_billing_audit_row_cache(path: str, rows: set[str]) -> None:
     """Persist cached freeze-attribution row keys."""
     try:
-        values = list(rows)
+        # Always sort set-backed cache entries so serialized output is
+        # deterministic across runs; also produces smaller diffs.
+        values = sorted(rows)
         if len(values) > BILLING_AUDIT_ROW_CACHE_MAX_ENTRIES:
             # Deterministic truncation. Cache is opportunistic; precision
             # is not required as fallback is to re-call freeze_row.
-            values = sorted(values)[-BILLING_AUDIT_ROW_CACHE_MAX_ENTRIES:]
+            values = values[-BILLING_AUDIT_ROW_CACHE_MAX_ENTRIES:]
+            retained = len(values)
             logging.info(
-                "🧹 Pruned billing-audit row cache to "
-                f"{BILLING_AUDIT_ROW_CACHE_MAX_ENTRIES} entries"
+                f"🧹 Pruned billing-audit row cache to {retained} entries"
             )
         tmp_path = path + ".tmp"
         with open(tmp_path, "w") as f:
-            json.dump(values, f, indent=2)
+            json.dump(values, f, separators=(",", ":"))
         os.replace(tmp_path, path)
         logging.info(f"📝 Billing-audit row cache saved ({len(values)} entries)")
     except Exception as e:

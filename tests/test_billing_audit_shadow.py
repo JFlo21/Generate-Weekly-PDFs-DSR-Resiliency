@@ -540,11 +540,150 @@ class FreezeRowTests(unittest.TestCase):
             ba_client.reset_cache_for_tests()
 
 
+class FreezeRowBoolReturnTests(unittest.TestCase):
+    """Assert the documented bool return semantics of ``freeze_row``.
+
+    ``generate_weekly_pdfs.py`` uses the return value to maintain the
+    billing-audit row cache (skip rows already frozen). Regressions
+    here would silently break the skip logic.
+    """
+
+    def setUp(self):
+        _reset_all()
+
+    def tearDown(self):
+        _reset_all()
+
+    def _valid_row(self):
+        return {
+            "__row_id": 123456789,
+            "Work Request #": "WR-9001",
+            "__week_ending_date": datetime.date(2026, 4, 19),
+            "Units Completed?": True,
+            "Foreman": "Alice",
+            "__effective_user": "Alice",
+        }
+
+    def test_returns_false_when_client_none(self):
+        """client is None → False (no RPC possible)."""
+        from billing_audit import writer as ba_writer
+        with mock.patch("billing_audit.writer.get_client", return_value=None):
+            result = ba_writer.freeze_row(
+                self._valid_row(), release="r", run_id="x"
+            )
+        self.assertIs(result, False)
+
+    def test_returns_false_when_flag_definitively_off(self):
+        """flag is resolved-off → False."""
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=False
+        ), mock.patch(
+            "billing_audit.writer.is_flag_resolved", return_value=True
+        ):
+            result = ba_writer.freeze_row(
+                self._valid_row(), release="r", run_id="x"
+            )
+        self.assertIs(result, False)
+
+    def test_returns_false_for_missing_row_id(self):
+        """Row without __row_id is ineligible → False."""
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        row = self._valid_row()
+        del row["__row_id"]
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ), self.assertLogs(level="WARNING"):
+            result = ba_writer.freeze_row(row, release="r", run_id="x")
+        self.assertIs(result, False)
+
+    def test_returns_false_when_units_completed_false(self):
+        """Row with Units Completed?=False is ineligible → False."""
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        row = self._valid_row()
+        row["Units Completed?"] = False
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            result = ba_writer.freeze_row(row, release="r", run_id="x")
+        self.assertIs(result, False)
+
+    def test_returns_false_when_rpc_returns_none(self):
+        """RPC exhausts retries (returns None) → False."""
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client(
+            rpc_side_effect=[Exception("boom")] * 5
+        )
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ), mock.patch("billing_audit.client.time.sleep"):
+            result = ba_writer.freeze_row(
+                self._valid_row(), release="r", run_id="x"
+            )
+        self.assertIs(result, False)
+        self.assertEqual(
+            ba_writer.get_counters()["snapshots_errored"], 1,
+            "errored counter must be bumped on RPC failure",
+        )
+
+    def test_returns_true_on_successful_new_write(self):
+        """RPC succeeds with source_run_id matching caller run_id → True
+        (snapshots_written incremented)."""
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        client.schema.return_value.rpc.return_value.execute.return_value = (
+            _fake_rpc_response("run-1")
+        )
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            result = ba_writer.freeze_row(
+                self._valid_row(), release="r", run_id="run-1"
+            )
+        self.assertIs(result, True)
+        self.assertEqual(ba_writer.get_counters()["snapshots_written"], 1)
+
+    def test_returns_true_on_already_frozen(self):
+        """RPC returns source_run_id differing from caller run_id → True
+        (snapshots_already_frozen incremented, not False)."""
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        client.schema.return_value.rpc.return_value.execute.return_value = (
+            _fake_rpc_response("prior-run")
+        )
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            result = ba_writer.freeze_row(
+                self._valid_row(), release="r", run_id="current-run"
+            )
+        self.assertIs(result, True)
+        self.assertEqual(
+            ba_writer.get_counters()["snapshots_already_frozen"], 1
+        )
+
+
+
 class FreezeRowConcurrencyTests(unittest.TestCase):
     """``freeze_row`` MUST be safe to invoke concurrently from a
     ThreadPoolExecutor. The main pipeline parallelizes the per-row
     freeze loop in ``generate_weekly_pdfs.py`` to convert
-    O(rows) × HTTP-latency serial cost into O(rows / PARALLEL_WORKERS)
+    O(rows) x HTTP-latency serial cost into O(rows / PARALLEL_WORKERS)
     parallel cost — without this property, a busy WR week with 100+
     rows would spend 12+ seconds per group purely on Supabase
     round-trips, compounding into hours across 1900+ groups (the
