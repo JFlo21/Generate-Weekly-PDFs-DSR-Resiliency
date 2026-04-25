@@ -1686,6 +1686,141 @@ class PostgrestErrorClassificationTests(unittest.TestCase):
                 self.assertFalse(is_transient)
                 self.assertFalse(is_global_kill)
 
+    # ── PostgreSQL SQLSTATE classification ───────────────────────
+    #
+    # Regression coverage for the 2026-04-25 production incident:
+    # ``billing_audit.pipeline_run`` was missing in deployed Supabase,
+    # PostgREST forwarded ``42P01`` / ``42703`` SQLSTATEs verbatim, and
+    # the pre-fix classifier let those fall through into the
+    # catch-all transient branch — burning 4 retry attempts per call
+    # before each per-op circuit breaker tripped.
+
+    def test_classifier_permanent_for_postgres_sqlstate_undefined_table(self):
+        """``42P01`` (undefined_table) is exactly what PostgREST
+        returns when the writer queries a table that was never
+        created in Supabase — the production failure mode for
+        ``pipeline_run`` on 2026-04-25. Permanent: re-running the
+        same query won't make the table appear.
+        """
+        from billing_audit import client as ba_client
+        exc = self._make_api_error(
+            "42P01",
+            message='relation "billing_audit.pipeline_run" does not exist',
+        )
+        is_transient, is_global_kill, reason = (
+            ba_client._classify_postgrest_error(exc)
+        )
+        self.assertFalse(is_transient)
+        self.assertFalse(is_global_kill)
+        self.assertEqual(reason, "42P01")
+
+    def test_classifier_permanent_for_postgres_sqlstate_undefined_column(self):
+        """``42703`` (undefined_column) — the partial-deploy failure
+        mode where the table exists but a column the writer reads
+        (``assignment_fp``, ``created_at``) has not been added yet.
+        """
+        from billing_audit import client as ba_client
+        exc = self._make_api_error(
+            "42703",
+            message='column "assignment_fp" does not exist',
+        )
+        is_transient, is_global_kill, reason = (
+            ba_client._classify_postgrest_error(exc)
+        )
+        self.assertFalse(is_transient)
+        self.assertFalse(is_global_kill)
+        self.assertEqual(reason, "42703")
+
+    def test_classifier_permanent_for_postgres_sqlstate_class_22_23(self):
+        """SQLSTATE classes 22 (data exception) and 23 (integrity
+        constraint violation) are also permanent — neither will
+        clear on retry. Cover representative codes from each class
+        so adding a new code to the prefix list doesn't silently
+        regress them.
+        """
+        from billing_audit import client as ba_client
+        cases = [
+            ("22001", "string_data_right_truncation"),
+            ("22003", "numeric_value_out_of_range"),
+            ("22P02", "invalid_text_representation"),
+            ("23502", "not_null_violation"),
+            ("23503", "foreign_key_violation"),
+            ("23505", "unique_violation"),
+            ("23514", "check_violation"),
+            # Class 42 representative codes beyond the two above.
+            ("42501", "insufficient_privilege"),
+            ("42601", "syntax_error"),
+            ("42883", "undefined_function"),
+        ]
+        for code, label in cases:
+            with self.subTest(code=code, label=label):
+                exc = self._make_api_error(code, message=label)
+                is_transient, is_global_kill, reason = (
+                    ba_client._classify_postgrest_error(exc)
+                )
+                self.assertFalse(
+                    is_transient,
+                    f"SQLSTATE {code} ({label}) must be permanent",
+                )
+                self.assertFalse(is_global_kill)
+                self.assertEqual(reason, code)
+
+    def test_classifier_transient_for_retryable_postgres_sqlstate(self):
+        """SQLSTATE classes 08 (connection failure), 40 (transaction
+        rollback), 53 (insufficient resources), and 57 (operator
+        intervention) are RETRYABLE — adding them to the permanent
+        prefix list would suppress the very condition the retry
+        loop exists to handle. This test guards against an
+        over-eager future PR widening the SQLSTATE prefix list.
+        """
+        from billing_audit import client as ba_client
+        cases = [
+            ("08000", "connection_exception"),
+            ("08006", "connection_failure"),
+            ("40001", "serialization_failure"),
+            ("40P01", "deadlock_detected"),
+            ("53300", "too_many_connections"),
+            ("57014", "query_canceled"),
+        ]
+        for code, label in cases:
+            with self.subTest(code=code, label=label):
+                exc = self._make_api_error(code, message=label)
+                is_transient, _, _ = (
+                    ba_client._classify_postgrest_error(exc)
+                )
+                self.assertTrue(
+                    is_transient,
+                    f"SQLSTATE {code} ({label}) must remain retryable",
+                )
+
+    def test_classifier_sqlstate_length_guard_rejects_short_codes(self):
+        """The SQLSTATE check is gated on ``len(code) == 5``. A
+        hypothetical short code that happens to start with ``42``
+        (none documented today, but PostgREST is free to mint new
+        codes) must NOT be misclassified as a SQLSTATE-permanent
+        condition — it falls through to the catch-all transient
+        branch instead, matching the documented contract for
+        novel error codes.
+        """
+        from billing_audit import client as ba_client
+        # 4-char and 6-char strings starting with class-42 digits.
+        # Neither matches the 5-char SQLSTATE rule.
+        for code in ("4270", "427030", "42", "42P"):
+            with self.subTest(code=code):
+                exc = self._make_api_error(code, message=f"novel {code}")
+                is_transient, _, reason = (
+                    ba_client._classify_postgrest_error(exc)
+                )
+                # These codes are not in any permanent list, not
+                # in _HTTP_PERMANENT_CODES, and don't match the
+                # SQLSTATE length guard — so the catch-all
+                # transient branch must handle them.
+                self.assertTrue(
+                    is_transient,
+                    f"non-SQLSTATE code {code!r} must remain transient",
+                )
+                self.assertEqual(reason, code)
+
     # ── with_retry short-circuit behaviour ───────────────────────
 
     def test_with_retry_bails_after_one_attempt_on_permanent_api_error(self):

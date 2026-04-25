@@ -1433,3 +1433,85 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   the retained code paths because they explicitly set
   ``RATE_CUTOFF_DATE`` in setUp/tearDown for isolation. Verified
   via ``pytest tests/`` (393 passed / 17 skipped) post-change.
+- [2026-04-25 12:00] Production incident: every WR group in the
+  2026-04-24 16:55 weekly run logged paired warnings for
+  ``billing_audit[pipeline_run_select]`` (4 retries, "exhausted
+  retries") and ``billing_audit[pipeline_run_upsert]`` (1 attempt,
+  "immediate failures"), eventually tripping each per-op circuit
+  breaker after 3 calls. The ``freeze_attribution`` RPC kept
+  returning HTTP 200 OK throughout, isolating the failure to
+  the ``pipeline_run`` table. **Two compounding root causes:**
+  **(1) Schema drift, P0.** The ``pipeline_run`` reader/writer
+  in ``billing_audit/writer.py`` (``emit_run_fingerprint``) was
+  introduced on 2026-04-23 in commits ``56ec20a`` / ``1f8213a``
+  / ``c44df3d``, but the matching ``CREATE TABLE
+  billing_audit.pipeline_run`` was never committed and never
+  applied to the deployed Supabase project. PostgREST therefore
+  rejected every SELECT/UPSERT with PostgreSQL SQLSTATE ``42P01``
+  (undefined_table) — or ``42703`` (undefined_column) on
+  partial-deploy environments — surfaced as HTTP 400.
+  **(2) Classifier blind spot, P1.**
+  ``_classify_postgrest_error`` in ``billing_audit/client.py``
+  recognised PGRST1xx/2xx/3xx prefixes and stringified HTTP 4xx
+  codes, but did NOT recognise PostgreSQL SQLSTATE codes — even
+  though the file's own preamble (``"or a SQLSTATE"`` at the
+  ``APIError.code`` comment) acknowledged they were possible.
+  When PostgREST returns ``{"code":"42703",...}``, that string
+  fell through every check and landed in the catch-all transient
+  branch, burning the full 4-attempt × (1.5+2.5+4.5s) backoff
+  budget per call before each per-op breaker tripped. The
+  asymmetry between SELECT (4 retries) and UPSERT (1 attempt)
+  in the log is exactly this: the SELECT 400 carried a parseable
+  ``code="42P01"`` (no PGRST/HTTP match → transient), the UPSERT
+  400 carried ``code="400"`` from
+  ``generate_default_error_message`` (HTTP-permanent match →
+  bail). **Fix (additive, production-safe):** (1) Added
+  ``billing_audit/schema.sql`` with canonical DDL for
+  ``feature_flag``, ``pipeline_run``, and the
+  ``freeze_attribution`` RPC parameter contract; ``ALTER TABLE
+  … ADD COLUMN IF NOT EXISTS`` blocks let operators apply the
+  fix to a partial pipeline_run without dropping data. (2) Added
+  ``_PG_SQLSTATE_PERMANENT_PREFIXES = ("22", "23", "42")`` to
+  ``billing_audit/client.py`` and a length-gated check in
+  ``_classify_postgrest_error`` (only 5-char codes match,
+  preventing false-positives against a hypothetical short PGRST
+  code). (3) Updated ``billing_audit/__init__.py`` to point at
+  ``schema.sql`` from the package docstring. (4) Five new tests
+  in ``tests/test_billing_audit_shadow.py::PostgrestErrorClassificationTests``
+  cover ``42P01``, ``42703``, classes 22/23 representative codes,
+  the retryable SQLSTATE classes (``08``/``40``/``53``/``57``)
+  that must NOT be added to the permanent list, and the
+  ``len(code) == 5`` guard against short novel codes.
+  **What stays unchanged:** the per-op circuit breaker, the
+  run-global kill switch (``_disable_for_run``), the
+  ``freeze_attribution`` RPC path, every existing classifier
+  test, and the billing pipeline itself (Excel generation,
+  Smartsheet upload, hash history are all unaffected by
+  pipeline_run failures by design — see the 2026-04-24 10:50
+  ledger entry's "fail-safe" rule). **New rules:**
+  (1) Any new Supabase table or column the pipeline reads/writes
+  MUST be defined in ``billing_audit/schema.sql`` in the same
+  PR that adds the Python code. The repo cannot have a writer
+  whose matching DDL exists only in a Supabase Dashboard
+  somebody else's hands. Reviewers MUST block merges that add
+  ``client.schema(...).table(...)`` references against a column
+  not present in ``schema.sql``. (2) When a retry-classification
+  helper accepts an exception type whose ``code`` field is
+  documented as multi-source (PGRST codes, HTTP statuses, AND
+  SQLSTATEs in our case), every documented source MUST have
+  explicit handling AND a regression test. The pre-fix behaviour
+  was correct for two of three sources — that's not "good
+  enough", that's a silent-degradation trap. (3) When extending
+  a code-prefix list (here: SQLSTATE classes), gate the prefix
+  check on the format's known length (``len(code) == 5`` for
+  SQLSTATEs) so a future PostgREST code that happens to start
+  with the same digits cannot be accidentally swept into the
+  permanent classification. (4) When adding entries to a
+  permanent-prefix list, ALSO add a regression test that
+  asserts the *retryable* siblings are NOT included — for
+  SQLSTATEs that means ``08`` / ``40`` / ``53`` / ``57``
+  classes must remain transient. Otherwise the next PR
+  widening the list has no guard against suppressing the very
+  conditions the retry loop exists for. Verified via
+  ``pytest tests/test_billing_audit_shadow.py::PostgrestErrorClassificationTests -v``
+  (22 passed, 54 subtests passed) post-fix.
