@@ -4926,17 +4926,38 @@ def main():
                 # History key includes variant dimension to prevent collisions
                 history_key = f"{wr_num}|{week_raw}|{variant}|{identifier}"
 
+                # Pre-compute hash-change state before any optional side-effects.
+                # Billing audit RPCs are the single most expensive per-group operation
+                # in steady state, so we can safely skip them when the group hash is
+                # unchanged versus hash_history (no row-content drift to freeze or emit).
+                _history_eligible_for_skip = (
+                    HISTORY_SKIP_ENABLED
+                    and not (
+                        FORCE_GENERATION
+                        or week_raw in REGEN_WEEKS
+                        or RESET_HASH_HISTORY
+                        or RESET_WR_LIST
+                    )
+                )
+                _prev_history_entry = (
+                    hash_history.get(history_key)
+                    if _history_eligible_for_skip
+                    else None
+                )
+                _hash_unchanged = bool(
+                    _prev_history_entry
+                    and _prev_history_entry.get('hash') == data_hash
+                )
+
                 # ── Billing audit snapshot: freeze personnel + emit run fingerprint ──
-                # Runs BEFORE the skip check so stable rows get attribution frozen on
-                # subsequent runs (first-write-wins makes repeat calls cheap). Writes
-                # happen in shadow mode — no read path yet. Failures must never break
-                # Excel generation. Skipped in TEST_MODE to prevent polluting production
-                # Supabase with synthetic test data. ``any_flag_enabled()`` is a cheap
-                # cached probe — it skips fingerprint computation and the per-row
-                # freeze_row loop entirely when both writer flags are off.
+                # Only runs for groups with changed/new hashes. This keeps normal
+                # production runs from re-issuing identical freeze_attribution RPCs for
+                # every unchanged group while preserving full behavior when data changed.
+                # Failures must never break Excel generation.
                 if (
                     BILLING_AUDIT_AVAILABLE
                     and not TEST_MODE
+                    and not _hash_unchanged
                     and _billing_audit_writer.any_flag_enabled()
                 ):
                     try:
@@ -5161,9 +5182,8 @@ def main():
                         )
 
                 # Decide skip based on stored history BEFORE generating Excel (only if FORCE not set)
-                if HISTORY_SKIP_ENABLED and not (FORCE_GENERATION or week_raw in REGEN_WEEKS or RESET_HASH_HISTORY or RESET_WR_LIST):
-                    prev = hash_history.get(history_key)
-                    if prev and prev.get('hash') == data_hash:
+                if _history_eligible_for_skip:
+                    if _hash_unchanged:
                         # Only skip if attachment present OR policy allows skipping without attachment
                         can_skip = True
                         if ATTACHMENT_REQUIRED_FOR_SKIP and not TEST_MODE:
