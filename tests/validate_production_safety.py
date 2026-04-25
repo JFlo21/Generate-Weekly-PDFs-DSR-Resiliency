@@ -131,10 +131,13 @@ def validate_per_group_try_catches_all() -> None:
     if idx < 0:
         _record(name, False, "could not locate billing_audit block header")
         return
-    # The block spans ~120 lines (~7-8kB including whitespace);
-    # search through the end of the next outer except of
-    # generate_weekly_pdfs' big try blocks, capping at 12kB.
-    window = src[idx:idx + 12000]
+    # The block spans ~200 lines (~13kB including whitespace) after
+    # the 2026-04-25 ThreadPoolExecutor parallelization of the
+    # per-row freeze_row loop added ~80 lines of comments + parallel
+    # dispatch code. Search window capped at 18kB — generous headroom
+    # for future additions without triggering false negatives on
+    # every legitimate refactor of the per-group billing_audit block.
+    window = src[idx:idx + 18000]
     has_broad_except = "except Exception as _audit_err:" in window
     _record(name, has_broad_except,
             "per-group block lacks 'except Exception' — narrow catch "

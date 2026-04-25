@@ -4956,15 +4956,83 @@ def main():
                             name="billing_audit.freeze_attribution",
                         ) as _bas:
                             _bas.set_data("wr", wr_num)
+                            _bas.set_data("row_count", len(group_rows))
                             _week_snap = first_row.get('__week_ending_date')
                             if hasattr(_week_snap, 'date'):
                                 _week_snap = _week_snap.date()
-                            for _row in group_rows:
-                                _billing_audit_writer.freeze_row(
-                                    _row,
-                                    release=_billing_audit_release_env,
-                                    run_id=_billing_audit_run_id_env,
+                            # Parallelize per-row freeze_row calls so a
+                            # group with N rows costs ~ceil(N/W) ×
+                            # round-trip latency instead of N × latency.
+                            # Pre-2026-04-25 this was a serial loop;
+                            # at ~120ms per Supabase RPC, large groups
+                            # (50-150 rows is typical for a busy WR
+                            # week) burned 6-18 seconds of wall-clock
+                            # purely on serial HTTP. Across 1900+
+                            # groups in a weekly run that compounded
+                            # into ~2 hours of new latency on top of
+                            # the pre-billing_audit ~1h baseline,
+                            # consuming TIME_BUDGET_MINUTES before the
+                            # main loop reached Excel generation.
+                            #
+                            # ``freeze_row`` is fail-safe: it catches
+                            # its own errors, increments
+                            # ``_counters`` under the GIL, and never
+                            # raises to the caller. So a future raising
+                            # is a programming bug rather than a
+                            # routine network failure — log it and
+                            # continue with the rest of the group's
+                            # writes.
+                            #
+                            # Cap at ``PARALLEL_WORKERS`` (≤ 8 by
+                            # convention; Smartsheet caps the rest of
+                            # the pipeline there too) so concurrent
+                            # Supabase round-trips stay well within
+                            # the project's connection budget. Single-
+                            # row groups skip the executor to avoid
+                            # ThreadPoolExecutor setup overhead.
+                            if len(group_rows) <= 1:
+                                for _row in group_rows:
+                                    _billing_audit_writer.freeze_row(
+                                        _row,
+                                        release=_billing_audit_release_env,
+                                        run_id=_billing_audit_run_id_env,
+                                    )
+                            else:
+                                _bas_workers = min(
+                                    PARALLEL_WORKERS, len(group_rows)
                                 )
+                                _bas.set_data("workers", _bas_workers)
+                                with ThreadPoolExecutor(
+                                    max_workers=_bas_workers,
+                                    thread_name_prefix="freeze_row",
+                                ) as _bas_ex:
+                                    _bas_futures = [
+                                        _bas_ex.submit(
+                                            _billing_audit_writer.freeze_row,
+                                            _row,
+                                            release=_billing_audit_release_env,
+                                            run_id=_billing_audit_run_id_env,
+                                        )
+                                        for _row in group_rows
+                                    ]
+                                    for _bas_f in as_completed(_bas_futures):
+                                        try:
+                                            _bas_f.result()
+                                        except Exception:
+                                            # Defensive: freeze_row
+                                            # already swallows its
+                                            # own errors. A bubble-up
+                                            # here means a programming
+                                            # bug; log and continue so
+                                            # one bad row can't kill
+                                            # the rest of the group's
+                                            # billing_audit work.
+                                            logging.exception(
+                                                "billing_audit.freeze_row "
+                                                "raised unexpectedly for "
+                                                "WR %s",
+                                                wr_num,
+                                            )
                             # Skip fingerprint compute + completed
                             # count when the fingerprint flag is off
                             # — emit_run_fingerprint would no-op

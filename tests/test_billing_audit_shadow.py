@@ -540,6 +540,165 @@ class FreezeRowTests(unittest.TestCase):
             ba_client.reset_cache_for_tests()
 
 
+class FreezeRowConcurrencyTests(unittest.TestCase):
+    """``freeze_row`` MUST be safe to invoke concurrently from a
+    ThreadPoolExecutor. The main pipeline parallelizes the per-row
+    freeze loop in ``generate_weekly_pdfs.py`` to convert
+    O(rows) × HTTP-latency serial cost into O(rows / PARALLEL_WORKERS)
+    parallel cost — without this property, a busy WR week with 100+
+    rows would spend 12+ seconds per group purely on Supabase
+    round-trips, compounding into hours across 1900+ groups (the
+    2026-04-25 production runtime regression that pushed weekly
+    runs from 1h to 3h+).
+
+    The thread-safety we rely on:
+      * ``_counters`` increments under the GIL — each ``+= 1`` is a
+        single bytecode op, so concurrent writers may interleave but
+        cannot lose updates within the freeze_row code path.
+      * ``with_retry`` reads/writes ``_consecutive_failures`` and
+        ``_open_circuits`` under the GIL too. Worst-case race: one
+        thread observes the counter at 2 and the other at 3
+        simultaneously — both classify as "below threshold" and
+        retry, producing one extra attempt before the breaker trips.
+        Acceptable for a fail-safe metrics path.
+      * The Supabase client itself (``client.schema(...)`` chain)
+        is built fresh per-thread when each thread enters
+        ``with_retry``'s ``fn`` closure, but ``get_client()`` is
+        memoized via ``_client_cache`` so concurrent callers share
+        the same underlying ``supabase.Client`` instance — which
+        the upstream library documents as thread-safe for HTTP
+        calls.
+    """
+
+    def setUp(self):
+        _reset_all()
+        for k in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "TEST_MODE"):
+            os.environ.pop(k, None)
+
+    def tearDown(self):
+        _reset_all()
+
+    def _valid_row(self, row_id):
+        return {
+            "__row_id": int(row_id),
+            "Work Request #": "91467680",
+            "__week_ending_date": datetime.datetime(2026, 4, 19),
+            "Units Completed?": True,
+            "Foreman": f"Foreman {row_id}",
+            "__effective_user": f"Foreman {row_id}",
+            "__helper_foreman": "",
+            "__helper_dept": "",
+            "__vac_crew_name": "",
+            "Pole #": f"P-{row_id}",
+            "CU": "ANC-M",
+            "Work Type": "Maintenance",
+        }
+
+    def test_freeze_row_parallel_invocation_preserves_counters(self):
+        """50 concurrent freeze_row calls against a successful mock
+        client must result in exactly 50 ``snapshots_written``
+        counter increments (or 50 ``snapshots_already_frozen`` if the
+        mock returns a different source_run_id). No silent drops, no
+        crashes, no exceptions raised to the caller. This is the
+        property the parallelized billing_audit loop in
+        ``generate_weekly_pdfs.py`` depends on.
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ), mock.patch(
+            "billing_audit.writer.is_flag_resolved", return_value=True
+        ):
+            rows = [self._valid_row(i) for i in range(50)]
+            with ThreadPoolExecutor(max_workers=8) as ex:
+                futures = [
+                    ex.submit(
+                        ba_writer.freeze_row,
+                        row,
+                        release="rel-1",
+                        run_id="run-fresh",
+                    )
+                    for row in rows
+                ]
+                # All futures must complete without exception.
+                for f in as_completed(futures):
+                    f.result()  # re-raises if freeze_row crashed
+        counters = ba_writer.get_counters()
+        # The mock returns source_run_id="run-fresh", and the caller
+        # passed run_id="run-fresh" — both match, so each call
+        # increments snapshots_written. The total count of
+        # writes+already_frozen+errored must equal the 50 calls.
+        total = (
+            counters["snapshots_written"]
+            + counters["snapshots_already_frozen"]
+            + counters["snapshots_errored"]
+        )
+        self.assertEqual(
+            total,
+            50,
+            f"Expected exactly 50 freeze_row outcomes; got "
+            f"{total}: {counters}",
+        )
+
+    def test_freeze_row_parallel_invocation_handles_skipped_rows(self):
+        """Mixing rows that meet the freeze criteria with rows that
+        are skipped (Units Completed? = False) under concurrent
+        invocation must not cause counter drift or interfere with
+        successful rows' writes. Defends against a future regression
+        where the parallelized loop accidentally treats a skipped
+        row's None return as a failure.
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ), mock.patch(
+            "billing_audit.writer.is_flag_resolved", return_value=True
+        ):
+            rows = []
+            for i in range(20):
+                row = self._valid_row(i)
+                if i % 3 == 0:
+                    # Mark every third row as not completed → skip.
+                    row["Units Completed?"] = False
+                rows.append(row)
+            with ThreadPoolExecutor(max_workers=8) as ex:
+                futures = [
+                    ex.submit(
+                        ba_writer.freeze_row,
+                        row,
+                        release=None,
+                        run_id="run-fresh",
+                    )
+                    for row in rows
+                ]
+                for f in as_completed(futures):
+                    f.result()
+        counters = ba_writer.get_counters()
+        # range(20) has 7 multiples of 3 (0, 3, 6, 9, 12, 15, 18);
+        # those 7 rows are marked Units Completed?=False and skip
+        # at the gate before the RPC fires. The remaining 13 rows
+        # each fire exactly one RPC and increment a counter.
+        completed_outcomes = (
+            counters["snapshots_written"]
+            + counters["snapshots_already_frozen"]
+            + counters["snapshots_errored"]
+        )
+        self.assertEqual(
+            completed_outcomes,
+            13,
+            f"Expected 13 RPC outcomes for completed rows; got "
+            f"{completed_outcomes}: {counters}",
+        )
+
+
 class EmitRunFingerprintTests(unittest.TestCase):
     def setUp(self):
         _reset_all()

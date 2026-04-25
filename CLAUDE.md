@@ -1515,3 +1515,79 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   conditions the retry loop exists for. Verified via
   ``pytest tests/test_billing_audit_shadow.py::PostgrestErrorClassificationTests -v``
   (22 passed, 54 subtests passed) post-fix.
+- [2026-04-25 14:00] Production runtime regression: weekly workflow
+  crept from ~1h baseline to 2-3h, often timing out before
+  ``TIME_BUDGET_MINUTES=180`` allowed Excel generation to start.
+  Operator burned through GitHub Actions minutes on runs that
+  produced zero output. **Root cause:** the 2026-04-23 ``freeze_row``
+  integration (commits ``56ec20a`` / ``1f8213a`` / ``c44df3d``) added
+  a per-row Supabase RPC call inside the main group-processing loop
+  in ``generate_weekly_pdfs.py`` (``for _row in group_rows:
+  _billing_audit_writer.freeze_row(_row, ...)``) with NO parallelism.
+  At ~120ms per ``freeze_attribution`` HTTP round-trip, a busy WR
+  group with 30-150 rows costs 3.6-18 seconds purely on serial
+  Supabase latency. Across 1900+ groups in a typical run, that
+  compounded into ~2 hours of NEW wall-clock time on top of the
+  pre-billing_audit ~1h baseline. The 2026-04-24 16:55-17:04
+  production log confirmed it directly: ~8 ``freeze_attribution``
+  POSTs per second sustained between WR group markers, hundreds in
+  a row before each ``Skip (unchanged + attachment exists)`` line.
+  **Fix (additive, production-safe):** wrap the ``freeze_row`` loop
+  in a ``ThreadPoolExecutor(max_workers=min(PARALLEL_WORKERS,
+  len(group_rows)))`` (cap 8, matching every other parallel I/O
+  loop in the codebase). Single-row groups skip the executor to
+  avoid setup overhead. Future-result iteration via
+  ``as_completed`` swallows any unexpected exception per-row with a
+  defensive ``logging.exception`` so one bad row cannot kill the
+  group's billing_audit work — ``freeze_row`` is already fail-safe
+  (catches its own errors, increments ``_counters`` under the GIL),
+  so a future raising would be a programming bug rather than a
+  routine network failure. Expected speedup: 5-8× on the per-row
+  RPC phase, restoring runtime to ~1.2h for a typical run with
+  ~80% completed-row coverage. **Thread-safety analysis (the
+  property the parallelization relies on):** (1) ``_counters``
+  increments under the GIL — each ``+= 1`` is a single bytecode op
+  so concurrent writers cannot lose updates. (2) ``with_retry``
+  reads/writes ``_consecutive_failures`` and ``_open_circuits``
+  under the GIL. Worst-case race: two threads see the counter at
+  2 and 3 simultaneously — both classify "below threshold" and
+  produce one extra retry attempt before the breaker trips.
+  Acceptable for a fail-safe metrics path. (3) ``get_client()``
+  is memoized via ``_client_cache`` so concurrent ``freeze_row``
+  callers share the same ``supabase.Client`` instance; the
+  upstream library documents thread-safety for HTTP calls.
+  **What stays unchanged:** ``freeze_row`` itself (signature,
+  return value, error semantics), ``emit_run_fingerprint``
+  (already once-per-group via dedup), every existing ``freeze_row``
+  test, ``TIME_BUDGET_MINUTES``, ``PARALLEL_WORKERS`` env-var
+  contract, and the budget-check at the top of the per-group loop
+  (the parallelized inner block STILL counts against the budget;
+  the budget guard simply fires on the next iteration). **New
+  rules:** (1) Any new per-row I/O call inside the main group
+  loop (``for _row in group_rows: api.foo(_row)``) MUST be
+  parallelized via ``ThreadPoolExecutor(max_workers=
+  min(PARALLEL_WORKERS, len(group_rows)))`` from the start, not
+  added serial-first and parallelized later. The cost compounds
+  across ~1900 groups × dozens of rows per group; serial-by-default
+  is a P0 latency trap. Single-row guard (``if len(group_rows)
+  <= 1``) avoids ThreadPoolExecutor setup overhead for the common
+  helper / vac_crew variant case. (2) ``ThreadPoolExecutor``
+  invocations of fail-safe writers MUST still wrap
+  ``f.result()`` in ``try/except Exception`` with
+  ``logging.exception`` — if the writer ever regresses and
+  raises, the parallel iteration must not poison the rest of
+  the group's writes. (3) When extending the per-group
+  billing_audit block, also bump
+  ``tests/validate_production_safety.py``
+  ``validate_per_group_try_catches_all`` window cap to match
+  the new block size — the validator scans a fixed character
+  window from the block header to confirm the broad
+  ``except Exception as _audit_err:`` is still present.
+  Regression tests:
+  ``tests/test_billing_audit_shadow.py::FreezeRowConcurrencyTests``
+  covers (a) 50 concurrent ``freeze_row`` calls produce exactly
+  50 counter outcomes (no silent drops, no exceptions) and
+  (b) mixed completed / skipped rows under concurrent invocation
+  preserve counter accuracy. Verified via ``pytest tests/`` →
+  417 passed / 54 subtests passed post-fix (was 415 before; +2
+  new concurrency tests).
