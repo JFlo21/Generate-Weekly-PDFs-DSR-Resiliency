@@ -1433,3 +1433,178 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   the retained code paths because they explicitly set
   ``RATE_CUTOFF_DATE`` in setUp/tearDown for isolation. Verified
   via ``pytest tests/`` (393 passed / 17 skipped) post-change.
+- [2026-04-25 12:00] Production incident: every WR group in the
+  2026-04-24 16:55 weekly run logged paired warnings for
+  ``billing_audit[pipeline_run_select]`` (4 retries, "exhausted
+  retries") and ``billing_audit[pipeline_run_upsert]`` (1 attempt,
+  "immediate failures"), eventually tripping each per-op circuit
+  breaker after 3 calls. The ``freeze_attribution`` RPC kept
+  returning HTTP 200 OK throughout, isolating the failure to
+  the ``pipeline_run`` table. **Two compounding root causes:**
+  **(1) Schema drift, P0.** The ``pipeline_run`` reader/writer
+  in ``billing_audit/writer.py`` (``emit_run_fingerprint``) was
+  introduced on 2026-04-23 in commits ``56ec20a`` / ``1f8213a``
+  / ``c44df3d``, but the matching ``CREATE TABLE
+  billing_audit.pipeline_run`` was never committed and never
+  applied to the deployed Supabase project. PostgREST therefore
+  rejected every SELECT/UPSERT with PostgreSQL SQLSTATE ``42P01``
+  (undefined_table) — or ``42703`` (undefined_column) on
+  partial-deploy environments — surfaced as HTTP 400.
+  **(2) Classifier blind spot, P1.**
+  ``_classify_postgrest_error`` in ``billing_audit/client.py``
+  recognised PGRST1xx/2xx/3xx prefixes and stringified HTTP 4xx
+  codes, but did NOT recognise PostgreSQL SQLSTATE codes — even
+  though the file's own preamble (``"or a SQLSTATE"`` at the
+  ``APIError.code`` comment) acknowledged they were possible.
+  When PostgREST returns ``{"code":"42703",...}``, that string
+  fell through every check and landed in the catch-all transient
+  branch, burning the full 4-attempt × (1.5+2.5+4.5s) backoff
+  budget per call before each per-op breaker tripped. The
+  asymmetry between SELECT (4 retries) and UPSERT (1 attempt)
+  in the log is exactly this: the SELECT 400 carried a parseable
+  ``code="42P01"`` (no PGRST/HTTP match → transient), the UPSERT
+  400 carried ``code="400"`` from
+  ``generate_default_error_message`` (HTTP-permanent match →
+  bail). **Fix (additive, production-safe):** (1) Added
+  ``billing_audit/schema.sql`` with canonical DDL for
+  ``feature_flag``, ``pipeline_run``, and the
+  ``freeze_attribution`` RPC parameter contract; ``ALTER TABLE
+  … ADD COLUMN IF NOT EXISTS`` blocks let operators apply the
+  fix to a partial pipeline_run without dropping data. (2) Added
+  ``_PG_SQLSTATE_PERMANENT_PREFIXES = ("22", "23", "42")`` to
+  ``billing_audit/client.py`` and a length-gated check in
+  ``_classify_postgrest_error`` (only 5-char codes match,
+  preventing false-positives against a hypothetical short PGRST
+  code). (3) Updated ``billing_audit/__init__.py`` to point at
+  ``schema.sql`` from the package docstring. (4) Five new tests
+  in ``tests/test_billing_audit_shadow.py::PostgrestErrorClassificationTests``
+  cover ``42P01``, ``42703``, classes 22/23 representative codes,
+  the retryable SQLSTATE classes (``08``/``40``/``53``/``57``)
+  that must NOT be added to the permanent list, and the
+  ``len(code) == 5`` guard against short novel codes.
+  **What stays unchanged:** the per-op circuit breaker, the
+  run-global kill switch (``_disable_for_run``), the
+  ``freeze_attribution`` RPC path, every existing classifier
+  test, and the billing pipeline itself (Excel generation,
+  Smartsheet upload, hash history are all unaffected by
+  pipeline_run failures by design — see the 2026-04-24 10:50
+  ledger entry's "fail-safe" rule). **New rules:**
+  (1) Any new Supabase table or column the pipeline reads/writes
+  MUST be defined in ``billing_audit/schema.sql`` in the same
+  PR that adds the Python code. The repo cannot have a writer
+  whose matching DDL exists only in a Supabase Dashboard
+  somebody else's hands. Reviewers MUST block merges that add
+  ``client.schema(...).table(...)`` references against a column
+  not present in ``schema.sql``. (2) When a retry-classification
+  helper accepts an exception type whose ``code`` field is
+  documented as multi-source (PGRST codes, HTTP statuses, AND
+  SQLSTATEs in our case), every documented source MUST have
+  explicit handling AND a regression test. The pre-fix behaviour
+  was correct for two of three sources — that's not "good
+  enough", that's a silent-degradation trap. (3) When extending
+  a code-prefix list (here: SQLSTATE classes), gate the prefix
+  check on the format's known length (``len(code) == 5`` for
+  SQLSTATEs) so a future PostgREST code that happens to start
+  with the same digits cannot be accidentally swept into the
+  permanent classification. (4) When adding entries to a
+  permanent-prefix list, ALSO add a regression test that
+  asserts the *retryable* siblings are NOT included — for
+  SQLSTATEs that means ``08`` / ``40`` / ``53`` / ``57``
+  classes must remain transient. Otherwise the next PR
+  widening the list has no guard against suppressing the very
+  conditions the retry loop exists for. Verified via
+  ``pytest tests/test_billing_audit_shadow.py::PostgrestErrorClassificationTests -v``
+  (22 passed, 54 subtests passed) post-fix.
+- [2026-04-25 14:00] Production runtime regression: weekly workflow
+  crept from ~1h baseline to 2-3h, often timing out before
+  ``TIME_BUDGET_MINUTES=180`` allowed Excel generation to start.
+  Operator burned through GitHub Actions minutes on runs that
+  produced zero output. **Root cause:** the 2026-04-23 ``freeze_row``
+  integration (commits ``56ec20a`` / ``1f8213a`` / ``c44df3d``) added
+  a per-row Supabase RPC call inside the main group-processing loop
+  in ``generate_weekly_pdfs.py`` (``for _row in group_rows:
+  _billing_audit_writer.freeze_row(_row, ...)``) with NO parallelism.
+  At ~120ms per ``freeze_attribution`` HTTP round-trip, a busy WR
+  group with 30-150 rows costs 3.6-18 seconds purely on serial
+  Supabase latency. Across 1900+ groups in a typical run, that
+  compounded into ~2 hours of NEW wall-clock time on top of the
+  pre-billing_audit ~1h baseline. The 2026-04-24 16:55-17:04
+  production log confirmed it directly: ~8 ``freeze_attribution``
+  POSTs per second sustained between WR group markers, hundreds in
+  a row before each ``Skip (unchanged + attachment exists)`` line.
+  **Fix (additive, production-safe):** wrap the ``freeze_row`` loop
+  in a ``ThreadPoolExecutor(max_workers=min(PARALLEL_WORKERS,
+  len(group_rows)))`` (cap 8, matching every other parallel I/O
+  loop in the codebase). Single-row groups skip the executor to
+  avoid setup overhead. Future-result iteration via
+  ``as_completed`` swallows any unexpected exception per-row with a
+  defensive ``logging.exception`` (including the sanitized
+  ``__row_id`` so one bad row in a 100-row group can be pinpointed)
+  so one bad row cannot kill the group's billing_audit work —
+  ``freeze_row`` is fail-safe (catches its own errors). Expected
+  speedup: 5-8× on the per-row RPC phase, restoring runtime to
+  ~1.2h for a typical run with ~80% completed-row coverage.
+  **Thread-safety analysis (the property the parallelization
+  relies on, corrected after Copilot review feedback on PR #189):**
+  (1) ``_counters`` writes go through ``_bump_counter`` which takes
+  ``_counters_lock``. The bare ``dict[k] += 1`` is a multi-bytecode
+  read-modify-write (``BINARY_SUBSCR`` → ``BINARY_ADD`` →
+  ``STORE_SUBSCR``); the GIL holds each bytecode atomic but a
+  thread can be preempted between them, so without the lock two
+  threads can both read the counter at N, both compute N+1, and
+  both store N+1 — losing one increment. The lock makes counter
+  writes exact under any contention level; ``get_counters()``
+  also takes the lock so the snapshot is internally consistent.
+  (2) ``with_retry`` writes to ``_consecutive_failures`` /
+  ``_open_circuits`` are NOT lock-protected today. Without
+  protection a worker could observe the counter at 2 and another
+  at 3 simultaneously, both classifying "below threshold" and
+  producing one extra retry attempt before the breaker trips.
+  **The 2026-04-25 inter-attempt re-check** ensures workers that
+  started before the breaker opened will exit at the next retry
+  boundary (``time.sleep(backoff)`` followed by a re-check of
+  ``_open_circuits`` and ``_global_disable_reason``), bounding
+  the worst-case retry storm to one extra round per in-flight
+  worker. This addresses Codex P1 review feedback that
+  parallelization without the inter-attempt check would let an
+  outage generate up to 8 workers × 4 attempts = 32 doomed RPCs
+  per op before the breaker engaged.
+  Acceptable for a fail-safe metrics path. (3) ``get_client()``
+  is memoized via ``_client_cache`` so concurrent ``freeze_row``
+  callers share the same ``supabase.Client`` instance; the
+  upstream library documents thread-safety for HTTP calls.
+  **What stays unchanged:** ``freeze_row`` itself (signature,
+  return value, error semantics), ``emit_run_fingerprint``
+  (already once-per-group via dedup), every existing ``freeze_row``
+  test, ``TIME_BUDGET_MINUTES``, ``PARALLEL_WORKERS`` env-var
+  contract, and the budget-check at the top of the per-group loop
+  (the parallelized inner block STILL counts against the budget;
+  the budget guard simply fires on the next iteration). **New
+  rules:** (1) Any new per-row I/O call inside the main group
+  loop (``for _row in group_rows: api.foo(_row)``) MUST be
+  parallelized via ``ThreadPoolExecutor(max_workers=
+  min(PARALLEL_WORKERS, len(group_rows)))`` from the start, not
+  added serial-first and parallelized later. The cost compounds
+  across ~1900 groups × dozens of rows per group; serial-by-default
+  is a P0 latency trap. Single-row guard (``if len(group_rows)
+  <= 1``) avoids ThreadPoolExecutor setup overhead for the common
+  helper / vac_crew variant case. (2) ``ThreadPoolExecutor``
+  invocations of fail-safe writers MUST still wrap
+  ``f.result()`` in ``try/except Exception`` with
+  ``logging.exception`` — if the writer ever regresses and
+  raises, the parallel iteration must not poison the rest of
+  the group's writes. (3) When extending the per-group
+  billing_audit block, also bump
+  ``tests/validate_production_safety.py``
+  ``validate_per_group_try_catches_all`` window cap to match
+  the new block size — the validator scans a fixed character
+  window from the block header to confirm the broad
+  ``except Exception as _audit_err:`` is still present.
+  Regression tests:
+  ``tests/test_billing_audit_shadow.py::FreezeRowConcurrencyTests``
+  covers (a) 50 concurrent ``freeze_row`` calls produce exactly
+  50 counter outcomes (no silent drops, no exceptions) and
+  (b) mixed completed / skipped rows under concurrent invocation
+  preserve counter accuracy. Verified via ``pytest tests/`` →
+  417 passed / 54 subtests passed post-fix (was 415 before; +2
+  new concurrency tests).

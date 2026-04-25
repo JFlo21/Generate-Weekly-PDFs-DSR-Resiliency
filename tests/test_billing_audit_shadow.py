@@ -540,6 +540,296 @@ class FreezeRowTests(unittest.TestCase):
             ba_client.reset_cache_for_tests()
 
 
+class FreezeRowConcurrencyTests(unittest.TestCase):
+    """``freeze_row`` MUST be safe to invoke concurrently from a
+    ThreadPoolExecutor. The main pipeline parallelizes the per-row
+    freeze loop in ``generate_weekly_pdfs.py`` to convert
+    O(rows) × HTTP-latency serial cost into O(rows / PARALLEL_WORKERS)
+    parallel cost — without this property, a busy WR week with 100+
+    rows would spend 12+ seconds per group purely on Supabase
+    round-trips, compounding into hours across 1900+ groups (the
+    2026-04-25 production runtime regression that pushed weekly
+    runs from 1h to 3h+).
+
+    The thread-safety we rely on:
+      * ``_counters`` writes go through ``_bump_counter`` which
+        takes ``_counters_lock``. The bare ``dict[k] += 1`` is a
+        multi-bytecode read-modify-write (``BINARY_SUBSCR`` →
+        ``BINARY_ADD`` → ``STORE_SUBSCR``) and can lose increments
+        under contention even with the GIL — the lock makes
+        increments exact under any contention level. ``get_counters``
+        also takes the lock so the returned snapshot is internally
+        consistent.
+      * ``with_retry`` writes to ``_consecutive_failures`` /
+        ``_open_circuits`` are NOT lock-protected today — under
+        contention they can produce off-by-one races where two
+        threads both observe a counter at threshold-1 and both
+        increment to threshold, generating one extra retry attempt
+        before the breaker actually opens. The 2026-04-25
+        inter-attempt re-check ensures workers that started before
+        the breaker opened will exit at the next retry boundary,
+        bounding the worst-case retry storm to one extra round per
+        in-flight worker.
+      * The Supabase client itself (``client.schema(...)`` chain)
+        is built fresh per-thread when each thread enters
+        ``with_retry``'s ``fn`` closure, but ``get_client()`` is
+        memoized via ``_client_cache`` so concurrent callers share
+        the same underlying ``supabase.Client`` instance — which
+        the upstream library documents as thread-safe for HTTP
+        calls.
+    """
+
+    def setUp(self):
+        _reset_all()
+        for k in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "TEST_MODE"):
+            os.environ.pop(k, None)
+
+    def tearDown(self):
+        _reset_all()
+
+    def _valid_row(self, row_id):
+        return {
+            "__row_id": int(row_id),
+            "Work Request #": "91467680",
+            "__week_ending_date": datetime.datetime(2026, 4, 19),
+            "Units Completed?": True,
+            "Foreman": f"Foreman {row_id}",
+            "__effective_user": f"Foreman {row_id}",
+            "__helper_foreman": "",
+            "__helper_dept": "",
+            "__vac_crew_name": "",
+            "Pole #": f"P-{row_id}",
+            "CU": "ANC-M",
+            "Work Type": "Maintenance",
+        }
+
+    def test_freeze_row_parallel_invocation_preserves_counters(self):
+        """50 concurrent freeze_row calls against a successful mock
+        client must result in exactly 50 ``snapshots_written``
+        counter increments (or 50 ``snapshots_already_frozen`` if the
+        mock returns a different source_run_id). No silent drops, no
+        crashes, no exceptions raised to the caller. This is the
+        property the parallelized billing_audit loop in
+        ``generate_weekly_pdfs.py`` depends on.
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ), mock.patch(
+            "billing_audit.writer.is_flag_resolved", return_value=True
+        ):
+            rows = [self._valid_row(i) for i in range(50)]
+            with ThreadPoolExecutor(max_workers=8) as ex:
+                futures = [
+                    ex.submit(
+                        ba_writer.freeze_row,
+                        row,
+                        release="rel-1",
+                        run_id="run-fresh",
+                    )
+                    for row in rows
+                ]
+                # All futures must complete without exception.
+                for f in as_completed(futures):
+                    f.result()  # re-raises if freeze_row crashed
+        counters = ba_writer.get_counters()
+        # The mock returns source_run_id="run-fresh", and the caller
+        # passed run_id="run-fresh" — both match, so each call
+        # increments snapshots_written. The total count of
+        # writes+already_frozen+errored must equal the 50 calls.
+        total = (
+            counters["snapshots_written"]
+            + counters["snapshots_already_frozen"]
+            + counters["snapshots_errored"]
+        )
+        self.assertEqual(
+            total,
+            50,
+            f"Expected exactly 50 freeze_row outcomes; got "
+            f"{total}: {counters}",
+        )
+
+    def test_freeze_row_parallel_invocation_handles_skipped_rows(self):
+        """Mixing rows that meet the freeze criteria with rows that
+        are skipped (Units Completed? = False) under concurrent
+        invocation must not cause counter drift or interfere with
+        successful rows' writes. Defends against a future regression
+        where the parallelized loop accidentally treats a skipped
+        row's None return as a failure.
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ), mock.patch(
+            "billing_audit.writer.is_flag_resolved", return_value=True
+        ):
+            rows = []
+            for i in range(20):
+                row = self._valid_row(i)
+                if i % 3 == 0:
+                    # Mark every third row as not completed → skip.
+                    row["Units Completed?"] = False
+                rows.append(row)
+            with ThreadPoolExecutor(max_workers=8) as ex:
+                futures = [
+                    ex.submit(
+                        ba_writer.freeze_row,
+                        row,
+                        release=None,
+                        run_id="run-fresh",
+                    )
+                    for row in rows
+                ]
+                for f in as_completed(futures):
+                    f.result()
+        counters = ba_writer.get_counters()
+        # range(20) has 7 multiples of 3 (0, 3, 6, 9, 12, 15, 18);
+        # those 7 rows are marked Units Completed?=False and skip
+        # at the gate before the RPC fires. The remaining 13 rows
+        # each fire exactly one RPC and increment a counter.
+        completed_outcomes = (
+            counters["snapshots_written"]
+            + counters["snapshots_already_frozen"]
+            + counters["snapshots_errored"]
+        )
+        self.assertEqual(
+            completed_outcomes,
+            13,
+            f"Expected 13 RPC outcomes for completed rows; got "
+            f"{completed_outcomes}: {counters}",
+        )
+
+    def test_bump_counter_is_lock_protected_under_heavy_contention(self):
+        """Direct stress test of ``_bump_counter``: 32 threads each
+        bump the same counter 500 times. The final total must be
+        exactly 16000. Without ``_counters_lock`` the bare
+        ``dict[k] += 1`` would race and produce a number lower
+        than 16000 — this test would fail intermittently. With the
+        lock, the total is exact every time. Locks down the
+        2026-04-25 review-driven correction (Copilot flagged the
+        original "+= is atomic under the GIL" claim as wrong).
+        """
+        from concurrent.futures import ThreadPoolExecutor
+        from billing_audit import writer as ba_writer
+        bumps_per_thread = 500
+        thread_count = 32
+
+        def _hammer():
+            for _ in range(bumps_per_thread):
+                ba_writer._bump_counter("snapshots_written")
+
+        with ThreadPoolExecutor(max_workers=thread_count) as ex:
+            futures = [ex.submit(_hammer) for _ in range(thread_count)]
+            for f in futures:
+                f.result()
+
+        counters = ba_writer.get_counters()
+        self.assertEqual(
+            counters["snapshots_written"],
+            bumps_per_thread * thread_count,
+            f"_bump_counter lost increments under contention: "
+            f"expected {bumps_per_thread * thread_count}, got "
+            f"{counters['snapshots_written']}",
+        )
+
+    def test_get_freeze_row_executor_is_singleton(self):
+        """Two concurrent first-callers must NOT create two executors.
+        The lazy initialization in ``get_freeze_row_executor`` is
+        guarded by a double-checked lock so the singleton is exactly
+        one instance regardless of how many threads race the first
+        call.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+        from billing_audit import writer as ba_writer
+        # Reset to ensure no prior test leaked an executor.
+        ba_writer._reset_executor_for_tests()
+
+        results: list = []
+
+        def _race():
+            results.append(ba_writer.get_freeze_row_executor())
+
+        with ThreadPoolExecutor(max_workers=16) as ex:
+            futures = [ex.submit(_race) for _ in range(16)]
+            for f in futures:
+                f.result()
+
+        self.assertEqual(len(results), 16)
+        self.assertTrue(
+            all(r is results[0] for r in results),
+            "get_freeze_row_executor returned multiple instances "
+            "under concurrent first-call — singleton guard broken",
+        )
+
+    def test_with_retry_inter_attempt_circuit_breaker_check(self):
+        """When concurrent workers enter ``with_retry`` for the
+        same op simultaneously and one trips the breaker, the
+        OTHER in-flight workers must abort at their next retry
+        boundary instead of exhausting all 4 attempts.
+
+        Pre-2026-04-25, the breaker was checked only once at
+        function entry. After Codex P1 review feedback, the check
+        also fires after each ``time.sleep(backoff)`` so concurrent
+        workers observe a neighbor's trip. This test simulates the
+        race directly: a worker mid-retry has the breaker forced
+        open externally, then must short-circuit on the next
+        attempt rather than firing more RPCs.
+        """
+        from billing_audit import client as ba_client
+        ba_client.reset_cache_for_tests()
+
+        attempts_made = []
+
+        def _failing_then_breaker_opens():
+            attempts_made.append(1)
+            if len(attempts_made) == 1:
+                # Simulate a concurrent worker tripping the breaker
+                # for THIS op while we're between retry attempts.
+                ba_client._open_circuits.add("test_op_concurrent")
+            raise self._make_api_error(
+                None,  # no code → transient → would normally retry
+                message="simulated transient",
+            )
+
+        with mock.patch("billing_audit.client.time.sleep"):
+            result = ba_client.with_retry(
+                _failing_then_breaker_opens,
+                op="test_op_concurrent",
+            )
+
+        self.assertIsNone(result)
+        # Exactly 1 attempt: the function ran once, raised, slept,
+        # then the inter-attempt check found the breaker open and
+        # short-circuited. Without the new check, attempts_made
+        # would be 4 (full retry budget).
+        self.assertEqual(
+            len(attempts_made),
+            1,
+            f"Expected exactly 1 attempt before inter-attempt "
+            f"breaker short-circuit; got {len(attempts_made)} "
+            f"(retry-storm regression)",
+        )
+
+    def _make_api_error(self, code, message=""):
+        """Mirror the helper in PostgrestErrorClassificationTests so
+        the inter-attempt-breaker test can build a real APIError
+        without depending on that class's setUp.
+        """
+        if _POSTGREST_API_ERROR_CLS is None:
+            self.skipTest("postgrest not installed")
+        return _POSTGREST_API_ERROR_CLS({
+            "code": code, "message": message, "hint": "", "details": "",
+        })
+
+
 class EmitRunFingerprintTests(unittest.TestCase):
     def setUp(self):
         _reset_all()
@@ -1685,6 +1975,141 @@ class PostgrestErrorClassificationTests(unittest.TestCase):
                 )
                 self.assertFalse(is_transient)
                 self.assertFalse(is_global_kill)
+
+    # ── PostgreSQL SQLSTATE classification ───────────────────────
+    #
+    # Regression coverage for the 2026-04-25 production incident:
+    # ``billing_audit.pipeline_run`` was missing in deployed Supabase,
+    # PostgREST forwarded ``42P01`` / ``42703`` SQLSTATEs verbatim, and
+    # the pre-fix classifier let those fall through into the
+    # catch-all transient branch — burning 4 retry attempts per call
+    # before each per-op circuit breaker tripped.
+
+    def test_classifier_permanent_for_postgres_sqlstate_undefined_table(self):
+        """``42P01`` (undefined_table) is exactly what PostgREST
+        returns when the writer queries a table that was never
+        created in Supabase — the production failure mode for
+        ``pipeline_run`` on 2026-04-25. Permanent: re-running the
+        same query won't make the table appear.
+        """
+        from billing_audit import client as ba_client
+        exc = self._make_api_error(
+            "42P01",
+            message='relation "billing_audit.pipeline_run" does not exist',
+        )
+        is_transient, is_global_kill, reason = (
+            ba_client._classify_postgrest_error(exc)
+        )
+        self.assertFalse(is_transient)
+        self.assertFalse(is_global_kill)
+        self.assertEqual(reason, "42P01")
+
+    def test_classifier_permanent_for_postgres_sqlstate_undefined_column(self):
+        """``42703`` (undefined_column) — the partial-deploy failure
+        mode where the table exists but a column the writer reads
+        (``assignment_fp``, ``created_at``) has not been added yet.
+        """
+        from billing_audit import client as ba_client
+        exc = self._make_api_error(
+            "42703",
+            message='column "assignment_fp" does not exist',
+        )
+        is_transient, is_global_kill, reason = (
+            ba_client._classify_postgrest_error(exc)
+        )
+        self.assertFalse(is_transient)
+        self.assertFalse(is_global_kill)
+        self.assertEqual(reason, "42703")
+
+    def test_classifier_permanent_for_postgres_sqlstate_class_22_23(self):
+        """SQLSTATE classes 22 (data exception) and 23 (integrity
+        constraint violation) are also permanent — neither will
+        clear on retry. Cover representative codes from each class
+        so adding a new code to the prefix list doesn't silently
+        regress them.
+        """
+        from billing_audit import client as ba_client
+        cases = [
+            ("22001", "string_data_right_truncation"),
+            ("22003", "numeric_value_out_of_range"),
+            ("22P02", "invalid_text_representation"),
+            ("23502", "not_null_violation"),
+            ("23503", "foreign_key_violation"),
+            ("23505", "unique_violation"),
+            ("23514", "check_violation"),
+            # Class 42 representative codes beyond the two above.
+            ("42501", "insufficient_privilege"),
+            ("42601", "syntax_error"),
+            ("42883", "undefined_function"),
+        ]
+        for code, label in cases:
+            with self.subTest(code=code, label=label):
+                exc = self._make_api_error(code, message=label)
+                is_transient, is_global_kill, reason = (
+                    ba_client._classify_postgrest_error(exc)
+                )
+                self.assertFalse(
+                    is_transient,
+                    f"SQLSTATE {code} ({label}) must be permanent",
+                )
+                self.assertFalse(is_global_kill)
+                self.assertEqual(reason, code)
+
+    def test_classifier_transient_for_retryable_postgres_sqlstate(self):
+        """SQLSTATE classes 08 (connection failure), 40 (transaction
+        rollback), 53 (insufficient resources), and 57 (operator
+        intervention) are RETRYABLE — adding them to the permanent
+        prefix list would suppress the very condition the retry
+        loop exists to handle. This test guards against an
+        over-eager future PR widening the SQLSTATE prefix list.
+        """
+        from billing_audit import client as ba_client
+        cases = [
+            ("08000", "connection_exception"),
+            ("08006", "connection_failure"),
+            ("40001", "serialization_failure"),
+            ("40P01", "deadlock_detected"),
+            ("53300", "too_many_connections"),
+            ("57014", "query_canceled"),
+        ]
+        for code, label in cases:
+            with self.subTest(code=code, label=label):
+                exc = self._make_api_error(code, message=label)
+                is_transient, _, _ = (
+                    ba_client._classify_postgrest_error(exc)
+                )
+                self.assertTrue(
+                    is_transient,
+                    f"SQLSTATE {code} ({label}) must remain retryable",
+                )
+
+    def test_classifier_sqlstate_length_guard_rejects_short_codes(self):
+        """The SQLSTATE check is gated on ``len(code) == 5``. A
+        hypothetical short code that happens to start with ``42``
+        (none documented today, but PostgREST is free to mint new
+        codes) must NOT be misclassified as a SQLSTATE-permanent
+        condition — it falls through to the catch-all transient
+        branch instead, matching the documented contract for
+        novel error codes.
+        """
+        from billing_audit import client as ba_client
+        # 4-char and 6-char strings starting with class-42 digits.
+        # Neither matches the 5-char SQLSTATE rule.
+        for code in ("4270", "427030", "42", "42P"):
+            with self.subTest(code=code):
+                exc = self._make_api_error(code, message=f"novel {code}")
+                is_transient, _, reason = (
+                    ba_client._classify_postgrest_error(exc)
+                )
+                # These codes are not in any permanent list, not
+                # in _HTTP_PERMANENT_CODES, and don't match the
+                # SQLSTATE length guard — so the catch-all
+                # transient branch must handle them.
+                self.assertTrue(
+                    is_transient,
+                    f"non-SQLSTATE code {code!r} must remain transient",
+                )
+                self.assertEqual(reason, code)
 
     # ── with_retry short-circuit behaviour ───────────────────────
 

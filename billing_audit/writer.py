@@ -15,9 +15,13 @@ identifiers are PII and must not leak into Sentry Logs.
 
 from __future__ import annotations
 
+import atexit
 import datetime
 import logging
+import os
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from billing_audit.client import (
@@ -64,13 +68,110 @@ def _is_checked(value: Any) -> bool:
     return False
 
 # Module-level counters. Exposed via ``get_counters()`` for
-# ``run_summary.json``.
+# ``run_summary.json``. Protected by ``_counters_lock`` so concurrent
+# ``freeze_row`` callers (parallelized via ThreadPoolExecutor in the
+# main pipeline since 2026-04-25) cannot lose increments to a
+# read-modify-write race. ``dict[k] += 1`` compiles to multiple
+# bytecodes (``BINARY_SUBSCR`` + ``BINARY_ADD`` + ``STORE_SUBSCR``);
+# the GIL holds each bytecode atomic but a thread can be preempted
+# between them, so two concurrent threads can both read the same
+# starting value, both compute +1, and store the same final value
+# — losing one increment. The lock makes counter writes exact even
+# under contention; ``get_counters()`` also takes the lock so the
+# returned snapshot is internally consistent.
+_counters_lock = threading.Lock()
 _counters: dict[str, int] = {
     "snapshots_written": 0,
     "snapshots_already_frozen": 0,
     "snapshots_errored": 0,
     "fingerprint_changes_detected": 0,
 }
+
+
+def _bump_counter(key: str) -> None:
+    """Atomically increment ``_counters[key]`` by 1.
+
+    Use this instead of ``_counters[key] += 1`` everywhere — the
+    bare augmented-assignment is NOT atomic across threads (see
+    ``_counters_lock`` docstring).
+    """
+    with _counters_lock:
+        _counters[key] = _counters.get(key, 0) + 1
+
+
+# ── Shared ThreadPoolExecutor for parallel freeze_row dispatch ─────
+# The main pipeline parallelizes per-row ``freeze_row`` calls within
+# each group via ThreadPoolExecutor. With ~1900 groups per typical
+# run, creating a new executor per group would mean ~1900 executor
+# constructions and ~15,000 thread-join operations (8 workers ×
+# 1900 groups) — small per-event but non-trivial in aggregate, and
+# noisy in operational debugging (thread-name collisions across
+# overlapping shutdown windows). Hoisting to a single process-wide
+# executor reuses the same worker pool for the whole run.
+#
+# Lazy: the singleton is only created on first ``get_freeze_row_executor()``
+# call, so runs where billing_audit is disabled (TEST_MODE, missing
+# Supabase creds, all flags off) pay zero executor cost.
+#
+# Cleanup: ``atexit`` ensures the executor shuts down cleanly when
+# the interpreter exits, including the typical case where the main
+# script returns normally without explicit teardown. ``_reset_executor_for_tests``
+# is the test-only escape hatch — pytest must not leak a singleton
+# executor across test cases when each case mocks Supabase
+# differently.
+_freeze_row_executor: ThreadPoolExecutor | None = None
+_freeze_row_executor_lock = threading.Lock()
+
+
+def get_freeze_row_executor(max_workers: int | None = None) -> ThreadPoolExecutor:
+    """Return the process-wide freeze_row ThreadPoolExecutor.
+
+    Creates the singleton on first call (lazy). Thread-safe: the
+    creation guard is double-checked under ``_freeze_row_executor_lock``
+    so two concurrent first-callers cannot create two executors.
+
+    ``max_workers`` defaults to ``BILLING_AUDIT_FREEZE_WORKERS`` env
+    var (or 8 if unset), capped at a hard upper bound of 32 to keep
+    Supabase connection usage bounded even if an operator
+    misconfigures the env. The chosen value is used only for the
+    FIRST creation — subsequent calls return the existing executor
+    regardless of the ``max_workers`` argument.
+    """
+    global _freeze_row_executor
+    if _freeze_row_executor is not None:
+        return _freeze_row_executor
+    with _freeze_row_executor_lock:
+        if _freeze_row_executor is not None:
+            return _freeze_row_executor
+        if max_workers is None:
+            try:
+                max_workers = int(
+                    os.getenv("BILLING_AUDIT_FREEZE_WORKERS", "8") or 8
+                )
+            except (TypeError, ValueError):
+                max_workers = 8
+        max_workers = max(1, min(max_workers, 32))
+        _freeze_row_executor = ThreadPoolExecutor(
+            max_workers=max_workers,
+            thread_name_prefix="freeze_row",
+        )
+        atexit.register(_freeze_row_executor.shutdown, wait=True)
+        return _freeze_row_executor
+
+
+def _reset_executor_for_tests() -> None:
+    """Tear down the singleton executor between tests.
+
+    Tests that exercise the parallelization path or mock Supabase
+    differently per case must not share thread state across cases.
+    Idempotent — safe to call when no executor was ever created.
+    """
+    global _freeze_row_executor
+    with _freeze_row_executor_lock:
+        ex = _freeze_row_executor
+        _freeze_row_executor = None
+    if ex is not None:
+        ex.shutdown(wait=False, cancel_futures=True)
 
 # Deduplication set for ``emit_run_fingerprint``. The
 # ``pipeline_run`` PK is ``(wr, week_ending, run_id)`` — no variant
@@ -85,10 +186,14 @@ _emitted_run_keys: set[tuple[str, str, str]] = set()
 
 
 def _reset_counters_for_tests() -> None:
-    """Zero the module counters. Test-only helper."""
-    for k in _counters:
-        _counters[k] = 0
+    """Zero the module counters and tear down the singleton
+    executor. Test-only helper.
+    """
+    with _counters_lock:
+        for k in _counters:
+            _counters[k] = 0
     _emitted_run_keys.clear()
+    _reset_executor_for_tests()
 
 
 def get_counters() -> dict[str, int]:
@@ -96,8 +201,14 @@ def get_counters() -> dict[str, int]:
 
     Keys: ``snapshots_written``, ``snapshots_already_frozen``,
     ``snapshots_errored``, ``fingerprint_changes_detected``.
+
+    Takes ``_counters_lock`` so the snapshot is internally consistent
+    even if another thread is mid-``_bump_counter`` — without it the
+    sum of returned values could disagree with a per-key total under
+    high write contention.
     """
-    return dict(_counters)
+    with _counters_lock:
+        return dict(_counters)
 
 
 def _flag_enabled_or_unknown(key: str) -> bool:
@@ -341,7 +452,7 @@ def freeze_row(row: dict, release: str | None,
 
     result = with_retry(_invoke, op="freeze_attribution")
     if result is None:
-        _counters["snapshots_errored"] += 1
+        _bump_counter("snapshots_errored")
         return
 
     data = getattr(result, "data", None)
@@ -356,9 +467,9 @@ def freeze_row(row: dict, release: str | None,
         source_run_id = data  # Some clients return scalar.
 
     if source_run_id is not None and str(source_run_id) == str(run_id or ""):
-        _counters["snapshots_written"] += 1
+        _bump_counter("snapshots_written")
     else:
-        _counters["snapshots_already_frozen"] += 1
+        _bump_counter("snapshots_already_frozen")
 
 
 def emit_run_fingerprint(wr: str, week_ending: datetime.date,
@@ -458,7 +569,7 @@ def emit_run_fingerprint(wr: str, week_ending: datetime.date,
         and prior_fp != assignment_fp
         and completed_count > 0
     ):
-        _counters["fingerprint_changes_detected"] += 1
+        _bump_counter("fingerprint_changes_detected")
         _sentry_capture_warning(
             "billing.mid_week_assignment_change",
             True,

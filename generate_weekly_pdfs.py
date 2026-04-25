@@ -4956,15 +4956,103 @@ def main():
                             name="billing_audit.freeze_attribution",
                         ) as _bas:
                             _bas.set_data("wr", wr_num)
+                            _bas.set_data("row_count", len(group_rows))
                             _week_snap = first_row.get('__week_ending_date')
                             if hasattr(_week_snap, 'date'):
                                 _week_snap = _week_snap.date()
-                            for _row in group_rows:
-                                _billing_audit_writer.freeze_row(
-                                    _row,
-                                    release=_billing_audit_release_env,
-                                    run_id=_billing_audit_run_id_env,
+                            # Parallelize per-row freeze_row calls so a
+                            # group with N rows costs ~ceil(N/W) ×
+                            # round-trip latency instead of N × latency.
+                            # Pre-2026-04-25 this was a serial loop;
+                            # at ~120ms per Supabase RPC, large groups
+                            # (50-150 rows is typical for a busy WR
+                            # week) burned 6-18 seconds of wall-clock
+                            # purely on serial HTTP. Across 1900+
+                            # groups in a weekly run that compounded
+                            # into ~2 hours of new latency on top of
+                            # the pre-billing_audit ~1h baseline,
+                            # consuming TIME_BUDGET_MINUTES before the
+                            # main loop reached Excel generation.
+                            #
+                            # ``freeze_row`` is intended to be fail-
+                            # safe: it handles routine errors
+                            # internally and records best-effort
+                            # diagnostic counters. Counter writes are
+                            # protected by ``_counters_lock`` so the
+                            # totals stay exact even under concurrent
+                            # invocation (the bare ``dict[k] += 1``
+                            # is a multi-bytecode read-modify-write
+                            # and CAN lose increments without the
+                            # lock). A future raising here is still
+                            # unexpected; log it (with sanitized row
+                            # id) and continue with the rest of the
+                            # group's writes.
+                            #
+                            # Executor reuse: ``get_freeze_row_executor()``
+                            # returns a process-wide singleton lazily
+                            # created on first use. With ~1900 groups
+                            # per typical run, creating a per-group
+                            # executor would mean ~1900 executor
+                            # constructions and ~15,000 thread-join
+                            # operations — each cheap individually
+                            # but non-trivial in aggregate, and
+                            # noisy in operational debugging.
+                            # ``atexit`` handles shutdown when the
+                            # interpreter exits.
+                            if len(group_rows) <= 1:
+                                for _row in group_rows:
+                                    _billing_audit_writer.freeze_row(
+                                        _row,
+                                        release=_billing_audit_release_env,
+                                        run_id=_billing_audit_run_id_env,
+                                    )
+                            else:
+                                # Singleton executor sized once at
+                                # first use; subsequent calls share
+                                # the same worker pool.
+                                _bas_ex = (
+                                    _billing_audit_writer
+                                    .get_freeze_row_executor(
+                                        max_workers=PARALLEL_WORKERS,
+                                    )
                                 )
+                                _bas.set_data(
+                                    "in_flight", len(group_rows)
+                                )
+                                # Track future → row so an unexpected
+                                # raise can be pinpointed to the
+                                # specific row that triggered it,
+                                # not just the WR — useful when one
+                                # row in a 100-row group has malformed
+                                # data the writer didn't anticipate.
+                                _bas_future_to_row: dict[Any, dict] = {}
+                                for _row in group_rows:
+                                    _bas_f = _bas_ex.submit(
+                                        _billing_audit_writer.freeze_row,
+                                        _row,
+                                        release=_billing_audit_release_env,
+                                        run_id=_billing_audit_run_id_env,
+                                    )
+                                    _bas_future_to_row[_bas_f] = _row
+                                for _bas_f in as_completed(_bas_future_to_row):
+                                    try:
+                                        _bas_f.result()
+                                    except Exception:
+                                        # Sanitized row identifier:
+                                        # ``__row_id`` is a Smartsheet
+                                        # numeric ID (not PII) — safe
+                                        # to log. Skip Pole / CU /
+                                        # Foreman fields per the
+                                        # _PII_LOG_MARKERS rule.
+                                        _bad_row = _bas_future_to_row.get(_bas_f, {})
+                                        _bad_row_id = _bad_row.get("__row_id")
+                                        logging.exception(
+                                            "billing_audit.freeze_row "
+                                            "raised unexpectedly for "
+                                            "WR %s row_id=%s",
+                                            wr_num,
+                                            _bad_row_id,
+                                        )
                             # Skip fingerprint compute + completed
                             # count when the fingerprint flag is off
                             # — emit_run_fingerprint would no-op

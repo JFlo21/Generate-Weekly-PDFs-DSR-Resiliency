@@ -89,6 +89,55 @@ _PGRST_PERMANENT_PREFIXES: tuple[str, ...] = (
     "PGRST3",  # miscellaneous permanent (e.g. profile-switching)
 )
 
+# PostgreSQL SQLSTATE class prefixes that PostgREST forwards verbatim
+# in the JSON error body's ``code`` field when the underlying query
+# fails at the database layer (as opposed to PostgREST's own parsing
+# / auth layer, which uses PGRST codes). SQLSTATEs are exactly 5
+# characters; the classes below cover every condition a malformed
+# pipeline query / payload can produce, all of which are PERMANENT
+# — retrying will never make a missing column appear or a uniqueness
+# constraint relax. The motivating production incident:
+#
+#   2026-04-25: ``billing_audit.pipeline_run`` was first introduced
+#   in writer code on 2026-04-23 but the matching ``CREATE TABLE``
+#   was never deployed to Supabase. PostgREST returned
+#   ``{"code":"42P01", ...}`` (or ``42703`` for missing columns
+#   if a partial table existed). Without this prefix list, ``42703``
+#   fell through every check in ``_classify_postgrest_error`` —
+#   it doesn't start with PGRST1/2/3 and isn't a stringified HTTP
+#   status — and landed in the catch-all transient branch, burning
+#   the full 4-attempt backoff budget on every WR group's
+#   ``pipeline_run_select`` call before the per-op circuit breaker
+#   tripped.
+#
+# Classes captured here:
+#   - ``22`` — Data exception (invalid datetime, division by zero,
+#              numeric out of range, invalid text representation).
+#   - ``23`` — Integrity constraint violation (unique, FK, NOT NULL,
+#              check, exclusion).
+#   - ``42`` — Syntax error or access rule violation (undefined
+#              column ``42703``, undefined table ``42P01``,
+#              undefined function ``42883``, syntax_error
+#              ``42601``, insufficient_privilege ``42501``).
+#
+# Other SQLSTATE classes (``08`` connection failure, ``40``
+# transaction rollback, ``53`` insufficient resources, ``57``
+# operator intervention, ``XX`` internal error) ARE retryable and
+# must NOT be added here — PostgREST surfaces them too, and the
+# default-transient path correctly retries them.
+_PG_SQLSTATE_PERMANENT_PREFIXES: tuple[str, ...] = (
+    "22",
+    "23",
+    "42",
+)
+
+# SQLSTATE codes are exactly 5 ASCII characters per the PostgreSQL
+# spec. The length guard prevents a hypothetical PGRST code that
+# happens to start with these digits from being misclassified —
+# none exist today, but PostgREST is free to mint new codes and the
+# guard keeps the SQLSTATE check defensive against future drift.
+_PG_SQLSTATE_LENGTH = 5
+
 # HTTP status codes that PostgREST sometimes surfaces as stringified
 # values via ``generate_default_error_message`` when the response
 # body isn't valid JSON. A 4xx means "client request was rejected"
@@ -315,6 +364,22 @@ def _classify_postgrest_error(
         return False, True, code
 
     if code.startswith(_PGRST_PERMANENT_PREFIXES):
+        return False, False, code
+
+    # PostgreSQL SQLSTATE — forwarded verbatim by PostgREST when the
+    # query fails at the DB layer (undefined column ``42703``,
+    # undefined table ``42P01``, unique violation ``23505``, etc.).
+    # Length-gated to exactly 5 chars so only true SQLSTATE values
+    # match this branch; real PostgREST codes like ``PGRST116``
+    # are longer (8 chars for the code, 6 chars for the prefix)
+    # and therefore excluded. Order still matters: the PGRST
+    # prefix check above runs first so PGRST codes are always
+    # classified by their explicit prefix rather than accidentally
+    # falling through to this numeric-SQLSTATE branch.
+    if (
+        len(code) == _PG_SQLSTATE_LENGTH
+        and code.startswith(_PG_SQLSTATE_PERMANENT_PREFIXES)
+    ):
         return False, False, code
 
     if code in _HTTP_PERMANENT_CODES:
@@ -590,6 +655,30 @@ def with_retry(fn: Callable[..., Any], *args: Any,
                     f"backoff {backoff:.1f}s"
                 )
                 time.sleep(backoff)
+                # Re-check kill switch + circuit breaker BEFORE the
+                # next attempt. The 2026-04-25 parallelization of
+                # ``freeze_row`` in the main pipeline can put up to
+                # ``PARALLEL_WORKERS`` (8 by default) concurrent
+                # callers into ``with_retry`` for the same op
+                # simultaneously. Without this re-check, an outage
+                # on Supabase would let every in-flight worker
+                # exhaust all 4 attempts even after another worker
+                # tripped the breaker — recreating the per-op retry
+                # storm (8 workers × 4 attempts = 32 doomed RPCs)
+                # the breaker exists to bound. Checking AFTER the
+                # backoff sleep (where the cross-thread state has
+                # had time to update) ensures every worker observes
+                # the breaker trip from any neighbor.
+                if _global_disable_reason is not None:
+                    return None
+                if op in _open_circuits:
+                    logging.warning(
+                        f"⚠️ billing_audit[{op}] aborting retries: "
+                        "circuit breaker opened by a concurrent "
+                        f"worker mid-attempt (after {attempt + 1}/"
+                        f"{max_attempts})"
+                    )
+                    return None
                 continue
             # Non-transient OR last attempt — fall through to failure.
             break
