@@ -302,7 +302,7 @@ jobs:
           # transient Smartsheet connection drops. timeout-minutes is set to 195 (180 budget
           # + 15min cushion for post-job cache/artifact save steps) so the Python process
           # always exits gracefully before Actions hard-kills it.
-          TIME_BUDGET_MINUTES: '180'
+          TIME_BUDGET_MINUTES: '400'
         run: python generate_weekly_pdfs.py
       
       - name: Create Sentry release (optional)
