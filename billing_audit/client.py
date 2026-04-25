@@ -369,12 +369,13 @@ def _classify_postgrest_error(
     # PostgreSQL SQLSTATE — forwarded verbatim by PostgREST when the
     # query fails at the DB layer (undefined column ``42703``,
     # undefined table ``42P01``, unique violation ``23505``, etc.).
-    # Length-gated to 5 chars so a future PGRST code starting with
-    # these digits is not accidentally swept up. Order matters:
-    # PGRST check above runs first because PGRST codes are also
-    # length-5 strings starting with letters (e.g. ``PGRST116``)
-    # and would otherwise escape this branch only by character
-    # set, not by intent.
+    # Length-gated to exactly 5 chars so only true SQLSTATE values
+    # match this branch; real PostgREST codes like ``PGRST116``
+    # are longer (8 chars for the code, 6 chars for the prefix)
+    # and therefore excluded. Order still matters: the PGRST
+    # prefix check above runs first so PGRST codes are always
+    # classified by their explicit prefix rather than accidentally
+    # falling through to this numeric-SQLSTATE branch.
     if (
         len(code) == _PG_SQLSTATE_LENGTH
         and code.startswith(_PG_SQLSTATE_PERMANENT_PREFIXES)

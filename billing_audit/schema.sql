@@ -35,10 +35,16 @@ CREATE TABLE IF NOT EXISTS billing_audit.feature_flag (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Seed the flags the pipeline currently reads. Insert defaults
--- only — re-running this block will not clobber operator edits.
+-- Seed the flags the pipeline currently reads. Both flags are
+-- defined in ``billing_audit/writer.py`` (``_FLAG_WRITE`` and
+-- ``_FLAG_FINGERPRINT``). Seed both as FALSE so a fresh deploy
+-- is safe-by-default — operators enable the feature explicitly
+-- via an UPDATE against this table. ON CONFLICT DO NOTHING
+-- preserves operator edits on re-run.
 INSERT INTO billing_audit.feature_flag (flag_key, enabled)
-VALUES ('emit_assignment_fingerprint', FALSE)
+VALUES
+    ('write_attribution_snapshot', FALSE),
+    ('emit_assignment_fingerprint', FALSE)
 ON CONFLICT (flag_key) DO NOTHING;
 
 -- ── pipeline_run ────────────────────────────────────────────
@@ -67,13 +73,19 @@ CREATE TABLE IF NOT EXISTS billing_audit.pipeline_run (
     PRIMARY KEY (wr, week_ending, run_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_pipeline_run_wr_week_created_at
-    ON billing_audit.pipeline_run (wr, week_ending, created_at DESC);
-
 -- Idempotent column-add guard for environments that have an
 -- older partial pipeline_run table from a pre-2026-04-25 deploy.
 -- Safe to re-run; ``ADD COLUMN IF NOT EXISTS`` is a no-op when
 -- the column is already present.
+--
+-- This MUST run BEFORE the CREATE INDEX below, because the index
+-- references ``created_at``. On a partial-deploy environment
+-- where the table exists without ``created_at``, running
+-- ``CREATE INDEX ... (created_at DESC)`` first would fail,
+-- Supabase SQL Editor halts on the first error, and this
+-- ALTER TABLE never runs — leaving the schema stuck. Order:
+-- CREATE TABLE (no-op if exists) → ALTER TABLE (backfill
+-- columns) → CREATE INDEX (now safe).
 ALTER TABLE billing_audit.pipeline_run
     ADD COLUMN IF NOT EXISTS content_hash    TEXT,
     ADD COLUMN IF NOT EXISTS assignment_fp   TEXT,
@@ -81,6 +93,9 @@ ALTER TABLE billing_audit.pipeline_run
     ADD COLUMN IF NOT EXISTS total_count     INTEGER NOT NULL DEFAULT 0,
     ADD COLUMN IF NOT EXISTS release         TEXT,
     ADD COLUMN IF NOT EXISTS created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+CREATE INDEX IF NOT EXISTS idx_pipeline_run_wr_week_created_at
+    ON billing_audit.pipeline_run (wr, week_ending, created_at DESC);
 
 -- ── freeze_attribution (RPC) ────────────────────────────────
 -- The ``freeze_attribution`` Postgres function is NOT defined
