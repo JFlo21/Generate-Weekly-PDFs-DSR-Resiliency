@@ -3,13 +3,13 @@ name: Weekly Excel Generation with Sentry Monitoring (Every 2 Hours + Weekly)
 permissions:
   contents: read
 
-# Serialize runs per-ref. With timeout-minutes: 195 and a cron every ~2h
+# Serialize runs per-ref. With timeout-minutes: 110 and a cron every ~2h
 # (120min), a slow run would otherwise overlap with the next fire,
 # doubling Smartsheet API pressure and increasing the chance of
 # cascading RemoteDisconnected stalls. cancel-in-progress: false
 # (queue mode) is the safer choice for billing: a near-complete run
 # must NEVER be cancelled right before hash_history.save / attachment
-# upload finishes. The 195min hard ceiling already bounds how long a
+# upload finishes. The 110min hard ceiling already bounds how long a
 # stuck run can hold the queue.
 concurrency:
   group: weekly-excel-${{ github.ref }}
@@ -122,10 +122,10 @@ jobs:
   core:
     runs-on: ubuntu-latest
     # Hard ceiling for the Actions runner. Must exceed TIME_BUDGET_MINUTES
-    # (currently 180 = 3h) so the Python process always exits gracefully
-    # before Actions kills it; the extra 15min is reserved for post-job
-    # cache-save and artifact-upload steps.
-    timeout-minutes: 195
+    # so the Python process exits gracefully before Actions kills it.
+    # User requirement (2026-04-25): keep total run time under 1h50m.
+    # Reserve ~15 minutes for post-job cache/artifact steps.
+    timeout-minutes: 110
     env:
       PYTHONUNBUFFERED: 1
       GITHUB_ACTIONS: 'true'
@@ -296,13 +296,10 @@ jobs:
           DEBUG_SAMPLE_ROWS: '1'
           DEBUG_ESSENTIAL_ROWS: '3'
           UNMAPPED_COLUMN_SAMPLE_LIMIT: '3'
-          # Graceful time budget: stop processing new groups before Actions hard-kills the job.
-          # Raised to 180min (3h) on 2026-04-22 to cover long pre-flight phases
-          # (discovery + target-row-attachment pre-fetch) that can occasionally stall on
-          # transient Smartsheet connection drops. timeout-minutes is set to 195 (180 budget
-          # + 15min cushion for post-job cache/artifact save steps) so the Python process
-          # always exits gracefully before Actions hard-kills it.
-          TIME_BUDGET_MINUTES: '400'
+          # Graceful Python budget: stop group processing before runner hard-kill.
+          # Keep Python execution within ~95 minutes, leaving ~15 minutes for
+          # artifact/cache save + summary steps so end-to-end stays under 1h50m.
+          TIME_BUDGET_MINUTES: '95'
         run: python generate_weekly_pdfs.py
       
       - name: Create Sentry release (optional)

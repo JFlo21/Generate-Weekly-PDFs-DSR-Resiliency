@@ -360,7 +360,7 @@ def _sentry_capture_warning(tag_key: str, tag_value: Any,
 
 
 def freeze_row(row: dict, release: str | None,
-               run_id: str | None) -> None:
+               run_id: str | None) -> bool:
     """Upsert one row's personnel into ``attribution_snapshot``.
 
     First-write-wins via the ``billing_audit.freeze_attribution`` RPC.
@@ -371,7 +371,7 @@ def freeze_row(row: dict, release: str | None,
     """
     client = get_client()
     if client is None:
-        return
+        return False
     # Fail-open on indeterminate flag state — see
     # _flag_enabled_or_unknown for the rationale. A transient
     # feature_flag read blip must not be treated as definitive
@@ -379,7 +379,7 @@ def freeze_row(row: dict, release: str | None,
     # permanently miss the first-write-wins freeze window for
     # completed rows.
     if not _flag_enabled_or_unknown(_FLAG_WRITE):
-        return
+        return False
 
     row_id = row.get("__row_id")
     if not isinstance(row_id, int):
@@ -387,15 +387,15 @@ def freeze_row(row: dict, release: str | None,
             "⚠️ billing_audit.freeze_row: skipping row with missing or "
             "non-integer __row_id"
         )
-        return
+        return False
 
     if not _is_checked(row.get("Units Completed?")):
-        return
+        return False
 
     wr = _sanitized_wr(row)
     week_ending = _coerce_week_ending(row.get("__week_ending_date"))
     if not wr or week_ending is None:
-        return
+        return False
 
     # Normalize release / run_id to empty-string sentinels so RPC
     # params stay valid even when the deployment applies NOT NULL
@@ -453,7 +453,7 @@ def freeze_row(row: dict, release: str | None,
     result = with_retry(_invoke, op="freeze_attribution")
     if result is None:
         _bump_counter("snapshots_errored")
-        return
+        return False
 
     data = getattr(result, "data", None)
     source_run_id: Any = None
@@ -470,6 +470,7 @@ def freeze_row(row: dict, release: str | None,
         _bump_counter("snapshots_written")
     else:
         _bump_counter("snapshots_already_frozen")
+    return True
 
 
 def emit_run_fingerprint(wr: str, week_ending: datetime.date,
