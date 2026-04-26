@@ -444,6 +444,12 @@ else:
     logging.info("📊 Rate contract versioning DISABLED (RATE_CUTOFF_DATE not set)")
 
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
+BILLING_AUDIT_ROW_CACHE_ENABLED = os.getenv('BILLING_AUDIT_ROW_CACHE_ENABLED', '1').lower() in ('1', 'true', 'yes')
+# Reset local freeze-row cache when forcing history reset, unless explicitly overridden off.
+RESET_BILLING_AUDIT_ROW_CACHE = (
+    os.getenv('RESET_BILLING_AUDIT_ROW_CACHE', '1' if RESET_HASH_HISTORY else '0').lower()
+    in ('1', 'true', 'yes')
+)
 RESET_WR_LIST = {w.strip() for w in os.getenv('RESET_WR_LIST','').split(',') if w.strip()}  # When provided, only purge these WR numbers (overrides full reset)
 _env_hist_path = os.getenv('HASH_HISTORY_PATH')
 _default_hist_path = os.path.join(OUTPUT_FOLDER, 'hash_history.json')
@@ -2129,6 +2135,10 @@ def load_hash_history(path: str):
         return {}
 
 HASH_HISTORY_MAX_ENTRIES = 1000
+BILLING_AUDIT_ROW_CACHE_PATH = os.path.join(
+    OUTPUT_FOLDER, "billing_audit_frozen_rows.json"
+)
+BILLING_AUDIT_ROW_CACHE_MAX_ENTRIES = 200000
 
 def save_hash_history(path: str, history: dict):
     try:
@@ -2148,6 +2158,59 @@ def save_hash_history(path: str, history: dict):
         logging.info(f"📝 Hash history saved ({len(history)} entries)")
     except Exception as e:
         logging.warning(f"⚠️ Failed to save hash history: {e}")
+
+
+def load_billing_audit_row_cache(path: str) -> set[str]:
+    """Load cached freeze-attribution row keys.
+
+    Keys are ``{wr_sanitized}|{week_mmddyy}|{row_id}``. This local cache
+    is best-effort only — if missing/corrupt we simply fall back to
+    normal freeze-row behavior.
+    """
+    if RESET_BILLING_AUDIT_ROW_CACHE:
+        logging.info(
+            "♻️ Billing-audit row cache reset requested; ignoring "
+            "existing cache file"
+        )
+        return set()
+    try:
+        with open(path, "r") as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            return {str(x) for x in data if x is not None}
+        if isinstance(data, dict):
+            # Backward-compatible shape if we later add metadata.
+            rows = data.get("rows", [])
+            if isinstance(rows, list):
+                return {str(x) for x in rows if x is not None}
+        logging.warning("⚠️ Billing-audit row cache malformed; resetting")
+        return set()
+    except FileNotFoundError:
+        return set()
+    except Exception as e:
+        logging.warning(f"⚠️ Failed to load billing-audit row cache: {e}")
+        return set()
+
+
+def save_billing_audit_row_cache(path: str, rows: set[str]) -> None:
+    """Persist cached freeze-attribution row keys."""
+    try:
+        values = list(rows)
+        if len(values) > BILLING_AUDIT_ROW_CACHE_MAX_ENTRIES:
+            # Deterministic truncation. Cache is opportunistic; precision
+            # is not required as fallback is to re-call freeze_row.
+            values = sorted(values)[-BILLING_AUDIT_ROW_CACHE_MAX_ENTRIES:]
+            logging.info(
+                "🧹 Pruned billing-audit row cache to "
+                f"{BILLING_AUDIT_ROW_CACHE_MAX_ENTRIES} entries"
+            )
+        tmp_path = path + ".tmp"
+        with open(tmp_path, "w") as f:
+            json.dump(values, f, indent=2)
+        os.replace(tmp_path, path)
+        logging.info(f"📝 Billing-audit row cache saved ({len(values)} entries)")
+    except Exception as e:
+        logging.warning(f"⚠️ Failed to save billing-audit row cache: {e}")
 
 # --- DATA DISCOVERY AND PROCESSING ---
 
@@ -4655,6 +4718,16 @@ def main():
 
         # Load hash history AFTER optional purge so we don't rely on stale attachments
         hash_history = load_hash_history(HASH_HISTORY_PATH)
+        billing_audit_row_cache: set[str] = set()
+        billing_audit_row_cache_dirty = False
+        if (
+            BILLING_AUDIT_AVAILABLE
+            and not TEST_MODE
+            and BILLING_AUDIT_ROW_CACHE_ENABLED
+        ):
+            billing_audit_row_cache = load_billing_audit_row_cache(
+                BILLING_AUDIT_ROW_CACHE_PATH
+            )
         history_updates = 0
         _groups_skipped = 0
         _groups_generated = 0
@@ -4926,17 +4999,38 @@ def main():
                 # History key includes variant dimension to prevent collisions
                 history_key = f"{wr_num}|{week_raw}|{variant}|{identifier}"
 
+                # Pre-compute hash-change state before any optional side-effects.
+                # Billing audit RPCs are the single most expensive per-group operation
+                # in steady state, so we can safely skip them when the group hash is
+                # unchanged versus hash_history (no row-content drift to freeze or emit).
+                _history_eligible_for_skip = (
+                    HISTORY_SKIP_ENABLED
+                    and not (
+                        FORCE_GENERATION
+                        or week_raw in REGEN_WEEKS
+                        or RESET_HASH_HISTORY
+                        or RESET_WR_LIST
+                    )
+                )
+                _prev_history_entry = (
+                    hash_history.get(history_key)
+                    if _history_eligible_for_skip
+                    else None
+                )
+                _hash_unchanged = bool(
+                    _prev_history_entry
+                    and _prev_history_entry.get('hash') == data_hash
+                )
+
                 # ── Billing audit snapshot: freeze personnel + emit run fingerprint ──
-                # Runs BEFORE the skip check so stable rows get attribution frozen on
-                # subsequent runs (first-write-wins makes repeat calls cheap). Writes
-                # happen in shadow mode — no read path yet. Failures must never break
-                # Excel generation. Skipped in TEST_MODE to prevent polluting production
-                # Supabase with synthetic test data. ``any_flag_enabled()`` is a cheap
-                # cached probe — it skips fingerprint computation and the per-row
-                # freeze_row loop entirely when both writer flags are off.
+                # Only runs for groups with changed/new hashes. This keeps normal
+                # production runs from re-issuing identical freeze_attribution RPCs for
+                # every unchanged group while preserving full behavior when data changed.
+                # Failures must never break Excel generation.
                 if (
                     BILLING_AUDIT_AVAILABLE
                     and not TEST_MODE
+                    and not _hash_unchanged
                     and _billing_audit_writer.any_flag_enabled()
                 ):
                     try:
@@ -4956,7 +5050,23 @@ def main():
                             name="billing_audit.freeze_attribution",
                         ) as _bas:
                             _bas.set_data("wr", wr_num)
-                            _bas.set_data("row_count", len(group_rows))
+                            _rows_to_freeze: list[dict] = []
+                            _freeze_row_keys: dict[int, str] = {}
+                            for _row in group_rows:
+                                _row_id = _row.get("__row_id")
+                                if not isinstance(_row_id, int):
+                                    continue
+                                if not is_checked(_row.get("Units Completed?")):
+                                    continue
+                                _cache_key = f"{wr_num}|{week_raw}|{_row_id}"
+                                if (
+                                    BILLING_AUDIT_ROW_CACHE_ENABLED
+                                    and _cache_key in billing_audit_row_cache
+                                ):
+                                    continue
+                                _rows_to_freeze.append(_row)
+                                _freeze_row_keys[id(_row)] = _cache_key
+                            _bas.set_data("row_count", len(_rows_to_freeze))
                             _week_snap = first_row.get('__week_ending_date')
                             if hasattr(_week_snap, 'date'):
                                 _week_snap = _week_snap.date()
@@ -4999,13 +5109,21 @@ def main():
                             # noisy in operational debugging.
                             # ``atexit`` handles shutdown when the
                             # interpreter exits.
-                            if len(group_rows) <= 1:
-                                for _row in group_rows:
-                                    _billing_audit_writer.freeze_row(
+                            if len(_rows_to_freeze) <= 1:
+                                for _row in _rows_to_freeze:
+                                    _ok = _billing_audit_writer.freeze_row(
                                         _row,
                                         release=_billing_audit_release_env,
                                         run_id=_billing_audit_run_id_env,
                                     )
+                                    if _ok:
+                                        _rk = _freeze_row_keys.get(id(_row))
+                                        if (
+                                            _rk
+                                            and BILLING_AUDIT_ROW_CACHE_ENABLED
+                                        ):
+                                            billing_audit_row_cache.add(_rk)
+                                            billing_audit_row_cache_dirty = True
                             else:
                                 # Singleton executor sized once at
                                 # first use; subsequent calls share
@@ -5017,7 +5135,7 @@ def main():
                                     )
                                 )
                                 _bas.set_data(
-                                    "in_flight", len(group_rows)
+                                    "in_flight", len(_rows_to_freeze)
                                 )
                                 # Track future → row so an unexpected
                                 # raise can be pinpointed to the
@@ -5026,7 +5144,7 @@ def main():
                                 # row in a 100-row group has malformed
                                 # data the writer didn't anticipate.
                                 _bas_future_to_row: dict[Any, dict] = {}
-                                for _row in group_rows:
+                                for _row in _rows_to_freeze:
                                     _bas_f = _bas_ex.submit(
                                         _billing_audit_writer.freeze_row,
                                         _row,
@@ -5036,7 +5154,20 @@ def main():
                                     _bas_future_to_row[_bas_f] = _row
                                 for _bas_f in as_completed(_bas_future_to_row):
                                     try:
-                                        _bas_f.result()
+                                        _ok = _bas_f.result()
+                                        if _ok:
+                                            _good_row = _bas_future_to_row.get(
+                                                _bas_f, {}
+                                            )
+                                            _rk = _freeze_row_keys.get(
+                                                id(_good_row)
+                                            )
+                                            if (
+                                                _rk
+                                                and BILLING_AUDIT_ROW_CACHE_ENABLED
+                                            ):
+                                                billing_audit_row_cache.add(_rk)
+                                                billing_audit_row_cache_dirty = True
                                     except Exception:
                                         # Sanitized row identifier:
                                         # ``__row_id`` is a Smartsheet
@@ -5145,6 +5276,7 @@ def main():
                                     run_id=_billing_audit_run_id_env,
                                 )
                             _bas.set_data("rows", len(group_rows))
+                            _bas.set_data("freeze_candidates", len(_rows_to_freeze))
                             _bas.set_data("variant", variant)
                     except Exception as _audit_err:
                         # Class name only — avoids leaking WR / foreman /
@@ -5161,9 +5293,8 @@ def main():
                         )
 
                 # Decide skip based on stored history BEFORE generating Excel (only if FORCE not set)
-                if HISTORY_SKIP_ENABLED and not (FORCE_GENERATION or week_raw in REGEN_WEEKS or RESET_HASH_HISTORY or RESET_WR_LIST):
-                    prev = hash_history.get(history_key)
-                    if prev and prev.get('hash') == data_hash:
+                if _history_eligible_for_skip:
+                    if _hash_unchanged:
                         # Only skip if attachment present OR policy allows skipping without attachment
                         can_skip = True
                         if ATTACHMENT_REQUIRED_FOR_SKIP and not TEST_MODE:
@@ -5487,6 +5618,16 @@ def main():
                         del hash_history[sk]
                     logging.info(f"🧹 Pruned {len(stale_keys)} stale hash history entries (groups no longer in source data)")
             save_hash_history(HASH_HISTORY_PATH, hash_history)
+        if (
+            BILLING_AUDIT_AVAILABLE
+            and not TEST_MODE
+            and BILLING_AUDIT_ROW_CACHE_ENABLED
+            and billing_audit_row_cache_dirty
+        ):
+            save_billing_audit_row_cache(
+                BILLING_AUDIT_ROW_CACHE_PATH,
+                billing_audit_row_cache,
+            )
 
         # Write run summary JSON for downstream consumers (Notion sync, dashboards)
         _run_summary = {
