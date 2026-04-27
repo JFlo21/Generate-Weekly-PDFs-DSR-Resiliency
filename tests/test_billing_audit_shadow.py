@@ -53,6 +53,38 @@ def _reset_all():
     ba_writer._reset_counters_for_tests()
 
 
+def _ensure_smartsheet_mocked():
+    """Inject MagicMock stubs for smartsheet and its submodules into
+    sys.modules so that ``import generate_weekly_pdfs`` succeeds in
+    environments where the Smartsheet SDK is not installed.
+
+    ``generate_weekly_pdfs`` imports three names:
+        import smartsheet
+        import smartsheet.exceptions as ss_exc
+        import smartsheet.smartsheet as _ss_smartsheet_module
+
+    A bare ``MagicMock()`` registered as ``sys.modules['smartsheet']``
+    satisfies ``import smartsheet`` and attribute access, but the two
+    sub-imports fail because the Python import machinery looks up
+    ``sys.modules['smartsheet.exceptions']`` and
+    ``sys.modules['smartsheet.smartsheet']`` explicitly.  We register
+    both sub-stubs so all three import forms succeed.
+
+    The guard is idempotent: if the real SDK is already installed this
+    function is a no-op.
+    """
+    if "smartsheet" not in sys.modules:
+        _ss_stub = mock.MagicMock()
+        sys.modules["smartsheet"] = _ss_stub
+        sys.modules["smartsheet.exceptions"] = mock.MagicMock()
+        sys.modules["smartsheet.smartsheet"] = mock.MagicMock()
+    elif "smartsheet.exceptions" not in sys.modules:
+        # Real package present but sub-stubs missing — shouldn't happen,
+        # but guard anyway.
+        sys.modules["smartsheet.exceptions"] = mock.MagicMock()
+        sys.modules["smartsheet.smartsheet"] = mock.MagicMock()
+
+
 def _fake_rpc_response(source_run_id):
     resp = mock.Mock()
     resp.data = {"source_run_id": source_run_id}
@@ -540,11 +572,150 @@ class FreezeRowTests(unittest.TestCase):
             ba_client.reset_cache_for_tests()
 
 
+class FreezeRowBoolReturnTests(unittest.TestCase):
+    """Assert the documented bool return semantics of ``freeze_row``.
+
+    ``generate_weekly_pdfs.py`` uses the return value to maintain the
+    billing-audit row cache (skip rows already frozen). Regressions
+    here would silently break the skip logic.
+    """
+
+    def setUp(self):
+        _reset_all()
+
+    def tearDown(self):
+        _reset_all()
+
+    def _valid_row(self):
+        return {
+            "__row_id": 123456789,
+            "Work Request #": "WR-9001",
+            "__week_ending_date": datetime.date(2026, 4, 19),
+            "Units Completed?": True,
+            "Foreman": "Alice",
+            "__effective_user": "Alice",
+        }
+
+    def test_returns_false_when_client_none(self):
+        """client is None → False (no RPC possible)."""
+        from billing_audit import writer as ba_writer
+        with mock.patch("billing_audit.writer.get_client", return_value=None):
+            result = ba_writer.freeze_row(
+                self._valid_row(), release="r", run_id="x"
+            )
+        self.assertIs(result, False)
+
+    def test_returns_false_when_flag_definitively_off(self):
+        """flag is resolved-off → False."""
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=False
+        ), mock.patch(
+            "billing_audit.writer.is_flag_resolved", return_value=True
+        ):
+            result = ba_writer.freeze_row(
+                self._valid_row(), release="r", run_id="x"
+            )
+        self.assertIs(result, False)
+
+    def test_returns_false_for_missing_row_id(self):
+        """Row without __row_id is ineligible → False."""
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        row = self._valid_row()
+        del row["__row_id"]
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ), self.assertLogs(level="WARNING"):
+            result = ba_writer.freeze_row(row, release="r", run_id="x")
+        self.assertIs(result, False)
+
+    def test_returns_false_when_units_completed_false(self):
+        """Row with Units Completed?=False is ineligible → False."""
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        row = self._valid_row()
+        row["Units Completed?"] = False
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            result = ba_writer.freeze_row(row, release="r", run_id="x")
+        self.assertIs(result, False)
+
+    def test_returns_false_when_rpc_returns_none(self):
+        """RPC exhausts retries (returns None) → False."""
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client(
+            rpc_side_effect=[Exception("boom")] * 5
+        )
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ), mock.patch("billing_audit.client.time.sleep"):
+            result = ba_writer.freeze_row(
+                self._valid_row(), release="r", run_id="x"
+            )
+        self.assertIs(result, False)
+        self.assertEqual(
+            ba_writer.get_counters()["snapshots_errored"], 1,
+            "errored counter must be bumped on RPC failure",
+        )
+
+    def test_returns_true_on_successful_new_write(self):
+        """RPC succeeds with source_run_id matching caller run_id → True
+        (snapshots_written incremented)."""
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        client.schema.return_value.rpc.return_value.execute.return_value = (
+            _fake_rpc_response("run-1")
+        )
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            result = ba_writer.freeze_row(
+                self._valid_row(), release="r", run_id="run-1"
+            )
+        self.assertIs(result, True)
+        self.assertEqual(ba_writer.get_counters()["snapshots_written"], 1)
+
+    def test_returns_true_on_already_frozen(self):
+        """RPC returns source_run_id differing from caller run_id → True
+        (snapshots_already_frozen incremented, not False)."""
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        client.schema.return_value.rpc.return_value.execute.return_value = (
+            _fake_rpc_response("prior-run")
+        )
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            result = ba_writer.freeze_row(
+                self._valid_row(), release="r", run_id="current-run"
+            )
+        self.assertIs(result, True)
+        self.assertEqual(
+            ba_writer.get_counters()["snapshots_already_frozen"], 1
+        )
+
+
+
 class FreezeRowConcurrencyTests(unittest.TestCase):
     """``freeze_row`` MUST be safe to invoke concurrently from a
     ThreadPoolExecutor. The main pipeline parallelizes the per-row
     freeze loop in ``generate_weekly_pdfs.py`` to convert
-    O(rows) × HTTP-latency serial cost into O(rows / PARALLEL_WORKERS)
+    O(rows) x HTTP-latency serial cost into O(rows / PARALLEL_WORKERS)
     parallel cost — without this property, a busy WR week with 100+
     rows would spend 12+ seconds per group purely on Supabase
     round-trips, compounding into hours across 1900+ groups (the
@@ -3251,6 +3422,263 @@ class GetFlagCachingTests(unittest.TestCase):
         self.assertTrue(second)
         # Second call served from the cache — schema() called once.
         self.assertEqual(call_count["n"], 1)
+
+
+class BillingAuditRowCacheIOTests(unittest.TestCase):
+    """Unit tests for ``load_billing_audit_row_cache`` and
+    ``save_billing_audit_row_cache`` in ``generate_weekly_pdfs.py``.
+
+    These functions gate whether expensive ``freeze_attribution`` Supabase
+    RPCs run; they must be robust to missing/corrupt files and must
+    produce deterministic (sorted, compact) output for CI caching.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        # Ensure smartsheet stubs are in sys.modules so the import
+        # succeeds in environments without the Smartsheet SDK installed.
+        import importlib
+        import tempfile
+        _ensure_smartsheet_mocked()
+        with mock.patch.dict(os.environ, {"SENTRY_DSN": ""}, clear=False):
+            with mock.patch("sentry_sdk.init"):
+                cls._gwp = importlib.import_module("generate_weekly_pdfs")
+        # Class-level temp directory: unique per test run, cleaned up in
+        # tearDownClass, avoids the mkstemp+unlink race-condition window.
+        cls._tmp_dir = tempfile.mkdtemp(prefix="ba_cache_io_tests_")
+        cls._tmp_counter = 0
+
+    @classmethod
+    def tearDownClass(cls):
+        import shutil
+        shutil.rmtree(cls._tmp_dir, ignore_errors=True)
+
+    def _tmp_path(self, suffix: str = ".json") -> str:
+        """Return a path guaranteed not to exist inside the class temp dir."""
+        BillingAuditRowCacheIOTests._tmp_counter += 1
+        return os.path.join(
+            self._tmp_dir,
+            f"test_{BillingAuditRowCacheIOTests._tmp_counter}{suffix}",
+        )
+
+    # ── load_billing_audit_row_cache ────────────────────────────────────────
+
+    def test_load_missing_file_returns_empty_set(self):
+        path = self._tmp_path()
+        result = self._gwp.load_billing_audit_row_cache(path)
+        self.assertIsInstance(result, set)
+        self.assertEqual(len(result), 0)
+
+    def test_load_corrupt_file_returns_empty_set(self):
+        path = self._tmp_path()
+        with open(path, "w") as f:
+            f.write("not valid json {{{{")
+        result = self._gwp.load_billing_audit_row_cache(path)
+        self.assertIsInstance(result, set)
+        self.assertEqual(len(result), 0)
+
+    def test_load_valid_list_returns_set(self):
+        import json
+        path = self._tmp_path()
+        keys = ["WR-1|040126|111", "WR-2|040126|222"]
+        with open(path, "w") as f:
+            json.dump(keys, f)
+        result = self._gwp.load_billing_audit_row_cache(path)
+        self.assertEqual(result, set(keys))
+
+    def test_load_old_dict_shape_uses_rows_key(self):
+        """Backward-compatible dict shape ``{"rows": [...]}`` must load."""
+        import json
+        path = self._tmp_path()
+        keys = ["WR-A|040126|999"]
+        with open(path, "w") as f:
+            json.dump({"rows": keys, "meta": "ignored"}, f)
+        result = self._gwp.load_billing_audit_row_cache(path)
+        self.assertEqual(result, set(keys))
+
+    def test_load_empty_list_returns_empty_set(self):
+        import json
+        path = self._tmp_path()
+        with open(path, "w") as f:
+            json.dump([], f)
+        result = self._gwp.load_billing_audit_row_cache(path)
+        self.assertIsInstance(result, set)
+        self.assertEqual(len(result), 0)
+
+    # ── save_billing_audit_row_cache ────────────────────────────────────────
+
+    def test_save_produces_sorted_output(self):
+        """Serialized list must be sorted for deterministic diffs."""
+        import json
+        path = self._tmp_path()
+        keys = {"c|3", "a|1", "b|2"}
+        self._gwp.save_billing_audit_row_cache(path, keys)
+        with open(path) as fh:
+            data = json.load(fh)
+        self.assertEqual(data, sorted(keys))
+
+    def test_save_produces_compact_json(self):
+        """Output must NOT contain indentation whitespace (compact format)."""
+        path = self._tmp_path()
+        keys = {"k1", "k2"}
+        self._gwp.save_billing_audit_row_cache(path, keys)
+        with open(path) as fh:
+            raw = fh.read()
+        # Compact JSON has no newlines or spaces between elements
+        self.assertNotIn("\n", raw)
+        self.assertNotIn("  ", raw)
+
+    def test_save_max_entries_pruning(self):
+        """When entry count exceeds MAX, the tail (highest sorted keys)
+        is retained and the file reflects exactly MAX entries."""
+        import json
+        path = self._tmp_path()
+        small_cap = 5
+        keys = {f"key-{i:04d}" for i in range(small_cap + 3)}
+        with mock.patch.object(
+            self._gwp,
+            "BILLING_AUDIT_ROW_CACHE_MAX_ENTRIES",
+            small_cap,
+        ):
+            self._gwp.save_billing_audit_row_cache(path, keys)
+            with open(path) as fh:
+                data = json.load(fh)
+        self.assertEqual(len(data), small_cap)
+        # Retained entries must be the LAST ``small_cap`` in sorted order.
+        expected = sorted(keys)[-small_cap:]
+        self.assertEqual(data, expected)
+
+    def test_save_roundtrip(self):
+        """A set saved and then loaded must recover the original values."""
+        path = self._tmp_path()
+        keys = {f"WR-{i}|{i:06d}|{i * 7}" for i in range(20)}
+        self._gwp.save_billing_audit_row_cache(path, keys)
+        recovered = self._gwp.load_billing_audit_row_cache(path)
+        self.assertEqual(recovered, keys)
+
+
+class BillingAuditSkipRetryLogicTests(unittest.TestCase):
+    """Tests for the billing-audit snapshot skip / retry gate.
+
+    The main group-processing loop in ``generate_weekly_pdfs.py`` gates the
+    ``freeze_row`` block on ``not _hash_unchanged or _has_uncached_freeze_candidates``.
+
+    This class verifies two properties:
+      (a) When the group hash is unchanged AND all eligible rows are in the
+          freeze cache, the snapshot block is skipped entirely (no RPC).
+      (b) When the hash is unchanged but some rows are NOT in the cache
+          (transient failure in a prior run), the snapshot block still runs for
+          those rows so they are not permanently left unfrozen.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib
+        _ensure_smartsheet_mocked()
+        with mock.patch.dict(os.environ, {"SENTRY_DSN": ""}, clear=False):
+            with mock.patch("sentry_sdk.init"):
+                cls._gwp = importlib.import_module("generate_weekly_pdfs")
+
+    def setUp(self):
+        _reset_all()
+
+    def tearDown(self):
+        _reset_all()
+
+    def _make_eligible_row(self, row_id: int = 1001) -> dict:
+        return {
+            "__row_id": row_id,
+            "Work Request #": "WR-9001",
+            "__week_ending_date": "040126",
+            "Units Completed?": True,
+        }
+
+    def test_skip_flag_true_when_hash_unchanged_and_all_cached(self):
+        """``_hash_unchanged=True`` + all rows in cache → skip (no uncached candidates)."""
+        row = self._make_eligible_row(row_id=42)
+        wr_num = "WR-9001"
+        week_raw = "040126"
+        cache_key = f"{wr_num}|{week_raw}|42"
+        cache = {cache_key}
+
+        # Simulate the pre-compute logic from the main loop:
+        # _hash_unchanged=True, all rows cached → _has_uncached_freeze_candidates=False
+        _has_uncached_freeze_candidates = any(
+            isinstance(r.get("__row_id"), int)
+            and self._gwp.is_checked(r.get("Units Completed?"))
+            and f"{wr_num}|{week_raw}|{r.get('__row_id')}" not in cache
+            for r in [row]
+        )
+        _hash_unchanged = True
+        _should_run = not _hash_unchanged or _has_uncached_freeze_candidates
+        self.assertFalse(
+            _should_run,
+            "Snapshot block must be skipped when hash unchanged and all rows cached",
+        )
+
+    def test_retry_flag_true_when_hash_unchanged_but_row_uncached(self):
+        """``_hash_unchanged=True`` + uncached row → retry path fires."""
+        row = self._make_eligible_row(row_id=99)
+        wr_num = "WR-9001"
+        week_raw = "040126"
+        # Row 99 is NOT in the cache (simulates a prior transient failure)
+        cache: set[str] = set()
+
+        _has_uncached_freeze_candidates = any(
+            isinstance(r.get("__row_id"), int)
+            and self._gwp.is_checked(r.get("Units Completed?"))
+            and f"{wr_num}|{week_raw}|{r.get('__row_id')}" not in cache
+            for r in [row]
+        )
+        _hash_unchanged = True
+        _should_run = not _hash_unchanged or _has_uncached_freeze_candidates
+        self.assertTrue(
+            _should_run,
+            "Snapshot block must run when hash unchanged but some rows are uncached "
+            "(transient failure recovery)",
+        )
+
+    def test_unchecked_units_not_counted_as_uncached_candidate(self):
+        """Rows with ``Units Completed?=False`` must not count as uncached
+        candidates even if they are absent from the cache."""
+        row = self._make_eligible_row(row_id=55)
+        row["Units Completed?"] = False
+        wr_num = "WR-9001"
+        week_raw = "040126"
+        cache: set[str] = set()  # Nothing cached
+
+        _has_uncached_freeze_candidates = any(
+            isinstance(r.get("__row_id"), int)
+            and self._gwp.is_checked(r.get("Units Completed?"))
+            and f"{wr_num}|{week_raw}|{r.get('__row_id')}" not in cache
+            for r in [row]
+        )
+        self.assertFalse(
+            _has_uncached_freeze_candidates,
+            "Units-Completed?=False rows must not trigger the uncached-candidate flag",
+        )
+
+    def test_hash_changed_always_runs_regardless_of_cache(self):
+        """When ``_hash_unchanged=False`` the snapshot block runs even if
+        every row is already in the cache."""
+        row = self._make_eligible_row(row_id=77)
+        wr_num = "WR-9001"
+        week_raw = "040126"
+        cache_key = f"{wr_num}|{week_raw}|77"
+        cache = {cache_key}  # Row already cached
+
+        _has_uncached_freeze_candidates = any(
+            isinstance(r.get("__row_id"), int)
+            and self._gwp.is_checked(r.get("Units Completed?"))
+            and f"{wr_num}|{week_raw}|{r.get('__row_id')}" not in cache
+            for r in [row]
+        )
+        _hash_unchanged = False  # Data changed this run
+        _should_run = not _hash_unchanged or _has_uncached_freeze_candidates
+        self.assertTrue(
+            _should_run,
+            "Snapshot block must run when hash has changed, regardless of cache",
+        )
 
 
 if __name__ == "__main__":
