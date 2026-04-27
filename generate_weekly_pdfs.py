@@ -4714,6 +4714,17 @@ def main():
             billing_audit_row_cache = load_billing_audit_row_cache(
                 BILLING_AUDIT_ROW_CACHE_PATH
             )
+            # Ensure the cache file exists on disk even when no rows have been
+            # frozen yet. The GitHub Actions cache/save step will fail with
+            # "Path does not exist" when the file is absent, which can happen
+            # on the very first run or when all rows were already cached from a
+            # prior run (billing_audit_row_cache_dirty stays False, so the
+            # save at the end of the run is skipped).  Writing an empty list
+            # now is cheap and makes the CI step reliably no-op safe.
+            if not os.path.exists(BILLING_AUDIT_ROW_CACHE_PATH):
+                save_billing_audit_row_cache(
+                    BILLING_AUDIT_ROW_CACHE_PATH, billing_audit_row_cache
+                )
         history_updates = 0
         _groups_skipped = 0
         _groups_generated = 0
@@ -5008,15 +5019,39 @@ def main():
                     and _prev_history_entry.get('hash') == data_hash
                 )
 
+                # Pre-compute whether any eligible row in this group is absent
+                # from the freeze cache. When _hash_unchanged is True but some
+                # rows are uncached (e.g., freeze_attribution failed transiently
+                # in a prior run), we still need to attempt those rows so they
+                # are not permanently left unfrozen. This allows recovery without
+                # waiting for the group's content hash to change again.
+                #
+                # Use set-difference rather than an any()-generator so that for
+                # large groups (50-150 rows is typical) the membership test is
+                # O(len(eligible_keys)) via a single set operation instead of
+                # potentially scanning all rows in the worst case.
+                _has_uncached_freeze_candidates: bool = False
+                if BILLING_AUDIT_AVAILABLE and not TEST_MODE:
+                    _eligible_freeze_keys = {
+                        f"{wr_num}|{week_raw}|{_r.get('__row_id')}"
+                        for _r in group_rows
+                        if isinstance(_r.get("__row_id"), int)
+                        and is_checked(_r.get("Units Completed?"))
+                    }
+                    _has_uncached_freeze_candidates = bool(
+                        _eligible_freeze_keys - billing_audit_row_cache
+                    )
+
                 # ── Billing audit snapshot: freeze personnel + emit run fingerprint ──
-                # Only runs for groups with changed/new hashes. This keeps normal
-                # production runs from re-issuing identical freeze_attribution RPCs for
-                # every unchanged group while preserving full behavior when data changed.
+                # Runs when the group hash has changed/is new, OR when some rows
+                # were not successfully frozen in a prior run (transient failure
+                # recovery). Skipped only when hash is unchanged AND every
+                # eligible row is already in the freeze cache.
                 # Failures must never break Excel generation.
                 if (
                     BILLING_AUDIT_AVAILABLE
                     and not TEST_MODE
-                    and not _hash_unchanged
+                    and (not _hash_unchanged or _has_uncached_freeze_candidates)
                     and _billing_audit_writer.any_flag_enabled()
                 ):
                     try:

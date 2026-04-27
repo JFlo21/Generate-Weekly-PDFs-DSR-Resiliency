@@ -538,6 +538,7 @@ jobs:
 
       - name: Save billing-audit row cache
         if: always()
+        continue-on-error: true
         uses: actions/cache/save@v4
         with:
           path: generated_docs/billing_audit_frozen_rows.json
