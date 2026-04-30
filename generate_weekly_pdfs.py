@@ -2195,18 +2195,20 @@ def load_billing_audit_row_cache(path: str) -> set[str]:
 def save_billing_audit_row_cache(path: str, rows: set[str]) -> None:
     """Persist cached freeze-attribution row keys."""
     try:
-        values = list(rows)
+        # Always sort set-backed cache entries so serialized output is
+        # deterministic across runs; also produces smaller diffs.
+        values = sorted(rows)
         if len(values) > BILLING_AUDIT_ROW_CACHE_MAX_ENTRIES:
             # Deterministic truncation. Cache is opportunistic; precision
             # is not required as fallback is to re-call freeze_row.
-            values = sorted(values)[-BILLING_AUDIT_ROW_CACHE_MAX_ENTRIES:]
+            values = values[-BILLING_AUDIT_ROW_CACHE_MAX_ENTRIES:]
+            retained = len(values)
             logging.info(
-                "🧹 Pruned billing-audit row cache to "
-                f"{BILLING_AUDIT_ROW_CACHE_MAX_ENTRIES} entries"
+                f"🧹 Pruned billing-audit row cache to {retained} entries"
             )
         tmp_path = path + ".tmp"
         with open(tmp_path, "w") as f:
-            json.dump(values, f, indent=2)
+            json.dump(values, f, separators=(",", ":"))
         os.replace(tmp_path, path)
         logging.info(f"📝 Billing-audit row cache saved ({len(values)} entries)")
     except Exception as e:
@@ -4728,6 +4730,17 @@ def main():
             billing_audit_row_cache = load_billing_audit_row_cache(
                 BILLING_AUDIT_ROW_CACHE_PATH
             )
+            # Ensure the cache file exists on disk even when no rows have been
+            # frozen yet. The GitHub Actions cache/save step will fail with
+            # "Path does not exist" when the file is absent, which can happen
+            # on the very first run or when all rows were already cached from a
+            # prior run (billing_audit_row_cache_dirty stays False, so the
+            # save at the end of the run is skipped).  Writing an empty list
+            # now is cheap and makes the CI step reliably no-op safe.
+            if not os.path.exists(BILLING_AUDIT_ROW_CACHE_PATH):
+                save_billing_audit_row_cache(
+                    BILLING_AUDIT_ROW_CACHE_PATH, billing_audit_row_cache
+                )
         history_updates = 0
         _groups_skipped = 0
         _groups_generated = 0
@@ -5022,18 +5035,39 @@ def main():
                     and _prev_history_entry.get('hash') == data_hash
                 )
 
+                # Pre-compute whether any eligible row in this group is absent
+                # from the freeze cache. When _hash_unchanged is True but some
+                # rows are uncached (e.g., freeze_attribution failed transiently
+                # in a prior run), we still need to attempt those rows so they
+                # are not permanently left unfrozen. This allows recovery without
+                # waiting for the group's content hash to change again.
+                #
+                # Use set-difference rather than an any()-generator so that for
+                # large groups (50-150 rows is typical) the membership test is
+                # O(len(eligible_keys)) via a single set operation instead of
+                # potentially scanning all rows in the worst case.
+                _has_uncached_freeze_candidates: bool = False
+                if BILLING_AUDIT_AVAILABLE and not TEST_MODE:
+                    _eligible_freeze_keys = {
+                        f"{wr_num}|{week_raw}|{_r.get('__row_id')}"
+                        for _r in group_rows
+                        if isinstance(_r.get("__row_id"), int)
+                        and is_checked(_r.get("Units Completed?"))
+                    }
+                    _has_uncached_freeze_candidates = bool(
+                        _eligible_freeze_keys - billing_audit_row_cache
+                    )
+
                 # ── Billing audit snapshot: freeze personnel + emit run fingerprint ──
-                # Runs whenever billing-audit is available and at least one audit
-                # feature is enabled, even if the group hash is unchanged. This allows
-                # retry of previously missed freeze-attribution / fingerprint writes
-                # after transient failures, unavailable secrets, or earlier disabled
-                # feature flags. The writer / RPC layer must remain responsible for
-                # per-row caching and idempotency so repeated unchanged groups do not
-                # cause duplicate durable effects. Failures must never break Excel
-                # generation.
+                # Runs when the group hash has changed/is new, OR when some rows
+                # were not successfully frozen in a prior run (transient failure
+                # recovery). Skipped only when hash is unchanged AND every
+                # eligible row is already in the freeze cache.
+                # Failures must never break Excel generation.
                 if (
                     BILLING_AUDIT_AVAILABLE
                     and not TEST_MODE
+                    and (not _hash_unchanged or _has_uncached_freeze_candidates)
                     and _billing_audit_writer.any_flag_enabled()
                 ):
                     try:

@@ -364,10 +364,20 @@ def freeze_row(row: dict, release: str | None,
     """Upsert one row's personnel into ``attribution_snapshot``.
 
     First-write-wins via the ``billing_audit.freeze_attribution`` RPC.
-    Silent no-op if the Supabase client is unavailable, the
-    ``write_attribution_snapshot`` flag is off, or the row does not
-    meet the freeze criteria. Failures are counted and logged in
-    aggregate only.
+
+    Returns:
+        ``True`` if an RPC was attempted and completed without error
+        (whether the row was newly written or was already frozen from
+        a prior run).  ``False`` in all other cases — client
+        unavailable, ``write_attribution_snapshot`` flag is
+        definitively off, row is ineligible (missing/non-integer
+        ``__row_id``, ``Units Completed?`` not checked, missing WR or
+        week-ending), or the RPC call itself failed after retries.
+
+    Silent no-op side-effects (returns ``False``) if the Supabase
+    client is unavailable, the ``write_attribution_snapshot`` flag is
+    off, or the row does not meet the freeze criteria.  Failures are
+    counted and logged in aggregate only.
     """
     client = get_client()
     if client is None:
