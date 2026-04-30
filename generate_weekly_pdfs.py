@@ -5023,14 +5023,17 @@ def main():
                 )
 
                 # ── Billing audit snapshot: freeze personnel + emit run fingerprint ──
-                # Only runs for groups with changed/new hashes. This keeps normal
-                # production runs from re-issuing identical freeze_attribution RPCs for
-                # every unchanged group while preserving full behavior when data changed.
-                # Failures must never break Excel generation.
+                # Runs whenever billing-audit is available and at least one audit
+                # feature is enabled, even if the group hash is unchanged. This allows
+                # retry of previously missed freeze-attribution / fingerprint writes
+                # after transient failures, unavailable secrets, or earlier disabled
+                # feature flags. The writer / RPC layer must remain responsible for
+                # per-row caching and idempotency so repeated unchanged groups do not
+                # cause duplicate durable effects. Failures must never break Excel
+                # generation.
                 if (
                     BILLING_AUDIT_AVAILABLE
                     and not TEST_MODE
-                    and not _hash_unchanged
                     and _billing_audit_writer.any_flag_enabled()
                 ):
                     try:
