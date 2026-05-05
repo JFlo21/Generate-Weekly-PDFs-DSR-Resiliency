@@ -9,7 +9,6 @@ const require = createRequire(import.meta.url);
 // Set test password hash before importing the app
 const bcrypt = require('bcryptjs');
 process.env.ADMIN_PASSWORD_HASH = bcrypt.hashSync('testpass', 4);
-process.env.API_AUTH_REQUIRED = 'false';
 process.env.SEARCH_INDEX_RUN_LIMIT = '0';
 
 const githubServicePath = require.resolve('../services/github');
@@ -211,10 +210,10 @@ describe('Auth endpoints', () => {
 });
 
 describe('API protection', () => {
-  it('allows unauthenticated read API access when API auth is optional', async () => {
+  it('blocks unauthenticated read API access', async () => {
     const res = await request('/api/runs');
-    expect(res.status).toBe(200);
-    expect(Array.isArray(res.body.runs)).toBe(true);
+    expect(res.status).toBe(401);
+    expect(res.body).toHaveProperty('error', 'Authentication required');
   });
 });
 
@@ -361,39 +360,22 @@ describe('sanitizeFilename', () => {
 });
 
 describe('New API endpoints protection', () => {
-  it('allows unauthenticated access to /api/latest when API auth is optional', async () => {
+  it('blocks unauthenticated access to /api/latest', async () => {
     const res = await request('/api/latest');
-    expect(res.status).toBe(200);
-    expect(res.headers['content-type']).toContain('application/json');
-    expect(res.body.run).toEqual(expect.objectContaining({
-      id: mockWorkflowRun.id,
-      runNumber: mockWorkflowRun.run_number,
-      status: mockWorkflowRun.status,
-      conclusion: mockWorkflowRun.conclusion,
-      createdAt: mockWorkflowRun.created_at,
-      updatedAt: mockWorkflowRun.updated_at,
-      event: mockWorkflowRun.event,
-      headBranch: mockWorkflowRun.head_branch,
-    }));
-    expect(Array.isArray(res.body.artifacts)).toBe(true);
+    expect(res.status).toBe(401);
+    expect(res.body).toHaveProperty('error', 'Authentication required');
   });
 
-  it('allows unauthenticated access to /api/poll when API auth is optional', async () => {
+  it('blocks unauthenticated access to /api/poll', async () => {
     const res = await request('/api/poll');
-    expect(res.status).toBe(200);
-    expect(res.body).toHaveProperty('hasNew', true);
-    expect(Array.isArray(res.body.runs)).toBe(true);
-    expect(res.body.runs[0]).toEqual(expect.objectContaining({
-      id: mockWorkflowRun.id,
-      runNumber: mockWorkflowRun.run_number,
-      status: mockWorkflowRun.status,
-    }));
+    expect(res.status).toBe(401);
+    expect(res.body).toHaveProperty('error', 'Authentication required');
   });
 
-  it('allows unauthenticated access to /api/events when API auth is optional', async () => {
+  it('blocks unauthenticated access to /api/events', async () => {
     const res = await request('/api/events', { resolveOnFirstChunk: true, timeoutMs: 1000 });
-    expect(res.status).toBe(200);
-    expect(res.headers['content-type']).toContain('text/event-stream');
+    expect(res.status).toBe(401);
+    expect(String(res.body)).toContain('Authentication required');
   });
 
   it('keeps unauthenticated access to /api/poller-status protected', async () => {
@@ -509,13 +491,10 @@ describe('Authenticated API endpoints', () => {
 });
 
 describe('New API routes: auth protection', () => {
-  it('allows unauthenticated GET /api/search when API auth is optional', async () => {
+  it('blocks unauthenticated GET /api/search', async () => {
     const res = await request('/api/search?q=test');
-    expect(res.status).toBe(200);
-    expect(res.body).toHaveProperty('hits');
-    expect(Array.isArray(res.body.hits)).toBe(true);
-    expect(res.body).toHaveProperty('total');
-    expect(typeof res.body.total).toBe('number');
+    expect(res.status).toBe(401);
+    expect(res.body).toHaveProperty('error', 'Authentication required');
   });
 
   it('blocks unauthenticated GET /api/cache/stats', async () => {
@@ -523,20 +502,22 @@ describe('New API routes: auth protection', () => {
     expect(res.status).toBe(401);
   });
 
-  it('allows unauthenticated GET /api/runs when API auth is optional', async () => {
+  it('blocks unauthenticated GET /api/runs', async () => {
     const res = await request('/api/runs');
-    expect(res.status).toBe(200);
-    expect(res.body.runs).toHaveLength(1);
+    expect(res.status).toBe(401);
+    expect(res.body).toHaveProperty('error', 'Authentication required');
   });
 
-  it('allows unauthenticated GET /api/artifacts/:id/file validation when API auth is optional', async () => {
+  it('blocks unauthenticated GET /api/artifacts/:id/file validation', async () => {
     const res = await request('/api/artifacts/1/file');
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(401);
+    expect(res.body).toHaveProperty('error', 'Authentication required');
   });
 
-  it('allows unauthenticated GET /api/artifacts/:id/preview validation when API auth is optional', async () => {
+  it('blocks unauthenticated GET /api/artifacts/:id/preview validation', async () => {
     const res = await request('/api/artifacts/1/preview');
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(401);
+    expect(res.body).toHaveProperty('error', 'Authentication required');
   });
 
   it('blocks unauthenticated POST /api/search/rebuild before rebuilding the index', async () => {
@@ -681,9 +662,9 @@ describe('artifactCache service', () => {
   });
 });
 
-describe('API_AUTH_REQUIRED=true', () => {
+describe('API auth enforcement', () => {
   it('gates read API endpoints with the legacy session auth flow', async () => {
-    await withFreshApp({ API_AUTH_REQUIRED: 'true' }, async (freshRequest) => {
+    await withFreshApp({}, async (freshRequest) => {
       const res = await freshRequest('/api/latest');
       expect(res.status).toBe(401);
       expect(res.body).toHaveProperty('error', 'Authentication required');
@@ -700,7 +681,7 @@ describe('API_AUTH_REQUIRED=true', () => {
     });
 
     await withFreshApp(
-      { API_AUTH_REQUIRED: 'true', SUPABASE_JWT_SECRET: 'test-secret' },
+      { SUPABASE_JWT_SECRET: 'test-secret' },
       async (freshRequest) => {
         const res = await freshRequest('/api/search?q=test', {
           headers: { Authorization: `Bearer ${token}` },
@@ -723,7 +704,7 @@ describe('API_AUTH_REQUIRED=true', () => {
     const authHeaders = { Authorization: `Bearer ${token}` };
 
     await withFreshApp(
-      { API_AUTH_REQUIRED: 'true', SUPABASE_JWT_SECRET: 'test-secret' },
+      { SUPABASE_JWT_SECRET: 'test-secret' },
       async (freshRequest) => {
         const readRes = await freshRequest('/api/search?q=test', {
           headers: authHeaders,
@@ -751,7 +732,7 @@ describe('API_AUTH_REQUIRED=true', () => {
     });
 
     await withFreshApp(
-      { API_AUTH_REQUIRED: 'true', SUPABASE_JWT_SECRET: 'test-secret' },
+      { SUPABASE_JWT_SECRET: 'test-secret' },
       async (freshRequest) => {
         const res = await freshRequest('/api/events', {
           headers: { Authorization: `Bearer ${token}` },
@@ -785,7 +766,7 @@ describe('API_AUTH_REQUIRED=true', () => {
     });
 
     await withFreshApp(
-      { API_AUTH_REQUIRED: 'true', SUPABASE_JWT_SECRET: 'test-secret' },
+      { SUPABASE_JWT_SECRET: 'test-secret' },
       async (freshRequest) => {
         const missingSubjectRes = await freshRequest('/api/poller-status', {
           headers: { Authorization: `Bearer ${missingSubjectToken}` },

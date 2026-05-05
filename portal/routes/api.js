@@ -18,20 +18,7 @@ function sanitizeFilename(name) {
   return normalized;
 }
 
-if (config.auth.apiRequired) {
-  router.use(requireAuth);
-} else {
-  router.use((req, res, next) => {
-    if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
-      return next();
-    }
-    return requireAuth(req, res, next);
-  });
-}
-
-const requireOperationalAuth = config.auth.apiRequired
-  ? (_req, _res, next) => next()
-  : requireAuth;
+router.use(requireAuth);
 
 router.get('/runs', async (req, res) => {
   try {
@@ -393,7 +380,7 @@ router.get('/search', async (req, res) => {
 /**
  * Force a search-index rebuild (admin / debugging).
  */
-router.post('/search/rebuild', requireOperationalAuth, async (req, res) => {
+router.post('/search/rebuild', async (req, res) => {
   try {
     await searchIndex.rebuild();
     return res.json({ status: 'ok', ...searchIndex.stats() });
@@ -403,7 +390,7 @@ router.post('/search/rebuild', requireOperationalAuth, async (req, res) => {
   }
 });
 
-router.get('/cache/stats', requireOperationalAuth, (req, res) => {
+router.get('/cache/stats', (req, res) => {
   return res.json({
     artifactCache: artifactCache.stats(),
     searchIndex: searchIndex.stats(),
@@ -500,7 +487,7 @@ router.get('/events', (req, res) => {
   });
 });
 
-router.get('/poller-status', requireOperationalAuth, (req, res) => {
+router.get('/poller-status', (req, res) => {
   return res.json(poller.getStatus());
 });
 
