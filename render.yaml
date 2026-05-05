@@ -52,8 +52,6 @@ services:
         sync: false                     # e.g. https://linetec-portal.vercel.app
       - key: CORS_ORIGINS
         sync: false                     # optional comma-separated preview + prod domains
-      - key: API_AUTH_REQUIRED
-        value: "true"                   # require session or Supabase JWT auth in production
       - key: SUPABASE_URL
         sync: false                     # e.g. https://your-project.supabase.co
       - key: SUPABASE_JWT_SECRET

@@ -9,7 +9,6 @@ const require = createRequire(import.meta.url);
 // Set test password hash before importing the app
 const bcrypt = require('bcryptjs');
 process.env.ADMIN_PASSWORD_HASH = bcrypt.hashSync('testpass', 4);
-process.env.API_AUTH_REQUIRED = 'false';
 process.env.SEARCH_INDEX_RUN_LIMIT = '0';
 
 const githubServicePath = require.resolve('../services/github');
@@ -663,9 +662,9 @@ describe('artifactCache service', () => {
   });
 });
 
-describe('API_AUTH_REQUIRED=true', () => {
+describe('API auth enforcement', () => {
   it('gates read API endpoints with the legacy session auth flow', async () => {
-    await withFreshApp({ API_AUTH_REQUIRED: 'true' }, async (freshRequest) => {
+    await withFreshApp({}, async (freshRequest) => {
       const res = await freshRequest('/api/latest');
       expect(res.status).toBe(401);
       expect(res.body).toHaveProperty('error', 'Authentication required');
@@ -682,7 +681,7 @@ describe('API_AUTH_REQUIRED=true', () => {
     });
 
     await withFreshApp(
-      { API_AUTH_REQUIRED: 'true', SUPABASE_JWT_SECRET: 'test-secret' },
+      { SUPABASE_JWT_SECRET: 'test-secret' },
       async (freshRequest) => {
         const res = await freshRequest('/api/search?q=test', {
           headers: { Authorization: `Bearer ${token}` },
@@ -705,7 +704,7 @@ describe('API_AUTH_REQUIRED=true', () => {
     const authHeaders = { Authorization: `Bearer ${token}` };
 
     await withFreshApp(
-      { API_AUTH_REQUIRED: 'true', SUPABASE_JWT_SECRET: 'test-secret' },
+      { SUPABASE_JWT_SECRET: 'test-secret' },
       async (freshRequest) => {
         const readRes = await freshRequest('/api/search?q=test', {
           headers: authHeaders,
@@ -733,7 +732,7 @@ describe('API_AUTH_REQUIRED=true', () => {
     });
 
     await withFreshApp(
-      { API_AUTH_REQUIRED: 'true', SUPABASE_JWT_SECRET: 'test-secret' },
+      { SUPABASE_JWT_SECRET: 'test-secret' },
       async (freshRequest) => {
         const res = await freshRequest('/api/events', {
           headers: { Authorization: `Bearer ${token}` },
@@ -767,7 +766,7 @@ describe('API_AUTH_REQUIRED=true', () => {
     });
 
     await withFreshApp(
-      { API_AUTH_REQUIRED: 'true', SUPABASE_JWT_SECRET: 'test-secret' },
+      { SUPABASE_JWT_SECRET: 'test-secret' },
       async (freshRequest) => {
         const missingSubjectRes = await freshRequest('/api/poller-status', {
           headers: { Authorization: `Bearer ${missingSubjectToken}` },
