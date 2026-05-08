@@ -573,7 +573,7 @@ jobs:
       
       # ==================== NOTION DASHBOARD SYNC ====================
       - name: Sync run to Notion
-        if: always() && vars.NOTION_ENABLED == 'true'
+        if: always() && vars.NOTION_ENABLED != 'false' && secrets.NOTION_TOKEN != ''
         continue-on-error: true
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
