@@ -18,7 +18,7 @@ import { cn } from '../../lib/utils';
 // Docusaurus URL — configured via env var so the Docusaurus deployment can
 // move without a code change. When unset, the docs nav entries are hidden
 // entirely rather than producing a dead link.
-const DOCS_URL = (import.meta.env.VITE_DOCS_URL ?? '').trim();
+const DOCS_URL: string = (String(import.meta.env.VITE_DOCS_URL ?? '')).trim();
 
 interface NavItem {
   /** Internal react-router path. Mutually exclusive with `href`. */
