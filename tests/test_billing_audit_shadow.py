@@ -3681,5 +3681,140 @@ class BillingAuditSkipRetryLogicTests(unittest.TestCase):
         )
 
 
+class TestPipelineRunVariantColumnSchema(unittest.TestCase):
+    """Phase 1 SUB-07 / D-18: ``billing_audit.pipeline_run`` MUST
+    expose a ``variant TEXT`` column added via idempotent
+    ``ADD COLUMN IF NOT EXISTS``.
+
+    The schema migration MUST be:
+    - positioned BEFORE the ``CREATE INDEX`` line so a partial-deploy
+      schema (table exists, index does not) can ALTER + INDEX in one
+      apply run;
+    - typed ``TEXT`` (no enum / no CHECK constraint per D-18) so
+      future variants can be added without a second migration;
+    - documented (Phase 1 SUB-07 / D-18 / Blocker 1 Path B references
+      in the inline comment block);
+    - locked-in for Path B: the ``freeze_attribution`` RPC parameter
+      contract at L100-127 of ``schema.sql`` MUST NOT gain a
+      ``p_variant`` parameter — variant is recorded on
+      ``pipeline_run`` only, via ``emit_run_fingerprint``'s upsert.
+    """
+
+    def test_variant_column_alter_present(self):
+        sql = _read_source("billing_audit/schema.sql")
+        self.assertIn(
+            "ADD COLUMN IF NOT EXISTS variant TEXT",
+            sql,
+            "schema.sql must add a TEXT variant column to "
+            "billing_audit.pipeline_run via "
+            "ADD COLUMN IF NOT EXISTS (D-18 idempotent migration)",
+        )
+
+    def test_variant_alter_precedes_create_index(self):
+        sql = _read_source("billing_audit/schema.sql")
+        alter_idx = sql.find("ADD COLUMN IF NOT EXISTS variant TEXT")
+        index_marker = "CREATE INDEX IF NOT EXISTS idx_pipeline_run_wr_week_created_at"
+        index_idx = sql.find(index_marker)
+        self.assertGreaterEqual(
+            alter_idx, 0,
+            "variant ALTER must be present (regression check)",
+        )
+        self.assertGreater(
+            index_idx, alter_idx,
+            "variant ALTER must come BEFORE the CREATE INDEX block "
+            "so a partial-deploy schema apply succeeds (mirrors the "
+            "L77-88 ordering commentary)",
+        )
+
+    def test_variant_column_has_no_check_constraint(self):
+        sql = _read_source("billing_audit/schema.sql")
+        self.assertNotIn(
+            "CHECK (variant",
+            sql,
+            "D-18 forbids a CHECK constraint on variant — writer-side "
+            "Python contract is the single source of truth for valid "
+            "values; new variants must be addable without a second "
+            "schema migration",
+        )
+
+    def test_variant_column_is_text(self):
+        sql = _read_source("billing_audit/schema.sql")
+        # Match either "variant TEXT," or "variant TEXT;" etc. — the
+        # type token immediately following ``variant`` MUST be TEXT.
+        m = re.search(r"variant\s+(\w+)", sql)
+        self.assertIsNotNone(
+            m, "variant column declaration not found in schema.sql"
+        )
+        self.assertEqual(
+            m.group(1).upper(), "TEXT",
+            f"variant column must be TEXT (D-18), got: {m.group(1)}",
+        )
+
+    def test_no_p_variant_in_rpc_param_contract_block(self):
+        """Blocker 1 Path B lock-in. The ``freeze_attribution`` RPC
+        parameter contract documented at schema.sql L100-127 MUST
+        NOT include ``p_variant``. The variant write surface is
+        ``pipeline_run.variant`` via ``emit_run_fingerprint``'s
+        upsert, NOT the RPC.
+        """
+        sql = _read_source("billing_audit/schema.sql")
+        self.assertNotIn(
+            "p_variant",
+            sql,
+            "Blocker 1 Path B forbids adding p_variant to the "
+            "freeze_attribution RPC parameter contract. Variant "
+            "lives ONLY on pipeline_run, written via "
+            "emit_run_fingerprint's upsert.",
+        )
+
+    def test_inline_comment_references_sub_07_and_path_b(self):
+        """The inline comment block above the new ALTER MUST cite the
+        decision references so future maintainers can trace the
+        scope decision back to the plan. Audit-grade DDL files
+        document the WHY alongside the WHAT.
+        """
+        sql = _read_source("billing_audit/schema.sql")
+        # Slice the comment region immediately preceding the new ALTER.
+        alter_idx = sql.find("ADD COLUMN IF NOT EXISTS variant TEXT")
+        self.assertGreaterEqual(alter_idx, 0)
+        preceding = sql[max(0, alter_idx - 2000):alter_idx]
+        self.assertIn(
+            "SUB-07", preceding,
+            "Inline comment block above the variant ALTER must "
+            "reference Phase 1 requirement SUB-07",
+        )
+        self.assertIn(
+            "D-18", preceding,
+            "Inline comment block must reference decision D-18",
+        )
+        self.assertIn(
+            "Path B", preceding,
+            "Inline comment block must call out the Blocker 1 "
+            "Path B writer-surface decision",
+        )
+
+    def test_schema_sql_is_parseable(self):
+        """Lightweight SQL parse: no obviously truncated statements
+        (every CREATE / ALTER / INSERT ends in a semicolon before
+        the next top-level statement starts). Catches accidental
+        statement truncation introduced by hand-editing.
+        """
+        sql = _read_source("billing_audit/schema.sql")
+        # Strip line comments to avoid false positives on '--'.
+        body = re.sub(r"--[^\n]*", "", sql)
+        # Every CREATE / ALTER / INSERT must terminate with ';'.
+        for kw in ("CREATE TABLE", "ALTER TABLE", "CREATE INDEX",
+                   "INSERT INTO", "CREATE SCHEMA"):
+            for m in re.finditer(rf"\b{kw}\b", body):
+                tail = body[m.start():m.start() + 4000]
+                # Statement should contain a semicolon before EOF or
+                # before the next top-level keyword starts.
+                self.assertIn(
+                    ";", tail,
+                    f"{kw} statement near offset {m.start()} appears "
+                    f"unterminated — missing trailing ';'",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
