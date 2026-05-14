@@ -1868,11 +1868,15 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
     variant = group_variant
     meta_parts.append(f"VARIANT={variant}")
 
-    if variant == 'helper':
-        # Helper variant: include helper-specific metadata (helper_job is OPTIONAL).
-        # Helper groups are split per foreman (group key: `_HELPER_{helper}`),
-        # so every row in a helper group shares identical helper info —
-        # reading sorted_rows[0] here is safe.
+    if variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper'):
+        # Helper-style variants: include helper-specific metadata
+        # (helper_job is OPTIONAL). The plain helper group key is
+        # `_HELPER_{helper}` and the new Phase 01 subcontractor
+        # shadow-helper variants will follow the same per-foreman
+        # partitioning pattern in Plan 3 (`_AEPBILLABLE_HELPER_{name}` /
+        # `_REDUCEDSUB_HELPER_{name}`), so reading sorted_rows[0]
+        # here is safe — every row in such a group shares identical
+        # helper info.
         _first = sorted_rows[0] if sorted_rows else {}
         helper_foreman = _first.get('__helper_foreman', '')
         helper_dept = _first.get('__helper_dept', '')
@@ -1889,7 +1893,7 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
     # name/dept/job are already captured per-row in the row_str loop above,
     # which is strictly more sensitive than meta_parts aggregation and is not
     # vulnerable to set-dedup collisions or comma-in-name delimiter collisions.
-    
+
     meta_parts.append(f"DEPTS={','.join(unique_depts)}")
     meta_parts.append(f"TOTAL={total_price:.2f}")
     meta_parts.append(f"ROWCOUNT={len(sorted_rows)}")
@@ -1897,6 +1901,30 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
         meta_parts.append(f"RATE_CUTOFF={RATE_CUTOFF_DATE.isoformat()}")
         if _RATES_FINGERPRINT:
             meta_parts.append(f"RATES_FP={_RATES_FINGERPRINT}")
+
+    # Per Phase 01 Plan 02 D-20: mix the subcontractor rates
+    # fingerprint into the hash ONLY for the four new variants
+    # that actually consume the subcontractor rates CSV. This
+    # forces regeneration of _AEPBillable / _ReducedSub files (and
+    # their shadow-helper twins) when the CSV changes, WITHOUT
+    # touching the primary / helper / vac_crew hashes (preserves
+    # the ROADMAP success criterion 5 byte-identical guarantee for
+    # the legacy variant set). Mirrors the conditional shape of
+    # the existing `if RATE_CUTOFF_DATE: ... RATES_FP=` block
+    # above so a future engineer reading the two blocks side by
+    # side sees them as parallel — one keys on the retired-but-
+    # retained legacy recalc gate, the other keys on the variant
+    # set that consumes the new rates table.
+    if variant in (
+        'aep_billable',
+        'reduced_sub',
+        'aep_billable_helper',
+        'reduced_sub_helper',
+    ):
+        if _SUBCONTRACTOR_RATES_FINGERPRINT:
+            meta_parts.append(
+                f"SUB_RATES_FP={_SUBCONTRACTOR_RATES_FINGERPRINT}"
+            )
 
     # Update hash with metadata
     if meta_parts:
