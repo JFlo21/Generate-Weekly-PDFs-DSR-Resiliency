@@ -1321,6 +1321,121 @@ elif SUBCONTRACTOR_RATE_VARIANTS_ENABLED:
     )
 
 
+def _resolve_row_price(row: dict, variant: str, missing_cus) -> float:
+    """Return the per-row ``Units Total Price`` to write to Excel.
+
+    Phase 01 Plan 03 Task 2 — variant-aware pricing helper used by
+    ``generate_excel``'s row-write loop.
+
+    For ``primary`` / ``helper`` / ``vac_crew`` rows (D-14 / D-15):
+    return the existing SmartSheet ``Units Total Price`` value
+    unchanged via ``parse_price``. Existing variant outputs MUST be
+    byte-identical to pre-change behaviour, so this branch is the
+    short-circuit path for the legacy variants.
+
+    For ``aep_billable`` / ``reduced_sub`` / ``aep_billable_helper`` /
+    ``reduced_sub_helper`` rows (D-08 / D-16):
+      • Look up the canonical ``CU`` code in ``_SUBCONTRACTOR_RATES``.
+      • Select the rate column from the canonical ``Work Type`` token
+        (Install / Removal / Transfer, case-insensitive substring
+        match per D-05).
+      • For the AEP-Billable family use the ``new_*_price`` columns;
+        for the Reduced-Sub family use the ``reduced_*_price`` columns.
+      • Return ``rate × quantity`` from the canonical ``Quantity`` key.
+      • If the CU is missing from the rates table, retain the row's
+        SmartSheet ``Units Total Price`` (NEVER zero-out, NEVER raise)
+        and record the missing code in the per-call ``missing_cus``
+        ``collections.Counter[str]``. The fall-through pattern mirrors
+        the recalc fall-through from Living Ledger 2026-04-21 22:35:
+        silent zero-out is a correctness regression in the billing
+        pipeline.
+      • For unknown work types, degenerate quantities, or non-positive
+        rates, the same SmartSheet fall-through applies as a safety
+        floor.
+
+    Canonical column-name discipline (Blocker 2 lock-in):
+    The helper reads ONLY the canonical keys produced by
+    ``_validate_single_sheet``'s synonyms layer at L2523-2547:
+
+      * ``row['CU']`` — canonical CU code key (synonyms ``'CU'`` and
+        ``'Billable Unit Code'`` BOTH map to ``row['CU']`` upstream;
+        only the canonical key survives at this point in the pipeline).
+      * ``row['Work Type']`` — canonical work-type key (no synonyms).
+      * ``row['Quantity']`` — canonical quantity key (synonyms ``'Qty'``
+        and ``'# Units'`` map to ``row['Quantity']`` upstream).
+      * ``row['Units Total Price']`` — canonical price key (synonyms
+        ``'Total Price'``, ``'Redlined Total Price'`` map upstream).
+
+    Reading any other key here would be a silent regression — only
+    the canonical keys exist by the time the row reaches
+    ``generate_excel``. Future synonym additions go in
+    ``_validate_single_sheet``, NOT here.
+
+    Args:
+        row: Group row dict (already passed through
+            ``_validate_single_sheet`` synonyms layer).
+        variant: One of ``{primary, helper, vac_crew, aep_billable,
+            reduced_sub, aep_billable_helper, reduced_sub_helper}``.
+        missing_cus: Per-call ``collections.Counter[str]`` accumulated
+            across the row-write loop. Caller is responsible for
+            instantiation and downstream forwarding.
+
+    Returns:
+        float: The price to write to the row's ``Units Total Price``
+            cell. SmartSheet value for legacy variants / missing CUs;
+            ``rate × qty`` for new variants with a known CU.
+    """
+    # Legacy variants short-circuit immediately — preserves the
+    # D-14 / D-15 byte-identical guarantee for existing outputs.
+    if variant not in (
+        'aep_billable', 'reduced_sub',
+        'aep_billable_helper', 'reduced_sub_helper',
+    ):
+        return parse_price(row.get('Units Total Price'))
+
+    # Subcontractor variants: rate × qty from the rate matrix.
+    # CU canonical key ONLY — see Blocker 2 docstring above.
+    cu_raw = row.get('CU') or ''
+    cu = str(cu_raw).strip().upper()
+    rate_row = _SUBCONTRACTOR_RATES.get(cu)
+    if rate_row is None:
+        # Missing CU: record + fall through to SmartSheet (D-16).
+        if cu:
+            missing_cus[cu] += 1
+        return parse_price(row.get('Units Total Price'))
+
+    # Work-Type-keyed column selection (D-05). Canonical 'Work Type'.
+    work_type_raw = (row.get('Work Type') or '').strip().lower()
+    if 'install' in work_type_raw:
+        wt = 'install'
+    elif 'remov' in work_type_raw:  # matches 'removal' / 'remove'
+        wt = 'remove'
+    elif 'transfer' in work_type_raw:
+        wt = 'transfer'
+    else:
+        # Unknown work type: keep SmartSheet pricing (safety floor).
+        return parse_price(row.get('Units Total Price'))
+
+    if variant in ('aep_billable', 'aep_billable_helper'):
+        rate = rate_row.get(f'new_{wt}_price', 0.0)
+    else:  # reduced_sub / reduced_sub_helper
+        rate = rate_row.get(f'reduced_{wt}_price', 0.0)
+
+    # Canonical 'Quantity' ONLY — never 'Units Completed' (checkbox).
+    qty_raw = row.get('Quantity') or 0
+    try:
+        qty = float(qty_raw)
+    except (TypeError, ValueError):
+        qty = 0.0
+
+    if rate <= 0 or qty <= 0:
+        # Degenerate row: SmartSheet pricing as the safety floor,
+        # NEVER silently zero out (mirrors the recalc fall-through
+        # pattern in Living Ledger 2026-04-21 22:35).
+        return parse_price(row.get('Units Total Price'))
+    return rate * qty
+
+
 def load_rate_versions():
     """Load new rate versions and build all necessary lookup structures.
 
@@ -4377,8 +4492,32 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     # Variant-aware filename construction
     variant = first_row.get('__variant', 'primary')
     variant_suffix = ""
-    
-    if variant == 'helper':
+
+    # Phase 01 Plan 03 Task 2: subcontractor variant suffixes MUST be
+    # checked BEFORE the legacy ``helper`` / ``vac_crew`` / ``primary``
+    # branches so the variant-first ordering (D-09) is preserved. A
+    # row tagged ``aep_billable_helper`` MUST produce the
+    # ``_AEPBillable_Helper_<sanitized>`` filename, not plain
+    # ``_Helper_<sanitized>`` with the AEPBillable token silently
+    # dropped (which would break parser round-trip via
+    # ``build_group_identity``). Helper-name sanitization mirrors
+    # the producer site in ``group_source_rows`` — the regex is
+    # idempotent so the double-apply is safe (D-22 / 2026-04-23 18:25).
+    if variant == 'aep_billable':
+        variant_suffix = '_AEPBillable'
+    elif variant == 'reduced_sub':
+        variant_suffix = '_ReducedSub'
+    elif variant == 'aep_billable_helper':
+        helper_foreman = first_row.get('__helper_foreman', '')
+        if helper_foreman:
+            helper_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50]
+            variant_suffix = f"_AEPBillable_Helper_{helper_sanitized}"
+    elif variant == 'reduced_sub_helper':
+        helper_foreman = first_row.get('__helper_foreman', '')
+        if helper_foreman:
+            helper_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50]
+            variant_suffix = f"_ReducedSub_Helper_{helper_sanitized}"
+    elif variant == 'helper':
         # Helper variant: include helper identifier in filename
         helper_foreman = first_row.get('__helper_foreman', '')
         if helper_foreman:
@@ -4391,6 +4530,15 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     elif variant == 'primary':
         # Primary variant (no suffix needed)
         variant_suffix = ''
+
+    # Phase 01 Plan 03 Task 2 (D-16): per-call missing-CU accumulator.
+    # ``_resolve_row_price`` populates this Counter when a row's CU
+    # code is absent from ``_SUBCONTRACTOR_RATES`` and the row keeps
+    # its SmartSheet price (never zero-out, never raise). The Counter
+    # is returned in the new 5-tuple shape (Blocker 4 contract) so
+    # the main-loop caller can attribute missing CUs per source sheet
+    # and emit the per-sheet WARNING (D-17).
+    missing_cus: collections.Counter = collections.Counter()
     
     if data_hash:
         # Use full 16-character hash (calculate_data_hash already truncates to 16)
@@ -4474,7 +4622,22 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     ws[f'B{current_row}'].fill = RED_FILL
     ws[f'B{current_row}'].alignment = Alignment(horizontal='center')
 
-    total_price = sum(parse_price(row.get('Units Total Price')) for row in group_rows)
+    # Per Phase 01 Plan 03 Task 2 (D-16): resolve each row's price
+    # EXACTLY ONCE through ``_resolve_row_price`` and stash the result
+    # on the row as ``__resolved_price``. Both the summary "Total
+    # Billed Amount" and ``write_day_block``'s per-row Pricing cell
+    # read from the same stashed value so the workbook is internally
+    # consistent and the per-call ``missing_cus`` Counter is not
+    # double-incremented across summary + day-block iteration.
+    # For legacy variants this is a no-op (helper returns
+    # ``parse_price(row.get('Units Total Price'))``); for the new
+    # variants it picks up the rate × qty values from
+    # ``_SUBCONTRACTOR_RATES``. Mutating the input row matches the
+    # existing pattern (``__variant`` / ``__current_foreman`` are
+    # already added upstream in ``group_source_rows``).
+    for _row in group_rows:
+        _row['__resolved_price'] = _resolve_row_price(_row, variant, missing_cus)
+    total_price = sum(row.get('__resolved_price', 0.0) for row in group_rows)
     ws[f'B{current_row+1}'] = 'Total Billed Amount:'
     ws[f'B{current_row+1}'].font = SUMMARY_LABEL_FONT
     ws[f'C{current_row+1}'] = total_price
@@ -4587,7 +4750,15 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         total_price_day = 0.0
         for i, row_data in enumerate(day_rows):
             crow = start_row + 2 + i
-            price = parse_price(row_data.get('Units Total Price'))
+            # Per Phase 01 Plan 03 Task 2: use the pre-resolved price
+            # stashed by the outer ``generate_excel`` loop. Falling back
+            # to ``parse_price`` here matches the legacy behaviour if a
+            # row somehow lacks ``__resolved_price`` (defensive — should
+            # never happen with the current call chain).
+            if '__resolved_price' in row_data:
+                price = row_data['__resolved_price']
+            else:
+                price = parse_price(row_data.get('Units Total Price'))
             
             # Safely parse quantity - extract only numbers
             qty_str = str(row_data.get('Quantity', '') or 0)
@@ -4702,15 +4873,25 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
 
     # Save the workbook
     workbook.save(final_output_path)
-    
+
     if TEST_MODE:
         print(f"📄 Generated Excel file for inspection: '{output_filename}'")
         print(f"   - Total Amount: ${total_price:,.2f}")
         print(f"   - Daily Breakdown: {len(snapshot_dates)} days")
     else:
         logging.info(f"📄 Generated Excel: '{output_filename}'")
-    
-    return final_output_path, output_filename, wr_numbers
+
+    # Phase 01 Plan 03 Task 2 / Blocker 4: extend the return shape to
+    # a 5-tuple (excel_path, filename, wr_numbers, customer_name,
+    # missing_cus). The two new trailing fields are absorbed by Plan 04
+    # Task 2's upload-task builder. ``customer_name`` echoes the value
+    # already used in the workbook's "Customer:" detail row; surfacing
+    # it on the return tuple removes a duplicate ``first_row.get(...)``
+    # lookup at the call site. ``missing_cus`` carries the per-call
+    # subcontractor CU-fall-through codes (D-16) for per-sheet WARNING
+    # aggregation (D-17) in the main loop.
+    customer_name = first_row.get('Customer Name', '') or ''
+    return final_output_path, output_filename, wr_numbers, customer_name, missing_cus
 
 # --- TARGET SHEET MANAGEMENT ---
 
@@ -4912,7 +5093,22 @@ def main():
                 for group_key, group_rows in groups.items():
                     try:
                         data_hash = calculate_data_hash(group_rows)
-                        excel_path, filename, wr_numbers = generate_excel(group_key, group_rows, snapshot_date, data_hash=data_hash)
+                        # Phase 01 Plan 03 Task 2 / Blocker 4: unpack
+                        # the new 5-tuple shape. Synthetic path doesn't
+                        # consume ``customer_name`` / ``missing_cus``
+                        # (no per-sheet WARNING context here), but the
+                        # unpack MUST match so a contract drift is
+                        # surfaced loudly rather than silently dropped.
+                        (
+                            excel_path,
+                            filename,
+                            wr_numbers,
+                            _customer_name,
+                            _missing_cus,
+                        ) = generate_excel(
+                            group_key, group_rows, snapshot_date,
+                            data_hash=data_hash,
+                        )
                         generated_files_count += 1
                         logging.info(f"🧪 Synthetic Excel generated: {filename} ({len(group_rows)} rows)")
                     except Exception as e:
@@ -5272,6 +5468,22 @@ def main():
 
         _phase_group_start = datetime.datetime.now()
         _time_budget_exceeded = False
+
+        # Phase 01 Plan 03 Task 2 (D-16/D-17): per-sheet accumulator
+        # of subcontractor CU codes that fell through to SmartSheet
+        # pricing during ``generate_excel``. ``_resolve_row_price``
+        # records each missing CU into a per-call Counter that
+        # ``generate_excel`` returns in the 5-tuple's trailing slot;
+        # the per-group loop below attributes each group's missing
+        # CUs to the source sheet(s) that contributed rows. After the
+        # loop completes, exactly ONE WARNING per affected sheet is
+        # emitted (D-17), naming the first 10 codes alphabetically.
+        # The PII sanitizer's ``_PII_LOG_MARKERS`` already includes
+        # the WARNING's stable marker ("Subcontractor rates CSV
+        # missing") so it is dropped from Sentry before send.
+        _missing_cus_by_sheet: dict[int, collections.Counter] = (
+            collections.defaultdict(collections.Counter)
+        )
 
         # Codex P1: source-side WR# collision quarantine.
         # ``_RE_SANITIZE_HELPER_NAME`` on the raw row value is a lossy
@@ -5892,10 +6104,40 @@ def main():
                     gen_span.set_data("row_count", len(group_rows))
                     gen_span.set_data("variant", variant)
                     gen_span.set_data("group_index", group_idx)
-                    excel_path, filename, wr_numbers = generate_excel(
+                    # Phase 01 Plan 03 Task 2 / Blocker 4: 5-tuple
+                    # return. ``customer_name`` is forwarded to Plan 04's
+                    # upload-task builder; ``missing_cus`` accumulates
+                    # per source sheet into ``_missing_cus_by_sheet``
+                    # for the D-17 end-of-loop WARNING.
+                    (
+                        excel_path,
+                        filename,
+                        wr_numbers,
+                        _customer_name,
+                        _missing_cus_for_group,
+                    ) = generate_excel(
                         group_key, group_rows, snapshot_date, data_hash=data_hash
                     )
                     gen_span.set_data("filename", filename)
+
+                # Attribute missing CUs to each source sheet that
+                # contributed rows to this group (a single group can
+                # span sheets when multiple sheets carry the same WR).
+                # Distinct sheets get their own bucket so the per-sheet
+                # WARNING surfaces the correct sheet id; rows missing
+                # ``__sheet_id`` are bucketed under -1 so they still
+                # surface in operator logs without crashing the
+                # attribution loop.
+                if _missing_cus_for_group:
+                    _contributing_sheet_ids: set[int] = set()
+                    for _r in group_rows:
+                        _sid = _r.get('__sheet_id')
+                        if isinstance(_sid, int):
+                            _contributing_sheet_ids.add(_sid)
+                    if not _contributing_sheet_ids:
+                        _contributing_sheet_ids = {-1}
+                    for _sid in _contributing_sheet_ids:
+                        _missing_cus_by_sheet[_sid].update(_missing_cus_for_group)
                 
                 generated_files_count += 1
                 _groups_generated += 1
@@ -5967,6 +6209,31 @@ def main():
         _phase_group_elapsed = (datetime.datetime.now() - _phase_group_start).total_seconds()
         logging.info(f"⚡ Group processing phase: {_groups_generated} generated, {_groups_skipped} skipped in {_phase_group_elapsed:.1f}s"
                      + (f" (stopped early — time budget exceeded)" if _time_budget_exceeded else ""))
+
+        # Phase 01 Plan 03 Task 2 Change 3 (D-17): emit exactly ONE
+        # WARNING per source sheet whose subcontractor variant
+        # generation fell through to SmartSheet pricing on missing
+        # CU codes. The first 10 CU codes (alphabetical) are named so
+        # operators get an immediate, bounded, actionable surface
+        # without log-line blowout when many CUs are missing at once.
+        # Suppressed entirely when the kill switch is off — there is
+        # no subcontractor variant work to surface in that case. The
+        # WARNING template includes the stable marker "Subcontractor
+        # rates CSV missing" so Plan 02's ``_PII_LOG_MARKERS``
+        # extension drops it from Sentry before send.
+        if SUBCONTRACTOR_RATE_VARIANTS_ENABLED and _missing_cus_by_sheet:
+            for _sid, _sheet_missing_cus in _missing_cus_by_sheet.items():
+                if not _sheet_missing_cus:
+                    continue
+                N = len(_sheet_missing_cus)
+                first_10 = ', '.join(sorted(_sheet_missing_cus)[:10])
+                ellipsis = '...' if N > 10 else ''
+                logging.warning(
+                    f"Subcontractor rates CSV missing {N} CU code(s) on "
+                    f"sheet {_sid}: {first_10}{ellipsis}. Add to "
+                    f"{SUBCONTRACTOR_RATES_CSV} to enable rate recalc for "
+                    f"these rows. Sheet rows fell through to SmartSheet pricing."
+                )
 
         # ── PARALLEL UPLOAD PHASE ─────────────────────────────────────────
         # Upload all collected tasks in parallel instead of serially per-group.
