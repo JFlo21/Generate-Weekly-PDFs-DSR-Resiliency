@@ -17,10 +17,13 @@ Express explorer routes are tracked as v1.1+ scope.
 
 ## Milestones
 
-- 🚧 **v1.0 Subcontractor Rate Logic + Migration ADR** — Phases 1-2
-  (in progress)
+- 🚧 **v1.0 Subcontractor Rate Logic** — Phase 1 (active, gating).
+  Phase 2 (MIG-01) is DEFERRED — captured for traceability but does
+  NOT gate v1.0 completion.
 - 📋 **v1.1 Backend Migration + Artifact Explorer** — Phases 3-N
-  (planned, scope in `REQUIREMENTS.md` v2 section)
+  (planned, scope in `REQUIREMENTS.md` v2 section). The Phase 2
+  pre-migration ADR deliverable, if completed during v1.0, becomes
+  this milestone's prerequisite.
 
 ## Phases
 
@@ -33,9 +36,9 @@ Express explorer routes are tracked as v1.1+ scope.
   variants (`_AEPBillable`, `_ReducedSub`) for subcontractor WR groups,
   routed to original-PPP and new-subcontractor-PPP target sheets, with
   shadow-foreman/helper support
-- [ ] **Phase 2: Railway → Render Pre-Migration ADR** — File the
+- [ ] **Phase 2 (DEFERRED): Railway → Render Pre-Migration ADR** — File the
   missing `memory-bank/adr/` record locking Render Starter, in-memory
-  LRU search, and v1 download = original `.xlsx`
+  LRU search, and v1 download = original `.xlsx`. **Does not gate v1.0 completion** — preserved here so MIG-01 stays mapped, but the full Railway → Render execution lives in REQUIREMENTS.md v2 section.
 
 ## Phase Details
 
@@ -86,7 +89,8 @@ SUB-07
 Plans:
 - [ ] 01-01: TBD (to be decomposed via `/gsd-plan-phase 1`)
 
-### Phase 2: Railway → Render Pre-Migration ADR
+### Phase 2: Railway → Render Pre-Migration ADR (DEFERRED — out of v1.0 scope)
+**Status**: DEFERRED. Does not gate v1.0 milestone completion. The seven REQ-* requirements that drive the actual Railway → Render execution + Artifact Explorer redesign live in REQUIREMENTS.md "v2 Requirements" section and will be promoted by a future `/gsd-new-project` cycle. Phase 2 here exists to lock in the one small documentation deliverable (`MIG-01`) that should land before any of that v2 work begins.
 **Goal**: A reviewer can open `memory-bank/adr/` and read a single
 document that authoritatively records the locked Railway → Render
 decisions, so the future migration milestone executes against an ADR
@@ -129,4 +133,4 @@ Phases execute in numeric order: 1 → 2
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Subcontractor Rate Logic Modification | 0/TBD | Not started | - |
-| 2. Railway → Render Pre-Migration ADR | 0/TBD | Not started | - |
+| 2. Railway → Render Pre-Migration ADR (DEFERRED) | 0/TBD | Deferred — out of v1.0 scope | - |

@@ -11,7 +11,7 @@ billing-grade Excel reports without regression.
 
 ## Current Position
 
-Phase: 1 of 2 (Subcontractor Rate Logic Modification)
+Phase: 1 of 2 (Subcontractor Rate Logic Modification — Phase 2 is DEFERRED, does not gate v1.0)
 Plan: 0 of TBD in current phase
 Status: Ready to discuss (run `/gsd-discuss-phase 1`)
 Last activity: 2026-05-14 — bootstrapped `.planning/` from ingested
