@@ -1555,5 +1555,254 @@ class TestExpandedHashCoverage(unittest.TestCase):
         self.assertEqual(hash1, hash2)
 
 
+class TestSubcontractorVariantGrouping(unittest.TestCase):
+    """Plan 01-03 Task 1: subcontractor variant tagging in group_source_rows().
+
+    Per the plan's committed plumbing decision (Blocker 3), the gate is
+    PER-ROW via ``r.get('__source_sheet_id') in _FOLDER_DISCOVERED_SUB_IDS``.
+    Each test snapshots & restores the module's folder-id sets and the
+    kill-switch env flag so a test's mutation cannot leak.
+    """
+
+    _SUB_SHEET_ID = 8162920222379908
+    _ORIG_SHEET_ID = 7644752003786628
+
+    def setUp(self):
+        self._orig_sub_ids = set(generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS)
+        self._orig_orig_ids = set(generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS)
+        self._orig_kill = generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED
+        # Seed the SUB folder set with our test sheet id so the per-row
+        # gate trips.
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.add(self._SUB_SHEET_ID)
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.add(self._ORIG_SHEET_ID)
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = True
+
+    def tearDown(self):
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.update(self._orig_sub_ids)
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.update(self._orig_orig_ids)
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = self._orig_kill
+
+    def _make_row(
+        self,
+        wr,
+        date_str,
+        price,
+        snapshot=None,
+        source_sheet_id=None,
+        is_helper=False,
+        helper_foreman='',
+        helper_dept='',
+        helper_job='',
+    ):
+        """Minimal valid source row for group_source_rows().
+
+        ``source_sheet_id`` populates ``row['__source_sheet_id']`` —
+        the field the plan's per-row gate reads. Defaults to the
+        test class's seeded subcontractor sheet id.
+        """
+        if source_sheet_id is None:
+            source_sheet_id = self._SUB_SHEET_ID
+        row = {
+            'Work Request #': wr,
+            'Weekly Reference Logged Date': date_str,
+            'Units Completed?': True,
+            'Units Total Price': price,
+            'Snapshot Date': snapshot if snapshot is not None else date_str,
+            '__effective_user': 'TestForeman',
+            '__assignment_method': 'FOREMAN_COLUMN',
+            '__is_helper_row': is_helper,
+            '__helper_foreman': helper_foreman,
+            '__helper_dept': helper_dept,
+            '__helper_job': helper_job,
+            '__is_vac_crew': False,
+            '__source_sheet_id': source_sheet_id,
+        }
+        return row
+
+    def test_post_cutoff_subcontractor_row_emits_aep_billable_and_reduced_sub(self):
+        """Test 1: post-cutoff snapshot, SUB sheet, kill-switch on → both new variant group keys appear."""
+        row = self._make_row(
+            wr='WR_X',
+            date_str='2026-04-19',
+            price='$100.00',
+            snapshot='2026-04-19',  # post-cutoff (>= 2026-04-12)
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        self.assertTrue(
+            any('_AEPBILLABLE' in k and '_HELPER_' not in k for k in keys),
+            f"Expected an _AEPBILLABLE group key for post-cutoff sub row; got: {keys}",
+        )
+        self.assertTrue(
+            any('_REDUCEDSUB' in k and '_HELPER_' not in k for k in keys),
+            f"Expected a _REDUCEDSUB group key for sub row; got: {keys}",
+        )
+
+    def test_pre_cutoff_subcontractor_row_emits_reduced_sub_only(self):
+        """Test 2: pre-cutoff snapshot → ReducedSub yes, AEPBillable no (D-08)."""
+        row = self._make_row(
+            wr='WR_Y',
+            date_str='2026-04-05',
+            price='$100.00',
+            snapshot='2026-04-05',  # pre-cutoff (< 2026-04-12)
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        self.assertTrue(
+            any('_REDUCEDSUB' in k for k in keys),
+            f"Expected a _REDUCEDSUB group key for pre-cutoff sub row; got: {keys}",
+        )
+        self.assertFalse(
+            any('_AEPBILLABLE' in k for k in keys),
+            f"Expected NO _AEPBILLABLE group key for pre-cutoff sub row; got: {keys}",
+        )
+
+    def test_helper_event_emits_shadow_variants_when_post_cutoff(self):
+        """Test 3: helper-foreman event on sub WR post-cutoff → both shadow variants appear."""
+        row = self._make_row(
+            wr='WR_Z',
+            date_str='2026-04-19',
+            price='$100.00',
+            snapshot='2026-04-19',
+            is_helper=True,
+            helper_foreman='Jane Smith',
+            helper_dept='123',
+            helper_job='J-1',
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        self.assertTrue(
+            any('_AEPBILLABLE_HELPER_Jane_Smith' in k for k in keys),
+            f"Expected _AEPBILLABLE_HELPER_Jane_Smith key; got: {keys}",
+        )
+        self.assertTrue(
+            any('_REDUCEDSUB_HELPER_Jane_Smith' in k for k in keys),
+            f"Expected _REDUCEDSUB_HELPER_Jane_Smith key; got: {keys}",
+        )
+
+    def test_non_subcontractor_sheet_emits_no_new_variants(self):
+        """Test 4: row from a non-SUB sheet → no new variant keys (per-row gate proof)."""
+        row = self._make_row(
+            wr='WR_A',
+            date_str='2026-04-19',
+            price='$100.00',
+            snapshot='2026-04-19',
+            source_sheet_id=self._ORIG_SHEET_ID,  # in ORIG, NOT in SUB
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        self.assertFalse(
+            any('_AEPBILLABLE' in k or '_REDUCEDSUB' in k for k in keys),
+            f"Expected NO new variant keys for non-sub row; got: {keys}",
+        )
+
+    def test_kill_switch_off_emits_no_new_variants(self):
+        """Test 5: SUBCONTRACTOR_RATE_VARIANTS_ENABLED=False → no new variant keys (D-13)."""
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = False
+        row = self._make_row(
+            wr='WR_B',
+            date_str='2026-04-19',
+            price='$100.00',
+            snapshot='2026-04-19',
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        self.assertFalse(
+            any('_AEPBILLABLE' in k or '_REDUCEDSUB' in k for k in keys),
+            f"Expected NO new variant keys with kill switch off; got: {keys}",
+        )
+
+    def test_variant_string_tagging_uses_canonical_lowercase(self):
+        """Test 6: r_copy['__variant'] in the new variants uses the exact lowercase strings."""
+        row = self._make_row(
+            wr='WR_C',
+            date_str='2026-04-19',
+            price='$100.00',
+            snapshot='2026-04-19',
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        variants_seen = set()
+        for key, rows in groups.items():
+            if '_AEPBILLABLE' in key or '_REDUCEDSUB' in key:
+                variants_seen.add(rows[0].get('__variant'))
+        # At minimum reduced_sub and aep_billable must be present.
+        self.assertIn('reduced_sub', variants_seen, f"expected 'reduced_sub' tagging; saw {variants_seen}")
+        self.assertIn('aep_billable', variants_seen, f"expected 'aep_billable' tagging; saw {variants_seen}")
+        self.assertTrue(
+            variants_seen.issubset(
+                {'reduced_sub', 'aep_billable', 'reduced_sub_helper', 'aep_billable_helper'}
+            ),
+            f"new-variant group rows must tag __variant only with the four lowercase strings; got {variants_seen}",
+        )
+
+    def test_helper_name_with_apostrophe_sanitized_in_key(self):
+        """Test 7: helper name with non-word chars is sanitized via _RE_SANITIZE_HELPER_NAME before key embedding."""
+        row = self._make_row(
+            wr='WR_D',
+            date_str='2026-04-19',
+            price='$100.00',
+            snapshot='2026-04-19',
+            is_helper=True,
+            helper_foreman="Jane O'Brien",
+            helper_dept='456',
+            helper_job='J-2',
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        # ``_RE_SANITIZE_HELPER_NAME`` replaces ``'`` with ``_``.
+        sanitized_expected = 'Jane_O_Brien'
+        self.assertTrue(
+            any(f'_REDUCEDSUB_HELPER_{sanitized_expected}' in k for k in keys),
+            f"Expected sanitized helper name {sanitized_expected!r} in a REDUCEDSUB_HELPER key; got: {keys}",
+        )
+        self.assertTrue(
+            any(f'_AEPBILLABLE_HELPER_{sanitized_expected}' in k for k in keys),
+            f"Expected sanitized helper name {sanitized_expected!r} in an AEPBILLABLE_HELPER key; got: {keys}",
+        )
+
+    def test_per_row_gate_does_not_bleed_across_rows_in_same_call(self):
+        """Test 8: a single call with a sub row + a non-sub row → only the sub row produces new variants.
+
+        Regression guard against accidental per-CALL gating that would
+        emit variant keys for every row in the call once any row was
+        on a SUB sheet.
+        """
+        row_sub = self._make_row(
+            wr='WR_E',
+            date_str='2026-04-19',
+            price='$100.00',
+            snapshot='2026-04-19',
+            source_sheet_id=self._SUB_SHEET_ID,
+        )
+        row_orig = self._make_row(
+            wr='WR_F',
+            date_str='2026-04-19',
+            price='$100.00',
+            snapshot='2026-04-19',
+            source_sheet_id=self._ORIG_SHEET_ID,
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row_sub, row_orig])
+        # WR_E (sub) MUST have new variant keys.
+        sub_keys = [k for k in groups if '_WR_E' in k or k.endswith('_WR_E') or 'WR_E' in k]
+        # The naming convention: ``{week}_{wr_key}_REDUCEDSUB`` etc.
+        self.assertTrue(
+            any('WR_E' in k and ('_AEPBILLABLE' in k or '_REDUCEDSUB' in k) for k in groups),
+            f"Expected WR_E (sub) to produce new-variant keys; got: {list(groups.keys())}",
+        )
+        # WR_F (orig) MUST NOT produce any new variant keys.
+        wr_f_new_variant_keys = [
+            k for k in groups
+            if 'WR_F' in k and ('_AEPBILLABLE' in k or '_REDUCEDSUB' in k)
+        ]
+        self.assertEqual(
+            wr_f_new_variant_keys, [],
+            f"WR_F (orig) must NOT produce new-variant keys (per-row gate); got: {wr_f_new_variant_keys}",
+        )
+
+
 if __name__ == '__main__':
     unittest.main()
