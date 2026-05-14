@@ -1612,5 +1612,296 @@ class TestInspectImportRemoved(unittest.TestCase):
         )
 
 
+# ─── Phase 01 Plan 04 Task 1 ─────────────────────────────────────────
+# Helper extraction + dual target_map + independent quarantine.
+# Builds a parameterized helper ``create_target_sheet_map_for(client,
+# sheet_id)`` and proves the new second target_map's collision
+# quarantine is per-call (function-local) so the two maps cannot
+# pollute each other.
+
+class _FakeColumn:
+    """Minimal stand-in for a Smartsheet column object."""
+
+    def __init__(self, column_id, title):
+        self.id = column_id
+        self.title = title
+
+
+class _FakeCell:
+    """Minimal stand-in for a Smartsheet cell object."""
+
+    def __init__(self, column_id, display_value):
+        self.column_id = column_id
+        self.display_value = display_value
+
+
+class _FakeRow:
+    """Minimal stand-in for a Smartsheet row object."""
+
+    def __init__(self, row_id, cells):
+        self.id = row_id
+        self.cells = cells
+
+
+class _FakeSheet:
+    """Minimal stand-in for a Smartsheet sheet object."""
+
+    def __init__(self, columns, rows):
+        self.columns = columns
+        self.rows = rows
+
+
+class _FakeSheetsAPI:
+    """``client.Sheets.get_sheet(sheet_id)`` dispatcher."""
+
+    def __init__(self, sheets_by_id):
+        self._sheets_by_id = sheets_by_id
+
+    def get_sheet(self, sheet_id):
+        if sheet_id not in self._sheets_by_id:
+            raise KeyError(
+                f'_FakeSheetsAPI has no sheet for id={sheet_id!r}'
+            )
+        return self._sheets_by_id[sheet_id]
+
+
+class _FakeClient:
+    """Top-level client. ``client.Sheets.get_sheet(...)`` is the only
+    surface exercised by ``create_target_sheet_map_for``."""
+
+    def __init__(self, sheets_by_id):
+        self.Sheets = _FakeSheetsAPI(sheets_by_id)
+
+
+def _make_fake_sheet(wr_values):
+    """Build a fake target sheet with one row per ``wr_values`` entry.
+
+    The ``Work Request #`` column id is ``101``. Row ids start at 1000
+    so they're trivially distinguishable in assertions.
+    """
+    wr_col = _FakeColumn(101, 'Work Request #')
+    extra_col = _FakeColumn(102, 'Some Other Column')
+    rows = []
+    for idx, raw_wr in enumerate(wr_values):
+        cell_wr = _FakeCell(101, raw_wr)
+        cell_other = _FakeCell(102, f'noise-{idx}')
+        rows.append(_FakeRow(1000 + idx, [cell_wr, cell_other]))
+    return _FakeSheet([wr_col, extra_col], rows)
+
+
+class TestDualTargetMapIndependentQuarantine(unittest.TestCase):
+    """Phase 01 Plan 04 Task 1: extract
+    ``create_target_sheet_map_for(client, sheet_id)`` so a second
+    ``target_map`` can be built against
+    ``SUBCONTRACTOR_PPP_SHEET_ID`` for the dual-routing of
+    ``_ReducedSub`` files.
+
+    Critical invariant locked by these tests: the per-call collision
+    quarantine state (``_quarantined_keys`` / ``_seen_raw_for_key``)
+    is FUNCTION-LOCAL. Two independent calls to the helper must NOT
+    share quarantine state, because a duplicate WR# on one target
+    sheet must not poison the lookup table for the other sheet.
+    """
+
+    def test_helper_exists_at_module_level(self):
+        """The new helper must be importable from
+        ``generate_weekly_pdfs`` so callers (the main pipeline +
+        external consumers) can build sheet-specific maps."""
+        self.assertTrue(
+            hasattr(generate_weekly_pdfs, 'create_target_sheet_map_for'),
+            'create_target_sheet_map_for must be exposed at module scope',
+        )
+
+    def test_extracted_helper_matches_legacy_function_output(self):
+        """Per acceptance criterion Test 1 + 6: calling the new
+        ``create_target_sheet_map_for(client, TARGET_SHEET_ID)`` must
+        return the same target_map dict as the legacy
+        ``create_target_sheet_map(client)`` wrapper.
+        """
+        sheet = _make_fake_sheet(['90093002', '89708709', '12345'])
+        client = _FakeClient({
+            generate_weekly_pdfs.TARGET_SHEET_ID: sheet,
+        })
+        legacy_map, legacy_sheet = (
+            generate_weekly_pdfs.create_target_sheet_map(client)
+        )
+        new_map, new_sheet = (
+            generate_weekly_pdfs.create_target_sheet_map_for(
+                client, generate_weekly_pdfs.TARGET_SHEET_ID,
+            )
+        )
+        self.assertEqual(
+            set(legacy_map.keys()), set(new_map.keys()),
+            'extracted helper must yield identical WR# keys for the '
+            'same sheet — back-compat invariant',
+        )
+        # Row identity preserved across the two paths.
+        for wr in legacy_map:
+            self.assertIs(legacy_map[wr], new_map[wr])
+
+    def test_two_target_maps_independent_when_sheets_differ(self):
+        """Per acceptance criterion Test 2: distinct sheets with
+        distinct WR# rows must yield disjoint target_maps. Proves the
+        helper is not accidentally sharing state across calls.
+        """
+        sheet_a = _make_fake_sheet(['90093002', '89708709'])
+        sheet_b = _make_fake_sheet(['77777001', '77777002'])
+        client = _FakeClient({
+            generate_weekly_pdfs.TARGET_SHEET_ID: sheet_a,
+            generate_weekly_pdfs.SUBCONTRACTOR_PPP_SHEET_ID: sheet_b,
+        })
+        map_a, _ = generate_weekly_pdfs.create_target_sheet_map_for(
+            client, generate_weekly_pdfs.TARGET_SHEET_ID,
+        )
+        map_b, _ = generate_weekly_pdfs.create_target_sheet_map_for(
+            client, generate_weekly_pdfs.SUBCONTRACTOR_PPP_SHEET_ID,
+        )
+        self.assertSetEqual(set(map_a.keys()), {'90093002', '89708709'})
+        self.assertSetEqual(set(map_b.keys()), {'77777001', '77777002'})
+        self.assertEqual(
+            set(map_a.keys()) & set(map_b.keys()),
+            set(),
+            'distinct sheets must produce disjoint target_map keys',
+        )
+
+    def test_independent_quarantine_does_not_cross_pollute(self):
+        """Critical D-22 / round-6 invariant locked here.
+
+        Sheet A has a duplicate WR# (triggers quarantine on A) AND
+        sheet B has the same WR# but only one row for it. After
+        building both target_maps independently:
+
+        - ``target_map_A`` MUST NOT contain the WR (quarantined on A).
+        - ``target_map_B`` MUST contain the WR (single row on B).
+
+        A module-level / shared ``_quarantined_keys`` set would
+        incorrectly remove the WR from ``target_map_B`` too, silently
+        breaking dual-routing for a WR that appears on both sheets
+        for legitimate reasons.
+        """
+        # Sheet A: same raw WR# appears twice → collision on A's map.
+        sheet_a = _make_fake_sheet(['1234/evil', '1234\\evil'])
+        # Sheet B: same SANITIZED WR (1234_evil) appears exactly once.
+        sheet_b = _make_fake_sheet(['1234/evil'])
+        client = _FakeClient({
+            generate_weekly_pdfs.TARGET_SHEET_ID: sheet_a,
+            generate_weekly_pdfs.SUBCONTRACTOR_PPP_SHEET_ID: sheet_b,
+        })
+        map_a, _ = generate_weekly_pdfs.create_target_sheet_map_for(
+            client, generate_weekly_pdfs.TARGET_SHEET_ID,
+        )
+        map_b, _ = generate_weekly_pdfs.create_target_sheet_map_for(
+            client, generate_weekly_pdfs.SUBCONTRACTOR_PPP_SHEET_ID,
+        )
+        collision_key = (
+            generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub(
+                '_', '1234/evil',
+            )[:50]
+        )
+        self.assertNotIn(
+            collision_key, map_a,
+            'sheet A had a duplicate raw WR — its sanitized key '
+            'must be quarantined out of map_a',
+        )
+        self.assertIn(
+            collision_key, map_b,
+            'sheet B has a SINGLE row for this WR — quarantine '
+            'state must NOT bleed across calls. If this fails, '
+            '_quarantined_keys is module-level instead of '
+            'function-local (Warning 5 regression)',
+        )
+
+    def test_sanitization_applied_at_populate_for_second_sheet(self):
+        """Per acceptance criterion Test 4: producer-side sanitization
+        is applied for the second target_map exactly the same way as
+        for the primary. Round-7 / 2026-04-23 18:25 contract.
+        """
+        sheet = _make_fake_sheet(['1234/evil'])
+        client = _FakeClient({
+            generate_weekly_pdfs.SUBCONTRACTOR_PPP_SHEET_ID: sheet,
+        })
+        target_map, _ = generate_weekly_pdfs.create_target_sheet_map_for(
+            client, generate_weekly_pdfs.SUBCONTRACTOR_PPP_SHEET_ID,
+        )
+        expected_key = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub(
+            '_', '1234/evil',
+        )[:50]
+        self.assertIn(
+            expected_key, target_map,
+            'producer-side sanitization must occur inside the helper '
+            'so consumer-side lookups (target_map[wr_num]) hit',
+        )
+        self.assertNotIn(
+            '1234/evil', target_map,
+            'raw WR# must not appear as a key — that would prevent '
+            'the sanitized main-loop lookup from matching',
+        )
+
+    def test_idempotent_sanitization(self):
+        """Per acceptance criterion Test 5: calling the helper twice
+        on the same mocked sheet produces identical ``target_map``
+        keys. Locks the idempotence of ``_RE_SANITIZE_HELPER_NAME``
+        end-to-end through the helper."""
+        sheet = _make_fake_sheet(['1234/evil', '90093002'])
+        client = _FakeClient({
+            generate_weekly_pdfs.TARGET_SHEET_ID: sheet,
+        })
+        first_map, _ = generate_weekly_pdfs.create_target_sheet_map_for(
+            client, generate_weekly_pdfs.TARGET_SHEET_ID,
+        )
+        second_map, _ = generate_weekly_pdfs.create_target_sheet_map_for(
+            client, generate_weekly_pdfs.TARGET_SHEET_ID,
+        )
+        self.assertSetEqual(set(first_map.keys()), set(second_map.keys()))
+
+    def test_quarantine_state_is_function_local(self):
+        """Warning 5 lock-in: inspect the helper's source and confirm
+        ``_quarantined_keys`` and ``_seen_raw_for_key`` are declared
+        INSIDE the function body (function-local), NOT at module
+        scope. A module-level set would silently break
+        ``test_independent_quarantine_does_not_cross_pollute``.
+        """
+        import inspect as _inspect
+
+        src = _inspect.getsource(
+            generate_weekly_pdfs.create_target_sheet_map_for,
+        )
+        # Acceptable forms — Python allows annotated or unannotated
+        # init. Either form proves the variable is function-local.
+        self.assertTrue(
+            ('_quarantined_keys: set' in src)
+            or ('_quarantined_keys = set()' in src)
+            or ('_quarantined_keys: set[str] = set()' in src),
+            'create_target_sheet_map_for must declare '
+            '_quarantined_keys INSIDE its body (function-local) '
+            'per Plan 4 Task 1 Warning 5 acceptance criterion',
+        )
+        self.assertTrue(
+            ('_seen_raw_for_key: dict' in src)
+            or ('_seen_raw_for_key = {}' in src)
+            or ('_seen_raw_for_key: dict[str, str] = {}' in src),
+            'create_target_sheet_map_for must declare '
+            '_seen_raw_for_key INSIDE its body (function-local)',
+        )
+
+    def test_quarantine_state_is_not_module_level(self):
+        """Defense-in-depth: even if a future refactor adds a
+        module-level ``_quarantined_keys`` for some other purpose,
+        the helper must not reference it as global state.
+        """
+        # No module-level _quarantined_keys / _seen_raw_for_key.
+        self.assertFalse(
+            hasattr(generate_weekly_pdfs, '_quarantined_keys'),
+            'No module-level _quarantined_keys allowed — per-call '
+            'quarantine sets must be function-local so two target_map '
+            'builds cannot poison each other',
+        )
+        self.assertFalse(
+            hasattr(generate_weekly_pdfs, '_seen_raw_for_key'),
+            'No module-level _seen_raw_for_key allowed — same '
+            'function-local rationale',
+        )
+
+
 if __name__ == '__main__':
     unittest.main()
