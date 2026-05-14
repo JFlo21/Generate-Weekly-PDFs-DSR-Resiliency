@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import sys
+import threading
 import types
 import unittest
 from pathlib import Path
@@ -3679,6 +3680,551 @@ class BillingAuditSkipRetryLogicTests(unittest.TestCase):
             _should_run,
             "Snapshot block must run when hash has changed, regardless of cache",
         )
+
+
+class TestFreezeRowVariantAttribution(unittest.TestCase):
+    """Phase 1 SUB-07 / D-18: ``freeze_row`` and ``emit_run_fingerprint``
+    accept a new ``variant: str | None = None`` kwarg.
+
+    Blocker 1 Path B lock-in:
+    - ``freeze_row``'s kwarg is accepted for signature symmetry with
+      ``emit_run_fingerprint`` and forward-compat instrumentation,
+      but is NOT injected into the ``freeze_attribution`` RPC params
+      dict. The RPC contract (defined in Supabase Dashboard,
+      documented at schema.sql RPC contract block) is UNCHANGED.
+    - ``emit_run_fingerprint``'s kwarg flows into the
+      ``pipeline_run`` upsert payload as the ``variant`` field.
+      First-variant-wins dedup via ``_emitted_run_keys`` is preserved
+      (D-18 explicit).
+
+    Covers the 7 valid variant strings:
+    ``primary | helper | vac_crew | aep_billable | reduced_sub
+    | aep_billable_helper | reduced_sub_helper``.
+    """
+
+    VARIANT_STRINGS = (
+        "primary",
+        "helper",
+        "vac_crew",
+        "aep_billable",
+        "reduced_sub",
+        "aep_billable_helper",
+        "reduced_sub_helper",
+    )
+
+    def setUp(self):
+        _reset_all()
+        for k in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "TEST_MODE"):
+            os.environ.pop(k, None)
+
+    def tearDown(self):
+        _reset_all()
+
+    def _valid_row(self):
+        return {
+            "__row_id": 987654321,
+            "Work Request #": "91467680",
+            "__week_ending_date": datetime.datetime(2026, 4, 19),
+            "Units Completed?": True,
+            "Foreman": "Alice Primary",
+            "__effective_user": "Alice Primary",
+            "__helper_foreman": "Bob Helper",
+            "__helper_dept": "500",
+            "__vac_crew_name": "",
+            "Pole #": "P-42",
+            "CU": "ANC-M",
+            "Work Type": "Maintenance",
+        }
+
+    # ── freeze_row: variant kwarg accepted, NOT injected into RPC ──
+
+    def test_freeze_row_accepts_variant_kwarg_but_omits_from_rpc_params(self):
+        """Behavior 1: ``freeze_row(...)`` with no ``variant`` kwarg
+        must still succeed AND the RPC params dict must not contain
+        ``p_variant`` (Path B lock-in: variant is recorded only via
+        ``emit_run_fingerprint``, never via ``freeze_attribution``).
+        """
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            ba_writer.freeze_row(
+                self._valid_row(), release="r", run_id="run-x",
+            )
+        _, params = client.schema.return_value.rpc.call_args.args
+        self.assertNotIn(
+            "p_variant", params,
+            "Path B forbids p_variant on the freeze_attribution RPC "
+            "params dict (variant lives only on pipeline_run via "
+            "emit_run_fingerprint)",
+        )
+
+    def test_freeze_row_with_explicit_variant_still_omits_from_rpc_params(self):
+        """Behavior 2: passing ``variant='aep_billable'`` (or any of
+        the 4 new variants) must be accepted by ``freeze_row``
+        WITHOUT injecting ``p_variant`` into the RPC params dict.
+        Path B is enforced at the writer-internal boundary, not at
+        the call site.
+        """
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            ba_writer.freeze_row(
+                self._valid_row(),
+                release="r", run_id="run-x",
+                variant="aep_billable",
+            )
+        _, params = client.schema.return_value.rpc.call_args.args
+        self.assertNotIn(
+            "p_variant", params,
+            "Path B lock-in: explicit variant kwarg must NOT inject "
+            "p_variant into the RPC params dict",
+        )
+
+    def test_freeze_row_None_variant_no_effect_on_rpc_params(self):
+        """Behavior 8: explicit ``variant=None`` is a no-op on the
+        RPC params dict — same as omitting the kwarg.
+        """
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            ba_writer.freeze_row(
+                self._valid_row(),
+                release="r", run_id="run-x",
+                variant=None,
+            )
+        _, params = client.schema.return_value.rpc.call_args.args
+        self.assertNotIn(
+            "p_variant", params,
+            "explicit variant=None must NOT inject p_variant either",
+        )
+
+    # ── emit_run_fingerprint: variant flows into upsert payload ──
+
+    def test_emit_run_fingerprint_records_variant_in_upsert_payload(self):
+        """Behavior 3: ``emit_run_fingerprint(..., variant='reduced_sub')``
+        must produce an upsert payload with a ``variant`` field set
+        to ``'reduced_sub'``.
+        """
+        from billing_audit import writer as ba_writer
+        upserts: list = []
+        client = _make_fake_supabase_client(
+            prior_fp_rows=[], upsert_capture=upserts,
+        )
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ), mock.patch(
+            "billing_audit.writer._sentry_capture_warning"
+        ):
+            ba_writer.emit_run_fingerprint(
+                wr="WR-VR1",
+                week_ending=datetime.date(2026, 4, 19),
+                content_hash="h", assignment_fp="fp-1",
+                completed_count=1, total_count=1,
+                release="rel", run_id="run-r1",
+                variant="reduced_sub",
+            )
+        self.assertEqual(
+            len(upserts), 1,
+            "exactly one upsert call expected",
+        )
+        # Capture the first positional arg (the payload dict).
+        payload = upserts[0].args[0]
+        self.assertIn("variant", payload)
+        self.assertEqual(payload["variant"], "reduced_sub")
+
+    def test_emit_run_fingerprint_records_each_of_seven_variants(self):
+        """Behavior 4: parametrize over the 7 valid variant strings.
+        Each must round-trip into the upsert payload exactly.
+        """
+        from billing_audit import writer as ba_writer
+        for idx, variant in enumerate(self.VARIANT_STRINGS):
+            with self.subTest(variant=variant):
+                _reset_all()
+                upserts: list = []
+                client = _make_fake_supabase_client(
+                    prior_fp_rows=[], upsert_capture=upserts,
+                )
+                with mock.patch(
+                    "billing_audit.writer.get_client", return_value=client
+                ), mock.patch(
+                    "billing_audit.writer.get_flag", return_value=True
+                ), mock.patch(
+                    "billing_audit.writer._sentry_capture_warning"
+                ):
+                    ba_writer.emit_run_fingerprint(
+                        # Distinct (wr, run_id) per variant so the
+                        # _emitted_run_keys dedup doesn't suppress
+                        # subsequent calls in this loop.
+                        wr=f"WR-V{idx}",
+                        week_ending=datetime.date(2026, 4, 19),
+                        content_hash="h", assignment_fp=f"fp-{idx}",
+                        completed_count=1, total_count=1,
+                        release="rel", run_id=f"run-{idx}",
+                        variant=variant,
+                    )
+                self.assertEqual(
+                    len(upserts), 1,
+                    f"exactly one upsert call expected for "
+                    f"variant={variant}",
+                )
+                payload = upserts[0].args[0]
+                self.assertEqual(
+                    payload.get("variant"), variant,
+                    f"variant={variant} must round-trip into the "
+                    f"upsert payload exactly",
+                )
+
+    def test_emit_run_fingerprint_coerces_None_variant_to_primary(self):
+        """Behavior 5: ``variant=None`` (or omitted kwarg) must coerce
+        to ``'primary'`` in the upsert payload. Existing call sites
+        that don't yet pass the kwarg are equivalent to
+        ``variant='primary'`` — back-compat for the legacy variant
+        which existed pre-Phase-1.
+        """
+        from billing_audit import writer as ba_writer
+        upserts: list = []
+        client = _make_fake_supabase_client(
+            prior_fp_rows=[], upsert_capture=upserts,
+        )
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ), mock.patch(
+            "billing_audit.writer._sentry_capture_warning"
+        ):
+            ba_writer.emit_run_fingerprint(
+                wr="WR-VR-COERCE",
+                week_ending=datetime.date(2026, 4, 19),
+                content_hash="h", assignment_fp="fp-1",
+                completed_count=1, total_count=1,
+                release="rel", run_id="run-coerce",
+                # variant kwarg omitted entirely → defaults to None
+                # → must coerce to 'primary' in the payload.
+            )
+        self.assertEqual(len(upserts), 1)
+        payload = upserts[0].args[0]
+        self.assertEqual(
+            payload.get("variant"), "primary",
+            "omitted/None variant must coerce to 'primary' for "
+            "back-compat with pre-Phase-1 call sites",
+        )
+
+    def test_emit_run_fingerprint_first_variant_wins_on_dedup(self):
+        """Behavior 6: ``emit_run_fingerprint(..., variant='aep_billable')``
+        followed by ``emit_run_fingerprint(..., variant='reduced_sub')``
+        for the SAME ``(wr, week, run_id)`` triple is a no-op on the
+        second call — ``_emitted_run_keys`` dedup is unchanged by
+        Phase 1 (D-18 explicit: variant is NOT part of the PK).
+        First variant emitted wins.
+        """
+        from billing_audit import writer as ba_writer
+        upserts: list = []
+        client = _make_fake_supabase_client(
+            prior_fp_rows=[], upsert_capture=upserts,
+        )
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ), mock.patch(
+            "billing_audit.writer._sentry_capture_warning"
+        ):
+            ba_writer.emit_run_fingerprint(
+                wr="WR-VR-DEDUP",
+                week_ending=datetime.date(2026, 4, 19),
+                content_hash="h", assignment_fp="fp-1",
+                completed_count=1, total_count=1,
+                release="rel", run_id="run-dedup",
+                variant="aep_billable",
+            )
+            ba_writer.emit_run_fingerprint(
+                wr="WR-VR-DEDUP",
+                week_ending=datetime.date(2026, 4, 19),
+                content_hash="h2", assignment_fp="fp-2",
+                completed_count=2, total_count=2,
+                release="rel", run_id="run-dedup",
+                variant="reduced_sub",
+            )
+        # Only ONE upsert: the second call dedups via _emitted_run_keys.
+        self.assertEqual(
+            len(upserts), 1,
+            "second call for same (wr,week,run_id) must dedup-no-op",
+        )
+        payload = upserts[0].args[0]
+        self.assertEqual(
+            payload.get("variant"), "aep_billable",
+            "first variant emitted wins per D-18 + _emitted_run_keys "
+            "dedup; second call's variant must NOT overwrite",
+        )
+
+    def test_concurrent_freeze_row_omits_p_variant_under_concurrency(self):
+        """Behavior 7: under concurrent invocation (50 threads, 7
+        variant strings round-robin), every captured RPC params dict
+        STILL lacks ``p_variant``. Path B + thread-safety co-invariant
+        — the parallelized loop's worker fn passes the variant kwarg
+        through, but the writer-internal Path B boundary holds.
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from billing_audit import writer as ba_writer
+
+        # Capture every (name, params) RPC call across threads.
+        rpc_call_log: list = []
+        rpc_log_lock = threading.Lock()
+        # Pre-create the fake client so the schema/rpc chain exists.
+        client = _make_fake_supabase_client()
+
+        original_rpc = client.schema.return_value.rpc
+
+        def _capturing_rpc(name, params):
+            with rpc_log_lock:
+                # Defensive copy: a future regression that mutates
+                # ``params`` post-call must not retroactively change
+                # the captured snapshot.
+                rpc_call_log.append((name, dict(params)))
+            return original_rpc.return_value
+
+        client.schema.return_value.rpc = _capturing_rpc
+
+        def _row(i):
+            r = self._valid_row()
+            r["__row_id"] = 1_000_000 + i
+            return r
+
+        rows_and_variants = [
+            (_row(i), self.VARIANT_STRINGS[i % len(self.VARIANT_STRINGS)])
+            for i in range(50)
+        ]
+
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ), mock.patch(
+            "billing_audit.writer.is_flag_resolved", return_value=True
+        ):
+            with ThreadPoolExecutor(max_workers=8) as ex:
+                futures = [
+                    ex.submit(
+                        ba_writer.freeze_row,
+                        row,
+                        release="r",
+                        run_id="run-conc",
+                        variant=variant,
+                    )
+                    for row, variant in rows_and_variants
+                ]
+                for f in as_completed(futures):
+                    f.result()
+
+        self.assertEqual(
+            len(rpc_call_log), 50,
+            f"expected 50 RPC calls, got {len(rpc_call_log)}",
+        )
+        for idx, (name, params) in enumerate(rpc_call_log):
+            self.assertEqual(name, "freeze_attribution")
+            self.assertNotIn(
+                "p_variant", params,
+                f"Path B violation under concurrency at call "
+                f"#{idx}: p_variant must NEVER reach the RPC "
+                f"params dict regardless of which variant the "
+                f"caller passed",
+            )
+
+    # ── Schema/source-shape sanity checks ──
+
+    def test_freeze_row_signature_accepts_variant_kwarg(self):
+        """Static signature inspection: ``freeze_row`` must declare
+        ``variant: str | None = None`` so existing call sites that
+        don't yet pass the kwarg continue to work unchanged.
+        """
+        import inspect
+        from billing_audit import writer as ba_writer
+        sig = inspect.signature(ba_writer.freeze_row)
+        self.assertIn(
+            "variant", sig.parameters,
+            "freeze_row must accept a 'variant' parameter (D-18)",
+        )
+        param = sig.parameters["variant"]
+        self.assertIs(
+            param.default, None,
+            "variant must default to None for back-compat with "
+            "pre-Phase-1 call sites",
+        )
+
+    def test_emit_run_fingerprint_signature_accepts_variant_kwarg(self):
+        """Static signature inspection: ``emit_run_fingerprint`` must
+        declare ``variant: str | None = None``.
+        """
+        import inspect
+        from billing_audit import writer as ba_writer
+        sig = inspect.signature(ba_writer.emit_run_fingerprint)
+        self.assertIn(
+            "variant", sig.parameters,
+            "emit_run_fingerprint must accept a 'variant' "
+            "parameter (D-18)",
+        )
+        param = sig.parameters["variant"]
+        self.assertIs(
+            param.default, None,
+            "variant must default to None for back-compat",
+        )
+
+
+class TestPipelineRunVariantColumnSchema(unittest.TestCase):
+    """Phase 1 SUB-07 / D-18: ``billing_audit.pipeline_run`` MUST
+    expose a ``variant TEXT`` column added via idempotent
+    ``ADD COLUMN IF NOT EXISTS``.
+
+    The schema migration MUST be:
+    - positioned BEFORE the ``CREATE INDEX`` line so a partial-deploy
+      schema (table exists, index does not) can ALTER + INDEX in one
+      apply run;
+    - typed ``TEXT`` (no enum / no CHECK constraint per D-18) so
+      future variants can be added without a second migration;
+    - documented (Phase 1 SUB-07 / D-18 / Blocker 1 Path B references
+      in the inline comment block);
+    - locked-in for Path B: the ``freeze_attribution`` RPC parameter
+      contract at L100-127 of ``schema.sql`` MUST NOT gain a
+      ``p_variant`` parameter — variant is recorded on
+      ``pipeline_run`` only, via ``emit_run_fingerprint``'s upsert.
+    """
+
+    def test_variant_column_alter_present(self):
+        sql = _read_source("billing_audit/schema.sql")
+        self.assertIn(
+            "ADD COLUMN IF NOT EXISTS variant TEXT",
+            sql,
+            "schema.sql must add a TEXT variant column to "
+            "billing_audit.pipeline_run via "
+            "ADD COLUMN IF NOT EXISTS (D-18 idempotent migration)",
+        )
+
+    def test_variant_alter_precedes_create_index(self):
+        sql = _read_source("billing_audit/schema.sql")
+        alter_idx = sql.find("ADD COLUMN IF NOT EXISTS variant TEXT")
+        index_marker = "CREATE INDEX IF NOT EXISTS idx_pipeline_run_wr_week_created_at"
+        index_idx = sql.find(index_marker)
+        self.assertGreaterEqual(
+            alter_idx, 0,
+            "variant ALTER must be present (regression check)",
+        )
+        self.assertGreater(
+            index_idx, alter_idx,
+            "variant ALTER must come BEFORE the CREATE INDEX block "
+            "so a partial-deploy schema apply succeeds (mirrors the "
+            "L77-88 ordering commentary)",
+        )
+
+    def test_variant_column_has_no_check_constraint(self):
+        sql = _read_source("billing_audit/schema.sql")
+        self.assertNotIn(
+            "CHECK (variant",
+            sql,
+            "D-18 forbids a CHECK constraint on variant — writer-side "
+            "Python contract is the single source of truth for valid "
+            "values; new variants must be addable without a second "
+            "schema migration",
+        )
+
+    def test_variant_column_is_text(self):
+        sql = _read_source("billing_audit/schema.sql")
+        # Find the ADD COLUMN clause for ``variant`` specifically —
+        # natural-language uses of the word ``variant`` elsewhere in
+        # the file (e.g. the inline comment block) MUST NOT influence
+        # the type assertion.
+        m = re.search(
+            r"ADD COLUMN IF NOT EXISTS\s+variant\s+(\w+)",
+            sql,
+        )
+        self.assertIsNotNone(
+            m,
+            "ADD COLUMN IF NOT EXISTS variant <TYPE> clause not "
+            "found in schema.sql (D-18 idempotent migration)",
+        )
+        self.assertEqual(
+            m.group(1).upper(), "TEXT",
+            f"variant column must be TEXT (D-18), got: {m.group(1)}",
+        )
+
+    def test_no_p_variant_in_rpc_param_contract_block(self):
+        """Blocker 1 Path B lock-in. The ``freeze_attribution`` RPC
+        parameter contract documented at schema.sql L100-127 MUST
+        NOT include ``p_variant``. The variant write surface is
+        ``pipeline_run.variant`` via ``emit_run_fingerprint``'s
+        upsert, NOT the RPC.
+        """
+        sql = _read_source("billing_audit/schema.sql")
+        self.assertNotIn(
+            "p_variant",
+            sql,
+            "Blocker 1 Path B forbids adding p_variant to the "
+            "freeze_attribution RPC parameter contract. Variant "
+            "lives ONLY on pipeline_run, written via "
+            "emit_run_fingerprint's upsert.",
+        )
+
+    def test_inline_comment_references_sub_07_and_path_b(self):
+        """The inline comment block above the new ALTER MUST cite the
+        decision references so future maintainers can trace the
+        scope decision back to the plan. Audit-grade DDL files
+        document the WHY alongside the WHAT.
+        """
+        sql = _read_source("billing_audit/schema.sql")
+        # Slice the comment region immediately preceding the new ALTER.
+        alter_idx = sql.find("ADD COLUMN IF NOT EXISTS variant TEXT")
+        self.assertGreaterEqual(alter_idx, 0)
+        preceding = sql[max(0, alter_idx - 2000):alter_idx]
+        self.assertIn(
+            "SUB-07", preceding,
+            "Inline comment block above the variant ALTER must "
+            "reference Phase 1 requirement SUB-07",
+        )
+        self.assertIn(
+            "D-18", preceding,
+            "Inline comment block must reference decision D-18",
+        )
+        self.assertIn(
+            "Path B", preceding,
+            "Inline comment block must call out the Blocker 1 "
+            "Path B writer-surface decision",
+        )
+
+    def test_schema_sql_is_parseable(self):
+        """Lightweight SQL parse: no obviously truncated statements
+        (every CREATE / ALTER / INSERT ends in a semicolon before
+        the next top-level statement starts). Catches accidental
+        statement truncation introduced by hand-editing.
+        """
+        sql = _read_source("billing_audit/schema.sql")
+        # Strip line comments to avoid false positives on '--'.
+        body = re.sub(r"--[^\n]*", "", sql)
+        # Every CREATE / ALTER / INSERT must terminate with ';'.
+        for kw in ("CREATE TABLE", "ALTER TABLE", "CREATE INDEX",
+                   "INSERT INTO", "CREATE SCHEMA"):
+            for m in re.finditer(rf"\b{kw}\b", body):
+                tail = body[m.start():m.start() + 4000]
+                # Statement should contain a semicolon before EOF or
+                # before the next top-level keyword starts.
+                self.assertIn(
+                    ";", tail,
+                    f"{kw} statement near offset {m.start()} appears "
+                    f"unterminated — missing trailing ';'",
+                )
 
 
 if __name__ == "__main__":
