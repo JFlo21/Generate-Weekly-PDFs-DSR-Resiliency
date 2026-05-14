@@ -3739,11 +3739,18 @@ class TestPipelineRunVariantColumnSchema(unittest.TestCase):
 
     def test_variant_column_is_text(self):
         sql = _read_source("billing_audit/schema.sql")
-        # Match either "variant TEXT," or "variant TEXT;" etc. — the
-        # type token immediately following ``variant`` MUST be TEXT.
-        m = re.search(r"variant\s+(\w+)", sql)
+        # Find the ADD COLUMN clause for ``variant`` specifically —
+        # natural-language uses of the word ``variant`` elsewhere in
+        # the file (e.g. the inline comment block) MUST NOT influence
+        # the type assertion.
+        m = re.search(
+            r"ADD COLUMN IF NOT EXISTS\s+variant\s+(\w+)",
+            sql,
+        )
         self.assertIsNotNone(
-            m, "variant column declaration not found in schema.sql"
+            m,
+            "ADD COLUMN IF NOT EXISTS variant <TYPE> clause not "
+            "found in schema.sql (D-18 idempotent migration)",
         )
         self.assertEqual(
             m.group(1).upper(), "TEXT",

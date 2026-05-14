@@ -94,6 +94,34 @@ ALTER TABLE billing_audit.pipeline_run
     ADD COLUMN IF NOT EXISTS release         TEXT,
     ADD COLUMN IF NOT EXISTS created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
+-- ── Phase 1 SUB-07: variant attribution (D-18) ──────────────
+-- Records which variant produced each pipeline_run row:
+-- 'primary' | 'helper' | 'vac_crew' | 'aep_billable' |
+-- 'reduced_sub' | 'aep_billable_helper' | 'reduced_sub_helper'.
+-- TEXT (not enum / not CHECK constraint) for forward
+-- compatibility — new variants can be introduced by the writer
+-- without a second schema migration. NULL on existing
+-- pre-2026-05-14 rows; readers / aggregators MUST tolerate NULL.
+--
+-- Writer surface (per Blocker 1 Path B / Phase 1 plan 05):
+-- this column is populated ONLY by ``emit_run_fingerprint``'s
+-- upsert into pipeline_run. The ``freeze_attribution`` RPC's
+-- parameter contract (documented at the RPC contract block
+-- below) is UNCHANGED — no parameter for variant is added to
+-- the RPC, because ``freeze_attribution`` writes to a
+-- different table (``attribution_snapshot``) and recording
+-- variant there would require a coordinated Supabase
+-- Dashboard function update that serves no audit-query need
+-- that ``pipeline_run.variant`` doesn't already serve.
+--
+-- Position: AFTER the column-add block above and BEFORE the
+-- CREATE INDEX below (same ordering rule as documented in the
+-- 2026-04-25 commentary at L77-88 — every ALTER TABLE must
+-- precede the CREATE INDEX so partial-deploy environments
+-- upgrade in one apply).
+ALTER TABLE billing_audit.pipeline_run
+    ADD COLUMN IF NOT EXISTS variant TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_pipeline_run_wr_week_created_at
     ON billing_audit.pipeline_run (wr, week_ending, created_at DESC);
 
