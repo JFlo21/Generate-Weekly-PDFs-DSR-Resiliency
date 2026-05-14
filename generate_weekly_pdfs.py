@@ -4895,30 +4895,60 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
 
 # --- TARGET SHEET MANAGEMENT ---
 
-def create_target_sheet_map(client):
-    """Create a map of the target sheet for uploading Excel files.
-    
+def create_target_sheet_map_for(client, sheet_id):
+    """Build a sanitized ``{wr_num: target_row}`` map for any target
+    sheet id.
+
+    Phase 01 Plan 04 Task 1: extracted from the legacy
+    ``create_target_sheet_map(client)`` so the dual-routing pipeline
+    can build a SECOND target_map against ``SUBCONTRACTOR_PPP_SHEET_ID``
+    for ``_ReducedSub`` / ``_ReducedSub_Helper_<name>`` uploads (D-12,
+    SUB-03) while keeping the original TARGET_SHEET_ID map for every
+    other variant.
+
+    Critical invariants (D-22 / Living Ledger rounds 6, 7, 9):
+
+    - Producer-side sanitization via ``_RE_SANITIZE_HELPER_NAME``
+      applied at populate time — so consumer-side
+      ``target_map[sanitized_wr]`` lookups in the main loop hit
+      consistently across both target_maps (round-7 /
+      2026-04-23 18:25).
+    - Collision quarantine state (``_quarantined_keys`` /
+      ``_seen_raw_for_key``) is FUNCTION-LOCAL: declared inside this
+      helper's body, NOT at module scope (Plan 4 Warning 5). Each
+      call owns its own quarantine sets so a duplicate WR# on one
+      target sheet cannot poison the lookup table for another.
+    - On collision, BOTH ambiguous raw values are removed from
+      ``target_map`` and the sanitized key is quarantined (round-6
+      P1). Loud not-found is strictly safer than silent wrong-row
+      upload.
+
     Returns:
-        Tuple of (target_map dict, target_sheet object) for reuse in cleanup.
+        Tuple of ``(target_map dict, target_sheet object)``. Mirrors
+        the legacy return shape so the back-compat wrapper
+        ``create_target_sheet_map(client)`` is a drop-in.
     """
     try:
         with sentry_sdk.start_span(op="smartsheet.api", name="Fetch target sheet for WR mapping") as span:
-            target_sheet = client.Sheets.get_sheet(TARGET_SHEET_ID)
-            span.set_data("target_sheet_id", TARGET_SHEET_ID)
+            target_sheet = client.Sheets.get_sheet(sheet_id)
+            span.set_data("target_sheet_id", sheet_id)
             span.set_data("row_count", len(target_sheet.rows) if target_sheet.rows else 0)
-        target_map = {}
-        
+        target_map: dict = {}
+
         # Find the Work Request # column
         wr_column_id = None
         for column in target_sheet.columns:
             if column.title == 'Work Request #':
                 wr_column_id = column.id
                 break
-        
+
         if not wr_column_id:
-            logging.error("Work Request # column not found in target sheet")
+            logging.error(
+                f"Work Request # column not found in target sheet "
+                f"{sheet_id}"
+            )
             return {}, None
-        
+
         # Map work request numbers to rows. Sanitize with the same
         # filesystem-safety regex used on source-row WR#s so downstream
         # ``target_map.get(sanitized_wr)`` lookups are consistent. For
@@ -4938,6 +4968,13 @@ def create_target_sheet_map(client):
         # WRs are skipped deterministically until the target sheet is
         # deduplicated. A loud "not found in target sheet" warning
         # is strictly safer than a silent wrong-row upload.
+        #
+        # FUNCTION-LOCAL per Plan 04 Task 1 Warning 5: each invocation
+        # owns its own quarantine sets so two target_map builds (one
+        # for TARGET_SHEET_ID, one for SUBCONTRACTOR_PPP_SHEET_ID)
+        # cannot poison each other. A module-level set would let a
+        # duplicate WR# on one sheet remove the same WR# from the
+        # other sheet's map — silently breaking dual-routing.
         _seen_raw_for_key: dict = {}
         _quarantined_keys: set = set()
         _collisions = 0
@@ -4957,9 +4994,9 @@ def create_target_sheet_map(client):
                         logging.warning(
                             f"⚠️ Target-sheet WR# collision (already quarantined): "
                             f"raw={raw_wr!r} also maps to sanitized key "
-                            f"{wr_num!r} (prior seen: {prior_raw!r}). "
-                            f"Uploads for this WR will be skipped until the "
-                            f"target sheet is deduplicated."
+                            f"{wr_num!r} (prior seen: {prior_raw!r}) on sheet "
+                            f"{sheet_id}. Uploads for this WR will be skipped "
+                            f"until the target sheet is deduplicated."
                         )
                     elif wr_num in target_map:
                         prior_raw = _seen_raw_for_key.get(wr_num, '<unknown>')
@@ -4980,12 +5017,13 @@ def create_target_sheet_map(client):
                             del target_map[wr_num]
                             _quarantined_keys.add(wr_num)
                             logging.warning(
-                                f"⚠️ Target-sheet WR# collision after sanitization: "
-                                f"raw={raw_wr!r} and prior raw={prior_raw!r} both "
-                                f"map to sanitized key {wr_num!r}; QUARANTINING "
-                                f"the key from target_map. Uploads for both WRs "
-                                f"will be skipped until the target sheet is "
-                                f"deduplicated — log a 'not found in target "
+                                f"⚠️ Target-sheet WR# collision after sanitization "
+                                f"on sheet {sheet_id}: raw={raw_wr!r} and prior "
+                                f"raw={prior_raw!r} both map to sanitized key "
+                                f"{wr_num!r}; QUARANTINING the key from "
+                                f"target_map. Uploads for both WRs will be "
+                                f"skipped until the target sheet is "
+                                f"deduplicated — a 'not found in target "
                                 f"sheet' warning will follow for each."
                             )
                     else:
@@ -4995,17 +5033,38 @@ def create_target_sheet_map(client):
 
         if _collisions:
             logging.warning(
-                f"⚠️ Target sheet map had {_collisions} sanitized-WR# "
-                f"collision event(s) across {len(_quarantined_keys)} "
-                f"quarantined key(s) — affected uploads will be skipped "
-                f"with 'not found in target sheet' warnings."
+                f"⚠️ Target sheet {sheet_id} map had {_collisions} "
+                f"sanitized-WR# collision event(s) across "
+                f"{len(_quarantined_keys)} quarantined key(s) — "
+                f"affected uploads will be skipped with 'not found in "
+                f"target sheet' warnings."
             )
-        logging.info(f"Created target sheet map with {len(target_map)} work requests")
+        logging.info(
+            f"Created target sheet map for {sheet_id} with "
+            f"{len(target_map)} work requests"
+        )
         return target_map, target_sheet
-        
+
     except Exception as e:
-        logging.error(f"Failed to create target sheet map: {e}")
+        logging.error(
+            f"Failed to create target sheet map for {sheet_id}: "
+            f"{_redact_exception_message(e)}"
+        )
         return {}, None
+
+
+def create_target_sheet_map(client):
+    """Back-compat wrapper around ``create_target_sheet_map_for``.
+
+    Preserved so existing call sites and tests continue to operate
+    against the primary ``TARGET_SHEET_ID`` without churn. New code
+    that needs a different sheet should call
+    ``create_target_sheet_map_for(client, sheet_id)`` directly.
+
+    Returns:
+        Tuple of (target_map dict, target_sheet object) for reuse in cleanup.
+    """
+    return create_target_sheet_map_for(client, TARGET_SHEET_ID)
 
 # Modified By cache loading removed - using direct column assignment only
 
@@ -5241,13 +5300,60 @@ def main():
         # Process groups
         snapshot_date = datetime.datetime.now()
         
-        # Create target sheet map for production uploads
+        # Create target sheet map for production uploads.
         target_map = {}
         _target_sheet_obj = None  # Cached for cleanup to avoid redundant API call
         if not TEST_MODE:
             with sentry_sdk.start_span(op="smartsheet.target_map", name="Create target sheet map for uploads") as span:
-                target_map, _target_sheet_obj = create_target_sheet_map(client)
+                target_map, _target_sheet_obj = (
+                    create_target_sheet_map_for(client, TARGET_SHEET_ID)
+                )
                 span.set_data("wr_count", len(target_map))
+
+        # Phase 01 Plan 04 Task 1: build a SECOND target_map for the
+        # subcontractor PPP sheet. Only ``_ReducedSub`` /
+        # ``_ReducedSub_Helper_<name>`` upload tasks consume this map
+        # (D-12 / SUB-03); ``primary`` / ``helper`` / ``vac_crew`` /
+        # ``aep_billable`` continue to route through ``target_map``
+        # alone, so a missing or unreachable PPP sheet only degrades
+        # the second leg of the reduced-sub fan-out — the rest of the
+        # pipeline is unaffected.
+        #
+        # Per Plan 04 acceptance criterion: only attempt the build
+        # when the kill switch is on AND a distinct sheet id was
+        # configured. Defense against an operator setting
+        # ``SUBCONTRACTOR_PPP_SHEET_ID=<same as TARGET_SHEET_ID>``
+        # which would otherwise cause every reduced-sub upload to
+        # double-attach to the SAME target row.
+        target_map_ppp: dict = {}
+        _target_sheet_ppp_obj = None
+        if (not TEST_MODE
+                and SUBCONTRACTOR_RATE_VARIANTS_ENABLED
+                and SUBCONTRACTOR_PPP_SHEET_ID
+                and SUBCONTRACTOR_PPP_SHEET_ID != TARGET_SHEET_ID):
+            try:
+                with sentry_sdk.start_span(op="smartsheet.target_map_ppp", name="Create PPP target sheet map") as span:
+                    target_map_ppp, _target_sheet_ppp_obj = create_target_sheet_map_for(client, SUBCONTRACTOR_PPP_SHEET_ID)
+                    span.set_data("wr_count", len(target_map_ppp))
+                logging.info(
+                    f"🎯 Subcontractor PPP target sheet: "
+                    f"{SUBCONTRACTOR_PPP_SHEET_ID}, "
+                    f"{len(target_map_ppp)} WR# entries mapped"
+                )
+            except Exception as _ppp_exc:
+                # Fail-safe: if the PPP sheet is unreachable (access
+                # revoked, renamed, deleted), log + degrade to single-
+                # sheet routing for this run. Per D-22 / Living
+                # Ledger 2026-04-23 12:00, the exception body is
+                # sanitised via ``_redact_exception_message`` before
+                # reaching Sentry's ``event['contexts']``.
+                logging.error(
+                    f"Failed to load subcontractor PPP target sheet "
+                    f"{SUBCONTRACTOR_PPP_SHEET_ID}: "
+                    f"{_redact_exception_message(_ppp_exc)}"
+                )
+                target_map_ppp = {}
+                _target_sheet_ppp_obj = None
 
         # PERFORMANCE: Pre-fetch all target row attachments into cache to eliminate
         # redundant per-row API calls in _has_existing_week_attachment and delete_old_excel_attachments.
