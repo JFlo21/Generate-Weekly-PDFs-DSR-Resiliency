@@ -6111,10 +6111,21 @@ def main():
                             # interpreter exits.
                             if len(_rows_to_freeze) <= 1:
                                 for _row in _rows_to_freeze:
+                                    # Per D-18 / SUB-07 Path B: variant is
+                                    # accepted by freeze_row for signature
+                                    # symmetry but is NOT injected into the
+                                    # freeze_attribution RPC params dict.
+                                    # The variant lives on pipeline_run via
+                                    # emit_run_fingerprint below. Default
+                                    # 'primary' for pre-Phase-1 rows whose
+                                    # __variant field isn't set (legacy
+                                    # primary/helper/vac_crew rows from
+                                    # before Plan 03 tagged them).
                                     _ok = _billing_audit_writer.freeze_row(
                                         _row,
                                         release=_billing_audit_release_env,
                                         run_id=_billing_audit_run_id_env,
+                                        variant=_row.get('__variant', 'primary'),
                                     )
                                     if _ok:
                                         _rk = _freeze_row_keys.get(id(_row))
@@ -6142,11 +6153,17 @@ def main():
                                 # data the writer didn't anticipate.
                                 _bas_future_to_row: dict[Any, dict] = {}
                                 for _row in _rows_to_freeze:
+                                    # Per D-18 / SUB-07 Path B: variant
+                                    # threads through the parallelized
+                                    # worker fn but does NOT reach the
+                                    # RPC params dict. See the single-row
+                                    # branch above for the full rationale.
                                     _bas_f = _bas_ex.submit(
                                         _billing_audit_writer.freeze_row,
                                         _row,
                                         release=_billing_audit_release_env,
                                         run_id=_billing_audit_run_id_env,
+                                        variant=_row.get('__variant', 'primary'),
                                     )
                                     _bas_future_to_row[_bas_f] = _row
                                 for _bas_f in as_completed(_bas_future_to_row):
@@ -6259,6 +6276,20 @@ def main():
                                     1 for _r in _agg_fp_rows
                                     if is_checked(_r.get('Units Completed?'))
                                 )
+                                # Per D-18 / SUB-07 Path B: variant is
+                                # recorded on pipeline_run via this call.
+                                # All rows in a group share the same
+                                # __variant by construction in
+                                # group_source_rows (Plan 03), so reading
+                                # group_rows[0] is canonical. Falls back to
+                                # 'primary' when the row hasn't been
+                                # tagged (legacy / non-variant-aware
+                                # call paths) — matches the writer's
+                                # None-coercion sentinel.
+                                _group_variant = (
+                                    group_rows[0].get('__variant', 'primary')
+                                    if group_rows else 'primary'
+                                )
                                 _billing_audit_writer.emit_run_fingerprint(
                                     wr=wr_num,
                                     week_ending=_week_snap,
@@ -6268,6 +6299,7 @@ def main():
                                     total_count=len(_agg_fp_rows),
                                     release=_billing_audit_release_env,
                                     run_id=_billing_audit_run_id_env,
+                                    variant=_group_variant,
                                 )
                             _bas.set_data("rows", len(group_rows))
                             _bas.set_data("freeze_candidates", len(_rows_to_freeze))
