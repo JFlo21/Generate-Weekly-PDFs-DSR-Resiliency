@@ -2319,6 +2319,163 @@ class TestSubcontractorMissingCUWarning(unittest.TestCase):
         )
 
 
+class TestSubcontractorVariantKillSwitchAndScope(unittest.TestCase):
+    """Plan 01-03 Task 3: kill-switch + ORIG-folder no-op regression coverage.
+
+    Pins three invariants:
+
+    1. ``SUBCONTRACTOR_RATE_VARIANTS_ENABLED=False`` short-circuits the
+       new variant emission at the per-row gate in ``group_source_rows``
+       (D-13 — operator emergency kill).
+    2. A row whose ``__source_sheet_id`` is in
+       ``_FOLDER_DISCOVERED_ORIG_IDS`` ONLY (not in SUB) emits NO new
+       variant keys regardless of kill-switch state (SUB-06 — original-
+       contract folders are unreachable through the new code path).
+    3. A row on a sheet misconfigured into BOTH sets follows
+       subcontractor-membership: the per-row gate fires on SUB
+       membership (subcontractor exclusion stays primary in
+       ``_fetch_and_process_sheet`` per Living Ledger 2026-04-24 11:30
+       so the subcontractor flow runs end-to-end).
+    """
+
+    _SUB_SHEET_ID = 8162920222379908
+    _ORIG_SHEET_ID = 7644752003786628
+
+    def setUp(self):
+        # Snapshot module state per the 2026-04-22 16:05 ledger rule
+        # on test isolation; a sub-test that mutates folder ids or
+        # the kill switch must not leak to unrelated suites.
+        self._orig_enabled = generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED
+        self._orig_sub_ids = set(generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS)
+        self._orig_orig_ids = set(generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS)
+
+    def tearDown(self):
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = self._orig_enabled
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.update(self._orig_sub_ids)
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.update(self._orig_orig_ids)
+
+    def _make_sub_row(self, wr='WR_K', snapshot='2026-04-19',
+                       source_sheet_id=None):
+        if source_sheet_id is None:
+            source_sheet_id = self._SUB_SHEET_ID
+        return {
+            'Work Request #': wr,
+            'Weekly Reference Logged Date': '2026-04-19',
+            'Snapshot Date': snapshot,
+            'Units Completed?': True,
+            'Units Total Price': '$100.00',
+            '__effective_user': 'TestForeman',
+            '__assignment_method': 'FOREMAN_COLUMN',
+            '__is_helper_row': False,
+            '__helper_foreman': '',
+            '__helper_dept': '',
+            '__helper_job': '',
+            '__is_vac_crew': False,
+            '__source_sheet_id': source_sheet_id,
+        }
+
+    def test_kill_switch_disables_new_variant_emission(self):
+        """Test 1: SUBCONTRACTOR_RATE_VARIANTS_ENABLED=False → no new variant keys (D-13)."""
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = False
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.add(self._SUB_SHEET_ID)
+        row = self._make_sub_row(snapshot='2026-04-19')
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        # No new variant keys regardless of post-cutoff snapshot
+        self.assertFalse(
+            any('_AEPBILLABLE' in k for k in keys),
+            f"Kill switch must suppress _AEPBILLABLE keys; got: {keys}",
+        )
+        self.assertFalse(
+            any('_REDUCEDSUB' in k for k in keys),
+            f"Kill switch must suppress _REDUCEDSUB keys; got: {keys}",
+        )
+
+    def test_orig_folder_sheet_emits_no_new_variants(self):
+        """Test 2: ``__source_sheet_id`` in ORIG only → no new variant keys (SUB-06)."""
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = True
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        # Don't add the orig sheet to SUB
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.add(self._ORIG_SHEET_ID)
+        row = self._make_sub_row(
+            wr='WR_ORIG',
+            snapshot='2026-04-19',
+            source_sheet_id=self._ORIG_SHEET_ID,
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        self.assertFalse(
+            any('_AEPBILLABLE' in k or '_REDUCEDSUB' in k for k in keys),
+            f"ORIG-only sheet must emit no new variant keys; got: {keys}",
+        )
+
+    def test_dual_folder_membership_subcontractor_precedence(self):
+        """Test 3: sheet in BOTH SUB and ORIG → per-row gate emits new variants.
+
+        Per D-22 / 2026-04-24 11:30, the subcontractor-exclusion check
+        in ``_fetch_and_process_sheet`` (line ~3194) ensures
+        subcontractor flow runs when a sheet is misconfigured into
+        both folder sets; the new variant emission follows the same
+        rule because the per-row gate fires on SUB membership (the row
+        only carries one sheet id and that id's membership in
+        ``_FOLDER_DISCOVERED_SUB_IDS`` triggers emission).
+        """
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = True
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.clear()
+        # Misconfigure: sheet id in BOTH sets.
+        shared_sheet_id = 9999999999999
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.add(shared_sheet_id)
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.add(shared_sheet_id)
+        row = self._make_sub_row(
+            wr='WR_DUAL',
+            snapshot='2026-04-19',
+            source_sheet_id=shared_sheet_id,
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        # Subcontractor membership wins for emission — confirm new
+        # variant keys ARE present.
+        self.assertTrue(
+            any('_REDUCEDSUB' in k for k in keys),
+            f"Dual membership: subcontractor precedence must emit _REDUCEDSUB; got: {keys}",
+        )
+        self.assertTrue(
+            any('_AEPBILLABLE' in k for k in keys),
+            f"Dual membership: subcontractor precedence must emit _AEPBILLABLE (post-cutoff); got: {keys}",
+        )
+
+    def test_unparseable_snapshot_date_does_not_emit_aep_billable(self):
+        """Test 4: unparseable Snapshot Date → _REDUCEDSUB only, no _AEPBILLABLE.
+
+        Defensive guard: ``excel_serial_to_date('not-a-date')``
+        returns ``None`` so the AEP-Billable cutoff check returns
+        False safely. ReducedSub is unconditional and still emits.
+        """
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = True
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.add(self._SUB_SHEET_ID)
+        row = self._make_sub_row(
+            wr='WR_BAD_SNAP',
+            snapshot='not-a-date',  # unparseable
+            source_sheet_id=self._SUB_SHEET_ID,
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        self.assertTrue(
+            any('_REDUCEDSUB' in k for k in keys),
+            f"Unparseable snapshot: _REDUCEDSUB still unconditional; got: {keys}",
+        )
+        self.assertFalse(
+            any('_AEPBILLABLE' in k for k in keys),
+            f"Unparseable snapshot must suppress _AEPBILLABLE; got: {keys}",
+        )
+
+
 class TestSubcontractorVariantOpenpyxlCompliance(unittest.TestCase):
     """Plan 01-03 Task 2 Test 8: no raw merge_cells / no xlsxwriter / no oddFooter."""
 
