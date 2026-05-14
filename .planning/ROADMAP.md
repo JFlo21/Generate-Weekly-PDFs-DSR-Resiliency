@@ -91,7 +91,7 @@ Plans:
 - [x] 01-02-PLAN.md — Extend build_group_identity + calculate_data_hash for the 4 new variants; PII markers + collision-quarantine regression coverage
 - [x] 01-03-PLAN.md — Variant tagging in group_source_rows + Excel generation with CSV-driven prices + missing-CU WARNING + kill-switch
 - [x] 01-04-PLAN.md — Dual-target routing for _ReducedSub via SUBCONTRACTOR_PPP_SHEET_ID; independent collision quarantine on second target_map
-- [ ] 01-05-PLAN.md — billing_audit pipeline_run.variant column DDL + freeze_row/emit_run_fingerprint variant kwarg
+- [x] 01-05-PLAN.md — billing_audit pipeline_run.variant column DDL + freeze_row/emit_run_fingerprint variant kwarg
 - [ ] 01-06-PLAN.md — Byte-identical regression test, production-safety validator pin, Docusaurus runbook update, human-verify checkpoint
 
 ### Phase 2: Railway → Render Pre-Migration ADR (DEFERRED — out of v1.0 scope)
