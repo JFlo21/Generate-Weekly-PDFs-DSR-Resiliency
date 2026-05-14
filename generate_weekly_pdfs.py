@@ -400,6 +400,50 @@ RATE_RECALC_SKIP_ORIGINAL_CONTRACT = os.getenv(
     'RATE_RECALC_SKIP_ORIGINAL_CONTRACT', '1'
 ).lower() in ('1', 'true', 'yes', 'on')
 
+# ── Subcontractor rate variants (Phase 1 SUB-01..07) ───────────────────
+# See .planning/phases/01-subcontractor-rate-logic-modification/
+# 01-CONTEXT.md decisions D-03, D-12, D-13. These three env vars
+# scaffold the new ``_AEPBillable`` and ``_ReducedSub`` variant
+# pipeline:
+#
+#   SUBCONTRACTOR_RATES_CSV — path to the operator-managed contract
+#       CSV (17 columns, currency-formatted). Default
+#       ``data/subcontractor_rates.csv``. Resolved through the same
+#       ``_sanitize_csv_path`` helper used by the retired
+#       ``NEW_RATES_CSV`` / ``OLD_RATES_CSV`` env vars, which guards
+#       against directory traversal and symlink escape per the CodeQL
+#       taint-analysis pattern.
+#   SUBCONTRACTOR_PPP_SHEET_ID — second target sheet for ``_ReducedSub``
+#       attachments. Default ``8162920222379908``. Parsed through
+#       ``_coerce_sheet_id`` for parse-error fallback.
+#   SUBCONTRACTOR_RATE_VARIANTS_ENABLED — default-on kill switch for
+#       the entire new variant pipeline. Pattern mirrors
+#       ``RATE_RECALC_SKIP_ORIGINAL_CONTRACT`` and
+#       ``RATE_RECALC_WEEKLY_FALLBACK``. Flipping this to ``0`` /
+#       ``false`` / ``no`` / ``off`` reverts subcontractor-folder
+#       sheets to pre-change behavior on the next run.
+#
+# Per Living Ledger 2026-04-24 14:30: do NOT re-introduce
+# ``RATE_CUTOFF_DATE`` / ``NEW_RATES_CSV`` / ``OLD_RATES_CSV``. The
+# new env vars are the subcontractor-specific replacement.
+SUBCONTRACTOR_RATES_CSV = _sanitize_csv_path(
+    'SUBCONTRACTOR_RATES_CSV', 'data/subcontractor_rates.csv'
+)
+SUBCONTRACTOR_PPP_SHEET_ID = _coerce_sheet_id(
+    os.getenv('SUBCONTRACTOR_PPP_SHEET_ID', '8162920222379908'),
+    8162920222379908,
+)
+SUBCONTRACTOR_RATE_VARIANTS_ENABLED = os.getenv(
+    'SUBCONTRACTOR_RATE_VARIANTS_ENABLED', '1'
+).lower() in ('1', 'true', 'yes', 'on')
+
+# Cutoff date for ``_AEPBillable`` variant generation. Awarded to
+# Linetec on 2026-04-12 (subcontractor rate contract). Plan 2 (parser
+# extension) and Plan 3 (variant emission) gate variant emission on
+# ``Snapshot Date >= _AEP_BILLABLE_CUTOFF``. Exposed at module level
+# so downstream plans can reference a single source of truth.
+_AEP_BILLABLE_CUTOFF = datetime.date(2026, 4, 12)
+
 if RATE_CUTOFF_DATE:
     logging.info(f"📊 Rate contract versioning ENABLED: cutoff date = {RATE_CUTOFF_DATE.isoformat()}")
     # The CSV-side rate recalc was retired in production on
@@ -442,6 +486,24 @@ if RATE_CUTOFF_DATE:
         )
 else:
     logging.info("📊 Rate contract versioning DISABLED (RATE_CUTOFF_DATE not set)")
+
+# Subcontractor rate variants startup banner (Phase 1 D-13). The
+# fingerprint line is appended later in the rate-loading section once
+# ``_SUBCONTRACTOR_RATES_FINGERPRINT`` has been computed by Task 2's
+# module-level loader call — see ``load_subcontractor_rates`` below.
+# These banner lines embed NO row content (just resolved config
+# values), so per D-22 no ``_PII_LOG_MARKERS`` extension is required.
+if SUBCONTRACTOR_RATE_VARIANTS_ENABLED:
+    logging.info(
+        "📊 Subcontractor rate variants ENABLED "
+        f"(SUBCONTRACTOR_RATES_CSV='{SUBCONTRACTOR_RATES_CSV}', "
+        f"SUBCONTRACTOR_PPP_SHEET_ID={SUBCONTRACTOR_PPP_SHEET_ID})"
+    )
+else:
+    logging.info(
+        "📊 Subcontractor rate variants DISABLED "
+        "(SUBCONTRACTOR_RATE_VARIANTS_ENABLED=false)"
+    )
 
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
 RESET_WR_LIST = {w.strip() for w in os.getenv('RESET_WR_LIST','').split(',') if w.strip()}  # When provided, only purge these WR numbers (overrides full reset)
