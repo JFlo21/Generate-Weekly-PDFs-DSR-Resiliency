@@ -24,6 +24,86 @@ workflow. Copy `.env.example` to `.env` for local dev.
 | `SUBCONTRACTOR_FOLDER_IDS` | `4232010517505924,2588197684307844` | Folders scanned for subcontractor sheets. |
 | `ORIGINAL_CONTRACT_FOLDER_IDS` | `7644752003786628,8815193070299012` | Folders scanned for original-contract sheets. |
 
+## Subcontractor rate variants
+
+*(Added 2026-05-14, Phase 1 — see also
+[Subcontractor rate variants](../runbook/workflows.md#subcontractor-rate-variants)
+in the runbook for operator-facing context.)*
+
+**Component owner:** Python billing pipeline
+(`generate_weekly_pdfs.py`) — the variant emission code path, the
+CSV loader, the dual-routing target-map build, and the missing-CU
+WARNING all live in this module. Notion sync and the `portal-v2`
+Supabase tier are not involved.
+
+### `SUBCONTRACTOR_RATES_CSV`
+
+**Default:** `data/subcontractor_rates.csv`
+**Purpose:** Path to the operator-managed subcontractor rate matrix
+CSV (17 columns: `CU`, `Description`, `Work Type`, and the six
+priced columns `reduced_install_price` / `reduced_remove_price` /
+`reduced_transfer_price` / `new_install_price` / `new_remove_price`
+/ `new_transfer_price`, plus identifying metadata). Consumed by the
+`_AEPBillable` and `_ReducedSub` variants to compute
+`rate × qty` per row's CU code and work type. Loaded once at module
+import (3691 priced CUs in the shipped file). Currency cells
+(`$45.95`) and BOM-prefixed files are tolerated; rows where all six
+priced columns are zero are skipped.
+**Valid values:** Any filesystem path resolvable from the repo root
+or an absolute path. Resolved via `_sanitize_csv_path` — path
+traversal attempts are normalised away.
+**Rollback:** Setting to a path that does not exist causes the
+loader to log an ERROR and return an empty dict. New-variant
+generation then silently falls through to the SmartSheet
+`Units Total Price` for every row (safe no-op per D-16 fail-safe
+contract — never zero-out, never error). To intentionally retire
+the feature, prefer flipping
+[`SUBCONTRACTOR_RATE_VARIANTS_ENABLED`](#subcontractor_rate_variants_enabled)
+to `0` so the kill switch is the visible signal.
+
+### `SUBCONTRACTOR_PPP_SHEET_ID`
+
+**Default:** `8162920222379908`
+**Purpose:** Smartsheet sheet id for the secondary attachment
+target used by `_ReducedSub` and `_ReducedSub_Helper_<name>` files.
+Files of those two variants attach to **both**
+[`TARGET_SHEET_ID`](#smartsheet-targets) (`5723337641643908`)
+**and** this sheet — operators see the same `_ReducedSub_*.xlsx`
+file appear as an attachment on two rows (one on each target
+sheet). `_AEPBillable` variants and every legacy variant
+(primary / helper / vac_crew) continue to route to
+`TARGET_SHEET_ID` only.
+**Valid values:** Integer Smartsheet sheet id resolvable via the
+SDK, or empty / `0` to disable dual routing. Parsed via
+`_coerce_sheet_id` with a parse-error fallback.
+**Rollback:** If the value equals `TARGET_SHEET_ID`, the dual
+routing detects same-sheet config and skips the second upload (no
+duplicate attachments). If the sheet is unreachable, the pipeline
+logs an ERROR via `_redact_exception_message` and degrades
+automatically to single-sheet routing for the rest of the run — no
+operator intervention required.
+
+### `SUBCONTRACTOR_RATE_VARIANTS_ENABLED`
+
+**Default:** `'1'` — truthy values are `1` / `true` / `yes` / `on`
+(case-insensitive). Any other value (including empty string,
+`0`, `false`) disables the feature.
+**Purpose:** Default-on kill switch covering the entire
+new-variant code path. When disabled, no `_AEPBillable` or
+`_ReducedSub` files generate, no dual-target routing fires, the
+subcontractor CSV is not loaded, and the
+`billing_audit.pipeline_run.variant` column records every group
+as `'primary'`. Existing primary / helper / vac_crew flows are
+byte-identical to the pre-Phase-1 baseline. Pattern mirrors
+`RATE_RECALC_SKIP_ORIGINAL_CONTRACT` and
+`RATE_RECALC_WEEKLY_FALLBACK`.
+**Rollback:** Set to `0` or `false` in the GitHub Actions workflow
+`env:` block (or in `.env` for local runs). The next run skips all
+new-variant generation immediately — **no code revert required**.
+The kill-switch state is logged in the startup banner (e.g.
+`📊 Subcontractor rate variants ENABLED ...`), so operators
+grepping the run header can confirm the active state at a glance.
+
 ## Execution controls
 
 | Variable | Default | Purpose |
