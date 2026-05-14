@@ -84,10 +84,15 @@ SUB-07
      the new variant scope; existing VAC-crew, ORIG-folder, and
      primary outputs are byte-identical to the run immediately before
      the change (verified via hash-history diff on a TEST_MODE run).
-**Plans**: TBD
+**Plans**: 6 plans
 
 Plans:
-- [ ] 01-01: TBD (to be decomposed via `/gsd-plan-phase 1`)
+- [ ] 01-01-PLAN.md — CSV move to canonical path + subcontractor rate loader + env-var scaffolding + fingerprint
+- [ ] 01-02-PLAN.md — Extend build_group_identity + calculate_data_hash for the 4 new variants; PII markers + collision-quarantine regression coverage
+- [ ] 01-03-PLAN.md — Variant tagging in group_source_rows + Excel generation with CSV-driven prices + missing-CU WARNING + kill-switch
+- [ ] 01-04-PLAN.md — Dual-target routing for _ReducedSub via SUBCONTRACTOR_PPP_SHEET_ID; independent collision quarantine on second target_map
+- [ ] 01-05-PLAN.md — billing_audit pipeline_run.variant column DDL + freeze_row/emit_run_fingerprint variant kwarg
+- [ ] 01-06-PLAN.md — Byte-identical regression test, production-safety validator pin, Docusaurus runbook update, human-verify checkpoint
 
 ### Phase 2: Railway → Render Pre-Migration ADR (DEFERRED — out of v1.0 scope)
 **Status**: DEFERRED. Does not gate v1.0 milestone completion. The seven REQ-* requirements that drive the actual Railway → Render execution + Artifact Explorer redesign live in REQUIREMENTS.md "v2 Requirements" section and will be promoted by a future `/gsd-new-project` cycle. Phase 2 here exists to lock in the one small documentation deliverable (`MIG-01`) that should land before any of that v2 work begins.
@@ -132,5 +137,5 @@ Phases execute in numeric order: 1 → 2
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Subcontractor Rate Logic Modification | 0/TBD | Not started | - |
+| 1. Subcontractor Rate Logic Modification | 0/6 | Not started | - |
 | 2. Railway → Render Pre-Migration ADR (DEFERRED) | 0/TBD | Deferred — out of v1.0 scope | - |
