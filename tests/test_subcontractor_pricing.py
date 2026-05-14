@@ -2503,5 +2503,407 @@ class TestSubcontractorVariantOpenpyxlCompliance(unittest.TestCase):
         self.assertEqual(hits, [], "oddFooter.right.text MUST NOT be assigned — XML corruption vector")
 
 
+class TestPhase1IntegrationRegression(unittest.TestCase):
+    """Locks ROADMAP success criterion 5 — the byte-identical
+    guarantee for primary / helper / vac_crew Excel files under the
+    introduction of ``_SUBCONTRACTOR_RATES_FINGERPRINT``.
+
+    Any future change that accidentally widens the fingerprint mix-in
+    to existing variants will fail Tests 1-3 here. Test 4 is the
+    positive companion — it asserts that the fingerprint IS mixed in
+    for the new ``aep_billable`` variant (and by symmetry, the other
+    three new variants), so a regression that drops the mix-in
+    silently for the variants that need it also fails loudly.
+
+    Phase 01 Plan 06 Task 2. Split from prior planning text per
+    round-3 checker Warning 11 — hash stability + filename round-trip
+    are different invariants; this class owns hash stability only.
+    """
+
+    def setUp(self):
+        # Pin module globals that calculate_data_hash() reads so
+        # tests are robust against env-var overrides in developer
+        # shells. Mirrors the pinning in
+        # tests/test_vac_crew.py::TestVacCrewHashAggregation. The
+        # new fourth pin (_SUBCONTRACTOR_RATES_FINGERPRINT) is the
+        # variable this class actively mutates, so capturing and
+        # restoring it is essential — leaking a mutated value into
+        # later tests would destabilize them.
+        self._saved_ext = generate_weekly_pdfs.EXTENDED_CHANGE_DETECTION
+        self._saved_cutoff = generate_weekly_pdfs.RATE_CUTOFF_DATE
+        self._saved_rates_fp = generate_weekly_pdfs._RATES_FINGERPRINT
+        self._saved_sub_fp = (
+            generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT
+        )
+        generate_weekly_pdfs.EXTENDED_CHANGE_DETECTION = True
+        generate_weekly_pdfs.RATE_CUTOFF_DATE = None
+        generate_weekly_pdfs._RATES_FINGERPRINT = ''
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = ''
+
+    def tearDown(self):
+        generate_weekly_pdfs.EXTENDED_CHANGE_DETECTION = self._saved_ext
+        generate_weekly_pdfs.RATE_CUTOFF_DATE = self._saved_cutoff
+        generate_weekly_pdfs._RATES_FINGERPRINT = self._saved_rates_fp
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = (
+            self._saved_sub_fp
+        )
+
+    def _primary_row(self, cu='CU-A', qty=1, price='$100.00',
+                     pole='P-1'):
+        return {
+            'Work Request #': '91467680',
+            'Snapshot Date': '2026-04-19',
+            'CU': cu,
+            'Quantity': qty,
+            'Pole #': pole,
+            'Work Type': 'Install',
+            'Dept #': '500',
+            'Units Total Price': price,
+            'Units Completed?': True,
+            '__variant': 'primary',
+            'Foreman': 'AlicePrimary',
+            '__effective_user': 'AlicePrimary',
+        }
+
+    def _helper_row(self, cu='CU-H1', qty=1, price='$200.00',
+                    pole='P-H1', helper='BobHelper'):
+        return {
+            'Work Request #': '91467680',
+            'Snapshot Date': '2026-04-19',
+            'CU': cu,
+            'Quantity': qty,
+            'Pole #': pole,
+            'Work Type': 'Install',
+            'Dept #': '600',
+            'Units Total Price': price,
+            'Units Completed?': True,
+            '__variant': 'helper',
+            'Foreman': 'AlicePrimary',
+            '__effective_user': 'AlicePrimary',
+            '__current_foreman': helper,
+            '__helper_foreman': helper,
+            '__helper_dept': '600',
+            '__helper_job': 'J1',
+        }
+
+    def _vac_crew_row(self, cu='CU-V1', qty=1, price='$300.00',
+                      pole='P-V1', name='VacMember1'):
+        return {
+            'Work Request #': '91467680',
+            'Snapshot Date': '2026-04-19',
+            'CU': cu,
+            'Quantity': qty,
+            'Pole #': pole,
+            'Work Type': 'Vacuum Switch',
+            'Dept #': '700',
+            'Units Total Price': price,
+            'Units Completed?': True,
+            '__variant': 'vac_crew',
+            'Foreman': 'AlicePrimary',
+            '__effective_user': 'AlicePrimary',
+            '__current_foreman': name,
+            '__vac_crew_name': name,
+            '__vac_crew_dept': '700',
+            '__vac_crew_job': 'VJ1',
+        }
+
+    def _aep_billable_row(self, cu='CU-S1', qty=1, price='$50.00',
+                          pole='P-S1'):
+        return {
+            'Work Request #': '91467680',
+            'Snapshot Date': '2026-04-19',
+            'CU': cu,
+            'Quantity': qty,
+            'Pole #': pole,
+            'Work Type': 'Install',
+            'Dept #': '800',
+            'Units Total Price': price,
+            'Units Completed?': True,
+            '__variant': 'aep_billable',
+            'Foreman': 'SubForeman',
+            '__effective_user': 'SubForeman',
+        }
+
+    # ── Test 1 ────────────────────────────────────────────────────
+    def test_primary_hash_byte_identical_across_sub_fingerprint_mutations(self):
+        """primary variant hash MUST NOT change when
+        ``_SUBCONTRACTOR_RATES_FINGERPRINT`` is mutated — the
+        new fingerprint is intentionally NOT mixed into primary
+        groups so the existing primary Excel files stay byte-
+        identical under Phase 1.
+        """
+        rows = [
+            self._primary_row(cu='CU-A', qty=1, price='$100.00',
+                              pole='P-1'),
+            self._primary_row(cu='CU-B', qty=2, price='$200.00',
+                              pole='P-2'),
+            self._primary_row(cu='CU-C', qty=3, price='$300.00',
+                              pole='P-3'),
+        ]
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = 'A'
+        h1 = generate_weekly_pdfs.calculate_data_hash(rows)
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = 'B'
+        h2 = generate_weekly_pdfs.calculate_data_hash(rows)
+        self.assertEqual(
+            h1, h2,
+            "primary variant hash changed when "
+            "_SUBCONTRACTOR_RATES_FINGERPRINT mutated — regression: "
+            "the fingerprint mix-in MUST be variant-gated to the "
+            "four new subcontractor variants only. Widening it to "
+            "primary breaks ROADMAP success criterion 5 (byte-"
+            "identical existing variants)."
+        )
+
+    # ── Test 2 ────────────────────────────────────────────────────
+    def test_helper_hash_byte_identical_across_sub_fingerprint_mutations(self):
+        """helper variant hash MUST NOT change when
+        ``_SUBCONTRACTOR_RATES_FINGERPRINT`` is mutated."""
+        rows = [
+            self._helper_row(cu='CU-H1', qty=1, price='$200.00',
+                             pole='P-H1', helper='BobHelper'),
+            self._helper_row(cu='CU-H2', qty=2, price='$400.00',
+                             pole='P-H2', helper='BobHelper'),
+        ]
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = 'A'
+        h1 = generate_weekly_pdfs.calculate_data_hash(rows)
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = 'B'
+        h2 = generate_weekly_pdfs.calculate_data_hash(rows)
+        self.assertEqual(
+            h1, h2,
+            "helper variant hash changed when "
+            "_SUBCONTRACTOR_RATES_FINGERPRINT mutated — regression: "
+            "see Test 1 docstring."
+        )
+
+    # ── Test 3 ────────────────────────────────────────────────────
+    def test_vac_crew_hash_byte_identical_across_sub_fingerprint_mutations(self):
+        """vac_crew variant hash MUST NOT change when
+        ``_SUBCONTRACTOR_RATES_FINGERPRINT`` is mutated. Per
+        CLAUDE.md 2026-04-22 00:00, VAC crew per-row metadata
+        (__vac_crew_name/dept/job) is captured at the row level,
+        so this test exercises a multi-member group to confirm
+        the variant gate operates on the meta_parts block and not
+        on the per-row loop.
+        """
+        rows = [
+            self._vac_crew_row(cu='CU-V1', qty=1, price='$300.00',
+                               pole='P-V1', name='VacMember1'),
+            self._vac_crew_row(cu='CU-V2', qty=2, price='$600.00',
+                               pole='P-V2', name='VacMember2'),
+            self._vac_crew_row(cu='CU-V3', qty=3, price='$900.00',
+                               pole='P-V3', name='VacMember3'),
+        ]
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = 'A'
+        h1 = generate_weekly_pdfs.calculate_data_hash(rows)
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = 'B'
+        h2 = generate_weekly_pdfs.calculate_data_hash(rows)
+        self.assertEqual(
+            h1, h2,
+            "vac_crew variant hash changed when "
+            "_SUBCONTRACTOR_RATES_FINGERPRINT mutated — regression: "
+            "see Test 1 docstring."
+        )
+
+    # ── Test 4 ────────────────────────────────────────────────────
+    def test_aep_billable_hash_changes_on_sub_fingerprint_mutation(self):
+        """Positive regression — aep_billable variant hash MUST
+        change when ``_SUBCONTRACTOR_RATES_FINGERPRINT`` mutates,
+        so a CSV edit forces regeneration of the new-variant Excel
+        files (D-20 — fingerprint is mixed in for the variants
+        that actually consume the subcontractor rates CSV).
+
+        Symmetry note: the production code mixes the fingerprint
+        in for all four new variants
+        (aep_billable / reduced_sub / aep_billable_helper /
+        reduced_sub_helper). Testing one positive case is
+        sufficient because the variant-gate is a single ``in
+        (...)`` check; the other three variants share the same
+        branch and would regress together.
+        """
+        rows = [
+            self._aep_billable_row(cu='CU-S1', qty=1, price='$50.00',
+                                   pole='P-S1'),
+            self._aep_billable_row(cu='CU-S2', qty=2, price='$100.00',
+                                   pole='P-S2'),
+        ]
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = 'A'
+        h1 = generate_weekly_pdfs.calculate_data_hash(rows)
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = 'B'
+        h2 = generate_weekly_pdfs.calculate_data_hash(rows)
+        self.assertNotEqual(
+            h1, h2,
+            "aep_billable variant hash did NOT change when "
+            "_SUBCONTRACTOR_RATES_FINGERPRINT mutated — regression: "
+            "the fingerprint mix-in MUST fire for the four new "
+            "variants. Dropping it silently means CSV edits to "
+            "data/subcontractor_rates.csv would NOT force "
+            "regeneration of the _AEPBillable / _ReducedSub files."
+        )
+
+    # ── Test 5 ────────────────────────────────────────────────────
+    def test_existing_variants_total_hash_count_unchanged(self):
+        """Cardinality check: a deterministic set of 10 synthetic
+        groups across the 3 existing variants
+        (primary / helper / vac_crew) produces 10 DISTINCT hashes
+        — i.e. no two synthetic groups collapsed into the same
+        hash, which would indicate a variant-merge regression
+        (e.g. variant tokens dropped from meta_parts so a primary
+        group and a helper group with otherwise-identical content
+        share a hash).
+
+        ROADMAP success criterion 5 sub-invariant: the existing
+        variant taxonomy (3 variants) remains discriminated by
+        the hash. Phase 1 adds 4 new variants without affecting
+        the 3 existing ones; this test guards against
+        accidental fusion.
+        """
+        groups: list[list[dict]] = []
+        # 4 primary groups, distinguished by Work Request # or CU
+        # content (sufficient to drive 4 distinct hashes).
+        for i in range(4):
+            row = self._primary_row(
+                cu=f'CU-P{i}',
+                qty=i + 1,
+                price=f'${100 * (i + 1)}.00',
+                pole=f'P-P{i}',
+            )
+            # Vary WR so groups don't share Work Request #.
+            row['Work Request #'] = f'9146{700 + i}'
+            groups.append([row])
+        # 3 helper groups (distinct helpers).
+        for i, helper_name in enumerate(['BobHelper', 'CarolHelper',
+                                         'DaveHelper']):
+            row = self._helper_row(
+                cu=f'CU-H{i}',
+                qty=i + 1,
+                price=f'${200 * (i + 1)}.00',
+                pole=f'P-H{i}',
+                helper=helper_name,
+            )
+            groups.append([row])
+        # 3 vac_crew groups (distinct content).
+        for i in range(3):
+            row = self._vac_crew_row(
+                cu=f'CU-V{i}',
+                qty=i + 1,
+                price=f'${300 * (i + 1)}.00',
+                pole=f'P-V{i}',
+                name=f'VacMember{i}',
+            )
+            groups.append([row])
+        hashes = {
+            generate_weekly_pdfs.calculate_data_hash(g)
+            for g in groups
+        }
+        self.assertEqual(
+            len(hashes), len(groups),
+            f"Expected {len(groups)} distinct hashes across 10 "
+            f"synthetic groups in the 3 existing variants, got "
+            f"{len(hashes)}. Variant taxonomy may have collapsed: "
+            f"groups={len(groups)} unique_hashes={len(hashes)}. "
+            f"Hashes: {sorted(hashes)}"
+        )
+
+
+class TestPhase1FilenameRoundTripCoverage(unittest.TestCase):
+    """Covers the filename round-trip for all 7 Phase 1 variants.
+
+    Split out from ``TestPhase1IntegrationRegression`` per round-3
+    checker Warning 11 because this test exercises the
+    parser/generator symmetry, not hash stability — different
+    invariant, different class. ``build_group_identity`` is the
+    only function exercised here; ``calculate_data_hash`` is not
+    touched by these tests.
+
+    The parser ↔ generator symmetry matters for:
+      * Cleanup of stale variant Excel files
+        (``cleanup_stale_excels`` calls ``build_group_identity``
+        to identify which files share an identity with the
+        kept set).
+      * Hash-history bookkeeping (``history_key`` shape).
+      * Target-row matching during upload.
+    Any variant whose generated filename cannot be parsed back
+    would silently regenerate every run and accumulate orphan
+    attachments.
+
+    Phase 01 Plan 06 Task 2 (split per Warning 11).
+    """
+
+    # Filename templates parallel the production generator. Each
+    # tuple holds (variant_token, expected_variant_string,
+    # expected_identifier). The ``variant_token`` segment is what
+    # ``generate_excel`` appends after the timestamp; the test
+    # constructs a realistic filename around it and asserts the
+    # parser recovers the variant.
+    _VARIANT_CASES = [
+        # variant, filename_tail_after_timestamp, expected_identifier
+        ('primary',             '',                                  None),
+        ('helper',              'Helper_Jane_Smith',                 'Jane_Smith'),
+        ('vac_crew',            'VacCrew',                           ''),
+        ('aep_billable',        'AEPBillable',                       ''),
+        ('reduced_sub',         'ReducedSub',                        ''),
+        ('aep_billable_helper', 'AEPBillable_Helper_Jane_Smith',     'Jane_Smith'),
+        ('reduced_sub_helper',  'ReducedSub_Helper_Jane_Smith',      'Jane_Smith'),
+    ]
+
+    def test_filename_round_trip_for_all_seven_variants(self):
+        """For each of the 7 Phase 1 variants, build a realistic
+        filename that mirrors ``generate_excel``'s output shape and
+        confirm that ``build_group_identity`` recovers the exact
+        ``variant`` string.
+
+        The filename shape used:
+          ``WR_91467680_WeekEnding_041926_123456[_<tail>]_<hash>.xlsx``
+
+        Where ``<tail>`` is the variant marker (+ helper name for
+        helper variants) and ``<hash>`` is a 16-char hex token —
+        the same length the production ``calculate_data_hash``
+        emits. We parametrize via subTest so a failure in one
+        variant doesn't mask the others.
+        """
+        wr = '91467680'
+        week = '041926'
+        timestamp = '123456'
+        data_hash = 'deadbeefcafebabe'  # 16-char hex, parser-stable
+        for (variant, tail, expected_id) in self._VARIANT_CASES:
+            with self.subTest(variant=variant):
+                if tail:
+                    fname = (
+                        f'WR_{wr}_WeekEnding_{week}_{timestamp}'
+                        f'_{tail}_{data_hash}.xlsx'
+                    )
+                else:
+                    fname = (
+                        f'WR_{wr}_WeekEnding_{week}_{timestamp}'
+                        f'_{data_hash}.xlsx'
+                    )
+                result = generate_weekly_pdfs.build_group_identity(
+                    fname
+                )
+                self.assertIsNotNone(
+                    result,
+                    f"build_group_identity returned None for "
+                    f"variant={variant!r} filename={fname!r} — "
+                    f"parser ↔ generator symmetry is broken; "
+                    f"downstream cleanup_stale_excels would not "
+                    f"identify this file and orphan attachments "
+                    f"would accumulate."
+                )
+                parsed_wr, parsed_week, parsed_variant, parsed_id = (
+                    result
+                )
+                self.assertEqual(
+                    parsed_variant, variant,
+                    f"variant mismatch for filename={fname!r}: "
+                    f"expected {variant!r}, got "
+                    f"{parsed_variant!r}. Round-trip failure "
+                    f"breaks stale-file cleanup and target-row "
+                    f"matching."
+                )
+                self.assertEqual(parsed_wr, wr)
+                self.assertEqual(parsed_week, week)
+                self.assertEqual(parsed_id, expected_id)
+
+
 if __name__ == '__main__':
     unittest.main()
