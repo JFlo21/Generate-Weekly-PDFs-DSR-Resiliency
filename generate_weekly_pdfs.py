@@ -5202,7 +5202,14 @@ def main():
     session_start = datetime.datetime.now()
     generated_files_count = 0
     generated_filenames = []  # Track exact filenames created this session
-    
+    # Sentry session-transaction handle. Hoisted to the top of main() so the
+    # except/finally blocks at the bottom of this function always see _txn
+    # bound. Synthetic TEST_MODE returns and the "no SMARTSHEET_API_TOKEN"
+    # raise both short-circuit past the in-place start-transaction block
+    # further down, which would otherwise leave _txn unbound and turn any
+    # main() exit through finally into an UnboundLocalError.
+    _txn = None
+
     # Sentry cron check-in: signal "in_progress" at session start
     _cron_checkin_id = None
     _cron_monitor_slug = os.getenv("SENTRY_CRON_MONITOR_SLUG", "weekly-excel-generation")
@@ -5309,7 +5316,7 @@ def main():
         client.errors_as_exceptions(True)
         
         # ── Start root Sentry transaction for full session tracing ──
-        _txn = None
+        # _txn handle is already initialized to None at the top of main().
         if SENTRY_DSN:
             _txn = sentry_sdk.start_transaction(
                 op="session",
