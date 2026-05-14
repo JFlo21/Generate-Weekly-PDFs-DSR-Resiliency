@@ -2006,27 +2006,35 @@ def list_generated_excel_files(folder: str) -> list[str]:
 def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | None:
     """
     Parse filename to extract identity tuple: (wr, week_ending, variant, helper_or_user).
-    
+
     Args:
         filename: Excel filename to parse
-    
+
     Returns:
         tuple with format:
         - Primary: (wr, week, 'primary', None)
         - Primary+User: (wr, week, 'primary', user_identifier)
         - Helper: (wr, week, 'helper', helper_name)
         - VAC Crew: (wr, week, 'vac_crew', '')
-        
+        - AEP Billable: (wr, week, 'aep_billable', '')
+        - Reduced Sub: (wr, week, 'reduced_sub', '')
+        - AEP Billable Helper: (wr, week, 'aep_billable_helper', helper_name)
+        - Reduced Sub Helper: (wr, week, 'reduced_sub_helper', helper_name)
+
         Legacy format without variant: (wr, week, 'primary', None)
-        
+
         Returns None if filename doesn't match expected format.
-    
+
     Filename formats supported:
     - WR_{wr}_WeekEnding_{week}_{hash}.xlsx (legacy primary)
     - WR_{wr}_WeekEnding_{week}_{timestamp}_{hash}.xlsx (primary)
     - WR_{wr}_WeekEnding_{week}_{timestamp}_User_{user}_{hash}.xlsx (primary+user)
     - WR_{wr}_WeekEnding_{week}_{timestamp}_Helper_{helper}_{hash}.xlsx (helper)
     - WR_{wr}_WeekEnding_{week}_{timestamp}_VacCrew_{hash}.xlsx (VAC Crew)
+    - WR_{wr}_WeekEnding_{week}_{timestamp}_AEPBillable_{hash}.xlsx (AEP Billable)
+    - WR_{wr}_WeekEnding_{week}_{timestamp}_ReducedSub_{hash}.xlsx (Reduced Sub)
+    - WR_{wr}_WeekEnding_{week}_{timestamp}_AEPBillable_Helper_{helper}_{hash}.xlsx
+    - WR_{wr}_WeekEnding_{week}_{timestamp}_ReducedSub_Helper_{helper}_{hash}.xlsx
     """
     if not filename.startswith('WR_'):
         return None
@@ -2117,13 +2125,49 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
 
     # Detect variant from filename structure. Scope the marker search
     # to the tail (everything after ``WeekEnding <week>``) so any
-    # accidental ``Helper`` / ``User`` / ``VacCrew`` token inside a
-    # sanitized WR does not false-positive the variant detection.
+    # accidental ``Helper`` / ``User`` / ``VacCrew`` / ``AEPBillable``
+    # / ``ReducedSub`` token inside a sanitized WR does not
+    # false-positive the variant detection.
     variant = 'primary'
     identifier = None
     tail = parts[we_idx + 2:]
 
-    if 'Helper' in tail:
+    # Per Phase 01 Plan 02 D-09 (variant-first, helper-second) and
+    # D-10 (tail-scoped detection): the new subcontractor variants
+    # MUST be checked BEFORE the existing ``Helper`` / ``VacCrew``
+    # / ``User`` branches so that ``..._AEPBillable_Helper_<name>_<hash>``
+    # parses as ``aep_billable_helper`` (not plain ``helper`` with
+    # the AEPBillable token silently lost). The check operates on
+    # the post-``WeekEnding`` ``tail`` slice only, so a sanitized
+    # WR# that happens to contain ``AEPBillable`` / ``ReducedSub``
+    # in its body cannot false-positive the variant — covered by
+    # the negative tests in TestBuildGroupIdentityWithUnderscoresInWr.
+    if 'AEPBillable' in tail:
+        aep_idx_rel = tail.index('AEPBillable')
+        post_aep = tail[aep_idx_rel + 1:]
+        if 'Helper' in post_aep:
+            variant = 'aep_billable_helper'
+            helper_idx_rel = post_aep.index('Helper')
+            if helper_idx_rel + 1 < len(post_aep):
+                # Join all parts between Helper and hash (last part)
+                # so underscored helper names like ``Jane_Smith``
+                # survive intact (round-7 span-join discipline).
+                identifier = '_'.join(post_aep[helper_idx_rel + 1:-1])
+        else:
+            variant = 'aep_billable'
+            identifier = ''
+    elif 'ReducedSub' in tail:
+        rs_idx_rel = tail.index('ReducedSub')
+        post_rs = tail[rs_idx_rel + 1:]
+        if 'Helper' in post_rs:
+            variant = 'reduced_sub_helper'
+            helper_idx_rel = post_rs.index('Helper')
+            if helper_idx_rel + 1 < len(post_rs):
+                identifier = '_'.join(post_rs[helper_idx_rel + 1:-1])
+        else:
+            variant = 'reduced_sub'
+            identifier = ''
+    elif 'Helper' in tail:
         variant = 'helper'
         helper_idx_rel = tail.index('Helper')
         if helper_idx_rel + 1 < len(tail):
