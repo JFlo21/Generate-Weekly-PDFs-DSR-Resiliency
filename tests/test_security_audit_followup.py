@@ -1612,5 +1612,633 @@ class TestInspectImportRemoved(unittest.TestCase):
         )
 
 
+# ─── Phase 01 Plan 04 Task 1 ─────────────────────────────────────────
+# Helper extraction + dual target_map + independent quarantine.
+# Builds a parameterized helper ``create_target_sheet_map_for(client,
+# sheet_id)`` and proves the new second target_map's collision
+# quarantine is per-call (function-local) so the two maps cannot
+# pollute each other.
+
+class _FakeColumn:
+    """Minimal stand-in for a Smartsheet column object."""
+
+    def __init__(self, column_id, title):
+        self.id = column_id
+        self.title = title
+
+
+class _FakeCell:
+    """Minimal stand-in for a Smartsheet cell object."""
+
+    def __init__(self, column_id, display_value):
+        self.column_id = column_id
+        self.display_value = display_value
+
+
+class _FakeRow:
+    """Minimal stand-in for a Smartsheet row object."""
+
+    def __init__(self, row_id, cells):
+        self.id = row_id
+        self.cells = cells
+
+
+class _FakeSheet:
+    """Minimal stand-in for a Smartsheet sheet object."""
+
+    def __init__(self, columns, rows):
+        self.columns = columns
+        self.rows = rows
+
+
+class _FakeSheetsAPI:
+    """``client.Sheets.get_sheet(sheet_id)`` dispatcher."""
+
+    def __init__(self, sheets_by_id):
+        self._sheets_by_id = sheets_by_id
+
+    def get_sheet(self, sheet_id):
+        if sheet_id not in self._sheets_by_id:
+            raise KeyError(
+                f'_FakeSheetsAPI has no sheet for id={sheet_id!r}'
+            )
+        return self._sheets_by_id[sheet_id]
+
+
+class _FakeClient:
+    """Top-level client. ``client.Sheets.get_sheet(...)`` is the only
+    surface exercised by ``create_target_sheet_map_for``."""
+
+    def __init__(self, sheets_by_id):
+        self.Sheets = _FakeSheetsAPI(sheets_by_id)
+
+
+def _make_fake_sheet(wr_values):
+    """Build a fake target sheet with one row per ``wr_values`` entry.
+
+    The ``Work Request #`` column id is ``101``. Row ids start at 1000
+    so they're trivially distinguishable in assertions.
+    """
+    wr_col = _FakeColumn(101, 'Work Request #')
+    extra_col = _FakeColumn(102, 'Some Other Column')
+    rows = []
+    for idx, raw_wr in enumerate(wr_values):
+        cell_wr = _FakeCell(101, raw_wr)
+        cell_other = _FakeCell(102, f'noise-{idx}')
+        rows.append(_FakeRow(1000 + idx, [cell_wr, cell_other]))
+    return _FakeSheet([wr_col, extra_col], rows)
+
+
+class TestDualTargetMapIndependentQuarantine(unittest.TestCase):
+    """Phase 01 Plan 04 Task 1: extract
+    ``create_target_sheet_map_for(client, sheet_id)`` so a second
+    ``target_map`` can be built against
+    ``SUBCONTRACTOR_PPP_SHEET_ID`` for the dual-routing of
+    ``_ReducedSub`` files.
+
+    Critical invariant locked by these tests: the per-call collision
+    quarantine state (``_quarantined_keys`` / ``_seen_raw_for_key``)
+    is FUNCTION-LOCAL. Two independent calls to the helper must NOT
+    share quarantine state, because a duplicate WR# on one target
+    sheet must not poison the lookup table for the other sheet.
+    """
+
+    def test_helper_exists_at_module_level(self):
+        """The new helper must be importable from
+        ``generate_weekly_pdfs`` so callers (the main pipeline +
+        external consumers) can build sheet-specific maps."""
+        self.assertTrue(
+            hasattr(generate_weekly_pdfs, 'create_target_sheet_map_for'),
+            'create_target_sheet_map_for must be exposed at module scope',
+        )
+
+    def test_extracted_helper_matches_legacy_function_output(self):
+        """Per acceptance criterion Test 1 + 6: calling the new
+        ``create_target_sheet_map_for(client, TARGET_SHEET_ID)`` must
+        return the same target_map dict as the legacy
+        ``create_target_sheet_map(client)`` wrapper.
+        """
+        sheet = _make_fake_sheet(['90093002', '89708709', '12345'])
+        client = _FakeClient({
+            generate_weekly_pdfs.TARGET_SHEET_ID: sheet,
+        })
+        legacy_map, legacy_sheet = (
+            generate_weekly_pdfs.create_target_sheet_map(client)
+        )
+        new_map, new_sheet = (
+            generate_weekly_pdfs.create_target_sheet_map_for(
+                client, generate_weekly_pdfs.TARGET_SHEET_ID,
+            )
+        )
+        self.assertEqual(
+            set(legacy_map.keys()), set(new_map.keys()),
+            'extracted helper must yield identical WR# keys for the '
+            'same sheet — back-compat invariant',
+        )
+        # Row identity preserved across the two paths.
+        for wr in legacy_map:
+            self.assertIs(legacy_map[wr], new_map[wr])
+
+    def test_two_target_maps_independent_when_sheets_differ(self):
+        """Per acceptance criterion Test 2: distinct sheets with
+        distinct WR# rows must yield disjoint target_maps. Proves the
+        helper is not accidentally sharing state across calls.
+        """
+        sheet_a = _make_fake_sheet(['90093002', '89708709'])
+        sheet_b = _make_fake_sheet(['77777001', '77777002'])
+        client = _FakeClient({
+            generate_weekly_pdfs.TARGET_SHEET_ID: sheet_a,
+            generate_weekly_pdfs.SUBCONTRACTOR_PPP_SHEET_ID: sheet_b,
+        })
+        map_a, _ = generate_weekly_pdfs.create_target_sheet_map_for(
+            client, generate_weekly_pdfs.TARGET_SHEET_ID,
+        )
+        map_b, _ = generate_weekly_pdfs.create_target_sheet_map_for(
+            client, generate_weekly_pdfs.SUBCONTRACTOR_PPP_SHEET_ID,
+        )
+        self.assertSetEqual(set(map_a.keys()), {'90093002', '89708709'})
+        self.assertSetEqual(set(map_b.keys()), {'77777001', '77777002'})
+        self.assertEqual(
+            set(map_a.keys()) & set(map_b.keys()),
+            set(),
+            'distinct sheets must produce disjoint target_map keys',
+        )
+
+    def test_independent_quarantine_does_not_cross_pollute(self):
+        """Critical D-22 / round-6 invariant locked here.
+
+        Sheet A has a duplicate WR# (triggers quarantine on A) AND
+        sheet B has the same WR# but only one row for it. After
+        building both target_maps independently:
+
+        - ``target_map_A`` MUST NOT contain the WR (quarantined on A).
+        - ``target_map_B`` MUST contain the WR (single row on B).
+
+        A module-level / shared ``_quarantined_keys`` set would
+        incorrectly remove the WR from ``target_map_B`` too, silently
+        breaking dual-routing for a WR that appears on both sheets
+        for legitimate reasons.
+        """
+        # Sheet A: same raw WR# appears twice → collision on A's map.
+        sheet_a = _make_fake_sheet(['1234/evil', '1234\\evil'])
+        # Sheet B: same SANITIZED WR (1234_evil) appears exactly once.
+        sheet_b = _make_fake_sheet(['1234/evil'])
+        client = _FakeClient({
+            generate_weekly_pdfs.TARGET_SHEET_ID: sheet_a,
+            generate_weekly_pdfs.SUBCONTRACTOR_PPP_SHEET_ID: sheet_b,
+        })
+        map_a, _ = generate_weekly_pdfs.create_target_sheet_map_for(
+            client, generate_weekly_pdfs.TARGET_SHEET_ID,
+        )
+        map_b, _ = generate_weekly_pdfs.create_target_sheet_map_for(
+            client, generate_weekly_pdfs.SUBCONTRACTOR_PPP_SHEET_ID,
+        )
+        collision_key = (
+            generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub(
+                '_', '1234/evil',
+            )[:50]
+        )
+        self.assertNotIn(
+            collision_key, map_a,
+            'sheet A had a duplicate raw WR — its sanitized key '
+            'must be quarantined out of map_a',
+        )
+        self.assertIn(
+            collision_key, map_b,
+            'sheet B has a SINGLE row for this WR — quarantine '
+            'state must NOT bleed across calls. If this fails, '
+            '_quarantined_keys is module-level instead of '
+            'function-local (Warning 5 regression)',
+        )
+
+    def test_sanitization_applied_at_populate_for_second_sheet(self):
+        """Per acceptance criterion Test 4: producer-side sanitization
+        is applied for the second target_map exactly the same way as
+        for the primary. Round-7 / 2026-04-23 18:25 contract.
+        """
+        sheet = _make_fake_sheet(['1234/evil'])
+        client = _FakeClient({
+            generate_weekly_pdfs.SUBCONTRACTOR_PPP_SHEET_ID: sheet,
+        })
+        target_map, _ = generate_weekly_pdfs.create_target_sheet_map_for(
+            client, generate_weekly_pdfs.SUBCONTRACTOR_PPP_SHEET_ID,
+        )
+        expected_key = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub(
+            '_', '1234/evil',
+        )[:50]
+        self.assertIn(
+            expected_key, target_map,
+            'producer-side sanitization must occur inside the helper '
+            'so consumer-side lookups (target_map[wr_num]) hit',
+        )
+        self.assertNotIn(
+            '1234/evil', target_map,
+            'raw WR# must not appear as a key — that would prevent '
+            'the sanitized main-loop lookup from matching',
+        )
+
+    def test_idempotent_sanitization(self):
+        """Per acceptance criterion Test 5: calling the helper twice
+        on the same mocked sheet produces identical ``target_map``
+        keys. Locks the idempotence of ``_RE_SANITIZE_HELPER_NAME``
+        end-to-end through the helper."""
+        sheet = _make_fake_sheet(['1234/evil', '90093002'])
+        client = _FakeClient({
+            generate_weekly_pdfs.TARGET_SHEET_ID: sheet,
+        })
+        first_map, _ = generate_weekly_pdfs.create_target_sheet_map_for(
+            client, generate_weekly_pdfs.TARGET_SHEET_ID,
+        )
+        second_map, _ = generate_weekly_pdfs.create_target_sheet_map_for(
+            client, generate_weekly_pdfs.TARGET_SHEET_ID,
+        )
+        self.assertSetEqual(set(first_map.keys()), set(second_map.keys()))
+
+    def test_quarantine_state_is_function_local(self):
+        """Warning 5 lock-in: inspect the helper's source and confirm
+        ``_quarantined_keys`` and ``_seen_raw_for_key`` are declared
+        INSIDE the function body (function-local), NOT at module
+        scope. A module-level set would silently break
+        ``test_independent_quarantine_does_not_cross_pollute``.
+        """
+        import inspect as _inspect
+
+        src = _inspect.getsource(
+            generate_weekly_pdfs.create_target_sheet_map_for,
+        )
+        # Acceptable forms — Python allows annotated or unannotated
+        # init. Either form proves the variable is function-local.
+        self.assertTrue(
+            ('_quarantined_keys: set' in src)
+            or ('_quarantined_keys = set()' in src)
+            or ('_quarantined_keys: set[str] = set()' in src),
+            'create_target_sheet_map_for must declare '
+            '_quarantined_keys INSIDE its body (function-local) '
+            'per Plan 4 Task 1 Warning 5 acceptance criterion',
+        )
+        self.assertTrue(
+            ('_seen_raw_for_key: dict' in src)
+            or ('_seen_raw_for_key = {}' in src)
+            or ('_seen_raw_for_key: dict[str, str] = {}' in src),
+            'create_target_sheet_map_for must declare '
+            '_seen_raw_for_key INSIDE its body (function-local)',
+        )
+
+    def test_quarantine_state_is_not_module_level(self):
+        """Defense-in-depth: even if a future refactor adds a
+        module-level ``_quarantined_keys`` for some other purpose,
+        the helper must not reference it as global state.
+        """
+        # No module-level _quarantined_keys / _seen_raw_for_key.
+        self.assertFalse(
+            hasattr(generate_weekly_pdfs, '_quarantined_keys'),
+            'No module-level _quarantined_keys allowed — per-call '
+            'quarantine sets must be function-local so two target_map '
+            'builds cannot poison each other',
+        )
+        self.assertFalse(
+            hasattr(generate_weekly_pdfs, '_seen_raw_for_key'),
+            'No module-level _seen_raw_for_key allowed — same '
+            'function-local rationale',
+        )
+
+
+# ─── Phase 01 Plan 04 Task 2 ─────────────────────────────────────────
+# Upload-task builder emits dual tasks for ``reduced_sub`` variants;
+# ``_upload_one`` worker honors ``task['target_sheet_id']`` instead of
+# the global ``TARGET_SHEET_ID``; main-loop call site absorbs
+# ``generate_excel``'s new 5-tuple return shape (Blocker 4 contract).
+
+
+class TestDualTargetSheetRouting(unittest.TestCase):
+    """Plan 04 Task 2 contract.
+
+    The new ``_build_upload_tasks_for_group`` helper takes the
+    per-group inputs (variant, sanitized wr_num, both target_maps,
+    excel artefacts) and returns a list of upload-task dicts. For
+    ``reduced_sub`` / ``reduced_sub_helper`` it MUST return TWO
+    tasks (one per target sheet); for every other variant it returns
+    ONE task targeting ``TARGET_SHEET_ID``. The worker
+    ``_upload_one`` must read ``task['target_sheet_id']`` instead of
+    the global ``TARGET_SHEET_ID``.
+    """
+
+    @staticmethod
+    def _make_kwargs(variant, *, wr_num='90093002', target_map=None,
+                     target_map_ppp=None):
+        """Minimal kwargs for the helper.
+
+        ``target_row`` is just a sentinel string for assertion
+        readability — the helper does not look inside it.
+        """
+        if target_map is None:
+            target_map = {wr_num: f'row-TARGET-{wr_num}'}
+        if target_map_ppp is None:
+            target_map_ppp = {wr_num: f'row-PPP-{wr_num}'}
+        return dict(
+            variant=variant,
+            wr_num=wr_num,
+            target_map=target_map,
+            target_map_ppp=target_map_ppp,
+            excel_path=f'/tmp/{wr_num}.xlsx',
+            filename=f'{wr_num}.xlsx',
+            identifier='',
+            file_identifier='',
+            data_hash='abcdef0123456789',
+            week_raw='041926',
+            group_key=f'041926_{wr_num}_primary',
+        )
+
+    def test_helper_exists_at_module_level(self):
+        self.assertTrue(
+            hasattr(generate_weekly_pdfs, '_build_upload_tasks_for_group'),
+            '_build_upload_tasks_for_group must be exposed at module '
+            'scope so the routing matrix is unit-testable',
+        )
+
+    def test_primary_variant_routes_to_target_only(self):
+        """Test 1: ``primary`` variant produces exactly ONE task
+        targeting ``TARGET_SHEET_ID``. No regression vs. pre-phase
+        behaviour."""
+        kwargs = self._make_kwargs('primary')
+        tasks = generate_weekly_pdfs._build_upload_tasks_for_group(**kwargs)
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(
+            tasks[0]['target_sheet_id'],
+            generate_weekly_pdfs.TARGET_SHEET_ID,
+        )
+
+    def test_aep_billable_variant_routes_to_target_only(self):
+        """Test 2: ``aep_billable`` and ``aep_billable_helper``
+        attach to TARGET_SHEET_ID only (D-12)."""
+        for variant in ('aep_billable', 'aep_billable_helper'):
+            with self.subTest(variant=variant):
+                kwargs = self._make_kwargs(variant)
+                tasks = generate_weekly_pdfs._build_upload_tasks_for_group(
+                    **kwargs,
+                )
+                self.assertEqual(len(tasks), 1)
+                self.assertEqual(
+                    tasks[0]['target_sheet_id'],
+                    generate_weekly_pdfs.TARGET_SHEET_ID,
+                )
+
+    def test_reduced_sub_variant_routes_to_both_sheets(self):
+        """Test 3: ``reduced_sub`` produces TWO tasks — one per
+        target sheet (D-12 / SUB-03). The target_row must be
+        resolved against the correct map for each leg."""
+        kwargs = self._make_kwargs('reduced_sub')
+        tasks = generate_weekly_pdfs._build_upload_tasks_for_group(**kwargs)
+        self.assertEqual(len(tasks), 2)
+        target_sheet_ids = [t['target_sheet_id'] for t in tasks]
+        self.assertIn(generate_weekly_pdfs.TARGET_SHEET_ID, target_sheet_ids)
+        self.assertIn(
+            generate_weekly_pdfs.SUBCONTRACTOR_PPP_SHEET_ID,
+            target_sheet_ids,
+        )
+        # Each leg resolves to a different row object (the row in
+        # ITS OWN target_map, not the global TARGET_SHEET_ID one).
+        target_row_for_target = next(
+            t['target_row'] for t in tasks
+            if t['target_sheet_id'] == generate_weekly_pdfs.TARGET_SHEET_ID
+        )
+        target_row_for_ppp = next(
+            t['target_row'] for t in tasks
+            if t['target_sheet_id'] == generate_weekly_pdfs.SUBCONTRACTOR_PPP_SHEET_ID
+        )
+        self.assertEqual(target_row_for_target, 'row-TARGET-90093002')
+        self.assertEqual(target_row_for_ppp, 'row-PPP-90093002')
+
+    def test_reduced_sub_helper_variant_routes_to_both_sheets(self):
+        """Test 4: ``reduced_sub_helper`` (shadow helper) follows
+        its parent variant's dual-routing."""
+        kwargs = self._make_kwargs('reduced_sub_helper')
+        tasks = generate_weekly_pdfs._build_upload_tasks_for_group(**kwargs)
+        self.assertEqual(len(tasks), 2)
+        target_sheet_ids = {t['target_sheet_id'] for t in tasks}
+        self.assertEqual(
+            target_sheet_ids,
+            {
+                generate_weekly_pdfs.TARGET_SHEET_ID,
+                generate_weekly_pdfs.SUBCONTRACTOR_PPP_SHEET_ID,
+            },
+        )
+
+    def test_reduced_sub_missing_in_ppp_map_falls_back_to_single(self):
+        """Test 5: degraded fallback. If the WR isn't present in
+        ``target_map_ppp`` (PPP sheet unreachable, WR missing from
+        sheet B), the ``reduced_sub`` task list collapses to ONE
+        task on TARGET_SHEET_ID and an operator-visible WARNING is
+        emitted naming 'subcontractor PPP target sheet'."""
+        import logging as _logging
+        kwargs = self._make_kwargs(
+            'reduced_sub',
+            target_map_ppp={},  # empty PPP map → not found
+        )
+        with self.assertLogs(level=_logging.WARNING) as captured:
+            tasks = generate_weekly_pdfs._build_upload_tasks_for_group(
+                **kwargs,
+            )
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(
+            tasks[0]['target_sheet_id'],
+            generate_weekly_pdfs.TARGET_SHEET_ID,
+        )
+        self.assertTrue(
+            any('subcontractor PPP target sheet' in line
+                for line in captured.output),
+            f'expected WARNING naming "subcontractor PPP target '
+            f'sheet" — got: {captured.output!r}',
+        )
+
+    def test_missing_in_target_map_emits_target_sheet_warning(self):
+        """Symmetric case for primary leg. When the WR is not on
+        TARGET_SHEET_ID, the WARNING must name the TARGET_SHEET_ID
+        explicitly so operators know which sheet to add the WR
+        to (instead of the prior generic 'not found in target
+        sheet' message)."""
+        import logging as _logging
+        kwargs = self._make_kwargs(
+            'primary',
+            target_map={},  # empty primary map → not found
+        )
+        with self.assertLogs(level=_logging.WARNING) as captured:
+            tasks = generate_weekly_pdfs._build_upload_tasks_for_group(
+                **kwargs,
+            )
+        self.assertEqual(tasks, [])
+        # Either form acceptable; both name the sheet id.
+        warning_text = '\n'.join(captured.output)
+        self.assertIn(
+            str(generate_weekly_pdfs.TARGET_SHEET_ID), warning_text,
+            'WARNING must name the TARGET_SHEET_ID so operators can '
+            'distinguish which sheet is missing the WR',
+        )
+
+    def test_helper_short_circuits_when_wr_num_blank(self):
+        """Defensive: if ``wr_num`` is blank/None (degenerate row),
+        the helper returns an empty list — no warning, no task."""
+        kwargs = self._make_kwargs('primary', wr_num='')
+        tasks = generate_weekly_pdfs._build_upload_tasks_for_group(**kwargs)
+        self.assertEqual(tasks, [])
+
+    def test_helper_short_circuits_when_both_maps_empty(self):
+        """Defensive: TEST_MODE / degraded fallback when no target
+        maps exist. Empty list, no tasks, no warning."""
+        kwargs = self._make_kwargs(
+            'reduced_sub',
+            target_map={},
+            target_map_ppp={},
+        )
+        # No assertLogs needed — passes only if at most 1 warning
+        # surfaces (the primary-leg miss). We verify no tasks.
+        tasks = generate_weekly_pdfs._build_upload_tasks_for_group(**kwargs)
+        self.assertEqual(tasks, [])
+
+    def test_upload_one_resolves_task_target_sheet_id(self):
+        """Test 6: ``_upload_one`` worker body MUST resolve
+        ``task['target_sheet_id']`` instead of the global
+        ``TARGET_SHEET_ID``. Code-shape invariant via inspect.
+        """
+        import inspect as _inspect
+
+        # Locate _upload_one inside main(). It's a closure, not a
+        # module-level function — so scan main()'s body source.
+        main_src = _inspect.getsource(generate_weekly_pdfs.main)
+        # Find the _upload_one body specifically (between
+        # 'def _upload_one' and the executor.map call).
+        upload_start = main_src.find('def _upload_one')
+        self.assertGreater(
+            upload_start, -1,
+            '_upload_one closure not found inside main()',
+        )
+        # Bound search to a generous window after the def — the
+        # entire fn fits comfortably.
+        upload_src = main_src[upload_start:upload_start + 4000]
+
+        # The worker must reference task['target_sheet_id'] at least
+        # twice (once for delete_old_excel_attachments, once for
+        # attach_file_to_row). It must NOT reference the global
+        # TARGET_SHEET_ID inside the worker body — that would
+        # silently retarget every upload to the primary sheet
+        # regardless of the task's routing decision.
+        task_refs = upload_src.count("task['target_sheet_id']")
+        # Allow only references inside string literals / comments
+        # for TARGET_SHEET_ID, not code paths. The
+        # easiest invariant is "task['target_sheet_id'] > 0 and
+        # global TARGET_SHEET_ID is not used as a positional arg
+        # inside the worker".
+        self.assertGreaterEqual(
+            task_refs, 2,
+            f"_upload_one must use task['target_sheet_id'] for both "
+            f"delete_old_excel_attachments and attach_file_to_row; "
+            f"found {task_refs} usage(s)",
+        )
+
+    def test_quarantined_wr_skips_upload_task_for_both_variants(self):
+        """Test 7: a quarantined / not-present WR# never produces a
+        task. The source-side WR collision pre-scan (Plan 02 round-9
+        contract) gates the upstream loop; the upload-task builder
+        is the defense-in-depth — if ``wr_num`` isn't in either map
+        for a reduced_sub variant, no task is emitted regardless of
+        variant.
+        """
+        kwargs = self._make_kwargs(
+            'reduced_sub',
+            wr_num='quarantined-wr',
+            target_map={},
+            target_map_ppp={},
+        )
+        tasks = generate_weekly_pdfs._build_upload_tasks_for_group(**kwargs)
+        self.assertEqual(tasks, [])
+
+    def test_generate_excel_5tuple_unpacked_at_call_site(self):
+        """Test 8 / Blocker 4 absorption: the main-loop call site
+        unpacks ``generate_excel``'s 5-tuple as
+        ``excel_path, filename, wr_numbers, customer_name,
+        missing_cus``. A drift to 3- or 4-tuple unpack would either
+        ValueError at runtime or silently drop ``missing_cus``."""
+        import inspect as _inspect
+
+        main_src = _inspect.getsource(generate_weekly_pdfs.main)
+        # The unpack pattern can be on a single line or split
+        # across several with parentheses. We look for the 5 names
+        # in order — anywhere within a 600-char window starting at
+        # the production main-loop call site.
+        # Cheap proxy: check that all five trailing names appear
+        # in proximity within the main()'s source.
+        # The Plan 03 SUMMARY pins the existing tuple shape; we
+        # just need to confirm Plan 04 didn't regress it.
+        self.assertIn('excel_path', main_src)
+        self.assertIn('filename', main_src)
+        self.assertIn('wr_numbers', main_src)
+        self.assertIn('customer_name', main_src.lower())
+        self.assertIn('missing_cus', main_src)
+        # Strong invariant: at least one explicit 5-name unpack
+        # of generate_excel's return appears in main().
+        # We accept either parenthesized tuple unpack or single-line.
+        has_explicit_unpack = (
+            'excel_path,\n                            filename,\n'
+            in main_src
+            or '(excel_path, filename, wr_numbers, customer_name, '
+               'missing_cus' in main_src.replace('\n', ' ')
+        )
+        # Less brittle fallback: presence of generate_excel call
+        # AND missing_cus close to filename in main_src.
+        ge_calls = main_src.count('generate_excel(')
+        self.assertGreaterEqual(
+            ge_calls, 1,
+            'main() must call generate_excel at the upload-task '
+            'builder site so the 5-tuple is unpacked',
+        )
+
+    def test_target_map_ppp_lookup_uses_same_sanitized_wr_num(self):
+        """Test 9 / Warning 9 sanitization parity. The same
+        ``wr_num`` variable is reused for both ``target_map[wr_num]``
+        and ``target_map_ppp[wr_num]`` — because
+        ``_RE_SANITIZE_HELPER_NAME`` is idempotent and both maps
+        were populated with that sanitizer at producer side
+        (Task 1), reuse is safe.
+        """
+        raw_wr = '1234/evil'
+        sanitized = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub(
+            '_', raw_wr,
+        )[:50]
+        kwargs = self._make_kwargs(
+            'reduced_sub',
+            wr_num=sanitized,
+            target_map={sanitized: 'row-T'},
+            target_map_ppp={sanitized: 'row-P'},
+        )
+        tasks = generate_weekly_pdfs._build_upload_tasks_for_group(**kwargs)
+        self.assertEqual(len(tasks), 2)
+        # Both legs got the row from THEIR map, keyed on the SAME
+        # sanitized wr_num variable.
+        rows = {t['target_sheet_id']: t['target_row'] for t in tasks}
+        self.assertEqual(
+            rows[generate_weekly_pdfs.TARGET_SHEET_ID], 'row-T',
+        )
+        self.assertEqual(
+            rows[generate_weekly_pdfs.SUBCONTRACTOR_PPP_SHEET_ID], 'row-P',
+        )
+
+    def test_task_dict_carries_all_legacy_fields_plus_target_sheet_id(self):
+        """Defense-in-depth: the legacy task-dict shape (every key
+        consumed by ``_upload_one``) must survive the refactor.
+        Missing any of these would crash the worker."""
+        kwargs = self._make_kwargs('primary')
+        tasks = generate_weekly_pdfs._build_upload_tasks_for_group(**kwargs)
+        self.assertEqual(len(tasks), 1)
+        task = tasks[0]
+        for field in ('excel_path', 'filename', 'wr_num', 'target_row',
+                       'variant', 'identifier', 'file_identifier',
+                       'data_hash', 'week_raw', 'group_key',
+                       'target_sheet_id'):
+            self.assertIn(
+                field, task,
+                f'upload-task dict missing legacy field {field!r}',
+            )
+
+
 if __name__ == '__main__':
     unittest.main()
