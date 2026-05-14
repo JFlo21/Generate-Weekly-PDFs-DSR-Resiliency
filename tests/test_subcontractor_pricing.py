@@ -1555,5 +1555,953 @@ class TestExpandedHashCoverage(unittest.TestCase):
         self.assertEqual(hash1, hash2)
 
 
+class TestSubcontractorVariantGrouping(unittest.TestCase):
+    """Plan 01-03 Task 1: subcontractor variant tagging in group_source_rows().
+
+    Per the plan's committed plumbing decision (Blocker 3), the gate is
+    PER-ROW via ``r.get('__source_sheet_id') in _FOLDER_DISCOVERED_SUB_IDS``.
+    Each test snapshots & restores the module's folder-id sets and the
+    kill-switch env flag so a test's mutation cannot leak.
+    """
+
+    _SUB_SHEET_ID = 8162920222379908
+    _ORIG_SHEET_ID = 7644752003786628
+
+    def setUp(self):
+        self._orig_sub_ids = set(generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS)
+        self._orig_orig_ids = set(generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS)
+        self._orig_kill = generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED
+        # Seed the SUB folder set with our test sheet id so the per-row
+        # gate trips.
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.add(self._SUB_SHEET_ID)
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.add(self._ORIG_SHEET_ID)
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = True
+
+    def tearDown(self):
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.update(self._orig_sub_ids)
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.update(self._orig_orig_ids)
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = self._orig_kill
+
+    def _make_row(
+        self,
+        wr,
+        date_str,
+        price,
+        snapshot=None,
+        source_sheet_id=None,
+        is_helper=False,
+        helper_foreman='',
+        helper_dept='',
+        helper_job='',
+    ):
+        """Minimal valid source row for group_source_rows().
+
+        ``source_sheet_id`` populates ``row['__source_sheet_id']`` —
+        the field the plan's per-row gate reads. Defaults to the
+        test class's seeded subcontractor sheet id.
+        """
+        if source_sheet_id is None:
+            source_sheet_id = self._SUB_SHEET_ID
+        row = {
+            'Work Request #': wr,
+            'Weekly Reference Logged Date': date_str,
+            'Units Completed?': True,
+            'Units Total Price': price,
+            'Snapshot Date': snapshot if snapshot is not None else date_str,
+            '__effective_user': 'TestForeman',
+            '__assignment_method': 'FOREMAN_COLUMN',
+            '__is_helper_row': is_helper,
+            '__helper_foreman': helper_foreman,
+            '__helper_dept': helper_dept,
+            '__helper_job': helper_job,
+            '__is_vac_crew': False,
+            '__source_sheet_id': source_sheet_id,
+        }
+        return row
+
+    def test_post_cutoff_subcontractor_row_emits_aep_billable_and_reduced_sub(self):
+        """Test 1: post-cutoff snapshot, SUB sheet, kill-switch on → both new variant group keys appear."""
+        row = self._make_row(
+            wr='WR_X',
+            date_str='2026-04-19',
+            price='$100.00',
+            snapshot='2026-04-19',  # post-cutoff (>= 2026-04-12)
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        self.assertTrue(
+            any('_AEPBILLABLE' in k and '_HELPER_' not in k for k in keys),
+            f"Expected an _AEPBILLABLE group key for post-cutoff sub row; got: {keys}",
+        )
+        self.assertTrue(
+            any('_REDUCEDSUB' in k and '_HELPER_' not in k for k in keys),
+            f"Expected a _REDUCEDSUB group key for sub row; got: {keys}",
+        )
+
+    def test_pre_cutoff_subcontractor_row_emits_reduced_sub_only(self):
+        """Test 2: pre-cutoff snapshot → ReducedSub yes, AEPBillable no (D-08)."""
+        row = self._make_row(
+            wr='WR_Y',
+            date_str='2026-04-05',
+            price='$100.00',
+            snapshot='2026-04-05',  # pre-cutoff (< 2026-04-12)
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        self.assertTrue(
+            any('_REDUCEDSUB' in k for k in keys),
+            f"Expected a _REDUCEDSUB group key for pre-cutoff sub row; got: {keys}",
+        )
+        self.assertFalse(
+            any('_AEPBILLABLE' in k for k in keys),
+            f"Expected NO _AEPBILLABLE group key for pre-cutoff sub row; got: {keys}",
+        )
+
+    def test_helper_event_emits_shadow_variants_when_post_cutoff(self):
+        """Test 3: helper-foreman event on sub WR post-cutoff → both shadow variants appear."""
+        row = self._make_row(
+            wr='WR_Z',
+            date_str='2026-04-19',
+            price='$100.00',
+            snapshot='2026-04-19',
+            is_helper=True,
+            helper_foreman='Jane Smith',
+            helper_dept='123',
+            helper_job='J-1',
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        self.assertTrue(
+            any('_AEPBILLABLE_HELPER_Jane_Smith' in k for k in keys),
+            f"Expected _AEPBILLABLE_HELPER_Jane_Smith key; got: {keys}",
+        )
+        self.assertTrue(
+            any('_REDUCEDSUB_HELPER_Jane_Smith' in k for k in keys),
+            f"Expected _REDUCEDSUB_HELPER_Jane_Smith key; got: {keys}",
+        )
+
+    def test_non_subcontractor_sheet_emits_no_new_variants(self):
+        """Test 4: row from a non-SUB sheet → no new variant keys (per-row gate proof)."""
+        row = self._make_row(
+            wr='WR_A',
+            date_str='2026-04-19',
+            price='$100.00',
+            snapshot='2026-04-19',
+            source_sheet_id=self._ORIG_SHEET_ID,  # in ORIG, NOT in SUB
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        self.assertFalse(
+            any('_AEPBILLABLE' in k or '_REDUCEDSUB' in k for k in keys),
+            f"Expected NO new variant keys for non-sub row; got: {keys}",
+        )
+
+    def test_kill_switch_off_emits_no_new_variants(self):
+        """Test 5: SUBCONTRACTOR_RATE_VARIANTS_ENABLED=False → no new variant keys (D-13)."""
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = False
+        row = self._make_row(
+            wr='WR_B',
+            date_str='2026-04-19',
+            price='$100.00',
+            snapshot='2026-04-19',
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        self.assertFalse(
+            any('_AEPBILLABLE' in k or '_REDUCEDSUB' in k for k in keys),
+            f"Expected NO new variant keys with kill switch off; got: {keys}",
+        )
+
+    def test_variant_string_tagging_uses_canonical_lowercase(self):
+        """Test 6: r_copy['__variant'] in the new variants uses the exact lowercase strings."""
+        row = self._make_row(
+            wr='WR_C',
+            date_str='2026-04-19',
+            price='$100.00',
+            snapshot='2026-04-19',
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        variants_seen = set()
+        for key, rows in groups.items():
+            if '_AEPBILLABLE' in key or '_REDUCEDSUB' in key:
+                variants_seen.add(rows[0].get('__variant'))
+        # At minimum reduced_sub and aep_billable must be present.
+        self.assertIn('reduced_sub', variants_seen, f"expected 'reduced_sub' tagging; saw {variants_seen}")
+        self.assertIn('aep_billable', variants_seen, f"expected 'aep_billable' tagging; saw {variants_seen}")
+        self.assertTrue(
+            variants_seen.issubset(
+                {'reduced_sub', 'aep_billable', 'reduced_sub_helper', 'aep_billable_helper'}
+            ),
+            f"new-variant group rows must tag __variant only with the four lowercase strings; got {variants_seen}",
+        )
+
+    def test_helper_name_with_apostrophe_sanitized_in_key(self):
+        """Test 7: helper name with non-word chars is sanitized via _RE_SANITIZE_HELPER_NAME before key embedding."""
+        row = self._make_row(
+            wr='WR_D',
+            date_str='2026-04-19',
+            price='$100.00',
+            snapshot='2026-04-19',
+            is_helper=True,
+            helper_foreman="Jane O'Brien",
+            helper_dept='456',
+            helper_job='J-2',
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        # ``_RE_SANITIZE_HELPER_NAME`` replaces ``'`` with ``_``.
+        sanitized_expected = 'Jane_O_Brien'
+        self.assertTrue(
+            any(f'_REDUCEDSUB_HELPER_{sanitized_expected}' in k for k in keys),
+            f"Expected sanitized helper name {sanitized_expected!r} in a REDUCEDSUB_HELPER key; got: {keys}",
+        )
+        self.assertTrue(
+            any(f'_AEPBILLABLE_HELPER_{sanitized_expected}' in k for k in keys),
+            f"Expected sanitized helper name {sanitized_expected!r} in an AEPBILLABLE_HELPER key; got: {keys}",
+        )
+
+    def test_per_row_gate_does_not_bleed_across_rows_in_same_call(self):
+        """Test 8: a single call with a sub row + a non-sub row → only the sub row produces new variants.
+
+        Regression guard against accidental per-CALL gating that would
+        emit variant keys for every row in the call once any row was
+        on a SUB sheet.
+        """
+        row_sub = self._make_row(
+            wr='WR_E',
+            date_str='2026-04-19',
+            price='$100.00',
+            snapshot='2026-04-19',
+            source_sheet_id=self._SUB_SHEET_ID,
+        )
+        row_orig = self._make_row(
+            wr='WR_F',
+            date_str='2026-04-19',
+            price='$100.00',
+            snapshot='2026-04-19',
+            source_sheet_id=self._ORIG_SHEET_ID,
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row_sub, row_orig])
+        # WR_E (sub) MUST have new variant keys.
+        sub_keys = [k for k in groups if '_WR_E' in k or k.endswith('_WR_E') or 'WR_E' in k]
+        # The naming convention: ``{week}_{wr_key}_REDUCEDSUB`` etc.
+        self.assertTrue(
+            any('WR_E' in k and ('_AEPBILLABLE' in k or '_REDUCEDSUB' in k) for k in groups),
+            f"Expected WR_E (sub) to produce new-variant keys; got: {list(groups.keys())}",
+        )
+        # WR_F (orig) MUST NOT produce any new variant keys.
+        wr_f_new_variant_keys = [
+            k for k in groups
+            if 'WR_F' in k and ('_AEPBILLABLE' in k or '_REDUCEDSUB' in k)
+        ]
+        self.assertEqual(
+            wr_f_new_variant_keys, [],
+            f"WR_F (orig) must NOT produce new-variant keys (per-row gate); got: {wr_f_new_variant_keys}",
+        )
+
+
+class TestResolveRowPriceCanonicalColumnNames(unittest.TestCase):
+    """Plan 01-03 Task 2 / Blocker 2: _resolve_row_price reads ONLY canonical column keys.
+
+    Per round-3 checker Blocker 2, the helper MUST read the row dict
+    using the canonical keys produced by ``_validate_single_sheet``'s
+    synonyms layer (`'CU'`, `'Work Type'`, `'Quantity'`,
+    `'Units Total Price'`). Reading non-canonical fallback keys would
+    be a silent regression on any sheet whose source column titles
+    differ — by the time the row reaches ``generate_excel``, only the
+    canonical keys exist.
+    """
+
+    def setUp(self):
+        # Snapshot the rates dict so tests can mutate.
+        self._orig_rates = dict(generate_weekly_pdfs._SUBCONTRACTOR_RATES)
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES.clear()
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES['XYZ'] = {
+            'cu_code': 'XYZ',
+            'cu_wbs': '999',
+            'compatible_unit_group': 'TestGroup',
+            'reduced_install_price': 10.0,
+            'reduced_remove_price': 5.0,
+            'reduced_transfer_price': 2.5,
+            'new_install_price': 20.0,
+            'new_remove_price': 12.0,
+            'new_transfer_price': 6.0,
+        }
+
+    def tearDown(self):
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES.clear()
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES.update(self._orig_rates)
+
+    def test_helper_callable(self):
+        """``_resolve_row_price`` exists at module scope (testable surface)."""
+        self.assertTrue(hasattr(generate_weekly_pdfs, '_resolve_row_price'))
+        self.assertTrue(callable(generate_weekly_pdfs._resolve_row_price))
+
+    def test_canonical_keys_resolve_aep_billable_install(self):
+        """Test 9 (Blocker 2 lock-in): canonical-keyed row produces new_install_price × qty."""
+        from collections import Counter
+        row = {
+            'CU': 'XYZ',
+            'Work Type': 'Install',
+            'Quantity': 5,
+            'Units Total Price': '$0.00',
+        }
+        missing = Counter()
+        price = generate_weekly_pdfs._resolve_row_price(row, 'aep_billable', missing)
+        self.assertAlmostEqual(price, 100.0)  # new_install_price 20.0 × 5
+        self.assertEqual(missing, Counter())  # no missing CUs
+
+    def test_canonical_keys_resolve_reduced_sub_remove(self):
+        """Canonical-keyed row + reduced_sub variant + Removal → reduced_remove_price × qty."""
+        from collections import Counter
+        row = {
+            'CU': 'XYZ',
+            'Work Type': 'Removal',
+            'Quantity': 4,
+            'Units Total Price': '$0.00',
+        }
+        missing = Counter()
+        price = generate_weekly_pdfs._resolve_row_price(row, 'reduced_sub', missing)
+        self.assertAlmostEqual(price, 20.0)  # reduced_remove_price 5.0 × 4
+
+    def test_canonical_keys_resolve_aep_billable_transfer(self):
+        """AEP Billable + Transfer work type → new_transfer_price × qty."""
+        from collections import Counter
+        row = {
+            'CU': 'XYZ',
+            'Work Type': 'Transfer',
+            'Quantity': 3,
+            'Units Total Price': '$0.00',
+        }
+        missing = Counter()
+        price = generate_weekly_pdfs._resolve_row_price(row, 'aep_billable_helper', missing)
+        self.assertAlmostEqual(price, 18.0)  # new_transfer_price 6.0 × 3
+
+    def test_missing_cu_falls_through_to_smartsheet(self):
+        """Test 5 (D-16): CU absent from _SUBCONTRACTOR_RATES → retain SmartSheet price, no zero-out."""
+        from collections import Counter
+        row = {
+            'CU': 'UNKNOWN_CU',
+            'Work Type': 'Install',
+            'Quantity': 5,
+            'Units Total Price': '$77.50',
+        }
+        missing = Counter()
+        price = generate_weekly_pdfs._resolve_row_price(row, 'aep_billable', missing)
+        # Must keep SmartSheet pricing, not zero out, not raise.
+        self.assertAlmostEqual(price, 77.5)
+
+    def test_missing_cu_recorded_in_counter(self):
+        """Test 6 (D-16): missing CU code accumulates in the per-call Counter."""
+        from collections import Counter
+        row = {
+            'CU': 'ABSENT_CU',
+            'Work Type': 'Install',
+            'Quantity': 1,
+            'Units Total Price': '$10.00',
+        }
+        missing = Counter()
+        generate_weekly_pdfs._resolve_row_price(row, 'aep_billable', missing)
+        self.assertIn('ABSENT_CU', missing)
+        self.assertEqual(missing['ABSENT_CU'], 1)
+
+    def test_primary_variant_unchanged_regardless_of_cu(self):
+        """Test 7: primary/helper/vac_crew variants return SmartSheet price unchanged (D-14/D-15)."""
+        from collections import Counter
+        row = {
+            'CU': 'XYZ',  # present in rates, but variant is primary so ignored
+            'Work Type': 'Install',
+            'Quantity': 5,
+            'Units Total Price': '$42.00',
+        }
+        for variant in ('primary', 'helper', 'vac_crew'):
+            missing = Counter()
+            price = generate_weekly_pdfs._resolve_row_price(row, variant, missing)
+            self.assertAlmostEqual(
+                price, 42.0,
+                msg=f"variant {variant!r} must keep SmartSheet pricing unchanged",
+            )
+            self.assertEqual(
+                missing, Counter(),
+                f"variant {variant!r} must not record missing CUs (CSV not consulted)",
+            )
+
+    def test_test_10_wrong_key_name_units_completed_falls_through(self):
+        """Test 10 (Blocker 2 negative): wrong key 'Units Completed' is NOT read as quantity.
+
+        Defensive: a future regression that "fixes" the helper to read
+        'Units Completed' (a checkbox column, NOT a qty) must not pick
+        up the value — instead it falls through to SmartSheet pricing.
+        """
+        from collections import Counter
+        row = {
+            'CU': 'XYZ',
+            'Work Type': 'Install',
+            'Units Completed': 5,  # WRONG key name (a checkbox column in source data)
+            # No 'Quantity' canonical key — helper must treat qty as 0
+            # and fall through.
+            'Units Total Price': '$33.33',
+        }
+        missing = Counter()
+        price = generate_weekly_pdfs._resolve_row_price(row, 'aep_billable', missing)
+        # qty=0 → degenerate path → SmartSheet fallback
+        self.assertAlmostEqual(price, 33.33)
+
+    def test_helper_body_does_not_reference_forbidden_keys(self):
+        """Negative invariant: executable body does NOT read non-canonical fallback keys.
+
+        Per Blocker 2 acceptance criterion: the helper's EXECUTABLE
+        body (i.e. code excluding the docstring) MUST NOT call
+        ``row.get(...)`` against 'Billable Unit Code', 'Units Completed',
+        'Qty', '# Units', 'Total Price' (bare), or 'Redlined Total
+        Price'. Those names are the synonym surface, not the canonical
+        surface, and only the canonical keys exist by the time the row
+        reaches this helper. The docstring intentionally cites several
+        of these names as the documented synonym set, so we strip the
+        docstring before scanning.
+        """
+        import inspect
+        func = generate_weekly_pdfs._resolve_row_price
+        src = inspect.getsource(func)
+        # Strip the function's docstring (the first triple-quoted block
+        # after ``def``); the docstring mentions the synonym set on
+        # purpose for future-reader context. The executable body must
+        # not reference those tokens.
+        doc = inspect.getdoc(func) or ''
+        body = src
+        if doc:
+            # Remove every line that matches a docstring line; cheap
+            # but precise enough — the docstring is the only place that
+            # contains the long-form synonym citations.
+            for line in doc.splitlines():
+                if line.strip():
+                    body = body.replace(line, '')
+        # Check for the actual row.get(...) call pattern so a CODE
+        # COMMENT mentioning a forbidden token (e.g.,
+        # "Quantity ONLY — never 'Units Completed' (checkbox)")
+        # doesn't trip the negative invariant.
+        forbidden_keys = [
+            'Billable Unit Code',
+            'Units Completed',
+            'Qty',
+            '# Units',
+            'Total Price',  # bare — canonical is 'Units Total Price'
+            'Redlined Total Price',
+        ]
+        hits = []
+        for key in forbidden_keys:
+            if f"row.get('{key}')" in body or f'row.get("{key}")' in body:
+                hits.append(key)
+        self.assertEqual(
+            hits, [],
+            f"_resolve_row_price reads non-canonical keys: {hits} — Blocker 2 forbids; "
+            f"add synonyms in _validate_single_sheet instead.",
+        )
+
+
+class TestSubcontractorVariantFilenameSuffixes(unittest.TestCase):
+    """Plan 01-03 Task 2: generate_excel produces the 4 new variant filename suffixes."""
+
+    def _make_group_row(self, variant, wr='99887766', week='2026-04-19',
+                        snap='2026-04-19', helper_foreman='', cu='XYZ',
+                        work_type='Install', quantity=2, price='$0.00'):
+        return {
+            'Work Request #': wr,
+            'Weekly Reference Logged Date': week,
+            'Snapshot Date': snap,
+            'Units Completed?': True,
+            'Units Total Price': price,
+            'CU': cu,
+            'Work Type': work_type,
+            'Quantity': quantity,
+            'Customer Name': 'TestCustomer',
+            'Foreman': 'TestForeman',
+            'Dept #': '500',
+            'Job #': 'J-1',
+            '__effective_user': 'TestForeman',
+            '__current_foreman': helper_foreman or 'TestForeman',
+            '__variant': variant,
+            '__helper_foreman': helper_foreman,
+            '__helper_dept': '123' if helper_foreman else '',
+            '__helper_job': 'J-2' if helper_foreman else '',
+            '__week_ending_date': __import__('datetime').datetime(2026, 4, 19),
+        }
+
+    def setUp(self):
+        # Direct OUTPUT_FOLDER into a temp dir so tests don't pollute the repo.
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._orig_output_folder = generate_weekly_pdfs.OUTPUT_FOLDER
+        generate_weekly_pdfs.OUTPUT_FOLDER = self._tmpdir.name
+        # Seed rates so AEPBillable / ReducedSub price substitution
+        # is exercised (the suffix tests are independent of the price
+        # value, but instantiating workbook generation needs them).
+        self._orig_rates = dict(generate_weekly_pdfs._SUBCONTRACTOR_RATES)
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES.clear()
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES['XYZ'] = {
+            'cu_code': 'XYZ',
+            'cu_wbs': '999',
+            'compatible_unit_group': 'TestGroup',
+            'reduced_install_price': 10.0,
+            'reduced_remove_price': 5.0,
+            'reduced_transfer_price': 2.5,
+            'new_install_price': 20.0,
+            'new_remove_price': 12.0,
+            'new_transfer_price': 6.0,
+        }
+
+    def tearDown(self):
+        generate_weekly_pdfs.OUTPUT_FOLDER = self._orig_output_folder
+        self._tmpdir.cleanup()
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES.clear()
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES.update(self._orig_rates)
+
+    def test_aep_billable_filename_contains_AEPBillable_suffix(self):
+        """Test 1: variant='aep_billable' → filename contains _AEPBillable_."""
+        import datetime as dt
+        rows = [self._make_group_row('aep_billable')]
+        result = generate_weekly_pdfs.generate_excel(
+            '041926_99887766_AEPBILLABLE', rows, dt.datetime(2026, 4, 19),
+            data_hash='deadbeefcafebab0',
+        )
+        # Return is now a 5-tuple
+        excel_path, filename, wr_numbers = result[0], result[1], result[2]
+        self.assertIn('_AEPBillable_', filename)
+        self.assertNotIn('_Helper_', filename)
+        self.assertNotIn('_ReducedSub_', filename)
+        self.assertTrue(os.path.exists(excel_path), f"workbook not written: {excel_path}")
+
+    def test_reduced_sub_filename_contains_ReducedSub_suffix(self):
+        """variant='reduced_sub' → filename contains _ReducedSub_."""
+        import datetime as dt
+        rows = [self._make_group_row('reduced_sub')]
+        result = generate_weekly_pdfs.generate_excel(
+            '041926_99887766_REDUCEDSUB', rows, dt.datetime(2026, 4, 19),
+            data_hash='deadbeefcafebab1',
+        )
+        filename = result[1]
+        self.assertIn('_ReducedSub_', filename)
+        self.assertNotIn('_AEPBillable_', filename)
+        self.assertNotIn('_Helper_', filename)
+
+    def test_aep_billable_helper_filename_includes_sanitized_helper_name(self):
+        """Test 2: variant='aep_billable_helper' with helper 'Jane Smith' → filename includes _AEPBillable_Helper_Jane_Smith_."""
+        import datetime as dt
+        rows = [self._make_group_row('aep_billable_helper', helper_foreman='Jane Smith')]
+        result = generate_weekly_pdfs.generate_excel(
+            '041926_99887766_AEPBILLABLE_HELPER_Jane_Smith', rows,
+            dt.datetime(2026, 4, 19), data_hash='deadbeefcafebab2',
+        )
+        filename = result[1]
+        self.assertIn('_AEPBillable_Helper_Jane_Smith_', filename)
+
+    def test_reduced_sub_helper_filename_includes_sanitized_helper_name(self):
+        """variant='reduced_sub_helper' with helper 'Jane Smith' → filename includes _ReducedSub_Helper_Jane_Smith_."""
+        import datetime as dt
+        rows = [self._make_group_row('reduced_sub_helper', helper_foreman='Jane Smith')]
+        result = generate_weekly_pdfs.generate_excel(
+            '041926_99887766_REDUCEDSUB_HELPER_Jane_Smith', rows,
+            dt.datetime(2026, 4, 19), data_hash='deadbeefcafebab3',
+        )
+        filename = result[1]
+        self.assertIn('_ReducedSub_Helper_Jane_Smith_', filename)
+
+
+class TestSubcontractorVariantPriceSubstitution(unittest.TestCase):
+    """Plan 01-03 Task 2: generate_excel substitutes CSV-driven prices for the 4 new variants.
+
+    Tests verify the workbook on disk contains the rate × qty values
+    instead of the row's SmartSheet ``Units Total Price`` value.
+    """
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._orig_output_folder = generate_weekly_pdfs.OUTPUT_FOLDER
+        generate_weekly_pdfs.OUTPUT_FOLDER = self._tmpdir.name
+        self._orig_rates = dict(generate_weekly_pdfs._SUBCONTRACTOR_RATES)
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES.clear()
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES['ALB-6-AUR1'] = {
+            'cu_code': 'ALB-6-AUR1',
+            'cu_wbs': '100',
+            'compatible_unit_group': 'TestGroup',
+            'reduced_install_price': 45.95,
+            'reduced_remove_price': 33.33,
+            'reduced_transfer_price': 106.54,
+            'new_install_price': 52.58,
+            'new_remove_price': 38.14,
+            'new_transfer_price': 121.93,
+        }
+
+    def tearDown(self):
+        generate_weekly_pdfs.OUTPUT_FOLDER = self._orig_output_folder
+        self._tmpdir.cleanup()
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES.clear()
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES.update(self._orig_rates)
+
+    def _make_row(self, variant, cu='ALB-6-AUR1', work_type='Install',
+                  qty=2, smartsheet_price='$999.00'):
+        import datetime as dt
+        return {
+            'Work Request #': '99887766',
+            'Weekly Reference Logged Date': '2026-04-19',
+            'Snapshot Date': '2026-04-19',
+            'Units Completed?': True,
+            'Units Total Price': smartsheet_price,
+            'CU': cu,
+            'Work Type': work_type,
+            'Quantity': qty,
+            'Customer Name': 'TestCustomer',
+            'Foreman': 'TestForeman',
+            'Dept #': '500',
+            'Job #': 'J-1',
+            '__effective_user': 'TestForeman',
+            '__current_foreman': 'TestForeman',
+            '__variant': variant,
+            '__helper_foreman': '',
+            '__helper_dept': '',
+            '__helper_job': '',
+            '__week_ending_date': dt.datetime(2026, 4, 19),
+        }
+
+    def _read_pricing_cells(self, excel_path):
+        """Return all numeric values found in column H of the daily-block rows.
+
+        Column H is the ``Pricing`` column written by ``write_day_block``.
+        We collect every numeric value > 0 (skipping headers/labels which
+        are strings, and the TOTAL row which uses the same column but
+        represents a sum).
+        """
+        import openpyxl
+        wb = openpyxl.load_workbook(excel_path)
+        ws = wb.active
+        prices = []
+        totals = []
+        for row in ws.iter_rows(values_only=True):
+            for ci, val in enumerate(row):
+                if ci == 7 and isinstance(val, (int, float)) and val > 0:
+                    # Column H (0-indexed 7) is Pricing. Distinguish
+                    # row-level prices from the TOTAL row by checking
+                    # if column A contains 'TOTAL'.
+                    if row[0] == 'TOTAL':
+                        totals.append(val)
+                    else:
+                        prices.append(val)
+        return prices, totals
+
+    def test_aep_billable_workbook_uses_new_install_price_times_qty(self):
+        """Test 3 (D-08): aep_billable row → Pricing cell = new_install_price × Quantity."""
+        import datetime as dt
+        rows = [self._make_row('aep_billable', work_type='Install', qty=3)]
+        result = generate_weekly_pdfs.generate_excel(
+            '041926_99887766_AEPBILLABLE', rows, dt.datetime(2026, 4, 19),
+            data_hash='deadbeef00000001',
+        )
+        excel_path = result[0]
+        prices, totals = self._read_pricing_cells(excel_path)
+        # new_install_price 52.58 × 3 = 157.74
+        self.assertEqual(len(prices), 1)
+        self.assertAlmostEqual(prices[0], 157.74, places=2)
+        # Must NOT be the SmartSheet 999.0
+        self.assertNotAlmostEqual(prices[0], 999.0, places=2)
+
+    def test_reduced_sub_workbook_uses_reduced_install_price_times_qty(self):
+        """Test 4 (SUB-02): reduced_sub row → Pricing cell = reduced_install_price × Quantity."""
+        import datetime as dt
+        rows = [self._make_row('reduced_sub', work_type='Install', qty=4)]
+        result = generate_weekly_pdfs.generate_excel(
+            '041926_99887766_REDUCEDSUB', rows, dt.datetime(2026, 4, 19),
+            data_hash='deadbeef00000002',
+        )
+        excel_path = result[0]
+        prices, _ = self._read_pricing_cells(excel_path)
+        # reduced_install_price 45.95 × 4 = 183.80
+        self.assertEqual(len(prices), 1)
+        self.assertAlmostEqual(prices[0], 183.80, places=2)
+
+    def test_missing_cu_aep_billable_keeps_smartsheet_price(self):
+        """Test 5 (D-16): unknown CU + aep_billable → keep SmartSheet price (no zero-out, no raise)."""
+        import datetime as dt
+        rows = [self._make_row('aep_billable', cu='UNKNOWN_CU', smartsheet_price='$77.50', qty=5)]
+        result = generate_weekly_pdfs.generate_excel(
+            '041926_99887766_AEPBILLABLE', rows, dt.datetime(2026, 4, 19),
+            data_hash='deadbeef00000003',
+        )
+        excel_path = result[0]
+        prices, _ = self._read_pricing_cells(excel_path)
+        # Must retain SmartSheet 77.50 (NOT zero out, NOT compute from missing rate)
+        self.assertEqual(len(prices), 1)
+        self.assertAlmostEqual(prices[0], 77.50, places=2)
+        # Missing CU must surface in the return tuple's missing_cus Counter
+        missing_cus = result[4]
+        self.assertIn('UNKNOWN_CU', missing_cus)
+
+    def test_primary_variant_keeps_smartsheet_price_unchanged(self):
+        """Test 7: primary variant → SmartSheet pricing unchanged (D-14 invariant)."""
+        import datetime as dt
+        rows = [self._make_row('primary', cu='ALB-6-AUR1', smartsheet_price='$42.42', qty=1)]
+        # NOTE: primary group_key has no _AEPBILLABLE/_REDUCEDSUB suffix
+        result = generate_weekly_pdfs.generate_excel(
+            '041926_99887766', rows, dt.datetime(2026, 4, 19),
+            data_hash='deadbeef00000004',
+        )
+        excel_path = result[0]
+        prices, _ = self._read_pricing_cells(excel_path)
+        # Even though ALB-6-AUR1 is in rates, primary variant must keep SmartSheet price
+        self.assertEqual(len(prices), 1)
+        self.assertAlmostEqual(prices[0], 42.42, places=2)
+
+
+class TestGenerateExcelReturnTupleShape(unittest.TestCase):
+    """Plan 01-03 Task 2 / Blocker 4: generate_excel returns a 5-tuple."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._orig_output_folder = generate_weekly_pdfs.OUTPUT_FOLDER
+        generate_weekly_pdfs.OUTPUT_FOLDER = self._tmpdir.name
+
+    def tearDown(self):
+        generate_weekly_pdfs.OUTPUT_FOLDER = self._orig_output_folder
+        self._tmpdir.cleanup()
+
+    def test_return_is_5_tuple(self):
+        """Return is a 5-tuple: (excel_path, filename, wr_numbers, customer_name, missing_cus)."""
+        import datetime as dt
+        from collections import Counter
+        row = {
+            'Work Request #': '12345678',
+            'Weekly Reference Logged Date': '2026-04-19',
+            'Snapshot Date': '2026-04-19',
+            'Units Completed?': True,
+            'Units Total Price': '$100.00',
+            'CU': 'ABC',
+            'Work Type': 'Install',
+            'Quantity': 2,
+            'Customer Name': 'Acme',
+            'Foreman': 'F1',
+            'Dept #': '500',
+            'Job #': 'J',
+            '__effective_user': 'F1',
+            '__current_foreman': 'F1',
+            '__variant': 'primary',
+            '__week_ending_date': dt.datetime(2026, 4, 19),
+        }
+        result = generate_weekly_pdfs.generate_excel(
+            '041926_12345678', [row], dt.datetime(2026, 4, 19),
+            data_hash='deadbeef00000099',
+        )
+        self.assertEqual(len(result), 5,
+                         f"generate_excel must return 5-tuple per Blocker 4; got {len(result)}-tuple")
+        excel_path, filename, wr_numbers, customer_name, missing_cus = result
+        self.assertTrue(os.path.exists(excel_path))
+        self.assertEqual(customer_name, 'Acme')
+        self.assertIsInstance(missing_cus, Counter)
+
+
+class TestSubcontractorMissingCUWarning(unittest.TestCase):
+    """Plan 01-03 Task 2 Change 3 (D-17): one WARNING per sheet at end-of-sheet processing.
+
+    The WARNING text MUST contain the marker
+    ``'Subcontractor rates CSV missing'`` (added to _PII_LOG_MARKERS in
+    Plan 2) so the Sentry sanitizer drops it from before_send_log.
+    """
+
+    def test_warning_text_marker_present_in_module(self):
+        """The WARNING template uses the stable marker the sanitizer recognises."""
+        import inspect
+        src = inspect.getsource(generate_weekly_pdfs)
+        self.assertIn(
+            'Subcontractor rates CSV missing', src,
+            "Missing-CU WARNING template must include the marker "
+            "'Subcontractor rates CSV missing' for _PII_LOG_MARKERS sanitization",
+        )
+
+
+class TestSubcontractorVariantKillSwitchAndScope(unittest.TestCase):
+    """Plan 01-03 Task 3: kill-switch + ORIG-folder no-op regression coverage.
+
+    Pins three invariants:
+
+    1. ``SUBCONTRACTOR_RATE_VARIANTS_ENABLED=False`` short-circuits the
+       new variant emission at the per-row gate in ``group_source_rows``
+       (D-13 — operator emergency kill).
+    2. A row whose ``__source_sheet_id`` is in
+       ``_FOLDER_DISCOVERED_ORIG_IDS`` ONLY (not in SUB) emits NO new
+       variant keys regardless of kill-switch state (SUB-06 — original-
+       contract folders are unreachable through the new code path).
+    3. A row on a sheet misconfigured into BOTH sets follows
+       subcontractor-membership: the per-row gate fires on SUB
+       membership (subcontractor exclusion stays primary in
+       ``_fetch_and_process_sheet`` per Living Ledger 2026-04-24 11:30
+       so the subcontractor flow runs end-to-end).
+    """
+
+    _SUB_SHEET_ID = 8162920222379908
+    _ORIG_SHEET_ID = 7644752003786628
+
+    def setUp(self):
+        # Snapshot module state per the 2026-04-22 16:05 ledger rule
+        # on test isolation; a sub-test that mutates folder ids or
+        # the kill switch must not leak to unrelated suites.
+        self._orig_enabled = generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED
+        self._orig_sub_ids = set(generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS)
+        self._orig_orig_ids = set(generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS)
+
+    def tearDown(self):
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = self._orig_enabled
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.update(self._orig_sub_ids)
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.update(self._orig_orig_ids)
+
+    def _make_sub_row(self, wr='WR_K', snapshot='2026-04-19',
+                       source_sheet_id=None):
+        if source_sheet_id is None:
+            source_sheet_id = self._SUB_SHEET_ID
+        return {
+            'Work Request #': wr,
+            'Weekly Reference Logged Date': '2026-04-19',
+            'Snapshot Date': snapshot,
+            'Units Completed?': True,
+            'Units Total Price': '$100.00',
+            '__effective_user': 'TestForeman',
+            '__assignment_method': 'FOREMAN_COLUMN',
+            '__is_helper_row': False,
+            '__helper_foreman': '',
+            '__helper_dept': '',
+            '__helper_job': '',
+            '__is_vac_crew': False,
+            '__source_sheet_id': source_sheet_id,
+        }
+
+    def test_kill_switch_disables_new_variant_emission(self):
+        """Test 1: SUBCONTRACTOR_RATE_VARIANTS_ENABLED=False → no new variant keys (D-13)."""
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = False
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.add(self._SUB_SHEET_ID)
+        row = self._make_sub_row(snapshot='2026-04-19')
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        # No new variant keys regardless of post-cutoff snapshot
+        self.assertFalse(
+            any('_AEPBILLABLE' in k for k in keys),
+            f"Kill switch must suppress _AEPBILLABLE keys; got: {keys}",
+        )
+        self.assertFalse(
+            any('_REDUCEDSUB' in k for k in keys),
+            f"Kill switch must suppress _REDUCEDSUB keys; got: {keys}",
+        )
+
+    def test_orig_folder_sheet_emits_no_new_variants(self):
+        """Test 2: ``__source_sheet_id`` in ORIG only → no new variant keys (SUB-06)."""
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = True
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        # Don't add the orig sheet to SUB
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.add(self._ORIG_SHEET_ID)
+        row = self._make_sub_row(
+            wr='WR_ORIG',
+            snapshot='2026-04-19',
+            source_sheet_id=self._ORIG_SHEET_ID,
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        self.assertFalse(
+            any('_AEPBILLABLE' in k or '_REDUCEDSUB' in k for k in keys),
+            f"ORIG-only sheet must emit no new variant keys; got: {keys}",
+        )
+
+    def test_dual_folder_membership_subcontractor_precedence(self):
+        """Test 3: sheet in BOTH SUB and ORIG → per-row gate emits new variants.
+
+        Per D-22 / 2026-04-24 11:30, the subcontractor-exclusion check
+        in ``_fetch_and_process_sheet`` (line ~3194) ensures
+        subcontractor flow runs when a sheet is misconfigured into
+        both folder sets; the new variant emission follows the same
+        rule because the per-row gate fires on SUB membership (the row
+        only carries one sheet id and that id's membership in
+        ``_FOLDER_DISCOVERED_SUB_IDS`` triggers emission).
+        """
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = True
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.clear()
+        # Misconfigure: sheet id in BOTH sets.
+        shared_sheet_id = 9999999999999
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.add(shared_sheet_id)
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.add(shared_sheet_id)
+        row = self._make_sub_row(
+            wr='WR_DUAL',
+            snapshot='2026-04-19',
+            source_sheet_id=shared_sheet_id,
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        # Subcontractor membership wins for emission — confirm new
+        # variant keys ARE present.
+        self.assertTrue(
+            any('_REDUCEDSUB' in k for k in keys),
+            f"Dual membership: subcontractor precedence must emit _REDUCEDSUB; got: {keys}",
+        )
+        self.assertTrue(
+            any('_AEPBILLABLE' in k for k in keys),
+            f"Dual membership: subcontractor precedence must emit _AEPBILLABLE (post-cutoff); got: {keys}",
+        )
+
+    def test_unparseable_snapshot_date_does_not_emit_aep_billable(self):
+        """Test 4: unparseable Snapshot Date → _REDUCEDSUB only, no _AEPBILLABLE.
+
+        Defensive guard: ``excel_serial_to_date('not-a-date')``
+        returns ``None`` so the AEP-Billable cutoff check returns
+        False safely. ReducedSub is unconditional and still emits.
+        """
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = True
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.add(self._SUB_SHEET_ID)
+        row = self._make_sub_row(
+            wr='WR_BAD_SNAP',
+            snapshot='not-a-date',  # unparseable
+            source_sheet_id=self._SUB_SHEET_ID,
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        self.assertTrue(
+            any('_REDUCEDSUB' in k for k in keys),
+            f"Unparseable snapshot: _REDUCEDSUB still unconditional; got: {keys}",
+        )
+        self.assertFalse(
+            any('_AEPBILLABLE' in k for k in keys),
+            f"Unparseable snapshot must suppress _AEPBILLABLE; got: {keys}",
+        )
+
+
+class TestSubcontractorVariantOpenpyxlCompliance(unittest.TestCase):
+    """Plan 01-03 Task 2 Test 8: no raw merge_cells / no xlsxwriter / no oddFooter."""
+
+    def test_no_xlsxwriter_import(self):
+        """openpyxl-only contract preserved (.claude/rules/smartsheet-python-optimization.md)."""
+        with open(generate_weekly_pdfs.__file__, 'r', encoding='utf-8') as f:
+            src = f.read()
+        self.assertNotIn('xlsxwriter', src)
+
+    def test_no_oddFooter_right_text_assignment(self):
+        """Known XML corruption vector must remain absent as an assignment (CLAUDE.md Critical Pitfalls).
+
+        The existing module has a single NOTE comment mentioning the
+        attribute name as a guardrail for future contributors — that
+        is expected. Ban only the *assignment* pattern.
+        """
+        with open(generate_weekly_pdfs.__file__, 'r', encoding='utf-8') as f:
+            src = f.read()
+        # Look for assignment targets like ``.oddFooter.right.text = `` or
+        # an actual attribute write. The comment line is the only
+        # legitimate occurrence today; an assignment would be a regression.
+        import re
+        assignment_pattern = re.compile(r'\.oddFooter\.right\.text\s*=')
+        hits = assignment_pattern.findall(src)
+        self.assertEqual(hits, [], "oddFooter.right.text MUST NOT be assigned — XML corruption vector")
+
+
 if __name__ == '__main__':
     unittest.main()
