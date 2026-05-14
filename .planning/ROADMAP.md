@@ -32,7 +32,7 @@ Express explorer routes are tracked as v1.1+ scope.
 - Decimal phases (e.g., 1.1, 2.1): Urgent insertions inserted via
   `/gsd-insert-phase` (none yet)
 
-- [x] **Phase 1: Subcontractor Rate Logic Modification** — Two new Excel
+- [ ] **Phase 1: Subcontractor Rate Logic Modification** — Two new Excel
   variants (`_AEPBillable`, `_ReducedSub`) for subcontractor WR groups,
   routed to original-PPP and new-subcontractor-PPP target sheets, with
   shadow-foreman/helper support. ✅ Complete 2026-05-14 — all 6 plans
@@ -140,5 +140,5 @@ Phases execute in numeric order: 1 → 2
 
 | Phase                                            | Plans Complete | Status                       | Completed  |
 |--------------------------------------------------|----------------|------------------------------|------------|
-| 1. Subcontractor Rate Logic Modification         | 6/6            | ✅ Complete                  | 2026-05-14 |
+| 1. Subcontractor Rate Logic Modification         | 6/6 (gaps)     | ⚠ Gaps Found — code review   | -          |
 | 2. Railway → Render Pre-Migration ADR (DEFERRED) | 0/TBD          | Deferred — out of v1.0 scope | -          |

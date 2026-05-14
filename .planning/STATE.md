@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Subcontractor Rate Logic
-status: complete
-stopped_at: Phase 01 complete (Plan 06 SUMMARY committed; all 6 plans done)
-last_updated: "2026-05-14T21:30:00.000Z"
-last_activity: 2026-05-14 -- Phase 01 complete (all 6 plans done; ready to ship)
+status: gaps_found
+stopped_at: Phase 01 code review surfaced 3 BLOCKERs — gap closure pending
+last_updated: "2026-05-14T23:45:00.000Z"
+last_activity: 2026-05-14 -- Code review found 3 blockers in main-loop integration; awaiting /gsd-plan-phase 01 --gaps
 progress:
   total_phases: 1
-  completed_phases: 1
+  completed_phases: 0
   total_plans: 6
   completed_plans: 6
-  percent: 100
+  percent: 90
 ---
 
 # Project State
@@ -27,12 +27,12 @@ billing-grade Excel reports without regression.
 
 ## Current Position
 
-Phase: 01 (Subcontractor Rate Logic Modification) — COMPLETE
-Plan: 6 of 6 (DONE)
-Status: Phase 01 complete; ready to ship via PR
-Last activity: 2026-05-14 -- Plan 01-06 SUMMARY committed; STATE + ROADMAP updated
+Phase: 01 (Subcontractor Rate Logic Modification) — GAPS FOUND (code review)
+Plan: 6 of 6 plans implemented; 0 of N gap-closure plans (TBD)
+Status: All plan SUMMARYs committed; VERIFICATION passed code-side; REVIEW.md flagged 3 BLOCKERs (CR-01/02/03) in main-loop integration. Phase NOT yet shippable.
+Last activity: 2026-05-14 -- /gsd-code-review 01 surfaced 3 blockers; awaiting /gsd-plan-phase 01 --gaps
 
-Progress: [██████████] 100%
+Progress: [█████████░] 90% (implementation done; gap closure pending)
 
 ## Performance Metrics
 
@@ -137,10 +137,19 @@ Items acknowledged and carried forward to v1.1+:
 
 ## Session Continuity
 
-Last session: 2026-05-14T21:30:00.000Z
-Stopped at: Phase 01 complete (all 6 plans done; ready to ship via PR)
-Next step: Open PR for Phase 01 merge; CLAUDE.md Living Ledger
-entry will append autonomously per the cloud-memory-injection
-rule. Operator must apply `billing_audit/schema.sql` to Supabase
-before the first scheduled production run after merge.
-Resume file: None (Phase 01 complete)
+Last session: 2026-05-14T23:45:00.000Z
+Stopped at: Phase 01 code review flagged 3 BLOCKERs (main-loop integration gaps not caught by unit tests). Implementation and tests are done across 6 plans; phase is NOT shippable until the BLOCKERs are addressed.
+
+Next step: `/gsd-plan-phase 01 --gaps` — reads 01-VERIFICATION.md + 01-REVIEW.md and creates a focused gap-closure phase with the 3 BLOCKERs (and optionally the 6 WARNINGs) as plans.
+
+Blocker summary (see 01-REVIEW.md for full detail):
+  CR-01 — Helper-shadow variants' `file_identifier` falls through to User branch (attachment-skip optimization broken on `_AEPBillable_Helper_*` / `_ReducedSub_Helper_*` files; orphan accumulation on PPP sheet)
+  CR-02 — `EXCLUDE_WRS` matcher doesn't recognize the 4 new variant group keys
+  CR-03 — `WR_FILTER` mirror bug; Step B operator verification path silently broken
+
+Operator items still pending (post-gap-closure):
+
+- Apply `billing_audit/schema.sql` to Supabase before the first scheduled production run after merge
+- Step B real-data SKIP_UPLOAD price-write spot-check (deferred to scheduled GHA run OR local re-run with rotated token)
+
+Resume file: .planning/phases/01-subcontractor-rate-logic-modification/01-REVIEW.md
