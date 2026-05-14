@@ -5066,6 +5066,133 @@ def create_target_sheet_map(client):
     """
     return create_target_sheet_map_for(client, TARGET_SHEET_ID)
 
+
+def _build_upload_tasks_for_group(
+    *,
+    variant,
+    wr_num,
+    target_map,
+    target_map_ppp,
+    excel_path,
+    filename,
+    identifier,
+    file_identifier,
+    data_hash,
+    week_raw,
+    group_key,
+):
+    """Build the list of upload-task dicts for a single generated
+    Excel file.
+
+    Phase 01 Plan 04 Task 2: routes ``reduced_sub`` /
+    ``reduced_sub_helper`` to BOTH ``TARGET_SHEET_ID`` and
+    ``SUBCONTRACTOR_PPP_SHEET_ID`` (D-12 / SUB-03); every other
+    variant routes to ``TARGET_SHEET_ID`` only. Each task carries
+    its own ``target_sheet_id`` so the ``_upload_one`` worker
+    resolves uploads to the correct sheet without consulting a
+    global.
+
+    Sanitization parity (Warning 9): the same ``wr_num`` value is
+    reused for both ``target_map[wr_num]`` and
+    ``target_map_ppp[wr_num]`` lookups. Because
+    ``_RE_SANITIZE_HELPER_NAME`` is idempotent and both maps are
+    populated using it at producer-side (see
+    ``create_target_sheet_map_for``), this single sanitisation upstream
+    is sufficient — no re-sanitisation is needed at the consumer.
+
+    Independent quarantine (Warning 5 / round-6): the two target_maps
+    own their own quarantine sets. If a WR# is quarantined on one
+    sheet, the lookup returns False there but may still succeed on
+    the other sheet — producing exactly the upload behaviour
+    operators expect (uploads only to sheets whose WR# is
+    unambiguous, with operator-visible WARNINGs on the quarantined
+    side).
+
+    Args:
+        variant: One of ``primary`` / ``helper`` / ``vac_crew`` /
+            ``aep_billable`` / ``aep_billable_helper`` /
+            ``reduced_sub`` / ``reduced_sub_helper``.
+        wr_num: Sanitised WR# (already passed through
+            ``_RE_SANITIZE_HELPER_NAME`` at the main-loop derivation
+            site).
+        target_map: Primary ``TARGET_SHEET_ID`` mapping
+            (``{sanitized_wr: row}``).
+        target_map_ppp: Secondary ``SUBCONTRACTOR_PPP_SHEET_ID``
+            mapping; empty / unreachable → reduced-sub routing
+            degrades to single-target with a WARNING.
+        excel_path / filename / identifier / file_identifier /
+            data_hash / week_raw / group_key: Pass-through payload
+            consumed by ``_upload_one``.
+
+    Returns:
+        A list of upload-task dicts. ``[]`` if ``wr_num`` is blank
+        or neither map carries the WR.
+    """
+    if not wr_num:
+        return []
+
+    upload_tasks: list = []
+
+    # Primary leg — every variant routes here, including
+    # reduced_sub / reduced_sub_helper. The primary leg always runs
+    # first so a missing-WR warning consistently mentions
+    # TARGET_SHEET_ID first.
+    if wr_num in target_map:
+        upload_tasks.append({
+            'excel_path': excel_path,
+            'filename': filename,
+            'wr_num': wr_num,
+            'target_row': target_map[wr_num],
+            'target_sheet_id': TARGET_SHEET_ID,
+            'variant': variant,
+            'identifier': identifier,
+            'file_identifier': file_identifier,
+            'data_hash': data_hash,
+            'week_raw': week_raw,
+            'group_key': group_key,
+        })
+    else:
+        # WR not on TARGET_SHEET_ID. Name the sheet id explicitly so
+        # operators know which sheet to dedup / add the WR to (or to
+        # check the source-side quarantine). Fires for both the
+        # "map populated but WR absent" case and the "map empty —
+        # PPP sheet unreachable / TEST_MODE" degraded case, since
+        # both produce the same operator-actionable surface.
+        logging.warning(
+            f"⚠️ Work request {wr_num} not found in target sheet "
+            f"{TARGET_SHEET_ID}"
+        )
+
+    # Second leg — only for reduced_sub variants per D-12 / SUB-03.
+    if variant in ('reduced_sub', 'reduced_sub_helper'):
+        if wr_num in target_map_ppp:
+            upload_tasks.append({
+                'excel_path': excel_path,
+                'filename': filename,
+                'wr_num': wr_num,
+                'target_row': target_map_ppp[wr_num],
+                'target_sheet_id': SUBCONTRACTOR_PPP_SHEET_ID,
+                'variant': variant,
+                'identifier': identifier,
+                'file_identifier': file_identifier,
+                'data_hash': data_hash,
+                'week_raw': week_raw,
+                'group_key': group_key,
+            })
+        else:
+            # WR not on PPP sheet. Degrade gracefully — the primary
+            # leg still runs (if it found the WR) and operators see
+            # a sheet-specific WARNING with the PPP sheet id so they
+            # can tell at a glance which sheet to update.
+            logging.warning(
+                f"⚠️ Work request {wr_num} not found in "
+                f"subcontractor PPP target sheet "
+                f"{SUBCONTRACTOR_PPP_SHEET_ID}"
+            )
+
+    return upload_tasks
+
+
 # Modified By cache loading removed - using direct column assignment only
 
 # --- MAIN EXECUTION ---
@@ -6249,30 +6376,39 @@ def main():
                 _groups_generated += 1
                 generated_filenames.append(filename)
                 
-                # Collect upload task for parallel processing (instead
-                # of uploading serially). ``wr_numbers`` is returned raw
-                # by ``generate_excel`` — do NOT read from it here; the
-                # filename, hash-history key, attachment prefix match,
-                # and target_map key all use the sanitized main-loop
-                # ``wr_num`` and must stay aligned to avoid repeated
-                # regeneration and orphaned duplicate attachments on
-                # subsequent runs.
-                if not TEST_MODE and target_map and wr_num:
-                    if wr_num in target_map:
-                        _upload_tasks.append({
-                            'excel_path': excel_path,
-                            'filename': filename,
-                            'wr_num': wr_num,
-                            'target_row': target_map[wr_num],
-                            'variant': variant,
-                            'identifier': identifier,
-                            'file_identifier': file_identifier,
-                            'data_hash': data_hash,
-                            'week_raw': week_raw,
-                            'group_key': group_key,
-                        })
-                    else:
-                        logging.warning(f"⚠️ Work request {wr_num} not found in target sheet")
+                # Collect upload task(s) for parallel processing
+                # (instead of uploading serially). ``wr_numbers`` is
+                # returned raw by ``generate_excel`` — do NOT read
+                # from it here; the filename, hash-history key,
+                # attachment prefix match, and target_map key all use
+                # the sanitised main-loop ``wr_num`` and must stay
+                # aligned to avoid repeated regeneration and orphaned
+                # duplicate attachments on subsequent runs.
+                #
+                # Phase 01 Plan 04 Task 2: dispatch routing decisions
+                # to ``_build_upload_tasks_for_group``. For
+                # ``reduced_sub`` / ``reduced_sub_helper`` variants the
+                # helper returns TWO tasks (one per target sheet); for
+                # every other variant it returns ONE task on
+                # ``TARGET_SHEET_ID``. Each task carries its own
+                # ``target_sheet_id`` so the ``_upload_one`` worker
+                # routes to the correct sheet without consulting a
+                # global.
+                if not TEST_MODE and wr_num:
+                    _new_upload_tasks = _build_upload_tasks_for_group(
+                        variant=variant,
+                        wr_num=wr_num,
+                        target_map=target_map,
+                        target_map_ppp=target_map_ppp,
+                        excel_path=excel_path,
+                        filename=filename,
+                        identifier=identifier,
+                        file_identifier=file_identifier,
+                        data_hash=data_hash,
+                        week_raw=week_raw,
+                        group_key=group_key,
+                    )
+                    _upload_tasks.extend(_new_upload_tasks)
 
                 # Update hash history with variant-aware key (even in TEST_MODE so future prod runs can leverage)
                 hash_history[history_key] = {
@@ -6351,7 +6487,20 @@ def main():
             logging.info(f"{'='*60}")
 
             def _upload_one(task):
-                """Delete old attachment + upload new one for a single group."""
+                """Delete old attachment + upload new one for a single group.
+
+                Phase 01 Plan 04 Task 2: routing target is resolved
+                from ``task['target_sheet_id']`` instead of the
+                module-level primary sheet id. The upload-task
+                builder (``_build_upload_tasks_for_group``) sets the
+                sheet id per-task — ``primary`` / ``aep_billable``
+                / etc. point at the primary sheet; the second leg
+                of a ``reduced_sub`` fan-out points at the
+                subcontractor PPP sheet. The worker is otherwise
+                oblivious to which sheet it is uploading to — and
+                that's the point: routing decisions live in the
+                builder, mutations live in the worker.
+                """
                 max_retries = 4
                 last_err = None
                 for attempt in range(max_retries):
@@ -6360,7 +6509,7 @@ def main():
                         force_this = FORCE_GENERATION or (task['week_raw'] in REGEN_WEEKS)
 
                         deleted_count, skipped = delete_old_excel_attachments(
-                            client, TARGET_SHEET_ID, target_row, task['wr_num'],
+                            client, task['target_sheet_id'], target_row, task['wr_num'],
                             task['week_raw'], task['data_hash'],
                             variant=task['variant'], identifier=task['file_identifier'],
                             force_generation=force_this,
@@ -6375,11 +6524,14 @@ def main():
                         if not SKIP_UPLOAD:
                             with open(task['excel_path'], 'rb') as file:
                                 client.Attachments.attach_file_to_row(
-                                    TARGET_SHEET_ID,
+                                    task['target_sheet_id'],
                                     target_row.id,
                                     (task['filename'], file, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
                                 )
-                            logging.info(f"✅ Uploaded: {task['filename']}")
+                            logging.info(
+                                f"✅ Uploaded: {task['filename']} → sheet "
+                                f"{task['target_sheet_id']}"
+                            )
                             return 'uploaded'
                         else:
                             logging.info(f"⏭️  Skipping upload (SKIP_UPLOAD=true): {task['filename']}")
