@@ -1,3 +1,19 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: Subcontractor Rate Logic
+status: Ready to discuss (run `/gsd-discuss-phase 1`)
+stopped_at: Phase 1 context gathered
+last_updated: "2026-05-14T18:01:37.614Z"
+last_activity: 2026-05-14 — bootstrapped `.planning/` from ingested
+progress:
+  total_phases: 1
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
+---
+
 # Project State
 
 ## Project Reference
@@ -24,6 +40,7 @@ Progress: [░░░░░░░░░░] 0%
 ## Performance Metrics
 
 **Velocity:**
+
 - Total plans completed: 0
 - Average duration: — min
 - Total execution time: — hours
@@ -35,6 +52,7 @@ Progress: [░░░░░░░░░░] 0%
 | - | - | - | - |
 
 **Recent Trend:**
+
 - Last 5 plans: —
 - Trend: — (no execution history yet)
 
@@ -56,16 +74,20 @@ Recent decisions affecting Phase 1:
 - [2026-04-25 14:00] `freeze_row` parallelization contract — new
   variants must extend the same `ThreadPoolExecutor` pattern in the
   main group loop.
+
 - [2026-04-25 12:00] `billing_audit/schema.sql` DDL must ship in the
   same PR — SUB-07 `variant` column in `pipeline_run` is bound by
   this rule.
+
 - [2026-04-24 14:30] CSV-side rate recalc retired at workflow layer
   — Phase 1 must NOT re-introduce `RATE_CUTOFF_DATE` / `NEW_RATES_CSV`
   / `OLD_RATES_CSV`; new subcontractor rates load from
   `data/subcontractor_rates.csv` instead.
+
 - [2026-04-24 11:30] `RATE_RECALC_SKIP_ORIGINAL_CONTRACT` guard —
   pattern for SUB-06's "no subcontractor logic on ORIG sheets"
   requirement.
+
 - [2026-04-23 21:00 round-9] Source-side WR collision quarantine key
   is the sanitized WR alone — Phase 1 must extend (not replace) the
   existing pre-scan to cover `_AEPBillable` and `_ReducedSub`.
@@ -83,6 +105,7 @@ None yet.
 - `.planning/INGEST-CONFLICTS.md` INFO #8: pre-migration ADR for
   Railway → Render is missing under `memory-bank/adr/`. **Addressed
   by Phase 2** (MIG-01). Not blocking Phase 1 execution.
+
 - `data/subcontractor_rates.csv` mentioned in orchestrator prompt
   must be authored (or confirmed present) before Phase 1 plan-level
   decomposition — SUB-04 depends on the file existing with the 9
@@ -104,10 +127,10 @@ Items acknowledged and carried forward to v1.1+:
 
 ## Session Continuity
 
-Last session: 2026-05-14 (planning bootstrap)
-Stopped at: Created `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`,
+Last session: 2026-05-14T18:01:37.607Z
+Stopped at: Phase 1 context gathered
 `.planning/ROADMAP.md`, and this `STATE.md` from the ingested intel
 set. Living Ledger treated as ADR-equivalent locked per the
 INGEST-CONFLICTS WARNING (user-confirmed). Ready for
 `/gsd-discuss-phase 1`.
-Resume file: None
+Resume file: .planning/phases/01-subcontractor-rate-logic-modification/01-CONTEXT.md
