@@ -761,6 +761,24 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     # filename catch-all is not sufficient for these paths.
     "Purged attachment:",
     "Failed to purge attachment",
+    # Phase 01 Plan 02 D-22: subcontractor variant group keys and
+    # group-creation INFO logs (Plan 3 will emit
+    # ``AEP BILLABLE GROUP CREATED`` / ``REDUCED SUB GROUP CREATED``
+    # plus a missing-CU WARNING that embeds the literal CU code).
+    # The group-key tokens (``_AEPBILLABLE`` / ``_REDUCEDSUB`` /
+    # the ``_HELPER_`` suffixed variants) cover any log body that
+    # embeds the variant's group key — equivalent to the existing
+    # ``_HELPER_`` / ``_VACCREW`` markers for the legacy variant set.
+    # Locking these in Plan 02 (before Plan 3 emits them) keeps the
+    # sanitizer ahead of the call sites, per Living Ledger
+    # 2026-04-20 12:00 defense-in-depth rule.
+    "_AEPBILLABLE",
+    "_REDUCEDSUB",
+    "_AEPBILLABLE_HELPER_",
+    "_REDUCEDSUB_HELPER_",
+    "AEP BILLABLE GROUP CREATED",
+    "REDUCED SUB GROUP CREATED",
+    "Subcontractor rates CSV missing",
 )
 
 
