@@ -516,6 +516,229 @@ class TestVacCrewHashAggregation(unittest.TestCase):
         )
 
 
+class TestSubcontractorVariantHashAggregation(unittest.TestCase):
+    """Regression tests for the Phase 01 Plan 02 D-20 fingerprint mix-in.
+
+    ``calculate_data_hash()`` must mix ``_SUBCONTRACTOR_RATES_FINGERPRINT``
+    into the hash for the four new subcontractor variants
+    (``aep_billable``, ``reduced_sub``, ``aep_billable_helper``,
+    ``reduced_sub_helper``) so a CSV edit invalidates cached files
+    for those variants and forces regeneration.
+
+    Conversely, primary / helper / vac_crew hashes MUST remain
+    byte-identical under fingerprint mutation so the ROADMAP success
+    criterion 5 (existing outputs byte-identical to pre-change run)
+    is preserved.
+    """
+
+    def setUp(self):
+        # Mirror the TestVacCrewHashAggregation isolation pattern.
+        # Pin every module global that calculate_data_hash() reads
+        # so developer-env overrides cannot destabilize the suite,
+        # and so a single test's mutation cannot leak into other
+        # tests in the same pytest run.
+        self._saved_ext = generate_weekly_pdfs.EXTENDED_CHANGE_DETECTION
+        self._saved_cutoff = generate_weekly_pdfs.RATE_CUTOFF_DATE
+        self._saved_rates_fp = generate_weekly_pdfs._RATES_FINGERPRINT
+        self._saved_sub_fp = generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT
+        generate_weekly_pdfs.EXTENDED_CHANGE_DETECTION = True
+        generate_weekly_pdfs.RATE_CUTOFF_DATE = None
+        generate_weekly_pdfs._RATES_FINGERPRINT = ''
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = 'TEST_FP_INITIAL'
+
+    def tearDown(self):
+        generate_weekly_pdfs.EXTENDED_CHANGE_DETECTION = self._saved_ext
+        generate_weekly_pdfs.RATE_CUTOFF_DATE = self._saved_cutoff
+        generate_weekly_pdfs._RATES_FINGERPRINT = self._saved_rates_fp
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = self._saved_sub_fp
+
+    def _row(self, wr, cu, qty, price, variant, foreman='Alice',
+             helper_foreman='', helper_dept='', helper_job=''):
+        """Build a minimal hashable row for a given variant."""
+        return {
+            'Work Request #': wr,
+            'Snapshot Date': '2026-04-19',
+            'CU': cu,
+            'Quantity': qty,
+            'Units Total Price': price,
+            'Units Completed?': True,
+            '__variant': variant,
+            '__current_foreman': foreman,
+            'Foreman': foreman,
+            '__helper_foreman': helper_foreman,
+            '__helper_dept': helper_dept,
+            '__helper_job': helper_job,
+        }
+
+    def _rows_of(self, variant):
+        """Two-row group with the variant tag applied to every row."""
+        return [
+            self._row('12345', 'CU-A', 1, '$100.00', variant,
+                      foreman='Alice', helper_foreman='Bob',
+                      helper_dept='1000', helper_job='J1'),
+            self._row('12345', 'CU-B', 1, '$200.00', variant,
+                      foreman='Alice', helper_foreman='Bob',
+                      helper_dept='1000', helper_job='J1'),
+        ]
+
+    # --- D-11: VARIANT-token discrimination ----------------------------
+
+    def test_variant_toggle_primary_vs_aep_billable_changes_hash(self):
+        """Same row content with __variant flipping between primary and
+        aep_billable must produce different hashes (existing VARIANT
+        token discrimination — no code change needed, regression-only)."""
+        h_primary = generate_weekly_pdfs.calculate_data_hash(
+            self._rows_of('primary')
+        )
+        h_aep = generate_weekly_pdfs.calculate_data_hash(
+            self._rows_of('aep_billable')
+        )
+        self.assertNotEqual(
+            h_primary, h_aep,
+            "Hashes collided across primary vs aep_billable — the "
+            "existing VARIANT meta-part discrimination has regressed."
+        )
+
+    # --- D-20: fingerprint mix-in for the four new variants ------------
+
+    def test_fingerprint_mutation_changes_aep_billable_hash(self):
+        """Mutating _SUBCONTRACTOR_RATES_FINGERPRINT MUST change the
+        hash for the aep_billable variant — CSV edits invalidate
+        cached files."""
+        rows = self._rows_of('aep_billable')
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = 'FP_A'
+        h_a = generate_weekly_pdfs.calculate_data_hash(rows)
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = 'FP_B'
+        h_b = generate_weekly_pdfs.calculate_data_hash(rows)
+        self.assertNotEqual(
+            h_a, h_b,
+            "aep_billable hash unchanged after CSV fingerprint flip — "
+            "D-20 mix-in missing, cached files will never invalidate."
+        )
+
+    def test_fingerprint_mutation_changes_reduced_sub_hash(self):
+        """Mirror of the AEPBillable case for reduced_sub."""
+        rows = self._rows_of('reduced_sub')
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = 'FP_A'
+        h_a = generate_weekly_pdfs.calculate_data_hash(rows)
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = 'FP_B'
+        h_b = generate_weekly_pdfs.calculate_data_hash(rows)
+        self.assertNotEqual(
+            h_a, h_b,
+            "reduced_sub hash unchanged after CSV fingerprint flip — "
+            "D-20 mix-in missing.",
+        )
+
+    def test_fingerprint_mutation_changes_aep_billable_helper_hash(self):
+        """The shadow-helper variants are also subcontractor rates
+        consumers; their hash MUST be invalidated by CSV edits too."""
+        rows = self._rows_of('aep_billable_helper')
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = 'FP_A'
+        h_a = generate_weekly_pdfs.calculate_data_hash(rows)
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = 'FP_B'
+        h_b = generate_weekly_pdfs.calculate_data_hash(rows)
+        self.assertNotEqual(h_a, h_b)
+
+    def test_fingerprint_mutation_changes_reduced_sub_helper_hash(self):
+        """Mirror of the AEPBillable_Helper case."""
+        rows = self._rows_of('reduced_sub_helper')
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = 'FP_A'
+        h_a = generate_weekly_pdfs.calculate_data_hash(rows)
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = 'FP_B'
+        h_b = generate_weekly_pdfs.calculate_data_hash(rows)
+        self.assertNotEqual(h_a, h_b)
+
+    # --- D-20: byte-identical guarantee for unaffected variants --------
+
+    def test_fingerprint_mutation_does_not_change_primary_hash(self):
+        """ROADMAP success criterion 5: primary hash MUST stay
+        byte-identical regardless of CSV fingerprint changes.
+        Otherwise every primary file in production re-generates on
+        every CSV touch — storage thrash + Smartsheet quota burn."""
+        rows = self._rows_of('primary')
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = 'FP_A'
+        h_a = generate_weekly_pdfs.calculate_data_hash(rows)
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = 'FP_B'
+        h_b = generate_weekly_pdfs.calculate_data_hash(rows)
+        self.assertEqual(
+            h_a, h_b,
+            "Primary hash regressed when subcontractor fingerprint "
+            "changed — D-20 fingerprint scoping is missing or too "
+            "broad. ROADMAP success criterion 5 violated.",
+        )
+
+    def test_fingerprint_mutation_does_not_change_helper_hash(self):
+        """ROADMAP success criterion 5: plain helper variant MUST also
+        stay byte-identical under fingerprint mutation."""
+        rows = self._rows_of('helper')
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = 'FP_A'
+        h_a = generate_weekly_pdfs.calculate_data_hash(rows)
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = 'FP_B'
+        h_b = generate_weekly_pdfs.calculate_data_hash(rows)
+        self.assertEqual(h_a, h_b)
+
+    def test_fingerprint_mutation_does_not_change_vac_crew_hash(self):
+        """ROADMAP success criterion 5: vac_crew variant MUST also
+        stay byte-identical under fingerprint mutation."""
+        rows = [
+            dict(self._row('12345', 'CU-A', 1, '$100.00', 'vac_crew'),
+                 __vac_crew_name='Alice', __vac_crew_dept='1000',
+                 __vac_crew_job='J1'),
+            dict(self._row('12345', 'CU-B', 1, '$200.00', 'vac_crew'),
+                 __vac_crew_name='Bob', __vac_crew_dept='2000',
+                 __vac_crew_job='J2'),
+        ]
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = 'FP_A'
+        h_a = generate_weekly_pdfs.calculate_data_hash(rows)
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = 'FP_B'
+        h_b = generate_weekly_pdfs.calculate_data_hash(rows)
+        self.assertEqual(h_a, h_b)
+
+    # --- Helper meta block reuse for the new helper variants -----------
+
+    def test_aep_billable_helper_uses_helper_meta_block(self):
+        """The aep_billable_helper variant must reuse the existing
+        helper meta-block so HELPER / HELPER_DEPT / HELPER_JOB fields
+        contribute to the hash. Editing helper_dept on a group must
+        change the hash."""
+        base = [
+            self._row('12345', 'CU-A', 1, '$100.00', 'aep_billable_helper',
+                      foreman='Alice', helper_foreman='Bob',
+                      helper_dept='1000', helper_job='J1'),
+        ]
+        edited = [
+            self._row('12345', 'CU-A', 1, '$100.00', 'aep_billable_helper',
+                      foreman='Alice', helper_foreman='Bob',
+                      helper_dept='2099',  # dept change
+                      helper_job='J1'),
+        ]
+        h_base = generate_weekly_pdfs.calculate_data_hash(base)
+        h_edited = generate_weekly_pdfs.calculate_data_hash(edited)
+        self.assertNotEqual(
+            h_base, h_edited,
+            "aep_billable_helper hash did not change after a helper "
+            "dept edit — the helper meta block is not being applied "
+            "to the new variant; downstream silent-skip risk."
+        )
+
+    def test_reduced_sub_helper_uses_helper_meta_block(self):
+        """Mirror: reduced_sub_helper variant must include the helper
+        meta block in its hash."""
+        base = [
+            self._row('12345', 'CU-A', 1, '$100.00', 'reduced_sub_helper',
+                      foreman='Alice', helper_foreman='Bob',
+                      helper_dept='1000', helper_job='J1'),
+        ]
+        edited = [
+            self._row('12345', 'CU-A', 1, '$100.00', 'reduced_sub_helper',
+                      foreman='Alice', helper_foreman='Bob Jr.',  # name change
+                      helper_dept='1000', helper_job='J1'),
+        ]
+        h_base = generate_weekly_pdfs.calculate_data_hash(base)
+        h_edited = generate_weekly_pdfs.calculate_data_hash(edited)
+        self.assertNotEqual(h_base, h_edited)
+
+
 class TestVacCrewColumnTitleNormalizer(unittest.TestCase):
     """Tests for ``_normalize_column_title_for_vac_crew``.
 
