@@ -1,0 +1,24 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\memory-bank\\productContext.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Product Context",
+  "summary": "Explains why the weekly DSR Excel automation exists, what problems it solves, and how it should work end-to-end for Resiliency division billing.",
+  "scope": [
+    "Linetec Resiliency division",
+    "Daily Status Reports (DSR)",
+    "Smartsheet folder discovery",
+    "Work Request grouping",
+    "Excel weekly billing summaries",
+    "Primary/helper/VAC crew variants",
+    "Hash-based change detection",
+    "Attachment upload to Smartsheet",
+    "GitHub Actions automation",
+    "Portal dashboards"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

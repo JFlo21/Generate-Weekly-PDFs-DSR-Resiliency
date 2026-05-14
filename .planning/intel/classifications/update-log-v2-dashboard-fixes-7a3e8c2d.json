@@ -1,0 +1,33 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\docs\\update-log-v2-dashboard-fixes.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Update Log — Dashboard & Artifact Explorer Stabilization",
+  "summary": "Implementation log documenting frontend fixes for CORS-related dashboard failures, missing artifact auto-selection, and Supabase profile 406 errors in portal-v2.",
+  "scope": [
+    "portal-v2 frontend",
+    "dashboard",
+    "artifact explorer",
+    "CORS fallback",
+    "Supabase auth profile lookup",
+    "sample-data UI indicators"
+  ],
+  "cross_refs": [
+    "portal-v2/src/hooks/useRuns.ts",
+    "portal-v2/src/hooks/useArtifacts.ts",
+    "portal-v2/src/hooks/useAuth.ts",
+    "portal-v2/src/lib/api.ts",
+    "portal-v2/src/lib/mockData.ts",
+    "portal-v2/src/components/dashboard/DashboardPage.tsx",
+    "portal-v2/src/components/layout/DashboardLayout.tsx",
+    "portal-v2/src/components/layout/Navbar.tsx",
+    "portal/services/artifactCache.js",
+    "docs/railway-to-render-transition-plan.md",
+    "docs/sentry-implementation.md",
+    "memory-bank/activeContext.md"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

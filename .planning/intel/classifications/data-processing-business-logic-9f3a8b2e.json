@@ -1,0 +1,29 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\.github\\prompts\\data-processing-business-logic.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Data Processing & Business Logic Prompts",
+  "summary": "Collection of Copilot/Claude prompt templates documenting the Smartsheet data pipeline, Excel generation patterns, and audit system for the weekly billing workflow.",
+  "scope": [
+    "Smartsheet data pipeline",
+    "row validation logic",
+    "Work Request grouping",
+    "column synonym mapping",
+    "Excel generation (openpyxl)",
+    "hash-based change detection",
+    "BillingAudit system",
+    "price anomaly detection",
+    "trend analysis",
+    "Sentry escalation"
+  ],
+  "cross_refs": [
+    "generate_weekly_pdfs.py",
+    "cleanup_excels.py",
+    "generated_docs/audit_state.json",
+    "LinetecServices_Logo.png"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

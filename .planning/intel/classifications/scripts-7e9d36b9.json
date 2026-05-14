@@ -1,0 +1,25 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\website\\docs\\runbook\\scripts.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Helper scripts",
+  "summary": "Operator reference enumerating helper utility scripts under scripts/ and the repo root, grouped by purpose (Notion, artifact preservation, verification, dev utilities).",
+  "scope": [
+    "scripts/notion_sync.py",
+    "scripts/notion_setup.py",
+    "scripts/notion_dashboard.py",
+    "scripts/generate_artifact_manifest.py",
+    "verify-azure-setup.sh",
+    "cleanup_excels.py",
+    "test_production_reload.py",
+    "Docusaurus runbook"
+  ],
+  "cross_refs": [
+    "generated_docs/run_summary.json",
+    "generated_docs/"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

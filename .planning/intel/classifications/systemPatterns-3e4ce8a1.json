@@ -1,0 +1,28 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\memory-bank\\systemPatterns.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "System Patterns",
+  "summary": "Architectural overview and key design patterns of the Smartsheet-to-Excel billing pipeline, covering discovery, grouping, variant detection, hashing, and metadata fields.",
+  "scope": [
+    "generate_weekly_pdfs.py",
+    "Smartsheet API",
+    "folder discovery",
+    "discovery cache",
+    "column synonym mapping",
+    "row-level variant detection (primary/helper/VAC crew)",
+    "grouping keys",
+    "hash-based change detection",
+    "VAC crew metadata fields",
+    "helper metadata fields",
+    "subcontractor pricing"
+  ],
+  "cross_refs": [
+    "hash_history.json",
+    "SUBCONTRACTOR_FOLDER_IDS"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

@@ -1,0 +1,26 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\.github\\prompts\\memory-integration-codebase-context.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Memory Integration & Codebase Context Prompt",
+  "summary": "Master AI agent context-priming prompt establishing codebase identity, architectural memory, data pipeline flow, configuration system, and operational patterns for the Generate-Weekly-PDFs-DSR-Resiliency billing automation system.",
+  "scope": [
+    "generate_weekly_pdfs.py",
+    "audit_billing_changes.py",
+    "cleanup_excels.py",
+    "Smartsheet integration",
+    "Excel generation pipeline",
+    "environment variable configuration",
+    "GitHub Actions scheduling",
+    "Sentry monitoring",
+    "synthetic test mode (TEST_MODE)",
+    "discovery caching",
+    "hash-based change detection",
+    "audit/risk analysis"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

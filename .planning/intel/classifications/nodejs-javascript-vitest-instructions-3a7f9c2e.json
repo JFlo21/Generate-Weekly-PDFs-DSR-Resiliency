@@ -1,0 +1,13 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\.github\\instructions\\nodejs-javascript-vitest.instructions.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Code Generation Guidelines",
+  "summary": "Coding standards, testing, and documentation guidelines for Node.js/JavaScript with ES2022, ESM modules, and Vitest.",
+  "scope": ["Node.js", "JavaScript", "ES2022", "ESM modules", "Vitest", "coding standards", "testing guidelines"],
+  "cross_refs": ["README.md"],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

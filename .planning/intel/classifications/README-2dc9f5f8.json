@@ -1,0 +1,40 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\README.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Smartsheet Weekly PDF Generator",
+  "summary": "Repository README providing quick-start setup, script inventory, configuration, and supporting documentation pointers for the Smartsheet weekly billing automation tool.",
+  "scope": [
+    "generate_weekly_pdfs.py",
+    "generate_weekly_pdfs_complete_fixed.py",
+    "audit_billing_changes.py",
+    "Smartsheet API integration",
+    "Excel generation",
+    "environment configuration",
+    "Azure DevOps integration",
+    "testing"
+  ],
+  "cross_refs": [
+    ".env.example",
+    "generate_weekly_pdfs_complete_fixed.py",
+    "generate_weekly_pdfs.py",
+    "audit_billing_changes.py",
+    "cleanup_excels.py",
+    "analyze_excel_totals.py",
+    "analyze_specific_excel.py",
+    "diagnose_pricing_issues.py",
+    "run_info.py",
+    "tests/",
+    "website/",
+    ".github/workflows/docs-changelog.yml",
+    "README_AZURE.md",
+    "AZURE_QUICKSTART.md",
+    "AZURE_PIPELINE_SETUP.md",
+    "AZURE_ARCHITECTURE.md",
+    "generated_docs/"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

@@ -1,0 +1,36 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\.github\\instructions\\ai-agent-best-practices.instructions.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "AI Agent Instructions & Best Practices",
+  "summary": "Onboarding and operational guidelines for AI agents working with the Smartsheet billing pipeline codebase, covering conventions, patterns, and best practices.",
+  "scope": [
+    "generate_weekly_pdfs.py",
+    "Smartsheet API integration",
+    "Excel generation pipeline",
+    "GitHub Actions workflows",
+    "audit_billing_changes.py",
+    "Sentry monitoring",
+    "configuration management",
+    "logging conventions",
+    "debugging strategies",
+    "security best practices"
+  ],
+  "cross_refs": [
+    "generate_weekly_pdfs.py",
+    "audit_billing_changes.py",
+    "cleanup_excels.py",
+    ".github/workflows/weekly-excel-generation.yml",
+    ".env.example",
+    ".env.template",
+    "requirements.txt",
+    "generated_docs/",
+    "discovery_cache.json",
+    "audit_state.json",
+    "hash_history.json"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

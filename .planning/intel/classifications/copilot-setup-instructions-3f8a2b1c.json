@@ -1,0 +1,43 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\.github\\instructions\\copilot-setup.instructions.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Copilot Instructions for Generate-Weekly-PDFs-DSR-Resiliency",
+  "summary": "Extended Copilot context guide covering full environment variable reference, component inventory, architecture patterns, and operational details for the billing automation system.",
+  "scope": [
+    "generate_weekly_pdfs.py",
+    "audit_billing_changes.py",
+    "cleanup_excels.py",
+    "Smartsheet API integration",
+    "Excel generation pipeline",
+    "GitHub Actions workflow",
+    "environment variables",
+    "Sentry monitoring",
+    "hash-based change detection",
+    "synthetic test mode",
+    "discovery caching",
+    "column synonym system"
+  ],
+  "cross_refs": [
+    ".github/workflows/weekly-excel-generation.yml",
+    ".github/prompts/memory-integration-codebase-context.md",
+    ".github/instructions/ai-agent-best-practices.md",
+    ".github/instructions/artifact-preservation-guide.md",
+    ".github/prompts/architecture-analysis.md",
+    ".github/prompts/configuration-environment.md",
+    ".github/prompts/data-processing-business-logic.md",
+    ".github/prompts/testing-and-validation.md",
+    ".github/prompts/error-handling-resilience.md",
+    ".github/prompts/change-detection-troubleshooting.md",
+    "generate_weekly_pdfs_complete_fixed.py",
+    "generate_weekly_pdfs_backup.py",
+    ".env.example",
+    ".env.template",
+    ".env.audit.example",
+    "requirements.txt"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

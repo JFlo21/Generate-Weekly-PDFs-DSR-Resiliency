@@ -1,0 +1,13 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\AZURE_PIPELINE_SETUP.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Azure Pipelines - GitHub to Azure DevOps Sync",
+  "summary": "Operator setup and troubleshooting guide for the Azure Pipeline that mirrors GitHub master commits into an Azure DevOps repository.",
+  "scope": ["azure-pipelines.yml", "Azure DevOps sync", "GitHub-to-Azure mirror", "pipeline variables", "build service permissions", "branch triggers"],
+  "cross_refs": ["azure-pipelines.yml", "README.md"],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

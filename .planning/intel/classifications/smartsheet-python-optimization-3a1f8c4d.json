@@ -1,0 +1,26 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\.claude\\rules\\smartsheet-python-optimization.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Smartsheet & Python Optimization Rules",
+  "summary": "Development guidelines for new Python scripts covering bulk Smartsheet extraction, high-performance Excel generation with xlsxwriter, and Sentry-instrumented attachment uploads.",
+  "scope": [
+    "Smartsheet API",
+    "Python scripts",
+    "Excel generation",
+    "xlsxwriter",
+    "openpyxl",
+    "Sentry instrumentation",
+    "attachment uploads",
+    "rate limits",
+    "PARALLEL_WORKERS"
+  ],
+  "cross_refs": [
+    "generate_weekly_pdfs.py",
+    "requirements.txt"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

@@ -1,0 +1,28 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\.github\\instructions\\memory-bank.instructions.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Memory Bank",
+  "summary": "Process guide describing the Memory Bank documentation framework AI assistants use for project continuity across session resets, including required core files, task management, and update workflows.",
+  "scope": [
+    "Memory Bank documentation system",
+    "Core memory files (projectbrief, productContext, activeContext, systemPatterns, techContext, progress)",
+    "tasks/ folder structure and task index",
+    "Plan Mode and Act Mode workflows",
+    "Task commands (add task, update task, show tasks)",
+    "Project intelligence / instructions learning journal"
+  ],
+  "cross_refs": [
+    "projectbrief.md",
+    "productContext.md",
+    "activeContext.md",
+    "systemPatterns.md",
+    "techContext.md",
+    "progress.md",
+    "tasks/_index.md"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

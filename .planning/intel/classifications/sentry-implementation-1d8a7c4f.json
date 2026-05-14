@@ -1,0 +1,24 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\docs\\sentry-implementation.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Sentry Implementation Guide",
+  "summary": "Operator-facing guide describing Sentry error-monitoring setup, env vars, hosting configuration, privacy guarantees, and rollback procedures across the Python engine, Express backend, and React frontend.",
+  "scope": [
+    "Sentry",
+    "Python billing engine",
+    "Express backend (portal)",
+    "React frontend (portal-v2)",
+    "GitHub Actions secrets/variables",
+    "Vercel hosting",
+    "Render hosting",
+    "Sentry Logs",
+    "Source-map upload",
+    "Privacy/PII handling"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

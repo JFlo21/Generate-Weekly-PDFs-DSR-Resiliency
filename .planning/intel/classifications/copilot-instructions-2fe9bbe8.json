@@ -1,0 +1,42 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\.github\\copilot-instructions.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Project Guidelines",
+  "summary": "Developer onboarding guide summarizing the Smartsheet-to-Excel billing pipeline architecture, build commands, conventions, and critical pitfalls across the three-component repo.",
+  "scope": [
+    "generate_weekly_pdfs.py billing engine",
+    "portal/ Express backend",
+    "portal-v2/ React frontend",
+    "build and test commands",
+    "Python/Node coding conventions",
+    "Smartsheet API constraints",
+    "GitHub Actions CI/CD"
+  ],
+  "cross_refs": [
+    ".github/prompts/architecture-analysis.md",
+    ".github/instructions/python.instructions.md",
+    ".github/instructions/nodejs-javascript-vitest.instructions.md",
+    ".github/instructions/copilot-setup.instructions.md",
+    ".github/instructions/taming-copilot.instructions.md",
+    ".github/instructions/subcontractor-pricing-folder-discovery.instructions.md",
+    ".github/prompts/change-detection-troubleshooting.md",
+    ".github/prompts/error-handling-resilience.md",
+    ".github/prompts/data-processing-business-logic.md",
+    ".github/instructions/performance-optimization.instructions.md",
+    ".github/prompts/testing-and-validation.md",
+    ".github/prompts/configuration-environment.md",
+    ".github/instructions/github-actions-ci-cd-best-practices.instructions.md",
+    "generate_weekly_pdfs.py",
+    "audit_billing_changes.py",
+    ".github/workflows/weekly-excel-generation.yml",
+    "generated_docs/hash_history.json",
+    "portal-v2/src/",
+    "portal-v2/supabase/schema.sql",
+    "portal/package.json"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

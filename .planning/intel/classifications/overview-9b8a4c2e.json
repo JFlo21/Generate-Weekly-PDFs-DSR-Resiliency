@@ -1,0 +1,29 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\website\\docs\\runbook\\overview.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "System overview",
+  "summary": "Docusaurus runbook overview describing the Smartsheet-to-Excel billing pipeline, its components, scheduled workflows, and data contract.",
+  "scope": [
+    "generate_weekly_pdfs.py",
+    "audit_billing_changes.py",
+    "weekly-excel-generation.yml workflow",
+    "system-health-check.yml workflow",
+    "scripts/notion_sync.py",
+    "portal/",
+    "portal-v2/",
+    "website/ Docusaurus runbook",
+    "Smartsheet ingestion",
+    "openpyxl Excel generation",
+    "run_summary.json",
+    "hash_history.json",
+    "Sentry error reporting"
+  ],
+  "cross_refs": [
+    "../reference/environment.md"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

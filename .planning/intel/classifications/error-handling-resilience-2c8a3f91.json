@@ -1,0 +1,24 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\.github\\prompts\\error-handling-resilience.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Error Handling & System Resilience Prompts",
+  "summary": "Prompt-style guide describing error-handling patterns, Sentry filtering, API resilience, data validation/recovery, health monitoring, graceful shutdown, and diagnostic procedures for the billing automation system.",
+  "scope": [
+    "error handling",
+    "system resilience",
+    "Sentry integration",
+    "Smartsheet API retries",
+    "data validation and recovery",
+    "attachment upload resilience",
+    "system health monitoring",
+    "graceful shutdown",
+    "diagnostic and recovery procedures",
+    "parse_price hash calculation error handling"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

@@ -1,0 +1,13 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\AZURE_QUICKSTART.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Quick Start: Azure Pipeline Sync Setup",
+  "summary": "Step-by-step quick start guide for setting up the Azure DevOps pipeline that syncs the GitHub master branch to an Azure DevOps repository.",
+  "scope": ["Azure DevOps", "Azure Pipelines", "GitHub sync", "azure-pipelines.yml", "AzureDevOpsRepoUrl variable", "OAuth token", "Build Service permissions"],
+  "cross_refs": ["AZURE_PIPELINE_SETUP.md"],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

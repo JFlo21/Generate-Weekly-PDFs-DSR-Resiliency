@@ -1,0 +1,31 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\.github\\instructions\\subcontractor-pricing-folder-discovery.instructions.md",
+  "type": "SPEC",
+  "confidence": "medium",
+  "manifest_override": false,
+  "title": "Subcontractor Pricing & Folder Discovery",
+  "summary": "Architecture and implementation contract for subcontractor Arrowhead sheet handling, folder-based sheet discovery, and hash change-detection fixes in generate_weekly_pdfs.py.",
+  "scope": [
+    "generate_weekly_pdfs.py",
+    "Subcontractor Arrowhead sheets",
+    "Smartsheet folder-based discovery",
+    "SUBCONTRACTOR_FOLDER_IDS",
+    "ORIGINAL_CONTRACT_FOLDER_IDS",
+    "SUBCONTRACTOR_SHEET_IDS",
+    "discover_folder_sheets()",
+    "revert_subcontractor_price()",
+    "is_subcontractor_sheet flag",
+    "Units Total Price (10% reduced rate)",
+    "calculate_data_hash() extended mode",
+    "hash_history.json caching",
+    "build_group_identity() / identity matching",
+    "Smartsheet Folders API"
+  ],
+  "cross_refs": [
+    "generate_weekly_pdfs.py",
+    "tests/test_subcontractor_pricing.py"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": "RELEVANT TO UPCOMING SUBCONTRACTOR RATE LOGIC MODIFICATION PHASE — this doc defines the current 'keep SmartSheet pricing as-is, no reversion' contract for Arrowhead sheets, explicitly states subcontractor recalculation is deferred pending a future cutoff date, and documents that revert_subcontractor_price() and _rate_new_arrowhead tables exist but are intentionally uncalled. Classified as SPEC (not DOC) because content is implementation-contract-style: function tables with 'Modify? / Do not touch' columns, env-var defaults table, data-flow diagram, and explicit constraints/invariants the code must honor. Frontmatter applyTo:'generate_weekly_pdfs.py' reinforces it scopes a single production module. Ambiguity: borderline DOC due to prose-heavy 'Bug 1/2/3' postmortem section, but the constraints + function contract tables dominate, so SPEC wins per ADR>SPEC>PRD>DOC precedence."
+}
