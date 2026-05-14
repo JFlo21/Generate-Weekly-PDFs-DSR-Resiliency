@@ -133,6 +133,105 @@ class TestVacCrewGroupIdentityParsing(unittest.TestCase):
         self.assertNotEqual(ident_vac, ident_primary)
 
 
+class TestSubcontractorVariantGroupIdentityParsing(unittest.TestCase):
+    """Tests for build_group_identity() recognising the _AEPBillable and
+    _ReducedSub variant markers (Plan 01-02 D-09/D-10).
+
+    Variant-first ordering: ``_AEPBillable_Helper_<name>`` must parse as
+    ``aep_billable_helper`` (not ``helper`` with the variant token lost).
+    Same for ``_ReducedSub_Helper_<name>`` → ``reduced_sub_helper``.
+
+    Tail-scoped detection: the variant marker check operates on the
+    post-``WeekEnding`` tail only, so a WR# containing the literal
+    ``AEPBillable`` / ``ReducedSub`` token does NOT false-positive the
+    variant (covered separately under ``TestBuildGroupIdentityWithUnderscoresInWr``
+    in ``tests/test_security_audit_followup.py``).
+    """
+
+    def test_aep_billable_filename_parsed_as_aep_billable_variant(self):
+        """``_AEPBillable`` filename → variant='aep_billable', identifier=''."""
+        fname = 'WR_91467680_WeekEnding_041926_123456_AEPBillable_ab12cd34ef.xlsx'
+        result = generate_weekly_pdfs.build_group_identity(fname)
+        self.assertIsNotNone(result)
+        wr, week, variant, identifier = result
+        self.assertEqual(wr, '91467680')
+        self.assertEqual(week, '041926')
+        self.assertEqual(variant, 'aep_billable')
+        self.assertEqual(identifier, '')
+
+    def test_reduced_sub_filename_parsed_as_reduced_sub_variant(self):
+        """``_ReducedSub`` filename → variant='reduced_sub', identifier=''."""
+        fname = 'WR_91467680_WeekEnding_041926_123456_ReducedSub_ab12cd34ef.xlsx'
+        result = generate_weekly_pdfs.build_group_identity(fname)
+        self.assertIsNotNone(result)
+        wr, week, variant, identifier = result
+        self.assertEqual(wr, '91467680')
+        self.assertEqual(week, '041926')
+        self.assertEqual(variant, 'reduced_sub')
+        self.assertEqual(identifier, '')
+
+    def test_aep_billable_helper_filename_parsed_with_identifier(self):
+        """``_AEPBillable_Helper_<name>`` filename → variant='aep_billable_helper',
+        identifier=helper_name (variant-first per D-09 — must NOT parse
+        as plain ``helper`` losing the AEPBillable token)."""
+        fname = 'WR_91467680_WeekEnding_041926_123456_AEPBillable_Helper_Jane_Smith_ab12cd34ef.xlsx'
+        result = generate_weekly_pdfs.build_group_identity(fname)
+        self.assertIsNotNone(result)
+        wr, week, variant, identifier = result
+        self.assertEqual(wr, '91467680')
+        self.assertEqual(week, '041926')
+        self.assertEqual(variant, 'aep_billable_helper')
+        self.assertEqual(identifier, 'Jane_Smith')
+
+    def test_reduced_sub_helper_filename_parsed_with_identifier(self):
+        """``_ReducedSub_Helper_<name>`` filename → variant='reduced_sub_helper',
+        identifier=helper_name."""
+        fname = 'WR_91467680_WeekEnding_041926_123456_ReducedSub_Helper_Jane_Smith_ab12cd34ef.xlsx'
+        result = generate_weekly_pdfs.build_group_identity(fname)
+        self.assertIsNotNone(result)
+        wr, week, variant, identifier = result
+        self.assertEqual(wr, '91467680')
+        self.assertEqual(week, '041926')
+        self.assertEqual(variant, 'reduced_sub_helper')
+        self.assertEqual(identifier, 'Jane_Smith')
+
+    def test_aep_billable_identity_distinct_from_primary(self):
+        """``aep_billable`` identity tuple must differ from ``primary`` for the
+        same WR+week so the variant-aware attachment-identity routing
+        (cleanup, hash-history lookup, target-row matching) treats them
+        as distinct files."""
+        fname_aep = 'WR_91467680_WeekEnding_041926_123456_AEPBillable_ab12cd34ef.xlsx'
+        fname_primary = 'WR_91467680_WeekEnding_041926_123456_ab12cd34ef.xlsx'
+        ident_aep = generate_weekly_pdfs.build_group_identity(fname_aep)
+        ident_primary = generate_weekly_pdfs.build_group_identity(fname_primary)
+        self.assertIsNotNone(ident_aep)
+        self.assertIsNotNone(ident_primary)
+        self.assertNotEqual(ident_aep, ident_primary)
+
+    def test_reduced_sub_identity_distinct_from_aep_billable(self):
+        """``reduced_sub`` identity tuple must differ from ``aep_billable``
+        for the same WR+week so the two new variants do not collide on
+        attachment-identity routing."""
+        fname_aep = 'WR_91467680_WeekEnding_041926_123456_AEPBillable_ab12cd34ef.xlsx'
+        fname_rs = 'WR_91467680_WeekEnding_041926_123456_ReducedSub_ab12cd34ef.xlsx'
+        ident_aep = generate_weekly_pdfs.build_group_identity(fname_aep)
+        ident_rs = generate_weekly_pdfs.build_group_identity(fname_rs)
+        self.assertIsNotNone(ident_aep)
+        self.assertIsNotNone(ident_rs)
+        self.assertNotEqual(ident_aep, ident_rs)
+
+    def test_existing_helper_variant_unaffected(self):
+        """No regression: a plain ``_Helper_<name>`` filename (without
+        AEPBillable / ReducedSub prefix) must still parse as
+        ``variant='helper'``."""
+        fname = 'WR_91467680_WeekEnding_041926_123456_Helper_Jane_Smith_ab12cd34ef.xlsx'
+        result = generate_weekly_pdfs.build_group_identity(fname)
+        self.assertIsNotNone(result)
+        wr, week, variant, identifier = result
+        self.assertEqual(variant, 'helper')
+        self.assertEqual(identifier, 'Jane_Smith')
+
+
 class TestVacCrewGroupingLogic(unittest.TestCase):
     """Tests for group_source_rows() VAC Crew variant grouping."""
 

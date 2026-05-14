@@ -1161,6 +1161,85 @@ class TestBuildGroupIdentityWithUnderscoresInWr(unittest.TestCase):
             'WR_12345_WeekEnding_12345678_123456.xlsx'
         ))
 
+    def test_wr_containing_literal_aep_billable_token_no_false_variant(self):
+        """Phase 01 Plan 02 D-10: a sanitized WR containing the literal
+        token ``AEPBillable`` MUST NOT trigger the aep_billable variant.
+        Variant marker detection is tail-scoped (post-``WeekEnding``
+        span only), so the WR portion is ignored. Verified by an
+        explicit negative test so a future refactor can't silently
+        regress to filename-wide string search.
+        """
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_AEPBillable_WeekEnding_041926_123456_ab12cd34ef.xlsx'
+        )
+        self.assertIsNotNone(ident)
+        wr, week, variant, identifier = ident
+        self.assertEqual(wr, 'AEPBillable')
+        self.assertEqual(variant, 'primary')
+        self.assertIsNone(identifier)
+
+    def test_wr_containing_literal_reduced_sub_token_no_false_variant(self):
+        """Mirror of the AEPBillable case for ``ReducedSub``."""
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_ReducedSub_WeekEnding_041926_123456_ab12cd34ef.xlsx'
+        )
+        self.assertIsNotNone(ident)
+        wr, week, variant, identifier = ident
+        self.assertEqual(wr, 'ReducedSub')
+        self.assertEqual(variant, 'primary')
+        self.assertIsNone(identifier)
+
+    def test_helper_filename_still_parses_as_helper_after_new_variants(self):
+        """No regression: a plain ``_Helper_<name>`` filename (without
+        AEPBillable / ReducedSub prefix) must still parse as
+        ``variant='helper'`` after the new variant branches are added.
+        Locks the D-09 variant-first ordering: the new ``AEPBillable``
+        / ``ReducedSub`` checks must run BEFORE the existing ``Helper``
+        branch, but a tail without ``AEPBillable`` / ``ReducedSub``
+        must still fall through to the unchanged ``Helper`` branch.
+        """
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_91467680_WeekEnding_041926_123456_Helper_Jane_Smith_ab12cd34ef.xlsx'
+        )
+        self.assertIsNotNone(ident)
+        wr, week, variant, identifier = ident
+        self.assertEqual(wr, '91467680')
+        self.assertEqual(week, '041926')
+        self.assertEqual(variant, 'helper')
+        self.assertEqual(identifier, 'Jane_Smith')
+
+    def test_aep_billable_helper_filename_with_underscored_wr_parses(self):
+        """A sanitized WR containing underscores (e.g.
+        ``1234____evil`` from raw ``1234/../evil``) plus an
+        ``_AEPBillable_Helper_<name>`` suffix must round-trip
+        correctly. The span-join discipline in the parser
+        (``parts[1:we_idx]`` for the WR token) is what makes this
+        work even with the underscore-rewritten WR.
+        """
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_1234____evil_WeekEnding_041926_123456_AEPBillable_Helper_Jane_Smith_ab12cd34ef.xlsx'
+        )
+        self.assertIsNotNone(ident)
+        wr, week, variant, identifier = ident
+        self.assertEqual(wr, '1234____evil')
+        self.assertEqual(week, '041926')
+        self.assertEqual(variant, 'aep_billable_helper')
+        self.assertEqual(identifier, 'Jane_Smith')
+
+    def test_reduced_sub_helper_filename_with_underscored_wr_parses(self):
+        """Mirror of the AEPBillable case: sanitized underscored WR
+        plus ``_ReducedSub_Helper_<name>`` suffix → all four tuple
+        values resolve correctly."""
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_1234____evil_WeekEnding_041926_123456_ReducedSub_Helper_Jane_Smith_ab12cd34ef.xlsx'
+        )
+        self.assertIsNotNone(ident)
+        wr, week, variant, identifier = ident
+        self.assertEqual(wr, '1234____evil')
+        self.assertEqual(week, '041926')
+        self.assertEqual(variant, 'reduced_sub_helper')
+        self.assertEqual(identifier, 'Jane_Smith')
+
 
 class TestSourceWrCollisionQuarantine(unittest.TestCase):
     """Codex round-7 P1: source-side WR# collision detection.
