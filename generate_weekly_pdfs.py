@@ -761,6 +761,24 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     # filename catch-all is not sufficient for these paths.
     "Purged attachment:",
     "Failed to purge attachment",
+    # Phase 01 Plan 02 D-22: subcontractor variant group keys and
+    # group-creation INFO logs (Plan 3 will emit
+    # ``AEP BILLABLE GROUP CREATED`` / ``REDUCED SUB GROUP CREATED``
+    # plus a missing-CU WARNING that embeds the literal CU code).
+    # The group-key tokens (``_AEPBILLABLE`` / ``_REDUCEDSUB`` /
+    # the ``_HELPER_`` suffixed variants) cover any log body that
+    # embeds the variant's group key — equivalent to the existing
+    # ``_HELPER_`` / ``_VACCREW`` markers for the legacy variant set.
+    # Locking these in Plan 02 (before Plan 3 emits them) keeps the
+    # sanitizer ahead of the call sites, per Living Ledger
+    # 2026-04-20 12:00 defense-in-depth rule.
+    "_AEPBILLABLE",
+    "_REDUCEDSUB",
+    "_AEPBILLABLE_HELPER_",
+    "_REDUCEDSUB_HELPER_",
+    "AEP BILLABLE GROUP CREATED",
+    "REDUCED SUB GROUP CREATED",
+    "Subcontractor rates CSV missing",
 )
 
 
@@ -1868,11 +1886,15 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
     variant = group_variant
     meta_parts.append(f"VARIANT={variant}")
 
-    if variant == 'helper':
-        # Helper variant: include helper-specific metadata (helper_job is OPTIONAL).
-        # Helper groups are split per foreman (group key: `_HELPER_{helper}`),
-        # so every row in a helper group shares identical helper info —
-        # reading sorted_rows[0] here is safe.
+    if variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper'):
+        # Helper-style variants: include helper-specific metadata
+        # (helper_job is OPTIONAL). The plain helper group key is
+        # `_HELPER_{helper}` and the new Phase 01 subcontractor
+        # shadow-helper variants will follow the same per-foreman
+        # partitioning pattern in Plan 3 (`_AEPBILLABLE_HELPER_{name}` /
+        # `_REDUCEDSUB_HELPER_{name}`), so reading sorted_rows[0]
+        # here is safe — every row in such a group shares identical
+        # helper info.
         _first = sorted_rows[0] if sorted_rows else {}
         helper_foreman = _first.get('__helper_foreman', '')
         helper_dept = _first.get('__helper_dept', '')
@@ -1889,7 +1911,7 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
     # name/dept/job are already captured per-row in the row_str loop above,
     # which is strictly more sensitive than meta_parts aggregation and is not
     # vulnerable to set-dedup collisions or comma-in-name delimiter collisions.
-    
+
     meta_parts.append(f"DEPTS={','.join(unique_depts)}")
     meta_parts.append(f"TOTAL={total_price:.2f}")
     meta_parts.append(f"ROWCOUNT={len(sorted_rows)}")
@@ -1897,6 +1919,30 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
         meta_parts.append(f"RATE_CUTOFF={RATE_CUTOFF_DATE.isoformat()}")
         if _RATES_FINGERPRINT:
             meta_parts.append(f"RATES_FP={_RATES_FINGERPRINT}")
+
+    # Per Phase 01 Plan 02 D-20: mix the subcontractor rates
+    # fingerprint into the hash ONLY for the four new variants
+    # that actually consume the subcontractor rates CSV. This
+    # forces regeneration of _AEPBillable / _ReducedSub files (and
+    # their shadow-helper twins) when the CSV changes, WITHOUT
+    # touching the primary / helper / vac_crew hashes (preserves
+    # the ROADMAP success criterion 5 byte-identical guarantee for
+    # the legacy variant set). Mirrors the conditional shape of
+    # the existing `if RATE_CUTOFF_DATE: ... RATES_FP=` block
+    # above so a future engineer reading the two blocks side by
+    # side sees them as parallel — one keys on the retired-but-
+    # retained legacy recalc gate, the other keys on the variant
+    # set that consumes the new rates table.
+    if variant in (
+        'aep_billable',
+        'reduced_sub',
+        'aep_billable_helper',
+        'reduced_sub_helper',
+    ):
+        if _SUBCONTRACTOR_RATES_FINGERPRINT:
+            meta_parts.append(
+                f"SUB_RATES_FP={_SUBCONTRACTOR_RATES_FINGERPRINT}"
+            )
 
     # Update hash with metadata
     if meta_parts:
@@ -2006,27 +2052,35 @@ def list_generated_excel_files(folder: str) -> list[str]:
 def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | None:
     """
     Parse filename to extract identity tuple: (wr, week_ending, variant, helper_or_user).
-    
+
     Args:
         filename: Excel filename to parse
-    
+
     Returns:
         tuple with format:
         - Primary: (wr, week, 'primary', None)
         - Primary+User: (wr, week, 'primary', user_identifier)
         - Helper: (wr, week, 'helper', helper_name)
         - VAC Crew: (wr, week, 'vac_crew', '')
-        
+        - AEP Billable: (wr, week, 'aep_billable', '')
+        - Reduced Sub: (wr, week, 'reduced_sub', '')
+        - AEP Billable Helper: (wr, week, 'aep_billable_helper', helper_name)
+        - Reduced Sub Helper: (wr, week, 'reduced_sub_helper', helper_name)
+
         Legacy format without variant: (wr, week, 'primary', None)
-        
+
         Returns None if filename doesn't match expected format.
-    
+
     Filename formats supported:
     - WR_{wr}_WeekEnding_{week}_{hash}.xlsx (legacy primary)
     - WR_{wr}_WeekEnding_{week}_{timestamp}_{hash}.xlsx (primary)
     - WR_{wr}_WeekEnding_{week}_{timestamp}_User_{user}_{hash}.xlsx (primary+user)
     - WR_{wr}_WeekEnding_{week}_{timestamp}_Helper_{helper}_{hash}.xlsx (helper)
     - WR_{wr}_WeekEnding_{week}_{timestamp}_VacCrew_{hash}.xlsx (VAC Crew)
+    - WR_{wr}_WeekEnding_{week}_{timestamp}_AEPBillable_{hash}.xlsx (AEP Billable)
+    - WR_{wr}_WeekEnding_{week}_{timestamp}_ReducedSub_{hash}.xlsx (Reduced Sub)
+    - WR_{wr}_WeekEnding_{week}_{timestamp}_AEPBillable_Helper_{helper}_{hash}.xlsx
+    - WR_{wr}_WeekEnding_{week}_{timestamp}_ReducedSub_Helper_{helper}_{hash}.xlsx
     """
     if not filename.startswith('WR_'):
         return None
@@ -2117,13 +2171,49 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
 
     # Detect variant from filename structure. Scope the marker search
     # to the tail (everything after ``WeekEnding <week>``) so any
-    # accidental ``Helper`` / ``User`` / ``VacCrew`` token inside a
-    # sanitized WR does not false-positive the variant detection.
+    # accidental ``Helper`` / ``User`` / ``VacCrew`` / ``AEPBillable``
+    # / ``ReducedSub`` token inside a sanitized WR does not
+    # false-positive the variant detection.
     variant = 'primary'
     identifier = None
     tail = parts[we_idx + 2:]
 
-    if 'Helper' in tail:
+    # Per Phase 01 Plan 02 D-09 (variant-first, helper-second) and
+    # D-10 (tail-scoped detection): the new subcontractor variants
+    # MUST be checked BEFORE the existing ``Helper`` / ``VacCrew``
+    # / ``User`` branches so that ``..._AEPBillable_Helper_<name>_<hash>``
+    # parses as ``aep_billable_helper`` (not plain ``helper`` with
+    # the AEPBillable token silently lost). The check operates on
+    # the post-``WeekEnding`` ``tail`` slice only, so a sanitized
+    # WR# that happens to contain ``AEPBillable`` / ``ReducedSub``
+    # in its body cannot false-positive the variant — covered by
+    # the negative tests in TestBuildGroupIdentityWithUnderscoresInWr.
+    if 'AEPBillable' in tail:
+        aep_idx_rel = tail.index('AEPBillable')
+        post_aep = tail[aep_idx_rel + 1:]
+        if 'Helper' in post_aep:
+            variant = 'aep_billable_helper'
+            helper_idx_rel = post_aep.index('Helper')
+            if helper_idx_rel + 1 < len(post_aep):
+                # Join all parts between Helper and hash (last part)
+                # so underscored helper names like ``Jane_Smith``
+                # survive intact (round-7 span-join discipline).
+                identifier = '_'.join(post_aep[helper_idx_rel + 1:-1])
+        else:
+            variant = 'aep_billable'
+            identifier = ''
+    elif 'ReducedSub' in tail:
+        rs_idx_rel = tail.index('ReducedSub')
+        post_rs = tail[rs_idx_rel + 1:]
+        if 'Helper' in post_rs:
+            variant = 'reduced_sub_helper'
+            helper_idx_rel = post_rs.index('Helper')
+            if helper_idx_rel + 1 < len(post_rs):
+                identifier = '_'.join(post_rs[helper_idx_rel + 1:-1])
+        else:
+            variant = 'reduced_sub'
+            identifier = ''
+    elif 'Helper' in tail:
         variant = 'helper'
         helper_idx_rel = tail.index('Helper')
         if helper_idx_rel + 1 < len(tail):

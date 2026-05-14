@@ -1161,6 +1161,85 @@ class TestBuildGroupIdentityWithUnderscoresInWr(unittest.TestCase):
             'WR_12345_WeekEnding_12345678_123456.xlsx'
         ))
 
+    def test_wr_containing_literal_aep_billable_token_no_false_variant(self):
+        """Phase 01 Plan 02 D-10: a sanitized WR containing the literal
+        token ``AEPBillable`` MUST NOT trigger the aep_billable variant.
+        Variant marker detection is tail-scoped (post-``WeekEnding``
+        span only), so the WR portion is ignored. Verified by an
+        explicit negative test so a future refactor can't silently
+        regress to filename-wide string search.
+        """
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_AEPBillable_WeekEnding_041926_123456_ab12cd34ef.xlsx'
+        )
+        self.assertIsNotNone(ident)
+        wr, week, variant, identifier = ident
+        self.assertEqual(wr, 'AEPBillable')
+        self.assertEqual(variant, 'primary')
+        self.assertIsNone(identifier)
+
+    def test_wr_containing_literal_reduced_sub_token_no_false_variant(self):
+        """Mirror of the AEPBillable case for ``ReducedSub``."""
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_ReducedSub_WeekEnding_041926_123456_ab12cd34ef.xlsx'
+        )
+        self.assertIsNotNone(ident)
+        wr, week, variant, identifier = ident
+        self.assertEqual(wr, 'ReducedSub')
+        self.assertEqual(variant, 'primary')
+        self.assertIsNone(identifier)
+
+    def test_helper_filename_still_parses_as_helper_after_new_variants(self):
+        """No regression: a plain ``_Helper_<name>`` filename (without
+        AEPBillable / ReducedSub prefix) must still parse as
+        ``variant='helper'`` after the new variant branches are added.
+        Locks the D-09 variant-first ordering: the new ``AEPBillable``
+        / ``ReducedSub`` checks must run BEFORE the existing ``Helper``
+        branch, but a tail without ``AEPBillable`` / ``ReducedSub``
+        must still fall through to the unchanged ``Helper`` branch.
+        """
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_91467680_WeekEnding_041926_123456_Helper_Jane_Smith_ab12cd34ef.xlsx'
+        )
+        self.assertIsNotNone(ident)
+        wr, week, variant, identifier = ident
+        self.assertEqual(wr, '91467680')
+        self.assertEqual(week, '041926')
+        self.assertEqual(variant, 'helper')
+        self.assertEqual(identifier, 'Jane_Smith')
+
+    def test_aep_billable_helper_filename_with_underscored_wr_parses(self):
+        """A sanitized WR containing underscores (e.g.
+        ``1234____evil`` from raw ``1234/../evil``) plus an
+        ``_AEPBillable_Helper_<name>`` suffix must round-trip
+        correctly. The span-join discipline in the parser
+        (``parts[1:we_idx]`` for the WR token) is what makes this
+        work even with the underscore-rewritten WR.
+        """
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_1234____evil_WeekEnding_041926_123456_AEPBillable_Helper_Jane_Smith_ab12cd34ef.xlsx'
+        )
+        self.assertIsNotNone(ident)
+        wr, week, variant, identifier = ident
+        self.assertEqual(wr, '1234____evil')
+        self.assertEqual(week, '041926')
+        self.assertEqual(variant, 'aep_billable_helper')
+        self.assertEqual(identifier, 'Jane_Smith')
+
+    def test_reduced_sub_helper_filename_with_underscored_wr_parses(self):
+        """Mirror of the AEPBillable case: sanitized underscored WR
+        plus ``_ReducedSub_Helper_<name>`` suffix → all four tuple
+        values resolve correctly."""
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_1234____evil_WeekEnding_041926_123456_ReducedSub_Helper_Jane_Smith_ab12cd34ef.xlsx'
+        )
+        self.assertIsNotNone(ident)
+        wr, week, variant, identifier = ident
+        self.assertEqual(wr, '1234____evil')
+        self.assertEqual(week, '041926')
+        self.assertEqual(variant, 'reduced_sub_helper')
+        self.assertEqual(identifier, 'Jane_Smith')
+
 
 class TestSourceWrCollisionQuarantine(unittest.TestCase):
     """Codex round-7 P1: source-side WR# collision detection.
@@ -1262,6 +1341,148 @@ class TestSourceWrCollisionQuarantine(unittest.TestCase):
             '_', '1234/evil',
         )[:50]
         self.assertIn(sanitized_key, quarantined)
+
+    def test_pre_scan_catches_aep_billable_cross_variant_collision(self):
+        """Phase 01 Plan 02 D-22 regression lock: a sanitization-
+        colliding pair where one group is the new ``aep_billable``
+        variant and the other is the new ``reduced_sub`` variant
+        MUST be quarantined. The existing round-9 pre-scan keys on
+        the sanitized WR alone (NOT a tuple), so this case is
+        already covered without code change — but without an
+        explicit regression test a future refactor could silently
+        re-narrow the key and re-open the cross-variant attack
+        surface for the four new variants.
+        """
+        groups = {
+            '041926_aep': [
+                {'Work Request #': '1234/evil', '__variant': 'aep_billable'},
+            ],
+            '041926_rs': [
+                {'Work Request #': '1234\\evil', '__variant': 'reduced_sub'},
+            ],
+        }
+        quarantined = self._run_pre_scan(groups)
+        sanitized_key = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub(
+            '_', '1234/evil',
+        )[:50]
+        self.assertIn(sanitized_key, quarantined)
+
+    def test_pre_scan_catches_aep_billable_cross_week_collision(self):
+        """Phase 01 Plan 02 D-22: same ``aep_billable`` variant
+        across two different weeks but with sanitization-colliding
+        raw WR# values must also be quarantined. The round-9 key
+        contract (sanitized WR alone) is what makes this work; the
+        week part of the group key is NOT part of the collision
+        detection key.
+        """
+        groups = {
+            '040526_aep': [
+                {'Work Request #': '1234/evil', '__variant': 'aep_billable'},
+            ],
+            '041926_aep': [
+                {'Work Request #': '1234\\evil', '__variant': 'aep_billable'},
+            ],
+        }
+        quarantined = self._run_pre_scan(groups)
+        sanitized_key = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub(
+            '_', '1234/evil',
+        )[:50]
+        self.assertIn(sanitized_key, quarantined)
+
+    def test_pre_scan_does_not_false_positive_distinct_subcontractor_variants(self):
+        """Phase 01 Plan 02 D-22: realistic numeric WR#s for the
+        new ``aep_billable`` / ``reduced_sub`` variants must NOT
+        be quarantined. The pre-scan stays noise-free on
+        production-shaped data."""
+        groups = {
+            '041926_aep_1': [
+                {'Work Request #': '1234567', '__variant': 'aep_billable'},
+            ],
+            '041926_rs_1': [
+                {'Work Request #': '7654321', '__variant': 'reduced_sub'},
+            ],
+            '041926_aep_h_1': [
+                {'Work Request #': '1234567',
+                 '__variant': 'aep_billable_helper'},
+            ],
+        }
+        # Same numeric WR appearing across variants (aep_billable +
+        # aep_billable_helper) is ONE distinct raw, not a collision.
+        quarantined = self._run_pre_scan(groups)
+        self.assertEqual(quarantined, set())
+
+
+class TestPiiLogMarkersIncludeSubcontractorVariants(unittest.TestCase):
+    """Phase 01 Plan 02 Task 3: ``_PII_LOG_MARKERS`` MUST contain the
+    new subcontractor variant tokens so the ``before_send_log``
+    sanitizer drops any future INFO-level log lines that embed
+    those tokens before they reach Sentry.
+
+    Rationale per Living Ledger 2026-04-20 12:00: billing-row
+    PII (WR#, foreman, dept, CU) must never reach Sentry's event
+    store. Plan 3 will emit ``AEP BILLABLE GROUP CREATED`` /
+    ``REDUCED SUB GROUP CREATED`` INFO logs and a missing-CU
+    WARNING that contains the literal CU code — all of which
+    qualify as row-level data and must be sanitized.
+
+    Locking the markers in Plan 02 (before Plan 3 emits them)
+    means the sanitizer is already in place when those log calls
+    land — defense in depth.
+    """
+
+    def test_aepbillable_group_key_token_in_markers(self):
+        self.assertIn('_AEPBILLABLE', generate_weekly_pdfs._PII_LOG_MARKERS)
+
+    def test_reducedsub_group_key_token_in_markers(self):
+        self.assertIn('_REDUCEDSUB', generate_weekly_pdfs._PII_LOG_MARKERS)
+
+    def test_aepbillable_helper_group_key_token_in_markers(self):
+        self.assertIn(
+            '_AEPBILLABLE_HELPER_',
+            generate_weekly_pdfs._PII_LOG_MARKERS,
+        )
+
+    def test_reducedsub_helper_group_key_token_in_markers(self):
+        self.assertIn(
+            '_REDUCEDSUB_HELPER_',
+            generate_weekly_pdfs._PII_LOG_MARKERS,
+        )
+
+    def test_aep_billable_group_created_log_text_in_markers(self):
+        self.assertIn(
+            'AEP BILLABLE GROUP CREATED',
+            generate_weekly_pdfs._PII_LOG_MARKERS,
+        )
+
+    def test_reduced_sub_group_created_log_text_in_markers(self):
+        self.assertIn(
+            'REDUCED SUB GROUP CREATED',
+            generate_weekly_pdfs._PII_LOG_MARKERS,
+        )
+
+    def test_subcontractor_rates_missing_warning_in_markers(self):
+        self.assertIn(
+            'Subcontractor rates CSV missing',
+            generate_weekly_pdfs._PII_LOG_MARKERS,
+        )
+
+    def test_all_seven_subcontractor_markers_present(self):
+        """Single-shot assertion covering all 7 markers — mirrors the
+        plan's verification command exactly."""
+        expected = {
+            '_AEPBILLABLE',
+            '_REDUCEDSUB',
+            '_AEPBILLABLE_HELPER_',
+            '_REDUCEDSUB_HELPER_',
+            'AEP BILLABLE GROUP CREATED',
+            'REDUCED SUB GROUP CREATED',
+            'Subcontractor rates CSV missing',
+        }
+        missing = expected - set(generate_weekly_pdfs._PII_LOG_MARKERS)
+        self.assertFalse(
+            missing,
+            f'Missing PII markers for Phase 01 Plan 02: {missing}',
+        )
 
 
 class TestRedactExceptionMessageTruncationCapsFullPayload(unittest.TestCase):
