@@ -3299,6 +3299,14 @@ def get_all_source_rows(client, source_sheets):
                     # Attach provenance metadata for audit (used to fetch selective cell history later)
                     if row_data:
                         row_data['__sheet_id'] = source['id']
+                        # Phase 01 Plan 03: also expose the sheet id under
+                        # the canonical ``__source_sheet_id`` name the new
+                        # per-row subcontractor variant gate in
+                        # ``group_source_rows`` reads (committed Blocker 3
+                        # contract — see 01-03-PLAN.md). Kept alongside
+                        # ``__sheet_id`` (unchanged) so no existing
+                        # consumer of the legacy field name regresses.
+                        row_data['__source_sheet_id'] = source['id']
                         row_data['__row_id'] = row.id
 
                     # Essential field summary for earliest rows (gated to reduce I/O)
@@ -3979,7 +3987,146 @@ def group_source_rows(rows):
                     helper_dept = r.get('__helper_dept', '')
                     helper_job = r.get('__helper_job', '')
                     logging.warning(f"⚠️ Helper row for WR {wr_key} missing required Helper Dept # (Job: '{helper_job}') - including in main Excel")
-            
+
+            # ── Phase 01 Plan 03 (D-08/D-09/D-13/D-22): Subcontractor
+            # rate variants. Per the committed Blocker 3 plumbing
+            # decision the gate is PER-ROW, evaluated against the
+            # row's ``__source_sheet_id`` (populated upstream by
+            # ``_fetch_and_process_sheet``) and the kill-switch env
+            # var. A subcontractor row produces:
+            #   • a ``_REDUCEDSUB`` group key unconditionally (D-08
+            #     / SUB-02 — every sub WR group always gets a
+            #     reduced-sub Excel),
+            #   • a ``_AEPBILLABLE`` group key when the row's
+            #     ``Snapshot Date >= _AEP_BILLABLE_CUTOFF`` (D-08 /
+            #     SUB-01 — snapshot is authoritative per Living
+            #     Ledger 2026-04-21 22:35; never use Weekly Reference
+            #     Logged Date here),
+            #   • two ``_HELPER_<name>`` shadow keys when the
+            #     existing helper-foreman event fires on this row
+            #     (D-09 — shadows piggyback on the same
+            #     ``valid_helper_row + helper_mode_enabled`` gate the
+            #     legacy ``_HELPER_<name>`` key uses; the
+            #     subcontractor sheet only contributes the new
+            #     prefix tokens).
+            # Non-subcontractor rows fall through with zero behaviour
+            # change (per-row gate ensures no key bleed across rows
+            # in the same call). Helper names are sanitized at the
+            # producer site via ``_RE_SANITIZE_HELPER_NAME`` (D-22 /
+            # Living Ledger 2026-04-23 18:25 — idempotent regex, so
+            # the consumer site in ``generate_excel`` can safely
+            # re-apply).
+            _row_sheet_id = r.get('__source_sheet_id')
+            is_subcontractor_row = (
+                _row_sheet_id is not None
+                and _row_sheet_id in _FOLDER_DISCOVERED_SUB_IDS
+            )
+            if is_subcontractor_row and SUBCONTRACTOR_RATE_VARIANTS_ENABLED:
+                # ReducedSub: unconditional per SUB-02 / D-08. Foreman
+                # is the primary ``effective_user`` (mirrors the
+                # existing primary key — the reduced-sub Excel is
+                # produced for the WR group as a whole).
+                reduced_key = f"{week_end_for_key}_{wr_key}_REDUCEDSUB"
+                keys_to_add.append(('reduced_sub', reduced_key, effective_user))
+                if reduced_key not in groups:
+                    logging.info(
+                        f"🔻 REDUCED SUB GROUP CREATED: WR={wr_key}, "
+                        f"Week={week_end_for_key}"
+                    )
+
+                # AEPBillable: snapshot-cutoff-gated per SUB-01 / D-08
+                # / Living Ledger 2026-04-21 22:35. Snapshot Date is
+                # authoritative — Weekly Reference Logged Date is
+                # NOT a valid fallback here (cutoff drift would
+                # silently re-price whole sheets; see the ledger
+                # entry). ``excel_serial_to_date`` returns ``None``
+                # for blank/unparseable values which naturally
+                # excludes the row from the AEPBillable branch
+                # without raising (D-16 fall-through safety).
+                _snap_for_cutoff = excel_serial_to_date(r.get('Snapshot Date'))
+                if (
+                    _snap_for_cutoff is not None
+                    and _snap_for_cutoff.date() >= _AEP_BILLABLE_CUTOFF
+                ):
+                    aep_key = f"{week_end_for_key}_{wr_key}_AEPBILLABLE"
+                    keys_to_add.append(('aep_billable', aep_key, effective_user))
+                    if aep_key not in groups:
+                        logging.info(
+                            f"💲 AEP BILLABLE GROUP CREATED: WR={wr_key}, "
+                            f"Week={week_end_for_key}"
+                        )
+
+                # Helper-shadow variants: piggyback on the EXISTING
+                # helper detection. The two gates that already
+                # qualify a row for the legacy ``_HELPER_<name>``
+                # key (valid_helper_row + helper_mode_enabled) also
+                # qualify it for the shadow variants when the sheet
+                # is subcontractor. This means a single helper-row
+                # event on a subcontractor WR produces:
+                #   • the legacy ``_HELPER_<name>`` group (already
+                #     added above by the legacy branch when the
+                #     gates fire),
+                #   • the new ``_REDUCEDSUB_HELPER_<name>`` group
+                #     (unconditional),
+                #   • the new ``_AEPBILLABLE_HELPER_<name>`` group
+                #     when snapshot >= cutoff.
+                # ``helper_mode_enabled`` and ``valid_helper_row``
+                # are computed in the non-vac_crew else-branch above
+                # — they are out of scope here for vac_crew rows
+                # (``is_vac_crew_row`` short-circuits this entire
+                # else block). Re-evaluate the same gates locally to
+                # keep the new code self-contained and to avoid
+                # depending on the order of variable definitions in
+                # the enclosing block (the legacy primary-vs-helper
+                # cascade lives in the else branch but the new sub
+                # block is at function scope inside the for-loop, so
+                # mirror its inputs here for clarity).
+                if not is_vac_crew_row:
+                    _helper_mode_enabled = RES_GROUPING_MODE in ('helper', 'both')
+                    _valid_helper_row = False
+                    if _helper_mode_enabled and is_helper_row and helper_foreman:
+                        _helper_dept_local = r.get('__helper_dept', '')
+                        if _helper_dept_local:
+                            _valid_helper_row = True
+                    if _valid_helper_row and _helper_mode_enabled:
+                        _helper_sanitized = (
+                            _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50]
+                        )
+                        rs_helper_key = (
+                            f"{week_end_for_key}_{wr_key}_REDUCEDSUB_HELPER_"
+                            f"{_helper_sanitized}"
+                        )
+                        keys_to_add.append(
+                            ('reduced_sub_helper', rs_helper_key, helper_foreman)
+                        )
+                        if rs_helper_key not in groups:
+                            logging.info(
+                                f"🔻 REDUCED SUB HELPER GROUP CREATED: "
+                                f"WR={wr_key}, Week={week_end_for_key}, "
+                                f"Helper={helper_foreman}"
+                            )
+                        if (
+                            _snap_for_cutoff is not None
+                            and _snap_for_cutoff.date() >= _AEP_BILLABLE_CUTOFF
+                        ):
+                            aep_helper_key = (
+                                f"{week_end_for_key}_{wr_key}_AEPBILLABLE_HELPER_"
+                                f"{_helper_sanitized}"
+                            )
+                            keys_to_add.append(
+                                (
+                                    'aep_billable_helper',
+                                    aep_helper_key,
+                                    helper_foreman,
+                                )
+                            )
+                            if aep_helper_key not in groups:
+                                logging.info(
+                                    f"💲 AEP BILLABLE HELPER GROUP CREATED: "
+                                    f"WR={wr_key}, Week={week_end_for_key}, "
+                                    f"Helper={helper_foreman}"
+                                )
+
             # Add row to all applicable groups
             for variant, key, current_foreman in keys_to_add:
                 # Add calculated values to row data
