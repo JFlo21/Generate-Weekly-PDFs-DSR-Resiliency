@@ -87,7 +87,7 @@ SUB-07
 **Plans**: 6 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — CSV move to canonical path + subcontractor rate loader + env-var scaffolding + fingerprint
+- [x] 01-01-PLAN.md — CSV move to canonical path + subcontractor rate loader + env-var scaffolding + fingerprint
 - [ ] 01-02-PLAN.md — Extend build_group_identity + calculate_data_hash for the 4 new variants; PII markers + collision-quarantine regression coverage
 - [ ] 01-03-PLAN.md — Variant tagging in group_source_rows + Excel generation with CSV-driven prices + missing-CU WARNING + kill-switch
 - [ ] 01-04-PLAN.md — Dual-target routing for _ReducedSub via SUBCONTRACTOR_PPP_SHEET_ID; independent collision quarantine on second target_map
