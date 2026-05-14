@@ -360,7 +360,8 @@ def _sentry_capture_warning(tag_key: str, tag_value: Any,
 
 
 def freeze_row(row: dict, release: str | None,
-               run_id: str | None) -> bool:
+               run_id: str | None = None,
+               variant: str | None = None) -> bool:
     """Upsert one row's personnel into ``attribution_snapshot``.
 
     First-write-wins via the ``billing_audit.freeze_attribution`` RPC.
@@ -378,7 +379,33 @@ def freeze_row(row: dict, release: str | None,
     client is unavailable, the ``write_attribution_snapshot`` flag is
     off, or the row does not meet the freeze criteria.  Failures are
     counted and logged in aggregate only.
+
+    Parameters
+    ----------
+    variant : str | None, default None
+        Per D-18 / SUB-07 (Phase 1 Blocker 1 Path B): accepted for
+        signature symmetry with ``emit_run_fingerprint`` and
+        forward-compat instrumentation. Valid values are the 7
+        variant strings ``primary | helper | vac_crew |
+        aep_billable | reduced_sub | aep_billable_helper |
+        reduced_sub_helper``.
+
+        **This kwarg is NOT injected into the ``freeze_attribution``
+        RPC params dict.** Reason: the RPC writes to
+        ``attribution_snapshot`` (a different table than
+        ``pipeline_run``), and the RPC's parameter contract is owned
+        by the Supabase Dashboard (documented in
+        ``billing_audit/schema.sql``). Changing it requires
+        coordinated DDL + function updates. The variant is recorded
+        on the ``pipeline_run`` row by ``emit_run_fingerprint``; the
+        kwarg here is purely for signature symmetry + forward-compat.
     """
+    # Path B contract: ``variant`` is accepted at the boundary but
+    # never reaches the RPC params dict — see docstring. Touching it
+    # to silence linters would risk a later regression that
+    # accidentally injects it; an explicit acknowledgement here
+    # documents the intentional drop.
+    del variant
     client = get_client()
     if client is None:
         return False
@@ -486,7 +513,8 @@ def freeze_row(row: dict, release: str | None,
 def emit_run_fingerprint(wr: str, week_ending: datetime.date,
                          content_hash: str, assignment_fp: str,
                          completed_count: int, total_count: int,
-                         release: str, run_id: str) -> None:
+                         release: str, run_id: str,
+                         variant: str | None = None) -> None:
     """Upsert one row into ``billing_audit.pipeline_run``.
 
     Before writing, fetch the prior run's ``assignment_fp`` for
@@ -495,6 +523,22 @@ def emit_run_fingerprint(wr: str, week_ending: datetime.date,
     checked, emit a Sentry warning tagged
     ``billing.mid_week_assignment_change=True``. Silent no-op if the
     ``emit_assignment_fingerprint`` flag is off.
+
+    Parameters
+    ----------
+    variant : str | None, default None
+        Per D-18 / SUB-07 (Phase 1 Blocker 1 Path B): the variant
+        string for this (wr, week_ending, run_id) row, recorded on
+        ``pipeline_run.variant``. Valid values: ``primary | helper |
+        vac_crew | aep_billable | reduced_sub | aep_billable_helper
+        | reduced_sub_helper``. ``None`` (or omitted) coerces to
+        ``'primary'`` for back-compat with pre-Phase-1 call sites.
+
+        First-variant-wins via the existing ``_emitted_run_keys``
+        dedup: variant is NOT part of the PK
+        (``wr, week_ending, run_id``) so subsequent calls with a
+        different variant for the same (wr, week, run_id) are a
+        no-op — the first variant emitted is the one recorded.
     """
     client = get_client()
     if client is None:
@@ -543,7 +587,18 @@ def emit_run_fingerprint(wr: str, week_ending: datetime.date,
         if rows and isinstance(rows[0], dict):
             prior_fp = rows[0].get("assignment_fp")
 
+    # Coerce variant to its production sentinel: callers that don't
+    # yet pass the kwarg (or explicitly pass None) record the
+    # 'primary' variant, matching pre-Phase-1 default behavior.
+    # Phase 1 Plan 03 emits the variant string at row-tagging time
+    # via group_source_rows; the main loop forwards it here.
+    effective_variant = variant if variant else 'primary'
+
     # ── Insert / upsert the new run row ──
+    # Path B (Blocker 1): ``variant`` is recorded EXCLUSIVELY here,
+    # in the pipeline_run upsert payload. The freeze_attribution
+    # RPC params dict in freeze_row stays unchanged — variant lives
+    # on pipeline_run only.
     payload = {
         "wr": wr_sanitized,
         "week_ending": week_ending.isoformat(),
@@ -553,6 +608,7 @@ def emit_run_fingerprint(wr: str, week_ending: datetime.date,
         "completed_count": int(completed_count),
         "total_count": int(total_count),
         "release": release or "",
+        "variant": effective_variant,
     }
 
     def _upsert():
