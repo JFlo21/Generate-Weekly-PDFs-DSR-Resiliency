@@ -137,6 +137,35 @@ def validate_per_group_try_catches_all() -> None:
     # dispatch code. Search window capped at 18kB — generous headroom
     # for future additions without triggering false negatives on
     # every legitimate refactor of the per-group billing_audit block.
+    #
+    # Verified post-Phase-1 (2026-05-14): measured block size is
+    # ~17,738 chars after Plan 3 (variant tagging) + Plan 5
+    # (freeze_row variant kwarg). Cap REMAINS at 18000 — block is
+    # comfortably below the cap (262 char headroom). Per CLAUDE.md
+    # 2026-04-25 14:00 rule 3, the cap is bumped if-and-only-if the
+    # block grows past the cap; it has not, so no bump is required.
+    #
+    # Warning 8 reconciliation (Plan 06 Task 1): Plan 05 Task 3's
+    # inline `inspect.getsource` substring check uses a 24 kB window
+    # from the same header. The 24 kB window in Plan 05 is
+    # intentionally larger than this 18 kB cap because the two
+    # checks serve different purposes:
+    #   • This validator (Plan 06 Task 1) is the authoritative
+    #     source-of-truth on max allowed block size — it enforces a
+    #     BOUNDED window so an unbounded refactor that displaces the
+    #     broad-except clause out of the per-group block fails
+    #     loudly. Over-permissive caps reduce the validator's signal.
+    #   • Plan 05 Task 3 is a substring-find-or-die check — it
+    #     LOOKS for required substrings (the `variant=row.get(...)`
+    #     kwargs at both call sites, the `min(PARALLEL_WORKERS, ...)`
+    #     cap, the `emit_run_fingerprint` call). It does NOT forbid
+    #     anything beyond its window, so a generous 24 kB window
+    #     finds the kwargs reliably across small reflows without
+    #     producing false negatives.
+    # Both sizes are valid; this 18 kB cap is the authoritative
+    # source-of-truth on max allowed block size, and Plan 05's 24 kB
+    # window is a superset that exists for substring-discovery
+    # robustness only.
     window = src[idx:idx + 18000]
     has_broad_except = "except Exception as _audit_err:" in window
     _record(name, has_broad_except,
