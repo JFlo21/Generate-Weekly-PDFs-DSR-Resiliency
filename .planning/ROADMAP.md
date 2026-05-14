@@ -32,10 +32,13 @@ Express explorer routes are tracked as v1.1+ scope.
 - Decimal phases (e.g., 1.1, 2.1): Urgent insertions inserted via
   `/gsd-insert-phase` (none yet)
 
-- [ ] **Phase 1: Subcontractor Rate Logic Modification** — Two new Excel
+- [x] **Phase 1: Subcontractor Rate Logic Modification** — Two new Excel
   variants (`_AEPBillable`, `_ReducedSub`) for subcontractor WR groups,
   routed to original-PPP and new-subcontractor-PPP target sheets, with
-  shadow-foreman/helper support
+  shadow-foreman/helper support. ✅ Complete 2026-05-14 — all 6 plans
+  done; ready to ship via PR. Kill switch
+  (`SUBCONTRACTOR_RATE_VARIANTS_ENABLED`) default-ON with `0` as the
+  documented rollback path.
 - [ ] **Phase 2 (DEFERRED): Railway → Render Pre-Migration ADR** — File the
   missing `memory-bank/adr/` record locking Render Starter, in-memory
   LRU search, and v1 download = original `.xlsx`. **Does not gate v1.0 completion** — preserved here so MIG-01 stays mapped, but the full Railway → Render execution lives in REQUIREMENTS.md v2 section.
@@ -92,7 +95,7 @@ Plans:
 - [x] 01-03-PLAN.md — Variant tagging in group_source_rows + Excel generation with CSV-driven prices + missing-CU WARNING + kill-switch
 - [x] 01-04-PLAN.md — Dual-target routing for _ReducedSub via SUBCONTRACTOR_PPP_SHEET_ID; independent collision quarantine on second target_map
 - [x] 01-05-PLAN.md — billing_audit pipeline_run.variant column DDL + freeze_row/emit_run_fingerprint variant kwarg
-- [ ] 01-06-PLAN.md — Byte-identical regression test, production-safety validator pin, Docusaurus runbook update, human-verify checkpoint
+- [x] 01-06-PLAN.md — Byte-identical regression test, production-safety validator pin, Docusaurus runbook update, human-verify checkpoint
 
 ### Phase 2: Railway → Render Pre-Migration ADR (DEFERRED — out of v1.0 scope)
 **Status**: DEFERRED. Does not gate v1.0 milestone completion. The seven REQ-* requirements that drive the actual Railway → Render execution + Artifact Explorer redesign live in REQUIREMENTS.md "v2 Requirements" section and will be promoted by a future `/gsd-new-project` cycle. Phase 2 here exists to lock in the one small documentation deliverable (`MIG-01`) that should land before any of that v2 work begins.
@@ -135,7 +138,7 @@ Plans:
 **Execution Order:**
 Phases execute in numeric order: 1 → 2
 
-| Phase | Plans Complete | Status | Completed |
-|-------|----------------|--------|-----------|
-| 1. Subcontractor Rate Logic Modification | 0/6 | Not started | - |
-| 2. Railway → Render Pre-Migration ADR (DEFERRED) | 0/TBD | Deferred — out of v1.0 scope | - |
+| Phase                                            | Plans Complete | Status                       | Completed  |
+|--------------------------------------------------|----------------|------------------------------|------------|
+| 1. Subcontractor Rate Logic Modification         | 6/6            | ✅ Complete                  | 2026-05-14 |
+| 2. Railway → Render Pre-Migration ADR (DEFERRED) | 0/TBD          | Deferred — out of v1.0 scope | -          |
