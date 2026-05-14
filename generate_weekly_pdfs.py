@@ -400,6 +400,50 @@ RATE_RECALC_SKIP_ORIGINAL_CONTRACT = os.getenv(
     'RATE_RECALC_SKIP_ORIGINAL_CONTRACT', '1'
 ).lower() in ('1', 'true', 'yes', 'on')
 
+# ── Subcontractor rate variants (Phase 1 SUB-01..07) ───────────────────
+# See .planning/phases/01-subcontractor-rate-logic-modification/
+# 01-CONTEXT.md decisions D-03, D-12, D-13. These three env vars
+# scaffold the new ``_AEPBillable`` and ``_ReducedSub`` variant
+# pipeline:
+#
+#   SUBCONTRACTOR_RATES_CSV — path to the operator-managed contract
+#       CSV (17 columns, currency-formatted). Default
+#       ``data/subcontractor_rates.csv``. Resolved through the same
+#       ``_sanitize_csv_path`` helper used by the retired
+#       ``NEW_RATES_CSV`` / ``OLD_RATES_CSV`` env vars, which guards
+#       against directory traversal and symlink escape per the CodeQL
+#       taint-analysis pattern.
+#   SUBCONTRACTOR_PPP_SHEET_ID — second target sheet for ``_ReducedSub``
+#       attachments. Default ``8162920222379908``. Parsed through
+#       ``_coerce_sheet_id`` for parse-error fallback.
+#   SUBCONTRACTOR_RATE_VARIANTS_ENABLED — default-on kill switch for
+#       the entire new variant pipeline. Pattern mirrors
+#       ``RATE_RECALC_SKIP_ORIGINAL_CONTRACT`` and
+#       ``RATE_RECALC_WEEKLY_FALLBACK``. Flipping this to ``0`` /
+#       ``false`` / ``no`` / ``off`` reverts subcontractor-folder
+#       sheets to pre-change behavior on the next run.
+#
+# Per Living Ledger 2026-04-24 14:30: do NOT re-introduce
+# ``RATE_CUTOFF_DATE`` / ``NEW_RATES_CSV`` / ``OLD_RATES_CSV``. The
+# new env vars are the subcontractor-specific replacement.
+SUBCONTRACTOR_RATES_CSV = _sanitize_csv_path(
+    'SUBCONTRACTOR_RATES_CSV', 'data/subcontractor_rates.csv'
+)
+SUBCONTRACTOR_PPP_SHEET_ID = _coerce_sheet_id(
+    os.getenv('SUBCONTRACTOR_PPP_SHEET_ID', '8162920222379908'),
+    8162920222379908,
+)
+SUBCONTRACTOR_RATE_VARIANTS_ENABLED = os.getenv(
+    'SUBCONTRACTOR_RATE_VARIANTS_ENABLED', '1'
+).lower() in ('1', 'true', 'yes', 'on')
+
+# Cutoff date for ``_AEPBillable`` variant generation. Awarded to
+# Linetec on 2026-04-12 (subcontractor rate contract). Plan 2 (parser
+# extension) and Plan 3 (variant emission) gate variant emission on
+# ``Snapshot Date >= _AEP_BILLABLE_CUTOFF``. Exposed at module level
+# so downstream plans can reference a single source of truth.
+_AEP_BILLABLE_CUTOFF = datetime.date(2026, 4, 12)
+
 if RATE_CUTOFF_DATE:
     logging.info(f"📊 Rate contract versioning ENABLED: cutoff date = {RATE_CUTOFF_DATE.isoformat()}")
     # The CSV-side rate recalc was retired in production on
@@ -442,6 +486,24 @@ if RATE_CUTOFF_DATE:
         )
 else:
     logging.info("📊 Rate contract versioning DISABLED (RATE_CUTOFF_DATE not set)")
+
+# Subcontractor rate variants startup banner (Phase 1 D-13). The
+# fingerprint line is appended later in the rate-loading section once
+# ``_SUBCONTRACTOR_RATES_FINGERPRINT`` has been computed by Task 2's
+# module-level loader call — see ``load_subcontractor_rates`` below.
+# These banner lines embed NO row content (just resolved config
+# values), so per D-22 no ``_PII_LOG_MARKERS`` extension is required.
+if SUBCONTRACTOR_RATE_VARIANTS_ENABLED:
+    logging.info(
+        "📊 Subcontractor rate variants ENABLED "
+        f"(SUBCONTRACTOR_RATES_CSV='{SUBCONTRACTOR_RATES_CSV}', "
+        f"SUBCONTRACTOR_PPP_SHEET_ID={SUBCONTRACTOR_PPP_SHEET_ID})"
+    )
+else:
+    logging.info(
+        "📊 Subcontractor rate variants DISABLED "
+        "(SUBCONTRACTOR_RATE_VARIANTS_ENABLED=false)"
+    )
 
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
 RESET_WR_LIST = {w.strip() for w in os.getenv('RESET_WR_LIST','').split(',') if w.strip()}  # When provided, only purge these WR numbers (overrides full reset)
@@ -1001,6 +1063,244 @@ def _compute_rates_fingerprint(rates_dict):
         r = rates_dict[code]
         h.update(f"{code}:{r['install']:.2f},{r['removal']:.2f},{r['transfer']:.2f}\n".encode())
     return h.hexdigest()[:12]
+
+
+# Headers the subcontractor-rates loader must see in the CSV. Defined
+# at module scope so the column-shape contract is documented in one
+# place — Plan 2 (parser extension) and Plan 3 (variant emission)
+# both read the same nine fields per row.
+_SUBCONTRACTOR_RATES_REQUIRED_HEADERS: frozenset[str] = frozenset({
+    'CU',
+    'Install Price (Subcontractor Rates)',
+    'Removal Price (Subcontractor Rates)',
+    'Transfer Price (Subcontractor Rates)',
+    'Install Price (New Rates)',
+    'Removal Price (New Rates)',
+    'Transfer Price (New Rates)',
+})
+
+
+def _strip_csv_fieldnames(fieldnames: list[str] | None) -> dict[str, str]:
+    """Map stripped header → original header for an operator CSV.
+
+    The operator-supplied subcontractor rates CSV uses space-padded
+    column headers (e.g. ``' CU                       '``) so a
+    ``csv.DictReader``'s ``row.get('CU')`` would miss every value. This
+    helper produces a stripped-form → raw-form mapping so the loader
+    can ``row.get(raw)`` after looking up the desired header by its
+    stripped form. Returns ``{}`` if ``fieldnames`` is falsy.
+    """
+    if not fieldnames:
+        return {}
+    return {(name or '').strip(): name for name in fieldnames}
+
+
+def load_subcontractor_rates(filepath: str) -> dict[str, dict]:
+    """Load the subcontractor rates CSV into a CU-keyed dict.
+
+    Per Phase 1 decisions D-04..D-07 + D-20 (see
+    ``.planning/phases/01-subcontractor-rate-logic-modification/
+    01-CONTEXT.md``):
+
+    - ``encoding='utf-8-sig'`` tolerates a UTF-8 BOM at file start.
+    - Header matching strips whitespace so the operator-padded
+      headers in the supplied CSV (``' CU                       '``)
+      match the canonical ``CU`` key.
+    - Price cells go through :func:`parse_price` which strips ``$``
+      and thousands-comma. ``N/A`` and other non-numeric values
+      coerce to ``0.0``.
+    - Rows whose all six priced columns are zero are skipped
+      (placeholder / inactive CUs — 1058 of 4848 in the supplied
+      file). They are NOT counted as missing-CU telemetry.
+    - Literal values are read for every priced field; the loader does
+      NOT compute ``reduced = new × 0.87`` or ``new = old × 1.03``
+      shortcuts (per-CU variance is real per ``contract-schema.md``).
+    - ``Old-Rates`` columns (12-14) and ``Hours`` columns (6-8) are
+      NOT loaded — the operator file retains them for human audit
+      only; carrying them in memory would invite accidental code
+      reuse and create a 3rd source of truth.
+
+    Returns a CU-keyed dict shaped:
+
+    .. code-block:: python
+
+       {
+           'cu_code': str,                  # uppercased
+           'cu_wbs': str,                   # audit-only
+           'compatible_unit_group': str,    # audit-only
+           'reduced_install_price': float,
+           'reduced_remove_price': float,
+           'reduced_transfer_price': float,
+           'new_install_price': float,
+           'new_remove_price': float,
+           'new_transfer_price': float,
+       }
+
+    Returns ``{}`` on any failure (fail-safe contract). Never raises
+    into the caller — every Phase 1 plan downstream depends on this
+    helper degrading gracefully.
+    """
+    rates: dict[str, dict] = {}
+    try:
+        with open(filepath, mode='r', encoding='utf-8-sig', newline='') as f:
+            # ``skipinitialspace=True`` is mandatory for the operator-
+            # supplied CSV: every field is left-padded with spaces
+            # (``CU-1    , ADDITEM-ROW-PURCHASE     , EA             ,``).
+            # Without it, the leading space before each ``"`` in a
+            # quoted description (``, "Additional Item, Right of Way,
+            # Purchase",``) breaks Python's csv quote recognition and
+            # silently 2-column-shifts every value to the right. The
+            # symptom was ALB-6-AUR1's ``reduced_install_price`` being
+            # read as ``0.176`` (the Removal Hours column) instead of
+            # ``$45.95`` (the actual Install Subcontractor price).
+            reader = csv.DictReader(f, skipinitialspace=True)
+            stripped_to_raw = _strip_csv_fieldnames(reader.fieldnames)
+            missing = _SUBCONTRACTOR_RATES_REQUIRED_HEADERS - set(stripped_to_raw.keys())
+            if missing:
+                logging.error(
+                    f"Subcontractor rates CSV {filepath} missing "
+                    f"required headers: {sorted(missing)}"
+                )
+                return rates
+
+            def _cell(row: dict, stripped_name: str, default=''):
+                raw = stripped_to_raw.get(stripped_name)
+                if raw is None:
+                    return default
+                value = row.get(raw, default)
+                if isinstance(value, str):
+                    return value.strip()
+                return value
+
+            for row in reader:
+                cu = str(_cell(row, 'CU', '') or '').upper()
+                if not cu:
+                    continue
+
+                reduced_install = parse_price(
+                    _cell(row, 'Install Price (Subcontractor Rates)', 0))
+                reduced_remove = parse_price(
+                    _cell(row, 'Removal Price (Subcontractor Rates)', 0))
+                reduced_transfer = parse_price(
+                    _cell(row, 'Transfer Price (Subcontractor Rates)', 0))
+                new_install = parse_price(
+                    _cell(row, 'Install Price (New Rates)', 0))
+                new_remove = parse_price(
+                    _cell(row, 'Removal Price (New Rates)', 0))
+                new_transfer = parse_price(
+                    _cell(row, 'Transfer Price (New Rates)', 0))
+
+                # D-04: skip rows whose all six priced cells are zero
+                # (placeholder CUs). They are NOT counted as "missing"
+                # — they're legitimately blank in the operator file.
+                if (
+                    reduced_install == 0
+                    and reduced_remove == 0
+                    and reduced_transfer == 0
+                    and new_install == 0
+                    and new_remove == 0
+                    and new_transfer == 0
+                ):
+                    continue
+
+                # D-05: 9 literal fields per row. D-06: explicitly do
+                # NOT include Old-Rates (cols 12-14) or Hours
+                # (cols 6-8) — they stay reference-only on disk.
+                rates[cu] = {
+                    'cu_code': cu,
+                    'cu_wbs': str(_cell(row, 'CU WBS #', '') or ''),
+                    'compatible_unit_group': str(
+                        _cell(row, 'Compatible Unit Group', '') or ''
+                    ),
+                    'reduced_install_price': reduced_install,
+                    'reduced_remove_price': reduced_remove,
+                    'reduced_transfer_price': reduced_transfer,
+                    'new_install_price': new_install,
+                    'new_remove_price': new_remove,
+                    'new_transfer_price': new_transfer,
+                }
+        logging.info(
+            f"Loaded {len(rates)} subcontractor CU rates from {filepath}"
+        )
+    except Exception as e:
+        # Fail-safe contract: never raise into the caller. Surface the
+        # filepath but not row content (no PII risk: only the integer
+        # count would have been logged on success, and ``e`` here is
+        # an open / csv / encoding error, not a row-level message).
+        logging.error(
+            f"Failed to load subcontractor rates from {filepath}: {e}"
+        )
+    return rates
+
+
+def _compute_subcontractor_rates_fingerprint(
+    rates_dict: dict[str, dict],
+) -> str:
+    """Return a deterministic 16-char SHA256 prefix over the six priced
+    fields of every CU in ``rates_dict``.
+
+    Per Phase 1 decision D-20: sorted keys + fixed precision guarantees
+    byte-identical output for byte-identical input across runs and
+    across machines. Dict-insertion-order does NOT influence the
+    output. Editing any priced field on any CU MUST change the
+    fingerprint.
+
+    Returns ``''`` for an empty dict (matches the legacy
+    ``_compute_rates_fingerprint`` convention used elsewhere when the
+    rates table is empty).
+    """
+    if not rates_dict:
+        return ''
+    h = hashlib.sha256()
+    for code in sorted(rates_dict.keys()):
+        r = rates_dict[code]
+        h.update(
+            (
+                f"{code}:"
+                f"{r['reduced_install_price']:.2f},"
+                f"{r['reduced_remove_price']:.2f},"
+                f"{r['reduced_transfer_price']:.2f},"
+                f"{r['new_install_price']:.2f},"
+                f"{r['new_remove_price']:.2f},"
+                f"{r['new_transfer_price']:.2f}\n"
+            ).encode()
+        )
+    return h.hexdigest()[:16]
+
+
+# Per D-20: load the subcontractor rate matrix once at module init so
+# downstream plans (2-6) can read ``_SUBCONTRACTOR_RATES`` and
+# ``_SUBCONTRACTOR_RATES_FINGERPRINT`` directly without re-parsing
+# the CSV per WR group. When the kill switch is OFF, neither value is
+# populated — every downstream consumer must short-circuit on the
+# empty dict path so the pipeline behaves identically to pre-Phase-1.
+_SUBCONTRACTOR_RATES: dict[str, dict] = (
+    load_subcontractor_rates(SUBCONTRACTOR_RATES_CSV)
+    if SUBCONTRACTOR_RATE_VARIANTS_ENABLED
+    else {}
+)
+_SUBCONTRACTOR_RATES_FINGERPRINT: str = (
+    _compute_subcontractor_rates_fingerprint(_SUBCONTRACTOR_RATES)
+    if _SUBCONTRACTOR_RATES
+    else ''
+)
+
+if SUBCONTRACTOR_RATE_VARIANTS_ENABLED and _SUBCONTRACTOR_RATES:
+    logging.info(
+        f"📊 Subcontractor rates loaded: "
+        f"{len(_SUBCONTRACTOR_RATES)} CUs, "
+        f"fingerprint={_SUBCONTRACTOR_RATES_FINGERPRINT}"
+    )
+elif SUBCONTRACTOR_RATE_VARIANTS_ENABLED:
+    # Kill switch is on but the dict is empty — the loader's own
+    # ``logging.error`` already surfaced the failure cause; flag it
+    # here too so operators tailing the startup banner notice that
+    # the downstream variant pipeline will be a no-op this run.
+    logging.warning(
+        "⚠️ Subcontractor rates table is empty — _AEPBillable / "
+        "_ReducedSub variant generation will be skipped this run "
+        f"(SUBCONTRACTOR_RATES_CSV='{SUBCONTRACTOR_RATES_CSV}')"
+    )
 
 
 def load_rate_versions():

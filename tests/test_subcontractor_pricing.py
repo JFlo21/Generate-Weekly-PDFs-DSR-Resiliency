@@ -152,6 +152,274 @@ class TestLoadContractRates(unittest.TestCase):
             os.unlink(path2)
 
 
+# Canonical 17-column header for the subcontractor rates CSV. Pinned at
+# module scope so every TestLoadSubcontractorRates fixture emits the
+# same shape and a future header drift fails one test instead of
+# silently mis-feeding the loader across every test.
+SUBCONTRACTOR_HEADERS = [
+    'CU WBS #', 'CU', 'Unit Of Measure', 'Description',
+    'Compatible Unit Group', 'Install Hours', 'Removal Hours',
+    'Transfer Hours',
+    'Install Price (Subcontractor Rates)',
+    'Removal Price (Subcontractor Rates)',
+    'Transfer Price (Subcontractor Rates)',
+    'Install Price (Old Rates)',
+    'Removal Price (Old Rates)',
+    'Transfer Price (Old Rates)',
+    'Install Price (New Rates)',
+    'Removal Price (New Rates)',
+    'Transfer Price (New Rates)',
+]
+
+
+class TestLoadSubcontractorRates(unittest.TestCase):
+    """Regression class for ``load_subcontractor_rates`` (Phase 1
+    plan 01-01). Covers decisions D-04..D-07 + D-20."""
+
+    def _write_csv(self, rows, *, write_bom: bool = False) -> str:
+        """Write a temp CSV with the canonical 17-column header and the
+        supplied data rows. Returns the temp path; the caller is
+        responsible for ``os.unlink`` in a ``finally`` block. When
+        ``write_bom`` is True a UTF-8 BOM is emitted at file start so
+        the ``utf-8-sig`` tolerance can be tested.
+        """
+        with tempfile.NamedTemporaryFile(
+            mode='w', suffix='.csv', delete=False, newline='',
+            encoding='utf-8',
+        ) as f:
+            if write_bom:
+                f.write('﻿')
+            writer = csv.writer(f)
+            writer.writerow(SUBCONTRACTOR_HEADERS)
+            for row in rows:
+                writer.writerow(row)
+            return f.name
+
+    def test_loads_subcontractor_csv_with_currency_strings(self):
+        """D-04: ``$150.00`` / ``$1,234.56`` currency cells parse to
+        floats via ``parse_price``."""
+        tmp_path = self._write_csv([
+            [
+                '100', 'ABC123', 'EA', 'Test', 'G1',
+                '1', '0.5', '0.3',
+                '$150.00', '$1,234.56', '$50.00',
+                '$0.00', '$0.00', '$0.00',
+                '$200.00', '$1,500.00', '$75.00',
+            ],
+        ])
+        try:
+            rates = generate_weekly_pdfs.load_subcontractor_rates(tmp_path)
+            self.assertIn('ABC123', rates)
+            self.assertAlmostEqual(rates['ABC123']['reduced_install_price'], 150.0)
+            self.assertAlmostEqual(rates['ABC123']['reduced_remove_price'], 1234.56)
+            self.assertAlmostEqual(rates['ABC123']['reduced_transfer_price'], 50.0)
+            self.assertAlmostEqual(rates['ABC123']['new_install_price'], 200.0)
+            self.assertAlmostEqual(rates['ABC123']['new_remove_price'], 1500.0)
+            self.assertAlmostEqual(rates['ABC123']['new_transfer_price'], 75.0)
+        finally:
+            os.unlink(tmp_path)
+
+    def test_loads_subcontractor_csv_with_utf8_bom(self):
+        """D-04: a UTF-8 BOM at file start does not break header
+        detection (``encoding='utf-8-sig'`` strips it)."""
+        tmp_path = self._write_csv(
+            [
+                [
+                    '100', 'BOM-CU', 'EA', 'Test', 'G1',
+                    '1', '0.5', '0.3',
+                    '$10.00', '$5.00', '$3.00',
+                    '$0.00', '$0.00', '$0.00',
+                    '$15.00', '$7.00', '$4.00',
+                ],
+            ],
+            write_bom=True,
+        )
+        try:
+            rates = generate_weekly_pdfs.load_subcontractor_rates(tmp_path)
+            self.assertIn('BOM-CU', rates)
+            self.assertAlmostEqual(rates['BOM-CU']['reduced_install_price'], 10.0)
+            self.assertAlmostEqual(rates['BOM-CU']['new_install_price'], 15.0)
+        finally:
+            os.unlink(tmp_path)
+
+    def test_skips_all_zero_priced_rows(self):
+        """D-04: rows whose all six priced cells are zero are
+        excluded from the dict (placeholder CUs)."""
+        tmp_path = self._write_csv([
+            # Row 1: all-zero priced — must be skipped
+            [
+                '100', 'ZERO-CU', 'EA', 'Placeholder', 'G1',
+                '0', '0', '0',
+                '$0.00', '$0.00', '$0.00',
+                '$0.00', '$0.00', '$0.00',
+                '$0.00', '$0.00', '$0.00',
+            ],
+            # Row 2: valid priced — must be loaded
+            [
+                '101', 'VALID-CU', 'EA', 'Real', 'G1',
+                '1', '0.5', '0.3',
+                '$45.95', '$33.33', '$106.54',
+                '$0.00', '$0.00', '$0.00',
+                '$52.58', '$38.14', '$121.93',
+            ],
+        ])
+        try:
+            rates = generate_weekly_pdfs.load_subcontractor_rates(tmp_path)
+            self.assertEqual(len(rates), 1)
+            self.assertNotIn('ZERO-CU', rates)
+            self.assertIn('VALID-CU', rates)
+        finally:
+            os.unlink(tmp_path)
+
+    def test_tolerates_na_in_hours_columns(self):
+        """D-04: ``'N/A'`` in Hours columns does not break the loader
+        (hours are not read at all). Row 2 of the production CSV
+        (``ADDITEM-ROW-PURCHASE``) is shaped exactly like this."""
+        tmp_path = self._write_csv([
+            [
+                '100', 'NA-HOURS', 'EA', 'Test', 'G1',
+                'N/A', 'N/A', 'N/A',
+                '$100.00', '$50.00', '$25.00',
+                '$0.00', '$0.00', '$0.00',
+                '$120.00', '$60.00', '$30.00',
+            ],
+        ])
+        try:
+            rates = generate_weekly_pdfs.load_subcontractor_rates(tmp_path)
+            self.assertIn('NA-HOURS', rates)
+            self.assertAlmostEqual(rates['NA-HOURS']['reduced_install_price'], 100.0)
+            self.assertAlmostEqual(rates['NA-HOURS']['new_install_price'], 120.0)
+        finally:
+            os.unlink(tmp_path)
+
+    def test_loads_per_cu_rate_variance_literally(self):
+        """D-07: per-CU rate variance is real (median ``New/Old =
+        1.0300``, min ``1.0244``; median ``Reduced/New = 0.8738``,
+        min ``0.4343``). The loader MUST read literal values, never
+        compute ``reduced = old × 0.87`` or ``new = old × 1.03``
+        shortcuts."""
+        # Outlier CU: New/Old = 2.0725 (max), Reduced/New = 0.4343 (min).
+        # If the loader computed shortcuts, reduced_install would be
+        # 0.87 × 20.73 ≈ 18.03 (not the literal 9.00), and new_install
+        # would be 1.03 × 10.00 = 10.30 (not the literal 20.73).
+        tmp_path = self._write_csv([
+            [
+                '100', 'OUTLIER', 'EA', 'Test', 'G1',
+                '1', '0', '0',
+                '$9.00', '$5.00', '$3.00',     # reduced
+                '$10.00', '$5.00', '$3.00',    # old
+                '$20.73', '$10.30', '$6.18',   # new
+            ],
+        ])
+        try:
+            rates = generate_weekly_pdfs.load_subcontractor_rates(tmp_path)
+            self.assertIn('OUTLIER', rates)
+            # Reduced must be the literal $9.00, not 0.87 × $10.00
+            self.assertAlmostEqual(rates['OUTLIER']['reduced_install_price'], 9.0)
+            # New must be the literal $20.73, not 1.03 × $10.00
+            self.assertAlmostEqual(rates['OUTLIER']['new_install_price'], 20.73)
+            # Compute ratios to confirm the outliers landed verbatim
+            ratio_reduced_over_new = (
+                rates['OUTLIER']['reduced_install_price']
+                / rates['OUTLIER']['new_install_price']
+            )
+            self.assertAlmostEqual(ratio_reduced_over_new, 0.4341, places=3)
+        finally:
+            os.unlink(tmp_path)
+
+    def test_old_rates_columns_not_loaded(self):
+        """D-06: Old-Rates columns (12-14) are NOT loaded into the
+        per-CU value dict. Carrying them would create a 3rd source of
+        truth for pricing — explicitly forbidden by the design."""
+        tmp_path = self._write_csv([
+            [
+                '100', 'HAS-OLD', 'EA', 'Test', 'G1',
+                '1', '0', '0',
+                '$45.95', '$33.33', '$106.54',
+                # Old-Rates: deliberately distinct values so the test
+                # would catch a key like ``'old_install_price'`` if
+                # the loader regressed and included them
+                '$999.00', '$888.00', '$777.00',
+                '$52.58', '$38.14', '$121.93',
+            ],
+        ])
+        try:
+            rates = generate_weekly_pdfs.load_subcontractor_rates(tmp_path)
+            self.assertIn('HAS-OLD', rates)
+            value = rates['HAS-OLD']
+            # No legacy or alternate-name keys for the old-rates columns
+            self.assertNotIn('install_price_old', value)
+            self.assertNotIn('old_install_price', value)
+            self.assertNotIn('removal_price_old', value)
+            self.assertNotIn('old_removal_price', value)
+            self.assertNotIn('transfer_price_old', value)
+            self.assertNotIn('old_transfer_price', value)
+            # Defensive: no key in the value dict contains 'old'
+            old_keys = [k for k in value.keys() if 'old' in k.lower()]
+            self.assertEqual(old_keys, [], f"Found Old-Rates keys: {old_keys}")
+            # Old-Rates values 999/888/777 must not appear anywhere
+            for v in value.values():
+                if isinstance(v, (int, float)):
+                    self.assertNotAlmostEqual(v, 999.0)
+                    self.assertNotAlmostEqual(v, 888.0)
+                    self.assertNotAlmostEqual(v, 777.0)
+        finally:
+            os.unlink(tmp_path)
+
+    def test_subcontractor_rates_fingerprint_deterministic(self):
+        """D-20: two byte-identical inputs (different dict insertion
+        order included) MUST produce the same 16-char fingerprint."""
+        d1 = {
+            'CU-A': {
+                'cu_code': 'CU-A', 'cu_wbs': '', 'compatible_unit_group': '',
+                'reduced_install_price': 10.0, 'reduced_remove_price': 5.0,
+                'reduced_transfer_price': 3.0,
+                'new_install_price': 12.0, 'new_remove_price': 6.0,
+                'new_transfer_price': 4.0,
+            },
+            'CU-B': {
+                'cu_code': 'CU-B', 'cu_wbs': '', 'compatible_unit_group': '',
+                'reduced_install_price': 20.0, 'reduced_remove_price': 8.0,
+                'reduced_transfer_price': 5.0,
+                'new_install_price': 22.0, 'new_remove_price': 9.0,
+                'new_transfer_price': 6.0,
+            },
+        }
+        # Reverse insertion order — fingerprint must be identical
+        # because the helper sorts keys before hashing.
+        d2 = {
+            'CU-B': dict(d1['CU-B']),
+            'CU-A': dict(d1['CU-A']),
+        }
+        fp1 = generate_weekly_pdfs._compute_subcontractor_rates_fingerprint(d1)
+        fp2 = generate_weekly_pdfs._compute_subcontractor_rates_fingerprint(d2)
+        self.assertEqual(fp1, fp2)
+        self.assertEqual(len(fp1), 16)
+        # Output charset is hex
+        self.assertRegex(fp1, r'^[0-9a-f]{16}$')
+
+    def test_subcontractor_rates_fingerprint_changes_on_edit(self):
+        """D-20: editing one CU's priced field (any of the six) MUST
+        change the fingerprint."""
+        base = {
+            'CU-EDIT': {
+                'cu_code': 'CU-EDIT', 'cu_wbs': '', 'compatible_unit_group': '',
+                'reduced_install_price': 10.0, 'reduced_remove_price': 5.0,
+                'reduced_transfer_price': 3.0,
+                'new_install_price': 12.0, 'new_remove_price': 6.0,
+                'new_transfer_price': 4.0,
+            },
+        }
+        fp_base = generate_weekly_pdfs._compute_subcontractor_rates_fingerprint(base)
+
+        mutated = {
+            'CU-EDIT': dict(base['CU-EDIT'], new_install_price=12.01),
+        }
+        fp_mutated = generate_weekly_pdfs._compute_subcontractor_rates_fingerprint(mutated)
+        self.assertNotEqual(fp_base, fp_mutated)
+        self.assertEqual(len(fp_mutated), 16)
+
+
 class TestSubcontractorSheetIdsConfig(unittest.TestCase):
     """Test SUBCONTRACTOR_SHEET_IDS configuration parsing."""
 
