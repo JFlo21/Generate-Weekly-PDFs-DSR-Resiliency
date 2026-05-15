@@ -3256,6 +3256,241 @@ class TestHelperShadowVariantFileIdentifier(unittest.TestCase):
         )
 
 
+class TestAepBillableCutoffEnvVarOverride(unittest.TestCase):
+    """Phase 01 gap closure (REVIEW-IN-01): ``_AEP_BILLABLE_CUTOFF``
+    is overridable via ``AEP_BILLABLE_CUTOFF`` env var with safe
+    parse + fallback. Operator-facing workflow knob for contract
+    re-negotiation or retroactive billing decisions.
+
+    Reload pattern mirrors ``TestSubcontractorPppSheetIdEmptyStringDisable``
+    — Sentry-DSN suppression + try/finally env restoration per
+    Living Ledger 2026-04-22 16:05.
+    """
+
+    def setUp(self):
+        self._env_snapshot = {
+            k: os.environ.get(k)
+            for k in ('AEP_BILLABLE_CUTOFF', 'SENTRY_DSN')
+        }
+        os.environ['SENTRY_DSN'] = ''
+
+    def tearDown(self):
+        for k, v in self._env_snapshot.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        with mock.patch.dict(os.environ, {"SENTRY_DSN": ""}, clear=False):
+            with mock.patch('sentry_sdk.init'):
+                importlib.reload(generate_weekly_pdfs)
+
+    def _reload_with_cutoff(self, value):
+        if value is None:
+            os.environ.pop('AEP_BILLABLE_CUTOFF', None)
+        else:
+            os.environ['AEP_BILLABLE_CUTOFF'] = value
+        with mock.patch.dict(os.environ, {"SENTRY_DSN": ""}, clear=False):
+            with mock.patch('sentry_sdk.init'):
+                importlib.reload(generate_weekly_pdfs)
+
+    def test_env_unset_uses_hardcoded_default(self):
+        import datetime
+        self._reload_with_cutoff(None)
+        self.assertEqual(
+            generate_weekly_pdfs._AEP_BILLABLE_CUTOFF,
+            datetime.date(2026, 4, 12),
+            "Default cutoff must be byte-identical to the pre-fix "
+            "constant (contract award date)."
+        )
+
+    def test_env_valid_forward_override(self):
+        import datetime
+        self._reload_with_cutoff('2026-05-01')
+        self.assertEqual(
+            generate_weekly_pdfs._AEP_BILLABLE_CUTOFF,
+            datetime.date(2026, 5, 1),
+        )
+
+    def test_env_valid_backward_override(self):
+        # Retroactive billing decision: operator moves cutoff
+        # backward to capture earlier rows.
+        import datetime
+        self._reload_with_cutoff('2025-12-01')
+        self.assertEqual(
+            generate_weekly_pdfs._AEP_BILLABLE_CUTOFF,
+            datetime.date(2025, 12, 1),
+        )
+
+    def test_env_invalid_format_falls_back_to_default(self):
+        import datetime
+        self._reload_with_cutoff('not-a-date')
+        self.assertEqual(
+            generate_weekly_pdfs._AEP_BILLABLE_CUTOFF,
+            datetime.date(2026, 4, 12),
+            "Invalid format must fail-safe to default, not crash "
+            "import or silently disable _AEPBillable variant."
+        )
+
+    def test_env_empty_string_treated_as_unset(self):
+        # Empty string is functionally "no override" — falls to
+        # the default. (Different from SUBCONTRACTOR_PPP_SHEET_ID
+        # in WR-02 where empty string is "disable"; cutoff has no
+        # "disabled" state, so empty string means "use default.")
+        import datetime
+        self._reload_with_cutoff('')
+        self.assertEqual(
+            generate_weekly_pdfs._AEP_BILLABLE_CUTOFF,
+            datetime.date(2026, 4, 12),
+        )
+
+    def test_production_source_carries_env_var_lookup(self):
+        # Source-level guard: the env-var read landed.
+        import inspect
+        import pathlib
+        src = pathlib.Path(
+            inspect.getsourcefile(generate_weekly_pdfs)
+        ).read_text(encoding='utf-8')
+        self.assertIn("os.getenv('AEP_BILLABLE_CUTOFF'", src)
+        self.assertIn('Invalid AEP_BILLABLE_CUTOFF format', src)
+
+
+class TestResolveRowPriceQuantityCoercion(unittest.TestCase):
+    """Phase 01 gap closure (REVIEW-IN-02): qty_raw coercion is explicit.
+    Numeric outcome is byte-identical for every pre-existing input case;
+    only readability improves. The float-zero passthrough case is the
+    IN-02 regression guard against re-introducing the ``or 0`` collapse.
+
+    Test design:
+      - ``_resolve_row_price(row, variant='reduced_sub', missing_cus=Counter())``
+        is the entrypoint (signature confirmed via grep of source).
+      - ``_SUBCONTRACTOR_RATES`` is monkey-patched so ``rate=100.0/unit``
+        for CU=ABC123 work_type=install → rate*qty path returns 100.0*qty.
+      - ``Units Total Price=999.0`` is a SAFETY-FLOOR CANARY: if the
+        function falls through (rate<=0 or qty<=0), the safety-floor
+        path returns ``parse_price(row['Units Total Price'])`` = 999.0,
+        making fallthrough observable.
+
+      Outcomes by qty input:
+        qty>0 → 100.0 * qty   (rate*qty path)
+        qty<=0 / fallthrough → 999.0  (safety-floor path)
+    """
+
+    RATES_STUB = {
+        'ABC123': {
+            'reduced_install_price': 100.0,
+            'reduced_remove_price': 0.0,
+            'reduced_transfer_price': 0.0,
+            'new_install_price': 100.0,
+            'new_remove_price': 0.0,
+            'new_transfer_price': 0.0,
+        }
+    }
+
+    def _row(self, qty_value, *, include_qty_key=True, units_total_price=999.0):
+        """Build a row that, if qty is correctly coerced AND > 0,
+        prices via rate*qty = 100.0 * qty. ``units_total_price=999.0``
+        is the safety-floor canary: if the function falls through to
+        ``parse_price(row['Units Total Price'])`` (rate<=0 or qty<=0),
+        we observe 999.0 and know the rate*qty path was NOT taken.
+        """
+        r = {
+            'CU': 'ABC123',
+            'Work Type': 'install',
+            'Units Total Price': units_total_price,
+        }
+        if include_qty_key:
+            r['Quantity'] = qty_value
+        return r
+
+    def _resolve(self, row):
+        import collections
+        return generate_weekly_pdfs._resolve_row_price(
+            row, variant='reduced_sub', missing_cus=collections.Counter(),
+        )
+
+    def test_quantity_none_falls_through_to_units_total_price(self):
+        # qty=None → qty=0.0 → rate*qty=0.0 ≤ 0 → safety floor fires →
+        # returns parse_price(Units Total Price) = 999.0.
+        with mock.patch.object(
+            generate_weekly_pdfs, '_SUBCONTRACTOR_RATES', self.RATES_STUB,
+        ):
+            self.assertEqual(self._resolve(self._row(None)), 999.0)
+
+    def test_quantity_empty_string_falls_through_to_units_total_price(self):
+        with mock.patch.object(
+            generate_weekly_pdfs, '_SUBCONTRACTOR_RATES', self.RATES_STUB,
+        ):
+            self.assertEqual(self._resolve(self._row('')), 999.0)
+
+    def test_quantity_int_zero_falls_through_to_units_total_price(self):
+        with mock.patch.object(
+            generate_weekly_pdfs, '_SUBCONTRACTOR_RATES', self.RATES_STUB,
+        ):
+            self.assertEqual(self._resolve(self._row(0)), 999.0)
+
+    def test_quantity_float_zero_passthrough_regression_guard(self):
+        # THE IN-02 regression guard: legitimate Quantity=0.0 must not
+        # produce a different price than int(0). Both must take the
+        # safety-floor path because qty<=0.
+        with mock.patch.object(
+            generate_weekly_pdfs, '_SUBCONTRACTOR_RATES', self.RATES_STUB,
+        ):
+            self.assertEqual(self._resolve(self._row(0.0)), 999.0)
+
+    def test_quantity_int_one_uses_rate_times_qty(self):
+        with mock.patch.object(
+            generate_weekly_pdfs, '_SUBCONTRACTOR_RATES', self.RATES_STUB,
+        ):
+            self.assertEqual(self._resolve(self._row(1)), 100.0)
+
+    def test_quantity_float_uses_rate_times_qty(self):
+        with mock.patch.object(
+            generate_weekly_pdfs, '_SUBCONTRACTOR_RATES', self.RATES_STUB,
+        ):
+            self.assertEqual(self._resolve(self._row(1.5)), 150.0)
+
+    def test_quantity_string_float_parses(self):
+        with mock.patch.object(
+            generate_weekly_pdfs, '_SUBCONTRACTOR_RATES', self.RATES_STUB,
+        ):
+            self.assertEqual(self._resolve(self._row('1.5')), 150.0)
+
+    def test_quantity_invalid_string_falls_through_to_units_total_price(self):
+        # Invalid string → float() raises → except clause → qty=0.0 →
+        # rate*qty=0 ≤ 0 → safety floor → Units Total Price.
+        with mock.patch.object(
+            generate_weekly_pdfs, '_SUBCONTRACTOR_RATES', self.RATES_STUB,
+        ):
+            self.assertEqual(self._resolve(self._row('invalid')), 999.0)
+
+    def test_missing_quantity_key_falls_through_to_units_total_price(self):
+        # row.get('Quantity', 0) with no key → 0 → 0.0 → safety floor.
+        with mock.patch.object(
+            generate_weekly_pdfs, '_SUBCONTRACTOR_RATES', self.RATES_STUB,
+        ):
+            self.assertEqual(
+                self._resolve(self._row(None, include_qty_key=False)),
+                999.0,
+            )
+
+    def test_production_source_does_not_carry_or_zero_pattern(self):
+        # Source-level guard: the ``or 0`` short-circuit is removed.
+        import inspect
+        import pathlib
+        src = pathlib.Path(
+            inspect.getsourcefile(generate_weekly_pdfs)
+        ).read_text(encoding='utf-8')
+        self.assertNotIn(
+            "row.get('Quantity') or 0",
+            src,
+            "IN-02 regression: the ``or 0`` short-circuit pattern has "
+            "been re-introduced. Use explicit ``row.get('Quantity', 0)`` "
+            "+ ``if qty_raw not in (None, '')`` per 01-11-PLAN.md.",
+        )
+        # Confirm the explicit pattern is present.
+        self.assertIn("qty_raw not in (None, '')", src)
+
+
 class TestPhase1FilenameRoundTripCoverage(unittest.TestCase):
     """Covers the filename round-trip for all 7 Phase 1 variants.
 

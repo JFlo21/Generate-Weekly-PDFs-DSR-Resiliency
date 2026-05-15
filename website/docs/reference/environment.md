@@ -128,6 +128,37 @@ The kill-switch state is logged in the startup banner (e.g.
 `📊 Subcontractor rate variants ENABLED ...`), so operators
 grepping the run header can confirm the active state at a glance.
 
+### `AEP_BILLABLE_CUTOFF`
+
+**Default:** `2026-04-12` (AEP rate-increase contract awarded to Linetec)
+**Format:** `YYYY-MM-DD` (e.g., `2026-04-12`).
+**Purpose:** Snapshot-date cutoff for the `_AEPBillable` variant. Phase 1 emits
+`_AEPBillable` and `_AEPBillable_Helper_<name>` files ONLY for rows whose
+`Snapshot Date` is on or after this date. `_ReducedSub` variants have no cutoff
+(they generate unconditionally for subcontractor-folder WR groups).
+
+**When to override:** Operators may need to roll the cutoff forward (delayed contract
+amendment) or back (retroactive billing decision) without redeploying the Python
+engine. Set this env var at the workflow level. The default tracks the original
+contract award; changing it is an operator decision, not a developer decision.
+
+**Invalid format behavior:** If the env-var value is set but does not parse as
+`YYYY-MM-DD`, the loader logs `⚠️ Invalid AEP_BILLABLE_CUTOFF format: <value>;
+expected YYYY-MM-DD. Falling back to default 2026-04-12.` and continues with the
+hardcoded default. This is fail-safe — a misconfigured env var never silently
+suppresses `_AEPBillable` generation entirely.
+
+**Startup banner:** The resolved cutoff is logged at startup:
+
+- `📊 AEP Billable cutoff: 2026-04-12 (default)` — env var unset
+- `📊 AEP Billable cutoff: 2026-05-01 (env override)` — env var set
+- (If invalid format) the error log fires first; the banner still names the
+  fallback default.
+
+**Related:** `RATE_CUTOFF_DATE` is retired (see Living Ledger 2026-04-24 14:30);
+it must NOT be re-used as the AEP-billable cutoff. `AEP_BILLABLE_CUTOFF` is the
+Phase 1 successor with explicit subcontractor-variant scope.
+
 ## Execution controls
 
 | Variable | Default | Purpose |
