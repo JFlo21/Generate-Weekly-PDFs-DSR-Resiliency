@@ -1,0 +1,36 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\portal-v2\\README.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Linetec Report Portal v2",
+  "summary": "Setup and operations guide for the portal-v2 React/TypeScript frontend with Supabase auth, covering Supabase setup, local development, Vercel deployment, auth flow, role assignment, and project structure.",
+  "scope": [
+    "portal-v2",
+    "React 18",
+    "TypeScript",
+    "Vite",
+    "Tailwind CSS",
+    "Framer Motion",
+    "Supabase auth",
+    "Supabase database",
+    "Vercel deployment",
+    "Render deployment",
+    "Express backend proxy",
+    "activity logging",
+    "role assignment",
+    "RLS policies"
+  ],
+  "cross_refs": [
+    "portal-v2/supabase/schema.sql",
+    "portal-v2/.env.example",
+    "portal/",
+    "portal/server.js",
+    "portal/routes/api.js",
+    "portal-v2/api/",
+    "portal-v2/api/runs.ts",
+    "portal-v2/api/latest.ts"
+  ],
+  "locked": false,
+  "precedence": null
+}

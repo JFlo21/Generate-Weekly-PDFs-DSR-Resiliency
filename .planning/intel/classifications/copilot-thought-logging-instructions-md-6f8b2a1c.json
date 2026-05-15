@@ -1,0 +1,13 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\.github\\instructions\\copilot-thought-logging.instructions.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Copilot Process tracking Instructions",
+  "summary": "Operational instructions for a 4-phase Copilot workflow (Initialization, Planning, Execution, Summary) that tracks process via a Copilot-Processing.md file.",
+  "scope": ["Copilot workflow", "process tracking", "phase-based execution", "Copilot-Processing.md"],
+  "cross_refs": ["Copilot-Processing.md"],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

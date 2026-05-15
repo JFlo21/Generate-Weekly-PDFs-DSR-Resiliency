@@ -1,0 +1,28 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\.github\\agents\\smartsheet-debugger.agent.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Smartsheet billing pipeline specialist agent",
+  "summary": "Agent persona/runbook defining how to diagnose Smartsheet data-pipeline issues across discovery, fetch, filter, group, generate, and upload phases.",
+  "scope": [
+    "generate_weekly_pdfs.py",
+    "audit_billing_changes.py",
+    "weekly-excel-generation.yml",
+    "hash_history.json",
+    "Smartsheet API rate limits",
+    "helper row detection",
+    "column mapping validation",
+    "discovery cache"
+  ],
+  "cross_refs": [
+    "generate_weekly_pdfs.py",
+    "audit_billing_changes.py",
+    ".github/workflows/weekly-excel-generation.yml",
+    "generated_docs/hash_history.json",
+    "generated_docs/discovery_cache.json"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

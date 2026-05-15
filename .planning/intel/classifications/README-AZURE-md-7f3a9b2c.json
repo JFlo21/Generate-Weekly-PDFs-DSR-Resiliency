@@ -1,0 +1,13 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\README_AZURE.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Azure Pipeline - GitHub to Azure DevOps Sync",
+  "summary": "Documentation index and overview for the Azure Pipeline setup that automatically syncs the GitHub master branch to Azure DevOps.",
+  "scope": ["Azure DevOps", "Azure Pipelines", "GitHub sync", "azure-pipelines.yml", "OAuth authentication", "Build Service permissions"],
+  "cross_refs": ["./AZURE_QUICKSTART.md", "./AZURE_PIPELINE_SETUP.md", "./AZURE_ARCHITECTURE.md", "./azure-pipelines.yml"],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

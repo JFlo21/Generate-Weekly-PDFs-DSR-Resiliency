@@ -1,0 +1,20 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\website\\docs\\intro.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Weekly PDFs Runbook",
+  "summary": "Landing page for the Docusaurus living runbook; explains site structure (runbook pages, auto-generated changelog, reference) and how to navigate it.",
+  "scope": ["Docusaurus runbook", "site navigation", "changelog automation", "operator onboarding"],
+  "cross_refs": [
+    "./runbook/overview.md",
+    "./runbook/python-modules.md",
+    "./runbook/workflows.md",
+    "/blog",
+    ".github/workflows/docs-changelog.yml",
+    "website/blog/"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

@@ -1608,3 +1608,178 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   preserve counter accuracy. Verified via ``pytest tests/`` →
   417 passed / 54 subtests passed post-fix (was 415 before; +2
   new concurrency tests).
+- [2026-05-15 12:00] Phase 01 (Subcontractor Rate Logic Modification) gap-closure round:
+  post-merge code review (``/gsd-code-review 01``) surfaced
+  **3 BLOCKER + 6 WARNING + 4 INFO findings (13 total)**
+  against the freshly-shipped Phase 1
+  variant infrastructure. All 12 actionable findings (excluding
+  the reference-only IN-03 ``_txn`` hoist) closed by additive
+  plans 01-07 through 01-14. **Root causes** clustered around
+  three classes of bug that the upstream unit-test suite did not
+  catch because tests exercised helpers in isolation rather than
+  the full main-loop attachment-identity / filter pipeline.
+  **(1) Identity-tuple drift across the three main-loop sites**
+  (CR-01): the per-group ``identifier`` / ``file_identifier``
+  construction, the ``valid_wr_weeks`` cleanup-tuple builder, and
+  the ``current_keys`` hash-history-prune key all build the same
+  identity tuple from row data and must stay in lockstep.
+  Pre-fix the new ``aep_billable_helper`` /
+  ``reduced_sub_helper`` variants fell through to the legacy
+  ``User``-derived ``else`` branch at ALL THREE sites — masked
+  by accident because two of the three wrongs (``identifier=''``
+  everywhere) cancelled out for hash-history, but the third
+  (``file_identifier=''`` versus parsed ``'Jane_Smith'``)
+  silently broke ``_has_existing_week_attachment`` matching and
+  ``delete_old_excel_attachments`` deletion for every
+  helper-shadow attachment on every 2h cron run. Result:
+  permanent regeneration churn + orphan accumulation on
+  ``SUBCONTRACTOR_PPP_SHEET_ID`` (which had no end-of-run
+  cleanup pre-WR-01). **(2) Filter matchers missed the four new
+  variant suffix shapes** (CR-02, CR-03): the production
+  ``EXCLUDE_WRS`` matcher (no TEST_MODE gate) and the TEST_MODE
+  ``WR_FILTER`` matcher each carried four hard-coded suffix
+  patterns (``WR``, ``WR_HELPER_*``, ``WR_USER_*``,
+  ``WR_VACCREW``) and missed the four new shapes
+  (``WR_REDUCEDSUB``, ``WR_AEPBILLABLE``,
+  ``WR_REDUCEDSUB_HELPER_*``, ``WR_AEPBILLABLE_HELPER_*``).
+  Operator excluding a WR silently uploaded the new variants to
+  BOTH target sheets; operator running the documented Step B
+  diagnostic command saw zero new-variant output. **(3) PPP
+  sheet had no symmetric end-of-run cleanup pass** (WR-01) AND
+  **no attachment-prefetch participation** (WR-05): every
+  ``_ReducedSub*`` upload to PPP paid an extra per-row
+  ``list_row_attachments`` API call, and any identity-drift past
+  the per-row delete path silently orphaned attachments
+  permanently. Plus six smaller findings: env-var resolution
+  asymmetry on ``SUBCONTRACTOR_PPP_SHEET_ID=''`` (WR-02),
+  defensive raises on the new helper-shadow filename-suffix
+  branches (WR-03), explicit PII markers for the new
+  helper-shadow GROUP CREATED logs (WR-04), missing-CU
+  attribution loop standardization on ``__source_sheet_id``
+  (WR-06), workflow env-var pinning (IN-04), env-overridable
+  ``AEP_BILLABLE_CUTOFF`` (IN-01), and explicit ``Quantity``
+  coercion (IN-02). **Fix (additive, production-safe across 8
+  plans):** all changes are surgical — no existing test
+  regresses, ROADMAP Phase 1 success criterion 5
+  (byte-identical primary / helper / vac_crew / ORIG-folder
+  hashes) preserved. **New rules:**
+  (1) **Three-site identity-consistency invariant for new variants.** Extends
+  the 2026-04-22 16:05 hash-history rule (per-row fields must
+  reach the hash for partition-less variants) and the
+  2026-04-23 round-6 ``target_map`` quarantine rule (sanitizer
+  endpoints must symmetrize). When adding a new variant whose
+  filename embeds an identifier (helper foreman name, vac crew
+  name, USER name, future variant), the identity-tuple
+  construction MUST be applied at ALL THREE main-loop sites in
+  sync: (a) the per-group ``identifier`` / ``file_identifier``
+  construction immediately before
+  ``history_key = f"{wr_num}|{week_raw}|{variant}|{identifier}"``,
+  (b) the ``valid_wr_weeks.add(...)`` cleanup-tuple builder that
+  feeds ``cleanup_untracked_sheet_attachments``, AND (c) the
+  ``current_keys`` set construction inside the
+  ``if history_updates: ... if not _time_budget_exceeded:``
+  hash-history-prune block. The three are siblings that ALL
+  rebuild the same logical identity tuple; drift between any of
+  them silently breaks attachment-identity matching or
+  hash-history persistence. Adding a fourth variant in the
+  future MUST apply the fix at all three sites simultaneously,
+  and the existing source-level grep test in
+  ``TestHelperShadowVariantFileIdentifier::test_production_valid_wr_weeks_and_current_keys_carry_shadow_variant_gate``
+  is the regression guard.
+  (2) **Mirror-matcher invariant for variant-aware filter functions.** Extends the 2026-04-23
+  round-7 (and round-9) source-side WR collision-quarantine
+  rule: where a sanitizer-driven keyspace requires
+  pre-scan-at-both-endpoints symmetry, a variant-driven
+  keyspace requires matcher symmetry. Whenever a new variant
+  emits a new group-key suffix shape from ``group_source_rows``,
+  the ``_key_matches_wr`` AND ``_key_matches_excluded_wr``
+  matchers (nested inside ``group_source_rows``) MUST both be
+  extended with the new suffix pattern. They are siblings;
+  drift between them produces "operator excluded the WR but
+  new variants still uploaded" (CR-02) or "operator filtered
+  the WR but TEST_MODE produced no new-variant output" (CR-03).
+  Existing tests: ``TestExcludeWrsMatchesAllVariants`` +
+  ``TestWrFilterMatchesAllVariants``.
+  (3) **Explicit PII markers for new INFO-level group-creation logs.** Refines
+  the 2026-04-20 12:00 sanitizer rule: that rule said "extend
+  ``_PII_LOG_MARKERS`` in the same PR." This round caught a
+  fragile-by-accident case where the new helper-shadow GROUP
+  CREATED logs matched the substring ``"HELPER GROUP CREATED"``
+  only by string containment of the legacy marker. The new
+  rule refines: when a new log shares a substring with an
+  existing marker, add an EXPLICIT marker for the new text
+  body — relying on accidental substring containment is
+  fragile to future wording rewordings. WR-04 added explicit
+  ``"REDUCED SUB HELPER GROUP CREATED"`` and
+  ``"AEP BILLABLE HELPER GROUP CREATED"`` markers.
+  (4) **Defensive raise scope discipline.** New rule. When adding a
+  defensive ``raise ValueError`` to a NEW branch (e.g., a new
+  variant filename-suffix builder), do NOT broaden the raise
+  to pre-existing branches with the same code shape — even if
+  the legacy branch carries the identical silent-fallthrough
+  bug. Legacy branches have a longer test history and unknown
+  downstream consumers; broadening the raise risks production
+  regression. Add a TODO comment ABOVE the legacy branch
+  instead, scoped as follow-up tech-debt cleanup. WR-03's
+  regression test
+  (``TestHelperShadowSuffixDefensiveRaise::test_legacy_helper_branch_does_not_raise_on_empty_foreman``)
+  is the immutability guard.
+  (5) **Dual-target cleanup invocation pattern.** Extends the 2026-04-22 16:05 cleanup
+  contract (which assumed a single target sheet). When a phase
+  adds a SECOND attachment target sheet (Phase 1's
+  ``SUBCONTRACTOR_PPP_SHEET_ID``), every defense-in-depth
+  layer that operates on TARGET_SHEET_ID MUST be replicated
+  for the new sheet: (a) target_map / collision quarantine
+  (Plan 04 already), (b) attachment prefetch (Plan 12 /
+  WR-05), AND (c) end-of-run
+  ``cleanup_untracked_sheet_attachments`` pass (Plan 13 /
+  WR-01). Skipping any layer creates an orphan-accumulation
+  trap because the per-row ``delete_old_excel_attachments`` is
+  correctness-critical but not exception-safe; the end-of-run
+  cleanup is the belt-and-suspenders defense and is REQUIRED
+  for every target sheet.
+  (6) **Env-var override safe-parse pattern.** Extends the 2026-04-23 12:00 env-var hygiene
+  rules and the 2026-04-24 14:30 ``RATE_CUTOFF_DATE``
+  retirement rule (workflow pinning makes the active feature
+  state code-reviewable). When exposing a previously hardcoded
+  module constant via an env var (IN-01's
+  ``AEP_BILLABLE_CUTOFF``), the resolution MUST: (a) accept
+  empty-string as unset (use default), (b) wrap the
+  ``strptime`` / ``int`` / ``parse`` call in
+  ``try / except (ValueError, TypeError):`` with
+  fallback-to-default + error log, (c) name the resolved value
+  in the startup banner, AND (d) document the format +
+  invalid-value-fallback contract in
+  ``website/docs/reference/environment.md``. Operators should
+  NEVER be able to crash the loader's module-import with a
+  malformed env-var value.
+  (7) **Workflow pinning for new feature env vars.** Extends 2026-04-24 14:30 (retired
+  CSV-side recalc vars at the workflow layer). Every new
+  operator-facing kill switch or feature-default env var MUST
+  be pinned in ``.github/workflows/weekly-excel-generation.yml``
+  with an explicit default. Workflow pinning makes the active
+  feature state code-reviewable through git history; a
+  repo-Variable that re-introduces a value can no longer
+  silently override the default. Phase 1 added three pinned
+  vars (``SUBCONTRACTOR_RATES_CSV``,
+  ``SUBCONTRACTOR_PPP_SHEET_ID``,
+  ``SUBCONTRACTOR_RATE_VARIANTS_ENABLED``); the optional
+  ``AEP_BILLABLE_CUTOFF`` is documented as intentionally unset
+  with the override pattern. Regression tests: 8 new classes
+  across ``tests/test_subcontractor_pricing.py``
+  (TestHelperShadowVariantFileIdentifier,
+  TestSubcontractorPppSheetIdEmptyStringDisable,
+  TestHelperShadowSuffixDefensiveRaise,
+  TestAepBillableCutoffEnvVarOverride,
+  TestResolveRowPriceQuantityCoercion,
+  TestPhase1GapClosureLedgerEntryPresent) plus
+  ``tests/test_security_audit_followup.py``
+  (TestExcludeWrsMatchesAllVariants,
+  TestWrFilterMatchesAllVariants,
+  TestPiiLogMarkersIncludeSubcontractorVariants
+  extended +2 methods, TestSourceSheetIdFieldConsistency,
+  TestPppCleanupUntrackedAttachments) and
+  ``tests/test_performance_optimizations.py``
+  (TestPppAttachmentPrefetchBudget). Total: ~55-65 new tests;
+  ``pytest tests/`` continues to exit 0 at every
+  plan-completion checkpoint.

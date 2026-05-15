@@ -1,0 +1,25 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\.github\\prompts\\configuration-environment.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Configuration & Environment Prompts",
+  "summary": "Reference guide of environment variables and GitHub Actions integration patterns used by the Smartsheet/Excel billing pipeline, structured as reusable Copilot/LLM prompts.",
+  "scope": [
+    "environment variables",
+    "Smartsheet API integration",
+    "GitHub Actions workflow_dispatch",
+    "advanced_options parsing",
+    "debug and diagnostics flags",
+    "hash history and regeneration controls",
+    "secrets management",
+    "execution type detection"
+  ],
+  "cross_refs": [
+    "generate_weekly_pdfs.py",
+    "generated_docs/hash_history.json"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

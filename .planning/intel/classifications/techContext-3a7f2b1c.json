@@ -1,0 +1,32 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\memory-bank\\techContext.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Tech Context",
+  "summary": "Reference doc cataloging the project's tech stack, key environment variables, portal versions, CI/CD, and file locations for the billing automation workflow.",
+  "scope": [
+    "Python billing pipeline",
+    "generate_weekly_pdfs.py",
+    "Smartsheet SDK",
+    "openpyxl Excel generation",
+    "environment variables",
+    "portal v1 (Express)",
+    "portal-v2 (React/Supabase)",
+    "GitHub Actions CI",
+    "pytest test suite"
+  ],
+  "cross_refs": [
+    "generate_weekly_pdfs.py",
+    "portal/",
+    "portal-v2/",
+    "CU List - Corpus North & South.csv",
+    "CU List Contract - Arrowhead Contract.csv",
+    "generated_docs/hash_history.json",
+    "tests/test_subcontractor_pricing.py",
+    "tests/test_performance_optimizations.py"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

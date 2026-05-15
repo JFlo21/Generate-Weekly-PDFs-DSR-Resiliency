@@ -1,0 +1,28 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\website\\docs\\reference\\how-this-site-updates.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "How this site updates",
+  "summary": "Explains the two mechanisms that keep the Docusaurus runbook fresh: automated changelog PRs from docs-changelog.yml and manual edits to website/docs/.",
+  "scope": [
+    "Docusaurus runbook",
+    "website/blog/ changelog automation",
+    "docs-changelog.yml workflow",
+    "scripts/generate_runbook_entry.py",
+    "manual docs editing workflow",
+    "local Docusaurus preview",
+    "[skip docs] commit opt-out"
+  ],
+  "cross_refs": [
+    ".github/workflows/docs-changelog.yml",
+    "scripts/generate_runbook_entry.py",
+    "website/blog/",
+    "website/docs/",
+    "website/vercel.json",
+    "https://github.com/peter-evans/create-pull-request"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

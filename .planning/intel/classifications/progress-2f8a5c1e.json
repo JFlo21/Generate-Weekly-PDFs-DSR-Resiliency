@@ -1,0 +1,22 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\memory-bank\\progress.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Progress",
+  "summary": "Memory-bank progress log tracking verified working features, April 2026 session fixes, and known open items for the billing pipeline.",
+  "scope": [
+    "folder discovery",
+    "discovery cache",
+    "column synonym mapping",
+    "helper row detection",
+    "VAC Crew row-level detection",
+    "hash-based change detection",
+    "Excel generation",
+    "Smartsheet attachment upload"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

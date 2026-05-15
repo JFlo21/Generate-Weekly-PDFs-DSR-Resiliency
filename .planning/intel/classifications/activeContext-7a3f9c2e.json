@@ -1,0 +1,13 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\memory-bank\\activeContext.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Active Context",
+  "summary": "Memory-bank status log capturing the recently completed VAC Crew data isolation fixes, ongoing Railway-to-Render transition initiative, and dashboard stabilization notes.",
+  "scope": ["VAC Crew variant", "generate_weekly_pdfs.py", "Excel header generation", "Group key creation", "Hash calculation", "Railway to Render transition", "portal-v2 dashboard", "Arrowhead contract job number handling"],
+  "cross_refs": ["docs/railway-to-render-transition-plan.md", "portal-v2/README.md", "docs/sentry-implementation.md", "docs/update-log-v2-dashboard-fixes.md"],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

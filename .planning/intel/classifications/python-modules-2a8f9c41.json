@@ -1,0 +1,29 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\website\\docs\\runbook\\python-modules.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Python modules",
+  "summary": "Runbook reference page enumerating every top-level Python file in the repo and the responsibilities each owns.",
+  "scope": [
+    "generate_weekly_pdfs.py",
+    "audit_billing_changes.py",
+    "run_info.py",
+    "diagnostic scripts",
+    "scripts/notion_sync.py",
+    "scripts/notion_setup.py",
+    "scripts/notion_dashboard.py",
+    "scripts/generate_artifact_manifest.py",
+    "Python dependencies"
+  ],
+  "cross_refs": [
+    "generated_docs/hash_history.json",
+    "generated_docs/audit_state.json",
+    "generated_docs/run_summary.json",
+    "requirements.txt",
+    "LinetecServices_Logo.png"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

@@ -1,0 +1,21 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\website\\docs\\runbook\\operations.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Operations",
+  "summary": "Operator runbook page covering manual generator invocation, scheduled workflow dispatch knobs, failure triage steps, and rollback procedures for the weekly Excel pipeline.",
+  "scope": [
+    "generate_weekly_pdfs.py",
+    "Weekly Excel Generation GitHub Actions workflow",
+    "workflow_dispatch inputs (test_mode, force_generation, reset_hash_history, force_rediscovery, wr_filter, advanced_options)",
+    "hash_history.json",
+    "discovery_cache.json",
+    "Sentry release triage",
+    "Manifest and By-WorkRequest artifacts"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

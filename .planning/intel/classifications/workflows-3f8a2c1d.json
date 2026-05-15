@@ -1,0 +1,25 @@
+{
+  "source_path": "website/docs/runbook/workflows.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "GitHub Actions workflows",
+  "summary": "Operator runbook page describing each GitHub Actions workflow (and the Azure DevOps pipeline) used by the repo, their schedules, and key behaviors.",
+  "scope": [
+    "GitHub Actions workflows",
+    "weekly-excel-generation.yml",
+    "system-health-check.yml",
+    "notion-sync.yml",
+    "snyk-security.yml",
+    "codecov.yml",
+    "azure-pipelines.yml",
+    "docs-changelog.yml",
+    "Docusaurus runbook"
+  ],
+  "cross_refs": [
+    "../reference/how-this-site-updates.md"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

@@ -1,0 +1,26 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\.claude\\rules\\documentation-maintenance.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Documentation Maintenance Rules (Docusaurus Runbook)",
+  "summary": "Conventions governing how the Docusaurus runbook and its changelog are updated when code changes ship, plus hybrid-ecosystem ownership clarity.",
+  "scope": [
+    "Docusaurus runbook (website/)",
+    "changelog synthesis",
+    "docs-changelog.yml GitHub Action",
+    "Python billing pipeline ownership",
+    "Notion sync ownership",
+    "Supabase web app tier ownership"
+  ],
+  "cross_refs": [
+    "website/",
+    "generate_weekly_pdfs.py",
+    "scripts/notion_sync.py",
+    "portal-v2/",
+    "docs-changelog.yml"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

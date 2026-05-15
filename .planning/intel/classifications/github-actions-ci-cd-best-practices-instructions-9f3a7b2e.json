@@ -1,0 +1,29 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\.github\\instructions\\github-actions-ci-cd-best-practices.instructions.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "GitHub Actions CI/CD Best Practices",
+  "summary": "Comprehensive best-practices guide for building secure, performant, and reliable CI/CD pipelines using GitHub Actions, covering workflow structure, security, optimization, testing, and deployment.",
+  "scope": [
+    "GitHub Actions",
+    "CI/CD pipelines",
+    "workflow structure",
+    "secret management",
+    "OIDC authentication",
+    "GITHUB_TOKEN permissions",
+    "caching",
+    "matrix strategies",
+    "self-hosted runners",
+    "artifacts",
+    "unit/integration/E2E testing",
+    "deployment strategies (blue/green, canary, rolling)",
+    "rollback strategies",
+    "workflow review checklist",
+    "troubleshooting"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

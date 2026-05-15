@@ -1,0 +1,21 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\AZURE_ARCHITECTURE.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Azure Pipeline Sync - Architecture & Flow",
+  "summary": "Operator-facing architecture and flow reference for the GitHub-to-Azure-DevOps pipeline sync, with diagrams covering execution, auth, data flow, triggers, and monitoring.",
+  "scope": [
+    "Azure Pipelines",
+    "GitHub-to-Azure-DevOps sync",
+    "azure-pipelines.yml",
+    "OAuth System.AccessToken",
+    "master branch mirror"
+  ],
+  "cross_refs": [
+    "azure-pipelines.yml"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

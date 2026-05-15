@@ -12,6 +12,11 @@ manually in the Supabase SQL Editor before enabling this
 integration on a new project. The Python writer / reader code
 in this package is the source of truth for column names — the
 SQL file documents the matching DDL.
+
+``variant`` column added 2026-05-14 (Phase 1 SUB-07; see
+``schema.sql``). Written exclusively by ``emit_run_fingerprint``
+per Blocker 1 Path B — the ``freeze_attribution`` RPC parameter
+contract is unchanged.
 """
 
 from billing_audit import writer

@@ -1,0 +1,27 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\.github\\prompts\\change-detection-troubleshooting.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Change Detection Troubleshooting Guide",
+  "summary": "Operator-facing troubleshooting runbook for hash-based change detection issues in the Generate-Weekly-PDFs system, with diagnostic commands, common fixes, and escalation procedures.",
+  "scope": [
+    "hash-based change detection",
+    "calculate_data_hash",
+    "parse_price normalization",
+    "is_checked Units Completed field",
+    "hash_history.json",
+    "generate_weekly_pdfs.py",
+    "EXTENDED_CHANGE_DETECTION mode",
+    "RESET_HASH_HISTORY recovery",
+    "performance monitoring and alerts"
+  ],
+  "cross_refs": [
+    "generate_weekly_pdfs.py",
+    "generated_docs/hash_history.json",
+    "test_data.json"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

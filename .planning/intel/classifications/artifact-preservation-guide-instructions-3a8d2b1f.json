@@ -1,0 +1,25 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\.github\\instructions\\artifact-preservation-guide.instructions.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Artifact Preservation & Retrieval Guide",
+  "summary": "Operator guide explaining the GitHub Actions artifact preservation system for generated Excel billing reports, including naming, retention, access, and validation.",
+  "scope": [
+    "GitHub Actions artifacts",
+    "Excel billing reports",
+    "artifact_manifest.json",
+    "hash_history.json",
+    "SHA256 validation",
+    "retention policy",
+    "GitHub CLI / API access",
+    "weekly-excel-generation workflow"
+  ],
+  "cross_refs": [
+    ".github/workflows/weekly-excel-generation.yml",
+    "scripts/generate_artifact_manifest.py"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

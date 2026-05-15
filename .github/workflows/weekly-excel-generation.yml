@@ -294,6 +294,43 @@ jobs:
           NEW_RATES_CSV: ''
           OLD_RATES_CSV: ''
 
+          # ─────────────────────────────────────────────────────
+          # Phase 1: Subcontractor Rate Logic — workflow pinning
+          # ─────────────────────────────────────────────────────
+          # Pin Phase 1 feature defaults explicitly so the
+          # operator-facing feature state is visible at the
+          # workflow layer and a repo Variable cannot silently
+          # override these without code review.
+          #
+          # Rollback path: set
+          # ``SUBCONTRACTOR_RATE_VARIANTS_ENABLED: '0'`` to
+          # disable ALL Phase 1 variant generation
+          # (_AEPBillable, _ReducedSub, and their helper-shadow
+          # twins). The existing primary / helper / vac_crew /
+          # ORIG-folder pipelines are unaffected.
+          #
+          # Operator-actionable env vars and their meanings are
+          # documented in ``website/docs/reference/environment.md``
+          # — see the SUBCONTRACTOR_RATE_VARIANTS_ENABLED,
+          # SUBCONTRACTOR_RATES_CSV, SUBCONTRACTOR_PPP_SHEET_ID,
+          # and AEP_BILLABLE_CUTOFF sections. Workflow pinning
+          # rationale: Living Ledger 2026-04-24 14:30 (the
+          # retired CSV-side rate-recalc vars established this
+          # pattern after a Variable-driven override caused a
+          # silent regression).
+          SUBCONTRACTOR_RATES_CSV: 'data/subcontractor_rates.csv'
+          SUBCONTRACTOR_PPP_SHEET_ID: '8162920222379908'
+          SUBCONTRACTOR_RATE_VARIANTS_ENABLED: '1'
+          # AEP_BILLABLE_CUTOFF is intentionally UNSET in the
+          # workflow — the Python default (datetime.date(2026,
+          # 4, 12), the contract award date) is the source of
+          # truth. Set this env var at the workflow level only
+          # if a contract re-negotiation or retroactive billing
+          # decision requires moving the cutoff. Format:
+          # YYYY-MM-DD. Invalid values fail-safe to the default
+          # with an error log. See Plan 01-11 / Living Ledger
+          # 2026-05-15 for the safe-parse contract.
+
           # Advanced Filters
           WR_FILTER: ${{ github.event.inputs.wr_filter || '' }}
           # EXCLUDE_WRS: Manual input overrides repo variable; repo variable is persistent default

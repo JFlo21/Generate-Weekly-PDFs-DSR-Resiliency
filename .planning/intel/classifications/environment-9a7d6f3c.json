@@ -1,0 +1,33 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\website\\docs\\reference\\environment.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Environment reference",
+  "summary": "Canonical reference listing environment variables consumed by the generator and the GitHub Actions workflow, organized by functional category.",
+  "scope": [
+    "environment variables",
+    "Smartsheet API token",
+    "Smartsheet targets",
+    "execution controls",
+    "performance tuning",
+    "discovery cache",
+    "attachment prefetch",
+    "change detection",
+    "hash history",
+    "rate contract versioning (legacy)",
+    "Sentry observability",
+    "Notion sync",
+    "generate_weekly_pdfs.py",
+    "weekly-excel-generation.yml workflow"
+  ],
+  "cross_refs": [
+    ".env.example",
+    "generated_docs/discovery_cache.json",
+    ".github/workflows/weekly-excel-generation.yml",
+    "CLAUDE.md"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

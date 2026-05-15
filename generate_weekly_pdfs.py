@@ -400,6 +400,90 @@ RATE_RECALC_SKIP_ORIGINAL_CONTRACT = os.getenv(
     'RATE_RECALC_SKIP_ORIGINAL_CONTRACT', '1'
 ).lower() in ('1', 'true', 'yes', 'on')
 
+# ── Subcontractor rate variants (Phase 1 SUB-01..07) ───────────────────
+# See .planning/phases/01-subcontractor-rate-logic-modification/
+# 01-CONTEXT.md decisions D-03, D-12, D-13. These three env vars
+# scaffold the new ``_AEPBillable`` and ``_ReducedSub`` variant
+# pipeline:
+#
+#   SUBCONTRACTOR_RATES_CSV — path to the operator-managed contract
+#       CSV (17 columns, currency-formatted). Default
+#       ``data/subcontractor_rates.csv``. Resolved through the same
+#       ``_sanitize_csv_path`` helper used by the retired
+#       ``NEW_RATES_CSV`` / ``OLD_RATES_CSV`` env vars, which guards
+#       against directory traversal and symlink escape per the CodeQL
+#       taint-analysis pattern.
+#   SUBCONTRACTOR_PPP_SHEET_ID — second target sheet for ``_ReducedSub``
+#       attachments. Default ``8162920222379908``. Parsed through
+#       ``_coerce_sheet_id`` for parse-error fallback.
+#   SUBCONTRACTOR_RATE_VARIANTS_ENABLED — default-on kill switch for
+#       the entire new variant pipeline. Pattern mirrors
+#       ``RATE_RECALC_SKIP_ORIGINAL_CONTRACT`` and
+#       ``RATE_RECALC_WEEKLY_FALLBACK``. Flipping this to ``0`` /
+#       ``false`` / ``no`` / ``off`` reverts subcontractor-folder
+#       sheets to pre-change behavior on the next run.
+#
+# Per Living Ledger 2026-04-24 14:30: do NOT re-introduce
+# ``RATE_CUTOFF_DATE`` / ``NEW_RATES_CSV`` / ``OLD_RATES_CSV``. The
+# new env vars are the subcontractor-specific replacement.
+SUBCONTRACTOR_RATES_CSV = _sanitize_csv_path(
+    'SUBCONTRACTOR_RATES_CSV', 'data/subcontractor_rates.csv'
+)
+SUBCONTRACTOR_PPP_SHEET_ID = _coerce_sheet_id(
+    os.getenv('SUBCONTRACTOR_PPP_SHEET_ID', '8162920222379908'),
+    8162920222379908,
+)
+# Phase 01 gap closure (REVIEW-WR-02): treat an explicitly-empty
+# ``SUBCONTRACTOR_PPP_SHEET_ID=''`` as "disable dual routing,"
+# matching the operator-facing documentation in
+# website/docs/reference/environment.md and the operator's likely
+# intent. ``_coerce_sheet_id`` itself stays as-is because it is
+# shared with ``TARGET_SHEET_ID`` where default-fallback is the
+# correct behavior (TARGET_SHEET_ID has no "disabled" state).
+# Setting to ``0`` also disables (already worked pre-fix; the
+# downstream gate ``and SUBCONTRACTOR_PPP_SHEET_ID`` evaluates
+# False on int(0)). After this fix, both ``0`` and ``''`` disable.
+# Any other non-integer / non-empty value falls back to the
+# hardcoded default with the existing _coerce_sheet_id WARNING.
+if os.getenv('SUBCONTRACTOR_PPP_SHEET_ID', '8162920222379908') == '':
+    SUBCONTRACTOR_PPP_SHEET_ID = 0
+SUBCONTRACTOR_RATE_VARIANTS_ENABLED = os.getenv(
+    'SUBCONTRACTOR_RATE_VARIANTS_ENABLED', '1'
+).lower() in ('1', 'true', 'yes', 'on')
+
+# Cutoff date for ``_AEPBillable`` variant generation. Awarded to
+# Linetec on 2026-04-12 (subcontractor rate contract). Plan 2 (parser
+# extension) and Plan 3 (variant emission) gate variant emission on
+# ``Snapshot Date >= _AEP_BILLABLE_CUTOFF``. Exposed at module level
+# so downstream plans can reference a single source of truth.
+#
+# Phase 01 gap closure (REVIEW-IN-01): exposed as
+# ``AEP_BILLABLE_CUTOFF`` env var with safe parse + fallback to
+# the contract-award default. Operators can roll forward (or back,
+# for retroactive billing decisions) without a code change.
+# Format: ``YYYY-MM-DD``. Invalid format logs an error and falls
+# back to the default. Default is byte-identical to the pre-fix
+# constant — IN-01 is additive (override path), no behavior
+# regression for the unset / valid-format cases. The ``RATE_CUTOFF_DATE``
+# env var (retired 2026-04-24 14:30) is NOT reused — this is a new
+# distinct env var with explicit subcontractor-variant scope.
+_aep_billable_cutoff_env = os.getenv('AEP_BILLABLE_CUTOFF', '')
+try:
+    _AEP_BILLABLE_CUTOFF = (
+        datetime.datetime.strptime(
+            _aep_billable_cutoff_env, '%Y-%m-%d'
+        ).date()
+        if _aep_billable_cutoff_env
+        else datetime.date(2026, 4, 12)
+    )
+except ValueError:
+    logging.error(
+        f"⚠️ Invalid AEP_BILLABLE_CUTOFF format: "
+        f"{_aep_billable_cutoff_env!r}; expected YYYY-MM-DD. "
+        f"Falling back to default 2026-04-12."
+    )
+    _AEP_BILLABLE_CUTOFF = datetime.date(2026, 4, 12)
+
 if RATE_CUTOFF_DATE:
     logging.info(f"📊 Rate contract versioning ENABLED: cutoff date = {RATE_CUTOFF_DATE.isoformat()}")
     # The CSV-side rate recalc was retired in production on
@@ -442,6 +526,52 @@ if RATE_CUTOFF_DATE:
         )
 else:
     logging.info("📊 Rate contract versioning DISABLED (RATE_CUTOFF_DATE not set)")
+
+# Subcontractor rate variants startup banner (Phase 1 D-13). The
+# fingerprint line is appended later in the rate-loading section once
+# ``_SUBCONTRACTOR_RATES_FINGERPRINT`` has been computed by Task 2's
+# module-level loader call — see ``load_subcontractor_rates`` below.
+# These banner lines embed NO row content (just resolved config
+# values), so per D-22 no ``_PII_LOG_MARKERS`` extension is required.
+if SUBCONTRACTOR_RATE_VARIANTS_ENABLED:
+    logging.info(
+        "📊 Subcontractor rate variants ENABLED "
+        f"(SUBCONTRACTOR_RATES_CSV='{SUBCONTRACTOR_RATES_CSV}', "
+        f"SUBCONTRACTOR_PPP_SHEET_ID={SUBCONTRACTOR_PPP_SHEET_ID})"
+    )
+else:
+    logging.info(
+        "📊 Subcontractor rate variants DISABLED "
+        "(SUBCONTRACTOR_RATE_VARIANTS_ENABLED=false)"
+    )
+
+# Phase 01 gap closure (REVIEW-WR-02): name the PPP-routing
+# state explicitly so operators tailing the startup banner see
+# the resolved active value (or "DISABLED") without inferring
+# from the integer 0. Purely additive — does not replace the
+# existing banner block above. Only emitted when the umbrella
+# variants kill switch is ON (when off, PPP routing is moot).
+if SUBCONTRACTOR_RATE_VARIANTS_ENABLED and SUBCONTRACTOR_PPP_SHEET_ID:
+    logging.info(
+        f"📊 Subcontractor PPP routing ENABLED "
+        f"(target sheet id: {SUBCONTRACTOR_PPP_SHEET_ID})"
+    )
+elif SUBCONTRACTOR_RATE_VARIANTS_ENABLED:
+    logging.info(
+        "📊 Subcontractor PPP routing DISABLED "
+        "(SUBCONTRACTOR_PPP_SHEET_ID='' or 0)"
+    )
+
+# Phase 01 gap closure (REVIEW-IN-01): name the resolved AEP cutoff
+# in the startup banner so operators tailing the log see the active
+# value at a glance. Only emitted when the umbrella variants kill
+# switch is ON (when off, the cutoff is moot — no _AEPBillable
+# variant emission occurs regardless of the cutoff value).
+if SUBCONTRACTOR_RATE_VARIANTS_ENABLED:
+    logging.info(
+        f"📊 AEP Billable cutoff: {_AEP_BILLABLE_CUTOFF.isoformat()} "
+        f"({'env override' if _aep_billable_cutoff_env else 'default'})"
+    )
 
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
 RESET_WR_LIST = {w.strip() for w in os.getenv('RESET_WR_LIST','').split(',') if w.strip()}  # When provided, only purge these WR numbers (overrides full reset)
@@ -699,6 +829,40 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     # filename catch-all is not sufficient for these paths.
     "Purged attachment:",
     "Failed to purge attachment",
+    # Phase 01 Plan 02 D-22: subcontractor variant group keys and
+    # group-creation INFO logs (Plan 3 will emit
+    # ``AEP BILLABLE GROUP CREATED`` / ``REDUCED SUB GROUP CREATED``
+    # plus a missing-CU WARNING that embeds the literal CU code).
+    # The group-key tokens (``_AEPBILLABLE`` / ``_REDUCEDSUB`` /
+    # the ``_HELPER_`` suffixed variants) cover any log body that
+    # embeds the variant's group key — equivalent to the existing
+    # ``_HELPER_`` / ``_VACCREW`` markers for the legacy variant set.
+    # Locking these in Plan 02 (before Plan 3 emits them) keeps the
+    # sanitizer ahead of the call sites, per Living Ledger
+    # 2026-04-20 12:00 defense-in-depth rule.
+    "_AEPBILLABLE",
+    "_REDUCEDSUB",
+    "_AEPBILLABLE_HELPER_",
+    "_REDUCEDSUB_HELPER_",
+    "AEP BILLABLE GROUP CREATED",
+    "REDUCED SUB GROUP CREATED",
+    # Phase 01 gap closure (REVIEW-WR-04 / Living Ledger 2026-04-20
+    # 12:00): the new helper-shadow GROUP CREATED logs already match
+    # against the substring "HELPER GROUP CREATED" by accident — the
+    # tokens "REDUCED SUB HELPER GROUP CREATED" and "AEP BILLABLE
+    # HELPER GROUP CREATED" happen to CONTAIN that substring. That
+    # makes scrubbing fragile to future wording changes (e.g., a
+    # rename to "REDUCED SUB HELPER GROUP REGISTERED" or "REDUCED
+    # SUB HELPER GRP CREATED" would silently leak the helper
+    # foreman name to Sentry Logs). Explicit markers are the
+    # defense-in-depth contract per the 2026-04-20 12:00 ledger
+    # rule. Sibling markers for the non-shadow variants
+    # ("AEP BILLABLE GROUP CREATED" and "REDUCED SUB GROUP
+    # CREATED") were landed in Phase 01 Plan 02; these two finish
+    # the set.
+    "REDUCED SUB HELPER GROUP CREATED",
+    "AEP BILLABLE HELPER GROUP CREATED",
+    "Subcontractor rates CSV missing",
 )
 
 
@@ -1001,6 +1165,366 @@ def _compute_rates_fingerprint(rates_dict):
         r = rates_dict[code]
         h.update(f"{code}:{r['install']:.2f},{r['removal']:.2f},{r['transfer']:.2f}\n".encode())
     return h.hexdigest()[:12]
+
+
+# Headers the subcontractor-rates loader must see in the CSV. Defined
+# at module scope so the column-shape contract is documented in one
+# place — Plan 2 (parser extension) and Plan 3 (variant emission)
+# both read the same nine fields per row.
+_SUBCONTRACTOR_RATES_REQUIRED_HEADERS: frozenset[str] = frozenset({
+    'CU',
+    'Install Price (Subcontractor Rates)',
+    'Removal Price (Subcontractor Rates)',
+    'Transfer Price (Subcontractor Rates)',
+    'Install Price (New Rates)',
+    'Removal Price (New Rates)',
+    'Transfer Price (New Rates)',
+})
+
+
+def _strip_csv_fieldnames(fieldnames: list[str] | None) -> dict[str, str]:
+    """Map stripped header → original header for an operator CSV.
+
+    The operator-supplied subcontractor rates CSV uses space-padded
+    column headers (e.g. ``' CU                       '``) so a
+    ``csv.DictReader``'s ``row.get('CU')`` would miss every value. This
+    helper produces a stripped-form → raw-form mapping so the loader
+    can ``row.get(raw)`` after looking up the desired header by its
+    stripped form. Returns ``{}`` if ``fieldnames`` is falsy.
+    """
+    if not fieldnames:
+        return {}
+    return {(name or '').strip(): name for name in fieldnames}
+
+
+def load_subcontractor_rates(filepath: str) -> dict[str, dict]:
+    """Load the subcontractor rates CSV into a CU-keyed dict.
+
+    Per Phase 1 decisions D-04..D-07 + D-20 (see
+    ``.planning/phases/01-subcontractor-rate-logic-modification/
+    01-CONTEXT.md``):
+
+    - ``encoding='utf-8-sig'`` tolerates a UTF-8 BOM at file start.
+    - Header matching strips whitespace so the operator-padded
+      headers in the supplied CSV (``' CU                       '``)
+      match the canonical ``CU`` key.
+    - Price cells go through :func:`parse_price` which strips ``$``
+      and thousands-comma. ``N/A`` and other non-numeric values
+      coerce to ``0.0``.
+    - Rows whose all six priced columns are zero are skipped
+      (placeholder / inactive CUs — 1058 of 4848 in the supplied
+      file). They are NOT counted as missing-CU telemetry.
+    - Literal values are read for every priced field; the loader does
+      NOT compute ``reduced = new × 0.87`` or ``new = old × 1.03``
+      shortcuts (per-CU variance is real per ``contract-schema.md``).
+    - ``Old-Rates`` columns (12-14) and ``Hours`` columns (6-8) are
+      NOT loaded — the operator file retains them for human audit
+      only; carrying them in memory would invite accidental code
+      reuse and create a 3rd source of truth.
+
+    Returns a CU-keyed dict shaped:
+
+    .. code-block:: python
+
+       {
+           'cu_code': str,                  # uppercased
+           'cu_wbs': str,                   # audit-only
+           'compatible_unit_group': str,    # audit-only
+           'reduced_install_price': float,
+           'reduced_remove_price': float,
+           'reduced_transfer_price': float,
+           'new_install_price': float,
+           'new_remove_price': float,
+           'new_transfer_price': float,
+       }
+
+    Returns ``{}`` on any failure (fail-safe contract). Never raises
+    into the caller — every Phase 1 plan downstream depends on this
+    helper degrading gracefully.
+    """
+    rates: dict[str, dict] = {}
+    try:
+        with open(filepath, mode='r', encoding='utf-8-sig', newline='') as f:
+            # ``skipinitialspace=True`` is mandatory for the operator-
+            # supplied CSV: every field is left-padded with spaces
+            # (``CU-1    , ADDITEM-ROW-PURCHASE     , EA             ,``).
+            # Without it, the leading space before each ``"`` in a
+            # quoted description (``, "Additional Item, Right of Way,
+            # Purchase",``) breaks Python's csv quote recognition and
+            # silently 2-column-shifts every value to the right. The
+            # symptom was ALB-6-AUR1's ``reduced_install_price`` being
+            # read as ``0.176`` (the Removal Hours column) instead of
+            # ``$45.95`` (the actual Install Subcontractor price).
+            reader = csv.DictReader(f, skipinitialspace=True)
+            stripped_to_raw = _strip_csv_fieldnames(reader.fieldnames)
+            missing = _SUBCONTRACTOR_RATES_REQUIRED_HEADERS - set(stripped_to_raw.keys())
+            if missing:
+                logging.error(
+                    f"Subcontractor rates CSV {filepath} missing "
+                    f"required headers: {sorted(missing)}"
+                )
+                return rates
+
+            def _cell(row: dict, stripped_name: str, default=''):
+                raw = stripped_to_raw.get(stripped_name)
+                if raw is None:
+                    return default
+                value = row.get(raw, default)
+                if isinstance(value, str):
+                    return value.strip()
+                return value
+
+            for row in reader:
+                cu = str(_cell(row, 'CU', '') or '').upper()
+                if not cu:
+                    continue
+
+                reduced_install = parse_price(
+                    _cell(row, 'Install Price (Subcontractor Rates)', 0))
+                reduced_remove = parse_price(
+                    _cell(row, 'Removal Price (Subcontractor Rates)', 0))
+                reduced_transfer = parse_price(
+                    _cell(row, 'Transfer Price (Subcontractor Rates)', 0))
+                new_install = parse_price(
+                    _cell(row, 'Install Price (New Rates)', 0))
+                new_remove = parse_price(
+                    _cell(row, 'Removal Price (New Rates)', 0))
+                new_transfer = parse_price(
+                    _cell(row, 'Transfer Price (New Rates)', 0))
+
+                # D-04: skip rows whose all six priced cells are zero
+                # (placeholder CUs). They are NOT counted as "missing"
+                # — they're legitimately blank in the operator file.
+                if (
+                    reduced_install == 0
+                    and reduced_remove == 0
+                    and reduced_transfer == 0
+                    and new_install == 0
+                    and new_remove == 0
+                    and new_transfer == 0
+                ):
+                    continue
+
+                # D-05: 9 literal fields per row. D-06: explicitly do
+                # NOT include Old-Rates (cols 12-14) or Hours
+                # (cols 6-8) — they stay reference-only on disk.
+                rates[cu] = {
+                    'cu_code': cu,
+                    'cu_wbs': str(_cell(row, 'CU WBS #', '') or ''),
+                    'compatible_unit_group': str(
+                        _cell(row, 'Compatible Unit Group', '') or ''
+                    ),
+                    'reduced_install_price': reduced_install,
+                    'reduced_remove_price': reduced_remove,
+                    'reduced_transfer_price': reduced_transfer,
+                    'new_install_price': new_install,
+                    'new_remove_price': new_remove,
+                    'new_transfer_price': new_transfer,
+                }
+        logging.info(
+            f"Loaded {len(rates)} subcontractor CU rates from {filepath}"
+        )
+    except Exception as e:
+        # Fail-safe contract: never raise into the caller. Surface the
+        # filepath but not row content (no PII risk: only the integer
+        # count would have been logged on success, and ``e`` here is
+        # an open / csv / encoding error, not a row-level message).
+        logging.error(
+            f"Failed to load subcontractor rates from {filepath}: {e}"
+        )
+    return rates
+
+
+def _compute_subcontractor_rates_fingerprint(
+    rates_dict: dict[str, dict],
+) -> str:
+    """Return a deterministic 16-char SHA256 prefix over the six priced
+    fields of every CU in ``rates_dict``.
+
+    Per Phase 1 decision D-20: sorted keys + fixed precision guarantees
+    byte-identical output for byte-identical input across runs and
+    across machines. Dict-insertion-order does NOT influence the
+    output. Editing any priced field on any CU MUST change the
+    fingerprint.
+
+    Returns ``''`` for an empty dict (matches the legacy
+    ``_compute_rates_fingerprint`` convention used elsewhere when the
+    rates table is empty).
+    """
+    if not rates_dict:
+        return ''
+    h = hashlib.sha256()
+    for code in sorted(rates_dict.keys()):
+        r = rates_dict[code]
+        h.update(
+            (
+                f"{code}:"
+                f"{r['reduced_install_price']:.2f},"
+                f"{r['reduced_remove_price']:.2f},"
+                f"{r['reduced_transfer_price']:.2f},"
+                f"{r['new_install_price']:.2f},"
+                f"{r['new_remove_price']:.2f},"
+                f"{r['new_transfer_price']:.2f}\n"
+            ).encode()
+        )
+    return h.hexdigest()[:16]
+
+
+# Per D-20: load the subcontractor rate matrix once at module init so
+# downstream plans (2-6) can read ``_SUBCONTRACTOR_RATES`` and
+# ``_SUBCONTRACTOR_RATES_FINGERPRINT`` directly without re-parsing
+# the CSV per WR group. When the kill switch is OFF, neither value is
+# populated — every downstream consumer must short-circuit on the
+# empty dict path so the pipeline behaves identically to pre-Phase-1.
+_SUBCONTRACTOR_RATES: dict[str, dict] = (
+    load_subcontractor_rates(SUBCONTRACTOR_RATES_CSV)
+    if SUBCONTRACTOR_RATE_VARIANTS_ENABLED
+    else {}
+)
+_SUBCONTRACTOR_RATES_FINGERPRINT: str = (
+    _compute_subcontractor_rates_fingerprint(_SUBCONTRACTOR_RATES)
+    if _SUBCONTRACTOR_RATES
+    else ''
+)
+
+if SUBCONTRACTOR_RATE_VARIANTS_ENABLED and _SUBCONTRACTOR_RATES:
+    logging.info(
+        f"📊 Subcontractor rates loaded: "
+        f"{len(_SUBCONTRACTOR_RATES)} CUs, "
+        f"fingerprint={_SUBCONTRACTOR_RATES_FINGERPRINT}"
+    )
+elif SUBCONTRACTOR_RATE_VARIANTS_ENABLED:
+    # Kill switch is on but the dict is empty — the loader's own
+    # ``logging.error`` already surfaced the failure cause; flag it
+    # here too so operators tailing the startup banner notice that
+    # the downstream variant pipeline will be a no-op this run.
+    logging.warning(
+        "⚠️ Subcontractor rates table is empty — _AEPBillable / "
+        "_ReducedSub variant generation will be skipped this run "
+        f"(SUBCONTRACTOR_RATES_CSV='{SUBCONTRACTOR_RATES_CSV}')"
+    )
+
+
+def _resolve_row_price(row: dict, variant: str, missing_cus) -> float:
+    """Return the per-row ``Units Total Price`` to write to Excel.
+
+    Phase 01 Plan 03 Task 2 — variant-aware pricing helper used by
+    ``generate_excel``'s row-write loop.
+
+    For ``primary`` / ``helper`` / ``vac_crew`` rows (D-14 / D-15):
+    return the existing SmartSheet ``Units Total Price`` value
+    unchanged via ``parse_price``. Existing variant outputs MUST be
+    byte-identical to pre-change behaviour, so this branch is the
+    short-circuit path for the legacy variants.
+
+    For ``aep_billable`` / ``reduced_sub`` / ``aep_billable_helper`` /
+    ``reduced_sub_helper`` rows (D-08 / D-16):
+      • Look up the canonical ``CU`` code in ``_SUBCONTRACTOR_RATES``.
+      • Select the rate column from the canonical ``Work Type`` token
+        (Install / Removal / Transfer, case-insensitive substring
+        match per D-05).
+      • For the AEP-Billable family use the ``new_*_price`` columns;
+        for the Reduced-Sub family use the ``reduced_*_price`` columns.
+      • Return ``rate × quantity`` from the canonical ``Quantity`` key.
+      • If the CU is missing from the rates table, retain the row's
+        SmartSheet ``Units Total Price`` (NEVER zero-out, NEVER raise)
+        and record the missing code in the per-call ``missing_cus``
+        ``collections.Counter[str]``. The fall-through pattern mirrors
+        the recalc fall-through from Living Ledger 2026-04-21 22:35:
+        silent zero-out is a correctness regression in the billing
+        pipeline.
+      • For unknown work types, degenerate quantities, or non-positive
+        rates, the same SmartSheet fall-through applies as a safety
+        floor.
+
+    Canonical column-name discipline (Blocker 2 lock-in):
+    The helper reads ONLY the canonical keys produced by
+    ``_validate_single_sheet``'s synonyms layer at L2523-2547:
+
+      * ``row['CU']`` — canonical CU code key (synonyms ``'CU'`` and
+        ``'Billable Unit Code'`` BOTH map to ``row['CU']`` upstream;
+        only the canonical key survives at this point in the pipeline).
+      * ``row['Work Type']`` — canonical work-type key (no synonyms).
+      * ``row['Quantity']`` — canonical quantity key (synonyms ``'Qty'``
+        and ``'# Units'`` map to ``row['Quantity']`` upstream).
+      * ``row['Units Total Price']`` — canonical price key (synonyms
+        ``'Total Price'``, ``'Redlined Total Price'`` map upstream).
+
+    Reading any other key here would be a silent regression — only
+    the canonical keys exist by the time the row reaches
+    ``generate_excel``. Future synonym additions go in
+    ``_validate_single_sheet``, NOT here.
+
+    Args:
+        row: Group row dict (already passed through
+            ``_validate_single_sheet`` synonyms layer).
+        variant: One of ``{primary, helper, vac_crew, aep_billable,
+            reduced_sub, aep_billable_helper, reduced_sub_helper}``.
+        missing_cus: Per-call ``collections.Counter[str]`` accumulated
+            across the row-write loop. Caller is responsible for
+            instantiation and downstream forwarding.
+
+    Returns:
+        float: The price to write to the row's ``Units Total Price``
+            cell. SmartSheet value for legacy variants / missing CUs;
+            ``rate × qty`` for new variants with a known CU.
+    """
+    # Legacy variants short-circuit immediately — preserves the
+    # D-14 / D-15 byte-identical guarantee for existing outputs.
+    if variant not in (
+        'aep_billable', 'reduced_sub',
+        'aep_billable_helper', 'reduced_sub_helper',
+    ):
+        return parse_price(row.get('Units Total Price'))
+
+    # Subcontractor variants: rate × qty from the rate matrix.
+    # CU canonical key ONLY — see Blocker 2 docstring above.
+    cu_raw = row.get('CU') or ''
+    cu = str(cu_raw).strip().upper()
+    rate_row = _SUBCONTRACTOR_RATES.get(cu)
+    if rate_row is None:
+        # Missing CU: record + fall through to SmartSheet (D-16).
+        if cu:
+            missing_cus[cu] += 1
+        return parse_price(row.get('Units Total Price'))
+
+    # Work-Type-keyed column selection (D-05). Canonical 'Work Type'.
+    work_type_raw = (row.get('Work Type') or '').strip().lower()
+    if 'install' in work_type_raw:
+        wt = 'install'
+    elif 'remov' in work_type_raw:  # matches 'removal' / 'remove'
+        wt = 'remove'
+    elif 'transfer' in work_type_raw:
+        wt = 'transfer'
+    else:
+        # Unknown work type: keep SmartSheet pricing (safety floor).
+        return parse_price(row.get('Units Total Price'))
+
+    if variant in ('aep_billable', 'aep_billable_helper'):
+        rate = rate_row.get(f'new_{wt}_price', 0.0)
+    else:  # reduced_sub / reduced_sub_helper
+        rate = rate_row.get(f'reduced_{wt}_price', 0.0)
+
+    # Canonical 'Quantity' ONLY — never 'Units Completed' (checkbox).
+    # Phase 01 gap closure (REVIEW-IN-02): explicit None / empty-string
+    # handling. The previous ``or 0`` short-circuit collapsed
+    # legitimate ``Quantity=0.0`` to int ``0`` (functionally correct
+    # after the subsequent ``float()`` coercion but opaque to readers).
+    # Numeric output is byte-identical for every pre-existing input case
+    # (None, '', 0, 0.0, '1.5', invalid → 0.0 / 0.0 / 0.0 / 0.0 / 1.5
+    # / 0.0 respectively).
+    qty_raw = row.get('Quantity', 0)
+    try:
+        qty = float(qty_raw) if qty_raw not in (None, '') else 0.0
+    except (TypeError, ValueError):
+        qty = 0.0
+
+    if rate <= 0 or qty <= 0:
+        # Degenerate row: SmartSheet pricing as the safety floor,
+        # NEVER silently zero out (mirrors the recalc fall-through
+        # pattern in Living Ledger 2026-04-21 22:35).
+        return parse_price(row.get('Units Total Price'))
+    return rate * qty
 
 
 def load_rate_versions():
@@ -1568,11 +2092,15 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
     variant = group_variant
     meta_parts.append(f"VARIANT={variant}")
 
-    if variant == 'helper':
-        # Helper variant: include helper-specific metadata (helper_job is OPTIONAL).
-        # Helper groups are split per foreman (group key: `_HELPER_{helper}`),
-        # so every row in a helper group shares identical helper info —
-        # reading sorted_rows[0] here is safe.
+    if variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper'):
+        # Helper-style variants: include helper-specific metadata
+        # (helper_job is OPTIONAL). The plain helper group key is
+        # `_HELPER_{helper}` and the new Phase 01 subcontractor
+        # shadow-helper variants will follow the same per-foreman
+        # partitioning pattern in Plan 3 (`_AEPBILLABLE_HELPER_{name}` /
+        # `_REDUCEDSUB_HELPER_{name}`), so reading sorted_rows[0]
+        # here is safe — every row in such a group shares identical
+        # helper info.
         _first = sorted_rows[0] if sorted_rows else {}
         helper_foreman = _first.get('__helper_foreman', '')
         helper_dept = _first.get('__helper_dept', '')
@@ -1589,7 +2117,7 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
     # name/dept/job are already captured per-row in the row_str loop above,
     # which is strictly more sensitive than meta_parts aggregation and is not
     # vulnerable to set-dedup collisions or comma-in-name delimiter collisions.
-    
+
     meta_parts.append(f"DEPTS={','.join(unique_depts)}")
     meta_parts.append(f"TOTAL={total_price:.2f}")
     meta_parts.append(f"ROWCOUNT={len(sorted_rows)}")
@@ -1597,6 +2125,30 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
         meta_parts.append(f"RATE_CUTOFF={RATE_CUTOFF_DATE.isoformat()}")
         if _RATES_FINGERPRINT:
             meta_parts.append(f"RATES_FP={_RATES_FINGERPRINT}")
+
+    # Per Phase 01 Plan 02 D-20: mix the subcontractor rates
+    # fingerprint into the hash ONLY for the four new variants
+    # that actually consume the subcontractor rates CSV. This
+    # forces regeneration of _AEPBillable / _ReducedSub files (and
+    # their shadow-helper twins) when the CSV changes, WITHOUT
+    # touching the primary / helper / vac_crew hashes (preserves
+    # the ROADMAP success criterion 5 byte-identical guarantee for
+    # the legacy variant set). Mirrors the conditional shape of
+    # the existing `if RATE_CUTOFF_DATE: ... RATES_FP=` block
+    # above so a future engineer reading the two blocks side by
+    # side sees them as parallel — one keys on the retired-but-
+    # retained legacy recalc gate, the other keys on the variant
+    # set that consumes the new rates table.
+    if variant in (
+        'aep_billable',
+        'reduced_sub',
+        'aep_billable_helper',
+        'reduced_sub_helper',
+    ):
+        if _SUBCONTRACTOR_RATES_FINGERPRINT:
+            meta_parts.append(
+                f"SUB_RATES_FP={_SUBCONTRACTOR_RATES_FINGERPRINT}"
+            )
 
     # Update hash with metadata
     if meta_parts:
@@ -1706,27 +2258,35 @@ def list_generated_excel_files(folder: str) -> list[str]:
 def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | None:
     """
     Parse filename to extract identity tuple: (wr, week_ending, variant, helper_or_user).
-    
+
     Args:
         filename: Excel filename to parse
-    
+
     Returns:
         tuple with format:
         - Primary: (wr, week, 'primary', None)
         - Primary+User: (wr, week, 'primary', user_identifier)
         - Helper: (wr, week, 'helper', helper_name)
         - VAC Crew: (wr, week, 'vac_crew', '')
-        
+        - AEP Billable: (wr, week, 'aep_billable', '')
+        - Reduced Sub: (wr, week, 'reduced_sub', '')
+        - AEP Billable Helper: (wr, week, 'aep_billable_helper', helper_name)
+        - Reduced Sub Helper: (wr, week, 'reduced_sub_helper', helper_name)
+
         Legacy format without variant: (wr, week, 'primary', None)
-        
+
         Returns None if filename doesn't match expected format.
-    
+
     Filename formats supported:
     - WR_{wr}_WeekEnding_{week}_{hash}.xlsx (legacy primary)
     - WR_{wr}_WeekEnding_{week}_{timestamp}_{hash}.xlsx (primary)
     - WR_{wr}_WeekEnding_{week}_{timestamp}_User_{user}_{hash}.xlsx (primary+user)
     - WR_{wr}_WeekEnding_{week}_{timestamp}_Helper_{helper}_{hash}.xlsx (helper)
     - WR_{wr}_WeekEnding_{week}_{timestamp}_VacCrew_{hash}.xlsx (VAC Crew)
+    - WR_{wr}_WeekEnding_{week}_{timestamp}_AEPBillable_{hash}.xlsx (AEP Billable)
+    - WR_{wr}_WeekEnding_{week}_{timestamp}_ReducedSub_{hash}.xlsx (Reduced Sub)
+    - WR_{wr}_WeekEnding_{week}_{timestamp}_AEPBillable_Helper_{helper}_{hash}.xlsx
+    - WR_{wr}_WeekEnding_{week}_{timestamp}_ReducedSub_Helper_{helper}_{hash}.xlsx
     """
     if not filename.startswith('WR_'):
         return None
@@ -1817,13 +2377,49 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
 
     # Detect variant from filename structure. Scope the marker search
     # to the tail (everything after ``WeekEnding <week>``) so any
-    # accidental ``Helper`` / ``User`` / ``VacCrew`` token inside a
-    # sanitized WR does not false-positive the variant detection.
+    # accidental ``Helper`` / ``User`` / ``VacCrew`` / ``AEPBillable``
+    # / ``ReducedSub`` token inside a sanitized WR does not
+    # false-positive the variant detection.
     variant = 'primary'
     identifier = None
     tail = parts[we_idx + 2:]
 
-    if 'Helper' in tail:
+    # Per Phase 01 Plan 02 D-09 (variant-first, helper-second) and
+    # D-10 (tail-scoped detection): the new subcontractor variants
+    # MUST be checked BEFORE the existing ``Helper`` / ``VacCrew``
+    # / ``User`` branches so that ``..._AEPBillable_Helper_<name>_<hash>``
+    # parses as ``aep_billable_helper`` (not plain ``helper`` with
+    # the AEPBillable token silently lost). The check operates on
+    # the post-``WeekEnding`` ``tail`` slice only, so a sanitized
+    # WR# that happens to contain ``AEPBillable`` / ``ReducedSub``
+    # in its body cannot false-positive the variant — covered by
+    # the negative tests in TestBuildGroupIdentityWithUnderscoresInWr.
+    if 'AEPBillable' in tail:
+        aep_idx_rel = tail.index('AEPBillable')
+        post_aep = tail[aep_idx_rel + 1:]
+        if 'Helper' in post_aep:
+            variant = 'aep_billable_helper'
+            helper_idx_rel = post_aep.index('Helper')
+            if helper_idx_rel + 1 < len(post_aep):
+                # Join all parts between Helper and hash (last part)
+                # so underscored helper names like ``Jane_Smith``
+                # survive intact (round-7 span-join discipline).
+                identifier = '_'.join(post_aep[helper_idx_rel + 1:-1])
+        else:
+            variant = 'aep_billable'
+            identifier = ''
+    elif 'ReducedSub' in tail:
+        rs_idx_rel = tail.index('ReducedSub')
+        post_rs = tail[rs_idx_rel + 1:]
+        if 'Helper' in post_rs:
+            variant = 'reduced_sub_helper'
+            helper_idx_rel = post_rs.index('Helper')
+            if helper_idx_rel + 1 < len(post_rs):
+                identifier = '_'.join(post_rs[helper_idx_rel + 1:-1])
+        else:
+            variant = 'reduced_sub'
+            identifier = ''
+    elif 'Helper' in tail:
         variant = 'helper'
         helper_idx_rel = tail.index('Helper')
         if helper_idx_rel + 1 < len(tail):
@@ -2909,6 +3505,19 @@ def get_all_source_rows(client, source_sheets):
                     # Attach provenance metadata for audit (used to fetch selective cell history later)
                     if row_data:
                         row_data['__sheet_id'] = source['id']
+                        # Phase 01 Plan 03 / Plan 09 (WR-06): also expose
+                        # the sheet id under the canonical
+                        # ``__source_sheet_id`` name. Phase 1's
+                        # subcontractor variant gate in
+                        # ``group_source_rows`` AND the missing-CU
+                        # attribution loop in ``main()`` both read
+                        # ``__source_sheet_id`` per WR-06. The legacy
+                        # ``__sheet_id`` write is retained above for
+                        # back-compat with any future reader that
+                        # might still touch it — drop in a follow-up
+                        # cleanup once a full pass confirms no other
+                        # reader exists.
+                        row_data['__source_sheet_id'] = source['id']
                         row_data['__row_id'] = row.id
 
                     # Essential field summary for earliest rows (gated to reduce I/O)
@@ -3589,7 +4198,146 @@ def group_source_rows(rows):
                     helper_dept = r.get('__helper_dept', '')
                     helper_job = r.get('__helper_job', '')
                     logging.warning(f"⚠️ Helper row for WR {wr_key} missing required Helper Dept # (Job: '{helper_job}') - including in main Excel")
-            
+
+            # ── Phase 01 Plan 03 (D-08/D-09/D-13/D-22): Subcontractor
+            # rate variants. Per the committed Blocker 3 plumbing
+            # decision the gate is PER-ROW, evaluated against the
+            # row's ``__source_sheet_id`` (populated upstream by
+            # ``_fetch_and_process_sheet``) and the kill-switch env
+            # var. A subcontractor row produces:
+            #   • a ``_REDUCEDSUB`` group key unconditionally (D-08
+            #     / SUB-02 — every sub WR group always gets a
+            #     reduced-sub Excel),
+            #   • a ``_AEPBILLABLE`` group key when the row's
+            #     ``Snapshot Date >= _AEP_BILLABLE_CUTOFF`` (D-08 /
+            #     SUB-01 — snapshot is authoritative per Living
+            #     Ledger 2026-04-21 22:35; never use Weekly Reference
+            #     Logged Date here),
+            #   • two ``_HELPER_<name>`` shadow keys when the
+            #     existing helper-foreman event fires on this row
+            #     (D-09 — shadows piggyback on the same
+            #     ``valid_helper_row + helper_mode_enabled`` gate the
+            #     legacy ``_HELPER_<name>`` key uses; the
+            #     subcontractor sheet only contributes the new
+            #     prefix tokens).
+            # Non-subcontractor rows fall through with zero behaviour
+            # change (per-row gate ensures no key bleed across rows
+            # in the same call). Helper names are sanitized at the
+            # producer site via ``_RE_SANITIZE_HELPER_NAME`` (D-22 /
+            # Living Ledger 2026-04-23 18:25 — idempotent regex, so
+            # the consumer site in ``generate_excel`` can safely
+            # re-apply).
+            _row_sheet_id = r.get('__source_sheet_id')
+            is_subcontractor_row = (
+                _row_sheet_id is not None
+                and _row_sheet_id in _FOLDER_DISCOVERED_SUB_IDS
+            )
+            if is_subcontractor_row and SUBCONTRACTOR_RATE_VARIANTS_ENABLED:
+                # ReducedSub: unconditional per SUB-02 / D-08. Foreman
+                # is the primary ``effective_user`` (mirrors the
+                # existing primary key — the reduced-sub Excel is
+                # produced for the WR group as a whole).
+                reduced_key = f"{week_end_for_key}_{wr_key}_REDUCEDSUB"
+                keys_to_add.append(('reduced_sub', reduced_key, effective_user))
+                if reduced_key not in groups:
+                    logging.info(
+                        f"🔻 REDUCED SUB GROUP CREATED: WR={wr_key}, "
+                        f"Week={week_end_for_key}"
+                    )
+
+                # AEPBillable: snapshot-cutoff-gated per SUB-01 / D-08
+                # / Living Ledger 2026-04-21 22:35. Snapshot Date is
+                # authoritative — Weekly Reference Logged Date is
+                # NOT a valid fallback here (cutoff drift would
+                # silently re-price whole sheets; see the ledger
+                # entry). ``excel_serial_to_date`` returns ``None``
+                # for blank/unparseable values which naturally
+                # excludes the row from the AEPBillable branch
+                # without raising (D-16 fall-through safety).
+                _snap_for_cutoff = excel_serial_to_date(r.get('Snapshot Date'))
+                if (
+                    _snap_for_cutoff is not None
+                    and _snap_for_cutoff.date() >= _AEP_BILLABLE_CUTOFF
+                ):
+                    aep_key = f"{week_end_for_key}_{wr_key}_AEPBILLABLE"
+                    keys_to_add.append(('aep_billable', aep_key, effective_user))
+                    if aep_key not in groups:
+                        logging.info(
+                            f"💲 AEP BILLABLE GROUP CREATED: WR={wr_key}, "
+                            f"Week={week_end_for_key}"
+                        )
+
+                # Helper-shadow variants: piggyback on the EXISTING
+                # helper detection. The two gates that already
+                # qualify a row for the legacy ``_HELPER_<name>``
+                # key (valid_helper_row + helper_mode_enabled) also
+                # qualify it for the shadow variants when the sheet
+                # is subcontractor. This means a single helper-row
+                # event on a subcontractor WR produces:
+                #   • the legacy ``_HELPER_<name>`` group (already
+                #     added above by the legacy branch when the
+                #     gates fire),
+                #   • the new ``_REDUCEDSUB_HELPER_<name>`` group
+                #     (unconditional),
+                #   • the new ``_AEPBILLABLE_HELPER_<name>`` group
+                #     when snapshot >= cutoff.
+                # ``helper_mode_enabled`` and ``valid_helper_row``
+                # are computed in the non-vac_crew else-branch above
+                # — they are out of scope here for vac_crew rows
+                # (``is_vac_crew_row`` short-circuits this entire
+                # else block). Re-evaluate the same gates locally to
+                # keep the new code self-contained and to avoid
+                # depending on the order of variable definitions in
+                # the enclosing block (the legacy primary-vs-helper
+                # cascade lives in the else branch but the new sub
+                # block is at function scope inside the for-loop, so
+                # mirror its inputs here for clarity).
+                if not is_vac_crew_row:
+                    _helper_mode_enabled = RES_GROUPING_MODE in ('helper', 'both')
+                    _valid_helper_row = False
+                    if _helper_mode_enabled and is_helper_row and helper_foreman:
+                        _helper_dept_local = r.get('__helper_dept', '')
+                        if _helper_dept_local:
+                            _valid_helper_row = True
+                    if _valid_helper_row and _helper_mode_enabled:
+                        _helper_sanitized = (
+                            _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50]
+                        )
+                        rs_helper_key = (
+                            f"{week_end_for_key}_{wr_key}_REDUCEDSUB_HELPER_"
+                            f"{_helper_sanitized}"
+                        )
+                        keys_to_add.append(
+                            ('reduced_sub_helper', rs_helper_key, helper_foreman)
+                        )
+                        if rs_helper_key not in groups:
+                            logging.info(
+                                f"🔻 REDUCED SUB HELPER GROUP CREATED: "
+                                f"WR={wr_key}, Week={week_end_for_key}, "
+                                f"Helper={helper_foreman}"
+                            )
+                        if (
+                            _snap_for_cutoff is not None
+                            and _snap_for_cutoff.date() >= _AEP_BILLABLE_CUTOFF
+                        ):
+                            aep_helper_key = (
+                                f"{week_end_for_key}_{wr_key}_AEPBILLABLE_HELPER_"
+                                f"{_helper_sanitized}"
+                            )
+                            keys_to_add.append(
+                                (
+                                    'aep_billable_helper',
+                                    aep_helper_key,
+                                    helper_foreman,
+                                )
+                            )
+                            if aep_helper_key not in groups:
+                                logging.info(
+                                    f"💲 AEP BILLABLE HELPER GROUP CREATED: "
+                                    f"WR={wr_key}, Week={week_end_for_key}, "
+                                    f"Helper={helper_foreman}"
+                                )
+
             # Add row to all applicable groups
             for variant, key, current_foreman in keys_to_add:
                 # Add calculated values to row data
@@ -3654,15 +4402,40 @@ def group_source_rows(rows):
     if WR_FILTER and TEST_MODE:
         before = len(groups)
         def _key_matches_wr(k: str, wr: str) -> bool:
-            # k format examples:
-            #   MMDDYY_WR
-            #   MMDDYY_WR_HELPER_<name>
-            #   MMDDYY_WR_VACCREW
+            # k format examples (all seven shapes emitted by group_source_rows):
+            #   MMDDYY_WR                                   → primary
+            #   MMDDYY_WR_HELPER_<name>                     → helper
+            #   MMDDYY_WR_VACCREW                           → vac_crew
+            #   MMDDYY_WR_REDUCEDSUB                        → reduced_sub  (Phase 1)
+            #   MMDDYY_WR_AEPBILLABLE                       → aep_billable (Phase 1)
+            #   MMDDYY_WR_REDUCEDSUB_HELPER_<name>          → reduced_sub_helper  (Phase 1)
+            #   MMDDYY_WR_AEPBILLABLE_HELPER_<name>         → aep_billable_helper (Phase 1)
+            #
+            # Phase 01 gap closure (REVIEW-CR-03): mirror of the
+            # ``_key_matches_excluded_wr`` fix immediately below. Without the
+            # new variant clauses, ``TEST_MODE=true WR_FILTER=<wr>`` drops
+            # the new-variant groups before generation runs, silently
+            # producing zero ``_AEPBillable`` / ``_ReducedSub`` output for the
+            # filtered WR — which makes the Step B operator diagnostic
+            # documented in 01-VERIFICATION.md unexercisable. Match shape is
+            # IDENTICAL to ``_key_matches_excluded_wr`` (minus the
+            # ``_USER_`` legacy clause, which has never been a WR_FILTER
+            # target). The two matchers MUST stay in sync — any future
+            # variant added in ``group_source_rows`` must extend BOTH.
             try:
                 suffix = k.split('_', 1)[1]  # take everything after first underscore (WR...)
             except Exception:
                 return False
-            return suffix == wr or suffix.startswith(f"{wr}_HELPER_") or suffix == f"{wr}_VACCREW"
+            return (
+                suffix == wr
+                or suffix.startswith(f"{wr}_HELPER_")
+                or suffix == f"{wr}_VACCREW"
+                # Phase 1 subcontractor variants (REVIEW-CR-03).
+                or suffix == f"{wr}_REDUCEDSUB"
+                or suffix == f"{wr}_AEPBILLABLE"
+                or suffix.startswith(f"{wr}_REDUCEDSUB_HELPER_")
+                or suffix.startswith(f"{wr}_AEPBILLABLE_HELPER_")
+            )
 
         groups = {k: v for k, v in groups.items() if any(_key_matches_wr(k, wr) for wr in WR_FILTER)}
         logging.info(f"🔎 WR_FILTER applied (primary + helper + vac_crew): {len(groups)}/{before} groups retained ({','.join(WR_FILTER)})")
@@ -3677,17 +4450,39 @@ def group_source_rows(rows):
         logging.info(f"🔍 Sample group keys: {sample_keys}")
         
         def _key_matches_excluded_wr(k: str, wr: str) -> bool:
-            # k format examples:
-            #   MMDDYY_WR               → suffix = WR
-            #   MMDDYY_WR_HELPER_<name> → suffix = WR_HELPER_<name>
-            #   MMDDYY_WR_USER_<name>   → suffix = WR_USER_<name>
-            #   MMDDYY_WR_VACCREW       → suffix = WR_VACCREW
+            # k format examples (all seven shapes emitted by group_source_rows):
+            #   MMDDYY_WR                                   → primary
+            #   MMDDYY_WR_HELPER_<name>                     → helper
+            #   MMDDYY_WR_USER_<name>                       → user-tagged (legacy)
+            #   MMDDYY_WR_VACCREW                           → vac_crew
+            #   MMDDYY_WR_REDUCEDSUB                        → reduced_sub  (Phase 1)
+            #   MMDDYY_WR_AEPBILLABLE                       → aep_billable (Phase 1)
+            #   MMDDYY_WR_REDUCEDSUB_HELPER_<name>          → reduced_sub_helper  (Phase 1)
+            #   MMDDYY_WR_AEPBILLABLE_HELPER_<name>         → aep_billable_helper (Phase 1)
+            #
+            # Phase 01 gap closure (REVIEW-CR-02): before this fix the matcher
+            # only recognized the first four shapes, so EXCLUDE_WRS=<wr>
+            # silently uploaded the four new variant files to TARGET_SHEET_ID
+            # and SUBCONTRACTOR_PPP_SHEET_ID even when the operator's intent
+            # was "do not bill yet." The additive ``or`` clauses below close
+            # that gap. Match shape mirrors ``_key_matches_wr``; the two
+            # matchers are siblings and MUST stay in sync — any future
+            # variant added in ``group_source_rows`` must extend BOTH.
             try:
                 suffix = k.split('_', 1)[1]  # take everything after first underscore (WR...)
             except Exception:
                 return False
-            # Match exact WR, or WR followed by _HELPER_, _USER_, or _VACCREW variants
-            return suffix == wr or suffix.startswith(f"{wr}_HELPER_") or suffix.startswith(f"{wr}_USER_") or suffix == f"{wr}_VACCREW"
+            return (
+                suffix == wr
+                or suffix.startswith(f"{wr}_HELPER_")
+                or suffix.startswith(f"{wr}_USER_")
+                or suffix == f"{wr}_VACCREW"
+                # Phase 1 subcontractor variants (REVIEW-CR-02).
+                or suffix == f"{wr}_REDUCEDSUB"
+                or suffix == f"{wr}_AEPBILLABLE"
+                or suffix.startswith(f"{wr}_REDUCEDSUB_HELPER_")
+                or suffix.startswith(f"{wr}_AEPBILLABLE_HELPER_")
+            )
         
         # Remove groups that match any excluded WR
         groups = {k: v for k, v in groups.items() if not any(_key_matches_excluded_wr(k, wr) for wr in EXCLUDE_WRS)}
@@ -3840,8 +4635,78 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     # Variant-aware filename construction
     variant = first_row.get('__variant', 'primary')
     variant_suffix = ""
-    
-    if variant == 'helper':
+
+    # Phase 01 Plan 03 Task 2: subcontractor variant suffixes MUST be
+    # checked BEFORE the legacy ``helper`` / ``vac_crew`` / ``primary``
+    # branches so the variant-first ordering (D-09) is preserved. A
+    # row tagged ``aep_billable_helper`` MUST produce the
+    # ``_AEPBillable_Helper_<sanitized>`` filename, not plain
+    # ``_Helper_<sanitized>`` with the AEPBillable token silently
+    # dropped (which would break parser round-trip via
+    # ``build_group_identity``). Helper-name sanitization mirrors
+    # the producer site in ``group_source_rows`` — the regex is
+    # idempotent so the double-apply is safe (D-22 / 2026-04-23 18:25).
+    if variant == 'aep_billable':
+        variant_suffix = '_AEPBillable'
+    elif variant == 'reduced_sub':
+        variant_suffix = '_ReducedSub'
+    elif variant == 'aep_billable_helper':
+        helper_foreman = first_row.get('__helper_foreman', '')
+        if not helper_foreman:
+            # Phase 01 gap closure (REVIEW-WR-03): the upstream
+            # ``_valid_helper_row`` gate in ``group_source_rows``
+            # requires both ``helper_dept`` AND ``helper_foreman`` to
+            # be truthy before adding a shadow-variant group key, so
+            # this branch should never see an empty foreman in
+            # production. If we ever hit it (refactor / data drift /
+            # unexpected row mutation), the silent fallthrough produced
+            # a primary-looking filename (no ``_AEPBillable_Helper_<name>``
+            # suffix), which downstream parses as ``variant='primary'``
+            # and routes the file to the wrong target sheet / wrong
+            # identity tuple. Raise loudly to surface the drift instead.
+            # Message body is _redact_exception_message-compatible
+            # (WR + week + variant name; no foreman / dept / job —
+            # those are PII per CLAUDE.md Living Ledger 2026-04-20 12:00).
+            logging.error(
+                f"⚠️ aep_billable_helper variant row missing "
+                f"__helper_foreman for WR {wr_num} week {week_end_raw}; "
+                f"filename would be ambiguous — raising to surface data drift."
+            )
+            raise ValueError(
+                f"aep_billable_helper requires __helper_foreman; got empty "
+                f"for WR={wr_num} week={week_end_raw}"
+            )
+        helper_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50]
+        variant_suffix = f"_AEPBillable_Helper_{helper_sanitized}"
+    elif variant == 'reduced_sub_helper':
+        helper_foreman = first_row.get('__helper_foreman', '')
+        if not helper_foreman:
+            # WR-03 mirror of the aep_billable_helper defensive raise.
+            # Same rationale, same PII-redact-compatible message body.
+            logging.error(
+                f"⚠️ reduced_sub_helper variant row missing "
+                f"__helper_foreman for WR {wr_num} week {week_end_raw}; "
+                f"filename would be ambiguous — raising to surface data drift."
+            )
+            raise ValueError(
+                f"reduced_sub_helper requires __helper_foreman; got empty "
+                f"for WR={wr_num} week={week_end_raw}"
+            )
+        helper_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50]
+        variant_suffix = f"_ReducedSub_Helper_{helper_sanitized}"
+    # WR-03 follow-up tech-debt: the legacy ``helper`` branch below has
+    # the same shape (silent fallthrough if __helper_foreman is empty)
+    # but is out of scope for this gap-closure plan per 01-REVIEW.md
+    # WR-03 scope restriction. Adding the same defensive raise here in
+    # a future plan is the recommended cleanup, but it requires a
+    # separate regression test confirming the upstream
+    # ``_valid_helper_row`` gate is the ONLY producer of the legacy
+    # helper variant_suffix branch. The
+    # ``test_legacy_helper_branch_does_not_raise_on_empty_foreman``
+    # regression test in tests/test_subcontractor_pricing.py guards
+    # against an accidental WR-03 fix broadening that would regress
+    # the legacy helper variant production path.
+    elif variant == 'helper':
         # Helper variant: include helper identifier in filename
         helper_foreman = first_row.get('__helper_foreman', '')
         if helper_foreman:
@@ -3854,6 +4719,15 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     elif variant == 'primary':
         # Primary variant (no suffix needed)
         variant_suffix = ''
+
+    # Phase 01 Plan 03 Task 2 (D-16): per-call missing-CU accumulator.
+    # ``_resolve_row_price`` populates this Counter when a row's CU
+    # code is absent from ``_SUBCONTRACTOR_RATES`` and the row keeps
+    # its SmartSheet price (never zero-out, never raise). The Counter
+    # is returned in the new 5-tuple shape (Blocker 4 contract) so
+    # the main-loop caller can attribute missing CUs per source sheet
+    # and emit the per-sheet WARNING (D-17).
+    missing_cus: collections.Counter = collections.Counter()
     
     if data_hash:
         # Use full 16-character hash (calculate_data_hash already truncates to 16)
@@ -3937,7 +4811,22 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     ws[f'B{current_row}'].fill = RED_FILL
     ws[f'B{current_row}'].alignment = Alignment(horizontal='center')
 
-    total_price = sum(parse_price(row.get('Units Total Price')) for row in group_rows)
+    # Per Phase 01 Plan 03 Task 2 (D-16): resolve each row's price
+    # EXACTLY ONCE through ``_resolve_row_price`` and stash the result
+    # on the row as ``__resolved_price``. Both the summary "Total
+    # Billed Amount" and ``write_day_block``'s per-row Pricing cell
+    # read from the same stashed value so the workbook is internally
+    # consistent and the per-call ``missing_cus`` Counter is not
+    # double-incremented across summary + day-block iteration.
+    # For legacy variants this is a no-op (helper returns
+    # ``parse_price(row.get('Units Total Price'))``); for the new
+    # variants it picks up the rate × qty values from
+    # ``_SUBCONTRACTOR_RATES``. Mutating the input row matches the
+    # existing pattern (``__variant`` / ``__current_foreman`` are
+    # already added upstream in ``group_source_rows``).
+    for _row in group_rows:
+        _row['__resolved_price'] = _resolve_row_price(_row, variant, missing_cus)
+    total_price = sum(row.get('__resolved_price', 0.0) for row in group_rows)
     ws[f'B{current_row+1}'] = 'Total Billed Amount:'
     ws[f'B{current_row+1}'].font = SUMMARY_LABEL_FONT
     ws[f'C{current_row+1}'] = total_price
@@ -4050,7 +4939,15 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         total_price_day = 0.0
         for i, row_data in enumerate(day_rows):
             crow = start_row + 2 + i
-            price = parse_price(row_data.get('Units Total Price'))
+            # Per Phase 01 Plan 03 Task 2: use the pre-resolved price
+            # stashed by the outer ``generate_excel`` loop. Falling back
+            # to ``parse_price`` here matches the legacy behaviour if a
+            # row somehow lacks ``__resolved_price`` (defensive — should
+            # never happen with the current call chain).
+            if '__resolved_price' in row_data:
+                price = row_data['__resolved_price']
+            else:
+                price = parse_price(row_data.get('Units Total Price'))
             
             # Safely parse quantity - extract only numbers
             qty_str = str(row_data.get('Quantity', '') or 0)
@@ -4165,42 +5062,82 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
 
     # Save the workbook
     workbook.save(final_output_path)
-    
+
     if TEST_MODE:
         print(f"📄 Generated Excel file for inspection: '{output_filename}'")
         print(f"   - Total Amount: ${total_price:,.2f}")
         print(f"   - Daily Breakdown: {len(snapshot_dates)} days")
     else:
         logging.info(f"📄 Generated Excel: '{output_filename}'")
-    
-    return final_output_path, output_filename, wr_numbers
+
+    # Phase 01 Plan 03 Task 2 / Blocker 4: extend the return shape to
+    # a 5-tuple (excel_path, filename, wr_numbers, customer_name,
+    # missing_cus). The two new trailing fields are absorbed by Plan 04
+    # Task 2's upload-task builder. ``customer_name`` echoes the value
+    # already used in the workbook's "Customer:" detail row; surfacing
+    # it on the return tuple removes a duplicate ``first_row.get(...)``
+    # lookup at the call site. ``missing_cus`` carries the per-call
+    # subcontractor CU-fall-through codes (D-16) for per-sheet WARNING
+    # aggregation (D-17) in the main loop.
+    customer_name = first_row.get('Customer Name', '') or ''
+    return final_output_path, output_filename, wr_numbers, customer_name, missing_cus
 
 # --- TARGET SHEET MANAGEMENT ---
 
-def create_target_sheet_map(client):
-    """Create a map of the target sheet for uploading Excel files.
-    
+def create_target_sheet_map_for(client, sheet_id):
+    """Build a sanitized ``{wr_num: target_row}`` map for any target
+    sheet id.
+
+    Phase 01 Plan 04 Task 1: extracted from the legacy
+    ``create_target_sheet_map(client)`` so the dual-routing pipeline
+    can build a SECOND target_map against ``SUBCONTRACTOR_PPP_SHEET_ID``
+    for ``_ReducedSub`` / ``_ReducedSub_Helper_<name>`` uploads (D-12,
+    SUB-03) while keeping the original TARGET_SHEET_ID map for every
+    other variant.
+
+    Critical invariants (D-22 / Living Ledger rounds 6, 7, 9):
+
+    - Producer-side sanitization via ``_RE_SANITIZE_HELPER_NAME``
+      applied at populate time — so consumer-side
+      ``target_map[sanitized_wr]`` lookups in the main loop hit
+      consistently across both target_maps (round-7 /
+      2026-04-23 18:25).
+    - Collision quarantine state (``_quarantined_keys`` /
+      ``_seen_raw_for_key``) is FUNCTION-LOCAL: declared inside this
+      helper's body, NOT at module scope (Plan 4 Warning 5). Each
+      call owns its own quarantine sets so a duplicate WR# on one
+      target sheet cannot poison the lookup table for another.
+    - On collision, BOTH ambiguous raw values are removed from
+      ``target_map`` and the sanitized key is quarantined (round-6
+      P1). Loud not-found is strictly safer than silent wrong-row
+      upload.
+
     Returns:
-        Tuple of (target_map dict, target_sheet object) for reuse in cleanup.
+        Tuple of ``(target_map dict, target_sheet object)``. Mirrors
+        the legacy return shape so the back-compat wrapper
+        ``create_target_sheet_map(client)`` is a drop-in.
     """
     try:
         with sentry_sdk.start_span(op="smartsheet.api", name="Fetch target sheet for WR mapping") as span:
-            target_sheet = client.Sheets.get_sheet(TARGET_SHEET_ID)
-            span.set_data("target_sheet_id", TARGET_SHEET_ID)
+            target_sheet = client.Sheets.get_sheet(sheet_id)
+            span.set_data("target_sheet_id", sheet_id)
             span.set_data("row_count", len(target_sheet.rows) if target_sheet.rows else 0)
-        target_map = {}
-        
+        target_map: dict = {}
+
         # Find the Work Request # column
         wr_column_id = None
         for column in target_sheet.columns:
             if column.title == 'Work Request #':
                 wr_column_id = column.id
                 break
-        
+
         if not wr_column_id:
-            logging.error("Work Request # column not found in target sheet")
+            logging.error(
+                f"Work Request # column not found in target sheet "
+                f"{sheet_id}"
+            )
             return {}, None
-        
+
         # Map work request numbers to rows. Sanitize with the same
         # filesystem-safety regex used on source-row WR#s so downstream
         # ``target_map.get(sanitized_wr)`` lookups are consistent. For
@@ -4220,6 +5157,13 @@ def create_target_sheet_map(client):
         # WRs are skipped deterministically until the target sheet is
         # deduplicated. A loud "not found in target sheet" warning
         # is strictly safer than a silent wrong-row upload.
+        #
+        # FUNCTION-LOCAL per Plan 04 Task 1 Warning 5: each invocation
+        # owns its own quarantine sets so two target_map builds (one
+        # for TARGET_SHEET_ID, one for SUBCONTRACTOR_PPP_SHEET_ID)
+        # cannot poison each other. A module-level set would let a
+        # duplicate WR# on one sheet remove the same WR# from the
+        # other sheet's map — silently breaking dual-routing.
         _seen_raw_for_key: dict = {}
         _quarantined_keys: set = set()
         _collisions = 0
@@ -4239,9 +5183,9 @@ def create_target_sheet_map(client):
                         logging.warning(
                             f"⚠️ Target-sheet WR# collision (already quarantined): "
                             f"raw={raw_wr!r} also maps to sanitized key "
-                            f"{wr_num!r} (prior seen: {prior_raw!r}). "
-                            f"Uploads for this WR will be skipped until the "
-                            f"target sheet is deduplicated."
+                            f"{wr_num!r} (prior seen: {prior_raw!r}) on sheet "
+                            f"{sheet_id}. Uploads for this WR will be skipped "
+                            f"until the target sheet is deduplicated."
                         )
                     elif wr_num in target_map:
                         prior_raw = _seen_raw_for_key.get(wr_num, '<unknown>')
@@ -4262,12 +5206,13 @@ def create_target_sheet_map(client):
                             del target_map[wr_num]
                             _quarantined_keys.add(wr_num)
                             logging.warning(
-                                f"⚠️ Target-sheet WR# collision after sanitization: "
-                                f"raw={raw_wr!r} and prior raw={prior_raw!r} both "
-                                f"map to sanitized key {wr_num!r}; QUARANTINING "
-                                f"the key from target_map. Uploads for both WRs "
-                                f"will be skipped until the target sheet is "
-                                f"deduplicated — log a 'not found in target "
+                                f"⚠️ Target-sheet WR# collision after sanitization "
+                                f"on sheet {sheet_id}: raw={raw_wr!r} and prior "
+                                f"raw={prior_raw!r} both map to sanitized key "
+                                f"{wr_num!r}; QUARANTINING the key from "
+                                f"target_map. Uploads for both WRs will be "
+                                f"skipped until the target sheet is "
+                                f"deduplicated — a 'not found in target "
                                 f"sheet' warning will follow for each."
                             )
                     else:
@@ -4277,17 +5222,165 @@ def create_target_sheet_map(client):
 
         if _collisions:
             logging.warning(
-                f"⚠️ Target sheet map had {_collisions} sanitized-WR# "
-                f"collision event(s) across {len(_quarantined_keys)} "
-                f"quarantined key(s) — affected uploads will be skipped "
-                f"with 'not found in target sheet' warnings."
+                f"⚠️ Target sheet {sheet_id} map had {_collisions} "
+                f"sanitized-WR# collision event(s) across "
+                f"{len(_quarantined_keys)} quarantined key(s) — "
+                f"affected uploads will be skipped with 'not found in "
+                f"target sheet' warnings."
             )
-        logging.info(f"Created target sheet map with {len(target_map)} work requests")
+        logging.info(
+            f"Created target sheet map for {sheet_id} with "
+            f"{len(target_map)} work requests"
+        )
         return target_map, target_sheet
-        
+
     except Exception as e:
-        logging.error(f"Failed to create target sheet map: {e}")
+        logging.error(
+            f"Failed to create target sheet map for {sheet_id}: "
+            f"{_redact_exception_message(e)}"
+        )
         return {}, None
+
+
+def create_target_sheet_map(client):
+    """Back-compat wrapper around ``create_target_sheet_map_for``.
+
+    Preserved so existing call sites and tests continue to operate
+    against the primary ``TARGET_SHEET_ID`` without churn. New code
+    that needs a different sheet should call
+    ``create_target_sheet_map_for(client, sheet_id)`` directly.
+
+    Returns:
+        Tuple of (target_map dict, target_sheet object) for reuse in cleanup.
+    """
+    return create_target_sheet_map_for(client, TARGET_SHEET_ID)
+
+
+def _build_upload_tasks_for_group(
+    *,
+    variant,
+    wr_num,
+    target_map,
+    target_map_ppp,
+    excel_path,
+    filename,
+    identifier,
+    file_identifier,
+    data_hash,
+    week_raw,
+    group_key,
+):
+    """Build the list of upload-task dicts for a single generated
+    Excel file.
+
+    Phase 01 Plan 04 Task 2: routes ``reduced_sub`` /
+    ``reduced_sub_helper`` to BOTH ``TARGET_SHEET_ID`` and
+    ``SUBCONTRACTOR_PPP_SHEET_ID`` (D-12 / SUB-03); every other
+    variant routes to ``TARGET_SHEET_ID`` only. Each task carries
+    its own ``target_sheet_id`` so the ``_upload_one`` worker
+    resolves uploads to the correct sheet without consulting a
+    global.
+
+    Sanitization parity (Warning 9): the same ``wr_num`` value is
+    reused for both ``target_map[wr_num]`` and
+    ``target_map_ppp[wr_num]`` lookups. Because
+    ``_RE_SANITIZE_HELPER_NAME`` is idempotent and both maps are
+    populated using it at producer-side (see
+    ``create_target_sheet_map_for``), this single sanitisation upstream
+    is sufficient — no re-sanitisation is needed at the consumer.
+
+    Independent quarantine (Warning 5 / round-6): the two target_maps
+    own their own quarantine sets. If a WR# is quarantined on one
+    sheet, the lookup returns False there but may still succeed on
+    the other sheet — producing exactly the upload behaviour
+    operators expect (uploads only to sheets whose WR# is
+    unambiguous, with operator-visible WARNINGs on the quarantined
+    side).
+
+    Args:
+        variant: One of ``primary`` / ``helper`` / ``vac_crew`` /
+            ``aep_billable`` / ``aep_billable_helper`` /
+            ``reduced_sub`` / ``reduced_sub_helper``.
+        wr_num: Sanitised WR# (already passed through
+            ``_RE_SANITIZE_HELPER_NAME`` at the main-loop derivation
+            site).
+        target_map: Primary ``TARGET_SHEET_ID`` mapping
+            (``{sanitized_wr: row}``).
+        target_map_ppp: Secondary ``SUBCONTRACTOR_PPP_SHEET_ID``
+            mapping; empty / unreachable → reduced-sub routing
+            degrades to single-target with a WARNING.
+        excel_path / filename / identifier / file_identifier /
+            data_hash / week_raw / group_key: Pass-through payload
+            consumed by ``_upload_one``.
+
+    Returns:
+        A list of upload-task dicts. ``[]`` if ``wr_num`` is blank
+        or neither map carries the WR.
+    """
+    if not wr_num:
+        return []
+
+    upload_tasks: list = []
+
+    # Primary leg — every variant routes here, including
+    # reduced_sub / reduced_sub_helper. The primary leg always runs
+    # first so a missing-WR warning consistently mentions
+    # TARGET_SHEET_ID first.
+    if wr_num in target_map:
+        upload_tasks.append({
+            'excel_path': excel_path,
+            'filename': filename,
+            'wr_num': wr_num,
+            'target_row': target_map[wr_num],
+            'target_sheet_id': TARGET_SHEET_ID,
+            'variant': variant,
+            'identifier': identifier,
+            'file_identifier': file_identifier,
+            'data_hash': data_hash,
+            'week_raw': week_raw,
+            'group_key': group_key,
+        })
+    else:
+        # WR not on TARGET_SHEET_ID. Name the sheet id explicitly so
+        # operators know which sheet to dedup / add the WR to (or to
+        # check the source-side quarantine). Fires for both the
+        # "map populated but WR absent" case and the "map empty —
+        # PPP sheet unreachable / TEST_MODE" degraded case, since
+        # both produce the same operator-actionable surface.
+        logging.warning(
+            f"⚠️ Work request {wr_num} not found in target sheet "
+            f"{TARGET_SHEET_ID}"
+        )
+
+    # Second leg — only for reduced_sub variants per D-12 / SUB-03.
+    if variant in ('reduced_sub', 'reduced_sub_helper'):
+        if wr_num in target_map_ppp:
+            upload_tasks.append({
+                'excel_path': excel_path,
+                'filename': filename,
+                'wr_num': wr_num,
+                'target_row': target_map_ppp[wr_num],
+                'target_sheet_id': SUBCONTRACTOR_PPP_SHEET_ID,
+                'variant': variant,
+                'identifier': identifier,
+                'file_identifier': file_identifier,
+                'data_hash': data_hash,
+                'week_raw': week_raw,
+                'group_key': group_key,
+            })
+        else:
+            # WR not on PPP sheet. Degrade gracefully — the primary
+            # leg still runs (if it found the WR) and operators see
+            # a sheet-specific WARNING with the PPP sheet id so they
+            # can tell at a glance which sheet to update.
+            logging.warning(
+                f"⚠️ Work request {wr_num} not found in "
+                f"subcontractor PPP target sheet "
+                f"{SUBCONTRACTOR_PPP_SHEET_ID}"
+            )
+
+    return upload_tasks
+
 
 # Modified By cache loading removed - using direct column assignment only
 
@@ -4298,7 +5391,14 @@ def main():
     session_start = datetime.datetime.now()
     generated_files_count = 0
     generated_filenames = []  # Track exact filenames created this session
-    
+    # Sentry session-transaction handle. Hoisted to the top of main() so the
+    # except/finally blocks at the bottom of this function always see _txn
+    # bound. Synthetic TEST_MODE returns and the "no SMARTSHEET_API_TOKEN"
+    # raise both short-circuit past the in-place start-transaction block
+    # further down, which would otherwise leave _txn unbound and turn any
+    # main() exit through finally into an UnboundLocalError.
+    _txn = None
+
     # Sentry cron check-in: signal "in_progress" at session start
     _cron_checkin_id = None
     _cron_monitor_slug = os.getenv("SENTRY_CRON_MONITOR_SLUG", "weekly-excel-generation")
@@ -4375,7 +5475,22 @@ def main():
                 for group_key, group_rows in groups.items():
                     try:
                         data_hash = calculate_data_hash(group_rows)
-                        excel_path, filename, wr_numbers = generate_excel(group_key, group_rows, snapshot_date, data_hash=data_hash)
+                        # Phase 01 Plan 03 Task 2 / Blocker 4: unpack
+                        # the new 5-tuple shape. Synthetic path doesn't
+                        # consume ``customer_name`` / ``missing_cus``
+                        # (no per-sheet WARNING context here), but the
+                        # unpack MUST match so a contract drift is
+                        # surfaced loudly rather than silently dropped.
+                        (
+                            excel_path,
+                            filename,
+                            wr_numbers,
+                            _customer_name,
+                            _missing_cus,
+                        ) = generate_excel(
+                            group_key, group_rows, snapshot_date,
+                            data_hash=data_hash,
+                        )
                         generated_files_count += 1
                         logging.info(f"🧪 Synthetic Excel generated: {filename} ({len(group_rows)} rows)")
                     except Exception as e:
@@ -4390,7 +5505,7 @@ def main():
         client.errors_as_exceptions(True)
         
         # ── Start root Sentry transaction for full session tracing ──
-        _txn = None
+        # _txn handle is already initialized to None at the top of main().
         if SENTRY_DSN:
             _txn = sentry_sdk.start_transaction(
                 op="session",
@@ -4508,13 +5623,60 @@ def main():
         # Process groups
         snapshot_date = datetime.datetime.now()
         
-        # Create target sheet map for production uploads
+        # Create target sheet map for production uploads.
         target_map = {}
         _target_sheet_obj = None  # Cached for cleanup to avoid redundant API call
         if not TEST_MODE:
             with sentry_sdk.start_span(op="smartsheet.target_map", name="Create target sheet map for uploads") as span:
-                target_map, _target_sheet_obj = create_target_sheet_map(client)
+                target_map, _target_sheet_obj = (
+                    create_target_sheet_map_for(client, TARGET_SHEET_ID)
+                )
                 span.set_data("wr_count", len(target_map))
+
+        # Phase 01 Plan 04 Task 1: build a SECOND target_map for the
+        # subcontractor PPP sheet. Only ``_ReducedSub`` /
+        # ``_ReducedSub_Helper_<name>`` upload tasks consume this map
+        # (D-12 / SUB-03); ``primary`` / ``helper`` / ``vac_crew`` /
+        # ``aep_billable`` continue to route through ``target_map``
+        # alone, so a missing or unreachable PPP sheet only degrades
+        # the second leg of the reduced-sub fan-out — the rest of the
+        # pipeline is unaffected.
+        #
+        # Per Plan 04 acceptance criterion: only attempt the build
+        # when the kill switch is on AND a distinct sheet id was
+        # configured. Defense against an operator setting
+        # ``SUBCONTRACTOR_PPP_SHEET_ID=<same as TARGET_SHEET_ID>``
+        # which would otherwise cause every reduced-sub upload to
+        # double-attach to the SAME target row.
+        target_map_ppp: dict = {}
+        _target_sheet_ppp_obj = None
+        if (not TEST_MODE
+                and SUBCONTRACTOR_RATE_VARIANTS_ENABLED
+                and SUBCONTRACTOR_PPP_SHEET_ID
+                and SUBCONTRACTOR_PPP_SHEET_ID != TARGET_SHEET_ID):
+            try:
+                with sentry_sdk.start_span(op="smartsheet.target_map_ppp", name="Create PPP target sheet map") as span:
+                    target_map_ppp, _target_sheet_ppp_obj = create_target_sheet_map_for(client, SUBCONTRACTOR_PPP_SHEET_ID)
+                    span.set_data("wr_count", len(target_map_ppp))
+                logging.info(
+                    f"🎯 Subcontractor PPP target sheet: "
+                    f"{SUBCONTRACTOR_PPP_SHEET_ID}, "
+                    f"{len(target_map_ppp)} WR# entries mapped"
+                )
+            except Exception as _ppp_exc:
+                # Fail-safe: if the PPP sheet is unreachable (access
+                # revoked, renamed, deleted), log + degrade to single-
+                # sheet routing for this run. Per D-22 / Living
+                # Ledger 2026-04-23 12:00, the exception body is
+                # sanitised via ``_redact_exception_message`` before
+                # reaching Sentry's ``event['contexts']``.
+                logging.error(
+                    f"Failed to load subcontractor PPP target sheet "
+                    f"{SUBCONTRACTOR_PPP_SHEET_ID}: "
+                    f"{_redact_exception_message(_ppp_exc)}"
+                )
+                target_map_ppp = {}
+                _target_sheet_ppp_obj = None
 
         # PERFORMANCE: Pre-fetch all target row attachments into cache to eliminate
         # redundant per-row API calls in _has_existing_week_attachment and delete_old_excel_attachments.
@@ -4706,6 +5868,230 @@ def main():
                 else:
                     logging.info(f"⚡ Pre-fetched attachments for {len(attachment_cache)} target rows in {_att_elapsed:.1f}s (parallel w/{PARALLEL_WORKERS} workers)")
 
+        # ──────────────────────────────────────────────────────────
+        # Phase 01 gap closure (REVIEW-WR-05): secondary attachment
+        # prefetch for SUBCONTRACTOR_PPP_SHEET_ID rows. Without it,
+        # every _ReducedSub / _ReducedSub_Helper_* upload to the PPP
+        # sheet pays an extra ``list_row_attachments`` API call (for
+        # delete_old_excel_attachments matching). The PPP sheet has
+        # far fewer rows than TARGET_SHEET_ID — only the subset that
+        # needs _ReducedSub* — so the cost amortizes quickly.
+        #
+        # Defense-in-depth contract (Living Ledger 2026-04-22 16:05):
+        #   - _DaemonThreadPoolExecutor (NOT ThreadPoolExecutor)
+        #   - as_completed(futures, timeout=...) for the wait
+        #   - executor.shutdown(wait=False, cancel_futures=True)
+        #   - _detach_ppp_from_atexit_registry() on budget-exceed path
+        #   - Pre-flight skip if session budget < (PREFETCH_MAX +
+        #     GENERATION_HEADROOM)
+        # Safety invariant: PPP prefetch is OPTIONAL — both
+        # delete_old_excel_attachments and _has_existing_week_attachment
+        # accept cached_attachments=None and fall back to per-row API.
+        # Do NOT add new consumers that assume the PPP cache is
+        # populated.
+        # ──────────────────────────────────────────────────────────
+        _ppp_prefetch_eligible = (
+            SUBCONTRACTOR_RATE_VARIANTS_ENABLED
+            and SUBCONTRACTOR_PPP_SHEET_ID
+            and SUBCONTRACTOR_PPP_SHEET_ID != TARGET_SHEET_ID
+            and not TEST_MODE
+            and target_map_ppp is not None
+            and len(target_map_ppp) > 0
+        )
+        if _ppp_prefetch_eligible:
+            # Pre-flight budget guard (Living Ledger 2026-04-22 16:05
+            # rule 7): skip entirely if remaining budget < (prefetch
+            # phase budget + generation headroom). Without the
+            # headroom reservation, an edge case where session
+            # budget == prefetch budget would still trigger the
+            # prefetch and leave zero time for the main loop.
+            if TIME_BUDGET_MINUTES > 0:
+                _ppp_elapsed_min = (
+                    datetime.datetime.now() - session_start
+                ).total_seconds() / 60.0
+                _ppp_remaining_min = TIME_BUDGET_MINUTES - _ppp_elapsed_min
+                _ppp_required_min = (
+                    ATTACHMENT_PREFETCH_MAX_MINUTES
+                    + ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN
+                )
+                if _ppp_remaining_min < _ppp_required_min:
+                    logging.info(
+                        f"🛡️ Skipping PPP attachment prefetch: only "
+                        f"{_ppp_remaining_min:.1f}min of session budget "
+                        f"remain (need >= {_ppp_required_min:.0f}min for "
+                        f"prefetch + generation headroom). PPP target "
+                        f"rows will fall back to per-row API calls — "
+                        f"correctness is preserved."
+                    )
+                    _ppp_prefetch_eligible = False
+        if _ppp_prefetch_eligible:
+            with sentry_sdk.start_span(
+                op="smartsheet.attachment_prefetch_ppp",
+                name="Pre-fetch PPP row attachments",
+            ) as ppp_span:
+                logging.info(
+                    f"🚀 Starting parallel PPP attachment pre-fetch "
+                    f"with {PARALLEL_WORKERS} workers for "
+                    f"{len(target_map_ppp)} PPP target rows (max "
+                    f"{ATTACHMENT_PREFETCH_MAX_MINUTES}min)..."
+                )
+                _ppp_att_start = datetime.datetime.now()
+
+                def _fetch_ppp_row_attachments(row_item):
+                    # row_item is (wr_num, target_row); only target_row is needed.
+                    _, target_row = row_item
+                    max_retries = 4
+                    for attempt in range(max_retries):
+                        try:
+                            atts = client.Attachments.list_row_attachments(SUBCONTRACTOR_PPP_SHEET_ID, target_row.id).data
+                            return (target_row.id, atts)
+                        except (ss_exc.RateLimitExceededError,) as e:
+                            if attempt < max_retries - 1:
+                                backoff = 15 * (attempt + 1)
+                                logging.warning(
+                                    f"⚠️ PPP rate limited on attachment fetch "
+                                    f"for row {target_row.id}, backoff {backoff}s "
+                                    f"(attempt {attempt + 1}/{max_retries})"
+                                )
+                                time.sleep(backoff)
+                            else:
+                                logging.warning(
+                                    f"⚠️ PPP attachment fetch failed after "
+                                    f"{max_retries} rate-limit retries for row "
+                                    f"{target_row.id}"
+                                )
+                                return (target_row.id, [])
+                        except (
+                            ss_exc.UnexpectedErrorShouldRetryError,
+                            ss_exc.InternalServerError,
+                            ss_exc.ServerTimeoutExceededError,
+                        ) as e:
+                            if attempt < max_retries - 1:
+                                backoff = 2 ** attempt + 0.5
+                                logging.warning(
+                                    f"⚠️ PPP attachment fetch retry "
+                                    f"{attempt + 1}/{max_retries} for row "
+                                    f"{target_row.id} ({type(e).__name__}), "
+                                    f"backoff {backoff:.1f}s"
+                                )
+                                time.sleep(backoff)
+                            else:
+                                logging.warning(
+                                    f"⚠️ PPP attachment fetch failed after "
+                                    f"{max_retries} attempts for row "
+                                    f"{target_row.id}: {type(e).__name__}"
+                                )
+                                return (target_row.id, [])
+                        except Exception as e:
+                            err_name = type(e).__name__
+                            is_transient = any(
+                                tag in err_name for tag in (
+                                    'RemoteDisconnected', 'ConnectionError',
+                                    'ConnectionReset', 'SSLError',
+                                    'SSLEOFError', 'Timeout',
+                                )
+                            )
+                            if is_transient and attempt < max_retries - 1:
+                                backoff = 2 ** attempt + 0.5
+                                logging.warning(
+                                    f"⚠️ PPP attachment fetch retry "
+                                    f"{attempt + 1}/{max_retries} for row "
+                                    f"{target_row.id} ({err_name}), backoff "
+                                    f"{backoff:.1f}s"
+                                )
+                                time.sleep(backoff)
+                            else:
+                                if attempt > 0:
+                                    logging.warning(
+                                        f"⚠️ PPP attachment fetch failed "
+                                        f"after {max_retries} attempts for row "
+                                        f"{target_row.id}: {err_name}"
+                                    )
+                                return (target_row.id, [])
+
+                _ppp_prefetch_budget_exceeded = False
+                _ppp_prefetch_cancelled = 0
+                _ppp_prefetch_still_running = 0
+
+                ppp_executor = _DaemonThreadPoolExecutor(
+                    max_workers=PARALLEL_WORKERS,
+                )
+                ppp_futures = [
+                    ppp_executor.submit(_fetch_ppp_row_attachments, item)
+                    for item in target_map_ppp.items()
+                ]
+                _ppp_phase_budget_sec = ATTACHMENT_PREFETCH_MAX_MINUTES * 60
+
+                def _detach_ppp_from_atexit_registry():
+                    try:
+                        registry = getattr(
+                            _cf_thread, '_threads_queues', None,
+                        )
+                        if registry is None:
+                            return
+                        for _t in list(
+                            getattr(ppp_executor, '_threads', ()) or ()
+                        ):
+                            registry.pop(_t, None)
+                    except Exception as _det_e:
+                        logging.debug(
+                            f"Could not detach PPP pre-fetch workers from "
+                            f"atexit registry: {_det_e}"
+                        )
+
+                try:
+                    for fut in as_completed(
+                        ppp_futures, timeout=_ppp_phase_budget_sec,
+                    ):
+                        try:
+                            row_id, atts = fut.result()
+                            attachment_cache[row_id] = atts
+                        except Exception as e:
+                            # Worker exceptions already logged inside
+                            # the worker — fall through to per-row.
+                            logging.debug(
+                                f"PPP prefetch future raised; row will "
+                                f"fall back to per-row: {type(e).__name__}"
+                            )
+                except FuturesTimeoutError:
+                    _ppp_prefetch_budget_exceeded = True
+                    logging.warning(
+                        f"⚠️ PPP attachment prefetch exceeded "
+                        f"{ATTACHMENT_PREFETCH_MAX_MINUTES}min sub-budget; "
+                        f"abandoning in-flight workers. Affected PPP rows "
+                        f"will fall back to per-row API calls — correctness "
+                        f"is preserved."
+                    )
+                finally:
+                    # Three defenses against interpreter-exit hang:
+                    # (1) atexit registry detach (only on budget-exceed,
+                    #     per Copilot review — don't touch private APIs
+                    #     when workers completed normally)
+                    # (2) _DaemonThreadPoolExecutor handles tstate_lock
+                    # (3) explicit shutdown(wait=False, cancel_futures=True)
+                    if _ppp_prefetch_budget_exceeded:
+                        _detach_ppp_from_atexit_registry()
+                    for _fut in ppp_futures:
+                        if _fut.cancel():
+                            _ppp_prefetch_cancelled += 1
+                        elif not _fut.done():
+                            _ppp_prefetch_still_running += 1
+                    ppp_executor.shutdown(wait=False, cancel_futures=True)
+
+                _ppp_elapsed = (
+                    datetime.datetime.now() - _ppp_att_start
+                ).total_seconds()
+                logging.info(
+                    f"🏁 PPP attachment prefetch complete in "
+                    f"{_ppp_elapsed:.1f}s: {len(target_map_ppp)} rows, "
+                    f"{_ppp_prefetch_cancelled} cancelled, "
+                    f"{_ppp_prefetch_still_running} still_running"
+                )
+                ppp_span.set_data("rows_prefetched", len(target_map_ppp))
+                ppp_span.set_data("budget_exceeded", _ppp_prefetch_budget_exceeded)
+                ppp_span.set_data("cancelled", _ppp_prefetch_cancelled)
+                ppp_span.set_data("still_running", _ppp_prefetch_still_running)
+
         # Load hash history AFTER optional purge so we don't rely on stale attachments
         hash_history = load_hash_history(HASH_HISTORY_PATH)
         billing_audit_row_cache: set[str] = set()
@@ -4735,6 +6121,22 @@ def main():
 
         _phase_group_start = datetime.datetime.now()
         _time_budget_exceeded = False
+
+        # Phase 01 Plan 03 Task 2 (D-16/D-17): per-sheet accumulator
+        # of subcontractor CU codes that fell through to SmartSheet
+        # pricing during ``generate_excel``. ``_resolve_row_price``
+        # records each missing CU into a per-call Counter that
+        # ``generate_excel`` returns in the 5-tuple's trailing slot;
+        # the per-group loop below attributes each group's missing
+        # CUs to the source sheet(s) that contributed rows. After the
+        # loop completes, exactly ONE WARNING per affected sheet is
+        # emitted (D-17), naming the first 10 codes alphabetically.
+        # The PII sanitizer's ``_PII_LOG_MARKERS`` already includes
+        # the WARNING's stable marker ("Subcontractor rates CSV
+        # missing") so it is dropped from Sentry before send.
+        _missing_cus_by_sheet: dict[int, collections.Counter] = (
+            collections.defaultdict(collections.Counter)
+        )
 
         # Codex P1: source-side WR# collision quarantine.
         # ``_RE_SANITIZE_HELPER_NAME`` on the raw row value is a lossy
@@ -4974,9 +6376,27 @@ def main():
                     )
                     _groups_skipped += 1
                     continue
-                if variant == 'helper':
+                if variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper'):
                     # CRITICAL FIX: Include helper dept and job in identifier for unique hash keys
-                    # This ensures helper files regenerate when new helper rows are added
+                    # This ensures helper files regenerate when new helper rows are added.
+                    #
+                    # CR-01 gap closure (Site 1 — main-loop identifier):
+                    # helper, aep_billable_helper, and reduced_sub_helper all
+                    # derive identifier / file_identifier from __helper_foreman
+                    # so the round-trip with build_group_identity (which parses
+                    # the helper-shadow filename's _Helper_<name>_<hash> tail in
+                    # Plan 02) succeeds. Pre-fix, the two shadow variants fell
+                    # through to the ``else`` branch that reads ``User`` —
+                    # typically blank for shadow rows — producing
+                    # file_identifier='' and a (parsed='Jane_Smith') == ('')
+                    # mismatch in _has_existing_week_attachment. Result:
+                    # permanent regeneration churn and orphan accumulation on
+                    # SUBCONTRACTOR_PPP_SHEET_ID. The change is additive — the
+                    # legacy ``helper`` body is preserved exactly; we just
+                    # expand the gate to include the two helper-shadow variants.
+                    # Sites 2 (valid_wr_weeks builder) and 3 (current_keys
+                    # hash-history prune) carry the same gate — drift between
+                    # the three sites is exactly the bug shape CR-01 documents.
                     helper_foreman = first_row.get('__helper_foreman', '')
                     helper_dept = first_row.get('__helper_dept', '')
                     helper_job = first_row.get('__helper_job', '')
@@ -4988,6 +6408,12 @@ def main():
                     identifier = ''
                     file_identifier = ''
                 else:
+                    # Non-helper subcontractor variants (aep_billable, reduced_sub)
+                    # correctly fall through here because their filenames carry no
+                    # identifier suffix and build_group_identity returns identifier=''.
+                    # Per CR-01, do NOT add them to the helper-gate above — that would
+                    # set identifier='||' (literal pipes-on-empties) for primary
+                    # subcontractor variants, breaking hash-history bucket cohesion.
                     user_val = first_row.get('User')
                     # PERFORMANCE: Use pre-compiled regex for identifier sanitization
                     identifier = _RE_SANITIZE_IDENTIFIER.sub('_', user_val)[:50] if user_val else ''
@@ -5129,10 +6555,21 @@ def main():
                             # interpreter exits.
                             if len(_rows_to_freeze) <= 1:
                                 for _row in _rows_to_freeze:
+                                    # Per D-18 / SUB-07 Path B: variant is
+                                    # accepted by freeze_row for signature
+                                    # symmetry but is NOT injected into the
+                                    # freeze_attribution RPC params dict.
+                                    # The variant lives on pipeline_run via
+                                    # emit_run_fingerprint below. Default
+                                    # 'primary' for pre-Phase-1 rows whose
+                                    # __variant field isn't set (legacy
+                                    # primary/helper/vac_crew rows from
+                                    # before Plan 03 tagged them).
                                     _ok = _billing_audit_writer.freeze_row(
                                         _row,
                                         release=_billing_audit_release_env,
                                         run_id=_billing_audit_run_id_env,
+                                        variant=_row.get('__variant', 'primary'),
                                     )
                                     if _ok:
                                         _rk = _freeze_row_keys.get(id(_row))
@@ -5160,11 +6597,17 @@ def main():
                                 # data the writer didn't anticipate.
                                 _bas_future_to_row: dict[Any, dict] = {}
                                 for _row in _rows_to_freeze:
+                                    # Per D-18 / SUB-07 Path B: variant
+                                    # threads through the parallelized
+                                    # worker fn but does NOT reach the
+                                    # RPC params dict. See the single-row
+                                    # branch above for the full rationale.
                                     _bas_f = _bas_ex.submit(
                                         _billing_audit_writer.freeze_row,
                                         _row,
                                         release=_billing_audit_release_env,
                                         run_id=_billing_audit_run_id_env,
+                                        variant=_row.get('__variant', 'primary'),
                                     )
                                     _bas_future_to_row[_bas_f] = _row
                                 for _bas_f in as_completed(_bas_future_to_row):
@@ -5277,6 +6720,20 @@ def main():
                                     1 for _r in _agg_fp_rows
                                     if is_checked(_r.get('Units Completed?'))
                                 )
+                                # Per D-18 / SUB-07 Path B: variant is
+                                # recorded on pipeline_run via this call.
+                                # All rows in a group share the same
+                                # __variant by construction in
+                                # group_source_rows (Plan 03), so reading
+                                # group_rows[0] is canonical. Falls back to
+                                # 'primary' when the row hasn't been
+                                # tagged (legacy / non-variant-aware
+                                # call paths) — matches the writer's
+                                # None-coercion sentinel.
+                                _group_variant = (
+                                    group_rows[0].get('__variant', 'primary')
+                                    if group_rows else 'primary'
+                                )
                                 _billing_audit_writer.emit_run_fingerprint(
                                     wr=wr_num,
                                     week_ending=_week_snap,
@@ -5286,6 +6743,7 @@ def main():
                                     total_count=len(_agg_fp_rows),
                                     release=_billing_audit_release_env,
                                     run_id=_billing_audit_run_id_env,
+                                    variant=_group_variant,
                                 )
                             _bas.set_data("rows", len(group_rows))
                             _bas.set_data("freeze_candidates", len(_rows_to_freeze))
@@ -5355,39 +6813,88 @@ def main():
                     gen_span.set_data("row_count", len(group_rows))
                     gen_span.set_data("variant", variant)
                     gen_span.set_data("group_index", group_idx)
-                    excel_path, filename, wr_numbers = generate_excel(
+                    # Phase 01 Plan 03 Task 2 / Blocker 4: 5-tuple
+                    # return. ``customer_name`` is forwarded to Plan 04's
+                    # upload-task builder; ``missing_cus`` accumulates
+                    # per source sheet into ``_missing_cus_by_sheet``
+                    # for the D-17 end-of-loop WARNING.
+                    (
+                        excel_path,
+                        filename,
+                        wr_numbers,
+                        _customer_name,
+                        _missing_cus_for_group,
+                    ) = generate_excel(
                         group_key, group_rows, snapshot_date, data_hash=data_hash
                     )
                     gen_span.set_data("filename", filename)
+
+                # Attribute missing CUs to each source sheet that
+                # contributed rows to this group (a single group can
+                # span sheets when multiple sheets carry the same WR).
+                # Distinct sheets get their own bucket so the per-sheet
+                # WARNING surfaces the correct sheet id; rows missing
+                # ``__source_sheet_id`` are bucketed under -1 so they
+                # still surface in operator logs without crashing the
+                # attribution loop.
+                #
+                # Phase 01 gap closure (REVIEW-WR-06): standardized on
+                # ``__source_sheet_id`` (Phase 1 canonical field name)
+                # instead of the legacy alias ``__sheet_id``. Both
+                # fields are written to the same ``source['id']`` value
+                # at populate time in ``_fetch_and_process_sheet``, so
+                # the runtime behavior is unchanged today. The
+                # migration ensures a future refactor that splits the
+                # two field names cannot silently route missing-CU
+                # WARNINGs to sheet -1 (the fallback bucket).
+                if _missing_cus_for_group:
+                    _contributing_sheet_ids: set[int] = set()
+                    for _r in group_rows:
+                        _sid = _r.get('__source_sheet_id')
+                        if isinstance(_sid, int):
+                            _contributing_sheet_ids.add(_sid)
+                    if not _contributing_sheet_ids:
+                        _contributing_sheet_ids = {-1}
+                    for _sid in _contributing_sheet_ids:
+                        _missing_cus_by_sheet[_sid].update(_missing_cus_for_group)
                 
                 generated_files_count += 1
                 _groups_generated += 1
                 generated_filenames.append(filename)
                 
-                # Collect upload task for parallel processing (instead
-                # of uploading serially). ``wr_numbers`` is returned raw
-                # by ``generate_excel`` — do NOT read from it here; the
-                # filename, hash-history key, attachment prefix match,
-                # and target_map key all use the sanitized main-loop
-                # ``wr_num`` and must stay aligned to avoid repeated
-                # regeneration and orphaned duplicate attachments on
-                # subsequent runs.
-                if not TEST_MODE and target_map and wr_num:
-                    if wr_num in target_map:
-                        _upload_tasks.append({
-                            'excel_path': excel_path,
-                            'filename': filename,
-                            'wr_num': wr_num,
-                            'target_row': target_map[wr_num],
-                            'variant': variant,
-                            'identifier': identifier,
-                            'file_identifier': file_identifier,
-                            'data_hash': data_hash,
-                            'week_raw': week_raw,
-                            'group_key': group_key,
-                        })
-                    else:
-                        logging.warning(f"⚠️ Work request {wr_num} not found in target sheet")
+                # Collect upload task(s) for parallel processing
+                # (instead of uploading serially). ``wr_numbers`` is
+                # returned raw by ``generate_excel`` — do NOT read
+                # from it here; the filename, hash-history key,
+                # attachment prefix match, and target_map key all use
+                # the sanitised main-loop ``wr_num`` and must stay
+                # aligned to avoid repeated regeneration and orphaned
+                # duplicate attachments on subsequent runs.
+                #
+                # Phase 01 Plan 04 Task 2: dispatch routing decisions
+                # to ``_build_upload_tasks_for_group``. For
+                # ``reduced_sub`` / ``reduced_sub_helper`` variants the
+                # helper returns TWO tasks (one per target sheet); for
+                # every other variant it returns ONE task on
+                # ``TARGET_SHEET_ID``. Each task carries its own
+                # ``target_sheet_id`` so the ``_upload_one`` worker
+                # routes to the correct sheet without consulting a
+                # global.
+                if not TEST_MODE and wr_num:
+                    _new_upload_tasks = _build_upload_tasks_for_group(
+                        variant=variant,
+                        wr_num=wr_num,
+                        target_map=target_map,
+                        target_map_ppp=target_map_ppp,
+                        excel_path=excel_path,
+                        filename=filename,
+                        identifier=identifier,
+                        file_identifier=file_identifier,
+                        data_hash=data_hash,
+                        week_raw=week_raw,
+                        group_key=group_key,
+                    )
+                    _upload_tasks.extend(_new_upload_tasks)
 
                 # Update hash history with variant-aware key (even in TEST_MODE so future prod runs can leverage)
                 hash_history[history_key] = {
@@ -5431,6 +6938,31 @@ def main():
         logging.info(f"⚡ Group processing phase: {_groups_generated} generated, {_groups_skipped} skipped in {_phase_group_elapsed:.1f}s"
                      + (f" (stopped early — time budget exceeded)" if _time_budget_exceeded else ""))
 
+        # Phase 01 Plan 03 Task 2 Change 3 (D-17): emit exactly ONE
+        # WARNING per source sheet whose subcontractor variant
+        # generation fell through to SmartSheet pricing on missing
+        # CU codes. The first 10 CU codes (alphabetical) are named so
+        # operators get an immediate, bounded, actionable surface
+        # without log-line blowout when many CUs are missing at once.
+        # Suppressed entirely when the kill switch is off — there is
+        # no subcontractor variant work to surface in that case. The
+        # WARNING template includes the stable marker "Subcontractor
+        # rates CSV missing" so Plan 02's ``_PII_LOG_MARKERS``
+        # extension drops it from Sentry before send.
+        if SUBCONTRACTOR_RATE_VARIANTS_ENABLED and _missing_cus_by_sheet:
+            for _sid, _sheet_missing_cus in _missing_cus_by_sheet.items():
+                if not _sheet_missing_cus:
+                    continue
+                N = len(_sheet_missing_cus)
+                first_10 = ', '.join(sorted(_sheet_missing_cus)[:10])
+                ellipsis = '...' if N > 10 else ''
+                logging.warning(
+                    f"Subcontractor rates CSV missing {N} CU code(s) on "
+                    f"sheet {_sid}: {first_10}{ellipsis}. Add to "
+                    f"{SUBCONTRACTOR_RATES_CSV} to enable rate recalc for "
+                    f"these rows. Sheet rows fell through to SmartSheet pricing."
+                )
+
         # ── PARALLEL UPLOAD PHASE ─────────────────────────────────────────
         # Upload all collected tasks in parallel instead of serially per-group.
         # This is the primary runtime optimization — reduces upload time by ~Nx with N workers.
@@ -5441,7 +6973,20 @@ def main():
             logging.info(f"{'='*60}")
 
             def _upload_one(task):
-                """Delete old attachment + upload new one for a single group."""
+                """Delete old attachment + upload new one for a single group.
+
+                Phase 01 Plan 04 Task 2: routing target is resolved
+                from ``task['target_sheet_id']`` instead of the
+                module-level primary sheet id. The upload-task
+                builder (``_build_upload_tasks_for_group``) sets the
+                sheet id per-task — ``primary`` / ``aep_billable``
+                / etc. point at the primary sheet; the second leg
+                of a ``reduced_sub`` fan-out points at the
+                subcontractor PPP sheet. The worker is otherwise
+                oblivious to which sheet it is uploading to — and
+                that's the point: routing decisions live in the
+                builder, mutations live in the worker.
+                """
                 max_retries = 4
                 last_err = None
                 for attempt in range(max_retries):
@@ -5450,7 +6995,7 @@ def main():
                         force_this = FORCE_GENERATION or (task['week_raw'] in REGEN_WEEKS)
 
                         deleted_count, skipped = delete_old_excel_attachments(
-                            client, TARGET_SHEET_ID, target_row, task['wr_num'],
+                            client, task['target_sheet_id'], target_row, task['wr_num'],
                             task['week_raw'], task['data_hash'],
                             variant=task['variant'], identifier=task['file_identifier'],
                             force_generation=force_this,
@@ -5465,11 +7010,14 @@ def main():
                         if not SKIP_UPLOAD:
                             with open(task['excel_path'], 'rb') as file:
                                 client.Attachments.attach_file_to_row(
-                                    TARGET_SHEET_ID,
+                                    task['target_sheet_id'],
                                     target_row.id,
                                     (task['filename'], file, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
                                 )
-                            logging.info(f"✅ Uploaded: {task['filename']}")
+                            logging.info(
+                                f"✅ Uploaded: {task['filename']} → sheet "
+                                f"{task['target_sheet_id']}"
+                            )
                             return 'uploaded'
                         else:
                             logging.info(f"⏭️  Skipping upload (SKIP_UPLOAD=true): {task['filename']}")
@@ -5557,8 +7105,21 @@ def main():
                 # when KEEP_HISTORICAL_WEEKS is enabled.
                 wr = _RE_SANITIZE_HELPER_NAME.sub('_', wr)[:50]
                 variant = group_rows[0].get('__variant', 'primary')
-                if variant == 'helper':
-                    # Use filename-level identifier (sanitized foreman only) to match build_group_identity output
+                if variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper'):
+                    # CR-01 gap closure (Site 2 — mirror of Site 1).
+                    # build_group_identity returns the sanitized helper
+                    # foreman as the parsed identifier for all three
+                    # helper-style variants; valid_wr_weeks must match
+                    # that tuple shape so
+                    # cleanup_untracked_sheet_attachments correctly
+                    # identifies which helper-shadow attachments are
+                    # "live" and which are stale. Pre-fix, shadow
+                    # variants fell through to the ``User``-derived
+                    # ``else`` branch and produced file_id='' tuples
+                    # that NEVER matched the parser's 'Jane_Smith'
+                    # identifier — risking cleanup either pruning
+                    # legitimate attachments or missing orphans.
+                    # Sites 1 and 3 carry the same gate.
                     helper_foreman = group_rows[0].get('__helper_foreman', '')
                     file_id = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50] if helper_foreman else ''
                 elif variant == 'vac_crew':
@@ -5573,6 +7134,62 @@ def main():
             _cleanup_cache = attachment_cache if not _upload_tasks else None
             with sentry_sdk.start_span(op="smartsheet.cleanup", name="Cleanup untracked sheet attachments"):
                 cleanup_untracked_sheet_attachments(client, TARGET_SHEET_ID, valid_wr_weeks, TEST_MODE, attachment_cache=_cleanup_cache, target_sheet=_target_sheet_obj)
+
+            # Phase 01 gap closure (REVIEW-WR-01): parallel cleanup pass
+            # for SUBCONTRACTOR_PPP_SHEET_ID. The TARGET_SHEET_ID
+            # cleanup above iterates one sheet only; without an
+            # equivalent pass on PPP, any helper-shadow attachment
+            # (``_AEPBillable_Helper_*`` / ``_ReducedSub_Helper_*``)
+            # whose per-row ``delete_old_excel_attachments`` call
+            # missed (CR-01 pre-fix bug, timestamp-identity drift,
+            # future refactor) orphans permanently on PPP. This
+            # invocation is the belt-and-suspenders defense: it
+            # iterates PPP rows, groups attachments by parsed identity
+            # tuple, and prunes everything-but-newest per identity.
+            #
+            # ``valid_wr_weeks`` is the SHARED authority — Plan 08
+            # (CR-01) ensured shadow-variant entries are correctly
+            # included so live attachments are not pruned.
+            #
+            # Cache semantics: ``_cleanup_cache`` is computed ABOVE
+            # both invocations as ``attachment_cache if not _upload_tasks
+            # else None``. In the normal production case (uploads ran
+            # this session, ``_upload_tasks`` truthy), ``_cleanup_cache``
+            # is ``None`` for BOTH passes because uploads invalidate
+            # the prefetch snapshot. When no uploads ran (TEST_MODE
+            # skip path, or no-changes branch), both passes share
+            # WR-05's prefetched dict transparently. WR-05's prefetch
+            # primarily amortizes per-row ``_upload_one`` API calls
+            # (its real value); the cleanup-time benefit is only on
+            # the no-uploads path. Either way, passing the same
+            # ``_cleanup_cache`` keeps cache semantics consistent
+            # across both passes.
+            #
+            # Gates (in order, short-circuit on first False):
+            #   1. SUBCONTRACTOR_RATE_VARIANTS_ENABLED (kill switch)
+            #   2. SUBCONTRACTOR_PPP_SHEET_ID is truthy (disable case)
+            #   3. SUBCONTRACTOR_PPP_SHEET_ID != TARGET_SHEET_ID
+            #      (skip redundant pass if operator points both to
+            #       the same sheet — unusual but supported)
+            #   4. _target_sheet_ppp_obj is not None (Plan 04 only
+            #      populates this when target_map_ppp was successfully
+            #      built; None means PPP routing was unreachable this
+            #      run and we should not iterate the sheet)
+            if (
+                SUBCONTRACTOR_RATE_VARIANTS_ENABLED
+                and SUBCONTRACTOR_PPP_SHEET_ID
+                and SUBCONTRACTOR_PPP_SHEET_ID != TARGET_SHEET_ID
+                and _target_sheet_ppp_obj is not None
+            ):
+                with sentry_sdk.start_span(op="smartsheet.cleanup_ppp", name="Cleanup untracked PPP sheet attachments"):
+                    cleanup_untracked_sheet_attachments(
+                        client,
+                        SUBCONTRACTOR_PPP_SHEET_ID,
+                        valid_wr_weeks,
+                        TEST_MODE,
+                        attachment_cache=_cleanup_cache,
+                        target_sheet=_target_sheet_ppp_obj,
+                    )
 
         # Cleanup legacy / stale Excel files so only current system outputs remain
         try:
@@ -5613,7 +7230,26 @@ def main():
                         _wr = _RE_SANITIZE_HELPER_NAME.sub('_', _wr)[:50]
                         _week = key.split('_',1)[0]
                         _variant = group_rows[0].get('__variant', 'primary')
-                        if _variant == 'helper':
+                        if _variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper'):
+                            # CR-01 gap closure (Site 3 — mirror of Site 1).
+                            # Site 1 writes the helper-shadow history_key as
+                            # f"{wr}|{week}|{variant}|{foreman}|{dept}|{job}" —
+                            # this prune-key reconstruction MUST match it
+                            # byte-for-byte or the entry written this run is
+                            # treated as stale and deleted before
+                            # save_hash_history runs. Pre-fix, both Sites 1
+                            # and 3 fell through to the same ``User``-derived
+                            # branch, so the two stayed aligned by accident
+                            # (both produced '' identifiers). With Site 1 now
+                            # correctly deriving from __helper_foreman, Site 3
+                            # must follow or the alignment breaks the OTHER
+                            # way and we permanently lose hash-skip for
+                            # helper-shadow variants. Note: ``_ident`` here is
+                            # the HISTORY-KEY shape (pipe-joined triple), NOT
+                            # the FILE-IDENTIFIER shape (Site 1 builds both;
+                            # this site reconstructs the history-key shape
+                            # only — the same pattern as the legacy helper
+                            # branch).
                             _hf = group_rows[0].get('__helper_foreman', '')
                             _hd = group_rows[0].get('__helper_dept', '')
                             _hj = group_rows[0].get('__helper_job', '')

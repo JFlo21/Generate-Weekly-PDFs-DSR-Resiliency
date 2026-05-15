@@ -1,0 +1,28 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\.github\\prompts\\architecture-analysis.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Architecture Analysis Prompts",
+  "summary": "Collection of reusable LLM prompt templates for analyzing, debugging, enhancing, and reviewing the Generate-Weekly-PDFs billing automation codebase.",
+  "scope": [
+    "generate_weekly_pdfs.py",
+    "Smartsheet API integration",
+    "Excel generation pipeline",
+    "Work Request grouping",
+    "audit/anomaly detection",
+    "environment variable configuration",
+    "Sentry error monitoring",
+    "GitHub Actions workflow",
+    "TEST_MODE synthetic data",
+    "discovery cache"
+  ],
+  "cross_refs": [
+    "generate_weekly_pdfs.py",
+    "cleanup_excels.py",
+    "generated_docs/discovery_cache.json"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

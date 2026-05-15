@@ -1,0 +1,13 @@
+{
+  "source_path": "c:\\Users\\juflores\\dev\\Generate-Weekly-PDFs-DSR-Resiliency\\website\\docs\\runbook\\portals.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Portals",
+  "summary": "Operator-facing runbook page describing the two optional portal UIs (`portal/` Express and `portal-v2/` Vite+React), their layouts, local run commands, and when to modify each.",
+  "scope": ["portal/", "portal-v2/", "Express server", "Vite + React frontend", "Supabase", "Vercel deployment", "operator UIs"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}
