@@ -1506,9 +1506,16 @@ def _resolve_row_price(row: dict, variant: str, missing_cus) -> float:
         rate = rate_row.get(f'reduced_{wt}_price', 0.0)
 
     # Canonical 'Quantity' ONLY — never 'Units Completed' (checkbox).
-    qty_raw = row.get('Quantity') or 0
+    # Phase 01 gap closure (REVIEW-IN-02): explicit None / empty-string
+    # handling. The previous ``or 0`` short-circuit collapsed
+    # legitimate ``Quantity=0.0`` to int ``0`` (functionally correct
+    # after the subsequent ``float()`` coercion but opaque to readers).
+    # Numeric output is byte-identical for every pre-existing input case
+    # (None, '', 0, 0.0, '1.5', invalid → 0.0 / 0.0 / 0.0 / 0.0 / 1.5
+    # / 0.0 respectively).
+    qty_raw = row.get('Quantity', 0)
     try:
-        qty = float(qty_raw)
+        qty = float(qty_raw) if qty_raw not in (None, '') else 0.0
     except (TypeError, ValueError):
         qty = 0.0
 
