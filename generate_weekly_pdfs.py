@@ -433,6 +433,20 @@ SUBCONTRACTOR_PPP_SHEET_ID = _coerce_sheet_id(
     os.getenv('SUBCONTRACTOR_PPP_SHEET_ID', '8162920222379908'),
     8162920222379908,
 )
+# Phase 01 gap closure (REVIEW-WR-02): treat an explicitly-empty
+# ``SUBCONTRACTOR_PPP_SHEET_ID=''`` as "disable dual routing,"
+# matching the operator-facing documentation in
+# website/docs/reference/environment.md and the operator's likely
+# intent. ``_coerce_sheet_id`` itself stays as-is because it is
+# shared with ``TARGET_SHEET_ID`` where default-fallback is the
+# correct behavior (TARGET_SHEET_ID has no "disabled" state).
+# Setting to ``0`` also disables (already worked pre-fix; the
+# downstream gate ``and SUBCONTRACTOR_PPP_SHEET_ID`` evaluates
+# False on int(0)). After this fix, both ``0`` and ``''`` disable.
+# Any other non-integer / non-empty value falls back to the
+# hardcoded default with the existing _coerce_sheet_id WARNING.
+if os.getenv('SUBCONTRACTOR_PPP_SHEET_ID', '8162920222379908') == '':
+    SUBCONTRACTOR_PPP_SHEET_ID = 0
 SUBCONTRACTOR_RATE_VARIANTS_ENABLED = os.getenv(
     'SUBCONTRACTOR_RATE_VARIANTS_ENABLED', '1'
 ).lower() in ('1', 'true', 'yes', 'on')
@@ -503,6 +517,23 @@ else:
     logging.info(
         "📊 Subcontractor rate variants DISABLED "
         "(SUBCONTRACTOR_RATE_VARIANTS_ENABLED=false)"
+    )
+
+# Phase 01 gap closure (REVIEW-WR-02): name the PPP-routing
+# state explicitly so operators tailing the startup banner see
+# the resolved active value (or "DISABLED") without inferring
+# from the integer 0. Purely additive — does not replace the
+# existing banner block above. Only emitted when the umbrella
+# variants kill switch is ON (when off, PPP routing is moot).
+if SUBCONTRACTOR_RATE_VARIANTS_ENABLED and SUBCONTRACTOR_PPP_SHEET_ID:
+    logging.info(
+        f"📊 Subcontractor PPP routing ENABLED "
+        f"(target sheet id: {SUBCONTRACTOR_PPP_SHEET_ID})"
+    )
+elif SUBCONTRACTOR_RATE_VARIANTS_ENABLED:
+    logging.info(
+        "📊 Subcontractor PPP routing DISABLED "
+        "(SUBCONTRACTOR_PPP_SHEET_ID='' or 0)"
     )
 
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
