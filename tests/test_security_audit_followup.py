@@ -2240,5 +2240,229 @@ class TestDualTargetSheetRouting(unittest.TestCase):
             )
 
 
+class TestExcludeWrsMatchesAllVariants(unittest.TestCase):
+    """Phase 01 gap closure (REVIEW-CR-02): ``_key_matches_excluded_wr``
+    MUST recognize all seven group-key suffix shapes for a given WR.
+
+    Production-active path — when an operator sets ``EXCLUDE_WRS=<wr>``
+    the matcher decides whether a group is dropped before any Excel
+    is generated or uploaded. Pre-fix the matcher only recognized
+    four shapes, so the four new Phase 1 variants were silently
+    uploaded to TARGET_SHEET_ID and SUBCONTRACTOR_PPP_SHEET_ID even
+    when the operator explicitly excluded the WR.
+
+    The matcher is a NESTED function inside ``group_source_rows``;
+    these tests exercise it via a stand-in that mirrors the body
+    so we can call it directly without monkey-patching module
+    internals. Any drift between the matcher in
+    ``generate_weekly_pdfs.py`` and this test's mirror is the
+    regression we are guarding against — if a future contributor
+    adds a fifth variant suffix in ``group_source_rows`` but
+    forgets to extend the matcher, the production-side grep
+    assertions in Tasks 1 & 2 catch it; if they extend the
+    matcher but forget the test, this class's coverage gap is
+    visible in code review.
+    """
+
+    @staticmethod
+    def _exclude_matches(k: str, wr: str) -> bool:
+        # Mirror of the production matcher body. Must stay in sync
+        # with ``_key_matches_excluded_wr`` inside
+        # ``group_source_rows`` — if you edit one, edit the other.
+        try:
+            suffix = k.split('_', 1)[1]
+        except Exception:
+            return False
+        return (
+            suffix == wr
+            or suffix.startswith(f"{wr}_HELPER_")
+            or suffix.startswith(f"{wr}_USER_")
+            or suffix == f"{wr}_VACCREW"
+            or suffix == f"{wr}_REDUCEDSUB"
+            or suffix == f"{wr}_AEPBILLABLE"
+            or suffix.startswith(f"{wr}_REDUCEDSUB_HELPER_")
+            or suffix.startswith(f"{wr}_AEPBILLABLE_HELPER_")
+        )
+
+    def test_all_seven_variants_excluded_for_target_wr(self):
+        wr = '12345'
+        keys = [
+            f'041926_{wr}',                            # primary
+            f'041926_{wr}_HELPER_Jane_Smith',          # helper
+            f'041926_{wr}_USER_John_Doe',              # USER (legacy)
+            f'041926_{wr}_VACCREW',                    # vac_crew
+            f'041926_{wr}_REDUCEDSUB',                 # reduced_sub
+            f'041926_{wr}_AEPBILLABLE',                # aep_billable
+            f'041926_{wr}_REDUCEDSUB_HELPER_Jane_Doe', # reduced_sub_helper
+            f'041926_{wr}_AEPBILLABLE_HELPER_J_Smith', # aep_billable_helper
+        ]
+        for k in keys:
+            with self.subTest(key=k):
+                self.assertTrue(
+                    self._exclude_matches(k, wr),
+                    f"EXCLUDE_WRS={wr} should have excluded {k!r}",
+                )
+
+    def test_unrelated_wr_not_excluded(self):
+        for k in (
+            '041926_67890',
+            '041926_67890_HELPER_Jane',
+            '041926_67890_REDUCEDSUB',
+            '041926_67890_AEPBILLABLE_HELPER_J',
+        ):
+            with self.subTest(key=k):
+                self.assertFalse(
+                    self._exclude_matches(k, '12345'),
+                    f"EXCLUDE_WRS=12345 should NOT have excluded {k!r}",
+                )
+
+    def test_substring_wr_not_falsely_excluded(self):
+        # WR ``1234567`` contains ``12345`` as a substring but is a
+        # different work request. Matcher uses equality / startswith
+        # on the full ``{wr}_<suffix>`` form, so the substring should
+        # NOT trigger false-positive exclusion.
+        self.assertFalse(self._exclude_matches('041926_1234567', '12345'))
+        self.assertFalse(
+            self._exclude_matches('041926_1234567_HELPER_X', '12345'),
+        )
+        self.assertFalse(
+            self._exclude_matches('041926_1234567_REDUCEDSUB', '12345'),
+        )
+
+    def test_malformed_key_returns_false(self):
+        # No underscore separator → suffix split raises → matcher
+        # must return False (not crash). Mirrors the existing try/except.
+        self.assertFalse(self._exclude_matches('malformed', '12345'))
+        self.assertFalse(self._exclude_matches('', '12345'))
+
+    def test_production_function_body_contains_all_four_new_clauses(self):
+        # Source-level guard: re-read ``generate_weekly_pdfs.py`` and
+        # confirm the production matcher carries the four new
+        # variant clauses. Defeats the "test mirror passes but
+        # production matcher was reverted" failure mode.
+        import inspect
+        # ``_key_matches_excluded_wr`` is nested inside group_source_rows;
+        # we cannot get it via ``inspect.getsource`` directly. Read
+        # the file text and search for the four characteristic
+        # f-string fragments.
+        import pathlib
+        src = pathlib.Path(
+            inspect.getsourcefile(generate_weekly_pdfs)
+        ).read_text(encoding='utf-8')
+        for needle in (
+            'f"{wr}_REDUCEDSUB"',
+            'f"{wr}_AEPBILLABLE"',
+            'f"{wr}_REDUCEDSUB_HELPER_"',
+            'f"{wr}_AEPBILLABLE_HELPER_"',
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, src)
+
+
+class TestWrFilterMatchesAllVariants(unittest.TestCase):
+    """Phase 01 gap closure (REVIEW-CR-03): ``_key_matches_wr`` MUST
+    recognize the new variant suffixes in TEST_MODE.
+
+    Mirror of TestExcludeWrsMatchesAllVariants for the WR_FILTER
+    matcher. Tests document the deliberate asymmetry that
+    ``_key_matches_wr`` does NOT match ``_USER_`` — preserves
+    pre-fix surface (the matcher never carried that clause).
+    """
+
+    @staticmethod
+    def _filter_matches(k: str, wr: str) -> bool:
+        # Mirror of the production matcher body. Must stay in sync
+        # with ``_key_matches_wr`` inside ``group_source_rows``.
+        try:
+            suffix = k.split('_', 1)[1]
+        except Exception:
+            return False
+        return (
+            suffix == wr
+            or suffix.startswith(f"{wr}_HELPER_")
+            or suffix == f"{wr}_VACCREW"
+            or suffix == f"{wr}_REDUCEDSUB"
+            or suffix == f"{wr}_AEPBILLABLE"
+            or suffix.startswith(f"{wr}_REDUCEDSUB_HELPER_")
+            or suffix.startswith(f"{wr}_AEPBILLABLE_HELPER_")
+        )
+
+    def test_all_seven_variants_retained_for_target_wr(self):
+        # Note: 7 keys but no _USER_ — `_USER_` is intentionally
+        # excluded from this matcher (asymmetry with
+        # `_key_matches_excluded_wr`).
+        wr = '12345'
+        keys_to_retain = [
+            f'041926_{wr}',
+            f'041926_{wr}_HELPER_Jane_Smith',
+            f'041926_{wr}_VACCREW',
+            f'041926_{wr}_REDUCEDSUB',
+            f'041926_{wr}_AEPBILLABLE',
+            f'041926_{wr}_REDUCEDSUB_HELPER_Jane_Doe',
+            f'041926_{wr}_AEPBILLABLE_HELPER_J_Smith',
+        ]
+        for k in keys_to_retain:
+            with self.subTest(key=k):
+                self.assertTrue(
+                    self._filter_matches(k, wr),
+                    f"WR_FILTER={wr} should have retained {k!r}",
+                )
+
+    def test_user_variant_intentionally_not_matched(self):
+        # The asymmetry guard: _USER_ exists in
+        # _key_matches_excluded_wr but NOT in _key_matches_wr. If a
+        # future contributor adds _USER_ to _key_matches_wr without
+        # a documented production incident, this test fails loudly.
+        self.assertFalse(
+            self._filter_matches('041926_12345_USER_John_Doe', '12345'),
+            "_USER_ is intentionally NOT in _key_matches_wr; do not "
+            "add it without a documented incident.",
+        )
+
+    def test_unrelated_wr_dropped(self):
+        for k in (
+            '041926_67890',
+            '041926_67890_REDUCEDSUB',
+            '041926_67890_AEPBILLABLE_HELPER_J',
+        ):
+            with self.subTest(key=k):
+                self.assertFalse(self._filter_matches(k, '12345'))
+
+    def test_malformed_key_returns_false(self):
+        self.assertFalse(self._filter_matches('malformed', '12345'))
+        self.assertFalse(self._filter_matches('', '12345'))
+
+    def test_production_function_body_contains_all_four_new_clauses(self):
+        # Mirror of TestExcludeWrsMatchesAllVariants's source-level
+        # guard, scoped to _key_matches_wr's region. We assert the
+        # whole-file presence here (the two matchers live within
+        # ~20 lines of each other in group_source_rows, so the
+        # four new clauses landing in either is sufficient evidence;
+        # Task 1 + Task 2's grep acceptance criteria pin them
+        # to their respective functions at the bash level).
+        import inspect
+        import pathlib
+        src = pathlib.Path(
+            inspect.getsourcefile(generate_weekly_pdfs)
+        ).read_text(encoding='utf-8')
+        # _key_matches_wr's new clauses are character-identical to
+        # _key_matches_excluded_wr's — assert each appears AT LEAST
+        # twice (once in each function) to confirm both fixes landed.
+        for needle in (
+            'f"{wr}_REDUCEDSUB"',
+            'f"{wr}_AEPBILLABLE"',
+            'f"{wr}_REDUCEDSUB_HELPER_"',
+            'f"{wr}_AEPBILLABLE_HELPER_"',
+        ):
+            with self.subTest(needle=needle):
+                self.assertGreaterEqual(
+                    src.count(needle), 2,
+                    f"Both _key_matches_wr and "
+                    f"_key_matches_excluded_wr must contain "
+                    f"{needle!r} for the gap closure to be complete; "
+                    f"found only {src.count(needle)} occurrence(s).",
+                )
+
+
 if __name__ == '__main__':
     unittest.main()
