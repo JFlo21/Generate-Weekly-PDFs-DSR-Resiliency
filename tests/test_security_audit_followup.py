@@ -2546,5 +2546,176 @@ class TestSourceSheetIdFieldConsistency(unittest.TestCase):
         self.assertIn('WR-06', src)
 
 
+class TestPppCleanupUntrackedAttachments(unittest.TestCase):
+    """Phase 01 gap closure (REVIEW-WR-01): a parallel
+    ``cleanup_untracked_sheet_attachments`` invocation must run for
+    ``SUBCONTRACTOR_PPP_SHEET_ID`` at end of session, mirroring the
+    existing TARGET_SHEET_ID cleanup. Belt-and-suspenders defense
+    against helper-shadow attachments orphaning on PPP when
+    per-row ``delete_old_excel_attachments`` misses.
+
+    Source-level invariant guards — the actual cleanup behavior
+    is exercised by end-to-end runs, not unit tests (would
+    require mocking the entire Smartsheet SDK + sheet iteration).
+    Mirrors TestPppAttachmentPrefetchBudget's structure.
+    """
+
+    @staticmethod
+    def _read_source() -> str:
+        import inspect
+        import pathlib
+        return pathlib.Path(
+            inspect.getsourcefile(generate_weekly_pdfs)
+        ).read_text(encoding='utf-8')
+
+    def test_cleanup_invoked_twice_in_main(self):
+        # Count invocations (call-sites with ``(`` after the
+        # function name). The function definition itself
+        # contains ``def cleanup_untracked_sheet_attachments(``;
+        # invocations contain ``cleanup_untracked_sheet_attachments(``
+        # (no ``def`` prefix).
+        src = self._read_source()
+        # Function definition + 2 invocations = 3 occurrences.
+        self.assertGreaterEqual(
+            src.count('cleanup_untracked_sheet_attachments('),
+            3,
+            "Expected cleanup_untracked_sheet_attachments to be "
+            "invoked at least twice in main() (once for TARGET, "
+            "once for PPP) plus the function definition. "
+            f"Found {src.count('cleanup_untracked_sheet_attachments(')} "
+            "occurrence(s)."
+        )
+
+    def test_ppp_invocation_present_with_correct_first_args(self):
+        src = self._read_source()
+        # The PPP call uses ``client, SUBCONTRACTOR_PPP_SHEET_ID, ...``.
+        # Use multi-line-tolerant regex since the call spans 6-7 lines.
+        import re
+        pattern = re.compile(
+            r"cleanup_untracked_sheet_attachments\s*\(\s*\n?\s*"
+            r"client\s*,\s*\n?\s*SUBCONTRACTOR_PPP_SHEET_ID\s*,",
+            re.MULTILINE,
+        )
+        self.assertIsNotNone(
+            pattern.search(src),
+            "Expected cleanup_untracked_sheet_attachments(client, "
+            "SUBCONTRACTOR_PPP_SHEET_ID, ...) invocation."
+        )
+
+    def test_ppp_invocation_gated_on_all_four_conditions(self):
+        src = self._read_source()
+        # Verify the eligibility gate names all four conditions.
+        # The PPP invocation lives inside a multi-line ``if`` block;
+        # we assert each condition string is present in the source.
+        self.assertIn('SUBCONTRACTOR_RATE_VARIANTS_ENABLED', src)
+        self.assertIn('SUBCONTRACTOR_PPP_SHEET_ID != TARGET_SHEET_ID', src)
+        self.assertIn('_target_sheet_ppp_obj is not None', src)
+        # SUBCONTRACTOR_PPP_SHEET_ID's truthy check is the gate's
+        # second condition; it's implicit in the ``and SUBCONTRACTOR_PPP_SHEET_ID``
+        # line. Verify the conjunction exists.
+        self.assertIn(
+            'and SUBCONTRACTOR_PPP_SHEET_ID', src,
+        )
+
+    def test_ppp_invocation_uses_separate_sentry_span(self):
+        src = self._read_source()
+        self.assertIn('smartsheet.cleanup_ppp', src)
+        # The TARGET cleanup uses op="smartsheet.cleanup" — verify
+        # it still exists (we didn't accidentally rename).
+        self.assertIn('smartsheet.cleanup', src)
+
+    def test_ppp_invocation_passes_correct_sheet_object(self):
+        src = self._read_source()
+        # The PPP invocation must pass _target_sheet_ppp_obj
+        # (not _target_sheet_obj — that would route the PPP
+        # cleanup against the wrong sheet snapshot).
+        import re
+        pattern = re.compile(
+            r"cleanup_untracked_sheet_attachments\s*\([\s\S]*?"
+            r"SUBCONTRACTOR_PPP_SHEET_ID[\s\S]*?"
+            r"target_sheet\s*=\s*_target_sheet_ppp_obj",
+            re.MULTILINE,
+        )
+        self.assertIsNotNone(
+            pattern.search(src),
+            "PPP cleanup invocation must pass "
+            "target_sheet=_target_sheet_ppp_obj."
+        )
+
+    def test_ppp_invocation_passes_shared_cleanup_cache(self):
+        src = self._read_source()
+        # Both invocations pass attachment_cache=_cleanup_cache —
+        # consistent cache semantics across both passes (the
+        # variable's value depends on the _upload_tasks branch:
+        # None when uploads ran, the prefetch dict when no
+        # uploads ran).
+        # Count ``attachment_cache=_cleanup_cache`` — must appear
+        # at least twice (TARGET + PPP).
+        self.assertGreaterEqual(
+            src.count('attachment_cache=_cleanup_cache'),
+            2,
+            "Both TARGET and PPP cleanup invocations must pass "
+            "attachment_cache=_cleanup_cache for consistent cache "
+            "semantics."
+        )
+
+    def test_ppp_invocation_sequenced_after_target(self):
+        src = self._read_source()
+        # The TARGET cleanup must appear BEFORE the PPP cleanup
+        # in the source — order is deterministic for log output.
+        # [Rule 1 auto-fix during 01-13 execution] The plan's
+        # hardcoded fallback strings assumed 4-space indents for
+        # ``valid_wr_weeks`` and ``client,``; the actual TARGET
+        # call landed on one line (single-line invocation) and
+        # the PPP call uses 24-space indentation. Use
+        # whitespace-tolerant regex on the multi-line PPP call
+        # plus an in-line/multi-line tolerant locator for TARGET.
+        import re
+        target_match = re.search(
+            r"cleanup_untracked_sheet_attachments\s*\(\s*\n?\s*"
+            r"client\s*,\s*\n?\s*TARGET_SHEET_ID",
+            src,
+            re.MULTILINE,
+        )
+        ppp_match = re.search(
+            r"cleanup_untracked_sheet_attachments\s*\(\s*\n?\s*"
+            r"client\s*,\s*\n?\s*SUBCONTRACTOR_PPP_SHEET_ID\s*,\s*"
+            r"\n?\s*valid_wr_weeks",
+            src,
+            re.MULTILINE,
+        )
+        self.assertIsNotNone(
+            target_match,
+            "Expected TARGET cleanup invocation in source."
+        )
+        self.assertIsNotNone(
+            ppp_match,
+            "Expected PPP cleanup invocation in source."
+        )
+        self.assertLess(
+            target_match.start(), ppp_match.start(),
+            "TARGET cleanup must be sequenced BEFORE PPP cleanup "
+            "in the source for deterministic log ordering."
+        )
+
+    def test_cleanup_function_signature_unchanged(self):
+        # WR-01 is a SECOND INVOCATION, not a signature change.
+        # The existing 6-parameter signature must be unchanged so
+        # the existing TARGET invocation continues to compile.
+        import inspect
+        sig = inspect.signature(
+            generate_weekly_pdfs.cleanup_untracked_sheet_attachments,
+        )
+        params = list(sig.parameters.keys())
+        self.assertEqual(
+            params,
+            ['client', 'target_sheet_id', 'valid_wr_weeks',
+             'test_mode', 'attachment_cache', 'target_sheet'],
+            "cleanup_untracked_sheet_attachments signature was "
+            "altered by WR-01; the fix should be a second "
+            "invocation only, not a signature change."
+        )
+
+
 if __name__ == '__main__':
     unittest.main()
