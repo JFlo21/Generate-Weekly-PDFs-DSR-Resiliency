@@ -778,6 +778,22 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     "_REDUCEDSUB_HELPER_",
     "AEP BILLABLE GROUP CREATED",
     "REDUCED SUB GROUP CREATED",
+    # Phase 01 gap closure (REVIEW-WR-04 / Living Ledger 2026-04-20
+    # 12:00): the new helper-shadow GROUP CREATED logs already match
+    # against the substring "HELPER GROUP CREATED" by accident — the
+    # tokens "REDUCED SUB HELPER GROUP CREATED" and "AEP BILLABLE
+    # HELPER GROUP CREATED" happen to CONTAIN that substring. That
+    # makes scrubbing fragile to future wording changes (e.g., a
+    # rename to "REDUCED SUB HELPER GROUP REGISTERED" or "REDUCED
+    # SUB HELPER GRP CREATED" would silently leak the helper
+    # foreman name to Sentry Logs). Explicit markers are the
+    # defense-in-depth contract per the 2026-04-20 12:00 ledger
+    # rule. Sibling markers for the non-shadow variants
+    # ("AEP BILLABLE GROUP CREATED" and "REDUCED SUB GROUP
+    # CREATED") were landed in Phase 01 Plan 02; these two finish
+    # the set.
+    "REDUCED SUB HELPER GROUP CREATED",
+    "AEP BILLABLE HELPER GROUP CREATED",
     "Subcontractor rates CSV missing",
 )
 
@@ -3414,13 +3430,18 @@ def get_all_source_rows(client, source_sheets):
                     # Attach provenance metadata for audit (used to fetch selective cell history later)
                     if row_data:
                         row_data['__sheet_id'] = source['id']
-                        # Phase 01 Plan 03: also expose the sheet id under
-                        # the canonical ``__source_sheet_id`` name the new
-                        # per-row subcontractor variant gate in
-                        # ``group_source_rows`` reads (committed Blocker 3
-                        # contract — see 01-03-PLAN.md). Kept alongside
-                        # ``__sheet_id`` (unchanged) so no existing
-                        # consumer of the legacy field name regresses.
+                        # Phase 01 Plan 03 / Plan 09 (WR-06): also expose
+                        # the sheet id under the canonical
+                        # ``__source_sheet_id`` name. Phase 1's
+                        # subcontractor variant gate in
+                        # ``group_source_rows`` AND the missing-CU
+                        # attribution loop in ``main()`` both read
+                        # ``__source_sheet_id`` per WR-06. The legacy
+                        # ``__sheet_id`` write is retained above for
+                        # back-compat with any future reader that
+                        # might still touch it — drop in a follow-up
+                        # cleanup once a full pass confirms no other
+                        # reader exists.
                         row_data['__source_sheet_id'] = source['id']
                         row_data['__row_id'] = row.id
 
@@ -6468,13 +6489,23 @@ def main():
                 # span sheets when multiple sheets carry the same WR).
                 # Distinct sheets get their own bucket so the per-sheet
                 # WARNING surfaces the correct sheet id; rows missing
-                # ``__sheet_id`` are bucketed under -1 so they still
-                # surface in operator logs without crashing the
+                # ``__source_sheet_id`` are bucketed under -1 so they
+                # still surface in operator logs without crashing the
                 # attribution loop.
+                #
+                # Phase 01 gap closure (REVIEW-WR-06): standardized on
+                # ``__source_sheet_id`` (Phase 1 canonical field name)
+                # instead of the legacy alias ``__sheet_id``. Both
+                # fields are written to the same ``source['id']`` value
+                # at populate time in ``_fetch_and_process_sheet``, so
+                # the runtime behavior is unchanged today. The
+                # migration ensures a future refactor that splits the
+                # two field names cannot silently route missing-CU
+                # WARNINGs to sheet -1 (the fallback bucket).
                 if _missing_cus_for_group:
                     _contributing_sheet_ids: set[int] = set()
                     for _r in group_rows:
-                        _sid = _r.get('__sheet_id')
+                        _sid = _r.get('__source_sheet_id')
                         if isinstance(_sid, int):
                             _contributing_sheet_ids.add(_sid)
                     if not _contributing_sheet_ids:
