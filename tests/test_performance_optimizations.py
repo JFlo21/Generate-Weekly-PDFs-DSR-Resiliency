@@ -185,5 +185,189 @@ class TestAttachmentPrefetchBudget(unittest.TestCase):
         # instead of falling back to the per-row path.
         self.assertTrue(hasattr(generate_weekly_pdfs, 'FuturesTimeoutError'))
 
+
+class TestPppAttachmentPrefetchBudget(unittest.TestCase):
+    """Phase 01 gap closure (REVIEW-WR-05): the PPP secondary
+    attachment-prefetch pass MUST mirror the primary prefetch's
+    defense-in-depth pattern in full per Living Ledger
+    2026-04-22 16:05.
+
+    These tests are predominantly SOURCE-LEVEL invariant guards
+    — the actual prefetch behavior is exercised end-to-end by
+    the workflow run, not by unit tests (would require mocking
+    the entire Smartsheet SDK + threading machinery, which the
+    primary prefetch suite intentionally does not do). The
+    source-level guards catch regressions like "PPP prefetch
+    landed but with ``with _DaemonThreadPoolExecutor(...)``
+    instead of explicit shutdown" before they ship.
+
+    Mirrors TestAttachmentPrefetchBudget's structure exactly.
+    """
+
+    @staticmethod
+    def _read_source() -> str:
+        import inspect
+        import pathlib
+        return pathlib.Path(
+            inspect.getsourcefile(generate_weekly_pdfs)
+        ).read_text(encoding='utf-8')
+
+    def test_constants_present(self):
+        # The pre-flight guard depends on three constants — verify
+        # they exist with reasonable defaults.
+        self.assertTrue(
+            hasattr(generate_weekly_pdfs, 'SUBCONTRACTOR_PPP_SHEET_ID'),
+        )
+        self.assertTrue(
+            hasattr(generate_weekly_pdfs, 'ATTACHMENT_PREFETCH_MAX_MINUTES'),
+        )
+        self.assertTrue(
+            hasattr(generate_weekly_pdfs, 'ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC'),
+        )
+        self.assertTrue(
+            hasattr(generate_weekly_pdfs, 'ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN'),
+        )
+
+    def test_ppp_worker_function_exists(self):
+        src = self._read_source()
+        self.assertIn('def _fetch_ppp_row_attachments', src)
+
+    def test_ppp_prefetch_targets_ppp_sheet(self):
+        src = self._read_source()
+        # Worker calls Attachments.list_row_attachments with the
+        # PPP sheet id constant (not TARGET_SHEET_ID).
+        self.assertIn(
+            'list_row_attachments(SUBCONTRACTOR_PPP_SHEET_ID',
+            src,
+        )
+
+    def test_ppp_prefetch_uses_daemon_executor_explicit_lifecycle(self):
+        src = self._read_source()
+        # Extract the PPP prefetch block so the executor-lifecycle
+        # invariants are scoped to the new code path. The legitimate
+        # ``with ThreadPoolExecutor(...) as executor`` callers
+        # elsewhere in the file (folder discovery, parallel row
+        # fetch, freeze_row parallelization) produce
+        # non-discardable results — the ``with`` form is correct
+        # for those because they need the implicit
+        # ``shutdown(wait=True)`` to flush side effects. The PPP
+        # prefetch is different: its work IS discardable (cache-
+        # warming optimization with per-row fallback) so it must
+        # use the daemon-executor + explicit shutdown(wait=False)
+        # pattern established by the 2026-04-22 16:05 incident.
+        ppp_start = src.find('def _fetch_ppp_row_attachments')
+        self.assertGreater(
+            ppp_start, -1,
+            "PPP prefetch block not located — _fetch_ppp_row_attachments "
+            "is the canonical anchor for the new block.",
+        )
+        # The PPP block ends at the next outer 'Load hash history'
+        # comment marker (insertion-point comment) or at the
+        # function attribution span set_data line.
+        ppp_end_candidates = [
+            src.find('# Load hash history', ppp_start),
+            src.find('hash_history = load_hash_history', ppp_start),
+        ]
+        ppp_end = min(c for c in ppp_end_candidates if c > -1)
+        self.assertGreater(
+            ppp_end, ppp_start,
+            "PPP prefetch block end marker not located.",
+        )
+        ppp_block = src[ppp_start:ppp_end]
+        # Within the PPP block, MUST NOT use the ``with`` form for
+        # _DaemonThreadPoolExecutor — the implicit
+        # shutdown(wait=True) would re-introduce the 2026-04-22
+        # 16:05 incident's block-on-stuck-worker bug.
+        self.assertNotIn('with _DaemonThreadPoolExecutor', ppp_block)
+        self.assertNotIn('with ThreadPoolExecutor', ppp_block)
+        # The PPP block MUST construct the daemon executor by
+        # direct call (no ``with``).
+        self.assertIn('_DaemonThreadPoolExecutor(', ppp_block)
+        self.assertIn('ppp_executor.shutdown(wait=False, cancel_futures=True)', ppp_block)
+        # Whole-file invariant: there are now at least two
+        # explicit shutdown(wait=False, cancel_futures=True) sites
+        # — one in the primary prefetch and one in the PPP
+        # prefetch — and both contribute to the count.
+        self.assertGreaterEqual(
+            src.count('shutdown(wait=False, cancel_futures=True)'),
+            2,
+            "Both primary and PPP prefetch blocks must use explicit "
+            "shutdown(wait=False, cancel_futures=True). Expected >= 2 "
+            "occurrences.",
+        )
+
+    def test_ppp_prefetch_skip_log_with_headroom(self):
+        src = self._read_source()
+        # Pre-flight guard logs an operator-visible reason.
+        self.assertIn('Skipping PPP attachment prefetch', src)
+        # The skip threshold is (PREFETCH_MAX + GENERATION_HEADROOM)
+        # — verify both constants participate in the calculation.
+        self.assertIn(
+            'ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN', src,
+        )
+        # The PPP block must reference the headroom constant in
+        # addition to PREFETCH_MAX. (Primary prefetch also
+        # references both — this test relies on count.)
+        self.assertGreaterEqual(
+            src.count('ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN'),
+            2,
+            "Both primary and PPP prefetch pre-flight guards must "
+            "reserve generation headroom. Expected >= 2 occurrences "
+            "of the headroom constant.",
+        )
+
+    def test_ppp_prefetch_counters_separate(self):
+        src = self._read_source()
+        # Per 2026-04-22 16:05 rule (5), counters report cancelled
+        # (queued futures we cancelled) and still_running (in-flight
+        # we abandoned) SEPARATELY — don't conflate them via
+        # ``not f.done()`` alone.
+        self.assertIn('_ppp_prefetch_cancelled', src)
+        self.assertIn('_ppp_prefetch_still_running', src)
+
+    def test_ppp_atexit_detach_on_budget_exceed_only(self):
+        src = self._read_source()
+        # Per Copilot review noted in primary prefetch comments:
+        # the atexit detach is on the budget-exceeded path only —
+        # don't touch private APIs when workers completed normally.
+        self.assertIn('_detach_ppp_from_atexit_registry', src)
+        # Verify the detach is INSIDE the budget-exceed branch.
+        # A naive `_detach_ppp_from_atexit_registry()` outside any
+        # condition would touch private APIs on every run; the
+        # explicit ``if _ppp_prefetch_budget_exceeded:`` gates it.
+        self.assertRegex(
+            src,
+            r"if _ppp_prefetch_budget_exceeded:\s*\n\s*_detach_ppp_from_atexit_registry\(\)",
+        )
+
+    def test_ppp_prefetch_gated_on_kill_switch_and_distinct_sheet(self):
+        src = self._read_source()
+        # Eligibility gate must check the kill switch AND that PPP
+        # is a different sheet from TARGET (skip the redundant pass
+        # if operators have configured them to the same id).
+        # AND not TEST_MODE AND target_map_ppp is populated.
+        self.assertIn('SUBCONTRACTOR_RATE_VARIANTS_ENABLED', src)
+        self.assertIn('SUBCONTRACTOR_PPP_SHEET_ID != TARGET_SHEET_ID', src)
+        self.assertIn('not TEST_MODE', src)
+        self.assertIn('target_map_ppp', src)
+
+    def test_ppp_populates_shared_attachment_cache(self):
+        src = self._read_source()
+        # Per WR-05 contract: PPP prefetch populates the SAME
+        # ``attachment_cache`` dict the primary prefetch uses —
+        # downstream ``_upload_one`` reads from that dict by
+        # ``target_row.id`` without knowing which sheet the row
+        # came from. The cache is dual-sheet-shared, not split.
+        # Verify the PPP prefetch's `attachment_cache[row_id] = atts`
+        # assignment is present in the PPP block (search for a
+        # broader pattern since the same line exists in the
+        # primary block too).
+        self.assertGreaterEqual(
+            src.count('attachment_cache['), 2,
+            "Both primary and PPP prefetch blocks must write to the "
+            "shared attachment_cache dict.",
+        )
+
+
 if __name__ == '__main__':
     unittest.main()
