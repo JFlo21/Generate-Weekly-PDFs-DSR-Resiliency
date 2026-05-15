@@ -127,14 +127,14 @@ Plans:
 - [x] 01-04-PLAN.md — Dual-target routing for _ReducedSub via SUBCONTRACTOR_PPP_SHEET_ID; independent collision quarantine on second target_map
 - [x] 01-05-PLAN.md — billing_audit pipeline_run.variant column DDL + freeze_row/emit_run_fingerprint variant kwarg
 - [x] 01-06-PLAN.md — Byte-identical regression test, production-safety validator pin, Docusaurus runbook update, human-verify checkpoint
-- [ ] 01-07-PLAN.md — Gap closure: CR-02 + CR-03 (mirror filter matchers extend to 4 new variant suffixes) + regression tests
-- [ ] 01-08-PLAN.md — Gap closure: CR-01 (helper-shadow identifier derivation at 3 main-loop sites) + regression test
-- [ ] 01-09-PLAN.md — Gap closure: WR-04 (explicit helper-shadow PII markers) + WR-06 (`__source_sheet_id` migration) + regression tests
-- [ ] 01-10-PLAN.md — Gap closure: WR-02 (PPP empty-string disable) + WR-03 (helper-shadow filename-suffix defensive raise) + doc update + regression tests
-- [ ] 01-11-PLAN.md — Gap closure: IN-01 (`AEP_BILLABLE_CUTOFF` env var with safe parse) + IN-02 (`qty_raw` coercion cleanup) + doc update + regression tests
-- [ ] 01-12-PLAN.md — Gap closure: WR-05 (PPP attachment prefetch — same daemon-executor / sub-budget pattern as primary) + regression tests
-- [ ] 01-13-PLAN.md — Gap closure: WR-01 (PPP end-of-run cleanup pass) + regression tests
-- [ ] 01-14-PLAN.md — Gap closure: IN-04 (workflow env-var pinning) + Living Ledger entry documenting 7 new rules + regression test
+- [x] 01-07-PLAN.md — Gap closure: CR-02 + CR-03 (mirror filter matchers extend to 4 new variant suffixes) + regression tests
+- [x] 01-08-PLAN.md — Gap closure: CR-01 (helper-shadow identifier derivation at 3 main-loop sites) + regression test
+- [x] 01-09-PLAN.md — Gap closure: WR-04 (explicit helper-shadow PII markers) + WR-06 (`__source_sheet_id` migration) + regression tests
+- [x] 01-10-PLAN.md — Gap closure: WR-02 (PPP empty-string disable) + WR-03 (helper-shadow filename-suffix defensive raise) + doc update + regression tests
+- [x] 01-11-PLAN.md — Gap closure: IN-01 (`AEP_BILLABLE_CUTOFF` env var with safe parse) + IN-02 (`qty_raw` coercion cleanup) + doc update + regression tests
+- [x] 01-12-PLAN.md — Gap closure: WR-05 (PPP attachment prefetch — same daemon-executor / sub-budget pattern as primary) + regression tests
+- [x] 01-13-PLAN.md — Gap closure: WR-01 (PPP end-of-run cleanup pass) + regression tests
+- [x] 01-14-PLAN.md — Gap closure: IN-04 (workflow env-var pinning) + Living Ledger entry documenting 7 new rules + regression test
 
 ### Phase 2: Railway → Render Pre-Migration ADR (DEFERRED — out of v1.0 scope)
 **Status**: DEFERRED. Does not gate v1.0 milestone completion. The seven REQ-* requirements that drive the actual Railway → Render execution + Artifact Explorer redesign live in REQUIREMENTS.md "v2 Requirements" section and will be promoted by a future `/gsd-new-project` cycle. Phase 2 here exists to lock in the one small documentation deliverable (`MIG-01`) that should land before any of that v2 work begins.
