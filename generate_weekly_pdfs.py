@@ -6729,8 +6729,21 @@ def main():
                 # when KEEP_HISTORICAL_WEEKS is enabled.
                 wr = _RE_SANITIZE_HELPER_NAME.sub('_', wr)[:50]
                 variant = group_rows[0].get('__variant', 'primary')
-                if variant == 'helper':
-                    # Use filename-level identifier (sanitized foreman only) to match build_group_identity output
+                if variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper'):
+                    # CR-01 gap closure (Site 2 — mirror of Site 1).
+                    # build_group_identity returns the sanitized helper
+                    # foreman as the parsed identifier for all three
+                    # helper-style variants; valid_wr_weeks must match
+                    # that tuple shape so
+                    # cleanup_untracked_sheet_attachments correctly
+                    # identifies which helper-shadow attachments are
+                    # "live" and which are stale. Pre-fix, shadow
+                    # variants fell through to the ``User``-derived
+                    # ``else`` branch and produced file_id='' tuples
+                    # that NEVER matched the parser's 'Jane_Smith'
+                    # identifier — risking cleanup either pruning
+                    # legitimate attachments or missing orphans.
+                    # Sites 1 and 3 carry the same gate.
                     helper_foreman = group_rows[0].get('__helper_foreman', '')
                     file_id = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50] if helper_foreman else ''
                 elif variant == 'vac_crew':
