@@ -100,12 +100,12 @@ a tracked finding).
      `tests/test_security_audit_followup.py`, and
      `tests/test_performance_optimizations.py`.
   5. A scheduled weekly workflow run completes inside
-     `timeout-minutes: 195` and emits zero Sentry events tagged with
-     the new variant scope; existing VAC-crew, ORIG-folder, and
-     primary outputs are byte-identical to the run immediately before
-     the change (verified via hash-history diff on a TEST_MODE run).
-     `TestPhase1IntegrationRegression` continues to pass after all
-     gap-closure plans land.
+     `timeout-minutes: 110` (with `TIME_BUDGET_MINUTES: 95`) and emits
+     zero Sentry events tagged with the new variant scope; existing
+     VAC-crew, ORIG-folder, and primary outputs are byte-identical to
+     the run immediately before the change (verified via hash-history
+     diff on a TEST_MODE run). `TestPhase1IntegrationRegression`
+     continues to pass after all gap-closure plans land.
   6. `EXCLUDE_WRS` correctly suppresses all 7 group-key variants per
      WR (primary + helper + USER + vac_crew + the 4 new variants)
      per plan 01-07 / CR-02; `WR_FILTER` correctly retains 6 of those

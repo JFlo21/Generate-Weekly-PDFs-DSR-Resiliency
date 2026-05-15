@@ -13,7 +13,7 @@ updated: 2026-05-14T22:30:00Z
 ## Tests
 
 ### 1. First scheduled GitHub Actions weekly production run after merge
-expected: Run completes inside `timeout-minutes: 195`; produces `_AEPBillable` and `_ReducedSub` Excel files (and helper-shadow files where helper-foreman events fire) in `generated_docs/<week>/`; `_AEPBillable` + `_ReducedSub` attached to `TARGET_SHEET_ID=5723337641643908`; `_ReducedSub` additionally attached to `SUBCONTRACTOR_PPP_SHEET_ID=8162920222379908`; zero Sentry events tagged with new variant scope; existing primary/helper/vac_crew outputs byte-identical to the prior run (hash-history diff verification).
+expected: Run completes inside `timeout-minutes: 110` (with `TIME_BUDGET_MINUTES: 95`); produces `_AEPBillable` and `_ReducedSub` Excel files (and helper-shadow files where helper-foreman events fire) in `generated_docs/<week>/`; `_AEPBillable` + `_ReducedSub` attached to `TARGET_SHEET_ID=5723337641643908`; `_ReducedSub` additionally attached to `SUBCONTRACTOR_PPP_SHEET_ID=8162920222379908`; zero Sentry events tagged with new variant scope; existing primary/helper/vac_crew outputs byte-identical to the prior run (hash-history diff verification).
 result: [pending — fires on next scheduled GHA run after merge to master with the kill switch `SUBCONTRACTOR_RATE_VARIANTS_ENABLED=1`]
 
 ### 2. Step B real-data price-write end-to-end (SKIP_UPLOAD)

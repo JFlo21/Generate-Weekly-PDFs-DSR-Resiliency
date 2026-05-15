@@ -144,13 +144,13 @@ creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SUB-01 | Phase 1 | Pending |
-| SUB-02 | Phase 1 | Pending |
-| SUB-03 | Phase 1 | Pending |
-| SUB-04 | Phase 1 | Pending |
-| SUB-05 | Phase 1 | Pending |
-| SUB-06 | Phase 1 | Pending |
-| SUB-07 | Phase 1 | Pending |
+| SUB-01 | Phase 1 | Implemented (pending operator verification) |
+| SUB-02 | Phase 1 | Implemented (pending operator verification) |
+| SUB-03 | Phase 1 | Implemented (pending operator verification) |
+| SUB-04 | Phase 1 | Implemented (pending operator verification) |
+| SUB-05 | Phase 1 | Implemented (pending operator verification) |
+| SUB-06 | Phase 1 | Implemented (pending operator verification) |
+| SUB-07 | Phase 1 | Implemented (pending operator verification) |
 | MIG-01 | Phase 2 | Pending |
 
 **Coverage:**
