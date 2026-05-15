@@ -32,17 +32,16 @@ Express explorer routes are tracked as v1.1+ scope.
 - Decimal phases (e.g., 1.1, 2.1): Urgent insertions inserted via
   `/gsd-insert-phase` (none yet)
 
-- [ ] **Phase 1: Subcontractor Rate Logic Modification** — Two new Excel
+- [x] **Phase 1: Subcontractor Rate Logic Modification** — Two new Excel
   variants (`_AEPBillable`, `_ReducedSub`) for subcontractor WR groups,
   routed to original-PPP and new-subcontractor-PPP target sheets, with
   shadow-foreman/helper support. Original 6 plans completed 2026-05-14;
   post-merge code review (`/gsd-code-review 01`) flagged 3 BLOCKER +
   6 WARNING + 4 INFO findings. Gap-closure plans 01-07 through 01-14
-  added 2026-05-14 (this planning session) to close all 12 actionable
-  findings (IN-03 is reference-only). Kill switch
-  (`SUBCONTRACTOR_RATE_VARIANTS_ENABLED`) default-ON with `0` as the
-  documented rollback path; per IN-04 / plan 01-14 now also pinned in
-  the workflow `env:` block.
+  completed 2026-05-15 to close all 12 actionable findings (IN-03 is
+  reference-only). Kill switch (`SUBCONTRACTOR_RATE_VARIANTS_ENABLED`)
+  default-ON with `0` as the documented rollback path; per IN-04 / plan
+  01-14 now also pinned in the workflow `env:` block.
 - [ ] **Phase 2 (DEFERRED): Railway → Render Pre-Migration ADR** — File the
   missing `memory-bank/adr/` record locking Render Starter, in-memory
   LRU search, and v1 download = original `.xlsx`. **Does not gate v1.0 completion** — preserved here so MIG-01 stays mapped, but the full Railway → Render execution lives in REQUIREMENTS.md v2 section.
@@ -177,7 +176,7 @@ Plans:
 **Execution Order:**
 Phases execute in numeric order: 1 → 2
 
-| Phase                                            | Plans Complete             | Status                                       | Completed |
-|--------------------------------------------------|----------------------------|----------------------------------------------|-----------|
-| 1. Subcontractor Rate Logic Modification         | 6/14 (gap closure pending) | ⚠ Gap closure planned — execute 01-07..01-14 | -         |
-| 2. Railway → Render Pre-Migration ADR (DEFERRED) | 0/TBD                      | Deferred — out of v1.0 scope                 | -         |
+| Phase                                            | Plans Complete | Status                       | Completed |
+|--------------------------------------------------|----------------|------------------------------|-----------|
+| 1. Subcontractor Rate Logic Modification         | 14/14          | ✅ Complete — ready to ship  | -         |
+| 2. Railway → Render Pre-Migration ADR (DEFERRED) | 0/TBD          | Deferred — out of v1.0 scope | -         |

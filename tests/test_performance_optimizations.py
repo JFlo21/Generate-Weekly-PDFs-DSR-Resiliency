@@ -268,7 +268,14 @@ class TestPppAttachmentPrefetchBudget(unittest.TestCase):
             src.find('# Load hash history', ppp_start),
             src.find('hash_history = load_hash_history', ppp_start),
         ]
-        ppp_end = min(c for c in ppp_end_candidates if c > -1)
+        valid_ends = [c for c in ppp_end_candidates if c > -1]
+        if not valid_ends:
+            self.fail(
+                "PPP prefetch block end marker not located — neither "
+                "'# Load hash history' nor 'hash_history = load_hash_history' "
+                "found after ppp_start."
+            )
+        ppp_end = min(valid_ends)
         self.assertGreater(
             ppp_end, ppp_start,
             "PPP prefetch block end marker not located.",
