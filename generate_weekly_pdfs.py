@@ -4306,15 +4306,40 @@ def group_source_rows(rows):
     if WR_FILTER and TEST_MODE:
         before = len(groups)
         def _key_matches_wr(k: str, wr: str) -> bool:
-            # k format examples:
-            #   MMDDYY_WR
-            #   MMDDYY_WR_HELPER_<name>
-            #   MMDDYY_WR_VACCREW
+            # k format examples (all seven shapes emitted by group_source_rows):
+            #   MMDDYY_WR                                   → primary
+            #   MMDDYY_WR_HELPER_<name>                     → helper
+            #   MMDDYY_WR_VACCREW                           → vac_crew
+            #   MMDDYY_WR_REDUCEDSUB                        → reduced_sub  (Phase 1)
+            #   MMDDYY_WR_AEPBILLABLE                       → aep_billable (Phase 1)
+            #   MMDDYY_WR_REDUCEDSUB_HELPER_<name>          → reduced_sub_helper  (Phase 1)
+            #   MMDDYY_WR_AEPBILLABLE_HELPER_<name>         → aep_billable_helper (Phase 1)
+            #
+            # Phase 01 gap closure (REVIEW-CR-03): mirror of the
+            # ``_key_matches_excluded_wr`` fix immediately below. Without the
+            # new variant clauses, ``TEST_MODE=true WR_FILTER=<wr>`` drops
+            # the new-variant groups before generation runs, silently
+            # producing zero ``_AEPBillable`` / ``_ReducedSub`` output for the
+            # filtered WR — which makes the Step B operator diagnostic
+            # documented in 01-VERIFICATION.md unexercisable. Match shape is
+            # IDENTICAL to ``_key_matches_excluded_wr`` (minus the
+            # ``_USER_`` legacy clause, which has never been a WR_FILTER
+            # target). The two matchers MUST stay in sync — any future
+            # variant added in ``group_source_rows`` must extend BOTH.
             try:
                 suffix = k.split('_', 1)[1]  # take everything after first underscore (WR...)
             except Exception:
                 return False
-            return suffix == wr or suffix.startswith(f"{wr}_HELPER_") or suffix == f"{wr}_VACCREW"
+            return (
+                suffix == wr
+                or suffix.startswith(f"{wr}_HELPER_")
+                or suffix == f"{wr}_VACCREW"
+                # Phase 1 subcontractor variants (REVIEW-CR-03).
+                or suffix == f"{wr}_REDUCEDSUB"
+                or suffix == f"{wr}_AEPBILLABLE"
+                or suffix.startswith(f"{wr}_REDUCEDSUB_HELPER_")
+                or suffix.startswith(f"{wr}_AEPBILLABLE_HELPER_")
+            )
 
         groups = {k: v for k, v in groups.items() if any(_key_matches_wr(k, wr) for wr in WR_FILTER)}
         logging.info(f"🔎 WR_FILTER applied (primary + helper + vac_crew): {len(groups)}/{before} groups retained ({','.join(WR_FILTER)})")
