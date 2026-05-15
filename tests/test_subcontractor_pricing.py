@@ -3591,5 +3591,92 @@ class TestPhase1FilenameRoundTripCoverage(unittest.TestCase):
                 self.assertEqual(parsed_id, expected_id)
 
 
+class TestPhase1GapClosureLedgerEntryPresent(unittest.TestCase):
+    """Phase 01 gap closure (Living Ledger / autonomous-cloud-memory):
+    a CLAUDE.md Living Ledger entry timestamped 2026-05-15 MUST
+    document the 13-finding gap-closure round and the 7 new rules
+    encoded therein. Per CLAUDE.md's "AUTONOMOUS CLOUD MEMORY
+    INJECTION (CRITICAL)" rule, any architectural standard /
+    recurring fix / new operational rule introduced by a feature
+    PR must be appended to the Living Ledger in the same PR.
+
+    These source-level guards catch silent reversion of the
+    documentation by a future PR.
+    """
+
+    @staticmethod
+    def _read_ledger() -> str:
+        # CLAUDE.md is at the repo root, sibling to
+        # generate_weekly_pdfs.py.
+        import pathlib
+        repo_root = pathlib.Path(
+            generate_weekly_pdfs.__file__,
+        ).parent
+        return (repo_root / 'CLAUDE.md').read_text(encoding='utf-8')
+
+    def test_timestamp_present(self):
+        ledger = self._read_ledger()
+        self.assertIn('[2026-05-15', ledger)
+
+    def test_round_summary_phrase_present(self):
+        ledger = self._read_ledger()
+        self.assertIn(
+            'Phase 01 (Subcontractor Rate Logic Modification) gap-closure',
+            ledger,
+        )
+
+    def test_all_seven_new_rules_named(self):
+        ledger = self._read_ledger()
+        expected_rules = (
+            'Three-site identity-consistency invariant',
+            'Mirror-matcher invariant',
+            'Explicit PII markers',
+            'Defensive raise scope discipline',
+            'Dual-target cleanup invocation pattern',
+            'Env-var override safe-parse pattern',
+            'Workflow pinning for new feature env vars',
+        )
+        for rule in expected_rules:
+            with self.subTest(rule=rule):
+                self.assertIn(
+                    rule, ledger,
+                    f"Living Ledger 2026-05-15 entry must name "
+                    f"the rule {rule!r}. See plan 01-14.",
+                )
+
+    def test_entry_appears_after_2026_04_25_freeze_row_entry(self):
+        ledger = self._read_ledger()
+        prev_idx = ledger.find('[2026-04-25 14:00]')
+        new_idx = ledger.find('[2026-05-15')
+        self.assertGreater(prev_idx, 0, "Prior 2026-04-25 14:00 entry not found.")
+        self.assertGreater(new_idx, 0, "New 2026-05-15 entry not found.")
+        self.assertLess(
+            prev_idx, new_idx,
+            "New 2026-05-15 entry must appear AFTER the 2026-04-25 "
+            "14:00 freeze_row entry (Living Ledger entries are "
+            "chronologically appended).",
+        )
+
+    def test_entry_references_regression_test_classes(self):
+        # The ledger entry should name the regression-test classes
+        # added by this round so future maintainers can trace
+        # rule → test directly.
+        ledger = self._read_ledger()
+        for cls_name in (
+            'TestHelperShadowVariantFileIdentifier',
+            'TestExcludeWrsMatchesAllVariants',
+            'TestWrFilterMatchesAllVariants',
+            'TestPppAttachmentPrefetchBudget',
+            'TestPppCleanupUntrackedAttachments',
+        ):
+            with self.subTest(cls_name=cls_name):
+                self.assertIn(
+                    cls_name, ledger,
+                    f"Living Ledger 2026-05-15 entry must reference "
+                    f"{cls_name} so future readers can trace rule "
+                    f"→ test."
+                )
+
+
 if __name__ == '__main__':
     unittest.main()
