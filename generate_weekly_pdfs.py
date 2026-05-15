@@ -456,7 +456,33 @@ SUBCONTRACTOR_RATE_VARIANTS_ENABLED = os.getenv(
 # extension) and Plan 3 (variant emission) gate variant emission on
 # ``Snapshot Date >= _AEP_BILLABLE_CUTOFF``. Exposed at module level
 # so downstream plans can reference a single source of truth.
-_AEP_BILLABLE_CUTOFF = datetime.date(2026, 4, 12)
+#
+# Phase 01 gap closure (REVIEW-IN-01): exposed as
+# ``AEP_BILLABLE_CUTOFF`` env var with safe parse + fallback to
+# the contract-award default. Operators can roll forward (or back,
+# for retroactive billing decisions) without a code change.
+# Format: ``YYYY-MM-DD``. Invalid format logs an error and falls
+# back to the default. Default is byte-identical to the pre-fix
+# constant — IN-01 is additive (override path), no behavior
+# regression for the unset / valid-format cases. The ``RATE_CUTOFF_DATE``
+# env var (retired 2026-04-24 14:30) is NOT reused — this is a new
+# distinct env var with explicit subcontractor-variant scope.
+_aep_billable_cutoff_env = os.getenv('AEP_BILLABLE_CUTOFF', '')
+try:
+    _AEP_BILLABLE_CUTOFF = (
+        datetime.datetime.strptime(
+            _aep_billable_cutoff_env, '%Y-%m-%d'
+        ).date()
+        if _aep_billable_cutoff_env
+        else datetime.date(2026, 4, 12)
+    )
+except ValueError:
+    logging.error(
+        f"⚠️ Invalid AEP_BILLABLE_CUTOFF format: "
+        f"{_aep_billable_cutoff_env!r}; expected YYYY-MM-DD. "
+        f"Falling back to default 2026-04-12."
+    )
+    _AEP_BILLABLE_CUTOFF = datetime.date(2026, 4, 12)
 
 if RATE_CUTOFF_DATE:
     logging.info(f"📊 Rate contract versioning ENABLED: cutoff date = {RATE_CUTOFF_DATE.isoformat()}")
@@ -534,6 +560,17 @@ elif SUBCONTRACTOR_RATE_VARIANTS_ENABLED:
     logging.info(
         "📊 Subcontractor PPP routing DISABLED "
         "(SUBCONTRACTOR_PPP_SHEET_ID='' or 0)"
+    )
+
+# Phase 01 gap closure (REVIEW-IN-01): name the resolved AEP cutoff
+# in the startup banner so operators tailing the log see the active
+# value at a glance. Only emitted when the umbrella variants kill
+# switch is ON (when off, the cutoff is moot — no _AEPBillable
+# variant emission occurs regardless of the cutoff value).
+if SUBCONTRACTOR_RATE_VARIANTS_ENABLED:
+    logging.info(
+        f"📊 AEP Billable cutoff: {_AEP_BILLABLE_CUTOFF.isoformat()} "
+        f"({'env override' if _aep_billable_cutoff_env else 'default'})"
     )
 
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
