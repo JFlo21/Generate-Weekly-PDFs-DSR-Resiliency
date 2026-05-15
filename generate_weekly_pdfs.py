@@ -4608,14 +4608,60 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         variant_suffix = '_ReducedSub'
     elif variant == 'aep_billable_helper':
         helper_foreman = first_row.get('__helper_foreman', '')
-        if helper_foreman:
-            helper_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50]
-            variant_suffix = f"_AEPBillable_Helper_{helper_sanitized}"
+        if not helper_foreman:
+            # Phase 01 gap closure (REVIEW-WR-03): the upstream
+            # ``_valid_helper_row`` gate in ``group_source_rows``
+            # requires both ``helper_dept`` AND ``helper_foreman`` to
+            # be truthy before adding a shadow-variant group key, so
+            # this branch should never see an empty foreman in
+            # production. If we ever hit it (refactor / data drift /
+            # unexpected row mutation), the silent fallthrough produced
+            # a primary-looking filename (no ``_AEPBillable_Helper_<name>``
+            # suffix), which downstream parses as ``variant='primary'``
+            # and routes the file to the wrong target sheet / wrong
+            # identity tuple. Raise loudly to surface the drift instead.
+            # Message body is _redact_exception_message-compatible
+            # (WR + week + variant name; no foreman / dept / job —
+            # those are PII per CLAUDE.md Living Ledger 2026-04-20 12:00).
+            logging.error(
+                f"⚠️ aep_billable_helper variant row missing "
+                f"__helper_foreman for WR {wr_num} week {week_end_raw}; "
+                f"filename would be ambiguous — raising to surface data drift."
+            )
+            raise ValueError(
+                f"aep_billable_helper requires __helper_foreman; got empty "
+                f"for WR={wr_num} week={week_end_raw}"
+            )
+        helper_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50]
+        variant_suffix = f"_AEPBillable_Helper_{helper_sanitized}"
     elif variant == 'reduced_sub_helper':
         helper_foreman = first_row.get('__helper_foreman', '')
-        if helper_foreman:
-            helper_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50]
-            variant_suffix = f"_ReducedSub_Helper_{helper_sanitized}"
+        if not helper_foreman:
+            # WR-03 mirror of the aep_billable_helper defensive raise.
+            # Same rationale, same PII-redact-compatible message body.
+            logging.error(
+                f"⚠️ reduced_sub_helper variant row missing "
+                f"__helper_foreman for WR {wr_num} week {week_end_raw}; "
+                f"filename would be ambiguous — raising to surface data drift."
+            )
+            raise ValueError(
+                f"reduced_sub_helper requires __helper_foreman; got empty "
+                f"for WR={wr_num} week={week_end_raw}"
+            )
+        helper_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50]
+        variant_suffix = f"_ReducedSub_Helper_{helper_sanitized}"
+    # WR-03 follow-up tech-debt: the legacy ``helper`` branch below has
+    # the same shape (silent fallthrough if __helper_foreman is empty)
+    # but is out of scope for this gap-closure plan per 01-REVIEW.md
+    # WR-03 scope restriction. Adding the same defensive raise here in
+    # a future plan is the recommended cleanup, but it requires a
+    # separate regression test confirming the upstream
+    # ``_valid_helper_row`` gate is the ONLY producer of the legacy
+    # helper variant_suffix branch. The
+    # ``test_legacy_helper_branch_does_not_raise_on_empty_foreman``
+    # regression test in tests/test_subcontractor_pricing.py guards
+    # against an accidental WR-03 fix broadening that would regress
+    # the legacy helper variant production path.
     elif variant == 'helper':
         # Helper variant: include helper identifier in filename
         helper_foreman = first_row.get('__helper_foreman', '')
