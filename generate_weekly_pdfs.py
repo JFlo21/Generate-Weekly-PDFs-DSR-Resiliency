@@ -6010,9 +6010,27 @@ def main():
                     )
                     _groups_skipped += 1
                     continue
-                if variant == 'helper':
+                if variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper'):
                     # CRITICAL FIX: Include helper dept and job in identifier for unique hash keys
-                    # This ensures helper files regenerate when new helper rows are added
+                    # This ensures helper files regenerate when new helper rows are added.
+                    #
+                    # CR-01 gap closure (Site 1 — main-loop identifier):
+                    # helper, aep_billable_helper, and reduced_sub_helper all
+                    # derive identifier / file_identifier from __helper_foreman
+                    # so the round-trip with build_group_identity (which parses
+                    # the helper-shadow filename's _Helper_<name>_<hash> tail in
+                    # Plan 02) succeeds. Pre-fix, the two shadow variants fell
+                    # through to the ``else`` branch that reads ``User`` —
+                    # typically blank for shadow rows — producing
+                    # file_identifier='' and a (parsed='Jane_Smith') == ('')
+                    # mismatch in _has_existing_week_attachment. Result:
+                    # permanent regeneration churn and orphan accumulation on
+                    # SUBCONTRACTOR_PPP_SHEET_ID. The change is additive — the
+                    # legacy ``helper`` body is preserved exactly; we just
+                    # expand the gate to include the two helper-shadow variants.
+                    # Sites 2 (valid_wr_weeks builder) and 3 (current_keys
+                    # hash-history prune) carry the same gate — drift between
+                    # the three sites is exactly the bug shape CR-01 documents.
                     helper_foreman = first_row.get('__helper_foreman', '')
                     helper_dept = first_row.get('__helper_dept', '')
                     helper_job = first_row.get('__helper_job', '')
@@ -6024,6 +6042,12 @@ def main():
                     identifier = ''
                     file_identifier = ''
                 else:
+                    # Non-helper subcontractor variants (aep_billable, reduced_sub)
+                    # correctly fall through here because their filenames carry no
+                    # identifier suffix and build_group_identity returns identifier=''.
+                    # Per CR-01, do NOT add them to the helper-gate above — that would
+                    # set identifier='||' (literal pipes-on-empties) for primary
+                    # subcontractor variants, breaking hash-history bucket cohesion.
                     user_val = first_row.get('User')
                     # PERFORMANCE: Use pre-compiled regex for identifier sanitization
                     identifier = _RE_SANITIZE_IDENTIFIER.sub('_', user_val)[:50] if user_val else ''
