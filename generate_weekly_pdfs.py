@@ -7135,6 +7135,62 @@ def main():
             with sentry_sdk.start_span(op="smartsheet.cleanup", name="Cleanup untracked sheet attachments"):
                 cleanup_untracked_sheet_attachments(client, TARGET_SHEET_ID, valid_wr_weeks, TEST_MODE, attachment_cache=_cleanup_cache, target_sheet=_target_sheet_obj)
 
+            # Phase 01 gap closure (REVIEW-WR-01): parallel cleanup pass
+            # for SUBCONTRACTOR_PPP_SHEET_ID. The TARGET_SHEET_ID
+            # cleanup above iterates one sheet only; without an
+            # equivalent pass on PPP, any helper-shadow attachment
+            # (``_AEPBillable_Helper_*`` / ``_ReducedSub_Helper_*``)
+            # whose per-row ``delete_old_excel_attachments`` call
+            # missed (CR-01 pre-fix bug, timestamp-identity drift,
+            # future refactor) orphans permanently on PPP. This
+            # invocation is the belt-and-suspenders defense: it
+            # iterates PPP rows, groups attachments by parsed identity
+            # tuple, and prunes everything-but-newest per identity.
+            #
+            # ``valid_wr_weeks`` is the SHARED authority — Plan 08
+            # (CR-01) ensured shadow-variant entries are correctly
+            # included so live attachments are not pruned.
+            #
+            # Cache semantics: ``_cleanup_cache`` is computed ABOVE
+            # both invocations as ``attachment_cache if not _upload_tasks
+            # else None``. In the normal production case (uploads ran
+            # this session, ``_upload_tasks`` truthy), ``_cleanup_cache``
+            # is ``None`` for BOTH passes because uploads invalidate
+            # the prefetch snapshot. When no uploads ran (TEST_MODE
+            # skip path, or no-changes branch), both passes share
+            # WR-05's prefetched dict transparently. WR-05's prefetch
+            # primarily amortizes per-row ``_upload_one`` API calls
+            # (its real value); the cleanup-time benefit is only on
+            # the no-uploads path. Either way, passing the same
+            # ``_cleanup_cache`` keeps cache semantics consistent
+            # across both passes.
+            #
+            # Gates (in order, short-circuit on first False):
+            #   1. SUBCONTRACTOR_RATE_VARIANTS_ENABLED (kill switch)
+            #   2. SUBCONTRACTOR_PPP_SHEET_ID is truthy (disable case)
+            #   3. SUBCONTRACTOR_PPP_SHEET_ID != TARGET_SHEET_ID
+            #      (skip redundant pass if operator points both to
+            #       the same sheet — unusual but supported)
+            #   4. _target_sheet_ppp_obj is not None (Plan 04 only
+            #      populates this when target_map_ppp was successfully
+            #      built; None means PPP routing was unreachable this
+            #      run and we should not iterate the sheet)
+            if (
+                SUBCONTRACTOR_RATE_VARIANTS_ENABLED
+                and SUBCONTRACTOR_PPP_SHEET_ID
+                and SUBCONTRACTOR_PPP_SHEET_ID != TARGET_SHEET_ID
+                and _target_sheet_ppp_obj is not None
+            ):
+                with sentry_sdk.start_span(op="smartsheet.cleanup_ppp", name="Cleanup untracked PPP sheet attachments"):
+                    cleanup_untracked_sheet_attachments(
+                        client,
+                        SUBCONTRACTOR_PPP_SHEET_ID,
+                        valid_wr_weeks,
+                        TEST_MODE,
+                        attachment_cache=_cleanup_cache,
+                        target_sheet=_target_sheet_ppp_obj,
+                    )
+
         # Cleanup legacy / stale Excel files so only current system outputs remain
         try:
             with sentry_sdk.start_span(op="file.cleanup", name="Cleanup stale local Excel files"):
