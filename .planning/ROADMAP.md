@@ -35,10 +35,14 @@ Express explorer routes are tracked as v1.1+ scope.
 - [ ] **Phase 1: Subcontractor Rate Logic Modification** — Two new Excel
   variants (`_AEPBillable`, `_ReducedSub`) for subcontractor WR groups,
   routed to original-PPP and new-subcontractor-PPP target sheets, with
-  shadow-foreman/helper support. ✅ Complete 2026-05-14 — all 6 plans
-  done; ready to ship via PR. Kill switch
+  shadow-foreman/helper support. Original 6 plans completed 2026-05-14;
+  post-merge code review (`/gsd-code-review 01`) flagged 3 BLOCKER +
+  6 WARNING + 4 INFO findings. Gap-closure plans 01-07 through 01-14
+  added 2026-05-14 (this planning session) to close all 12 actionable
+  findings (IN-03 is reference-only). Kill switch
   (`SUBCONTRACTOR_RATE_VARIANTS_ENABLED`) default-ON with `0` as the
-  documented rollback path.
+  documented rollback path; per IN-04 / plan 01-14 now also pinned in
+  the workflow `env:` block.
 - [ ] **Phase 2 (DEFERRED): Railway → Render Pre-Migration ADR** — File the
   missing `memory-bank/adr/` record locking Render Starter, in-memory
   LRU search, and v1 download = original `.xlsx`. **Does not gate v1.0 completion** — preserved here so MIG-01 stays mapped, but the full Railway → Render execution lives in REQUIREMENTS.md v2 section.
@@ -55,7 +59,11 @@ existing primary, helper, VAC-crew, or ORIG-folder outputs.
 from existing pre-locked decisions in PROJECT.md and the production
 pipeline as-is.
 **Requirements**: SUB-01, SUB-02, SUB-03, SUB-04, SUB-05, SUB-06,
-SUB-07
+SUB-07 (covered by plans 01-01..01-06); gap-closure plans 01-07..01-14
+address review findings REVIEW-CR-01, REVIEW-CR-02, REVIEW-CR-03,
+REVIEW-WR-01..WR-06, REVIEW-IN-01, REVIEW-IN-02, REVIEW-IN-04, and
+the Living Ledger documentation rule (IN-03 is reference-only — not
+a tracked finding).
 **Success Criteria** (what must be TRUE):
   1. For every subcontractor-folder WR group with
      `Snapshot Date >= 2026-04-12`, the workflow produces an
@@ -73,7 +81,14 @@ SUB-07
      existing helper-foreman rule fires), TWO shadow files appear in
      `generated_docs/<week>/` named `_AEPBillable_Helper_<name>` and
      `_ReducedSub_Helper_<name>`, each routed to its variant's target
-     sheet (observable as two new attachments).
+     sheet (observable as two new attachments). Helper-shadow
+     attachment identity matches correctly through
+     `_has_existing_week_attachment` and
+     `delete_old_excel_attachments` per plan 01-08 / CR-01 (the
+     three-site identity consistency fix). Orphan accumulation on
+     `SUBCONTRACTOR_PPP_SHEET_ID` is eliminated by the combination
+     of CR-01 + WR-05 (PPP prefetch, plan 01-12) + WR-01 (PPP
+     end-of-run cleanup, plan 01-13).
   4. `pytest tests/` passes including: new tests covering
      subcontractor variant generation, CSV rate loader schema
      validation, hash-key extension with the new variant strings,
@@ -81,13 +96,29 @@ SUB-07
      `_ReducedSub` (and their `_Helper_<name>` forms),
      `target_map` collision quarantine across new variants, and
      `freeze_row` `variant` attribution captured in
-     `pipeline_run`. No existing test regresses.
+     `pipeline_run`. No existing test regresses. Gap-closure plans
+     added ~55-65 new tests across `tests/test_subcontractor_pricing.py`,
+     `tests/test_security_audit_followup.py`, and
+     `tests/test_performance_optimizations.py`.
   5. A scheduled weekly workflow run completes inside
      `timeout-minutes: 195` and emits zero Sentry events tagged with
      the new variant scope; existing VAC-crew, ORIG-folder, and
      primary outputs are byte-identical to the run immediately before
      the change (verified via hash-history diff on a TEST_MODE run).
-**Plans**: 6 plans
+     `TestPhase1IntegrationRegression` continues to pass after all
+     gap-closure plans land.
+  6. `EXCLUDE_WRS` correctly suppresses all 7 group-key variants per
+     WR (primary + helper + USER + vac_crew + the 4 new variants)
+     per plan 01-07 / CR-02; `WR_FILTER` correctly retains 6 of those
+     7 variants in TEST_MODE per CR-03 (matcher asymmetry preserved
+     — _USER_ legacy clause is excluded from `_key_matches_wr` per
+     pre-fix surface).
+  7. Operator-facing rollback path is workflow-pinned: setting
+     `SUBCONTRACTOR_RATE_VARIANTS_ENABLED='0'` in the workflow `env:`
+     block disables ALL Phase 1 variant generation, leaving primary
+     / helper / vac_crew / ORIG-folder pipelines unaffected (per
+     plan 01-14 / IN-04).
+**Plans**: 14 plans (6 original + 8 gap-closure)
 
 Plans:
 - [x] 01-01-PLAN.md — CSV move to canonical path + subcontractor rate loader + env-var scaffolding + fingerprint
@@ -96,6 +127,14 @@ Plans:
 - [x] 01-04-PLAN.md — Dual-target routing for _ReducedSub via SUBCONTRACTOR_PPP_SHEET_ID; independent collision quarantine on second target_map
 - [x] 01-05-PLAN.md — billing_audit pipeline_run.variant column DDL + freeze_row/emit_run_fingerprint variant kwarg
 - [x] 01-06-PLAN.md — Byte-identical regression test, production-safety validator pin, Docusaurus runbook update, human-verify checkpoint
+- [ ] 01-07-PLAN.md — Gap closure: CR-02 + CR-03 (mirror filter matchers extend to 4 new variant suffixes) + regression tests
+- [ ] 01-08-PLAN.md — Gap closure: CR-01 (helper-shadow identifier derivation at 3 main-loop sites) + regression test
+- [ ] 01-09-PLAN.md — Gap closure: WR-04 (explicit helper-shadow PII markers) + WR-06 (`__source_sheet_id` migration) + regression tests
+- [ ] 01-10-PLAN.md — Gap closure: WR-02 (PPP empty-string disable) + WR-03 (helper-shadow filename-suffix defensive raise) + doc update + regression tests
+- [ ] 01-11-PLAN.md — Gap closure: IN-01 (`AEP_BILLABLE_CUTOFF` env var with safe parse) + IN-02 (`qty_raw` coercion cleanup) + doc update + regression tests
+- [ ] 01-12-PLAN.md — Gap closure: WR-05 (PPP attachment prefetch — same daemon-executor / sub-budget pattern as primary) + regression tests
+- [ ] 01-13-PLAN.md — Gap closure: WR-01 (PPP end-of-run cleanup pass) + regression tests
+- [ ] 01-14-PLAN.md — Gap closure: IN-04 (workflow env-var pinning) + Living Ledger entry documenting 7 new rules + regression test
 
 ### Phase 2: Railway → Render Pre-Migration ADR (DEFERRED — out of v1.0 scope)
 **Status**: DEFERRED. Does not gate v1.0 milestone completion. The seven REQ-* requirements that drive the actual Railway → Render execution + Artifact Explorer redesign live in REQUIREMENTS.md "v2 Requirements" section and will be promoted by a future `/gsd-new-project` cycle. Phase 2 here exists to lock in the one small documentation deliverable (`MIG-01`) that should land before any of that v2 work begins.
@@ -138,7 +177,7 @@ Plans:
 **Execution Order:**
 Phases execute in numeric order: 1 → 2
 
-| Phase                                            | Plans Complete | Status                       | Completed  |
-|--------------------------------------------------|----------------|------------------------------|------------|
-| 1. Subcontractor Rate Logic Modification         | 6/6 (gaps)     | ⚠ Gaps Found — code review   | -          |
-| 2. Railway → Render Pre-Migration ADR (DEFERRED) | 0/TBD          | Deferred — out of v1.0 scope | -          |
+| Phase                                            | Plans Complete             | Status                                       | Completed |
+|--------------------------------------------------|----------------------------|----------------------------------------------|-----------|
+| 1. Subcontractor Rate Logic Modification         | 6/14 (gap closure pending) | ⚠ Gap closure planned — execute 01-07..01-14 | -         |
+| 2. Railway → Render Pre-Migration ADR (DEFERRED) | 0/TBD                      | Deferred — out of v1.0 scope                 | -         |
