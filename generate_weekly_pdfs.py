@@ -5868,6 +5868,230 @@ def main():
                 else:
                     logging.info(f"⚡ Pre-fetched attachments for {len(attachment_cache)} target rows in {_att_elapsed:.1f}s (parallel w/{PARALLEL_WORKERS} workers)")
 
+        # ──────────────────────────────────────────────────────────
+        # Phase 01 gap closure (REVIEW-WR-05): secondary attachment
+        # prefetch for SUBCONTRACTOR_PPP_SHEET_ID rows. Without it,
+        # every _ReducedSub / _ReducedSub_Helper_* upload to the PPP
+        # sheet pays an extra ``list_row_attachments`` API call (for
+        # delete_old_excel_attachments matching). The PPP sheet has
+        # far fewer rows than TARGET_SHEET_ID — only the subset that
+        # needs _ReducedSub* — so the cost amortizes quickly.
+        #
+        # Defense-in-depth contract (Living Ledger 2026-04-22 16:05):
+        #   - _DaemonThreadPoolExecutor (NOT ThreadPoolExecutor)
+        #   - as_completed(futures, timeout=...) for the wait
+        #   - executor.shutdown(wait=False, cancel_futures=True)
+        #   - _detach_ppp_from_atexit_registry() on budget-exceed path
+        #   - Pre-flight skip if session budget < (PREFETCH_MAX +
+        #     GENERATION_HEADROOM)
+        # Safety invariant: PPP prefetch is OPTIONAL — both
+        # delete_old_excel_attachments and _has_existing_week_attachment
+        # accept cached_attachments=None and fall back to per-row API.
+        # Do NOT add new consumers that assume the PPP cache is
+        # populated.
+        # ──────────────────────────────────────────────────────────
+        _ppp_prefetch_eligible = (
+            SUBCONTRACTOR_RATE_VARIANTS_ENABLED
+            and SUBCONTRACTOR_PPP_SHEET_ID
+            and SUBCONTRACTOR_PPP_SHEET_ID != TARGET_SHEET_ID
+            and not TEST_MODE
+            and target_map_ppp is not None
+            and len(target_map_ppp) > 0
+        )
+        if _ppp_prefetch_eligible:
+            # Pre-flight budget guard (Living Ledger 2026-04-22 16:05
+            # rule 7): skip entirely if remaining budget < (prefetch
+            # phase budget + generation headroom). Without the
+            # headroom reservation, an edge case where session
+            # budget == prefetch budget would still trigger the
+            # prefetch and leave zero time for the main loop.
+            if TIME_BUDGET_MINUTES > 0:
+                _ppp_elapsed_min = (
+                    datetime.datetime.now() - session_start
+                ).total_seconds() / 60.0
+                _ppp_remaining_min = TIME_BUDGET_MINUTES - _ppp_elapsed_min
+                _ppp_required_min = (
+                    ATTACHMENT_PREFETCH_MAX_MINUTES
+                    + ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN
+                )
+                if _ppp_remaining_min < _ppp_required_min:
+                    logging.info(
+                        f"🛡️ Skipping PPP attachment prefetch: only "
+                        f"{_ppp_remaining_min:.1f}min of session budget "
+                        f"remain (need >= {_ppp_required_min:.0f}min for "
+                        f"prefetch + generation headroom). PPP target "
+                        f"rows will fall back to per-row API calls — "
+                        f"correctness is preserved."
+                    )
+                    _ppp_prefetch_eligible = False
+        if _ppp_prefetch_eligible:
+            with sentry_sdk.start_span(
+                op="smartsheet.attachment_prefetch_ppp",
+                name="Pre-fetch PPP row attachments",
+            ) as ppp_span:
+                logging.info(
+                    f"🚀 Starting parallel PPP attachment pre-fetch "
+                    f"with {PARALLEL_WORKERS} workers for "
+                    f"{len(target_map_ppp)} PPP target rows (max "
+                    f"{ATTACHMENT_PREFETCH_MAX_MINUTES}min)..."
+                )
+                _ppp_att_start = datetime.datetime.now()
+
+                def _fetch_ppp_row_attachments(row_item):
+                    # row_item is (wr_num, target_row); only target_row is needed.
+                    _, target_row = row_item
+                    max_retries = 4
+                    for attempt in range(max_retries):
+                        try:
+                            atts = client.Attachments.list_row_attachments(SUBCONTRACTOR_PPP_SHEET_ID, target_row.id).data
+                            return (target_row.id, atts)
+                        except (ss_exc.RateLimitExceededError,) as e:
+                            if attempt < max_retries - 1:
+                                backoff = 15 * (attempt + 1)
+                                logging.warning(
+                                    f"⚠️ PPP rate limited on attachment fetch "
+                                    f"for row {target_row.id}, backoff {backoff}s "
+                                    f"(attempt {attempt + 1}/{max_retries})"
+                                )
+                                time.sleep(backoff)
+                            else:
+                                logging.warning(
+                                    f"⚠️ PPP attachment fetch failed after "
+                                    f"{max_retries} rate-limit retries for row "
+                                    f"{target_row.id}"
+                                )
+                                return (target_row.id, [])
+                        except (
+                            ss_exc.UnexpectedErrorShouldRetryError,
+                            ss_exc.InternalServerError,
+                            ss_exc.ServerTimeoutExceededError,
+                        ) as e:
+                            if attempt < max_retries - 1:
+                                backoff = 2 ** attempt + 0.5
+                                logging.warning(
+                                    f"⚠️ PPP attachment fetch retry "
+                                    f"{attempt + 1}/{max_retries} for row "
+                                    f"{target_row.id} ({type(e).__name__}), "
+                                    f"backoff {backoff:.1f}s"
+                                )
+                                time.sleep(backoff)
+                            else:
+                                logging.warning(
+                                    f"⚠️ PPP attachment fetch failed after "
+                                    f"{max_retries} attempts for row "
+                                    f"{target_row.id}: {type(e).__name__}"
+                                )
+                                return (target_row.id, [])
+                        except Exception as e:
+                            err_name = type(e).__name__
+                            is_transient = any(
+                                tag in err_name for tag in (
+                                    'RemoteDisconnected', 'ConnectionError',
+                                    'ConnectionReset', 'SSLError',
+                                    'SSLEOFError', 'Timeout',
+                                )
+                            )
+                            if is_transient and attempt < max_retries - 1:
+                                backoff = 2 ** attempt + 0.5
+                                logging.warning(
+                                    f"⚠️ PPP attachment fetch retry "
+                                    f"{attempt + 1}/{max_retries} for row "
+                                    f"{target_row.id} ({err_name}), backoff "
+                                    f"{backoff:.1f}s"
+                                )
+                                time.sleep(backoff)
+                            else:
+                                if attempt > 0:
+                                    logging.warning(
+                                        f"⚠️ PPP attachment fetch failed "
+                                        f"after {max_retries} attempts for row "
+                                        f"{target_row.id}: {err_name}"
+                                    )
+                                return (target_row.id, [])
+
+                _ppp_prefetch_budget_exceeded = False
+                _ppp_prefetch_cancelled = 0
+                _ppp_prefetch_still_running = 0
+
+                ppp_executor = _DaemonThreadPoolExecutor(
+                    max_workers=PARALLEL_WORKERS,
+                )
+                ppp_futures = [
+                    ppp_executor.submit(_fetch_ppp_row_attachments, item)
+                    for item in target_map_ppp.items()
+                ]
+                _ppp_phase_budget_sec = ATTACHMENT_PREFETCH_MAX_MINUTES * 60
+
+                def _detach_ppp_from_atexit_registry():
+                    try:
+                        registry = getattr(
+                            _cf_thread, '_threads_queues', None,
+                        )
+                        if registry is None:
+                            return
+                        for _t in list(
+                            getattr(ppp_executor, '_threads', ()) or ()
+                        ):
+                            registry.pop(_t, None)
+                    except Exception as _det_e:
+                        logging.debug(
+                            f"Could not detach PPP pre-fetch workers from "
+                            f"atexit registry: {_det_e}"
+                        )
+
+                try:
+                    for fut in as_completed(
+                        ppp_futures, timeout=_ppp_phase_budget_sec,
+                    ):
+                        try:
+                            row_id, atts = fut.result()
+                            attachment_cache[row_id] = atts
+                        except Exception as e:
+                            # Worker exceptions already logged inside
+                            # the worker — fall through to per-row.
+                            logging.debug(
+                                f"PPP prefetch future raised; row will "
+                                f"fall back to per-row: {type(e).__name__}"
+                            )
+                except FuturesTimeoutError:
+                    _ppp_prefetch_budget_exceeded = True
+                    logging.warning(
+                        f"⚠️ PPP attachment prefetch exceeded "
+                        f"{ATTACHMENT_PREFETCH_MAX_MINUTES}min sub-budget; "
+                        f"abandoning in-flight workers. Affected PPP rows "
+                        f"will fall back to per-row API calls — correctness "
+                        f"is preserved."
+                    )
+                finally:
+                    # Three defenses against interpreter-exit hang:
+                    # (1) atexit registry detach (only on budget-exceed,
+                    #     per Copilot review — don't touch private APIs
+                    #     when workers completed normally)
+                    # (2) _DaemonThreadPoolExecutor handles tstate_lock
+                    # (3) explicit shutdown(wait=False, cancel_futures=True)
+                    if _ppp_prefetch_budget_exceeded:
+                        _detach_ppp_from_atexit_registry()
+                    for _fut in ppp_futures:
+                        if _fut.cancel():
+                            _ppp_prefetch_cancelled += 1
+                        elif not _fut.done():
+                            _ppp_prefetch_still_running += 1
+                    ppp_executor.shutdown(wait=False, cancel_futures=True)
+
+                _ppp_elapsed = (
+                    datetime.datetime.now() - _ppp_att_start
+                ).total_seconds()
+                logging.info(
+                    f"🏁 PPP attachment prefetch complete in "
+                    f"{_ppp_elapsed:.1f}s: {len(target_map_ppp)} rows, "
+                    f"{_ppp_prefetch_cancelled} cancelled, "
+                    f"{_ppp_prefetch_still_running} still_running"
+                )
+                ppp_span.set_data("rows_prefetched", len(target_map_ppp))
+                ppp_span.set_data("budget_exceeded", _ppp_prefetch_budget_exceeded)
+                ppp_span.set_data("cancelled", _ppp_prefetch_cancelled)
+                ppp_span.set_data("still_running", _ppp_prefetch_still_running)
+
         # Load hash history AFTER optional purge so we don't rely on stale attachments
         hash_history = load_hash_history(HASH_HISTORY_PATH)
         billing_audit_row_cache: set[str] = set()
