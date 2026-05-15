@@ -73,9 +73,33 @@ file appear as an attachment on two rows (one on each target
 sheet). `_AEPBillable` variants and every legacy variant
 (primary / helper / vac_crew) continue to route to
 `TARGET_SHEET_ID` only.
-**Valid values:** Integer Smartsheet sheet id resolvable via the
-SDK, or empty / `0` to disable dual routing. Parsed via
-`_coerce_sheet_id` with a parse-error fallback.
+
+**Disable dual routing:** Set to `0` (integer) OR `''` (empty
+string). Both values resolve to `0` at import time and the
+downstream gate
+(`if SUBCONTRACTOR_RATE_VARIANTS_ENABLED and SUBCONTRACTOR_PPP_SHEET_ID:`)
+skips the second `target_map` build, the PPP prefetch (when WR-05
+lands), the PPP upload-task emission, and (when WR-01 lands) the
+PPP end-of-run cleanup pass. Pre-2026-05-15 this asymmetry was
+undocumented — `''` silently fell back to the hardcoded default,
+while `0` correctly disabled. The 01-10 gap-closure plan
+special-cased empty-string-as-zero at the call site so both forms
+now behave consistently with the operator's intent.
+
+**Other values:** Any non-empty, non-integer value falls back to
+the hardcoded default `8162920222379908` and logs a WARNING
+(`Invalid sheet id value provided`). The fallback is intentional —
+the shared `_coerce_sheet_id` helper preserves default-fallback
+for `TARGET_SHEET_ID` where "disabled" is not a state.
+
+**Startup banner:** The resolved state is logged at startup:
+
+- `📊 Subcontractor PPP routing ENABLED (target sheet id: <id>)` — value > 0
+- `📊 Subcontractor PPP routing DISABLED (SUBCONTRACTOR_PPP_SHEET_ID='' or 0)` — value is 0
+
+Operators can grep the startup banner to confirm the resolved
+routing state without inspecting individual env-var values.
+
 **Rollback:** If the value equals `TARGET_SHEET_ID`, the dual
 routing detects same-sheet config and skips the second upload (no
 duplicate attachments). If the sheet is unreachable, the pipeline

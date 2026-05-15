@@ -5,8 +5,10 @@ Validates load_contract_rates() behavior and SUBCONTRACTOR_SHEET_IDS configurati
 
 import os
 import csv
+import importlib
 import tempfile
 import unittest
+from unittest import mock
 import generate_weekly_pdfs
 
 
@@ -2473,6 +2475,249 @@ class TestSubcontractorVariantKillSwitchAndScope(unittest.TestCase):
         self.assertFalse(
             any('_AEPBILLABLE' in k for k in keys),
             f"Unparseable snapshot must suppress _AEPBILLABLE; got: {keys}",
+        )
+
+
+class TestSubcontractorPppSheetIdEmptyStringDisable(unittest.TestCase):
+    """Phase 01 gap closure (REVIEW-WR-02): ``SUBCONTRACTOR_PPP_SHEET_ID=''``
+    must resolve to ``0`` (disabled), matching the operator-facing
+    documentation. Pre-fix the empty string silently fell back to
+    the hardcoded default ``8162920222379908`` — asymmetric with
+    ``'0'``, which already disabled correctly via the downstream
+    truthy gate. The fix is a single-line special case at the
+    SUBCONTRACTOR_PPP_SHEET_ID call site (not inside
+    ``_coerce_sheet_id``, which is shared with ``TARGET_SHEET_ID``
+    where default-fallback is correct).
+
+    The reload pattern + Sentry-DSN suppression mirrors
+    ``_safe_reload_gwp`` in ``test_performance_optimizations.py``
+    per Living Ledger 2026-04-22 16:05.
+    """
+
+    def setUp(self):
+        # Snapshot env so tearDown restores it cleanly.
+        self._env_snapshot = {
+            k: os.environ.get(k)
+            for k in (
+                'SUBCONTRACTOR_PPP_SHEET_ID',
+                'SENTRY_DSN',
+            )
+        }
+        # Defense-in-depth: silence Sentry during reload so a
+        # developer's local DSN doesn't fire a real Sentry init.
+        os.environ['SENTRY_DSN'] = ''
+
+    def tearDown(self):
+        for k, v in self._env_snapshot.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        # Restore module to its baseline by reloading once more under
+        # the same Sentry-suppression bracket per the 2026-04-22 16:05
+        # ledger rule.
+        with mock.patch.dict(os.environ, {"SENTRY_DSN": ""}, clear=False):
+            with mock.patch('sentry_sdk.init'):
+                importlib.reload(generate_weekly_pdfs)
+
+    def _reload_with_ppp(self, value):
+        if value is None:
+            os.environ.pop('SUBCONTRACTOR_PPP_SHEET_ID', None)
+        else:
+            os.environ['SUBCONTRACTOR_PPP_SHEET_ID'] = value
+        # Silence Sentry init on reload.
+        with mock.patch.dict(os.environ, {"SENTRY_DSN": ""}, clear=False):
+            with mock.patch('sentry_sdk.init'):
+                importlib.reload(generate_weekly_pdfs)
+
+    def test_empty_string_disables_ppp(self):
+        self._reload_with_ppp('')
+        self.assertEqual(
+            generate_weekly_pdfs.SUBCONTRACTOR_PPP_SHEET_ID, 0,
+            "Per WR-02, SUBCONTRACTOR_PPP_SHEET_ID='' must resolve "
+            "to 0 (disabled), not fall back to the hardcoded default."
+        )
+
+    def test_zero_string_disables_ppp(self):
+        self._reload_with_ppp('0')
+        self.assertEqual(
+            generate_weekly_pdfs.SUBCONTRACTOR_PPP_SHEET_ID, 0,
+            "Per pre-existing behavior, SUBCONTRACTOR_PPP_SHEET_ID='0' "
+            "resolves to 0 — the empty-string fix must preserve this."
+        )
+
+    def test_unset_uses_hardcoded_default(self):
+        self._reload_with_ppp(None)
+        self.assertEqual(
+            generate_weekly_pdfs.SUBCONTRACTOR_PPP_SHEET_ID,
+            8162920222379908,
+            "Per the default contract, an unset env var resolves to "
+            "the hardcoded default.",
+        )
+
+    def test_invalid_value_falls_back_to_default(self):
+        self._reload_with_ppp('not-an-int')
+        # _coerce_sheet_id WARN-and-fallback behavior is preserved.
+        # The special case in WR-02 ONLY fires on the literal '',
+        # NOT on any other non-integer value.
+        self.assertEqual(
+            generate_weekly_pdfs.SUBCONTRACTOR_PPP_SHEET_ID,
+            8162920222379908,
+            "Per pre-existing _coerce_sheet_id behavior, a non-integer "
+            "non-empty value falls back to the hardcoded default with "
+            "a WARNING.",
+        )
+
+    def test_integer_string_passes_through(self):
+        self._reload_with_ppp('1234567890')
+        self.assertEqual(
+            generate_weekly_pdfs.SUBCONTRACTOR_PPP_SHEET_ID, 1234567890,
+        )
+
+
+class TestHelperShadowSuffixDefensiveRaise(unittest.TestCase):
+    """Phase 01 gap closure (REVIEW-WR-03): the two new
+    helper-shadow filename-suffix branches in ``generate_excel``
+    raise ``ValueError`` if ``__helper_foreman`` is empty, instead
+    of silently producing a primary-looking filename. The
+    legacy ``helper`` branch is explicitly OUT OF SCOPE per
+    01-REVIEW.md and stays unchanged.
+
+    These tests construct minimal groups with the variant
+    tagged but ``__helper_foreman=''`` and call ``generate_excel``.
+    The raise fires inside the variant-suffix builder, which runs
+    BEFORE workbook construction, so the tests do not need a full
+    openpyxl scaffold.
+    """
+
+    @staticmethod
+    def _make_group(variant, helper_foreman=''):
+        """Build a 1-row group eligible for the variant-suffix
+        builder. Includes the minimum fields ``generate_excel``
+        needs to reach the variant branch (wr_num / week_end_raw
+        derivation depends on ``Work Request #`` and the group_key).
+        """
+        import datetime as _dt
+        return [{
+            'Work Request #': '91467680',
+            'Weekly Reference Logged Date': '04/19/26',
+            'Snapshot Date': '04/19/26',
+            'Units Completed?': True,
+            'Units Total Price': '$100.00',
+            'CU': 'ABC123',
+            'Work Type': 'Install',
+            'Quantity': 1,
+            'Customer Name': 'TestCustomer',
+            'Foreman': 'TestForeman',
+            'Dept #': '500',
+            'Job #': 'JOB-99',
+            '__effective_user': 'TestForeman',
+            '__current_foreman': 'TestForeman',
+            '__variant': variant,
+            '__helper_foreman': helper_foreman,
+            '__helper_dept': '500',
+            '__helper_job': 'JOB-99',
+            '__week_ending_date': _dt.datetime(2026, 4, 19),
+        }]
+
+    def setUp(self):
+        # Direct OUTPUT_FOLDER into a temp dir so the (legacy-branch)
+        # workbook test doesn't pollute the repo. The defensive-raise
+        # tests don't reach workbook construction but the legacy test
+        # does (it must NOT raise, so the function continues to
+        # workbook write).
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._orig_output_folder = generate_weekly_pdfs.OUTPUT_FOLDER
+        generate_weekly_pdfs.OUTPUT_FOLDER = self._tmpdir.name
+
+    def tearDown(self):
+        generate_weekly_pdfs.OUTPUT_FOLDER = self._orig_output_folder
+        self._tmpdir.cleanup()
+
+    def test_aep_billable_helper_empty_foreman_raises_value_error(self):
+        import datetime as _dt
+        group = self._make_group('aep_billable_helper', helper_foreman='')
+        with self.assertRaises(ValueError) as ctx:
+            generate_weekly_pdfs.generate_excel(
+                '041926_91467680',
+                group,
+                _dt.datetime(2026, 4, 19),
+                data_hash='deadbeefcafebab4',
+            )
+        # Message body MUST contain WR + variant name but NOT
+        # foreman / dept / job (PII per CLAUDE.md / Living Ledger
+        # 2026-04-20 12:00). __helper_foreman='' so there is no
+        # foreman value to leak; the dept/job values from
+        # _make_group MUST NOT appear in the message body.
+        msg = str(ctx.exception)
+        self.assertIn('aep_billable_helper', msg)
+        self.assertIn('91467680', msg)
+        self.assertNotIn('500', msg, f"dept # leaked into raise body: {msg!r}")
+        self.assertNotIn('JOB-99', msg, f"job # leaked into raise body: {msg!r}")
+
+    def test_reduced_sub_helper_empty_foreman_raises_value_error(self):
+        import datetime as _dt
+        group = self._make_group('reduced_sub_helper', helper_foreman='')
+        with self.assertRaises(ValueError) as ctx:
+            generate_weekly_pdfs.generate_excel(
+                '041926_91467680',
+                group,
+                _dt.datetime(2026, 4, 19),
+                data_hash='deadbeefcafebab5',
+            )
+        msg = str(ctx.exception)
+        self.assertIn('reduced_sub_helper', msg)
+        self.assertIn('91467680', msg)
+        self.assertNotIn('500', msg, f"dept # leaked into raise body: {msg!r}")
+        self.assertNotIn('JOB-99', msg, f"job # leaked into raise body: {msg!r}")
+
+    def test_legacy_helper_branch_does_not_raise_on_empty_foreman(self):
+        # 01-REVIEW.md WR-03 explicit scope restriction: the legacy
+        # ``helper`` branch has the same silent-fallthrough shape but
+        # is OUT OF SCOPE. A future tech-debt-cleanup plan can add
+        # the defensive raise there with its own regression test.
+        # Until then, this test guards against an accidental
+        # broadening of the WR-03 fix that would regress the legacy
+        # helper variant production path.
+        import datetime as _dt
+        group = self._make_group('helper', helper_foreman='')
+        try:
+            generate_weekly_pdfs.generate_excel(
+                '041926_91467680',
+                group,
+                _dt.datetime(2026, 4, 19),
+                data_hash='deadbeefcafebab6',
+            )
+        except ValueError as exc:
+            self.fail(
+                f"Legacy ``helper`` branch raised ValueError unexpectedly: "
+                f"{exc!r}. WR-03 scope restriction: defensive raise is "
+                f"added to NEW shadow variants only. If a future plan "
+                f"intentionally extends the raise to the legacy branch, "
+                f"remove this test and add the symmetric raise+test pair."
+            )
+        except Exception:
+            # Other exceptions (e.g., openpyxl Workbook init failure
+            # in TEST_MODE-off path, an unrelated bug in legacy helper
+            # flow) are acceptable — they're not the WR-03 contract
+            # surface. The WR-03 contract is specifically "no
+            # ValueError raised here from the missing-foreman branch."
+            pass
+
+    def test_production_aep_billable_helper_branch_has_defensive_raise(self):
+        # Source-level guard: confirm the raise landed. Belt-and-
+        # suspenders complement to the behavioral tests above.
+        import inspect
+        import pathlib
+        src = pathlib.Path(
+            inspect.getsourcefile(generate_weekly_pdfs)
+        ).read_text(encoding='utf-8')
+        # The raise text should be unique enough to grep for.
+        self.assertIn(
+            'aep_billable_helper requires __helper_foreman', src,
+        )
+        self.assertIn(
+            'reduced_sub_helper requires __helper_foreman', src,
         )
 
 
