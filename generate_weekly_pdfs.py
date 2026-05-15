@@ -4329,17 +4329,39 @@ def group_source_rows(rows):
         logging.info(f"🔍 Sample group keys: {sample_keys}")
         
         def _key_matches_excluded_wr(k: str, wr: str) -> bool:
-            # k format examples:
-            #   MMDDYY_WR               → suffix = WR
-            #   MMDDYY_WR_HELPER_<name> → suffix = WR_HELPER_<name>
-            #   MMDDYY_WR_USER_<name>   → suffix = WR_USER_<name>
-            #   MMDDYY_WR_VACCREW       → suffix = WR_VACCREW
+            # k format examples (all seven shapes emitted by group_source_rows):
+            #   MMDDYY_WR                                   → primary
+            #   MMDDYY_WR_HELPER_<name>                     → helper
+            #   MMDDYY_WR_USER_<name>                       → user-tagged (legacy)
+            #   MMDDYY_WR_VACCREW                           → vac_crew
+            #   MMDDYY_WR_REDUCEDSUB                        → reduced_sub  (Phase 1)
+            #   MMDDYY_WR_AEPBILLABLE                       → aep_billable (Phase 1)
+            #   MMDDYY_WR_REDUCEDSUB_HELPER_<name>          → reduced_sub_helper  (Phase 1)
+            #   MMDDYY_WR_AEPBILLABLE_HELPER_<name>         → aep_billable_helper (Phase 1)
+            #
+            # Phase 01 gap closure (REVIEW-CR-02): before this fix the matcher
+            # only recognized the first four shapes, so EXCLUDE_WRS=<wr>
+            # silently uploaded the four new variant files to TARGET_SHEET_ID
+            # and SUBCONTRACTOR_PPP_SHEET_ID even when the operator's intent
+            # was "do not bill yet." The additive ``or`` clauses below close
+            # that gap. Match shape mirrors ``_key_matches_wr``; the two
+            # matchers are siblings and MUST stay in sync — any future
+            # variant added in ``group_source_rows`` must extend BOTH.
             try:
                 suffix = k.split('_', 1)[1]  # take everything after first underscore (WR...)
             except Exception:
                 return False
-            # Match exact WR, or WR followed by _HELPER_, _USER_, or _VACCREW variants
-            return suffix == wr or suffix.startswith(f"{wr}_HELPER_") or suffix.startswith(f"{wr}_USER_") or suffix == f"{wr}_VACCREW"
+            return (
+                suffix == wr
+                or suffix.startswith(f"{wr}_HELPER_")
+                or suffix.startswith(f"{wr}_USER_")
+                or suffix == f"{wr}_VACCREW"
+                # Phase 1 subcontractor variants (REVIEW-CR-02).
+                or suffix == f"{wr}_REDUCEDSUB"
+                or suffix == f"{wr}_AEPBILLABLE"
+                or suffix.startswith(f"{wr}_REDUCEDSUB_HELPER_")
+                or suffix.startswith(f"{wr}_AEPBILLABLE_HELPER_")
+            )
         
         # Remove groups that match any excluded WR
         groups = {k: v for k, v in groups.items() if not any(_key_matches_excluded_wr(k, wr) for wr in EXCLUDE_WRS)}
