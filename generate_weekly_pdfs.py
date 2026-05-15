@@ -778,6 +778,22 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     "_REDUCEDSUB_HELPER_",
     "AEP BILLABLE GROUP CREATED",
     "REDUCED SUB GROUP CREATED",
+    # Phase 01 gap closure (REVIEW-WR-04 / Living Ledger 2026-04-20
+    # 12:00): the new helper-shadow GROUP CREATED logs already match
+    # against the substring "HELPER GROUP CREATED" by accident — the
+    # tokens "REDUCED SUB HELPER GROUP CREATED" and "AEP BILLABLE
+    # HELPER GROUP CREATED" happen to CONTAIN that substring. That
+    # makes scrubbing fragile to future wording changes (e.g., a
+    # rename to "REDUCED SUB HELPER GROUP REGISTERED" or "REDUCED
+    # SUB HELPER GRP CREATED" would silently leak the helper
+    # foreman name to Sentry Logs). Explicit markers are the
+    # defense-in-depth contract per the 2026-04-20 12:00 ledger
+    # rule. Sibling markers for the non-shadow variants
+    # ("AEP BILLABLE GROUP CREATED" and "REDUCED SUB GROUP
+    # CREATED") were landed in Phase 01 Plan 02; these two finish
+    # the set.
+    "REDUCED SUB HELPER GROUP CREATED",
+    "AEP BILLABLE HELPER GROUP CREATED",
     "Subcontractor rates CSV missing",
 )
 
