@@ -2805,6 +2805,212 @@ class TestPhase1IntegrationRegression(unittest.TestCase):
         )
 
 
+class TestHelperShadowVariantFileIdentifier(unittest.TestCase):
+    """Phase 01 gap closure (REVIEW-CR-01): the main-loop variant
+    branch, valid_wr_weeks cleanup-tuple builder, and current_keys
+    hash-history-prune key must all derive ``file_identifier`` from
+    ``__helper_foreman`` for the two helper-shadow variants
+    (aep_billable_helper, reduced_sub_helper) so the round-trip
+    with build_group_identity succeeds and
+    _has_existing_week_attachment correctly identifies prior
+    helper-shadow attachments.
+
+    These tests cover the contract via a stand-in that mirrors the
+    main-loop derivation body. Source-level grep tests below guard
+    against the "tests pass but production reverted" failure mode
+    (same defense pattern as TestExcludeWrsMatchesAllVariants /
+    TestWrFilterMatchesAllVariants from Plan 01-07).
+    """
+
+    @staticmethod
+    def _derive_main_loop_identifier(variant: str, first_row: dict):
+        """Mirror of the main-loop variant branch (Site 1 in CR-01).
+
+        Returns ``(identifier, file_identifier)`` -- the two outputs
+        the production code computes per group. Must stay in sync
+        with the production cascade in ``main()`` immediately
+        above ``history_key = f"{wr_num}|...":``.
+        """
+        if variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper'):
+            helper_foreman = first_row.get('__helper_foreman', '')
+            helper_dept = first_row.get('__helper_dept', '')
+            helper_job = first_row.get('__helper_job', '')
+            identifier = f"{helper_foreman}|{helper_dept}|{helper_job}"
+            file_identifier = (
+                generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub(
+                    '_', helper_foreman
+                )[:50] if helper_foreman else ''
+            )
+        elif variant == 'vac_crew':
+            identifier = ''
+            file_identifier = ''
+        else:
+            user_val = first_row.get('User')
+            identifier = (
+                generate_weekly_pdfs._RE_SANITIZE_IDENTIFIER.sub(
+                    '_', user_val
+                )[:50] if user_val else ''
+            )
+            file_identifier = identifier
+        return identifier, file_identifier
+
+    def test_aep_billable_helper_derives_from_helper_foreman(self):
+        identifier, file_identifier = self._derive_main_loop_identifier(
+            'aep_billable_helper',
+            {
+                '__helper_foreman': 'Jane Smith',
+                '__helper_dept': '500',
+                '__helper_job': 'JOB-99',
+            },
+        )
+        self.assertEqual(identifier, 'Jane Smith|500|JOB-99')
+        self.assertEqual(file_identifier, 'Jane_Smith')
+
+    def test_reduced_sub_helper_derives_from_helper_foreman(self):
+        identifier, file_identifier = self._derive_main_loop_identifier(
+            'reduced_sub_helper',
+            {
+                '__helper_foreman': 'John Doe',
+                '__helper_dept': '600',
+                '__helper_job': 'JOB-12',
+            },
+        )
+        self.assertEqual(identifier, 'John Doe|600|JOB-12')
+        self.assertEqual(file_identifier, 'John_Doe')
+
+    def test_aep_billable_non_helper_falls_through_to_empty_user(self):
+        # No User field on shadow row -> '' identifier matches what
+        # build_group_identity produces for ``_AEPBillable_<hash>.xlsx``
+        # (identifier=''). Round-trip succeeds even though we take
+        # the ``else`` branch.
+        identifier, file_identifier = self._derive_main_loop_identifier(
+            'aep_billable',
+            {'__helper_foreman': '', 'User': ''},
+        )
+        self.assertEqual(identifier, '')
+        self.assertEqual(file_identifier, '')
+
+    def test_reduced_sub_non_helper_falls_through_to_empty_user(self):
+        identifier, file_identifier = self._derive_main_loop_identifier(
+            'reduced_sub',
+            {'__helper_foreman': '', 'User': ''},
+        )
+        self.assertEqual(identifier, '')
+        self.assertEqual(file_identifier, '')
+
+    def test_aep_billable_helper_filename_round_trips(self):
+        # The CR-01 bug shape: pre-fix the main loop produced
+        # file_identifier='' but build_group_identity parses
+        # ``_AEPBillable_Helper_Jane_Smith_<hash>.xlsx`` as
+        # (wr, week, 'aep_billable_helper', 'Jane_Smith') -
+        # a comparison
+        # (parsed_ident or '') == (file_identifier or '')
+        # always failed. With the fix, both sides produce
+        # 'Jane_Smith' and the comparison succeeds.
+        _, file_identifier = self._derive_main_loop_identifier(
+            'aep_billable_helper',
+            {
+                '__helper_foreman': 'Jane Smith',
+                '__helper_dept': '500',
+                '__helper_job': 'JOB-99',
+            },
+        )
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_91467680_WeekEnding_041926_123456_AEPBillable_Helper_Jane_Smith_ab12cd34ef.xlsx'
+        )
+        self.assertIsNotNone(ident)
+        wr, week, parsed_variant, parsed_identifier = ident
+        self.assertEqual(parsed_variant, 'aep_billable_helper')
+        self.assertEqual(parsed_identifier, file_identifier)
+
+    def test_reduced_sub_helper_filename_round_trips(self):
+        _, file_identifier = self._derive_main_loop_identifier(
+            'reduced_sub_helper',
+            {
+                '__helper_foreman': 'John Doe',
+                '__helper_dept': '600',
+                '__helper_job': 'JOB-12',
+            },
+        )
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_91467680_WeekEnding_041926_123456_ReducedSub_Helper_John_Doe_ab12cd34ef.xlsx'
+        )
+        self.assertIsNotNone(ident)
+        wr, week, parsed_variant, parsed_identifier = ident
+        self.assertEqual(parsed_variant, 'reduced_sub_helper')
+        self.assertEqual(parsed_identifier, file_identifier)
+
+    def test_helper_shadow_with_empty_helper_foreman_returns_empty_file_id(self):
+        # Defensive: upstream gate at _valid_helper_row in
+        # group_source_rows prevents empty __helper_foreman from
+        # reaching this code path in production, but the
+        # derivation itself must not crash if the gate is ever
+        # bypassed. WR-03 (plan 01-10) adds a defensive raise in
+        # generate_excel's filename-suffix branch -- the
+        # IDENTIFIER derivation here remains permissive.
+        identifier, file_identifier = self._derive_main_loop_identifier(
+            'aep_billable_helper',
+            {'__helper_foreman': '', '__helper_dept': '500', '__helper_job': 'JOB-99'},
+        )
+        self.assertEqual(identifier, '|500|JOB-99')
+        self.assertEqual(file_identifier, '')
+
+    def test_production_main_loop_carries_shadow_variant_gate(self):
+        # Source-level guard: confirm the production main loop
+        # (Site 1) carries the three-variant gate. Defeats the
+        # "test mirror passes but production reverted" failure mode.
+        import inspect
+        import pathlib
+        src = pathlib.Path(
+            inspect.getsourcefile(generate_weekly_pdfs)
+        ).read_text(encoding='utf-8')
+        # Either single- or double-quote tuple syntax acceptable.
+        gate_present = (
+            "variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper')"
+            in src
+            or 'variant in ("helper", "aep_billable_helper", "reduced_sub_helper")'
+            in src
+        )
+        self.assertTrue(
+            gate_present,
+            "Main-loop variant branch must gate on the three-tuple "
+            "'(helper, aep_billable_helper, reduced_sub_helper)' for "
+            "CR-01 to be closed. See 01-08-PLAN.md.",
+        )
+
+    def test_production_valid_wr_weeks_and_current_keys_carry_shadow_variant_gate(self):
+        # Source-level guard: Sites 2 and 3 must also carry
+        # shadow-variant gates. We verify by counting occurrences
+        # of the three-tuple gate; with Site 1's gate, expect
+        # >= 3 total (Sites 1, 2, 3). The Site 3 cascade uses
+        # ``_variant`` (underscore prefix) so the gate text is
+        # slightly different -- count BOTH forms.
+        import inspect
+        import pathlib
+        src = pathlib.Path(
+            inspect.getsourcefile(generate_weekly_pdfs)
+        ).read_text(encoding='utf-8')
+        count_v1 = (
+            src.count("variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper')")
+            + src.count('variant in ("helper", "aep_billable_helper", "reduced_sub_helper")')
+        )
+        count_v2 = (
+            src.count("_variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper')")
+            + src.count('_variant in ("helper", "aep_billable_helper", "reduced_sub_helper")')
+        )
+        # Sites 1 and 2 use ``variant``; Site 3 uses ``_variant``.
+        # Total occurrences across both forms must be >= 3.
+        # Note: ``variant in (...)`` count is >= 2 since it appears
+        # in both Site 1 and Site 2 (and also in calculate_data_hash
+        # which is unrelated but uses the same gate text).
+        self.assertGreaterEqual(
+            count_v1 + count_v2, 3,
+            f"Expected the three-tuple gate to appear at Sites 1, 2, "
+            f"and 3 (any combination of `variant` / `_variant`). Found "
+            f"{count_v1} `variant in (...)` and {count_v2} `_variant in (...)`."
+        )
+
+
 class TestPhase1FilenameRoundTripCoverage(unittest.TestCase):
     """Covers the filename round-trip for all 7 Phase 1 variants.
 

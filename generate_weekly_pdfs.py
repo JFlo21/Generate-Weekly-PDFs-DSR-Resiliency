@@ -6010,9 +6010,27 @@ def main():
                     )
                     _groups_skipped += 1
                     continue
-                if variant == 'helper':
+                if variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper'):
                     # CRITICAL FIX: Include helper dept and job in identifier for unique hash keys
-                    # This ensures helper files regenerate when new helper rows are added
+                    # This ensures helper files regenerate when new helper rows are added.
+                    #
+                    # CR-01 gap closure (Site 1 — main-loop identifier):
+                    # helper, aep_billable_helper, and reduced_sub_helper all
+                    # derive identifier / file_identifier from __helper_foreman
+                    # so the round-trip with build_group_identity (which parses
+                    # the helper-shadow filename's _Helper_<name>_<hash> tail in
+                    # Plan 02) succeeds. Pre-fix, the two shadow variants fell
+                    # through to the ``else`` branch that reads ``User`` —
+                    # typically blank for shadow rows — producing
+                    # file_identifier='' and a (parsed='Jane_Smith') == ('')
+                    # mismatch in _has_existing_week_attachment. Result:
+                    # permanent regeneration churn and orphan accumulation on
+                    # SUBCONTRACTOR_PPP_SHEET_ID. The change is additive — the
+                    # legacy ``helper`` body is preserved exactly; we just
+                    # expand the gate to include the two helper-shadow variants.
+                    # Sites 2 (valid_wr_weeks builder) and 3 (current_keys
+                    # hash-history prune) carry the same gate — drift between
+                    # the three sites is exactly the bug shape CR-01 documents.
                     helper_foreman = first_row.get('__helper_foreman', '')
                     helper_dept = first_row.get('__helper_dept', '')
                     helper_job = first_row.get('__helper_job', '')
@@ -6024,6 +6042,12 @@ def main():
                     identifier = ''
                     file_identifier = ''
                 else:
+                    # Non-helper subcontractor variants (aep_billable, reduced_sub)
+                    # correctly fall through here because their filenames carry no
+                    # identifier suffix and build_group_identity returns identifier=''.
+                    # Per CR-01, do NOT add them to the helper-gate above — that would
+                    # set identifier='||' (literal pipes-on-empties) for primary
+                    # subcontractor variants, breaking hash-history bucket cohesion.
                     user_val = first_row.get('User')
                     # PERFORMANCE: Use pre-compiled regex for identifier sanitization
                     identifier = _RE_SANITIZE_IDENTIFIER.sub('_', user_val)[:50] if user_val else ''
@@ -6705,8 +6729,21 @@ def main():
                 # when KEEP_HISTORICAL_WEEKS is enabled.
                 wr = _RE_SANITIZE_HELPER_NAME.sub('_', wr)[:50]
                 variant = group_rows[0].get('__variant', 'primary')
-                if variant == 'helper':
-                    # Use filename-level identifier (sanitized foreman only) to match build_group_identity output
+                if variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper'):
+                    # CR-01 gap closure (Site 2 — mirror of Site 1).
+                    # build_group_identity returns the sanitized helper
+                    # foreman as the parsed identifier for all three
+                    # helper-style variants; valid_wr_weeks must match
+                    # that tuple shape so
+                    # cleanup_untracked_sheet_attachments correctly
+                    # identifies which helper-shadow attachments are
+                    # "live" and which are stale. Pre-fix, shadow
+                    # variants fell through to the ``User``-derived
+                    # ``else`` branch and produced file_id='' tuples
+                    # that NEVER matched the parser's 'Jane_Smith'
+                    # identifier — risking cleanup either pruning
+                    # legitimate attachments or missing orphans.
+                    # Sites 1 and 3 carry the same gate.
                     helper_foreman = group_rows[0].get('__helper_foreman', '')
                     file_id = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50] if helper_foreman else ''
                 elif variant == 'vac_crew':
@@ -6761,7 +6798,26 @@ def main():
                         _wr = _RE_SANITIZE_HELPER_NAME.sub('_', _wr)[:50]
                         _week = key.split('_',1)[0]
                         _variant = group_rows[0].get('__variant', 'primary')
-                        if _variant == 'helper':
+                        if _variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper'):
+                            # CR-01 gap closure (Site 3 — mirror of Site 1).
+                            # Site 1 writes the helper-shadow history_key as
+                            # f"{wr}|{week}|{variant}|{foreman}|{dept}|{job}" —
+                            # this prune-key reconstruction MUST match it
+                            # byte-for-byte or the entry written this run is
+                            # treated as stale and deleted before
+                            # save_hash_history runs. Pre-fix, both Sites 1
+                            # and 3 fell through to the same ``User``-derived
+                            # branch, so the two stayed aligned by accident
+                            # (both produced '' identifiers). With Site 1 now
+                            # correctly deriving from __helper_foreman, Site 3
+                            # must follow or the alignment breaks the OTHER
+                            # way and we permanently lose hash-skip for
+                            # helper-shadow variants. Note: ``_ident`` here is
+                            # the HISTORY-KEY shape (pipe-joined triple), NOT
+                            # the FILE-IDENTIFIER shape (Site 1 builds both;
+                            # this site reconstructs the history-key shape
+                            # only — the same pattern as the legacy helper
+                            # branch).
                             _hf = group_rows[0].get('__helper_foreman', '')
                             _hd = group_rows[0].get('__helper_dept', '')
                             _hj = group_rows[0].get('__helper_job', '')
