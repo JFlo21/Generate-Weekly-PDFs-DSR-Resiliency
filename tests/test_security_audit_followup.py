@@ -1466,9 +1466,32 @@ class TestPiiLogMarkersIncludeSubcontractorVariants(unittest.TestCase):
             generate_weekly_pdfs._PII_LOG_MARKERS,
         )
 
-    def test_all_seven_subcontractor_markers_present(self):
-        """Single-shot assertion covering all 7 markers — mirrors the
-        plan's verification command exactly."""
+    def test_aep_billable_helper_group_created_log_text_in_markers(self):
+        # Phase 01 gap closure (REVIEW-WR-04): the explicit
+        # marker for the helper-shadow AEP BILLABLE log line.
+        # Pre-fix, this log was scrubbed by accidental substring
+        # containment of "HELPER GROUP CREATED" — a future
+        # wording rewording would silently regress that
+        # protection. This test ensures the explicit marker is
+        # the actual gate.
+        self.assertIn(
+            'AEP BILLABLE HELPER GROUP CREATED',
+            generate_weekly_pdfs._PII_LOG_MARKERS,
+        )
+
+    def test_reduced_sub_helper_group_created_log_text_in_markers(self):
+        # Mirror of the AEP BILLABLE HELPER marker test
+        # (REVIEW-WR-04).
+        self.assertIn(
+            'REDUCED SUB HELPER GROUP CREATED',
+            generate_weekly_pdfs._PII_LOG_MARKERS,
+        )
+
+    def test_all_nine_subcontractor_markers_present(self):
+        """Single-shot assertion covering all 9 markers — mirrors the
+        plan's verification command exactly. Updated from 7 → 9 by
+        Phase 01 Plan 09 (REVIEW-WR-04) which added the two
+        helper-shadow GROUP CREATED markers."""
         expected = {
             '_AEPBILLABLE',
             '_REDUCEDSUB',
@@ -1476,12 +1499,14 @@ class TestPiiLogMarkersIncludeSubcontractorVariants(unittest.TestCase):
             '_REDUCEDSUB_HELPER_',
             'AEP BILLABLE GROUP CREATED',
             'REDUCED SUB GROUP CREATED',
+            'AEP BILLABLE HELPER GROUP CREATED',
+            'REDUCED SUB HELPER GROUP CREATED',
             'Subcontractor rates CSV missing',
         }
         missing = expected - set(generate_weekly_pdfs._PII_LOG_MARKERS)
         self.assertFalse(
             missing,
-            f'Missing PII markers for Phase 01 Plan 02: {missing}',
+            f'Missing PII markers for Phase 01 Plan 02 / Plan 09: {missing}',
         )
 
 
@@ -2462,6 +2487,63 @@ class TestWrFilterMatchesAllVariants(unittest.TestCase):
                     f"{needle!r} for the gap closure to be complete; "
                     f"found only {src.count(needle)} occurrence(s).",
                 )
+
+
+class TestSourceSheetIdFieldConsistency(unittest.TestCase):
+    """Phase 01 gap closure (REVIEW-WR-06): the missing-CU
+    attribution loop in ``main()`` reads ``__source_sheet_id``
+    (Phase 1 canonical name) instead of the legacy ``__sheet_id``
+    alias. Both fields are still written at populate time inside
+    ``_fetch_and_process_sheet`` so existing read-only consumers
+    do not regress.
+
+    These tests use source-level grep to verify the production
+    contract — a future refactor that drops one write or
+    re-introduces the legacy read will trip these tests.
+    """
+
+    @staticmethod
+    def _read_source() -> str:
+        import inspect
+        import pathlib
+        return pathlib.Path(
+            inspect.getsourcefile(generate_weekly_pdfs)
+        ).read_text(encoding='utf-8')
+
+    def test_populate_site_writes_both_aliases(self):
+        # Writer must populate BOTH names so back-compat with
+        # any future reader of ``__sheet_id`` is preserved.
+        src = self._read_source()
+        self.assertIn("row_data['__sheet_id'] = source['id']", src)
+        self.assertIn("row_data['__source_sheet_id'] = source['id']", src)
+
+    def test_missing_cu_attribution_reads_source_sheet_id(self):
+        # The missing-CU loop must read the canonical name —
+        # this is the WR-06 migration target.
+        src = self._read_source()
+        self.assertIn("_r.get('__source_sheet_id')", src)
+
+    def test_missing_cu_attribution_does_not_read_legacy_alias(self):
+        # No remaining ``_r.get('__sheet_id')`` calls. If a future
+        # PR re-introduces the legacy read pattern in the
+        # attribution loop, this test trips.
+        src = self._read_source()
+        self.assertNotIn(
+            "_r.get('__sheet_id')",
+            src,
+            "WR-06 migration regression: a per-row reader of the "
+            "legacy ``__sheet_id`` field returned. Migrate to "
+            "``__source_sheet_id`` per the 01-09 plan; the legacy "
+            "write site at the populate location stays for "
+            "back-compat but consumers should read the canonical name."
+        )
+
+    def test_writer_comment_references_wr_06_migration(self):
+        # The writer comment block above the two row_data writes
+        # must reference the WR-06 migration so future readers
+        # know why both writes exist.
+        src = self._read_source()
+        self.assertIn('WR-06', src)
 
 
 if __name__ == '__main__':
