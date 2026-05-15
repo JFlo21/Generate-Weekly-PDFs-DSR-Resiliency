@@ -1,0 +1,105 @@
+name: Claude Code Review
+
+# Watches every PR against master and responds to @claude mentions.
+# Production-safety guardrails for this Python billing pipeline live in
+# CLAUDE.md and .claude/rules/*.md — the review prompt below references
+# them by name so the action's responses honor the same boundaries.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  issue_comment:
+    types: [created, edited]
+  pull_request_review_comment:
+    types: [created, edited]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  claude-review:
+    name: Auto-review PR
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Claude Code Review
+        uses: anthropics/claude-code-action@v1
+        with:
+          prompt: |
+            Review this PR for bugs, code quality, security issues, and
+            adherence to project conventions documented in CLAUDE.md.
+
+            Production-critical context (read CLAUDE.md before commenting):
+            - generate_weekly_pdfs.py runs on cron every 2h weekdays
+              and processes ~550 rows × 13+ Smartsheet sheets of real
+              billing data — additive-only changes; never refactor the
+              pipeline shape.
+            - PEP 8 + type hints; ≤79 char lines; PEP 257 docstrings.
+            - Smartsheet API rate limit: 300 req/min; PARALLEL_WORKERS ≤ 8.
+            - The `@cell` Smartsheet formula is ABSOLUTELY banned in
+              Python code or API payloads — it is UI-only and fails
+              server-side.
+            - Excel generation must use safe_merge_cells() (never
+              oddFooter.right.text — known corruption vector).
+            - The Living Ledger in CLAUDE.md is authoritative for
+              recurring-rule context (line-number drift, attachment
+              prefetch interpreter-exit trifecta, sanitizer idempotence,
+              ORIG-folder vs subcontractor scoping, etc.). Flag
+              deviations.
+            - For new variants: byte-identical behavior for primary,
+              helper, vac_crew, and ORIG-folder rows must be preserved
+              (TestPhase1IntegrationRegression +
+              TestSubcontractorVariantKillSwitchAndScope are the
+              regression guards).
+            - For Node/JS: portal/ is CommonJS, portal-v2/ is ESM.
+              Don't mix module systems within a component.
+
+            Be specific: cite file:line for every finding. Differentiate
+            BLOCKER vs WARNING vs INFO severity. Skip nitpicks.
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+  claude-respond:
+    name: Respond to @claude mentions
+    runs-on: ubuntu-latest
+    # Only fire on actual @claude mentions — not every comment.
+    # Without this filter, every PR comment burns API tokens.
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude'))
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Claude responds to @claude mention
+        uses: anthropics/claude-code-action@v1
+        with:
+          prompt: |
+            Respond to the @claude mention in this comment.
+
+            If the commenter is requesting an implementation:
+            - Follow CLAUDE.md production-safety guardrails (additive
+              changes only; preserve the Smartsheet → Excel →
+              attachment pipeline; PEP 8 + type hints).
+            - Honor the Living Ledger rules in CLAUDE.md when relevant
+              (line-number drift, three-site identity invariant for
+              variants, mirror-matcher invariant for filter
+              functions, etc.).
+            - The `@cell` Smartsheet formula is banned — never propose
+              it.
+            - Tests live under tests/; full suite is ~609 passing.
+              Any code change MUST include a regression test in the
+              appropriate existing test file.
+
+            If the commenter is asking a question, answer concisely
+            with file:line references where applicable. Don't dump
+            full files.
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
