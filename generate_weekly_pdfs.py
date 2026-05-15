@@ -6798,7 +6798,26 @@ def main():
                         _wr = _RE_SANITIZE_HELPER_NAME.sub('_', _wr)[:50]
                         _week = key.split('_',1)[0]
                         _variant = group_rows[0].get('__variant', 'primary')
-                        if _variant == 'helper':
+                        if _variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper'):
+                            # CR-01 gap closure (Site 3 — mirror of Site 1).
+                            # Site 1 writes the helper-shadow history_key as
+                            # f"{wr}|{week}|{variant}|{foreman}|{dept}|{job}" —
+                            # this prune-key reconstruction MUST match it
+                            # byte-for-byte or the entry written this run is
+                            # treated as stale and deleted before
+                            # save_hash_history runs. Pre-fix, both Sites 1
+                            # and 3 fell through to the same ``User``-derived
+                            # branch, so the two stayed aligned by accident
+                            # (both produced '' identifiers). With Site 1 now
+                            # correctly deriving from __helper_foreman, Site 3
+                            # must follow or the alignment breaks the OTHER
+                            # way and we permanently lose hash-skip for
+                            # helper-shadow variants. Note: ``_ident`` here is
+                            # the HISTORY-KEY shape (pipe-joined triple), NOT
+                            # the FILE-IDENTIFIER shape (Site 1 builds both;
+                            # this site reconstructs the history-key shape
+                            # only — the same pattern as the legacy helper
+                            # branch).
                             _hf = group_rows[0].get('__helper_foreman', '')
                             _hd = group_rows[0].get('__helper_dept', '')
                             _hj = group_rows[0].get('__helper_job', '')
