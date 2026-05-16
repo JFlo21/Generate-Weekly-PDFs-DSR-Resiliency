@@ -1,5 +1,5 @@
-# Enhanced Monitoring and Error Handling (2.35.0+ required for enable_logs)
-sentry-sdk>=2.35.0
+# Enhanced Monitoring and Error Handling (2.35.0 required for enable_logs)
+sentry-sdk==2.35.0
 
 # Core Dependencies
 # 3.1.0+ required for Folders.get_folder_children (replacement for deprecated get_folder)
