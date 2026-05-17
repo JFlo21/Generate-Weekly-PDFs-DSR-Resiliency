@@ -3678,5 +3678,153 @@ class TestPhase1GapClosureLedgerEntryPresent(unittest.TestCase):
                 )
 
 
+class TestResolveRowPriceAbbreviatedWorkType(unittest.TestCase):
+    """Production hotfix 2026-05-16 — P0 data-integrity bug.
+
+    Smartsheet operators commonly enter Work Type as the abbreviated
+    forms ``Inst`` / ``Rem`` / ``Trans``, not the canonical full
+    forms ``Install`` / ``Removal`` / ``Transfer``. The pre-fix
+    matcher used ``'install' in work_type_raw`` — a substring check
+    that succeeds for ``'install'`` (full) but FAILS for ``'inst'``
+    because the search string ``'install'`` (7 chars) is not contained
+    in the shorter ``'inst'`` (4 chars). Same direction error for
+    ``'remov'`` vs ``'rem'`` and ``'transfer'`` vs ``'trans'``.
+
+    When the matcher fell through to the ``else`` branch, the helper
+    returned ``parse_price(row.get('Units Total Price'))`` — the
+    safety-floor SmartSheet pricing. **The fallback returned the same
+    value for BOTH AEP and ReducedSub variants** so the generated
+    workbooks were byte-identical (verified via SHA256 on the
+    2026-05-16 23:23 UTC GHA artifact: 8 of 8 AEP+ReducedSub file
+    pairs had matching content hashes).
+
+    The fix aligns with the existing ``recalculate_row_price`` pattern
+    at L1655 (``'rem' in work_type_raw``) — uses the shortest
+    unambiguous substring so both abbreviated and full forms match.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls._orig_rates = dict(generate_weekly_pdfs._SUBCONTRACTOR_RATES)
+        # Different new_* vs reduced_* values so the test distinguishes
+        # which rate column was consulted.
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES.clear()
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES['ABC'] = {
+            'cu_code': 'ABC',
+            'cu_wbs': '999',
+            'compatible_unit_group': 'TestGroup',
+            'reduced_install_price': 10.00,
+            'reduced_remove_price': 5.00,
+            'reduced_transfer_price': 2.50,
+            'new_install_price': 20.00,
+            'new_remove_price': 12.00,
+            'new_transfer_price': 6.00,
+        }
+
+    @classmethod
+    def tearDownClass(cls):
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES.clear()
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES.update(cls._orig_rates)
+
+    def _resolve(self, work_type, variant, qty=5, units_total='$999.99'):
+        """``Units Total Price=$999.99`` is the safety-floor canary —
+        if it leaks into the return, the matcher fell through."""
+        from collections import Counter
+        row = {
+            'CU': 'ABC',
+            'Work Type': work_type,
+            'Quantity': qty,
+            'Units Total Price': units_total,
+        }
+        return generate_weekly_pdfs._resolve_row_price(
+            row, variant, Counter()
+        )
+
+    # ── Abbreviated forms — the production-realistic case ──────
+
+    def test_inst_abbrev_aep_billable_uses_new_install_price(self):
+        """``Work Type='Inst'`` + AEP → new_install_price × qty.
+
+        Pre-fix: 'install' in 'inst' is False → safety floor → 999.99.
+        Post-fix: 20.00 × 5 = 100.00.
+        """
+        self.assertEqual(self._resolve('Inst', 'aep_billable'), 100.00)
+
+    def test_inst_abbrev_reduced_sub_uses_reduced_install_price(self):
+        self.assertEqual(self._resolve('Inst', 'reduced_sub'), 50.00)
+
+    def test_rem_abbrev_aep_billable_uses_new_remove_price(self):
+        self.assertEqual(self._resolve('Rem', 'aep_billable'), 60.00)
+
+    def test_rem_abbrev_reduced_sub_uses_reduced_remove_price(self):
+        self.assertEqual(self._resolve('Rem', 'reduced_sub'), 25.00)
+
+    def test_trans_abbrev_aep_billable_uses_new_transfer_price(self):
+        self.assertEqual(self._resolve('Trans', 'aep_billable'), 30.00)
+
+    def test_trans_abbrev_reduced_sub_uses_reduced_transfer_price(self):
+        self.assertEqual(self._resolve('Trans', 'reduced_sub'), 12.50)
+
+    def test_xfr_abbrev_treated_as_transfer(self):
+        """``recalculate_row_price`` already handles 'xfr' as transfer
+        (L1657). The hotfix preserves that synonym."""
+        self.assertEqual(self._resolve('Xfr', 'aep_billable'), 30.00)
+
+    # ── Full forms — regression guard, MUST still work ─────────
+
+    def test_install_full_form_unchanged(self):
+        self.assertEqual(self._resolve('Install', 'aep_billable'), 100.00)
+
+    def test_removal_full_form_unchanged(self):
+        self.assertEqual(self._resolve('Removal', 'aep_billable'), 60.00)
+
+    def test_transfer_full_form_unchanged(self):
+        self.assertEqual(self._resolve('Transfer', 'aep_billable'), 30.00)
+
+    # ── AEP and ReducedSub MUST diverge on the same abbreviated row ──
+
+    def test_aep_and_reduced_diverge_on_abbreviated_inst(self):
+        """The hotfix's key invariant: with abbreviated Work Type,
+        the two variants must produce DIFFERENT prices (not the
+        same safety-floor fallback).
+        """
+        aep = self._resolve('Inst', 'aep_billable')
+        red = self._resolve('Inst', 'reduced_sub')
+        self.assertNotEqual(
+            aep, red,
+            'AEP and ReducedSub MUST diverge for abbreviated Work '
+            'Types — same-value response is the production bug.',
+        )
+        self.assertEqual(aep, 100.00)
+        self.assertEqual(red, 50.00)
+
+    def test_aep_and_reduced_diverge_on_abbreviated_rem(self):
+        aep = self._resolve('Rem', 'aep_billable')
+        red = self._resolve('Rem', 'reduced_sub')
+        self.assertNotEqual(aep, red)
+        self.assertEqual(aep, 60.00)
+        self.assertEqual(red, 25.00)
+
+    # ── Truly unknown work types still fall through ─────────────
+
+    def test_unknown_work_type_falls_through_to_smartsheet(self):
+        """Unknown work types (not inst/rem/trans/xfr prefix) MUST
+        still trigger the safety floor — the fix must not over-broaden.
+        """
+        self.assertEqual(self._resolve('Maintenance', 'aep_billable'), 999.99)
+        self.assertEqual(self._resolve('', 'aep_billable'), 999.99)
+        self.assertEqual(self._resolve('Unknown', 'reduced_sub'), 999.99)
+
+    def test_helper_shadow_variants_also_diverge(self):
+        """Both helper-shadow variants (Plan 02) MUST also pick the
+        correct rate column with abbreviated Work Type.
+        """
+        aep_h = self._resolve('Inst', 'aep_billable_helper')
+        red_h = self._resolve('Inst', 'reduced_sub_helper')
+        self.assertEqual(aep_h, 100.00)
+        self.assertEqual(red_h, 50.00)
+        self.assertNotEqual(aep_h, red_h)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -110,3 +110,7 @@ portal/node_modules/
 # portal: un-ignore lib/ (overrides Python lib/ pattern above)
 !portal/lib/
 !portal/lib/**
+
+# Local artifact inspection (downloaded GHA artifacts for debugging — never committed)
+_inspect_artifact/
+artifact_inspection/

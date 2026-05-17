@@ -1783,3 +1783,77 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   (TestPppAttachmentPrefetchBudget). Total: ~55-65 new tests;
   ``pytest tests/`` continues to exit 0 at every
   plan-completion checkpoint.
+- [2026-05-16 23:45] **P0 production hotfix — ``_resolve_row_price``
+  substring-direction bug.** First post-merge scheduled GHA run
+  after Phase 01 shipped (run id 25975684465, 2026-05-16 23:23 UTC)
+  produced ``_AEPBillable`` and ``_ReducedSub`` Excel files that
+  were **byte-identical** for the same WR+week (verified via SHA256:
+  all 8 of 8 AEP+ReducedSub file pairs matched). Total Amount and
+  per-row Pricing values were identical across the two variants —
+  defeats the entire Phase 1 pricing-divergence contract.
+  **Root cause:** ``_resolve_row_price`` at the Work-Type-matching
+  block did ``if 'install' in work_type_raw``. This is a substring
+  containment check that succeeds when ``work_type_raw == 'install'``
+  (full canonical form) but FAILS when it equals ``'inst'`` (the
+  4-char abbreviation Smartsheet operators commonly enter) because
+  the search string ``'install'`` (7 chars) is NOT contained in the
+  shorter ``'inst'`` (4 chars). Same direction error on ``'remov'``
+  vs ``'rem'`` and ``'transfer'`` vs ``'trans'``. When all three
+  branches missed, the helper fell through to the safety floor:
+  ``return parse_price(row.get('Units Total Price'))``. The
+  fallback returns the SmartSheet-computed price unchanged, and
+  THAT price is the SAME value regardless of which variant called
+  the helper — hence byte-identical AEP and ReducedSub files. The
+  unique data_hash suffix in each filename (different per variant)
+  masked the bug from filename inspection; only byte-comparison or
+  content inspection caught it.
+  **Why tests missed it:**
+  ``TestResolveRowPriceCanonicalColumnNames`` (Plan 03) used
+  ``'Install'`` / ``'Removal'`` / ``'Transfer'`` (full canonical
+  forms) in every test row. The substring direction is correct for
+  the full form. The bug only manifests on abbreviations, which the
+  test corpus never exercised. Coverage gap: the test corpus did
+  not mirror the actual Smartsheet operator-entered values.
+  **Fix (additive, surgical):** in ``_resolve_row_price``, change
+  the three substring checks from ``'install'`` / ``'remov'`` /
+  ``'transfer'`` to the shorter forms ``'inst'`` / ``'rem'`` /
+  ``'tran'`` (with ``'xfr'`` as a second clause for the
+  transfer category, mirroring ``recalculate_row_price`` at
+  L1655's existing pattern: ``elif 'tran' in work_type_raw or
+  'xfr' in work_type_raw``). The shorter prefixes match BOTH the
+  abbreviated AND full canonical forms — operator drift in
+  either direction stays bug-free.
+  **New rule — Substring direction discipline for abbreviation-
+  tolerant matchers.** When a string matcher needs to accept BOTH
+  abbreviated and full forms of an operator-entered value, the
+  ``A in B`` substring check must use the SHORTEST UNAMBIGUOUS
+  PREFIX as ``A``. ``'install' in 'inst'`` is False (the search
+  string is longer than the haystack); ``'inst' in 'install'`` is
+  True. The matcher must search FOR the prefix WITHIN the
+  user-entered value, not the other way around. This rule
+  generalises across the codebase: any future categoriser that
+  needs to handle Smartsheet operator-entered abbreviations
+  (e.g., column-type detection, work-type categorisation, status
+  matching) MUST use the prefix-as-A direction. The existing
+  ``recalculate_row_price`` and
+  ``recalculate_row_price_using_original_rate_columns`` patterns
+  at L1655 and L1705 are the correct analogs — copy their shape.
+  **Corollary — test corpus must mirror production data shape.**
+  When adding regression tests for a parser/matcher that consumes
+  Smartsheet column data, the test rows MUST include the
+  abbreviated forms operators actually enter (``'Inst'``,
+  ``'Rem'``, ``'Trans'``, ``'Xfr'``), not just the canonical
+  full forms. Full-form-only test coverage on a substring matcher
+  is a silent-pass trap: the test corpus runs through the
+  matcher's happy path while real production data never does.
+  Regression test class
+  ``TestResolveRowPriceAbbreviatedWorkType`` in
+  ``tests/test_subcontractor_pricing.py`` (14 methods) covers
+  the abbreviated forms (``'Inst'``, ``'Rem'``, ``'Trans'``,
+  ``'Xfr'``) for both AEP and ReducedSub variants plus helper-
+  shadow variants, includes regression guards for the full forms,
+  AND has an explicit ``test_unknown_work_type_falls_through_to_smartsheet``
+  test that locks in the safety-floor behaviour for truly unknown
+  work types so the fix does not over-broaden. ``pytest tests/``
+  now reports **623 passed / 22 skipped / 58 subtests** (was
+  609 / 22 / 58 pre-fix; +14 net, zero regressions).
