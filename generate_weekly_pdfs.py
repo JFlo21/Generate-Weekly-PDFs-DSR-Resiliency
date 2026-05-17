@@ -1489,12 +1489,25 @@ def _resolve_row_price(row: dict, variant: str, missing_cus) -> float:
         return parse_price(row.get('Units Total Price'))
 
     # Work-Type-keyed column selection (D-05). Canonical 'Work Type'.
+    # Production hotfix 2026-05-16: Smartsheet operators commonly enter
+    # the abbreviated forms 'Inst' / 'Rem' / 'Trans' / 'Xfr' rather
+    # than the canonical 'Install' / 'Removal' / 'Transfer'. The
+    # pre-fix matcher checked `'install' in work_type_raw` — a
+    # substring test that succeeds on the full form but FAILS on the
+    # abbreviation ('install' is 7 chars; 'inst' is 4 chars; the
+    # 7-char string is NOT contained in the 4-char string). Fall-
+    # through to the safety floor returned `Units Total Price` for
+    # BOTH variants, producing byte-identical AEP and ReducedSub
+    # workbooks (verified via SHA256 on 8 of 8 file pairs from GHA
+    # run 25975684465). Aligned with the existing
+    # ``recalculate_row_price`` pattern at L1655 — use the shortest
+    # unambiguous prefix so both abbreviated AND full forms match.
     work_type_raw = (row.get('Work Type') or '').strip().lower()
-    if 'install' in work_type_raw:
+    if 'inst' in work_type_raw:  # matches 'Inst', 'Install', 'Installation'
         wt = 'install'
-    elif 'remov' in work_type_raw:  # matches 'removal' / 'remove'
+    elif 'rem' in work_type_raw:  # matches 'Rem', 'Remov', 'Removal', 'Remove'
         wt = 'remove'
-    elif 'transfer' in work_type_raw:
+    elif 'tran' in work_type_raw or 'xfr' in work_type_raw:  # 'Tran'/'Trans'/'Transfer'/'Xfr'
         wt = 'transfer'
     else:
         # Unknown work type: keep SmartSheet pricing (safety floor).
