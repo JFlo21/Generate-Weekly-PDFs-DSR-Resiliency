@@ -224,7 +224,7 @@ formalized via `/gsd-discuss-phase 1.1`).
 `/gsd-plan-phase 1.1`)
 
 Plans:
-- [ ] 01.1-01: TBD (to be decomposed via `/gsd-plan-phase 1.1`)
+- [x] 01.1-01: TBD (to be decomposed via `/gsd-plan-phase 1.1`)
 
 ### Phase 2: Railway → Render Pre-Migration ADR (DEFERRED — out of v1.0 scope)
 **Status**: DEFERRED. Does not gate v1.0 milestone completion. The seven REQ-* requirements that drive the actual Railway → Render execution + Artifact Explorer redesign live in REQUIREMENTS.md "v2 Requirements" section and will be promoted by a future `/gsd-new-project` cycle. Phase 2 here exists to lock in the one small documentation deliverable (`MIG-01`) that should land before any of that v2 work begins.
