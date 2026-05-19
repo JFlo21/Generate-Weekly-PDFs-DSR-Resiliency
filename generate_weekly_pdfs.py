@@ -889,6 +889,15 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     # log bodies — no accidental substring matching against
     # pre-existing markers).
     "Subcontractor pre-acceptance rescue",
+    # Phase 1.1 Bug B2 (SUB-10): per-sheet variant whitelist
+    # off-contract delete INFO log embeds attachment name
+    # (``WR_*_WeekEnding_*.xlsx``), which carries WR + week + (for
+    # helper-shadow variants) helper foreman name. Explicit marker
+    # per the [2026-05-15 12:00] rule 3 — no accidental substring
+    # containment with pre-existing markers (the body
+    # ``Removed off-contract variant on sheet`` does not overlap
+    # any existing marker on its own).
+    "Removed off-contract variant on sheet",
 )
 
 
@@ -2561,15 +2570,35 @@ def cleanup_stale_excels(output_folder: str, kept_filenames: set):
         # Non-conforming files left untouched
     return removed
 
-def cleanup_untracked_sheet_attachments(client, target_sheet_id: int, valid_wr_weeks: set, test_mode: bool, attachment_cache: dict | None = None, target_sheet=None):
+def cleanup_untracked_sheet_attachments(
+    client,
+    target_sheet_id: int,
+    valid_wr_weeks: set,
+    test_mode: bool,
+    attachment_cache: dict | None = None,
+    target_sheet=None,
+    variant_whitelist: set[str] | None = None,
+):
     """Prune only older variants for identities processed this run (VARIANT-AWARE).
 
     If KEEP_HISTORICAL_WEEKS=1 (default false here), weeks not in this run are preserved.
-    valid_wr_weeks: set of 4-tuples (wr, week_mmddyy, variant, identifier) that were 
+    valid_wr_weeks: set of 4-tuples (wr, week_mmddyy, variant, identifier) that were
                     generated or validated this session.
     attachment_cache: Pre-fetched dict of row_id -> attachment list (avoids per-row API calls).
     target_sheet: Pre-loaded target sheet object (avoids redundant API call).
-    
+
+    variant_whitelist: Per-sheet variant gate (Phase 1.1 Bug B2 /
+        D-07 / SUB-10). When provided, any attachment whose
+        ``build_group_identity``-parsed variant is NOT in the
+        whitelist is treated as off-contract for THIS sheet and
+        unconditionally deleted, regardless of ``valid_wr_weeks``
+        membership and regardless of ``KEEP_HISTORICAL_WEEKS``.
+        When None (default), preserves byte-identical legacy
+        behaviour — every variant is accepted and the cleanup
+        decision rests on identity grouping + valid_wr_weeks.
+        PPP cleanup passes ``{'reduced_sub', 'reduced_sub_helper'}``;
+        TARGET cleanup passes None.
+
     CRITICAL: Identity includes variant dimension to prevent primary/helper cross-deletion.
               Each (wr, week, variant, identifier) is treated as independent.
     """
@@ -2582,6 +2611,7 @@ def cleanup_untracked_sheet_attachments(client, target_sheet_id: int, valid_wr_w
         logging.warning(f"⚠️ Could not load target sheet for attachment cleanup: {e}")
         return
     removed_variants = 0
+    removed_off_contract = 0  # Phase 1.1 Bug B2 (D-07 / SUB-10): off-contract counter
     for row in sheet.rows:
         try:
             # Use pre-fetched cache if available; otherwise fall back to per-row API call
@@ -2592,12 +2622,53 @@ def cleanup_untracked_sheet_attachments(client, target_sheet_id: int, valid_wr_w
         except Exception:
             continue
         identity_groups = collections.defaultdict(list)
+        off_contract_attachments = []  # Phase 1.1 Bug B2 / D-07: per-sheet whitelist
         for att in attachments:
             name = getattr(att,'name','') or ''
             if name.startswith('WR_') and name.endswith('.xlsx'):
                 ident = build_group_identity(name)
                 if ident:
+                    wr, week, variant, _identifier = ident
+                    # Phase 1.1 Bug B2 (D-07 / SUB-10): per-sheet
+                    # variant whitelist gate. variant_whitelist=None
+                    # (TARGET cleanup) preserves legacy "accept
+                    # every variant" behaviour. When the caller
+                    # supplies a whitelist (PPP cleanup passes
+                    # {'reduced_sub','reduced_sub_helper'}), any
+                    # other variant parsed from a filename on THIS
+                    # sheet is off-contract and gets unconditionally
+                    # pruned BEFORE the identity_groups +
+                    # KEEP_HISTORICAL_WEEKS logic — variant-set
+                    # membership is the authoritative gate for this
+                    # sheet.
+                    if (
+                        variant_whitelist is not None
+                        and variant not in variant_whitelist
+                    ):
+                        off_contract_attachments.append(att)
+                        continue
                     identity_groups[ident].append(att)
+        # Phase 1.1 Bug B2 (D-07 / SUB-10): unconditionally delete
+        # off-contract attachments. These are NEVER subject to
+        # KEEP_HISTORICAL_WEEKS — variant-set-membership is the
+        # authoritative gate for this sheet. PII marker
+        # "Removed off-contract variant on sheet" registered in
+        # _PII_LOG_MARKERS for the new log body below (the
+        # attachment name embeds WR + week which the sanitizer
+        # must catch under SENTRY_ENABLE_LOGS).
+        for att in off_contract_attachments:
+            try:
+                client.Attachments.delete_attachment(target_sheet_id, att.id)
+                removed_off_contract += 1
+                logging.info(
+                    f"🗑️ Removed off-contract variant on sheet "
+                    f"{target_sheet_id}: {att.name}"
+                )
+            except Exception as e:
+                logging.warning(
+                    f"⚠️ Could not delete off-contract variant "
+                    f"{att.name}: {e}"
+                )
         for ident, atts in identity_groups.items():
             # Skip identities not processed if preserving historical weeks
             if ident not in valid_wr_weeks and KEEP_HISTORICAL_WEEKS:
@@ -2621,7 +2692,10 @@ def cleanup_untracked_sheet_attachments(client, target_sheet_id: int, valid_wr_w
                     logging.info(f"🗑️ Removed older variant: {old.name}")
                 except Exception as e:
                     logging.warning(f"⚠️ Could not delete variant {old.name}: {e}")
-    logging.info(f"🧹 Variant pruning done: removed_variants={removed_variants}")
+    logging.info(
+        f"🧹 Variant pruning done: removed_variants={removed_variants}, "
+        f"removed_off_contract={removed_off_contract}"
+    )
 
 def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, week_raw, current_data_hash, variant='primary', identifier=None, force_generation=False, cached_attachments: list | None = None):
     """Delete prior Excel attachment(s) ONLY for the specific (WR, week, variant, identifier) identity.
@@ -7317,6 +7391,12 @@ def main():
         if not TEST_MODE:
             # Invalidate stale attachment cache after upload phase — uploads added/deleted attachments
             _cleanup_cache = attachment_cache if not _upload_tasks else None
+            # Phase 1.1 Bug B2 (D-09): TARGET_SHEET_ID cleanup is UNCHANGED —
+            # accepts every variant currently routed to it (primary, helper,
+            # vac_crew, aep_billable, reduced_sub, aep_billable_helper,
+            # reduced_sub_helper). The whitelist is per-sheet; passing
+            # variant_whitelist=None (default — kwarg omitted below)
+            # preserves byte-identical legacy behaviour on TARGET.
             with sentry_sdk.start_span(op="smartsheet.cleanup", name="Cleanup untracked sheet attachments"):
                 cleanup_untracked_sheet_attachments(client, TARGET_SHEET_ID, valid_wr_weeks, TEST_MODE, attachment_cache=_cleanup_cache, target_sheet=_target_sheet_obj)
 
@@ -7367,6 +7447,21 @@ def main():
                 and _target_sheet_ppp_obj is not None
             ):
                 with sentry_sdk.start_span(op="smartsheet.cleanup_ppp", name="Cleanup untracked PPP sheet attachments"):
+                    # Phase 1.1 Bug B2 (D-07 / D-08 / SUB-10):
+                    # per-sheet variant whitelist. PPP receives only
+                    # `_ReducedSub` / `_ReducedSub_Helper_*` from
+                    # Phase 1's routing matrix (per
+                    # _build_upload_tasks_for_group). Any other
+                    # variant parsed from a filename on PPP is
+                    # off-contract and unconditionally pruned —
+                    # defense in depth against Bug B1 regressions
+                    # AND against future routing-matrix drift.
+                    # Hardcoded at the call site per D-08 (no env
+                    # var, no config). If a future plan adds a new
+                    # variant to PPP routing (e.g., aep_billable),
+                    # this literal whitelist MUST be updated in the
+                    # SAME PR — coupling is documented in the
+                    # 01.1-03 SUMMARY.
                     cleanup_untracked_sheet_attachments(
                         client,
                         SUBCONTRACTOR_PPP_SHEET_ID,
@@ -7374,6 +7469,7 @@ def main():
                         TEST_MODE,
                         attachment_cache=_cleanup_cache,
                         target_sheet=_target_sheet_ppp_obj,
+                        variant_whitelist={'reduced_sub', 'reduced_sub_helper'},
                     )
 
         # Cleanup legacy / stale Excel files so only current system outputs remain

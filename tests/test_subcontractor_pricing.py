@@ -4120,5 +4120,406 @@ class TestResolveRowPriceAbbreviatedWorkType(unittest.TestCase):
         self.assertNotEqual(aep_h, red_h)
 
 
+class TestCleanupVariantWhitelist(unittest.TestCase):
+    """Phase 1.1 Bug B2 (D-07 / D-08 / SUB-10): per-sheet variant
+    whitelist for ``cleanup_untracked_sheet_attachments``.
+
+    The PPP cleanup invocation passes ``variant_whitelist={'reduced_sub',
+    'reduced_sub_helper'}`` so any other variant (primary, helper,
+    vac_crew, aep_billable, aep_billable_helper) parsed from a filename
+    on PPP is unconditionally deleted at cleanup time — regardless of
+    ``valid_wr_weeks`` membership and regardless of
+    ``KEEP_HISTORICAL_WEEKS``. TARGET cleanup passes ``None`` (default)
+    and preserves byte-identical legacy behavior.
+
+    These tests drive the function in-process with mocked Smartsheet
+    SDK calls so the whitelist-gating, off-contract delete loop, and
+    counter / log surfaces are exercised end-to-end.
+    """
+
+    def _make_attachment(self, name, attachment_id):
+        """Build a MagicMock attachment with ``name`` + ``id`` attrs."""
+        att = mock.MagicMock()
+        att.name = name
+        att.id = attachment_id
+        return att
+
+    def _make_sheet_with_attachments(self, attachments):
+        """Build a mock sheet with a single row carrying the supplied
+        attachments. Returns ``(sheet, client)`` — client's
+        ``Attachments.delete_attachment`` records every call.
+        """
+        row = mock.MagicMock()
+        row.id = 99999
+        sheet = mock.MagicMock()
+        sheet.rows = [row]
+        client = mock.MagicMock()
+        # Inject attachments via the per-row API path
+        list_resp = mock.MagicMock()
+        list_resp.data = attachments
+        client.Attachments.list_row_attachments.return_value = list_resp
+        return sheet, client
+
+    def setUp(self):
+        # The function returns early when test_mode=True; turn off the
+        # global TEST_MODE for these tests so the cleanup logic runs.
+        self._saved_test_mode = generate_weekly_pdfs.TEST_MODE
+        self._saved_keep_hist = generate_weekly_pdfs.KEEP_HISTORICAL_WEEKS
+
+    def tearDown(self):
+        generate_weekly_pdfs.TEST_MODE = self._saved_test_mode
+        generate_weekly_pdfs.KEEP_HISTORICAL_WEEKS = self._saved_keep_hist
+
+    # ── Test 1: signature carries the new kwarg with default None ──
+
+    def test_signature_carries_variant_whitelist_kwarg_default_none(self):
+        import inspect
+        sig = inspect.signature(
+            generate_weekly_pdfs.cleanup_untracked_sheet_attachments
+        )
+        self.assertIn(
+            'variant_whitelist', sig.parameters,
+            'cleanup_untracked_sheet_attachments must accept '
+            'variant_whitelist kwarg per SUB-10.'
+        )
+        self.assertIs(
+            sig.parameters['variant_whitelist'].default, None,
+            'variant_whitelist default must be None to preserve '
+            'byte-identical legacy TARGET behavior (D-09).'
+        )
+
+    # ── Test 2: legacy behavior preserved when kwarg omitted (D-09) ──
+
+    def test_variant_whitelist_none_preserves_legacy_behavior(self):
+        """variant_whitelist=None: every variant accumulates into
+        identity_groups; off_contract_attachments stays empty; no
+        unconditional deletes. Only the legacy newest-keep logic
+        runs (and with KEEP_HISTORICAL_WEEKS=True + empty
+        valid_wr_weeks, the identity-prune branch short-circuits)."""
+        atts = [
+            self._make_attachment(
+                'WR_111_WeekEnding_041926_120000_abc123.xlsx', 1
+            ),  # primary
+            self._make_attachment(
+                'WR_222_WeekEnding_041926_120000_ReducedSub_def456.xlsx', 2
+            ),  # reduced_sub
+            self._make_attachment(
+                'WR_333_WeekEnding_041926_120000_AEPBillable_'
+                'Helper_Jane_ghi789.xlsx', 3
+            ),  # aep_billable_helper
+        ]
+        sheet, client = self._make_sheet_with_attachments(atts)
+        generate_weekly_pdfs.KEEP_HISTORICAL_WEEKS = True
+        generate_weekly_pdfs.cleanup_untracked_sheet_attachments(
+            client,
+            target_sheet_id=42,
+            valid_wr_weeks=set(),  # nothing in valid set
+            test_mode=False,
+            target_sheet=sheet,
+        )
+        # With variant_whitelist=None, no off-contract path fires.
+        # KEEP_HISTORICAL_WEEKS skips identity-prune for these idents.
+        # Expected: zero delete_attachment calls.
+        self.assertEqual(
+            client.Attachments.delete_attachment.call_count, 0,
+            'variant_whitelist=None + empty valid_wr_weeks + '
+            'KEEP_HISTORICAL_WEEKS=True must produce zero deletes '
+            '(byte-identical legacy behavior).'
+        )
+
+    # ── Test 3: whitelist routes off-contract attachments to delete ──
+
+    def test_whitelist_deletes_off_contract_attachments(self):
+        """variant_whitelist={'reduced_sub','reduced_sub_helper'} on
+        a sheet carrying multiple variants: reduced_sub / reduced_sub_helper
+        accumulate into identity_groups; primary / aep_billable / helper
+        are unconditionally deleted via delete_attachment."""
+        atts = [
+            # IN whitelist:
+            self._make_attachment(
+                'WR_111_WeekEnding_041926_120000_ReducedSub_aaa.xlsx', 1
+            ),  # reduced_sub
+            self._make_attachment(
+                'WR_222_WeekEnding_041926_120000_ReducedSub_'
+                'Helper_Alice_bbb.xlsx', 2
+            ),  # reduced_sub_helper
+            # OFF-CONTRACT (must be deleted):
+            self._make_attachment(
+                'WR_333_WeekEnding_041926_120000_ccc.xlsx', 3
+            ),  # primary (no variant marker in tail)
+            self._make_attachment(
+                'WR_444_WeekEnding_041926_120000_AEPBillable_ddd.xlsx', 4
+            ),  # aep_billable
+            self._make_attachment(
+                'WR_555_WeekEnding_041926_120000_Helper_Bob_eee.xlsx', 5
+            ),  # helper
+        ]
+        sheet, client = self._make_sheet_with_attachments(atts)
+        PPP_ID = 9999
+        generate_weekly_pdfs.KEEP_HISTORICAL_WEEKS = True
+        generate_weekly_pdfs.cleanup_untracked_sheet_attachments(
+            client,
+            target_sheet_id=PPP_ID,
+            valid_wr_weeks=set(),
+            test_mode=False,
+            target_sheet=sheet,
+            variant_whitelist={'reduced_sub', 'reduced_sub_helper'},
+        )
+        # 3 off-contract attachments deleted (ids 3, 4, 5):
+        delete_calls = client.Attachments.delete_attachment.call_args_list
+        self.assertEqual(
+            len(delete_calls), 3,
+            'Expected 3 off-contract deletes (primary, aep_billable, '
+            f'helper). Got {len(delete_calls)} calls: {delete_calls}'
+        )
+        deleted_ids = sorted(call[0][1] for call in delete_calls)
+        self.assertEqual(
+            deleted_ids, [3, 4, 5],
+            f'Expected deletes for ids [3, 4, 5]; got {deleted_ids}'
+        )
+        # All deletes targeted the supplied target_sheet_id (PPP_ID):
+        for call in delete_calls:
+            self.assertEqual(
+                call[0][0], PPP_ID,
+                'Off-contract delete must target the supplied '
+                f'target_sheet_id (got {call[0][0]} vs {PPP_ID})'
+            )
+
+    # ── Test 4: whitelist short-circuits BEFORE KEEP_HISTORICAL_WEEKS ──
+
+    def test_whitelist_fires_before_keep_historical_weeks(self):
+        """Off-contract attachments are deleted regardless of
+        valid_wr_weeks state — KEEP_HISTORICAL_WEEKS cannot legitimize
+        an off-contract attachment because the whitelist check fires
+        BEFORE the identity_groups accumulation."""
+        # Off-contract primary on a WR that IS in valid_wr_weeks
+        # (so the identity-prune path would normally preserve it).
+        atts = [
+            self._make_attachment(
+                'WR_91467680_WeekEnding_041926_120000_abc.xlsx', 100
+            ),  # primary (off-contract for PPP whitelist)
+        ]
+        sheet, client = self._make_sheet_with_attachments(atts)
+        # Place the WR's primary tuple in valid_wr_weeks AND turn on
+        # KEEP_HISTORICAL_WEEKS — these would normally save the
+        # attachment under the legacy identity-prune logic.
+        generate_weekly_pdfs.KEEP_HISTORICAL_WEEKS = True
+        valid = {('91467680', '041926', 'primary', '')}
+        generate_weekly_pdfs.cleanup_untracked_sheet_attachments(
+            client,
+            target_sheet_id=9999,
+            valid_wr_weeks=valid,
+            test_mode=False,
+            target_sheet=sheet,
+            variant_whitelist={'reduced_sub', 'reduced_sub_helper'},
+        )
+        # The off-contract primary MUST still be deleted — variant
+        # set membership is the authoritative gate for this sheet.
+        self.assertEqual(
+            client.Attachments.delete_attachment.call_count, 1,
+            'Off-contract attachment must be deleted even when its '
+            'identity tuple is in valid_wr_weeks and '
+            'KEEP_HISTORICAL_WEEKS=True. Variant-set membership is '
+            'the authoritative gate.'
+        )
+
+    # ── Test 5: non-parsing filenames do not enter off_contract bucket ──
+
+    def test_non_parsing_filename_does_not_route_to_off_contract(self):
+        """Files that don't parse via build_group_identity (returns
+        None) must be ignored entirely — they don't enter
+        off_contract_attachments and must NOT be deleted."""
+        atts = [
+            self._make_attachment('some_other_file.txt', 7),
+            self._make_attachment('WR_garbage.xlsx', 8),  # parses to None
+            self._make_attachment('not_a_wr_file.pdf', 9),
+        ]
+        sheet, client = self._make_sheet_with_attachments(atts)
+        generate_weekly_pdfs.cleanup_untracked_sheet_attachments(
+            client,
+            target_sheet_id=9999,
+            valid_wr_weeks=set(),
+            test_mode=False,
+            target_sheet=sheet,
+            variant_whitelist={'reduced_sub', 'reduced_sub_helper'},
+        )
+        self.assertEqual(
+            client.Attachments.delete_attachment.call_count, 0,
+            'Non-parsing filenames must NOT be deleted — the existing '
+            'if ident: guard already filters them.'
+        )
+
+    # ── Test 6: delete_attachment exception → WARNING + continue ──
+
+    def test_delete_attachment_exception_is_caught(self):
+        """When delete_attachment raises, the WARNING fires and the
+        loop continues to the next attachment (defensive try/except
+        per the function's exception-isolation contract)."""
+        atts = [
+            self._make_attachment(
+                'WR_111_WeekEnding_041926_120000_aaa.xlsx', 11
+            ),  # primary off-contract → delete will raise
+            self._make_attachment(
+                'WR_222_WeekEnding_041926_120000_bbb.xlsx', 22
+            ),  # primary off-contract → delete will succeed
+        ]
+        sheet, client = self._make_sheet_with_attachments(atts)
+
+        # First delete raises; second succeeds:
+        client.Attachments.delete_attachment.side_effect = [
+            RuntimeError('Simulated SDK 429'),
+            None,
+        ]
+        generate_weekly_pdfs.cleanup_untracked_sheet_attachments(
+            client,
+            target_sheet_id=9999,
+            valid_wr_weeks=set(),
+            test_mode=False,
+            target_sheet=sheet,
+            variant_whitelist={'reduced_sub', 'reduced_sub_helper'},
+        )
+        # Both calls attempted; exception did not halt the loop:
+        self.assertEqual(
+            client.Attachments.delete_attachment.call_count, 2,
+            'Loop must continue after a delete_attachment exception.'
+        )
+
+    # ── Test 7: source-level invariants (signature + log + counter) ──
+
+    def test_source_carries_removed_off_contract_counter(self):
+        """Source-level grep guards against drift between tests and
+        the production function. Mirrors the WR-01 source-level
+        pattern in TestPppCleanupUntrackedAttachments."""
+        import inspect, pathlib
+        src = pathlib.Path(
+            inspect.getsourcefile(generate_weekly_pdfs)
+        ).read_text(encoding='utf-8')
+        self.assertIn(
+            'removed_off_contract = 0', src,
+            'Source must initialize removed_off_contract = 0 alongside '
+            'removed_variants = 0.'
+        )
+        self.assertIn(
+            'off_contract_attachments = []', src,
+            'Source must initialize off_contract_attachments = [] '
+            'inside the per-row loop body.'
+        )
+        self.assertIn(
+            'variant_whitelist is not None', src,
+            'Source must carry the whitelist gate clause.'
+        )
+        self.assertIn(
+            'removed_off_contract={removed_off_contract}', src,
+            'End-of-function summary log must include the new counter.'
+        )
+
+    def test_source_carries_new_pii_log_marker(self):
+        """The new INFO log embeds attachment name (WR + week). The
+        marker must live in _PII_LOG_MARKERS per the [2026-05-15
+        12:00] rule 3 (explicit marker; no accidental substring
+        containment with pre-existing markers)."""
+        self.assertIn(
+            'Removed off-contract variant on sheet',
+            generate_weekly_pdfs._PII_LOG_MARKERS,
+            '_PII_LOG_MARKERS must include the new marker for the '
+            'off-contract delete INFO log body.'
+        )
+
+    def test_source_off_contract_delete_log_body_present(self):
+        import inspect, pathlib
+        src = pathlib.Path(
+            inspect.getsourcefile(generate_weekly_pdfs)
+        ).read_text(encoding='utf-8')
+        self.assertIn(
+            'Removed off-contract variant on sheet', src,
+            'Source must carry the INFO log body verbatim '
+            '(matched against the new _PII_LOG_MARKERS entry).'
+        )
+
+
+class TestPppCleanupInvocationCarriesWhitelist(unittest.TestCase):
+    """Phase 1.1 Bug B2 (D-07 / D-08 / SUB-10): the PPP invocation
+    site at L7189-7203 must pass
+    ``variant_whitelist={'reduced_sub','reduced_sub_helper'}`` as the
+    trailing kwarg; the TARGET_SHEET_ID invocation must NOT pass the
+    kwarg (preserves None default = byte-identical legacy)."""
+
+    @staticmethod
+    def _read_source() -> str:
+        import inspect, pathlib
+        return pathlib.Path(
+            inspect.getsourcefile(generate_weekly_pdfs)
+        ).read_text(encoding='utf-8')
+
+    def test_ppp_invocation_passes_literal_whitelist(self):
+        src = self._read_source()
+        self.assertIn(
+            "variant_whitelist={'reduced_sub', 'reduced_sub_helper'}",
+            src,
+            'PPP cleanup invocation must pass the literal '
+            "whitelist {'reduced_sub', 'reduced_sub_helper'} per D-08."
+        )
+
+    def test_only_ppp_invocation_carries_whitelist(self):
+        """Exactly one occurrence of the literal whitelist (PPP call
+        site only). TARGET must NOT carry it — preserves D-09."""
+        src = self._read_source()
+        self.assertEqual(
+            src.count(
+                "variant_whitelist={'reduced_sub', 'reduced_sub_helper'}"
+            ),
+            1,
+            'Exactly one whitelist literal expected (PPP only); '
+            'TARGET preserves None default per D-09.'
+        )
+
+    def test_target_cleanup_does_not_carry_whitelist(self):
+        """The TARGET invocation (the line containing
+        ``client, TARGET_SHEET_ID,`` in the cleanup call) must not
+        carry a ``variant_whitelist=`` argument."""
+        import re
+        src = self._read_source()
+        # Extract the TARGET cleanup invocation (multi-line or
+        # single-line tolerant). Use [^()]* so nested parens
+        # don't confuse the matcher.
+        target_match = re.search(
+            r"cleanup_untracked_sheet_attachments\s*\(\s*\n?\s*"
+            r"client\s*,\s*\n?\s*TARGET_SHEET_ID[^()]*\)",
+            src,
+            re.MULTILINE,
+        )
+        self.assertIsNotNone(
+            target_match,
+            'Expected TARGET cleanup invocation in source.'
+        )
+        self.assertNotIn(
+            'variant_whitelist', target_match.group(0),
+            'TARGET cleanup invocation must NOT carry '
+            'variant_whitelist kwarg per D-09 (preserves byte-'
+            'identical legacy behavior).'
+        )
+
+    def test_ppp_invocation_inside_sentry_span(self):
+        """The PPP invocation block carries
+        ``op="smartsheet.cleanup_ppp"`` and the whitelist kwarg must
+        live INSIDE that block (sequential lines, not above the
+        ``with`` statement)."""
+        src = self._read_source()
+        # The Sentry op for PPP appears immediately above the
+        # cleanup call (the whole block lives inside that with).
+        # Heuristic: locate ``smartsheet.cleanup_ppp`` and assert
+        # the whitelist literal appears within ~1500 chars after.
+        idx = src.find('smartsheet.cleanup_ppp')
+        self.assertGreater(idx, -1)
+        window = src[idx:idx + 1500]
+        self.assertIn(
+            "variant_whitelist={'reduced_sub', 'reduced_sub_helper'}",
+            window,
+            'The PPP whitelist kwarg must live inside the '
+            'op="smartsheet.cleanup_ppp" Sentry span (within '
+            '~1500 chars after the op marker).'
+        )
+
+
 if __name__ == '__main__':
     unittest.main()
