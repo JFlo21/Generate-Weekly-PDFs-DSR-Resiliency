@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Subcontractor Rate Logic
-status: ready_to_ship
-stopped_at: Phase 01 complete — 14 plans shipped (6 original + 8 gap-closure); all BLOCKER/WARNING/INFO findings addressed; byte-identical regression tests pass; operator pre-merge actions documented.
-last_updated: "2026-05-15T18:00:00.000Z"
-last_activity: 2026-05-15 -- Phase 01 gap closure complete
+status: planning
+stopped_at: Phase 1.1 context gathered
+last_updated: "2026-05-19T21:22:16.686Z"
+last_activity: 2026-05-19 -- Phase 1.1 inserted via /gsd-phase --insert 1.1 following 2-cycle /gsd-debug diagnosis (.planning/debug/sub-helper-shadow-missing.md)
 progress:
-  total_phases: 1
+  total_phases: 2
   completed_phases: 1
   total_plans: 14
   completed_plans: 14
-  percent: 100
+  percent: 50
 ---
 
 # Project State
@@ -23,16 +23,17 @@ See: .planning/PROJECT.md (updated 2026-05-14)
 **Core value:** The production Smartsheet → Excel → Smartsheet
 attachment pipeline runs every 2 hours on weekdays and ships
 billing-grade Excel reports without regression.
-**Current focus:** Phase 01 — Subcontractor Rate Logic Modification
+**Current focus:** Phase 1.1 — Subcontractor Helper-Shadow Rescue + Variant Partition + Claim-History Attribution (urgent hotfix; Phase 01 remains complete and merged)
 
 ## Current Position
 
-Phase: 01 (Subcontractor Rate Logic Modification) — COMPLETE
-Plan: 14 of 14 plans implemented (6 original + 8 gap-closure)
-Status: Ready to ship
-Last activity: 2026-05-15 -- Phase 01 gap closure complete
+Phase: 1.1 (Subcontractor Helper-Shadow Rescue + Variant Partition + Claim-History Attribution) — INSERTED, awaiting /gsd-discuss-phase
+Plan: 0 of TBD plans implemented (decomposition pending)
+Status: planning
+Last activity: 2026-05-19 -- Phase 1.1 inserted via /gsd-phase --insert 1.1 following 2-cycle /gsd-debug diagnosis (.planning/debug/sub-helper-shadow-missing.md)
+Prior phase: Phase 01 (Subcontractor Rate Logic Modification) — COMPLETE, 14 of 14 plans shipped
 
-Progress: [██████████] 100% (ready for PR merge)
+Progress: [█░░░░░░░░░] 50% across v1.0 milestone (Phase 01 ✅; Phase 1.1 ⏳; Phase 2 DEFERRED)
 
 ## Performance Metrics
 
@@ -56,6 +57,10 @@ Progress: [██████████] 100% (ready for PR merge)
 *Updated after each plan completion*
 
 ## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 1.1 inserted after Phase 1: Subcontractor Helper-Shadow Rescue + Variant Partition + Claim-History Attribution — urgent hotfix for three post-Phase-1 production bugs diagnosed via 2-cycle /gsd-debug session (URGENT)
 
 ### Decisions
 
@@ -137,14 +142,23 @@ Items acknowledged and carried forward to v1.1+:
 
 ## Session Continuity
 
-Last session: 2026-05-15T18:00:00.000Z
-Stopped at: Phase 01 gap closure complete — all 14 plans (6 original + 8 gap-closure) shipped. PR is ready for merge.
+Last session: 2026-05-19T21:22:16.678Z
+Stopped at: Phase 1.1 context gathered
 
-Next step: Merge PR, then operator applies `billing_audit/schema.sql` to Supabase before the first scheduled production run.
+Next step: `/gsd-discuss-phase 1.1` to gather full context and formalize SUB-08..SUB-12 requirements, then `/gsd-plan-phase 1.1` to decompose into atomic plans.
 
-Operator items still pending (post-merge):
+Operator items still pending (carried forward from Phase 01):
 
-- Apply `billing_audit/schema.sql` to Supabase before the first scheduled production run after merge
-- Step B real-data SKIP_UPLOAD price-write spot-check (deferred to scheduled GHA run OR local re-run with rotated token)
+- Apply `billing_audit/schema.sql` to Supabase before the first scheduled production run after merge of Phase 01 (PR #203) — still required.
+- Step B real-data SKIP_UPLOAD price-write spot-check (deferred to scheduled GHA run OR local re-run with rotated token).
+- Watch p01-hotfix-followups.md thread for AEP/ReducedSub byte-divergence confirmation on next 2-3 post-PR-#206 cron runs (independent of Phase 1.1).
 
-Resume file: None (Phase 01 complete)
+Phase 1.1 inputs ready:
+
+- Debug session artifact: `.planning/debug/sub-helper-shadow-missing.md` (2-cycle Root Cause Report)
+- Hotfix thread: `.planning/threads/p01-hotfix-followups.md`
+- Routing matrix decision: Statement #1 (codified in ROADMAP Phase 1.1 success criterion 1)
+- Plan 01-03 Test 1 override decision: subcontractor rows partition (not additive); primary rows unchanged
+- Bug C scope: billing_audit claim-history attribution on subcontractor workflow only
+
+Resume file: .planning/phases/01.1-subcontractor-helper-shadow-rescue/01.1-CONTEXT.md
