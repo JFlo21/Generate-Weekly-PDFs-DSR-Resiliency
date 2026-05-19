@@ -645,3 +645,112 @@ def emit_run_fingerprint(wr: str, week_ending: datetime.date,
                 "billing.week_ending": week_ending.isoformat(),
             },
         )
+
+
+def lookup_attribution(
+    wr: str,
+    week_ending: datetime.date,
+    smartsheet_row_id: int,
+) -> dict | None:
+    """Return the frozen helper attribution for ONE row, or None.
+
+    Phase 1.1 Bug C reader (D-10..D-16 / SUB-11). Subcontractor
+    workflow only — gated at the caller per D-15. First-write-wins
+    semantics already match the per-row "first observed checked"
+    definition (D-11) because the source-of-truth
+    ``billing_audit.attribution_snapshot`` was populated row-level
+    by every cron run since Phase 01's ``freeze_row`` shipped.
+
+    Reuses the ``with_retry`` + ``_classify_postgrest_error`` retry
+    contract from [2026-04-25 12:00] / [2026-04-25 14:00] unchanged:
+    PGRST101 (no rows) → returns None; PGRST106 (schema not exposed)
+    / PGRST301 / PGRST302 (auth) → trips the run-global kill, all
+    subsequent calls short-circuit via ``get_client()``; HTTP 5xx →
+    transient (retried by ``with_retry``); HTTP 4xx → permanent
+    (single attempt, returns None). The ``op="lookup_attribution"``
+    identifier is DISTINCT from ``freeze_attribution`` /
+    ``pipeline_run_select`` / ``pipeline_run_upsert`` so an
+    attribution-read outage cannot cascade into disabling those
+    correctness-critical writers (op-isolation invariant per the
+    [2026-04-25 14:00] ledger rule).
+
+    Parameters
+    ----------
+    wr : str
+        Work Request identifier. Sanitized at the producer site via
+        ``_WR_SANITIZE`` (idempotent regex per [2026-04-23 18:25] —
+        callers may pass either raw or pre-sanitized WR; both produce
+        the same RPC payload). Numeric-suffix WRs like ``'91467680.0'``
+        have the ``.0`` decimal suffix stripped via ``.split('.')[0]``
+        before sanitization.
+    week_ending : datetime.date
+        The row's week-ending date. ISO-format string passed to the
+        RPC (``2026-04-19``). The PRIMARY KEY shape on
+        ``attribution_snapshot`` is (wr, week_ending, smartsheet_row_id)
+        — all three are required for an unambiguous lookup.
+    smartsheet_row_id : int
+        The Smartsheet row ID; the per-row partition key. Non-int
+        inputs return None without dispatch.
+
+    Returns
+    -------
+    dict | None
+        On success, a dict with keys ``{'helper', 'helper_dept',
+        'source_run_id'}`` (data-team-owned RPC return shape; see
+        ``billing_audit/schema.sql`` and RESEARCH.md §C Assumption A3).
+        Returns None for ALL of:
+        - ``get_client()`` returned None (TEST_MODE / missing creds /
+          global-kill tripped),
+        - Invalid input (empty WR, None week_ending, non-int row_id),
+        - RPC failure (transient retries exhausted OR permanent
+          error after one attempt),
+        - RPC returned ``data=None``, an empty dict, an empty list,
+          or a result with no ``helper`` field populated (the
+          ``no_history`` case — there's no frozen attribution for
+          this row yet; caller falls back to current helper per D-12).
+
+        Returning None for both ``no_history`` and ``fetch_failure``
+        matches the D-12 contract — the caller distinguishes the
+        two reasons via per-WR local state (it has NOT issued a read
+        in the no_history case yet, so first-call-returns-None on
+        a brand-new WR is no_history; subsequent-call-returns-None
+        after a prior PGRST exception was logged is fetch_failure).
+    """
+    client = get_client()
+    if client is None:
+        return None
+    if not wr or week_ending is None or not isinstance(smartsheet_row_id, int):
+        return None
+
+    wr_sanitized = _WR_SANITIZE.sub("_", str(wr).split(".")[0])[:50]
+
+    params = {
+        "p_wr": wr_sanitized,
+        "p_week_ending": week_ending.isoformat(),
+        "p_smartsheet_row_id": smartsheet_row_id,
+    }
+
+    def _invoke():
+        return (
+            client.schema("billing_audit")
+            .rpc("lookup_attribution", params)
+            .execute()
+        )
+
+    # Distinct op so the breaker measures lookup independently of
+    # writer paths. Sharing op="freeze_attribution" would let a
+    # healthy attribution read continually reset the breaker
+    # counter and mask a sustained writer outage — the inverse of
+    # the [2026-04-25 12:00] pipeline_run select/upsert split.
+    result = with_retry(_invoke, op="lookup_attribution")
+    if result is None:
+        return None
+
+    data = getattr(result, "data", None)
+    if isinstance(data, dict):
+        return data if data.get("helper") else None
+    if isinstance(data, list) and data:
+        first = data[0]
+        if isinstance(first, dict) and first.get("helper"):
+            return first
+    return None
