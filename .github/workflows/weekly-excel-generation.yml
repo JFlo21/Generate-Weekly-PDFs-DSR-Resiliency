@@ -321,6 +321,30 @@ jobs:
           SUBCONTRACTOR_RATES_CSV: 'data/subcontractor_rates.csv'
           SUBCONTRACTOR_PPP_SHEET_ID: '8162920222379908'
           SUBCONTRACTOR_RATE_VARIANTS_ENABLED: '1'
+
+          # ─────────────────────────────────────────────────────
+          # Phase 1.1: Subcontractor Helper-Shadow Rescue + Variant
+          # Partition + Claim-History Attribution — workflow pinning
+          # ─────────────────────────────────────────────────────
+          # Pin Phase 1.1 feature defaults explicitly so the
+          # operator-facing feature state is visible at the workflow
+          # layer and a repo Variable cannot silently override these
+          # without code review (per CLAUDE.md [2026-04-24 14:30] /
+          # [2026-05-15 12:00] rule 7).
+          #
+          # Rollback path: set
+          # ``SUBCONTRACTOR_RATE_RECALC_PREACCEPTANCE_ENABLED: '0'``
+          # to revert Bug A behavior to the pre-fix state. Helper rows
+          # with blank SmartSheet ``Units Total Price`` will once again
+          # drop at the row-acceptance gate at generate_weekly_pdfs.py
+          # L3714, BEFORE helper detection runs. Does NOT affect Bug
+          # B1 (variant partitioning), Bug B2 (PPP cleanup whitelist),
+          # or Bug C (claim-history attribution) fixes.
+          SUBCONTRACTOR_RATE_RECALC_PREACCEPTANCE_ENABLED: '1'
+
+          # Bug C kill-switch placeholder — pinned by Plan 01.1-04:
+          # SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED: '1'
+
           # AEP_BILLABLE_CUTOFF is intentionally UNSET in the
           # workflow — the Python default (datetime.date(2026,
           # 4, 12), the contract award date) is the source of
