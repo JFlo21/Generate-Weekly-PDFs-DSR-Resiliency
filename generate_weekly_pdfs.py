@@ -583,6 +583,16 @@ if SUBCONTRACTOR_RATE_VARIANTS_ENABLED:
         f"({'env override' if _aep_billable_cutoff_env else 'default'})"
     )
 
+# Phase 1.1 Bug A: surface the resolved kill-switch state at startup
+# so operators grepping the banner can see the active feature state
+# at a glance (per [2026-04-23 00:00] ledger rule 3). Banner body
+# carries no row PII (just the resolved bool value) — no marker
+# required.
+logging.info(
+    f"📋 SUBCONTRACTOR_RATE_RECALC_PREACCEPTANCE_ENABLED="
+    f"{SUBCONTRACTOR_RATE_RECALC_PREACCEPTANCE_ENABLED}"
+)
+
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
 RESET_WR_LIST = {w.strip() for w in os.getenv('RESET_WR_LIST','').split(',') if w.strip()}  # When provided, only purge these WR numbers (overrides full reset)
 _env_hist_path = os.getenv('HASH_HISTORY_PATH')
@@ -3710,6 +3720,58 @@ def get_all_source_rows(client, source_sheets):
                                     # code separately.
                                     cu_val = _resolve_cu_code(row_data) or '<blank>'
                                     sheet_rate_recalc_skipped_cus[cu_val] += 1
+
+                        # Phase 1.1 Bug A (D-01..D-03 / SUB-08):
+                        # pre-acceptance rate-recalc rescue for
+                        # subcontractor sheets. Mirrors the
+                        # [2026-04-23 00:00] VAC-crew Weekly-Ref-Date
+                        # fallback pattern (additive branch alongside
+                        # the existing primary-rate gate above, NOT a
+                        # modification of it). Subcontractor operators
+                        # populate helper-foreman events BEFORE pricing
+                        # is finalized; SmartSheet ``Units Total Price``
+                        # is commonly blank/zero on those rows. Without
+                        # this rescue, the row drops at the has_price
+                        # gate below and helper-detection never fires.
+                        # Mutates row_data['Units Total Price'] in
+                        # addition to price_val so the has_price gate's
+                        # ``price_raw not in (None, "", "$0", ...)``
+                        # clause also passes — same in-place pattern
+                        # as ``recalculate_row_price`` at L1751.
+                        if (
+                            is_subcontractor_sheet
+                            and SUBCONTRACTOR_RATE_RECALC_PREACCEPTANCE_ENABLED
+                            and price_val <= 0
+                        ):
+                            _rescued = _subcontractor_rescue_price(row_data)
+                            if _rescued > 0:
+                                price_val = _rescued
+                                row_data['Units Total Price'] = _rescued
+                                # Telemetry hook for downstream Sentry
+                                # breadcrumbs + the e2e regression
+                                # test in Plan 01.1-05.
+                                row_data['__subcontractor_rescued'] = True
+                                if FILTER_DIAGNOSTICS and sheet_row_counter < DEBUG_ESSENTIAL_ROWS:
+                                    # PII marker "Subcontractor pre-
+                                    # acceptance rescue" added to
+                                    # _PII_LOG_MARKERS in Task 1. Log
+                                    # body embeds WR + CU. ``wr_key_for_diag``
+                                    # is not yet initialized in this
+                                    # scope (it lands at L3723 below),
+                                    # so derive it here from the row's
+                                    # raw Work Request # via the same
+                                    # ``str(work_request).split('.')[0]``
+                                    # pattern.
+                                    _wr_diag = (
+                                        str(work_request).split('.')[0]
+                                        if work_request else '<unknown>'
+                                    )
+                                    logging.info(
+                                        f"💲 Subcontractor pre-acceptance rescue: "
+                                        f"WR={_wr_diag}, "
+                                        f"CU={row_data.get('CU')}, "
+                                        f"rescued=${_rescued:.2f}"
+                                    )
 
                         price_raw = row_data.get('Units Total Price')
                         has_price = (price_raw not in (None, "", "$0", "$0.00", "0", "0.0")) and price_val > 0
