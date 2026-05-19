@@ -2478,6 +2478,300 @@ class TestSubcontractorVariantKillSwitchAndScope(unittest.TestCase):
         )
 
 
+class TestSubcontractorB1PartitioningGate(unittest.TestCase):
+    """Phase 1.1 Plan 01.1-02 Bug B1 (D-04 / SUB-09): partitioning gate.
+
+    Pins the seven behaviours from the plan's ``<behavior>`` block:
+
+    - Test 1: Non-helper subcontractor row (``is_subcontractor_row=True``,
+      ``valid_helper_row=False``) under ``RES_GROUPING_MODE='both'``
+      produces NO ``('primary', ...)`` group tuple — only the variant
+      keys ``_REDUCEDSUB`` and ``_AEPBILLABLE`` (when post-cutoff). This
+      is Bug B1's closure assertion.
+    - Test 2: Non-helper NON-subcontractor row → legacy primary key
+      ``{week}_{wr}`` IS emitted (legacy behaviour preserved).
+    - Test 3: Helper subcontractor row → no legacy primary key
+      (already partitioned by the existing ``not valid_helper_row``
+      branch; Bug B1's gate must not regress this).
+    - Test 4: Helper NON-subcontractor row → no legacy primary key
+      AND the legacy "Helper row with both checkboxes" INFO log fires.
+    - Test 5: ``is_subcontractor_row`` is hoisted (source-level grep
+      guard — single ``_FOLDER_DISCOVERED_SUB_IDS`` membership
+      expression inside ``group_source_rows``).
+    - Test 6: ``RES_GROUPING_MODE='primary'`` is UNTOUCHED — both
+      subcontractor and non-subcontractor non-helper rows produce a
+      primary key in that mode (non-production configuration,
+      preserves legacy behaviour per RESEARCH.md cascade-preservation
+      rule).
+    - Test 7: Subcontractor variant emission block continues to emit
+      ``_REDUCEDSUB`` (and ``_AEPBILLABLE`` post-cutoff) for
+      subcontractor rows — Bug B1 does not regress Phase 1's variant
+      tagging; only suppresses the duplicate legacy primary.
+    """
+
+    _SUB_SHEET_ID = 8162920222379908
+    _NON_SUB_SHEET_ID = 5723337641643908  # TARGET_SHEET_ID — known non-sub
+    _ORIG_SHEET_ID = 7644752003786628
+
+    def setUp(self):
+        # Snapshot module state for test isolation (mirrors
+        # TestSubcontractorVariantKillSwitchAndScope pattern).
+        self._orig_enabled = generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED
+        self._orig_sub_ids = set(generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS)
+        self._orig_orig_ids = set(generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS)
+        self._orig_mode = generate_weekly_pdfs.RES_GROUPING_MODE
+        # Default test config — production-like 'both' mode + variants on.
+        generate_weekly_pdfs.RES_GROUPING_MODE = 'both'
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = True
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.add(self._SUB_SHEET_ID)
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.clear()
+
+    def tearDown(self):
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = self._orig_enabled
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.update(self._orig_sub_ids)
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_ORIG_IDS.update(self._orig_orig_ids)
+        generate_weekly_pdfs.RES_GROUPING_MODE = self._orig_mode
+
+    def _make_row(
+        self,
+        wr='WR_PARTITION',
+        source_sheet_id=None,
+        is_helper_row=False,
+        helper_foreman='',
+        helper_dept='',
+        snapshot='2026-04-19',
+    ):
+        if source_sheet_id is None:
+            source_sheet_id = self._SUB_SHEET_ID
+        return {
+            'Work Request #': wr,
+            'Weekly Reference Logged Date': '2026-04-19',
+            'Snapshot Date': snapshot,
+            'Units Completed?': True,
+            'Units Total Price': '$100.00',
+            '__effective_user': 'TestForeman',
+            '__assignment_method': 'FOREMAN_COLUMN',
+            '__is_helper_row': is_helper_row,
+            '__helper_foreman': helper_foreman,
+            '__helper_dept': helper_dept,
+            '__helper_job': '',
+            '__is_vac_crew': False,
+            '__source_sheet_id': source_sheet_id,
+        }
+
+    # ---------- Test 1: Bug B1 closure assertion ----------
+    def test_subcontractor_non_helper_row_emits_no_primary_key(self):
+        """Test 1: non-helper subcontractor row → NO ('primary', ...) tuple.
+
+        The legacy primary key ``{week}_{wr}`` MUST NOT appear in the
+        emitted groups for a subcontractor non-helper row under
+        production grouping mode 'both'. Only variant keys remain.
+        """
+        row = self._make_row(
+            wr='WR_SUB',
+            source_sheet_id=self._SUB_SHEET_ID,
+            is_helper_row=False,
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        # Bug B1: no legacy primary
+        self.assertNotIn(
+            '041926_WR_SUB',
+            keys,
+            f"Bug B1: subcontractor non-helper row must NOT emit "
+            f"legacy primary key; got: {keys}",
+        )
+        # Phase 1 variant emission is preserved
+        self.assertIn(
+            '041926_WR_SUB_REDUCEDSUB',
+            keys,
+            f"Phase 1 variant emission must still produce _REDUCEDSUB; "
+            f"got: {keys}",
+        )
+        self.assertIn(
+            '041926_WR_SUB_AEPBILLABLE',
+            keys,
+            f"Post-cutoff snapshot must still produce _AEPBILLABLE; "
+            f"got: {keys}",
+        )
+
+    # ---------- Test 2: legacy non-subcontractor flow preserved ----------
+    def test_non_subcontractor_non_helper_row_emits_primary_key(self):
+        """Test 2: non-helper non-sub row → legacy primary key preserved."""
+        row = self._make_row(
+            wr='WR_NONSUB',
+            source_sheet_id=self._NON_SUB_SHEET_ID,
+            is_helper_row=False,
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        self.assertIn(
+            '041926_WR_NONSUB',
+            keys,
+            f"Non-subcontractor row must continue to emit legacy "
+            f"primary key; got: {keys}",
+        )
+        # And NO subcontractor variant keys
+        self.assertFalse(
+            any('_REDUCEDSUB' in k or '_AEPBILLABLE' in k for k in keys),
+            f"Non-subcontractor row must NOT emit variant keys; got: {keys}",
+        )
+
+    # ---------- Test 3: helper subcontractor row still excluded ----------
+    def test_helper_subcontractor_row_emits_no_primary_key(self):
+        """Test 3: helper subcontractor row → no primary (existing behaviour)."""
+        row = self._make_row(
+            wr='WR_SUBHELP',
+            source_sheet_id=self._SUB_SHEET_ID,
+            is_helper_row=True,
+            helper_foreman='Jane Helper',
+            helper_dept='500',
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        self.assertNotIn(
+            '041926_WR_SUBHELP',
+            keys,
+            f"Helper subcontractor row must NOT emit legacy primary; "
+            f"got: {keys}",
+        )
+        # Helper variants for sub rows still emit
+        self.assertTrue(
+            any('_REDUCEDSUB_HELPER_' in k for k in keys),
+            f"Helper sub row must emit _REDUCEDSUB_HELPER_ key; "
+            f"got: {keys}",
+        )
+
+    # ---------- Test 4: helper non-sub row still emits "Helper" log ----------
+    def test_helper_non_subcontractor_row_emits_no_primary_and_logs(self):
+        """Test 4: helper non-sub row → no primary, "Helper row" INFO log fires.
+
+        The legacy ``elif valid_helper_row:`` branch in the cascade
+        must still fire for helper non-subcontractor rows (Bug B1's
+        gate change must not regress the "Helper row with both
+        checkboxes" log).
+        """
+        row = self._make_row(
+            wr='WR_NONSUBHELP',
+            source_sheet_id=self._NON_SUB_SHEET_ID,
+            is_helper_row=True,
+            helper_foreman='Jane NonSubHelper',
+            helper_dept='500',
+        )
+        with self.assertLogs(level='INFO') as cm:
+            groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        self.assertNotIn(
+            '041926_WR_NONSUBHELP',
+            keys,
+            f"Helper non-sub row must NOT emit legacy primary; "
+            f"got: {keys}",
+        )
+        # The "Helper row with both checkboxes" INFO log must fire
+        log_blob = '\n'.join(cm.output)
+        self.assertIn(
+            'Helper row with both checkboxes',
+            log_blob,
+            "Helper non-sub row must trigger the legacy 'Helper row "
+            "with both checkboxes' INFO log (unchanged behaviour)",
+        )
+
+    # ---------- Test 5: source-level hoist guard ----------
+    def test_source_level_grep_partitioning_gate_present(self):
+        """Test 5: production source carries the partitioning gate.
+
+        Defeats the "tests pass but production reverted" failure mode
+        (mirror of TestHelperShadowVariantFileIdentifier's source-level
+        grep test pattern).
+        """
+        import inspect
+        import pathlib
+        src = pathlib.Path(
+            inspect.getsourcefile(generate_weekly_pdfs)
+        ).read_text(encoding='utf-8')
+        self.assertIn(
+            'if not is_subcontractor_row and not valid_helper_row:',
+            src,
+            "Bug B1 partitioning gate must be present in production",
+        )
+        self.assertIn(
+            'elif is_subcontractor_row and not valid_helper_row:',
+            src,
+            "Bug B1 diagnostic branch must be present in production",
+        )
+        self.assertIn(
+            'EXCLUDING from main Excel (subcontractor row)',
+            src,
+            "Bug B1 diagnostic DEBUG log body must be present",
+        )
+        # Hoist confirmation: the `is_subcontractor_row` assignment
+        # must appear exactly ONCE inside group_source_rows (the
+        # previously-duplicated site at L4244-4248 was removed).
+        # We count occurrences of the multi-line assignment header.
+        # The hoisted block is `is_subcontractor_row = (` and must
+        # appear exactly once in the source.
+        self.assertEqual(
+            src.count('is_subcontractor_row = (\n'),
+            1,
+            "is_subcontractor_row must be assigned exactly once "
+            "(hoisted; duplicated computation removed)",
+        )
+
+    # ---------- Test 6: RES_GROUPING_MODE='primary' untouched ----------
+    def test_primary_mode_subcontractor_row_still_emits_primary(self):
+        """Test 6: under RES_GROUPING_MODE='primary', sub rows still get primary key.
+
+        Non-production mode; the partitioning gate is scoped to the
+        ``('helper', 'both')`` branch only per the RESEARCH.md
+        cascade-preservation rule.
+        """
+        generate_weekly_pdfs.RES_GROUPING_MODE = 'primary'
+        row = self._make_row(
+            wr='WR_SUB_PRIM',
+            source_sheet_id=self._SUB_SHEET_ID,
+            is_helper_row=False,
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        self.assertIn(
+            '041926_WR_SUB_PRIM',
+            keys,
+            f"RES_GROUPING_MODE='primary' must continue to emit "
+            f"legacy primary key for ALL rows (sub + non-sub); "
+            f"got: {keys}",
+        )
+
+    # ---------- Test 7: variant emission preserved byte-for-byte ----------
+    def test_phase1_variant_emission_block_untouched(self):
+        """Test 7: subcontractor variant emission still produces variants.
+
+        Bug B1 closes the duplicate-primary leak WITHOUT touching the
+        variant emission block — _REDUCEDSUB (always) and _AEPBILLABLE
+        (post-cutoff) continue to fire for subcontractor rows.
+        """
+        row = self._make_row(
+            wr='WR_VAR_INTACT',
+            source_sheet_id=self._SUB_SHEET_ID,
+            is_helper_row=False,
+            snapshot='2026-04-19',  # post-cutoff
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        self.assertIn(
+            '041926_WR_VAR_INTACT_REDUCEDSUB',
+            keys,
+            "_REDUCEDSUB still emitted for subcontractor rows",
+        )
+        self.assertIn(
+            '041926_WR_VAR_INTACT_AEPBILLABLE',
+            keys,
+            "_AEPBILLABLE still emitted for post-cutoff subcontractor rows",
+        )
+
+
 class TestSubcontractorPppSheetIdEmptyStringDisable(unittest.TestCase):
     """Phase 01 gap closure (REVIEW-WR-02): ``SUBCONTRACTOR_PPP_SHEET_ID=''``
     must resolve to ``0`` (disabled), matching the operator-facing
