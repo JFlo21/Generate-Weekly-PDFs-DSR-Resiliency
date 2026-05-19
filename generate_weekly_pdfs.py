@@ -451,6 +451,16 @@ SUBCONTRACTOR_RATE_VARIANTS_ENABLED = os.getenv(
     'SUBCONTRACTOR_RATE_VARIANTS_ENABLED', '1'
 ).lower() in ('1', 'true', 'yes', 'on')
 
+# Phase 1.1 Bug A (D-02 / SUB-08): pre-acceptance rate-recalc rescue
+# for subcontractor sheets. Default-on per the [2026-04-23 00:00]
+# Living Ledger rule that any pre-acceptance / data-shape change must
+# ship with a rollback flag. Setting '0' reverts Bug A behavior to
+# the pre-fix state without affecting Bug B1, B2, or claim-history
+# fixes. Pinned in workflow env: block per IN-04.
+SUBCONTRACTOR_RATE_RECALC_PREACCEPTANCE_ENABLED = os.getenv(
+    'SUBCONTRACTOR_RATE_RECALC_PREACCEPTANCE_ENABLED', '1'
+).strip().lower() in ('1', 'true', 'yes', 'on')
+
 # Cutoff date for ``_AEPBillable`` variant generation. Awarded to
 # Linetec on 2026-04-12 (subcontractor rate contract). Plan 2 (parser
 # extension) and Plan 3 (variant emission) gate variant emission on
@@ -863,6 +873,12 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     "REDUCED SUB HELPER GROUP CREATED",
     "AEP BILLABLE HELPER GROUP CREATED",
     "Subcontractor rates CSV missing",
+    # Phase 1.1 Bug A (SUB-08): pre-acceptance rescue diagnostic log
+    # embeds WR + CU + rescued price. Explicit marker per the
+    # [2026-05-15 12:00] rule 3 (explicit markers for new INFO-level
+    # log bodies — no accidental substring matching against
+    # pre-existing markers).
+    "Subcontractor pre-acceptance rescue",
 )
 
 
@@ -1403,6 +1419,49 @@ elif SUBCONTRACTOR_RATE_VARIANTS_ENABLED:
         "_ReducedSub variant generation will be skipped this run "
         f"(SUBCONTRACTOR_RATES_CSV='{SUBCONTRACTOR_RATES_CSV}')"
     )
+
+
+def _subcontractor_rescue_price(row_data: dict) -> float:
+    """Phase 1.1 Bug A pre-acceptance rescue. Returns reduced-sub
+    price * qty OR 0.0 (caller observes no rescue and the row drops
+    at the existing has_price gate, same as legacy behaviour).
+
+    Uses reduced_*_price as the safety floor regardless of AEP cutoff:
+    the cutoff is variant-emission gating only; this helper is for
+    pre-acceptance row admission, not for output pricing. The
+    actual price written to Excel happens later in
+    ``_resolve_row_price`` at the ``generate_excel`` call site,
+    AFTER row acceptance.
+
+    Reads ONLY canonical keys (``CU`` / ``Work Type`` / ``Quantity``)
+    per Phase 1 Blocker 2 lock-in. Per [2026-05-16 23:45] ledger
+    rule, the work-type matcher uses the SHORTEST UNAMBIGUOUS
+    PREFIX as ``A`` in the ``A in B`` substring direction so that
+    operator-entered abbreviations (``Inst`` / ``Rem`` / ``Trans``
+    / ``Xfr``) AND full canonical forms (``Install`` / ``Removal``
+    / ``Transfer``) both match.
+    """
+    cu = str(row_data.get('CU') or '').strip().upper()
+    rate_row = _SUBCONTRACTOR_RATES.get(cu)
+    if rate_row is None:
+        return 0.0
+    work_type_raw = (row_data.get('Work Type') or '').strip().lower()
+    if 'inst' in work_type_raw:
+        rate = rate_row.get('reduced_install_price', 0.0)
+    elif 'rem' in work_type_raw:
+        rate = rate_row.get('reduced_remove_price', 0.0)
+    elif 'tran' in work_type_raw or 'xfr' in work_type_raw:
+        rate = rate_row.get('reduced_transfer_price', 0.0)
+    else:
+        return 0.0
+    qty_raw = row_data.get('Quantity', 0)
+    try:
+        qty = float(qty_raw) if qty_raw not in (None, '') else 0.0
+    except (TypeError, ValueError):
+        qty = 0.0
+    if rate <= 0 or qty <= 0:
+        return 0.0
+    return rate * qty
 
 
 def _resolve_row_price(row: dict, variant: str, missing_cus) -> float:
