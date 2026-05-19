@@ -30,7 +30,7 @@ Express explorer routes are tracked as v1.1+ scope.
 **Phase Numbering:**
 - Integer phases (1, 2): Planned milestone work
 - Decimal phases (e.g., 1.1, 2.1): Urgent insertions inserted via
-  `/gsd-insert-phase` (none yet)
+  `/gsd-insert-phase` (Phase 1.1 inserted 2026-05-19)
 
 - [x] **Phase 1: Subcontractor Rate Logic Modification** — Two new Excel
   variants (`_AEPBillable`, `_ReducedSub`) for subcontractor WR groups,
@@ -42,6 +42,23 @@ Express explorer routes are tracked as v1.1+ scope.
   reference-only). Kill switch (`SUBCONTRACTOR_RATE_VARIANTS_ENABLED`)
   default-ON with `0` as the documented rollback path; per IN-04 / plan
   01-14 now also pinned in the workflow `env:` block.
+- [ ] **Phase 1.1 (INSERTED): Subcontractor Helper-Shadow Rescue + Variant
+  Partition + Claim-History Attribution** — Urgent hotfix for three
+  production bugs discovered after Phase 1 shipped (PR #203 + #206).
+  Bug A: subcontractor helper-shadow files never emitted because helper
+  rows drop at the L3669 price gate before helper detection runs
+  (pre-acceptance rescue gap parallel to the [2026-04-23 00:00] VAC-crew
+  trap). Bug B1: legacy primary group key emitted alongside variant
+  keys for subcontractor non-helper rows, producing a duplicate-no-suffix
+  Excel on TARGET_SHEET_ID (overrides Plan 01-03 Test 1's additive
+  contract for subcontractor rows only). Bug B2: stale PPP attachments
+  preserved by cleanup because `valid_wr_weeks` shared across both
+  target sheets — self-resolves once B1 lands. Plus billing_audit
+  claim-history attribution for helper line items (subcontractor only;
+  primary workflow untouched), Plan 01-03 Test 1 rewrite, and a true
+  end-to-end integration test closing the `TestHelperShadowVariantFileIdentifier`
+  weakness surfaced by the 2-cycle debug session
+  (`.planning/debug/sub-helper-shadow-missing.md`).
 - [ ] **Phase 2 (DEFERRED): Railway → Render Pre-Migration ADR** — File the
   missing `memory-bank/adr/` record locking Render Starter, in-memory
   LRU search, and v1 download = original `.xlsx`. **Does not gate v1.0 completion** — preserved here so MIG-01 stays mapped, but the full Railway → Render execution lives in REQUIREMENTS.md v2 section.
@@ -134,6 +151,80 @@ Plans:
 - [x] 01-12-PLAN.md — Gap closure: WR-05 (PPP attachment prefetch — same daemon-executor / sub-budget pattern as primary) + regression tests
 - [x] 01-13-PLAN.md — Gap closure: WR-01 (PPP end-of-run cleanup pass) + regression tests
 - [x] 01-14-PLAN.md — Gap closure: IN-04 (workflow env-var pinning) + Living Ledger entry documenting 7 new rules + regression test
+
+### Phase 1.1: Subcontractor Helper-Shadow Rescue + Variant Partition + Claim-History Attribution (INSERTED)
+**Goal**: A scheduled cron run on a subcontractor sheet with
+operator-populated helper data produces `_ReducedSub_Helper_<foreman>.xlsx`
+and `_AEPBillable_Helper_<foreman>.xlsx` attached to the correct sheets
+(routing matrix unchanged from Phase 1: `_AEPBillable*` to TARGET_SHEET_ID
+5723337641643908 only; `_ReducedSub*` to both TARGET and
+SUBCONTRACTOR_PPP_SHEET_ID 8162920222379908); no duplicate-no-suffix
+Excel file appears on any target sheet for any subcontractor WR; helper
+files contain only the line items each foreman claimed before any
+mid-week shift change (per `billing_audit.pipeline_run` history); and
+zero impact to primary, helper, VAC-crew, or ORIG-folder outputs.
+**Depends on**: Phase 1 (must be merged). Foundational constraints
+come from Phase 1's already-shipped variant scaffolding
+(`build_group_identity`, `calculate_data_hash`, `_resolve_row_price`,
+`_build_upload_tasks_for_group` dual-target routing, PII markers,
+filter matchers) and from `billing_audit/pipeline_run.variant` (Plan 01-05).
+**Requirements**: SUB-08, SUB-09, SUB-10, SUB-11, SUB-12 (to be
+formalized via `/gsd-discuss-phase 1.1`).
+**Success Criteria** (what must be TRUE):
+  1. For every subcontractor-folder WR group with at least one row
+     where `Helping Foreman Completed Unit?` AND `Units Completed?`
+     are both checked, the workflow emits a `_ReducedSub_Helper_<name>`
+     Excel file per distinct helping foreman, attached to BOTH
+     TARGET_SHEET_ID and SUBCONTRACTOR_PPP_SHEET_ID. Where the WR also
+     qualifies for `_AEPBillable` (Snapshot Date ≥ `AEP_BILLABLE_CUTOFF`),
+     an `_AEPBillable_Helper_<name>` Excel file is also emitted, attached
+     to TARGET_SHEET_ID only.
+  2. For any subcontractor WR group, no Excel file with the legacy
+     primary filename shape `WR_<wr>_WeekEnding_<MMDDYY>_<ts>_<hash>.xlsx`
+     (no variant suffix) is generated, uploaded, or retained on any
+     target sheet. Variant tagging for subcontractor rows is
+     **partitioning** (only `_AEPBillable*` / `_ReducedSub*` keys),
+     overriding Plan 01-03 Test 1's "additive" contract for
+     subcontractor rows only. Primary / original-contract /
+     VAC-crew rows continue to emit the legacy primary key
+     unchanged.
+  3. Helper files contain only line items each foreman claimed BEFORE
+     any mid-week shift change. The attribution mechanic queries the
+     existing `billing_audit.pipeline_run` history (or an extended
+     table) for prior-foreman claim windows and filters the row set
+     accordingly. Subcontractor workflow only — primary workflow's
+     helper logic stays untouched per "don't damage" constraint.
+  4. `pytest tests/` passes including: regression test for the
+     pre-acceptance rate rescue (Bug A); regression test for the
+     variant-partition gate (Bug B1, rewriting Plan 01-03 Test 1);
+     regression test for PPP cleanup variant-awareness (Bug B2);
+     regression test for the claim-history attribution gate; AND
+     a true end-to-end integration test driving
+     `_fetch_and_process_sheet` → `group_source_rows` → `generate_excel`
+     on a synthetic subcontractor sheet with helper data (closes the
+     `TestHelperShadowVariantFileIdentifier` structural weakness
+     surfaced by the cycle-2 debug session). No existing test
+     regresses.
+  5. A scheduled weekly workflow run produces byte-identical
+     primary / helper / VAC-crew / ORIG-folder outputs to the run
+     immediately before Phase 1.1 (verified via hash-history diff
+     on a TEST_MODE run). Only subcontractor variant outputs change.
+  6. Operator-facing kill switch
+     `SUBCONTRACTOR_RATE_RECALC_PREACCEPTANCE_ENABLED='0'` disables
+     the new pre-acceptance rescue, reverting Bug A behavior to the
+     pre-fix state without affecting Bug B1, B2, or claim-history fixes.
+     Pinned in the workflow `env:` block per IN-04 rule.
+  7. Living Ledger entry in CLAUDE.md documents the 2-cycle debug
+     methodology (cycle 1 wrong F1/F2, cycle 2 found real root cause
+     after operator evidence), the Plan 01-03 design-intent override,
+     the pre-acceptance-rescue-generalization rule, and the
+     test-methodology rule (future shadow-variant tests MUST drive
+     end-to-end). New rules timestamped per the Living Ledger format.
+**Plans**: TBD (decomposed via `/gsd-discuss-phase 1.1` →
+`/gsd-plan-phase 1.1`)
+
+Plans:
+- [ ] 01.1-01: TBD (to be decomposed via `/gsd-plan-phase 1.1`)
 
 ### Phase 2: Railway → Render Pre-Migration ADR (DEFERRED — out of v1.0 scope)
 **Status**: DEFERRED. Does not gate v1.0 milestone completion. The seven REQ-* requirements that drive the actual Railway → Render execution + Artifact Explorer redesign live in REQUIREMENTS.md "v2 Requirements" section and will be promoted by a future `/gsd-new-project` cycle. Phase 2 here exists to lock in the one small documentation deliverable (`MIG-01`) that should land before any of that v2 work begins.

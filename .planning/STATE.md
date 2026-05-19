@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Subcontractor Rate Logic
-status: planning
+status: executing
 stopped_at: Phase 1.1 context gathered
-last_updated: "2026-05-19T21:22:16.686Z"
-last_activity: 2026-05-19 -- Phase 1.1 inserted via /gsd-phase --insert 1.1 following 2-cycle /gsd-debug diagnosis (.planning/debug/sub-helper-shadow-missing.md)
+last_updated: "2026-05-19T22:51:36.947Z"
+last_activity: 2026-05-19 -- Phase 01.1 planning complete
 progress:
   total_phases: 2
   completed_phases: 1
@@ -29,8 +29,8 @@ billing-grade Excel reports without regression.
 
 Phase: 1.1 (Subcontractor Helper-Shadow Rescue + Variant Partition + Claim-History Attribution) — INSERTED, awaiting /gsd-discuss-phase
 Plan: 0 of TBD plans implemented (decomposition pending)
-Status: planning
-Last activity: 2026-05-19 -- Phase 1.1 inserted via /gsd-phase --insert 1.1 following 2-cycle /gsd-debug diagnosis (.planning/debug/sub-helper-shadow-missing.md)
+Status: Ready to execute
+Last activity: 2026-05-19 -- Phase 01.1 planning complete
 Prior phase: Phase 01 (Subcontractor Rate Logic Modification) — COMPLETE, 14 of 14 plans shipped
 
 Progress: [█░░░░░░░░░] 50% across v1.0 milestone (Phase 01 ✅; Phase 1.1 ⏳; Phase 2 DEFERRED)
