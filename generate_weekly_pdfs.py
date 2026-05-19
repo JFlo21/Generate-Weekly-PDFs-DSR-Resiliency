@@ -4267,7 +4267,30 @@ def group_source_rows(rows):
             
             # Check if this row was detected as VAC Crew (row-level column-based detection)
             is_vac_crew_row = r.get('__is_vac_crew', False)
-            
+
+            # Phase 1.1 Bug B1 (D-04 / SUB-09): hoist
+            # is_subcontractor_row to BEFORE the primary-emission
+            # cascade AND the subcontractor variant emission block.
+            # Both dependencies (r.get('__source_sheet_id') and
+            # _FOLDER_DISCOVERED_SUB_IDS) are in scope at function
+            # entry (verified per RESEARCH.md Pitfall 5). The same
+            # computation was previously duplicated immediately before
+            # the variant emission block downstream — that duplicate
+            # site is now removed and the variable resolves to this
+            # hoisted definition for BOTH the new partitioning gate
+            # and the existing variant emission block. Hoist lives
+            # OUTSIDE the ``if is_vac_crew_row:`` cascade so the
+            # variant emission block (at per-row loop scope) still
+            # sees the variable even when the row is VAC Crew (in
+            # that case the variant block's outer
+            # ``if is_subcontractor_row and ...`` gate still resolves
+            # correctly).
+            _row_sheet_id = r.get('__source_sheet_id')
+            is_subcontractor_row = (
+                _row_sheet_id is not None
+                and _row_sheet_id in _FOLDER_DISCOVERED_SUB_IDS
+            )
+
             # VAC Crew rows get their own dedicated group key (separate from primary/helper).
             # Detection is row-level: a row is VAC Crew when VAC Crew Helping? is non-blank
             # AND Vac Crew Completed Unit? is checked. This means the same sheet can produce
@@ -4306,12 +4329,35 @@ def group_source_rows(rows):
                     primary_key = f"{week_end_for_key}_{wr_key}"
                     keys_to_add.append(('primary', primary_key, None))
                 elif RES_GROUPING_MODE in ('helper', 'both'):
-                    # In helper/both mode, exclude valid helper rows from main
-                    if not valid_helper_row:
+                    # Phase 1.1 Bug B1 (D-04 / SUB-09): partitioning
+                    # gate. Subcontractor non-helper rows do NOT emit
+                    # the legacy primary key — their content lives
+                    # exclusively in the _REDUCEDSUB (always) and
+                    # _AEPBILLABLE (post-cutoff) variant files
+                    # produced by the subcontractor variant block
+                    # below. Primary / original-contract / vac_crew
+                    # rows fall through unchanged. Plan 01-03 Test 1's
+                    # "additive" contract is overridden per D-22;
+                    # Living Ledger entry [Phase 1.1 timestamp]
+                    # documents the design-intent change.
+                    if not is_subcontractor_row and not valid_helper_row:
                         primary_key = f"{week_end_for_key}_{wr_key}"
                         keys_to_add.append(('primary', primary_key, None))
-                    else:
-                        # Log when excluding from main Excel due to helper status
+                    elif is_subcontractor_row and not valid_helper_row:
+                        # Diagnostic log only — no group emission.
+                        # Operators can confirm the partition is
+                        # firing by grepping for this prefix. PII
+                        # marker "EXCLUDING from main Excel" already
+                        # covers this body via existing
+                        # _PII_LOG_MARKERS entry.
+                        logging.debug(
+                            f"➖ EXCLUDING from main Excel (subcontractor row): "
+                            f"WR={wr_key}, Week={week_end_for_key}"
+                        )
+                    elif valid_helper_row:
+                        # UNCHANGED legacy behaviour — helper row
+                        # excluded from main Excel regardless of
+                        # subcontractor/non-subcontractor.
                         logging.info(f"➖ EXCLUDING from main Excel: WR={wr_key}, Week={week_end_for_key} (Helper row with both checkboxes)")
                 
                 # Helper variant - ONLY created when mode allows it
@@ -4361,11 +4407,16 @@ def group_source_rows(rows):
             # Living Ledger 2026-04-23 18:25 — idempotent regex, so
             # the consumer site in ``generate_excel`` can safely
             # re-apply).
-            _row_sheet_id = r.get('__source_sheet_id')
-            is_subcontractor_row = (
-                _row_sheet_id is not None
-                and _row_sheet_id in _FOLDER_DISCOVERED_SUB_IDS
-            )
+            #
+            # Phase 1.1 Bug B1 (D-04 / SUB-09): the
+            # ``is_subcontractor_row`` computation that used to live
+            # here has been HOISTED to BEFORE the primary-emission
+            # cascade above so the new partitioning gate can read it.
+            # The hoisted variable is in scope for this block (Python
+            # locals introduced earlier in the same function body
+            # remain in scope), so the variant emission block below
+            # reads the SAME boolean — no behavioural change to the
+            # variant emission contract.
             if is_subcontractor_row and SUBCONTRACTOR_RATE_VARIANTS_ENABLED:
                 # ReducedSub: unconditional per SUB-02 / D-08. Foreman
                 # is the primary ``effective_user`` (mirrors the
