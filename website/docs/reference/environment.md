@@ -128,6 +128,67 @@ The kill-switch state is logged in the startup banner (e.g.
 `📊 Subcontractor rate variants ENABLED ...`), so operators
 grepping the run header can confirm the active state at a glance.
 
+### `SUBCONTRACTOR_RATE_RECALC_PREACCEPTANCE_ENABLED`
+
+*(Added 2026-05-19, Phase 1.1 Bug A — see Living Ledger
+`[2026-04-23 00:00]` for the structural template (VAC-crew pre-
+acceptance rescue) and `.planning/debug/sub-helper-shadow-missing.md`
+for the bug's 2-cycle debug methodology.)*
+
+**Default:** `'1'` — truthy values are `1` / `true` / `yes` / `on`
+(case-insensitive). Any other value (including empty string, `0`,
+`false`) disables the feature.
+
+**Purpose:** Phase 1.1 Bug A pre-acceptance rate-recalc rescue for
+subcontractor sheets. When truthy, helper rows on subcontractor-
+folder sheets whose SmartSheet `Units Total Price` is blank/zero are
+rescued via the `reduced_*_price` columns of
+`data/subcontractor_rates.csv` BEFORE the row-acceptance gate at
+`generate_weekly_pdfs.py` L3714 (the `has_price` check). Without
+this rescue, the helper-detection block immediately below the gate
+never fires on subcontractor sheets, and shadow-variant Excel files
+(`_AEPBillable_Helper_<name>`, `_ReducedSub_Helper_<name>`) are not
+produced — the production bug closed by Phase 1.1.
+
+**Scope:** Subcontractor sheets only (membership tested via
+`_FOLDER_DISCOVERED_SUB_IDS`). Primary, helper, vac_crew, and
+original-contract-folder pipelines fall through unchanged
+(byte-identical guarantee from ROADMAP Phase 1.1 success
+criterion 5).
+
+**Rate sourcing:** Reuses the existing `_SUBCONTRACTOR_RATES` dict
+loaded at session startup (Phase 1 plan 01-01) — the rescue path
+does NOT re-read the CSV. Missing CU returns 0.0, the rescue does
+not fire, and the row drops at L3714 as pre-fix behaviour (no false
+rescue).
+
+**Rollback path:** Set to `'0'` to revert Bug A behaviour to the
+pre-Phase-1.1 state. Does NOT affect Bug B1 (variant partitioning),
+Bug B2 (PPP cleanup whitelist), or Bug C (claim-history attribution)
+fixes.
+
+**Workflow pin:** `.github/workflows/weekly-excel-generation.yml`
+`env:` block — see the Phase 1.1 sibling block immediately after the
+Phase 1 `SUBCONTRACTOR_RATE_VARIANTS_ENABLED` pin. Per the
+[2026-04-24 14:30] workflow-pinning rule, a repo Variable cannot
+silently override the pinned value without code review.
+
+**Startup banner:** The resolved state is logged at startup:
+
+- `📋 SUBCONTRACTOR_RATE_RECALC_PREACCEPTANCE_ENABLED=True` — kill switch on
+- `📋 SUBCONTRACTOR_RATE_RECALC_PREACCEPTANCE_ENABLED=False` — kill switch off
+
+Operators grepping the startup banner can tell at a glance whether
+the rescue is active.
+
+**Diagnostic log:** When the rescue fires AND `FILTER_DIAGNOSTICS` is
+truthy AND the per-sheet row counter is below `DEBUG_ESSENTIAL_ROWS`,
+a single INFO line `💲 Subcontractor pre-acceptance rescue:
+WR=<wr>, CU=<cu>, rescued=$<amount>` is emitted. The PII marker
+`"Subcontractor pre-acceptance rescue"` is registered in
+`_PII_LOG_MARKERS` so the Sentry Logs sanitizer scrubs the message
+body when `SENTRY_ENABLE_LOGS` is on.
+
 ### `AEP_BILLABLE_CUTOFF`
 
 **Default:** `2026-04-12` (AEP rate-increase contract awarded to Linetec)
