@@ -2699,21 +2699,47 @@ class TestPppCleanupUntrackedAttachments(unittest.TestCase):
         )
 
     def test_cleanup_function_signature_unchanged(self):
-        # WR-01 is a SECOND INVOCATION, not a signature change.
-        # The existing 6-parameter signature must be unchanged so
-        # the existing TARGET invocation continues to compile.
+        # Phase 01 WR-01 was a SECOND INVOCATION (no signature change);
+        # the original test pinned the signature to exactly the six
+        # WR-01-baseline params. Phase 1.1 Bug B2 (D-07 / D-08 /
+        # SUB-10) ADDS a trailing ``variant_whitelist: set[str] |
+        # None = None`` kwarg at the END for the per-sheet whitelist
+        # gate. The original six parameters MUST remain unchanged so
+        # existing TARGET / PPP invocations keep working; the new
+        # parameter is additive only and defaults to None
+        # (preserving byte-identical legacy behavior — D-09).
         import inspect
         sig = inspect.signature(
             generate_weekly_pdfs.cleanup_untracked_sheet_attachments,
         )
         params = list(sig.parameters.keys())
+        # The first six parameters must remain byte-identical to the
+        # WR-01 baseline so existing positional / keyword call sites
+        # continue to bind correctly.
+        self.assertEqual(
+            params[:6],
+            ['client', 'target_sheet_id', 'valid_wr_weeks',
+             'test_mode', 'attachment_cache', 'target_sheet'],
+            "cleanup_untracked_sheet_attachments's first six "
+            "parameters must remain unchanged (WR-01 baseline). "
+            f"Got: {params[:6]}"
+        )
+        # Phase 1.1 Bug B2 appends exactly one new trailing kwarg:
         self.assertEqual(
             params,
             ['client', 'target_sheet_id', 'valid_wr_weeks',
-             'test_mode', 'attachment_cache', 'target_sheet'],
-            "cleanup_untracked_sheet_attachments signature was "
-            "altered by WR-01; the fix should be a second "
-            "invocation only, not a signature change."
+             'test_mode', 'attachment_cache', 'target_sheet',
+             'variant_whitelist'],
+            "Phase 1.1 Bug B2 (SUB-10) appends ONE trailing kwarg "
+            "'variant_whitelist'. Any additional drift to the "
+            "signature must be reviewed against D-09 (TARGET legacy "
+            f"behavior). Got: {params}"
+        )
+        # The new kwarg must default to None per D-09 (preserves
+        # legacy behavior on TARGET when the kwarg is not supplied).
+        self.assertIs(
+            sig.parameters['variant_whitelist'].default, None,
+            'variant_whitelist must default to None (D-09).'
         )
 
 
