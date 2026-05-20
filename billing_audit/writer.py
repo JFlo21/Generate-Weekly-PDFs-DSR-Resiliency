@@ -811,42 +811,12 @@ def lookup_attribution(
         in the no_history case yet, so first-call-returns-None on
         a brand-new WR is no_history; subsequent-call-returns-None
         after a prior PGRST exception was logged is fetch_failure).
+    Thin helper-gated wrapper over ``_lookup_attribution_all`` since
+    Foundation A (2026-05-20); external behavior is unchanged.
     """
-    client = get_client()
-    if client is None:
+    row, status = _lookup_attribution_all(wr, week_ending, smartsheet_row_id)
+    if status != "success" or row is None:
         return None
-    if not wr or week_ending is None or not isinstance(smartsheet_row_id, int):
-        return None
-
-    wr_sanitized = _WR_SANITIZE.sub("_", str(wr).split(".")[0])[:50]
-
-    params = {
-        "p_wr": wr_sanitized,
-        "p_week_ending": week_ending.isoformat(),
-        "p_smartsheet_row_id": smartsheet_row_id,
-    }
-
-    def _invoke():
-        return (
-            client.schema("billing_audit")
-            .rpc("lookup_attribution", params)
-            .execute()
-        )
-
-    # Distinct op so the breaker measures lookup independently of
-    # writer paths. Sharing op="freeze_attribution" would let a
-    # healthy attribution read continually reset the breaker
-    # counter and mask a sustained writer outage — the inverse of
-    # the [2026-04-25 12:00] pipeline_run select/upsert split.
-    result = with_retry(_invoke, op="lookup_attribution")
-    if result is None:
-        return None
-
-    data = getattr(result, "data", None)
-    if isinstance(data, dict):
-        return data if data.get("helper") else None
-    if isinstance(data, list) and data:
-        first = data[0]
-        if isinstance(first, dict) and first.get("helper"):
-            return first
-    return None
+    # Preserve the historical helper-gated contract: callers of this
+    # public function get the row only when a helper is present.
+    return row if row.get("helper") else None
