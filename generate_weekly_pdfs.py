@@ -2691,10 +2691,9 @@ def cleanup_untracked_sheet_attachments(
 
     sub_offcontract_variants: Set of variant strings that are off-contract
         for WRs in ``sub_wr_scope`` on THIS sheet. For TARGET cleanup,
-        pass ``{'helper', 'primary'}`` (subcontractor non-helper rows
-        now emit only variant keys per Bug B1; subcontractor helper rows
-        now emit only shadow variants per Task 1 — so any bare 'primary'
-        or legacy 'helper' attachment for a sub WR is a pre-fix orphan).
+        pass ``{'helper'}`` so only legacy helper-labeled attachments are
+        treated as off-contract for subcontractor WR scope. Primary
+        attachments remain governed by identity-based pruning rules.
         When None and ``sub_wr_scope`` is provided, this gate is a no-op.
         Ignored when ``sub_wr_scope`` is None.
 
@@ -7975,7 +7974,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     client, TARGET_SHEET_ID, valid_wr_weeks, TEST_MODE,
                     attachment_cache=_cleanup_cache, target_sheet=_target_sheet_obj,
                     sub_wr_scope=_sub_scope,
-                    sub_offcontract_variants={'helper', 'primary'} if _sub_scope else None,
+                    sub_offcontract_variants={'helper'} if _sub_scope else None,
                 )
 
             # Phase 01 gap closure (REVIEW-WR-01): parallel cleanup pass
