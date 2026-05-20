@@ -3,7 +3,12 @@
 Shadow-mode writer that freezes per-row personnel attribution into
 Supabase on first sight so mid-week helper-foreman swaps on the
 Resource Analyst master sheet cannot retroactively rewrite completed
-rows' credit. Reader / hydration path ships in a follow-up PR.
+rows' credit. Read-path landed Phase 1.1 (Bug C / SUB-11):
+``billing_audit.writer.lookup_attribution(wr, week_ending,
+smartsheet_row_id)`` returns the frozen helper for one row via the
+``lookup_attribution`` Postgres RPC (data-team-owned function body;
+parameter contract documented in ``billing_audit/schema.sql``
+comment block alongside ``freeze_attribution``).
 
 The canonical Supabase schema (``billing_audit.feature_flag``,
 ``billing_audit.pipeline_run``, and the ``freeze_attribution``
