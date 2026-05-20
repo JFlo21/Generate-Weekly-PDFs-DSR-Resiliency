@@ -1945,13 +1945,27 @@ class TestResolveRowPriceCanonicalColumnNames(unittest.TestCase):
             'Work Type': 'Install',
             'Units Completed': 5,  # WRONG key name (a checkbox column in source data)
             # No 'Quantity' canonical key — helper must treat qty as 0
-            # and fall through.
+            # and resolve to 0.0 for known-CU subcontractor variants.
             'Units Total Price': '$33.33',
         }
         missing = Counter()
         price = generate_weekly_pdfs._resolve_row_price(row, 'aep_billable', missing)
-        # qty=0 → degenerate path → SmartSheet fallback
-        self.assertAlmostEqual(price, 33.33)
+        # qty=0 → degenerate path → secure 0.0 (no SmartSheet fallback)
+        self.assertAlmostEqual(price, 0.0)
+
+
+    def test_non_string_work_type_does_not_raise(self):
+        """Non-string Work Type values are coerced and do not crash."""
+        from collections import Counter
+        row = {
+            'CU': 'XYZ',
+            'Work Type': 123,
+            'Quantity': 2,
+            'Units Total Price': '$99.00',
+        }
+        missing = Counter()
+        price = generate_weekly_pdfs._resolve_row_price(row, 'aep_billable', missing)
+        self.assertEqual(price, 0.0)
 
     def test_helper_body_does_not_reference_forbidden_keys(self):
         """Negative invariant: executable body does NOT read non-canonical fallback keys.

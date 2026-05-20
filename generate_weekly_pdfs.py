@@ -1489,7 +1489,7 @@ def _resolve_row_price(row: dict, variant: str, missing_cus) -> float:
         return parse_price(row.get('Units Total Price'))
 
     # Work-Type-keyed column selection (D-05). Canonical 'Work Type'.
-    work_type_raw = (row.get('Work Type') or '').strip().lower()
+    work_type_raw = str(row.get('Work Type') or '').strip().lower()
     if 'install' in work_type_raw:
         wt = 'install'
     elif 'remov' in work_type_raw:  # matches 'removal' / 'remove'
@@ -1497,8 +1497,9 @@ def _resolve_row_price(row: dict, variant: str, missing_cus) -> float:
     elif 'transfer' in work_type_raw:
         wt = 'transfer'
     else:
-        # Unknown work type: keep SmartSheet pricing (safety floor).
-        return parse_price(row.get('Units Total Price'))
+        # Unknown work type on a known-CU subcontractor variant must not
+        # trust attacker-controlled SmartSheet pricing.
+        return 0.0
 
     if variant in ('aep_billable', 'aep_billable_helper'):
         rate = rate_row.get(f'new_{wt}_price', 0.0)
@@ -1520,10 +1521,9 @@ def _resolve_row_price(row: dict, variant: str, missing_cus) -> float:
         qty = 0.0
 
     if rate <= 0 or qty <= 0:
-        # Degenerate row: SmartSheet pricing as the safety floor,
-        # NEVER silently zero out (mirrors the recalc fall-through
-        # pattern in Living Ledger 2026-04-21 22:35).
-        return parse_price(row.get('Units Total Price'))
+        # Degenerate known-CU subcontractor rows must not fall through to
+        # attacker-controlled SmartSheet pricing.
+        return 0.0
     return rate * qty
 
 
