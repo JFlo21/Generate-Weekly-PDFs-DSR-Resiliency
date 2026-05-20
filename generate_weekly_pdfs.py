@@ -461,6 +461,17 @@ SUBCONTRACTOR_RATE_RECALC_PREACCEPTANCE_ENABLED = os.getenv(
     'SUBCONTRACTOR_RATE_RECALC_PREACCEPTANCE_ENABLED', '1'
 ).strip().lower() in ('1', 'true', 'yes', 'on')
 
+# Phase 1.1 Bug C (D-14 / SUB-11): per-row claim-history attribution
+# kill switch. Default-on per the [2026-04-23 00:00] Living Ledger
+# rule. Setting '0' reverts Bug C behavior to Phase 1's full-row-set
+# helper behavior (the same path as D-12 unconditionally —
+# `lookup_attribution` is not invoked and the row's current
+# `__helper_foreman` flows through to shadow-variant emission
+# unchanged). Pinned in workflow env: block per IN-04.
+SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED = os.getenv(
+    'SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED', '1'
+).strip().lower() in ('1', 'true', 'yes', 'on')
+
 # Cutoff date for ``_AEPBillable`` variant generation. Awarded to
 # Linetec on 2026-04-12 (subcontractor rate contract). Plan 2 (parser
 # extension) and Plan 3 (variant emission) gate variant emission on
@@ -591,6 +602,14 @@ if SUBCONTRACTOR_RATE_VARIANTS_ENABLED:
 logging.info(
     f"📋 SUBCONTRACTOR_RATE_RECALC_PREACCEPTANCE_ENABLED="
     f"{SUBCONTRACTOR_RATE_RECALC_PREACCEPTANCE_ENABLED}"
+)
+
+# Phase 1.1 Bug C: surface resolved kill-switch state at startup
+# so operators grepping the banner can see the active feature state
+# at a glance.
+logging.info(
+    f"📋 SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED="
+    f"{SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED}"
 )
 
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
@@ -898,6 +917,14 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     # ``Removed off-contract variant on sheet`` does not overlap
     # any existing marker on its own).
     "Removed off-contract variant on sheet",
+    # Phase 1.1 Bug C (SUB-11): per-WR fall-back WARNING for
+    # claim-history attribution lookups embeds the sanitized helper
+    # foreman name. Explicit marker per the [2026-05-15 12:00]
+    # rule 3 — the body ``Subcontractor helper claim attribution
+    # fallback`` is an explicit literal that does not overlap any
+    # pre-existing marker on its own (no accidental substring
+    # containment).
+    "Subcontractor helper claim attribution fallback",
 )
 
 
@@ -4301,7 +4328,17 @@ def group_source_rows(rows):
     - Clear, predictable file naming with variant identification
     """
     groups = collections.defaultdict(list)
-    
+
+    # Phase 1.1 Bug C (D-12 / SUB-11): per-WR dedupe set for the
+    # fall-back WARNING. Keyed on (wr_key, week_end_for_key,
+    # sanitized_helper_foreman) so we log ONE WARNING per unique
+    # attribution-read failure context per run (not per-row). A
+    # 100-row WR with the same helper falling back would otherwise
+    # log 100 identical WARNINGs — exactly the kind of operator-log
+    # spam the [2026-04-25 12:00] / [2026-04-24 10:50] ledger rules
+    # call out as a P0 noise hazard.
+    _bug_c_warning_seen: set[tuple[str, str, str]] = set()
+
     for r in rows:
         wr = r.get('Work Request #')
         log_date_str = r.get('Weekly Reference Logged Date')
@@ -4559,21 +4596,156 @@ def group_source_rows(rows):
                         if _helper_dept_local:
                             _valid_helper_row = True
                     if _valid_helper_row and _helper_mode_enabled:
+                        # Phase 1.1 Bug C (D-10..D-16 / SUB-11):
+                        # per-row claim-history attribution. For
+                        # subcontractor rows ONLY (D-15), partition
+                        # shadow-variant rows by the FROZEN helper
+                        # foreman in
+                        # ``billing_audit.attribution_snapshot``
+                        # rather than the current Smartsheet
+                        # ``Foreman Helping?`` value. This is what
+                        # makes a foreman who helped Mon-Tue keep
+                        # their partitioned helper file even after a
+                        # Wed swap on the Smartsheet column.
+                        #
+                        # Fall-back contract (D-12): when the reader
+                        # returns None (no frozen row yet →
+                        # no_history, OR PostgREST outage →
+                        # fetch_failure, OR kill switch off →
+                        # disabled), the row joins the helper file of
+                        # the CURRENT ``helper_foreman`` from
+                        # Smartsheet. Safe default — helper files
+                        # never silently empty.
+                        #
+                        # Per-WR dedupe (RESEARCH.md §C Pitfall 1):
+                        # the fall-back WARNING fires ONCE per
+                        # (wr, week, current_helper) tuple, NOT
+                        # per-row. Without the dedupe, a 100-row
+                        # fall-back run would log 100 identical
+                        # WARNINGs.
+                        _attributed_helper = helper_foreman  # D-12 default
+                        _attribution_reason: str | None = None
+                        if (
+                            is_subcontractor_row
+                            and SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED
+                        ):
+                            try:
+                                from billing_audit.writer import lookup_attribution
+                                _attribution_row = lookup_attribution(
+                                    wr_key,
+                                    week_ending_date,
+                                    r.get('__row_id'),
+                                )
+                            except Exception:
+                                # Reader's own contract returns None on
+                                # failure; this except is
+                                # defense-in-depth against future
+                                # regressions (e.g., an unexpected
+                                # exception in the supabase client that
+                                # escapes the reader's exception
+                                # boundary). The pipeline MUST NEVER
+                                # crash on a reader failure — the
+                                # fall-back to current helper is the
+                                # safe semantic.
+                                logging.exception(
+                                    "⚠️ Subcontractor helper claim "
+                                    "attribution fallback: unexpected "
+                                    "reader exception (treating as "
+                                    "fetch_failure)"
+                                )
+                                _attribution_row = None
+                                _attribution_reason = 'fetch_failure'
+
+                            if _attribution_row is None:
+                                # Distinguish no_history vs
+                                # fetch_failure: the reader already
+                                # returns None for both, but
+                                # fetch_failure is bound to a
+                                # PostgREST/global-kill state
+                                # observable via
+                                # ``_global_disable_reason``. The
+                                # no_history case is the expected
+                                # first-cron-run state for a brand-new
+                                # WR.
+                                if _attribution_reason is None:
+                                    try:
+                                        from billing_audit.client import (
+                                            _global_disable_reason,
+                                        )
+                                        if _global_disable_reason is not None:
+                                            _attribution_reason = 'fetch_failure'
+                                        else:
+                                            _attribution_reason = 'no_history'
+                                    except Exception:
+                                        _attribution_reason = 'no_history'
+                                # _attributed_helper stays as
+                                # helper_foreman (D-12 default)
+                            else:
+                                _frozen_helper = _attribution_row.get('helper')
+                                if _frozen_helper:
+                                    _attributed_helper = str(_frozen_helper).strip()
+                                else:
+                                    # Reader's contract already filters
+                                    # empty-string helpers to None; this
+                                    # guard is defense-in-depth.
+                                    _attribution_reason = 'no_history'
+
+                        # Per-WR dedupe WARNING — operator-actionable,
+                        # names the reason. `_bug_c_warning_seen` is
+                        # initialized at function scope (set
+                        # construction at top of `group_source_rows`).
+                        # Tuple key uses sanitized helper for
+                        # set-membership stability.
+                        if (
+                            is_subcontractor_row
+                            and SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED
+                            and _attribution_reason in ('no_history', 'fetch_failure')
+                        ):
+                            _warning_helper_key = _RE_SANITIZE_HELPER_NAME.sub(
+                                '_', helper_foreman
+                            )[:50]
+                            _warning_key = (
+                                wr_key, week_end_for_key, _warning_helper_key
+                            )
+                            if _warning_key not in _bug_c_warning_seen:
+                                _bug_c_warning_seen.add(_warning_key)
+                                # PII marker: "Subcontractor helper
+                                # claim attribution fallback" — added
+                                # to _PII_LOG_MARKERS in Step 2.
+                                logging.warning(
+                                    f"⚠️ Subcontractor helper claim "
+                                    f"attribution fallback for "
+                                    f"WR={wr_key} week={week_end_for_key} "
+                                    f"helper={_warning_helper_key} "
+                                    f"(reason={_attribution_reason}). "
+                                    f"Helper file rows will fall back to "
+                                    f"the current `Foreman Helping?` "
+                                    f"value. To investigate: check "
+                                    f"Supabase Logs for "
+                                    f"PGRST106/PGRST301/PGRST404 on the "
+                                    f"'lookup_attribution' op."
+                                )
+
+                        # Use the attributed helper (or current helper
+                        # on fall-back) for shadow-variant
+                        # sanitization. Phase 1 emission body
+                        # downstream is UNCHANGED — only the input
+                        # value to the sanitizer changes.
                         _helper_sanitized = (
-                            _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50]
+                            _RE_SANITIZE_HELPER_NAME.sub('_', _attributed_helper)[:50]
                         )
                         rs_helper_key = (
                             f"{week_end_for_key}_{wr_key}_REDUCEDSUB_HELPER_"
                             f"{_helper_sanitized}"
                         )
                         keys_to_add.append(
-                            ('reduced_sub_helper', rs_helper_key, helper_foreman)
+                            ('reduced_sub_helper', rs_helper_key, _attributed_helper)
                         )
                         if rs_helper_key not in groups:
                             logging.info(
                                 f"🔻 REDUCED SUB HELPER GROUP CREATED: "
                                 f"WR={wr_key}, Week={week_end_for_key}, "
-                                f"Helper={helper_foreman}"
+                                f"Helper={_attributed_helper}"
                             )
                         if (
                             _snap_for_cutoff is not None
@@ -4587,14 +4759,14 @@ def group_source_rows(rows):
                                 (
                                     'aep_billable_helper',
                                     aep_helper_key,
-                                    helper_foreman,
+                                    _attributed_helper,
                                 )
                             )
                             if aep_helper_key not in groups:
                                 logging.info(
                                     f"💲 AEP BILLABLE HELPER GROUP CREATED: "
                                     f"WR={wr_key}, Week={week_end_for_key}, "
-                                    f"Helper={helper_foreman}"
+                                    f"Helper={_attributed_helper}"
                                 )
 
             # Add row to all applicable groups

@@ -189,6 +189,110 @@ WR=<wr>, CU=<cu>, rescued=$<amount>` is emitted. The PII marker
 `_PII_LOG_MARKERS` so the Sentry Logs sanitizer scrubs the message
 body when `SENTRY_ENABLE_LOGS` is on.
 
+### `SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED`
+
+*(Added 2026-05-19, Phase 1.1 Bug C / SUB-11 — see Living Ledger
+`[2026-04-25 12:00]` (op-isolation invariant for the new
+`lookup_attribution` RPC), `[2026-04-25 14:00]` (parallelization
+deferred for v1.0), and `.planning/debug/sub-helper-shadow-missing.md`
+for the 2-cycle debug methodology that surfaced the production gap.)*
+
+**Default:** `'1'` — truthy values are `1` / `true` / `yes` / `on`
+(case-insensitive). Any other value (including empty string, `0`,
+`false`) disables the feature.
+
+**Purpose:** Phase 1.1 Bug C per-row claim-history attribution for
+subcontractor helper files. When truthy, each row in a subcontractor
+WR group's `_REDUCEDSUB_HELPER_<name>` / `_AEPBILLABLE_HELPER_<name>`
+files is partitioned by the FROZEN helper foreman from
+`billing_audit.attribution_snapshot` — read via the
+`lookup_attribution(p_wr, p_week_ending, p_smartsheet_row_id)`
+PostgREST RPC. Rows the freeze observed under one helper appear in
+THAT helper's file, even if the current Smartsheet `Foreman Helping?`
+column has since been changed to a different helper. Solves the
+production failure mode where a Mon-Tue helper's rows were silently
+reassigned to the Wed-Thu replacement helper's file.
+
+**Scope:** Subcontractor sheets ONLY (`is_subcontractor_row=True` via
+membership in `_FOLDER_DISCOVERED_SUB_IDS`). Primary, helper,
+vac_crew, and original-contract-folder helper-file behaviour is
+byte-identical to Phase 1 (ROADMAP success criterion #5 / D-15
+scope guarantee).
+
+**Fall-back semantics (D-12):** When the reader returns `None`, the
+row's helper-foreman defaults to the current `Foreman Helping?`
+value (Phase 1 behaviour). Helper files NEVER silently empty.
+Three fall-back reasons surface in the per-WR WARNING body:
+
+- `no_history` — first cron run for a brand-new WR, expected
+- `fetch_failure` — PostgREST outage (PGRST106 schema not exposed,
+  PGRST301/302 auth, HTTP 5xx after retries exhausted)
+- `disabled` — `SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED='0'`
+  (the kill-switch-off path does NOT emit a per-WR WARNING because
+  the operator deliberately chose this fall-back by flipping the
+  env var)
+
+One WARNING per `(WR, week, helper)` tuple per run — keyed dedupe
+prevents log flooding even when a 100-row WR fully falls back.
+
+**Reader output is dropped to `None` when:** Supabase client is
+unavailable (`TEST_MODE=1`, missing creds, run-global kill tripped),
+the input is invalid (empty WR, `week_ending=None`,
+`smartsheet_row_id` is non-int), the RPC returned `data=None` or
+empty list, or the RPC payload had an empty/None `helper` field.
+
+**Op-isolation invariant:** The reader uses
+`op='lookup_attribution'` — distinct from `freeze_attribution` /
+`pipeline_run_select` / `pipeline_run_upsert`. An attribution-read
+outage cannot cascade into disabling those correctness-critical
+writers ([2026-04-25 14:00] / [2026-04-25 12:00]).
+
+**Rollback path:** Set to `'0'` to unconditionally revert to
+Phase 1's full-row-set helper behavior — equivalent to setting
+`disabled` reason for every row. Does NOT affect Bug A, B1, or
+B2 fixes.
+
+**Workflow pin:** `.github/workflows/weekly-excel-generation.yml`
+`env:` block — see the Phase 1.1 sibling block alongside
+`SUBCONTRACTOR_RATE_RECALC_PREACCEPTANCE_ENABLED`. Per the
+[2026-04-24 14:30] workflow-pinning rule, a repo Variable cannot
+silently override the pinned value without code review.
+
+**Data-team coordination:** The `lookup_attribution` RPC body lives
+in the Supabase Dashboard, NOT in `billing_audit/schema.sql`. The
+data team must deploy a PostgREST-callable function named
+`lookup_attribution(p_wr TEXT, p_week_ending DATE,
+p_smartsheet_row_id BIGINT)` returning a row carrying at least
+`helper TEXT`, `helper_dept TEXT`, `source_run_id TEXT`. Confirm
+RPC presence before flipping `SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED=1`
+in a new environment. The Python reader is fail-safe — a missing
+RPC returns PGRST106 / PGRST404, the run-global kill switch trips,
+and every subsequent call falls back to current-helper (D-12).
+Pipeline never crashes.
+
+**Startup banner:** The resolved state is logged at startup:
+
+- `📋 SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED=True` — kill switch on
+- `📋 SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED=False` — kill switch off
+
+Operators grepping the startup banner can tell at a glance whether
+attribution is active.
+
+**Per-WR WARNING:** When fall-back fires, a single WARNING is logged
+per `(WR, week, helper)` tuple per run:
+
+```text
+⚠️ Subcontractor helper claim attribution fallback for
+WR=<wr> week=<MMDDYY> helper=<sanitized> (reason=<reason>).
+Helper file rows will fall back to the current `Foreman Helping?`
+value. To investigate: check Supabase Logs for
+PGRST106/PGRST301/PGRST404 on the 'lookup_attribution' op.
+```
+
+The PII marker `"Subcontractor helper claim attribution fallback"`
+is registered in `_PII_LOG_MARKERS` so the Sentry Logs sanitizer
+scrubs the message body when `SENTRY_ENABLE_LOGS` is on.
+
 ### `AEP_BILLABLE_CUTOFF`
 
 **Default:** `2026-04-12` (AEP rate-increase contract awarded to Linetec)
