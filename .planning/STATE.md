@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Subcontractor Rate Logic
-status: executing
+status: milestone_complete
 last_updated: "2026-05-20T04:34:45.377Z"
 last_activity: 2026-05-20
 progress:
   total_phases: 2
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 20
   completed_plans: 20
-  percent: 100
+  percent: 150
 ---
 
 # Project State
@@ -28,10 +28,10 @@ Artifact Explorer).
 ## Current Position
 
 Milestone: v1.0 Subcontractor Rate Logic — ✅ SHIPPED 2026-05-20 (archived + tagged)
-Phase: 01.1 (subcontractor-helper-shadow-rescue) — EXECUTING
-Plan: 6 of 6 (COMPLETE)
-Status: Phase 01.1 fully shipped — all 6 plans complete
-Last activity: 2026-05-20 -- 01.1-06 executed (SUB-09 helper partition gap-closure)
+Phase: 01.1
+Plan: Not started
+Status: Milestone complete
+Last activity: 2026-05-20
 
 Shipped: 2 gating phases (01 + inserted 01.1), 20 plans, 688 tests passing.
 Audit: `tech_debt` (`milestones/v1.0-MILESTONE-AUDIT.md`). Full v1.0 detail in
