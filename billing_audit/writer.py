@@ -8,6 +8,11 @@ Public surface:
   ``{helper, helper_dept, source_run_id}`` for ONE row, or ``None``
   if no snapshot exists yet. Calls the ``lookup_attribution``
   PostgREST RPC documented in ``billing_audit/schema.sql``.
+- Resolution contract (Foundation A): ``resolve_claimer(variant,
+  current_value, *, wr, week_ending, row_id, enabled) ->
+  ResolveOutcome`` maps ONE row to use-frozen / use-current / HOLD via
+  ``ROLE_BY_VARIANT``. Consumers (sub-projects B/C/D) group/name files
+  by ``outcome.name`` or defer the row when ``outcome.action == 'hold'``.
 
 All public functions are silent no-ops when:
 - Supabase credentials are unset or TEST_MODE is on.
@@ -807,9 +812,13 @@ def resolve_claimer(
 
     role = ROLE_BY_VARIANT.get(variant, "primary_foreman")
     frozen = row.get(role)
-    if frozen:
-        return ResolveOutcome(
-            "use", str(frozen).strip(), "frozen", "success")
+    # Strip first, then test truthiness, so a whitespace-only value is
+    # treated as no-claimer (no_history) rather than an empty name. The
+    # RPC already normalizes blank/#-token roles to NULL; this is a
+    # defense-in-depth guard so the returned name is never empty.
+    frozen_str = str(frozen).strip() if frozen is not None else ""
+    if frozen_str:
+        return ResolveOutcome("use", frozen_str, "frozen", "success")
     return ResolveOutcome("use", current_value, "current", "no_history")
 
 

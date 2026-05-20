@@ -4737,9 +4737,15 @@ class TestResolveClaimer(unittest.TestCase):
 
     def test_disabled_uses_current(self):
         from billing_audit.writer import resolve_claimer
-        out = resolve_claimer(
-            "helper", "CurrentBob", wr="1", week_ending=None,
-            row_id=1, enabled=False)
+        # When disabled, the function must short-circuit BEFORE any
+        # attribution lookup (no round-trip when the feature is off).
+        with mock.patch(
+            "billing_audit.writer._lookup_attribution_all"
+        ) as mall:
+            out = resolve_claimer(
+                "helper", "CurrentBob", wr="1", week_ending=None,
+                row_id=1, enabled=False)
+            mall.assert_not_called()
         self.assertEqual(out.action, "use")
         self.assertEqual(out.name, "CurrentBob")
         self.assertEqual(out.source, "current")
@@ -4754,6 +4760,7 @@ class TestResolveClaimer(unittest.TestCase):
                 row_id=1, enabled=True)
         self.assertEqual(out.action, "use")
         self.assertEqual(out.name, "CurrentBob")
+        self.assertEqual(out.source, "current")
         self.assertEqual(out.reason, "disabled")
 
     def test_fetch_failure_holds(self):
@@ -4765,6 +4772,7 @@ class TestResolveClaimer(unittest.TestCase):
                 row_id=1, enabled=True)
         self.assertEqual(out.action, "hold")
         self.assertIsNone(out.name)
+        self.assertIsNone(out.source)
         self.assertEqual(out.reason, "fetch_failure")
 
     def test_no_row_uses_current_no_history(self):
@@ -4776,6 +4784,7 @@ class TestResolveClaimer(unittest.TestCase):
                 row_id=1, enabled=True)
         self.assertEqual(out.action, "use")
         self.assertEqual(out.name, "CurrentBob")
+        self.assertEqual(out.source, "current")
         self.assertEqual(out.reason, "no_history")
 
     def test_blank_role_uses_current_no_history(self):
@@ -4830,6 +4839,24 @@ class TestResolveClaimer(unittest.TestCase):
             self.assertEqual(
                 out.name, expected,
                 f"variant {variant} should read its frozen role")
+
+    def test_unknown_variant_defaults_to_primary_foreman(self):
+        # Fail-safe: an unmapped variant resolves via the
+        # ROLE_BY_VARIANT default ("primary_foreman") rather than
+        # raising — crashing a billing run is worse than a sensible
+        # default. Locks the documented fail-safe contract.
+        from billing_audit.writer import resolve_claimer
+        row = {"primary_foreman": "Alice", "helper": "FrozenBob",
+               "helper_dept": "500", "vac_crew": "Vinny",
+               "source_run_id": "r"}
+        with self._patch_all(row, "success"):
+            out = resolve_claimer(
+                "some_future_variant", "CURRENT",
+                wr="1", week_ending=datetime.date(2026, 4, 19),
+                row_id=1, enabled=True)
+        self.assertEqual(out.action, "use")
+        self.assertEqual(out.name, "Alice")
+        self.assertEqual(out.source, "frozen")
 
 
 if __name__ == "__main__":
