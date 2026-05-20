@@ -4676,6 +4676,22 @@ class TestLookupAttributionAll(unittest.TestCase):
         self.assertIsNone(row)
         self.assertEqual(status, "no_row")
 
+    def test_unexpected_exception_maps_to_fetch_failure(self):
+        # Spec §8: the reader must NEVER raise on a Supabase failure.
+        # An unexpected exception in the lookup path is mapped to
+        # fetch_failure (HOLD) so the consumer defers rather than
+        # mis-attributing.
+        from billing_audit.writer import _lookup_attribution_all
+        client = _make_fake_supabase_client()
+        with mock.patch("billing_audit.writer.get_client",
+                        return_value=client), \
+             mock.patch("billing_audit.writer.with_retry",
+                        side_effect=RuntimeError("boom")):
+            row, status = _lookup_attribution_all(
+                "91467680", datetime.date(2026, 4, 19), 12345)
+        self.assertIsNone(row)
+        self.assertEqual(status, "fetch_failure")
+
     def test_fetch_failure_when_with_retry_returns_none(self):
         from billing_audit.writer import _lookup_attribution_all
         client = _make_fake_supabase_client()
@@ -4754,6 +4770,9 @@ class TestResolveClaimer(unittest.TestCase):
         self.assertEqual(out.reason, "disabled")
 
     def test_unavailable_uses_current(self):
+        # Per spec §5: "client unavailable, not an outage" (TEST_MODE /
+        # no creds) is treated as feature-effectively-off, so the reason
+        # is "disabled" (NOT "unavailable") and we fall back to current.
         from billing_audit.writer import resolve_claimer
         with self._patch_all(None, "unavailable"):
             out = resolve_claimer(

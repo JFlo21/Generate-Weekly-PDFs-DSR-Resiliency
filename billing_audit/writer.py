@@ -39,12 +39,15 @@ which emits sanitized WR identifiers + counts only). This mirrors the
 pipeline's ``_PII_LOG_MARKERS`` defense — billing-row identifiers are
 PII and must not leak into Sentry Logs.
 
-**Reader PII-out exception:** ``lookup_attribution`` returns helper
-TEXT in its return dict — this is the one place per-row PII leaves
-the package as a *value*, not as a log line. Callers MUST treat the
-returned ``helper`` string as PII (group-key embedding, filename
-embedding) and follow the same redaction rules they use for live
-Smartsheet ``Foreman Helping?`` values.
+**Reader PII-out exceptions:** the read surfaces return per-row PII as
+*values* (not log lines) — the one place PII leaves the package as a
+value. These are: ``lookup_attribution`` (the ``helper`` string in its
+return dict), ``_lookup_attribution_all`` (the full role row —
+``primary_foreman`` / ``helper`` / ``vac_crew``), and ``resolve_claimer``
+(``ResolveOutcome.name``, a frozen or current foreman name). Callers
+MUST treat every such returned name as PII (group-key embedding,
+filename embedding) and follow the same redaction rules they use for
+live Smartsheet ``Foreman Helping?`` values.
 """
 
 from __future__ import annotations
@@ -807,18 +810,31 @@ def _lookup_attribution_all(
             .execute()
         )
 
-    result = with_retry(_invoke, op="lookup_attribution")
-    if result is None:
+    try:
+        result = with_retry(_invoke, op="lookup_attribution")
+        if result is None:
+            return None, "fetch_failure"
+        data = getattr(result, "data", None)
+        if isinstance(data, dict) and data:
+            return data, "success"
+        if isinstance(data, list) and data:
+            first = data[0]
+            if isinstance(first, dict):
+                return first, "success"
+        return None, "no_row"
+    except Exception:
+        # Spec §8: this reader MUST NEVER raise on a Supabase failure.
+        # ``with_retry`` already classifies the known APIError/transient
+        # surface; this belt-and-suspenders guard catches an unexpected
+        # failure in result-object handling and maps it to
+        # ``fetch_failure`` so the consumer HOLDs (correctness over
+        # availability) rather than mis-attributing. PII-safe: the log
+        # carries no row content.
+        logging.warning(
+            "⚠️ Attribution lookup hit an unexpected error; "
+            "treating as fetch_failure (HOLD)."
+        )
         return None, "fetch_failure"
-
-    data = getattr(result, "data", None)
-    if isinstance(data, dict) and data:
-        return data, "success"
-    if isinstance(data, list) and data:
-        first = data[0]
-        if isinstance(first, dict):
-            return first, "success"
-    return None, "no_row"
 
 
 class ResolveOutcome(NamedTuple):
@@ -943,9 +959,10 @@ def lookup_attribution(
     Returns
     -------
     dict | None
-        On success, a dict with keys ``{'helper', 'helper_dept',
-        'source_run_id'}`` (data-team-owned RPC return shape; see
-        ``billing_audit/schema.sql`` and RESEARCH.md §C Assumption A3).
+        On success, the RPC row dict (keys ``primary_foreman, helper,
+        helper_dept, vac_crew, source_run_id``) — guaranteed to have a
+        non-empty ``helper`` field because this wrapper is helper-gated.
+        See ``billing_audit/schema.sql`` and RESEARCH.md §C Assumption A3.
         Returns None for ALL of:
         - ``get_client()`` returned None (TEST_MODE / missing creds /
           global-kill tripped),
@@ -963,6 +980,7 @@ def lookup_attribution(
         in the no_history case yet, so first-call-returns-None on
         a brand-new WR is no_history; subsequent-call-returns-None
         after a prior PGRST exception was logged is fetch_failure).
+
     Thin helper-gated wrapper over ``_lookup_attribution_all`` since
     Foundation A (2026-05-20); external behavior is unchanged.
     """
