@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Subcontractor Rate Logic
-status: ready_to_plan
-stopped_at: Phase 1.1 context gathered
-last_updated: "2026-05-19T22:59:11.982Z"
-last_activity: 2026-05-19 -- Phase 01.1 execution started
+status: Awaiting next milestone
+stopped_at: v1.0 milestone completed and archived
+last_updated: "2026-05-20T02:30:00.000Z"
+last_activity: 2026-05-20 — Milestone v1.0 completed, archived, and tagged
 progress:
   total_phases: 2
   completed_phases: 2
-  total_plans: 14
-  completed_plans: 14
+  total_plans: 19
+  completed_plans: 19
   percent: 100
 ---
 
@@ -18,121 +18,68 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-14)
+See: .planning/PROJECT.md (updated 2026-05-20 after v1.0 milestone)
 
-**Core value:** The production Smartsheet → Excel → Smartsheet
-attachment pipeline runs every 2 hours on weekdays and ships
-billing-grade Excel reports without regression.
-**Current focus:** Phase 01.1 — subcontractor-helper-shadow-rescue
+**Core value:** The production Smartsheet → Excel → Smartsheet attachment
+pipeline runs every 2 hours on weekdays and ships billing-grade Excel
+reports without regression.
+**Current focus:** Planning next milestone (v1.1 — Backend Migration +
+Artifact Explorer).
 
 ## Current Position
 
-Phase: 2
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-05-20
-Prior phase: Phase 01 (Subcontractor Rate Logic Modification) — COMPLETE, 14 of 14 plans shipped
+Milestone: v1.0 Subcontractor Rate Logic — ✅ SHIPPED 2026-05-20 (archived + tagged)
+Phase: —
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-05-20 — v1.0 completed and archived
 
-Progress: [█░░░░░░░░░] 50% across v1.0 milestone (Phase 01 ✅; Phase 1.1 ⏳; Phase 2 DEFERRED)
+Shipped: 2 gating phases (01 + inserted 01.1), 19 plans, 682 tests passing.
+Audit: `tech_debt` (`milestones/v1.0-MILESTONE-AUDIT.md`). Full v1.0 detail in
+`milestones/v1.0-ROADMAP.md` + `milestones/v1.0-REQUIREMENTS.md`.
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 19
-- Average duration: ~15 min (estimated for gap-closure plans 01-07..01-14)
-- Total execution time: ~3.9 hours (6 original plans ~114 min + 8 gap-closure plans ~120 min)
+- Total plans completed (v1.0): 19 (Phase 01: 14, Phase 01.1: 5)
+- Test suite at close: 682 passed / 26 skipped / 58 subtests (from 537 pre-milestone)
 
 **By Phase:**
 
-| Phase                         | Plans | Total    | Avg/Plan |
-|-------------------------------|-------|----------|----------|
-| 01 — Subcontractor Rate Logic |    14 | ~234 min | ~17 min  |
+| Phase                                 | Plans | Status      |
+|---------------------------------------|-------|-------------|
+| 01 — Subcontractor Rate Logic         | 14/14 | ✅ Shipped   |
+| 01.1 — Helper-Shadow Rescue (INSERTED)| 5/5   | ✅ Shipped   |
 
-**Recent Trend:**
-
-- All 14 plans complete (6 original + 8 gap-closure)
-- Trend: ✅ Phase 01 gap closure complete; all 12 actionable findings addressed; CLAUDE.md Living Ledger entry committed
-
-*Updated after each plan completion*
+*Updated at milestone close.*
 
 ## Accumulated Context
 
-### Roadmap Evolution
-
-- Phase 1.1 inserted after Phase 1: Subcontractor Helper-Shadow Rescue + Variant Partition + Claim-History Attribution — urgent hotfix for three post-Phase-1 production bugs diagnosed via 2-cycle /gsd-debug session (URGENT)
-
 ### Decisions
 
-Decisions are logged in PROJECT.md `<decisions>` table. Bootstrapped
-from `.planning/intel/decisions.md`, which contains ~30 dated
-ADR-equivalent rules from `CLAUDE.md` Living Ledger plus 8 SPEC-level
-decisions. All are operative-locked per the
-`.planning/INGEST-CONFLICTS.md` WARNING gate (user confirmed
-default-yes).
-
-Recent decisions affecting Phase 1:
-
-- [2026-04-25 14:00] `freeze_row` parallelization contract — new
-  variants must extend the same `ThreadPoolExecutor` pattern in the
-  main group loop.
-
-- [2026-04-25 12:00] `billing_audit/schema.sql` DDL must ship in the
-  same PR — SUB-07 `variant` column in `pipeline_run` is bound by
-  this rule.
-
-- [2026-04-24 14:30] CSV-side rate recalc retired at workflow layer
-  — Phase 1 must NOT re-introduce `RATE_CUTOFF_DATE` / `NEW_RATES_CSV`
-  / `OLD_RATES_CSV`; new subcontractor rates load from
-  `data/subcontractor_rates.csv` instead.
-
-- [2026-04-24 11:30] `RATE_RECALC_SKIP_ORIGINAL_CONTRACT` guard —
-  pattern for SUB-06's "no subcontractor logic on ORIG sheets"
-  requirement.
-
-- [2026-04-23 21:00 round-9] Source-side WR collision quarantine key
-  is the sanitized WR alone — Phase 1 must extend (not replace) the
-  existing pre-scan to cover `_AEPBillable` and `_ReducedSub`.
-
-### Pending Todos
-
-[From .planning/todos/pending/ — ideas captured during sessions]
-
-None yet.
+Full decision log lives in PROJECT.md `<decisions>` table (~30 dated
+ADR-equivalent rules from the CLAUDE.md Living Ledger + SPEC-level
+decisions). All operative-locked. v1.0 added the Phase 1.1 partitioning
+override (subcontractor rows partition, not additive), the Bug C D-12
+fail-safe fall-back, and the pre-acceptance-rescue-generalization rule.
 
 ### Blockers/Concerns
 
-[Issues that affect future work]
+[Open items affecting future work — resolved v1.0 blockers cleared at close]
 
 - `.planning/INGEST-CONFLICTS.md` INFO #8: pre-migration ADR for
-  Railway → Render is missing under `memory-bank/adr/`. **Addressed
-  by Phase 2** (MIG-01). Phase 2 is DEFERRED (out of v1.0 scope).
-
-- `data/subcontractor_rates.csv` was authored as part of Plan 01-01
-  (17 columns, 3691 priced CUs, currency-formatted, fingerprint
-  `e4941a5e86c4f8ce`). ✅ Resolved.
-
-- **Operator action required at merge time:** apply
-  `billing_audit/schema.sql` to the deployed Supabase project so
-  `billing_audit.pipeline_run.variant TEXT` lands before the first
-  scheduled production run after Phase 1 ships. Statement is
-  `ALTER TABLE billing_audit.pipeline_run ADD COLUMN IF NOT EXISTS variant TEXT;`
-  (idempotent). Documented in the new runbook section under
-  "How it impacts operators → One-time setup".
-
-- **Step B real-data SKIP_UPLOAD price-write gate deferred** to the
-  next scheduled GitHub Actions production run (per Warning 10's
-  documented fallback verification surface). Local operator env
-  lacked `SMARTSHEET_API_TOKEN`. Risk envelope bounded by the
-  kill-switch default-ON + Plan 3's unit + integration tests.
+  Railway → Render still missing under `memory-bank/adr/`. Now tracked as
+  MIG-01 in the v1.1 milestone (descoped from v1.0).
 
 ## Deferred Items
 
-Items acknowledged and carried forward to v1.1+:
+### v1.1 scope (carried forward from planning bootstrap)
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| Backend migration | REQ-railway-render-migration | Deferred to v1.1 | 2026-05-14 (planning bootstrap) |
+| Migration pre-impl | MIG-01 (pre-migration ADR) | Deferred to v1.1 | 2026-05-20 (descoped from v1.0) |
+| Backend migration | REQ-railway-render-migration | Deferred to v1.1 | 2026-05-14 |
 | Backend migration | REQ-migration-staging-verification | Deferred to v1.1 | 2026-05-14 |
 | Backend migration | REQ-migration-decommission | Deferred to v1.1 | 2026-05-14 |
 | Artifact Explorer | REQ-artifact-explorer-v1 | Deferred to v1.1 | 2026-05-14 |
@@ -140,25 +87,27 @@ Items acknowledged and carried forward to v1.1+:
 | Artifact Explorer | REQ-cross-artifact-search | Deferred to v1.1 | 2026-05-14 |
 | Artifact Explorer | REQ-backend-routes-for-explorer | Deferred to v1.1 | 2026-05-14 |
 
-## Session Continuity
+### Open artifacts acknowledged at v1.0 close (2026-05-20)
 
-Last session: 2026-05-19T21:22:16.678Z
-Stopped at: Phase 1.1 context gathered
+Acknowledged and deferred per the milestone-close artifact audit (6 items).
+All are deferred live-verification / watch-list items — none is failing code.
 
-Next step: `/gsd-discuss-phase 1.1` to gather full context and formalize SUB-08..SUB-12 requirements, then `/gsd-plan-phase 1.1` to decompose into atomic plans.
+| Category | Item | Status |
+|----------|------|--------|
+| debug | sub-helper-shadow-missing | root_cause_found (fix shipped in Phase 01.1) |
+| thread | p01-hotfix-followups | open (post-cron AEP/ReducedSub byte-divergence watch-list) |
+| uat_gap | 01-HUMAN-UAT.md | partial (0 open scenarios; pending live cron) |
+| uat_gap | 01.1-HUMAN-UAT.md | partial (0 open scenarios; pending live cron) |
+| verification_gap | 01-VERIFICATION.md | human_needed (live-cron production observation) |
+| verification_gap | 01.1-VERIFICATION.md | human_needed (live-cron production observation) |
 
-Operator items still pending (carried forward from Phase 01):
+**Operator actions still owed before flipping attribution on in prod:**
+apply `billing_audit/schema.sql` to Supabase; data team deploys the
+`lookup_attribution` RPC; Step B real-data SKIP_UPLOAD price-write spot-check.
 
-- Apply `billing_audit/schema.sql` to Supabase before the first scheduled production run after merge of Phase 01 (PR #203) — still required.
-- Step B real-data SKIP_UPLOAD price-write spot-check (deferred to scheduled GHA run OR local re-run with rotated token).
-- Watch p01-hotfix-followups.md thread for AEP/ReducedSub byte-divergence confirmation on next 2-3 post-PR-#206 cron runs (independent of Phase 1.1).
+## Operator Next Steps
 
-Phase 1.1 inputs ready:
-
-- Debug session artifact: `.planning/debug/sub-helper-shadow-missing.md` (2-cycle Root Cause Report)
-- Hotfix thread: `.planning/threads/p01-hotfix-followups.md`
-- Routing matrix decision: Statement #1 (codified in ROADMAP Phase 1.1 success criterion 1)
-- Plan 01-03 Test 1 override decision: subcontractor rows partition (not additive); primary rows unchanged
-- Bug C scope: billing_audit claim-history attribution on subcontractor workflow only
-
-Resume file: .planning/phases/01.1-subcontractor-helper-shadow-rescue/01.1-CONTEXT.md
+- Start the next milestone with `/gsd-new-milestone` (v1.1 — Backend
+  Migration + Artifact Explorer; fresh REQUIREMENTS.md will be created).
+- Independently: review/commit the uncommitted `generate_weekly_pdfs.py`
+  type-hint refinements (separate from this milestone close).

@@ -13,10 +13,14 @@ the legacy Express artifact-viewer backend (`portal/`), and the React +
 Supabase frontend (`portal-v2/`). A Docusaurus runbook (`website/`) and Azure
 DevOps mirror ride alongside.
 
-This project is **established and in production** — GSD planning is being
-bootstrapped retroactively to drive one specific upcoming modification (the
-Subcontractor Rate Logic Modification) plus the pre-implementation deliverable
-for the approved Railway → Render backend migration.
+This project is **established and in production**. GSD planning was
+bootstrapped retroactively to drive the **Subcontractor Rate Logic
+Modification**, which **shipped as v1.0** (2026-05-20): two new
+subcontractor-scoped Excel variants (`_AEPBillable`, `_ReducedSub`) with
+shadow-foreman/helper support and per-row claim-history attribution, all
+additive to the existing pipeline. The pre-implementation deliverable for
+the approved Railway → Render backend migration (MIG-01) is the lead item
+of the next milestone (v1.1).
 
 ## Core Value
 
@@ -25,58 +29,84 @@ The production Smartsheet → Excel → Smartsheet attachment pipeline runs ever
 **Every change in this project's roadmap must preserve that pipeline's
 correctness and stay inside its 195-minute Actions timeout budget.**
 
+## Current State
+
+**Shipped: v1.0 Subcontractor Rate Logic (2026-05-20).** 2 phases (01 +
+inserted 01.1), 19 plans, `pytest tests/` → 682 passed / 26 skipped /
+58 subtests. The pipeline now emits two subcontractor-scoped Excel variants
+(`_AEPBillable`, `_ReducedSub`) with shadow-foreman/helper support and per-row
+claim-history attribution, all behind default-ON kill switches and additive to
+the existing primary/helper/VAC-crew/ORIG-folder outputs. Milestone audit:
+`tech_debt` (`milestones/v1.0-MILESTONE-AUDIT.md`).
+
+**Pending live verification (carried into v1.1):** production-observable
+acceptance of the v1.0 variants is confirmed on the next scheduled cron run
+(4 HUMAN-UAT items), plus operator actions — apply `billing_audit/schema.sql`,
+data-team `lookup_attribution` RPC deploy, and the Step B price-write check.
+
+**Next milestone (v1.1):** Backend Migration + Artifact Explorer, led by the
+MIG-01 pre-migration ADR. Start with `/gsd-new-milestone`.
+
 ## Requirements
 
 ### Validated
 
 <!-- Shipped and confirmed valuable. -->
 
-(None yet under this planning bootstrap — the Python billing pipeline, portal
-apps, and Docusaurus runbook are pre-existing production work and are
-acknowledged here as inherited context, not as v1 requirements.)
+Shipped in **v1.0** (2026-05-20). Code-complete and integration-verified
+(`pytest tests/` → 682 passed); production-observable acceptance criteria
+are pending the first post-merge GitHub Actions cron run (see
+`milestones/v1.0-MILESTONE-AUDIT.md` and the phase HUMAN-UAT files).
+
+- ✓ **SUB-01** `_AEPBillable` variant priced via 3%-increase rates — v1.0
+- ✓ **SUB-02** `_ReducedSub` variant priced via 13%-reduced rates — v1.0
+- ✓ **SUB-03** dual-target routing (TARGET + `SUBCONTRACTOR_PPP_SHEET_ID`) — v1.0
+- ✓ **SUB-04** `data/subcontractor_rates.csv` authoritative rate loader — v1.0
+- ✓ **SUB-05** shadow-foreman/helper variants — v1.0
+- ✓ **SUB-06** subcontractor logic scoped off ORIG-folder / VAC-crew — v1.0
+- ✓ **SUB-07** `billing_audit.pipeline_run.variant` recorded — v1.0
+- ✓ **SUB-08** pre-acceptance helper-row price rescue (Bug A) — v1.0 (Phase 1.1)
+- ✓ **SUB-09** subcontractor variant partitioning (Bug B1) — v1.0 (Phase 1.1)
+- ✓ **SUB-10** PPP cleanup variant whitelist (Bug B2) — v1.0 (Phase 1.1)
+- ✓ **SUB-11** per-row claim-history attribution (Bug C) — v1.0 (Phase 1.1;
+  data-team Supabase RPC deploy required to activate)
+- ✓ **SUB-12** one-time idempotent hash-history prune — v1.0 (Phase 1.1)
 
 ### Active
 
-<!-- Current v1.0 scope. Building toward these. -->
+<!-- Next milestone (v1.1) scope. Building toward these. -->
 
-- [ ] **SUB-01**: Generate `_AEPBillable` Excel variant per subcontractor WR
-  group using 3%-increase rates, gated by `Snapshot Date >= 2026-04-12`
-- [ ] **SUB-02**: Generate `_ReducedSub` Excel variant per subcontractor WR
-  group using 13%-reduced rates, unconditional on snapshot date
-- [ ] **SUB-03**: Route `_AEPBillable` and `_ReducedSub` to original PPP
-  target sheet (`5723337641643908`); route only `_ReducedSub` to the new
-  `SUBCONTRACTOR_PPP_SHEET_ID` (`8162920222379908`)
-- [ ] **SUB-04**: Load subcontractor rate matrix from
-  `data/subcontractor_rates.csv` (9 columns: reduced/original/new ×
-  install/remove/transfer) keyed by CU code
-- [ ] **SUB-05**: Extend shadow-foreman/helper variants so a foreman change
-  produces both `_AEPBillable_Helper_<name>` and
-  `_ReducedSub_Helper_<name>` shadow files for the prior foreman's claimed
-  units
-- [ ] **SUB-06**: Restrict every new subcontractor code path to
-  `SUBCONTRACTOR_FOLDER_IDS`-discovered sheets; ORIG folders
-  (`7644752003786628`, `8815193070299012`) and the VAC crew workflow remain
-  untouched
-- [ ] **SUB-07**: Persist `variant` in the `billing_audit.pipeline_run`
-  attribution snapshot (schema change to `billing_audit/schema.sql` shipped
-  in the same PR as the Python writer change)
+v1.1 is the **Backend Migration + Artifact Explorer** milestone, led by the
+pre-migration ADR. Promote via `/gsd-new-milestone`. Full source detail in
+`milestones/v1.0-REQUIREMENTS.md` (v1.1-deferred section).
+
 - [ ] **MIG-01**: File the pre-migration ADR for Railway → Render under
   `memory-bank/adr/` (Render Starter plan, in-memory LRU search, v1
   download = original `.xlsx`) before the migration phases execute
 - [ ] **REQ-railway-render-migration**: Execute the Railway → Render
-  backend migration with zero user-visible downtime (deferred to v1.1)
-- [ ] **REQ-artifact-explorer-v1**: Ship the three-pane Artifact Explorer
-  redesign in `portal-v2/` (deferred to v1.1)
-- [ ] **REQ-excel-styled-renderer**: Hybrid Excel renderer (server-side
-  exceljs styled HTML + `@tanstack/react-virtual` table) (deferred to v1.1)
-- [ ] **REQ-cross-artifact-search**: Two-tier filter + `Cmd+K` palette
-  backed by in-memory LRU search index on Render (deferred to v1.1)
-- [ ] **REQ-backend-routes-for-explorer**: Five new Express routes on
-  `portal/` powering the explorer (deferred to v1.1)
+  backend migration with zero user-visible downtime
 - [ ] **REQ-migration-staging-verification**: Stand up Render in parallel
-  to Railway, pass staging-verification checklist (deferred to v1.1)
+  to Railway, pass the staging-verification checklist
 - [ ] **REQ-migration-decommission**: Decommission Railway 48 h after a
-  clean cutover (deferred to v1.1)
+  clean cutover
+- [ ] **REQ-artifact-explorer-v1**: Ship the three-pane Artifact Explorer
+  redesign in `portal-v2/`
+- [ ] **REQ-excel-styled-renderer**: Hybrid Excel renderer (server-side
+  exceljs styled HTML + `@tanstack/react-virtual` table)
+- [ ] **REQ-cross-artifact-search**: Two-tier filter + `Cmd+K` palette
+  backed by in-memory LRU search index on Render
+- [ ] **REQ-backend-routes-for-explorer**: Five new Express routes on
+  `portal/` powering the explorer
+
+### Carrying over to v1.1 (live verification of v1.0)
+
+These v1.0 deliverables ship code-complete; their production-observable
+acceptance is confirmed on the first post-merge cron run:
+
+- [ ] Live-cron UAT: shadow-variant emission, Bug C frozen-helper after a
+  real mid-week swap, PPP off-contract cleanup, hash-prune fires-once
+- [ ] Operator: apply `billing_audit/schema.sql`; data team deploys the
+  `lookup_attribution` RPC; Step B real-data SKIP_UPLOAD price-write check
 
 ### Out of Scope
 
@@ -292,14 +322,12 @@ extracted from `CLAUDE.md` Living Ledger (see
 </decisions>
 
 ---
-*Last updated: 2026-05-20 after Phase 01.1 (Subcontractor Helper-Shadow
-Rescue) completion. Phase 01.1 made the Phase 01 shadow-variant
-scaffolding functional in production: Bug A pre-acceptance rescue (SUB-08),
-Bug B1 variant partitioning (SUB-09), Bug B2 PPP cleanup whitelist
-(SUB-10), Bug C claim-history attribution (SUB-11), and SUB-12 hash-history
-prune. SUB-05 (helper-shadow variants) and SUB-03 (routing) are
-code-complete but remain pending live-cron confirmation
-(`01.1-HUMAN-UAT.md`, 4 production-observable items) before moving to
-Validated. Original bootstrap: 2026-05-14 from `gsd-new-project`.
-Granularity: standard. Coverage: 8/8 v1 requirements mapped (Phase 1:
-7 SUB-*, Phase 1.1: 5 SUB-* hotfix, Phase 2 deferred: 1 MIG-01).*
+*Last updated: 2026-05-20 after **v1.0 Subcontractor Rate Logic** milestone
+completion (Phases 01 + 01.1, 19 plans, 682 tests passing). All 12 v1
+requirements (SUB-01..12) shipped code-complete and moved to Validated;
+production-observable acceptance is carried into v1.1 as live-cron UAT.
+MIG-01 descoped to v1.1 (Phase 2 deferred). Milestone audit: `tech_debt`
+(`milestones/v1.0-MILESTONE-AUDIT.md`). Full v1.0 detail archived in
+`milestones/v1.0-ROADMAP.md` + `milestones/v1.0-REQUIREMENTS.md`. Original
+bootstrap: 2026-05-14 from `gsd-new-project`. Next: `/gsd-new-milestone` for
+v1.1 (Backend Migration + Artifact Explorer).*
