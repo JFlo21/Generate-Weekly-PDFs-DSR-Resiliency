@@ -2724,22 +2724,36 @@ class TestPppCleanupUntrackedAttachments(unittest.TestCase):
             "parameters must remain unchanged (WR-01 baseline). "
             f"Got: {params[:6]}"
         )
-        # Phase 1.1 Bug B2 appends exactly one new trailing kwarg:
+        # Phase 1.1 Bug B2 appended variant_whitelist; Plan 01.1-06
+        # (SUB-09 helper-dimension) appends two more trailing kwargs:
+        # sub_wr_scope and sub_offcontract_variants. All three are
+        # optional (None default) so existing TARGET / PPP call sites
+        # remain byte-identical. IN-PLACE UPDATE per [2026-05-20 00:26]
+        # rule 2 — the assertion follows the v2 signature contract.
         self.assertEqual(
             params,
             ['client', 'target_sheet_id', 'valid_wr_weeks',
              'test_mode', 'attachment_cache', 'target_sheet',
-             'variant_whitelist'],
-            "Phase 1.1 Bug B2 (SUB-10) appends ONE trailing kwarg "
-            "'variant_whitelist'. Any additional drift to the "
-            "signature must be reviewed against D-09 (TARGET legacy "
-            f"behavior). Got: {params}"
+             'variant_whitelist', 'sub_wr_scope', 'sub_offcontract_variants'],
+            "Plan 01.1-06 (SUB-09) appends two trailing kwargs after "
+            "'variant_whitelist': 'sub_wr_scope' and "
+            "'sub_offcontract_variants'. Any further drift must be "
+            "reviewed against D-09 (TARGET legacy behavior). "
+            f"Got: {params}"
         )
-        # The new kwarg must default to None per D-09 (preserves
-        # legacy behavior on TARGET when the kwarg is not supplied).
+        # All three trailing kwargs must default to None (D-09) so
+        # existing call sites without the new kwargs are unaffected.
         self.assertIs(
             sig.parameters['variant_whitelist'].default, None,
             'variant_whitelist must default to None (D-09).'
+        )
+        self.assertIs(
+            sig.parameters['sub_wr_scope'].default, None,
+            'sub_wr_scope must default to None (SUB-09).'
+        )
+        self.assertIs(
+            sig.parameters['sub_offcontract_variants'].default, None,
+            'sub_offcontract_variants must default to None (SUB-09).'
         )
 
 

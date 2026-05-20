@@ -250,18 +250,110 @@ class TestEndToEndPipeline(unittest.TestCase):
             f"_HELPER_<name>; got: {keys}",
         )
 
+    # ─── SUB-09 helper-dimension partition (Plan 01.1-06) ────────
+
+    def test_subcontractor_helper_row_does_not_emit_legacy_helper_key(self):
+        """Plan 01.1-06 SUB-09 e2e: subcontractor helper row emits NO
+        legacy _HELPER_ key (post-cutoff snapshot — both shadow variants).
+
+        Drives group_source_rows with a synthetic sub helper row whose
+        snapshot date is 2026-04-19 (post-AEP-cutoff 2026-04-12), so
+        BOTH _REDUCEDSUB_HELPER_ and _AEPBILLABLE_HELPER_ are expected.
+        The legacy bare-helper key must NOT be present in any form.
+        """
+        with mock.patch(
+            'billing_audit.writer.lookup_attribution',
+            return_value=None,  # no_history → falls back to current helper
+        ):
+            row = self._make_synth_helper_row(
+                helper_foreman='Chris_Lopez',
+                snapshot='2026-04-19',
+            )
+            groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        # No legacy _HELPER_ key in any form
+        self.assertNotIn(
+            '041926_91467680_HELPER_Chris_Lopez',
+            keys,
+            f"SUB-09: legacy bare-helper key must NOT be emitted for "
+            f"subcontractor helper row; got: {keys}",
+        )
+        # Confirm no key has variant == 'helper' at all
+        for k in keys:
+            variant = groups[k][0].get('__variant', '')
+            self.assertNotEqual(
+                variant, 'helper',
+                f"SUB-09: no group should have variant='helper' for a "
+                f"subcontractor row; offending key={k!r}, got: {keys}",
+            )
+        # Shadow variants must be present
+        self.assertTrue(
+            any('REDUCEDSUB_HELPER_Chris_Lopez' in k for k in keys),
+            f"SUB-09: _REDUCEDSUB_HELPER_ key must be present; got: {keys}",
+        )
+        self.assertTrue(
+            any('AEPBILLABLE_HELPER_Chris_Lopez' in k for k in keys),
+            f"SUB-09: _AEPBILLABLE_HELPER_ key must be present "
+            f"(post-cutoff snapshot); got: {keys}",
+        )
+
+    def test_subcontractor_helper_row_pre_cutoff_emits_only_reducedsub_helper(self):
+        """Plan 01.1-06 SUB-09 e2e: pre-cutoff snapshot — only _REDUCEDSUB_HELPER_
+        (mirrors UAT case WR_90773033 wk 041226 which was pre-AEP-cutoff).
+
+        Snapshot 2026-04-11 is BEFORE the AEP cutoff 2026-04-12, so
+        _AEPBILLABLE_HELPER_ must NOT be emitted. Legacy _HELPER_ must
+        NOT be emitted (SUB-09 partition guard fires regardless of cutoff).
+        """
+        with mock.patch(
+            'billing_audit.writer.lookup_attribution',
+            return_value=None,  # no_history → falls back to current helper
+        ):
+            row = self._make_synth_helper_row(
+                helper_foreman='Chris_Lopez',
+                snapshot='2026-04-11',  # pre-cutoff
+            )
+            groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        # _REDUCEDSUB_HELPER_ must be present (unconditional per SUB-02)
+        self.assertTrue(
+            any('REDUCEDSUB_HELPER_Chris_Lopez' in k for k in keys),
+            f"SUB-09 pre-cutoff: _REDUCEDSUB_HELPER_ must be present; got: {keys}",
+        )
+        # _AEPBILLABLE_HELPER_ must NOT be present (pre-cutoff snapshot)
+        self.assertFalse(
+            any('AEPBILLABLE_HELPER_Chris_Lopez' in k for k in keys),
+            f"SUB-09 pre-cutoff: _AEPBILLABLE_HELPER_ must NOT be present; got: {keys}",
+        )
+        # Legacy _HELPER_ must NOT be present regardless of cutoff
+        self.assertFalse(
+            any('HELPER_Chris_Lopez' in k and 'REDUCEDSUB' not in k for k in keys),
+            f"SUB-09 pre-cutoff: legacy _HELPER_ must NOT be emitted; got: {keys}",
+        )
+
     # ─── Bug C attribution ───────────────────────────────────────
 
     def test_bug_c_attribution_partitions_row_to_frozen_helper(self):
         """Bug C core assertion: frozen helper wins over current helper
         in SHADOW-variant emission (D-15 scope).
 
-        The Bug C contract is scoped to subcontractor helper-shadow
-        files (``_REDUCEDSUB_HELPER_<name>`` / ``_AEPBILLABLE_HELPER_<name>``).
-        The legacy ``_HELPER_<name>`` group key continues to use the
-        current Smartsheet ``Foreman Helping?`` value unchanged — D-15
-        explicitly preserves Phase 1's legacy helper flow when Bug C
-        is active.
+        **IN-PLACE REWRITE** (Plan 01.1-06 UAT gap closure, per
+        [2026-05-20 00:26] rule 2): the original D-15 assertion
+        asserted that the legacy ``_HELPER_ReplacementForeman`` key
+        IS still emitted for a subcontractor helper row — encoding the
+        buggy additive behavior that Plan 01.1-06 Task 1 closes.
+
+        Under the SUB-09 helper-dimension fix, the legacy helper-key
+        append is now gated on ``not is_subcontractor_row``, so a
+        subcontractor helper row emits ONLY shadow-variant keys
+        (``_REDUCEDSUB_HELPER_<name>`` and ``_AEPBILLABLE_HELPER_<name>``).
+        The D-15 assertion is therefore INVERTED: NO legacy
+        ``_HELPER_*`` key must be emitted for any subcontractor
+        helper row.
+
+        The shadow-variant (Bug C) assertions are PRESERVED unchanged:
+        the frozen helper from attribution_snapshot still wins over the
+        current Smartsheet value in the shadow files.
         """
         with mock.patch(
             'billing_audit.writer.lookup_attribution',
@@ -293,16 +385,21 @@ class TestEndToEndPipeline(unittest.TestCase):
             any('AEPBILLABLE_HELPER_ReplacementForeman' in k for k in keys),
             f"Bug C: shadow file should NOT use current helper; got: {keys}",
         )
-        # D-15 scope: the LEGACY helper variant key uses the current
-        # Smartsheet `Foreman Helping?` value unchanged — Bug C does
-        # NOT touch the Phase 1 legacy helper flow.
-        self.assertTrue(
-            any(
-                k == '041926_91467680_HELPER_ReplacementForeman'
-                for k in keys
-            ),
-            f"D-15: legacy _HELPER_<name> key should still use current "
-            f"helper; got: {keys}",
+        # Plan 01.1-06 SUB-09 helper-dimension fix (D-15 assertion INVERTED):
+        # subcontractor helper rows must NOT emit ANY legacy _HELPER_ key.
+        # The partition guard (not is_subcontractor_row) means both the
+        # current-helper and frozen-helper forms are absent.
+        self.assertNotIn(
+            '041926_91467680_HELPER_ReplacementForeman',
+            keys,
+            f"SUB-09 fix: legacy _HELPER_ key must NOT be emitted for "
+            f"subcontractor helper row (current helper form); got: {keys}",
+        )
+        self.assertNotIn(
+            '041926_91467680_HELPER_OriginalForeman',
+            keys,
+            f"SUB-09 fix: legacy _HELPER_ key must NOT be emitted for "
+            f"subcontractor helper row (frozen helper form); got: {keys}",
         )
 
     def test_bug_c_no_history_falls_back_to_current_helper_with_warning(self):
@@ -505,6 +602,96 @@ class TestBugB2WhitelistE2E(unittest.TestCase):
         )
 
 
+class TestLegacyHelperTargetCleanupE2E(unittest.TestCase):
+    """Plan 01.1-06 SUB-09: TARGET cleanup removes pre-existing legacy
+    _Helper_ and bare-primary attachments for subcontractor WRs via the
+    new sub_wr_scope / sub_offcontract_variants kwargs.
+    """
+
+    def setUp(self):
+        _ensure_smartsheet_mocked()
+
+    def _make_attachment(self, name, att_id):
+        att = mock.MagicMock()
+        att.name = name
+        att.id = att_id
+        return att
+
+    def _build_client_with_attachments(self, attachments):
+        client = mock.MagicMock()
+        sheet = mock.MagicMock()
+        row = mock.MagicMock()
+        row.id = 1
+        client.Attachments.list_row_attachments.return_value.data = attachments
+        sheet.rows = [row]
+        client.Sheets.get_sheet.return_value = sheet
+        return client, sheet
+
+    def test_target_cleanup_removes_legacy_helper_for_subcontractor_wr(self):
+        """TARGET cleanup deletes _Helper_ attachment for sub WR via sub_wr_scope."""
+        att_helper = self._make_attachment(
+            'WR_90773033_WeekEnding_041226_220404_Helper_Chris_Lopez_abc123.xlsx',
+            10,
+        )
+        att_shadow = self._make_attachment(
+            'WR_90773033_WeekEnding_041226_220404_ReducedSub_Helper_Chris_Lopez_def456.xlsx',
+            20,
+        )
+        client, sheet = self._build_client_with_attachments(
+            [att_helper, att_shadow]
+        )
+        generate_weekly_pdfs.cleanup_untracked_sheet_attachments(
+            client,
+            target_sheet_id=5723337641643908,
+            valid_wr_weeks=set(),
+            test_mode=False,
+            target_sheet=sheet,
+            sub_wr_scope={'90773033'},
+            sub_offcontract_variants={'helper', 'primary'},
+        )
+        deletes = [call.args for call in client.Attachments.delete_attachment.call_args_list]
+        self.assertIn(
+            (5723337641643908, 10), deletes,
+            f"_Helper_ attachment must be deleted as off-contract for sub WR; "
+            f"got deletes={deletes}",
+        )
+        # _ReducedSub_Helper_ is on-contract for sub WR — must NOT be deleted
+        # by the sub_wr_scope path (it lands in identity_groups and may be
+        # pruned only as an "older variant" by the keep-newest logic, but with
+        # a single-attachment identity group atts_sorted[1:] is empty, so no
+        # delete fires on that path either).
+        self.assertNotIn(
+            (5723337641643908, 20), deletes,
+            f"_ReducedSub_Helper_ shadow must NOT be deleted; got: {deletes}",
+        )
+
+    def test_target_cleanup_preserves_legacy_helper_for_non_sub_wr(self):
+        """TARGET cleanup does NOT delete _Helper_ attachment for non-sub WR.
+
+        WR 99999999 is NOT in sub_wr_scope {'90773033'} so the new gate
+        is a no-op and byte-identical legacy TARGET behaviour is preserved.
+        """
+        att_helper = self._make_attachment(
+            'WR_99999999_WeekEnding_041226_220404_Helper_SomeForeman_abc123.xlsx',
+            30,
+        )
+        client, sheet = self._build_client_with_attachments([att_helper])
+        generate_weekly_pdfs.cleanup_untracked_sheet_attachments(
+            client,
+            target_sheet_id=5723337641643908,
+            valid_wr_weeks={('99999999', '041226', 'helper', 'SomeForeman')},
+            test_mode=False,
+            target_sheet=sheet,
+            sub_wr_scope={'90773033'},  # different WR — 99999999 not in scope
+            sub_offcontract_variants={'helper', 'primary'},
+        )
+        deletes = [call.args for call in client.Attachments.delete_attachment.call_args_list]
+        self.assertNotIn(
+            (5723337641643908, 30), deletes,
+            f"Non-sub WR _Helper_ must NOT be deleted; got: {deletes}",
+        )
+
+
 class TestHashPruneIdempotency(unittest.TestCase):
     """D-21(e) + SUB-12 + Pitfall 4 closure."""
 
@@ -639,7 +826,16 @@ class TestHashPruneIdempotency(unittest.TestCase):
         self.assertIn('99999|041926|primary|', hash_history)
 
     def test_prune_excludes_non_primary_subcontractor_variants(self):
-        """D-17 scope: only variant='primary' AND identifier='' entries dropped."""
+        """Version 2 scope: only 'primary' (4-part blank-id) and 'helper' orphans
+        are dropped for in-scope sub WRs — shadow variants are preserved.
+
+        **IN-PLACE REWRITE** (Plan 01.1-06, per [2026-05-20 00:26] rule 2):
+        under v2 the prune now ALSO drops 4-part 'helper' keys (variant='helper')
+        for in-scope sub WRs. The original v1 assertion that
+        '91467680|041926|helper|Foreman' IS retained is INVERTED. The live
+        shadow variants (reduced_sub, aep_billable, reduced_sub_helper) are
+        STILL retained and their assertIn calls are PRESERVED unchanged.
+        """
         hash_history = {
             '91467680|041926|reduced_sub|': {
                 'hash': 'h1', 'timestamp': '2026-01-01',
@@ -656,11 +852,17 @@ class TestHashPruneIdempotency(unittest.TestCase):
         }
         groups = self._make_groups_with_reducedsub(['91467680'])
         generate_weekly_pdfs._run_phase_1_1_hash_prune(hash_history, groups)
-        # None of these should be dropped
+        # Shadow variants must still be retained (UNCHANGED from v1 assertions)
         self.assertIn('91467680|041926|reduced_sub|', hash_history)
         self.assertIn('91467680|041926|aep_billable|', hash_history)
         self.assertIn('91467680|041926|reduced_sub_helper|Foreman', hash_history)
-        self.assertIn('91467680|041926|helper|Foreman', hash_history)
+        # v2 INVERTS the helper assertion: a 4-part 'helper' key for an in-scope
+        # sub WR is NOW DROPPED (it is a legacy orphan from pre-Plan-01.1-06 runs)
+        self.assertNotIn(
+            '91467680|041926|helper|Foreman',
+            hash_history,
+            "v2 prune must drop 4-part 'helper' key for in-scope sub WR",
+        )
 
     def test_reset_hash_history_followed_by_prune_is_noop(self):
         """RESET_HASH_HISTORY=true → empty dict → prune writes sentinel + 0 drops."""
@@ -673,13 +875,14 @@ class TestHashPruneIdempotency(unittest.TestCase):
             hash_history['_phase_prune_version'],
             generate_weekly_pdfs.PHASE_1_1_HASH_PRUNE_VERSION,
         )
-        # ONE info log — "no orphans to drop" path
+        # ONE info log — "no primary/legacy-helper orphans to drop" path
+        # (wording updated in Plan 01.1-06 Task 3 to reflect v2 scope)
         prune_logs = [
             line for line in log_cm.output
             if 'Phase 1.1 hash-history prune' in line
         ]
         self.assertEqual(len(prune_logs), 1)
-        self.assertIn('no orphans to drop', prune_logs[0])
+        self.assertIn('no primary/legacy-helper orphans to drop', prune_logs[0])
 
     def test_first_run_with_no_orphans_logs_no_orphan_branch(self):
         """Version 0 + groups with _REDUCEDSUB + no matching orphans → log + noop."""
@@ -701,7 +904,96 @@ class TestHashPruneIdempotency(unittest.TestCase):
             if 'Phase 1.1 hash-history prune' in line
         ]
         self.assertEqual(len(prune_logs), 1)
-        self.assertIn('no orphans to drop', prune_logs[0])
+        # Wording updated in Plan 01.1-06 Task 3 to reflect v2 scope
+        self.assertIn('no primary/legacy-helper orphans to drop', prune_logs[0])
+
+
+    def test_version_2_drops_subcontractor_legacy_helper_orphans(self):
+        """Plan 01.1-06 Task 3: version-2 prune drops 6-part 'helper' orphans
+        for in-scope sub WRs, AND preserves the version-1 primary-orphan drop,
+        AND preserves non-sub helper entries and live shadow entries.
+
+        The 6-part key shape exercises the Task 3 parse fix: the former
+        '!= 4' guard hard-skipped every helper key, so this test WOULD HAVE
+        FAILED before Task 3 (the 6-part orphan would survive the prune).
+        """
+        hash_history = {
+            # 6-part subcontractor helper orphan (THE KEY CASE)
+            '90773033|041226|helper|Chris_Lopez|500|JOB-A': {
+                'hash': 'h1', 'timestamp': '2026-01-01',
+            },
+            # 4-part subcontractor primary orphan (version-1 case)
+            '90773033|041226|primary|': {
+                'hash': 'h2', 'timestamp': '2026-01-02',
+            },
+            # 6-part NON-sub helper (wr not in scope — must survive)
+            '99999999|041226|helper|Other|600|JOB-B': {
+                'hash': 'h3', 'timestamp': '2026-01-03',
+            },
+            # Live shadow variant (must survive)
+            '90773033|041226|reduced_sub_helper|Chris_Lopez': {
+                'hash': 'h4', 'timestamp': '2026-01-04',
+            },
+            '_phase_prune_version': 1,
+        }
+        groups = self._make_groups_with_reducedsub(['90773033'])
+        with self.assertLogs(level='INFO') as log_cm:
+            generate_weekly_pdfs._run_phase_1_1_hash_prune(hash_history, groups)
+        # 6-part sub helper orphan DROPPED
+        self.assertNotIn(
+            '90773033|041226|helper|Chris_Lopez|500|JOB-A',
+            hash_history,
+            "v2: 6-part sub helper orphan must be dropped",
+        )
+        # 4-part sub primary orphan DROPPED (version-1 superset)
+        self.assertNotIn(
+            '90773033|041226|primary|',
+            hash_history,
+            "v2: 4-part sub primary orphan must also be dropped",
+        )
+        # 6-part NON-sub helper PRESERVED
+        self.assertIn(
+            '99999999|041226|helper|Other|600|JOB-B',
+            hash_history,
+            "v2: non-sub helper entry must be preserved",
+        )
+        # Live shadow PRESERVED
+        self.assertIn(
+            '90773033|041226|reduced_sub_helper|Chris_Lopez',
+            hash_history,
+            "v2: live shadow variant must be preserved",
+        )
+        # Sentinel advanced to 2
+        self.assertEqual(
+            hash_history['_phase_prune_version'],
+            generate_weekly_pdfs.PHASE_1_1_HASH_PRUNE_VERSION,
+        )
+        # Log must mention dropped count
+        prune_logs = [
+            line for line in log_cm.output
+            if 'Phase 1.1 hash-history prune' in line
+        ]
+        self.assertEqual(len(prune_logs), 1)
+        self.assertIn('dropped 2', prune_logs[0])
+
+    def test_version_2_idempotent_when_sentinel_already_2(self):
+        """Sentinel already at 2 → no-op (idempotency per [2026-04-25 12:00] rule 1)."""
+        hash_history = {
+            '90773033|041226|helper|Chris_Lopez|500|JOB-A': {
+                'hash': 'h1', 'timestamp': '2026-01-01',
+            },
+            '_phase_prune_version': 2,
+        }
+        groups = self._make_groups_with_reducedsub(['90773033'])
+        generate_weekly_pdfs._run_phase_1_1_hash_prune(hash_history, groups)
+        # No-op: helper orphan preserved (already migrated)
+        self.assertIn(
+            '90773033|041226|helper|Chris_Lopez|500|JOB-A',
+            hash_history,
+            "Idempotency: no drops when sentinel is already at current version",
+        )
+        # Sentinel preserved
+        self.assertEqual(hash_history['_phase_prune_version'], 2)
 
 
 class TestProductionCodeSiteInvariants(unittest.TestCase):
@@ -753,11 +1045,11 @@ class TestProductionCodeSiteInvariants(unittest.TestCase):
         self.assertIn('SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED', self._src)
 
     def test_hash_prune_version_constant_present_in_production(self):
-        """Hash-prune version constant per D-17/D-19."""
+        """Hash-prune version constant per D-17/D-19 (Plan 01.1-06 bumped to 2)."""
         self.assertRegex(
             self._src,
-            r'(?m)^PHASE_1_1_HASH_PRUNE_VERSION = 1$',
-            "Hash-prune version constant must be present in production",
+            r'(?m)^PHASE_1_1_HASH_PRUNE_VERSION = 2$',
+            "Hash-prune version constant must be 2 in production (Plan 01.1-06)",
         )
 
     def test_hash_prune_helper_callable(self):
