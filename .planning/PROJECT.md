@@ -292,5 +292,14 @@ extracted from `CLAUDE.md` Living Ledger (see
 </decisions>
 
 ---
-*Last updated: 2026-05-14 after `gsd-new-project` bootstrap from ingested
-intel. Granularity: standard. Coverage: 8/8 v1 requirements mapped (Phase 1: 7 SUB-*, Phase 2 deferred: 1 MIG-01).*
+*Last updated: 2026-05-20 after Phase 01.1 (Subcontractor Helper-Shadow
+Rescue) completion. Phase 01.1 made the Phase 01 shadow-variant
+scaffolding functional in production: Bug A pre-acceptance rescue (SUB-08),
+Bug B1 variant partitioning (SUB-09), Bug B2 PPP cleanup whitelist
+(SUB-10), Bug C claim-history attribution (SUB-11), and SUB-12 hash-history
+prune. SUB-05 (helper-shadow variants) and SUB-03 (routing) are
+code-complete but remain pending live-cron confirmation
+(`01.1-HUMAN-UAT.md`, 4 production-observable items) before moving to
+Validated. Original bootstrap: 2026-05-14 from `gsd-new-project`.
+Granularity: standard. Coverage: 8/8 v1 requirements mapped (Phase 1:
+7 SUB-*, Phase 1.1: 5 SUB-* hotfix, Phase 2 deferred: 1 MIG-01).*
