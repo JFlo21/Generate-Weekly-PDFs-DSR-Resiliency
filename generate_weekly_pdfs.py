@@ -308,7 +308,7 @@ DISCOVERY_CACHE_VERSION = 4  # v4: fuzzy VAC Crew column fallback — invalidate
 # ``load_hash_history`` filter preserves underscore-prefixed sentinels
 # and the hardened ``save_hash_history`` retention sort tolerates the
 # int-valued sentinel — see the helpers below).
-PHASE_1_1_HASH_PRUNE_VERSION = 1
+PHASE_1_1_HASH_PRUNE_VERSION = 2
 # Verbose debug tunables
 DEBUG_SAMPLE_ROWS = int(os.getenv('DEBUG_SAMPLE_ROWS','3') or 3)  # How many initial rows (across all sheets) to show full per-cell mapping
 DEBUG_ESSENTIAL_ROWS = int(os.getenv('DEBUG_ESSENTIAL_ROWS','5') or 5)  # How many initial rows to log essential field summary
@@ -3077,29 +3077,40 @@ def _build_subcontractor_wr_scope(groups: dict) -> set[str]:
 def _run_phase_1_1_hash_prune(hash_history: dict, groups: dict) -> None:
     """Phase 1.1 SUB-12 / D-17..D-19: idempotent hash-history prune.
 
-    After Bug B1 (Plan 01.1-02) stops emitting legacy primary group
-    keys for subcontractor rows, the ``hash_history.json`` on existing
-    deployments still carries the OLD subcontractor primary entries
-    from pre-Phase-1.1 runs. They are orphans — never referenced
-    again, but they bloat the file. This helper:
+    Version 1 (Plan 01.1-05): After Bug B1 (Plan 01.1-02) stops emitting
+    legacy primary group keys for subcontractor rows, drops subcontractor
+    primary orphans (4-part keys: ``wr|week|primary|``).
+
+    Version 2 (Plan 01.1-06 UAT gap closure): ALSO drops subcontractor
+    legacy ``'helper'`` orphans (6-part keys: ``wr|week|helper|foreman|
+    dept|job``) left behind after Task 1 stops emitting the legacy
+    ``_HELPER_<name>`` key for subcontractor helper rows. Version 2 is a
+    superset of version 1 — the primary-orphan drop is preserved.
+
+    This helper:
 
       1. Reads the persisted ``_phase_prune_version`` sentinel (or 0
          if absent) from ``hash_history``.
       2. If the persisted version is already at or beyond
          ``PHASE_1_1_HASH_PRUNE_VERSION``, restores the sentinel and
          returns — no-op.
-      3. Otherwise, scans ``groups.keys()`` for ``_REDUCEDSUB``-
-         suffixed keys (the simplified D-18 detection per RESEARCH.md
-         §HP planner-discretion recommendation), extracts each
-         group's WR# from the first row of the group, and builds the
-         in-scope WR-token set.
-      4. Walks ``hash_history.keys()`` and identifies entries whose
-         parsed ``(wr, week, variant, identifier)`` tuple has
-         ``variant == 'primary'`` AND ``identifier == ''`` AND
-         ``wr in _sub_wr_scope``.
+      3. Otherwise, delegates scope-building to
+         ``_build_subcontractor_wr_scope(groups)`` (shared with the
+         TARGET cleanup call site — single implementation, no drift).
+      4. Walks ``hash_history.keys()`` and identifies orphan entries
+         using a length-tolerant guard (``< 4``) and index access.
+         Primary orphans: 4-part keys with ``variant == 'primary'``
+         and blank identifier. Helper orphans: any-part-count keys
+         with ``variant == 'helper'`` and ``wr in scope``.
       5. Drops those entries in place, persists the new sentinel
          value, and logs ONE INFO line naming the count + affected
          WR sample (per RESEARCH.md §HP Code Example §6).
+
+    CRITICAL — helper-variant hash keys are SIX pipe-parts, NOT four:
+    ``wr|week|helper|foreman|dept|job``. The former ``!= 4`` guard
+    hard-skipped every helper key (false-clean "no orphans" log) AND
+    the 4-element destructure would raise ``ValueError`` on a 6-element
+    list. Both are replaced by the ``< 4`` guard + index access pattern.
 
     Mutates ``hash_history`` in place. The constant
     ``PHASE_1_1_HASH_PRUNE_VERSION`` IS the kill switch (D-19) —
@@ -3118,29 +3129,39 @@ def _run_phase_1_1_hash_prune(hash_history: dict, groups: dict) -> None:
         hash_history['_phase_prune_version'] = _persisted_prune_version
         return
 
-    # Build the WR-token set from this run's groups (simplified D-18).
-    _sub_wr_scope: set[str] = set()
-    for _key, _g_rows in groups.items():
-        if '_REDUCEDSUB' in _key and _g_rows:
-            _g_wr_raw = _g_rows[0].get('Work Request #', '')
-            _g_wr = str(_g_wr_raw).split('.')[0]
-            _g_wr = _RE_SANITIZE_HELPER_NAME.sub('_', _g_wr)[:50]
-            if _g_wr:
-                _sub_wr_scope.add(_g_wr)
+    # Build the WR-token set from this run's groups via shared helper
+    # (simplified D-18). Shared with TARGET cleanup call site so the
+    # two scopes are guaranteed identical (T-01.1-06-05 mitigation).
+    _sub_wr_scope: set[str] = _build_subcontractor_wr_scope(groups)
 
-    # Walk hash_history, identify subcontractor primary orphans.
+    # Walk hash_history, identify subcontractor primary AND helper orphans.
     _orphans_to_drop: list[str] = []
     for _hk in list(hash_history.keys()):
         if isinstance(_hk, str) and _hk.startswith('_'):
             continue  # sentinel keys — skip
         _parts = str(_hk).split('|')
-        if len(_parts) != 4:
+        # Helper-variant keys are 6 parts (wr|week|helper|foreman|dept|job);
+        # primary keys are 4 (wr|week|primary|''). Accept BOTH — the former
+        # ``!= 4`` guard hard-skipped every helper key, producing a false-
+        # clean "no orphans" log. Sentinel keys (startswith '_') already
+        # skipped above.
+        if len(_parts) < 4:
             continue
-        _hk_wr, _hk_week, _hk_variant, _hk_identifier = _parts
-        if (
-            _hk_variant == 'primary'
-            and _hk_identifier == ''
-            and _hk_wr in _sub_wr_scope
+        # Index access (NOT a 4-element destructure) so a 6-part helper
+        # key does not raise ValueError. Only positions 0 and 2 are needed
+        # for the orphan classification.
+        _hk_wr = _parts[0]
+        _hk_variant = _parts[2]
+        # Version 1: subcontractor primary orphans (variant=='primary',
+        #   blank identifier — EXACTLY 4 parts). Version 2 (Phase 1.1 UAT
+        #   gap closure): ALSO subcontractor legacy helper orphans
+        #   (variant=='helper', 6 parts, any foreman/dept/job) left behind
+        #   after Task 1 stops emitting the legacy `_HELPER_<name>` key for
+        #   subcontractor rows. Both are pre-fix leftovers in
+        #   hash_history.json on existing deployments.
+        if _hk_wr in _sub_wr_scope and (
+            (len(_parts) == 4 and _hk_variant == 'primary' and _parts[3] == '')
+            or _hk_variant == 'helper'
         ):
             _orphans_to_drop.append(_hk)
 
@@ -3164,15 +3185,17 @@ def _run_phase_1_1_hash_prune(hash_history: dict, groups: dict) -> None:
             f"🧹 Phase 1.1 hash-history prune "
             f"(version {_persisted_prune_version} → "
             f"{PHASE_1_1_HASH_PRUNE_VERSION}): "
-            f"dropped {len(_orphans_to_drop)} subcontractor primary "
-            f"orphan(s) affecting {len(_sub_wr_scope)} WR(s). "
+            f"dropped {len(_orphans_to_drop)} subcontractor "
+            f"primary/legacy-helper orphan(s) affecting "
+            f"{len(_sub_wr_scope)} WR(s). "
             f"Affected WRs (first 20): {_wr_sample}{_wr_suffix}"
         )
     else:
         logging.info(
             f"🧹 Phase 1.1 hash-history prune "
             f"(version {_persisted_prune_version} → "
-            f"{PHASE_1_1_HASH_PRUNE_VERSION}): no orphans to drop."
+            f"{PHASE_1_1_HASH_PRUNE_VERSION}): "
+            f"no primary/legacy-helper orphans to drop."
         )
 
 
