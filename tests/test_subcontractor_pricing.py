@@ -2379,14 +2379,38 @@ class TestSubcontractorVariantKillSwitchAndScope(unittest.TestCase):
         }
 
     def test_kill_switch_disables_new_variant_emission(self):
-        """Test 1: SUBCONTRACTOR_RATE_VARIANTS_ENABLED=False → no new variant keys (D-13)."""
+        """Test 1: SUBCONTRACTOR_RATE_VARIANTS_ENABLED=False → no new variant keys (D-13).
+
+        Phase 1.1 D-22 contract change (CLAUDE.md Living Ledger entry
+        for Phase 1.1 closure): pre-Phase-1.1 this test implicitly
+        assumed the additive contract — subcontractor rows produced
+        ``_AEPBILLABLE`` + ``_REDUCEDSUB`` IN ADDITION TO the legacy
+        primary key. Phase 1.1 Bug B1 (Plan 01.1-02) inverts this for
+        subcontractor rows only: they now produce ONLY the variant
+        keys (partitioning, not additive — see RESEARCH.md §B1 for
+        the full rationale; CONTEXT.md D-22 for the override
+        authorization). See CLAUDE.md Living Ledger entry rule (b)
+        for the design-intent override.
+
+        The kill-switch assertion (variants suppressed when off) is
+        STILL VALID and remains in place. The NEW assertion documents
+        the post-Phase-1.1 invariant: even when the variant kill
+        switch is off, the subcontractor non-helper row STILL does
+        NOT emit the legacy primary key. Bug B1 partitioning is
+        INDEPENDENT of the variant kill switch — it's a structural
+        change to ``group_source_rows`` (see Plan 01.1-02 and the
+        sibling ``test_partitioning_contract_for_subcontractor_non_helper_rows``
+        method below for the standalone partitioning assertion).
+        """
         generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = False
         generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
         generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.add(self._SUB_SHEET_ID)
         row = self._make_sub_row(snapshot='2026-04-19')
         groups = generate_weekly_pdfs.group_source_rows([row])
         keys = list(groups.keys())
-        # No new variant keys regardless of post-cutoff snapshot
+        # PRESERVED Plan 01-03 contract — variant kill switch
+        # suppresses _AEPBILLABLE / _REDUCEDSUB keys regardless of
+        # Phase 1.1 Bug B1's partitioning structural change.
         self.assertFalse(
             any('_AEPBILLABLE' in k for k in keys),
             f"Kill switch must suppress _AEPBILLABLE keys; got: {keys}",
@@ -2394,6 +2418,58 @@ class TestSubcontractorVariantKillSwitchAndScope(unittest.TestCase):
         self.assertFalse(
             any('_REDUCEDSUB' in k for k in keys),
             f"Kill switch must suppress _REDUCEDSUB keys; got: {keys}",
+        )
+        # NEW Phase 1.1 D-22 assertion — Bug B1 partitioning is
+        # independent of the variant kill switch. The subcontractor
+        # non-helper row produces NO legacy primary key, even when
+        # the variant kill switch is OFF. The expected primary key
+        # shape that WOULD have been emitted pre-Phase-1.1 is
+        # ``041926_WR_K`` (the legacy ``{week}_{wr}`` format); it
+        # must be absent.
+        self.assertFalse(
+            any(k == '041926_WR_K' for k in keys),
+            f"Bug B1 partitioning is independent of variant kill switch "
+            f"— legacy primary key MUST NOT be emitted for "
+            f"subcontractor rows; got: {keys}",
+        )
+
+    def test_partitioning_contract_for_subcontractor_non_helper_rows(self):
+        """Phase 1.1 Bug B1 (D-04 / SUB-09): subcontractor non-helper
+        rows produce ONLY variant keys, NEVER the legacy primary key.
+
+        Asserts the partitioning contract directly — independent of
+        the variant kill switch. With the kill switch ON, subcontractor
+        rows produce ``_REDUCEDSUB`` (unconditional) AND ``_AEPBILLABLE``
+        (post-cutoff). The legacy primary key ``{week}_{wr}`` is NEVER
+        emitted for subcontractor rows.
+
+        See CLAUDE.md Living Ledger entry for Phase 1.1 closure rule
+        (b) for the design-intent override rationale (additive →
+        partitioning, scope-limited to subcontractor rows). Primary
+        / original-contract / vac_crew rows are UNCHANGED — covered
+        by ``test_orig_folder_sheet_emits_no_new_variants`` below.
+        """
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = True
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.add(self._SUB_SHEET_ID)
+        row = self._make_sub_row(snapshot='2026-04-19')
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        # Partitioning: variant keys present
+        self.assertTrue(
+            any('_REDUCEDSUB' in k and '_HELPER' not in k for k in keys),
+            f"Partitioning: _REDUCEDSUB key must be emitted; got: {keys}",
+        )
+        self.assertTrue(
+            any('_AEPBILLABLE' in k and '_HELPER' not in k for k in keys),
+            f"Partitioning: _AEPBILLABLE key must be emitted "
+            f"(post-cutoff snapshot); got: {keys}",
+        )
+        # Partitioning: NO legacy primary key (the Phase 1.1 B1 invariant)
+        self.assertFalse(
+            any(k == '041926_WR_K' for k in keys),
+            f"Bug B1 partitioning: legacy primary key MUST NOT be "
+            f"emitted for subcontractor rows; got: {keys}",
         )
 
     def test_orig_folder_sheet_emits_no_new_variants(self):
