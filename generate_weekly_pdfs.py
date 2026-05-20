@@ -295,6 +295,18 @@ DISCOVERY_CACHE_PATH = os.path.join(OUTPUT_FOLDER, 'discovery_cache.json')
 # invalidating the cache is cheaper than waiting up to DISCOVERY_CACHE_TTL_MIN
 # (7 days by default) for those mappings to refresh on their own.
 DISCOVERY_CACHE_VERSION = 4  # v4: fuzzy VAC Crew column fallback — invalidate caches whose column_mapping missed title variants like trailing whitespace or case drift
+
+# Phase 1.1 SUB-12 / D-17 / D-19: idempotent hash-history prune
+# version. The constant IS the kill switch — advance to trigger a
+# one-time prune of subcontractor primary orphan entries (the
+# pre-Bug-B1 partitioning leftovers); leave at the current value to
+# skip the prune. Mirrors the DISCOVERY_CACHE_VERSION pattern above.
+# Persisted into ``hash_history.json`` under the
+# ``_phase_prune_version`` sentinel key (the extended
+# ``load_hash_history`` filter preserves underscore-prefixed sentinels
+# and the hardened ``save_hash_history`` retention sort tolerates the
+# int-valued sentinel — see the helpers below).
+PHASE_1_1_HASH_PRUNE_VERSION = 1
 # Verbose debug tunables
 DEBUG_SAMPLE_ROWS = int(os.getenv('DEBUG_SAMPLE_ROWS','3') or 3)  # How many initial rows (across all sheets) to show full per-cell mapping
 DEBUG_ESSENTIAL_ROWS = int(os.getenv('DEBUG_ESSENTIAL_ROWS','5') or 5)  # How many initial rows to log essential field summary
@@ -925,6 +937,13 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     # pre-existing marker on its own (no accidental substring
     # containment).
     "Subcontractor helper claim attribution fallback",
+    # Phase 1.1 SUB-12 / D-17 / D-19: idempotent hash-history one-time
+    # prune INFO log embeds the affected-WR list (capped to the first
+    # 20 entries). WR numbers are sanitized at the producer site but
+    # are still PII at the project's row-level threshold. Explicit
+    # marker per the [2026-05-15 12:00] rule 3 — no accidental
+    # substring containment with pre-existing markers.
+    "Phase 1.1 hash-history prune",
 )
 
 
@@ -2895,8 +2914,20 @@ def load_hash_history(path: str):
         if not isinstance(data, dict):
             logging.warning("⚠️ Hash history is not a dict; resetting")
             return {}
-        # Validate entries: keep only those with a 'hash' key
-        valid = {k: v for k, v in data.items() if isinstance(v, dict) and 'hash' in v}
+        # Validate entries: keep only those with a 'hash' key.
+        # Phase 1.1 Pitfall 4: also preserve ``_``-prefixed sentinel
+        # keys (e.g. ``_phase_prune_version``) so they survive the
+        # load → save → load round-trip and the prune pass at session
+        # startup stays idempotent. Without this, the int-valued
+        # sentinel would be dropped at load time and the prune would
+        # fire on every run (silent non-idempotent trap).
+        valid = {
+            k: v for k, v in data.items()
+            if isinstance(k, str) and (
+                k.startswith('_')
+                or (isinstance(v, dict) and 'hash' in v)
+            )
+        }
         dropped = len(data) - len(valid)
         if dropped:
             logging.warning(f"⚠️ Dropped {dropped} malformed hash history entries")
@@ -2915,15 +2946,38 @@ BILLING_AUDIT_ROW_CACHE_MAX_ENTRIES = 200000
 
 def save_hash_history(path: str, history: dict):
     try:
-        # Retention: keep only the most recent entries by timestamp
+        # Retention: keep only the most recent entries by timestamp.
+        # Phase 1.1 Pitfall 4: sentinel keys (``_phase_prune_version``,
+        # any future ``_``-prefixed key) are int-valued — calling
+        # ``history[k].get('timestamp', '')`` on an int raises
+        # AttributeError and the whole save aborts. Filter sentinels
+        # OUT of the sort candidates, then re-add them unconditionally
+        # so they survive the save. Sentinels are NOT subject to the
+        # entry cap because there is exactly one per migration version.
         if len(history) > HASH_HISTORY_MAX_ENTRIES:
+            _sentinel_keys = {
+                k: v for k, v in history.items()
+                if isinstance(k, str) and k.startswith('_')
+            }
+            _real_entries = {
+                k: v for k, v in history.items()
+                if not (isinstance(k, str) and k.startswith('_'))
+            }
             sorted_keys = sorted(
-                history.keys(),
-                key=lambda k: history[k].get('timestamp', ''),
+                _real_entries.keys(),
+                key=lambda k: _real_entries[k].get('timestamp', ''),
                 reverse=True
             )
-            history = {k: history[k] for k in sorted_keys[:HASH_HISTORY_MAX_ENTRIES]}
-            logging.info(f"🧹 Pruned hash history to {HASH_HISTORY_MAX_ENTRIES} entries")
+            _kept = {
+                k: _real_entries[k]
+                for k in sorted_keys[:HASH_HISTORY_MAX_ENTRIES]
+            }
+            _kept.update(_sentinel_keys)
+            history = _kept
+            logging.info(
+                f"🧹 Pruned hash history to {HASH_HISTORY_MAX_ENTRIES} "
+                f"entries (+ {len(_sentinel_keys)} sentinel key(s) preserved)"
+            )
         tmp_path = path + '.tmp'
         with open(tmp_path,'w') as f:
             json.dump(history, f, indent=2, default=str)
@@ -2931,6 +2985,108 @@ def save_hash_history(path: str, history: dict):
         logging.info(f"📝 Hash history saved ({len(history)} entries)")
     except Exception as e:
         logging.warning(f"⚠️ Failed to save hash history: {e}")
+
+
+def _run_phase_1_1_hash_prune(hash_history: dict, groups: dict) -> None:
+    """Phase 1.1 SUB-12 / D-17..D-19: idempotent hash-history prune.
+
+    After Bug B1 (Plan 01.1-02) stops emitting legacy primary group
+    keys for subcontractor rows, the ``hash_history.json`` on existing
+    deployments still carries the OLD subcontractor primary entries
+    from pre-Phase-1.1 runs. They are orphans — never referenced
+    again, but they bloat the file. This helper:
+
+      1. Reads the persisted ``_phase_prune_version`` sentinel (or 0
+         if absent) from ``hash_history``.
+      2. If the persisted version is already at or beyond
+         ``PHASE_1_1_HASH_PRUNE_VERSION``, restores the sentinel and
+         returns — no-op.
+      3. Otherwise, scans ``groups.keys()`` for ``_REDUCEDSUB``-
+         suffixed keys (the simplified D-18 detection per RESEARCH.md
+         §HP planner-discretion recommendation), extracts each
+         group's WR# from the first row of the group, and builds the
+         in-scope WR-token set.
+      4. Walks ``hash_history.keys()`` and identifies entries whose
+         parsed ``(wr, week, variant, identifier)`` tuple has
+         ``variant == 'primary'`` AND ``identifier == ''`` AND
+         ``wr in _sub_wr_scope``.
+      5. Drops those entries in place, persists the new sentinel
+         value, and logs ONE INFO line naming the count + affected
+         WR sample (per RESEARCH.md §HP Code Example §6).
+
+    Mutates ``hash_history`` in place. The constant
+    ``PHASE_1_1_HASH_PRUNE_VERSION`` IS the kill switch (D-19) —
+    advance to trigger; leave to skip. Per [2026-04-25 12:00] rule 1:
+    idempotent migrations; version advance is the trigger.
+    """
+    _persisted_prune_version = hash_history.pop('_phase_prune_version', 0)
+    if (
+        isinstance(_persisted_prune_version, int)
+        and _persisted_prune_version >= PHASE_1_1_HASH_PRUNE_VERSION
+    ):
+        # Re-store the sentinel so ``save_hash_history`` persists it
+        # (defensive — the ``.pop`` above removed it). No log because
+        # the prune already ran on a prior session and the absence
+        # of a log line is the "already migrated" signal.
+        hash_history['_phase_prune_version'] = _persisted_prune_version
+        return
+
+    # Build the WR-token set from this run's groups (simplified D-18).
+    _sub_wr_scope: set[str] = set()
+    for _key, _g_rows in groups.items():
+        if '_REDUCEDSUB' in _key and _g_rows:
+            _g_wr_raw = _g_rows[0].get('Work Request #', '')
+            _g_wr = str(_g_wr_raw).split('.')[0]
+            _g_wr = _RE_SANITIZE_HELPER_NAME.sub('_', _g_wr)[:50]
+            if _g_wr:
+                _sub_wr_scope.add(_g_wr)
+
+    # Walk hash_history, identify subcontractor primary orphans.
+    _orphans_to_drop: list[str] = []
+    for _hk in list(hash_history.keys()):
+        if isinstance(_hk, str) and _hk.startswith('_'):
+            continue  # sentinel keys — skip
+        _parts = str(_hk).split('|')
+        if len(_parts) != 4:
+            continue
+        _hk_wr, _hk_week, _hk_variant, _hk_identifier = _parts
+        if (
+            _hk_variant == 'primary'
+            and _hk_identifier == ''
+            and _hk_wr in _sub_wr_scope
+        ):
+            _orphans_to_drop.append(_hk)
+
+    for _hk in _orphans_to_drop:
+        del hash_history[_hk]
+
+    # Persist the new sentinel.
+    hash_history['_phase_prune_version'] = PHASE_1_1_HASH_PRUNE_VERSION
+
+    # ONE INFO log — PII marker "Phase 1.1 hash-history prune" already
+    # registered in ``_PII_LOG_MARKERS``. Limit the affected-WR list
+    # to the first 20 entries to keep the log line bounded; full count
+    # still surfaces.
+    if _orphans_to_drop:
+        _wr_sample = sorted(_sub_wr_scope)[:20]
+        _wr_suffix = (
+            '' if len(_sub_wr_scope) <= 20
+            else f' (+ {len(_sub_wr_scope) - 20} more)'
+        )
+        logging.info(
+            f"🧹 Phase 1.1 hash-history prune "
+            f"(version {_persisted_prune_version} → "
+            f"{PHASE_1_1_HASH_PRUNE_VERSION}): "
+            f"dropped {len(_orphans_to_drop)} subcontractor primary "
+            f"orphan(s) affecting {len(_sub_wr_scope)} WR(s). "
+            f"Affected WRs (first 20): {_wr_sample}{_wr_suffix}"
+        )
+    else:
+        logging.info(
+            f"🧹 Phase 1.1 hash-history prune "
+            f"(version {_persisted_prune_version} → "
+            f"{PHASE_1_1_HASH_PRUNE_VERSION}): no orphans to drop."
+        )
 
 
 def load_billing_audit_row_cache(path: str) -> set[str]:
@@ -6525,6 +6681,33 @@ def main():
 
         # Load hash history AFTER optional purge so we don't rely on stale attachments
         hash_history = load_hash_history(HASH_HISTORY_PATH)
+
+        # ─────────────────────────────────────────────────────────
+        # Phase 1.1 SUB-12 / D-17..D-19: idempotent hash-history prune.
+        # ─────────────────────────────────────────────────────────
+        # Runs once per migration version. The constant
+        # ``PHASE_1_1_HASH_PRUNE_VERSION`` IS the kill switch (D-19);
+        # the helper handles the version-gate + simplified-D-18 scope
+        # detection + INFO logging. Mutates ``hash_history`` in place
+        # so the sentinel + dropped-orphan side-effects survive the
+        # subsequent ``save_hash_history`` write at end of run.
+        # ``groups`` was built upstream at the ``group_source_rows``
+        # call site; if grouping failed and execution reached here,
+        # the helper degrades gracefully (empty groups → empty
+        # _sub_wr_scope → no orphans dropped → sentinel still written).
+        try:
+            _run_phase_1_1_hash_prune(hash_history, groups)
+        except Exception as _prune_exc:
+            # Fail-safe per [2026-04-22 16:05] rule 4 — the prune
+            # is an optimization. A failed prune MUST NOT break the
+            # billing pipeline. Log + continue with the unmodified
+            # hash_history (the sentinel will not advance, the prune
+            # retries next run, the orphans remain harmless).
+            logging.warning(
+                f"⚠️ Phase 1.1 hash-history prune failed; continuing "
+                f"with existing history: {_prune_exc!r}"
+            )
+
         billing_audit_row_cache: set[str] = set()
         billing_audit_row_cache_dirty = False
         if BILLING_AUDIT_AVAILABLE and not TEST_MODE:
