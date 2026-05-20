@@ -5326,7 +5326,8 @@ def _build_upload_tasks_for_group(
     # reduced_sub / reduced_sub_helper. The primary leg always runs
     # first so a missing-WR warning consistently mentions
     # TARGET_SHEET_ID first.
-    if wr_num in target_map:
+    primary_present = wr_num in target_map
+    if primary_present:
         upload_tasks.append({
             'excel_path': excel_path,
             'filename': filename,
@@ -5354,7 +5355,7 @@ def _build_upload_tasks_for_group(
 
     # Second leg — only for reduced_sub variants per D-12 / SUB-03.
     if variant in ('reduced_sub', 'reduced_sub_helper'):
-        if wr_num in target_map_ppp:
+        if primary_present and wr_num in target_map_ppp:
             upload_tasks.append({
                 'excel_path': excel_path,
                 'filename': filename,
@@ -5368,7 +5369,7 @@ def _build_upload_tasks_for_group(
                 'week_raw': week_raw,
                 'group_key': group_key,
             })
-        else:
+        elif primary_present:
             # WR not on PPP sheet. Degrade gracefully — the primary
             # leg still runs (if it found the WR) and operators see
             # a sheet-specific WARNING with the PPP sheet id so they
