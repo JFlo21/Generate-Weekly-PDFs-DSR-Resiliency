@@ -4640,9 +4640,35 @@ def group_source_rows(rows):
                     # PERFORMANCE: Use pre-compiled regex for helper name sanitization
                     helper_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50]
                     helper_key = f"{week_end_for_key}_{wr_key}_HELPER_{helper_sanitized}"
-                    keys_to_add.append(('helper', helper_key, helper_foreman))
-                    # HELPER GROUP LOGGING: Always log when helper group is created
-                    logging.info(f"🔧 HELPER GROUP CREATED: WR={wr_key}, Week={week_end_for_key}, Helper={helper_foreman}, Dept={helper_dept}, Job={helper_job}")
+                    # Phase 1.1 UAT gap closure (SUB-09 helper dimension):
+                    # mirror Bug B1's non-helper primary partition onto the
+                    # helper path. Subcontractor helper rows do NOT emit the
+                    # legacy `_HELPER_<name>` key — their line items live
+                    # exclusively in the `_REDUCEDSUB_HELPER_<name>` (always)
+                    # and `_AEPBILLABLE_HELPER_<name>` (post-cutoff) shadow
+                    # files produced by the subcontractor variant block below.
+                    # Pre-fix this append fired for ALL helper rows including
+                    # subcontractor ones (the D-09 additive intent), producing
+                    # a duplicate `_Helper_<name>` file on TARGET_SHEET_ID that
+                    # duplicated the shadow file's line items. The guard is
+                    # strictly `is_subcontractor_row`-scoped so primary /
+                    # original-contract / vac_crew helper rows are byte-identical
+                    # (ROADMAP success criterion #5). Living Ledger entry
+                    # [2026-05-19] documents the asymmetry + fix.
+                    if not is_subcontractor_row:
+                        keys_to_add.append(('helper', helper_key, helper_foreman))
+                        # HELPER GROUP LOGGING: Always log when helper group is created
+                        logging.info(f"🔧 HELPER GROUP CREATED: WR={wr_key}, Week={week_end_for_key}, Helper={helper_foreman}, Dept={helper_dept}, Job={helper_job}")
+                    else:
+                        # Diagnostic log only — no legacy-helper group emission for
+                        # subcontractor rows. Operators can confirm the partition
+                        # is firing by grepping this prefix. PII marker
+                        # "EXCLUDING from main Excel" already covers this body via
+                        # the existing _PII_LOG_MARKERS entry.
+                        logging.debug(
+                            f"➖ EXCLUDING from main Excel (subcontractor legacy helper): "
+                            f"WR={wr_key}, Week={week_end_for_key}, Helper={helper_foreman}"
+                        )
                 elif is_helper_row and not helper_mode_enabled:
                     # In primary mode, helper rows go to main
                     logging.info(f"ℹ️ Helper row found but RES_GROUPING_MODE={RES_GROUPING_MODE} - including in main Excel")
