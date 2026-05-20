@@ -1857,3 +1857,175 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   work types so the fix does not over-broaden. ``pytest tests/``
   now reports **623 passed / 22 skipped / 58 subtests** (was
   609 / 22 / 58 pre-fix; +14 net, zero regressions).
+- [2026-05-20 00:26] Phase 1.1 (Subcontractor Helper-Shadow Rescue +
+  Variant Partition + Claim-History Attribution) closure: post-PR
+  #203 + PR #206 operator report surfaced THREE production bugs
+  latent in Phase 01 plus ONE new feature requirement (claim-history
+  attribution for subcontractor helper line items). The 2-cycle
+  ``/gsd-debug`` session (cycle 1 surfaced two wrong hypotheses
+  F1 / F2; cycle 2 operator-evidence-driven correction identified
+  the four real failure modes) drove a 5-plan / 5-wave gap-closure
+  phase. **Root causes:**
+  **(1) Bug A — Pre-acceptance helper-row rescue gap.** Subcontractor
+  helper rows drop at the row-acceptance gate at
+  ``_fetch_and_process_sheet`` because ``has_price=False`` (operator
+  workflow leaves ``Units Total Price`` blank/zero while helper work
+  is awaiting acceptance). Phase 01's ``_resolve_row_price`` lives
+  downstream inside ``generate_excel`` and cannot rescue these rows.
+  Fix (Plan 01.1-01): extended the [2026-04-23 00:00] VAC-crew
+  pre-acceptance rescue pattern to subcontractor sheets via a NEW
+  ``_subcontractor_rescue_price`` helper + an additive
+  ``if is_subcontractor_sheet and SUBCONTRACTOR_RATE_RECALC_PREACCEPTANCE_ENABLED
+  and price_val <= 0:`` branch alongside the existing primary-rate
+  gate. The ``_SUBCONTRACTOR_RATES`` dict (Phase 1 plan 01-01) is
+  the rate source — no CSV re-read. Kill switch
+  ``SUBCONTRACTOR_RATE_RECALC_PREACCEPTANCE_ENABLED`` default ``'1'``;
+  workflow-pinned per IN-04.
+  **(2) Bug B1 — Variant tagging is additive, not partitioning, for
+  subcontractor rows.** ``group_source_rows`` was appending THREE
+  keys to ``keys_to_add`` for every non-helper subcontractor row:
+  legacy ``primary`` AND ``reduced_sub`` AND (when post-cutoff)
+  ``aep_billable``. The legacy primary file shipped to
+  TARGET_SHEET_ID was a byte-equivalent duplicate of the
+  ``_ReducedSub`` file (because SmartSheet pricing on sub sheets is
+  operator-configured to match reduced-sub CSV rates). Fix (Plan
+  01.1-02): hoist ``is_subcontractor_row`` to the top of the per-row
+  loop and add ``not is_subcontractor_row`` to the primary-emission
+  gate; subcontractor non-helper rows now emit ONLY variant keys
+  (partitioning, not additive). Plan 01-03 Test 1's "additive"
+  assertion is overridden — see rule (b) below.
+  **(3) Bug B2 — Stale primary-shape file on SUBCONTRACTOR_PPP_SHEET_ID.**
+  A historical attachment from a pre-Phase-01-routing-matrix period
+  was being legitimized every run by Bug B1's ``valid_wr_weeks``
+  contribution. Bug B1's structural fix self-resolves the source
+  side; Plan 01.1-03 adds belt-and-suspenders defense-in-depth at
+  the cleanup site: ``cleanup_untracked_sheet_attachments`` accepts
+  an optional ``variant_whitelist: set[str] | None = None`` kwarg;
+  the PPP call site passes ``{'reduced_sub', 'reduced_sub_helper'}``.
+  Any other variant on PPP is unconditionally deleted regardless of
+  ``valid_wr_weeks`` state and ``KEEP_HISTORICAL_WEEKS``. TARGET
+  cleanup passes ``None`` to preserve byte-identical legacy behaviour.
+  **(4) Bug C — Per-row claim-history attribution (NEW feature).**
+  Helper files for a subcontractor WR previously contained the full
+  row set regardless of WHICH helper actually claimed each row.
+  Plan 01.1-04 partitions helper file row sets by per-row attribution
+  from ``billing_audit.attribution_snapshot`` via a NEW
+  ``lookup_attribution(p_wr, p_week_ending, p_smartsheet_row_id)``
+  RPC. Each row appears ONLY in the helper file of whoever was the
+  active ``Foreman Helping?`` at the moment that row's
+  ``Helping Foreman Completed Unit?`` was first observed checked
+  (first-write-wins per ``freeze_attribution`` semantics). D-12
+  fall-back-to-current-helper preserves Phase 1 behavior on reader
+  failure with operator-facing per-WR WARNINGs naming the reason
+  (``no_history`` / ``fetch_failure`` / ``disabled``). Kill switch
+  ``SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED`` default ``'1'``;
+  workflow-pinned per IN-04. Scoped to subcontractor rows ONLY per
+  D-15 — the legacy ``_HELPER_<name>`` flow continues to use the
+  current Smartsheet ``Foreman Helping?`` value unchanged. Plan
+  01.1-05 adds the SUB-12 idempotent hash-history one-time prune
+  (drops orphan subcontractor primary entries left by pre-Bug-B1
+  runs via the ``PHASE_1_1_HASH_PRUNE_VERSION`` constant + ``_phase_prune_version``
+  sentinel persisted into ``hash_history.json``), the true
+  end-to-end integration test suite, the D-22 Plan 01-03 Test 1
+  rewrite, the ``TestLookupAttribution`` unit class, and this
+  Living Ledger entry.
+  **New rules:**
+  (1) **2-cycle ``/gsd-debug`` methodology.** When a ``/gsd-debug``
+  session produces a Root Cause Report, the FIRST cycle's
+  hypotheses are NOT authoritative until operator evidence
+  confirms them. For Phase 1.1 the cycle-1 hypotheses F1 / F2
+  were wrong (they posited a Smartsheet column-mapping drift and
+  a variant-tagging-disabled state); cycle-2 operator evidence
+  (the actual TARGET sheet contents + operator narrative about
+  blank ``Units Total Price``) identified the four real failure
+  modes. Future debug sessions on row-flow or attachment-flow
+  bugs MUST close the cycle by re-validating the hypothesis
+  against operator-visible evidence — DO NOT ship a fix on
+  cycle-1 hypotheses alone, even when they look plausible. The
+  cost of a wrong fix is a new ledger entry + an additional
+  release cycle; the cost of one extra round of operator-evidence
+  validation is a half-hour delay.
+  (2) **Plan 01-03 Test 1 design-intent override.** Plan 01-03's
+  test ``test_kill_switch_disables_new_variant_emission`` was
+  authored under the additive contract — subcontractor rows
+  produced ``_AEPBILLABLE`` + ``_REDUCEDSUB`` IN ADDITION TO the
+  legacy primary key. Phase 1.1 Bug B1 inverts this for
+  subcontractor rows only: they now produce ONLY the variant
+  keys (partitioning, not additive). The test was rewritten IN
+  PLACE in Plan 01.1-05 (preserving the test method name + class
+  to retain git-blame-traceability) with an explicit docstring
+  citing this Living Ledger entry. A new
+  ``test_partitioning_contract_for_subcontractor_non_helper_rows``
+  method was added alongside to assert the post-Phase-1.1
+  invariant directly. The override is SCOPED to subcontractor
+  rows — primary / original-contract / vac_crew rows continue to
+  emit the legacy primary key unchanged. Future plans that
+  invert a Phase-N test contract MUST: (a) rewrite the test
+  in place (preserve class + method names for git-blame), (b)
+  add a docstring citing the new Living Ledger entry, (c) add a
+  sibling test method asserting the new invariant directly so the
+  rewrite is auditable as "extending the contract" rather than
+  "weakening the contract".
+  (3) **Pre-acceptance-rescue-generalization rule.** Any future
+  feature that introduces a NEW pricing surface — CSV-driven,
+  RPC-driven, formula-driven, whatever the source — that diverges
+  from the legacy ``Units Total Price`` column MUST include a
+  parallel pre-acceptance rescue path OR explicitly document why
+  the rows it serves never have blank ``Units Total Price``. The
+  acceptance gate at ``_fetch_and_process_sheet`` is the single
+  point where blank-price rows drop; a new pricing surface that
+  doesn't rescue there is silently invisible to downstream variant
+  emission. The VAC-crew Weekly-Ref-Date fallback
+  ([2026-04-23 00:00]) was the first instance of this rule; the
+  Bug A subcontractor rescue (Plan 01.1-01) is the second.
+  Generalize the rule to NEW pricing surfaces going forward —
+  document the rescue path in the same PR as the new pricing
+  surface, not as a follow-up. The rescue MUST be env-gated with
+  a default-ON kill switch (clone the
+  ``SUBCONTRACTOR_RATE_RECALC_PREACCEPTANCE_ENABLED`` pattern) so
+  operators can revert to pre-fix dropping behaviour without
+  shipping a code change.
+  (4) **Test-methodology rule.** Any plan that fixes a row-flow
+  bug — acceptance gate, ``group_source_rows``, ``generate_excel``
+  — MUST add at least one true end-to-end test driving the full
+  pipeline. Static mirror classes (the
+  ``TestHelperShadowVariantFileIdentifier`` pattern at
+  ``tests/test_subcontractor_pricing.py``) DO NOT count — they
+  pass even when the upstream classifier or acceptance gate is
+  broken (exactly the failure mode that allowed Phase 1 to ship
+  with Bugs A and B1 latent in production). Plan 01.1-05 added
+  ``tests/test_subcontractor_helper_shadow_rescue.py`` containing
+  ``TestEndToEndPipeline`` (drives ``group_source_rows`` on
+  synthetic Smartsheet rows with mocked ``lookup_attribution`` and
+  asserts on emitted group keys), ``TestBugB2WhitelistE2E``
+  (drives ``cleanup_untracked_sheet_attachments`` with the
+  whitelist kwarg and asserts on
+  ``client.Attachments.delete_attachment`` call shape),
+  ``TestHashPruneIdempotency`` (drives
+  ``_run_phase_1_1_hash_prune`` directly with synthetic
+  ``hash_history`` + ``groups`` dicts and asserts the version
+  gate + scope discipline + log discipline), and
+  ``TestProductionCodeSiteInvariants`` (source-level grep guards
+  for the four upstream production fixes, the hash-prune constant,
+  and the new PII marker registration). Future row-flow bug fixes MUST
+  include the same shape of end-to-end coverage; reviewers MUST
+  block PRs that don't.
+  Regression tests: 4 new test classes in
+  ``tests/test_subcontractor_helper_shadow_rescue.py``
+  (TestEndToEndPipeline / TestBugB2WhitelistE2E /
+  TestHashPruneIdempotency / TestProductionCodeSiteInvariants —
+  28 test methods total covering SUB-08..SUB-12 through real
+  production code paths); ``TestLookupAttribution`` added to
+  ``tests/test_billing_audit_shadow.py`` (14 test methods
+  covering the Plan 01.1-04 reader's documented behaviors
+  INCLUDING the op-isolation invariant + PGRST106 global-kill
+  behavior — 4 of those 14 are skipped on dev environments
+  without ``postgrest`` installed, mirroring
+  ``PostgrestErrorClassificationTests``); D-22 rewrite of
+  ``TestSubcontractorVariantKillSwitchAndScope::test_kill_switch_disables_new_variant_emission``
+  alongside a new ``test_partitioning_contract_for_subcontractor_non_helper_rows``
+  in ``tests/test_subcontractor_pricing.py`` (~43 net new tests
+  total across the three test files). ``pytest tests/`` exits 0
+  with **682 passed / 26 skipped / 58 subtests** post-Phase-1.1
+  closure (was 643 / 22 / 58 at Wave 4 baseline; gain of 39 net
+  passing and 4 net skipped on the postgrest-gated APIError tests).
