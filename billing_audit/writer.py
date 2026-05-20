@@ -670,6 +670,74 @@ def emit_run_fingerprint(wr: str, week_ending: datetime.date,
         )
 
 
+def _lookup_attribution_all(
+    wr: str,
+    week_ending: datetime.date,
+    smartsheet_row_id: int,
+) -> tuple[dict | None, str]:
+    """Fetch the full frozen-attribution row for ONE row, with status.
+
+    Foundation A (2026-05-20). Returns a ``(row, status)`` tuple:
+
+    - ``'success'``      : RPC succeeded and a row was found (row is
+                           the dict of all roles).
+    - ``'no_row'``       : RPC succeeded but no row exists, OR the
+                           input is invalid (row is None).
+    - ``'fetch_failure'``: the call failed — retries exhausted /
+                           permanent error / run-global kill tripped
+                           (row is None). Consumers HOLD on this.
+    - ``'unavailable'``  : no client (TEST_MODE / missing creds) and
+                           NOT an outage (row is None). Consumers use
+                           the current value.
+
+    The row dict, when present, carries the RPC columns
+    ``primary_foreman, helper, helper_dept, vac_crew, source_run_id``
+    (already #NO MATCH/blank-normalized to NULL per role by the RPC).
+    Shares the ``op="lookup_attribution"`` retry/circuit-breaker with
+    the public ``lookup_attribution`` wrapper.
+    """
+    from billing_audit import client as _client_mod
+
+    client = get_client()
+    if client is None:
+        if _client_mod._global_disable_reason is not None:
+            return None, "fetch_failure"
+        return None, "unavailable"
+    if (
+        not wr
+        or week_ending is None
+        or not isinstance(smartsheet_row_id, int)
+    ):
+        return None, "no_row"
+
+    wr_sanitized = _WR_SANITIZE.sub("_", str(wr).split(".")[0])[:50]
+    params = {
+        "p_wr": wr_sanitized,
+        "p_week_ending": week_ending.isoformat(),
+        "p_smartsheet_row_id": smartsheet_row_id,
+    }
+
+    def _invoke():
+        return (
+            client.schema("billing_audit")
+            .rpc("lookup_attribution", params)
+            .execute()
+        )
+
+    result = with_retry(_invoke, op="lookup_attribution")
+    if result is None:
+        return None, "fetch_failure"
+
+    data = getattr(result, "data", None)
+    if isinstance(data, dict):
+        return data, "success"
+    if isinstance(data, list) and data:
+        first = data[0]
+        if isinstance(first, dict):
+            return first, "success"
+    return None, "no_row"
+
+
 def lookup_attribution(
     wr: str,
     week_ending: datetime.date,

@@ -4590,5 +4590,111 @@ class TestLookupAttribution(unittest.TestCase):
         self.assertNotIn('pipeline_run_upsert', ba_client._open_circuits)
 
 
+class TestLookupAttributionAll(unittest.TestCase):
+    """Foundation A: _lookup_attribution_all returns (row, status)."""
+
+    def setUp(self):
+        _reset_all()
+        for k in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "TEST_MODE"):
+            os.environ.pop(k, None)
+        os.environ["SUPABASE_URL"] = "https://test.supabase.co"
+        os.environ["SUPABASE_SERVICE_ROLE_KEY"] = "test-key"
+
+    def tearDown(self):
+        _reset_all()
+        for k in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "TEST_MODE"):
+            os.environ.pop(k, None)
+
+    def test_success_dict_row(self):
+        from billing_audit.writer import _lookup_attribution_all
+        client = _make_fake_supabase_client(
+            rpc_side_effect=[mock.Mock(data={
+                "primary_foreman": "Alice", "helper": "Bob",
+                "helper_dept": "500", "vac_crew": None,
+                "source_run_id": "run-1",
+            })],
+        )
+        with mock.patch("billing_audit.writer.get_client",
+                        return_value=client):
+            row, status = _lookup_attribution_all(
+                "91467680", datetime.date(2026, 4, 19), 12345)
+        self.assertEqual(status, "success")
+        self.assertEqual(row["primary_foreman"], "Alice")
+        self.assertEqual(row["helper"], "Bob")
+
+    def test_success_list_row(self):
+        from billing_audit.writer import _lookup_attribution_all
+        client = _make_fake_supabase_client(
+            rpc_side_effect=[mock.Mock(data=[{
+                "primary_foreman": "Alice", "helper": None,
+                "helper_dept": None, "vac_crew": None,
+                "source_run_id": "run-1",
+            }])],
+        )
+        with mock.patch("billing_audit.writer.get_client",
+                        return_value=client):
+            row, status = _lookup_attribution_all(
+                "91467680", datetime.date(2026, 4, 19), 12345)
+        self.assertEqual(status, "success")
+        self.assertEqual(row["primary_foreman"], "Alice")
+
+    def test_no_row_empty_list(self):
+        from billing_audit.writer import _lookup_attribution_all
+        client = _make_fake_supabase_client(
+            rpc_side_effect=[mock.Mock(data=[])],
+        )
+        with mock.patch("billing_audit.writer.get_client",
+                        return_value=client):
+            row, status = _lookup_attribution_all(
+                "91467680", datetime.date(2026, 4, 19), 12345)
+        self.assertIsNone(row)
+        self.assertEqual(status, "no_row")
+
+    def test_fetch_failure_when_with_retry_returns_none(self):
+        from billing_audit.writer import _lookup_attribution_all
+        client = _make_fake_supabase_client()
+        with mock.patch("billing_audit.writer.get_client",
+                        return_value=client), \
+             mock.patch("billing_audit.writer.with_retry",
+                        return_value=None):
+            row, status = _lookup_attribution_all(
+                "91467680", datetime.date(2026, 4, 19), 12345)
+        self.assertIsNone(row)
+        self.assertEqual(status, "fetch_failure")
+
+    def test_fetch_failure_when_client_none_and_global_kill(self):
+        from billing_audit.writer import _lookup_attribution_all
+        from billing_audit import client as ba_client
+        ba_client._global_disable_reason = "PGRST106"
+        try:
+            with mock.patch("billing_audit.writer.get_client",
+                            return_value=None):
+                row, status = _lookup_attribution_all(
+                    "91467680", datetime.date(2026, 4, 19), 12345)
+        finally:
+            ba_client._global_disable_reason = None
+        self.assertIsNone(row)
+        self.assertEqual(status, "fetch_failure")
+
+    def test_unavailable_when_client_none_no_kill(self):
+        from billing_audit.writer import _lookup_attribution_all
+        with mock.patch("billing_audit.writer.get_client",
+                        return_value=None):
+            row, status = _lookup_attribution_all(
+                "91467680", datetime.date(2026, 4, 19), 12345)
+        self.assertIsNone(row)
+        self.assertEqual(status, "unavailable")
+
+    def test_no_row_on_invalid_input(self):
+        from billing_audit.writer import _lookup_attribution_all
+        client = _make_fake_supabase_client()
+        with mock.patch("billing_audit.writer.get_client",
+                        return_value=client):
+            row, status = _lookup_attribution_all(
+                "91467680", datetime.date(2026, 4, 19), "not-an-int")
+        self.assertIsNone(row)
+        self.assertEqual(status, "no_row")
+
+
 if __name__ == "__main__":
     unittest.main()
