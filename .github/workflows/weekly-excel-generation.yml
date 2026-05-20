@@ -342,8 +342,20 @@ jobs:
           # or Bug C (claim-history attribution) fixes.
           SUBCONTRACTOR_RATE_RECALC_PREACCEPTANCE_ENABLED: '1'
 
-          # Bug C kill-switch placeholder — pinned by Plan 01.1-04:
-          # SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED: '1'
+          SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED: '1'
+          # Rollback path: set to '0' to revert Bug C behavior to
+          # Phase 1's full-row-set helper behavior. Helper file rows
+          # will once again include every row where the CURRENT
+          # `Foreman Helping?` column matches the helper's name
+          # (instead of partitioning by frozen attribution from
+          # `billing_audit.attribution_snapshot`). Does NOT affect
+          # Bug A (pre-acceptance rescue), Bug B1 (variant
+          # partitioning), or Bug B2 (PPP cleanup whitelist) fixes.
+          # Required at merge time: confirm the data team has
+          # deployed the `lookup_attribution(p_wr, p_week_ending,
+          # p_smartsheet_row_id)` RPC in the `billing_audit` schema
+          # (see .planning/phases/01.1-subcontractor-helper-shadow-
+          # rescue/01.1-VALIDATION.md Manual-Only Verifications).
 
           # AEP_BILLABLE_CUTOFF is intentionally UNSET in the
           # workflow — the Python default (datetime.date(2026,
