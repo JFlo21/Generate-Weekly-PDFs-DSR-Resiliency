@@ -2,15 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Subcontractor Rate Logic
-status: Awaiting next milestone
-stopped_at: v1.0 milestone completed and archived
-last_updated: "2026-05-20T02:30:00.000Z"
-last_activity: 2026-05-20 — Milestone v1.0 completed, archived, and tagged
+status: executing
+last_updated: "2026-05-20T04:34:45.377Z"
+last_activity: 2026-05-20
 progress:
   total_phases: 2
   completed_phases: 2
-  total_plans: 19
-  completed_plans: 19
+  total_plans: 20
+  completed_plans: 20
   percent: 100
 ---
 
@@ -23,18 +22,18 @@ See: .planning/PROJECT.md (updated 2026-05-20 after v1.0 milestone)
 **Core value:** The production Smartsheet → Excel → Smartsheet attachment
 pipeline runs every 2 hours on weekdays and ships billing-grade Excel
 reports without regression.
-**Current focus:** Planning next milestone (v1.1 — Backend Migration +
+**Current focus:** Phase 01.1 — subcontractor-helper-shadow-rescue
 Artifact Explorer).
 
 ## Current Position
 
 Milestone: v1.0 Subcontractor Rate Logic — ✅ SHIPPED 2026-05-20 (archived + tagged)
-Phase: —
-Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-05-20 — v1.0 completed and archived
+Phase: 01.1 (subcontractor-helper-shadow-rescue) — EXECUTING
+Plan: 6 of 6 (COMPLETE)
+Status: Phase 01.1 fully shipped — all 6 plans complete
+Last activity: 2026-05-20 -- 01.1-06 executed (SUB-09 helper partition gap-closure)
 
-Shipped: 2 gating phases (01 + inserted 01.1), 19 plans, 682 tests passing.
+Shipped: 2 gating phases (01 + inserted 01.1), 20 plans, 688 tests passing.
 Audit: `tech_debt` (`milestones/v1.0-MILESTONE-AUDIT.md`). Full v1.0 detail in
 `milestones/v1.0-ROADMAP.md` + `milestones/v1.0-REQUIREMENTS.md`.
 
@@ -42,17 +41,17 @@ Audit: `tech_debt` (`milestones/v1.0-MILESTONE-AUDIT.md`). Full v1.0 detail in
 
 **Velocity:**
 
-- Total plans completed (v1.0): 19 (Phase 01: 14, Phase 01.1: 5)
-- Test suite at close: 682 passed / 26 skipped / 58 subtests (from 537 pre-milestone)
+- Total plans completed (v1.0): 20 (Phase 01: 14, Phase 01.1: 6)
+- Test suite at close: 688 passed / 26 skipped / 58 subtests (from 537 pre-milestone)
 
 **By Phase:**
 
 | Phase                                 | Plans | Status      |
 |---------------------------------------|-------|-------------|
 | 01 — Subcontractor Rate Logic         | 14/14 | ✅ Shipped   |
-| 01.1 — Helper-Shadow Rescue (INSERTED)| 5/5   | ✅ Shipped   |
+| 01.1 — Helper-Shadow Rescue (INSERTED)| 6/6   | ✅ Shipped   |
 
-*Updated at milestone close.*
+*Updated at Phase 01.1 Plan 06 close (2026-05-20).*
 
 ## Accumulated Context
 
@@ -63,6 +62,11 @@ ADR-equivalent rules from the CLAUDE.md Living Ledger + SPEC-level
 decisions). All operative-locked. v1.0 added the Phase 1.1 partitioning
 override (subcontractor rows partition, not additive), the Bug C D-12
 fail-safe fall-back, and the pre-acceptance-rescue-generalization rule.
+Phase 01.1-06 (2026-05-20): helper-path partition mirrors primary-path
+partition; minimum-length key guard `< 4` replaces exact-length `!= 4`;
+shared `_build_subcontractor_wr_scope` prevents cleanup/prune scope drift;
+`SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED` kill switch (default ON)
+for destructive TARGET variant cleanup.
 
 ### Blockers/Concerns
 
@@ -109,5 +113,6 @@ apply `billing_audit/schema.sql` to Supabase; data team deploys the
 
 - Start the next milestone with `/gsd-new-milestone` (v1.1 — Backend
   Migration + Artifact Explorer; fresh REQUIREMENTS.md will be created).
+
 - Independently: review/commit the uncommitted `generate_weekly_pdfs.py`
   type-hint refinements (separate from this milestone close).
