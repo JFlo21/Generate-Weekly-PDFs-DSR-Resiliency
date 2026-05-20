@@ -175,32 +175,60 @@ CREATE INDEX IF NOT EXISTS idx_pipeline_run_wr_week_created_at
 -- is opaque to the pipeline.
 
 -- ── lookup_attribution (RPC) ────────────────────────────────
--- The ``lookup_attribution`` Postgres function is NOT defined
--- here — its body is deployed and maintained directly in the
--- Supabase project, mirroring the ``freeze_attribution`` pattern
--- above. The pipeline's contract with it is:
+-- Read surface for Phase 1.1 Bug C AND the universal claim-
+-- attribution effort (Foundation A, 2026-05-20). Returns ALL frozen
+-- roles for ONE row so a single call serves any variant.
 --
 --   PARAMETERS (all named, p_<name>):
 --     p_wr                TEXT
 --     p_week_ending       DATE
 --     p_smartsheet_row_id BIGINT
 --
---   RETURNS: a row (or scalar) with
---     ``helper TEXT, helper_dept TEXT, source_run_id TEXT``,
---     or NULL when no frozen attribution exists for the given
---     (wr, week_ending, smartsheet_row_id) tuple.
+--   RETURNS: one row with
+--     primary_foreman TEXT, helper TEXT, helper_dept TEXT,
+--     vac_crew TEXT, source_run_id TEXT
+--   or zero rows when no snapshot exists for the tuple.
 --
--- The exact body lives in Supabase. Do NOT rename or change
--- the parameter names without the corresponding update in
--- ``billing_audit/writer.py:lookup_attribution``.
+-- Each role value is normalized: Smartsheet error tokens (anything
+-- starting with '#', e.g. '#NO MATCH') and blank/whitespace-only
+-- values are returned as NULL so the Python reader treats them as
+-- "no claimer in this role".
 --
--- Phase 1.1 / Bug C / SUB-11 added this RPC dependency on
--- 2026-05-19. Per CLAUDE.md Living Ledger entry
--- ``[2026-04-25 12:00]`` rule 1, any new Supabase table or
--- column the pipeline reads/writes MUST be defined in this
--- file in the same PR that adds the Python code — this block
--- closes that gap. Confirm with the data team that the
--- parameter names + return-row shape above match the deployed
--- RPC body before flipping
--- ``SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED=1`` in
--- production.
+-- The Python contract is enforced in billing_audit/writer.py
+-- (_lookup_attribution_all / resolve_claimer). Do NOT rename the
+-- returned column names without updating those call sites.
+--
+-- OPERATOR: apply this CREATE OR REPLACE in the Supabase SQL Editor,
+-- then run `NOTIFY pgrst, 'reload schema';` (or Project Settings →
+-- API → Reload schema cache). Adding columns is backward-compatible
+-- with the prior helper-only consumer.
+
+CREATE OR REPLACE FUNCTION billing_audit.lookup_attribution(
+    p_wr                TEXT,
+    p_week_ending       DATE,
+    p_smartsheet_row_id BIGINT
+)
+RETURNS TABLE (
+    primary_foreman TEXT,
+    helper          TEXT,
+    helper_dept     TEXT,
+    vac_crew        TEXT,
+    source_run_id   TEXT
+)
+LANGUAGE sql
+STABLE
+AS $$
+    SELECT
+        CASE WHEN s.frozen_primary     LIKE '#%' OR btrim(s.frozen_primary)     = '' THEN NULL ELSE s.frozen_primary     END AS primary_foreman,
+        CASE WHEN s.frozen_helper      LIKE '#%' OR btrim(s.frozen_helper)      = '' THEN NULL ELSE s.frozen_helper      END AS helper,
+        CASE WHEN s.frozen_helper_dept LIKE '#%' OR btrim(s.frozen_helper_dept) = '' THEN NULL ELSE s.frozen_helper_dept END AS helper_dept,
+        CASE WHEN s.frozen_vac_crew    LIKE '#%' OR btrim(s.frozen_vac_crew)    = '' THEN NULL ELSE s.frozen_vac_crew    END AS vac_crew,
+        s.source_run_id
+    FROM billing_audit.attribution_snapshot AS s
+    WHERE s.wr                = p_wr
+      AND s.week_ending       = p_week_ending
+      AND s.smartsheet_row_id = p_smartsheet_row_id
+    LIMIT 1;
+$$;
+
+GRANT EXECUTE ON FUNCTION billing_audit.lookup_attribution(TEXT, DATE, BIGINT) TO service_role;
