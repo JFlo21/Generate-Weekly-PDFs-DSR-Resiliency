@@ -212,6 +212,14 @@ def _reset_executor_for_tests() -> None:
 # the schema's PK intent.
 _emitted_run_keys: set[tuple[str, str, str]] = set()
 
+# Attribution HOLD accumulator (Foundation A, dormant until a consumer
+# calls resolve_claimer and acts on action == 'hold'). Tracks rows held
+# this run pending attribution, keyed by (sanitized_wr, week_iso,
+# variant). PII discipline: only counts + sanitized WR identifiers ever
+# leave this structure — never foreman/helper/dept/job.
+_attribution_holds: dict[tuple[str, str, str], int] = {}
+_attribution_holds_lock = threading.Lock()
+
 
 def _reset_counters_for_tests() -> None:
     """Zero the module counters and tear down the singleton
@@ -222,6 +230,8 @@ def _reset_counters_for_tests() -> None:
             _counters[k] = 0
     _emitted_run_keys.clear()
     _reset_executor_for_tests()
+    with _attribution_holds_lock:
+        _attribution_holds.clear()
 
 
 def get_counters() -> dict[str, int]:
@@ -237,6 +247,56 @@ def get_counters() -> dict[str, int]:
     """
     with _counters_lock:
         return dict(_counters)
+
+
+def record_attribution_hold(
+    wr: str,
+    week_ending: "datetime.date | None",
+    variant: str,
+) -> None:
+    """Record one row held this run (resolve_claimer → action 'hold').
+
+    Atomically increments the per-(wr, week, variant) accumulator and
+    the aggregate ``attribution_rows_held`` counter. Thread-safe via
+    ``_attribution_holds_lock``.
+
+    PII discipline: only the sanitized WR identifier is stored —
+    never foreman/helper/dept/job names.
+    """
+    wr_sanitized = _WR_SANITIZE.sub("_", str(wr).split(".")[0])[:50]
+    week_iso = week_ending.isoformat() if week_ending else ""
+    key = (wr_sanitized, week_iso, variant)
+    with _attribution_holds_lock:
+        _attribution_holds[key] = _attribution_holds.get(key, 0) + 1
+    _bump_counter("attribution_rows_held")
+
+
+def summarize_attribution_holds() -> "str | None":
+    """Emit ONE aggregate WARNING if any rows were held; return the
+    message (for testing) or None if nothing was held.
+
+    PII-safe: counts + sanitized WR list only. The pipeline's
+    logging→Sentry bridge surfaces this WARNING; a consumer wiring
+    this into the run (sub-project B) may escalate to an explicit
+    Sentry capture.
+
+    Returns ``None`` when no holds have been recorded this run.
+    """
+    with _attribution_holds_lock:
+        if not _attribution_holds:
+            return None
+        total_rows = sum(_attribution_holds.values())
+        wrs = sorted({k[0] for k in _attribution_holds})
+    wr_sample = wrs[:20]
+    suffix = "" if len(wrs) <= 20 else f" (+{len(wrs) - 20} more)"
+    msg = (
+        f"⚠️ Attribution HOLD: {total_rows} row(s) across "
+        f"{len(wrs)} WR(s) held this run pending attribution "
+        f"(reason=fetch_failure). Affected WRs (first 20): "
+        f"{wr_sample}{suffix}"
+    )
+    logging.warning(msg)
+    return msg
 
 
 def _flag_enabled_or_unknown(key: str) -> bool:

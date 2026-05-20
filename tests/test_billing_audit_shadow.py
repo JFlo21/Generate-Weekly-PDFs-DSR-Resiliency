@@ -4859,5 +4859,45 @@ class TestResolveClaimer(unittest.TestCase):
         self.assertEqual(out.source, "frozen")
 
 
+class TestAttributionHoldSummary(unittest.TestCase):
+    """Foundation A: dormant hold counter + PII-safe summary."""
+
+    def setUp(self):
+        _reset_all()
+
+    def tearDown(self):
+        _reset_all()
+
+    def test_summary_none_when_no_holds(self):
+        from billing_audit.writer import summarize_attribution_holds
+        self.assertIsNone(summarize_attribution_holds())
+
+    def test_records_and_summarizes(self):
+        from billing_audit.writer import (
+            record_attribution_hold, summarize_attribution_holds,
+            get_counters,
+        )
+        wk = datetime.date(2026, 4, 19)
+        record_attribution_hold("90773033", wk, "reduced_sub_helper")
+        record_attribution_hold("90773033", wk, "reduced_sub_helper")
+        record_attribution_hold("90727774", wk, "primary")
+        msg = summarize_attribution_holds()
+        self.assertIsNotNone(msg)
+        self.assertIn("3 row(s)", msg)
+        self.assertIn("2 WR(s)", msg)
+        self.assertIn("90773033", msg)
+        self.assertIn("90727774", msg)
+        self.assertEqual(get_counters().get("attribution_rows_held"), 3)
+
+    def test_reset_clears_holds(self):
+        from billing_audit.writer import (
+            record_attribution_hold, summarize_attribution_holds,
+        )
+        record_attribution_hold(
+            "90773033", datetime.date(2026, 4, 19), "primary")
+        _reset_all()
+        self.assertIsNone(summarize_attribution_holds())
+
+
 if __name__ == "__main__":
     unittest.main()
