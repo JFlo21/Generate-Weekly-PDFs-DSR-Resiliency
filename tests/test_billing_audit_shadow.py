@@ -4227,5 +4227,368 @@ class TestPipelineRunVariantColumnSchema(unittest.TestCase):
                 )
 
 
+class TestLookupAttribution(unittest.TestCase):
+    """Phase 1.1 Bug C reader unit tests — see Plan 01.1-04 Task 1.
+
+    Covers the 14 behaviors enumerated in 01.1-04-PLAN.md:
+      - Success / no_history / fetch_failure / kill_via_PGRST106 paths
+      - Op-isolation invariant — failures on op='lookup_attribution'
+        MUST NOT trip the op='freeze_attribution' breaker per the
+        [2026-04-25 12:00] op-isolation rule
+      - WR# sanitization at the producer site (idempotent)
+      - Input validation guards (empty WR, None week_ending, non-int row_id)
+      - RPC response shape dispatch (dict / list / scalar / empty / no-helper)
+    """
+
+    def setUp(self):
+        _reset_all()
+        for k in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "TEST_MODE"):
+            os.environ.pop(k, None)
+        # Pin Supabase env so get_client() doesn't return None for the
+        # non-kill-trip tests; the no-client path is tested explicitly
+        # via mock.patch('billing_audit.writer.get_client',
+        # return_value=None).
+        os.environ["SUPABASE_URL"] = "https://test.supabase.co"
+        os.environ["SUPABASE_SERVICE_ROLE_KEY"] = "test-key"
+
+    def tearDown(self):
+        _reset_all()
+        for k in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "TEST_MODE"):
+            os.environ.pop(k, None)
+
+    # ─── Test 1: RPC dispatch correctness ────────────────────────
+
+    def test_calls_correct_rpc_with_correct_params(self):
+        from billing_audit.writer import lookup_attribution
+        client = _make_fake_supabase_client(
+            rpc_side_effect=[mock.Mock(data={
+                'helper': 'Jane Smith',
+                'helper_dept': '500',
+                'source_run_id': 'run-1',
+            })],
+        )
+        with mock.patch('billing_audit.writer.get_client', return_value=client):
+            lookup_attribution('91467680', datetime.date(2026, 4, 19), 12345)
+        rpc_call = client.schema.return_value.rpc.call_args
+        # First positional argument is the RPC function name
+        self.assertEqual(rpc_call.args[0], 'lookup_attribution')
+        params = rpc_call.args[1]
+        self.assertEqual(params['p_wr'], '91467680')
+        self.assertEqual(params['p_week_ending'], '2026-04-19')
+        self.assertEqual(params['p_smartsheet_row_id'], 12345)
+
+    # ─── Test 2: no-client short-circuit ─────────────────────────
+
+    def test_returns_none_when_client_unavailable(self):
+        from billing_audit.writer import lookup_attribution
+        with mock.patch('billing_audit.writer.get_client', return_value=None):
+            result = lookup_attribution(
+                '91467680', datetime.date(2026, 4, 19), 12345
+            )
+        self.assertIsNone(result)
+
+    # ─── Test 3: op isolation ───────────────────────────────────
+
+    def test_uses_distinct_op_identifier(self):
+        """The reader passes op='lookup_attribution' (not
+        'freeze_attribution') to with_retry — op-isolation invariant
+        per [2026-04-25 12:00].
+        """
+        from billing_audit.writer import lookup_attribution
+        client = _make_fake_supabase_client()
+        captured_ops = []
+
+        def _capture_with_retry(fn, *, op):
+            captured_ops.append(op)
+            return fn()
+
+        with mock.patch('billing_audit.writer.get_client', return_value=client), \
+             mock.patch(
+                 'billing_audit.writer.with_retry',
+                 side_effect=_capture_with_retry,
+             ):
+            lookup_attribution('91467680', datetime.date(2026, 4, 19), 12345)
+        self.assertIn('lookup_attribution', captured_ops)
+        self.assertNotIn('freeze_attribution', captured_ops)
+        self.assertNotIn('pipeline_run_select', captured_ops)
+        self.assertNotIn('pipeline_run_upsert', captured_ops)
+
+    # ─── Test 4: WR sanitization at producer site ───────────────
+
+    def test_sanitizes_wr_at_producer_site(self):
+        from billing_audit.writer import lookup_attribution
+        client = _make_fake_supabase_client(
+            rpc_side_effect=[
+                mock.Mock(data={'helper': 'Jane'}),
+                mock.Mock(data={'helper': 'Jane'}),
+            ],
+        )
+        with mock.patch('billing_audit.writer.get_client', return_value=client):
+            # Numeric suffix .0 stripped before sanitization
+            lookup_attribution('91467680.0', datetime.date(2026, 4, 19), 1)
+        params = client.schema.return_value.rpc.call_args.args[1]
+        self.assertEqual(params['p_wr'], '91467680')
+
+        # Path traversal sanitized to underscores
+        with mock.patch('billing_audit.writer.get_client', return_value=client):
+            lookup_attribution(
+                'WR_91467680/evil', datetime.date(2026, 4, 19), 1
+            )
+        params = client.schema.return_value.rpc.call_args.args[1]
+        self.assertNotIn('/', params['p_wr'])
+        self.assertNotIn('..', params['p_wr'])
+
+    # ─── Test 5: input validation ───────────────────────────────
+
+    def test_invalid_inputs_return_none_without_rpc(self):
+        from billing_audit.writer import lookup_attribution
+        client = _make_fake_supabase_client()
+        with mock.patch('billing_audit.writer.get_client', return_value=client):
+            self.assertIsNone(
+                lookup_attribution('', datetime.date(2026, 4, 19), 1)
+            )
+            self.assertIsNone(
+                lookup_attribution('91467680', None, 1)
+            )
+            self.assertIsNone(
+                lookup_attribution(
+                    '91467680', datetime.date(2026, 4, 19), None,
+                )
+            )
+            self.assertIsNone(
+                lookup_attribution(
+                    '91467680', datetime.date(2026, 4, 19), '1',
+                )
+            )
+        # No RPC dispatched for any invalid input
+        client.schema.return_value.rpc.assert_not_called()
+
+    # ─── Test 6: success path with helper populated ─────────────
+
+    def test_returns_dict_on_success_with_helper_populated(self):
+        from billing_audit.writer import lookup_attribution
+        expected = {
+            'helper': 'Jane Smith',
+            'helper_dept': '500',
+            'source_run_id': 'run-1234',
+        }
+        client = _make_fake_supabase_client(
+            rpc_side_effect=[mock.Mock(data=expected)],
+        )
+        with mock.patch('billing_audit.writer.get_client', return_value=client):
+            result = lookup_attribution(
+                '91467680', datetime.date(2026, 4, 19), 12345
+            )
+        self.assertEqual(result, expected)
+
+    # ─── Test 7: helper=None → no_history ────────────────────────
+
+    def test_returns_none_when_rpc_helper_is_none(self):
+        from billing_audit.writer import lookup_attribution
+        client = _make_fake_supabase_client(
+            rpc_side_effect=[
+                mock.Mock(data={'helper': None, 'source_run_id': 'run-1'}),
+            ],
+        )
+        with mock.patch('billing_audit.writer.get_client', return_value=client):
+            result = lookup_attribution(
+                '91467680', datetime.date(2026, 4, 19), 12345
+            )
+        self.assertIsNone(result)
+
+    # ─── Test 8: empty-string helper → no_history ───────────────
+
+    def test_returns_none_when_rpc_helper_is_empty_string(self):
+        from billing_audit.writer import lookup_attribution
+        client = _make_fake_supabase_client(
+            rpc_side_effect=[
+                mock.Mock(data={'helper': '', 'source_run_id': 'run-1'}),
+            ],
+        )
+        with mock.patch('billing_audit.writer.get_client', return_value=client):
+            result = lookup_attribution(
+                '91467680', datetime.date(2026, 4, 19), 12345
+            )
+        self.assertIsNone(result)
+
+    # ─── Test 9: list response with first dict carrying helper ──
+
+    def test_returns_first_dict_when_rpc_returns_list(self):
+        from billing_audit.writer import lookup_attribution
+        expected = {'helper': 'Jane Smith'}
+        client = _make_fake_supabase_client(
+            rpc_side_effect=[
+                mock.Mock(data=[expected, {'helper': 'OtherForeman'}]),
+            ],
+        )
+        with mock.patch('billing_audit.writer.get_client', return_value=client):
+            result = lookup_attribution(
+                '91467680', datetime.date(2026, 4, 19), 12345
+            )
+        self.assertEqual(result, expected)
+
+    # ─── Test 10: empty list → no_history ───────────────────────
+
+    def test_returns_none_when_rpc_returns_empty_list(self):
+        from billing_audit.writer import lookup_attribution
+        client = _make_fake_supabase_client(
+            rpc_side_effect=[mock.Mock(data=[])],
+        )
+        with mock.patch('billing_audit.writer.get_client', return_value=client):
+            result = lookup_attribution(
+                '91467680', datetime.date(2026, 4, 19), 12345
+            )
+        self.assertIsNone(result)
+
+    # ─── Test 11: transient failure exhausts retries ────────────
+
+    @unittest.skipIf(
+        _POSTGREST_API_ERROR_CLS is None,
+        "postgrest not installed — APIError-driven retry classifier "
+        "is a no-op in that environment.",
+    )
+    def test_transient_failure_returns_none_after_retries(self):
+        """HTTP 5xx → with_retry retries internally → exhausts → None."""
+        from billing_audit.writer import lookup_attribution
+        APIError = _POSTGREST_API_ERROR_CLS
+        transient_err = APIError({
+            'code': '500',
+            'message': 'Internal server error',
+        })
+        client = _make_fake_supabase_client(
+            rpc_side_effect=[
+                transient_err, transient_err, transient_err, transient_err,
+            ],
+        )
+        with mock.patch('billing_audit.writer.get_client', return_value=client), \
+             mock.patch('time.sleep'):
+            result = lookup_attribution(
+                '91467680', datetime.date(2026, 4, 19), 12345
+            )
+        self.assertIsNone(result)
+
+    # ─── Test 12: permanent failure (single attempt) ────────────
+
+    @unittest.skipIf(
+        _POSTGREST_API_ERROR_CLS is None,
+        "postgrest not installed — APIError-driven retry classifier "
+        "is a no-op in that environment.",
+    )
+    def test_permanent_failure_returns_none_on_first_attempt(self):
+        """PGRST101 → permanent → with_retry returns None after one
+        attempt (no backoff sleeps).
+        """
+        from billing_audit.writer import lookup_attribution
+        APIError = _POSTGREST_API_ERROR_CLS
+        client = _make_fake_supabase_client(
+            rpc_side_effect=[
+                APIError({
+                    'code': 'PGRST101',
+                    'message': 'Singular response expected',
+                }),
+            ],
+        )
+        with mock.patch('billing_audit.writer.get_client', return_value=client), \
+             mock.patch('time.sleep'):
+            result = lookup_attribution(
+                '91467680', datetime.date(2026, 4, 19), 12345
+            )
+        self.assertIsNone(result)
+
+    # ─── Test 13: PGRST106 trips run-global kill ────────────────
+
+    @unittest.skipIf(
+        _POSTGREST_API_ERROR_CLS is None,
+        "postgrest not installed — APIError-driven kill classifier "
+        "is a no-op in that environment.",
+    )
+    def test_pgrst106_trips_global_kill_and_subsequent_calls_short_circuit(self):
+        """PGRST106 → run-global kill → subsequent calls return None
+        immediately via get_client()=None short-circuit.
+        """
+        from billing_audit.writer import lookup_attribution
+        APIError = _POSTGREST_API_ERROR_CLS
+        from billing_audit import client as ba_client
+
+        kill_err = APIError({
+            'code': 'PGRST106',
+            'message': 'Schema not exposed',
+        })
+
+        # First call: trips the kill switch via _classify_postgrest_error
+        client_mock = _make_fake_supabase_client(rpc_side_effect=[kill_err])
+        with mock.patch(
+            'billing_audit.writer.get_client', return_value=client_mock
+        ), mock.patch('time.sleep'):
+            lookup_attribution(
+                '91467680', datetime.date(2026, 4, 19), 12345
+            )
+        self.assertIsNotNone(ba_client._global_disable_reason)
+
+        # Second call: get_client returns None (post-kill state) so
+        # the reader returns None without dispatching another RPC.
+        with mock.patch('billing_audit.writer.get_client', return_value=None):
+            result = lookup_attribution(
+                '91467680', datetime.date(2026, 4, 19), 99999
+            )
+        self.assertIsNone(result)
+        # The mock client's RPC dispatched ONCE (the kill-trip call),
+        # not twice — proving the second call short-circuited before
+        # any RPC was issued.
+        self.assertEqual(
+            client_mock.schema.return_value.rpc.return_value.execute.call_count,
+            1,
+            "Second call should short-circuit via get_client()=None — "
+            "no additional RPC dispatch expected",
+        )
+
+    # ─── Test 14: op-isolation invariant under failure ──────────
+
+    @unittest.skipIf(
+        _POSTGREST_API_ERROR_CLS is None,
+        "postgrest not installed — APIError-driven breaker classifier "
+        "is a no-op in that environment.",
+    )
+    def test_op_isolation_does_not_affect_freeze_attribution_breaker(self):
+        """Critical op-isolation invariant per [2026-04-25 12:00] /
+        [2026-04-25 14:00]. Repeated permanent failures on
+        op='lookup_attribution' MUST NOT trip the op='freeze_attribution'
+        per-op circuit breaker.
+        """
+        from billing_audit.writer import lookup_attribution
+        from billing_audit import client as ba_client
+        APIError = _POSTGREST_API_ERROR_CLS
+
+        # Trip several permanent failures on op='lookup_attribution'.
+        # PGRST101 is permanent-but-not-global-kill so it increments
+        # the per-op breaker counter rather than tripping the global
+        # disable.
+        client_mock = _make_fake_supabase_client(
+            rpc_side_effect=[
+                APIError({'code': 'PGRST101', 'message': 'fail'})
+                for _ in range(5)
+            ],
+        )
+        with mock.patch(
+            'billing_audit.writer.get_client', return_value=client_mock
+        ), mock.patch('time.sleep'):
+            for _ in range(5):
+                lookup_attribution(
+                    '91467680', datetime.date(2026, 4, 19), 12345
+                )
+
+        # freeze_attribution's breaker MUST remain untouched.
+        self.assertNotIn('freeze_attribution', ba_client._open_circuits)
+        self.assertEqual(
+            ba_client._consecutive_failures.get('freeze_attribution', 0),
+            0,
+            "Op-isolation broken: lookup_attribution failures bled "
+            "into freeze_attribution counter",
+        )
+        # pipeline_run breakers also unaffected — same op-isolation invariant
+        self.assertNotIn('pipeline_run_select', ba_client._open_circuits)
+        self.assertNotIn('pipeline_run_upsert', ba_client._open_circuits)
+
+
 if __name__ == "__main__":
     unittest.main()
