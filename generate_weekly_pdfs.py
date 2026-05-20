@@ -20,6 +20,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as
 import concurrent.futures.thread as _cf_thread
 import re
 import hashlib
+from collections.abc import Sequence
 from datetime import timedelta
 import logging
 from dateutil import parser
@@ -66,6 +67,7 @@ import sys
 import json
 import signal
 import csv
+from typing import Any, cast
 
 # Load environment variables
 load_dotenv()
@@ -264,7 +266,7 @@ class _DaemonThreadPoolExecutor(ThreadPoolExecutor):
             return
 
         def _weakref_cb(_, q=self._work_queue):
-            q.put(None)
+            q.put(None)  # type: ignore[arg-type]  # sentinel signals worker shutdown (matches CPython internals)
 
         num_threads = len(self._threads)
         if num_threads < self._max_workers:
@@ -274,13 +276,13 @@ class _DaemonThreadPoolExecutor(ThreadPoolExecutor):
                 target=_cf_thread._worker,
                 args=(weakref.ref(self, _weakref_cb),
                       self._work_queue,
-                      self._initializer,
-                      self._initargs),
+                      getattr(self, '_initializer', None),
+                      getattr(self, '_initargs', ())),
                 daemon=True,
             )
             t.start()
-            self._threads.add(t)
-            _cf_thread._threads_queues[t] = self._work_queue
+            self._threads.add(t)  # type: ignore[attr-defined]  # CPython exposes _threads as a mutable set despite AbstractSet typing
+            _cf_thread._threads_queues[t] = self._work_queue  # type: ignore[index]  # CPython internals expose this as a mutable dict despite Mapping typing
 
 
 USE_DISCOVERY_CACHE = os.getenv('USE_DISCOVERY_CACHE','1').lower() in ('1','true','yes')
@@ -1099,7 +1101,9 @@ if SENTRY_DSN:
             # Defense-in-depth PII sanitizer for the Logs product. Even
             # when the env gate is on, drop records that embed known
             # row-level markers (see _PII_LOG_MARKERS above).
-            before_send_log=sentry_before_send_log,
+            # Cast to Any: the SDK's typed signature is (Log, Hint) -> Log | None,
+            # but our hook is intentionally generic over dict/object records.
+            before_send_log=cast(Any, sentry_before_send_log),
         )
         
         # Set user context (SDK 2.x: top-level API)
@@ -1263,7 +1267,7 @@ _SUBCONTRACTOR_RATES_REQUIRED_HEADERS: frozenset[str] = frozenset({
 })
 
 
-def _strip_csv_fieldnames(fieldnames: list[str] | None) -> dict[str, str]:
+def _strip_csv_fieldnames(fieldnames: Sequence[str] | None) -> dict[str, str]:
     """Map stripped header → original header for an operator CSV.
 
     The operator-supplied subcontractor rates CSV uses space-padded
@@ -1346,14 +1350,16 @@ def load_subcontractor_rates(filepath: str) -> dict[str, dict]:
                 )
                 return rates
 
-            def _cell(row: dict, stripped_name: str, default=''):
+            def _cell(row: dict, stripped_name: str, default: "str | float | int | None" = '') -> "str | float | int | None":
                 raw = stripped_to_raw.get(stripped_name)
                 if raw is None:
                     return default
                 value = row.get(raw, default)
                 if isinstance(value, str):
                     return value.strip()
-                return value
+                if isinstance(value, (int, float)) or value is None:
+                    return value
+                return str(value)
 
             for row in reader:
                 cu = str(_cell(row, 'CU', '') or '').upper()
@@ -5105,10 +5111,14 @@ def safe_merge_cells(ws, range_str):
     try:
         # Parse the requested range boundaries
         min_col, min_row, max_col, max_row = range_boundaries(range_str)
+        if min_col is None or min_row is None or max_col is None or max_row is None:
+            return False
         
         # Check for any overlapping or duplicate merged ranges
         for merged in list(ws.merged_cells.ranges):
             m_min_col, m_min_row, m_max_col, m_max_row = range_boundaries(str(merged))
+            if m_min_col is None or m_min_row is None or m_max_col is None or m_max_row is None:
+                continue
             
             # Check if ranges overlap (not just exact match)
             if not (max_col < m_min_col or min_col > m_max_col or
@@ -5971,10 +5981,129 @@ def _build_upload_tasks_for_group(
 
 # Modified By cache loading removed - using direct column assignment only
 
+
+def _build_synthetic_rows():
+    """Build an in-memory synthetic dataset for TEST_MODE runs without an API token."""
+    base_week_end = datetime.datetime.now()
+    # Snap week ending to coming Sunday for consistency
+    base_week_end = base_week_end + datetime.timedelta(days=(6 - base_week_end.weekday()))
+    week_end_iso = base_week_end.strftime('%Y-%m-%d')
+    rows = []
+    wrs = ['90093002', '89708709']
+    foremen = ['Alice Foreman', 'Bob Foreman']
+    daily_prices = [1200.50, 800.00, 950.75, 0, 1300.25, 600.00, 1450.00]
+    for idx, wr in enumerate(wrs):
+        foreman = foremen[idx]
+        for offset, price in enumerate(daily_prices):
+            snap_date = (base_week_end - datetime.timedelta(days=(6 - offset)))
+            row = {
+                'Work Request #': wr,
+                'Weekly Reference Logged Date': week_end_iso,  # same week ending for all
+                'Snapshot Date': snap_date.strftime('%Y-%m-%d'),
+                'Units Total Price': f"${price:,.2f}",
+                'Quantity': str(1 + (offset % 3)),
+                'Units Completed?': True,
+                'Foreman': foreman,
+                'CU': f"CU{100+offset}",
+                'CU Description': f"Synthetic Work Item {offset+1}",
+                'Unit of Measure': 'EA',
+                'Pole #': f"P-{offset+1:03d}",
+                'Work Type': 'Maintenance',
+                'Scope #': f"SCP-{wr[-3:]}"
+            }
+            # Include a zero price row intentionally (price==0) to confirm exclusion
+            rows.append(row)
+    return rows
+
+
+def _run_synthetic_test_mode(session_start):
+    """Execute the synthetic TEST_MODE path. Returns number of files generated."""
+    logging.info("🧪 TEST_MODE without SMARTSHEET_API_TOKEN: using synthetic in-memory dataset")
+    synthetic_rows = _build_synthetic_rows()
+    logging.info(f"Synthetic rows prepared: {len(synthetic_rows)} raw rows")
+    # Apply normal grouping logic (filtering happens inside grouping)
+    groups = group_source_rows(synthetic_rows)
+    logging.info(f"Synthetic grouping produced {len(groups)} group(s)")
+    snapshot_date = datetime.datetime.now()
+    generated_files_count = 0
+    for group_key, group_rows in groups.items():
+        try:
+            data_hash = calculate_data_hash(group_rows)
+            # Phase 01 Plan 03 Task 2 / Blocker 4: unpack
+            # the new 5-tuple shape. Synthetic path doesn't
+            # consume ``customer_name`` / ``missing_cus``
+            # (no per-sheet WARNING context here), but the
+            # unpack MUST match so a contract drift is
+            # surfaced loudly rather than silently dropped.
+            (
+                _excel_path,
+                filename,
+                _wr_numbers,
+                _customer_name,
+                _missing_cus,
+            ) = generate_excel(
+                group_key, group_rows, snapshot_date,
+                data_hash=data_hash,
+            )
+            generated_files_count += 1
+            logging.info(f"🧪 Synthetic Excel generated: {filename} ({len(group_rows)} rows)")
+        except Exception as e:
+            logging.error(f"Synthetic group failure {group_key}: {e}")
+    session_duration = datetime.datetime.now() - session_start
+    logging.info(f"🧪 Synthetic session complete: {generated_files_count} file(s) in {session_duration}")
+    return generated_files_count
+
+
 # --- MAIN EXECUTION ---
 
-def main():
-    """Main execution function with all fixes implemented."""
+def _sentry_cron_checkin_start(monitor_slug):
+    """Send a Sentry cron 'in_progress' check-in. Returns the check-in id or None.
+
+    Extracted from ``main()`` to reduce its cyclomatic complexity; behavior
+    (including swallow-and-log on failure) is preserved verbatim.
+    """
+    if not SENTRY_DSN:
+        return None
+    try:
+        return capture_checkin(
+            monitor_slug=monitor_slug,
+            status=MonitorStatus.IN_PROGRESS,
+            monitor_config={
+                "schedule": {"type": "crontab", "value": "30 17 * * 1"},
+                "checkin_margin": 10,
+                "max_runtime": 120,
+                "failure_issue_threshold": 2,
+                "recovery_threshold": 1,
+                "timezone": "America/Phoenix",
+            },
+        )
+    except Exception as exc:
+        logging.warning(f"⚠️ Sentry cron check-in (in_progress) failed: {exc}")
+        return None
+
+
+def _set_sentry_session_tags(session_start):
+    """Apply session-level Sentry tags. No-op when Sentry is not configured."""
+    if not SENTRY_DSN:
+        return
+    scope = sentry_sdk.get_isolation_scope()
+    scope.set_tag("session_start", session_start.isoformat())
+    scope.set_tag("test_mode", str(TEST_MODE))
+    scope.set_tag("github_actions", str(GITHUB_ACTIONS_MODE))
+
+
+def main():  # pyright: ignore[reportGeneralTypeIssues]
+    """Main execution function with all fixes implemented.
+
+    NOTE: Pyright reports ``reportGeneralTypeIssues`` ("Code is too complex
+    to analyze") on this function because it exceeds the analyzer's internal
+    branch/path budget. The behavior is correct and exercised by CI; the
+    warning is suppressed at the def line so type-checking of the rest of
+    the module remains clean. A full refactor into subroutines is tracked
+    separately — many of the local variables here participate in the
+    ``except``/``finally`` blocks at the bottom, so extraction requires
+    care to preserve the existing error-reporting + cron-checkin contract.
+    """
     session_start = datetime.datetime.now()
     generated_files_count = 0
     generated_filenames = []  # Track exact filenames created this session
@@ -5987,106 +6116,21 @@ def main():
     _txn = None
 
     # Sentry cron check-in: signal "in_progress" at session start
-    _cron_checkin_id = None
     _cron_monitor_slug = os.getenv("SENTRY_CRON_MONITOR_SLUG", "weekly-excel-generation")
-    if SENTRY_DSN:
-        try:
-            _cron_checkin_id = capture_checkin(
-                monitor_slug=_cron_monitor_slug,
-                status=MonitorStatus.IN_PROGRESS,
-                monitor_config={
-                    "schedule": {"type": "crontab", "value": "30 17 * * 1"},
-                    "checkin_margin": 10,
-                    "max_runtime": 120,
-                    "failure_issue_threshold": 2,
-                    "recovery_threshold": 1,
-                    "timezone": "America/Phoenix",
-                },
-            )
-        except Exception as exc:
-            logging.warning(f"⚠️ Sentry cron check-in (in_progress) failed: {exc}")
+    _cron_checkin_id = _sentry_cron_checkin_start(_cron_monitor_slug)
 
     try:
         # Set Sentry context (SDK 2.x: top-level API)
-        if SENTRY_DSN:
-            scope = sentry_sdk.get_isolation_scope()
-            scope.set_tag("session_start", session_start.isoformat())
-            scope.set_tag("test_mode", str(TEST_MODE))
-            scope.set_tag("github_actions", str(GITHUB_ACTIONS_MODE))
+        _set_sentry_session_tags(session_start)
 
         logging.info("🚀 Starting Weekly PDF Generator with Complete Fixes")
         
         # Initialize Smartsheet client or fall back to synthetic data in TEST_MODE
         if not API_TOKEN:
-            if TEST_MODE:
-                logging.info("🧪 TEST_MODE without SMARTSHEET_API_TOKEN: using synthetic in-memory dataset")
-
-                def build_synthetic_rows():
-                    base_week_end = datetime.datetime.now()
-                    # Snap week ending to coming Sunday for consistency
-                    base_week_end = base_week_end + datetime.timedelta(days=(6 - base_week_end.weekday()))
-                    week_end_iso = base_week_end.strftime('%Y-%m-%d')
-                    rows = []
-                    wrs = ['90093002', '89708709']
-                    foremen = ['Alice Foreman', 'Bob Foreman']
-                    daily_prices = [1200.50, 800.00, 950.75, 0, 1300.25, 600.00, 1450.00]
-                    for idx, wr in enumerate(wrs):
-                        foreman = foremen[idx]
-                        for offset, price in enumerate(daily_prices):
-                            snap_date = (base_week_end - datetime.timedelta(days=(6 - offset)))
-                            row = {
-                                'Work Request #': wr,
-                                'Weekly Reference Logged Date': week_end_iso,  # same week ending for all
-                                'Snapshot Date': snap_date.strftime('%Y-%m-%d'),
-                                'Units Total Price': f"${price:,.2f}",
-                                'Quantity': str(1 + (offset % 3)),
-                                'Units Completed?': True,
-                                'Foreman': foreman,
-                                'CU': f"CU{100+offset}",
-                                'CU Description': f"Synthetic Work Item {offset+1}",
-                                'Unit of Measure': 'EA',
-                                'Pole #': f"P-{offset+1:03d}",
-                                'Work Type': 'Maintenance',
-                                'Scope #': f"SCP-{wr[-3:]}"
-                            }
-                            # Include a zero price row intentionally (price==0) to confirm exclusion
-                            rows.append(row)
-                    return rows
-
-                synthetic_rows = build_synthetic_rows()
-                logging.info(f"Synthetic rows prepared: {len(synthetic_rows)} raw rows")
-                # Apply normal grouping logic (filtering happens inside grouping)
-                groups = group_source_rows(synthetic_rows)
-                logging.info(f"Synthetic grouping produced {len(groups)} group(s)")
-                snapshot_date = datetime.datetime.now()
-                for group_key, group_rows in groups.items():
-                    try:
-                        data_hash = calculate_data_hash(group_rows)
-                        # Phase 01 Plan 03 Task 2 / Blocker 4: unpack
-                        # the new 5-tuple shape. Synthetic path doesn't
-                        # consume ``customer_name`` / ``missing_cus``
-                        # (no per-sheet WARNING context here), but the
-                        # unpack MUST match so a contract drift is
-                        # surfaced loudly rather than silently dropped.
-                        (
-                            excel_path,
-                            filename,
-                            wr_numbers,
-                            _customer_name,
-                            _missing_cus,
-                        ) = generate_excel(
-                            group_key, group_rows, snapshot_date,
-                            data_hash=data_hash,
-                        )
-                        generated_files_count += 1
-                        logging.info(f"🧪 Synthetic Excel generated: {filename} ({len(group_rows)} rows)")
-                    except Exception as e:
-                        logging.error(f"Synthetic group failure {group_key}: {e}")
-                session_duration = datetime.datetime.now() - session_start
-                logging.info(f"🧪 Synthetic session complete: {generated_files_count} file(s) in {session_duration}")
-                return
-            else:
+            if not TEST_MODE:
                 raise Exception("SMARTSHEET_API_TOKEN not configured")
+            _run_synthetic_test_mode(session_start)
+            return
         
         client = smartsheet.Smartsheet(API_TOKEN)
         client.errors_as_exceptions(True)
