@@ -343,6 +343,15 @@ jobs:
           SUBCONTRACTOR_RATE_RECALC_PREACCEPTANCE_ENABLED: '1'
 
           SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED: '1'
+          # Phase 1.1 UAT gap closure (SUB-09 helper dimension): default-ON
+          # kill switch for the one-time removal of pre-existing legacy
+          # _Helper_<name> and bare-primary attachments on TARGET_SHEET_ID
+          # for subcontractor WRs (pre-fix orphans from merged runs).
+          # Task 1 of Plan 01.1-06 stops NEW duplicates; this switch
+          # triggers the cleanup of OLD ones already on TARGET. Set to '0'
+          # to skip the destructive cleanup and let the orphans persist
+          # until manually removed. Living Ledger [2026-05-19].
+          SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED: '1'
           # Rollback path: set to '0' to revert Bug C behavior to
           # Phase 1's full-row-set helper behavior. Helper file rows
           # will once again include every row where the CURRENT

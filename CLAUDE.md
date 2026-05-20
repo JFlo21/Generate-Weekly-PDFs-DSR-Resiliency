@@ -2029,3 +2029,101 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   with **682 passed / 26 skipped / 58 subtests** post-Phase-1.1
   closure (was 643 / 22 / 58 at Wave 4 baseline; gain of 39 net
   passing and 4 net skipped on the postgrest-gated APIError tests).
+- [2026-05-19 22:00] **Phase 01.1 Plan 06 — SUB-09 helper-path
+  partition gap-closure.** UAT-confirmed duplicate-billing artifact
+  (live run 26138204743): WR_90773033 wk 041226 foreman Chris_Lopez
+  produced BOTH a legacy ``_Helper_Chris_Lopez.xlsx`` on TARGET_SHEET_ID
+  AND the correct ``_ReducedSub_Helper_Chris_Lopez.xlsx`` on PPP. The
+  Phase 01.1-02 Bug-B1 fix applied ``not is_subcontractor_row`` to the
+  **primary** emission path in ``group_source_rows`` but forgot to apply
+  the same guard to the **legacy helper** emission path at
+  ``keys_to_add.append(('helper', helper_key, helper_foreman))``.
+  **Root cause — D-09 helper-path asymmetry.** The legacy-helper block
+  and the primary-key block sit in different branches of the per-row
+  loop; Bug-B1's ``is_subcontractor_row`` hoist was in scope at the
+  legacy-helper block but the guard was never applied there, so every
+  subcontractor helper row continued to emit the legacy helper key
+  unconditionally. **Symmetric fix (additive, surgical):** wrapped the
+  ``keys_to_add.append(('helper', ...))`` call in
+  ``if not is_subcontractor_row:`` with an operator-visible INFO log
+  inside; added an ``else:`` DEBUG log (body ``"EXCLUDING from main
+  Excel (subcontractor legacy helper): ..."`` — covered by existing
+  ``"EXCLUDING from main Excel"`` PII marker). Three-site identity
+  invariant: Sites 2 (``valid_wr_weeks``) and 3 (``current_keys``)
+  self-heal because both derive from ``groups/__variant``; the producer
+  fix removes the subcontractor ``'helper'`` group from ``groups`` so
+  neither site emits the orphan key. **Cleanup of pre-existing
+  duplicate attachments** via ``cleanup_untracked_sheet_attachments``:
+  new optional params ``sub_wr_scope: set[str] | None`` and
+  ``sub_offcontract_variants: set[str] | None`` let the TARGET call site
+  pass the subcontractor WR set + ``{'helper', 'primary'}`` as
+  off-contract variants; any TARGET attachment for a subcontractor WR
+  with a ``helper`` or ``primary`` filename variant is unconditionally
+  deleted regardless of ``valid_wr_weeks`` or ``KEEP_HISTORICAL_WEEKS``.
+  Kill switch ``SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED`` (default
+  ``'1'``; workflow-pinned in ``weekly-excel-generation.yml``) gates the
+  destructive scope-building step — when off, TARGET cleanup reverts to
+  pre-SUB-09 behaviour exactly. **6-part-key hash-prune trap.** The
+  existing ``_run_phase_1_1_hash_prune`` (v1) had a fatal
+  ``if len(_parts) != 4: continue`` guard that silently skipped ALL
+  helper hash keys — helper keys are 6-part pipe-separated
+  (``wr|week|helper|foreman|dept|job``), not 4-part. Bumped
+  ``PHASE_1_1_HASH_PRUNE_VERSION = 1`` → ``= 2``; the v2 prune uses
+  ``< 4`` as the minimum-length guard and index-accesses
+  ``_parts[0]``/``_parts[2]`` so 4-part, 5-part, and 6-part keys all
+  parse correctly; orphan condition extended to
+  ``or _hk_variant == 'helper'`` so subcontractor legacy helper entries
+  are pruned in one pass alongside primary orphans. **WR-sharing
+  prune edge case.** ``_build_subcontractor_wr_scope(groups)`` was
+  extracted as a module-level shared helper and used by BOTH the
+  cleanup call site AND ``_run_phase_1_1_hash_prune`` to prevent scope
+  drift. The scope set is the union of WR numbers seen in any
+  subcontractor variant group (``reduced_sub``, ``aep_billable``,
+  ``reduced_sub_helper``, ``aep_billable_helper``) so a WR that has
+  subcontractor rows but whose hash history entry happens to share a WR
+  number with a non-subcontractor group still gets pruned correctly.
+  **New rules:**
+  (1) **Helper-path partitioning must mirror primary-path partitioning.**
+  Whenever a partition guard (``not is_X_row``) is added to the primary
+  emission block in ``group_source_rows``, the SAME guard MUST be applied
+  to the legacy helper emission block in the same commit. The two blocks
+  are siblings that both feed ``keys_to_add``; omitting the guard from
+  one while applying it to the other produces a byte-duplicate on
+  TARGET_SHEET_ID for every row of the gated type. Code-review checklist:
+  grep ``keys_to_add.append(('helper'`` and verify every
+  ``if not is_X_row:`` guard that protects the primary emission also
+  wraps the helper emission.
+  (2) **Multi-part hash-key parsers must use minimum-length guards, not
+  exact-length guards.** ``!= N`` silently drops every key whose part
+  count differs from N. Use ``< M`` where M is the minimum number of
+  parts needed for a valid parse, then index-access only the parts you
+  use. This applies to any future hash-history, attachment-identity, or
+  group-key parser that encounters keys from multiple variants with
+  different part counts.
+  (3) **Shared scope-builders prevent cleanup/prune drift.** When both
+  ``cleanup_untracked_sheet_attachments`` and ``_run_phase_1_1_hash_prune``
+  need to agree on which WRs are "in scope for subcontractor cleanup",
+  extract a single ``_build_subcontractor_wr_scope(groups)`` helper and
+  call it from both sites. Two inline loop copies will silently diverge
+  as variant names change. The shared helper is the single source of
+  truth; add a regression test that asserts both call sites agree.
+  (4) **Kill switches for destructive cleanup paths.** Any new
+  ``cleanup_untracked_sheet_attachments`` call that deletes attachments
+  from TARGET_SHEET_ID based on a VARIANT-CLASS criterion (not just
+  stale-week pruning) MUST be env-gated with a default-ON kill switch
+  following the ``SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED`` pattern.
+  Workflow-pin the switch per the IN-04 / 2026-04-24 14:30 rules.
+  Regression tests: ``TestEndToEndPipeline`` in
+  ``tests/test_subcontractor_helper_shadow_rescue.py`` gains 2 methods
+  (``test_subcontractor_helper_row_does_not_emit_legacy_helper_key`` and
+  ``test_subcontractor_helper_row_pre_cutoff_emits_only_reducedsub_helper``);
+  new class ``TestLegacyHelperTargetCleanupE2E`` (2 methods) validates
+  sub-WR cleanup vs. non-sub WR preservation; ``TestHashPruneIdempotency``
+  gains 2 methods for v2 6-part-key pruning + idempotency; 3 v1-contract
+  tests rewritten in-place (citing this ledger entry per [2026-05-20
+  00:26] rule 2). ``TestProductionCodeSiteInvariants``
+  hash-prune-version regex updated from ``= 1`` → ``= 2``.
+  ``TestPppCleanupUntrackedAttachments.test_cleanup_function_signature_unchanged``
+  in ``tests/test_security_audit_followup.py`` updated for the two new
+  params. ``pytest tests/`` exits 0 with **688 passed / 26 skipped /
+  58 subtests** (was 682 at Phase 1.1 close; +6 net tests).
