@@ -1,9 +1,25 @@
-"""Supabase attribution snapshot writer (shadow mode).
+"""Supabase attribution snapshot writer + reader.
 
-Writes only. No read / hydration path — that lands in the follow-up
-PR. All public functions are silent no-ops when:
+Public surface:
+- Writers: ``freeze_row`` (per-row attribution freeze) and
+  ``emit_run_fingerprint`` (per-WR/week run fingerprint upsert).
+- Reader: ``lookup_attribution(wr, week_ending, smartsheet_row_id)``
+  (Phase 1.1 / Bug C / SUB-11) — returns the frozen attribution dict
+  ``{helper, helper_dept, source_run_id}`` for ONE row, or ``None``
+  if no snapshot exists yet. Calls the ``lookup_attribution``
+  PostgREST RPC documented in ``billing_audit/schema.sql``.
+
+All public functions are silent no-ops when:
 - Supabase credentials are unset or TEST_MODE is on.
-- The relevant feature flag in ``billing_audit.feature_flag`` is off.
+- The relevant feature flag in ``billing_audit.feature_flag`` is
+  off (writers only — the reader's kill switch is at the caller via
+  ``SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED`` because per-call
+  reads must be globally fast-skippable without a round-trip to the
+  flag table).
+- The PostgREST schema is not exposed / auth has expired (PGRST106 /
+  PGRST301 / PGRST302 trip the run-global kill switch per
+  ``billing_audit.client._classify_postgrest_error``, after which
+  ``get_client()`` returns ``None`` and all subsequent ops short-circuit).
 - A row does not meet the freeze criteria (missing row id, or
   ``Units Completed?`` unchecked).
 
@@ -11,6 +27,13 @@ Logging discipline: NEVER emit per-row details (WR, foreman, helper,
 vac_crew names). Only aggregate counter summaries at INFO. This
 mirrors the pipeline's ``_PII_LOG_MARKERS`` defense — billing-row
 identifiers are PII and must not leak into Sentry Logs.
+
+**Reader PII-out exception:** ``lookup_attribution`` returns helper
+TEXT in its return dict — this is the one place per-row PII leaves
+the package as a *value*, not as a log line. Callers MUST treat the
+returned ``helper`` string as PII (group-key embedding, filename
+embedding) and follow the same redaction rules they use for live
+Smartsheet ``Foreman Helping?`` values.
 """
 
 from __future__ import annotations

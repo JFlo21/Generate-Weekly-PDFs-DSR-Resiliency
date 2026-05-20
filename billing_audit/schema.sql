@@ -153,3 +153,54 @@ CREATE INDEX IF NOT EXISTS idx_pipeline_run_wr_week_created_at
 -- The exact body lives in Supabase. Do NOT rename or change
 -- the parameter names without the corresponding update in
 -- ``billing_audit/writer.py:freeze_row``.
+
+-- ── attribution_snapshot (READ surface) ─────────────────────
+-- ``billing_audit.attribution_snapshot`` is the per-row personnel
+-- snapshot table populated by ``freeze_attribution``. The Python
+-- reader (``billing_audit.writer.lookup_attribution``) reads from
+-- it via the ``lookup_attribution`` RPC defined below. PRIMARY
+-- KEY shape: (wr, week_ending, smartsheet_row_id). Columns the
+-- reader depends on: ``helper TEXT``, ``helper_dept TEXT``,
+-- ``source_run_id TEXT``. Owned by the data team; pipeline must
+-- tolerate column additions but the three names above are load-
+-- bearing for Phase 1.1 Bug C claim-history attribution.
+--
+-- The table DDL itself is NOT defined here — it is deployed
+-- and maintained directly in the Supabase project alongside
+-- the ``freeze_attribution`` function body, because the
+-- column set is owned by the data team (attribution rules,
+-- partition keys, retention policy). The Python contract is
+-- the three column names above plus the (wr, week_ending,
+-- smartsheet_row_id) PK shape; everything else on this table
+-- is opaque to the pipeline.
+
+-- ── lookup_attribution (RPC) ────────────────────────────────
+-- The ``lookup_attribution`` Postgres function is NOT defined
+-- here — its body is deployed and maintained directly in the
+-- Supabase project, mirroring the ``freeze_attribution`` pattern
+-- above. The pipeline's contract with it is:
+--
+--   PARAMETERS (all named, p_<name>):
+--     p_wr                TEXT
+--     p_week_ending       DATE
+--     p_smartsheet_row_id BIGINT
+--
+--   RETURNS: a row (or scalar) with
+--     ``helper TEXT, helper_dept TEXT, source_run_id TEXT``,
+--     or NULL when no frozen attribution exists for the given
+--     (wr, week_ending, smartsheet_row_id) tuple.
+--
+-- The exact body lives in Supabase. Do NOT rename or change
+-- the parameter names without the corresponding update in
+-- ``billing_audit/writer.py:lookup_attribution``.
+--
+-- Phase 1.1 / Bug C / SUB-11 added this RPC dependency on
+-- 2026-05-19. Per CLAUDE.md Living Ledger entry
+-- ``[2026-04-25 12:00]`` rule 1, any new Supabase table or
+-- column the pipeline reads/writes MUST be defined in this
+-- file in the same PR that adds the Python code — this block
+-- closes that gap. Confirm with the data team that the
+-- parameter names + return-row shape above match the deployed
+-- RPC body before flipping
+-- ``SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED=1`` in
+-- production.
