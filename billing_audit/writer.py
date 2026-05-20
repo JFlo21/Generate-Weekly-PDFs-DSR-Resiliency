@@ -13,6 +13,10 @@ Public surface:
   ResolveOutcome`` maps ONE row to use-frozen / use-current / HOLD via
   ``ROLE_BY_VARIANT``. Consumers (sub-projects B/C/D) group/name files
   by ``outcome.name`` or defer the row when ``outcome.action == 'hold'``.
+- HOLD accounting (Foundation A): ``record_attribution_hold`` tallies a
+  deferred row (dormant — no production caller yet) and
+  ``summarize_attribution_holds`` emits one PII-safe aggregate WARNING
+  at end-of-run so a Supabase outage that suppresses files is visible.
 
 All public functions are silent no-ops when:
 - Supabase credentials are unset or TEST_MODE is on.
@@ -29,9 +33,11 @@ All public functions are silent no-ops when:
   ``Units Completed?`` unchecked).
 
 Logging discipline: NEVER emit per-row details (WR, foreman, helper,
-vac_crew names). Only aggregate counter summaries at INFO. This
-mirrors the pipeline's ``_PII_LOG_MARKERS`` defense — billing-row
-identifiers are PII and must not leak into Sentry Logs.
+vac_crew names). Only aggregate summaries — INFO for counters, and
+WARNING for the attribution-HOLD summary (``summarize_attribution_holds``,
+which emits sanitized WR identifiers + counts only). This mirrors the
+pipeline's ``_PII_LOG_MARKERS`` defense — billing-row identifiers are
+PII and must not leak into Sentry Logs.
 
 **Reader PII-out exception:** ``lookup_attribution`` returns helper
 TEXT in its return dict — this is the one place per-row PII leaves
@@ -113,6 +119,11 @@ _counters: dict[str, int] = {
     "snapshots_already_frozen": 0,
     "snapshots_errored": 0,
     "fingerprint_changes_detected": 0,
+    # Foundation A: rows held this run pending attribution (dormant
+    # until a consumer acts on resolve_claimer's HOLD outcome).
+    # Pre-seeded to 0 so get_counters() has a stable schema even on
+    # runs with zero holds.
+    "attribution_rows_held": 0,
 }
 
 
@@ -238,7 +249,8 @@ def get_counters() -> dict[str, int]:
     """Return a snapshot of module counters for ``run_summary.json``.
 
     Keys: ``snapshots_written``, ``snapshots_already_frozen``,
-    ``snapshots_errored``, ``fingerprint_changes_detected``.
+    ``snapshots_errored``, ``fingerprint_changes_detected``,
+    ``attribution_rows_held``.
 
     Takes ``_counters_lock`` so the snapshot is internally consistent
     even if another thread is mid-``_bump_counter`` — without it the
@@ -251,7 +263,7 @@ def get_counters() -> dict[str, int]:
 
 def record_attribution_hold(
     wr: str,
-    week_ending: "datetime.date | None",
+    week_ending: datetime.date | None,
     variant: str,
 ) -> None:
     """Record one row held this run (resolve_claimer → action 'hold').
@@ -271,14 +283,15 @@ def record_attribution_hold(
     _bump_counter("attribution_rows_held")
 
 
-def summarize_attribution_holds() -> "str | None":
-    """Emit ONE aggregate WARNING if any rows were held; return the
+def summarize_attribution_holds() -> str | None:
+    """Emit one aggregate WARNING if any rows were held; return the
     message (for testing) or None if nothing was held.
 
-    PII-safe: counts + sanitized WR list only. The pipeline's
+    Each call emits one WARNING — the caller (sub-project B's
+    end-of-run hook) is responsible for invoking this exactly once
+    per run. PII-safe: counts + sanitized WR list only. The pipeline's
     logging→Sentry bridge surfaces this WARNING; a consumer wiring
-    this into the run (sub-project B) may escalate to an explicit
-    Sentry capture.
+    this into the run may escalate to an explicit Sentry capture.
 
     Returns ``None`` when no holds have been recorded this run.
     """

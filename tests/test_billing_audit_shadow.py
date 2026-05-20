@@ -1248,6 +1248,8 @@ class CountersTests(unittest.TestCase):
                 "snapshots_already_frozen": 0,
                 "snapshots_errored": 0,
                 "fingerprint_changes_detected": 0,
+                # Foundation A: pre-seeded for a stable counter schema.
+                "attribution_rows_held": 0,
             },
         )
 
@@ -4897,6 +4899,20 @@ class TestAttributionHoldSummary(unittest.TestCase):
             "90773033", datetime.date(2026, 4, 19), "primary")
         _reset_all()
         self.assertIsNone(summarize_attribution_holds())
+
+    def test_summary_truncates_wr_list_over_twenty(self):
+        from billing_audit.writer import (
+            record_attribution_hold, summarize_attribution_holds,
+        )
+        wk = datetime.date(2026, 4, 19)
+        # 25 distinct WRs → list capped at 20 with a "(+5 more)" suffix.
+        for i in range(25):
+            record_attribution_hold(f"WR{i:04d}", wk, "primary")
+        msg = summarize_attribution_holds()
+        self.assertIsNotNone(msg)
+        self.assertIn("25 row(s)", msg)
+        self.assertIn("25 WR(s)", msg)
+        self.assertIn("(+5 more)", msg)
 
 
 if __name__ == "__main__":
