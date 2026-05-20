@@ -2186,3 +2186,90 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   asserted NOT deleted) and a stale orphan ``_Helper_`` (identity
   absent — asserted deleted). ``pytest tests/`` → **689 passed / 26
   skipped / 58 subtests** (was 688; +1).
+- [2026-05-20 13:45] Foundation A (claim-attribution read layer +
+  HOLD contract) shipped — sub-project A of the "universal per-line-item
+  claim attribution" effort (every Excel file partitioned by the FROZEN
+  foreman who claimed each line item, across primary / helper / vac_crew
+  on both the primary and subcontractor workflows). A is the read +
+  contract foundation ONLY: **zero production behaviour change**
+  (``generate_weekly_pdfs.py`` is NOT modified; nothing consumes the new
+  contract yet). Spec: ``docs/superpowers/specs/2026-05-20-claim-
+  attribution-foundation-design.md``; plan: ``docs/superpowers/plans/
+  2026-05-20-claim-attribution-foundation.md``. **What landed:**
+  (1) The Supabase ``lookup_attribution`` RPC contract in
+  ``billing_audit/schema.sql`` now returns ALL frozen roles
+  (``primary_foreman, helper, helper_dept, vac_crew, source_run_id``)
+  with per-role ``#NO MATCH``/blank → ``NULL`` normalization centralized
+  in the SQL (``CASE WHEN s.frozen_* LIKE '#%' OR btrim(...) = '' THEN
+  NULL``). OPERATOR must apply the ``CREATE OR REPLACE`` + reload the
+  PostgREST schema cache (``NOTIFY pgrst, 'reload schema';``) for the
+  feature to be live; adding columns is backward-compatible with the
+  prior helper-only consumer. (2) ``billing_audit/writer.py`` gains
+  ``_lookup_attribution_all(wr, week_ending, row_id) -> (row, status)``
+  (status ∈ ``success`` / ``no_row`` / ``fetch_failure`` /
+  ``unavailable``) sharing the existing ``with_retry(op=
+  "lookup_attribution")`` retry/circuit-breaker; the public
+  ``lookup_attribution`` was refactored to a thin helper-gated wrapper
+  over it with **external behaviour preserved** (guarded by the
+  pre-existing 14-test ``TestLookupAttribution`` suite — the regression
+  proof for the refactor). (3) ``resolve_claimer(variant, current_value,
+  *, wr, week_ending, row_id, enabled) -> ResolveOutcome`` + a module
+  ``ROLE_BY_VARIANT`` map are the shared decision contract B/C/D will
+  call. The six-row decision table: ``enabled`` False → use current
+  (``disabled``); client-None-not-outage → use current (``disabled``);
+  ``fetch_failure`` (outage / run-global kill / retries exhausted) →
+  **HOLD**; ``no_row`` or blank role on the frozen row → use current
+  (``no_history``); role present → use **frozen**. (4) A dormant hold
+  counter (``record_attribution_hold`` + ``summarize_attribution_holds``,
+  ``attribution_rows_held`` pre-seeded in ``_counters`` for a stable
+  schema) emits ONE PII-safe aggregate WARNING (counts + sanitized WR
+  only) so a Supabase outage that suppresses files is loud, not silent.
+  **New rules / contracts for the downstream sub-projects (B/C/D/E):**
+  (1) **Correctness over availability.** When attribution can't be
+  trusted, HOLD the affected rows (don't emit a possibly mis-attributed
+  billing file) rather than fall back. ``HOLD`` is returned ONLY on a
+  genuine ``fetch_failure`` outage — a brand-new claim is ``no_history``
+  and uses the CURRENT foreman (this run is what freezes it), NOT a
+  HOLD. The precision win over the prior sub-helper heuristic: a
+  transient outage that exhausts retries is now ``fetch_failure`` →
+  HOLD (the call object came back ``None``), distinct from "the call
+  succeeded with zero rows" (``no_row`` → use current). Any consumer
+  acting on ``resolve_claimer`` MUST defer the row when
+  ``outcome.action == 'hold'`` and call ``summarize_attribution_holds``
+  once at end-of-run. (2) **Claimer-file coexistence & no-cross-delete
+  invariant (governs B/C/D).** Each file holds ONLY one foreman's
+  claimed line items, named after that foreman; attribution is
+  **frozen first-write-wins per row**. A foreman switch within the SAME
+  week-ending period produces a SECOND file (new foreman's name, only
+  their rows) and the prior foreman's file MUST remain — the two must
+  NEVER cross-delete. This holds because the foreman name is part of
+  the identity tuple ``(wr, week, variant, identifier=foreman)``; two
+  claimers on the same WR+week+variant are distinct identities → the
+  attachment cleanup keeps both (it only prunes older copies WITHIN the
+  same identity). Every variant rollout (B/C/D) MUST carry a regression
+  test proving two same-week claimers coexist. (3) **The freeze side
+  already captures all roles** — ``freeze_row`` writes
+  ``frozen_primary``/``frozen_helper``/``frozen_vac_crew`` for every
+  completed row across all sheets; B/C/D do NOT need new capture, only
+  to consume ``resolve_claimer`` + extend grouping/filenames + handle
+  the existing-attachment migration. (4) **Sequencing:** A → B
+  (subcontractor primary ReducedSub/AEPBillable by ``frozen_primary``)
+  → C (VAC crew by ``frozen_vac_crew``) → D (primary-workflow primary
+  foreman; highest blast radius — changes core primary grouping +
+  largest attachment migration; deliberately last) → E (Supabase
+  hash-store migration + stripping ``_<hash>``/``_<timestamp>`` tokens
+  from filenames, which depends on Supabase being the change-detection
+  source of truth). Sub-helper shadow (Phase 1.1) is already done and
+  was operationally unblocked 2026-05-20 when the data team deployed the
+  ``lookup_attribution`` RPC. (5) **A does NOT own a kill-switch flag**
+  — ``resolve_claimer`` takes ``enabled`` as a parameter; each consumer
+  passes its own flag (the existing
+  ``SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED`` is untouched).
+  B/C/D decide whether to share one universal flag or per-variant flags.
+  Executed via subagent-driven-development (6 atomic TDD tasks, each
+  with spec-compliance + code-quality review). Regression tests added in
+  ``tests/test_billing_audit_shadow.py``:
+  ``TestLookupAttributionAll`` (9), ``TestResolveClaimer`` (8),
+  ``TestAttributionHoldSummary`` (4) — plus ``CountersTests`` updated for
+  the pre-seeded counter. ``pytest tests/`` → **710 passed / 26 skipped
+  / 58 subtests** (was 689 at the Phase 1.1 close; +21 net).
