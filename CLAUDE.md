@@ -2127,3 +2127,62 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   in ``tests/test_security_audit_followup.py`` updated for the two new
   params. ``pytest tests/`` exits 0 with **688 passed / 26 skipped /
   58 subtests** (was 682 at Phase 1.1 close; +6 net tests).
+- [2026-05-19 23:45] Plan 01.1-06 post-merge code-review follow-up
+  (WARNING WR-01 + INFO IN-01) on the SUB-09 helper-dimension TARGET
+  cleanup landed earlier this session. **WR-01 (data-loss / churn
+  loop, fixed):** the new TARGET ``cleanup_untracked_sheet_attachments``
+  off-contract gate keys its in-scope set (``sub_wr_scope``, built by
+  ``_build_subcontractor_wr_scope`` from this run's ``_REDUCEDSUB``
+  group keys) on the WR# ALONE, but ``is_subcontractor_row`` is decided
+  PER-ROW by source-sheet membership in ``_FOLDER_DISCOVERED_SUB_IDS``.
+  Grouping in ``group_source_rows`` is global across all discovered
+  sheets, so a single WR# can legitimately have helper rows on a
+  subcontractor sheet (→ ``_ReducedSub_Helper_`` ⇒ WR enters
+  ``sub_wr_scope``) AND on a NON-subcontractor sheet (→ a legitimate
+  live ``_Helper_<name>.xlsx`` on TARGET, variant ``'helper'``). The
+  gate appended such an attachment to ``off_contract_attachments`` and
+  ``continue``d BEFORE reaching the ``valid_wr_weeks`` keep-newest
+  logic, so it deleted the live file unconditionally — every 2h cron
+  run: delete → regenerate → re-upload → delete, with a data-absent
+  window on TARGET between cleanup and the next upload. **Fix
+  (surgical, additive):** add ``and ident not in valid_wr_weeks`` to
+  the SUB-09 gate condition. The 4-tuple ``ident``
+  (``wr, week, variant, identifier``) parsed by ``build_group_identity``
+  matches the ``valid_wr_weeks`` tuple shape exactly, so a genuinely
+  orphaned legacy sub-helper file — which Task 1 stopped emitting and
+  is therefore NEVER in ``valid_wr_weeks`` — is still deleted, while a
+  live non-sub artifact for an overlapping WR is preserved. **IN-01
+  (benign, documented not tightened):** the ``_run_phase_1_1_hash_prune``
+  helper clause ``or _hk_variant == 'helper'`` matches a ``'helper'``
+  key at any part count, broader than the documented 6-part production
+  shape (``wr|week|helper|foreman|dept|job`` — 6 parts because the
+  helper ``identifier`` is itself ``f"{foreman}|{dept}|{job}"`` at
+  ``generate_weekly_pdfs.py`` ``history_key`` construction). Left broad
+  on purpose: the prune is one-time (version-sentinel gated) and only
+  DROPS a hash-history entry — forcing at most one benign regeneration,
+  never a file deletion — so the same cross-sheet-overlap case is
+  harmless on the prune path. Only the comment was aligned. **New
+  rules:** (1) **Scope-set granularity must match the routing key.**
+  When a cleanup/prune scope set is keyed on a coarser dimension than
+  the decision it gates (here: WR# alone vs. the per-row, per-sheet
+  ``is_subcontractor_row``), any consumer that DELETES based on that set
+  MUST exempt identities the current run validated (``valid_wr_weeks``
+  membership, or the live-key equivalent). The coarse scope set is a
+  necessary-not-sufficient condition; the live-identity check is what
+  prevents a legitimate same-key artifact in the other dimension from
+  being destroyed. (2) **Distinguish delete-paths from drop-paths when
+  triaging a cross-key-collision finding.** A path that DELETES a
+  Smartsheet attachment (every-run TARGET cleanup) is a P1 data-loss
+  surface and needs the live-identity exemption; a path that only DROPS
+  a local hash-history key (the version-gated prune) self-heals via
+  regeneration and is benign — do NOT over-engineer a live-key
+  exemption onto a drop-path one-time migration when the file is never
+  deleted. Per [2026-04-22] the safe default everywhere in this engine
+  is "regenerate", so a dropped hash key costs one rebuild, not data.
+  Regression test:
+  ``tests/test_subcontractor_helper_shadow_rescue.py::TestLegacyHelperTargetCleanupE2E::test_target_cleanup_exempts_live_helper_for_overlapping_sub_wr``
+  drives ``cleanup_untracked_sheet_attachments`` with an in-scope WR
+  carrying BOTH a live ``_Helper_`` (identity in ``valid_wr_weeks`` —
+  asserted NOT deleted) and a stale orphan ``_Helper_`` (identity
+  absent — asserted deleted). ``pytest tests/`` → **689 passed / 26
+  skipped / 58 subtests** (was 688; +1).

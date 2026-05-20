@@ -2683,7 +2683,11 @@ def cleanup_untracked_sheet_attachments(
         TARGET_SHEET_ID (Task 1 stops NEW ones; this removes OLD ones).
         When None (default), this gate is skipped entirely —
         byte-identical legacy TARGET behaviour for all callers that
-        do not pass the parameter.
+        do not pass the parameter. WR-01 guard: an attachment whose
+        identity is in ``valid_wr_weeks`` is exempt from this gate so a
+        legitimate live non-subcontractor ``_Helper_`` file for a WR#
+        that ALSO has subcontractor rows is never deleted (cross-sheet
+        WR overlap — see the inline comment at the gate).
 
     sub_offcontract_variants: Set of variant strings that are off-contract
         for WRs in ``sub_wr_scope`` on THIS sheet. For TARGET cleanup,
@@ -2747,11 +2751,25 @@ def cleanup_untracked_sheet_attachments(
                     # attachments for subcontractor WRs on TARGET. Task 1 stops
                     # NEW ones at the producer; this removes leftovers already
                     # uploaded by pre-fix merged runs.
+                    #
+                    # WR-01 cross-sheet-overlap guard (review follow-up): the
+                    # ``sub_wr_scope`` set keys on WR# alone, but
+                    # ``is_subcontractor_row`` is decided PER-ROW by source
+                    # sheet. A single WR# can legitimately have helper rows on
+                    # a subcontractor sheet (→ in scope) AND on a NON-sub sheet
+                    # (→ a live ``_Helper_<name>.xlsx`` whose identity IS in
+                    # ``valid_wr_weeks`` this run). Exempting identities present
+                    # in ``valid_wr_weeks`` preserves the cleanup intent — a
+                    # genuinely orphaned legacy sub-helper file is NEVER in
+                    # ``valid_wr_weeks`` because Task 1 stopped emitting it — while
+                    # protecting a legitimate live non-sub artifact from an
+                    # every-run delete/regenerate/re-upload churn loop.
                     if (
                         sub_wr_scope is not None
                         and wr in sub_wr_scope
                         and sub_offcontract_variants is not None
                         and variant in sub_offcontract_variants
+                        and ident not in valid_wr_weeks
                     ):
                         off_contract_attachments.append(att)
                         continue
@@ -3159,6 +3177,20 @@ def _run_phase_1_1_hash_prune(hash_history: dict, groups: dict) -> None:
         #   after Task 1 stops emitting the legacy `_HELPER_<name>` key for
         #   subcontractor rows. Both are pre-fix leftovers in
         #   hash_history.json on existing deployments.
+        # IN-01 (review follow-up): the ``_hk_variant == 'helper'`` clause
+        # intentionally matches a 'helper' key at ANY part count, not just
+        # the documented 6-part production shape. Real production helper
+        # keys ARE 6-part — ``history_key = f"{wr}|{week}|{variant}|
+        # {identifier}"`` with ``identifier = f"{foreman}|{dept}|{job}"``
+        # for the helper variant — but the broad match is a deliberately
+        # safe superset for TWO reasons: (1) the version sentinel makes this
+        # prune one-time, and (2) the prune only DROPS a hash-history entry,
+        # forcing at most one benign regeneration on the next run — it never
+        # deletes a file. So even the WR-01 cross-sheet-overlap case (a live
+        # non-sub helper key for a WR that also has sub rows) is benign here:
+        # the file regenerates once. This is unlike the every-run TARGET
+        # ``cleanup_untracked_sheet_attachments`` gate, which DOES delete and
+        # therefore carries the ``ident not in valid_wr_weeks`` exemption.
         if _hk_wr in _sub_wr_scope and (
             (len(_parts) == 4 and _hk_variant == 'primary' and _parts[3] == '')
             or _hk_variant == 'helper'

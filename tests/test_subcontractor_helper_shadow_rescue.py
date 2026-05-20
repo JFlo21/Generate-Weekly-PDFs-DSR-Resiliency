@@ -691,6 +691,62 @@ class TestLegacyHelperTargetCleanupE2E(unittest.TestCase):
             f"Non-sub WR _Helper_ must NOT be deleted; got: {deletes}",
         )
 
+    def test_target_cleanup_exempts_live_helper_for_overlapping_sub_wr(self):
+        """WR-01 (review follow-up): cross-sheet WR overlap exemption.
+
+        A single WR# can be in ``sub_wr_scope`` (it has subcontractor
+        ``_ReducedSub`` rows on a sub sheet) AND simultaneously have a
+        LEGITIMATE live ``_Helper_<name>.xlsx`` produced this run from a
+        NON-subcontractor sheet (its identity is in ``valid_wr_weeks``).
+        Because ``sub_wr_scope`` keys on WR# alone but
+        ``is_subcontractor_row`` is decided per-row by source sheet, the
+        SUB-09 off-contract gate would otherwise delete that live file on
+        every run → regenerate → re-upload → delete (a churn loop with a
+        data-absent window). The ``ident not in valid_wr_weeks`` guard
+        must EXEMPT the live identity while STILL deleting a stale orphan
+        legacy ``_Helper_`` (different identity, NOT in valid_wr_weeks) for
+        the same in-scope WR.
+        """
+        # Live non-sub helper for the in-scope WR — identity IS in
+        # valid_wr_weeks (parses to ('90773033','041226','helper','Live_Foreman')).
+        att_live = self._make_attachment(
+            'WR_90773033_WeekEnding_041226_220404_Helper_Live_Foreman_abc123.xlsx',
+            40,
+        )
+        # Stale orphan legacy helper for the SAME in-scope WR — identity
+        # ('90773033','041226','helper','Old_Foreman') is NOT in valid_wr_weeks.
+        att_orphan = self._make_attachment(
+            'WR_90773033_WeekEnding_041226_220404_Helper_Old_Foreman_def456.xlsx',
+            50,
+        )
+        client, sheet = self._build_client_with_attachments(
+            [att_live, att_orphan]
+        )
+        generate_weekly_pdfs.cleanup_untracked_sheet_attachments(
+            client,
+            target_sheet_id=5723337641643908,
+            valid_wr_weeks={('90773033', '041226', 'helper', 'Live_Foreman')},
+            test_mode=False,
+            target_sheet=sheet,
+            sub_wr_scope={'90773033'},
+            sub_offcontract_variants={'helper', 'primary'},
+        )
+        deletes = [
+            call.args for call in client.Attachments.delete_attachment.call_args_list
+        ]
+        self.assertNotIn(
+            (5723337641643908, 40), deletes,
+            f"WR-01: a live non-sub _Helper_ whose identity is in "
+            f"valid_wr_weeks must be EXEMPT from the sub_wr_scope "
+            f"off-contract gate; got deletes={deletes}",
+        )
+        self.assertIn(
+            (5723337641643908, 50), deletes,
+            f"WR-01: a stale orphan _Helper_ (NOT in valid_wr_weeks) for "
+            f"the same in-scope WR must still be deleted as off-contract; "
+            f"got deletes={deletes}",
+        )
+
 
 class TestHashPruneIdempotency(unittest.TestCase):
     """D-21(e) + SUB-12 + Pitfall 4 closure."""
