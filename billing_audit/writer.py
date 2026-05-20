@@ -695,6 +695,11 @@ def _lookup_attribution_all(
     (already #NO MATCH/blank-normalized to NULL per role by the RPC).
     Shares the ``op="lookup_attribution"`` retry/circuit-breaker with
     the public ``lookup_attribution`` wrapper.
+
+    PII-out: the returned row dict carries per-row PII
+    (``primary_foreman`` / ``helper`` / ``vac_crew`` names); callers
+    MUST treat every returned field as PII and follow the same
+    redaction rules they use for live Smartsheet values.
     """
     from billing_audit import client as _client_mod
 
@@ -729,7 +734,7 @@ def _lookup_attribution_all(
         return None, "fetch_failure"
 
     data = getattr(result, "data", None)
-    if isinstance(data, dict):
+    if isinstance(data, dict) and data:
         return data, "success"
     if isinstance(data, list) and data:
         first = data[0]

@@ -4650,6 +4650,30 @@ class TestLookupAttributionAll(unittest.TestCase):
         self.assertIsNone(row)
         self.assertEqual(status, "no_row")
 
+    def test_no_row_empty_dict(self):
+        from billing_audit.writer import _lookup_attribution_all
+        client = _make_fake_supabase_client(
+            rpc_side_effect=[mock.Mock(data={})],
+        )
+        with mock.patch("billing_audit.writer.get_client",
+                        return_value=client):
+            row, status = _lookup_attribution_all(
+                "91467680", datetime.date(2026, 4, 19), 12345)
+        self.assertIsNone(row)
+        self.assertEqual(status, "no_row")
+
+    def test_no_row_data_none(self):
+        from billing_audit.writer import _lookup_attribution_all
+        client = _make_fake_supabase_client(
+            rpc_side_effect=[mock.Mock(data=None)],
+        )
+        with mock.patch("billing_audit.writer.get_client",
+                        return_value=client):
+            row, status = _lookup_attribution_all(
+                "91467680", datetime.date(2026, 4, 19), 12345)
+        self.assertIsNone(row)
+        self.assertEqual(status, "no_row")
+
     def test_fetch_failure_when_with_retry_returns_none(self):
         from billing_audit.writer import _lookup_attribution_all
         client = _make_fake_supabase_client()
