@@ -486,6 +486,18 @@ SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED = os.getenv(
     'SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED', '1'
 ).strip().lower() in ('1', 'true', 'yes', 'on')
 
+# Phase 1.1 UAT gap closure (SUB-09 helper dimension): default-ON
+# kill switch for the one-time removal of pre-existing legacy
+# `_Helper_<name>` (and bare-primary) attachments on TARGET_SHEET_ID
+# for subcontractor WRs. These are duplicate-billing leftovers from
+# pre-fix merged runs (Task 1 stops NEW ones; this removes OLD ones).
+# Set to '0' to skip the destructive cleanup (the duplicates then
+# persist until manually removed). Workflow-pinned per [2026-05-15
+# 12:00] rule 7.
+SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED = os.getenv(
+    'SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED', '1'
+).strip().lower() in ('1', 'true', 'yes', 'on')
+
 # Cutoff date for ``_AEPBillable`` variant generation. Awarded to
 # Linetec on 2026-04-12 (subcontractor rate contract). Plan 2 (parser
 # extension) and Plan 3 (variant emission) gate variant emission on
@@ -624,6 +636,15 @@ logging.info(
 logging.info(
     f"📋 SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED="
     f"{SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED}"
+)
+
+# Phase 1.1 UAT gap closure (SUB-09 helper dimension): surface resolved
+# kill-switch state at startup so operators grepping the banner can see
+# the active feature state at a glance (per [2026-04-23 00:00] ledger
+# rule 3). Banner body carries no row PII (just the resolved bool).
+logging.info(
+    f"📋 SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED="
+    f"{SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED}"
 )
 
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
@@ -2630,6 +2651,8 @@ def cleanup_untracked_sheet_attachments(
     attachment_cache: dict | None = None,
     target_sheet=None,
     variant_whitelist: set[str] | None = None,
+    sub_wr_scope: set[str] | None = None,
+    sub_offcontract_variants: set[str] | None = None,
 ):
     """Prune only older variants for identities processed this run (VARIANT-AWARE).
 
@@ -2650,6 +2673,26 @@ def cleanup_untracked_sheet_attachments(
         decision rests on identity grouping + valid_wr_weeks.
         PPP cleanup passes ``{'reduced_sub', 'reduced_sub_helper'}``;
         TARGET cleanup passes None.
+
+    sub_wr_scope: Phase 1.1 UAT gap closure (SUB-09 helper dimension).
+        When provided, any attachment whose parsed ``wr`` is in this set
+        AND whose parsed ``variant`` is in ``sub_offcontract_variants``
+        is treated as off-contract for THIS sheet and unconditionally
+        deleted. Used to remove pre-existing legacy ``_Helper_<name>``
+        and bare-primary attachments for subcontractor WRs from
+        TARGET_SHEET_ID (Task 1 stops NEW ones; this removes OLD ones).
+        When None (default), this gate is skipped entirely —
+        byte-identical legacy TARGET behaviour for all callers that
+        do not pass the parameter.
+
+    sub_offcontract_variants: Set of variant strings that are off-contract
+        for WRs in ``sub_wr_scope`` on THIS sheet. For TARGET cleanup,
+        pass ``{'helper', 'primary'}`` (subcontractor non-helper rows
+        now emit only variant keys per Bug B1; subcontractor helper rows
+        now emit only shadow variants per Task 1 — so any bare 'primary'
+        or legacy 'helper' attachment for a sub WR is a pre-fix orphan).
+        When None and ``sub_wr_scope`` is provided, this gate is a no-op.
+        Ignored when ``sub_wr_scope`` is None.
 
     CRITICAL: Identity includes variant dimension to prevent primary/helper cross-deletion.
               Each (wr, week, variant, identifier) is treated as independent.
@@ -2696,6 +2739,19 @@ def cleanup_untracked_sheet_attachments(
                     if (
                         variant_whitelist is not None
                         and variant not in variant_whitelist
+                    ):
+                        off_contract_attachments.append(att)
+                        continue
+                    # Phase 1.1 UAT gap closure (SUB-09 helper dimension):
+                    # remove pre-existing legacy `_Helper_<name>` / bare-primary
+                    # attachments for subcontractor WRs on TARGET. Task 1 stops
+                    # NEW ones at the producer; this removes leftovers already
+                    # uploaded by pre-fix merged runs.
+                    if (
+                        sub_wr_scope is not None
+                        and wr in sub_wr_scope
+                        and sub_offcontract_variants is not None
+                        and variant in sub_offcontract_variants
                     ):
                         off_contract_attachments.append(att)
                         continue
@@ -2991,6 +3047,31 @@ def save_hash_history(path: str, history: dict):
         logging.info(f"📝 Hash history saved ({len(history)} entries)")
     except Exception as e:
         logging.warning(f"⚠️ Failed to save hash history: {e}")
+
+
+def _build_subcontractor_wr_scope(groups: dict) -> set[str]:
+    """Return the set of sanitized WR tokens active as subcontractor in this run.
+
+    Scans ``groups.keys()`` for keys containing ``'_REDUCEDSUB'`` (the
+    simplified D-18 detection per RESEARCH.md §HP planner-discretion
+    recommendation), extracts each group's WR# from the first row of the
+    group, and returns the sanitized set.
+
+    Shared by ``_run_phase_1_1_hash_prune`` (hash-prune scope) and the
+    TARGET ``cleanup_untracked_sheet_attachments`` call site (SUB-09
+    helper-dimension cleanup scope). A single implementation prevents the
+    scope-build drift that the [2026-05-15 12:00] three-site invariant
+    warns against.
+    """
+    _scope: set[str] = set()
+    for _key, _g_rows in groups.items():
+        if '_REDUCEDSUB' in _key and _g_rows:
+            _g_wr_raw = _g_rows[0].get('Work Request #', '')
+            _g_wr = str(_g_wr_raw).split('.')[0]
+            _g_wr = _RE_SANITIZE_HELPER_NAME.sub('_', _g_wr)[:50]
+            if _g_wr:
+                _scope.add(_g_wr)
+    return _scope
 
 
 def _run_phase_1_1_hash_prune(hash_history: dict, groups: dict) -> None:
@@ -7822,8 +7903,25 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             # reduced_sub_helper). The whitelist is per-sheet; passing
             # variant_whitelist=None (default — kwarg omitted below)
             # preserves byte-identical legacy behaviour on TARGET.
+            #
+            # Phase 1.1 UAT gap closure (SUB-09 helper dimension): build the
+            # subcontractor WR scope from this run's groups (shared helper)
+            # and pass it to the TARGET cleanup to delete pre-existing legacy
+            # _Helper_<name> and bare-primary attachments. Kill-switch-gated:
+            # SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED=0 reverts to
+            # byte-identical pre-fix TARGET behaviour (sub orphans persist).
+            _sub_scope = (
+                _build_subcontractor_wr_scope(groups)
+                if SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED
+                else None
+            )
             with sentry_sdk.start_span(op="smartsheet.cleanup", name="Cleanup untracked sheet attachments"):
-                cleanup_untracked_sheet_attachments(client, TARGET_SHEET_ID, valid_wr_weeks, TEST_MODE, attachment_cache=_cleanup_cache, target_sheet=_target_sheet_obj)
+                cleanup_untracked_sheet_attachments(
+                    client, TARGET_SHEET_ID, valid_wr_weeks, TEST_MODE,
+                    attachment_cache=_cleanup_cache, target_sheet=_target_sheet_obj,
+                    sub_wr_scope=_sub_scope,
+                    sub_offcontract_variants={'helper', 'primary'} if _sub_scope else None,
+                )
 
             # Phase 01 gap closure (REVIEW-WR-01): parallel cleanup pass
             # for SUBCONTRACTOR_PPP_SHEET_ID. The TARGET_SHEET_ID
