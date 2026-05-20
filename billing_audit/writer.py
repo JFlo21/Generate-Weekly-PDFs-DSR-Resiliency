@@ -45,7 +45,7 @@ import os
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any
+from typing import Any, NamedTuple
 
 from billing_audit.client import (
     get_client,
@@ -672,7 +672,7 @@ def emit_run_fingerprint(wr: str, week_ending: datetime.date,
 
 def _lookup_attribution_all(
     wr: str,
-    week_ending: datetime.date,
+    week_ending: datetime.date | None,
     smartsheet_row_id: int,
 ) -> tuple[dict | None, str]:
     """Fetch the full frozen-attribution row for ONE row, with status.
@@ -741,6 +741,76 @@ def _lookup_attribution_all(
         if isinstance(first, dict):
             return first, "success"
     return None, "no_row"
+
+
+class ResolveOutcome(NamedTuple):
+    """Result of resolving the claiming foreman for ONE row.
+
+    action : 'use' to group/name by ``name``; 'hold' to defer the row
+             this run (attribution unavailable — correctness over
+             availability).
+    name   : the claimer name when action == 'use'; None on 'hold'.
+    source : 'frozen' | 'current' | None — provenance for audit/log.
+    reason : 'success' | 'no_history' | 'disabled' | 'fetch_failure'.
+    """
+
+    action: str
+    name: str | None
+    source: str | None
+    reason: str
+
+
+# Variant → which frozen role column governs that file's claimer.
+ROLE_BY_VARIANT: dict[str, str] = {
+    "primary": "primary_foreman",
+    "reduced_sub": "primary_foreman",
+    "aep_billable": "primary_foreman",
+    "helper": "helper",
+    "reduced_sub_helper": "helper",
+    "aep_billable_helper": "helper",
+    "vac_crew": "vac_crew",
+}
+
+
+def resolve_claimer(
+    variant: str,
+    current_value: str | None,
+    *,
+    wr: str,
+    week_ending: datetime.date | None,
+    row_id: int,
+    enabled: bool,
+) -> ResolveOutcome:
+    """Resolve the claiming foreman for ONE row (Foundation A contract).
+
+    See docs/superpowers/specs/2026-05-20-claim-attribution-
+    foundation-design.md §5 for the full decision table. ``enabled``
+    is the caller's kill switch — A does not own a flag.
+    ``current_value`` is the live Smartsheet value for this variant's
+    role (the fallback).
+
+    HOLD is returned ONLY on a genuine outage (``fetch_failure``); a
+    brand-new claim (``no_history``) uses the current value because
+    this run is what freezes it.
+    """
+    if not enabled:
+        return ResolveOutcome("use", current_value, "current", "disabled")
+
+    row, status = _lookup_attribution_all(wr, week_ending, row_id)
+    if status == "unavailable":
+        return ResolveOutcome("use", current_value, "current", "disabled")
+    if status == "fetch_failure":
+        return ResolveOutcome("hold", None, None, "fetch_failure")
+    if status == "no_row" or row is None:
+        return ResolveOutcome(
+            "use", current_value, "current", "no_history")
+
+    role = ROLE_BY_VARIANT.get(variant, "primary_foreman")
+    frozen = row.get(role)
+    if frozen:
+        return ResolveOutcome(
+            "use", str(frozen).strip(), "frozen", "success")
+    return ResolveOutcome("use", current_value, "current", "no_history")
 
 
 def lookup_attribution(

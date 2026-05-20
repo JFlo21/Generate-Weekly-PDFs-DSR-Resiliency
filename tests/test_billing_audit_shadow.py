@@ -4720,5 +4720,117 @@ class TestLookupAttributionAll(unittest.TestCase):
         self.assertEqual(status, "no_row")
 
 
+class TestResolveClaimer(unittest.TestCase):
+    """Foundation A: resolve_claimer decision table + role map."""
+
+    def setUp(self):
+        _reset_all()
+
+    def tearDown(self):
+        _reset_all()
+
+    def _patch_all(self, row, status):
+        return mock.patch(
+            "billing_audit.writer._lookup_attribution_all",
+            return_value=(row, status),
+        )
+
+    def test_disabled_uses_current(self):
+        from billing_audit.writer import resolve_claimer
+        out = resolve_claimer(
+            "helper", "CurrentBob", wr="1", week_ending=None,
+            row_id=1, enabled=False)
+        self.assertEqual(out.action, "use")
+        self.assertEqual(out.name, "CurrentBob")
+        self.assertEqual(out.source, "current")
+        self.assertEqual(out.reason, "disabled")
+
+    def test_unavailable_uses_current(self):
+        from billing_audit.writer import resolve_claimer
+        with self._patch_all(None, "unavailable"):
+            out = resolve_claimer(
+                "helper", "CurrentBob",
+                wr="1", week_ending=datetime.date(2026, 4, 19),
+                row_id=1, enabled=True)
+        self.assertEqual(out.action, "use")
+        self.assertEqual(out.name, "CurrentBob")
+        self.assertEqual(out.reason, "disabled")
+
+    def test_fetch_failure_holds(self):
+        from billing_audit.writer import resolve_claimer
+        with self._patch_all(None, "fetch_failure"):
+            out = resolve_claimer(
+                "helper", "CurrentBob",
+                wr="1", week_ending=datetime.date(2026, 4, 19),
+                row_id=1, enabled=True)
+        self.assertEqual(out.action, "hold")
+        self.assertIsNone(out.name)
+        self.assertEqual(out.reason, "fetch_failure")
+
+    def test_no_row_uses_current_no_history(self):
+        from billing_audit.writer import resolve_claimer
+        with self._patch_all(None, "no_row"):
+            out = resolve_claimer(
+                "helper", "CurrentBob",
+                wr="1", week_ending=datetime.date(2026, 4, 19),
+                row_id=1, enabled=True)
+        self.assertEqual(out.action, "use")
+        self.assertEqual(out.name, "CurrentBob")
+        self.assertEqual(out.reason, "no_history")
+
+    def test_blank_role_uses_current_no_history(self):
+        from billing_audit.writer import resolve_claimer
+        row = {"primary_foreman": None, "helper": None,
+               "helper_dept": None, "vac_crew": None,
+               "source_run_id": "r"}
+        with self._patch_all(row, "success"):
+            out = resolve_claimer(
+                "helper", "CurrentBob",
+                wr="1", week_ending=datetime.date(2026, 4, 19),
+                row_id=1, enabled=True)
+        self.assertEqual(out.action, "use")
+        self.assertEqual(out.name, "CurrentBob")
+        self.assertEqual(out.reason, "no_history")
+
+    def test_success_uses_frozen(self):
+        from billing_audit.writer import resolve_claimer
+        row = {"primary_foreman": "Alice", "helper": "FrozenBob",
+               "helper_dept": "500", "vac_crew": "Vinny",
+               "source_run_id": "r"}
+        with self._patch_all(row, "success"):
+            out = resolve_claimer(
+                "helper", "CurrentBob",
+                wr="1", week_ending=datetime.date(2026, 4, 19),
+                row_id=1, enabled=True)
+        self.assertEqual(out.action, "use")
+        self.assertEqual(out.name, "FrozenBob")
+        self.assertEqual(out.source, "frozen")
+        self.assertEqual(out.reason, "success")
+
+    def test_role_map_selects_correct_column(self):
+        from billing_audit.writer import resolve_claimer
+        row = {"primary_foreman": "Alice", "helper": "FrozenBob",
+               "helper_dept": "500", "vac_crew": "Vinny",
+               "source_run_id": "r"}
+        cases = {
+            "primary": "Alice",
+            "reduced_sub": "Alice",
+            "aep_billable": "Alice",
+            "helper": "FrozenBob",
+            "reduced_sub_helper": "FrozenBob",
+            "aep_billable_helper": "FrozenBob",
+            "vac_crew": "Vinny",
+        }
+        for variant, expected in cases.items():
+            with self._patch_all(row, "success"):
+                out = resolve_claimer(
+                    variant, "CURRENT",
+                    wr="1", week_ending=datetime.date(2026, 4, 19),
+                    row_id=1, enabled=True)
+            self.assertEqual(
+                out.name, expected,
+                f"variant {variant} should read its frozen role")
+
+
 if __name__ == "__main__":
     unittest.main()
