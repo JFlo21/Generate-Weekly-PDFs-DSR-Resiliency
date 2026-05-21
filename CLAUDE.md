@@ -2389,3 +2389,54 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   workflow's helper and primary claim attribution; the primary-workflow
   (non-sub) primary partitioning is still Sub-project D, not yet
   shipped.
+- [2026-05-21 10:30] Production hotfix (PR #216, merged to master) +
+  carried into Subproject B (PR #215): **helper-COMPLETED subcontractor
+  rows were being credited to the PRIMARY ``_ReducedSub`` /
+  ``_AEPBillable`` files.** When a helper claims a line item they check
+  BOTH ``Units Completed?`` AND ``Helping Foreman Completed Unit?`` (with
+  ``Foreman Helping?`` set) — on Smartsheet that credits the HELPER, so
+  the row must go SOLELY to the helper-shadow files
+  (``_ReducedSub_Helper_<helper>`` / ``_AEPBillable_Helper_<helper>``).
+  Instead the subcontractor primary emission in ``group_source_rows``
+  fired for EVERY accepted subcontractor row, so the helper-completed
+  row landed in BOTH the primary and the helper file — double-counted
+  and wrongly credited to the primary foreman. **Root cause:** the
+  subcontractor primary emission block (``if is_subcontractor_row and
+  SUBCONTRACTOR_RATE_VARIANTS_ENABLED:``) never replicated the
+  ``valid_helper_row`` exclusion that the legacy main-file
+  primary-vs-helper cascade has had all along (the ``elif
+  valid_helper_row:`` "EXCLUDING from main Excel" branch). Pre-existing
+  since Phase 1 (``SUBCONTRACTOR_RATE_VARIANTS_ENABLED`` is pinned on in
+  production); NOT a Subproject B regression — B preserved the behavior
+  and only renamed the keys to ``_USER_<claimer>``. **Fix:** compute a
+  local ``_sub_is_valid_helper_row`` (mirrors the helper-shadow block's
+  recompute — ``not is_vac_crew_row and RES_GROUPING_MODE in
+  ('helper','both') and is_helper_row and helper_foreman and
+  helper_dept``) and gate the primary emission on it. On master the
+  bare ``_REDUCEDSUB``/``_AEPBILLABLE`` emission is wrapped in ``if not
+  _sub_is_valid_helper_row:``; in Subproject B ``_b_primary_claimer``
+  defaults to ``None`` and is only resolved for non-helper rows, so the
+  existing ``if _b_primary_claimer is not None`` gate suppresses the
+  ``_USER_`` emission and skips recording a HOLD for helper rows.
+  ``_snap_for_cutoff`` is hoisted above the guard because the unchanged
+  helper-shadow block depends on it. **New rules:** (1) Any NEW
+  subcontractor variant emission path that produces a per-WR PRIMARY
+  file (the ``reduced_sub`` / ``aep_billable`` variants today, and any
+  future primary-side variant) MUST replicate the ``valid_helper_row``
+  exclusion — a helper-completed row belongs solely to the
+  helper-shadow files. This is the variant-side analog of the legacy
+  main-file exclusion noted in the CLAUDE.md "Helper rows" section.
+  (2) The coverage gap that let this ship for ~two phases: the existing
+  helper-row tests asserted the shadow keys were PRESENT and the legacy
+  ``_HELPER_`` key was ABSENT, but NEVER asserted the bare primary
+  key's ABSENCE. Any test for an emission path that EXCLUDES a row
+  class MUST assert the excluded key is absent, not merely that the
+  expected keys are present — "present" assertions alone are blind to
+  over-emission. Regression tests:
+  ``tests/test_subcontractor_helper_shadow_rescue.py::TestEndToEndPipeline::test_subcontractor_helper_row_excluded_from_primary_variant_files``
+  (master, merged into B) and
+  ``tests/test_subcontractor_primary_claim_attribution.py::TestPrePassEmission::test_helper_completed_row_excluded_from_primary_user_variants``
+  (B's ``_USER_`` variant — asserts no primary key even when the
+  parallel pre-pass resolves a claimer for the helper row). Verified
+  TDD red→green; ``pytest tests/`` → 712 on master, 753 on the merged
+  Subproject B branch.
