@@ -200,6 +200,21 @@ class TestVacCrewIdentitySitesAndDisplay(unittest.TestCase):
             "current_keys must derive vac_crew identifier from the claimer",
         )
 
+    def test_main_loop_identity_site_carries_vac_claimer(self):
+        # Site 1: the main-loop identifier/history_key for vac_crew must
+        # derive from __current_foreman, not hard-code '' (else the hash
+        # entry is stale-pruned every run → permanent regeneration churn).
+        self.assertNotRegex(
+            self._src,
+            r"variant == 'vac_crew':\s*\n\s*# VAC Crew variant: no sub-identifier",
+            "Site 1 main-loop must not use the old 'no sub-identifier' comment (legacy blank pattern)",
+        )
+        self.assertNotRegex(
+            self._src,
+            r"variant == 'vac_crew':[^\n]*\n[^\n]*\n\s*identifier = ''",
+            "Site 1 main-loop identifier must not hard-code '' for vac_crew",
+        )
+
     def test_generate_excel_vac_crew_file_named_by_claimer(self):
         import datetime as dt, tempfile, openpyxl
         tmp = tempfile.TemporaryDirectory()

@@ -7826,9 +7826,14 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     # file_identifier matches the sanitized name that generate_excel() puts in the filename
                     file_identifier = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50] if helper_foreman else ''
                 elif variant == 'vac_crew':
-                    # VAC Crew variant: no sub-identifier needed (all vac_crew rows for WR/week go together)
-                    identifier = ''
-                    file_identifier = ''
+                    # Subproject C identity site (Site 1 — main-loop identifier /
+                    # history_key / file_identifier). Must match the sanitized
+                    # claimer used at Site 2 (valid_wr_weeks) + Site 3 (current_keys)
+                    # + the filename, or the hash entry is stale-pruned every run
+                    # causing permanent regeneration churn and orphan accumulation.
+                    _vc = first_row.get('__current_foreman', '')
+                    identifier = _RE_SANITIZE_IDENTIFIER.sub('_', _vc)[:50] if _vc else ''
+                    file_identifier = identifier
                 elif variant in ('reduced_sub', 'aep_billable'):
                     # Subproject B identity site (Site 1 — main-loop
                     # identifier). Partitioned by the frozen primary
