@@ -520,7 +520,7 @@ SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED = os.getenv(
     'SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED', '1'
 ).strip().lower() in ('1', 'true', 'yes', 'on')
 
-# Sub-project C (2026-05-21): default-ON kill switch that enables
+# Subproject C (2026-05-21): default-ON kill switch that enables
 # per-claimer partitioning of ``_VacCrew`` Excel files. When enabled,
 # each vac-crew Excel is partitioned by the FROZEN vac-crew claimer
 # (``vac_crew`` role from ``billing_audit.attribution_snapshot`` via
@@ -531,7 +531,7 @@ VAC_CREW_CLAIM_ATTRIBUTION_ENABLED = os.getenv(
     'VAC_CREW_CLAIM_ATTRIBUTION_ENABLED', '1'
 ).strip().lower() in ('1', 'true', 'yes', 'on')
 
-# Sub-project C (2026-05-21): default-ON kill switch for the one-time
+# Subproject C (2026-05-21): default-ON kill switch for the one-time
 # removal of legacy UNPARTITIONED ``_VacCrew`` attachments (no
 # ``_User_`` token, parsed identifier == '') on TARGET_SHEET_ID for
 # vac-crew WRs, once those variants are re-partitioned by frozen
@@ -701,7 +701,7 @@ logging.info(
     f"{SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED}"
 )
 
-# Sub-project C: surface resolved kill-switch state at startup so
+# Subproject C: surface resolved kill-switch state at startup so
 # operators grepping the banner see the active feature state at a
 # glance. Banner body carries no row PII (just the resolved bools).
 logging.info(
@@ -2503,7 +2503,8 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
         - Primary: (wr, week, 'primary', None)
         - Primary+User: (wr, week, 'primary', user_identifier)
         - Helper: (wr, week, 'helper', helper_name)
-        - VAC Crew: (wr, week, 'vac_crew', '')
+        - VAC Crew (legacy, no claimer): (wr, week, 'vac_crew', '')
+        - VAC Crew (named, Subproject C): (wr, week, 'vac_crew', crew_name)
         - AEP Billable: (wr, week, 'aep_billable', '')
         - Reduced Sub: (wr, week, 'reduced_sub', '')
         - AEP Billable Helper: (wr, week, 'aep_billable_helper', helper_name)
@@ -2518,7 +2519,8 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
     - WR_{wr}_WeekEnding_{week}_{timestamp}_{hash}.xlsx (primary)
     - WR_{wr}_WeekEnding_{week}_{timestamp}_User_{user}_{hash}.xlsx (primary+user)
     - WR_{wr}_WeekEnding_{week}_{timestamp}_Helper_{helper}_{hash}.xlsx (helper)
-    - WR_{wr}_WeekEnding_{week}_{timestamp}_VacCrew_{hash}.xlsx (VAC Crew)
+    - WR_{wr}_WeekEnding_{week}_{timestamp}_VacCrew_{hash}.xlsx (VAC Crew, legacy)
+    - WR_{wr}_WeekEnding_{week}_{timestamp}_VacCrew_{name}_{hash}.xlsx (VAC Crew named, Subproject C)
     - WR_{wr}_WeekEnding_{week}_{timestamp}_AEPBillable_{hash}.xlsx (AEP Billable)
     - WR_{wr}_WeekEnding_{week}_{timestamp}_ReducedSub_{hash}.xlsx (Reduced Sub)
     - WR_{wr}_WeekEnding_{week}_{timestamp}_AEPBillable_Helper_{helper}_{hash}.xlsx
@@ -2677,13 +2679,15 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
             variant = 'reduced_sub'
             identifier = ''
     elif 'VacCrew' in tail:
-        # Sub-project C: _VacCrew_<name>_<hash>. Checked BEFORE the 'Helper'
+        # Subproject C: _VacCrew_<name>_<hash>. Checked BEFORE the 'Helper'
         # scan so a crew name containing the 'Helper' token isn't
         # misclassified as a helper variant (B round-7 lesson). Span-join so
-        # an underscored name survives. Legacy _VacCrew (no name) → ''.
+        # an underscored name survives. Legacy _VacCrew (no name) -> ''.
         variant = 'vac_crew'
         vac_idx_rel = tail.index('VacCrew')
-        identifier = '_'.join(tail[vac_idx_rel + 1:-1])
+        identifier = ''  # legacy _VacCrew (no name) -> '' per identity contract
+        if vac_idx_rel + 1 < len(tail):
+            identifier = '_'.join(tail[vac_idx_rel + 1:-1])
     elif 'Helper' in tail:
         variant = 'helper'
         helper_idx_rel = tail.index('Helper')
@@ -5710,7 +5714,7 @@ def _subcontractor_primary_variant_suffix(
 def _vac_crew_variant_suffix(claimer: str, wr_num: str, week_end_raw: str) -> str:
     """Build the filename suffix for a per-claimer VAC crew file.
 
-    Sub-project C (2026-05-21): vac_crew files are partitioned by frozen
+    Subproject C (2026-05-21): vac_crew files are partitioned by frozen
     vac-crew claimer and named ``_VacCrew_<sanitized name>``. Raises on an
     empty claimer (production never hits this — the emission falls back to
     'Unknown'); the raise surfaces data drift instead of an ambiguous name.
@@ -5718,7 +5722,7 @@ def _vac_crew_variant_suffix(claimer: str, wr_num: str, week_end_raw: str) -> st
     if not claimer:
         logging.error(
             f"⚠️ vac_crew variant row missing claimer for WR {wr_num} "
-            f"week {week_end_raw}; filename would be ambiguous — raising."
+            f"week {week_end_raw}; filename would be ambiguous — raising to surface data drift."
         )
         raise ValueError(
             f"vac_crew requires a non-empty claimer; got empty for "

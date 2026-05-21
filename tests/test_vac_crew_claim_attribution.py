@@ -1,4 +1,4 @@
-"""Sub-project C — VAC Crew claim attribution tests.
+"""Subproject C — VAC Crew claim attribution tests.
 
 Drives real production code paths (parser, group_source_rows pre-pass +
 emission, generate_excel, migration cleanup, hash prune, HOLD wiring) per
@@ -81,4 +81,14 @@ class TestVacCrewSuffixAndParser(unittest.TestCase):
         self.assertEqual(
             generate_weekly_pdfs.build_group_identity(fname),
             ('91467680', '041926', 'vac_crew', ''),
+        )
+
+    def test_suffix_truncates_long_name_and_round_trips(self):
+        long_name = 'A' * 60
+        suffix = generate_weekly_pdfs._vac_crew_variant_suffix(long_name, '91467680', '041926')
+        self.assertEqual(suffix, '_VacCrew_' + 'A' * 50)
+        fname = f'WR_91467680_WeekEnding_041926_120000{suffix}_abc123.xlsx'
+        self.assertEqual(
+            generate_weekly_pdfs.build_group_identity(fname),
+            ('91467680', '041926', 'vac_crew', 'A' * 50),
         )
