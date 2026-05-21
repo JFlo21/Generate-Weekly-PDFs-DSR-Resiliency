@@ -3346,7 +3346,7 @@ def _run_subproject_b_hash_prune(hash_history: dict, groups: dict) -> None:
         return
 
     _scope = _build_subcontractor_wr_scope(groups)
-    _orphans = []
+    _orphans: list[str] = []
     for _hk in list(hash_history.keys()):
         if isinstance(_hk, str) and _hk.startswith('_'):
             continue
