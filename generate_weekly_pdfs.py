@@ -6030,13 +6030,21 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
             helper_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50]
             variant_suffix = f"_Helper_{helper_sanitized}"
     elif variant == 'vac_crew':
-        # Subproject C: per-claimer suffix so each foreman gets their own file.
-        # Falls back to __vac_crew_name when __current_foreman is absent (legacy
-        # disabled-attribution path) so the suffix is never empty.
-        variant_suffix = _vac_crew_variant_suffix(
-            first_row.get('__current_foreman') or first_row.get('__vac_crew_name', ''),
-            wr_num, week_end_raw,
-        )
+        # Subproject C: suffix is GATED on the kill switch.
+        # Enabled mode: per-claimer _VacCrew_<name> so each foreman's file is
+        # distinct and matches the Sites 1/2/3 identity tuple.
+        # Disabled mode: exact legacy bare '_VacCrew' suffix — no claimer name
+        # embedded, preserving byte-identical filenames with pre-C attachments.
+        # NOTE: __vac_crew_name is intentionally NOT used as a fallback in
+        # disabled mode; the legacy contract is a bare '_VacCrew' token, and
+        # falling back to __vac_crew_name would produce _VacCrew_<name> in
+        # disabled mode, which violates the disabled=legacy invariant.
+        _vc_name = first_row.get('__current_foreman', '')
+        if VAC_CREW_CLAIM_ATTRIBUTION_ENABLED and _vc_name:
+            variant_suffix = _vac_crew_variant_suffix(_vc_name, wr_num, week_end_raw)
+        else:
+            # Disabled mode (or no claimer resolved) → exact legacy bare suffix.
+            variant_suffix = '_VacCrew'
     elif variant == 'primary':
         # Primary variant (no suffix needed)
         variant_suffix = ''
@@ -7827,12 +7835,16 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     file_identifier = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50] if helper_foreman else ''
                 elif variant == 'vac_crew':
                     # Subproject C identity site (Site 1 — main-loop identifier /
-                    # history_key / file_identifier). Must match the sanitized
-                    # claimer used at Site 2 (valid_wr_weeks) + Site 3 (current_keys)
-                    # + the filename, or the hash entry is stale-pruned every run
-                    # causing permanent regeneration churn and orphan accumulation.
+                    # history_key / file_identifier). GATED on the kill switch:
+                    # disabled mode MUST reproduce the exact legacy '' identifier
+                    # (bare _VacCrew filename, bare history_key) so existing
+                    # attachments are not treated as stale and regeneration churn
+                    # is not triggered. Enabled mode uses the sanitized claimer.
                     _vc = first_row.get('__current_foreman', '')
-                    identifier = _RE_SANITIZE_IDENTIFIER.sub('_', _vc)[:50] if _vc else ''
+                    identifier = (
+                        _RE_SANITIZE_IDENTIFIER.sub('_', _vc)[:50]
+                        if (VAC_CREW_CLAIM_ATTRIBUTION_ENABLED and _vc) else ''
+                    )
                     file_identifier = identifier
                 elif variant in ('reduced_sub', 'aep_billable'):
                     # Subproject B identity site (Site 1 — main-loop
@@ -8559,9 +8571,15 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     file_id = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50] if helper_foreman else ''
                 elif variant == 'vac_crew':
                     # Subproject C identity site (Site 2 — valid_wr_weeks).
-                    # Mirror Site 1 so cleanup keeps the live per-claimer file.
+                    # GATED on the kill switch (mirrors Site 1): disabled mode
+                    # produces file_id='' so the 4-tuple matches the bare
+                    # _VacCrew attachment identity and cleanup does not delete
+                    # live legacy-mode attachments.
                     _vc = group_rows[0].get('__current_foreman', '')
-                    file_id = _RE_SANITIZE_IDENTIFIER.sub('_', _vc)[:50] if _vc else ''
+                    file_id = (
+                        _RE_SANITIZE_IDENTIFIER.sub('_', _vc)[:50]
+                        if (VAC_CREW_CLAIM_ATTRIBUTION_ENABLED and _vc) else ''
+                    )
                 elif variant in ('reduced_sub', 'aep_billable'):
                     # Subproject B identity site (Site 2 — valid_wr_weeks).
                     # Mirror Site 1 so attachment cleanup keeps the live
@@ -8767,14 +8785,15 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                             _ident = f"{_hf}|{_hd}|{_hj}"
                         elif _variant == 'vac_crew':
                             # Subproject C identity site (Site 3 —
-                            # current_keys). Must match the history_key
-                            # written at Site 1 (sanitized claimer) or
-                            # the fresh entry is treated as stale and
-                            # deleted before save.
+                            # current_keys). GATED on the kill switch (mirrors
+                            # Site 1): disabled mode produces _ident='' so the
+                            # reconstructed current_keys entry matches the
+                            # bare history_key written by Site 1 and the fresh
+                            # entry is not treated as stale and deleted.
                             _vc = group_rows[0].get('__current_foreman', '')
                             _ident = (
                                 _RE_SANITIZE_IDENTIFIER.sub('_', _vc)[:50]
-                                if _vc else ''
+                                if (VAC_CREW_CLAIM_ATTRIBUTION_ENABLED and _vc) else ''
                             )
                         elif _variant in ('reduced_sub', 'aep_billable'):
                             # Subproject B identity site (Site 3 —

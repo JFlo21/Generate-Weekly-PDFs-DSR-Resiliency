@@ -244,3 +244,80 @@ class TestVacCrewIdentitySitesAndDisplay(unittest.TestCase):
             None,
         )
         self.assertEqual(foreman, 'FrozenCrew')  # display = attributed claimer
+
+    def test_disabled_mode_generate_excel_emits_bare_vaccrew_filename(self):
+        """Disabled mode (VAC_CREW_CLAIM_ATTRIBUTION_ENABLED=False) must produce
+        the exact legacy bare _VacCrew suffix — no claimer name — matching the
+        legacy identity tuple '' at Sites 1/2/3 so no churn occurs."""
+        import datetime as dt
+        import tempfile
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        orig_out = generate_weekly_pdfs.OUTPUT_FOLDER
+        orig_flag = generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED
+        generate_weekly_pdfs.OUTPUT_FOLDER = tmp.name
+        generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED = False
+        self.addCleanup(
+            lambda: setattr(generate_weekly_pdfs, 'OUTPUT_FOLDER', orig_out)
+        )
+        self.addCleanup(
+            lambda: setattr(
+                generate_weekly_pdfs,
+                'VAC_CREW_CLAIM_ATTRIBUTION_ENABLED',
+                orig_flag,
+            )
+        )
+        row = {
+            'Work Request #': '91467680',
+            'Units Completed?': True,
+            'Units Total Price': '$100.00',
+            'Customer Name': 'Cust',
+            'Dept #': '500',
+            'Job #': 'J-1',
+            'CU': 'ANC-M',
+            'Work Type': 'Inst',
+            'Quantity': 2,
+            '__variant': 'vac_crew',
+            '__current_foreman': 'CurrentCrew',  # non-empty — must NOT appear in filename
+            '__vac_crew_name': 'CurrentCrew',
+            '__vac_crew_dept': '700',
+            '__vac_crew_job': 'VJ-1',
+            '__week_ending_date': dt.datetime(2026, 4, 19),
+        }
+        result = generate_weekly_pdfs.generate_excel(
+            '041926_91467680_VACCREW', [row], dt.datetime(2026, 4, 19),
+            data_hash='deadbeefcafe0c02',
+        )
+        filename = result[1]
+        # Disabled mode: filename must contain bare _VacCrew token only;
+        # the claimer name must NOT appear in the _VacCrew suffix position.
+        self.assertNotIn('_VacCrew_CurrentCrew', filename,
+                         "Disabled mode must not embed claimer name in _VacCrew token")
+        # Bare _VacCrew followed by the hash/timestamp separator (_, not a name)
+        self.assertRegex(
+            filename,
+            r'_VacCrew_[0-9a-f]+\.xlsx$',
+            "Disabled mode filename must be bare _VacCrew_<hash>.xlsx (no claimer name)",
+        )
+
+    def test_valid_wr_weeks_site2_vac_crew_gated_on_kill_switch(self):
+        """Site 2 grep guard: the valid_wr_weeks vac_crew branch must NOT
+        hard-code file_id='' unconditionally — it must be gated on the flag."""
+        self.assertNotRegex(
+            self._src,
+            r"variant == 'vac_crew':\s*\n\s*#[^\n]*\n\s*_vc = [^\n]+\n\s*file_id = ''",
+            "Site 2 valid_wr_weeks must not hard-code '' for vac_crew unconditionally; "
+            "must be gated on VAC_CREW_CLAIM_ATTRIBUTION_ENABLED",
+        )
+        # Positive guard: the kill-switch name must appear near the vac_crew file_id block.
+        vc_site2_idx = self._src.find(
+            "elif variant == 'vac_crew':\n"
+            "                    # Subproject C identity site (Site 2"
+        )
+        self.assertNotEqual(vc_site2_idx, -1, "Site 2 vac_crew block not found")
+        window = self._src[vc_site2_idx: vc_site2_idx + 750]
+        self.assertIn(
+            'VAC_CREW_CLAIM_ATTRIBUTION_ENABLED',
+            window,
+            "Site 2 vac_crew file_id derivation must reference VAC_CREW_CLAIM_ATTRIBUTION_ENABLED",
+        )
