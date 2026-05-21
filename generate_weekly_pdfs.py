@@ -2691,6 +2691,7 @@ def cleanup_untracked_sheet_attachments(
     variant_whitelist: set[str] | None = None,
     sub_wr_scope: set[str] | None = None,
     sub_offcontract_variants: set[str] | None = None,
+    sub_legacy_primary_variants: set[str] | None = None,
 ):
     """Prune only older variants for identities processed this run (VARIANT-AWARE).
 
@@ -2735,6 +2736,16 @@ def cleanup_untracked_sheet_attachments(
         or legacy 'helper' attachment for a sub WR is a pre-fix orphan).
         When None and ``sub_wr_scope`` is provided, this gate is a no-op.
         Ignored when ``sub_wr_scope`` is None.
+
+    sub_legacy_primary_variants: Subproject B (2026-05-20) one-time
+        migration. When provided, any attachment whose parsed ``wr`` is
+        in ``sub_wr_scope``, whose parsed ``variant`` is in this set, and
+        whose parsed ``identifier`` is empty (legacy unpartitioned
+        ``_ReducedSub`` / ``_AEPBillable``) is unconditionally deleted —
+        UNLESS its identity is in ``valid_wr_weeks`` (live-identity
+        exemption). New per-claimer files (non-empty identifier) are
+        never matched. When None (default), this gate is skipped.
+        Gated at the call sites by SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED.
 
     CRITICAL: Identity includes variant dimension to prevent primary/helper cross-deletion.
               Each (wr, week, variant, identifier) is treated as independent.
@@ -2807,6 +2818,29 @@ def cleanup_untracked_sheet_attachments(
                         and wr in sub_wr_scope
                         and sub_offcontract_variants is not None
                         and variant in sub_offcontract_variants
+                        and ident not in valid_wr_weeks
+                    ):
+                        off_contract_attachments.append(att)
+                        continue
+                    # Subproject B (2026-05-20): one-time migration —
+                    # delete LEGACY UNPARTITIONED `_ReducedSub` /
+                    # `_AEPBillable` attachments (parsed identifier == '')
+                    # for in-scope subcontractor WRs. B re-partitions
+                    # these by frozen claimer, so the bare one-file-per-WR
+                    # attachment is an obsolete duplicate. The
+                    # ``not _identifier`` check is the precise legacy
+                    # selector: new per-claimer files carry a non-empty
+                    # identifier and are NOT deleted here. The
+                    # ``ident not in valid_wr_weeks`` guard is
+                    # belt-and-suspenders (B never emits an empty
+                    # identifier, so a live file is never empty-id) per the
+                    # [2026-05-19 23:45] WR-01 live-identity rule.
+                    if (
+                        sub_wr_scope is not None
+                        and wr in sub_wr_scope
+                        and sub_legacy_primary_variants is not None
+                        and variant in sub_legacy_primary_variants
+                        and not _identifier
                         and ident not in valid_wr_weeks
                     ):
                         off_contract_attachments.append(att)
@@ -8166,9 +8200,24 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             # _Helper_<name> and bare-primary attachments. Kill-switch-gated:
             # SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED=0 reverts to
             # byte-identical pre-fix TARGET behaviour (sub orphans persist).
+            # Subproject B: build the subcontractor WR scope when EITHER
+            # the legacy-helper cleanup (SUB-09) OR the legacy-primary
+            # cleanup (Subproject B) is enabled — the two share the scope.
+            _need_sub_scope = (
+                SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED
+                or SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED
+            )
             _sub_scope = (
                 _build_subcontractor_wr_scope(groups)
-                if SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED
+                if _need_sub_scope
+                else None
+            )
+            _target_offcontract = set()
+            if _sub_scope and SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED:
+                _target_offcontract |= {'helper', 'primary'}
+            _target_legacy_primary = (
+                {'reduced_sub', 'aep_billable'}
+                if _sub_scope and SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED
                 else None
             )
             with sentry_sdk.start_span(op="smartsheet.cleanup", name="Cleanup untracked sheet attachments"):
@@ -8176,7 +8225,8 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     client, TARGET_SHEET_ID, valid_wr_weeks, TEST_MODE,
                     attachment_cache=_cleanup_cache, target_sheet=_target_sheet_obj,
                     sub_wr_scope=_sub_scope,
-                    sub_offcontract_variants={'helper', 'primary'} if _sub_scope else None,
+                    sub_offcontract_variants=(_target_offcontract or None),
+                    sub_legacy_primary_variants=_target_legacy_primary,
                 )
 
             # Phase 01 gap closure (REVIEW-WR-01): parallel cleanup pass
@@ -8249,6 +8299,12 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         attachment_cache=_cleanup_cache,
                         target_sheet=_target_sheet_ppp_obj,
                         variant_whitelist={'reduced_sub', 'reduced_sub_helper'},
+                        sub_wr_scope=_sub_scope,
+                        sub_legacy_primary_variants=(
+                            {'reduced_sub'}
+                            if _sub_scope and SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED
+                            else None
+                        ),
                     )
 
         # Cleanup legacy / stale Excel files so only current system outputs remain

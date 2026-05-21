@@ -318,5 +318,102 @@ class TestHoldSummaryWiredIntoMain(unittest.TestCase):
         self.assertIn('summarize_attribution_holds()', src)
 
 
+class TestMigrationCleanup(unittest.TestCase):
+    """Task 7: legacy unpartitioned primary attachments deleted; new
+    per-claimer files exempt; non-sub WRs untouched."""
+
+    def setUp(self):
+        _ensure_smartsheet_mocked()
+
+    def _att(self, name, att_id):
+        a = mock.MagicMock()
+        a.name = name
+        a.id = att_id
+        return a
+
+    def _client(self, attachments):
+        client = mock.MagicMock()
+        sheet = mock.MagicMock()
+        row = mock.MagicMock()
+        row.id = 1
+        client.Attachments.list_row_attachments.return_value.data = attachments
+        sheet.rows = [row]
+        client.Sheets.get_sheet.return_value = sheet
+        return client, sheet
+
+    def test_legacy_reducedsub_deleted_new_claimer_exempt(self):
+        legacy = self._att(
+            'WR_91467680_WeekEnding_041926_120000_ReducedSub_abc123.xlsx', 10
+        )
+        new_file = self._att(
+            'WR_91467680_WeekEnding_041926_120000_ReducedSub_User_John_Doe_def456.xlsx',
+            20,
+        )
+        client, sheet = self._client([legacy, new_file])
+        generate_weekly_pdfs.cleanup_untracked_sheet_attachments(
+            client,
+            target_sheet_id=5723337641643908,
+            valid_wr_weeks={('91467680', '041926', 'reduced_sub', 'John_Doe')},
+            test_mode=False,
+            target_sheet=sheet,
+            sub_wr_scope={'91467680'},
+            sub_legacy_primary_variants={'reduced_sub', 'aep_billable'},
+        )
+        deletes = [c.args for c in client.Attachments.delete_attachment.call_args_list]
+        self.assertIn((5723337641643908, 10), deletes,
+                      f"legacy _ReducedSub must be deleted; got {deletes}")
+        self.assertNotIn((5723337641643908, 20), deletes,
+                         f"new per-claimer file must be exempt; got {deletes}")
+
+    def test_legacy_aepbillable_deleted(self):
+        legacy = self._att(
+            'WR_91467680_WeekEnding_041926_120000_AEPBillable_abc123.xlsx', 30
+        )
+        client, sheet = self._client([legacy])
+        generate_weekly_pdfs.cleanup_untracked_sheet_attachments(
+            client,
+            target_sheet_id=5723337641643908,
+            valid_wr_weeks=set(),
+            test_mode=False,
+            target_sheet=sheet,
+            sub_wr_scope={'91467680'},
+            sub_legacy_primary_variants={'reduced_sub', 'aep_billable'},
+        )
+        deletes = [c.args for c in client.Attachments.delete_attachment.call_args_list]
+        self.assertIn((5723337641643908, 30), deletes)
+
+    def test_non_sub_wr_legacy_reducedsub_preserved(self):
+        legacy = self._att(
+            'WR_99999999_WeekEnding_041926_120000_ReducedSub_abc123.xlsx', 40
+        )
+        client, sheet = self._client([legacy])
+        generate_weekly_pdfs.cleanup_untracked_sheet_attachments(
+            client,
+            target_sheet_id=5723337641643908,
+            valid_wr_weeks=set(),
+            test_mode=False,
+            target_sheet=sheet,
+            sub_wr_scope={'91467680'},  # 99999999 NOT in scope
+            sub_legacy_primary_variants={'reduced_sub', 'aep_billable'},
+        )
+        deletes = [c.args for c in client.Attachments.delete_attachment.call_args_list]
+        self.assertNotIn((5723337641643908, 40), deletes)
+
+    def test_param_omitted_is_noop(self):
+        legacy = self._att(
+            'WR_91467680_WeekEnding_041926_120000_ReducedSub_abc123.xlsx', 50
+        )
+        client, sheet = self._client([legacy])
+        generate_weekly_pdfs.cleanup_untracked_sheet_attachments(
+            client,
+            target_sheet_id=5723337641643908,
+            valid_wr_weeks={('91467680', '041926', 'reduced_sub', '')},
+            test_mode=False,
+            target_sheet=sheet,
+        )
+        deletes = [c.args for c in client.Attachments.delete_attachment.call_args_list]
+        self.assertEqual(deletes, [], f"omitted param must be a no-op; got {deletes}")
+
+
 if __name__ == '__main__':
     unittest.main()

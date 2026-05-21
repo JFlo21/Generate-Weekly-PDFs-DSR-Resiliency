@@ -4576,11 +4576,16 @@ class TestPppCleanupInvocationCarriesWhitelist(unittest.TestCase):
         import re
         src = self._read_source()
         # Extract the TARGET cleanup invocation (multi-line or
-        # single-line tolerant). Use [^()]* so nested parens
-        # don't confuse the matcher.
+        # single-line tolerant). Subproject B (Task 7) introduced one
+        # level of nested parens inside the call body
+        # (``sub_offcontract_variants=(_target_offcontract or None)``),
+        # so the matcher must tolerate a single level of balanced
+        # inner parens — ``(?:[^()]|\([^()]*\))*`` consumes either a
+        # non-paren char or a balanced single-level group — and then
+        # stop at the call's own closing paren.
         target_match = re.search(
             r"cleanup_untracked_sheet_attachments\s*\(\s*\n?\s*"
-            r"client\s*,\s*\n?\s*TARGET_SHEET_ID[^()]*\)",
+            r"client\s*,\s*\n?\s*TARGET_SHEET_ID(?:[^()]|\([^()]*\))*\)",
             src,
             re.MULTILINE,
         )
