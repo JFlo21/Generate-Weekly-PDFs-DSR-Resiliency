@@ -114,3 +114,23 @@ portal/node_modules/
 # Local artifact inspection (downloaded GHA artifacts for debugging — never committed)
 _inspect_artifact/
 artifact_inspection/
+
+# ── Secrets / local env (defense-in-depth; .env.example IS committed) ──
+# Catch any .env.<suffix> not already listed above, but keep the examples.
+.env.*
+!.env.example
+!portal/.env.example
+!portal-v2/.env.example
+# Generic local-only override files (e.g. *.local, CLAUDE.local.md).
+*.local
+CLAUDE.local.md
+
+# ── Claude Code / AI tooling local-only files (machine-specific) ──
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+
+# ── Node dependencies (top-level; portal*/node_modules handled above) ──
+node_modules/
+
+# ── Build output ──
+dist/

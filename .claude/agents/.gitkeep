@@ -1,0 +1,5 @@
+# Project-specific Claude Code agents go here.
+# The reusable agents this project uses (coder, gsd-*, etc.) are installed at
+# the USER level via Claude Code plugins, NOT committed here — see
+# docs/PROJECT_HANDOFF.md ("AI tooling"). A project-specific pipeline-debugging
+# agent already lives at .github/agents/smartsheet-debugger.agent.md.

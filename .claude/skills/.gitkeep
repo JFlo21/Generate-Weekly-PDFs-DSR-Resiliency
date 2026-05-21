@@ -1,0 +1,6 @@
+# Project-specific Claude Code skills go here.
+# The reusable workflow skills this project uses (superpowers, gsd, etc.) are
+# installed at the USER level via Claude Code plugins, NOT committed here —
+# see docs/PROJECT_HANDOFF.md ("AI tooling") for how to reproduce them on
+# another machine. Add a skill directory here only if it is specific to THIS
+# repository.
