@@ -2440,3 +2440,86 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   parallel pre-pass resolves a claimer for the helper row). Verified
   TDD red→green; ``pytest tests/`` → 712 on master, 753 on the merged
   Subproject B branch.
+- [2026-05-21 12:35] Operator-reported defect (subcontractor helper
+  Excel files): **subcontractor helper-shadow files showed the PRIMARY
+  ``Dept #`` and ``Job #`` instead of the helper's.** Requirement: in
+  subcontractor Excel files HELPER files must show **Helper Dept #** and
+  PRIMARY files must show **Dept #**, on BOTH reduced-sub and
+  aep-billable. **Root cause:** ``generate_excel``'s REPORT DETAILS
+  display-value selector gated the helper display on the BARE variant
+  via ``if variant == 'helper':`` (exact match), then ``elif variant ==
+  'vac_crew':``, then an ``else`` primary branch. The two subcontractor
+  helper-shadow variants ``reduced_sub_helper`` / ``aep_billable_helper``
+  (assigned to ``__variant`` at the ``keys_to_add`` site, no
+  normalization) matched NONE of the gates and fell through to the
+  ``else`` (primary) branch, which set ``display_dept =
+  first_row.get('Dept #', '')`` and ``display_job = job_number`` (the
+  primary ``Job #`` column variants). Every OTHER site in the file that
+  distinguishes helper from primary already uses the grouped form
+  ``variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper')``
+  (the hash-meta block, and the two CR-01 identity sites at the
+  ``identifier`` / ``valid_wr_weeks`` / ``current_keys`` construction) —
+  ``generate_excel``'s display selector was the lone exact-match
+  outlier. The displayed **Foreman was already CORRECT** even via the
+  ``else`` branch, because for sub-helper rows ``__current_foreman`` is
+  set to the ATTRIBUTED helper (``_attributed_helper``, the file's
+  partition key) at the ``keys_to_add`` tuple — so ``display_foreman =
+  current_foreman`` already resolved to the right name. That is exactly
+  why the naive "just add the two variants to the ``if variant ==
+  'helper'`` branch" fix is WRONG: that branch sources foreman from
+  ``__helper_foreman`` (the current ``Foreman Helping?`` value), which
+  can diverge from the frozen attribution under Phase 1.1 claim
+  attribution and would have REGRESSED the displayed foreman. **Fix
+  (additive, surgical):** added a dedicated ``elif variant in
+  ('reduced_sub_helper', 'aep_billable_helper'):`` branch BETWEEN the
+  ``helper`` and ``vac_crew`` branches that sources ``display_dept`` /
+  ``display_job`` from ``__helper_dept`` / ``__helper_job`` while keeping
+  ``display_foreman = current_foreman`` (the attributed helper). Sub
+  PRIMARY variants (``reduced_sub`` / ``aep_billable`` / the Subproject
+  B ``_User_`` partitions) correctly remain in the ``else`` branch
+  (primary ``Dept #``, claimer foreman) — matching the requirement that
+  primary files show ``Dept #``; no change to them, to legacy
+  ``primary`` / ``helper`` / ``vac_crew``, or to filenames / grouping /
+  hashing / upload. **Coverage gap that let this ship through Phase 1 +
+  1.1:** the only generate_excel tests for the new variants
+  (``TestSubcontractorVariantFilenameSuffixes``,
+  ``TestSubcontractorVariantPriceSubstitution``) asserted FILENAME
+  suffixes and PRICE values — never the REPORT DETAILS cell CONTENT
+  (Dept # / Job # / Foreman). The display-value branch was untested for
+  content. **New rules:** (1) **Variant-display-site lockstep — a
+  FOURTH site.** ``generate_excel``'s REPORT DETAILS display-value
+  selector is a fourth variant-aware site that MUST stay in lockstep
+  with the three CR-01 identity sites ([2026-05-15] / [2026-05-21
+  09:21] rules): the per-group ``identifier`` / ``file_identifier``
+  construction, the ``valid_wr_weeks`` cleanup builder, and the
+  ``current_keys`` hash-prune set. Any NEW helper-class variant added in
+  the future MUST be added to the display selector's helper branch (or a
+  sibling branch) in the SAME change, and the selector MUST use the
+  membership form ``variant in (...)`` — never a bare ``== 'helper'``
+  exact match that silently drops sibling variants into the primary
+  ``else`` branch. (2) **Display source ≠ identity source for
+  attributed helpers.** When a variant's file is partitioned by an
+  ATTRIBUTED identity (frozen claimer / frozen helper via Foundation A),
+  the REPORT DETAILS foreman MUST come from ``current_foreman``
+  (== the partition key) — NOT from the current Smartsheet ``Foreman
+  Helping?`` / ``__helper_foreman`` field, which can diverge from the
+  frozen attribution. Do NOT fold an attributed-helper variant into the
+  legacy ``helper`` branch (which sources ``__helper_foreman``); give it
+  its own branch that pairs helper dept/job with ``current_foreman``.
+  (3) **Test the rendered cell, not just the filename.** Any test for a
+  ``generate_excel`` variant behaviour that affects RENDERED content
+  (Dept #, Job #, Foreman, totals) MUST open the produced workbook and
+  assert on the cell value, not merely the filename suffix or the price
+  helper in isolation. Filename-only assertions are blind to
+  display-branch routing bugs — exactly the gap that hid this defect for
+  two phases. Regression tests:
+  ``tests/test_subcontractor_pricing.py::TestSubcontractorHelperVariantDeptJobDisplay``
+  (4 methods + a 2-variant subTest) drives the real ``generate_excel``,
+  reopens the workbook, and asserts the REPORT DETAILS ``Dept #:`` /
+  ``Job #:`` / ``Foreman:`` cells for both sub-helper variants
+  (helper dept ``123`` / helper job ``J-2`` shown, not primary
+  ``500`` / ``J-1``), the foreman-stays-attributed-helper regression
+  guard, and the sub-primary-keeps-primary-dept/job guard. Verified TDD
+  red→green (RED: ``'500' != '123'``); ``pytest tests/`` → **757 passed
+  / 26 skipped / 60 subtests** (was 753 / 26 / 58 at the Subproject B
+  close; +4 methods, +2 subtests, zero regressions).

@@ -5952,6 +5952,23 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         display_foreman = first_row.get('__helper_foreman', 'Unknown Helper')
         display_dept = first_row.get('__helper_dept', '')
         display_job = first_row.get('__helper_job', '')
+    elif variant in ('reduced_sub_helper', 'aep_billable_helper'):
+        # Subcontractor helper-shadow variants: the line items belong to the
+        # helper, so Dept # / Job # MUST come from the helper fields
+        # (operator requirement 2026-05-21 — helper files show Helper Dept #,
+        # primary files show Dept #). Without this branch these variants fall
+        # through to the ``else`` (primary) branch and display the PRIMARY
+        # ``Dept #`` / ``Job #`` — the reported defect. The displayed Foreman,
+        # however, stays ``current_foreman``: for these variants that is the
+        # ATTRIBUTED helper (the file's partition key, set at the
+        # ``keys_to_add`` site), NOT ``__helper_foreman`` (the current
+        # "Foreman Helping?" value, which can diverge from the frozen
+        # attribution under Phase 1.1). Folding these into the
+        # ``variant == 'helper'`` branch above would regress the foreman, so
+        # they are kept separate.
+        display_foreman = current_foreman
+        display_dept = first_row.get('__helper_dept', '')
+        display_job = first_row.get('__helper_job', '')
     elif variant == 'vac_crew':
         # VAC Crew variant: use VAC Crew-specific name, dept, and job fields.
         # Must NOT fall back to primary foreman or primary Job # (which may be Arrowhead).
