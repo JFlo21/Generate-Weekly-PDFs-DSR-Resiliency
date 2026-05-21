@@ -316,6 +316,13 @@ PHASE_1_1_HASH_PRUNE_VERSION = 2
 # Phase 1.1 prune so the two migrations are independent + auditable.
 # Advancing this constant is the kill switch (re-run trigger).
 SUBPROJECT_B_HASH_PRUNE_VERSION = 1
+# Subproject C (2026-05-21): one-time hash-history prune version for
+# dropping LEGACY blank-identifier `vac_crew` orphans left behind when
+# C re-partitions vac_crew variants by frozen claimer. Separate sentinel
+# (`_vac_crew_prune_version`) from Phase 1.1 and Subproject B so all
+# three migrations are independent + auditable.
+# Advancing this constant is the kill switch (re-run trigger).
+VAC_CREW_HASH_PRUNE_VERSION = 1
 # Verbose debug tunables
 DEBUG_SAMPLE_ROWS = int(os.getenv('DEBUG_SAMPLE_ROWS','3') or 3)  # How many initial rows (across all sheets) to show full per-cell mapping
 DEBUG_ESSENTIAL_ROWS = int(os.getenv('DEBUG_ESSENTIAL_ROWS','5') or 5)  # How many initial rows to log essential field summary
@@ -1039,6 +1046,11 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     # containment with pre-existing markers (this body does not overlap
     # "Phase 1.1 hash-history prune").
     "Subproject B hash-history prune",
+    # Subproject C Task 7: one-time hash-history prune INFO log embeds
+    # the affected-WR list (capped to first 20 entries). Explicit marker
+    # per the [2026-05-15 12:00] rule 3 — no accidental substring
+    # containment with pre-existing markers.
+    "Vac crew hash-history prune",
 )
 
 
@@ -3499,6 +3511,71 @@ def _run_subproject_b_hash_prune(hash_history: dict, groups: dict) -> bool:
     # Codex P2: body path advanced the sentinel (and may have dropped
     # orphans) — report the mutation so the caller persists it even on a
     # no-update run.
+    return True
+
+
+def _run_vac_crew_hash_prune(hash_history: dict, groups: dict) -> bool:
+    """Subproject C (2026-05-21): idempotent one-time hash-history prune.
+
+    Drops LEGACY blank-identifier vac_crew orphans — 4-part keys
+    ``wr|week|vac_crew|`` with an EMPTY identifier — for WRs that are
+    vac_crew in this run. C re-partitions vac_crew variants by frozen
+    claimer (new keys carry a non-empty identifier), so the
+    blank-identifier entries are obsolete. The normal stale-prune at the
+    end of the run would clear them eventually; this makes the migration
+    deterministic on the first run and survives interrupted / no-update
+    runs.
+
+    Scope-building delegates to ``_build_vac_crew_wr_scope`` (shared
+    with the cleanup call site — no drift, per the [2026-05-15 12:00]
+    three-site invariant). Sentinel key ``_vac_crew_prune_version`` is
+    DISTINCT from ``_phase_prune_version`` (Phase 1.1) and
+    ``_subproject_b_prune_version`` (Subproject B) so the three
+    migrations are independent. Mutates ``hash_history`` in place.
+    Dropping a hash entry costs at most one benign regeneration — never
+    data loss — so no live-identity exemption is needed on this drop
+    path (unlike the every-run attachment cleanup).
+    """
+    _persisted = hash_history.pop('_vac_crew_prune_version', 0)
+    if (
+        isinstance(_persisted, int)
+        and _persisted >= VAC_CREW_HASH_PRUNE_VERSION
+    ):
+        hash_history['_vac_crew_prune_version'] = _persisted
+        # Codex P2: no-op sentinel restore only — no save needed.
+        return False
+
+    _scope = _build_vac_crew_wr_scope(groups)
+    _orphans: list[str] = []
+    for _hk in list(hash_history.keys()):
+        if isinstance(_hk, str) and _hk.startswith('_'):
+            continue
+        _parts = str(_hk).split('|')
+        if len(_parts) != 4:
+            continue
+        _hk_wr, _hk_week, _hk_variant, _hk_ident = _parts
+        if (
+            _hk_wr in _scope
+            and _hk_variant == 'vac_crew'
+            and _hk_ident == ''
+        ):
+            _orphans.append(_hk)
+    for _ok in _orphans:
+        del hash_history[_ok]
+    hash_history['_vac_crew_prune_version'] = VAC_CREW_HASH_PRUNE_VERSION
+    if _orphans:
+        _wr_sample = sorted({k.split('|')[0] for k in _orphans})[:20]
+        logging.info(
+            f"🧹 Vac crew hash-history prune: dropped {len(_orphans)} legacy "
+            f"unpartitioned vac_crew orphan(s) "
+            f"(WRs first 20: {_wr_sample})"
+        )
+    else:
+        logging.info(
+            "🧹 Vac crew hash-history prune: no legacy vac_crew orphans to drop"
+        )
+    # Body path advanced the sentinel (and may have dropped orphans) —
+    # report the mutation so the caller persists it even on a no-update run.
     return True
 
 
@@ -7584,6 +7661,18 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             logging.warning(
                 f"⚠️ Subproject B hash-history prune failed; continuing "
                 f"with existing history: {_b_prune_exc!r}"
+            )
+
+        # Subproject C: one-time prune of legacy blank-identifier vac_crew
+        # orphans (kill switch is the version constant). Fail-safe — a
+        # failed prune must not break the run.
+        try:
+            if _run_vac_crew_hash_prune(hash_history, groups):
+                _hash_history_migration_dirty = True
+        except Exception as _vc_prune_exc:
+            logging.warning(
+                f"⚠️ Vac crew hash-history prune failed; continuing "
+                f"with existing history: {_vc_prune_exc!r}"
             )
 
         billing_audit_row_cache: set[str] = set()

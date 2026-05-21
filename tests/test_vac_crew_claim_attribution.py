@@ -532,3 +532,40 @@ class TestVacCrewLegacyCleanup(unittest.TestCase):
         self.assertNotEqual(pass_idx, -1,
                             "vac_legacy_wr_scope=_vac_scope must be passed "
                             "to cleanup_untracked_sheet_attachments")
+
+
+class TestVacCrewHashPrune(unittest.TestCase):
+    def setUp(self):
+        _ensure_smartsheet_mocked()
+
+    def _groups(self, wrs):
+        return {f"041926_{wr}_VACCREW_John": [{'Work Request #': wr}] for wr in wrs}
+
+    def test_drops_legacy_vaccrew_orphans_returns_true(self):
+        hist = {
+            '91467680|041926|vac_crew|': {'hash': 'h1'},
+            '91467680|041926|vac_crew|John': {'hash': 'h2'},  # new — survives
+            '55555|041926|vac_crew|': {'hash': 'h3'},          # non-scope — survives
+        }
+        changed = generate_weekly_pdfs._run_vac_crew_hash_prune(hist, self._groups(['91467680']))
+        self.assertIs(changed, True)
+        self.assertNotIn('91467680|041926|vac_crew|', hist)
+        self.assertIn('91467680|041926|vac_crew|John', hist)
+        self.assertIn('55555|041926|vac_crew|', hist)
+        self.assertEqual(hist['_vac_crew_prune_version'],
+                         generate_weekly_pdfs.VAC_CREW_HASH_PRUNE_VERSION)
+
+    def test_idempotent_returns_false(self):
+        hist = {'_vac_crew_prune_version': generate_weekly_pdfs.VAC_CREW_HASH_PRUNE_VERSION}
+        self.assertIs(
+            generate_weekly_pdfs._run_vac_crew_hash_prune(hist, self._groups(['91467680'])),
+            False,
+        )
+
+    def test_pii_marker_registered(self):
+        self.assertIn('Vac crew hash-history prune', generate_weekly_pdfs._PII_LOG_MARKERS)
+
+    def test_call_site_present_and_wired_to_migration_dirty(self):
+        src = pathlib.Path(inspect.getsourcefile(generate_weekly_pdfs)).read_text(encoding='utf-8')
+        self.assertIn('_run_vac_crew_hash_prune(hash_history, groups)', src)
+        self.assertRegex(src, r'(?m)^VAC_CREW_HASH_PRUNE_VERSION = 1$')
