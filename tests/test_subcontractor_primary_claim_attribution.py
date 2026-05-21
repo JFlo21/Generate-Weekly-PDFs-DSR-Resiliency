@@ -441,5 +441,73 @@ class TestMigrationCleanup(unittest.TestCase):
         )
 
 
+class TestSubprojectBHashPrune(unittest.TestCase):
+    """Task 8: one-time prune of legacy blank-identifier reduced_sub /
+    aep_billable orphans for in-scope subcontractor WRs."""
+
+    def setUp(self):
+        _ensure_smartsheet_mocked()
+
+    def _groups(self, wrs):
+        groups = {}
+        for wr in wrs:
+            key = f"041926_{wr}_REDUCEDSUB_USER_John"
+            groups[key] = [{'Work Request #': wr, '__source_sheet_id': 8162920222379908}]
+        return groups
+
+    def test_first_run_drops_legacy_primary_variant_orphans(self):
+        hist = {
+            '91467680|041926|reduced_sub|': {'hash': 'h1', 'timestamp': '2026-01-01'},
+            '91467680|041926|aep_billable|': {'hash': 'h2', 'timestamp': '2026-01-02'},
+            # New per-claimer entry — must survive
+            '91467680|041926|reduced_sub|John': {'hash': 'h3', 'timestamp': '2026-01-03'},
+            # Non-sub WR — must survive
+            '12345|041926|reduced_sub|': {'hash': 'h4', 'timestamp': '2026-01-04'},
+        }
+        with self.assertLogs(level='INFO') as log_cm:
+            generate_weekly_pdfs._run_subproject_b_hash_prune(hist, self._groups(['91467680']))
+        self.assertNotIn('91467680|041926|reduced_sub|', hist)
+        self.assertNotIn('91467680|041926|aep_billable|', hist)
+        self.assertIn('91467680|041926|reduced_sub|John', hist)
+        self.assertIn('12345|041926|reduced_sub|', hist)
+        self.assertEqual(
+            hist['_subproject_b_prune_version'],
+            generate_weekly_pdfs.SUBPROJECT_B_HASH_PRUNE_VERSION,
+        )
+        prune_logs = [l for l in log_cm.output if 'Subproject B hash-history prune' in l]
+        self.assertEqual(len(prune_logs), 1)
+        self.assertIn('dropped 2', prune_logs[0])
+
+    def test_idempotent_when_sentinel_current(self):
+        hist = {
+            '91467680|041926|reduced_sub|': {'hash': 'h1', 'timestamp': '2026-01-01'},
+            '_subproject_b_prune_version': generate_weekly_pdfs.SUBPROJECT_B_HASH_PRUNE_VERSION,
+        }
+        generate_weekly_pdfs._run_subproject_b_hash_prune(hist, self._groups(['91467680']))
+        self.assertIn('91467680|041926|reduced_sub|', hist)  # no-op
+        self.assertEqual(
+            hist['_subproject_b_prune_version'],
+            generate_weekly_pdfs.SUBPROJECT_B_HASH_PRUNE_VERSION,
+        )
+
+    def test_pii_marker_registered(self):
+        self.assertIn(
+            'Subproject B hash-history prune',
+            generate_weekly_pdfs._PII_LOG_MARKERS,
+        )
+
+    def test_version_constant_present_in_source(self):
+        src = pathlib.Path(
+            inspect.getsourcefile(generate_weekly_pdfs)
+        ).read_text(encoding='utf-8')
+        self.assertRegex(src, r'(?m)^SUBPROJECT_B_HASH_PRUNE_VERSION = 1$')
+
+    def test_call_site_present_in_source(self):
+        src = pathlib.Path(
+            inspect.getsourcefile(generate_weekly_pdfs)
+        ).read_text(encoding='utf-8')
+        self.assertIn('_run_subproject_b_hash_prune(hash_history, groups)', src)
+
+
 if __name__ == '__main__':
     unittest.main()

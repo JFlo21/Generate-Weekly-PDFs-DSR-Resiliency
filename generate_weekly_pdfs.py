@@ -309,6 +309,13 @@ DISCOVERY_CACHE_VERSION = 4  # v4: fuzzy VAC Crew column fallback — invalidate
 # and the hardened ``save_hash_history`` retention sort tolerates the
 # int-valued sentinel — see the helpers below).
 PHASE_1_1_HASH_PRUNE_VERSION = 2
+# Subproject B (2026-05-20): one-time hash-history prune version for
+# dropping LEGACY blank-identifier `reduced_sub` / `aep_billable`
+# orphans left behind when B re-partitions those variants by frozen
+# claimer. Separate sentinel (`_subproject_b_prune_version`) from the
+# Phase 1.1 prune so the two migrations are independent + auditable.
+# Advancing this constant is the kill switch (re-run trigger).
+SUBPROJECT_B_HASH_PRUNE_VERSION = 1
 # Verbose debug tunables
 DEBUG_SAMPLE_ROWS = int(os.getenv('DEBUG_SAMPLE_ROWS','3') or 3)  # How many initial rows (across all sheets) to show full per-cell mapping
 DEBUG_ESSENTIAL_ROWS = int(os.getenv('DEBUG_ESSENTIAL_ROWS','5') or 5)  # How many initial rows to log essential field summary
@@ -990,6 +997,12 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     # marker per the [2026-05-15 12:00] rule 3 — no accidental
     # substring containment with pre-existing markers.
     "Phase 1.1 hash-history prune",
+    # Subproject B Task 8: one-time hash-history prune INFO log embeds
+    # the affected-WR list (capped to first 20 entries). Explicit marker
+    # per the [2026-05-15 12:00] rule 3 — no accidental substring
+    # containment with pre-existing markers (this body does not overlap
+    # "Phase 1.1 hash-history prune").
+    "Subproject B hash-history prune",
 )
 
 
@@ -3300,6 +3313,67 @@ def _run_phase_1_1_hash_prune(hash_history: dict, groups: dict) -> None:
             f"(version {_persisted_prune_version} → "
             f"{PHASE_1_1_HASH_PRUNE_VERSION}): "
             f"no primary/legacy-helper orphans to drop."
+        )
+
+
+def _run_subproject_b_hash_prune(hash_history: dict, groups: dict) -> None:
+    """Subproject B (2026-05-20): idempotent one-time hash-history prune.
+
+    Drops LEGACY blank-identifier subcontractor primary orphans —
+    4-part keys ``wr|week|reduced_sub|`` and ``wr|week|aep_billable|``
+    with an EMPTY identifier — for WRs that are subcontractor in this
+    run. B re-partitions those variants by frozen claimer (new keys
+    carry a non-empty identifier), so the blank-identifier entries are
+    obsolete. The normal stale-prune at the end of the run would clear
+    them eventually; this makes the migration deterministic on the first
+    run and survives interrupted / no-update runs.
+
+    Scope-building delegates to ``_build_subcontractor_wr_scope`` (shared
+    with the cleanup call site — no drift, per the [2026-05-15 12:00]
+    three-site invariant). Sentinel key ``_subproject_b_prune_version``
+    is distinct from the Phase 1.1 ``_phase_prune_version`` so the two
+    migrations are independent. Mutates ``hash_history`` in place.
+    Dropping a hash entry costs at most one benign regeneration — never
+    data loss — so no live-identity exemption is needed on this drop
+    path (unlike the every-run attachment cleanup).
+    """
+    _persisted = hash_history.pop('_subproject_b_prune_version', 0)
+    if (
+        isinstance(_persisted, int)
+        and _persisted >= SUBPROJECT_B_HASH_PRUNE_VERSION
+    ):
+        hash_history['_subproject_b_prune_version'] = _persisted
+        return
+
+    _scope = _build_subcontractor_wr_scope(groups)
+    _orphans = []
+    for _hk in list(hash_history.keys()):
+        if isinstance(_hk, str) and _hk.startswith('_'):
+            continue
+        _parts = str(_hk).split('|')
+        if len(_parts) != 4:
+            continue
+        _hk_wr, _hk_week, _hk_variant, _hk_ident = _parts
+        if (
+            _hk_wr in _scope
+            and _hk_variant in ('reduced_sub', 'aep_billable')
+            and _hk_ident == ''
+        ):
+            _orphans.append(_hk)
+    for _ok in _orphans:
+        del hash_history[_ok]
+    hash_history['_subproject_b_prune_version'] = SUBPROJECT_B_HASH_PRUNE_VERSION
+    if _orphans:
+        _wr_sample = sorted({k.split('|')[0] for k in _orphans})[:20]
+        logging.info(
+            f"🧹 Subproject B hash-history prune: dropped {len(_orphans)} "
+            f"legacy unpartitioned reduced_sub/aep_billable orphan(s) "
+            f"(affected WRs first 20: {_wr_sample})"
+        )
+    else:
+        logging.info(
+            "🧹 Subproject B hash-history prune: no legacy unpartitioned "
+            "reduced_sub/aep_billable orphans to drop"
         )
 
 
@@ -7130,6 +7204,17 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             logging.warning(
                 f"⚠️ Phase 1.1 hash-history prune failed; continuing "
                 f"with existing history: {_prune_exc!r}"
+            )
+
+        # Subproject B: one-time prune of legacy blank-identifier
+        # reduced_sub/aep_billable orphans (kill switch is the version
+        # constant). Fail-safe — a failed prune must not break the run.
+        try:
+            _run_subproject_b_hash_prune(hash_history, groups)
+        except Exception as _b_prune_exc:
+            logging.warning(
+                f"⚠️ Subproject B hash-history prune failed; continuing "
+                f"with existing history: {_b_prune_exc!r}"
             )
 
         billing_audit_row_cache: set[str] = set()
