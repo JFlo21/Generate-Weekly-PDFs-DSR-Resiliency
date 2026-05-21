@@ -2726,19 +2726,22 @@ class TestPppCleanupUntrackedAttachments(unittest.TestCase):
         )
         # Phase 1.1 Bug B2 appended variant_whitelist; Plan 01.1-06
         # (SUB-09 helper-dimension) appends two more trailing kwargs:
-        # sub_wr_scope and sub_offcontract_variants. All three are
-        # optional (None default) so existing TARGET / PPP call sites
-        # remain byte-identical. IN-PLACE UPDATE per [2026-05-20 00:26]
-        # rule 2 — the assertion follows the v2 signature contract.
+        # sub_wr_scope and sub_offcontract_variants. Subproject B
+        # (2026-05-20, Task 7) appends one more trailing kwarg:
+        # sub_legacy_primary_variants. All four are optional (None
+        # default) so existing TARGET / PPP call sites remain
+        # byte-identical. IN-PLACE UPDATE per [2026-05-20 00:26]
+        # rule 2 — the assertion follows the v3 signature contract.
         self.assertEqual(
             params,
             ['client', 'target_sheet_id', 'valid_wr_weeks',
              'test_mode', 'attachment_cache', 'target_sheet',
-             'variant_whitelist', 'sub_wr_scope', 'sub_offcontract_variants'],
-            "Plan 01.1-06 (SUB-09) appends two trailing kwargs after "
-            "'variant_whitelist': 'sub_wr_scope' and "
-            "'sub_offcontract_variants'. Any further drift must be "
-            "reviewed against D-09 (TARGET legacy behavior). "
+             'variant_whitelist', 'sub_wr_scope', 'sub_offcontract_variants',
+             'sub_legacy_primary_variants'],
+            "Subproject B (Task 7) appends a trailing kwarg after "
+            "'sub_offcontract_variants': 'sub_legacy_primary_variants'. "
+            "Any further drift must be reviewed against D-09 (TARGET "
+            "legacy behavior). "
             f"Got: {params}"
         )
         # All three trailing kwargs must default to None (D-09) so
@@ -2754,6 +2757,11 @@ class TestPppCleanupUntrackedAttachments(unittest.TestCase):
         self.assertIs(
             sig.parameters['sub_offcontract_variants'].default, None,
             'sub_offcontract_variants must default to None (SUB-09).'
+        )
+        self.assertIs(
+            sig.parameters['sub_legacy_primary_variants'].default, None,
+            'sub_legacy_primary_variants must default to None '
+            '(Subproject B Task 7).'
         )
 
 

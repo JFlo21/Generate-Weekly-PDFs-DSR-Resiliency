@@ -309,6 +309,13 @@ DISCOVERY_CACHE_VERSION = 4  # v4: fuzzy VAC Crew column fallback — invalidate
 # and the hardened ``save_hash_history`` retention sort tolerates the
 # int-valued sentinel — see the helpers below).
 PHASE_1_1_HASH_PRUNE_VERSION = 2
+# Subproject B (2026-05-20): one-time hash-history prune version for
+# dropping LEGACY blank-identifier `reduced_sub` / `aep_billable`
+# orphans left behind when B re-partitions those variants by frozen
+# claimer. Separate sentinel (`_subproject_b_prune_version`) from the
+# Phase 1.1 prune so the two migrations are independent + auditable.
+# Advancing this constant is the kill switch (re-run trigger).
+SUBPROJECT_B_HASH_PRUNE_VERSION = 1
 # Verbose debug tunables
 DEBUG_SAMPLE_ROWS = int(os.getenv('DEBUG_SAMPLE_ROWS','3') or 3)  # How many initial rows (across all sheets) to show full per-cell mapping
 DEBUG_ESSENTIAL_ROWS = int(os.getenv('DEBUG_ESSENTIAL_ROWS','5') or 5)  # How many initial rows to log essential field summary
@@ -498,6 +505,21 @@ SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED = os.getenv(
     'SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED', '1'
 ).strip().lower() in ('1', 'true', 'yes', 'on')
 
+# Subproject B (2026-05-20): default-ON kill switch for the one-time
+# removal of legacy UNPARTITIONED `_ReducedSub` / `_AEPBillable`
+# attachments (no `_User_` token, parsed identifier == '') on
+# TARGET_SHEET_ID and SUBCONTRACTOR_PPP_SHEET_ID for subcontractor
+# WRs. B re-partitions those variants by frozen primary claimer; the
+# legacy one-file-per-WR attachments become duplicate-billing
+# leftovers (the Phase 1.1 Bug B2 / SUB-09 trap). Set to '0' to skip
+# the destructive cleanup (legacy files then persist until manually
+# removed). Separate from SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED
+# (which gates attribution resolution, NOT this cleanup). Workflow-
+# pinned per [2026-05-15 12:00] rule 7.
+SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED = os.getenv(
+    'SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED', '1'
+).strip().lower() in ('1', 'true', 'yes', 'on')
+
 # Cutoff date for ``_AEPBillable`` variant generation. Awarded to
 # Linetec on 2026-04-12 (subcontractor rate contract). Plan 2 (parser
 # extension) and Plan 3 (variant emission) gate variant emission on
@@ -645,6 +667,14 @@ logging.info(
 logging.info(
     f"📋 SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED="
     f"{SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED}"
+)
+
+# Subproject B: surface resolved kill-switch state at startup so
+# operators grepping the banner see the active feature state at a
+# glance. Banner body carries no row PII (just the resolved bool).
+logging.info(
+    f"📋 SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED="
+    f"{SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED}"
 )
 
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
@@ -967,6 +997,12 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     # marker per the [2026-05-15 12:00] rule 3 — no accidental
     # substring containment with pre-existing markers.
     "Phase 1.1 hash-history prune",
+    # Subproject B Task 8: one-time hash-history prune INFO log embeds
+    # the affected-WR list (capped to first 20 entries). Explicit marker
+    # per the [2026-05-15 12:00] rule 3 — no accidental substring
+    # containment with pre-existing markers (this body does not overlap
+    # "Phase 1.1 hash-history prune").
+    "Subproject B hash-history prune",
 )
 
 
@@ -2561,7 +2597,19 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
     if 'AEPBillable' in tail:
         aep_idx_rel = tail.index('AEPBillable')
         post_aep = tail[aep_idx_rel + 1:]
-        if 'Helper' in post_aep:
+        if post_aep and post_aep[0] == 'User':
+            # Subproject B: _AEPBillable_User_<claimer>_<hash>. The reserved
+            # 'User' token marks a primary-claimer identifier. It MUST be
+            # checked BEFORE the 'Helper' scan (Codex P2): a primary claimer
+            # whose NAME contains the 'Helper' token (e.g. a foreman named
+            # 'Pat Helper' → 'Pat_Helper') would otherwise be misclassified
+            # as an aep_billable_helper variant, breaking identity round-trip
+            # and causing cleanup/hash churn. Span-join so an underscored
+            # claimer name survives intact. A dangling 'User' with no name
+            # before the hash yields '' (legacy shape).
+            variant = 'aep_billable'
+            identifier = '_'.join(post_aep[1:-1])
+        elif 'Helper' in post_aep:
             variant = 'aep_billable_helper'
             helper_idx_rel = post_aep.index('Helper')
             if helper_idx_rel + 1 < len(post_aep):
@@ -2570,17 +2618,26 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
                 # survive intact (round-7 span-join discipline).
                 identifier = '_'.join(post_aep[helper_idx_rel + 1:-1])
         else:
+            # Legacy unpartitioned _AEPBillable_<hash> (no User token).
             variant = 'aep_billable'
             identifier = ''
     elif 'ReducedSub' in tail:
         rs_idx_rel = tail.index('ReducedSub')
         post_rs = tail[rs_idx_rel + 1:]
-        if 'Helper' in post_rs:
+        if post_rs and post_rs[0] == 'User':
+            # Subproject B: _ReducedSub_User_<claimer>_<hash>. Reserved 'User'
+            # token checked BEFORE the 'Helper' scan (Codex P2) so a claimer
+            # name containing 'Helper' isn't misclassified as a helper variant.
+            # A dangling 'User' with no name before the hash yields '' (legacy shape).
+            variant = 'reduced_sub'
+            identifier = '_'.join(post_rs[1:-1])
+        elif 'Helper' in post_rs:
             variant = 'reduced_sub_helper'
             helper_idx_rel = post_rs.index('Helper')
             if helper_idx_rel + 1 < len(post_rs):
                 identifier = '_'.join(post_rs[helper_idx_rel + 1:-1])
         else:
+            # Legacy unpartitioned _ReducedSub_<hash> (no User token).
             variant = 'reduced_sub'
             identifier = ''
     elif 'Helper' in tail:
@@ -2653,6 +2710,7 @@ def cleanup_untracked_sheet_attachments(
     variant_whitelist: set[str] | None = None,
     sub_wr_scope: set[str] | None = None,
     sub_offcontract_variants: set[str] | None = None,
+    sub_legacy_primary_variants: set[str] | None = None,
 ):
     """Prune only older variants for identities processed this run (VARIANT-AWARE).
 
@@ -2697,6 +2755,16 @@ def cleanup_untracked_sheet_attachments(
         or legacy 'helper' attachment for a sub WR is a pre-fix orphan).
         When None and ``sub_wr_scope`` is provided, this gate is a no-op.
         Ignored when ``sub_wr_scope`` is None.
+
+    sub_legacy_primary_variants: Subproject B (2026-05-20) one-time
+        migration. When provided, any attachment whose parsed ``wr`` is
+        in ``sub_wr_scope``, whose parsed ``variant`` is in this set, and
+        whose parsed ``identifier`` is empty (legacy unpartitioned
+        ``_ReducedSub`` / ``_AEPBillable``) is unconditionally deleted —
+        UNLESS its identity is in ``valid_wr_weeks`` (live-identity
+        exemption). New per-claimer files (non-empty identifier) are
+        never matched. When None (default), this gate is skipped.
+        Gated at the call sites by SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED.
 
     CRITICAL: Identity includes variant dimension to prevent primary/helper cross-deletion.
               Each (wr, week, variant, identifier) is treated as independent.
@@ -2769,6 +2837,29 @@ def cleanup_untracked_sheet_attachments(
                         and wr in sub_wr_scope
                         and sub_offcontract_variants is not None
                         and variant in sub_offcontract_variants
+                        and ident not in valid_wr_weeks
+                    ):
+                        off_contract_attachments.append(att)
+                        continue
+                    # Subproject B (2026-05-20): one-time migration —
+                    # delete LEGACY UNPARTITIONED `_ReducedSub` /
+                    # `_AEPBillable` attachments (parsed identifier == '')
+                    # for in-scope subcontractor WRs. B re-partitions
+                    # these by frozen claimer, so the bare one-file-per-WR
+                    # attachment is an obsolete duplicate. The
+                    # ``not _identifier`` check is the precise legacy
+                    # selector: new per-claimer files carry a non-empty
+                    # identifier and are NOT deleted here. The
+                    # ``ident not in valid_wr_weeks`` guard is
+                    # belt-and-suspenders (B never emits an empty
+                    # identifier, so a live file is never empty-id) per the
+                    # [2026-05-19 23:45] WR-01 live-identity rule.
+                    if (
+                        sub_wr_scope is not None
+                        and wr in sub_wr_scope
+                        and sub_legacy_primary_variants is not None
+                        and variant in sub_legacy_primary_variants
+                        and not _identifier
                         and ident not in valid_wr_weeks
                     ):
                         off_contract_attachments.append(att)
@@ -3092,7 +3183,7 @@ def _build_subcontractor_wr_scope(groups: dict) -> set[str]:
     return _scope
 
 
-def _run_phase_1_1_hash_prune(hash_history: dict, groups: dict) -> None:
+def _run_phase_1_1_hash_prune(hash_history: dict, groups: dict) -> bool:
     """Phase 1.1 SUB-12 / D-17..D-19: idempotent hash-history prune.
 
     Version 1 (Plan 01.1-05): After Bug B1 (Plan 01.1-02) stops emitting
@@ -3145,7 +3236,9 @@ def _run_phase_1_1_hash_prune(hash_history: dict, groups: dict) -> None:
         # the prune already ran on a prior session and the absence
         # of a log line is the "already migrated" signal.
         hash_history['_phase_prune_version'] = _persisted_prune_version
-        return
+        # Codex P2: no mutation beyond the no-op sentinel restore — the
+        # caller need not force a save on a no-update run.
+        return False
 
     # Build the WR-token set from this run's groups via shared helper
     # (simplified D-18). Shared with TARGET cleanup call site so the
@@ -3229,6 +3322,77 @@ def _run_phase_1_1_hash_prune(hash_history: dict, groups: dict) -> None:
             f"{PHASE_1_1_HASH_PRUNE_VERSION}): "
             f"no primary/legacy-helper orphans to drop."
         )
+    # Codex P2: the body path advanced the sentinel (and may have dropped
+    # orphans) — report the mutation so the caller persists hash_history even
+    # on a run with no group updates (where the history_updates-gated save is
+    # skipped). Without this the migration re-runs every no-update execution.
+    return True
+
+
+def _run_subproject_b_hash_prune(hash_history: dict, groups: dict) -> bool:
+    """Subproject B (2026-05-20): idempotent one-time hash-history prune.
+
+    Drops LEGACY blank-identifier subcontractor primary orphans —
+    4-part keys ``wr|week|reduced_sub|`` and ``wr|week|aep_billable|``
+    with an EMPTY identifier — for WRs that are subcontractor in this
+    run. B re-partitions those variants by frozen claimer (new keys
+    carry a non-empty identifier), so the blank-identifier entries are
+    obsolete. The normal stale-prune at the end of the run would clear
+    them eventually; this makes the migration deterministic on the first
+    run and survives interrupted / no-update runs.
+
+    Scope-building delegates to ``_build_subcontractor_wr_scope`` (shared
+    with the cleanup call site — no drift, per the [2026-05-15 12:00]
+    three-site invariant). Sentinel key ``_subproject_b_prune_version``
+    is distinct from the Phase 1.1 ``_phase_prune_version`` so the two
+    migrations are independent. Mutates ``hash_history`` in place.
+    Dropping a hash entry costs at most one benign regeneration — never
+    data loss — so no live-identity exemption is needed on this drop
+    path (unlike the every-run attachment cleanup).
+    """
+    _persisted = hash_history.pop('_subproject_b_prune_version', 0)
+    if (
+        isinstance(_persisted, int)
+        and _persisted >= SUBPROJECT_B_HASH_PRUNE_VERSION
+    ):
+        hash_history['_subproject_b_prune_version'] = _persisted
+        # Codex P2: no-op sentinel restore only — no save needed.
+        return False
+
+    _scope = _build_subcontractor_wr_scope(groups)
+    _orphans: list[str] = []
+    for _hk in list(hash_history.keys()):
+        if isinstance(_hk, str) and _hk.startswith('_'):
+            continue
+        _parts = str(_hk).split('|')
+        if len(_parts) != 4:
+            continue
+        _hk_wr, _hk_week, _hk_variant, _hk_ident = _parts
+        if (
+            _hk_wr in _scope
+            and _hk_variant in ('reduced_sub', 'aep_billable')
+            and _hk_ident == ''
+        ):
+            _orphans.append(_hk)
+    for _ok in _orphans:
+        del hash_history[_ok]
+    hash_history['_subproject_b_prune_version'] = SUBPROJECT_B_HASH_PRUNE_VERSION
+    if _orphans:
+        _wr_sample = sorted({k.split('|')[0] for k in _orphans})[:20]
+        logging.info(
+            f"🧹 Subproject B hash-history prune: dropped {len(_orphans)} "
+            f"legacy unpartitioned reduced_sub/aep_billable orphan(s) "
+            f"(affected WRs first 20: {_wr_sample})"
+        )
+    else:
+        logging.info(
+            "🧹 Subproject B hash-history prune: no legacy unpartitioned "
+            "reduced_sub/aep_billable orphans to drop"
+        )
+    # Codex P2: body path advanced the sentinel (and may have dropped
+    # orphans) — report the mutation so the caller persists it even on a
+    # no-update run.
+    return True
 
 
 def load_billing_audit_row_cache(path: str) -> set[str]:
@@ -4637,6 +4801,77 @@ def group_source_rows(rows):
     # call out as a P0 noise hazard.
     _bug_c_warning_seen: set[tuple[str, str, str]] = set()
 
+    # ── Subproject B (2026-05-20): parallel attribution pre-pass ──
+    # Resolve the FROZEN primary claimer for every completed
+    # subcontractor row BEFORE the grouping loop, so no per-row
+    # Supabase round-trip runs inside the hot loop (honors the
+    # [2026-04-25 14:00] latency lesson). The map is consumed by the
+    # subcontractor variant-emission block. A row absent from the map
+    # (attribution disabled, pre-pass skipped, missing __row_id, or an
+    # unexpected per-row error) resolves to use-current at emission —
+    # NEVER HOLD — so a plumbing fault can never silently suppress a
+    # billing file. resolve_claimer's own fetch_failure -> HOLD is the
+    # only path that defers a row.
+    _sub_primary_claimer_map: dict = {}
+    if BILLING_AUDIT_AVAILABLE and SUBCONTRACTOR_RATE_VARIANTS_ENABLED:
+        _b_pre_rows = []
+        for _r in rows:
+            _sid = _r.get('__source_sheet_id')
+            if _sid is None or _sid not in _FOLDER_DISCOVERED_SUB_IDS:
+                continue
+            _rid = _r.get('__row_id')
+            if not isinstance(_rid, int):
+                continue
+            _wr_raw = _r.get('Work Request #')
+            _ld = _r.get('Weekly Reference Logged Date')
+            if not _wr_raw or not _ld or not is_checked(_r.get('Units Completed?')):
+                continue
+            _we = excel_serial_to_date(_ld)
+            if _we is None:
+                continue
+            _b_pre_rows.append((
+                _rid,
+                str(_wr_raw).split('.')[0],
+                _we.date() if isinstance(_we, datetime.datetime) else _we,
+                _r.get('__effective_user', 'Unknown Foreman'),
+            ))
+        if _b_pre_rows:
+            try:
+                from billing_audit.writer import resolve_claimer as _resolve_claimer
+
+                def _resolve_one(_item):
+                    _rid, _wr, _we_date, _eu = _item
+                    return _rid, _resolve_claimer(
+                        'reduced_sub', _eu,
+                        wr=_wr, week_ending=_we_date, row_id=_rid,
+                        enabled=SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED,
+                    )
+
+                if len(_b_pre_rows) <= 1:
+                    for _item in _b_pre_rows:
+                        _rid, _out = _resolve_one(_item)
+                        _sub_primary_claimer_map[_rid] = _out
+                else:
+                    _workers = min(PARALLEL_WORKERS, len(_b_pre_rows))
+                    with ThreadPoolExecutor(max_workers=_workers) as _ex:
+                        _futs = [_ex.submit(_resolve_one, _it) for _it in _b_pre_rows]
+                        for _fut in as_completed(_futs):
+                            try:
+                                _rid, _out = _fut.result()
+                                _sub_primary_claimer_map[_rid] = _out
+                            except Exception:
+                                logging.exception(
+                                    "⚠️ Subproject B attribution pre-pass: "
+                                    "unexpected error for one row (treating "
+                                    "as use-current)"
+                                )
+            except Exception:
+                logging.exception(
+                    "⚠️ Subproject B attribution pre-pass failed; falling "
+                    "back to current foreman for all subcontractor rows"
+                )
+                _sub_primary_claimer_map = {}
+
     for r in rows:
         wr = r.get('Work Request #')
         log_date_str = r.get('Weekly Reference Logged Date')
@@ -4862,21 +5097,20 @@ def group_source_rows(rows):
                 # emission is skipped.
                 _snap_for_cutoff = excel_serial_to_date(r.get('Snapshot Date'))
 
-                # 2026-05-21 hotfix: a helper-COMPLETED subcontractor row
+                # 2026-05-21 hotfix (carried into Subproject B's _USER_
+                # partitioning): a helper-COMPLETED subcontractor row
                 # (``Units Completed?`` AND ``Helping Foreman Completed
                 # Unit?`` both checked, with a valid ``Foreman Helping?``
                 # + helper dept) belongs SOLELY to the helper-shadow files
                 # below — the helper, not the primary foreman, earns the
                 # credit for that line item on Smartsheet. Emitting a
-                # primary ``_REDUCEDSUB`` / ``_AEPBILLABLE`` key here would
-                # double-count the row (it would appear in BOTH the
-                # primary and the helper file) and wrongly credit the
-                # primary. This mirrors the legacy main-file exclusion
-                # (the ``elif valid_helper_row:`` branch in the
-                # primary-vs-helper cascade above). Computed locally
-                # because ``valid_helper_row`` from the else-branch is out
-                # of scope for vac_crew rows; uses the same inputs as the
-                # helper-shadow recompute below.
+                # primary ``_REDUCEDSUB_USER_`` / ``_AEPBILLABLE_USER_`` key
+                # here would double-count the row (it would appear in BOTH
+                # the primary and the helper file) and wrongly credit the
+                # primary. Mirrors the legacy main-file ``valid_helper_row``
+                # exclusion. Computed locally because the else-branch
+                # ``valid_helper_row`` is out of scope for vac_crew rows;
+                # uses the same inputs as the helper-shadow recompute below.
                 _sub_is_valid_helper_row = (
                     not is_vac_crew_row
                     and RES_GROUPING_MODE in ('helper', 'both')
@@ -4885,14 +5119,72 @@ def group_source_rows(rows):
                     and bool(r.get('__helper_dept', ''))
                 )
 
+                # Subproject B: resolve the FROZEN primary claimer from
+                # the pre-pass map. ``use`` -> partition by the claimer;
+                # ``hold`` -> defer this row's primary variants this run
+                # (correctness over availability) and record a HOLD; map
+                # miss -> use the current effective_user. Skipped for
+                # helper-completed rows — they are not primary claims, so
+                # no claimer is resolved and no HOLD is recorded; the
+                # ``None`` default routes through the
+                # ``if _b_primary_claimer is not None`` gate below and
+                # suppresses the primary _USER_ emission.
+                _b_primary_claimer = None
                 if not _sub_is_valid_helper_row:
-                    # ReducedSub: unconditional per SUB-02 / D-08 for
-                    # NON-helper subcontractor rows. Foreman is the
-                    # primary ``effective_user`` (mirrors the existing
-                    # primary key — the reduced-sub Excel is produced for
-                    # the WR group as a whole).
-                    reduced_key = f"{week_end_for_key}_{wr_key}_REDUCEDSUB"
-                    keys_to_add.append(('reduced_sub', reduced_key, effective_user))
+                    _b_outcome = _sub_primary_claimer_map.get(r.get('__row_id'))
+                    if _b_outcome is not None and _b_outcome.action == 'hold':
+                        _b_primary_claimer = None
+                        try:
+                            from billing_audit.writer import record_attribution_hold
+                            # Copilot: record_attribution_hold is typed
+                            # ``datetime.date | None``; normalize the datetime
+                            # week_ending_date to a pure date so the hold key
+                            # is 'YYYY-MM-DD' (matching the pre-pass
+                            # normalization for resolve_claimer), not
+                            # 'YYYY-MM-DDT00:00:00'.
+                            record_attribution_hold(
+                                wr_key,
+                                week_ending_date.date()
+                                if isinstance(
+                                    week_ending_date, datetime.datetime
+                                )
+                                else week_ending_date,
+                                'reduced_sub',
+                            )
+                        except Exception:
+                            logging.exception(
+                                "⚠️ Subproject B: record_attribution_hold failed"
+                            )
+                    elif _b_outcome is not None and _b_outcome.action == 'use':
+                        # Codex P1: fall back to a non-empty sentinel. A
+                        # whitespace-only "Foreman Assigned?" yields an empty
+                        # __effective_user upstream, and resolve_claimer's
+                        # use/no_history then returns an empty name. Without
+                        # this guard ``_b_primary_claimer`` would be '' yet
+                        # still pass the ``is not None`` gate below, creating a
+                        # _USER_ key with an empty claimer that crashes
+                        # generate_excel at the suffix raise. 'Unknown Foreman'
+                        # mirrors the foreman-assignment fallback sentinel and
+                        # keeps the row's billing in a (clearly-flagged) file.
+                        _b_primary_claimer = (
+                            _b_outcome.name or effective_user or 'Unknown Foreman'
+                        )
+                    else:
+                        _b_primary_claimer = effective_user or 'Unknown Foreman'
+
+                if _b_primary_claimer is not None:
+                    _b_claimer_sanitized = _RE_SANITIZE_IDENTIFIER.sub(
+                        '_', _b_primary_claimer
+                    )[:50]
+                    # ReducedSub: unconditional per SUB-02 / D-08, now
+                    # partitioned by frozen primary claimer (Subproject B).
+                    reduced_key = (
+                        f"{week_end_for_key}_{wr_key}_REDUCEDSUB_USER_"
+                        f"{_b_claimer_sanitized}"
+                    )
+                    keys_to_add.append(
+                        ('reduced_sub', reduced_key, _b_primary_claimer)
+                    )
                     if reduced_key not in groups:
                         logging.info(
                             f"🔻 REDUCED SUB GROUP CREATED: WR={wr_key}, "
@@ -4900,17 +5192,20 @@ def group_source_rows(rows):
                         )
 
                     # AEPBillable: snapshot-cutoff-gated per SUB-01 / D-08
-                    # / Living Ledger 2026-04-21 22:35. Snapshot Date is
-                    # authoritative — Weekly Reference Logged Date is
-                    # NOT a valid fallback here (cutoff drift would
-                    # silently re-price whole sheets; see the ledger
-                    # entry).
+                    # / Living Ledger 2026-04-21 22:35 (snapshot is
+                    # authoritative; Weekly Reference Logged Date is NOT a
+                    # valid fallback here).
                     if (
                         _snap_for_cutoff is not None
                         and _snap_for_cutoff.date() >= _AEP_BILLABLE_CUTOFF
                     ):
-                        aep_key = f"{week_end_for_key}_{wr_key}_AEPBILLABLE"
-                        keys_to_add.append(('aep_billable', aep_key, effective_user))
+                        aep_key = (
+                            f"{week_end_for_key}_{wr_key}_AEPBILLABLE_USER_"
+                            f"{_b_claimer_sanitized}"
+                        )
+                        keys_to_add.append(
+                            ('aep_billable', aep_key, _b_primary_claimer)
+                        )
                         if aep_key not in groups:
                             logging.info(
                                 f"💲 AEP BILLABLE GROUP CREATED: WR={wr_key}, "
@@ -5325,6 +5620,52 @@ def safe_merge_cells(ws, range_str):
         logging.warning(f"Failed to merge cells {range_str}: {e}")
         return False
 
+
+def _subcontractor_primary_variant_suffix(
+    variant: str, claimer: str, wr_num: str, week_end_raw: str
+) -> str:
+    """Build the filename suffix for a subcontractor PRIMARY variant.
+
+    Subproject B (2026-05-20): subcontractor primary files are
+    partitioned by frozen primary claimer and named with the reserved
+    ``_User_`` token (mirrors the primary-workflow convention).
+    ``reduced_sub`` -> ``_ReducedSub_User_<sanitized>`` and
+    ``aep_billable`` -> ``_AEPBillable_User_<sanitized>``.
+
+    Raises ``ValueError`` if ``claimer`` is empty — production never
+    hits this because ``resolve_claimer``'s ``use`` outcome always
+    returns a non-empty name (falling back to ``effective_user`` /
+    ``'Unknown Foreman'``). The raise mirrors the helper-shadow
+    defensive raises and surfaces data drift loudly instead of
+    producing a primary-looking filename that misroutes downstream.
+    """
+    if not claimer:
+        logging.error(
+            f"⚠️ {variant} variant row missing __current_foreman for "
+            f"WR {wr_num} week {week_end_raw}; filename would be "
+            f"ambiguous — raising to surface data drift."
+        )
+        raise ValueError(
+            f"{variant} requires a non-empty claimer; got empty for "
+            f"WR={wr_num} week={week_end_raw}"
+        )
+    if variant not in ('reduced_sub', 'aep_billable'):
+        # Copilot: this helper is filename-identity logic. An unexpected
+        # variant must raise rather than silently fall through to the
+        # ``_ReducedSub`` token (which would misroute downstream cleanup /
+        # hash identity matching if this helper were ever reused). Mirrors
+        # the defensive-raise convention for new variant helpers
+        # (Living Ledger 2026-05-15 rule 4).
+        raise ValueError(
+            f"_subcontractor_primary_variant_suffix: unexpected variant "
+            f"{variant!r} (expected 'reduced_sub' or 'aep_billable') for "
+            f"WR={wr_num} week={week_end_raw}"
+        )
+    claimer_sanitized = _RE_SANITIZE_IDENTIFIER.sub('_', claimer)[:50]
+    token = '_AEPBillable' if variant == 'aep_billable' else '_ReducedSub'
+    return f"{token}_User_{claimer_sanitized}"
+
+
 def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=None, data_hash=None):
     """
     FIXED: Generate a formatted Excel report for a group of rows.
@@ -5435,10 +5776,17 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     # ``build_group_identity``). Helper-name sanitization mirrors
     # the producer site in ``group_source_rows`` — the regex is
     # idempotent so the double-apply is safe (D-22 / 2026-04-23 18:25).
-    if variant == 'aep_billable':
-        variant_suffix = '_AEPBillable'
-    elif variant == 'reduced_sub':
-        variant_suffix = '_ReducedSub'
+    if variant in ('aep_billable', 'reduced_sub'):
+        # Subproject B: partition by frozen primary claimer
+        # (__current_foreman is the resolved claimer set in
+        # group_source_rows). Helper-shadow branches below are
+        # unchanged.
+        variant_suffix = _subcontractor_primary_variant_suffix(
+            variant,
+            first_row.get('__current_foreman', ''),
+            wr_num,
+            week_end_raw,
+        )
     elif variant == 'aep_billable_helper':
         helper_foreman = first_row.get('__helper_foreman', '')
         if not helper_foreman:
@@ -5656,6 +6004,23 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     if variant == 'helper':
         # Helper variant: show helper foreman and helper-specific dept/job (REQUIRED)
         display_foreman = first_row.get('__helper_foreman', 'Unknown Helper')
+        display_dept = first_row.get('__helper_dept', '')
+        display_job = first_row.get('__helper_job', '')
+    elif variant in ('reduced_sub_helper', 'aep_billable_helper'):
+        # Subcontractor helper-shadow variants: the line items belong to the
+        # helper, so Dept # / Job # MUST come from the helper fields
+        # (operator requirement 2026-05-21 — helper files show Helper Dept #,
+        # primary files show Dept #). Without this branch these variants fall
+        # through to the ``else`` (primary) branch and display the PRIMARY
+        # ``Dept #`` / ``Job #`` — the reported defect. The displayed Foreman,
+        # however, stays ``current_foreman``: for these variants that is the
+        # ATTRIBUTED helper (the file's partition key, set at the
+        # ``keys_to_add`` site), NOT ``__helper_foreman`` (the current
+        # "Foreman Helping?" value, which can diverge from the frozen
+        # attribution under Phase 1.1). Folding these into the
+        # ``variant == 'helper'`` branch above would regress the foreman, so
+        # they are kept separate.
+        display_foreman = current_foreman
         display_dept = first_row.get('__helper_dept', '')
         display_job = first_row.get('__helper_job', '')
     elif variant == 'vac_crew':
@@ -6931,8 +7296,14 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # call site; if grouping failed and execution reached here,
         # the helper degrades gracefully (empty groups → empty
         # _sub_wr_scope → no orphans dropped → sentinel still written).
+        # Codex P2: track whether either one-time migration prune mutated
+        # hash_history so we can persist it even on a run with no group
+        # updates (the history_updates-gated save below would otherwise skip
+        # it, making the migration re-run every no-update execution).
+        _hash_history_migration_dirty = False
         try:
-            _run_phase_1_1_hash_prune(hash_history, groups)
+            if _run_phase_1_1_hash_prune(hash_history, groups):
+                _hash_history_migration_dirty = True
         except Exception as _prune_exc:
             # Fail-safe per [2026-04-22 16:05] rule 4 — the prune
             # is an optimization. A failed prune MUST NOT break the
@@ -6942,6 +7313,18 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             logging.warning(
                 f"⚠️ Phase 1.1 hash-history prune failed; continuing "
                 f"with existing history: {_prune_exc!r}"
+            )
+
+        # Subproject B: one-time prune of legacy blank-identifier
+        # reduced_sub/aep_billable orphans (kill switch is the version
+        # constant). Fail-safe — a failed prune must not break the run.
+        try:
+            if _run_subproject_b_hash_prune(hash_history, groups):
+                _hash_history_migration_dirty = True
+        except Exception as _b_prune_exc:
+            logging.warning(
+                f"⚠️ Subproject B hash-history prune failed; continuing "
+                f"with existing history: {_b_prune_exc!r}"
             )
 
         billing_audit_row_cache: set[str] = set()
@@ -7257,13 +7640,21 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     # VAC Crew variant: no sub-identifier needed (all vac_crew rows for WR/week go together)
                     identifier = ''
                     file_identifier = ''
+                elif variant in ('reduced_sub', 'aep_billable'):
+                    # Subproject B identity site (Site 1 — main-loop
+                    # identifier). Partitioned by the frozen primary
+                    # claimer (__current_foreman). identifier ==
+                    # file_identifier == sanitized claimer, matching the
+                    # _ReducedSub_User_<name> filename and Sites 2 & 3.
+                    _b_claimer = first_row.get('__current_foreman', '')
+                    identifier = (
+                        _RE_SANITIZE_IDENTIFIER.sub('_', _b_claimer)[:50]
+                        if _b_claimer else ''
+                    )
+                    file_identifier = identifier
                 else:
-                    # Non-helper subcontractor variants (aep_billable, reduced_sub)
-                    # correctly fall through here because their filenames carry no
-                    # identifier suffix and build_group_identity returns identifier=''.
-                    # Per CR-01, do NOT add them to the helper-gate above — that would
-                    # set identifier='||' (literal pipes-on-empties) for primary
-                    # subcontractor variants, breaking hash-history bucket cohesion.
+                    # Legacy primary variant: identifier derived from the
+                    # row's ``User`` field.
                     user_val = first_row.get('User')
                     # PERFORMANCE: Use pre-compiled regex for identifier sanitization
                     identifier = _RE_SANITIZE_IDENTIFIER.sub('_', user_val)[:50] if user_val else ''
@@ -7974,6 +8365,15 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     file_id = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50] if helper_foreman else ''
                 elif variant == 'vac_crew':
                     file_id = ''
+                elif variant in ('reduced_sub', 'aep_billable'):
+                    # Subproject B identity site (Site 2 — valid_wr_weeks).
+                    # Mirror Site 1 so attachment cleanup keeps the live
+                    # per-claimer file.
+                    _b_claimer = group_rows[0].get('__current_foreman', '')
+                    file_id = (
+                        _RE_SANITIZE_IDENTIFIER.sub('_', _b_claimer)[:50]
+                        if _b_claimer else ''
+                    )
                 else:
                     user_val = group_rows[0].get('User')
                     # PERFORMANCE: Use pre-compiled regex
@@ -7995,9 +8395,24 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             # _Helper_<name> and bare-primary attachments. Kill-switch-gated:
             # SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED=0 reverts to
             # byte-identical pre-fix TARGET behaviour (sub orphans persist).
+            # Subproject B: build the subcontractor WR scope when EITHER
+            # the legacy-helper cleanup (SUB-09) OR the legacy-primary
+            # cleanup (Subproject B) is enabled — the two share the scope.
+            _need_sub_scope = (
+                SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED
+                or SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED
+            )
             _sub_scope = (
                 _build_subcontractor_wr_scope(groups)
-                if SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED
+                if _need_sub_scope
+                else None
+            )
+            _target_offcontract = set()
+            if _sub_scope and SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED:
+                _target_offcontract |= {'helper', 'primary'}
+            _target_legacy_primary = (
+                {'reduced_sub', 'aep_billable'}
+                if _sub_scope and SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED
                 else None
             )
             with sentry_sdk.start_span(op="smartsheet.cleanup", name="Cleanup untracked sheet attachments"):
@@ -8005,7 +8420,11 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     client, TARGET_SHEET_ID, valid_wr_weeks, TEST_MODE,
                     attachment_cache=_cleanup_cache, target_sheet=_target_sheet_obj,
                     sub_wr_scope=_sub_scope,
-                    sub_offcontract_variants={'helper', 'primary'} if _sub_scope else None,
+                    # Empty set means the SUB-09 helper cleanup is off; coerce
+                    # to None so the off-contract gate no-ops (the gate keys on
+                    # `is not None`, not truthiness).
+                    sub_offcontract_variants=(_target_offcontract or None),
+                    sub_legacy_primary_variants=_target_legacy_primary,
                 )
 
             # Phase 01 gap closure (REVIEW-WR-01): parallel cleanup pass
@@ -8078,6 +8497,12 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         attachment_cache=_cleanup_cache,
                         target_sheet=_target_sheet_ppp_obj,
                         variant_whitelist={'reduced_sub', 'reduced_sub_helper'},
+                        sub_wr_scope=_sub_scope,
+                        sub_legacy_primary_variants=(
+                            {'reduced_sub'}
+                            if _sub_scope and SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED
+                            else None
+                        ),
                     )
 
         # Cleanup legacy / stale Excel files so only current system outputs remain
@@ -8145,6 +8570,17 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                             _ident = f"{_hf}|{_hd}|{_hj}"
                         elif _variant == 'vac_crew':
                             _ident = ''
+                        elif _variant in ('reduced_sub', 'aep_billable'):
+                            # Subproject B identity site (Site 3 —
+                            # current_keys). Must match the history_key
+                            # written at Site 1 byte-for-byte (sanitized
+                            # claimer) or the freshly-written entry is
+                            # treated as stale and deleted before save.
+                            _b_claimer = group_rows[0].get('__current_foreman', '')
+                            _ident = (
+                                _RE_SANITIZE_IDENTIFIER.sub('_', _b_claimer)[:50]
+                                if _b_claimer else ''
+                            )
                         else:
                             _uv = group_rows[0].get('User')
                             _ident = _RE_SANITIZE_IDENTIFIER.sub('_', _uv)[:50] if _uv else ''
@@ -8154,6 +8590,14 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     for sk in stale_keys:
                         del hash_history[sk]
                     logging.info(f"🧹 Pruned {len(stale_keys)} stale hash history entries (groups no longer in source data)")
+            save_hash_history(HASH_HISTORY_PATH, hash_history)
+        elif _hash_history_migration_dirty:
+            # Codex P2: no group updates this run, but a one-time migration
+            # prune (Phase 1.1 / Subproject B) mutated hash_history. Persist
+            # it now so the migration is durable and does not re-run every
+            # execution. Do NOT run the stale-prune on this path — groups
+            # were not fully processed, so current_keys would be incomplete
+            # and could delete freshly-skipped live entries.
             save_hash_history(HASH_HISTORY_PATH, hash_history)
         if (
             BILLING_AUDIT_AVAILABLE
@@ -8193,6 +8637,15 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 _run_summary.update(_billing_audit_writer.get_counters())
             except Exception:
                 pass  # Counter retrieval must never fail the run summary write.
+            # Subproject B: emit ONE aggregate WARNING if any rows were
+            # held this run pending attribution (Supabase outage). B is
+            # the first consumer of Foundation A's HOLD machinery; this
+            # is the single end-of-run summary call. PII-safe (counts +
+            # sanitized WR list only). Never fail the run summary write.
+            try:
+                _billing_audit_writer.summarize_attribution_holds()
+            except Exception:
+                pass
         try:
             with open(os.path.join(OUTPUT_FOLDER, 'run_summary.json'), 'w') as _rsf:
                 json.dump(_run_summary, _rsf, indent=2)

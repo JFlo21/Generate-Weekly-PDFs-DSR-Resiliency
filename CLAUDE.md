@@ -2273,3 +2273,339 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   ``TestAttributionHoldSummary`` (4) — plus ``CountersTests`` updated for
   the pre-seeded counter. ``pytest tests/`` → **710 passed / 26 skipped
   / 58 subtests** (was 689 at the Phase 1.1 close; +21 net).
+- [2026-05-21 09:21] Subproject B (subcontractor PRIMARY claim
+  attribution) shipped — the first consumer of Foundation A's
+  ``resolve_claimer`` + HOLD contract ([2026-05-20 13:45]). The
+  subcontractor primary variants (``reduced_sub`` / ``aep_billable``)
+  are now re-partitioned by the FROZEN primary claimer
+  (``primary_foreman`` from ``billing_audit.attribution_snapshot``)
+  instead of shipping one bare file per WR. Each file holds only one
+  claimer's completed line items and is named
+  ``_ReducedSub_User_<name>`` / ``_AEPBillable_User_<name>`` (the
+  reserved ``_User_`` token, parser-unambiguous vs ``_Helper_``).
+  Spec: ``docs/superpowers/specs/2026-05-20-subproject-b-subcontractor-primary-claim-attribution-design.md``;
+  plan: ``docs/superpowers/plans/2026-05-20-subproject-b-subcontractor-primary-claim-attribution.md``.
+  **The five operator-approved decisions (the contract):** (1)
+  **Partition model = fallback-to-current** — rows with a frozen
+  claimer group under that claimer; rows with no frozen claimer yet
+  (``no_history``) fall back to the current ``effective_user`` (all
+  rows reaching the variant block are ``Units Completed?``-checked).
+  (2) **Attribution kill switch = reuse**
+  ``SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED`` (default on) —
+  its documented scope is broadened to gate primary partitioning too;
+  no new attribution flag. (3) **Filename** =
+  ``_ReducedSub_User_<name>`` / ``_AEPBillable_User_<name>``. (4)
+  **Migration** = explicit forced cleanup of legacy unpartitioned
+  attachments + a one-time version-sentinel hash prune, gated by the
+  NEW default-on kill switch ``SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED``
+  (destructive-cleanup-needs-its-own-switch rule [2026-05-19 22:00]
+  #4). (5) **Outage = HOLD** — on ``resolve_claimer`` ``fetch_failure``
+  the row is deferred (``record_attribution_hold``), no primary file
+  is emitted that run, and ``summarize_attribution_holds()`` fires
+  once at end-of-run. **Accepted asymmetry:** the primary path HOLDs
+  on a Supabase outage (correctness over availability — a possibly
+  mis-attributed billing file is worse than a late one), while the
+  unchanged Phase 1.1 helper-shadow path still falls back to the
+  current ``Foreman Helping?`` and generates. B is the FIRST HOLD
+  consumer; the helper-shadow path predates the HOLD machinery and is
+  deliberately left as-is. **Wiring = Approach A (parallel pre-pass).**
+  ``group_source_rows`` resolves every completed subcontractor row's
+  claimer in a bounded ``ThreadPoolExecutor`` (``min(PARALLEL_WORKERS,
+  n)``, single-row groups skip the executor) into a
+  ``{__row_id: ResolveOutcome}`` map BEFORE the grouping loop — no
+  per-row Supabase round-trip inside the hot loop (the [2026-04-25
+  14:00] per-row-latency lesson). A row absent from the map
+  (attribution disabled, pre-pass skipped, missing ``__row_id``, or an
+  unexpected per-row error) resolves to use-current at emission —
+  NEVER HOLD — so a plumbing fault can never silently suppress a
+  billing file; only ``resolve_claimer``'s own ``fetch_failure`` HOLDs.
+  ``billing_audit/`` was NOT modified (everything B needs shipped in
+  Foundation A). **CR-01 three-site lockstep extended:** the new
+  variants' identity tuple (``identifier`` = sanitized claimer) is
+  built in lockstep at all three main-loop sites — the per-group
+  ``identifier`` / ``file_identifier``, the ``valid_wr_weeks`` cleanup
+  builder, and the ``current_keys`` hash-prune set — plus the
+  ``build_group_identity`` parser, so attachment-identity matching and
+  hash-history persistence stay consistent ([2026-05-15] CR-01).
+  **New migration plumbing:** ``cleanup_untracked_sheet_attachments``
+  gained a ``sub_legacy_primary_variants: set[str] | None`` param + a
+  gate that deletes empty-identifier ``_ReducedSub`` / ``_AEPBillable``
+  attachments for in-scope sub WRs (TARGET gets
+  ``{'reduced_sub','aep_billable'}``, PPP gets ``{'reduced_sub'}`` —
+  ``aep_billable`` never routes to PPP) with a ``valid_wr_weeks``
+  live-identity exemption so a current per-claimer file is never
+  deleted; the ``_sub_scope`` builder is now shared by the SUB-09
+  helper cleanup and this primary cleanup (byte-identical TARGET
+  behaviour preserved when only ``SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED``
+  is on). The new ``_run_subproject_b_hash_prune`` (constant
+  ``SUBPROJECT_B_HASH_PRUNE_VERSION = 1``, sentinel
+  ``_subproject_b_prune_version`` — DISTINCT from Phase 1.1's
+  ``_phase_prune_version``) idempotently drops legacy blank-identifier
+  ``reduced_sub`` / ``aep_billable`` hash orphans on first run; the
+  prune is benign (a dropped hash costs at most one regeneration, never
+  data loss) so it carries no live-identity exemption, and its PII
+  marker ``"Subproject B hash-history prune"`` is registered in
+  ``_PII_LOG_MARKERS``. ``SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED``
+  is workflow-pinned to ``'1'`` in
+  ``.github/workflows/weekly-excel-generation.yml`` and documented in
+  ``website/docs/reference/environment.md`` (which also broadens the
+  attribution-flag scope note). **New rules:** (1) **HOLD is for
+  genuine outages only.** A consumer of ``resolve_claimer`` must HOLD
+  (defer + ``record_attribution_hold`` + end-of-run
+  ``summarize_attribution_holds``) ONLY on ``action == 'hold'``
+  (``fetch_failure``); ``no_history`` and ``disabled`` use the current
+  foreman and generate normally. A map-miss / plumbing fault must
+  resolve to use-current, never HOLD — a HOLD suppresses a billing
+  file, so it must require a real Supabase failure, not an internal
+  bug. (2) **Per-row attribution I/O goes in a pre-pass, never the hot
+  loop.** Any future variant that resolves a per-row claimer (C =
+  vac_crew, D = primary-workflow primary) MUST follow Approach A — a
+  bounded ``ThreadPoolExecutor`` pre-pass into a ``{__row_id:
+  outcome}`` map before ``group_source_rows``' grouping loop, with the
+  single-row-skips-executor guard — extending the [2026-04-25 14:00]
+  rule from ``freeze_row`` to attribution reads. (3) **A new claimer
+  filename token requires the CR-01 four-site update** (parser + three
+  identity sites) in the same change; the source-grep guards in
+  ``TestSubprojectBProductionInvariants`` are the regression net
+  against a silent revert. (4) **Sequencing for the remaining
+  sub-projects is unchanged:** C (VAC crew by ``frozen_vac_crew``) →
+  D (primary-workflow primary; highest blast radius, last) → E
+  (Supabase hash-store migration + filename token stripping). Executed
+  via superpowers subagent-driven-development (Tasks 1–11; fresh
+  implementer per task + two-stage spec-then-code-quality review for
+  complex/destructive tasks, controller verification for
+  mechanical/inert ones). Regression tests: new file
+  ``tests/test_subcontractor_primary_claim_attribution.py`` —
+  ``TestBuildGroupIdentityParsesPrimaryUserToken``,
+  ``TestLegacyPrimaryCleanupKillSwitch``,
+  ``TestPrimaryVariantSuffixHelper``, ``TestPrePassEmission``,
+  ``TestThreeIdentitySitesCarryClaimer``, ``TestHoldSummaryWiredIntoMain``,
+  ``TestMigrationCleanup``, ``TestSubprojectBHashPrune``,
+  ``TestNonSubVariantsPreserved``, ``TestPrePassConcurrency``,
+  ``TestSubprojectBProductionInvariants``. ``pytest tests/`` →
+  **751 passed / 26 skipped / 58 subtests** (was 710 at the Foundation
+  A close; +41 net). After this branch lands, sub-helper Phase 1.1 +
+  Foundation A + Subproject B together cover the subcontractor
+  workflow's helper and primary claim attribution; the primary-workflow
+  (non-sub) primary partitioning is still Sub-project D, not yet
+  shipped.
+- [2026-05-21 10:30] Production hotfix (PR #216, merged to master) +
+  carried into Subproject B (PR #215): **helper-COMPLETED subcontractor
+  rows were being credited to the PRIMARY ``_ReducedSub`` /
+  ``_AEPBillable`` files.** When a helper claims a line item they check
+  BOTH ``Units Completed?`` AND ``Helping Foreman Completed Unit?`` (with
+  ``Foreman Helping?`` set) — on Smartsheet that credits the HELPER, so
+  the row must go SOLELY to the helper-shadow files
+  (``_ReducedSub_Helper_<helper>`` / ``_AEPBillable_Helper_<helper>``).
+  Instead the subcontractor primary emission in ``group_source_rows``
+  fired for EVERY accepted subcontractor row, so the helper-completed
+  row landed in BOTH the primary and the helper file — double-counted
+  and wrongly credited to the primary foreman. **Root cause:** the
+  subcontractor primary emission block (``if is_subcontractor_row and
+  SUBCONTRACTOR_RATE_VARIANTS_ENABLED:``) never replicated the
+  ``valid_helper_row`` exclusion that the legacy main-file
+  primary-vs-helper cascade has had all along (the ``elif
+  valid_helper_row:`` "EXCLUDING from main Excel" branch). Pre-existing
+  since Phase 1 (``SUBCONTRACTOR_RATE_VARIANTS_ENABLED`` is pinned on in
+  production); NOT a Subproject B regression — B preserved the behavior
+  and only renamed the keys to ``_USER_<claimer>``. **Fix:** compute a
+  local ``_sub_is_valid_helper_row`` (mirrors the helper-shadow block's
+  recompute — ``not is_vac_crew_row and RES_GROUPING_MODE in
+  ('helper','both') and is_helper_row and helper_foreman and
+  helper_dept``) and gate the primary emission on it. On master the
+  bare ``_REDUCEDSUB``/``_AEPBILLABLE`` emission is wrapped in ``if not
+  _sub_is_valid_helper_row:``; in Subproject B ``_b_primary_claimer``
+  defaults to ``None`` and is only resolved for non-helper rows, so the
+  existing ``if _b_primary_claimer is not None`` gate suppresses the
+  ``_USER_`` emission and skips recording a HOLD for helper rows.
+  ``_snap_for_cutoff`` is hoisted above the guard because the unchanged
+  helper-shadow block depends on it. **New rules:** (1) Any NEW
+  subcontractor variant emission path that produces a per-WR PRIMARY
+  file (the ``reduced_sub`` / ``aep_billable`` variants today, and any
+  future primary-side variant) MUST replicate the ``valid_helper_row``
+  exclusion — a helper-completed row belongs solely to the
+  helper-shadow files. This is the variant-side analog of the legacy
+  main-file exclusion noted in the CLAUDE.md "Helper rows" section.
+  (2) The coverage gap that let this ship for ~two phases: the existing
+  helper-row tests asserted the shadow keys were PRESENT and the legacy
+  ``_HELPER_`` key was ABSENT, but NEVER asserted the bare primary
+  key's ABSENCE. Any test for an emission path that EXCLUDES a row
+  class MUST assert the excluded key is absent, not merely that the
+  expected keys are present — "present" assertions alone are blind to
+  over-emission. Regression tests:
+  ``tests/test_subcontractor_helper_shadow_rescue.py::TestEndToEndPipeline::test_subcontractor_helper_row_excluded_from_primary_variant_files``
+  (master, merged into B) and
+  ``tests/test_subcontractor_primary_claim_attribution.py::TestPrePassEmission::test_helper_completed_row_excluded_from_primary_user_variants``
+  (B's ``_USER_`` variant — asserts no primary key even when the
+  parallel pre-pass resolves a claimer for the helper row). Verified
+  TDD red→green; ``pytest tests/`` → 712 on master, 753 on the merged
+  Subproject B branch.
+- [2026-05-21 12:35] Operator-reported defect (subcontractor helper
+  Excel files): **subcontractor helper-shadow files showed the PRIMARY
+  ``Dept #`` and ``Job #`` instead of the helper's.** Requirement: in
+  subcontractor Excel files HELPER files must show **Helper Dept #** and
+  PRIMARY files must show **Dept #**, on BOTH reduced-sub and
+  aep-billable. **Root cause:** ``generate_excel``'s REPORT DETAILS
+  display-value selector gated the helper display on the BARE variant
+  via ``if variant == 'helper':`` (exact match), then ``elif variant ==
+  'vac_crew':``, then an ``else`` primary branch. The two subcontractor
+  helper-shadow variants ``reduced_sub_helper`` / ``aep_billable_helper``
+  (assigned to ``__variant`` at the ``keys_to_add`` site, no
+  normalization) matched NONE of the gates and fell through to the
+  ``else`` (primary) branch, which set ``display_dept =
+  first_row.get('Dept #', '')`` and ``display_job = job_number`` (the
+  primary ``Job #`` column variants). Every OTHER site in the file that
+  distinguishes helper from primary already uses the grouped form
+  ``variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper')``
+  (the hash-meta block, and the two CR-01 identity sites at the
+  ``identifier`` / ``valid_wr_weeks`` / ``current_keys`` construction) —
+  ``generate_excel``'s display selector was the lone exact-match
+  outlier. The displayed **Foreman was already CORRECT** even via the
+  ``else`` branch, because for sub-helper rows ``__current_foreman`` is
+  set to the ATTRIBUTED helper (``_attributed_helper``, the file's
+  partition key) at the ``keys_to_add`` tuple — so ``display_foreman =
+  current_foreman`` already resolved to the right name. That is exactly
+  why the naive "just add the two variants to the ``if variant ==
+  'helper'`` branch" fix is WRONG: that branch sources foreman from
+  ``__helper_foreman`` (the current ``Foreman Helping?`` value), which
+  can diverge from the frozen attribution under Phase 1.1 claim
+  attribution and would have REGRESSED the displayed foreman. **Fix
+  (additive, surgical):** added a dedicated ``elif variant in
+  ('reduced_sub_helper', 'aep_billable_helper'):`` branch BETWEEN the
+  ``helper`` and ``vac_crew`` branches that sources ``display_dept`` /
+  ``display_job`` from ``__helper_dept`` / ``__helper_job`` while keeping
+  ``display_foreman = current_foreman`` (the attributed helper). Sub
+  PRIMARY variants (``reduced_sub`` / ``aep_billable`` / the Subproject
+  B ``_User_`` partitions) correctly remain in the ``else`` branch
+  (primary ``Dept #``, claimer foreman) — matching the requirement that
+  primary files show ``Dept #``; no change to them, to legacy
+  ``primary`` / ``helper`` / ``vac_crew``, or to filenames / grouping /
+  hashing / upload. **Coverage gap that let this ship through Phase 1 +
+  1.1:** the only generate_excel tests for the new variants
+  (``TestSubcontractorVariantFilenameSuffixes``,
+  ``TestSubcontractorVariantPriceSubstitution``) asserted FILENAME
+  suffixes and PRICE values — never the REPORT DETAILS cell CONTENT
+  (Dept # / Job # / Foreman). The display-value branch was untested for
+  content. **New rules:** (1) **Variant-display-site lockstep — a
+  FOURTH site.** ``generate_excel``'s REPORT DETAILS display-value
+  selector is a fourth variant-aware site that MUST stay in lockstep
+  with the three CR-01 identity sites ([2026-05-15] / [2026-05-21
+  09:21] rules): the per-group ``identifier`` / ``file_identifier``
+  construction, the ``valid_wr_weeks`` cleanup builder, and the
+  ``current_keys`` hash-prune set. Any NEW helper-class variant added in
+  the future MUST be added to the display selector's helper branch (or a
+  sibling branch) in the SAME change, and the selector MUST use the
+  membership form ``variant in (...)`` — never a bare ``== 'helper'``
+  exact match that silently drops sibling variants into the primary
+  ``else`` branch. (2) **Display source ≠ identity source for
+  attributed helpers.** When a variant's file is partitioned by an
+  ATTRIBUTED identity (frozen claimer / frozen helper via Foundation A),
+  the REPORT DETAILS foreman MUST come from ``current_foreman``
+  (== the partition key) — NOT from the current Smartsheet ``Foreman
+  Helping?`` / ``__helper_foreman`` field, which can diverge from the
+  frozen attribution. Do NOT fold an attributed-helper variant into the
+  legacy ``helper`` branch (which sources ``__helper_foreman``); give it
+  its own branch that pairs helper dept/job with ``current_foreman``.
+  (3) **Test the rendered cell, not just the filename.** Any test for a
+  ``generate_excel`` variant behaviour that affects RENDERED content
+  (Dept #, Job #, Foreman, totals) MUST open the produced workbook and
+  assert on the cell value, not merely the filename suffix or the price
+  helper in isolation. Filename-only assertions are blind to
+  display-branch routing bugs — exactly the gap that hid this defect for
+  two phases. Regression tests:
+  ``tests/test_subcontractor_pricing.py::TestSubcontractorHelperVariantDeptJobDisplay``
+  (4 methods + a 2-variant subTest) drives the real ``generate_excel``,
+  reopens the workbook, and asserts the REPORT DETAILS ``Dept #:`` /
+  ``Job #:`` / ``Foreman:`` cells for both sub-helper variants
+  (helper dept ``123`` / helper job ``J-2`` shown, not primary
+  ``500`` / ``J-1``), the foreman-stays-attributed-helper regression
+  guard, and the sub-primary-keeps-primary-dept/job guard. Verified TDD
+  red→green (RED: ``'500' != '123'``); ``pytest tests/`` → **757 passed
+  / 26 skipped / 60 subtests** (was 753 / 26 / 58 at the Subproject B
+  close; +4 methods, +2 subtests, zero regressions).
+- [2026-05-21 13:20] PR #215 pre-merge AI code-review pass (Copilot +
+  Codex) on Subproject B surfaced 4 real bugs + 1 hardening item; all
+  verified against the code and fixed TDD red→green before merge.
+  **(#4, Codex P1 — High) Empty claimer crashed primary file
+  generation.** ``_subcontractor_primary_variant_suffix`` raises
+  ``ValueError`` on an empty claimer (a deliberate data-drift backstop),
+  but the emission gate at ``group_source_rows`` was ``if
+  _b_primary_claimer is not None`` — and the claimer could be ``''``: a
+  whitespace-only ``Foreman Assigned?`` makes ``str(foreman_assigned).
+  strip()`` (the ``if foreman_assigned:`` branch is truthy for
+  whitespace) yield ``__effective_user = ''``, which flows through
+  ``resolve_claimer``'s use/no_history (returns the empty current value)
+  to ``_b_primary_claimer = ''``. That passed ``is not None``, created a
+  ``_REDUCEDSUB_USER_`` key with an empty identifier, then crashed
+  ``generate_excel`` at the suffix raise → the WR's subcontractor primary
+  file silently failed to generate. Fix: fall back to ``'Unknown
+  Foreman'`` (``_b_outcome.name or effective_user or 'Unknown Foreman'``
+  on the use branch; ``effective_user or 'Unknown Foreman'`` on the
+  else branch), so the row's billing still ships in a clearly-flagged
+  file and the suffix raise stays a true backstop. **(#3, Codex P2 —
+  Med) ``build_group_identity`` scanned ``Helper`` before ``User``.** In
+  the ``AEPBillable`` / ``ReducedSub`` branches the ``if 'Helper' in
+  post_*`` check ran before the ``post_*[0] == 'User'`` check, so a
+  primary-claimer filename whose CLAIMER NAME contains the ``Helper``
+  token (e.g. a foreman named ``Pat Helper`` → ``_…_User_Pat_Helper_
+  <hash>``) misparsed as ``…_helper`` with an empty identifier — breaking
+  the identity round-trip and causing attachment-cleanup / hash-skip
+  churn for those claimers. Fix: check the reserved ``User`` token FIRST
+  in both branches; helper-shadow files (``post_*[0] == 'Helper'``) and
+  legacy unpartitioned files are unaffected. **(#5, Codex P2 — Low)
+  One-time hash-prune sentinel lost on no-update runs.** Both
+  ``_run_phase_1_1_hash_prune`` and ``_run_subproject_b_hash_prune``
+  mutate ``hash_history`` (drop orphans + advance the version sentinel),
+  but ``save_hash_history`` was gated solely by ``if history_updates:``.
+  On a run where every group is skipped (``history_updates == 0``) the
+  save never fired, so the prune re-ran every such execution
+  (idempotent + self-healing, hence Low — but non-deterministic). Fix:
+  both prunes now return a ``bool`` (``True`` when the body path ran /
+  sentinel advanced, ``False`` on the no-op idempotent early-return); the
+  call sites OR the results into ``_hash_history_migration_dirty``; and a
+  new ``elif _hash_history_migration_dirty: save_hash_history(...)`` branch
+  persists the migration on a no-update run WITHOUT running the stale-key
+  prune (groups weren't fully processed, so ``current_keys`` would be
+  incomplete and could delete freshly-skipped live entries). **(#1,
+  Copilot — Low) ``record_attribution_hold`` typed ``date`` got a
+  ``datetime``.** The HOLD call passed the ``datetime`` ``week_ending_date``,
+  so the hold-bucket key embedded ``…T00:00:00`` (and would split buckets
+  if any caller passed a pure ``date``). Fix: normalize to
+  ``week_ending_date.date()`` at the call site (matching the pre-pass's
+  normalization for ``resolve_claimer``). **(#2, Copilot — hardening, not
+  a live bug) Suffix helper accepted unknown variants.**
+  ``_subcontractor_primary_variant_suffix`` mapped any non-``aep_billable``
+  variant to ``_ReducedSub``; call sites only pass the two valid variants,
+  but per the [2026-05-15 12:00] rule-4 defensive-raise convention for new
+  variant-identity helpers it now raises ``ValueError`` on an unexpected
+  variant. **New rules:** (1) **Reserved-token parse order.** When a
+  filename grammar has a reserved disambiguating token (``User`` for
+  primary claimers) AND a free-text identifier that can itself contain
+  another grammar token (``Helper`` inside a foreman name), the reserved
+  token MUST be matched BEFORE any substring/membership scan for the
+  other token. Membership checks (``'Helper' in parts``) are positional-
+  agnostic and will false-positive on identifier content; the reserved
+  token is positional (``parts[0]``) and unambiguous. (2) **Non-empty
+  claimer invariant for ``_USER_`` emission.** Any emission gate that
+  feeds a value into a filename-identity helper which raises on empty
+  MUST guarantee the value is non-empty BEFORE the gate — gate on
+  truthiness or coerce to a sentinel (``'Unknown Foreman'``), never gate
+  on ``is not None`` while the producer can yield ``''``.
+  ``__effective_user`` specifically can be ``''`` (whitespace ``Foreman
+  Assigned?``); treat it as possibly-empty everywhere it seeds an
+  identifier. (3) **One-time migrations must persist independently of
+  ``history_updates``.** A version-sentinel migration that mutates
+  ``hash_history`` must report whether it mutated, and the save path must
+  honor that signal even when no groups changed — otherwise the sentinel
+  never persists on a quiet run and the migration is non-deterministic.
+  The migration-save path must NOT trigger the stale-key prune (that
+  prune requires fully-processed ``current_keys``). Regression tests
+  (all TDD red→green): ``tests/test_subcontractor_primary_claim_attribution.py``
+  gains ``TestBuildGroupIdentityParsesPrimaryUserToken`` +2 (claimer
+  named ``…_Helper`` parses as primary for both variants),
+  ``TestPrimaryVariantSuffixHelper::test_unknown_variant_raises``,
+  ``TestPrePassEmission::test_empty_claimer_falls_back_to_unknown_foreman``
+  + ``test_hold_records_date_only_week_key``, and
+  ``TestSubprojectBHashPrune`` +4 (prune return-value contract +
+  migration-dirty save-gate source guard). ``pytest tests/`` → **766
+  passed / 26 skipped / 60 subtests** (was 757; +9, zero regressions).

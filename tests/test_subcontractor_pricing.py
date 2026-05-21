@@ -2112,6 +2112,158 @@ class TestSubcontractorVariantFilenameSuffixes(unittest.TestCase):
         self.assertIn('_ReducedSub_Helper_Jane_Smith_', filename)
 
 
+class TestSubcontractorHelperVariantDeptJobDisplay(unittest.TestCase):
+    """REPORT DETAILS Dept #/Job # for subcontractor helper-shadow variants.
+
+    Regression for the operator-reported defect (2026-05-21): the
+    ``reduced_sub_helper`` / ``aep_billable_helper`` variants fell through
+    ``generate_excel``'s ``if variant == 'helper'`` exact-match gate to the
+    ``else`` (primary) branch, so the REPORT DETAILS block showed the PRIMARY
+    ``Dept #`` / ``Job #`` instead of the helper's ``__helper_dept`` /
+    ``__helper_job``.
+
+    The displayed Foreman is already correct for these variants because
+    ``__current_foreman`` is set to the *attributed* helper (the file's
+    partition key) at the ``keys_to_add`` site — NOT ``__helper_foreman``
+    (the current "Foreman Helping?" value, which can diverge under Phase 1.1
+    claim attribution). The fix MUST preserve that, so the foreman regression
+    guard below pins ``display_foreman == current_foreman``.
+    """
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._orig_output_folder = generate_weekly_pdfs.OUTPUT_FOLDER
+        generate_weekly_pdfs.OUTPUT_FOLDER = self._tmpdir.name
+        self._orig_rates = dict(generate_weekly_pdfs._SUBCONTRACTOR_RATES)
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES.clear()
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES['XYZ'] = {
+            'cu_code': 'XYZ',
+            'cu_wbs': '999',
+            'compatible_unit_group': 'TestGroup',
+            'reduced_install_price': 10.0,
+            'reduced_remove_price': 5.0,
+            'reduced_transfer_price': 2.5,
+            'new_install_price': 20.0,
+            'new_remove_price': 12.0,
+            'new_transfer_price': 6.0,
+        }
+
+    def tearDown(self):
+        generate_weekly_pdfs.OUTPUT_FOLDER = self._orig_output_folder
+        self._tmpdir.cleanup()
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES.clear()
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES.update(self._orig_rates)
+
+    # Distinct sentinels: PRIMARY dept/job = 500 / J-1; HELPER = 123 / J-2.
+    def _make_sub_helper_row(self, variant, helper_foreman='Jane Smith'):
+        import datetime as dt
+        return {
+            'Work Request #': '99887766',
+            'Weekly Reference Logged Date': '2026-04-19',
+            'Snapshot Date': '2026-04-19',
+            'Units Completed?': True,
+            'Units Total Price': '$0.00',
+            'CU': 'XYZ',
+            'Work Type': 'Install',
+            'Quantity': 2,
+            'Customer Name': 'TestCustomer',
+            'Foreman': 'PrimaryForeman',
+            'Dept #': '500',
+            'Job #': 'J-1',
+            '__effective_user': 'PrimaryForeman',
+            # For sub-helper rows the engine sets __current_foreman to the
+            # ATTRIBUTED helper (the partition key), not the primary foreman.
+            '__current_foreman': helper_foreman,
+            '__variant': variant,
+            '__helper_foreman': helper_foreman,
+            '__helper_dept': '123',
+            '__helper_job': 'J-2',
+            '__week_ending_date': dt.datetime(2026, 4, 19),
+        }
+
+    def _read_detail(self, excel_path, label):
+        """Return the REPORT DETAILS value (column G) for a given F-column label."""
+        import openpyxl
+        wb = openpyxl.load_workbook(excel_path)
+        ws = wb.active
+        for r in range(1, ws.max_row + 1):
+            if ws.cell(row=r, column=6).value == label:  # column F = label
+                return ws.cell(row=r, column=7).value      # column G = value
+        return None
+
+    def _generate(self, variant, group_key, data_hash, row=None):
+        import datetime as dt
+        rows = [row if row is not None else self._make_sub_helper_row(variant)]
+        result = generate_weekly_pdfs.generate_excel(
+            group_key, rows, dt.datetime(2026, 4, 19), data_hash=data_hash,
+        )
+        return result[0]  # excel_path
+
+    def test_reduced_sub_helper_shows_helper_dept_and_job(self):
+        path = self._generate(
+            'reduced_sub_helper',
+            '041926_99887766_REDUCEDSUB_HELPER_Jane_Smith',
+            'deadbeefcafe0001',
+        )
+        self.assertEqual(
+            self._read_detail(path, 'Dept #:'), '123',
+            "reduced_sub_helper file must show __helper_dept (123), not primary Dept # (500)",
+        )
+        self.assertEqual(
+            self._read_detail(path, 'Job #:'), 'J-2',
+            "reduced_sub_helper file must show __helper_job (J-2), not primary Job # (J-1)",
+        )
+
+    def test_aep_billable_helper_shows_helper_dept_and_job(self):
+        path = self._generate(
+            'aep_billable_helper',
+            '041926_99887766_AEPBILLABLE_HELPER_Jane_Smith',
+            'deadbeefcafe0002',
+        )
+        self.assertEqual(
+            self._read_detail(path, 'Dept #:'), '123',
+            "aep_billable_helper file must show __helper_dept (123), not primary Dept # (500)",
+        )
+        self.assertEqual(
+            self._read_detail(path, 'Job #:'), 'J-2',
+            "aep_billable_helper file must show __helper_job (J-2), not primary Job # (J-1)",
+        )
+
+    def test_sub_helper_foreman_stays_attributed_helper(self):
+        """Foreman must remain the attributed helper (current_foreman), NOT be
+        switched to __helper_foreman. Here they coincide ('Jane Smith') but the
+        fix must route through current_foreman so attribution divergence is
+        respected."""
+        path = self._generate(
+            'reduced_sub_helper',
+            '041926_99887766_REDUCEDSUB_HELPER_Jane_Smith',
+            'deadbeefcafe0003',
+        )
+        self.assertEqual(self._read_detail(path, 'Foreman:'), 'Jane Smith')
+
+    def test_sub_primary_variants_still_show_primary_dept_and_job(self):
+        """Guard the else-branch behaviour we deliberately keep: reduced_sub /
+        aep_billable (primary) files show the PRIMARY Dept # / Job #."""
+        import datetime as dt
+        for variant, key in (
+            ('reduced_sub', '041926_99887766_REDUCEDSUB'),
+            ('aep_billable', '041926_99887766_AEPBILLABLE'),
+        ):
+            with self.subTest(variant=variant):
+                row = self._make_sub_helper_row(variant, helper_foreman='')
+                row['__current_foreman'] = 'ClaimerForeman'
+                row['__helper_foreman'] = ''
+                row['__helper_dept'] = ''
+                row['__helper_job'] = ''
+                result = generate_weekly_pdfs.generate_excel(
+                    key, [row], dt.datetime(2026, 4, 19),
+                    data_hash='deadbeefcafe0004',
+                )
+                path = result[0]
+                self.assertEqual(self._read_detail(path, 'Dept #:'), '500')
+                self.assertEqual(self._read_detail(path, 'Job #:'), 'J-1')
+
+
 class TestSubcontractorVariantPriceSubstitution(unittest.TestCase):
     """Plan 01-03 Task 2: generate_excel substitutes CSV-driven prices for the 4 new variants.
 
@@ -2645,6 +2797,17 @@ class TestSubcontractorB1PartitioningGate(unittest.TestCase):
         The legacy primary key ``{week}_{wr}`` MUST NOT appear in the
         emitted groups for a subcontractor non-helper row under
         production grouping mode 'both'. Only variant keys remain.
+
+        Subproject B (2026-05-20) design-intent override per the
+        [2026-05-20 00:26] Living Ledger rule 2: the variant keys are
+        now PARTITIONED by the frozen primary claimer
+        (``_REDUCEDSUB_USER_<claimer>`` / ``_AEPBILLABLE_USER_<claimer>``)
+        instead of the bare ``_REDUCEDSUB`` / ``_AEPBILLABLE`` form. The
+        no-legacy-primary closure assertion (the actual subject of Bug
+        B1) is unchanged; only the variant-key shape assertion is
+        updated to the partitioned form. A substring match tolerates the
+        ``_USER_<claimer>`` suffix while still proving the variant
+        emission fires.
         """
         row = self._make_row(
             wr='WR_SUB',
@@ -2660,18 +2823,19 @@ class TestSubcontractorB1PartitioningGate(unittest.TestCase):
             f"Bug B1: subcontractor non-helper row must NOT emit "
             f"legacy primary key; got: {keys}",
         )
-        # Phase 1 variant emission is preserved
-        self.assertIn(
-            '041926_WR_SUB_REDUCEDSUB',
-            keys,
-            f"Phase 1 variant emission must still produce _REDUCEDSUB; "
-            f"got: {keys}",
+        # Phase 1 variant emission is preserved, now partitioned by the
+        # frozen primary claimer (Subproject B). effective_user is
+        # 'TestForeman' and no resolve_claimer mock is active here, so
+        # the real resolve_claimer falls back to use-current.
+        self.assertTrue(
+            any('041926_WR_SUB_REDUCEDSUB_USER_' in k for k in keys),
+            f"Variant emission must still produce a partitioned "
+            f"_REDUCEDSUB_USER_<claimer> key; got: {keys}",
         )
-        self.assertIn(
-            '041926_WR_SUB_AEPBILLABLE',
-            keys,
-            f"Post-cutoff snapshot must still produce _AEPBILLABLE; "
-            f"got: {keys}",
+        self.assertTrue(
+            any('041926_WR_SUB_AEPBILLABLE_USER_' in k for k in keys),
+            f"Post-cutoff snapshot must still produce a partitioned "
+            f"_AEPBILLABLE_USER_<claimer> key; got: {keys}",
         )
 
     # ---------- Test 2: legacy non-subcontractor flow preserved ----------
@@ -2820,13 +2984,21 @@ class TestSubcontractorB1PartitioningGate(unittest.TestCase):
             f"got: {keys}",
         )
 
-    # ---------- Test 7: variant emission preserved byte-for-byte ----------
+    # ---------- Test 7: variant emission preserved ----------
     def test_phase1_variant_emission_block_untouched(self):
         """Test 7: subcontractor variant emission still produces variants.
 
-        Bug B1 closes the duplicate-primary leak WITHOUT touching the
-        variant emission block — _REDUCEDSUB (always) and _AEPBILLABLE
+        Bug B1 closes the duplicate-primary leak WITHOUT regressing the
+        variant emission — _REDUCEDSUB (always) and _AEPBILLABLE
         (post-cutoff) continue to fire for subcontractor rows.
+
+        Subproject B (2026-05-20) design-intent override per the
+        [2026-05-20 00:26] Living Ledger rule 2: those variant keys are
+        now PARTITIONED by the frozen primary claimer
+        (``_REDUCEDSUB_USER_<claimer>`` / ``_AEPBILLABLE_USER_<claimer>``).
+        The substring assertions below tolerate the new
+        ``_USER_<claimer>`` suffix while still proving both variants
+        emit for a post-cutoff subcontractor row.
         """
         row = self._make_row(
             wr='WR_VAR_INTACT',
@@ -2836,15 +3008,15 @@ class TestSubcontractorB1PartitioningGate(unittest.TestCase):
         )
         groups = generate_weekly_pdfs.group_source_rows([row])
         keys = list(groups.keys())
-        self.assertIn(
-            '041926_WR_VAR_INTACT_REDUCEDSUB',
-            keys,
-            "_REDUCEDSUB still emitted for subcontractor rows",
+        self.assertTrue(
+            any('041926_WR_VAR_INTACT_REDUCEDSUB_USER_' in k for k in keys),
+            f"_REDUCEDSUB_USER_<claimer> still emitted for "
+            f"subcontractor rows; got: {keys}",
         )
-        self.assertIn(
-            '041926_WR_VAR_INTACT_AEPBILLABLE',
-            keys,
-            "_AEPBILLABLE still emitted for post-cutoff subcontractor rows",
+        self.assertTrue(
+            any('041926_WR_VAR_INTACT_AEPBILLABLE_USER_' in k for k in keys),
+            f"_AEPBILLABLE_USER_<claimer> still emitted for post-cutoff "
+            f"subcontractor rows; got: {keys}",
         )
 
 
@@ -4556,11 +4728,16 @@ class TestPppCleanupInvocationCarriesWhitelist(unittest.TestCase):
         import re
         src = self._read_source()
         # Extract the TARGET cleanup invocation (multi-line or
-        # single-line tolerant). Use [^()]* so nested parens
-        # don't confuse the matcher.
+        # single-line tolerant). Subproject B (Task 7) introduced one
+        # level of nested parens inside the call body
+        # (``sub_offcontract_variants=(_target_offcontract or None)``),
+        # so the matcher must tolerate a single level of balanced
+        # inner parens — ``(?:[^()]|\([^()]*\))*`` consumes either a
+        # non-paren char or a balanced single-level group — and then
+        # stop at the call's own closing paren.
         target_match = re.search(
             r"cleanup_untracked_sheet_attachments\s*\(\s*\n?\s*"
-            r"client\s*,\s*\n?\s*TARGET_SHEET_ID[^()]*\)",
+            r"client\s*,\s*\n?\s*TARGET_SHEET_ID(?:[^()]|\([^()]*\))*\)",
             src,
             re.MULTILINE,
         )

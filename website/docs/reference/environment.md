@@ -213,11 +213,26 @@ column has since been changed to a different helper. Solves the
 production failure mode where a Mon-Tue helper's rows were silently
 reassigned to the Wed-Thu replacement helper's file.
 
+**Broadened scope (Subproject B, 2026-05-20):** This same flag now
+ALSO gates the subcontractor PRIMARY claim attribution. When truthy,
+the `_ReducedSub` / `_AEPBillable` primary variants are partitioned by
+the FROZEN primary claimer (`primary_foreman`) from
+`billing_audit.attribution_snapshot` — resolved by Foundation A's
+`resolve_claimer` — and named `_ReducedSub_User_<name>` /
+`_AEPBillable_User_<name>`. Rows with no frozen claimer yet
+(`no_history`) fall back to the current effective foreman; a Supabase
+outage (`fetch_failure`) HOLDs the affected rows for that run (the
+primary file is not emitted — correctness over availability) and the
+end-of-run `summarize_attribution_holds()` WARNING reports the count.
+Disabling the flag reverts BOTH the helper-shadow and the primary
+partitioning to current-foreman behaviour.
+
 **Scope:** Subcontractor sheets ONLY (`is_subcontractor_row=True` via
-membership in `_FOLDER_DISCOVERED_SUB_IDS`). Primary, helper,
-vac_crew, and original-contract-folder helper-file behaviour is
-byte-identical to Phase 1 (ROADMAP success criterion #5 / D-15
-scope guarantee).
+membership in `_FOLDER_DISCOVERED_SUB_IDS`). With Subproject B, the
+subcontractor `reduced_sub` / `aep_billable` primary variants are now
+partitioned by frozen claimer; non-subcontractor primary, vac_crew,
+and original-contract-folder behaviour remain byte-identical to Phase 1
+(ROADMAP success criterion #5 / D-15 scope guarantee).
 
 **Fall-back semantics (D-12):** When the reader returns `None`, the
 row's helper-foreman defaults to the current `Foreman Helping?`
@@ -292,6 +307,53 @@ PGRST106/PGRST301/PGRST404 on the 'lookup_attribution' op.
 The PII marker `"Subcontractor helper claim attribution fallback"`
 is registered in `_PII_LOG_MARKERS` so the Sentry Logs sanitizer
 scrubs the message body when `SENTRY_ENABLE_LOGS` is on.
+
+### `SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED`
+
+*(Added 2026-05-20, Subproject B — subcontractor primary claim
+attribution.)*
+
+**Default:** `'1'` (on) — truthy values are `1` / `true` / `yes` /
+`on` (case-insensitive). Any other value (including empty string, `0`,
+`false`) disables the cleanup.
+
+**Scope:** Subproject B one-time migration.
+
+**Purpose:** Gates the destructive removal of legacy UNPARTITIONED
+`_ReducedSub` / `_AEPBillable` attachments (no `_User_` token, so the
+parsed identifier is empty) on `TARGET_SHEET_ID` and
+`SUBCONTRACTOR_PPP_SHEET_ID` for subcontractor WRs, once those variants
+are re-partitioned by the frozen primary claimer (Subproject B). Before
+the migration, each subcontractor WR had one bare `_ReducedSub` /
+`_AEPBillable` file; after, it has one file per claimer
+(`_ReducedSub_User_<name>`). The bare files become duplicate-billing
+leftovers — the same Phase 1.1 Bug B2 / SUB-09 trap. The deletion
+predicate matches ONLY empty-identifier files for in-scope
+subcontractor WRs and carries a `valid_wr_weeks` live-identity
+exemption, so a current per-claimer file (non-empty identifier) is
+never deleted.
+
+**Companion:** A one-time, idempotent hash-history prune
+(`_run_subproject_b_hash_prune`, sentinel `_subproject_b_prune_version`,
+version `SUBPROJECT_B_HASH_PRUNE_VERSION`) drops the matching
+blank-identifier `reduced_sub` / `aep_billable` hash-history orphans so
+the migration is deterministic on the first run. The prune is benign
+(a dropped hash entry costs at most one regeneration) and is NOT gated
+by this env var — advancing the version constant is its re-run trigger.
+
+**Separate from `SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED`,**
+which gates attribution RESOLUTION (which claimer a row belongs to),
+NOT this cleanup. Set this var to `'0'` to skip the destructive cleanup
+(legacy duplicates persist until removed manually); attribution
+partitioning still runs.
+
+**Workflow pin:** `.github/workflows/weekly-excel-generation.yml`
+`env:` block, alongside `SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED`.
+Per the [2026-04-24 14:30] workflow-pinning rule, a repo Variable
+cannot silently override the pinned value without code review.
+
+**Startup banner:** The resolved state is logged at startup as
+`📋 SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED=<bool>`.
 
 ### `AEP_BILLABLE_CUTOFF`
 
