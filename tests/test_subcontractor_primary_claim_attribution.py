@@ -259,5 +259,54 @@ class TestPrePassEmission(unittest.TestCase):
         self.assertIn('041926_91467680', groups)
 
 
+class TestThreeIdentitySitesCarryClaimer(unittest.TestCase):
+    """Task 5: all three identity sites derive reduced_sub/aep_billable
+    identifier from __current_foreman (the CR-01 lockstep invariant),
+    and the derivation round-trips with the filename builder + parser."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._src = pathlib.Path(
+            inspect.getsourcefile(generate_weekly_pdfs)
+        ).read_text(encoding='utf-8')
+
+    def test_exactly_three_identity_site_markers(self):
+        # Each of Site 1/2/3 carries the marker comment so the lockstep
+        # is auditable (CR-01). Drift between the three is the bug shape.
+        self.assertEqual(
+            self._src.count('Subproject B identity site'),
+            3,
+            "Exactly three identity sites must carry the Subproject B branch",
+        )
+
+    def test_site1_branches_on_subcontractor_primary_variants(self):
+        self.assertRegex(
+            self._src,
+            r"variant in \('reduced_sub', 'aep_billable'\)",
+            "Site 1 must branch on the subcontractor primary variants",
+        )
+
+    def test_identity_site_sanitizer_round_trips_with_filename(self):
+        # The identifier all three sites derive
+        # (_RE_SANITIZE_IDENTIFIER over __current_foreman) MUST equal the
+        # identifier build_group_identity parses out of the filename the
+        # builder produces — otherwise attachment-identity lookups miss
+        # and subcontractor primary files regenerate every run.
+        claimer = 'John Doe'
+        site_identifier = generate_weekly_pdfs._RE_SANITIZE_IDENTIFIER.sub(
+            '_', claimer
+        )[:50]
+        suffix = generate_weekly_pdfs._subcontractor_primary_variant_suffix(
+            'reduced_sub', claimer, '91467680', '041926'
+        )
+        fname = f'WR_91467680_WeekEnding_041926_120000{suffix}_abc123.xlsx'
+        _, _, _, parsed_identifier = generate_weekly_pdfs.build_group_identity(fname)
+        self.assertEqual(
+            parsed_identifier, site_identifier,
+            "identity-site identifier must equal the parsed filename "
+            "identifier (CR-01 round-trip)",
+        )
+
+
 if __name__ == '__main__':
     unittest.main()

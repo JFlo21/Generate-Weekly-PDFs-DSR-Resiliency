@@ -7411,13 +7411,21 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     # VAC Crew variant: no sub-identifier needed (all vac_crew rows for WR/week go together)
                     identifier = ''
                     file_identifier = ''
+                elif variant in ('reduced_sub', 'aep_billable'):
+                    # Subproject B identity site (Site 1 — main-loop
+                    # identifier). Partitioned by the frozen primary
+                    # claimer (__current_foreman). identifier ==
+                    # file_identifier == sanitized claimer, matching the
+                    # _ReducedSub_User_<name> filename and Sites 2 & 3.
+                    _b_claimer = first_row.get('__current_foreman', '')
+                    identifier = (
+                        _RE_SANITIZE_IDENTIFIER.sub('_', _b_claimer)[:50]
+                        if _b_claimer else ''
+                    )
+                    file_identifier = identifier
                 else:
-                    # Non-helper subcontractor variants (aep_billable, reduced_sub)
-                    # correctly fall through here because their filenames carry no
-                    # identifier suffix and build_group_identity returns identifier=''.
-                    # Per CR-01, do NOT add them to the helper-gate above — that would
-                    # set identifier='||' (literal pipes-on-empties) for primary
-                    # subcontractor variants, breaking hash-history bucket cohesion.
+                    # Legacy primary variant: identifier derived from the
+                    # row's ``User`` field.
                     user_val = first_row.get('User')
                     # PERFORMANCE: Use pre-compiled regex for identifier sanitization
                     identifier = _RE_SANITIZE_IDENTIFIER.sub('_', user_val)[:50] if user_val else ''
@@ -8128,6 +8136,15 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     file_id = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50] if helper_foreman else ''
                 elif variant == 'vac_crew':
                     file_id = ''
+                elif variant in ('reduced_sub', 'aep_billable'):
+                    # Subproject B identity site (Site 2 — valid_wr_weeks).
+                    # Mirror Site 1 so attachment cleanup keeps the live
+                    # per-claimer file.
+                    _b_claimer = group_rows[0].get('__current_foreman', '')
+                    file_id = (
+                        _RE_SANITIZE_IDENTIFIER.sub('_', _b_claimer)[:50]
+                        if _b_claimer else ''
+                    )
                 else:
                     user_val = group_rows[0].get('User')
                     # PERFORMANCE: Use pre-compiled regex
@@ -8299,6 +8316,17 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                             _ident = f"{_hf}|{_hd}|{_hj}"
                         elif _variant == 'vac_crew':
                             _ident = ''
+                        elif _variant in ('reduced_sub', 'aep_billable'):
+                            # Subproject B identity site (Site 3 —
+                            # current_keys). Must match the history_key
+                            # written at Site 1 byte-for-byte (sanitized
+                            # claimer) or the freshly-written entry is
+                            # treated as stale and deleted before save.
+                            _b_claimer = group_rows[0].get('__current_foreman', '')
+                            _ident = (
+                                _RE_SANITIZE_IDENTIFIER.sub('_', _b_claimer)[:50]
+                                if _b_claimer else ''
+                            )
                         else:
                             _uv = group_rows[0].get('User')
                             _ident = _RE_SANITIZE_IDENTIFIER.sub('_', _uv)[:50] if _uv else ''
