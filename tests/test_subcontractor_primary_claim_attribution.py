@@ -509,5 +509,109 @@ class TestSubprojectBHashPrune(unittest.TestCase):
         self.assertIn('_run_subproject_b_hash_prune(hash_history, groups)', src)
 
 
+class TestNonSubVariantsPreserved(unittest.TestCase):
+    """Task 9: B does not change primary / vac_crew / helper-shadow grouping."""
+
+    _SUB_SHEET_ID = 8162920222379908
+
+    def setUp(self):
+        _reset_all()
+        self._orig_variants = generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED
+        self._orig_sub_ids = set(generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS)
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = True
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.add(self._SUB_SHEET_ID)
+
+    def tearDown(self):
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = self._orig_variants
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.update(self._orig_sub_ids)
+        _reset_all()
+
+    def test_non_subcontractor_primary_row_emits_legacy_primary_key(self):
+        row = _make_sub_primary_row(source_sheet_id=99999999)
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        self.assertIn('041926_91467680', groups)
+        # No subcontractor variant keys for a non-sub row.
+        self.assertFalse(any('REDUCEDSUB' in k for k in groups))
+
+    def test_vac_crew_row_unaffected(self):
+        row = _make_sub_primary_row(source_sheet_id=99999999)
+        row['__is_vac_crew'] = True
+        row['__vac_crew_name'] = 'VacGuy'
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        self.assertTrue(any(k.endswith('_VACCREW') for k in groups))
+
+
+class TestPrePassConcurrency(unittest.TestCase):
+    """Task 9: the parallel pre-pass resolves many rows correctly with no
+    lost/duplicated map entries (spec §12 concurrency coverage)."""
+
+    _SUB_SHEET_ID = 8162920222379908
+
+    def setUp(self):
+        _reset_all()
+        self._orig_variants = generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED
+        self._orig_attr = generate_weekly_pdfs.SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED
+        self._orig_sub_ids = set(generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS)
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = True
+        generate_weekly_pdfs.SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED = True
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.add(self._SUB_SHEET_ID)
+
+    def tearDown(self):
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = self._orig_variants
+        generate_weekly_pdfs.SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED = self._orig_attr
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.update(self._orig_sub_ids)
+        _reset_all()
+
+    def test_fifty_rows_each_partition_to_their_own_claimer(self):
+        # Each row's claimer is keyed to its row_id; assert every row
+        # lands in its own claimer's group with no loss/duplication.
+        def _resolve(variant, current, *, wr, week_ending, row_id, enabled):
+            return ResolveOutcome('use', f'Foreman{row_id}', 'frozen', 'success')
+        rows = [
+            _make_sub_primary_row(wr='WRSAME', row_id=6000 + i)
+            for i in range(50)
+        ]
+        with mock.patch('billing_audit.writer.resolve_claimer', side_effect=_resolve):
+            groups = generate_weekly_pdfs.group_source_rows(rows)
+        keys = list(groups.keys())
+        for i in range(50):
+            self.assertTrue(
+                any(f'REDUCEDSUB_USER_Foreman{6000 + i}' in k for k in keys),
+                f"row {6000 + i} missing from its claimer group; got {len(keys)} keys",
+            )
+
+
+class TestSubprojectBProductionInvariants(unittest.TestCase):
+    """Task 9: source-grep guards defeating the 'mirror passes but
+    production reverted' failure mode."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._src = pathlib.Path(
+            inspect.getsourcefile(generate_weekly_pdfs)
+        ).read_text(encoding='utf-8')
+
+    def test_prepass_present(self):
+        self.assertIn('_sub_primary_claimer_map', self._src)
+        self.assertIn('Subproject B attribution pre-pass', self._src)
+
+    def test_emission_uses_user_token_keys(self):
+        self.assertIn('_REDUCEDSUB_USER_', self._src)
+        self.assertIn('_AEPBILLABLE_USER_', self._src)
+
+    def test_hold_record_present(self):
+        self.assertIn('record_attribution_hold', self._src)
+
+    def test_cleanup_param_signature_present(self):
+        self.assertRegex(
+            self._src,
+            r'sub_legacy_primary_variants: set\[str\] \| None = None',
+        )
+
+
 if __name__ == '__main__':
     unittest.main()
