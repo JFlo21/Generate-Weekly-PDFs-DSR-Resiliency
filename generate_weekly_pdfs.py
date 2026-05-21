@@ -705,9 +705,11 @@ logging.info(
 # operators grepping the banner see the active feature state at a
 # glance. Banner body carries no row PII (just the resolved bools).
 logging.info(
-    f"🚐 VAC Crew claim attribution: "
-    f"{'ENABLED' if VAC_CREW_CLAIM_ATTRIBUTION_ENABLED else 'DISABLED'}; "
-    f"legacy cleanup: "
+    f"📋 VAC Crew claim attribution: "
+    f"{'ENABLED' if VAC_CREW_CLAIM_ATTRIBUTION_ENABLED else 'DISABLED'}"
+)
+logging.info(
+    f"📋 VAC Crew legacy cleanup: "
     f"{'ENABLED' if VAC_CREW_LEGACY_CLEANUP_ENABLED else 'DISABLED'}"
 )
 

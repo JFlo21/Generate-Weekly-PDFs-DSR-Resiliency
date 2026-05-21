@@ -26,15 +26,22 @@ from billing_audit.writer import ResolveOutcome  # noqa: E402
 
 
 class TestVacCrewConfigFlags(unittest.TestCase):
-    def test_attribution_flag_exists_and_is_bool_default_on(self):
+    def test_attribution_flag_exists_and_is_bool(self):
         self.assertIsInstance(
             generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED, bool
         )
+
+    def test_attribution_flag_default_on(self):
+        # Env var unset in the test harness → default '1' → True.
+        self.assertTrue(generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED)
 
     def test_legacy_cleanup_flag_exists_and_is_bool(self):
         self.assertIsInstance(
             generate_weekly_pdfs.VAC_CREW_LEGACY_CLEANUP_ENABLED, bool
         )
+
+    def test_legacy_cleanup_flag_default_on(self):
+        self.assertTrue(generate_weekly_pdfs.VAC_CREW_LEGACY_CLEANUP_ENABLED)
 
     def test_flags_pinned_in_workflow(self):
         wf = (_REPO_ROOT / ".github/workflows/weekly-excel-generation.yml").read_text(
