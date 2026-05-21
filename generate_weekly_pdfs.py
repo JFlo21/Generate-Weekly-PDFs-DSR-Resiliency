@@ -2569,7 +2569,15 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
                 # so underscored helper names like ``Jane_Smith``
                 # survive intact (round-7 span-join discipline).
                 identifier = '_'.join(post_aep[helper_idx_rel + 1:-1])
+        elif post_aep and post_aep[0] == 'User':
+            # Subproject B: _AEPBillable_User_<claimer>_<hash>. The
+            # 'User' token marks a primary-claimer identifier (reserved,
+            # unambiguous vs the 'Helper' token). Span-join so an
+            # underscored claimer name survives intact.
+            variant = 'aep_billable'
+            identifier = '_'.join(post_aep[1:-1])
         else:
+            # Legacy unpartitioned _AEPBillable_<hash> (no User token).
             variant = 'aep_billable'
             identifier = ''
     elif 'ReducedSub' in tail:
@@ -2580,7 +2588,12 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
             helper_idx_rel = post_rs.index('Helper')
             if helper_idx_rel + 1 < len(post_rs):
                 identifier = '_'.join(post_rs[helper_idx_rel + 1:-1])
+        elif post_rs and post_rs[0] == 'User':
+            # Subproject B: _ReducedSub_User_<claimer>_<hash>.
+            variant = 'reduced_sub'
+            identifier = '_'.join(post_rs[1:-1])
         else:
+            # Legacy unpartitioned _ReducedSub_<hash> (no User token).
             variant = 'reduced_sub'
             identifier = ''
     elif 'Helper' in tail:
