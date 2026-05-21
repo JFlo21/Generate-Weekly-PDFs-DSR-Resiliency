@@ -2523,3 +2523,89 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   red→green (RED: ``'500' != '123'``); ``pytest tests/`` → **757 passed
   / 26 skipped / 60 subtests** (was 753 / 26 / 58 at the Subproject B
   close; +4 methods, +2 subtests, zero regressions).
+- [2026-05-21 13:20] PR #215 pre-merge AI code-review pass (Copilot +
+  Codex) on Subproject B surfaced 4 real bugs + 1 hardening item; all
+  verified against the code and fixed TDD red→green before merge.
+  **(#4, Codex P1 — High) Empty claimer crashed primary file
+  generation.** ``_subcontractor_primary_variant_suffix`` raises
+  ``ValueError`` on an empty claimer (a deliberate data-drift backstop),
+  but the emission gate at ``group_source_rows`` was ``if
+  _b_primary_claimer is not None`` — and the claimer could be ``''``: a
+  whitespace-only ``Foreman Assigned?`` makes ``str(foreman_assigned).
+  strip()`` (the ``if foreman_assigned:`` branch is truthy for
+  whitespace) yield ``__effective_user = ''``, which flows through
+  ``resolve_claimer``'s use/no_history (returns the empty current value)
+  to ``_b_primary_claimer = ''``. That passed ``is not None``, created a
+  ``_REDUCEDSUB_USER_`` key with an empty identifier, then crashed
+  ``generate_excel`` at the suffix raise → the WR's subcontractor primary
+  file silently failed to generate. Fix: fall back to ``'Unknown
+  Foreman'`` (``_b_outcome.name or effective_user or 'Unknown Foreman'``
+  on the use branch; ``effective_user or 'Unknown Foreman'`` on the
+  else branch), so the row's billing still ships in a clearly-flagged
+  file and the suffix raise stays a true backstop. **(#3, Codex P2 —
+  Med) ``build_group_identity`` scanned ``Helper`` before ``User``.** In
+  the ``AEPBillable`` / ``ReducedSub`` branches the ``if 'Helper' in
+  post_*`` check ran before the ``post_*[0] == 'User'`` check, so a
+  primary-claimer filename whose CLAIMER NAME contains the ``Helper``
+  token (e.g. a foreman named ``Pat Helper`` → ``_…_User_Pat_Helper_
+  <hash>``) misparsed as ``…_helper`` with an empty identifier — breaking
+  the identity round-trip and causing attachment-cleanup / hash-skip
+  churn for those claimers. Fix: check the reserved ``User`` token FIRST
+  in both branches; helper-shadow files (``post_*[0] == 'Helper'``) and
+  legacy unpartitioned files are unaffected. **(#5, Codex P2 — Low)
+  One-time hash-prune sentinel lost on no-update runs.** Both
+  ``_run_phase_1_1_hash_prune`` and ``_run_subproject_b_hash_prune``
+  mutate ``hash_history`` (drop orphans + advance the version sentinel),
+  but ``save_hash_history`` was gated solely by ``if history_updates:``.
+  On a run where every group is skipped (``history_updates == 0``) the
+  save never fired, so the prune re-ran every such execution
+  (idempotent + self-healing, hence Low — but non-deterministic). Fix:
+  both prunes now return a ``bool`` (``True`` when the body path ran /
+  sentinel advanced, ``False`` on the no-op idempotent early-return); the
+  call sites OR the results into ``_hash_history_migration_dirty``; and a
+  new ``elif _hash_history_migration_dirty: save_hash_history(...)`` branch
+  persists the migration on a no-update run WITHOUT running the stale-key
+  prune (groups weren't fully processed, so ``current_keys`` would be
+  incomplete and could delete freshly-skipped live entries). **(#1,
+  Copilot — Low) ``record_attribution_hold`` typed ``date`` got a
+  ``datetime``.** The HOLD call passed the ``datetime`` ``week_ending_date``,
+  so the hold-bucket key embedded ``…T00:00:00`` (and would split buckets
+  if any caller passed a pure ``date``). Fix: normalize to
+  ``week_ending_date.date()`` at the call site (matching the pre-pass's
+  normalization for ``resolve_claimer``). **(#2, Copilot — hardening, not
+  a live bug) Suffix helper accepted unknown variants.**
+  ``_subcontractor_primary_variant_suffix`` mapped any non-``aep_billable``
+  variant to ``_ReducedSub``; call sites only pass the two valid variants,
+  but per the [2026-05-15 12:00] rule-4 defensive-raise convention for new
+  variant-identity helpers it now raises ``ValueError`` on an unexpected
+  variant. **New rules:** (1) **Reserved-token parse order.** When a
+  filename grammar has a reserved disambiguating token (``User`` for
+  primary claimers) AND a free-text identifier that can itself contain
+  another grammar token (``Helper`` inside a foreman name), the reserved
+  token MUST be matched BEFORE any substring/membership scan for the
+  other token. Membership checks (``'Helper' in parts``) are positional-
+  agnostic and will false-positive on identifier content; the reserved
+  token is positional (``parts[0]``) and unambiguous. (2) **Non-empty
+  claimer invariant for ``_USER_`` emission.** Any emission gate that
+  feeds a value into a filename-identity helper which raises on empty
+  MUST guarantee the value is non-empty BEFORE the gate — gate on
+  truthiness or coerce to a sentinel (``'Unknown Foreman'``), never gate
+  on ``is not None`` while the producer can yield ``''``.
+  ``__effective_user`` specifically can be ``''`` (whitespace ``Foreman
+  Assigned?``); treat it as possibly-empty everywhere it seeds an
+  identifier. (3) **One-time migrations must persist independently of
+  ``history_updates``.** A version-sentinel migration that mutates
+  ``hash_history`` must report whether it mutated, and the save path must
+  honor that signal even when no groups changed — otherwise the sentinel
+  never persists on a quiet run and the migration is non-deterministic.
+  The migration-save path must NOT trigger the stale-key prune (that
+  prune requires fully-processed ``current_keys``). Regression tests
+  (all TDD red→green): ``tests/test_subcontractor_primary_claim_attribution.py``
+  gains ``TestBuildGroupIdentityParsesPrimaryUserToken`` +2 (claimer
+  named ``…_Helper`` parses as primary for both variants),
+  ``TestPrimaryVariantSuffixHelper::test_unknown_variant_raises``,
+  ``TestPrePassEmission::test_empty_claimer_falls_back_to_unknown_foreman``
+  + ``test_hold_records_date_only_week_key``, and
+  ``TestSubprojectBHashPrune`` +4 (prune return-value contract +
+  migration-dirty save-gate source guard). ``pytest tests/`` → **766
+  passed / 26 skipped / 60 subtests** (was 757; +9, zero regressions).

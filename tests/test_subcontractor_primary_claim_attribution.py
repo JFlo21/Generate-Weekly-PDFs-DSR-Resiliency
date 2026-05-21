@@ -70,6 +70,23 @@ class TestBuildGroupIdentityParsesPrimaryUserToken(unittest.TestCase):
         )
         self.assertEqual(ident, ('91467680', '041926', 'reduced_sub', ''))
 
+    def test_aepbillable_user_claimer_named_helper_parses_as_primary(self):
+        # Codex P2: a primary claimer whose name contains the 'Helper'
+        # token (e.g. a foreman literally named '... Helper') must parse as
+        # the PRIMARY aep_billable variant, not aep_billable_helper. The
+        # reserved _User_ token is checked BEFORE the Helper scan, so it
+        # wins. Pre-fix this round-tripped to ('...','aep_billable_helper','').
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_91467680_WeekEnding_041926_120000_AEPBillable_User_John_Helper_abc123.xlsx'
+        )
+        self.assertEqual(ident, ('91467680', '041926', 'aep_billable', 'John_Helper'))
+
+    def test_reducedsub_user_claimer_named_helper_parses_as_primary(self):
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_91467680_WeekEnding_041926_120000_ReducedSub_User_Pat_Helper_def456.xlsx'
+        )
+        self.assertEqual(ident, ('91467680', '041926', 'reduced_sub', 'Pat_Helper'))
+
 
 class TestLegacyPrimaryCleanupKillSwitch(unittest.TestCase):
     """Task 2: destructive-migration kill switch + startup banner."""
@@ -123,6 +140,17 @@ class TestPrimaryVariantSuffixHelper(unittest.TestCase):
             generate_weekly_pdfs.build_group_identity(fname),
             ('91467680', '041926', 'reduced_sub', 'John_Doe'),
         )
+
+    def test_unknown_variant_raises(self):
+        # Copilot: this helper is filename-identity logic. An unexpected
+        # variant must raise rather than silently fall through to the
+        # _ReducedSub token (which would misroute downstream identity
+        # matching). Mirrors the defensive-raise convention for new
+        # variant helpers (Living Ledger 2026-05-15 rule 4).
+        with self.assertRaises(ValueError):
+            generate_weekly_pdfs._subcontractor_primary_variant_suffix(
+                'vac_crew', 'John Doe', '91467680', '041926'
+            )
 
 
 def _make_sub_primary_row(
@@ -293,6 +321,54 @@ class TestPrePassEmission(unittest.TestCase):
             groups = generate_weekly_pdfs.group_source_rows([row])
             m.assert_not_called()
         self.assertIn('041926_91467680', groups)
+
+    def test_empty_claimer_falls_back_to_unknown_foreman(self):
+        # Codex P1: a whitespace-only "Foreman Assigned?" yields
+        # __effective_user='' upstream. resolve_claimer's use/no_history
+        # then returns an empty name. The emission gates on `is not None`,
+        # so '' previously created a _REDUCEDSUB_USER_ key with an EMPTY
+        # claimer, which later crashed generate_excel at the
+        # _subcontractor_primary_variant_suffix raise. The claimer must
+        # fall back to a non-empty sentinel so the primary file is still
+        # emitted (billing not dropped) and never carries an empty token.
+        with mock.patch(
+            'billing_audit.writer.resolve_claimer',
+            return_value=ResolveOutcome('use', '', 'current', 'no_history'),
+        ):
+            groups = generate_weekly_pdfs.group_source_rows(
+                [_make_sub_primary_row(effective_user='')]
+            )
+        keys = list(groups.keys())
+        self.assertTrue(
+            any('REDUCEDSUB_USER_Unknown_Foreman' in k for k in keys),
+            f"empty claimer must fall back to Unknown_Foreman; got {keys}",
+        )
+        self.assertFalse(
+            any(k.endswith('REDUCEDSUB_USER_') for k in keys),
+            f"must never emit an empty _USER_ token; got {keys}",
+        )
+
+    def test_hold_records_date_only_week_key(self):
+        # Copilot: record_attribution_hold is typed `datetime.date | None`,
+        # but the call site passed the datetime week_ending_date, so the
+        # hold key embedded 'YYYY-MM-DDT00:00:00'. The call site must
+        # normalize to a pure date (matching the pre-pass normalization for
+        # resolve_claimer) so the key is 'YYYY-MM-DD'.
+        import billing_audit.writer as _w
+        _w._attribution_holds.clear()
+        with mock.patch(
+            'billing_audit.writer.resolve_claimer',
+            return_value=ResolveOutcome('hold', None, None, 'fetch_failure'),
+        ):
+            generate_weekly_pdfs.group_source_rows([_make_sub_primary_row()])
+        keys = list(_w._attribution_holds.keys())
+        self.assertEqual(len(keys), 1, f"exactly one hold expected; got {keys}")
+        week_component = keys[0][1]
+        self.assertNotIn(
+            'T', week_component,
+            f"hold week key must be date-only (no time component); got {week_component!r}",
+        )
+        self.assertRegex(week_component, r'^\d{4}-\d{2}-\d{2}$')
 
 
 class TestThreeIdentitySitesCarryClaimer(unittest.TestCase):
@@ -543,6 +619,49 @@ class TestSubprojectBHashPrune(unittest.TestCase):
             inspect.getsourcefile(generate_weekly_pdfs)
         ).read_text(encoding='utf-8')
         self.assertIn('_run_subproject_b_hash_prune(hash_history, groups)', src)
+
+    def test_returns_true_when_orphans_dropped(self):
+        # Codex P2: the prune must report whether it mutated hash_history so
+        # the caller can persist it even on a no-update run (where the
+        # history_updates-gated save would otherwise skip it). Orphans
+        # dropped → mutated → True.
+        hist = {'91467680|041926|reduced_sub|': {'hash': 'h1'}}
+        changed = generate_weekly_pdfs._run_subproject_b_hash_prune(
+            hist, self._groups(['91467680'])
+        )
+        self.assertIs(changed, True)
+
+    def test_returns_true_when_only_sentinel_advances(self):
+        # No orphans to drop, but the sentinel advances from absent →
+        # version. That is still a mutation that must persist.
+        hist = {'12345|041926|reduced_sub|John': {'hash': 'h'}}
+        changed = generate_weekly_pdfs._run_subproject_b_hash_prune(
+            hist, self._groups(['91467680'])
+        )
+        self.assertIs(changed, True)
+        self.assertEqual(
+            hist['_subproject_b_prune_version'],
+            generate_weekly_pdfs.SUBPROJECT_B_HASH_PRUNE_VERSION,
+        )
+
+    def test_returns_false_when_idempotent(self):
+        # Sentinel already current → no mutation → False (no save needed).
+        hist = {
+            '_subproject_b_prune_version':
+                generate_weekly_pdfs.SUBPROJECT_B_HASH_PRUNE_VERSION,
+        }
+        changed = generate_weekly_pdfs._run_subproject_b_hash_prune(
+            hist, self._groups(['91467680'])
+        )
+        self.assertIs(changed, False)
+
+    def test_save_gate_persists_one_time_prune_in_source(self):
+        # Codex P2 wiring: the hash-history save must fire on a no-update
+        # run when a one-time migration prune mutated the history.
+        src = pathlib.Path(
+            inspect.getsourcefile(generate_weekly_pdfs)
+        ).read_text(encoding='utf-8')
+        self.assertIn('_hash_history_migration_dirty', src)
 
 
 class TestNonSubVariantsPreserved(unittest.TestCase):

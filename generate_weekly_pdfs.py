@@ -2597,7 +2597,19 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
     if 'AEPBillable' in tail:
         aep_idx_rel = tail.index('AEPBillable')
         post_aep = tail[aep_idx_rel + 1:]
-        if 'Helper' in post_aep:
+        if post_aep and post_aep[0] == 'User':
+            # Subproject B: _AEPBillable_User_<claimer>_<hash>. The reserved
+            # 'User' token marks a primary-claimer identifier. It MUST be
+            # checked BEFORE the 'Helper' scan (Codex P2): a primary claimer
+            # whose NAME contains the 'Helper' token (e.g. a foreman named
+            # 'Pat Helper' → 'Pat_Helper') would otherwise be misclassified
+            # as an aep_billable_helper variant, breaking identity round-trip
+            # and causing cleanup/hash churn. Span-join so an underscored
+            # claimer name survives intact. A dangling 'User' with no name
+            # before the hash yields '' (legacy shape).
+            variant = 'aep_billable'
+            identifier = '_'.join(post_aep[1:-1])
+        elif 'Helper' in post_aep:
             variant = 'aep_billable_helper'
             helper_idx_rel = post_aep.index('Helper')
             if helper_idx_rel + 1 < len(post_aep):
@@ -2605,14 +2617,6 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
                 # so underscored helper names like ``Jane_Smith``
                 # survive intact (round-7 span-join discipline).
                 identifier = '_'.join(post_aep[helper_idx_rel + 1:-1])
-        elif post_aep and post_aep[0] == 'User':
-            # Subproject B: _AEPBillable_User_<claimer>_<hash>. The
-            # 'User' token marks a primary-claimer identifier (reserved,
-            # unambiguous vs the 'Helper' token). Span-join so an
-            # underscored claimer name survives intact.
-            # A dangling 'User' with no name before the hash yields '' (legacy shape).
-            variant = 'aep_billable'
-            identifier = '_'.join(post_aep[1:-1])
         else:
             # Legacy unpartitioned _AEPBillable_<hash> (no User token).
             variant = 'aep_billable'
@@ -2620,16 +2624,18 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
     elif 'ReducedSub' in tail:
         rs_idx_rel = tail.index('ReducedSub')
         post_rs = tail[rs_idx_rel + 1:]
-        if 'Helper' in post_rs:
+        if post_rs and post_rs[0] == 'User':
+            # Subproject B: _ReducedSub_User_<claimer>_<hash>. Reserved 'User'
+            # token checked BEFORE the 'Helper' scan (Codex P2) so a claimer
+            # name containing 'Helper' isn't misclassified as a helper variant.
+            # A dangling 'User' with no name before the hash yields '' (legacy shape).
+            variant = 'reduced_sub'
+            identifier = '_'.join(post_rs[1:-1])
+        elif 'Helper' in post_rs:
             variant = 'reduced_sub_helper'
             helper_idx_rel = post_rs.index('Helper')
             if helper_idx_rel + 1 < len(post_rs):
                 identifier = '_'.join(post_rs[helper_idx_rel + 1:-1])
-        elif post_rs and post_rs[0] == 'User':
-            # Subproject B: _ReducedSub_User_<claimer>_<hash>.
-            # A dangling 'User' with no name before the hash yields '' (legacy shape).
-            variant = 'reduced_sub'
-            identifier = '_'.join(post_rs[1:-1])
         else:
             # Legacy unpartitioned _ReducedSub_<hash> (no User token).
             variant = 'reduced_sub'
@@ -3177,7 +3183,7 @@ def _build_subcontractor_wr_scope(groups: dict) -> set[str]:
     return _scope
 
 
-def _run_phase_1_1_hash_prune(hash_history: dict, groups: dict) -> None:
+def _run_phase_1_1_hash_prune(hash_history: dict, groups: dict) -> bool:
     """Phase 1.1 SUB-12 / D-17..D-19: idempotent hash-history prune.
 
     Version 1 (Plan 01.1-05): After Bug B1 (Plan 01.1-02) stops emitting
@@ -3230,7 +3236,9 @@ def _run_phase_1_1_hash_prune(hash_history: dict, groups: dict) -> None:
         # the prune already ran on a prior session and the absence
         # of a log line is the "already migrated" signal.
         hash_history['_phase_prune_version'] = _persisted_prune_version
-        return
+        # Codex P2: no mutation beyond the no-op sentinel restore — the
+        # caller need not force a save on a no-update run.
+        return False
 
     # Build the WR-token set from this run's groups via shared helper
     # (simplified D-18). Shared with TARGET cleanup call site so the
@@ -3314,9 +3322,14 @@ def _run_phase_1_1_hash_prune(hash_history: dict, groups: dict) -> None:
             f"{PHASE_1_1_HASH_PRUNE_VERSION}): "
             f"no primary/legacy-helper orphans to drop."
         )
+    # Codex P2: the body path advanced the sentinel (and may have dropped
+    # orphans) — report the mutation so the caller persists hash_history even
+    # on a run with no group updates (where the history_updates-gated save is
+    # skipped). Without this the migration re-runs every no-update execution.
+    return True
 
 
-def _run_subproject_b_hash_prune(hash_history: dict, groups: dict) -> None:
+def _run_subproject_b_hash_prune(hash_history: dict, groups: dict) -> bool:
     """Subproject B (2026-05-20): idempotent one-time hash-history prune.
 
     Drops LEGACY blank-identifier subcontractor primary orphans —
@@ -3343,7 +3356,8 @@ def _run_subproject_b_hash_prune(hash_history: dict, groups: dict) -> None:
         and _persisted >= SUBPROJECT_B_HASH_PRUNE_VERSION
     ):
         hash_history['_subproject_b_prune_version'] = _persisted
-        return
+        # Codex P2: no-op sentinel restore only — no save needed.
+        return False
 
     _scope = _build_subcontractor_wr_scope(groups)
     _orphans: list[str] = []
@@ -3375,6 +3389,10 @@ def _run_subproject_b_hash_prune(hash_history: dict, groups: dict) -> None:
             "🧹 Subproject B hash-history prune: no legacy unpartitioned "
             "reduced_sub/aep_billable orphans to drop"
         )
+    # Codex P2: body path advanced the sentinel (and may have dropped
+    # orphans) — report the mutation so the caller persists it even on a
+    # no-update run.
+    return True
 
 
 def load_billing_audit_row_cache(path: str) -> set[str]:
@@ -5118,17 +5136,41 @@ def group_source_rows(rows):
                         _b_primary_claimer = None
                         try:
                             from billing_audit.writer import record_attribution_hold
+                            # Copilot: record_attribution_hold is typed
+                            # ``datetime.date | None``; normalize the datetime
+                            # week_ending_date to a pure date so the hold key
+                            # is 'YYYY-MM-DD' (matching the pre-pass
+                            # normalization for resolve_claimer), not
+                            # 'YYYY-MM-DDT00:00:00'.
                             record_attribution_hold(
-                                wr_key, week_ending_date, 'reduced_sub'
+                                wr_key,
+                                week_ending_date.date()
+                                if isinstance(
+                                    week_ending_date, datetime.datetime
+                                )
+                                else week_ending_date,
+                                'reduced_sub',
                             )
                         except Exception:
                             logging.exception(
                                 "⚠️ Subproject B: record_attribution_hold failed"
                             )
                     elif _b_outcome is not None and _b_outcome.action == 'use':
-                        _b_primary_claimer = _b_outcome.name or effective_user
+                        # Codex P1: fall back to a non-empty sentinel. A
+                        # whitespace-only "Foreman Assigned?" yields an empty
+                        # __effective_user upstream, and resolve_claimer's
+                        # use/no_history then returns an empty name. Without
+                        # this guard ``_b_primary_claimer`` would be '' yet
+                        # still pass the ``is not None`` gate below, creating a
+                        # _USER_ key with an empty claimer that crashes
+                        # generate_excel at the suffix raise. 'Unknown Foreman'
+                        # mirrors the foreman-assignment fallback sentinel and
+                        # keeps the row's billing in a (clearly-flagged) file.
+                        _b_primary_claimer = (
+                            _b_outcome.name or effective_user or 'Unknown Foreman'
+                        )
                     else:
-                        _b_primary_claimer = effective_user
+                        _b_primary_claimer = effective_user or 'Unknown Foreman'
 
                 if _b_primary_claimer is not None:
                     _b_claimer_sanitized = _RE_SANITIZE_IDENTIFIER.sub(
@@ -5605,6 +5647,18 @@ def _subcontractor_primary_variant_suffix(
         )
         raise ValueError(
             f"{variant} requires a non-empty claimer; got empty for "
+            f"WR={wr_num} week={week_end_raw}"
+        )
+    if variant not in ('reduced_sub', 'aep_billable'):
+        # Copilot: this helper is filename-identity logic. An unexpected
+        # variant must raise rather than silently fall through to the
+        # ``_ReducedSub`` token (which would misroute downstream cleanup /
+        # hash identity matching if this helper were ever reused). Mirrors
+        # the defensive-raise convention for new variant helpers
+        # (Living Ledger 2026-05-15 rule 4).
+        raise ValueError(
+            f"_subcontractor_primary_variant_suffix: unexpected variant "
+            f"{variant!r} (expected 'reduced_sub' or 'aep_billable') for "
             f"WR={wr_num} week={week_end_raw}"
         )
     claimer_sanitized = _RE_SANITIZE_IDENTIFIER.sub('_', claimer)[:50]
@@ -7242,8 +7296,14 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # call site; if grouping failed and execution reached here,
         # the helper degrades gracefully (empty groups → empty
         # _sub_wr_scope → no orphans dropped → sentinel still written).
+        # Codex P2: track whether either one-time migration prune mutated
+        # hash_history so we can persist it even on a run with no group
+        # updates (the history_updates-gated save below would otherwise skip
+        # it, making the migration re-run every no-update execution).
+        _hash_history_migration_dirty = False
         try:
-            _run_phase_1_1_hash_prune(hash_history, groups)
+            if _run_phase_1_1_hash_prune(hash_history, groups):
+                _hash_history_migration_dirty = True
         except Exception as _prune_exc:
             # Fail-safe per [2026-04-22 16:05] rule 4 — the prune
             # is an optimization. A failed prune MUST NOT break the
@@ -7259,7 +7319,8 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # reduced_sub/aep_billable orphans (kill switch is the version
         # constant). Fail-safe — a failed prune must not break the run.
         try:
-            _run_subproject_b_hash_prune(hash_history, groups)
+            if _run_subproject_b_hash_prune(hash_history, groups):
+                _hash_history_migration_dirty = True
         except Exception as _b_prune_exc:
             logging.warning(
                 f"⚠️ Subproject B hash-history prune failed; continuing "
@@ -8529,6 +8590,14 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     for sk in stale_keys:
                         del hash_history[sk]
                     logging.info(f"🧹 Pruned {len(stale_keys)} stale hash history entries (groups no longer in source data)")
+            save_hash_history(HASH_HISTORY_PATH, hash_history)
+        elif _hash_history_migration_dirty:
+            # Codex P2: no group updates this run, but a one-time migration
+            # prune (Phase 1.1 / Subproject B) mutated hash_history. Persist
+            # it now so the migration is durable and does not re-run every
+            # execution. Do NOT run the stale-prune on this path — groups
+            # were not fully processed, so current_keys would be incomplete
+            # and could delete freshly-skipped live entries.
             save_hash_history(HASH_HISTORY_PATH, hash_history)
         if (
             BILLING_AUDIT_AVAILABLE
