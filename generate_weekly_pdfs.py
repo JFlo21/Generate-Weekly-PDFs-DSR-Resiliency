@@ -4917,6 +4917,75 @@ def group_source_rows(rows):
                 )
                 _sub_primary_claimer_map = {}
 
+    # Subproject C: Resolve the FROZEN vac-crew claimer for every completed
+    # VAC Crew row BEFORE the grouping loop, so no per-row Supabase
+    # round-trip runs inside the hot loop (honors [2026-04-25 14:00]
+    # latency lesson). The map is keyed by __row_id and consumed by the
+    # vac_crew emission block. A row absent from the map (attribution
+    # disabled, pre-pass skipped, missing __row_id, or unexpected per-row
+    # error) resolves to use-current at emission — NEVER HOLD — so a
+    # plumbing fault can never silently suppress a billing file.
+    # resolve_claimer's own fetch_failure -> HOLD is the only path that
+    # defers a row.
+    _vac_crew_claimer_map: dict = {}
+    if BILLING_AUDIT_AVAILABLE and VAC_CREW_CLAIM_ATTRIBUTION_ENABLED:
+        _vac_pre_rows = []
+        for _r in rows:
+            _rid = _r.get('__row_id')
+            if not isinstance(_rid, int):
+                continue
+            if not _r.get('__is_vac_crew'):
+                continue
+            _wr_raw = _r.get('Work Request #')
+            _ld = _r.get('Weekly Reference Logged Date')
+            if not _wr_raw or not _ld or not is_checked(_r.get('Units Completed?')):
+                continue
+            _we = excel_serial_to_date(_ld)
+            if _we is None:
+                continue
+            _vac_pre_rows.append((
+                _rid,
+                str(_wr_raw).split('.')[0],
+                _we.date() if isinstance(_we, datetime.datetime) else _we,
+                _r.get('__vac_crew_name') or '',
+            ))
+        if _vac_pre_rows:
+            try:
+                from billing_audit.writer import resolve_claimer as _resolve_claimer_vac
+
+                def _resolve_one_vac(_item):
+                    _rid, _wr, _we_date, _current = _item
+                    return _rid, _resolve_claimer_vac(
+                        'vac_crew', _current,
+                        wr=_wr, week_ending=_we_date, row_id=_rid,
+                        enabled=VAC_CREW_CLAIM_ATTRIBUTION_ENABLED,
+                    )
+
+                if len(_vac_pre_rows) <= 1:
+                    for _item in _vac_pre_rows:
+                        _rid, _out = _resolve_one_vac(_item)
+                        _vac_crew_claimer_map[_rid] = _out
+                else:
+                    _workers = min(PARALLEL_WORKERS, len(_vac_pre_rows))
+                    with ThreadPoolExecutor(max_workers=_workers) as _ex:
+                        _futs = [_ex.submit(_resolve_one_vac, _it) for _it in _vac_pre_rows]
+                        for _fut in as_completed(_futs):
+                            try:
+                                _rid, _out = _fut.result()
+                                _vac_crew_claimer_map[_rid] = _out
+                            except Exception:
+                                logging.exception(
+                                    "⚠️ Subproject C attribution pre-pass: "
+                                    "unexpected error for one row (treating "
+                                    "as use-current)"
+                                )
+            except Exception:
+                logging.exception(
+                    "⚠️ Subproject C attribution pre-pass failed; falling "
+                    "back to current vac-crew name for all VAC Crew rows"
+                )
+                _vac_crew_claimer_map = {}
+
     for r in rows:
         wr = r.get('Work Request #')
         log_date_str = r.get('Weekly Reference Logged Date')
@@ -4986,18 +5055,63 @@ def group_source_rows(rows):
             # both primary/helper rows AND VAC Crew rows — they are mutually exclusive per-row
             # because a single row is either a VAC Crew row or a regular/helper row.
             if is_vac_crew_row:
-                vac_crew_key = f"{week_end_for_key}_{wr_key}_VACCREW"
-                # Use VAC Crew name (from 'VAC Crew Helping?' column) as the foreman
-                # for this group — NOT the primary foreman (effective_user).
-                vac_crew_foreman = r.get('__vac_crew_name') or effective_user
-                keys_to_add.append(('vac_crew', vac_crew_key, vac_crew_foreman))
-                # Only log at info level the first time a new group key is seen; subsequent
-                # rows belonging to the same WR/week VAC Crew group log at debug to avoid
-                # flooding logs with hundreds of identical "GROUP CREATED" messages.
-                if vac_crew_key not in groups:
-                    logging.info(f"🏗️ VAC CREW GROUP CREATED: WR={wr_key}, Week={week_end_for_key}")
+                if not VAC_CREW_CLAIM_ATTRIBUTION_ENABLED:
+                    # Kill switch OFF -> exact legacy behavior: one group per
+                    # WR+week, no per-claimer partition.
+                    vac_crew_key = f"{week_end_for_key}_{wr_key}_VACCREW"
+                    # Use VAC Crew name (from 'VAC Crew Helping?' column) as the foreman
+                    # for this group — NOT the primary foreman (effective_user).
+                    vac_crew_foreman = r.get('__vac_crew_name') or effective_user
+                    keys_to_add.append(('vac_crew', vac_crew_key, vac_crew_foreman))
+                    # Only log at info level the first time a new group key is seen;
+                    # subsequent rows belonging to the same WR/week VAC Crew group log at
+                    # debug to avoid flooding logs with identical "GROUP CREATED" messages.
+                    if vac_crew_key not in groups:
+                        logging.info(f"🏗️ VAC CREW GROUP CREATED: WR={wr_key}, Week={week_end_for_key}")
                 else:
-                    logging.debug(f"Adding row to existing VAC Crew group: WR={wr_key}, Week={week_end_for_key}")
+                    # Subproject C: partition by frozen vac-crew claimer.
+                    # Consume the pre-pass map. ``use`` -> partition by claimer;
+                    # ``hold`` -> defer this row (correctness over availability);
+                    # map miss (missing __row_id, pre-pass skipped, plumbing fault)
+                    # -> use-current, NEVER HOLD.
+                    _vac_current = r.get('__vac_crew_name') or effective_user
+                    _c_vac_claimer = None
+                    _vac_outcome = _vac_crew_claimer_map.get(r.get('__row_id'))
+                    if _vac_outcome is not None and _vac_outcome.action == 'hold':
+                        _c_vac_claimer = None  # defer — correctness over availability
+                        try:
+                            from billing_audit.writer import record_attribution_hold
+                            record_attribution_hold(
+                                wr_key,
+                                week_ending_date.date()
+                                if isinstance(week_ending_date, datetime.datetime)
+                                else week_ending_date,
+                                'vac_crew',
+                            )
+                        except Exception:
+                            logging.exception(
+                                "⚠️ Subproject C: record_attribution_hold failed"
+                            )
+                    elif _vac_outcome is not None and _vac_outcome.action == 'use':
+                        _c_vac_claimer = _vac_outcome.name or _vac_current or 'Unknown'
+                    else:
+                        # Map miss (row absent from pre-pass) or unknown action:
+                        # fall back to current name, never HOLD.
+                        _c_vac_claimer = _vac_current or 'Unknown'
+
+                    if _c_vac_claimer is not None:
+                        _c_vac_sanitized = _RE_SANITIZE_IDENTIFIER.sub(
+                            '_', _c_vac_claimer
+                        )[:50]
+                        vac_crew_key = (
+                            f"{week_end_for_key}_{wr_key}_VACCREW_{_c_vac_sanitized}"
+                        )
+                        keys_to_add.append(('vac_crew', vac_crew_key, _c_vac_claimer))
+                        if vac_crew_key not in groups:
+                            logging.info(
+                                f"🏗️ VAC CREW GROUP CREATED: WR={wr_key}, "
+                                f"Week={week_end_for_key}"
+                            )
             else:
                 # Check if helper mode is enabled
                 helper_mode_enabled = RES_GROUPING_MODE in ('helper', 'both')

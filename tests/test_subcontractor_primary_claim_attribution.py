@@ -691,11 +691,34 @@ class TestNonSubVariantsPreserved(unittest.TestCase):
         self.assertFalse(any('REDUCEDSUB' in k for k in groups))
 
     def test_vac_crew_row_unaffected(self):
+        """Subproject B does not route a vac_crew row into a subcontractor primary variant.
+
+        The INTENT of this test — "B does not turn a vac_crew row into a
+        _REDUCEDSUB/_AEPBILLABLE/_USER_ key" — is unchanged.  However,
+        Subproject C (2026-05-21) now partitions the VACCREW group key by
+        frozen claimer, so the key is ``..._VACCREW_<claimer>`` rather than
+        the bare ``..._VACCREW`` (see CLAUDE.md Living Ledger [2026-05-21]).
+        The assertion is updated to the per-claimer shape per [2026-05-20 00:26]
+        rule-2: rewrite in-place, add a docstring citing the ledger, change the
+        assertion so the real intent ("no sub primary key") remains the guard,
+        and do NOT pin the pre-C suffix.
+        """
         row = _make_sub_primary_row(source_sheet_id=99999999)
         row['__is_vac_crew'] = True
         row['__vac_crew_name'] = 'VacGuy'
         groups = generate_weekly_pdfs.group_source_rows([row])
-        self.assertTrue(any(k.endswith('_VACCREW') for k in groups))
+        keys = list(groups.keys())
+        # The row must produce a vac_crew group (VACCREW present anywhere in the key).
+        self.assertTrue(
+            any('VACCREW' in k for k in keys),
+            f"Expected a VACCREW group key; got: {keys}",
+        )
+        # The real intent: Subproject B must NOT emit any subcontractor primary
+        # variant for this vac_crew row.
+        self.assertFalse(
+            any('_REDUCEDSUB' in k or '_AEPBILLABLE' in k or '_USER_' in k for k in keys),
+            f"B must not produce sub primary variants for a vac_crew row; got: {keys}",
+        )
 
 
 class TestPrePassConcurrency(unittest.TestCase):

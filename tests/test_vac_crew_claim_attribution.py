@@ -92,3 +92,93 @@ class TestVacCrewSuffixAndParser(unittest.TestCase):
             generate_weekly_pdfs.build_group_identity(fname),
             ('91467680', '041926', 'vac_crew', 'A' * 50),
         )
+
+
+def _make_vac_row(row_id=6001, wr='91467680', name='CurrentCrew', snapshot='2026-04-19'):
+    return {
+        '__row_id': row_id,
+        'Work Request #': wr,
+        'Weekly Reference Logged Date': '2026-04-19',
+        'Snapshot Date': snapshot,
+        'Units Completed?': True,
+        'Units Total Price': '$100.00',
+        'CU': 'ANC-M', 'Work Type': 'Inst', 'Quantity': 2,
+        '__effective_user': 'PrimaryForeman',
+        '__is_helper_row': False, '__helper_foreman': '', '__helper_dept': '', '__helper_job': '',
+        '__is_vac_crew': True,
+        '__vac_crew_name': name, '__vac_crew_dept': '700', '__vac_crew_job': 'VJ-1',
+        '__source_sheet_id': 8162920222379908,
+    }
+
+
+class TestVacCrewPrePassConcurrency(unittest.TestCase):
+    def setUp(self):
+        _reset_all()
+        self._orig = generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED
+        generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED = True
+
+    def tearDown(self):
+        generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED = self._orig
+        _reset_all()
+
+    def test_fifty_rows_each_partition_to_their_own_claimer(self):
+        def _resolve(variant, current, *, wr, week_ending, row_id, enabled):
+            return ResolveOutcome('use', f'Crew{row_id}', 'frozen', 'success')
+        rows = [_make_vac_row(row_id=7000 + i) for i in range(50)]
+        with mock.patch('billing_audit.writer.resolve_claimer', side_effect=_resolve):
+            groups = generate_weekly_pdfs.group_source_rows(rows)
+        keys = list(groups.keys())
+        for i in range(50):
+            self.assertTrue(
+                any(f'VACCREW_Crew{7000 + i}' in k for k in keys),
+                f"row {7000+i} must partition to its own claimer; got {keys[:5]}…",
+            )
+
+
+class TestVacCrewEmission(unittest.TestCase):
+    def setUp(self):
+        _reset_all()
+        self._orig = generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED
+        generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED = True
+
+    def tearDown(self):
+        generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED = self._orig
+        _reset_all()
+
+    def test_frozen_claimer_partitions(self):
+        with mock.patch('billing_audit.writer.resolve_claimer',
+                        return_value=ResolveOutcome('use', 'FrozenCrew', 'frozen', 'success')):
+            groups = generate_weekly_pdfs.group_source_rows([_make_vac_row()])
+        self.assertTrue(any('VACCREW_FrozenCrew' in k for k in groups))
+
+    def test_no_history_falls_back_to_current_name(self):
+        with mock.patch('billing_audit.writer.resolve_claimer',
+                        return_value=ResolveOutcome('use', 'CurrentCrew', 'current', 'no_history')):
+            groups = generate_weekly_pdfs.group_source_rows([_make_vac_row(name='CurrentCrew')])
+        self.assertTrue(any('VACCREW_CurrentCrew' in k for k in groups))
+
+    def test_hold_suppresses_and_records(self):
+        from billing_audit.writer import get_counters
+        with mock.patch('billing_audit.writer.resolve_claimer',
+                        return_value=ResolveOutcome('hold', None, None, 'fetch_failure')):
+            groups = generate_weekly_pdfs.group_source_rows([_make_vac_row()])
+        self.assertFalse(any('VACCREW' in k for k in groups))
+        self.assertEqual(get_counters()['attribution_rows_held'], 1)
+
+    def test_disabled_emits_exact_legacy_key(self):
+        generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED = False
+        with mock.patch('billing_audit.writer.resolve_claimer') as m:
+            groups = generate_weekly_pdfs.group_source_rows([_make_vac_row(name='CurrentCrew')])
+            m.assert_not_called()
+        self.assertIn('041926_91467680_VACCREW', groups)
+        self.assertFalse(any('VACCREW_' in k for k in groups))
+
+    def test_map_miss_uses_current_name_not_hold(self):
+        from billing_audit.writer import get_counters
+        row = _make_vac_row()
+        del row['__row_id']
+        with mock.patch('billing_audit.writer.resolve_claimer',
+                        return_value=ResolveOutcome('use', 'X', 'frozen', 'success')):
+            groups = generate_weekly_pdfs.group_source_rows([row])
+        self.assertTrue(any('VACCREW_CurrentCrew' in k for k in groups))
+        self.assertEqual(get_counters()['attribution_rows_held'], 0)

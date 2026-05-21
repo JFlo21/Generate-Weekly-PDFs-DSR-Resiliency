@@ -261,12 +261,70 @@ class TestVacCrewGroupingLogic(unittest.TestCase):
             self.assertIn('_VACCREW', key)
 
     def test_vac_crew_key_format(self):
-        """VAC Crew group key ends with _VACCREW."""
+        """VAC Crew group key contains _VACCREW_ followed by a per-claimer suffix.
+
+        Rewritten in-place per [2026-05-20 00:26] rule-2 discipline (same as Plan
+        01-03 Test 1 for Subproject B): the test was authored under the legacy
+        one-file-per-WR contract where the key ended with bare ``_VACCREW``.
+        Subproject C (2026-05-21) introduces per-claimer partitioning — the key
+        now ends with ``_VACCREW_<sanitized_claimer>`` (see CLAUDE.md Living
+        Ledger [2026-05-21]).
+
+        When ``VAC_CREW_CLAIM_ATTRIBUTION_ENABLED`` is True (default), a row
+        with no Supabase history (no ``__row_id`` in the pre-pass map) falls
+        through the map-miss branch and uses the current vac-crew name.  The
+        ``_make_row`` helper does not set ``__vac_crew_name``, so the fallback
+        resolves to ``__effective_user`` = ``'TestForeman'``, producing a key
+        ending with ``_VACCREW_TestForeman``.
+        """
         rows = [self._make_row('99887766', '2025-08-17', '$200.00', is_vac_crew=True)]
         groups = generate_weekly_pdfs.group_source_rows(rows)
         keys = list(groups.keys())
-        self.assertTrue(any(k.endswith('_VACCREW') for k in keys),
-                        f"Expected a key ending with _VACCREW; got: {keys}")
+        # Post-Subproject-C: key contains '_VACCREW_' (trailing underscore) with a
+        # non-empty claimer token after it.
+        self.assertTrue(
+            any('_VACCREW_' in k for k in keys),
+            f"Expected a key containing '_VACCREW_<claimer>'; got: {keys}",
+        )
+        # The claimer token must be non-empty (not just '_VACCREW_').
+        for k in keys:
+            if '_VACCREW_' in k:
+                suffix = k.split('_VACCREW_', 1)[1]
+                self.assertTrue(
+                    suffix,
+                    f"Claimer suffix after '_VACCREW_' must be non-empty; key: {k}",
+                )
+        # The resolved fallback claimer is 'TestForeman' (effective_user from _make_row).
+        self.assertTrue(
+            any('_VACCREW_TestForeman' in k for k in keys),
+            f"Expected claimer 'TestForeman' in key; got: {keys}",
+        )
+
+    def test_vac_crew_key_format_legacy_when_disabled(self):
+        """Kill switch OFF -> VAC Crew key uses the bare legacy ``_VACCREW`` suffix.
+
+        Sibling to ``test_vac_crew_key_format``, locking in the kill-switch-OFF
+        = exact-legacy contract per [2026-05-20 00:26] rule-2: the rewrite must
+        add a sibling that asserts the pre-C invariant is preserved when the
+        feature flag is disabled.
+        """
+        orig = generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED
+        try:
+            generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED = False
+            rows = [self._make_row('99887766', '2025-08-17', '$200.00', is_vac_crew=True)]
+            groups = generate_weekly_pdfs.group_source_rows(rows)
+            keys = list(groups.keys())
+            self.assertTrue(
+                any(k.endswith('_VACCREW') for k in keys),
+                f"Kill-switch OFF: expected a key ending with bare '_VACCREW'; got: {keys}",
+            )
+            # Confirm no per-claimer suffix was appended.
+            self.assertFalse(
+                any('_VACCREW_' in k for k in keys),
+                f"Kill-switch OFF: key must NOT contain '_VACCREW_<claimer>'; got: {keys}",
+            )
+        finally:
+            generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED = orig
 
     def test_non_vac_crew_rows_produce_primary_variant(self):
         """Rows NOT flagged as VAC Crew produce primary groups, unaffected by VAC Crew logic."""
