@@ -4853,39 +4853,69 @@ def group_source_rows(rows):
             # reads the SAME boolean — no behavioural change to the
             # variant emission contract.
             if is_subcontractor_row and SUBCONTRACTOR_RATE_VARIANTS_ENABLED:
-                # ReducedSub: unconditional per SUB-02 / D-08. Foreman
-                # is the primary ``effective_user`` (mirrors the
-                # existing primary key — the reduced-sub Excel is
-                # produced for the WR group as a whole).
-                reduced_key = f"{week_end_for_key}_{wr_key}_REDUCEDSUB"
-                keys_to_add.append(('reduced_sub', reduced_key, effective_user))
-                if reduced_key not in groups:
-                    logging.info(
-                        f"🔻 REDUCED SUB GROUP CREATED: WR={wr_key}, "
-                        f"Week={week_end_for_key}"
-                    )
-
-                # AEPBillable: snapshot-cutoff-gated per SUB-01 / D-08
-                # / Living Ledger 2026-04-21 22:35. Snapshot Date is
-                # authoritative — Weekly Reference Logged Date is
-                # NOT a valid fallback here (cutoff drift would
-                # silently re-price whole sheets; see the ledger
-                # entry). ``excel_serial_to_date`` returns ``None``
-                # for blank/unparseable values which naturally
-                # excludes the row from the AEPBillable branch
-                # without raising (D-16 fall-through safety).
+                # Snapshot cutoff is needed by BOTH the primary block
+                # here and the helper-shadow block below, so compute it
+                # once up front. ``excel_serial_to_date`` returns ``None``
+                # for blank/unparseable values (D-16 fall-through safety).
+                # Hoisted above the helper-completed guard so the
+                # helper-shadow block still sees it even when the primary
+                # emission is skipped.
                 _snap_for_cutoff = excel_serial_to_date(r.get('Snapshot Date'))
-                if (
-                    _snap_for_cutoff is not None
-                    and _snap_for_cutoff.date() >= _AEP_BILLABLE_CUTOFF
-                ):
-                    aep_key = f"{week_end_for_key}_{wr_key}_AEPBILLABLE"
-                    keys_to_add.append(('aep_billable', aep_key, effective_user))
-                    if aep_key not in groups:
+
+                # 2026-05-21 hotfix: a helper-COMPLETED subcontractor row
+                # (``Units Completed?`` AND ``Helping Foreman Completed
+                # Unit?`` both checked, with a valid ``Foreman Helping?``
+                # + helper dept) belongs SOLELY to the helper-shadow files
+                # below — the helper, not the primary foreman, earns the
+                # credit for that line item on Smartsheet. Emitting a
+                # primary ``_REDUCEDSUB`` / ``_AEPBILLABLE`` key here would
+                # double-count the row (it would appear in BOTH the
+                # primary and the helper file) and wrongly credit the
+                # primary. This mirrors the legacy main-file exclusion
+                # (the ``elif valid_helper_row:`` branch in the
+                # primary-vs-helper cascade above). Computed locally
+                # because ``valid_helper_row`` from the else-branch is out
+                # of scope for vac_crew rows; uses the same inputs as the
+                # helper-shadow recompute below.
+                _sub_is_valid_helper_row = (
+                    not is_vac_crew_row
+                    and RES_GROUPING_MODE in ('helper', 'both')
+                    and is_helper_row
+                    and bool(helper_foreman)
+                    and bool(r.get('__helper_dept', ''))
+                )
+
+                if not _sub_is_valid_helper_row:
+                    # ReducedSub: unconditional per SUB-02 / D-08 for
+                    # NON-helper subcontractor rows. Foreman is the
+                    # primary ``effective_user`` (mirrors the existing
+                    # primary key — the reduced-sub Excel is produced for
+                    # the WR group as a whole).
+                    reduced_key = f"{week_end_for_key}_{wr_key}_REDUCEDSUB"
+                    keys_to_add.append(('reduced_sub', reduced_key, effective_user))
+                    if reduced_key not in groups:
                         logging.info(
-                            f"💲 AEP BILLABLE GROUP CREATED: WR={wr_key}, "
+                            f"🔻 REDUCED SUB GROUP CREATED: WR={wr_key}, "
                             f"Week={week_end_for_key}"
                         )
+
+                    # AEPBillable: snapshot-cutoff-gated per SUB-01 / D-08
+                    # / Living Ledger 2026-04-21 22:35. Snapshot Date is
+                    # authoritative — Weekly Reference Logged Date is
+                    # NOT a valid fallback here (cutoff drift would
+                    # silently re-price whole sheets; see the ledger
+                    # entry).
+                    if (
+                        _snap_for_cutoff is not None
+                        and _snap_for_cutoff.date() >= _AEP_BILLABLE_CUTOFF
+                    ):
+                        aep_key = f"{week_end_for_key}_{wr_key}_AEPBILLABLE"
+                        keys_to_add.append(('aep_billable', aep_key, effective_user))
+                        if aep_key not in groups:
+                            logging.info(
+                                f"💲 AEP BILLABLE GROUP CREATED: WR={wr_key}, "
+                                f"Week={week_end_for_key}"
+                            )
 
                 # Helper-shadow variants: piggyback on the EXISTING
                 # helper detection. The two gates that already

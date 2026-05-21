@@ -331,6 +331,65 @@ class TestEndToEndPipeline(unittest.TestCase):
             f"SUB-09 pre-cutoff: legacy _HELPER_ must NOT be emitted; got: {keys}",
         )
 
+    # ─── Helper-completed primary exclusion (2026-05-21 hotfix) ──
+
+    def test_subcontractor_helper_row_excluded_from_primary_variant_files(self):
+        """Production bug (2026-05-21): a helper-completed subcontractor
+        row (both ``Units Completed?`` and ``Helping Foreman Completed
+        Unit?`` checked, with a valid ``Foreman Helping?`` + helper dept)
+        must NOT be credited to the PRIMARY ``_ReducedSub`` /
+        ``_AEPBillable`` files. The helper completed the line item, so it
+        belongs SOLELY to the helper-shadow files — otherwise the primary
+        foreman is wrongly credited and the line item is double-counted
+        (it would appear in both the primary and the helper file). Mirrors
+        the legacy main-file ``valid_helper_row`` exclusion.
+
+        Snapshot 2026-04-19 is post-AEP-cutoff so BOTH primary variants
+        would be at risk; the assertion proves neither bare primary key
+        is emitted while both helper-shadow keys remain.
+        """
+        with mock.patch(
+            'billing_audit.writer.lookup_attribution',
+            return_value=None,  # no_history → falls back to current helper
+        ):
+            row = self._make_synth_helper_row(
+                helper_foreman='Chris_Lopez',
+                snapshot='2026-04-19',  # post-cutoff
+            )
+            groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        # NO primary (non-helper) _REDUCEDSUB key for a helper-completed row.
+        self.assertFalse(
+            any('REDUCEDSUB' in k and 'HELPER' not in k for k in keys),
+            f"helper-completed row must NOT emit a primary _REDUCEDSUB "
+            f"key (belongs solely to the helper); got: {keys}",
+        )
+        # NO primary (non-helper) _AEPBILLABLE key for a helper-completed row.
+        self.assertFalse(
+            any('AEPBILLABLE' in k and 'HELPER' not in k for k in keys),
+            f"helper-completed row must NOT emit a primary _AEPBILLABLE "
+            f"key (belongs solely to the helper); got: {keys}",
+        )
+        # Confirm no group carries variant 'reduced_sub' / 'aep_billable'
+        # (the primary variants) for this helper row — only the *_helper
+        # shadow variants.
+        for k in keys:
+            variant = groups[k][0].get('__variant', '')
+            self.assertNotIn(
+                variant, ('reduced_sub', 'aep_billable'),
+                f"helper-completed row must not produce a primary variant "
+                f"group; offending key={k!r} variant={variant!r}; got: {keys}",
+            )
+        # The helper-shadow files MUST still be present (helper credit intact).
+        self.assertTrue(
+            any('REDUCEDSUB_HELPER_Chris_Lopez' in k for k in keys),
+            f"helper-shadow _REDUCEDSUB_HELPER_ must still be present; got: {keys}",
+        )
+        self.assertTrue(
+            any('AEPBILLABLE_HELPER_Chris_Lopez' in k for k in keys),
+            f"helper-shadow _AEPBILLABLE_HELPER_ must still be present; got: {keys}",
+        )
+
     # ─── Bug C attribution ───────────────────────────────────────
 
     def test_bug_c_attribution_partitions_row_to_frozen_helper(self):
