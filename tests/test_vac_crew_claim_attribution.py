@@ -182,3 +182,50 @@ class TestVacCrewEmission(unittest.TestCase):
             groups = generate_weekly_pdfs.group_source_rows([row])
         self.assertTrue(any('VACCREW_CurrentCrew' in k for k in groups))
         self.assertEqual(get_counters()['attribution_rows_held'], 0)
+
+
+class TestVacCrewIdentitySitesAndDisplay(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls._src = pathlib.Path(
+            inspect.getsourcefile(generate_weekly_pdfs)
+        ).read_text(encoding='utf-8')
+
+    def test_current_keys_site_carries_vac_claimer(self):
+        # Site 3: the hash-prune current_keys reconstruction must derive the
+        # vac_crew identifier from __current_foreman, not hard-code ''.
+        self.assertNotRegex(
+            self._src,
+            r"_variant == 'vac_crew':\s*\n\s*_ident = ''",
+            "current_keys must derive vac_crew identifier from the claimer",
+        )
+
+    def test_generate_excel_vac_crew_file_named_by_claimer(self):
+        import datetime as dt, tempfile, openpyxl
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        orig = generate_weekly_pdfs.OUTPUT_FOLDER
+        generate_weekly_pdfs.OUTPUT_FOLDER = tmp.name
+        self.addCleanup(lambda: setattr(generate_weekly_pdfs, 'OUTPUT_FOLDER', orig))
+        row = {
+            'Work Request #': '91467680', 'Units Completed?': True,
+            'Units Total Price': '$100.00', 'Customer Name': 'Cust',
+            'Dept #': '500', 'Job #': 'J-1', 'CU': 'ANC-M', 'Work Type': 'Inst', 'Quantity': 2,
+            '__variant': 'vac_crew', '__current_foreman': 'FrozenCrew',
+            '__vac_crew_name': 'CurrentCrew', '__vac_crew_dept': '700', '__vac_crew_job': 'VJ-1',
+            '__week_ending_date': dt.datetime(2026, 4, 19),
+        }
+        result = generate_weekly_pdfs.generate_excel(
+            '041926_91467680_VACCREW_FrozenCrew', [row], dt.datetime(2026, 4, 19),
+            data_hash='deadbeefcafe0c01',
+        )
+        excel_path, filename = result[0], result[1]
+        self.assertIn('_VacCrew_FrozenCrew', filename)
+        wb = openpyxl.load_workbook(excel_path)
+        ws = wb.active
+        foreman = next(
+            (ws.cell(row=r, column=7).value for r in range(1, ws.max_row + 1)
+             if ws.cell(row=r, column=6).value == 'Foreman:'),
+            None,
+        )
+        self.assertEqual(foreman, 'FrozenCrew')  # display = attributed claimer

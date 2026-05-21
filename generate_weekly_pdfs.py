@@ -6030,8 +6030,13 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
             helper_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50]
             variant_suffix = f"_Helper_{helper_sanitized}"
     elif variant == 'vac_crew':
-        # VAC Crew variant: fixed suffix to distinguish from primary/helper
-        variant_suffix = '_VacCrew'
+        # Subproject C: per-claimer suffix so each foreman gets their own file.
+        # Falls back to __vac_crew_name when __current_foreman is absent (legacy
+        # disabled-attribution path) so the suffix is never empty.
+        variant_suffix = _vac_crew_variant_suffix(
+            first_row.get('__current_foreman') or first_row.get('__vac_crew_name', ''),
+            wr_num, week_end_raw,
+        )
     elif variant == 'primary':
         # Primary variant (no suffix needed)
         variant_suffix = ''
@@ -6203,9 +6208,14 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         display_dept = first_row.get('__helper_dept', '')
         display_job = first_row.get('__helper_job', '')
     elif variant == 'vac_crew':
-        # VAC Crew variant: use VAC Crew-specific name, dept, and job fields.
-        # Must NOT fall back to primary foreman or primary Job # (which may be Arrowhead).
-        display_foreman = first_row.get('__vac_crew_name', 'Unknown VAC Crew')
+        # Subproject C: show the ATTRIBUTED claimer (__current_foreman, the
+        # partition key) so the displayed foreman matches the filename.
+        # Falls back to __vac_crew_name when attribution is disabled or absent
+        # (legacy path) — dept/job remain VAC-crew-specific in all cases.
+        display_foreman = (
+            first_row.get('__current_foreman')
+            or first_row.get('__vac_crew_name', 'Unknown VAC Crew')
+        )
         display_dept = first_row.get('__vac_crew_dept', '')
         display_job = first_row.get('__vac_crew_job', '')
     else:
@@ -8543,7 +8553,10 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     helper_foreman = group_rows[0].get('__helper_foreman', '')
                     file_id = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50] if helper_foreman else ''
                 elif variant == 'vac_crew':
-                    file_id = ''
+                    # Subproject C identity site (Site 2 — valid_wr_weeks).
+                    # Mirror Site 1 so cleanup keeps the live per-claimer file.
+                    _vc = group_rows[0].get('__current_foreman', '')
+                    file_id = _RE_SANITIZE_IDENTIFIER.sub('_', _vc)[:50] if _vc else ''
                 elif variant in ('reduced_sub', 'aep_billable'):
                     # Subproject B identity site (Site 2 — valid_wr_weeks).
                     # Mirror Site 1 so attachment cleanup keeps the live
@@ -8748,7 +8761,16 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                             _hj = group_rows[0].get('__helper_job', '')
                             _ident = f"{_hf}|{_hd}|{_hj}"
                         elif _variant == 'vac_crew':
-                            _ident = ''
+                            # Subproject C identity site (Site 3 —
+                            # current_keys). Must match the history_key
+                            # written at Site 1 (sanitized claimer) or
+                            # the fresh entry is treated as stale and
+                            # deleted before save.
+                            _vc = group_rows[0].get('__current_foreman', '')
+                            _ident = (
+                                _RE_SANITIZE_IDENTIFIER.sub('_', _vc)[:50]
+                                if _vc else ''
+                            )
                         elif _variant in ('reduced_sub', 'aep_billable'):
                             # Subproject B identity site (Site 3 —
                             # current_keys). Must match the history_key
