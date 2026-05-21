@@ -5333,6 +5333,40 @@ def safe_merge_cells(ws, range_str):
         logging.warning(f"Failed to merge cells {range_str}: {e}")
         return False
 
+
+def _subcontractor_primary_variant_suffix(
+    variant: str, claimer: str, wr_num: str, week_end_raw: str
+) -> str:
+    """Build the filename suffix for a subcontractor PRIMARY variant.
+
+    Subproject B (2026-05-20): subcontractor primary files are
+    partitioned by frozen primary claimer and named with the reserved
+    ``_User_`` token (mirrors the primary-workflow convention).
+    ``reduced_sub`` -> ``_ReducedSub_User_<sanitized>`` and
+    ``aep_billable`` -> ``_AEPBillable_User_<sanitized>``.
+
+    Raises ``ValueError`` if ``claimer`` is empty — production never
+    hits this because ``resolve_claimer``'s ``use`` outcome always
+    returns a non-empty name (falling back to ``effective_user`` /
+    ``'Unknown Foreman'``). The raise mirrors the helper-shadow
+    defensive raises and surfaces data drift loudly instead of
+    producing a primary-looking filename that misroutes downstream.
+    """
+    if not claimer:
+        logging.error(
+            f"⚠️ {variant} variant row missing __current_foreman for "
+            f"WR {wr_num} week {week_end_raw}; filename would be "
+            f"ambiguous — raising to surface data drift."
+        )
+        raise ValueError(
+            f"{variant} requires a non-empty claimer; got empty for "
+            f"WR={wr_num} week={week_end_raw}"
+        )
+    claimer_sanitized = _RE_SANITIZE_IDENTIFIER.sub('_', claimer)[:50]
+    token = '_AEPBillable' if variant == 'aep_billable' else '_ReducedSub'
+    return f"{token}_User_{claimer_sanitized}"
+
+
 def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=None, data_hash=None):
     """
     FIXED: Generate a formatted Excel report for a group of rows.
@@ -5443,10 +5477,17 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     # ``build_group_identity``). Helper-name sanitization mirrors
     # the producer site in ``group_source_rows`` — the regex is
     # idempotent so the double-apply is safe (D-22 / 2026-04-23 18:25).
-    if variant == 'aep_billable':
-        variant_suffix = '_AEPBillable'
-    elif variant == 'reduced_sub':
-        variant_suffix = '_ReducedSub'
+    if variant in ('aep_billable', 'reduced_sub'):
+        # Subproject B: partition by frozen primary claimer
+        # (__current_foreman is the resolved claimer set in
+        # group_source_rows). Helper-shadow branches below are
+        # unchanged.
+        variant_suffix = _subcontractor_primary_variant_suffix(
+            variant,
+            first_row.get('__current_foreman', ''),
+            wr_num,
+            week_end_raw,
+        )
     elif variant == 'aep_billable_helper':
         helper_foreman = first_row.get('__helper_foreman', '')
         if not helper_foreman:

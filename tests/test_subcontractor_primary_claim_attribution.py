@@ -91,5 +91,37 @@ class TestLegacyPrimaryCleanupKillSwitch(unittest.TestCase):
         self.assertIn('SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED=', src)
 
 
+class TestPrimaryVariantSuffixHelper(unittest.TestCase):
+    """Task 3: variant-suffix helper for subcontractor primary files."""
+
+    def test_reduced_sub_suffix_embeds_user_token(self):
+        suffix = generate_weekly_pdfs._subcontractor_primary_variant_suffix(
+            'reduced_sub', 'John Doe', '91467680', '041926'
+        )
+        self.assertEqual(suffix, '_ReducedSub_User_John_Doe')
+
+    def test_aep_billable_suffix_embeds_user_token(self):
+        suffix = generate_weekly_pdfs._subcontractor_primary_variant_suffix(
+            'aep_billable', 'John Doe', '91467680', '041926'
+        )
+        self.assertEqual(suffix, '_AEPBillable_User_John_Doe')
+
+    def test_empty_claimer_raises(self):
+        with self.assertRaises(ValueError):
+            generate_weekly_pdfs._subcontractor_primary_variant_suffix(
+                'reduced_sub', '', '91467680', '041926'
+            )
+
+    def test_suffix_round_trips_through_parser(self):
+        suffix = generate_weekly_pdfs._subcontractor_primary_variant_suffix(
+            'reduced_sub', 'John Doe', '91467680', '041926'
+        )
+        fname = f'WR_91467680_WeekEnding_041926_120000{suffix}_abc123.xlsx'
+        self.assertEqual(
+            generate_weekly_pdfs.build_group_identity(fname),
+            ('91467680', '041926', 'reduced_sub', 'John_Doe'),
+        )
+
+
 if __name__ == '__main__':
     unittest.main()
