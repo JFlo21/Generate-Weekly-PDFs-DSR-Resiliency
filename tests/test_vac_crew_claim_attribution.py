@@ -321,3 +321,214 @@ class TestVacCrewIdentitySitesAndDisplay(unittest.TestCase):
             window,
             "Site 2 vac_crew file_id derivation must reference VAC_CREW_CLAIM_ATTRIBUTION_ENABLED",
         )
+
+
+class TestVacCrewLegacyCleanup(unittest.TestCase):
+    """Task 6: legacy unpartitioned _VacCrew TARGET cleanup.
+
+    When vac_crew files become per-claimer (``_VacCrew_<name>``), the OLD
+    bare ``_VacCrew`` (no name, empty identifier) attachments on
+    TARGET_SHEET_ID are orphans that must be cleaned up.  Mirrors the
+    Subproject B ``sub_legacy_primary_variants`` gate exactly.
+    """
+
+    def setUp(self):
+        _ensure_smartsheet_mocked()
+
+    # ------------------------------------------------------------------
+    # Helpers (same fixture style as TestLegacyHelperTargetCleanupE2E)
+    # ------------------------------------------------------------------
+
+    def _make_attachment(self, name, att_id):
+        att = mock.MagicMock()
+        att.name = name
+        att.id = att_id
+        return att
+
+    def _build_client_with_attachments(self, attachments):
+        client = mock.MagicMock()
+        sheet = mock.MagicMock()
+        row = mock.MagicMock()
+        row.id = 1
+        client.Attachments.list_row_attachments.return_value.data = attachments
+        sheet.rows = [row]
+        client.Sheets.get_sheet.return_value = sheet
+        return client, sheet
+
+    # ------------------------------------------------------------------
+    # Scope builder
+    # ------------------------------------------------------------------
+
+    def test_scope_builder_collects_vac_wrs(self):
+        """_build_vac_crew_wr_scope extracts WR# from VACCREW groups only."""
+        groups = {
+            '041926_91467680_VACCREW_John': [{'Work Request #': '91467680'}],
+            '041926_55555_REDUCEDSUB_USER_X': [{'Work Request #': '55555'}],
+        }
+        scope = generate_weekly_pdfs._build_vac_crew_wr_scope(groups)
+        self.assertIn('91467680', scope)
+        self.assertNotIn('55555', scope)
+
+    def test_scope_builder_empty_groups(self):
+        """Empty groups dict returns empty scope."""
+        self.assertEqual(generate_weekly_pdfs._build_vac_crew_wr_scope({}), set())
+
+    def test_scope_builder_ignores_helper_and_primary_keys(self):
+        """Non-VACCREW group keys are excluded from the vac scope."""
+        groups = {
+            '041926_11111_HELPER_Alice': [{'Work Request #': '11111'}],
+            '041926_22222': [{'Work Request #': '22222'}],
+        }
+        scope = generate_weekly_pdfs._build_vac_crew_wr_scope(groups)
+        self.assertEqual(scope, set())
+
+    # ------------------------------------------------------------------
+    # Legacy bare _VacCrew deletion + live per-claimer exemption
+    # ------------------------------------------------------------------
+
+    def test_legacy_vaccrew_deleted_live_claimer_exempt(self):
+        """WR-01 analog: the live-identity exemption must protect a
+        per-claimer _VacCrew_<name> file while still deleting the
+        legacy bare _VacCrew file for the same in-scope WR.
+
+        Mirrors TestLegacyHelperTargetCleanupE2E::
+        test_target_cleanup_exempts_live_helper_for_overlapping_sub_wr.
+        """
+        # Legacy bare _VacCrew — empty identifier → NOT in valid_wr_weeks
+        # → must be deleted.
+        att_legacy = self._make_attachment(
+            'WR_91467680_WeekEnding_041926_120000_VacCrew_abc123.xlsx',
+            101,
+        )
+        # Live per-claimer _VacCrew_John — identity IS in valid_wr_weeks
+        # → must be EXEMPT from deletion.
+        att_live = self._make_attachment(
+            'WR_91467680_WeekEnding_041926_120000_VacCrew_John_def456.xlsx',
+            102,
+        )
+        client, sheet = self._build_client_with_attachments([att_legacy, att_live])
+
+        valid_wr_weeks = {('91467680', '041926', 'vac_crew', 'John')}
+
+        generate_weekly_pdfs.cleanup_untracked_sheet_attachments(
+            client,
+            target_sheet_id=5723337641643908,
+            valid_wr_weeks=valid_wr_weeks,
+            test_mode=False,
+            target_sheet=sheet,
+            vac_legacy_wr_scope={'91467680'},
+        )
+
+        deletes = [call.args for call in client.Attachments.delete_attachment.call_args_list]
+
+        self.assertIn(
+            (5723337641643908, 101),
+            deletes,
+            f"Legacy bare _VacCrew must be deleted for in-scope vac WR; "
+            f"got deletes={deletes}",
+        )
+        self.assertNotIn(
+            (5723337641643908, 102),
+            deletes,
+            f"Live per-claimer _VacCrew_John whose identity is in "
+            f"valid_wr_weeks must be EXEMPT; got deletes={deletes}",
+        )
+
+    def test_non_vac_wr_not_affected_by_vac_gate(self):
+        """A bare _VacCrew file for a WR NOT in vac_legacy_wr_scope is
+        not deleted by the vac gate (falls through to normal identity-grouping
+        logic). This confirms the gate is WR-scoped, not global."""
+        # WR 99999 is NOT in the vac scope.
+        att = self._make_attachment(
+            'WR_99999_WeekEnding_041926_120000_VacCrew_abc123.xlsx',
+            201,
+        )
+        client, sheet = self._build_client_with_attachments([att])
+
+        generate_weekly_pdfs.cleanup_untracked_sheet_attachments(
+            client,
+            target_sheet_id=5723337641643908,
+            valid_wr_weeks=set(),
+            test_mode=False,
+            target_sheet=sheet,
+            vac_legacy_wr_scope={'91467680'},  # 99999 NOT in scope
+        )
+
+        deletes = [call.args for call in client.Attachments.delete_attachment.call_args_list]
+        self.assertNotIn(
+            (5723337641643908, 201),
+            deletes,
+            "WR outside vac_legacy_wr_scope must not be deleted by the vac gate",
+        )
+
+    def test_none_scope_no_vac_gate(self):
+        """vac_legacy_wr_scope=None (default) means no vac gate fires —
+        byte-identical legacy behaviour for callers that don't pass it."""
+        att = self._make_attachment(
+            'WR_91467680_WeekEnding_041926_120000_VacCrew_abc123.xlsx',
+            301,
+        )
+        client, sheet = self._build_client_with_attachments([att])
+
+        # Pass nothing for vac_legacy_wr_scope — relies on default None.
+        generate_weekly_pdfs.cleanup_untracked_sheet_attachments(
+            client,
+            target_sheet_id=5723337641643908,
+            valid_wr_weeks=set(),
+            test_mode=False,
+            target_sheet=sheet,
+        )
+
+        deletes = [call.args for call in client.Attachments.delete_attachment.call_args_list]
+        self.assertNotIn(
+            (5723337641643908, 301),
+            deletes,
+            "vac_legacy_wr_scope=None must not trigger vac gate (legacy behaviour)",
+        )
+
+    def test_kill_switch_off_target_passes_none_scope(self):
+        """Source-grep guard: when VAC_CREW_LEGACY_CLEANUP_ENABLED is False,
+        the TARGET call site must pass vac_legacy_wr_scope=None (or
+        equivalent falsy) so no vac deletion occurs.
+
+        We verify the production source wires the scope conditionally on
+        VAC_CREW_LEGACY_CLEANUP_ENABLED rather than passing the scope
+        unconditionally.  We search the CALL SITE occurrence (inside
+        cleanup_untracked_sheet_attachments(...)) rather than the
+        function-signature occurrence.
+        """
+        src = pathlib.Path(
+            inspect.getsourcefile(generate_weekly_pdfs)
+        ).read_text(encoding='utf-8')
+        # The TARGET call site must gate the vac scope on the kill switch.
+        self.assertIn(
+            'VAC_CREW_LEGACY_CLEANUP_ENABLED',
+            src,
+            "VAC_CREW_LEGACY_CLEANUP_ENABLED must appear in source",
+        )
+        # The vac_legacy_wr_scope kwarg must appear at the TARGET call site.
+        self.assertIn(
+            'vac_legacy_wr_scope',
+            src,
+            "vac_legacy_wr_scope kwarg must be wired at the TARGET call site",
+        )
+        # The call-site wiring must reference the kill switch alongside the
+        # scope builder.  Find the kwarg ASSIGNMENT (``_vac_scope =``) which
+        # is the call-site variable, and verify VAC_CREW_LEGACY_CLEANUP_ENABLED
+        # appears in its neighbourhood.
+        assign_idx = src.find('_vac_scope =')
+        self.assertNotEqual(assign_idx, -1,
+                            "_vac_scope assignment not found in source")
+        window = src[max(0, assign_idx - 100): assign_idx + 400]
+        self.assertIn(
+            'VAC_CREW_LEGACY_CLEANUP_ENABLED',
+            window,
+            "The _vac_scope assignment must be gated on "
+            "VAC_CREW_LEGACY_CLEANUP_ENABLED at the call site",
+        )
+        # The kwarg pass at cleanup_untracked_sheet_attachments(...)
+        # must also appear after the assignment.
+        pass_idx = src.find('vac_legacy_wr_scope=_vac_scope')
+        self.assertNotEqual(pass_idx, -1,
+                            "vac_legacy_wr_scope=_vac_scope must be passed "
+                            "to cleanup_untracked_sheet_attachments")

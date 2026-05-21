@@ -2756,6 +2756,7 @@ def cleanup_untracked_sheet_attachments(
     sub_wr_scope: set[str] | None = None,
     sub_offcontract_variants: set[str] | None = None,
     sub_legacy_primary_variants: set[str] | None = None,
+    vac_legacy_wr_scope: set[str] | None = None,
 ):
     """Prune only older variants for identities processed this run (VARIANT-AWARE).
 
@@ -2810,6 +2811,19 @@ def cleanup_untracked_sheet_attachments(
         exemption). New per-claimer files (non-empty identifier) are
         never matched. When None (default), this gate is skipped.
         Gated at the call sites by SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED.
+
+    vac_legacy_wr_scope: Subproject C (2026-05-21) Task 6 one-time
+        migration. When provided, any attachment whose parsed ``wr`` is
+        in this set, whose parsed ``variant`` is ``'vac_crew'``, and
+        whose parsed ``identifier`` is empty (legacy unpartitioned bare
+        ``_VacCrew``) is unconditionally deleted — UNLESS its identity is
+        in ``valid_wr_weeks`` (live-identity exemption). Per-claimer files
+        (non-empty identifier like ``_VacCrew_John``) are never matched.
+        When None (default), this gate is skipped — byte-identical legacy
+        behaviour for callers that do not pass the parameter.
+        Gated at the TARGET call site by VAC_CREW_LEGACY_CLEANUP_ENABLED.
+        vac_crew files route to TARGET_SHEET_ID only (never PPP); the
+        PPP call site must NOT receive this parameter.
 
     CRITICAL: Identity includes variant dimension to prevent primary/helper cross-deletion.
               Each (wr, week, variant, identifier) is treated as independent.
@@ -2904,6 +2918,32 @@ def cleanup_untracked_sheet_attachments(
                         and wr in sub_wr_scope
                         and sub_legacy_primary_variants is not None
                         and variant in sub_legacy_primary_variants
+                        and not _identifier
+                        and ident not in valid_wr_weeks
+                    ):
+                        off_contract_attachments.append(att)
+                        continue
+                    # Subproject C Task 6 (2026-05-21): one-time migration —
+                    # delete LEGACY UNPARTITIONED bare ``_VacCrew`` attachments
+                    # (parsed identifier == '') for in-scope vac_crew WRs.
+                    # Subproject C re-partitions vac_crew files by frozen
+                    # claimer (``_VacCrew_<name>``), so the old bare
+                    # one-file-per-WR attachment is an obsolete duplicate.
+                    # The ``not _identifier`` check is the precise legacy
+                    # selector: new per-claimer files carry a non-empty
+                    # identifier and are NOT deleted here.
+                    # WR-01 live-identity exemption: an attachment whose
+                    # identity IS in ``valid_wr_weeks`` is kept — this
+                    # protects a live per-claimer file from being deleted
+                    # if its identifier happened to be empty (belt-and-
+                    # suspenders; per-claimer files always have non-empty
+                    # identifiers so this branch is effectively unreachable
+                    # for them, but the guard keeps the contract symmetric
+                    # with the B sub_legacy_primary gate).
+                    if (
+                        vac_legacy_wr_scope is not None
+                        and wr in vac_legacy_wr_scope
+                        and variant == 'vac_crew'
                         and not _identifier
                         and ident not in valid_wr_weeks
                     ):
@@ -3220,6 +3260,28 @@ def _build_subcontractor_wr_scope(groups: dict) -> set[str]:
     _scope: set[str] = set()
     for _key, _g_rows in groups.items():
         if '_REDUCEDSUB' in _key and _g_rows:
+            _g_wr_raw = _g_rows[0].get('Work Request #', '')
+            _g_wr = str(_g_wr_raw).split('.')[0]
+            _g_wr = _RE_SANITIZE_HELPER_NAME.sub('_', _g_wr)[:50]
+            if _g_wr:
+                _scope.add(_g_wr)
+    return _scope
+
+
+def _build_vac_crew_wr_scope(groups: dict) -> set[str]:
+    """Return the set of sanitized WR tokens active as vac_crew in this run.
+
+    Scans ``groups.keys()`` for keys containing ``'_VACCREW'``, extracts
+    each group's WR# from the first row of the group, and returns the
+    sanitized set.
+
+    Shared by the TARGET ``cleanup_untracked_sheet_attachments`` call site
+    (Task 6 vac-crew legacy cleanup scope).  A single implementation prevents
+    scope-build drift — mirrors ``_build_subcontractor_wr_scope``.
+    """
+    _scope: set[str] = set()
+    for _key, _g_rows in groups.items():
+        if '_VACCREW' in _key and _g_rows:
             _g_wr_raw = _g_rows[0].get('Work Request #', '')
             _g_wr = str(_g_wr_raw).split('.')[0]
             _g_wr = _RE_SANITIZE_HELPER_NAME.sub('_', _g_wr)[:50]
@@ -8630,6 +8692,16 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 if _sub_scope and SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED
                 else None
             )
+            # Subproject C Task 6 (2026-05-21): build the vac_crew WR scope
+            # for legacy bare _VacCrew cleanup on TARGET. vac_crew files route
+            # to TARGET_SHEET_ID only (never PPP) — do NOT pass this to PPP.
+            # Kill-switch-gated: VAC_CREW_LEGACY_CLEANUP_ENABLED=0 reverts to
+            # byte-identical pre-fix TARGET behaviour (vac orphans persist).
+            _vac_scope = (
+                _build_vac_crew_wr_scope(groups)
+                if VAC_CREW_LEGACY_CLEANUP_ENABLED
+                else None
+            )
             with sentry_sdk.start_span(op="smartsheet.cleanup", name="Cleanup untracked sheet attachments"):
                 cleanup_untracked_sheet_attachments(
                     client, TARGET_SHEET_ID, valid_wr_weeks, TEST_MODE,
@@ -8640,6 +8712,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     # `is not None`, not truthiness).
                     sub_offcontract_variants=(_target_offcontract or None),
                     sub_legacy_primary_variants=_target_legacy_primary,
+                    vac_legacy_wr_scope=_vac_scope,
                 )
 
             # Phase 01 gap closure (REVIEW-WR-01): parallel cleanup pass
