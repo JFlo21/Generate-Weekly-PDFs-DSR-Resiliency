@@ -300,6 +300,106 @@ class TestVacCrewIdentitySitesAndDisplay(unittest.TestCase):
             "Disabled mode filename must be bare _VacCrew_<hash>.xlsx (no claimer name)",
         )
 
+    def test_disabled_mode_display_uses_vac_crew_name_not_primary_foreman(self):
+        """M1: disabled mode must display __vac_crew_name, not __current_foreman.
+
+        When VAC_CREW_CLAIM_ATTRIBUTION_ENABLED=False, generate_excel's
+        vac_crew display branch must read __vac_crew_name directly — NOT
+        fall back through __current_foreman, which in disabled mode may be
+        the primary / Arrowhead foreman, not the VAC crew member.
+
+        Two sub-cases:
+        a) __vac_crew_name populated, __current_foreman is a different
+           primary-foreman name → display must be the vac crew name.
+        b) __vac_crew_name is '' (empty) → display must be 'Unknown VAC Crew',
+           NOT the primary foreman value.
+        """
+        import datetime as dt
+        import tempfile
+        import openpyxl
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        orig_out = generate_weekly_pdfs.OUTPUT_FOLDER
+        orig_flag = generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED
+        generate_weekly_pdfs.OUTPUT_FOLDER = tmp.name
+        generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED = False
+        self.addCleanup(
+            lambda: setattr(generate_weekly_pdfs, 'OUTPUT_FOLDER', orig_out)
+        )
+        self.addCleanup(
+            lambda: setattr(
+                generate_weekly_pdfs,
+                'VAC_CREW_CLAIM_ATTRIBUTION_ENABLED',
+                orig_flag,
+            )
+        )
+
+        def _foreman_cell(path):
+            wb = openpyxl.load_workbook(path)
+            ws = wb.active
+            return next(
+                (ws.cell(row=r, column=7).value for r in range(1, ws.max_row + 1)
+                 if ws.cell(row=r, column=6).value == 'Foreman:'),
+                None,
+            )
+
+        base_row = {
+            'Work Request #': '91467680',
+            'Units Completed?': True,
+            'Units Total Price': '$100.00',
+            'Customer Name': 'Cust',
+            'Dept #': '500',
+            'Job #': 'J-1',
+            'CU': 'ANC-M',
+            'Work Type': 'Inst',
+            'Quantity': 2,
+            '__variant': 'vac_crew',
+            '__vac_crew_dept': '700',
+            '__vac_crew_job': 'VJ-1',
+            '__week_ending_date': dt.datetime(2026, 4, 19),
+        }
+
+        # --- sub-case a: __vac_crew_name != __current_foreman ---
+        # __current_foreman is the primary/Arrowhead foreman; __vac_crew_name
+        # is the actual VAC crew member. Disabled mode MUST show the vac name.
+        row_a = dict(base_row)
+        row_a['__current_foreman'] = 'Arrowhead_PrimaryForeman'
+        row_a['__vac_crew_name'] = 'Alice_VacCrew'
+        result_a = generate_weekly_pdfs.generate_excel(
+            '041926_91467680_VACCREW', [row_a], dt.datetime(2026, 4, 19),
+            data_hash='deadbeefcafe0ca1',
+        )
+        foreman_a = _foreman_cell(result_a[0])
+        self.assertEqual(
+            foreman_a, 'Alice_VacCrew',
+            "Disabled mode: display must be __vac_crew_name, not "
+            f"__current_foreman ('Arrowhead_PrimaryForeman'); got {foreman_a!r}",
+        )
+        self.assertNotEqual(
+            foreman_a, 'Arrowhead_PrimaryForeman',
+            "Disabled mode must NOT fall back to the primary foreman",
+        )
+
+        # --- sub-case b: __vac_crew_name is empty ---
+        # Even with __current_foreman set, display must NOT be the primary
+        # foreman value. The cell may be None/empty or 'Unknown VAC Crew'
+        # depending on how generate_excel renders the fallback; what is
+        # strictly required is that the primary foreman does NOT appear.
+        row_b = dict(base_row)
+        row_b['__current_foreman'] = 'Arrowhead_PrimaryForeman'
+        row_b['__vac_crew_name'] = ''
+        result_b = generate_weekly_pdfs.generate_excel(
+            '041926_91467680_VACCREW', [row_b], dt.datetime(2026, 4, 19),
+            data_hash='deadbeefcafe0cb2',
+        )
+        foreman_b = _foreman_cell(result_b[0])
+        self.assertNotEqual(
+            foreman_b, 'Arrowhead_PrimaryForeman',
+            "Disabled mode with empty __vac_crew_name must NOT display the "
+            f"primary/Arrowhead foreman; got {foreman_b!r}",
+        )
+
     def test_valid_wr_weeks_site2_vac_crew_gated_on_kill_switch(self):
         """Site 2 grep guard: the valid_wr_weeks vac_crew branch must NOT
         hard-code file_id='' unconditionally — it must be gated on the flag."""
@@ -532,6 +632,58 @@ class TestVacCrewLegacyCleanup(unittest.TestCase):
         self.assertNotEqual(pass_idx, -1,
                             "vac_legacy_wr_scope=_vac_scope must be passed "
                             "to cleanup_untracked_sheet_attachments")
+
+    def test_attribution_off_cleanup_on_live_bare_vaccrew_exempt(self):
+        """M4 mixed-flag: attribution OFF + legacy cleanup ON.
+
+        When VAC_CREW_CLAIM_ATTRIBUTION_ENABLED=False (disabled mode),
+        group_source_rows emits the BARE vac_crew key with empty identifier,
+        so valid_wr_weeks contains ('wr', 'week', 'vac_crew', '').  The
+        legacy cleanup gate must honour the live-identity exemption and NOT
+        delete that bare _VacCrew attachment — it is current-run output.
+
+        This guards the mixed-flag combination: attribution OFF means no
+        per-claimer files are generated, so a bare _VacCrew file is the
+        LIVE file for that WR and must survive cleanup even when
+        VAC_CREW_LEGACY_CLEANUP_ENABLED=True.
+        """
+        orig_attr_flag = generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED
+        generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED = False
+        try:
+            # Bare _VacCrew — in disabled mode this IS the live file for the WR.
+            att_bare = self._make_attachment(
+                'WR_77712345_WeekEnding_050926_120000_VacCrew_ff1122.xlsx',
+                201,
+            )
+            client, sheet = self._build_client_with_attachments([att_bare])
+
+            # Disabled mode: the bare-key identity ('77712345','050926','vac_crew','')
+            # is in valid_wr_weeks because group_source_rows emits it without a
+            # claimer suffix when the flag is off.
+            valid_wr_weeks = {('77712345', '050926', 'vac_crew', '')}
+
+            generate_weekly_pdfs.cleanup_untracked_sheet_attachments(
+                client,
+                target_sheet_id=5723337641643908,
+                valid_wr_weeks=valid_wr_weeks,
+                test_mode=False,
+                target_sheet=sheet,
+                vac_legacy_wr_scope={'77712345'},
+            )
+
+            deletes = [
+                call.args
+                for call in client.Attachments.delete_attachment.call_args_list
+            ]
+            self.assertNotIn(
+                (5723337641643908, 201),
+                deletes,
+                "Attribution OFF + cleanup ON: the bare _VacCrew file whose "
+                "identity IS in valid_wr_weeks must be EXEMPT from deletion; "
+                f"got deletes={deletes}",
+            )
+        finally:
+            generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED = orig_attr_flag
 
 
 class TestVacCrewHashPrune(unittest.TestCase):

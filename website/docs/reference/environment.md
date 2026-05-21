@@ -410,7 +410,7 @@ prior run.
 silently override the pinned value without code review.
 
 **Startup banner:** The resolved state is logged at startup as
-`📋 VAC_CREW_CLAIM_ATTRIBUTION_ENABLED=<bool>`.
+`📋 VAC Crew claim attribution: ENABLED` or `📋 VAC Crew claim attribution: DISABLED`.
 
 ### `VAC_CREW_LEGACY_CLEANUP_ENABLED`
 
@@ -457,7 +457,7 @@ partitioning still runs.
 silently override the pinned value without code review.
 
 **Startup banner:** The resolved state is logged at startup as
-`📋 VAC_CREW_LEGACY_CLEANUP_ENABLED=<bool>`.
+`📋 VAC Crew legacy cleanup: ENABLED` or `📋 VAC Crew legacy cleanup: DISABLED`.
 
 ### `AEP_BILLABLE_CUTOFF`
 

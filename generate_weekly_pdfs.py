@@ -6355,14 +6355,19 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         display_dept = first_row.get('__helper_dept', '')
         display_job = first_row.get('__helper_job', '')
     elif variant == 'vac_crew':
-        # Subproject C: show the ATTRIBUTED claimer (__current_foreman, the
+        # Enabled: show the ATTRIBUTED claimer (__current_foreman, the
         # partition key) so the displayed foreman matches the filename.
-        # Falls back to __vac_crew_name when attribution is disabled or absent
-        # (legacy path) — dept/job remain VAC-crew-specific in all cases.
-        display_foreman = (
-            first_row.get('__current_foreman')
-            or first_row.get('__vac_crew_name', 'Unknown VAC Crew')
-        )
+        # Disabled (legacy): show __vac_crew_name exactly as master did —
+        # must NOT fall back to __current_foreman (which in disabled mode
+        # may be the primary / Arrowhead foreman, not the VAC crew member).
+        # dept/job remain VAC-crew-specific in all cases.
+        if VAC_CREW_CLAIM_ATTRIBUTION_ENABLED:
+            display_foreman = (
+                first_row.get('__current_foreman')
+                or first_row.get('__vac_crew_name', 'Unknown VAC Crew')
+            )
+        else:
+            display_foreman = first_row.get('__vac_crew_name', 'Unknown VAC Crew')
         display_dept = first_row.get('__vac_crew_dept', '')
         display_job = first_row.get('__vac_crew_job', '')
     else:
@@ -8980,7 +8985,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             save_hash_history(HASH_HISTORY_PATH, hash_history)
         elif _hash_history_migration_dirty:
             # Codex P2: no group updates this run, but a one-time migration
-            # prune (Phase 1.1 / Subproject B) mutated hash_history. Persist
+            # prune (Phase 1.1 / Subproject B / Subproject C) mutated hash_history. Persist
             # it now so the migration is durable and does not re-run every
             # execution. Do NOT run the stale-prune on this path — groups
             # were not fully processed, so current_keys would be incomplete
@@ -9024,10 +9029,11 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 _run_summary.update(_billing_audit_writer.get_counters())
             except Exception:
                 pass  # Counter retrieval must never fail the run summary write.
-            # Subproject B: emit ONE aggregate WARNING if any rows were
-            # held this run pending attribution (Supabase outage). B is
-            # the first consumer of Foundation A's HOLD machinery; this
-            # is the single end-of-run summary call. PII-safe (counts +
+            # Subproject B / Subproject C: emit ONE aggregate WARNING if any
+            # rows were held this run pending attribution (Supabase outage).
+            # B is the first consumer of Foundation A's HOLD machinery; C
+            # (vac_crew) also records holds via the same counter. This is
+            # the single end-of-run summary call. PII-safe (counts +
             # sanitized WR list only). Never fail the run summary write.
             try:
                 _billing_audit_writer.summarize_attribution_holds()
