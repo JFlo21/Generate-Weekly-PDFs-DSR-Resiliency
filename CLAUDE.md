@@ -2273,3 +2273,119 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   ``TestAttributionHoldSummary`` (4) — plus ``CountersTests`` updated for
   the pre-seeded counter. ``pytest tests/`` → **710 passed / 26 skipped
   / 58 subtests** (was 689 at the Phase 1.1 close; +21 net).
+- [2026-05-21 09:21] Subproject B (subcontractor PRIMARY claim
+  attribution) shipped — the first consumer of Foundation A's
+  ``resolve_claimer`` + HOLD contract ([2026-05-20 13:45]). The
+  subcontractor primary variants (``reduced_sub`` / ``aep_billable``)
+  are now re-partitioned by the FROZEN primary claimer
+  (``primary_foreman`` from ``billing_audit.attribution_snapshot``)
+  instead of shipping one bare file per WR. Each file holds only one
+  claimer's completed line items and is named
+  ``_ReducedSub_User_<name>`` / ``_AEPBillable_User_<name>`` (the
+  reserved ``_User_`` token, parser-unambiguous vs ``_Helper_``).
+  Spec: ``docs/superpowers/specs/2026-05-20-subproject-b-subcontractor-primary-claim-attribution-design.md``;
+  plan: ``docs/superpowers/plans/2026-05-20-subproject-b-subcontractor-primary-claim-attribution.md``.
+  **The five operator-approved decisions (the contract):** (1)
+  **Partition model = fallback-to-current** — rows with a frozen
+  claimer group under that claimer; rows with no frozen claimer yet
+  (``no_history``) fall back to the current ``effective_user`` (all
+  rows reaching the variant block are ``Units Completed?``-checked).
+  (2) **Attribution kill switch = reuse**
+  ``SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED`` (default on) —
+  its documented scope is broadened to gate primary partitioning too;
+  no new attribution flag. (3) **Filename** =
+  ``_ReducedSub_User_<name>`` / ``_AEPBillable_User_<name>``. (4)
+  **Migration** = explicit forced cleanup of legacy unpartitioned
+  attachments + a one-time version-sentinel hash prune, gated by the
+  NEW default-on kill switch ``SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED``
+  (destructive-cleanup-needs-its-own-switch rule [2026-05-19 22:00]
+  #4). (5) **Outage = HOLD** — on ``resolve_claimer`` ``fetch_failure``
+  the row is deferred (``record_attribution_hold``), no primary file
+  is emitted that run, and ``summarize_attribution_holds()`` fires
+  once at end-of-run. **Accepted asymmetry:** the primary path HOLDs
+  on a Supabase outage (correctness over availability — a possibly
+  mis-attributed billing file is worse than a late one), while the
+  unchanged Phase 1.1 helper-shadow path still falls back to the
+  current ``Foreman Helping?`` and generates. B is the FIRST HOLD
+  consumer; the helper-shadow path predates the HOLD machinery and is
+  deliberately left as-is. **Wiring = Approach A (parallel pre-pass).**
+  ``group_source_rows`` resolves every completed subcontractor row's
+  claimer in a bounded ``ThreadPoolExecutor`` (``min(PARALLEL_WORKERS,
+  n)``, single-row groups skip the executor) into a
+  ``{__row_id: ResolveOutcome}`` map BEFORE the grouping loop — no
+  per-row Supabase round-trip inside the hot loop (the [2026-04-25
+  14:00] per-row-latency lesson). A row absent from the map
+  (attribution disabled, pre-pass skipped, missing ``__row_id``, or an
+  unexpected per-row error) resolves to use-current at emission —
+  NEVER HOLD — so a plumbing fault can never silently suppress a
+  billing file; only ``resolve_claimer``'s own ``fetch_failure`` HOLDs.
+  ``billing_audit/`` was NOT modified (everything B needs shipped in
+  Foundation A). **CR-01 three-site lockstep extended:** the new
+  variants' identity tuple (``identifier`` = sanitized claimer) is
+  built in lockstep at all three main-loop sites — the per-group
+  ``identifier`` / ``file_identifier``, the ``valid_wr_weeks`` cleanup
+  builder, and the ``current_keys`` hash-prune set — plus the
+  ``build_group_identity`` parser, so attachment-identity matching and
+  hash-history persistence stay consistent ([2026-05-15] CR-01).
+  **New migration plumbing:** ``cleanup_untracked_sheet_attachments``
+  gained a ``sub_legacy_primary_variants: set[str] | None`` param + a
+  gate that deletes empty-identifier ``_ReducedSub`` / ``_AEPBillable``
+  attachments for in-scope sub WRs (TARGET gets
+  ``{'reduced_sub','aep_billable'}``, PPP gets ``{'reduced_sub'}`` —
+  ``aep_billable`` never routes to PPP) with a ``valid_wr_weeks``
+  live-identity exemption so a current per-claimer file is never
+  deleted; the ``_sub_scope`` builder is now shared by the SUB-09
+  helper cleanup and this primary cleanup (byte-identical TARGET
+  behaviour preserved when only ``SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED``
+  is on). The new ``_run_subproject_b_hash_prune`` (constant
+  ``SUBPROJECT_B_HASH_PRUNE_VERSION = 1``, sentinel
+  ``_subproject_b_prune_version`` — DISTINCT from Phase 1.1's
+  ``_phase_prune_version``) idempotently drops legacy blank-identifier
+  ``reduced_sub`` / ``aep_billable`` hash orphans on first run; the
+  prune is benign (a dropped hash costs at most one regeneration, never
+  data loss) so it carries no live-identity exemption, and its PII
+  marker ``"Subproject B hash-history prune"`` is registered in
+  ``_PII_LOG_MARKERS``. ``SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED``
+  is workflow-pinned to ``'1'`` in
+  ``.github/workflows/weekly-excel-generation.yml`` and documented in
+  ``website/docs/reference/environment.md`` (which also broadens the
+  attribution-flag scope note). **New rules:** (1) **HOLD is for
+  genuine outages only.** A consumer of ``resolve_claimer`` must HOLD
+  (defer + ``record_attribution_hold`` + end-of-run
+  ``summarize_attribution_holds``) ONLY on ``action == 'hold'``
+  (``fetch_failure``); ``no_history`` and ``disabled`` use the current
+  foreman and generate normally. A map-miss / plumbing fault must
+  resolve to use-current, never HOLD — a HOLD suppresses a billing
+  file, so it must require a real Supabase failure, not an internal
+  bug. (2) **Per-row attribution I/O goes in a pre-pass, never the hot
+  loop.** Any future variant that resolves a per-row claimer (C =
+  vac_crew, D = primary-workflow primary) MUST follow Approach A — a
+  bounded ``ThreadPoolExecutor`` pre-pass into a ``{__row_id:
+  outcome}`` map before ``group_source_rows``' grouping loop, with the
+  single-row-skips-executor guard — extending the [2026-04-25 14:00]
+  rule from ``freeze_row`` to attribution reads. (3) **A new claimer
+  filename token requires the CR-01 four-site update** (parser + three
+  identity sites) in the same change; the source-grep guards in
+  ``TestSubprojectBProductionInvariants`` are the regression net
+  against a silent revert. (4) **Sequencing for the remaining
+  sub-projects is unchanged:** C (VAC crew by ``frozen_vac_crew``) →
+  D (primary-workflow primary; highest blast radius, last) → E
+  (Supabase hash-store migration + filename token stripping). Executed
+  via superpowers subagent-driven-development (Tasks 1–11; fresh
+  implementer per task + two-stage spec-then-code-quality review for
+  complex/destructive tasks, controller verification for
+  mechanical/inert ones). Regression tests: new file
+  ``tests/test_subcontractor_primary_claim_attribution.py`` —
+  ``TestBuildGroupIdentityParsesPrimaryUserToken``,
+  ``TestLegacyPrimaryCleanupKillSwitch``,
+  ``TestPrimaryVariantSuffixHelper``, ``TestPrePassEmission``,
+  ``TestThreeIdentitySitesCarryClaimer``, ``TestHoldSummaryWiredIntoMain``,
+  ``TestMigrationCleanup``, ``TestSubprojectBHashPrune``,
+  ``TestNonSubVariantsPreserved``, ``TestPrePassConcurrency``,
+  ``TestSubprojectBProductionInvariants``. ``pytest tests/`` →
+  **751 passed / 26 skipped / 58 subtests** (was 710 at the Foundation
+  A close; +41 net). After this branch lands, sub-helper Phase 1.1 +
+  Foundation A + Subproject B together cover the subcontractor
+  workflow's helper and primary claim attribution; the primary-workflow
+  (non-sub) primary partitioning is still Sub-project D, not yet
+  shipped.
