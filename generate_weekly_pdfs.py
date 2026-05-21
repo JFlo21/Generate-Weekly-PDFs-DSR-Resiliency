@@ -4675,6 +4675,77 @@ def group_source_rows(rows):
     # call out as a P0 noise hazard.
     _bug_c_warning_seen: set[tuple[str, str, str]] = set()
 
+    # ── Subproject B (2026-05-20): parallel attribution pre-pass ──
+    # Resolve the FROZEN primary claimer for every completed
+    # subcontractor row BEFORE the grouping loop, so no per-row
+    # Supabase round-trip runs inside the hot loop (honors the
+    # [2026-04-25 14:00] latency lesson). The map is consumed by the
+    # subcontractor variant-emission block. A row absent from the map
+    # (attribution disabled, pre-pass skipped, missing __row_id, or an
+    # unexpected per-row error) resolves to use-current at emission —
+    # NEVER HOLD — so a plumbing fault can never silently suppress a
+    # billing file. resolve_claimer's own fetch_failure -> HOLD is the
+    # only path that defers a row.
+    _sub_primary_claimer_map: dict = {}
+    if BILLING_AUDIT_AVAILABLE and SUBCONTRACTOR_RATE_VARIANTS_ENABLED:
+        _b_pre_rows = []
+        for _r in rows:
+            _sid = _r.get('__source_sheet_id')
+            if _sid is None or _sid not in _FOLDER_DISCOVERED_SUB_IDS:
+                continue
+            _rid = _r.get('__row_id')
+            if not isinstance(_rid, int):
+                continue
+            _wr_raw = _r.get('Work Request #')
+            _ld = _r.get('Weekly Reference Logged Date')
+            if not _wr_raw or not _ld or not is_checked(_r.get('Units Completed?')):
+                continue
+            _we = excel_serial_to_date(_ld)
+            if _we is None:
+                continue
+            _b_pre_rows.append((
+                _rid,
+                str(_wr_raw).split('.')[0],
+                _we.date() if isinstance(_we, datetime.datetime) else _we,
+                _r.get('__effective_user', 'Unknown Foreman'),
+            ))
+        if _b_pre_rows:
+            try:
+                from billing_audit.writer import resolve_claimer as _resolve_claimer
+
+                def _resolve_one(_item):
+                    _rid, _wr, _we_date, _eu = _item
+                    return _rid, _resolve_claimer(
+                        'reduced_sub', _eu,
+                        wr=_wr, week_ending=_we_date, row_id=_rid,
+                        enabled=SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED,
+                    )
+
+                if len(_b_pre_rows) <= 1:
+                    for _item in _b_pre_rows:
+                        _rid, _out = _resolve_one(_item)
+                        _sub_primary_claimer_map[_rid] = _out
+                else:
+                    _workers = min(PARALLEL_WORKERS, len(_b_pre_rows))
+                    with ThreadPoolExecutor(max_workers=_workers) as _ex:
+                        _futs = [_ex.submit(_resolve_one, _it) for _it in _b_pre_rows]
+                        for _fut in as_completed(_futs):
+                            try:
+                                _rid, _out = _fut.result()
+                                _sub_primary_claimer_map[_rid] = _out
+                            except Exception:
+                                logging.exception(
+                                    "⚠️ Subproject B attribution pre-pass: "
+                                    "unexpected error for one row (treating "
+                                    "as use-current)"
+                                )
+            except Exception:
+                logging.exception(
+                    "⚠️ Subproject B attribution pre-pass failed; falling "
+                    "back to current foreman for all subcontractor rows"
+                )
+                _sub_primary_claimer_map = {}
+
     for r in rows:
         wr = r.get('Work Request #')
         log_date_str = r.get('Weekly Reference Logged Date')
@@ -4891,39 +4962,73 @@ def group_source_rows(rows):
             # reads the SAME boolean — no behavioural change to the
             # variant emission contract.
             if is_subcontractor_row and SUBCONTRACTOR_RATE_VARIANTS_ENABLED:
-                # ReducedSub: unconditional per SUB-02 / D-08. Foreman
-                # is the primary ``effective_user`` (mirrors the
-                # existing primary key — the reduced-sub Excel is
-                # produced for the WR group as a whole).
-                reduced_key = f"{week_end_for_key}_{wr_key}_REDUCEDSUB"
-                keys_to_add.append(('reduced_sub', reduced_key, effective_user))
-                if reduced_key not in groups:
-                    logging.info(
-                        f"🔻 REDUCED SUB GROUP CREATED: WR={wr_key}, "
-                        f"Week={week_end_for_key}"
-                    )
-
-                # AEPBillable: snapshot-cutoff-gated per SUB-01 / D-08
-                # / Living Ledger 2026-04-21 22:35. Snapshot Date is
-                # authoritative — Weekly Reference Logged Date is
-                # NOT a valid fallback here (cutoff drift would
-                # silently re-price whole sheets; see the ledger
-                # entry). ``excel_serial_to_date`` returns ``None``
-                # for blank/unparseable values which naturally
-                # excludes the row from the AEPBillable branch
-                # without raising (D-16 fall-through safety).
+                # Snapshot cutoff is needed by BOTH the primary block
+                # here and the helper-shadow block below, so compute it
+                # once. ``excel_serial_to_date`` returns None for
+                # blank/unparseable values (D-16 fall-through safety).
                 _snap_for_cutoff = excel_serial_to_date(r.get('Snapshot Date'))
-                if (
-                    _snap_for_cutoff is not None
-                    and _snap_for_cutoff.date() >= _AEP_BILLABLE_CUTOFF
-                ):
-                    aep_key = f"{week_end_for_key}_{wr_key}_AEPBILLABLE"
-                    keys_to_add.append(('aep_billable', aep_key, effective_user))
-                    if aep_key not in groups:
+
+                # Subproject B: resolve the FROZEN primary claimer from
+                # the pre-pass map. ``use`` -> partition by the claimer;
+                # ``hold`` -> defer this row's primary variants this run
+                # (correctness over availability) and record a HOLD; map
+                # miss -> use the current effective_user.
+                _b_outcome = _sub_primary_claimer_map.get(r.get('__row_id'))
+                if _b_outcome is not None and _b_outcome.action == 'hold':
+                    _b_primary_claimer = None
+                    try:
+                        from billing_audit.writer import record_attribution_hold
+                        record_attribution_hold(
+                            wr_key, week_ending_date, 'reduced_sub'
+                        )
+                    except Exception:
+                        logging.exception(
+                            "⚠️ Subproject B: record_attribution_hold failed"
+                        )
+                elif _b_outcome is not None and _b_outcome.action == 'use':
+                    _b_primary_claimer = _b_outcome.name or effective_user
+                else:
+                    _b_primary_claimer = effective_user
+
+                if _b_primary_claimer is not None:
+                    _b_claimer_sanitized = _RE_SANITIZE_IDENTIFIER.sub(
+                        '_', _b_primary_claimer
+                    )[:50]
+                    # ReducedSub: unconditional per SUB-02 / D-08, now
+                    # partitioned by frozen primary claimer (Subproject B).
+                    reduced_key = (
+                        f"{week_end_for_key}_{wr_key}_REDUCEDSUB_USER_"
+                        f"{_b_claimer_sanitized}"
+                    )
+                    keys_to_add.append(
+                        ('reduced_sub', reduced_key, _b_primary_claimer)
+                    )
+                    if reduced_key not in groups:
                         logging.info(
-                            f"💲 AEP BILLABLE GROUP CREATED: WR={wr_key}, "
+                            f"🔻 REDUCED SUB GROUP CREATED: WR={wr_key}, "
                             f"Week={week_end_for_key}"
                         )
+
+                    # AEPBillable: snapshot-cutoff-gated per SUB-01 / D-08
+                    # / Living Ledger 2026-04-21 22:35 (snapshot is
+                    # authoritative; Weekly Reference Logged Date is NOT a
+                    # valid fallback here).
+                    if (
+                        _snap_for_cutoff is not None
+                        and _snap_for_cutoff.date() >= _AEP_BILLABLE_CUTOFF
+                    ):
+                        aep_key = (
+                            f"{week_end_for_key}_{wr_key}_AEPBILLABLE_USER_"
+                            f"{_b_claimer_sanitized}"
+                        )
+                        keys_to_add.append(
+                            ('aep_billable', aep_key, _b_primary_claimer)
+                        )
+                        if aep_key not in groups:
+                            logging.info(
+                                f"💲 AEP BILLABLE GROUP CREATED: WR={wr_key}, "
+                                f"Week={week_end_for_key}"
+                            )
 
                 # Helper-shadow variants: piggyback on the EXISTING
                 # helper detection. The two gates that already

@@ -2645,6 +2645,17 @@ class TestSubcontractorB1PartitioningGate(unittest.TestCase):
         The legacy primary key ``{week}_{wr}`` MUST NOT appear in the
         emitted groups for a subcontractor non-helper row under
         production grouping mode 'both'. Only variant keys remain.
+
+        Subproject B (2026-05-20) design-intent override per the
+        [2026-05-20 00:26] Living Ledger rule 2: the variant keys are
+        now PARTITIONED by the frozen primary claimer
+        (``_REDUCEDSUB_USER_<claimer>`` / ``_AEPBILLABLE_USER_<claimer>``)
+        instead of the bare ``_REDUCEDSUB`` / ``_AEPBILLABLE`` form. The
+        no-legacy-primary closure assertion (the actual subject of Bug
+        B1) is unchanged; only the variant-key shape assertion is
+        updated to the partitioned form. A substring match tolerates the
+        ``_USER_<claimer>`` suffix while still proving the variant
+        emission fires.
         """
         row = self._make_row(
             wr='WR_SUB',
@@ -2660,18 +2671,19 @@ class TestSubcontractorB1PartitioningGate(unittest.TestCase):
             f"Bug B1: subcontractor non-helper row must NOT emit "
             f"legacy primary key; got: {keys}",
         )
-        # Phase 1 variant emission is preserved
-        self.assertIn(
-            '041926_WR_SUB_REDUCEDSUB',
-            keys,
-            f"Phase 1 variant emission must still produce _REDUCEDSUB; "
-            f"got: {keys}",
+        # Phase 1 variant emission is preserved, now partitioned by the
+        # frozen primary claimer (Subproject B). effective_user is
+        # 'TestForeman' and no resolve_claimer mock is active here, so
+        # the real resolve_claimer falls back to use-current.
+        self.assertTrue(
+            any('041926_WR_SUB_REDUCEDSUB_USER_' in k for k in keys),
+            f"Variant emission must still produce a partitioned "
+            f"_REDUCEDSUB_USER_<claimer> key; got: {keys}",
         )
-        self.assertIn(
-            '041926_WR_SUB_AEPBILLABLE',
-            keys,
-            f"Post-cutoff snapshot must still produce _AEPBILLABLE; "
-            f"got: {keys}",
+        self.assertTrue(
+            any('041926_WR_SUB_AEPBILLABLE_USER_' in k for k in keys),
+            f"Post-cutoff snapshot must still produce a partitioned "
+            f"_AEPBILLABLE_USER_<claimer> key; got: {keys}",
         )
 
     # ---------- Test 2: legacy non-subcontractor flow preserved ----------
@@ -2820,13 +2832,21 @@ class TestSubcontractorB1PartitioningGate(unittest.TestCase):
             f"got: {keys}",
         )
 
-    # ---------- Test 7: variant emission preserved byte-for-byte ----------
+    # ---------- Test 7: variant emission preserved ----------
     def test_phase1_variant_emission_block_untouched(self):
         """Test 7: subcontractor variant emission still produces variants.
 
-        Bug B1 closes the duplicate-primary leak WITHOUT touching the
-        variant emission block — _REDUCEDSUB (always) and _AEPBILLABLE
+        Bug B1 closes the duplicate-primary leak WITHOUT regressing the
+        variant emission — _REDUCEDSUB (always) and _AEPBILLABLE
         (post-cutoff) continue to fire for subcontractor rows.
+
+        Subproject B (2026-05-20) design-intent override per the
+        [2026-05-20 00:26] Living Ledger rule 2: those variant keys are
+        now PARTITIONED by the frozen primary claimer
+        (``_REDUCEDSUB_USER_<claimer>`` / ``_AEPBILLABLE_USER_<claimer>``).
+        The substring assertions below tolerate the new
+        ``_USER_<claimer>`` suffix while still proving both variants
+        emit for a post-cutoff subcontractor row.
         """
         row = self._make_row(
             wr='WR_VAR_INTACT',
@@ -2836,15 +2856,15 @@ class TestSubcontractorB1PartitioningGate(unittest.TestCase):
         )
         groups = generate_weekly_pdfs.group_source_rows([row])
         keys = list(groups.keys())
-        self.assertIn(
-            '041926_WR_VAR_INTACT_REDUCEDSUB',
-            keys,
-            "_REDUCEDSUB still emitted for subcontractor rows",
+        self.assertTrue(
+            any('041926_WR_VAR_INTACT_REDUCEDSUB_USER_' in k for k in keys),
+            f"_REDUCEDSUB_USER_<claimer> still emitted for "
+            f"subcontractor rows; got: {keys}",
         )
-        self.assertIn(
-            '041926_WR_VAR_INTACT_AEPBILLABLE',
-            keys,
-            "_AEPBILLABLE still emitted for post-cutoff subcontractor rows",
+        self.assertTrue(
+            any('041926_WR_VAR_INTACT_AEPBILLABLE_USER_' in k for k in keys),
+            f"_AEPBILLABLE_USER_<claimer> still emitted for post-cutoff "
+            f"subcontractor rows; got: {keys}",
         )
 
 

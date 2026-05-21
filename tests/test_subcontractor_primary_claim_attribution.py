@@ -13,15 +13,17 @@ import pathlib
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from tests.test_billing_audit_shadow import _ensure_smartsheet_mocked
+from tests.test_billing_audit_shadow import _ensure_smartsheet_mocked, _reset_all
 
 _ensure_smartsheet_mocked()
 import generate_weekly_pdfs  # noqa: E402
+from billing_audit.writer import ResolveOutcome  # noqa: E402
 
 
 class TestBuildGroupIdentityParsesPrimaryUserToken(unittest.TestCase):
@@ -121,6 +123,140 @@ class TestPrimaryVariantSuffixHelper(unittest.TestCase):
             generate_weekly_pdfs.build_group_identity(fname),
             ('91467680', '041926', 'reduced_sub', 'John_Doe'),
         )
+
+
+def _make_sub_primary_row(
+    wr='91467680', row_id=5001, units_price='$100.00',
+    snapshot='2026-04-19', effective_user='CurrentForeman',
+    source_sheet_id=8162920222379908,
+):
+    """Synthetic completed non-helper subcontractor row."""
+    return {
+        '__row_id': row_id,
+        'Work Request #': wr,
+        'Weekly Reference Logged Date': '2026-04-19',
+        'Snapshot Date': snapshot,
+        'Units Completed?': True,
+        'Units Total Price': units_price,
+        'CU': 'ANC-M',
+        'Work Type': 'Inst',
+        'Quantity': 2,
+        '__effective_user': effective_user,
+        '__assignment_method': 'FOREMAN_COLUMN',
+        '__is_helper_row': False,
+        '__helper_foreman': '',
+        '__helper_dept': '',
+        '__helper_job': '',
+        '__is_vac_crew': False,
+        '__source_sheet_id': source_sheet_id,
+    }
+
+
+class TestPrePassEmission(unittest.TestCase):
+    """Task 4: pre-pass + emission partition subcontractor primary by claimer."""
+
+    _SUB_SHEET_ID = 8162920222379908
+
+    def setUp(self):
+        _reset_all()
+        self._orig_variants = generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED
+        self._orig_attr = generate_weekly_pdfs.SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED
+        self._orig_sub_ids = set(generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS)
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = True
+        generate_weekly_pdfs.SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED = True
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.add(self._SUB_SHEET_ID)
+
+    def tearDown(self):
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = self._orig_variants
+        generate_weekly_pdfs.SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED = self._orig_attr
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.update(self._orig_sub_ids)
+        _reset_all()
+
+    def test_frozen_claimer_partitions_reducedsub_and_aep(self):
+        with mock.patch(
+            'billing_audit.writer.resolve_claimer',
+            return_value=ResolveOutcome('use', 'FrozenPrimary', 'frozen', 'success'),
+        ):
+            groups = generate_weekly_pdfs.group_source_rows([_make_sub_primary_row()])
+        keys = list(groups.keys())
+        self.assertTrue(
+            any('REDUCEDSUB_USER_FrozenPrimary' in k for k in keys),
+            f"reduced_sub must partition by frozen claimer; got {keys}",
+        )
+        self.assertTrue(
+            any('AEPBILLABLE_USER_FrozenPrimary' in k for k in keys),
+            f"aep_billable (post-cutoff) must partition by frozen claimer; got {keys}",
+        )
+
+    def test_no_history_falls_back_to_current_foreman(self):
+        with mock.patch(
+            'billing_audit.writer.resolve_claimer',
+            return_value=ResolveOutcome('use', 'CurrentForeman', 'current', 'no_history'),
+        ):
+            groups = generate_weekly_pdfs.group_source_rows(
+                [_make_sub_primary_row(effective_user='CurrentForeman')]
+            )
+        keys = list(groups.keys())
+        self.assertTrue(
+            any('REDUCEDSUB_USER_CurrentForeman' in k for k in keys),
+            f"no_history must fall back to current foreman; got {keys}",
+        )
+
+    def test_hold_suppresses_primary_variants_and_records_hold(self):
+        from billing_audit.writer import get_counters
+        with mock.patch(
+            'billing_audit.writer.resolve_claimer',
+            return_value=ResolveOutcome('hold', None, None, 'fetch_failure'),
+        ):
+            groups = generate_weekly_pdfs.group_source_rows([_make_sub_primary_row()])
+        keys = list(groups.keys())
+        self.assertFalse(
+            any('REDUCEDSUB' in k for k in keys),
+            f"HOLD must suppress reduced_sub emission; got {keys}",
+        )
+        self.assertFalse(
+            any('AEPBILLABLE' in k for k in keys),
+            f"HOLD must suppress aep_billable emission; got {keys}",
+        )
+        self.assertEqual(get_counters()['attribution_rows_held'], 1)
+
+    def test_attribution_disabled_uses_current_foreman(self):
+        # No mock — real resolve_claimer with enabled=False short-circuits
+        # to use-current without any Supabase call.
+        generate_weekly_pdfs.SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED = False
+        groups = generate_weekly_pdfs.group_source_rows(
+            [_make_sub_primary_row(effective_user='CurrentForeman')]
+        )
+        keys = list(groups.keys())
+        self.assertTrue(
+            any('REDUCEDSUB_USER_CurrentForeman' in k for k in keys),
+            f"disabled attribution must use current foreman; got {keys}",
+        )
+
+    def test_two_claimers_same_wr_week_coexist(self):
+        def _resolve(variant, current, *, wr, week_ending, row_id, enabled):
+            name = 'ForemanA' if row_id == 5001 else 'ForemanB'
+            return ResolveOutcome('use', name, 'frozen', 'success')
+        with mock.patch('billing_audit.writer.resolve_claimer', side_effect=_resolve):
+            groups = generate_weekly_pdfs.group_source_rows([
+                _make_sub_primary_row(row_id=5001),
+                _make_sub_primary_row(row_id=5002),
+            ])
+        keys = list(groups.keys())
+        self.assertTrue(any('REDUCEDSUB_USER_ForemanA' in k for k in keys))
+        self.assertTrue(any('REDUCEDSUB_USER_ForemanB' in k for k in keys))
+
+    def test_non_subcontractor_row_unaffected(self):
+        row = _make_sub_primary_row(source_sheet_id=99999999)
+        with mock.patch(
+            'billing_audit.writer.resolve_claimer',
+            return_value=ResolveOutcome('use', 'X', 'frozen', 'success'),
+        ) as m:
+            groups = generate_weekly_pdfs.group_source_rows([row])
+            m.assert_not_called()
+        self.assertIn('041926_91467680', groups)
 
 
 if __name__ == '__main__':
