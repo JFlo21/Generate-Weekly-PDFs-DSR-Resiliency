@@ -366,6 +366,18 @@ jobs:
           # (see .planning/phases/01.1-subcontractor-helper-shadow-
           # rescue/01.1-VALIDATION.md Manual-Only Verifications).
 
+          # Subproject B (2026-05-20): default-ON kill switch for the
+          # one-time removal of legacy UNPARTITIONED _ReducedSub /
+          # _AEPBillable attachments (no _User_ token) on TARGET_SHEET_ID
+          # and SUBCONTRACTOR_PPP_SHEET_ID for subcontractor WRs, once
+          # those variants are re-partitioned by frozen primary claimer.
+          # Set to '0' to skip the destructive cleanup (legacy duplicates
+          # persist until removed manually). Separate from
+          # SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED (which gates
+          # attribution resolution, not this cleanup). Living Ledger
+          # [2026-05-20].
+          SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED: '1'
+
           # AEP_BILLABLE_CUTOFF is intentionally UNSET in the
           # workflow — the Python default (datetime.date(2026,
           # 4, 12), the contract award date) is the source of
