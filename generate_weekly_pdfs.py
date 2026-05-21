@@ -520,6 +520,30 @@ SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED = os.getenv(
     'SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED', '1'
 ).strip().lower() in ('1', 'true', 'yes', 'on')
 
+# Sub-project C (2026-05-21): default-ON kill switch that enables
+# per-claimer partitioning of ``_VacCrew`` Excel files. When enabled,
+# each vac-crew Excel is partitioned by the FROZEN vac-crew claimer
+# (``vac_crew`` role from ``billing_audit.attribution_snapshot`` via
+# ``resolve_claimer``). When disabled, the legacy one-file-per-WR
+# ``_VacCrew`` behavior is preserved exactly. Pinned in workflow
+# env: block per [2026-05-15 12:00] rule 7.
+VAC_CREW_CLAIM_ATTRIBUTION_ENABLED = os.getenv(
+    'VAC_CREW_CLAIM_ATTRIBUTION_ENABLED', '1'
+).strip().lower() in ('1', 'true', 'yes', 'on')
+
+# Sub-project C (2026-05-21): default-ON kill switch for the one-time
+# removal of legacy UNPARTITIONED ``_VacCrew`` attachments (no
+# ``_User_`` token, parsed identifier == '') on TARGET_SHEET_ID for
+# vac-crew WRs, once those variants are re-partitioned by frozen
+# vac-crew claimer. Set to '0' to skip the destructive cleanup (legacy
+# files then persist until removed manually). Separate from
+# VAC_CREW_CLAIM_ATTRIBUTION_ENABLED (which gates attribution
+# resolution, NOT this cleanup). Workflow-pinned per [2026-05-15
+# 12:00] rule 7.
+VAC_CREW_LEGACY_CLEANUP_ENABLED = os.getenv(
+    'VAC_CREW_LEGACY_CLEANUP_ENABLED', '1'
+).strip().lower() in ('1', 'true', 'yes', 'on')
+
 # Cutoff date for ``_AEPBillable`` variant generation. Awarded to
 # Linetec on 2026-04-12 (subcontractor rate contract). Plan 2 (parser
 # extension) and Plan 3 (variant emission) gate variant emission on
@@ -675,6 +699,16 @@ logging.info(
 logging.info(
     f"📋 SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED="
     f"{SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED}"
+)
+
+# Sub-project C: surface resolved kill-switch state at startup so
+# operators grepping the banner see the active feature state at a
+# glance. Banner body carries no row PII (just the resolved bools).
+logging.info(
+    f"🚐 VAC Crew claim attribution: "
+    f"{'ENABLED' if VAC_CREW_CLAIM_ATTRIBUTION_ENABLED else 'DISABLED'}; "
+    f"legacy cleanup: "
+    f"{'ENABLED' if VAC_CREW_LEGACY_CLEANUP_ENABLED else 'DISABLED'}"
 )
 
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
