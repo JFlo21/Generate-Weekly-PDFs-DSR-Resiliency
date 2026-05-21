@@ -8,6 +8,8 @@ row-flow changes require TRUE end-to-end tests, not static mirrors.
 
 from __future__ import annotations
 
+import inspect
+import pathlib
 import sys
 import unittest
 from pathlib import Path
@@ -65,6 +67,28 @@ class TestBuildGroupIdentityParsesPrimaryUserToken(unittest.TestCase):
             'WR_91467680_WeekEnding_041926_120000_ReducedSub_User_abc123.xlsx'
         )
         self.assertEqual(ident, ('91467680', '041926', 'reduced_sub', ''))
+
+
+class TestLegacyPrimaryCleanupKillSwitch(unittest.TestCase):
+    """Task 2: destructive-migration kill switch + startup banner."""
+
+    def test_kill_switch_attribute_exists_and_is_bool(self):
+        self.assertIsInstance(
+            generate_weekly_pdfs.SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED,
+            bool,
+        )
+
+    def test_kill_switch_default_on(self):
+        # Default (unset env) resolves to True.
+        self.assertTrue(
+            generate_weekly_pdfs.SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED,
+        )
+
+    def test_banner_line_present_in_source(self):
+        src = pathlib.Path(
+            inspect.getsourcefile(generate_weekly_pdfs)
+        ).read_text(encoding='utf-8')
+        self.assertIn('SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED=', src)
 
 
 if __name__ == '__main__':

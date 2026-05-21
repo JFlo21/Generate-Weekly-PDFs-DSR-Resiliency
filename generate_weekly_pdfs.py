@@ -498,6 +498,21 @@ SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED = os.getenv(
     'SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED', '1'
 ).strip().lower() in ('1', 'true', 'yes', 'on')
 
+# Subproject B (2026-05-20): default-ON kill switch for the one-time
+# removal of legacy UNPARTITIONED `_ReducedSub` / `_AEPBillable`
+# attachments (no `_User_` token, parsed identifier == '') on
+# TARGET_SHEET_ID and SUBCONTRACTOR_PPP_SHEET_ID for subcontractor
+# WRs. B re-partitions those variants by frozen primary claimer; the
+# legacy one-file-per-WR attachments become duplicate-billing
+# leftovers (the Phase 1.1 Bug B2 / SUB-09 trap). Set to '0' to skip
+# the destructive cleanup (legacy files then persist until manually
+# removed). Separate from SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED
+# (which gates attribution resolution, NOT this cleanup). Workflow-
+# pinned per [2026-05-15 12:00] rule 7.
+SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED = os.getenv(
+    'SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED', '1'
+).strip().lower() in ('1', 'true', 'yes', 'on')
+
 # Cutoff date for ``_AEPBillable`` variant generation. Awarded to
 # Linetec on 2026-04-12 (subcontractor rate contract). Plan 2 (parser
 # extension) and Plan 3 (variant emission) gate variant emission on
@@ -645,6 +660,14 @@ logging.info(
 logging.info(
     f"📋 SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED="
     f"{SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED}"
+)
+
+# Subproject B: surface resolved kill-switch state at startup so
+# operators grepping the banner see the active feature state at a
+# glance. Banner body carries no row PII (just the resolved bool).
+logging.info(
+    f"📋 SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED="
+    f"{SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED}"
 )
 
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
