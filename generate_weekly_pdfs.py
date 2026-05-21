@@ -8375,6 +8375,15 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 _run_summary.update(_billing_audit_writer.get_counters())
             except Exception:
                 pass  # Counter retrieval must never fail the run summary write.
+            # Subproject B: emit ONE aggregate WARNING if any rows were
+            # held this run pending attribution (Supabase outage). B is
+            # the first consumer of Foundation A's HOLD machinery; this
+            # is the single end-of-run summary call. PII-safe (counts +
+            # sanitized WR list only). Never fail the run summary write.
+            try:
+                _billing_audit_writer.summarize_attribution_holds()
+            except Exception:
+                pass
         try:
             with open(os.path.join(OUTPUT_FOLDER, 'run_summary.json'), 'w') as _rsf:
                 json.dump(_run_summary, _rsf, indent=2)

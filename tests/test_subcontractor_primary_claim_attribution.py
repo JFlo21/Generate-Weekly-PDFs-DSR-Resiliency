@@ -308,5 +308,15 @@ class TestThreeIdentitySitesCarryClaimer(unittest.TestCase):
         )
 
 
+class TestHoldSummaryWiredIntoMain(unittest.TestCase):
+    """Task 6: summarize_attribution_holds is invoked once at end-of-run."""
+
+    def test_summary_call_present_in_source(self):
+        src = pathlib.Path(
+            inspect.getsourcefile(generate_weekly_pdfs)
+        ).read_text(encoding='utf-8')
+        self.assertIn('summarize_attribution_holds()', src)
+
+
 if __name__ == '__main__':
     unittest.main()
