@@ -414,6 +414,32 @@ class TestMigrationCleanup(unittest.TestCase):
         deletes = [c.args for c in client.Attachments.delete_attachment.call_args_list]
         self.assertEqual(deletes, [], f"omitted param must be a no-op; got {deletes}")
 
+    def test_empty_id_legacy_in_valid_wr_weeks_is_exempt(self):
+        # Belt-and-suspenders live-identity exemption ([2026-05-19 23:45]
+        # WR-01): an empty-identifier legacy attachment whose identity is
+        # in valid_wr_weeks must NOT be deleted by the migration gate.
+        # Production never emits an empty-id live file (the producer raises
+        # on an empty claimer), so this branch is unreachable in practice —
+        # the test guards against a future path that starts producing one.
+        legacy = self._att(
+            'WR_91467680_WeekEnding_041926_120000_ReducedSub_abc123.xlsx', 60
+        )
+        client, sheet = self._client([legacy])
+        generate_weekly_pdfs.cleanup_untracked_sheet_attachments(
+            client,
+            target_sheet_id=5723337641643908,
+            valid_wr_weeks={('91467680', '041926', 'reduced_sub', '')},
+            test_mode=False,
+            target_sheet=sheet,
+            sub_wr_scope={'91467680'},
+            sub_legacy_primary_variants={'reduced_sub', 'aep_billable'},
+        )
+        deletes = [c.args for c in client.Attachments.delete_attachment.call_args_list]
+        self.assertNotIn(
+            (5723337641643908, 60), deletes,
+            f"empty-id legacy in valid_wr_weeks must be exempt; got {deletes}",
+        )
+
 
 if __name__ == '__main__':
     unittest.main()

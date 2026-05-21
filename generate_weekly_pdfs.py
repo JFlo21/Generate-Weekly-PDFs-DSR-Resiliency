@@ -8225,6 +8225,9 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     client, TARGET_SHEET_ID, valid_wr_weeks, TEST_MODE,
                     attachment_cache=_cleanup_cache, target_sheet=_target_sheet_obj,
                     sub_wr_scope=_sub_scope,
+                    # Empty set means the SUB-09 helper cleanup is off; coerce
+                    # to None so the off-contract gate no-ops (the gate keys on
+                    # `is not None`, not truthiness).
                     sub_offcontract_variants=(_target_offcontract or None),
                     sub_legacy_primary_variants=_target_legacy_primary,
                 )
