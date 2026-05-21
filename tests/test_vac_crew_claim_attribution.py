@@ -569,3 +569,67 @@ class TestVacCrewHashPrune(unittest.TestCase):
         src = pathlib.Path(inspect.getsourcefile(generate_weekly_pdfs)).read_text(encoding='utf-8')
         self.assertIn('_run_vac_crew_hash_prune(hash_history, groups)', src)
         self.assertRegex(src, r'(?m)^VAC_CREW_HASH_PRUNE_VERSION = 1$')
+
+
+class TestVacCrewEndToEnd(unittest.TestCase):
+    def setUp(self):
+        _reset_all()
+        self._orig = generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED
+        generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED = True
+
+    def tearDown(self):
+        generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED = self._orig
+        _reset_all()
+
+    def test_two_claimers_same_wr_week_coexist(self):
+        def _resolve(variant, current, *, wr, week_ending, row_id, enabled):
+            return ResolveOutcome('use', 'CrewA' if row_id == 6001 else 'CrewB', 'frozen', 'success')
+        with mock.patch('billing_audit.writer.resolve_claimer', side_effect=_resolve):
+            groups = generate_weekly_pdfs.group_source_rows(
+                [_make_vac_row(row_id=6001), _make_vac_row(row_id=6002)]
+            )
+        self.assertTrue(any('VACCREW_CrewA' in k for k in groups))
+        self.assertTrue(any('VACCREW_CrewB' in k for k in groups))
+
+    def test_non_vac_primary_row_unaffected(self):
+        row = {
+            'Work Request #': '91467680', 'Weekly Reference Logged Date': '2026-04-19',
+            'Snapshot Date': '2026-04-19', 'Units Completed?': True, 'Units Total Price': '$10.00',
+            'CU': 'X', 'Work Type': 'Inst', 'Quantity': 1,
+            '__effective_user': 'Boss', '__is_helper_row': False, '__is_vac_crew': False,
+            '__helper_foreman': '', '__helper_dept': '', '__helper_job': '',
+            '__source_sheet_id': 99999999, '__row_id': 1,
+        }
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        self.assertTrue(any(k.startswith('041926_91467680') and 'VACCREW' not in k for k in groups))
+
+
+class TestVacCrewProductionInvariants(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls._src = pathlib.Path(inspect.getsourcefile(generate_weekly_pdfs)).read_text(encoding='utf-8')
+
+    def test_prepass_present(self):
+        self.assertIn('_vac_crew_claimer_map', self._src)
+
+    def test_emission_uses_claimer_key(self):
+        self.assertIn('_VACCREW_{_c_vac_sanitized}', self._src)
+
+    def test_prune_version_constant(self):
+        self.assertRegex(self._src, r'(?m)^VAC_CREW_HASH_PRUNE_VERSION = 1$')
+
+    def test_prune_call_site_wired_to_migration_dirty(self):
+        # Tighter than a bare presence grep: confirm the prune call result
+        # flips _hash_history_migration_dirty (the no-update-run persistence).
+        self.assertRegex(
+            self._src,
+            r"if _run_vac_crew_hash_prune\(hash_history, groups\):\s*\n\s*_hash_history_migration_dirty = True",
+            "vac prune call must wire its True return into _hash_history_migration_dirty",
+        )
+
+    def test_four_identity_sites_carry_vac_claimer(self):
+        # Belt-and-suspenders: none of the four vac_crew identity surfaces may
+        # hard-code '' (Site 1 main-loop, Site 3 current_keys). Site 2 uses
+        # file_id. Guard the two that previously regressed.
+        self.assertNotRegex(self._src, r"variant == 'vac_crew':\s*\n\s*identifier = ''")
+        self.assertNotRegex(self._src, r"_variant == 'vac_crew':\s*\n\s*_ident = ''")
