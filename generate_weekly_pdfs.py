@@ -2676,6 +2676,14 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
             # Legacy unpartitioned _ReducedSub_<hash> (no User token).
             variant = 'reduced_sub'
             identifier = ''
+    elif 'VacCrew' in tail:
+        # Sub-project C: _VacCrew_<name>_<hash>. Checked BEFORE the 'Helper'
+        # scan so a crew name containing the 'Helper' token isn't
+        # misclassified as a helper variant (B round-7 lesson). Span-join so
+        # an underscored name survives. Legacy _VacCrew (no name) → ''.
+        variant = 'vac_crew'
+        vac_idx_rel = tail.index('VacCrew')
+        identifier = '_'.join(tail[vac_idx_rel + 1:-1])
     elif 'Helper' in tail:
         variant = 'helper'
         helper_idx_rel = tail.index('Helper')
@@ -2683,9 +2691,6 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
             # Join all parts between Helper and hash (last part)
             # Format: ...Helper_{name}_{hash} or ...Helper_{name}_part2_{hash}
             identifier = '_'.join(tail[helper_idx_rel + 1:-1])
-    elif 'VacCrew' in tail:
-        variant = 'vac_crew'
-        identifier = ''  # No sub-identifier for VAC Crew; use '' to match main() and valid_wr_weeks
     elif 'User' in tail:
         variant = 'primary'
         user_idx_rel = tail.index('User')
@@ -5702,13 +5707,33 @@ def _subcontractor_primary_variant_suffix(
     return f"{token}_User_{claimer_sanitized}"
 
 
+def _vac_crew_variant_suffix(claimer: str, wr_num: str, week_end_raw: str) -> str:
+    """Build the filename suffix for a per-claimer VAC crew file.
+
+    Sub-project C (2026-05-21): vac_crew files are partitioned by frozen
+    vac-crew claimer and named ``_VacCrew_<sanitized name>``. Raises on an
+    empty claimer (production never hits this — the emission falls back to
+    'Unknown'); the raise surfaces data drift instead of an ambiguous name.
+    """
+    if not claimer:
+        logging.error(
+            f"⚠️ vac_crew variant row missing claimer for WR {wr_num} "
+            f"week {week_end_raw}; filename would be ambiguous — raising."
+        )
+        raise ValueError(
+            f"vac_crew requires a non-empty claimer; got empty for "
+            f"WR={wr_num} week={week_end_raw}"
+        )
+    return f"_VacCrew_{_RE_SANITIZE_IDENTIFIER.sub('_', claimer)[:50]}"
+
+
 def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=None, data_hash=None):
     """
     FIXED: Generate a formatted Excel report for a group of rows.
-    
+
     SPECIFIC FIXES IMPLEMENTED:
     - WR 90093002 Excel generation (complete implementation)
-    - WR 89954686 specific handling 
+    - WR 89954686 specific handling
     - Proper error handling for worksheet objects
     - Complete daily data block generation
     - Safe cell merging to prevent XML errors

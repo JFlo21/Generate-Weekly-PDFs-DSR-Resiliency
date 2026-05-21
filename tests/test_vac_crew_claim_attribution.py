@@ -49,3 +49,36 @@ class TestVacCrewConfigFlags(unittest.TestCase):
         )
         self.assertIn("VAC_CREW_CLAIM_ATTRIBUTION_ENABLED", wf)
         self.assertIn("VAC_CREW_LEGACY_CLEANUP_ENABLED", wf)
+
+
+class TestVacCrewSuffixAndParser(unittest.TestCase):
+    def test_suffix_embeds_name(self):
+        self.assertEqual(
+            generate_weekly_pdfs._vac_crew_variant_suffix('John Smith', '91467680', '041926'),
+            '_VacCrew_John_Smith',
+        )
+
+    def test_suffix_empty_claimer_raises(self):
+        with self.assertRaises(ValueError):
+            generate_weekly_pdfs._vac_crew_variant_suffix('', '91467680', '041926')
+
+    def test_parser_vaccrew_name_round_trips(self):
+        fname = 'WR_91467680_WeekEnding_041926_120000_VacCrew_John_Smith_abc123.xlsx'
+        self.assertEqual(
+            generate_weekly_pdfs.build_group_identity(fname),
+            ('91467680', '041926', 'vac_crew', 'John_Smith'),
+        )
+
+    def test_parser_name_containing_helper_token_stays_vac_crew(self):
+        fname = 'WR_91467680_WeekEnding_041926_120000_VacCrew_Pat_Helper_abc123.xlsx'
+        self.assertEqual(
+            generate_weekly_pdfs.build_group_identity(fname),
+            ('91467680', '041926', 'vac_crew', 'Pat_Helper'),
+        )
+
+    def test_parser_legacy_vaccrew_no_name(self):
+        fname = 'WR_91467680_WeekEnding_041926_120000_VacCrew_abc123.xlsx'
+        self.assertEqual(
+            generate_weekly_pdfs.build_group_identity(fname),
+            ('91467680', '041926', 'vac_crew', ''),
+        )
