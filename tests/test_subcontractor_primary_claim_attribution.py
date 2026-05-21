@@ -8,25 +8,15 @@ row-flow changes require TRUE end-to-end tests, not static mirrors.
 
 from __future__ import annotations
 
-import datetime
-import importlib
-import inspect
-import os
-import pathlib
 import sys
-import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from tests.test_billing_audit_shadow import (
-    _reset_all,
-    _ensure_smartsheet_mocked,
-)
+from tests.test_billing_audit_shadow import _ensure_smartsheet_mocked
 
 _ensure_smartsheet_mocked()
 import generate_weekly_pdfs  # noqa: E402
@@ -65,6 +55,16 @@ class TestBuildGroupIdentityParsesPrimaryUserToken(unittest.TestCase):
             'WR_91467680_WeekEnding_041926_120000_ReducedSub_Helper_Jane_Smith_def456.xlsx'
         )
         self.assertEqual(ident, ('91467680', '041926', 'reduced_sub_helper', 'Jane_Smith'))
+
+    def test_user_token_with_no_claimer_name_returns_empty_identifier(self):
+        # Degenerate/malformed: User token present but no name before the
+        # hash. Degrades gracefully to '' (same as the legacy no-User shape).
+        # Task 3's filename builder raises on an empty claimer, so production
+        # never emits this — but the parser must handle it without crashing.
+        ident = generate_weekly_pdfs.build_group_identity(
+            'WR_91467680_WeekEnding_041926_120000_ReducedSub_User_abc123.xlsx'
+        )
+        self.assertEqual(ident, ('91467680', '041926', 'reduced_sub', ''))
 
 
 if __name__ == '__main__':
