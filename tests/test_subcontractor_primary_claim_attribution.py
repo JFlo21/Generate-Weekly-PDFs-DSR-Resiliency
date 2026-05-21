@@ -235,6 +235,42 @@ class TestPrePassEmission(unittest.TestCase):
             f"disabled attribution must use current foreman; got {keys}",
         )
 
+    def test_helper_completed_row_excluded_from_primary_user_variants(self):
+        # 2026-05-21 hotfix carried into Subproject B (master PR #216): a
+        # helper-COMPLETED subcontractor row must NOT emit primary
+        # _REDUCEDSUB_USER_ / _AEPBILLABLE_USER_ keys — its credit belongs
+        # solely to the _HELPER_ shadow files. The guard suppresses the
+        # primary emission EVEN THOUGH the parallel pre-pass still resolves
+        # a primary claimer for the row (the guard short-circuits before
+        # the claimer is consumed at emission).
+        row = _make_sub_primary_row(row_id=7001)
+        row['__is_helper_row'] = True
+        row['__helper_foreman'] = 'HelperGuy'
+        row['__helper_dept'] = '500'
+        row['__helper_job'] = 'JOB-X'
+        with mock.patch(
+            'billing_audit.writer.resolve_claimer',
+            return_value=ResolveOutcome('use', 'PrimaryClaimer', 'frozen', 'success'),
+        ), mock.patch(
+            'billing_audit.writer.lookup_attribution',
+            return_value=None,  # no_history → shadow uses current helper
+        ):
+            groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        self.assertFalse(
+            any('REDUCEDSUB_USER_' in k for k in keys),
+            f"helper-completed row must NOT emit _REDUCEDSUB_USER_; got {keys}",
+        )
+        self.assertFalse(
+            any('AEPBILLABLE_USER_' in k for k in keys),
+            f"helper-completed row must NOT emit _AEPBILLABLE_USER_; got {keys}",
+        )
+        # Helper-shadow files MUST still be present (helper earns the credit).
+        self.assertTrue(
+            any('REDUCEDSUB_HELPER_HelperGuy' in k for k in keys),
+            f"helper-shadow _REDUCEDSUB_HELPER_ must be present; got {keys}",
+        )
+
     def test_two_claimers_same_wr_week_coexist(self):
         def _resolve(variant, current, *, wr, week_ending, row_id, enabled):
             name = 'ForemanA' if row_id == 5001 else 'ForemanB'

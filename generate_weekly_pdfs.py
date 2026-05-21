@@ -5072,31 +5072,63 @@ def group_source_rows(rows):
             if is_subcontractor_row and SUBCONTRACTOR_RATE_VARIANTS_ENABLED:
                 # Snapshot cutoff is needed by BOTH the primary block
                 # here and the helper-shadow block below, so compute it
-                # once. ``excel_serial_to_date`` returns None for
-                # blank/unparseable values (D-16 fall-through safety).
+                # once up front. ``excel_serial_to_date`` returns ``None``
+                # for blank/unparseable values (D-16 fall-through safety).
+                # Hoisted above the helper-completed guard so the
+                # helper-shadow block still sees it even when the primary
+                # emission is skipped.
                 _snap_for_cutoff = excel_serial_to_date(r.get('Snapshot Date'))
+
+                # 2026-05-21 hotfix (carried into Subproject B's _USER_
+                # partitioning): a helper-COMPLETED subcontractor row
+                # (``Units Completed?`` AND ``Helping Foreman Completed
+                # Unit?`` both checked, with a valid ``Foreman Helping?``
+                # + helper dept) belongs SOLELY to the helper-shadow files
+                # below — the helper, not the primary foreman, earns the
+                # credit for that line item on Smartsheet. Emitting a
+                # primary ``_REDUCEDSUB_USER_`` / ``_AEPBILLABLE_USER_`` key
+                # here would double-count the row (it would appear in BOTH
+                # the primary and the helper file) and wrongly credit the
+                # primary. Mirrors the legacy main-file ``valid_helper_row``
+                # exclusion. Computed locally because the else-branch
+                # ``valid_helper_row`` is out of scope for vac_crew rows;
+                # uses the same inputs as the helper-shadow recompute below.
+                _sub_is_valid_helper_row = (
+                    not is_vac_crew_row
+                    and RES_GROUPING_MODE in ('helper', 'both')
+                    and is_helper_row
+                    and bool(helper_foreman)
+                    and bool(r.get('__helper_dept', ''))
+                )
 
                 # Subproject B: resolve the FROZEN primary claimer from
                 # the pre-pass map. ``use`` -> partition by the claimer;
                 # ``hold`` -> defer this row's primary variants this run
                 # (correctness over availability) and record a HOLD; map
-                # miss -> use the current effective_user.
-                _b_outcome = _sub_primary_claimer_map.get(r.get('__row_id'))
-                if _b_outcome is not None and _b_outcome.action == 'hold':
-                    _b_primary_claimer = None
-                    try:
-                        from billing_audit.writer import record_attribution_hold
-                        record_attribution_hold(
-                            wr_key, week_ending_date, 'reduced_sub'
-                        )
-                    except Exception:
-                        logging.exception(
-                            "⚠️ Subproject B: record_attribution_hold failed"
-                        )
-                elif _b_outcome is not None and _b_outcome.action == 'use':
-                    _b_primary_claimer = _b_outcome.name or effective_user
-                else:
-                    _b_primary_claimer = effective_user
+                # miss -> use the current effective_user. Skipped for
+                # helper-completed rows — they are not primary claims, so
+                # no claimer is resolved and no HOLD is recorded; the
+                # ``None`` default routes through the
+                # ``if _b_primary_claimer is not None`` gate below and
+                # suppresses the primary _USER_ emission.
+                _b_primary_claimer = None
+                if not _sub_is_valid_helper_row:
+                    _b_outcome = _sub_primary_claimer_map.get(r.get('__row_id'))
+                    if _b_outcome is not None and _b_outcome.action == 'hold':
+                        _b_primary_claimer = None
+                        try:
+                            from billing_audit.writer import record_attribution_hold
+                            record_attribution_hold(
+                                wr_key, week_ending_date, 'reduced_sub'
+                            )
+                        except Exception:
+                            logging.exception(
+                                "⚠️ Subproject B: record_attribution_hold failed"
+                            )
+                    elif _b_outcome is not None and _b_outcome.action == 'use':
+                        _b_primary_claimer = _b_outcome.name or effective_user
+                    else:
+                        _b_primary_claimer = effective_user
 
                 if _b_primary_claimer is not None:
                     _b_claimer_sanitized = _RE_SANITIZE_IDENTIFIER.sub(
