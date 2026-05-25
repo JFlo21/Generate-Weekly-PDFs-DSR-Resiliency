@@ -6267,8 +6267,25 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
             # Disabled mode (or no claimer resolved) → exact legacy bare suffix.
             variant_suffix = '_VacCrew'
     elif variant == 'primary':
-        # Primary variant (no suffix needed)
-        variant_suffix = ''
+        # Subproject D (2026-05-25): partition the production primary
+        # file by the FROZEN primary claimer (__current_foreman is the
+        # resolved claimer set in group_source_rows' emission tuple).
+        # GATED on the kill switch (mirrors the vac_crew branch above):
+        #   • Enabled + claimer present -> _User_<sanitized claimer> so
+        #     each claimer's file is distinct and round-trips through
+        #     build_group_identity as ('primary', wr, week, claimer).
+        #   • Disabled (or no claimer) -> exact legacy bare suffix '',
+        #     preserving byte-identical filenames with pre-D attachments.
+        # __current_foreman in disabled mode is effective_user (the
+        # emission passes None -> `current_foreman or effective_user`),
+        # but the kill-switch gate keeps the suffix bare in that case.
+        _pf = first_row.get('__current_foreman', '')
+        if PRIMARY_CLAIM_ATTRIBUTION_ENABLED and _pf:
+            variant_suffix = (
+                f"_User_{_RE_SANITIZE_IDENTIFIER.sub('_', _pf)[:50]}"
+            )
+        else:
+            variant_suffix = ''
 
     # Phase 01 Plan 03 Task 2 (D-16): per-call missing-CU accumulator.
     # ``_resolve_row_price`` populates this Counter when a row's CU

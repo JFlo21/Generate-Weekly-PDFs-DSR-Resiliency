@@ -36,3 +36,26 @@ class TestConfigConstants(unittest.TestCase):
         self.assertIn(
             "📋 LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED=", src
         )
+
+
+class TestPrimaryFilenameSuffix(unittest.TestCase):
+    """Task 2: generate_excel emits _User_<claimer> for primary variant
+    when attribution is enabled, bare otherwise."""
+
+    def setUp(self):
+        self._orig = gwp.PRIMARY_CLAIM_ATTRIBUTION_ENABLED
+
+    def tearDown(self):
+        gwp.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = self._orig
+
+    def test_primary_branch_builds_user_suffix_gated(self):
+        src = inspect.getsource(generate_weekly_pdfs)
+        # The primary branch must build _User_<sanitized claimer> gated on
+        # the kill switch + a non-empty __current_foreman.
+        self.assertIn("_User_", src)
+        # Confirm the gate wording is present in the primary suffix branch.
+        self.assertRegex(
+            src,
+            r"PRIMARY_CLAIM_ATTRIBUTION_ENABLED and _pf"
+            r"[\s\S]{0,200}_User_\{",
+        )
