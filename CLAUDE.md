@@ -2801,3 +2801,168 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   skipped when disabled / runs when enabled, vac-on-sub row emits only
   VACCREW). ``pytest tests/`` → **814 passed / 26 skipped / 60
   subtests** (was 809; +5).
+- [2026-05-25 16:30] Sub-project D (primary-workflow primary claim
+  attribution) shipped — the fourth and final consumer of Foundation
+  A's ``resolve_claimer`` + HOLD contract ([2026-05-20 13:45]).
+  Production (non-subcontractor) primary Excel files are now
+  partitioned by the FROZEN primary claimer (``primary_foreman`` from
+  ``billing_audit.attribution_snapshot``, surfaced via Foundation A's
+  ``ROLE_BY_VARIANT['primary'] = 'primary_foreman'`` mapping) instead
+  of one bare file per WR+week. Each file is named
+  ``_User_<claimer>`` (the same reserved ``_User_`` token as
+  Subproject B's per-claimer primary files, parser-unambiguous vs
+  ``_Helper_``). A WR+week claimed by two foremen yields two
+  coexistent files (distinct identity tuples — ``(wr, week,
+  'primary', claimer_a)`` vs ``(wr, week, 'primary', claimer_b)``)
+  that never cross-delete: the attachment-cleanup path only prunes
+  older copies WITHIN the same identity, so a foreman switch within
+  the same week produces a second file rather than destroying the
+  first. Only Sub-project E (Supabase hash-store migration + filename
+  ``_<hash>``/``_<timestamp>`` token stripping) remains in the
+  universal-claim-attribution sequence (A → Phase 1.1 → B → C → D
+  → E).
+  **No-HOLD operator decision (the key D-vs-B distinction).** Unlike
+  Subproject B (which HOLDs subcontractor primary on a Supabase
+  outage), D's core primary path NEVER holds. On ``resolve_claimer``
+  returning ``fetch_failure`` (outage, run-global kill, retries
+  exhausted), ``no_history``, ``disabled``, or a ``_primary_claimer_map``
+  miss, D falls back to the CURRENT ``effective_user`` and still
+  generates the primary file. Rationale: D covers EVERY
+  non-subcontractor WR in every run; HOLDing on a Supabase outage
+  would suppress ALL primary billing output for that session — a
+  data-absent outcome strictly worse than a possibly-late
+  attribution. ``record_attribution_hold`` is never called for the
+  primary path; the HOLD machinery from Foundation A is reserved for
+  Subproject B's subcontractor-primary flow. A ``no_history`` row is
+  the common new-claim case: the current ``effective_user`` is the
+  correct partition key (this run IS what freezes the claim via
+  ``freeze_row``).
+  **Approach A (parallel pre-pass).** ``_primary_claimer_map`` is
+  resolved in a bounded ``ThreadPoolExecutor(min(PARALLEL_WORKERS,
+  n))`` BEFORE the ``group_source_rows`` grouping loop, scoped to
+  completed (``Units Completed?`` checked) non-vac-crew
+  non-subcontractor rows (per-row ``is_vac_crew_row`` /
+  ``is_subcontractor_row`` checks). Single-row groups skip the
+  executor to avoid setup overhead. This follows the
+  [2026-04-25 14:00] rule (per-row attribution I/O must live in a
+  pre-pass, never the hot loop) and the [2026-05-21 09:21] Subproject
+  B wiring pattern. Zero changes to ``billing_audit/`` — Foundation A
+  already exposes ``_lookup_attribution_all`` + ``resolve_claimer``
+  for the ``'primary'`` role.
+  **CR-01 four-site lockstep (extended to a fifth-and-sixth site).**
+  The claimer identifier is byte-identical at: (1) the per-group
+  main-loop ``identifier`` / ``file_identifier`` construction that
+  feeds ``history_key = f"{wr_num}|{week_raw}|{variant}|{identifier}"``;
+  (2) the ``valid_wr_weeks.add(...)`` cleanup-tuple builder; (3) the
+  ``current_keys`` hash-prune set construction; (4) the
+  ``build_group_identity`` parser (already supported ``_User_<name>``
+  from Subproject B — zero parser change required); (5) the
+  ``generate_excel`` filename-suffix branch; and (6) the
+  ``_key_matches_wr`` (WR_FILTER) mirror-matcher. ALL construction
+  sites are gated on ``PRIMARY_CLAIM_ATTRIBUTION_ENABLED``; when OFF,
+  the identifier is ``''`` and the history key is the legacy bare
+  ``{wr}|{week}|primary|`` form, reproducing exact pre-D behavior
+  byte-for-byte.
+  **Corrected design finding (generate_excel filename surface).**
+  The original D spec assumed ``generate_excel`` needed no change
+  because the primary variant's filename branch was "bare." In
+  practice that branch set ``variant_suffix = ''`` UNCONDITIONALLY —
+  without a gated fix, every per-claimer primary group would produce
+  the same bare filename (``WR_{wr}_WeekEnding_{mmddyy}_{ts}_{hash}.xlsx``),
+  causing every group after the first to clobber the prior file on
+  disk and producing a single-file output regardless of claimer count.
+  D added a gated ``elif PRIMARY_CLAIM_ATTRIBUTION_ENABLED and
+  identifier: variant_suffix = f"_User_{identifier}"`` branch
+  (mirroring the vac_crew ``_User_`` branch added by Subproject C),
+  so each claimer's file has a distinct on-disk name and can be
+  uploaded to a distinct Smartsheet attachment without collision.
+  **Mirror-matcher rule applied.** ``_key_matches_wr`` (the WR_FILTER
+  matcher, used in TEST_MODE diagnostic runs) gained the
+  ``or suffix.startswith(f"{wr}_USER_")`` clause for D's per-claimer
+  primary keys; ``_key_matches_excluded_wr`` (EXCLUDE_WRS) already
+  carried the ``_USER_`` clause from Subproject B — zero change
+  needed there. Both matchers revert to the bare ``suffix == wr``
+  exact-match when ``PRIMARY_CLAIM_ATTRIBUTION_ENABLED`` is off, so
+  the filter semantics are identical to the pre-D legacy contract.
+  **Migration (gated on default-on ``LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED``).** Two
+  components: (a) forced bare-primary attachment cleanup on
+  TARGET_SHEET_ID for in-scope WRs via a new ``primary_wr_scope``
+  parameter to ``cleanup_untracked_sheet_attachments``. The scope is
+  built by a shared ``_build_primary_wr_scope(groups)`` helper (union
+  of WR numbers from all non-sub non-vac primary groups — deliberately
+  excludes Subproject B's ``_REDUCEDSUB`` / ``_AEPBILLABLE`` ``_USER_``
+  keys to prevent scope overlap). The safety-critical
+  ``ident not in valid_wr_weeks`` live-identity exemption
+  ([2026-05-19 23:45] rule 1) is applied so a current per-claimer
+  attachment is never deleted as collateral cleanup. TARGET-only: PPP
+  is never touched by D (primary variants never route to PPP).
+  (b) One-time ``_run_subproject_d_hash_prune`` drops legacy
+  blank-identifier ``{wr}|{week}|primary|`` orphans from
+  ``hash_history.json``. Uses a DISTINCT ``_subproject_d_prune_version``
+  sentinel and ``SUBPROJECT_D_HASH_PRUNE_VERSION = 1`` constant
+  (separate from Phase 1.1's ``_phase_prune_version`` and Subproject
+  B's ``_subproject_b_prune_version`` sentinels). The prune is gated
+  on ``PRIMARY_CLAIM_ATTRIBUTION_ENABLED`` — when OFF the bare key IS
+  the active legacy key; pruning it would force unnecessary
+  regeneration churn on every quiet run. The prune returns a ``bool``
+  (``True`` when the sentinel was advanced) wired into
+  ``_hash_history_migration_dirty`` per the [2026-05-21 13:20] rule 3
+  (one-time migrations must persist independently of
+  ``history_updates``). The ``_build_primary_wr_scope`` helper is
+  shared by both the cleanup call site and the prune (prevents scope
+  drift — the [2026-05-19 22:00] rule 3).
+  **Test-contract reconciliation (new rule).** D's change to the
+  non-subcontractor primary emission contract inverted the assertions
+  in three prior B/B1-era isolation tests (which asserted a
+  non-subcontractor non-helper row emits the BARE primary key
+  ``{wr}_{week}`` with no claimer suffix) and one stale WR-filter
+  mirror test (``test_user_variant_intentionally_not_matched``, which
+  asserted WR_FILTER did NOT match the ``_USER_`` clause for
+  non-subcontractor rows). Per the [2026-05-20 00:26] rule 2
+  (test-contract override), the three isolation tests were pinned to
+  ``PRIMARY_CLAIM_ATTRIBUTION_ENABLED=False`` in their
+  ``setUp``/``tearDown`` (preserving their B/B1-isolation purpose
+  exactly — they test B's subcontractor rows under the D-off
+  contract); D's new partitioning behavior is covered end-to-end by
+  the D suite. The stale mirror test's obsolete assertion was inverted
+  to match the post-D reality (WR_FILTER now DOES match per-claimer
+  primary keys) and its docstring updated to cite this ledger entry.
+  **New rule — test-contract reconciliation discipline.** When a new
+  universal-attribution sub-project changes a shared emission contract
+  (here: D changes the non-sub primary key shape from bare to
+  ``_User_<claimer>``), the implementer MUST audit prior sub-projects'
+  isolation tests and mirror tests for the inverted assumption before
+  the branch is pushed. Reconcile in the same branch by: (a) pinning
+  now-orthogonal feature flags to ``False`` in the prior tests'
+  setUp/tearDown (preserves their isolation purpose), or (b) inverting
+  + citing the ledger entry when the prior assertion was testing the
+  exact behavior D is changing. Do not let the full-suite gate be the
+  first discovery of the conflict — that requires a red-to-green
+  repair cycle on a branch that should have been green from the start.
+  **Two new default-on kill switches** — ``PRIMARY_CLAIM_ATTRIBUTION_ENABLED``
+  and ``LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED`` — are workflow-pinned
+  to ``'1'`` in ``.github/workflows/weekly-excel-generation.yml``
+  with prominent LEGACY-style comments explaining their revert paths,
+  surfaced in the startup banner alongside all prior sub-project flags,
+  and documented in ``website/docs/reference/environment.md`` (the
+  "Primary foreman claim attribution" section). Regression tests: new
+  file ``tests/test_primary_claim_attribution.py`` covering
+  ``TestBuildGroupIdentityParsesUserToken`` (primary ``_User_``
+  round-trip), ``TestPrimaryClaimAttributionKillSwitch`` (OFF reverts
+  to bare key, ON emits ``_User_<claimer>``),
+  ``TestPrimaryClaimerPrePassEmission`` (pre-pass resolves claimer,
+  no-history falls back to current user, outage falls back not HOLDs),
+  ``TestThreeIdentitySitesCarryPrimaryClaimer`` (history_key /
+  valid_wr_weeks / current_keys lockstep), ``TestFilenameVariantSuffix``
+  (gated ``_User_`` suffix in generate_excel),
+  ``TestMirrorMatcherPrimaryUser`` (WR_FILTER matches per-claimer key
+  on, OFF reverts), ``TestMigrationCleanupPrimary`` (scope excludes
+  sub WRs, live-identity exemption preserved),
+  ``TestSubprojectDHashPrune`` (prune gate on flag, sentinel distinct,
+  return-bool wired to dirty-flag, idempotent), and
+  ``TestNonSubNonVacPrimaryPreserved`` (vac and sub rows unaffected).
+  Plus reconciled prior tests: B/B1 isolation tests pinned to
+  ``PRIMARY_CLAIM_ATTRIBUTION_ENABLED=False``; stale WR-filter mirror
+  assertion inverted. ``pytest tests/`` → **854 passed / 26 skipped /
+  61 subtests** (was 814 / 26 / 60 at Sub-project C close; +40 net
+  passing, +1 subtest).
