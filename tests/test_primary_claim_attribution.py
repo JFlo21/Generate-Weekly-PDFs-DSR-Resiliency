@@ -64,7 +64,7 @@ class TestPrimaryFilenameSuffix(unittest.TestCase):
 def _make_primary_row(
     row_id,
     wr='90001',
-    week_serial=46100,  # arbitrary Excel serial -> a real date
+    week_serial='2026-04-19',  # ISO date; excel_serial_to_date is STRICT (rejects numeric serials) -> week key 041926
     effective_user='CurrentForeman',
     source_sheet_id=99999,  # NOT in _FOLDER_DISCOVERED_SUB_IDS
 ):
