@@ -2389,9 +2389,10 @@ class TestWrFilterMatchesAllVariants(unittest.TestCase):
     recognize the new variant suffixes in TEST_MODE.
 
     Mirror of TestExcludeWrsMatchesAllVariants for the WR_FILTER
-    matcher. Tests document the deliberate asymmetry that
-    ``_key_matches_wr`` does NOT match ``_USER_`` — preserves
-    pre-fix surface (the matcher never carried that clause).
+    matcher. Sub-project D ([2026-05-25]) added the ``_USER_`` clause
+    to ``_key_matches_wr`` so the two matchers are now in full sync —
+    the previous deliberate asymmetry (``_USER_`` excluded) is
+    superseded by D's production-primary partitioning.
     """
 
     @staticmethod
@@ -2406,16 +2407,17 @@ class TestWrFilterMatchesAllVariants(unittest.TestCase):
             suffix == wr
             or suffix.startswith(f"{wr}_HELPER_")
             or suffix == f"{wr}_VACCREW"
+            or suffix.startswith(f"{wr}_VACCREW_")
             or suffix == f"{wr}_REDUCEDSUB"
             or suffix == f"{wr}_AEPBILLABLE"
             or suffix.startswith(f"{wr}_REDUCEDSUB_HELPER_")
             or suffix.startswith(f"{wr}_AEPBILLABLE_HELPER_")
+            or suffix.startswith(f"{wr}_USER_")
         )
 
     def test_all_seven_variants_retained_for_target_wr(self):
-        # Note: 7 keys but no _USER_ — `_USER_` is intentionally
-        # excluded from this matcher (asymmetry with
-        # `_key_matches_excluded_wr`).
+        # Sub-project D (2026-05-25): _USER_ IS now retained — the
+        # asymmetry with `_key_matches_excluded_wr` is resolved.
         wr = '12345'
         keys_to_retain = [
             f'041926_{wr}',
@@ -2425,6 +2427,7 @@ class TestWrFilterMatchesAllVariants(unittest.TestCase):
             f'041926_{wr}_AEPBILLABLE',
             f'041926_{wr}_REDUCEDSUB_HELPER_Jane_Doe',
             f'041926_{wr}_AEPBILLABLE_HELPER_J_Smith',
+            f'041926_{wr}_USER_John_Doe',
         ]
         for k in keys_to_retain:
             with self.subTest(key=k):
@@ -2434,14 +2437,17 @@ class TestWrFilterMatchesAllVariants(unittest.TestCase):
                 )
 
     def test_user_variant_intentionally_not_matched(self):
-        # The asymmetry guard: _USER_ exists in
-        # _key_matches_excluded_wr but NOT in _key_matches_wr. If a
-        # future contributor adds _USER_ to _key_matches_wr without
-        # a documented production incident, this test fails loudly.
-        self.assertFalse(
+        # Sub-project D (2026-05-25) INVERTED this contract: WR_FILTER now
+        # DOES match the per-claimer primary key {wr}_USER_<claimer>, because
+        # D partitions the production primary file by frozen claimer. Before
+        # D, _USER_ was the decommissioned activity-log variant and was
+        # intentionally excluded. Per [2026-05-20 00:26] rule 2, this prior
+        # test's contract is rewritten in place to assert the new invariant.
+        # (Method name preserved for git-blame traceability.)
+        self.assertTrue(
             self._filter_matches('041926_12345_USER_John_Doe', '12345'),
-            "_USER_ is intentionally NOT in _key_matches_wr; do not "
-            "add it without a documented incident.",
+            "Sub-project D: _USER_ MUST be matched by _key_matches_wr "
+            "(mirror of _key_matches_excluded_wr).",
         )
 
     def test_unrelated_wr_dropped(self):

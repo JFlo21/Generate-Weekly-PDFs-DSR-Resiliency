@@ -190,12 +190,22 @@ class TestPrePassEmission(unittest.TestCase):
         self._orig_variants = generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED
         self._orig_attr = generate_weekly_pdfs.SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED
         self._orig_sub_ids = set(generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS)
+        # Sub-project D (2026-05-25) pins this OFF: this class asserts the
+        # legacy bare-primary behavior for NON-subcontractor rows, which D's
+        # default-on production-primary partitioning would otherwise change
+        # to _User_<claimer>. D's new behavior is covered by
+        # tests/test_primary_claim_attribution.py::TestPrimaryEmission. Per
+        # [2026-05-20 00:26] rule 2 (test-contract override), pin D off here
+        # to keep this an isolated B/B1 guard.
+        self._orig_primary_attr = generate_weekly_pdfs.PRIMARY_CLAIM_ATTRIBUTION_ENABLED
+        generate_weekly_pdfs.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = False
         generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = True
         generate_weekly_pdfs.SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED = True
         generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
         generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.add(self._SUB_SHEET_ID)
 
     def tearDown(self):
+        generate_weekly_pdfs.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = self._orig_primary_attr
         generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = self._orig_variants
         generate_weekly_pdfs.SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED = self._orig_attr
         generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
@@ -673,11 +683,21 @@ class TestNonSubVariantsPreserved(unittest.TestCase):
         _reset_all()
         self._orig_variants = generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED
         self._orig_sub_ids = set(generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS)
+        # Sub-project D (2026-05-25) pins this OFF: this class asserts the
+        # legacy bare-primary behavior for NON-subcontractor rows, which D's
+        # default-on production-primary partitioning would otherwise change
+        # to _User_<claimer>. D's new behavior is covered by
+        # tests/test_primary_claim_attribution.py::TestPrimaryEmission. Per
+        # [2026-05-20 00:26] rule 2 (test-contract override), pin D off here
+        # to keep this an isolated B/B1 guard.
+        self._orig_primary_attr = generate_weekly_pdfs.PRIMARY_CLAIM_ATTRIBUTION_ENABLED
+        generate_weekly_pdfs.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = False
         generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = True
         generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
         generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.add(self._SUB_SHEET_ID)
 
     def tearDown(self):
+        generate_weekly_pdfs.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = self._orig_primary_attr
         generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = self._orig_variants
         generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
         generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.update(self._orig_sub_ids)

@@ -5969,7 +5969,7 @@ def group_source_rows(rows):
     if WR_FILTER and TEST_MODE:
         before = len(groups)
         def _key_matches_wr(k: str, wr: str) -> bool:
-            # k format examples (all eight shapes emitted by group_source_rows):
+            # k format examples (all nine shapes emitted by group_source_rows):
             #   MMDDYY_WR                                   → primary
             #   MMDDYY_WR_USER_<name>                       → primary (Subproject D)
             #   MMDDYY_WR_HELPER_<name>                     → helper
