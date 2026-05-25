@@ -316,6 +316,13 @@ PHASE_1_1_HASH_PRUNE_VERSION = 2
 # Phase 1.1 prune so the two migrations are independent + auditable.
 # Advancing this constant is the kill switch (re-run trigger).
 SUBPROJECT_B_HASH_PRUNE_VERSION = 1
+# Subproject C (2026-05-21): one-time hash-history prune version for
+# dropping LEGACY blank-identifier `vac_crew` orphans left behind when
+# C re-partitions vac_crew variants by frozen claimer. Separate sentinel
+# (`_vac_crew_prune_version`) from Phase 1.1 and Subproject B so all
+# three migrations are independent + auditable.
+# Advancing this constant is the kill switch (re-run trigger).
+VAC_CREW_HASH_PRUNE_VERSION = 1
 # Verbose debug tunables
 DEBUG_SAMPLE_ROWS = int(os.getenv('DEBUG_SAMPLE_ROWS','3') or 3)  # How many initial rows (across all sheets) to show full per-cell mapping
 DEBUG_ESSENTIAL_ROWS = int(os.getenv('DEBUG_ESSENTIAL_ROWS','5') or 5)  # How many initial rows to log essential field summary
@@ -520,6 +527,30 @@ SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED = os.getenv(
     'SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED', '1'
 ).strip().lower() in ('1', 'true', 'yes', 'on')
 
+# Subproject C (2026-05-21): default-ON kill switch that enables
+# per-claimer partitioning of ``_VacCrew`` Excel files. When enabled,
+# each vac-crew Excel is partitioned by the FROZEN vac-crew claimer
+# (``vac_crew`` role from ``billing_audit.attribution_snapshot`` via
+# ``resolve_claimer``). When disabled, the legacy one-file-per-WR
+# ``_VacCrew`` behavior is preserved exactly. Pinned in workflow
+# env: block per [2026-05-15 12:00] rule 7.
+VAC_CREW_CLAIM_ATTRIBUTION_ENABLED = os.getenv(
+    'VAC_CREW_CLAIM_ATTRIBUTION_ENABLED', '1'
+).strip().lower() in ('1', 'true', 'yes', 'on')
+
+# Subproject C (2026-05-21): default-ON kill switch for the one-time
+# removal of legacy UNPARTITIONED ``_VacCrew`` attachments (no
+# ``_User_`` token, parsed identifier == '') on TARGET_SHEET_ID for
+# vac-crew WRs, once those variants are re-partitioned by frozen
+# vac-crew claimer. Set to '0' to skip the destructive cleanup (legacy
+# files then persist until removed manually). Separate from
+# VAC_CREW_CLAIM_ATTRIBUTION_ENABLED (which gates attribution
+# resolution, NOT this cleanup). Workflow-pinned per [2026-05-15
+# 12:00] rule 7.
+VAC_CREW_LEGACY_CLEANUP_ENABLED = os.getenv(
+    'VAC_CREW_LEGACY_CLEANUP_ENABLED', '1'
+).strip().lower() in ('1', 'true', 'yes', 'on')
+
 # Cutoff date for ``_AEPBillable`` variant generation. Awarded to
 # Linetec on 2026-04-12 (subcontractor rate contract). Plan 2 (parser
 # extension) and Plan 3 (variant emission) gate variant emission on
@@ -675,6 +706,18 @@ logging.info(
 logging.info(
     f"📋 SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED="
     f"{SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED}"
+)
+
+# Subproject C: surface resolved kill-switch state at startup so
+# operators grepping the banner see the active feature state at a
+# glance. Banner body carries no row PII (just the resolved bools).
+logging.info(
+    f"📋 VAC Crew claim attribution: "
+    f"{'ENABLED' if VAC_CREW_CLAIM_ATTRIBUTION_ENABLED else 'DISABLED'}"
+)
+logging.info(
+    f"📋 VAC Crew legacy cleanup: "
+    f"{'ENABLED' if VAC_CREW_LEGACY_CLEANUP_ENABLED else 'DISABLED'}"
 )
 
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
@@ -1003,6 +1046,11 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     # containment with pre-existing markers (this body does not overlap
     # "Phase 1.1 hash-history prune").
     "Subproject B hash-history prune",
+    # Subproject C Task 7: one-time hash-history prune INFO log embeds
+    # the affected-WR list (capped to first 20 entries). Explicit marker
+    # per the [2026-05-15 12:00] rule 3 — no accidental substring
+    # containment with pre-existing markers.
+    "Vac crew hash-history prune",
 )
 
 
@@ -2467,7 +2515,8 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
         - Primary: (wr, week, 'primary', None)
         - Primary+User: (wr, week, 'primary', user_identifier)
         - Helper: (wr, week, 'helper', helper_name)
-        - VAC Crew: (wr, week, 'vac_crew', '')
+        - VAC Crew (legacy, no claimer): (wr, week, 'vac_crew', '')
+        - VAC Crew (named, Subproject C): (wr, week, 'vac_crew', crew_name)
         - AEP Billable: (wr, week, 'aep_billable', '')
         - Reduced Sub: (wr, week, 'reduced_sub', '')
         - AEP Billable Helper: (wr, week, 'aep_billable_helper', helper_name)
@@ -2482,7 +2531,8 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
     - WR_{wr}_WeekEnding_{week}_{timestamp}_{hash}.xlsx (primary)
     - WR_{wr}_WeekEnding_{week}_{timestamp}_User_{user}_{hash}.xlsx (primary+user)
     - WR_{wr}_WeekEnding_{week}_{timestamp}_Helper_{helper}_{hash}.xlsx (helper)
-    - WR_{wr}_WeekEnding_{week}_{timestamp}_VacCrew_{hash}.xlsx (VAC Crew)
+    - WR_{wr}_WeekEnding_{week}_{timestamp}_VacCrew_{hash}.xlsx (VAC Crew, legacy)
+    - WR_{wr}_WeekEnding_{week}_{timestamp}_VacCrew_{name}_{hash}.xlsx (VAC Crew named, Subproject C)
     - WR_{wr}_WeekEnding_{week}_{timestamp}_AEPBillable_{hash}.xlsx (AEP Billable)
     - WR_{wr}_WeekEnding_{week}_{timestamp}_ReducedSub_{hash}.xlsx (Reduced Sub)
     - WR_{wr}_WeekEnding_{week}_{timestamp}_AEPBillable_Helper_{helper}_{hash}.xlsx
@@ -2640,6 +2690,16 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
             # Legacy unpartitioned _ReducedSub_<hash> (no User token).
             variant = 'reduced_sub'
             identifier = ''
+    elif 'VacCrew' in tail:
+        # Subproject C: _VacCrew_<name>_<hash>. Checked BEFORE the 'Helper'
+        # scan so a crew name containing the 'Helper' token isn't
+        # misclassified as a helper variant (B round-7 lesson). Span-join so
+        # an underscored name survives. Legacy _VacCrew (no name) -> ''.
+        variant = 'vac_crew'
+        vac_idx_rel = tail.index('VacCrew')
+        identifier = ''  # legacy _VacCrew (no name) -> '' per identity contract
+        if vac_idx_rel + 1 < len(tail):
+            identifier = '_'.join(tail[vac_idx_rel + 1:-1])
     elif 'Helper' in tail:
         variant = 'helper'
         helper_idx_rel = tail.index('Helper')
@@ -2647,9 +2707,6 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
             # Join all parts between Helper and hash (last part)
             # Format: ...Helper_{name}_{hash} or ...Helper_{name}_part2_{hash}
             identifier = '_'.join(tail[helper_idx_rel + 1:-1])
-    elif 'VacCrew' in tail:
-        variant = 'vac_crew'
-        identifier = ''  # No sub-identifier for VAC Crew; use '' to match main() and valid_wr_weeks
     elif 'User' in tail:
         variant = 'primary'
         user_idx_rel = tail.index('User')
@@ -2711,6 +2768,7 @@ def cleanup_untracked_sheet_attachments(
     sub_wr_scope: set[str] | None = None,
     sub_offcontract_variants: set[str] | None = None,
     sub_legacy_primary_variants: set[str] | None = None,
+    vac_legacy_wr_scope: set[str] | None = None,
 ):
     """Prune only older variants for identities processed this run (VARIANT-AWARE).
 
@@ -2765,6 +2823,19 @@ def cleanup_untracked_sheet_attachments(
         exemption). New per-claimer files (non-empty identifier) are
         never matched. When None (default), this gate is skipped.
         Gated at the call sites by SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED.
+
+    vac_legacy_wr_scope: Subproject C (2026-05-21) Task 6 one-time
+        migration. When provided, any attachment whose parsed ``wr`` is
+        in this set, whose parsed ``variant`` is ``'vac_crew'``, and
+        whose parsed ``identifier`` is empty (legacy unpartitioned bare
+        ``_VacCrew``) is unconditionally deleted — UNLESS its identity is
+        in ``valid_wr_weeks`` (live-identity exemption). Per-claimer files
+        (non-empty identifier like ``_VacCrew_John``) are never matched.
+        When None (default), this gate is skipped — byte-identical legacy
+        behaviour for callers that do not pass the parameter.
+        Gated at the TARGET call site by VAC_CREW_LEGACY_CLEANUP_ENABLED.
+        vac_crew files route to TARGET_SHEET_ID only (never PPP); the
+        PPP call site must NOT receive this parameter.
 
     CRITICAL: Identity includes variant dimension to prevent primary/helper cross-deletion.
               Each (wr, week, variant, identifier) is treated as independent.
@@ -2859,6 +2930,32 @@ def cleanup_untracked_sheet_attachments(
                         and wr in sub_wr_scope
                         and sub_legacy_primary_variants is not None
                         and variant in sub_legacy_primary_variants
+                        and not _identifier
+                        and ident not in valid_wr_weeks
+                    ):
+                        off_contract_attachments.append(att)
+                        continue
+                    # Subproject C Task 6 (2026-05-21): one-time migration —
+                    # delete LEGACY UNPARTITIONED bare ``_VacCrew`` attachments
+                    # (parsed identifier == '') for in-scope vac_crew WRs.
+                    # Subproject C re-partitions vac_crew files by frozen
+                    # claimer (``_VacCrew_<name>``), so the old bare
+                    # one-file-per-WR attachment is an obsolete duplicate.
+                    # The ``not _identifier`` check is the precise legacy
+                    # selector: new per-claimer files carry a non-empty
+                    # identifier and are NOT deleted here.
+                    # WR-01 live-identity exemption: an attachment whose
+                    # identity IS in ``valid_wr_weeks`` is kept — this
+                    # protects a live per-claimer file from being deleted
+                    # if its identifier happened to be empty (belt-and-
+                    # suspenders; per-claimer files always have non-empty
+                    # identifiers so this branch is effectively unreachable
+                    # for them, but the guard keeps the contract symmetric
+                    # with the B sub_legacy_primary gate).
+                    if (
+                        vac_legacy_wr_scope is not None
+                        and wr in vac_legacy_wr_scope
+                        and variant == 'vac_crew'
                         and not _identifier
                         and ident not in valid_wr_weeks
                     ):
@@ -3183,6 +3280,28 @@ def _build_subcontractor_wr_scope(groups: dict) -> set[str]:
     return _scope
 
 
+def _build_vac_crew_wr_scope(groups: dict) -> set[str]:
+    """Return the set of sanitized WR tokens active as vac_crew in this run.
+
+    Scans ``groups.keys()`` for keys containing ``'_VACCREW'``, extracts
+    each group's WR# from the first row of the group, and returns the
+    sanitized set.
+
+    Shared by the TARGET ``cleanup_untracked_sheet_attachments`` call site
+    (Task 6 vac-crew legacy cleanup scope).  A single implementation prevents
+    scope-build drift — mirrors ``_build_subcontractor_wr_scope``.
+    """
+    _scope: set[str] = set()
+    for _key, _g_rows in groups.items():
+        if '_VACCREW' in _key and _g_rows:
+            _g_wr_raw = _g_rows[0].get('Work Request #', '')
+            _g_wr = str(_g_wr_raw).split('.')[0]
+            _g_wr = _RE_SANITIZE_HELPER_NAME.sub('_', _g_wr)[:50]
+            if _g_wr:
+                _scope.add(_g_wr)
+    return _scope
+
+
 def _run_phase_1_1_hash_prune(hash_history: dict, groups: dict) -> bool:
     """Phase 1.1 SUB-12 / D-17..D-19: idempotent hash-history prune.
 
@@ -3392,6 +3511,81 @@ def _run_subproject_b_hash_prune(hash_history: dict, groups: dict) -> bool:
     # Codex P2: body path advanced the sentinel (and may have dropped
     # orphans) — report the mutation so the caller persists it even on a
     # no-update run.
+    return True
+
+
+def _run_vac_crew_hash_prune(hash_history: dict, groups: dict) -> bool:
+    """Subproject C (2026-05-21): idempotent one-time hash-history prune.
+
+    Drops LEGACY blank-identifier vac_crew orphans — 4-part keys
+    ``wr|week|vac_crew|`` with an EMPTY identifier — for WRs that are
+    vac_crew in this run. C re-partitions vac_crew variants by frozen
+    claimer (new keys carry a non-empty identifier), so the
+    blank-identifier entries are obsolete. The normal stale-prune at the
+    end of the run would clear them eventually; this makes the migration
+    deterministic on the first run and survives interrupted / no-update
+    runs.
+
+    Scope-building delegates to ``_build_vac_crew_wr_scope`` (shared
+    with the cleanup call site — no drift, per the [2026-05-15 12:00]
+    three-site invariant). Sentinel key ``_vac_crew_prune_version`` is
+    DISTINCT from ``_phase_prune_version`` (Phase 1.1) and
+    ``_subproject_b_prune_version`` (Subproject B) so the three
+    migrations are independent. Mutates ``hash_history`` in place.
+    Dropping a hash entry costs at most one benign regeneration — never
+    data loss — so no live-identity exemption is needed on this drop
+    path (unlike the every-run attachment cleanup).
+
+    Codex P2 (PR #219): when ``VAC_CREW_CLAIM_ATTRIBUTION_ENABLED`` is OFF,
+    the blank-identifier ``wr|week|vac_crew|`` key is the ACTIVE legacy
+    format (the kill-switch-OFF path emits the bare ``_VACCREW`` key), so
+    pruning it would delete valid current history and force regeneration
+    churn — breaking the exact-legacy contract. Skip entirely when the flag
+    is off, and do NOT advance the sentinel, so the one-time migration still
+    runs if attribution is later enabled.
+    """
+    if not VAC_CREW_CLAIM_ATTRIBUTION_ENABLED:
+        return False
+    _persisted = hash_history.pop('_vac_crew_prune_version', 0)
+    if (
+        isinstance(_persisted, int)
+        and _persisted >= VAC_CREW_HASH_PRUNE_VERSION
+    ):
+        hash_history['_vac_crew_prune_version'] = _persisted
+        # Codex P2: no-op sentinel restore only — no save needed.
+        return False
+
+    _scope = _build_vac_crew_wr_scope(groups)
+    _orphans: list[str] = []
+    for _hk in list(hash_history.keys()):
+        if isinstance(_hk, str) and _hk.startswith('_'):
+            continue
+        _parts = str(_hk).split('|')
+        if len(_parts) != 4:
+            continue
+        _hk_wr, _hk_week, _hk_variant, _hk_ident = _parts
+        if (
+            _hk_wr in _scope
+            and _hk_variant == 'vac_crew'
+            and _hk_ident == ''
+        ):
+            _orphans.append(_hk)
+    for _ok in _orphans:
+        del hash_history[_ok]
+    hash_history['_vac_crew_prune_version'] = VAC_CREW_HASH_PRUNE_VERSION
+    if _orphans:
+        _wr_sample = sorted({k.split('|')[0] for k in _orphans})[:20]
+        logging.info(
+            f"🧹 Vac crew hash-history prune: dropped {len(_orphans)} legacy "
+            f"unpartitioned vac_crew orphan(s) "
+            f"(WRs first 20: {_wr_sample})"
+        )
+    else:
+        logging.info(
+            "🧹 Vac crew hash-history prune: no legacy vac_crew orphans to drop"
+        )
+    # Body path advanced the sentinel (and may have dropped orphans) —
+    # report the mutation so the caller persists it even on a no-update run.
     return True
 
 
@@ -4759,11 +4953,19 @@ def group_source_rows(rows):
     - Key format: MMDDYY_WRNUMBER_HELPER_<sanitized_helper_name>
     - Only created for rows where __is_helper_row = True
     
-    VAC Crew Variant:
-    - VAC Crew Promax grouping (one Excel per WR/Week for VAC Crew sheets)
-    - Key format: MMDDYY_WRNUMBER_VACCREW
+    VAC Crew Variant (Sub-project C — per-claimer partitioning):
     - Only created for rows where __is_vac_crew = True (row-level column-based detection)
-    - Generates a separate Excel file with _VacCrew suffix in the filename
+    - Two key shapes, gated on VAC_CREW_CLAIM_ATTRIBUTION_ENABLED:
+      * ON (default): partitioned by FROZEN vac-crew claimer →
+        MMDDYY_WRNUMBER_VACCREW_<sanitized_claimer>, one Excel per
+        WR/Week/claimer, filename suffix _VacCrew_<claimer>. Claimer is
+        resolved in the pre-pass (frozen_vac_crew; falls back to the current
+        vac-crew name on no_history; HOLD defers the row on a Supabase
+        fetch_failure).
+      * OFF (exact legacy): single group per WR/Week →
+        MMDDYY_WRNUMBER_VACCREW, filename suffix _VacCrew (no claimer).
+    - VAC crew rows never also emit the subcontractor primary variants
+      (the subcontractor block is gated on `not is_vac_crew_row`).
     
     Activity Log (DECOMMISSIONED - only in primary mode):
     - No longer uses Modified By cache - direct column assignment only
@@ -4872,6 +5074,75 @@ def group_source_rows(rows):
                 )
                 _sub_primary_claimer_map = {}
 
+    # Subproject C: Resolve the FROZEN vac-crew claimer for every completed
+    # VAC Crew row BEFORE the grouping loop, so no per-row Supabase
+    # round-trip runs inside the hot loop (honors [2026-04-25 14:00]
+    # latency lesson). The map is keyed by __row_id and consumed by the
+    # vac_crew emission block. A row absent from the map (attribution
+    # disabled, pre-pass skipped, missing __row_id, or unexpected per-row
+    # error) resolves to use-current at emission — NEVER HOLD — so a
+    # plumbing fault can never silently suppress a billing file.
+    # resolve_claimer's own fetch_failure -> HOLD is the only path that
+    # defers a row.
+    _vac_crew_claimer_map: dict = {}
+    if BILLING_AUDIT_AVAILABLE and VAC_CREW_CLAIM_ATTRIBUTION_ENABLED:
+        _vac_pre_rows = []
+        for _r in rows:
+            _rid = _r.get('__row_id')
+            if not isinstance(_rid, int):
+                continue
+            if not _r.get('__is_vac_crew'):
+                continue
+            _wr_raw = _r.get('Work Request #')
+            _ld = _r.get('Weekly Reference Logged Date')
+            if not _wr_raw or not _ld or not is_checked(_r.get('Units Completed?')):
+                continue
+            _we = excel_serial_to_date(_ld)
+            if _we is None:
+                continue
+            _vac_pre_rows.append((
+                _rid,
+                str(_wr_raw).split('.')[0],
+                _we.date() if isinstance(_we, datetime.datetime) else _we,
+                _r.get('__vac_crew_name') or '',
+            ))
+        if _vac_pre_rows:
+            try:
+                from billing_audit.writer import resolve_claimer as _resolve_claimer_vac
+
+                def _resolve_one_vac(_item):
+                    _rid, _wr, _we_date, _current = _item
+                    return _rid, _resolve_claimer_vac(
+                        'vac_crew', _current,
+                        wr=_wr, week_ending=_we_date, row_id=_rid,
+                        enabled=VAC_CREW_CLAIM_ATTRIBUTION_ENABLED,
+                    )
+
+                if len(_vac_pre_rows) <= 1:
+                    for _item in _vac_pre_rows:
+                        _rid, _out = _resolve_one_vac(_item)
+                        _vac_crew_claimer_map[_rid] = _out
+                else:
+                    _workers = min(PARALLEL_WORKERS, len(_vac_pre_rows))
+                    with ThreadPoolExecutor(max_workers=_workers) as _ex:
+                        _futs = [_ex.submit(_resolve_one_vac, _it) for _it in _vac_pre_rows]
+                        for _fut in as_completed(_futs):
+                            try:
+                                _rid, _out = _fut.result()
+                                _vac_crew_claimer_map[_rid] = _out
+                            except Exception:
+                                logging.exception(
+                                    "⚠️ Subproject C attribution pre-pass: "
+                                    "unexpected error for one row (treating "
+                                    "as use-current)"
+                                )
+            except Exception:
+                logging.exception(
+                    "⚠️ Subproject C attribution pre-pass failed; falling "
+                    "back to current vac-crew name for all VAC Crew rows"
+                )
+                _vac_crew_claimer_map = {}
+
     for r in rows:
         wr = r.get('Work Request #')
         log_date_str = r.get('Weekly Reference Logged Date')
@@ -4941,18 +5212,63 @@ def group_source_rows(rows):
             # both primary/helper rows AND VAC Crew rows — they are mutually exclusive per-row
             # because a single row is either a VAC Crew row or a regular/helper row.
             if is_vac_crew_row:
-                vac_crew_key = f"{week_end_for_key}_{wr_key}_VACCREW"
-                # Use VAC Crew name (from 'VAC Crew Helping?' column) as the foreman
-                # for this group — NOT the primary foreman (effective_user).
-                vac_crew_foreman = r.get('__vac_crew_name') or effective_user
-                keys_to_add.append(('vac_crew', vac_crew_key, vac_crew_foreman))
-                # Only log at info level the first time a new group key is seen; subsequent
-                # rows belonging to the same WR/week VAC Crew group log at debug to avoid
-                # flooding logs with hundreds of identical "GROUP CREATED" messages.
-                if vac_crew_key not in groups:
-                    logging.info(f"🏗️ VAC CREW GROUP CREATED: WR={wr_key}, Week={week_end_for_key}")
+                if not VAC_CREW_CLAIM_ATTRIBUTION_ENABLED:
+                    # Kill switch OFF -> exact legacy behavior: one group per
+                    # WR+week, no per-claimer partition.
+                    vac_crew_key = f"{week_end_for_key}_{wr_key}_VACCREW"
+                    # Use VAC Crew name (from 'VAC Crew Helping?' column) as the foreman
+                    # for this group — NOT the primary foreman (effective_user).
+                    vac_crew_foreman = r.get('__vac_crew_name') or effective_user
+                    keys_to_add.append(('vac_crew', vac_crew_key, vac_crew_foreman))
+                    # Only log at info level the first time a new group key is seen;
+                    # subsequent rows belonging to the same WR/week VAC Crew group log at
+                    # debug to avoid flooding logs with identical "GROUP CREATED" messages.
+                    if vac_crew_key not in groups:
+                        logging.info(f"🏗️ VAC CREW GROUP CREATED: WR={wr_key}, Week={week_end_for_key}")
                 else:
-                    logging.debug(f"Adding row to existing VAC Crew group: WR={wr_key}, Week={week_end_for_key}")
+                    # Subproject C: partition by frozen vac-crew claimer.
+                    # Consume the pre-pass map. ``use`` -> partition by claimer;
+                    # ``hold`` -> defer this row (correctness over availability);
+                    # map miss (missing __row_id, pre-pass skipped, plumbing fault)
+                    # -> use-current, NEVER HOLD.
+                    _vac_current = r.get('__vac_crew_name') or effective_user
+                    _c_vac_claimer = None
+                    _vac_outcome = _vac_crew_claimer_map.get(r.get('__row_id'))
+                    if _vac_outcome is not None and _vac_outcome.action == 'hold':
+                        _c_vac_claimer = None  # defer — correctness over availability
+                        try:
+                            from billing_audit.writer import record_attribution_hold
+                            record_attribution_hold(
+                                wr_key,
+                                week_ending_date.date()
+                                if isinstance(week_ending_date, datetime.datetime)
+                                else week_ending_date,
+                                'vac_crew',
+                            )
+                        except Exception:
+                            logging.exception(
+                                "⚠️ Subproject C: record_attribution_hold failed"
+                            )
+                    elif _vac_outcome is not None and _vac_outcome.action == 'use':
+                        _c_vac_claimer = _vac_outcome.name or _vac_current or 'Unknown'
+                    else:
+                        # Map miss (row absent from pre-pass) or unknown action:
+                        # fall back to current name, never HOLD.
+                        _c_vac_claimer = _vac_current or 'Unknown'
+
+                    if _c_vac_claimer is not None:
+                        _c_vac_sanitized = _RE_SANITIZE_IDENTIFIER.sub(
+                            '_', _c_vac_claimer
+                        )[:50]
+                        vac_crew_key = (
+                            f"{week_end_for_key}_{wr_key}_VACCREW_{_c_vac_sanitized}"
+                        )
+                        keys_to_add.append(('vac_crew', vac_crew_key, _c_vac_claimer))
+                        if vac_crew_key not in groups:
+                            logging.info(
+                                f"🏗️ VAC CREW GROUP CREATED: WR={wr_key}, "
+                                f"Week={week_end_for_key}"
+                            )
             else:
                 # Check if helper mode is enabled
                 helper_mode_enabled = RES_GROUPING_MODE in ('helper', 'both')
@@ -5087,7 +5403,15 @@ def group_source_rows(rows):
             # remain in scope), so the variant emission block below
             # reads the SAME boolean — no behavioural change to the
             # variant emission contract.
-            if is_subcontractor_row and SUBCONTRACTOR_RATE_VARIANTS_ENABLED:
+            # Copilot (PR #219): ``not is_vac_crew_row`` excludes VAC crew
+            # rows from the subcontractor variant emission. ``__is_vac_crew``
+            # is set by column presence (not sheet membership), so a VAC crew
+            # row can come from a subcontractor-folder sheet; without this
+            # gate it would be DOUBLE-emitted (VACCREW + REDUCEDSUB/AEPBILLABLE)
+            # and a vac ``hold`` outcome would be bypassed by the sub variants.
+            # A vac row already produced its own group above; it must not also
+            # emit subcontractor primary variants.
+            if is_subcontractor_row and not is_vac_crew_row and SUBCONTRACTOR_RATE_VARIANTS_ENABLED:
                 # Snapshot cutoff is needed by BOTH the primary block
                 # here and the helper-shadow block below, so compute it
                 # once up front. ``excel_serial_to_date`` returns ``None``
@@ -5510,6 +5834,10 @@ def group_source_rows(rows):
                 suffix == wr
                 or suffix.startswith(f"{wr}_HELPER_")
                 or suffix == f"{wr}_VACCREW"
+                # Subproject C: per-claimer vac key {wr}_VACCREW_<claimer>
+                # (attribution on). Prefix-match so EXCLUDE_WRS / WR_FILTER
+                # cover both the legacy bare and the per-claimer shapes.
+                or suffix.startswith(f"{wr}_VACCREW_")
                 # Phase 1 subcontractor variants (REVIEW-CR-03).
                 or suffix == f"{wr}_REDUCEDSUB"
                 or suffix == f"{wr}_AEPBILLABLE"
@@ -5557,6 +5885,10 @@ def group_source_rows(rows):
                 or suffix.startswith(f"{wr}_HELPER_")
                 or suffix.startswith(f"{wr}_USER_")
                 or suffix == f"{wr}_VACCREW"
+                # Subproject C: per-claimer vac key {wr}_VACCREW_<claimer>
+                # (attribution on). Prefix-match so EXCLUDE_WRS / WR_FILTER
+                # cover both the legacy bare and the per-claimer shapes.
+                or suffix.startswith(f"{wr}_VACCREW_")
                 # Phase 1 subcontractor variants (REVIEW-CR-02).
                 or suffix == f"{wr}_REDUCEDSUB"
                 or suffix == f"{wr}_AEPBILLABLE"
@@ -5666,13 +5998,33 @@ def _subcontractor_primary_variant_suffix(
     return f"{token}_User_{claimer_sanitized}"
 
 
+def _vac_crew_variant_suffix(claimer: str, wr_num: str, week_end_raw: str) -> str:
+    """Build the filename suffix for a per-claimer VAC crew file.
+
+    Subproject C (2026-05-21): vac_crew files are partitioned by frozen
+    vac-crew claimer and named ``_VacCrew_<sanitized name>``. Raises on an
+    empty claimer (production never hits this — the emission falls back to
+    'Unknown'); the raise surfaces data drift instead of an ambiguous name.
+    """
+    if not claimer:
+        logging.error(
+            f"⚠️ vac_crew variant row missing claimer for WR {wr_num} "
+            f"week {week_end_raw}; filename would be ambiguous — raising to surface data drift."
+        )
+        raise ValueError(
+            f"vac_crew requires a non-empty claimer; got empty for "
+            f"WR={wr_num} week={week_end_raw}"
+        )
+    return f"_VacCrew_{_RE_SANITIZE_IDENTIFIER.sub('_', claimer)[:50]}"
+
+
 def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=None, data_hash=None):
     """
     FIXED: Generate a formatted Excel report for a group of rows.
-    
+
     SPECIFIC FIXES IMPLEMENTED:
     - WR 90093002 Excel generation (complete implementation)
-    - WR 89954686 specific handling 
+    - WR 89954686 specific handling
     - Proper error handling for worksheet objects
     - Complete daily data block generation
     - Safe cell merging to prevent XML errors
@@ -5851,8 +6203,21 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
             helper_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50]
             variant_suffix = f"_Helper_{helper_sanitized}"
     elif variant == 'vac_crew':
-        # VAC Crew variant: fixed suffix to distinguish from primary/helper
-        variant_suffix = '_VacCrew'
+        # Subproject C: suffix is GATED on the kill switch.
+        # Enabled mode: per-claimer _VacCrew_<name> so each foreman's file is
+        # distinct and matches the Sites 1/2/3 identity tuple.
+        # Disabled mode: exact legacy bare '_VacCrew' suffix — no claimer name
+        # embedded, preserving byte-identical filenames with pre-C attachments.
+        # NOTE: __vac_crew_name is intentionally NOT used as a fallback in
+        # disabled mode; the legacy contract is a bare '_VacCrew' token, and
+        # falling back to __vac_crew_name would produce _VacCrew_<name> in
+        # disabled mode, which violates the disabled=legacy invariant.
+        _vc_name = first_row.get('__current_foreman', '')
+        if VAC_CREW_CLAIM_ATTRIBUTION_ENABLED and _vc_name:
+            variant_suffix = _vac_crew_variant_suffix(_vc_name, wr_num, week_end_raw)
+        else:
+            # Disabled mode (or no claimer resolved) → exact legacy bare suffix.
+            variant_suffix = '_VacCrew'
     elif variant == 'primary':
         # Primary variant (no suffix needed)
         variant_suffix = ''
@@ -6024,9 +6389,19 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         display_dept = first_row.get('__helper_dept', '')
         display_job = first_row.get('__helper_job', '')
     elif variant == 'vac_crew':
-        # VAC Crew variant: use VAC Crew-specific name, dept, and job fields.
-        # Must NOT fall back to primary foreman or primary Job # (which may be Arrowhead).
-        display_foreman = first_row.get('__vac_crew_name', 'Unknown VAC Crew')
+        # Enabled: show the ATTRIBUTED claimer (__current_foreman, the
+        # partition key) so the displayed foreman matches the filename.
+        # Disabled (legacy): show __vac_crew_name exactly as master did —
+        # must NOT fall back to __current_foreman (which in disabled mode
+        # may be the primary / Arrowhead foreman, not the VAC crew member).
+        # dept/job remain VAC-crew-specific in all cases.
+        if VAC_CREW_CLAIM_ATTRIBUTION_ENABLED:
+            display_foreman = (
+                first_row.get('__current_foreman')
+                or first_row.get('__vac_crew_name', 'Unknown VAC Crew')
+            )
+        else:
+            display_foreman = first_row.get('__vac_crew_name', 'Unknown VAC Crew')
         display_dept = first_row.get('__vac_crew_dept', '')
         display_job = first_row.get('__vac_crew_job', '')
     else:
@@ -7327,6 +7702,18 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 f"with existing history: {_b_prune_exc!r}"
             )
 
+        # Subproject C: one-time prune of legacy blank-identifier vac_crew
+        # orphans (kill switch is the version constant). Fail-safe — a
+        # failed prune must not break the run.
+        try:
+            if _run_vac_crew_hash_prune(hash_history, groups):
+                _hash_history_migration_dirty = True
+        except Exception as _vc_prune_exc:
+            logging.warning(
+                f"⚠️ Vac crew hash-history prune failed; continuing "
+                f"with existing history: {_vc_prune_exc!r}"
+            )
+
         billing_audit_row_cache: set[str] = set()
         billing_audit_row_cache_dirty = False
         if BILLING_AUDIT_AVAILABLE and not TEST_MODE:
@@ -7637,9 +8024,18 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     # file_identifier matches the sanitized name that generate_excel() puts in the filename
                     file_identifier = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50] if helper_foreman else ''
                 elif variant == 'vac_crew':
-                    # VAC Crew variant: no sub-identifier needed (all vac_crew rows for WR/week go together)
-                    identifier = ''
-                    file_identifier = ''
+                    # Subproject C identity site (Site 1 — main-loop identifier /
+                    # history_key / file_identifier). GATED on the kill switch:
+                    # disabled mode MUST reproduce the exact legacy '' identifier
+                    # (bare _VacCrew filename, bare history_key) so existing
+                    # attachments are not treated as stale and regeneration churn
+                    # is not triggered. Enabled mode uses the sanitized claimer.
+                    _vc = first_row.get('__current_foreman', '')
+                    identifier = (
+                        _RE_SANITIZE_IDENTIFIER.sub('_', _vc)[:50]
+                        if (VAC_CREW_CLAIM_ATTRIBUTION_ENABLED and _vc) else ''
+                    )
+                    file_identifier = identifier
                 elif variant in ('reduced_sub', 'aep_billable'):
                     # Subproject B identity site (Site 1 — main-loop
                     # identifier). Partitioned by the frozen primary
@@ -8364,7 +8760,16 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     helper_foreman = group_rows[0].get('__helper_foreman', '')
                     file_id = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50] if helper_foreman else ''
                 elif variant == 'vac_crew':
-                    file_id = ''
+                    # Subproject C identity site (Site 2 — valid_wr_weeks).
+                    # GATED on the kill switch (mirrors Site 1): disabled mode
+                    # produces file_id='' so the 4-tuple matches the bare
+                    # _VacCrew attachment identity and cleanup does not delete
+                    # live legacy-mode attachments.
+                    _vc = group_rows[0].get('__current_foreman', '')
+                    file_id = (
+                        _RE_SANITIZE_IDENTIFIER.sub('_', _vc)[:50]
+                        if (VAC_CREW_CLAIM_ATTRIBUTION_ENABLED and _vc) else ''
+                    )
                 elif variant in ('reduced_sub', 'aep_billable'):
                     # Subproject B identity site (Site 2 — valid_wr_weeks).
                     # Mirror Site 1 so attachment cleanup keeps the live
@@ -8415,6 +8820,16 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 if _sub_scope and SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED
                 else None
             )
+            # Subproject C Task 6 (2026-05-21): build the vac_crew WR scope
+            # for legacy bare _VacCrew cleanup on TARGET. vac_crew files route
+            # to TARGET_SHEET_ID only (never PPP) — do NOT pass this to PPP.
+            # Kill-switch-gated: VAC_CREW_LEGACY_CLEANUP_ENABLED=0 reverts to
+            # byte-identical pre-fix TARGET behaviour (vac orphans persist).
+            _vac_scope = (
+                _build_vac_crew_wr_scope(groups)
+                if VAC_CREW_LEGACY_CLEANUP_ENABLED
+                else None
+            )
             with sentry_sdk.start_span(op="smartsheet.cleanup", name="Cleanup untracked sheet attachments"):
                 cleanup_untracked_sheet_attachments(
                     client, TARGET_SHEET_ID, valid_wr_weeks, TEST_MODE,
@@ -8425,6 +8840,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     # `is not None`, not truthiness).
                     sub_offcontract_variants=(_target_offcontract or None),
                     sub_legacy_primary_variants=_target_legacy_primary,
+                    vac_legacy_wr_scope=_vac_scope,
                 )
 
             # Phase 01 gap closure (REVIEW-WR-01): parallel cleanup pass
@@ -8569,7 +8985,17 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                             _hj = group_rows[0].get('__helper_job', '')
                             _ident = f"{_hf}|{_hd}|{_hj}"
                         elif _variant == 'vac_crew':
-                            _ident = ''
+                            # Subproject C identity site (Site 3 —
+                            # current_keys). GATED on the kill switch (mirrors
+                            # Site 1): disabled mode produces _ident='' so the
+                            # reconstructed current_keys entry matches the
+                            # bare history_key written by Site 1 and the fresh
+                            # entry is not treated as stale and deleted.
+                            _vc = group_rows[0].get('__current_foreman', '')
+                            _ident = (
+                                _RE_SANITIZE_IDENTIFIER.sub('_', _vc)[:50]
+                                if (VAC_CREW_CLAIM_ATTRIBUTION_ENABLED and _vc) else ''
+                            )
                         elif _variant in ('reduced_sub', 'aep_billable'):
                             # Subproject B identity site (Site 3 —
                             # current_keys). Must match the history_key
@@ -8593,7 +9019,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             save_hash_history(HASH_HISTORY_PATH, hash_history)
         elif _hash_history_migration_dirty:
             # Codex P2: no group updates this run, but a one-time migration
-            # prune (Phase 1.1 / Subproject B) mutated hash_history. Persist
+            # prune (Phase 1.1 / Subproject B / Subproject C) mutated hash_history. Persist
             # it now so the migration is durable and does not re-run every
             # execution. Do NOT run the stale-prune on this path — groups
             # were not fully processed, so current_keys would be incomplete
@@ -8637,10 +9063,11 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 _run_summary.update(_billing_audit_writer.get_counters())
             except Exception:
                 pass  # Counter retrieval must never fail the run summary write.
-            # Subproject B: emit ONE aggregate WARNING if any rows were
-            # held this run pending attribution (Supabase outage). B is
-            # the first consumer of Foundation A's HOLD machinery; this
-            # is the single end-of-run summary call. PII-safe (counts +
+            # Subproject B / Subproject C: emit ONE aggregate WARNING if any
+            # rows were held this run pending attribution (Supabase outage).
+            # B is the first consumer of Foundation A's HOLD machinery; C
+            # (vac_crew) also records holds via the same counter. This is
+            # the single end-of-run summary call. PII-safe (counts +
             # sanitized WR list only). Never fail the run summary write.
             try:
                 _billing_audit_writer.summarize_attribution_holds()

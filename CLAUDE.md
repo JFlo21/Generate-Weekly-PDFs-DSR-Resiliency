@@ -2609,3 +2609,195 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   ``TestSubprojectBHashPrune`` +4 (prune return-value contract +
   migration-dirty save-gate source guard). ``pytest tests/`` → **766
   passed / 26 skipped / 60 subtests** (was 757; +9, zero regressions).
+- [2026-05-21 14:15] **Sub-project C (VAC crew claim attribution)
+  shipped** — third consumer of Foundation A's ``resolve_claimer`` +
+  HOLD contract ([2026-05-20 13:45]), mirroring Subproject B
+  ([2026-05-21 09:21]). VAC crew Excel files are now re-partitioned
+  by the FROZEN vac-crew claimer (``frozen_vac_crew`` from
+  ``billing_audit.attribution_snapshot``) rather than shipping one
+  bare ``_VacCrew`` file per WR+week. Each file holds only one
+  claimer's completed line items and is named ``_VacCrew_<name>``
+  (e.g. ``WR_90773033_WeekEnding_051226_VacCrew_Jane_Smith_<hash>.xlsx``).
+  Hash-in-filename retained (E does the strip). ``billing_audit/``
+  NOT modified — everything C needs shipped in Foundation A.
+  Spec: ``docs/superpowers/specs/2026-05-21-subproject-c-vac-crew-
+  claim-attribution-design.md``; plan: ``docs/superpowers/plans/
+  2026-05-21-subproject-c-vac-crew-claim-attribution.md``.
+  **Operator-approved decisions:** (1) **ALL-sheets scope** — vac_crew
+  rows span both subcontractor-folder sheets AND original-contract-
+  folder sheets; C uses its own dedicated kill switches
+  (``VAC_CREW_CLAIM_ATTRIBUTION_ENABLED`` + ``VAC_CREW_LEGACY_CLEANUP_ENABLED``)
+  rather than reusing ``SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED``,
+  enabling independent rollback. (2) **Filename** ``_VacCrew_<name>``
+  (the reserved ``_VacCrew_`` prefix is parser-unambiguous vs.
+  ``_Helper_`` and ``_User_``). (3) **Fallback-to-current on
+  ``no_history``** — rows with no frozen claimer yet fall back to the
+  current Smartsheet vac-crew name; this run's ``freeze_row`` call is
+  what writes the first freeze. (4) **Two new default-on
+  workflow-pinned kill switches** (``VAC_CREW_CLAIM_ATTRIBUTION_ENABLED``
+  + ``VAC_CREW_LEGACY_CLEANUP_ENABLED``) following the
+  [2026-05-19 22:00] destructive-cleanup-needs-its-own-switch rule.
+  (5) **HOLD on ``resolve_claimer`` ``fetch_failure``** (correctness
+  over availability) — ``record_attribution_hold('vac_crew')`` per
+  row, end-of-run ``summarize_attribution_holds()`` WARNING reports
+  the count.
+  **Wiring — Approach A parallel pre-pass.** ``group_source_rows``
+  resolves every completed vac-crew row's claimer into a
+  ``_vac_crew_claimer_map`` via a bounded
+  ``ThreadPoolExecutor(max_workers=min(PARALLEL_WORKERS, n))`` BEFORE
+  the grouping loop — no per-row Supabase I/O in the hot loop (per
+  the [2026-04-25 14:00] per-row-latency rule). Single-row groups
+  skip the executor to avoid setup overhead. The emission partitions
+  the legacy flat key ``{week}_{wr}_VACCREW`` into per-claimer keys
+  ``{week}_{wr}_VACCREW_{sanitized_claimer}``. A row absent from the
+  map (attribution disabled, pre-pass skipped, missing
+  ``__row_id``, unexpected per-row error) resolves to use-current —
+  NEVER HOLD — so a plumbing fault cannot silently suppress a billing
+  file.
+  **CR-01 lockstep — the key lesson from this sub-project.** The vac
+  claimer identifier must be carried IDENTICALLY at FOUR sites that
+  must agree byte-for-byte or attachments churn / hash-skip breaks:
+  (1) the main-loop ``identifier`` / ``file_identifier`` /
+  ``history_key`` construction immediately before the group-emit
+  block, (2) the ``valid_wr_weeks.add(...)`` cleanup-tuple builder,
+  (3) the ``current_keys`` set construction inside the
+  hash-history-prune block, AND (4) the ``build_group_identity``
+  parser — which was reordered so ``VacCrew`` is checked BEFORE
+  ``Helper`` in the token scan, preventing a vac-crew claimer whose
+  name contains the string ``Helper`` from being misparsed as a
+  helper-shadow variant (the [2026-05-21 09:21] reserved-token
+  parse-order rule). All four are gated on
+  ``VAC_CREW_CLAIM_ATTRIBUTION_ENABLED`` so the kill-switch-OFF path
+  reproduces the EXACT legacy ``''``-identifier / bare ``_VacCrew``
+  shape — otherwise disabling the flag would itself cause attachment
+  churn.
+  **Two bugs the two-stage code review caught.** (a) The plan
+  initially missed the main-loop Site 1 ``identifier`` /
+  ``history_key`` construction (distinct from the
+  ``group_source_rows`` emission group-key). Had this shipped, the
+  main loop would write ``...|vac_crew|`` (blank identifier) to
+  ``hash_history`` while ``current_keys`` held the claimer name →
+  the hash-history pruner would have marked every vac-crew entry
+  stale on each run → permanent regeneration churn with no operator-
+  visible signal. (b) The disabled-mode (kill-switch OFF) path
+  initially still resolved the claimer and produced
+  ``_VacCrew_<name>`` filenames + non-empty identifiers in
+  ``valid_wr_weeks`` / ``current_keys``, violating the "exact legacy
+  behavior" contract — the OFF path would have generated files the
+  old cleanup code couldn't match and itself caused churn. Fixed by
+  gating all four identity surfaces on the flag so OFF literally
+  reproduces the pre-C state.
+  **Migration plumbing.** TARGET-only legacy ``_VacCrew``
+  (empty-identifier) cleanup via a new
+  ``_build_vac_crew_wr_scope(groups)`` shared helper (referenced by
+  both ``cleanup_untracked_sheet_attachments`` and
+  ``_run_vac_crew_hash_prune`` — the [2026-05-19 22:00] shared-scope-
+  builder rule). The deletion gate carries the ``valid_wr_weeks``
+  live-identity exemption per [2026-05-19 23:45] (scope-set
+  granularity must match the routing key). A one-time idempotent
+  hash prune ``_run_vac_crew_hash_prune`` with a DISTINCT
+  ``VAC_CREW_HASH_PRUNE_VERSION`` / ``_vac_crew_prune_version``
+  sentinel (separate from ``_phase_prune_version`` and
+  ``_subproject_b_prune_version``) drops blank-identifier
+  ``vac_crew`` hash orphans; returns a ``bool`` ORed into
+  ``_hash_history_migration_dirty`` so the prune persists even on a
+  no-update run (per the [2026-05-21 10:30] one-time-migration rule).
+  PII marker ``"Vac crew hash-history prune"`` registered in
+  ``_PII_LOG_MARKERS``.
+  **New rule:** Any new variant whose group key embeds a claimer
+  identifier MUST carry that identifier identically at all four CR-01
+  sites AND gate every one of them on the variant's kill switch so
+  the OFF path reproduces exact legacy behavior. The main-loop
+  ``identifier`` / ``history_key`` site (Site 1) is EASY TO MISS
+  because it is distinct from the ``group_source_rows`` emission
+  group-key — the two live in different scopes and both construct the
+  identity tuple from the same logical fields. Sub-project C's
+  two-stage code review caught exactly this omission; future
+  sub-project implementers MUST explicitly cross-reference all four
+  sites before marking a task complete. Additionally, when adding a
+  new reserved filename token to the ``build_group_identity`` parser,
+  the new token MUST be checked BEFORE any free-text substring scan
+  for other tokens — free-text identifier content can contain any
+  token string and will false-positive the scan (e.g. a vac-crew
+  member named ``Pat Helper`` contains the ``Helper`` substring).
+  Regression tests: new file
+  ``tests/test_vac_crew_claim_attribution.py`` —
+  ``TestVacCrewConfigFlags`` (env-var wiring + default values),
+  ``TestVacCrewSuffixAndParser`` (filename suffix helper + 4-site
+  identity round-trip including ``_VacCrew_<name>`` parse-before-
+  helper ordering), ``TestVacCrewPrePassConcurrency`` (50 concurrent
+  pre-pass calls preserve counter accuracy, no silent drops),
+  ``TestVacCrewEmission`` (group-key emission with attribution on/off
+  + HOLD propagation), ``TestVacCrewIdentitySitesAndDisplay``
+  (all four CR-01 sites carry the claimer; OFF path produces legacy
+  empty-identifier shape at all four sites),
+  ``TestVacCrewLegacyCleanup`` (empty-identifier files deleted;
+  live per-claimer files exempted via ``valid_wr_weeks``; non-vac WRs
+  untouched), ``TestVacCrewHashPrune`` (idempotency, version-sentinel
+  persistence, returns-bool contract wired into migration-dirty path),
+  ``TestVacCrewEndToEnd`` (full ``group_source_rows`` → grouping →
+  key-shape assertion with mocked pre-pass),
+  ``TestVacCrewProductionInvariants`` (source-grep guards for all
+  four CR-01 sites, kill-switch pins, PII marker, parser token
+  order). Two legacy contract-override rewrites in existing files:
+  ``tests/test_vac_crew.py::test_vac_crew_key_format`` + sibling
+  (rewritten in-place per [2026-05-20 00:26] rule 2 citing this
+  entry), ``tests/test_subcontractor_primary_claim_attribution.py::
+  test_vac_crew_row_unaffected`` (updated to reflect partitioned
+  emission keys). ``pytest tests/`` → **807 passed / 26 skipped /
+  60 subtests** (was 766 at Subproject B review-fixes close; +41
+  net). After this branch lands, Foundation A + Subproject B +
+  Sub-project C together cover subcontractor-primary, sub-helper,
+  and vac-crew claim attribution; the primary-workflow primary
+  foreman partitioning remains Sub-project D (highest blast radius —
+  changes core primary grouping across all sheets, deliberately last
+  before E).
+- [2026-05-25 12:40] PR #219 (Sub-project C) pre-merge AI code-review
+  pass (Copilot + Codex) surfaced 3 real bugs + 3 doc nits; all fixed
+  TDD red→green before merge. **(Codex P1 — WR matchers blind to the
+  per-claimer key.)** ``_key_matches_wr`` (WR_FILTER) and
+  ``_key_matches_excluded_wr`` (EXCLUDE_WRS) matched vac_crew via
+  ``suffix == f"{wr}_VACCREW"`` (exact), so C's new
+  ``{wr}_VACCREW_<claimer>`` keys (attribution on, the default) slipped
+  past both — an EXCLUDE_WRS'd WR would still produce/upload vac files
+  and a WR_FILTER run would drop them. This is the exact CR-02/CR-03
+  mirror-matcher rule the matcher comments themselves cite: a new
+  variant key shape MUST extend BOTH matchers. Fix: added
+  ``or suffix.startswith(f"{wr}_VACCREW_")`` to both (legacy bare +
+  per-claimer both covered). **(Codex P2 — prune deletes valid history
+  when the kill switch is off.)** ``_run_vac_crew_hash_prune`` drops
+  blank-identifier ``wr|week|vac_crew|`` keys, but blank-identifier is
+  the ACTIVE legacy format when ``VAC_CREW_CLAIM_ATTRIBUTION_ENABLED=0``
+  — so the first disabled-mode run would delete valid current history
+  and force regeneration churn, breaking the exact-legacy contract. Fix:
+  early-return ``False`` from the prune when the flag is off, WITHOUT
+  advancing the sentinel (so the one-time migration still runs if
+  attribution is later enabled). **(Copilot — vac_crew row double-emits
+  on subcontractor sheets.)** ``__is_vac_crew`` is set by column
+  presence, not sheet membership, so a vac_crew row can come from a
+  subcontractor-folder sheet; the subcontractor variant block was gated
+  only on ``is_subcontractor_row and SUBCONTRACTOR_RATE_VARIANTS_ENABLED``
+  (not ``not is_vac_crew_row``) and the vac block doesn't ``continue``,
+  so such a row emitted VACCREW **and** REDUCEDSUB/AEPBILLABLE and a vac
+  ``hold`` was bypassed. Pre-existing since Phase 1; fixed by adding
+  ``not is_vac_crew_row`` to the subcontractor block gate (a ``continue``
+  would skip the ``keys_to_add`` processing that actually creates the
+  vac group, so the gate — not a short-circuit — is the correct fix).
+  Doc nits: env.md filename example now includes the ``<timestamp>``
+  token; the "exact legacy" note clarifies the PARSER is read-only /
+  not flag-gated (only the three identity-CONSTRUCTION sites revert);
+  the ``group_source_rows`` docstring now documents both vac key shapes.
+  **New rule:** the [2026-05-15] mirror-matcher rule (EXCLUDE_WRS /
+  WR_FILTER) and the variant-vs-vac double-emit guard both extend to
+  EVERY new variant key shape — when a sub-project adds a
+  ``{wr}_<VARIANT>[_<id>]`` group key, it MUST (a) extend BOTH WR
+  matchers (prefix-match the id form), (b) ensure the row's other
+  applicable emission blocks are mutually exclusive with the new variant
+  (gate on ``not is_<other>_row``), and (c) gate any one-time hash-prune
+  on the variant's kill switch so the OFF path doesn't delete the
+  now-active legacy keys. Regression tests:
+  ``tests/test_vac_crew_claim_attribution.py::TestVacCrewReviewFixes``
+  (EXCLUDE_WRS drops the per-claimer key, WR_FILTER retains it, prune
+  skipped when disabled / runs when enabled, vac-on-sub row emits only
+  VACCREW). ``pytest tests/`` → **814 passed / 26 skipped / 60
+  subtests** (was 809; +5).

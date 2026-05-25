@@ -355,6 +355,115 @@ cannot silently override the pinned value without code review.
 **Startup banner:** The resolved state is logged at startup as
 `📋 SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED=<bool>`.
 
+### `VAC_CREW_CLAIM_ATTRIBUTION_ENABLED`
+
+*(Added 2026-05-21, Sub-project C — VAC crew claim attribution.)*
+
+**Default:** `'1'` (on) — truthy values are `1` / `true` / `yes` / `on`
+(case-insensitive). Any other value (including empty string, `0`,
+`false`) disables the feature.
+
+**Purpose:** When on, VAC crew Excel files are re-partitioned by the
+FROZEN vac-crew claimer from `billing_audit.attribution_snapshot`
+(`frozen_vac_crew` column) — resolved via Foundation A's
+`resolve_claimer` contract. Each file holds only one claimer's
+completed line items and is named `_VacCrew_<claimer>` (e.g.
+`WR_90773033_WeekEnding_051226_<timestamp>_VacCrew_Jane_Smith_<hash>.xlsx`
+— the generator inserts an `<HHMMSS>` timestamp token before the
+variant suffix).
+Rows with no frozen claimer yet (`no_history`) fall back to the
+current Smartsheet vac-crew name (first-write semantics — this run
+freezes them). A Supabase outage (`fetch_failure`) HOLDs the affected
+rows for that run (no VAC crew file is emitted — correctness over
+availability) and the end-of-run `summarize_attribution_holds()`
+WARNING reports the hold count.
+
+**Scope:** ALL sheets that have VAC crew columns — including both
+subcontractor-folder sheets and original-contract-folder sheets. This
+is broader than `SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED`
+(subcontractor sheets only); it uses its own dedicated kill switch
+for independent rollback.
+
+**Wiring:** A bounded parallel pre-pass (`_vac_crew_claimer_map`,
+`ThreadPoolExecutor(max_workers=min(PARALLEL_WORKERS, n))`) resolves
+every VAC crew row's claimer BEFORE the `group_source_rows` grouping
+loop — no per-row Supabase I/O in the hot loop (per the
+[2026-04-25 14:00] per-row-latency rule).
+
+**Kill-switch-OFF exact legacy behaviour:** When disabled, the three
+identity-*construction* sites — the partition key, the `valid_wr_weeks`
+identity, and the `current_keys` hash entry — all revert to the
+empty-identifier form, so the *generated* output is byte-identical to
+the pre-C baseline (`_VacCrew` bare, no `_<name>` suffix). All three are
+gated on this flag; gating only some would produce attachment churn.
+The `build_group_identity` parser is read-only and intentionally NOT
+gated — it still correctly parses any `_VacCrew_<name>` attachments that
+already exist on the sheet (from a prior attribution-on run), but with
+the flag off no new per-claimer filenames are produced.
+
+**Rollback path:** Set to `'0'` in the workflow `env:` block. The
+next run generates a bare unpartitioned `_VacCrew` file per WR+week,
+exactly as before Sub-project C. No code revert required.
+`VAC_CREW_LEGACY_CLEANUP_ENABLED` may be left on — it carries a
+`valid_wr_weeks` live-identity exemption so current per-claimer files
+are never deleted even if the partitioned files still exist from a
+prior run.
+
+**Workflow pin:** `.github/workflows/weekly-excel-generation.yml`
+`env:` block alongside `VAC_CREW_LEGACY_CLEANUP_ENABLED`. Per the
+[2026-04-24 14:30] workflow-pinning rule, a repo Variable cannot
+silently override the pinned value without code review.
+
+**Startup banner:** The resolved state is logged at startup as
+`📋 VAC Crew claim attribution: ENABLED` or `📋 VAC Crew claim attribution: DISABLED`.
+
+### `VAC_CREW_LEGACY_CLEANUP_ENABLED`
+
+*(Added 2026-05-21, Sub-project C — VAC crew claim attribution.)*
+
+**Default:** `'1'` (on) — truthy values are `1` / `true` / `yes` / `on`
+(case-insensitive). Any other value (including empty string, `0`,
+`false`) disables the cleanup.
+
+**Scope:** Sub-project C one-time migration.
+
+**Purpose:** Gates the destructive removal of legacy UNPARTITIONED
+`_VacCrew` attachments (no claimer suffix, so the parsed identifier is
+empty) on `TARGET_SHEET_ID` for in-scope vac-crew WRs, once those
+variants are re-partitioned by the frozen vac-crew claimer
+(Sub-project C). Before the migration, each vac-crew WR had one bare
+`_VacCrew` file; after, it has one file per claimer
+(`_VacCrew_<name>`). The bare files become duplicate-billing
+leftovers. The deletion predicate matches ONLY empty-identifier files
+for in-scope vac WRs and carries a `valid_wr_weeks` live-identity
+exemption, so a current per-claimer file (non-empty identifier) is
+never deleted.
+
+**Companion:** A one-time, idempotent hash-history prune
+(`_run_vac_crew_hash_prune`, sentinel `_vac_crew_prune_version`,
+version `VAC_CREW_HASH_PRUNE_VERSION`) drops the matching
+blank-identifier `vac_crew` hash-history orphans so the migration is
+deterministic on the first run. The prune is benign (a dropped hash
+entry costs at most one regeneration) and is NOT gated by this env var
+— advancing the version constant is its re-run trigger. The prune
+returns a `bool` wired into `_hash_history_migration_dirty` so it
+persists even on a no-update run (per the [2026-05-21] one-time
+migration rule).
+
+**Separate from `VAC_CREW_CLAIM_ATTRIBUTION_ENABLED`,** which gates
+attribution RESOLUTION (which claimer a row belongs to), NOT this
+cleanup. Set this var to `'0'` to skip the destructive cleanup (legacy
+bare `_VacCrew` files persist until removed manually); attribution
+partitioning still runs.
+
+**Workflow pin:** `.github/workflows/weekly-excel-generation.yml`
+`env:` block alongside `VAC_CREW_CLAIM_ATTRIBUTION_ENABLED`. Per the
+[2026-04-24 14:30] workflow-pinning rule, a repo Variable cannot
+silently override the pinned value without code review.
+
+**Startup banner:** The resolved state is logged at startup as
+`📋 VAC Crew legacy cleanup: ENABLED` or `📋 VAC Crew legacy cleanup: DISABLED`.
+
 ### `AEP_BILLABLE_CUTOFF`
 
 **Default:** `2026-04-12` (AEP rate-increase contract awarded to Linetec)
