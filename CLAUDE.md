@@ -2752,3 +2752,52 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   foreman partitioning remains Sub-project D (highest blast radius —
   changes core primary grouping across all sheets, deliberately last
   before E).
+- [2026-05-25 12:40] PR #219 (Sub-project C) pre-merge AI code-review
+  pass (Copilot + Codex) surfaced 3 real bugs + 3 doc nits; all fixed
+  TDD red→green before merge. **(Codex P1 — WR matchers blind to the
+  per-claimer key.)** ``_key_matches_wr`` (WR_FILTER) and
+  ``_key_matches_excluded_wr`` (EXCLUDE_WRS) matched vac_crew via
+  ``suffix == f"{wr}_VACCREW"`` (exact), so C's new
+  ``{wr}_VACCREW_<claimer>`` keys (attribution on, the default) slipped
+  past both — an EXCLUDE_WRS'd WR would still produce/upload vac files
+  and a WR_FILTER run would drop them. This is the exact CR-02/CR-03
+  mirror-matcher rule the matcher comments themselves cite: a new
+  variant key shape MUST extend BOTH matchers. Fix: added
+  ``or suffix.startswith(f"{wr}_VACCREW_")`` to both (legacy bare +
+  per-claimer both covered). **(Codex P2 — prune deletes valid history
+  when the kill switch is off.)** ``_run_vac_crew_hash_prune`` drops
+  blank-identifier ``wr|week|vac_crew|`` keys, but blank-identifier is
+  the ACTIVE legacy format when ``VAC_CREW_CLAIM_ATTRIBUTION_ENABLED=0``
+  — so the first disabled-mode run would delete valid current history
+  and force regeneration churn, breaking the exact-legacy contract. Fix:
+  early-return ``False`` from the prune when the flag is off, WITHOUT
+  advancing the sentinel (so the one-time migration still runs if
+  attribution is later enabled). **(Copilot — vac_crew row double-emits
+  on subcontractor sheets.)** ``__is_vac_crew`` is set by column
+  presence, not sheet membership, so a vac_crew row can come from a
+  subcontractor-folder sheet; the subcontractor variant block was gated
+  only on ``is_subcontractor_row and SUBCONTRACTOR_RATE_VARIANTS_ENABLED``
+  (not ``not is_vac_crew_row``) and the vac block doesn't ``continue``,
+  so such a row emitted VACCREW **and** REDUCEDSUB/AEPBILLABLE and a vac
+  ``hold`` was bypassed. Pre-existing since Phase 1; fixed by adding
+  ``not is_vac_crew_row`` to the subcontractor block gate (a ``continue``
+  would skip the ``keys_to_add`` processing that actually creates the
+  vac group, so the gate — not a short-circuit — is the correct fix).
+  Doc nits: env.md filename example now includes the ``<timestamp>``
+  token; the "exact legacy" note clarifies the PARSER is read-only /
+  not flag-gated (only the three identity-CONSTRUCTION sites revert);
+  the ``group_source_rows`` docstring now documents both vac key shapes.
+  **New rule:** the [2026-05-15] mirror-matcher rule (EXCLUDE_WRS /
+  WR_FILTER) and the variant-vs-vac double-emit guard both extend to
+  EVERY new variant key shape — when a sub-project adds a
+  ``{wr}_<VARIANT>[_<id>]`` group key, it MUST (a) extend BOTH WR
+  matchers (prefix-match the id form), (b) ensure the row's other
+  applicable emission blocks are mutually exclusive with the new variant
+  (gate on ``not is_<other>_row``), and (c) gate any one-time hash-prune
+  on the variant's kill switch so the OFF path doesn't delete the
+  now-active legacy keys. Regression tests:
+  ``tests/test_vac_crew_claim_attribution.py::TestVacCrewReviewFixes``
+  (EXCLUDE_WRS drops the per-claimer key, WR_FILTER retains it, prune
+  skipped when disabled / runs when enabled, vac-on-sub row emits only
+  VACCREW). ``pytest tests/`` → **814 passed / 26 skipped / 60
+  subtests** (was 809; +5).

@@ -785,3 +785,87 @@ class TestVacCrewProductionInvariants(unittest.TestCase):
         # file_id. Guard the two that previously regressed.
         self.assertNotRegex(self._src, r"variant == 'vac_crew':\s*\n\s*identifier = ''")
         self.assertNotRegex(self._src, r"_variant == 'vac_crew':\s*\n\s*_ident = ''")
+
+
+class TestVacCrewReviewFixes(unittest.TestCase):
+    """PR #219 review fixes: Codex P1 (WR matchers recognize per-claimer
+    _VACCREW_<claimer>), Codex P2 (prune skipped when kill switch off),
+    Copilot (vac_crew row on a subcontractor sheet must not double-emit
+    subcontractor primary variants)."""
+
+    def setUp(self):
+        _reset_all()
+        self._orig_attr = generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED
+        self._orig_excl = list(generate_weekly_pdfs.EXCLUDE_WRS)
+        self._orig_filter = list(generate_weekly_pdfs.WR_FILTER)
+        self._orig_subvar = generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED
+        self._orig_sub_ids = set(generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS)
+        generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED = True
+
+    def tearDown(self):
+        generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED = self._orig_attr
+        generate_weekly_pdfs.EXCLUDE_WRS = self._orig_excl
+        generate_weekly_pdfs.WR_FILTER = self._orig_filter
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = self._orig_subvar
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.update(self._orig_sub_ids)
+        _reset_all()
+
+    def test_exclude_wrs_excludes_per_claimer_vaccrew_key(self):
+        # Codex P1: EXCLUDE_WRS must drop the per-claimer _VACCREW_<claimer>
+        # key (attribution on), not just the legacy bare _VACCREW.
+        generate_weekly_pdfs.EXCLUDE_WRS = ['91467680']
+        with mock.patch('billing_audit.writer.resolve_claimer',
+                        return_value=ResolveOutcome('use', 'CrewA', 'frozen', 'success')):
+            groups = generate_weekly_pdfs.group_source_rows([_make_vac_row(wr='91467680')])
+        self.assertFalse(
+            any('VACCREW' in k for k in groups),
+            f"excluded WR's per-claimer vac key must be dropped; got {list(groups)}",
+        )
+
+    def test_wr_filter_retains_per_claimer_vaccrew_key(self):
+        # Codex P1 sibling: WR_FILTER must RETAIN the per-claimer vac key.
+        generate_weekly_pdfs.WR_FILTER = ['91467680']
+        with mock.patch('billing_audit.writer.resolve_claimer',
+                        return_value=ResolveOutcome('use', 'CrewA', 'frozen', 'success')):
+            groups = generate_weekly_pdfs.group_source_rows([_make_vac_row(wr='91467680')])
+        self.assertTrue(
+            any('VACCREW_CrewA' in k for k in groups),
+            f"WR_FILTER must retain the per-claimer vac key; got {list(groups)}",
+        )
+
+    def test_prune_skipped_when_attribution_disabled(self):
+        # Codex P2: with the kill switch OFF, the blank-identifier vac key IS
+        # the active legacy format — the prune must NOT delete it, and must
+        # NOT advance the sentinel (so the migration still runs if attribution
+        # is later enabled).
+        generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED = False
+        hist = {'91467680|041926|vac_crew|': {'hash': 'h1'}}
+        groups = {'041926_91467680_VACCREW': [{'Work Request #': '91467680'}]}
+        changed = generate_weekly_pdfs._run_vac_crew_hash_prune(hist, groups)
+        self.assertIs(changed, False)
+        self.assertIn('91467680|041926|vac_crew|', hist)
+        self.assertNotIn('_vac_crew_prune_version', hist)
+
+    def test_prune_still_runs_when_attribution_enabled(self):
+        # Guard: with the kill switch ON, the prune still drops legacy orphans.
+        generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED = True
+        hist = {'91467680|041926|vac_crew|': {'hash': 'h1'}}
+        groups = {'041926_91467680_VACCREW_CrewA': [{'Work Request #': '91467680'}]}
+        changed = generate_weekly_pdfs._run_vac_crew_hash_prune(hist, groups)
+        self.assertIs(changed, True)
+        self.assertNotIn('91467680|041926|vac_crew|', hist)
+
+    def test_vac_row_on_subcontractor_sheet_does_not_double_emit(self):
+        # Copilot: a vac_crew row from a subcontractor-folder sheet must emit
+        # ONLY the VACCREW key — never the subcontractor primary variants.
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = True
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.add(8162920222379908)
+        with mock.patch('billing_audit.writer.resolve_claimer',
+                        return_value=ResolveOutcome('use', 'CrewA', 'frozen', 'success')):
+            groups = generate_weekly_pdfs.group_source_rows([_make_vac_row(wr='91467680')])
+        self.assertTrue(any('VACCREW' in k for k in groups))
+        self.assertFalse(
+            any('REDUCEDSUB' in k or 'AEPBILLABLE' in k for k in groups),
+            f"vac row on a sub sheet must not emit subcontractor variants; got {list(groups)}",
+        )

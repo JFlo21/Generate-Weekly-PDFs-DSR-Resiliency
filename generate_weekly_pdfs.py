@@ -3535,7 +3535,17 @@ def _run_vac_crew_hash_prune(hash_history: dict, groups: dict) -> bool:
     Dropping a hash entry costs at most one benign regeneration — never
     data loss — so no live-identity exemption is needed on this drop
     path (unlike the every-run attachment cleanup).
+
+    Codex P2 (PR #219): when ``VAC_CREW_CLAIM_ATTRIBUTION_ENABLED`` is OFF,
+    the blank-identifier ``wr|week|vac_crew|`` key is the ACTIVE legacy
+    format (the kill-switch-OFF path emits the bare ``_VACCREW`` key), so
+    pruning it would delete valid current history and force regeneration
+    churn — breaking the exact-legacy contract. Skip entirely when the flag
+    is off, and do NOT advance the sentinel, so the one-time migration still
+    runs if attribution is later enabled.
     """
+    if not VAC_CREW_CLAIM_ATTRIBUTION_ENABLED:
+        return False
     _persisted = hash_history.pop('_vac_crew_prune_version', 0)
     if (
         isinstance(_persisted, int)
@@ -4943,11 +4953,19 @@ def group_source_rows(rows):
     - Key format: MMDDYY_WRNUMBER_HELPER_<sanitized_helper_name>
     - Only created for rows where __is_helper_row = True
     
-    VAC Crew Variant:
-    - VAC Crew Promax grouping (one Excel per WR/Week for VAC Crew sheets)
-    - Key format: MMDDYY_WRNUMBER_VACCREW
+    VAC Crew Variant (Sub-project C — per-claimer partitioning):
     - Only created for rows where __is_vac_crew = True (row-level column-based detection)
-    - Generates a separate Excel file with _VacCrew suffix in the filename
+    - Two key shapes, gated on VAC_CREW_CLAIM_ATTRIBUTION_ENABLED:
+      * ON (default): partitioned by FROZEN vac-crew claimer →
+        MMDDYY_WRNUMBER_VACCREW_<sanitized_claimer>, one Excel per
+        WR/Week/claimer, filename suffix _VacCrew_<claimer>. Claimer is
+        resolved in the pre-pass (frozen_vac_crew; falls back to the current
+        vac-crew name on no_history; HOLD defers the row on a Supabase
+        fetch_failure).
+      * OFF (exact legacy): single group per WR/Week →
+        MMDDYY_WRNUMBER_VACCREW, filename suffix _VacCrew (no claimer).
+    - VAC crew rows never also emit the subcontractor primary variants
+      (the subcontractor block is gated on `not is_vac_crew_row`).
     
     Activity Log (DECOMMISSIONED - only in primary mode):
     - No longer uses Modified By cache - direct column assignment only
@@ -5385,7 +5403,15 @@ def group_source_rows(rows):
             # remain in scope), so the variant emission block below
             # reads the SAME boolean — no behavioural change to the
             # variant emission contract.
-            if is_subcontractor_row and SUBCONTRACTOR_RATE_VARIANTS_ENABLED:
+            # Copilot (PR #219): ``not is_vac_crew_row`` excludes VAC crew
+            # rows from the subcontractor variant emission. ``__is_vac_crew``
+            # is set by column presence (not sheet membership), so a VAC crew
+            # row can come from a subcontractor-folder sheet; without this
+            # gate it would be DOUBLE-emitted (VACCREW + REDUCEDSUB/AEPBILLABLE)
+            # and a vac ``hold`` outcome would be bypassed by the sub variants.
+            # A vac row already produced its own group above; it must not also
+            # emit subcontractor primary variants.
+            if is_subcontractor_row and not is_vac_crew_row and SUBCONTRACTOR_RATE_VARIANTS_ENABLED:
                 # Snapshot cutoff is needed by BOTH the primary block
                 # here and the helper-shadow block below, so compute it
                 # once up front. ``excel_serial_to_date`` returns ``None``
@@ -5808,6 +5834,10 @@ def group_source_rows(rows):
                 suffix == wr
                 or suffix.startswith(f"{wr}_HELPER_")
                 or suffix == f"{wr}_VACCREW"
+                # Subproject C: per-claimer vac key {wr}_VACCREW_<claimer>
+                # (attribution on). Prefix-match so EXCLUDE_WRS / WR_FILTER
+                # cover both the legacy bare and the per-claimer shapes.
+                or suffix.startswith(f"{wr}_VACCREW_")
                 # Phase 1 subcontractor variants (REVIEW-CR-03).
                 or suffix == f"{wr}_REDUCEDSUB"
                 or suffix == f"{wr}_AEPBILLABLE"
@@ -5855,6 +5885,10 @@ def group_source_rows(rows):
                 or suffix.startswith(f"{wr}_HELPER_")
                 or suffix.startswith(f"{wr}_USER_")
                 or suffix == f"{wr}_VACCREW"
+                # Subproject C: per-claimer vac key {wr}_VACCREW_<claimer>
+                # (attribution on). Prefix-match so EXCLUDE_WRS / WR_FILTER
+                # cover both the legacy bare and the per-claimer shapes.
+                or suffix.startswith(f"{wr}_VACCREW_")
                 # Phase 1 subcontractor variants (REVIEW-CR-02).
                 or suffix == f"{wr}_REDUCEDSUB"
                 or suffix == f"{wr}_AEPBILLABLE"

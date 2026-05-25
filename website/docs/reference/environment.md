@@ -368,7 +368,9 @@ FROZEN vac-crew claimer from `billing_audit.attribution_snapshot`
 (`frozen_vac_crew` column) — resolved via Foundation A's
 `resolve_claimer` contract. Each file holds only one claimer's
 completed line items and is named `_VacCrew_<claimer>` (e.g.
-`WR_90773033_WeekEnding_051226_VacCrew_Jane_Smith_<hash>.xlsx`).
+`WR_90773033_WeekEnding_051226_<timestamp>_VacCrew_Jane_Smith_<hash>.xlsx`
+— the generator inserts an `<HHMMSS>` timestamp token before the
+variant suffix).
 Rows with no frozen claimer yet (`no_history`) fall back to the
 current Smartsheet vac-crew name (first-write semantics — this run
 freezes them). A Supabase outage (`fetch_failure`) HOLDs the affected
@@ -388,13 +390,16 @@ every VAC crew row's claimer BEFORE the `group_source_rows` grouping
 loop — no per-row Supabase I/O in the hot loop (per the
 [2026-04-25 14:00] per-row-latency rule).
 
-**Kill-switch-OFF exact legacy behaviour:** When disabled, the
-partition key, `valid_wr_weeks` identity, `current_keys` hash entry,
-and `build_group_identity` parser ALL revert to the empty-identifier
-form so the output is byte-identical to the pre-C baseline
-(`_VacCrew` bare, no `_<name>` suffix). ALL FOUR identity sites are
-gated on this flag; disabling only some would produce attachment
-churn.
+**Kill-switch-OFF exact legacy behaviour:** When disabled, the three
+identity-*construction* sites — the partition key, the `valid_wr_weeks`
+identity, and the `current_keys` hash entry — all revert to the
+empty-identifier form, so the *generated* output is byte-identical to
+the pre-C baseline (`_VacCrew` bare, no `_<name>` suffix). All three are
+gated on this flag; gating only some would produce attachment churn.
+The `build_group_identity` parser is read-only and intentionally NOT
+gated — it still correctly parses any `_VacCrew_<name>` attachments that
+already exist on the sheet (from a prior attribution-on run), but with
+the flag off no new per-claimer filenames are produced.
 
 **Rollback path:** Set to `'0'` in the workflow `env:` block. The
 next run generates a bare unpartitioned `_VacCrew` file per WR+week,
