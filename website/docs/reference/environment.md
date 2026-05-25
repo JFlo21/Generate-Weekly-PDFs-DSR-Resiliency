@@ -464,6 +464,49 @@ silently override the pinned value without code review.
 **Startup banner:** The resolved state is logged at startup as
 `📋 VAC Crew legacy cleanup: ENABLED` or `📋 VAC Crew legacy cleanup: DISABLED`.
 
+### `PRIMARY_CLAIM_ATTRIBUTION_ENABLED`
+
+**Default:** `1` (enabled). Truthy values: `1`, `true`, `yes`, `on`.
+
+Sub-project D. When enabled, the production primary Excel files (every
+non-subcontractor WR) are partitioned by the **frozen primary foreman**
+who claimed each line item — read from `billing_audit.attribution_snapshot`
+via `resolve_claimer('primary', …)` — and named
+`WR_..._WeekEnding_..._User_<claimer>_<hash>.xlsx`. A WR+week claimed by
+two foremen produces two files, one per claimer.
+
+Unlike Sub-project B (subcontractor primary), the core primary path
+**never holds** on a Supabase outage: if attribution can't be read
+(`fetch_failure`), or there is no frozen row yet (`no_history`), the row
+falls back to the **current** foreman and the file is still generated.
+This is deliberate — D covers every non-subcontractor WR, so holding on an
+outage would suppress all primary billing for that run.
+
+Set to `0` to revert to the legacy one-file-per-WR bare primary behavior
+(`WR_..._WeekEnding_..._<hash>.xlsx`). The resolved value is printed at
+startup as `📋 PRIMARY_CLAIM_ATTRIBUTION_ENABLED=<bool>`. Pinned to `1`
+in the `weekly-excel-generation.yml` `env:` block.
+
+### `LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED`
+
+**Default:** `1` (enabled). Truthy values: `1`, `true`, `yes`, `on`.
+
+Sub-project D one-time migration. When enabled, the legacy UNPARTITIONED
+bare primary attachments (no `_User_` token) on `TARGET_SHEET_ID` for
+non-subcontractor WRs that now produce a partitioned `_User_<claimer>`
+file are deleted — UNLESS the bare file's identity is live this run
+(`valid_wr_weeks` exemption). A matching one-time hash-history prune
+(`_subproject_d_prune_version` sentinel) drops the stale
+`{wr}|{week}|primary|` entries.
+
+**Separate from `PRIMARY_CLAIM_ATTRIBUTION_ENABLED`,** which gates
+attribution resolution, NOT this cleanup. Set to `0` to skip the
+destructive cleanup (legacy bare-primary duplicates persist until removed
+manually). The resolved value is printed at startup as
+`📋 LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED=<bool>`. Pinned to `1` in the
+`weekly-excel-generation.yml` `env:` block alongside
+`PRIMARY_CLAIM_ATTRIBUTION_ENABLED`.
+
 ### `AEP_BILLABLE_CUTOFF`
 
 **Default:** `2026-04-12` (AEP rate-increase contract awarded to Linetec)

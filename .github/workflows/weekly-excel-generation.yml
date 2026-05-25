@@ -392,6 +392,23 @@ jobs:
           # resolution, NOT this cleanup). Living Ledger [2026-05-21].
           VAC_CREW_LEGACY_CLEANUP_ENABLED: '1'
 
+          # Sub-project D (2026-05-25): kill switch for per-claimer
+          # partitioning of the PRODUCTION primary Excel files by frozen
+          # primary foreman from billing_audit.attribution_snapshot. Set
+          # to '0' to preserve legacy one-file-per-WR bare primary
+          # behavior. Unlike Subproject B, the core primary path never
+          # holds on a Supabase outage — it falls back to the current
+          # foreman and still generates. Living Ledger [2026-05-25].
+          PRIMARY_CLAIM_ATTRIBUTION_ENABLED: '1'
+          # Sub-project D (2026-05-25): kill switch for the one-time
+          # removal of legacy UNPARTITIONED bare primary attachments (no
+          # _User_ token) on TARGET_SHEET_ID for non-subcontractor WRs.
+          # Set to '0' to skip the destructive cleanup (legacy duplicates
+          # persist until removed manually). Separate from
+          # PRIMARY_CLAIM_ATTRIBUTION_ENABLED (which gates attribution
+          # resolution, NOT this cleanup). Living Ledger [2026-05-25].
+          LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED: '1'
+
           # AEP_BILLABLE_CUTOFF is intentionally UNSET in the
           # workflow — the Python default (datetime.date(2026,
           # 4, 12), the contract award date) is the source of
