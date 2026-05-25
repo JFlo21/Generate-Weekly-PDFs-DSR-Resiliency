@@ -65,10 +65,20 @@ approximate and will drift; they are anchors, not contracts.
    `{wr}|{week}|primary|` (empty identifier). The migration is therefore a
    clean bare → `_User_<claimer>` transition, with no real-world
    `User`-tag collision.
-5. **`generate_excel` primary display is already D-ready.** The primary
-   `else` branch (~line 6408) sets `display_foreman = current_foreman`,
-   which is `__current_foreman` — the partition-key claimer when D is on,
-   or `effective_user` when off. No `generate_excel` change is needed.
+5. **`generate_excel` primary DISPLAY is D-ready, but the FILENAME suffix
+   is NOT.** The primary display branch (~line 6408) sets
+   `display_foreman = current_foreman` (= `__current_foreman`, the
+   partition-key claimer when on / `effective_user` when off) — no change
+   needed. HOWEVER, the filename-suffix branch (~line 6221-6223) sets
+   `variant_suffix = ''` UNCONDITIONALLY for the primary variant — it
+   ignores the identifier entirely. Without a fix, every per-claimer
+   primary group would generate to the SAME bare filename
+   `WR_..._WeekEnding_..._{ts}_{hash}.xlsx` (collision/overwrite) and the
+   `_User_<claimer>` identity would never round-trip. **D MUST modify this
+   branch** to emit `_User_{sanitized_claimer}` when
+   `PRIMARY_CLAIM_ATTRIBUTION_ENABLED and __current_foreman`, mirroring the
+   `vac_crew` branch at ~line 6205-6220. (The decommissioned activity-log
+   path that the parser still reads no longer has a live filename builder.)
 6. **WR matchers asymmetry.** `_key_matches_excluded_wr` (EXCLUDE_WRS,
    ~line 5886) already has `or suffix.startswith(f"{wr}_USER_")`.
    `_key_matches_wr` (WR_FILTER, ~line 5833) does NOT. D must add the
@@ -207,7 +217,16 @@ site (a) and to the `_User_<name>` filename — the four-site lockstep
 
 ### 6. `generate_excel`
 
-No change (finding #5).
+- **Filename suffix (~line 6221-6223) — REQUIRED change.** Replace the
+  unconditional `variant_suffix = ''` for the primary variant with:
+  when `PRIMARY_CLAIM_ATTRIBUTION_ENABLED and first_row.get('__current_foreman')`,
+  set `variant_suffix = f"_User_{_RE_SANITIZE_IDENTIFIER.sub('_', _pf)[:50]}"`;
+  else `variant_suffix = ''`. Mirrors the `vac_crew` branch exactly. OFF ⇒
+  bare suffix (legacy), so byte-identical. This is what produces the
+  `_User_<claimer>` filename that `build_group_identity` round-trips and
+  that distinguishes per-claimer files on disk / on the sheet.
+- **Display foreman — no change.** The primary display branch already uses
+  `current_foreman` (the claimer when on, `effective_user` when off).
 
 ## Migration (gated on `LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED`)
 
