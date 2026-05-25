@@ -269,3 +269,20 @@ class TestPrimaryGroupCreatedPiiMarker(unittest.TestCase):
 
     def test_marker_registered(self):
         self.assertIn("PRIMARY GROUP CREATED", gwp._PII_LOG_MARKERS)
+
+
+class TestSiteAMainLoopIdentity(unittest.TestCase):
+    """Task 5: main-loop primary identity derives from __current_foreman
+    when attribution is on (gated), legacy User field when off."""
+
+    def test_site_a_gated_primary_identity(self):
+        src = inspect.getsource(generate_weekly_pdfs)
+        # The primary identity branch must derive from __current_foreman
+        # gated on PRIMARY_CLAIM_ATTRIBUTION_ENABLED, and keep the legacy
+        # User-field path for the disabled case.
+        self.assertRegex(
+            src,
+            r"PRIMARY_CLAIM_ATTRIBUTION_ENABLED[\s\S]{0,300}"
+            r"__current_foreman[\s\S]{0,300}"
+            r"first_row\.get\('User'\)",
+        )

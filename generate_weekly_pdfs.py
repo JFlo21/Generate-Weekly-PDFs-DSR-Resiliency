@@ -8229,12 +8229,24 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     )
                     file_identifier = identifier
                 else:
-                    # Legacy primary variant: identifier derived from the
-                    # row's ``User`` field.
-                    user_val = first_row.get('User')
-                    # PERFORMANCE: Use pre-compiled regex for identifier sanitization
-                    identifier = _RE_SANITIZE_IDENTIFIER.sub('_', user_val)[:50] if user_val else ''
-                    file_identifier = identifier
+                    # Subproject D (2026-05-25): Site 1 — main-loop primary
+                    # identity (history_key / file_identifier). Gated on kill
+                    # switch: enabled → frozen claimer (__current_foreman);
+                    # disabled → legacy ``User`` field ('' in production).
+                    if PRIMARY_CLAIM_ATTRIBUTION_ENABLED:
+                        __current_foreman = first_row.get('__current_foreman', '')
+                        identifier = (
+                            _RE_SANITIZE_IDENTIFIER.sub('_', __current_foreman)[:50]
+                            if __current_foreman else ''
+                        )
+                        file_identifier = identifier
+                    else:
+                        # Legacy primary variant: identifier derived from
+                        # the row's ``User`` field.
+                        user_val = first_row.get('User')
+                        # PERFORMANCE: Use pre-compiled regex for identifier sanitization
+                        identifier = _RE_SANITIZE_IDENTIFIER.sub('_', user_val)[:50] if user_val else ''
+                        file_identifier = identifier
                 
                 # History key includes variant dimension to prevent collisions
                 history_key = f"{wr_num}|{week_raw}|{variant}|{identifier}"
