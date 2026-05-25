@@ -29,7 +29,7 @@ Full architecture + guardrails: [`/CLAUDE.md`](../CLAUDE.md).
 
 | Tool | Version | For |
 |---|---|---|
-| Python | 3.10+ (CI uses 3.12) | the billing engine + tests |
+| Python | 3.10+ (CI uses 3.11 and 3.12) | the billing engine + tests |
 | Node.js | 20+ | `portal/`, `portal-v2/`, `website/` |
 | Git | any recent | version control |
 | GitHub CLI (`gh`) | optional | PRs, issue ops |
