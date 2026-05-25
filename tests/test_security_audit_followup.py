@@ -2735,18 +2735,21 @@ class TestPppCleanupUntrackedAttachments(unittest.TestCase):
         # sub_wr_scope and sub_offcontract_variants. Subproject B
         # (2026-05-20, Task 7) appends one more trailing kwarg:
         # sub_legacy_primary_variants. Subproject C Task 6 (2026-05-21)
-        # appends one more trailing kwarg: vac_legacy_wr_scope. All five
-        # are optional (None default) so existing TARGET / PPP call sites
-        # remain byte-identical. IN-PLACE UPDATE per [2026-05-20 00:26]
-        # rule 2 — the assertion follows the v4 signature contract.
+        # appends one more trailing kwarg: vac_legacy_wr_scope. Subproject
+        # D Task 10 (2026-05-25) appends one more trailing kwarg:
+        # primary_wr_scope. All six are optional (None default) so
+        # existing TARGET / PPP call sites remain byte-identical.
+        # IN-PLACE UPDATE per [2026-05-20 00:26] rule 2 — the assertion
+        # follows the v5 signature contract.
         self.assertEqual(
             params,
             ['client', 'target_sheet_id', 'valid_wr_weeks',
              'test_mode', 'attachment_cache', 'target_sheet',
              'variant_whitelist', 'sub_wr_scope', 'sub_offcontract_variants',
-             'sub_legacy_primary_variants', 'vac_legacy_wr_scope'],
-            "Subproject C Task 6 appends a trailing kwarg after "
-            "'sub_legacy_primary_variants': 'vac_legacy_wr_scope'. "
+             'sub_legacy_primary_variants', 'vac_legacy_wr_scope',
+             'primary_wr_scope'],
+            "Subproject D Task 10 appends a trailing kwarg after "
+            "'vac_legacy_wr_scope': 'primary_wr_scope'. "
             "Any further drift must be reviewed against D-09 (TARGET "
             "legacy behavior). "
             f"Got: {params}"
@@ -2774,6 +2777,11 @@ class TestPppCleanupUntrackedAttachments(unittest.TestCase):
             sig.parameters['vac_legacy_wr_scope'].default, None,
             'vac_legacy_wr_scope must default to None '
             '(Subproject C Task 6).'
+        )
+        self.assertIs(
+            sig.parameters['primary_wr_scope'].default, None,
+            'primary_wr_scope must default to None '
+            '(Subproject D Task 10).'
         )
 
 

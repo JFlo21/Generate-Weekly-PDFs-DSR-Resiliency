@@ -2830,6 +2830,7 @@ def cleanup_untracked_sheet_attachments(
     sub_offcontract_variants: set[str] | None = None,
     sub_legacy_primary_variants: set[str] | None = None,
     vac_legacy_wr_scope: set[str] | None = None,
+    primary_wr_scope: set[str] | None = None,
 ):
     """Prune only older variants for identities processed this run (VARIANT-AWARE).
 
@@ -2897,6 +2898,20 @@ def cleanup_untracked_sheet_attachments(
         Gated at the TARGET call site by VAC_CREW_LEGACY_CLEANUP_ENABLED.
         vac_crew files route to TARGET_SHEET_ID only (never PPP); the
         PPP call site must NOT receive this parameter.
+
+    primary_wr_scope: Subproject D (2026-05-25) one-time migration. When
+        provided, any attachment whose parsed ``wr`` is in this set, whose
+        parsed ``variant`` is ``'primary'``, and whose parsed ``identifier``
+        is empty (legacy unpartitioned bare ``primary``) is unconditionally
+        deleted — UNLESS its identity is in ``valid_wr_weeks`` (live-identity
+        exemption). Per-claimer files (non-empty identifier like
+        ``_User_Alice``) are never matched. When None (default), this gate
+        is skipped — byte-identical legacy behaviour for callers that do
+        not pass the parameter. Gated at the TARGET call site by
+        PRIMARY_CLAIM_ATTRIBUTION_ENABLED and
+        LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED. Non-subcontractor primary
+        files route to TARGET_SHEET_ID only — the PPP call site must NOT
+        receive this parameter.
 
     CRITICAL: Identity includes variant dimension to prevent primary/helper cross-deletion.
               Each (wr, week, variant, identifier) is treated as independent.
@@ -3017,6 +3032,30 @@ def cleanup_untracked_sheet_attachments(
                         vac_legacy_wr_scope is not None
                         and wr in vac_legacy_wr_scope
                         and variant == 'vac_crew'
+                        and not _identifier
+                        and ident not in valid_wr_weeks
+                    ):
+                        off_contract_attachments.append(att)
+                        continue
+                    # Subproject D (2026-05-25): one-time migration —
+                    # delete LEGACY UNPARTITIONED bare ``primary``
+                    # attachments (parsed identifier == '') for in-scope
+                    # NON-subcontractor WRs. D re-partitions production
+                    # primary files by frozen claimer (``_User_<name>``),
+                    # so the old bare one-file-per-WR attachment is an
+                    # obsolete duplicate. The ``not _identifier`` check is
+                    # the precise legacy selector: new per-claimer files
+                    # carry a non-empty identifier and are NOT deleted here.
+                    # WR-01 live-identity exemption: an attachment whose
+                    # identity IS in ``valid_wr_weeks`` is kept — this
+                    # protects a legitimate bare-primary file the current
+                    # run produced (e.g. an overlapping WR still emitting
+                    # bare primary because attribution was disabled for
+                    # those rows) from an every-run delete/regenerate churn.
+                    if (
+                        primary_wr_scope is not None
+                        and wr in primary_wr_scope
+                        and variant == 'primary'
                         and not _identifier
                         and ident not in valid_wr_weeks
                     ):
@@ -9165,6 +9204,20 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 if VAC_CREW_LEGACY_CLEANUP_ENABLED
                 else None
             )
+            # Subproject D (2026-05-25): build the non-subcontractor
+            # primary WR scope for legacy bare-primary cleanup on TARGET.
+            # Gated on BOTH the attribution kill switch (the partitioned
+            # _USER_ groups only exist when attribution is on) AND the
+            # cleanup kill switch. primary files route to TARGET only —
+            # do NOT pass this to PPP.
+            _primary_scope = (
+                _build_primary_wr_scope(groups)
+                if (
+                    PRIMARY_CLAIM_ATTRIBUTION_ENABLED
+                    and LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED
+                )
+                else None
+            )
             with sentry_sdk.start_span(op="smartsheet.cleanup", name="Cleanup untracked sheet attachments"):
                 cleanup_untracked_sheet_attachments(
                     client, TARGET_SHEET_ID, valid_wr_weeks, TEST_MODE,
@@ -9176,6 +9229,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     sub_offcontract_variants=(_target_offcontract or None),
                     sub_legacy_primary_variants=_target_legacy_primary,
                     vac_legacy_wr_scope=_vac_scope,
+                    primary_wr_scope=_primary_scope,
                 )
 
             # Phase 01 gap closure (REVIEW-WR-01): parallel cleanup pass

@@ -487,3 +487,66 @@ class TestSubprojectDHashPrune(unittest.TestCase):
             hist['_subproject_d_prune_version'],
             gwp.SUBPROJECT_D_HASH_PRUNE_VERSION,
         )
+
+
+class TestBarePrimaryCleanup(unittest.TestCase):
+    """Task 10: forced bare-primary attachment cleanup on TARGET, gated +
+    valid_wr_weeks-exempt."""
+
+    def setUp(self):
+        _ensure_smartsheet_mocked()
+
+    def _att(self, name):
+        a = mock.MagicMock()
+        a.name = name
+        a.id = name
+        return a
+
+    def _run(self, attachments, valid_wr_weeks, primary_wr_scope):
+        client = mock.MagicMock()
+        sheet = mock.MagicMock()
+        row = mock.MagicMock()
+        row.id = 1
+        sheet.rows = [row]
+        client.Attachments.list_row_attachments.return_value.data = attachments
+        deleted = []
+        client.Attachments.delete_attachment.side_effect = (
+            lambda sid, aid: deleted.append(aid)
+        )
+        gwp.cleanup_untracked_sheet_attachments(
+            client, 12345, valid_wr_weeks, False,
+            target_sheet=sheet,
+            primary_wr_scope=primary_wr_scope,
+        )
+        return deleted
+
+    def test_in_scope_bare_primary_deleted(self):
+        bare = self._att("WR_90001_WeekEnding_041926_120000_aaaaaaaaaaaaaaaa.xlsx")
+        deleted = self._run([bare], valid_wr_weeks=set(), primary_wr_scope={'90001'})
+        self.assertIn(bare.id, deleted)
+
+    def test_live_per_claimer_not_deleted(self):
+        live = self._att("WR_90001_WeekEnding_041926_120000_User_Alice_aaaaaaaaaaaaaaaa.xlsx")
+        # Per-claimer file is identity ('90001','041926','primary','Alice');
+        # it's in valid_wr_weeks this run and has a non-empty identifier.
+        vww = {('90001', '041926', 'primary', 'Alice')}
+        deleted = self._run([live], valid_wr_weeks=vww, primary_wr_scope={'90001'})
+        self.assertNotIn(live.id, deleted)
+
+    def test_overlapping_live_bare_exempt_via_valid_wr_weeks(self):
+        # A bare primary whose identity IS in valid_wr_weeks (e.g. OFF for
+        # those rows) must be exempt.
+        bare = self._att("WR_90001_WeekEnding_041926_120000_aaaaaaaaaaaaaaaa.xlsx")
+        vww = {('90001', '041926', 'primary', None)}
+        deleted = self._run([bare], valid_wr_weeks=vww, primary_wr_scope={'90001'})
+        self.assertNotIn(bare.id, deleted)
+
+    def test_out_of_scope_bare_primary_kept(self):
+        bare = self._att("WR_90099_WeekEnding_041926_120000_aaaaaaaaaaaaaaaa.xlsx")
+        deleted = self._run([bare], valid_wr_weeks=set(), primary_wr_scope={'90001'})
+        self.assertNotIn(bare.id, deleted)
+
+    def test_none_scope_is_noop(self):
+        bare = self._att("WR_90001_WeekEnding_041926_120000_aaaaaaaaaaaaaaaa.xlsx")
+        deleted = self._run([bare], valid_wr_weeks=set(), primary_wr_scope=None)
+        self.assertNotIn(bare.id, deleted)
