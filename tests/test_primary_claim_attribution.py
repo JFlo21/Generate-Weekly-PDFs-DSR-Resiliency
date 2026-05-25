@@ -197,13 +197,27 @@ class TestPrimaryEmission(unittest.TestCase):
         self.assertTrue(any(k.endswith('_USER_Bob') for k in groups))
 
     def test_no_history_falls_back_to_current(self):
+        # Use distinct values for effective_user vs outcome.name so the
+        # test can distinguish which branch the code took:
+        #   outcome.name='ResolvedName'  → the ``use`` branch consumed .name
+        #   effective_user='CurFM'       → the wrong/else branch fallback
+        # The ``no_history`` → ``use`` path must consume outcome.name.
         rows = [_make_primary_row(1, effective_user='CurFM')]
         with mock.patch(
             'billing_audit.writer.resolve_claimer',
-            return_value=ResolveOutcome('use', 'CurFM', 'current', 'no_history'),
+            return_value=ResolveOutcome('use', 'ResolvedName', 'current', 'no_history'),
         ):
             groups = gwp.group_source_rows(rows)
-        self.assertTrue(any(k.endswith('_USER_CurFM') for k in groups))
+        # outcome.name was consumed: key must end with _USER_ResolvedName,
+        # NOT with _USER_CurFM (which would mean effective_user was used).
+        self.assertTrue(
+            any(k.endswith('_USER_ResolvedName') for k in groups),
+            f"expected _USER_ResolvedName key; got {list(groups)}",
+        )
+        self.assertFalse(
+            any(k.endswith('_USER_CurFM') for k in groups),
+            "effective_user leaked into key — code must use outcome.name on the 'use' branch",
+        )
 
     def test_hold_outage_still_emits_under_current(self):
         rows = [_make_primary_row(1, effective_user='CurFM')]
@@ -245,3 +259,13 @@ class TestPrimaryFilenameRoundTrip(unittest.TestCase):
         self.assertEqual(a, ('90001', '041926', 'primary', 'Alice'))
         self.assertEqual(b, ('90001', '041926', 'primary', 'Bob'))
         self.assertNotEqual(a, b)  # distinct -> cleanup keeps both
+
+
+class TestPrimaryGroupCreatedPiiMarker(unittest.TestCase):
+    """Task 4 review fix: the PRIMARY GROUP CREATED INFO log embeds WR=/Week=
+    PII, so its marker must be registered in _PII_LOG_MARKERS (mirrors the
+    five sibling GROUP CREATED markers; [2026-04-20 12:00] / [2026-05-15
+    12:00] rules)."""
+
+    def test_marker_registered(self):
+        self.assertIn("PRIMARY GROUP CREATED", gwp._PII_LOG_MARKERS)

@@ -1041,6 +1041,13 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     "_REDUCEDSUB_HELPER_",
     "AEP BILLABLE GROUP CREATED",
     "REDUCED SUB GROUP CREATED",
+    # Subproject D (Task 4 review fix / [2026-05-25]): the new
+    # PRIMARY GROUP CREATED INFO log embeds WR= and Week= row PII
+    # (see the ``🧑 PRIMARY GROUP CREATED`` log in
+    # ``group_source_rows``). Explicit marker per the
+    # [2026-04-20 12:00] / [2026-05-15 12:00] ledger rules —
+    # mirrors the five sibling GROUP CREATED markers above.
+    "PRIMARY GROUP CREATED",
     # Phase 01 gap closure (REVIEW-WR-04 / Living Ledger 2026-04-20
     # 12:00): the new helper-shadow GROUP CREATED logs already match
     # against the substring "HELPER GROUP CREATED" by accident — the
