@@ -323,6 +323,14 @@ SUBPROJECT_B_HASH_PRUNE_VERSION = 1
 # three migrations are independent + auditable.
 # Advancing this constant is the kill switch (re-run trigger).
 VAC_CREW_HASH_PRUNE_VERSION = 1
+# Subproject D (2026-05-25): one-time hash-history prune version for
+# dropping LEGACY blank-identifier `primary` orphans left behind when
+# D re-partitions the production primary variant by frozen primary
+# claimer. Separate sentinel (`_subproject_d_prune_version`) from
+# Phase 1.1, Subproject B, and Subproject C so all four migrations are
+# independent + auditable. Advancing this constant is the kill switch
+# (re-run trigger).
+SUBPROJECT_D_HASH_PRUNE_VERSION = 1
 # Verbose debug tunables
 DEBUG_SAMPLE_ROWS = int(os.getenv('DEBUG_SAMPLE_ROWS','3') or 3)  # How many initial rows (across all sheets) to show full per-cell mapping
 DEBUG_ESSENTIAL_ROWS = int(os.getenv('DEBUG_ESSENTIAL_ROWS','5') or 5)  # How many initial rows to log essential field summary
@@ -551,6 +559,35 @@ VAC_CREW_LEGACY_CLEANUP_ENABLED = os.getenv(
     'VAC_CREW_LEGACY_CLEANUP_ENABLED', '1'
 ).strip().lower() in ('1', 'true', 'yes', 'on')
 
+# Subproject D (2026-05-25): default-ON kill switch that enables
+# per-claimer partitioning of the PRODUCTION primary Excel files. When
+# enabled, each non-subcontractor primary Excel is partitioned by the
+# FROZEN primary foreman (``primary`` role from
+# ``billing_audit.attribution_snapshot`` via ``resolve_claimer``) and
+# named ``_User_<claimer>``. When disabled, the legacy one-file-per-WR
+# bare primary behavior is preserved exactly. Unlike Subproject B, the
+# core primary path NEVER holds on a Supabase outage — it falls back to
+# the current foreman and still generates (operator decision: this path
+# covers every non-sub WR, so HOLD would suppress all primary billing
+# during an outage). Pinned in workflow env: block per [2026-05-15
+# 12:00] rule 7.
+PRIMARY_CLAIM_ATTRIBUTION_ENABLED = os.getenv(
+    'PRIMARY_CLAIM_ATTRIBUTION_ENABLED', '1'
+).strip().lower() in ('1', 'true', 'yes', 'on')
+
+# Subproject D (2026-05-25): default-ON kill switch for the one-time
+# removal of legacy UNPARTITIONED bare ``primary`` attachments (no
+# ``_User_`` token, parsed identifier == '') on TARGET_SHEET_ID for
+# non-subcontractor WRs, once those files are re-partitioned by frozen
+# primary claimer. Set to '0' to skip the destructive cleanup (legacy
+# duplicates then persist until removed manually). Separate from
+# PRIMARY_CLAIM_ATTRIBUTION_ENABLED (which gates attribution
+# resolution, NOT this cleanup). Workflow-pinned per [2026-05-15
+# 12:00] rule 7.
+LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED = os.getenv(
+    'LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED', '1'
+).strip().lower() in ('1', 'true', 'yes', 'on')
+
 # Cutoff date for ``_AEPBillable`` variant generation. Awarded to
 # Linetec on 2026-04-12 (subcontractor rate contract). Plan 2 (parser
 # extension) and Plan 3 (variant emission) gate variant emission on
@@ -718,6 +755,17 @@ logging.info(
 logging.info(
     f"📋 VAC Crew legacy cleanup: "
     f"{'ENABLED' if VAC_CREW_LEGACY_CLEANUP_ENABLED else 'DISABLED'}"
+)
+# Subproject D: surface resolved kill-switch state at startup so
+# operators grepping the banner see the active feature state at a
+# glance. Banner body carries no row PII (just the resolved bools).
+logging.info(
+    f"📋 PRIMARY_CLAIM_ATTRIBUTION_ENABLED="
+    f"{PRIMARY_CLAIM_ATTRIBUTION_ENABLED}"
+)
+logging.info(
+    f"📋 LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED="
+    f"{LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED}"
 )
 
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
