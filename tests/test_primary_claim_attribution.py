@@ -619,3 +619,71 @@ class TestSubprojectDProductionInvariants(unittest.TestCase):
 
     def test_cleanup_has_primary_wr_scope_param(self):
         self.assertIn("primary_wr_scope: set[str] | None = None", self.src)
+
+
+class TestBuildGroupIdentityReservedTokenInClaimerName(unittest.TestCase):
+    """Final-review Issue #1 fix: a bare _User_<claimer> primary file whose
+    CLAIMER NAME contains a reserved token (Helper / VacCrew / ReducedSub /
+    AEPBillable) must parse as 'primary' with the full claimer, not be
+    misclassified by the variant scan. Generalizes the reserved-token-
+    parse-order rule (ledger [2026-05-21 13:20]) to the bare _User_ shape.
+    The parser now dispatches on the EARLIEST reserved-token position."""
+
+    _H = 'aaaaaaaaaaaaaaaa'  # 16-char hash
+
+    def _bgi(self, suffix):
+        return gwp.build_group_identity(
+            f"WR_90001_WeekEnding_041926_120000_{suffix}_{self._H}.xlsx"
+        )
+
+    # --- primary claimer NAME contains a reserved token (the bug) ---
+    def test_primary_claimer_named_helper(self):
+        self.assertEqual(self._bgi('User_Pat_Helper'),
+                         ('90001', '041926', 'primary', 'Pat_Helper'))
+
+    def test_primary_claimer_named_vaccrew(self):
+        self.assertEqual(self._bgi('User_VacCrew_Joe'),
+                         ('90001', '041926', 'primary', 'VacCrew_Joe'))
+
+    def test_primary_claimer_named_reducedsub(self):
+        self.assertEqual(self._bgi('User_ReducedSub_Bob'),
+                         ('90001', '041926', 'primary', 'ReducedSub_Bob'))
+
+    def test_primary_claimer_named_aepbillable(self):
+        self.assertEqual(self._bgi('User_AEPBillable_Sue'),
+                         ('90001', '041926', 'primary', 'AEPBillable_Sue'))
+
+    # --- inverse guards: helper/vac/sub members NAMED 'User' still parse right ---
+    def test_helper_named_user(self):
+        self.assertEqual(self._bgi('Helper_User_Smith'),
+                         ('90001', '041926', 'helper', 'User_Smith'))
+
+    def test_vaccrew_named_user(self):
+        self.assertEqual(self._bgi('VacCrew_User_Jones'),
+                         ('90001', '041926', 'vac_crew', 'User_Jones'))
+
+    # --- regression guards: B/C normal two-level shapes unchanged ---
+    def test_reducedsub_user_normal(self):
+        self.assertEqual(self._bgi('ReducedSub_User_Alice'),
+                         ('90001', '041926', 'reduced_sub', 'Alice'))
+
+    def test_aepbillable_helper_normal(self):
+        self.assertEqual(self._bgi('AEPBillable_Helper_Jane'),
+                         ('90001', '041926', 'aep_billable_helper', 'Jane'))
+
+    def test_reducedsub_helper_normal(self):
+        self.assertEqual(self._bgi('ReducedSub_Helper_Jane'),
+                         ('90001', '041926', 'reduced_sub_helper', 'Jane'))
+
+    def test_legacy_bare_vaccrew(self):
+        self.assertEqual(self._bgi('VacCrew'),
+                         ('90001', '041926', 'vac_crew', ''))
+
+    def test_bare_primary_no_marker(self):
+        # No reserved token at all -> bare primary, identifier None.
+        self.assertEqual(
+            gwp.build_group_identity(
+                f"WR_90001_WeekEnding_041926_120000_{self._H}.xlsx"
+            ),
+            ('90001', '041926', 'primary', None),
+        )

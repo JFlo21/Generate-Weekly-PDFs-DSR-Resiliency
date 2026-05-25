@@ -2695,51 +2695,52 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
     identifier = None
     tail = parts[we_idx + 2:]
 
-    # Per Phase 01 Plan 02 D-09 (variant-first, helper-second) and
-    # D-10 (tail-scoped detection): the new subcontractor variants
-    # MUST be checked BEFORE the existing ``Helper`` / ``VacCrew``
-    # / ``User`` branches so that ``..._AEPBillable_Helper_<name>_<hash>``
-    # parses as ``aep_billable_helper`` (not plain ``helper`` with
-    # the AEPBillable token silently lost). The check operates on
-    # the post-``WeekEnding`` ``tail`` slice only, so a sanitized
-    # WR# that happens to contain ``AEPBillable`` / ``ReducedSub``
-    # in its body cannot false-positive the variant — covered by
-    # the negative tests in TestBuildGroupIdentityWithUnderscoresInWr.
-    if 'AEPBillable' in tail:
+    # Reserved-token precedence (ledger [2026-05-21 13:20], generalized to
+    # the bare ``_User_`` shape by Subproject D 2026-05-25): the variant is
+    # determined by the EARLIEST reserved marker token in ``tail``, NOT by a
+    # fixed check order. A claimer / helper / vac-crew name can itself contain
+    # a reserved word (e.g. a foreman literally named "Pat Helper" →
+    # ``_User_Pat_Helper_<hash>``); a fixed AEPBillable→ReducedSub→VacCrew→
+    # Helper→User order would misclassify it (here, as ``helper`` with the
+    # ``User`` token lost). Dispatching on the earliest-position marker fixes
+    # this for ALL bare shapes while preserving the two-level
+    # ``_AEPBillable_User_`` / ``_ReducedSub_Helper_`` handling (AEPBillable /
+    # ReducedSub are always the earliest token in those filenames). The scan
+    # operates on the post-``WeekEnding`` ``tail`` slice only, so a sanitized
+    # WR# containing a reserved word in its body cannot false-positive the
+    # variant — covered by the negative tests in
+    # TestBuildGroupIdentityWithUnderscoresInWr.
+    _reserved_positions = {
+        _tok: tail.index(_tok)
+        for _tok in ('AEPBillable', 'ReducedSub', 'VacCrew', 'Helper', 'User')
+        if _tok in tail
+    }
+    _first_marker = (
+        min(_reserved_positions, key=_reserved_positions.get)
+        if _reserved_positions else None
+    )
+    if _first_marker == 'AEPBillable':
         aep_idx_rel = tail.index('AEPBillable')
         post_aep = tail[aep_idx_rel + 1:]
         if post_aep and post_aep[0] == 'User':
-            # Subproject B: _AEPBillable_User_<claimer>_<hash>. The reserved
-            # 'User' token marks a primary-claimer identifier. It MUST be
-            # checked BEFORE the 'Helper' scan (Codex P2): a primary claimer
-            # whose NAME contains the 'Helper' token (e.g. a foreman named
-            # 'Pat Helper' → 'Pat_Helper') would otherwise be misclassified
-            # as an aep_billable_helper variant, breaking identity round-trip
-            # and causing cleanup/hash churn. Span-join so an underscored
-            # claimer name survives intact. A dangling 'User' with no name
-            # before the hash yields '' (legacy shape).
+            # Subproject B: _AEPBillable_User_<claimer>_<hash>. Reserved 'User'
+            # token marks a primary-claimer identifier. Span-join so an
+            # underscored claimer name survives; dangling 'User' -> '' (legacy).
             variant = 'aep_billable'
             identifier = '_'.join(post_aep[1:-1])
         elif 'Helper' in post_aep:
             variant = 'aep_billable_helper'
             helper_idx_rel = post_aep.index('Helper')
             if helper_idx_rel + 1 < len(post_aep):
-                # Join all parts between Helper and hash (last part)
-                # so underscored helper names like ``Jane_Smith``
-                # survive intact (round-7 span-join discipline).
                 identifier = '_'.join(post_aep[helper_idx_rel + 1:-1])
         else:
-            # Legacy unpartitioned _AEPBillable_<hash> (no User token).
+            # Legacy unpartitioned _AEPBillable_<hash> (no User/Helper token).
             variant = 'aep_billable'
             identifier = ''
-    elif 'ReducedSub' in tail:
+    elif _first_marker == 'ReducedSub':
         rs_idx_rel = tail.index('ReducedSub')
         post_rs = tail[rs_idx_rel + 1:]
         if post_rs and post_rs[0] == 'User':
-            # Subproject B: _ReducedSub_User_<claimer>_<hash>. Reserved 'User'
-            # token checked BEFORE the 'Helper' scan (Codex P2) so a claimer
-            # name containing 'Helper' isn't misclassified as a helper variant.
-            # A dangling 'User' with no name before the hash yields '' (legacy shape).
             variant = 'reduced_sub'
             identifier = '_'.join(post_rs[1:-1])
         elif 'Helper' in post_rs:
@@ -2748,27 +2749,23 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
             if helper_idx_rel + 1 < len(post_rs):
                 identifier = '_'.join(post_rs[helper_idx_rel + 1:-1])
         else:
-            # Legacy unpartitioned _ReducedSub_<hash> (no User token).
+            # Legacy unpartitioned _ReducedSub_<hash> (no User/Helper token).
             variant = 'reduced_sub'
             identifier = ''
-    elif 'VacCrew' in tail:
-        # Subproject C: _VacCrew_<name>_<hash>. Checked BEFORE the 'Helper'
-        # scan so a crew name containing the 'Helper' token isn't
-        # misclassified as a helper variant (B round-7 lesson). Span-join so
-        # an underscored name survives. Legacy _VacCrew (no name) -> ''.
+    elif _first_marker == 'VacCrew':
+        # Subproject C: _VacCrew_<name>_<hash>. Span-join so an underscored
+        # name survives. Legacy _VacCrew (no name) -> ''.
         variant = 'vac_crew'
         vac_idx_rel = tail.index('VacCrew')
         identifier = ''  # legacy _VacCrew (no name) -> '' per identity contract
         if vac_idx_rel + 1 < len(tail):
             identifier = '_'.join(tail[vac_idx_rel + 1:-1])
-    elif 'Helper' in tail:
+    elif _first_marker == 'Helper':
         variant = 'helper'
         helper_idx_rel = tail.index('Helper')
         if helper_idx_rel + 1 < len(tail):
-            # Join all parts between Helper and hash (last part)
-            # Format: ...Helper_{name}_{hash} or ...Helper_{name}_part2_{hash}
             identifier = '_'.join(tail[helper_idx_rel + 1:-1])
-    elif 'User' in tail:
+    elif _first_marker == 'User':
         variant = 'primary'
         user_idx_rel = tail.index('User')
         if user_idx_rel + 1 < len(tail):
@@ -5363,7 +5360,11 @@ def group_source_rows(rows):
     # availability). resolve_claimer is still called so frozen attribution
     # is used whenever Supabase is healthy.
     _primary_claimer_map: dict = {}
-    if BILLING_AUDIT_AVAILABLE and PRIMARY_CLAIM_ATTRIBUTION_ENABLED:
+    if (
+        BILLING_AUDIT_AVAILABLE
+        and PRIMARY_CLAIM_ATTRIBUTION_ENABLED
+        and RES_GROUPING_MODE in ('helper', 'both')
+    ):
         _d_pre_rows = []
         for _r in rows:
             _rid = _r.get('__row_id')
