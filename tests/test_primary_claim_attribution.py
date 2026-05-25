@@ -372,3 +372,29 @@ class TestWrFilterMatchesUserVariant(unittest.TestCase):
             [k for k in groups if k.endswith('_USER_FrozenFM')], [],
             f"EXCLUDE_WRS failed to drop the _USER_ primary group: {list(groups)}",
         )
+
+
+class TestBuildPrimaryWrScope(unittest.TestCase):
+    """Task 8: scope helper returns sanitized WRs with a partitioned
+    _USER_ primary group in this run."""
+
+    def test_scope_collects_partitioned_primary_wrs(self):
+        groups = {
+            '041926_90001_USER_Alice': [{'Work Request #': '90001'}],
+            '041926_90002_USER_Bob': [{'Work Request #': '90002'}],
+            '041926_90003_HELPER_Carol': [{'Work Request #': '90003'}],
+            '041926_90004_VACCREW_Dan': [{'Work Request #': '90004'}],
+            '041926_90005_REDUCEDSUB_USER_Eve': [{'Work Request #': '90005'}],
+            '041926_90006': [{'Work Request #': '90006'}],  # bare primary (OFF mode)
+        }
+        scope = gwp._build_primary_wr_scope(groups)
+        self.assertIn('90001', scope)
+        self.assertIn('90002', scope)
+        # Helper / vac / subcontractor / bare-primary groups are NOT in scope.
+        self.assertNotIn('90003', scope)
+        self.assertNotIn('90004', scope)
+        self.assertNotIn('90005', scope)  # REDUCEDSUB_USER is B's, not D's
+        self.assertNotIn('90006', scope)
+
+    def test_empty_groups(self):
+        self.assertEqual(gwp._build_primary_wr_scope({}), set())

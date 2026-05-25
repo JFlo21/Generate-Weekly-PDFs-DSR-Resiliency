@@ -3357,6 +3357,38 @@ def _build_vac_crew_wr_scope(groups: dict) -> set[str]:
     return _scope
 
 
+def _build_primary_wr_scope(groups: dict) -> set[str]:
+    """Return the set of sanitized WR tokens that have a partitioned
+    production-primary ``_USER_`` group in this run (Subproject D).
+
+    A group key is a partitioned primary iff it contains ``'_USER_'`` AND
+    is NOT a subcontractor primary variant (``'_REDUCEDSUB'`` /
+    ``'_AEPBILLABLE'`` — those carry ``_USER_`` too but are owned by
+    Subproject B and route through B's own scope/cleanup). Helper
+    (``_HELPER_``) and vac (``_VACCREW``) groups never match because they
+    do not contain ``_USER_``.
+
+    Shared by ``_run_subproject_d_hash_prune`` (hash-prune scope) and the
+    TARGET ``cleanup_untracked_sheet_attachments`` call site (bare-primary
+    migration scope). A single implementation prevents the scope-build
+    drift that the [2026-05-15 12:00] three-site invariant warns against.
+    """
+    _scope: set[str] = set()
+    for _key, _g_rows in groups.items():
+        if (
+            '_USER_' in _key
+            and '_REDUCEDSUB' not in _key
+            and '_AEPBILLABLE' not in _key
+            and _g_rows
+        ):
+            _g_wr_raw = _g_rows[0].get('Work Request #', '')
+            _g_wr = str(_g_wr_raw).split('.')[0]
+            _g_wr = _RE_SANITIZE_HELPER_NAME.sub('_', _g_wr)[:50]
+            if _g_wr:
+                _scope.add(_g_wr)
+    return _scope
+
+
 def _run_phase_1_1_hash_prune(hash_history: dict, groups: dict) -> bool:
     """Phase 1.1 SUB-12 / D-17..D-19: idempotent hash-history prune.
 
