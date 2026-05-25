@@ -2415,7 +2415,7 @@ class TestWrFilterMatchesAllVariants(unittest.TestCase):
             or suffix.startswith(f"{wr}_USER_")
         )
 
-    def test_all_seven_variants_retained_for_target_wr(self):
+    def test_all_eight_variants_retained_for_target_wr(self):
         # Sub-project D (2026-05-25): _USER_ IS now retained — the
         # asymmetry with `_key_matches_excluded_wr` is resolved.
         wr = '12345'

@@ -5383,6 +5383,16 @@ def group_source_rows(rows):
                 continue
             if _r.get('__is_vac_crew'):
                 continue
+            # Valid helper rows are excluded from the primary emission path
+            # below, so resolving a frozen primary claimer for them is pure
+            # overhead (extra Supabase load / latency). Mirror the
+            # valid_helper_row predicate (helper_dept required, job optional).
+            if (
+                _r.get('__is_helper_row')
+                and _r.get('__helper_foreman')
+                and _r.get('__helper_dept')
+            ):
+                continue
             _sid = _r.get('__source_sheet_id')
             if _sid is not None and _sid in _FOLDER_DISCOVERED_SUB_IDS:
                 continue  # subcontractor rows are Sub-project B's domain
@@ -5399,6 +5409,7 @@ def group_source_rows(rows):
                 _we.date() if isinstance(_we, datetime.datetime) else _we,
                 _r.get('__effective_user', 'Unknown Foreman'),
             ))
+
         if _d_pre_rows:
             try:
                 from billing_audit.writer import resolve_claimer as _resolve_claimer_primary
@@ -5418,7 +5429,10 @@ def group_source_rows(rows):
                 else:
                     _workers = min(PARALLEL_WORKERS, len(_d_pre_rows))
                     with ThreadPoolExecutor(max_workers=_workers) as _ex:
-                        _futs = [_ex.submit(_resolve_one_primary, _it) for _it in _d_pre_rows]
+                        _futs = [
+                            _ex.submit(_resolve_one_primary, _it)
+                            for _it in _d_pre_rows
+                        ]
                         for _fut in as_completed(_futs):
                             try:
                                 _rid, _out = _fut.result()
