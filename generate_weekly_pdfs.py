@@ -5969,10 +5969,12 @@ def group_source_rows(rows):
     if WR_FILTER and TEST_MODE:
         before = len(groups)
         def _key_matches_wr(k: str, wr: str) -> bool:
-            # k format examples (all seven shapes emitted by group_source_rows):
+            # k format examples (all eight shapes emitted by group_source_rows):
             #   MMDDYY_WR                                   → primary
+            #   MMDDYY_WR_USER_<name>                       → primary (Subproject D)
             #   MMDDYY_WR_HELPER_<name>                     → helper
             #   MMDDYY_WR_VACCREW                           → vac_crew
+            #   MMDDYY_WR_VACCREW_<claimer>                 → vac_crew (Subproject C)
             #   MMDDYY_WR_REDUCEDSUB                        → reduced_sub  (Phase 1)
             #   MMDDYY_WR_AEPBILLABLE                       → aep_billable (Phase 1)
             #   MMDDYY_WR_REDUCEDSUB_HELPER_<name>          → reduced_sub_helper  (Phase 1)
@@ -5985,16 +5987,19 @@ def group_source_rows(rows):
             # producing zero ``_AEPBillable`` / ``_ReducedSub`` output for the
             # filtered WR — which makes the Step B operator diagnostic
             # documented in 01-VERIFICATION.md unexercisable. Match shape is
-            # IDENTICAL to ``_key_matches_excluded_wr`` (minus the
-            # ``_USER_`` legacy clause, which has never been a WR_FILTER
-            # target). The two matchers MUST stay in sync — any future
-            # variant added in ``group_source_rows`` must extend BOTH.
+            # IDENTICAL to ``_key_matches_excluded_wr``. The two matchers
+            # MUST stay in sync — any future variant added in
+            # ``group_source_rows`` must extend BOTH.
             try:
                 suffix = k.split('_', 1)[1]  # take everything after first underscore (WR...)
             except Exception:
                 return False
             return (
                 suffix == wr
+                # Subproject D: per-claimer primary key {wr}_USER_<claimer>
+                # (attribution on). Mirror of the _key_matches_excluded_wr
+                # clause below — the two matchers MUST stay in sync.
+                or suffix.startswith(f"{wr}_USER_")
                 or suffix.startswith(f"{wr}_HELPER_")
                 or suffix == f"{wr}_VACCREW"
                 # Subproject C: per-claimer vac key {wr}_VACCREW_<claimer>
@@ -6021,11 +6026,12 @@ def group_source_rows(rows):
         logging.info(f"🔍 Sample group keys: {sample_keys}")
         
         def _key_matches_excluded_wr(k: str, wr: str) -> bool:
-            # k format examples (all seven shapes emitted by group_source_rows):
+            # k format examples (all nine shapes emitted by group_source_rows):
             #   MMDDYY_WR                                   → primary
+            #   MMDDYY_WR_USER_<name>                       → primary (Subproject D)
             #   MMDDYY_WR_HELPER_<name>                     → helper
-            #   MMDDYY_WR_USER_<name>                       → user-tagged (legacy)
             #   MMDDYY_WR_VACCREW                           → vac_crew
+            #   MMDDYY_WR_VACCREW_<claimer>                 → vac_crew (Subproject C)
             #   MMDDYY_WR_REDUCEDSUB                        → reduced_sub  (Phase 1)
             #   MMDDYY_WR_AEPBILLABLE                       → aep_billable (Phase 1)
             #   MMDDYY_WR_REDUCEDSUB_HELPER_<name>          → reduced_sub_helper  (Phase 1)

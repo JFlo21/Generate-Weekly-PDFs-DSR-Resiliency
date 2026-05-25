@@ -313,3 +313,62 @@ class TestSitesBCIdentity(unittest.TestCase):
             r"_ident = \(\s*_RE_SANITIZE_IDENTIFIER\.sub\('_', _pf\)\[:50\]"
             r"\s*if \(PRIMARY_CLAIM_ATTRIBUTION_ENABLED and _pf\)",
         )
+
+
+class TestWrFilterMatchesUserVariant(unittest.TestCase):
+    """Task 7: WR_FILTER (_key_matches_wr) retains _USER_ primary groups;
+    EXCLUDE_WRS (_key_matches_excluded_wr) already does."""
+
+    def setUp(self):
+        _ensure_smartsheet_mocked()
+        _reset_all()
+        self._saved = {
+            'attr': gwp.PRIMARY_CLAIM_ATTRIBUTION_ENABLED,
+            'avail': gwp.BILLING_AUDIT_AVAILABLE,
+            'mode': gwp.RES_GROUPING_MODE,
+            'sub': set(gwp._FOLDER_DISCOVERED_SUB_IDS),
+            'tm': gwp.TEST_MODE,
+            'wf': list(gwp.WR_FILTER),
+            'ex': list(gwp.EXCLUDE_WRS),
+        }
+        gwp.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = True
+        gwp.BILLING_AUDIT_AVAILABLE = True
+        gwp.RES_GROUPING_MODE = 'both'
+        gwp._FOLDER_DISCOVERED_SUB_IDS.clear()
+
+    def tearDown(self):
+        gwp.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = self._saved['attr']
+        gwp.BILLING_AUDIT_AVAILABLE = self._saved['avail']
+        gwp.RES_GROUPING_MODE = self._saved['mode']
+        gwp._FOLDER_DISCOVERED_SUB_IDS.clear()
+        gwp._FOLDER_DISCOVERED_SUB_IDS.update(self._saved['sub'])
+        gwp.TEST_MODE = self._saved['tm']
+        gwp.WR_FILTER = self._saved['wf']
+        gwp.EXCLUDE_WRS = self._saved['ex']
+
+    def test_wr_filter_retains_user_primary_group(self):
+        gwp.TEST_MODE = True
+        gwp.WR_FILTER = ['90001']
+        rows = [_make_primary_row(1, wr='90001', effective_user='CurFM')]
+        with mock.patch(
+            'billing_audit.writer.resolve_claimer',
+            return_value=ResolveOutcome('use', 'FrozenFM', 'frozen', 'success'),
+        ):
+            groups = gwp.group_source_rows(rows)
+        self.assertTrue(
+            any(k.endswith('_USER_FrozenFM') for k in groups),
+            f"WR_FILTER dropped the _USER_ primary group: {list(groups)}",
+        )
+
+    def test_exclude_wrs_drops_user_primary_group(self):
+        gwp.EXCLUDE_WRS = ['90001']
+        rows = [_make_primary_row(1, wr='90001', effective_user='CurFM')]
+        with mock.patch(
+            'billing_audit.writer.resolve_claimer',
+            return_value=ResolveOutcome('use', 'FrozenFM', 'frozen', 'success'),
+        ):
+            groups = gwp.group_source_rows(rows)
+        self.assertEqual(
+            [k for k in groups if k.endswith('_USER_FrozenFM')], [],
+            f"EXCLUDE_WRS failed to drop the _USER_ primary group: {list(groups)}",
+        )
