@@ -139,3 +139,109 @@ class TestPrimaryPrePassSource(unittest.TestCase):
             src,
             r"_primary_claimer_map[\s\S]{0,600}_FOLDER_DISCOVERED_SUB_IDS",
         )
+
+
+class TestPrimaryEmission(unittest.TestCase):
+    """Task 4: production primary emission partitions by claimer when on,
+    bare when off; never holds."""
+
+    def setUp(self):
+        _ensure_smartsheet_mocked()
+        _reset_all()
+        self._saved = {
+            'attr': gwp.PRIMARY_CLAIM_ATTRIBUTION_ENABLED,
+            'avail': gwp.BILLING_AUDIT_AVAILABLE,
+            'mode': gwp.RES_GROUPING_MODE,
+            'sub': set(gwp._FOLDER_DISCOVERED_SUB_IDS),
+        }
+        gwp.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = True
+        gwp.BILLING_AUDIT_AVAILABLE = True
+        gwp.RES_GROUPING_MODE = 'both'
+        gwp._FOLDER_DISCOVERED_SUB_IDS.clear()
+
+    def tearDown(self):
+        gwp.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = self._saved['attr']
+        gwp.BILLING_AUDIT_AVAILABLE = self._saved['avail']
+        gwp.RES_GROUPING_MODE = self._saved['mode']
+        gwp._FOLDER_DISCOVERED_SUB_IDS.clear()
+        gwp._FOLDER_DISCOVERED_SUB_IDS.update(self._saved['sub'])
+
+    def test_frozen_claimer_partitions_key(self):
+        rows = [_make_primary_row(1, effective_user='CurFM')]
+        with mock.patch(
+            'billing_audit.writer.resolve_claimer',
+            return_value=ResolveOutcome('use', 'FrozenFM', 'frozen', 'success'),
+        ):
+            groups = gwp.group_source_rows(rows)
+        self.assertTrue(any(k.endswith('_USER_FrozenFM') for k in groups))
+        # The legacy bare primary key must NOT be present.
+        self.assertFalse(
+            any(k.split('_USER_')[0] == k and '_USER_' not in k
+                and k.count('_') == 1 for k in groups),
+        )
+
+    def test_two_claimers_two_groups(self):
+        rows = [
+            _make_primary_row(1, wr='90001', effective_user='A'),
+            _make_primary_row(2, wr='90001', effective_user='B'),
+        ]
+
+        def _resolve(variant, current, *, wr, week_ending, row_id, enabled):
+            return ResolveOutcome(
+                'use', 'Alice' if row_id == 1 else 'Bob', 'frozen', 'success'
+            )
+
+        with mock.patch('billing_audit.writer.resolve_claimer', side_effect=_resolve):
+            groups = gwp.group_source_rows(rows)
+        self.assertTrue(any(k.endswith('_USER_Alice') for k in groups))
+        self.assertTrue(any(k.endswith('_USER_Bob') for k in groups))
+
+    def test_no_history_falls_back_to_current(self):
+        rows = [_make_primary_row(1, effective_user='CurFM')]
+        with mock.patch(
+            'billing_audit.writer.resolve_claimer',
+            return_value=ResolveOutcome('use', 'CurFM', 'current', 'no_history'),
+        ):
+            groups = gwp.group_source_rows(rows)
+        self.assertTrue(any(k.endswith('_USER_CurFM') for k in groups))
+
+    def test_hold_outage_still_emits_under_current(self):
+        rows = [_make_primary_row(1, effective_user='CurFM')]
+        with mock.patch(
+            'billing_audit.writer.resolve_claimer',
+            return_value=ResolveOutcome('hold', None, None, 'fetch_failure'),
+        ), mock.patch(
+            'billing_audit.writer.record_attribution_hold'
+        ) as _rec:
+            groups = gwp.group_source_rows(rows)
+        # D never holds: a primary group IS emitted under current foreman.
+        self.assertTrue(any(k.endswith('_USER_CurFM') for k in groups))
+        # And record_attribution_hold is NEVER called for the primary path.
+        _rec.assert_not_called()
+
+    def test_kill_switch_off_emits_bare_legacy_key(self):
+        gwp.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = False
+        rows = [_make_primary_row(1, wr='90001', effective_user='CurFM')]
+        # No mock needed — pre-pass is gated off, emission is legacy.
+        groups = gwp.group_source_rows(rows)
+        bare = [k for k in groups if '_USER_' not in k]
+        self.assertTrue(bare, f"expected a bare primary key, got {list(groups)}")
+        # bare key shape is {week}_{wr}
+        self.assertTrue(any(k.endswith('_90001') for k in bare))
+
+
+class TestPrimaryFilenameRoundTrip(unittest.TestCase):
+    """Task 2+4: two claimers on one WR+week produce two distinct
+    _User_ filenames that round-trip through build_group_identity as
+    distinct primary identities (coexistence; no cross-delete)."""
+
+    def test_distinct_identities_for_two_claimers(self):
+        a = gwp.build_group_identity(
+            "WR_90001_WeekEnding_041926_120000_User_Alice_abcdef0123456789.xlsx"
+        )
+        b = gwp.build_group_identity(
+            "WR_90001_WeekEnding_041926_120000_User_Bob_abcdef0123456789.xlsx"
+        )
+        self.assertEqual(a, ('90001', '041926', 'primary', 'Alice'))
+        self.assertEqual(b, ('90001', '041926', 'primary', 'Bob'))
+        self.assertNotEqual(a, b)  # distinct -> cleanup keeps both

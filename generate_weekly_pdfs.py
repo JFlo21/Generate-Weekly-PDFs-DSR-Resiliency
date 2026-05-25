@@ -5423,8 +5423,42 @@ def group_source_rows(rows):
                     # Living Ledger entry [Phase 1.1 timestamp]
                     # documents the design-intent change.
                     if not is_subcontractor_row and not valid_helper_row:
-                        primary_key = f"{week_end_for_key}_{wr_key}"
-                        keys_to_add.append(('primary', primary_key, None))
+                        # Subproject D (2026-05-25): partition the
+                        # production primary file by the FROZEN primary
+                        # claimer. Consume the pre-pass map. ``use`` ->
+                        # partition by claimer; ``hold`` (Supabase outage),
+                        # map miss, or disabled -> use the current
+                        # effective_user and STILL emit (D never holds —
+                        # operator decision for the core path). Empty
+                        # claimer -> 'Unknown Foreman' sentinel so the
+                        # _User_ suffix builder never gets an empty
+                        # identifier (mirrors B's Codex-P1 fix).
+                        if PRIMARY_CLAIM_ATTRIBUTION_ENABLED:
+                            _d_outcome = _primary_claimer_map.get(r.get('__row_id'))
+                            if _d_outcome is not None and _d_outcome.action == 'use':
+                                _d_claimer = (
+                                    _d_outcome.name or effective_user or 'Unknown Foreman'
+                                )
+                            else:
+                                # hold / map-miss / disabled / None -> current.
+                                _d_claimer = effective_user or 'Unknown Foreman'
+                            _d_claimer_sanitized = _RE_SANITIZE_IDENTIFIER.sub(
+                                '_', _d_claimer
+                            )[:50]
+                            primary_key = (
+                                f"{week_end_for_key}_{wr_key}_USER_"
+                                f"{_d_claimer_sanitized}"
+                            )
+                            keys_to_add.append(('primary', primary_key, _d_claimer))
+                            if primary_key not in groups:
+                                logging.info(
+                                    f"🧑 PRIMARY GROUP CREATED: WR={wr_key}, "
+                                    f"Week={week_end_for_key}"
+                                )
+                        else:
+                            # Kill switch OFF -> exact legacy bare primary.
+                            primary_key = f"{week_end_for_key}_{wr_key}"
+                            keys_to_add.append(('primary', primary_key, None))
                     elif is_subcontractor_row and not valid_helper_row:
                         # Diagnostic log only — no group emission.
                         # Operators can confirm the partition is
