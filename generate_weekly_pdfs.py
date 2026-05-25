@@ -6147,7 +6147,7 @@ def group_source_rows(rows):
     if WR_FILTER and TEST_MODE:
         before = len(groups)
         def _key_matches_wr(k: str, wr: str) -> bool:
-            # k format examples (all nine shapes emitted by group_source_rows):
+            # k format examples (all eleven shapes emitted by group_source_rows):
             #   MMDDYY_WR                                   → primary
             #   MMDDYY_WR_USER_<name>                       → primary (Subproject D)
             #   MMDDYY_WR_HELPER_<name>                     → helper
@@ -6157,6 +6157,8 @@ def group_source_rows(rows):
             #   MMDDYY_WR_AEPBILLABLE                       → aep_billable (Phase 1)
             #   MMDDYY_WR_REDUCEDSUB_HELPER_<name>          → reduced_sub_helper  (Phase 1)
             #   MMDDYY_WR_AEPBILLABLE_HELPER_<name>         → aep_billable_helper (Phase 1)
+            #   MMDDYY_WR_REDUCEDSUB_USER_<claimer>         → reduced_sub  (Subproject B)
+            #   MMDDYY_WR_AEPBILLABLE_USER_<claimer>        → aep_billable (Subproject B)
             #
             # Phase 01 gap closure (REVIEW-CR-03): mirror of the
             # ``_key_matches_excluded_wr`` fix immediately below. Without the
@@ -6189,6 +6191,13 @@ def group_source_rows(rows):
                 or suffix == f"{wr}_AEPBILLABLE"
                 or suffix.startswith(f"{wr}_REDUCEDSUB_HELPER_")
                 or suffix.startswith(f"{wr}_AEPBILLABLE_HELPER_")
+                # Subproject B: per-claimer subcontractor primary keys
+                # {wr}_REDUCEDSUB_USER_<claimer> / {wr}_AEPBILLABLE_USER_<claimer>
+                # (attribution on — the production default). Prefix-match so
+                # WR_FILTER / EXCLUDE_WRS cover the partitioned shape, not just
+                # the bare _REDUCEDSUB / _AEPBILLABLE. Mirror in BOTH matchers.
+                or suffix.startswith(f"{wr}_REDUCEDSUB_USER_")
+                or suffix.startswith(f"{wr}_AEPBILLABLE_USER_")
             )
 
         groups = {k: v for k, v in groups.items() if any(_key_matches_wr(k, wr) for wr in WR_FILTER)}
@@ -6204,7 +6213,7 @@ def group_source_rows(rows):
         logging.info(f"🔍 Sample group keys: {sample_keys}")
         
         def _key_matches_excluded_wr(k: str, wr: str) -> bool:
-            # k format examples (all nine shapes emitted by group_source_rows):
+            # k format examples (all eleven shapes emitted by group_source_rows):
             #   MMDDYY_WR                                   → primary
             #   MMDDYY_WR_USER_<name>                       → primary (Subproject D)
             #   MMDDYY_WR_HELPER_<name>                     → helper
@@ -6214,6 +6223,8 @@ def group_source_rows(rows):
             #   MMDDYY_WR_AEPBILLABLE                       → aep_billable (Phase 1)
             #   MMDDYY_WR_REDUCEDSUB_HELPER_<name>          → reduced_sub_helper  (Phase 1)
             #   MMDDYY_WR_AEPBILLABLE_HELPER_<name>         → aep_billable_helper (Phase 1)
+            #   MMDDYY_WR_REDUCEDSUB_USER_<claimer>         → reduced_sub  (Subproject B)
+            #   MMDDYY_WR_AEPBILLABLE_USER_<claimer>        → aep_billable (Subproject B)
             #
             # Phase 01 gap closure (REVIEW-CR-02): before this fix the matcher
             # only recognized the first four shapes, so EXCLUDE_WRS=<wr>
@@ -6241,6 +6252,14 @@ def group_source_rows(rows):
                 or suffix == f"{wr}_AEPBILLABLE"
                 or suffix.startswith(f"{wr}_REDUCEDSUB_HELPER_")
                 or suffix.startswith(f"{wr}_AEPBILLABLE_HELPER_")
+                # Subproject B: per-claimer subcontractor primary keys
+                # {wr}_REDUCEDSUB_USER_<claimer> / {wr}_AEPBILLABLE_USER_<claimer>
+                # (attribution on — the production default). EXCLUDE_WRS is
+                # production-active, so without these the operator's "do not
+                # bill yet" intent silently failed for partitioned sub primary
+                # files. Mirror of _key_matches_wr — the two MUST stay in sync.
+                or suffix.startswith(f"{wr}_REDUCEDSUB_USER_")
+                or suffix.startswith(f"{wr}_AEPBILLABLE_USER_")
             )
         
         # Remove groups that match any excluded WR

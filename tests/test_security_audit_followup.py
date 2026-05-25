@@ -2303,23 +2303,35 @@ class TestExcludeWrsMatchesAllVariants(unittest.TestCase):
             or suffix.startswith(f"{wr}_HELPER_")
             or suffix.startswith(f"{wr}_USER_")
             or suffix == f"{wr}_VACCREW"
+            or suffix.startswith(f"{wr}_VACCREW_")
             or suffix == f"{wr}_REDUCEDSUB"
             or suffix == f"{wr}_AEPBILLABLE"
             or suffix.startswith(f"{wr}_REDUCEDSUB_HELPER_")
             or suffix.startswith(f"{wr}_AEPBILLABLE_HELPER_")
+            or suffix.startswith(f"{wr}_REDUCEDSUB_USER_")
+            or suffix.startswith(f"{wr}_AEPBILLABLE_USER_")
         )
 
-    def test_all_seven_variants_excluded_for_target_wr(self):
+    def test_all_variants_excluded_for_target_wr(self):
+        # PR #223 follow-up (Copilot): added the Subproject B per-claimer
+        # subcontractor primary shapes {wr}_REDUCEDSUB_USER_<claimer> and
+        # {wr}_AEPBILLABLE_USER_<claimer> (attribution-on production default)
+        # plus the Subproject C {wr}_VACCREW_<claimer> shape — the matcher
+        # previously missed all three, so EXCLUDE_WRS silently failed to
+        # exclude them.
         wr = '12345'
         keys = [
             f'041926_{wr}',                            # primary
             f'041926_{wr}_HELPER_Jane_Smith',          # helper
-            f'041926_{wr}_USER_John_Doe',              # USER (legacy)
+            f'041926_{wr}_USER_John_Doe',              # primary (Subproject D)
             f'041926_{wr}_VACCREW',                    # vac_crew
+            f'041926_{wr}_VACCREW_Vic_Crew',           # vac_crew (Subproject C)
             f'041926_{wr}_REDUCEDSUB',                 # reduced_sub
             f'041926_{wr}_AEPBILLABLE',                # aep_billable
             f'041926_{wr}_REDUCEDSUB_HELPER_Jane_Doe', # reduced_sub_helper
             f'041926_{wr}_AEPBILLABLE_HELPER_J_Smith', # aep_billable_helper
+            f'041926_{wr}_REDUCEDSUB_USER_Sue_Sub',    # reduced_sub (Subproject B)
+            f'041926_{wr}_AEPBILLABLE_USER_Sue_Sub',   # aep_billable (Subproject B)
         ]
         for k in keys:
             with self.subTest(key=k):
@@ -2413,21 +2425,31 @@ class TestWrFilterMatchesAllVariants(unittest.TestCase):
             or suffix.startswith(f"{wr}_REDUCEDSUB_HELPER_")
             or suffix.startswith(f"{wr}_AEPBILLABLE_HELPER_")
             or suffix.startswith(f"{wr}_USER_")
+            or suffix.startswith(f"{wr}_REDUCEDSUB_USER_")
+            or suffix.startswith(f"{wr}_AEPBILLABLE_USER_")
         )
 
-    def test_all_eight_variants_retained_for_target_wr(self):
+    def test_all_variants_retained_for_target_wr(self):
         # Sub-project D (2026-05-25): _USER_ IS now retained — the
         # asymmetry with `_key_matches_excluded_wr` is resolved.
+        # PR #223 follow-up (Copilot): added the Subproject B per-claimer
+        # subcontractor primary shapes {wr}_REDUCEDSUB_USER_<claimer> /
+        # {wr}_AEPBILLABLE_USER_<claimer> (renamed from
+        # test_all_{seven,eight}_variants_* — the shape count has grown past
+        # eight).
         wr = '12345'
         keys_to_retain = [
             f'041926_{wr}',
             f'041926_{wr}_HELPER_Jane_Smith',
             f'041926_{wr}_VACCREW',
+            f'041926_{wr}_VACCREW_Vic_Crew',
             f'041926_{wr}_REDUCEDSUB',
             f'041926_{wr}_AEPBILLABLE',
             f'041926_{wr}_REDUCEDSUB_HELPER_Jane_Doe',
             f'041926_{wr}_AEPBILLABLE_HELPER_J_Smith',
             f'041926_{wr}_USER_John_Doe',
+            f'041926_{wr}_REDUCEDSUB_USER_Sue_Sub',
+            f'041926_{wr}_AEPBILLABLE_USER_Sue_Sub',
         ]
         for k in keys_to_retain:
             with self.subTest(key=k):
@@ -2484,6 +2506,10 @@ class TestWrFilterMatchesAllVariants(unittest.TestCase):
             'f"{wr}_AEPBILLABLE"',
             'f"{wr}_REDUCEDSUB_HELPER_"',
             'f"{wr}_AEPBILLABLE_HELPER_"',
+            # PR #223 follow-up (Copilot): Subproject B per-claimer
+            # subcontractor primary shapes — both matchers must carry them.
+            'f"{wr}_REDUCEDSUB_USER_"',
+            'f"{wr}_AEPBILLABLE_USER_"',
         ):
             with self.subTest(needle=needle):
                 self.assertGreaterEqual(

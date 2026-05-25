@@ -3117,3 +3117,85 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   clause, citing this entry) per the [2026-05-25 16:30] test-contract
   reconciliation rule. ``pytest tests/`` → **871 passed / 26 skipped / 61
   subtests** (was 866; +5, zero regressions).
+- [2026-05-25 18:35] Sub-project D PR #223 second review round
+  (Copilot on ``f7ac747``). One correctness fix + one cosmetic rename;
+  the perf fix was landed by the Codex bot in parallel (commit
+  ``9d300f7``, integrated); Codex's P2 on the same commit was
+  evaluated and REJECTED (see below).
+  **(1) WR-matcher gap — production EXCLUDE_WRS silently fails for
+  subcontractor per-claimer primary files (correctness, fixed).**
+  Sub-project B emits subcontractor PRIMARY GROUP KEYS as
+  ``{week}_{wr}_REDUCEDSUB_USER_<claimer>`` /
+  ``{week}_{wr}_AEPBILLABLE_USER_<claimer>`` (the GROUP KEY, not just
+  the filename) whenever attribution is on — the production default.
+  But both ``_key_matches_wr`` (WR_FILTER, TEST_MODE) and
+  ``_key_matches_excluded_wr`` (EXCLUDE_WRS, **production-active**)
+  carried only the exact ``suffix == f"{wr}_REDUCEDSUB"`` /
+  ``== f"{wr}_AEPBILLABLE"`` clauses plus the ``_HELPER_`` prefixes —
+  no ``_REDUCEDSUB_USER_`` / ``_AEPBILLABLE_USER_`` prefix clause. The
+  bare-exact clauses match only the attribution-OFF shape, so with
+  attribution ON an operator excluding a subcontractor WR still
+  generated AND uploaded its per-claimer primary files (the
+  "do-not-bill-yet" intent silently failed), and a TEST_MODE
+  ``WR_FILTER`` of such a WR dropped them. This is a latent
+  Sub-project B ([2026-05-21 09:21]) violation of the mirror-matcher
+  rule ([2026-05-15] CR-02/CR-03) — B added the new group-key shape
+  but did not extend the two matchers. Fixed here (carried in the D
+  PR because the matchers are the same functions D already modified):
+  added ``or suffix.startswith(f"{wr}_REDUCEDSUB_USER_")`` and
+  ``or suffix.startswith(f"{wr}_AEPBILLABLE_USER_")`` to BOTH matchers
+  + updated the shape-list comment headers ("eleven shapes"). The
+  ``_VACCREW_<claimer>`` clause — present in production but missing
+  from the EXCLUDE-side test MIRROR (``_exclude_matches``) — was also
+  synced. **(2) Pre-pass resolves wasted primary claimers for helper
+  rows (perf, fixed by the Codex bot in ``9d300f7``, integrated).**
+  The Sub-project D ``_primary_claimer_map`` pre-pass scoped rows by
+  completed + non-vac + non-sub but did NOT exclude ``valid_helper_row``
+  rows — which the emission later routes to the ``_Helper_<name>``
+  shadow file and NEVER to a primary ``_USER_`` group (the emission
+  gate is ``not valid_helper_row``). So every completed helper row
+  cost a wasted ``resolve_claimer('primary', …)`` Supabase RPC. The
+  bot added ``if _r.get('__is_helper_row') and
+  _r.get('__helper_foreman') and _r.get('__helper_dept'): continue``
+  to the pre-pass scope (helper_mode is guaranteed by the outer
+  ``RES_GROUPING_MODE in ('helper','both')`` gate; helper_job is
+  optional, matching the emission). It skips ONLY rows the emission
+  would exclude from primary anyway, so attribution for genuine
+  primary rows is unaffected — extends the [2026-04-25 14:00]
+  per-row-RPC-latency rule (a pre-pass must mirror emission
+  eligibility, not just variant type). Two behavioral regression
+  tests were added on top of the bot's fix. **(3) Cosmetic:**
+  ``test_all_{seven,eight}_variants_{retained,excluded}_for_target_wr``
+  → ``test_all_variants_*`` (the shape count has grown past eight).
+  **Codex P2 (REJECTED) — "Resolve primary claimers in primary
+  grouping mode."** Codex argued primary mode "silently skips frozen
+  attribution." That is INTENTIONAL: the [2026-05-25 18:15] fix made
+  every D surface consistently bare in ``RES_GROUPING_MODE ==
+  'primary'`` because the spec documents primary-mode partitioning as
+  "semantically wrong" (it lumps helper + sub rows into one file).
+  Codex's premise ("identity/filename logic still consumes
+  ``__current_foreman``") is stale — all four surfaces are now
+  mode-gated. No action; rationale posted to the PR.
+  **New rule — a new group-key shape requires BOTH a matcher update
+  AND a test-mirror update in the same change.** The mirror-matcher
+  rule ([2026-05-15]) is necessary but not sufficient: the
+  ``test_security_audit_followup.py`` matcher tests use LOCAL MIRROR
+  copies (``_filter_matches`` / ``_exclude_matches``) of the
+  production matcher bodies, tied to production only by the
+  ``test_production_function_body_contains_all_*_clauses`` source-grep
+  guards. When adding a variant key shape you MUST (a) extend both
+  production matchers, (b) extend both test mirrors, AND (c) add the
+  new clause's f-string needle to the source-grep guards — otherwise
+  the mirror tests pass against a stale copy while production stays
+  broken (exactly how B's gap survived two phases of green suites).
+  Regression tests: ``tests/test_security_audit_followup.py`` — the
+  renamed ``test_all_variants_{retained,excluded}_for_target_wr`` gain
+  the ``_REDUCEDSUB_USER_`` / ``_AEPBILLABLE_USER_`` (+ ``_VACCREW_``)
+  keys, the filter-side source guard now requires both new needles in
+  BOTH matchers (``count >= 2``);
+  ``tests/test_primary_claim_attribution.py::TestPrimaryPrePass``
+  gains ``test_prepass_skips_valid_helper_row`` (resolve_claimer not
+  called) and ``test_prepass_resolves_primary_only_skipping_helper``
+  (called exactly once for a primary+helper pair). ``pytest tests/``
+  → **873 passed / 26 skipped / 69 subtests** (was 871; +2, zero
+  regressions).

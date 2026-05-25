@@ -129,6 +129,40 @@ class TestPrimaryPrePass(unittest.TestCase):
             f"expected a _USER_FrozenFM primary group, got {keys}",
         )
 
+    def _make_valid_helper_row(self, row_id, wr='90001'):
+        # A completed helper row (both checkboxes) with helper_foreman +
+        # helper_dept -> emitted to the _Helper_ shadow file, NOT the primary
+        # _USER_ group. The pre-pass must skip it (no wasted resolve_claimer).
+        r = _make_primary_row(row_id, wr=wr, effective_user='CurFM')
+        r['__is_helper_row'] = True
+        r['__helper_foreman'] = 'HelpFM'
+        r['__helper_dept'] = '600'
+        return r
+
+    def test_prepass_skips_valid_helper_row(self):
+        # PR #223 review follow-up: a valid helper row never emits a primary
+        # _USER_ group, so the pre-pass must not call resolve_claimer for it.
+        with mock.patch(
+            'billing_audit.writer.resolve_claimer',
+            return_value=ResolveOutcome('use', 'FrozenFM', 'frozen', 'success'),
+        ) as _rc:
+            gwp.group_source_rows([self._make_valid_helper_row(2001)])
+        _rc.assert_not_called()
+
+    def test_prepass_resolves_primary_only_skipping_helper(self):
+        rows = [
+            _make_primary_row(3001, wr='90002', effective_user='PFM'),
+            self._make_valid_helper_row(3002, wr='90002'),
+        ]
+        with mock.patch(
+            'billing_audit.writer.resolve_claimer',
+            return_value=ResolveOutcome('use', 'FrozenFM', 'frozen', 'success'),
+        ) as _rc:
+            gwp.group_source_rows(rows)
+        # resolve_claimer called exactly once (the primary row); the valid
+        # helper row was skipped by the pre-pass eligibility filter.
+        self.assertEqual(_rc.call_count, 1)
+
 
 class TestPrimaryPrePassSource(unittest.TestCase):
     """Task 3: the pre-pass exists with the right shape."""
