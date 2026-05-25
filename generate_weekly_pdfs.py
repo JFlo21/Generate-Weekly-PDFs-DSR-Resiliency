@@ -3752,6 +3752,8 @@ def _run_subproject_d_hash_prune(hash_history: dict, groups: dict) -> bool:
             "🧹 Subproject D hash-history prune: no legacy unpartitioned "
             "primary orphans to drop"
         )
+    # Body path advanced the sentinel (and may have dropped orphans) —
+    # report the mutation so the caller persists it even on a no-update run.
     return True
 
 

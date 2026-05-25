@@ -399,6 +399,17 @@ class TestBuildPrimaryWrScope(unittest.TestCase):
     def test_empty_groups(self):
         self.assertEqual(gwp._build_primary_wr_scope({}), set())
 
+    def test_helper_or_vac_only_wr_excluded_from_scope(self):
+        # A WR that has ONLY a _HELPER_ or _VACCREW group (no _USER_
+        # primary group) must NOT appear in D's scope — D only owns WRs
+        # it actually partitioned this run.
+        groups = {
+            '041926_90010_HELPER_Carol': [{'Work Request #': '90010'}],
+            '041926_90011_VACCREW_Dan': [{'Work Request #': '90011'}],
+        }
+        scope = gwp._build_primary_wr_scope(groups)
+        self.assertEqual(scope, set())
+
 
 class TestSubprojectDHashPrune(unittest.TestCase):
     """Task 9: one-time prune of legacy bare-primary orphans, gated +
@@ -451,4 +462,28 @@ class TestSubprojectDHashPrune(unittest.TestCase):
             src,
             r"if _run_subproject_d_hash_prune\(hash_history, groups\):"
             r"\s*\n\s*_hash_history_migration_dirty = True",
+        )
+
+    def test_non_primary_variant_not_dropped_for_in_scope_wr(self):
+        # A helper-variant (6-part) and a vac_crew-variant key for an
+        # IN-SCOPE WR must NOT be dropped — the prune is scoped to
+        # variant=='primary' + empty-identifier 4-part keys only.
+        hist = {
+            '90001|041926|primary|': {'hash': 'x'},          # dropped
+            '90001|041926|helper|Bob|500|J1': {'hash': 'h'},  # kept
+            '90001|041926|vac_crew|': {'hash': 'v'},          # kept
+        }
+        mutated = gwp._run_subproject_d_hash_prune(hist, self._groups())
+        self.assertTrue(mutated)
+        self.assertNotIn('90001|041926|primary|', hist)
+        self.assertIn('90001|041926|helper|Bob|500|J1', hist)
+        self.assertIn('90001|041926|vac_crew|', hist)
+
+    def test_empty_history_advances_sentinel(self):
+        hist = {}
+        mutated = gwp._run_subproject_d_hash_prune(hist, self._groups())
+        self.assertTrue(mutated)
+        self.assertEqual(
+            hist['_subproject_d_prune_version'],
+            gwp.SUBPROJECT_D_HASH_PRUNE_VERSION,
         )
