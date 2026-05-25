@@ -398,3 +398,57 @@ class TestBuildPrimaryWrScope(unittest.TestCase):
 
     def test_empty_groups(self):
         self.assertEqual(gwp._build_primary_wr_scope({}), set())
+
+
+class TestSubprojectDHashPrune(unittest.TestCase):
+    """Task 9: one-time prune of legacy bare-primary orphans, gated +
+    idempotent + migration-dirty bool."""
+
+    def setUp(self):
+        _ensure_smartsheet_mocked()
+        self._attr = gwp.PRIMARY_CLAIM_ATTRIBUTION_ENABLED
+        gwp.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = True
+
+    def tearDown(self):
+        gwp.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = self._attr
+
+    def _groups(self):
+        return {'041926_90001_USER_Alice': [{'Work Request #': '90001'}]}
+
+    def test_drops_bare_primary_orphan_for_in_scope_wr(self):
+        hist = {
+            '90001|041926|primary|': {'hash': 'x'},   # legacy bare orphan
+            '90001|041926|primary|Alice': {'hash': 'y'},  # new per-claimer (kept)
+            '90002|041926|primary|': {'hash': 'z'},   # out-of-scope (kept)
+        }
+        mutated = gwp._run_subproject_d_hash_prune(hist, self._groups())
+        self.assertTrue(mutated)
+        self.assertNotIn('90001|041926|primary|', hist)
+        self.assertIn('90001|041926|primary|Alice', hist)
+        self.assertIn('90002|041926|primary|', hist)
+        self.assertEqual(
+            hist['_subproject_d_prune_version'],
+            gwp.SUBPROJECT_D_HASH_PRUNE_VERSION,
+        )
+
+    def test_idempotent_second_run_is_noop(self):
+        hist = {'_subproject_d_prune_version': gwp.SUBPROJECT_D_HASH_PRUNE_VERSION}
+        mutated = gwp._run_subproject_d_hash_prune(hist, self._groups())
+        self.assertFalse(mutated)
+
+    def test_kill_switch_off_skips_and_no_sentinel_advance(self):
+        gwp.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = False
+        hist = {'90001|041926|primary|': {'hash': 'x'}}
+        mutated = gwp._run_subproject_d_hash_prune(hist, self._groups())
+        self.assertFalse(mutated)
+        # OFF: the bare key is the ACTIVE legacy format — must NOT be dropped.
+        self.assertIn('90001|041926|primary|', hist)
+        self.assertNotIn('_subproject_d_prune_version', hist)
+
+    def test_call_site_wired_into_migration_dirty(self):
+        src = inspect.getsource(generate_weekly_pdfs)
+        self.assertRegex(
+            src,
+            r"if _run_subproject_d_hash_prune\(hash_history, groups\):"
+            r"\s*\n\s*_hash_history_migration_dirty = True",
+        )

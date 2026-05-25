@@ -1106,6 +1106,12 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     # per the [2026-05-15 12:00] rule 3 — no accidental substring
     # containment with pre-existing markers.
     "Vac crew hash-history prune",
+    # Subproject D Task 9: one-time hash-history prune INFO log embeds
+    # the affected-WR list (capped to first 20 entries). Explicit marker
+    # per the [2026-05-15 12:00] rule 3 — no accidental substring
+    # containment with pre-existing markers (body does not overlap
+    # "Subproject B hash-history prune" or "Vac crew hash-history prune").
+    "Subproject D hash-history prune",
 )
 
 
@@ -3673,6 +3679,79 @@ def _run_vac_crew_hash_prune(hash_history: dict, groups: dict) -> bool:
         )
     # Body path advanced the sentinel (and may have dropped orphans) —
     # report the mutation so the caller persists it even on a no-update run.
+    return True
+
+
+def _run_subproject_d_hash_prune(hash_history: dict, groups: dict) -> bool:
+    """Subproject D (2026-05-25): idempotent one-time hash-history prune.
+
+    Drops LEGACY blank-identifier production-primary orphans — 4-part keys
+    ``wr|week|primary|`` with an EMPTY identifier — for WRs that have a
+    partitioned ``_USER_`` primary group in this run. D re-partitions the
+    production primary variant by frozen claimer (new keys carry a
+    non-empty identifier), so the blank-identifier entries are obsolete.
+    The normal stale-prune at the end of the run would clear them
+    eventually; this makes the migration deterministic on the first run
+    and survives interrupted / no-update runs.
+
+    Scope-building delegates to ``_build_primary_wr_scope`` (shared with
+    the TARGET cleanup call site — no drift, per the [2026-05-15 12:00]
+    three-site invariant). Sentinel key ``_subproject_d_prune_version`` is
+    DISTINCT from the Phase 1.1 / Subproject B / Subproject C sentinels so
+    all four migrations are independent. Mutates ``hash_history`` in place.
+    Dropping a hash entry costs at most one benign regeneration — never
+    data loss — so no live-identity exemption is needed on this drop path
+    (unlike the every-run attachment cleanup).
+
+    GATED on ``PRIMARY_CLAIM_ATTRIBUTION_ENABLED``: when OFF, the
+    blank-identifier ``wr|week|primary|`` key is the ACTIVE legacy format
+    (the kill-switch-OFF path emits the bare primary key), so pruning it
+    would delete valid current history and force regeneration churn —
+    breaking the exact-legacy contract. Skip entirely when the flag is
+    off, and do NOT advance the sentinel, so the one-time migration still
+    runs if attribution is later enabled. (Mirrors the Subproject C
+    ``_run_vac_crew_hash_prune`` kill-switch guard.)
+    """
+    if not PRIMARY_CLAIM_ATTRIBUTION_ENABLED:
+        return False
+    _persisted = hash_history.pop('_subproject_d_prune_version', 0)
+    if (
+        isinstance(_persisted, int)
+        and _persisted >= SUBPROJECT_D_HASH_PRUNE_VERSION
+    ):
+        hash_history['_subproject_d_prune_version'] = _persisted
+        return False
+
+    _scope = _build_primary_wr_scope(groups)
+    _orphans: list[str] = []
+    for _hk in list(hash_history.keys()):
+        if isinstance(_hk, str) and _hk.startswith('_'):
+            continue
+        _parts = str(_hk).split('|')
+        if len(_parts) != 4:
+            continue
+        _hk_wr, _hk_week, _hk_variant, _hk_ident = _parts
+        if (
+            _hk_wr in _scope
+            and _hk_variant == 'primary'
+            and _hk_ident == ''
+        ):
+            _orphans.append(_hk)
+    for _ok in _orphans:
+        del hash_history[_ok]
+    hash_history['_subproject_d_prune_version'] = SUBPROJECT_D_HASH_PRUNE_VERSION
+    if _orphans:
+        _wr_sample = sorted({k.split('|')[0] for k in _orphans})[:20]
+        logging.info(
+            f"🧹 Subproject D hash-history prune: dropped {len(_orphans)} "
+            f"legacy unpartitioned primary orphan(s) "
+            f"(affected WRs first 20: {_wr_sample})"
+        )
+    else:
+        logging.info(
+            "🧹 Subproject D hash-history prune: no legacy unpartitioned "
+            "primary orphans to drop"
+        )
     return True
 
 
@@ -7930,6 +8009,19 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             logging.warning(
                 f"⚠️ Vac crew hash-history prune failed; continuing "
                 f"with existing history: {_vc_prune_exc!r}"
+            )
+
+        # Subproject D: one-time prune of legacy blank-identifier primary
+        # orphans (kill switch is PRIMARY_CLAIM_ATTRIBUTION_ENABLED + the
+        # version constant). Fail-safe — a failed prune must not break the
+        # run.
+        try:
+            if _run_subproject_d_hash_prune(hash_history, groups):
+                _hash_history_migration_dirty = True
+        except Exception as _d_prune_exc:
+            logging.warning(
+                f"⚠️ Subproject D hash-history prune failed; continuing "
+                f"with existing history: {_d_prune_exc!r}"
             )
 
         billing_audit_row_cache: set[str] = set()
