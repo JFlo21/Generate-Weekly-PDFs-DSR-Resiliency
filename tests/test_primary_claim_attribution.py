@@ -280,9 +280,36 @@ class TestSiteAMainLoopIdentity(unittest.TestCase):
         # The primary identity branch must derive from __current_foreman
         # gated on PRIMARY_CLAIM_ATTRIBUTION_ENABLED, and keep the legacy
         # User-field path for the disabled case.
+        # Note: span widened to 500 after Task 6 renamed the Site-1 local
+        # variable to ``_pf``, adding comments that push the gap past 300
+        # chars. The structural invariant (PRIMARY_CLAIM_ATTRIBUTION_ENABLED
+        # → __current_foreman dict-key → first_row.get('User') fallback) is
+        # preserved — only the window size changed.
         self.assertRegex(
             src,
-            r"PRIMARY_CLAIM_ATTRIBUTION_ENABLED[\s\S]{0,300}"
-            r"__current_foreman[\s\S]{0,300}"
+            r"PRIMARY_CLAIM_ATTRIBUTION_ENABLED[\s\S]{0,500}"
+            r"__current_foreman[\s\S]{0,500}"
             r"first_row\.get\('User'\)",
+        )
+
+
+class TestSitesBCIdentity(unittest.TestCase):
+    """Task 6: valid_wr_weeks (Site 2) and current_keys (Site 3) primary
+    branches derive from __current_foreman gated on the kill switch."""
+
+    def test_sites_b_and_c_gated_primary_identity(self):
+        src = inspect.getsource(generate_weekly_pdfs)
+        # Site 2 (valid_wr_weeks builder): the else branch builds file_id
+        # from __current_foreman gated on PRIMARY_CLAIM_ATTRIBUTION_ENABLED.
+        self.assertRegex(
+            src,
+            r"file_id = \(\s*_RE_SANITIZE_IDENTIFIER\.sub\('_', _pf\)\[:50\]"
+            r"\s*if \(PRIMARY_CLAIM_ATTRIBUTION_ENABLED and _pf\)",
+        )
+        # Site 3 (current_keys builder): the else branch builds _ident
+        # from __current_foreman gated on PRIMARY_CLAIM_ATTRIBUTION_ENABLED.
+        self.assertRegex(
+            src,
+            r"_ident = \(\s*_RE_SANITIZE_IDENTIFIER\.sub\('_', _pf\)\[:50\]"
+            r"\s*if \(PRIMARY_CLAIM_ATTRIBUTION_ENABLED and _pf\)",
         )

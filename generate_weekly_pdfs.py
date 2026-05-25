@@ -8234,10 +8234,10 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     # switch: enabled → frozen claimer (__current_foreman);
                     # disabled → legacy ``User`` field ('' in production).
                     if PRIMARY_CLAIM_ATTRIBUTION_ENABLED:
-                        __current_foreman = first_row.get('__current_foreman', '')
+                        _pf = first_row.get('__current_foreman', '')
                         identifier = (
-                            _RE_SANITIZE_IDENTIFIER.sub('_', __current_foreman)[:50]
-                            if __current_foreman else ''
+                            _RE_SANITIZE_IDENTIFIER.sub('_', _pf)[:50]
+                            if _pf else ''
                         )
                         file_identifier = identifier
                     else:
@@ -8972,9 +8972,20 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         if _b_claimer else ''
                     )
                 else:
-                    user_val = group_rows[0].get('User')
-                    # PERFORMANCE: Use pre-compiled regex
-                    file_id = _RE_SANITIZE_IDENTIFIER.sub('_', user_val)[:50] if user_val else ''
+                    # Subproject D (2026-05-25): primary identity site
+                    # (Site 2 — valid_wr_weeks). Mirror Site 1 so attachment
+                    # cleanup keeps the live per-claimer primary file.
+                    # Disabled mode preserves the legacy ``User``-field path.
+                    if PRIMARY_CLAIM_ATTRIBUTION_ENABLED:
+                        _pf = group_rows[0].get('__current_foreman', '')
+                        file_id = (
+                            _RE_SANITIZE_IDENTIFIER.sub('_', _pf)[:50]
+                            if (PRIMARY_CLAIM_ATTRIBUTION_ENABLED and _pf) else ''
+                        )
+                    else:
+                        user_val = group_rows[0].get('User')
+                        # PERFORMANCE: Use pre-compiled regex
+                        file_id = _RE_SANITIZE_IDENTIFIER.sub('_', user_val)[:50] if user_val else ''
                 valid_wr_weeks.add((wr, week_raw, variant, file_id))
         if not TEST_MODE:
             # Invalidate stale attachment cache after upload phase — uploads added/deleted attachments
@@ -9200,8 +9211,21 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                                 if _b_claimer else ''
                             )
                         else:
-                            _uv = group_rows[0].get('User')
-                            _ident = _RE_SANITIZE_IDENTIFIER.sub('_', _uv)[:50] if _uv else ''
+                            # Subproject D (2026-05-25): primary identity
+                            # site (Site 3 — current_keys). Must match the
+                            # history_key written at Site 1 byte-for-byte
+                            # (sanitized claimer when on, legacy User-field
+                            # when off) or the freshly-written entry is
+                            # treated as stale and deleted before save.
+                            if PRIMARY_CLAIM_ATTRIBUTION_ENABLED:
+                                _pf = group_rows[0].get('__current_foreman', '')
+                                _ident = (
+                                    _RE_SANITIZE_IDENTIFIER.sub('_', _pf)[:50]
+                                    if (PRIMARY_CLAIM_ATTRIBUTION_ENABLED and _pf) else ''
+                                )
+                            else:
+                                _uv = group_rows[0].get('User')
+                                _ident = _RE_SANITIZE_IDENTIFIER.sub('_', _uv)[:50] if _uv else ''
                         current_keys.add(f"{_wr}|{_week}|{_variant}|{_ident}")
                 stale_keys = [k for k in hash_history if k not in current_keys]
                 if stale_keys:
