@@ -2801,3 +2801,401 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   skipped when disabled / runs when enabled, vac-on-sub row emits only
   VACCREW). ``pytest tests/`` → **814 passed / 26 skipped / 60
   subtests** (was 809; +5).
+- [2026-05-25 16:30] Sub-project D (primary-workflow primary claim
+  attribution) shipped — the fourth and final consumer of Foundation
+  A's ``resolve_claimer`` + HOLD contract ([2026-05-20 13:45]).
+  Production (non-subcontractor) primary Excel files are now
+  partitioned by the FROZEN primary claimer (``primary_foreman`` from
+  ``billing_audit.attribution_snapshot``, surfaced via Foundation A's
+  ``ROLE_BY_VARIANT['primary'] = 'primary_foreman'`` mapping) instead
+  of one bare file per WR+week. Each file is named
+  ``_User_<claimer>`` (the same reserved ``_User_`` token as
+  Subproject B's per-claimer primary files, parser-unambiguous vs
+  ``_Helper_``). A WR+week claimed by two foremen yields two
+  coexistent files (distinct identity tuples — ``(wr, week,
+  'primary', claimer_a)`` vs ``(wr, week, 'primary', claimer_b)``)
+  that never cross-delete: the attachment-cleanup path only prunes
+  older copies WITHIN the same identity, so a foreman switch within
+  the same week produces a second file rather than destroying the
+  first. Only Sub-project E (Supabase hash-store migration + filename
+  ``_<hash>``/``_<timestamp>`` token stripping) remains in the
+  universal-claim-attribution sequence (A → Phase 1.1 → B → C → D
+  → E).
+  **No-HOLD operator decision (the key D-vs-B distinction).** Unlike
+  Subproject B (which HOLDs subcontractor primary on a Supabase
+  outage), D's core primary path NEVER holds. On ``resolve_claimer``
+  returning ``fetch_failure`` (outage, run-global kill, retries
+  exhausted), ``no_history``, ``disabled``, or a ``_primary_claimer_map``
+  miss, D falls back to the CURRENT ``effective_user`` and still
+  generates the primary file. Rationale: D covers EVERY
+  non-subcontractor WR in every run; HOLDing on a Supabase outage
+  would suppress ALL primary billing output for that session — a
+  data-absent outcome strictly worse than a possibly-late
+  attribution. ``record_attribution_hold`` is never called for the
+  primary path; the HOLD machinery from Foundation A is reserved for
+  Subproject B's subcontractor-primary flow. A ``no_history`` row is
+  the common new-claim case: the current ``effective_user`` is the
+  correct partition key (this run IS what freezes the claim via
+  ``freeze_row``).
+  **Approach A (parallel pre-pass).** ``_primary_claimer_map`` is
+  resolved in a bounded ``ThreadPoolExecutor(min(PARALLEL_WORKERS,
+  n))`` BEFORE the ``group_source_rows`` grouping loop, scoped to
+  completed (``Units Completed?`` checked) non-vac-crew
+  non-subcontractor rows (per-row ``is_vac_crew_row`` /
+  ``is_subcontractor_row`` checks). Single-row groups skip the
+  executor to avoid setup overhead. This follows the
+  [2026-04-25 14:00] rule (per-row attribution I/O must live in a
+  pre-pass, never the hot loop) and the [2026-05-21 09:21] Subproject
+  B wiring pattern. Zero changes to ``billing_audit/`` — Foundation A
+  already exposes ``_lookup_attribution_all`` + ``resolve_claimer``
+  for the ``'primary'`` role.
+  **CR-01 four-site lockstep (extended to a fifth-and-sixth site).**
+  The claimer identifier is byte-identical at: (1) the per-group
+  main-loop ``identifier`` / ``file_identifier`` construction that
+  feeds ``history_key = f"{wr_num}|{week_raw}|{variant}|{identifier}"``;
+  (2) the ``valid_wr_weeks.add(...)`` cleanup-tuple builder; (3) the
+  ``current_keys`` hash-prune set construction; (4) the
+  ``build_group_identity`` parser (already supported ``_User_<name>``
+  from Subproject B — zero parser change required); (5) the
+  ``generate_excel`` filename-suffix branch; and (6) the
+  ``_key_matches_wr`` (WR_FILTER) mirror-matcher. ALL construction
+  sites are gated on ``PRIMARY_CLAIM_ATTRIBUTION_ENABLED``; when OFF,
+  the identifier is ``''`` and the history key is the legacy bare
+  ``{wr}|{week}|primary|`` form, reproducing exact pre-D behavior
+  byte-for-byte.
+  **Corrected design finding (generate_excel filename surface).**
+  The original D spec assumed ``generate_excel`` needed no change
+  because the primary variant's filename branch was "bare." In
+  practice that branch set ``variant_suffix = ''`` UNCONDITIONALLY —
+  without a gated fix, every per-claimer primary group would produce
+  the same bare filename (``WR_{wr}_WeekEnding_{mmddyy}_{ts}_{hash}.xlsx``),
+  causing every group after the first to clobber the prior file on
+  disk and producing a single-file output regardless of claimer count.
+  D added a gated branch in the ``elif variant == 'primary':`` arm:
+  ``_pf = first_row.get('__current_foreman', '')`` then
+  ``if PRIMARY_CLAIM_ATTRIBUTION_ENABLED and _pf: variant_suffix =
+  f"_User_{_RE_SANITIZE_IDENTIFIER.sub('_', _pf)[:50]}"`` (else bare
+  ``''``) — mirroring the vac_crew ``_User_`` branch added by Subproject
+  C. The suffix derives from the attributed claimer (``__current_foreman``,
+  the partition key), sanitized via ``_RE_SANITIZE_IDENTIFIER`` exactly as
+  the four identity sites do, so each claimer's file has a distinct on-disk
+  name and round-trips through ``build_group_identity``.
+  **Mirror-matcher rule applied.** ``_key_matches_wr`` (the WR_FILTER
+  matcher, used in TEST_MODE diagnostic runs) gained the
+  ``or suffix.startswith(f"{wr}_USER_")`` clause for D's per-claimer
+  primary keys; ``_key_matches_excluded_wr`` (EXCLUDE_WRS) already
+  carried the ``_USER_`` clause from Subproject B — zero change
+  needed there. Both matchers revert to the bare ``suffix == wr``
+  exact-match when ``PRIMARY_CLAIM_ATTRIBUTION_ENABLED`` is off, so
+  the filter semantics are identical to the pre-D legacy contract.
+  **Migration (gated on default-on ``LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED``).** Two
+  components: (a) forced bare-primary attachment cleanup on
+  TARGET_SHEET_ID for in-scope WRs via a new ``primary_wr_scope``
+  parameter to ``cleanup_untracked_sheet_attachments``. The scope is
+  built by a shared ``_build_primary_wr_scope(groups)`` helper (union
+  of WR numbers from all non-sub non-vac primary groups — deliberately
+  excludes Subproject B's ``_REDUCEDSUB`` / ``_AEPBILLABLE`` ``_USER_``
+  keys to prevent scope overlap). The safety-critical
+  ``ident not in valid_wr_weeks`` live-identity exemption
+  ([2026-05-19 23:45] rule 1) is applied so a current per-claimer
+  attachment is never deleted as collateral cleanup. TARGET-only: PPP
+  is never touched by D (primary variants never route to PPP).
+  (b) One-time ``_run_subproject_d_hash_prune`` drops legacy
+  blank-identifier ``{wr}|{week}|primary|`` orphans from
+  ``hash_history.json``. Uses a DISTINCT ``_subproject_d_prune_version``
+  sentinel and ``SUBPROJECT_D_HASH_PRUNE_VERSION = 1`` constant
+  (separate from Phase 1.1's ``_phase_prune_version`` and Subproject
+  B's ``_subproject_b_prune_version`` sentinels). The prune is gated
+  on ``PRIMARY_CLAIM_ATTRIBUTION_ENABLED`` — when OFF the bare key IS
+  the active legacy key; pruning it would force unnecessary
+  regeneration churn on every quiet run. The prune returns a ``bool``
+  (``True`` when the sentinel was advanced) wired into
+  ``_hash_history_migration_dirty`` per the [2026-05-21 13:20] rule 3
+  (one-time migrations must persist independently of
+  ``history_updates``). The ``_build_primary_wr_scope`` helper is
+  shared by both the cleanup call site and the prune (prevents scope
+  drift — the [2026-05-19 22:00] rule 3).
+  **Test-contract reconciliation (new rule).** D's change to the
+  non-subcontractor primary emission contract inverted the assertions
+  in three prior B/B1-era isolation tests (which asserted a
+  non-subcontractor non-helper row emits the BARE primary key
+  ``{wr}_{week}`` with no claimer suffix) and one stale WR-filter
+  mirror test (``test_user_variant_intentionally_not_matched``, which
+  asserted WR_FILTER did NOT match the ``_USER_`` clause for
+  non-subcontractor rows). Per the [2026-05-20 00:26] rule 2
+  (test-contract override), the three isolation tests were pinned to
+  ``PRIMARY_CLAIM_ATTRIBUTION_ENABLED=False`` in their
+  ``setUp``/``tearDown`` (preserving their B/B1-isolation purpose
+  exactly — they test B's subcontractor rows under the D-off
+  contract); D's new partitioning behavior is covered end-to-end by
+  the D suite. The stale mirror test's obsolete assertion was inverted
+  to match the post-D reality (WR_FILTER now DOES match per-claimer
+  primary keys) and its docstring updated to cite this ledger entry.
+  **New rule — test-contract reconciliation discipline.** When a new
+  universal-attribution sub-project changes a shared emission contract
+  (here: D changes the non-sub primary key shape from bare to
+  ``_User_<claimer>``), the implementer MUST audit prior sub-projects'
+  isolation tests and mirror tests for the inverted assumption before
+  the branch is pushed. Reconcile in the same branch by: (a) pinning
+  now-orthogonal feature flags to ``False`` in the prior tests'
+  setUp/tearDown (preserves their isolation purpose), or (b) inverting
+  + citing the ledger entry when the prior assertion was testing the
+  exact behavior D is changing. Do not let the full-suite gate be the
+  first discovery of the conflict — that requires a red-to-green
+  repair cycle on a branch that should have been green from the start.
+  **Two new default-on kill switches** — ``PRIMARY_CLAIM_ATTRIBUTION_ENABLED``
+  and ``LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED`` — are workflow-pinned
+  to ``'1'`` in ``.github/workflows/weekly-excel-generation.yml``
+  with prominent LEGACY-style comments explaining their revert paths,
+  surfaced in the startup banner alongside all prior sub-project flags,
+  and documented in ``website/docs/reference/environment.md`` (the
+  "Primary foreman claim attribution" section). Regression tests: new
+  file ``tests/test_primary_claim_attribution.py`` covering
+  ``TestBuildGroupIdentityParsesUserToken`` (primary ``_User_``
+  round-trip), ``TestPrimaryClaimAttributionKillSwitch`` (OFF reverts
+  to bare key, ON emits ``_User_<claimer>``),
+  ``TestPrimaryClaimerPrePassEmission`` (pre-pass resolves claimer,
+  no-history falls back to current user, outage falls back not HOLDs),
+  ``TestThreeIdentitySitesCarryPrimaryClaimer`` (history_key /
+  valid_wr_weeks / current_keys lockstep), ``TestFilenameVariantSuffix``
+  (gated ``_User_`` suffix in generate_excel),
+  ``TestMirrorMatcherPrimaryUser`` (WR_FILTER matches per-claimer key
+  on, OFF reverts), ``TestMigrationCleanupPrimary`` (scope excludes
+  sub WRs, live-identity exemption preserved),
+  ``TestSubprojectDHashPrune`` (prune gate on flag, sentinel distinct,
+  return-bool wired to dirty-flag, idempotent), and
+  ``TestNonSubNonVacPrimaryPreserved`` (vac and sub rows unaffected).
+  Plus reconciled prior tests: B/B1 isolation tests pinned to
+  ``PRIMARY_CLAIM_ATTRIBUTION_ENABLED=False``; stale WR-filter mirror
+  assertion inverted. ``pytest tests/`` → **854 passed / 26 skipped /
+  61 subtests** (was 814 / 26 / 60 at Sub-project C close; +40 net
+  passing, +1 subtest).
+- [2026-05-25 17:50] Sub-project D PR #223 pre-merge review hardening
+  (Opus final whole-implementation review + Codex/Copilot bot pass on the
+  PR). Two code fixes + doc reconciliation; all on the
+  ``feat/subproject-d-primary-claim-attribution`` branch BEFORE merge.
+  **(1) Parser earliest-reserved-token dispatch (final-review Issue #1,
+  commit 9489310).** ``build_group_identity`` dispatched variants by a
+  FIXED order (``if 'AEPBillable' in tail: elif 'ReducedSub' ... elif
+  'VacCrew' ... elif 'Helper' ... elif 'User'``), so a bare
+  ``_User_<claimer>`` primary file whose CLAIMER NAME contains a reserved
+  token (e.g. a foreman literally named "Pat Helper" →
+  ``_User_Pat_Helper_<hash>``) misparsed as ``helper`` — breaking the
+  identity round-trip (regeneration churn + orphan attachments). Fix:
+  dispatch on the EARLIEST reserved-token POSITION in the tail
+  (``min(_reserved_positions, key=...)``). Because ``generate_excel``
+  always emits the structural marker FIRST in ``variant_suffix`` (tail[0]
+  is the marker), the earliest-position token is ALWAYS the true variant —
+  so this is byte-equivalent to the old order for every PRODUCED filename
+  AND strictly more correct for reserved-token-in-name cases (an Opus
+  equivalence harness found 15 divergences, all bug fixes incl. latent
+  B-shape bugs like ``_ReducedSub_User_AEPBillable_Sue``). Generalizes the
+  [2026-05-21 13:20] reserved-token-parse-order rule (which fixed the
+  two-level ``_ReducedSub_User_`` shape) to the bare ``_User_`` /
+  ``_VacCrew`` / ``_Helper`` shapes. Branch bodies + tail-scoping
+  unchanged. Regression class
+  ``TestBuildGroupIdentityReservedTokenInClaimerName`` (11 tests).
+  **(2) Scope-builder authoritative-``__variant`` dispatch (Codex PR #223
+  P1).** ``_build_primary_wr_scope`` decided "is this a partitioned
+  primary group" by substring-matching the group KEY
+  (``'_USER_' in _key and '_REDUCEDSUB' not in _key and '_AEPBILLABLE'
+  not in _key``). Same fragility class: a helper NAMED "USER" →
+  ``..._HELPER_USER_...`` (key contains ``_USER_``) was mis-bucketed as a
+  primary, and a primary claimer named "REDUCEDSUB"/"AEPBILLABLE" was
+  wrongly excluded. Since the scope feeds the DESTRUCTIVE bare-primary
+  attachment cleanup AND the hash prune, a false positive could (in the
+  worst case, narrowed by the ``ident not in valid_wr_weeks`` exemption)
+  delete a legacy bare-primary attachment for a WR that never produced a
+  primary ``_User_`` group. Fix: gate on the authoritative ``__variant``
+  field (set at emission, ``r_copy['__variant'] = variant``):
+  ``_g_rows[0].get('__variant') == 'primary' and '_USER_' in _key``. The
+  ``__variant`` gate excludes helper/vac/sub groups regardless of NAME;
+  the ``'_USER_' in _key`` clause then distinguishes a partitioned primary
+  from a bare one (both call sites gate on
+  ``PRIMARY_CLAIM_ATTRIBUTION_ENABLED``, so in production ``'both'`` mode
+  every primary group is partitioned). Regression test
+  ``TestBuildPrimaryWrScope::test_reserved_token_in_name_does_not_false_positive``.
+  **New rule — variant detection MUST use the authoritative ``__variant``
+  field (or the positional ``build_group_identity`` parse), never a key
+  substring scan.** A claimer/helper/vac NAME — or a pathological WR token
+  — can itself contain any reserved word (``USER``/``HELPER``/``VACCREW``/
+  ``REDUCEDSUB``/``AEPBILLABLE``), so substring presence in a group key is
+  not a reliable variant signal. This applies to the parser dispatch
+  (fixed) and to ``_build_primary_wr_scope`` (fixed). NOTE: the sibling
+  ``_build_subcontractor_wr_scope`` (``'_REDUCEDSUB' in _key``) and
+  ``_build_vac_crew_wr_scope`` (``'_VACCREW' in _key``) carry the SAME
+  latent substring pattern; their tokens are uppercase-unique so the
+  realistic-data risk is nil (an all-caps "REDUCEDSUB"/"VACCREW" foreman
+  name is required to trigger, and the effect is benign — a skipped
+  migration / a no-op cleanup on a non-matching WR). They were left as-is
+  to keep PR #223 scoped to D + the flagged P1; converting all three to
+  ``__variant`` is a clean separate consistency-pass follow-up.
+  **(3) Doc/comment reconciliation (Copilot nits, no behavior change):**
+  (a) two D code comments said bare-primary "parsed identifier == ''" —
+  corrected to ``identifier=None`` (``build_group_identity`` returns
+  ``None`` for a bare primary with no ``_User_`` token; the ``not
+  _identifier`` gate handles both None and ''; B/C legacy shapes DO parse
+  to '' so their comments were left unchanged); (b) ``environment.md``
+  ``LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED`` clarified that the companion
+  hash prune is gated on ``PRIMARY_CLAIM_ATTRIBUTION_ENABLED`` (not this
+  cleanup flag) — the CODE was always correct (mirrors C); only the doc
+  was misleading; (c) this ledger entry's [2026-05-25 16:30] filename-suffix
+  description + the design-spec finding #3 ("ZERO parser changes") + the
+  plan's Task 11 intro ("No production code change") were updated to note
+  the post-review parser hardening. ``pytest tests/`` → **866 passed / 26
+  skipped / 61 subtests** (was 854 at the D close; +12: 11 reserved-token
+  parser tests + 1 scope-builder regression). CI on PR #223 was fully
+  green pre-fix (CodeQL, tests+coverage, codecov, Snyk, Semgrep, Vercel).
+- [2026-05-25 18:15] Sub-project D PR #223 follow-up — Codex P1
+  "partition primary groups in primary mode too": grouping-vs-identity
+  inconsistency in ``RES_GROUPING_MODE == 'primary'``. **Finding (valid).**
+  D's primary emission in ``group_source_rows`` correctly stays bare in
+  primary mode — ``if RES_GROUPING_MODE == 'primary': keys_to_add.append(
+  ('primary', f"{week}_{wr}", None))`` — lumping every non-helper/non-sub
+  foreman's rows into ONE workbook per WR+week (the pre-pass at the
+  ``_primary_claimer_map`` block is also already gated on
+  ``RES_GROUPING_MODE in ('helper', 'both')``). But the FOUR consuming
+  identity/filename surfaces gated ONLY on ``PRIMARY_CLAIM_ATTRIBUTION_ENABLED``
+  (default on), NEVER on the mode: (1) ``generate_excel``'s primary
+  ``variant_suffix`` branch, (2) Site 1 main-loop ``history_key`` /
+  ``file_identifier``, (3) Site 2 ``valid_wr_weeks`` builder, (4) Site 3
+  ``current_keys`` builder. ``__current_foreman`` is set on every row
+  (``r_copy['__current_foreman'] = current_foreman or effective_user``),
+  so in primary mode these surfaces derived ``_User_<first-sorted
+  foreman>`` for a MERGED multi-foreman workbook — mislabeling it under one
+  foreman and letting row-sort-order changes flip the filename / history
+  key / attachment identity between runs (regeneration churn + orphan
+  accumulation). Operator-reachable: the production schedule pins
+  ``RES_GROUPING_MODE='both'`` (unaffected), but a manual
+  ``workflow_dispatch`` with ``res_grouping_mode: primary`` hits it.
+  **Codex's proposed remedy ("partition in primary mode too") is REJECTED**
+  — the design spec (§Scope / Out of scope) documents that primary mode
+  lumps helper + subcontractor rows into one file per WR where
+  "partitioning by ``primary_foreman`` would be semantically wrong"; it
+  must "stay bare/legacy." **Fix (the spec-aligned remedy):** gate all
+  four consuming surfaces on ``PRIMARY_CLAIM_ATTRIBUTION_ENABLED and
+  RES_GROUPING_MODE in ('helper', 'both')`` so primary mode is
+  *consistently* bare at every surface — matching the already-mode-gated
+  pre-pass + emission. In primary mode the surfaces now fall through to the
+  legacy ``User``-field identifier path (``User`` "is never populated in
+  production" per the spec → identifier ``''`` → bare key/filename,
+  byte-identical to pre-D primary-mode behaviour). ``both`` / ``helper``
+  production behaviour is unchanged (the mode predicate is True there). The
+  Site 2/3 inner ``if (PRIMARY_CLAIM_ATTRIBUTION_ENABLED and _pf)`` ternary
+  re-checks were left unchanged (they sit inside the now-mode-gated outer
+  block, so they are unreachable in primary mode anyway). **New rule —
+  emission-mode gates must be mirrored at every consuming identity/filename
+  surface.** Extends the CR-01 four-site lockstep ([2026-05-15] /
+  [2026-05-21 09:21]): when a variant's GROUP-KEY emission is gated on a
+  grouping-mode predicate (``RES_GROUPING_MODE in (...)``), EVERY surface
+  that later derives an identifier from that variant's rows — the
+  ``generate_excel`` filename suffix AND all three identity sites
+  (``history_key``/``file_identifier``, ``valid_wr_weeks``,
+  ``current_keys``) — MUST carry the SAME mode predicate, not just the
+  kill switch. A kill-switch-only gate on the consumers while the emission
+  also gates on mode is a split-brain: the grouping says "bare/merged" but
+  the filename/identity say "partitioned," and whichever row sorts first
+  silently decides the (wrong) identity. The lesson generalizes the
+  long-standing rule that the identity tuple must be built identically at
+  every site — "identically" now explicitly includes the gating predicate,
+  not only the value expression. Coverage gap that let it ship: the D test
+  suite drove every ``group_source_rows`` / ``generate_excel`` case in
+  ``both`` mode and had ZERO ``RES_GROUPING_MODE == 'primary'`` coverage
+  for the identity/filename surfaces; the Sites A/B/C source-regex guards
+  asserted the kill-switch gate but not the mode gate. Regression tests:
+  new ``TestPrimaryModeStaysBare`` in
+  ``tests/test_primary_claim_attribution.py`` (5 methods) — a BEHAVIORAL
+  test that drives the real ``generate_excel`` in primary mode and asserts
+  the produced filename has NO ``_User_`` suffix, a ``both``-mode positive
+  control that asserts it DOES keep ``_User_<claimer>`` (guards against
+  over-fixing), and three source-regex guards that the filename suffix +
+  Sites 1/2/3 all carry the ``RES_GROUPING_MODE in ('helper', 'both')``
+  predicate. Two prior filename-suffix source guards
+  (``TestPrimaryFilenameSuffix.test_primary_branch_builds_user_suffix_gated``
+  and ``TestSubprojectDProductionInvariants.test_filename_suffix_user_gated``)
+  were reconciled in-place (regex widened to tolerate the interposed mode
+  clause, citing this entry) per the [2026-05-25 16:30] test-contract
+  reconciliation rule. ``pytest tests/`` → **871 passed / 26 skipped / 61
+  subtests** (was 866; +5, zero regressions).
+- [2026-05-25 18:35] Sub-project D PR #223 second review round
+  (Copilot on ``f7ac747``). One correctness fix + one cosmetic rename;
+  the perf fix was landed by the Codex bot in parallel (commit
+  ``9d300f7``, integrated); Codex's P2 on the same commit was
+  evaluated and REJECTED (see below).
+  **(1) WR-matcher gap — production EXCLUDE_WRS silently fails for
+  subcontractor per-claimer primary files (correctness, fixed).**
+  Sub-project B emits subcontractor PRIMARY GROUP KEYS as
+  ``{week}_{wr}_REDUCEDSUB_USER_<claimer>`` /
+  ``{week}_{wr}_AEPBILLABLE_USER_<claimer>`` (the GROUP KEY, not just
+  the filename) whenever attribution is on — the production default.
+  But both ``_key_matches_wr`` (WR_FILTER, TEST_MODE) and
+  ``_key_matches_excluded_wr`` (EXCLUDE_WRS, **production-active**)
+  carried only the exact ``suffix == f"{wr}_REDUCEDSUB"`` /
+  ``== f"{wr}_AEPBILLABLE"`` clauses plus the ``_HELPER_`` prefixes —
+  no ``_REDUCEDSUB_USER_`` / ``_AEPBILLABLE_USER_`` prefix clause. The
+  bare-exact clauses match only the attribution-OFF shape, so with
+  attribution ON an operator excluding a subcontractor WR still
+  generated AND uploaded its per-claimer primary files (the
+  "do-not-bill-yet" intent silently failed), and a TEST_MODE
+  ``WR_FILTER`` of such a WR dropped them. This is a latent
+  Sub-project B ([2026-05-21 09:21]) violation of the mirror-matcher
+  rule ([2026-05-15] CR-02/CR-03) — B added the new group-key shape
+  but did not extend the two matchers. Fixed here (carried in the D
+  PR because the matchers are the same functions D already modified):
+  added ``or suffix.startswith(f"{wr}_REDUCEDSUB_USER_")`` and
+  ``or suffix.startswith(f"{wr}_AEPBILLABLE_USER_")`` to BOTH matchers
+  + updated the shape-list comment headers ("eleven shapes"). The
+  ``_VACCREW_<claimer>`` clause — present in production but missing
+  from the EXCLUDE-side test MIRROR (``_exclude_matches``) — was also
+  synced. **(2) Pre-pass resolves wasted primary claimers for helper
+  rows (perf, fixed by the Codex bot in ``9d300f7``, integrated).**
+  The Sub-project D ``_primary_claimer_map`` pre-pass scoped rows by
+  completed + non-vac + non-sub but did NOT exclude ``valid_helper_row``
+  rows — which the emission later routes to the ``_Helper_<name>``
+  shadow file and NEVER to a primary ``_USER_`` group (the emission
+  gate is ``not valid_helper_row``). So every completed helper row
+  cost a wasted ``resolve_claimer('primary', …)`` Supabase RPC. The
+  bot added ``if _r.get('__is_helper_row') and
+  _r.get('__helper_foreman') and _r.get('__helper_dept'): continue``
+  to the pre-pass scope (helper_mode is guaranteed by the outer
+  ``RES_GROUPING_MODE in ('helper','both')`` gate; helper_job is
+  optional, matching the emission). It skips ONLY rows the emission
+  would exclude from primary anyway, so attribution for genuine
+  primary rows is unaffected — extends the [2026-04-25 14:00]
+  per-row-RPC-latency rule (a pre-pass must mirror emission
+  eligibility, not just variant type). Two behavioral regression
+  tests were added on top of the bot's fix. **(3) Cosmetic:**
+  ``test_all_{seven,eight}_variants_{retained,excluded}_for_target_wr``
+  → ``test_all_variants_*`` (the shape count has grown past eight).
+  **Codex P2 (REJECTED) — "Resolve primary claimers in primary
+  grouping mode."** Codex argued primary mode "silently skips frozen
+  attribution." That is INTENTIONAL: the [2026-05-25 18:15] fix made
+  every D surface consistently bare in ``RES_GROUPING_MODE ==
+  'primary'`` because the spec documents primary-mode partitioning as
+  "semantically wrong" (it lumps helper + sub rows into one file).
+  Codex's premise ("identity/filename logic still consumes
+  ``__current_foreman``") is stale — all four surfaces are now
+  mode-gated. No action; rationale posted to the PR.
+  **New rule — a new group-key shape requires BOTH a matcher update
+  AND a test-mirror update in the same change.** The mirror-matcher
+  rule ([2026-05-15]) is necessary but not sufficient: the
+  ``test_security_audit_followup.py`` matcher tests use LOCAL MIRROR
+  copies (``_filter_matches`` / ``_exclude_matches``) of the
+  production matcher bodies, tied to production only by the
+  ``test_production_function_body_contains_all_*_clauses`` source-grep
+  guards. When adding a variant key shape you MUST (a) extend both
+  production matchers, (b) extend both test mirrors, AND (c) add the
+  new clause's f-string needle to the source-grep guards — otherwise
+  the mirror tests pass against a stale copy while production stays
+  broken (exactly how B's gap survived two phases of green suites).
+  Regression tests: ``tests/test_security_audit_followup.py`` — the
+  renamed ``test_all_variants_{retained,excluded}_for_target_wr`` gain
+  the ``_REDUCEDSUB_USER_`` / ``_AEPBILLABLE_USER_`` (+ ``_VACCREW_``)
+  keys, the filter-side source guard now requires both new needles in
+  BOTH matchers (``count >= 2``);
+  ``tests/test_primary_claim_attribution.py::TestPrimaryPrePass``
+  gains ``test_prepass_skips_valid_helper_row`` (resolve_claimer not
+  called) and ``test_prepass_resolves_primary_only_skipping_helper``
+  (called exactly once for a primary+helper pair). ``pytest tests/``
+  → **873 passed / 26 skipped / 69 subtests** (was 871; +2, zero
+  regressions).

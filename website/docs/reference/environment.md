@@ -464,6 +464,59 @@ silently override the pinned value without code review.
 **Startup banner:** The resolved state is logged at startup as
 `📋 VAC Crew legacy cleanup: ENABLED` or `📋 VAC Crew legacy cleanup: DISABLED`.
 
+### `PRIMARY_CLAIM_ATTRIBUTION_ENABLED`
+
+**Default:** `1` (enabled). Truthy values: `1`, `true`, `yes`, `on`.
+
+Sub-project D. When enabled, the production primary Excel files (every
+non-subcontractor WR) are partitioned by the **frozen primary foreman**
+who claimed each line item — read from `billing_audit.attribution_snapshot`
+via `resolve_claimer('primary', …)` — and named
+`WR_..._WeekEnding_..._User_<claimer>_<hash>.xlsx`. A WR+week claimed by
+two foremen produces two files, one per claimer.
+
+Unlike Sub-project B (subcontractor primary), the core primary path
+**never holds** on a Supabase outage: if attribution can't be read
+(`fetch_failure`), or there is no frozen row yet (`no_history`), the row
+falls back to the **current** foreman and the file is still generated.
+This is deliberate — D covers every non-subcontractor WR, so holding on an
+outage would suppress all primary billing for that run.
+
+Set to `0` to revert to the legacy one-file-per-WR bare primary behavior
+(`WR_..._WeekEnding_..._<hash>.xlsx`). The resolved value is printed at
+startup as `📋 PRIMARY_CLAIM_ATTRIBUTION_ENABLED=<bool>`. Pinned to `1`
+in the `weekly-excel-generation.yml` `env:` block.
+
+### `LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED`
+
+**Default:** `1` (enabled). Truthy values: `1`, `true`, `yes`, `on`.
+
+Sub-project D one-time migration. When enabled, the legacy UNPARTITIONED
+bare primary attachments (no `_User_` token) on `TARGET_SHEET_ID` for
+non-subcontractor WRs that now produce a partitioned `_User_<claimer>`
+file are deleted — UNLESS the bare file's identity is live this run
+(`valid_wr_weeks` exemption).
+
+**Scope note:** this flag gates only the destructive **attachment**
+cleanup. The companion one-time hash-history prune
+(`_subproject_d_prune_version` sentinel, which drops the stale
+`{wr}|{week}|primary|` entries) is gated on
+**`PRIMARY_CLAIM_ATTRIBUTION_ENABLED`** instead — not on this flag —
+because when attribution is off the bare `{wr}|{week}|primary|` key is the
+*active* legacy key and must not be pruned. So disabling this cleanup flag
+while leaving attribution on still mutates `hash_history.json` via the
+prune (the prune only drops a hash entry, forcing at most one benign
+regeneration — never a file deletion). This mirrors Sub-project C's
+`_run_vac_crew_hash_prune` gating.
+
+**Separate from `PRIMARY_CLAIM_ATTRIBUTION_ENABLED`,** which gates
+attribution resolution, NOT this cleanup. Set to `0` to skip the
+destructive cleanup (legacy bare-primary duplicates persist until removed
+manually). The resolved value is printed at startup as
+`📋 LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED=<bool>`. Pinned to `1` in the
+`weekly-excel-generation.yml` `env:` block alongside
+`PRIMARY_CLAIM_ATTRIBUTION_ENABLED`.
+
 ### `AEP_BILLABLE_CUTOFF`
 
 **Default:** `2026-04-12` (AEP rate-increase contract awarded to Linetec)

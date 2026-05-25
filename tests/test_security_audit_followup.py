@@ -2303,23 +2303,35 @@ class TestExcludeWrsMatchesAllVariants(unittest.TestCase):
             or suffix.startswith(f"{wr}_HELPER_")
             or suffix.startswith(f"{wr}_USER_")
             or suffix == f"{wr}_VACCREW"
+            or suffix.startswith(f"{wr}_VACCREW_")
             or suffix == f"{wr}_REDUCEDSUB"
             or suffix == f"{wr}_AEPBILLABLE"
             or suffix.startswith(f"{wr}_REDUCEDSUB_HELPER_")
             or suffix.startswith(f"{wr}_AEPBILLABLE_HELPER_")
+            or suffix.startswith(f"{wr}_REDUCEDSUB_USER_")
+            or suffix.startswith(f"{wr}_AEPBILLABLE_USER_")
         )
 
-    def test_all_seven_variants_excluded_for_target_wr(self):
+    def test_all_variants_excluded_for_target_wr(self):
+        # PR #223 follow-up (Copilot): added the Subproject B per-claimer
+        # subcontractor primary shapes {wr}_REDUCEDSUB_USER_<claimer> and
+        # {wr}_AEPBILLABLE_USER_<claimer> (attribution-on production default)
+        # plus the Subproject C {wr}_VACCREW_<claimer> shape — the matcher
+        # previously missed all three, so EXCLUDE_WRS silently failed to
+        # exclude them.
         wr = '12345'
         keys = [
             f'041926_{wr}',                            # primary
             f'041926_{wr}_HELPER_Jane_Smith',          # helper
-            f'041926_{wr}_USER_John_Doe',              # USER (legacy)
+            f'041926_{wr}_USER_John_Doe',              # primary (Subproject D)
             f'041926_{wr}_VACCREW',                    # vac_crew
+            f'041926_{wr}_VACCREW_Vic_Crew',           # vac_crew (Subproject C)
             f'041926_{wr}_REDUCEDSUB',                 # reduced_sub
             f'041926_{wr}_AEPBILLABLE',                # aep_billable
             f'041926_{wr}_REDUCEDSUB_HELPER_Jane_Doe', # reduced_sub_helper
             f'041926_{wr}_AEPBILLABLE_HELPER_J_Smith', # aep_billable_helper
+            f'041926_{wr}_REDUCEDSUB_USER_Sue_Sub',    # reduced_sub (Subproject B)
+            f'041926_{wr}_AEPBILLABLE_USER_Sue_Sub',   # aep_billable (Subproject B)
         ]
         for k in keys:
             with self.subTest(key=k):
@@ -2389,9 +2401,10 @@ class TestWrFilterMatchesAllVariants(unittest.TestCase):
     recognize the new variant suffixes in TEST_MODE.
 
     Mirror of TestExcludeWrsMatchesAllVariants for the WR_FILTER
-    matcher. Tests document the deliberate asymmetry that
-    ``_key_matches_wr`` does NOT match ``_USER_`` — preserves
-    pre-fix surface (the matcher never carried that clause).
+    matcher. Sub-project D ([2026-05-25]) added the ``_USER_`` clause
+    to ``_key_matches_wr`` so the two matchers are now in full sync —
+    the previous deliberate asymmetry (``_USER_`` excluded) is
+    superseded by D's production-primary partitioning.
     """
 
     @staticmethod
@@ -2406,25 +2419,37 @@ class TestWrFilterMatchesAllVariants(unittest.TestCase):
             suffix == wr
             or suffix.startswith(f"{wr}_HELPER_")
             or suffix == f"{wr}_VACCREW"
+            or suffix.startswith(f"{wr}_VACCREW_")
             or suffix == f"{wr}_REDUCEDSUB"
             or suffix == f"{wr}_AEPBILLABLE"
             or suffix.startswith(f"{wr}_REDUCEDSUB_HELPER_")
             or suffix.startswith(f"{wr}_AEPBILLABLE_HELPER_")
+            or suffix.startswith(f"{wr}_USER_")
+            or suffix.startswith(f"{wr}_REDUCEDSUB_USER_")
+            or suffix.startswith(f"{wr}_AEPBILLABLE_USER_")
         )
 
-    def test_all_seven_variants_retained_for_target_wr(self):
-        # Note: 7 keys but no _USER_ — `_USER_` is intentionally
-        # excluded from this matcher (asymmetry with
-        # `_key_matches_excluded_wr`).
+    def test_all_variants_retained_for_target_wr(self):
+        # Sub-project D (2026-05-25): _USER_ IS now retained — the
+        # asymmetry with `_key_matches_excluded_wr` is resolved.
+        # PR #223 follow-up (Copilot): added the Subproject B per-claimer
+        # subcontractor primary shapes {wr}_REDUCEDSUB_USER_<claimer> /
+        # {wr}_AEPBILLABLE_USER_<claimer> (renamed from
+        # test_all_{seven,eight}_variants_* — the shape count has grown past
+        # eight).
         wr = '12345'
         keys_to_retain = [
             f'041926_{wr}',
             f'041926_{wr}_HELPER_Jane_Smith',
             f'041926_{wr}_VACCREW',
+            f'041926_{wr}_VACCREW_Vic_Crew',
             f'041926_{wr}_REDUCEDSUB',
             f'041926_{wr}_AEPBILLABLE',
             f'041926_{wr}_REDUCEDSUB_HELPER_Jane_Doe',
             f'041926_{wr}_AEPBILLABLE_HELPER_J_Smith',
+            f'041926_{wr}_USER_John_Doe',
+            f'041926_{wr}_REDUCEDSUB_USER_Sue_Sub',
+            f'041926_{wr}_AEPBILLABLE_USER_Sue_Sub',
         ]
         for k in keys_to_retain:
             with self.subTest(key=k):
@@ -2434,14 +2459,17 @@ class TestWrFilterMatchesAllVariants(unittest.TestCase):
                 )
 
     def test_user_variant_intentionally_not_matched(self):
-        # The asymmetry guard: _USER_ exists in
-        # _key_matches_excluded_wr but NOT in _key_matches_wr. If a
-        # future contributor adds _USER_ to _key_matches_wr without
-        # a documented production incident, this test fails loudly.
-        self.assertFalse(
+        # Sub-project D (2026-05-25) INVERTED this contract: WR_FILTER now
+        # DOES match the per-claimer primary key {wr}_USER_<claimer>, because
+        # D partitions the production primary file by frozen claimer. Before
+        # D, _USER_ was the decommissioned activity-log variant and was
+        # intentionally excluded. Per [2026-05-20 00:26] rule 2, this prior
+        # test's contract is rewritten in place to assert the new invariant.
+        # (Method name preserved for git-blame traceability.)
+        self.assertTrue(
             self._filter_matches('041926_12345_USER_John_Doe', '12345'),
-            "_USER_ is intentionally NOT in _key_matches_wr; do not "
-            "add it without a documented incident.",
+            "Sub-project D: _USER_ MUST be matched by _key_matches_wr "
+            "(mirror of _key_matches_excluded_wr).",
         )
 
     def test_unrelated_wr_dropped(self):
@@ -2478,6 +2506,10 @@ class TestWrFilterMatchesAllVariants(unittest.TestCase):
             'f"{wr}_AEPBILLABLE"',
             'f"{wr}_REDUCEDSUB_HELPER_"',
             'f"{wr}_AEPBILLABLE_HELPER_"',
+            # PR #223 follow-up (Copilot): Subproject B per-claimer
+            # subcontractor primary shapes — both matchers must carry them.
+            'f"{wr}_REDUCEDSUB_USER_"',
+            'f"{wr}_AEPBILLABLE_USER_"',
         ):
             with self.subTest(needle=needle):
                 self.assertGreaterEqual(
@@ -2729,18 +2761,21 @@ class TestPppCleanupUntrackedAttachments(unittest.TestCase):
         # sub_wr_scope and sub_offcontract_variants. Subproject B
         # (2026-05-20, Task 7) appends one more trailing kwarg:
         # sub_legacy_primary_variants. Subproject C Task 6 (2026-05-21)
-        # appends one more trailing kwarg: vac_legacy_wr_scope. All five
-        # are optional (None default) so existing TARGET / PPP call sites
-        # remain byte-identical. IN-PLACE UPDATE per [2026-05-20 00:26]
-        # rule 2 — the assertion follows the v4 signature contract.
+        # appends one more trailing kwarg: vac_legacy_wr_scope. Subproject
+        # D Task 10 (2026-05-25) appends one more trailing kwarg:
+        # primary_wr_scope. All six are optional (None default) so
+        # existing TARGET / PPP call sites remain byte-identical.
+        # IN-PLACE UPDATE per [2026-05-20 00:26] rule 2 — the assertion
+        # follows the v5 signature contract.
         self.assertEqual(
             params,
             ['client', 'target_sheet_id', 'valid_wr_weeks',
              'test_mode', 'attachment_cache', 'target_sheet',
              'variant_whitelist', 'sub_wr_scope', 'sub_offcontract_variants',
-             'sub_legacy_primary_variants', 'vac_legacy_wr_scope'],
-            "Subproject C Task 6 appends a trailing kwarg after "
-            "'sub_legacy_primary_variants': 'vac_legacy_wr_scope'. "
+             'sub_legacy_primary_variants', 'vac_legacy_wr_scope',
+             'primary_wr_scope'],
+            "Subproject D Task 10 appends a trailing kwarg after "
+            "'vac_legacy_wr_scope': 'primary_wr_scope'. "
             "Any further drift must be reviewed against D-09 (TARGET "
             "legacy behavior). "
             f"Got: {params}"
@@ -2768,6 +2803,11 @@ class TestPppCleanupUntrackedAttachments(unittest.TestCase):
             sig.parameters['vac_legacy_wr_scope'].default, None,
             'vac_legacy_wr_scope must default to None '
             '(Subproject C Task 6).'
+        )
+        self.assertIs(
+            sig.parameters['primary_wr_scope'].default, None,
+            'primary_wr_scope must default to None '
+            '(Subproject D Task 10).'
         )
 
 
