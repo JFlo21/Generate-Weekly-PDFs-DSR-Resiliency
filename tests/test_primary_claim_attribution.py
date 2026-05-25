@@ -550,3 +550,72 @@ class TestBarePrimaryCleanup(unittest.TestCase):
         bare = self._att("WR_90001_WeekEnding_041926_120000_aaaaaaaaaaaaaaaa.xlsx")
         deleted = self._run([bare], valid_wr_weeks=set(), primary_wr_scope=None)
         self.assertNotIn(bare.id, deleted)
+
+
+class TestBuildGroupIdentityPrimaryUserRoundTrip(unittest.TestCase):
+    """Task 11: parser round-trips D's _User_<claimer> primary filename."""
+
+    def test_plain_claimer(self):
+        self.assertEqual(
+            gwp.build_group_identity(
+                "WR_90001_WeekEnding_041926_120000_User_Alice_aaaaaaaaaaaaaaaa.xlsx"
+            ),
+            ('90001', '041926', 'primary', 'Alice'),
+        )
+
+    def test_underscored_claimer(self):
+        self.assertEqual(
+            gwp.build_group_identity(
+                "WR_90001_WeekEnding_041926_120000_User_Jane_Smith_aaaaaaaaaaaaaaaa.xlsx"
+            ),
+            ('90001', '041926', 'primary', 'Jane_Smith'),
+        )
+
+    def test_bare_primary_still_parses(self):
+        # OFF-mode legacy bare primary -> identifier None.
+        self.assertEqual(
+            gwp.build_group_identity(
+                "WR_90001_WeekEnding_041926_120000_aaaaaaaaaaaaaaaa.xlsx"
+            ),
+            ('90001', '041926', 'primary', None),
+        )
+
+
+class TestSubprojectDProductionInvariants(unittest.TestCase):
+    """Task 11: source-grep guards for the four-site lockstep + matcher
+    mirror + filename suffix + prune-kill-switch gate."""
+
+    @classmethod
+    def setUpClass(cls):
+        with open(inspect.getsourcefile(generate_weekly_pdfs), encoding='utf-8') as f:
+            cls.src = f.read()
+
+    def test_filename_suffix_user_gated(self):
+        self.assertRegex(
+            self.src,
+            r"PRIMARY_CLAIM_ATTRIBUTION_ENABLED and _pf[\s\S]{0,200}_User_\{",
+        )
+
+    def test_wr_filter_matcher_has_user_clause(self):
+        # Both matchers must carry the _USER_ prefix clause (count >= 2).
+        self.assertGreaterEqual(
+            self.src.count('startswith(f"{wr}_USER_")'), 2,
+            "both _key_matches_wr and _key_matches_excluded_wr must match _USER_",
+        )
+
+    def test_prune_gated_on_kill_switch(self):
+        # Window widened to 2000: Task 9 added a long docstring (~1824 chars)
+        # between the def line and the kill-switch guard. The structural
+        # invariant (kill-switch early-return) is present and correct in
+        # production; only the scan window needed adjustment.
+        self.assertRegex(
+            self.src,
+            r"def _run_subproject_d_hash_prune[\s\S]{0,2000}"
+            r"if not PRIMARY_CLAIM_ATTRIBUTION_ENABLED:\s*\n\s*return False",
+        )
+
+    def test_prune_wired_into_call_site(self):
+        self.assertIn("_run_subproject_d_hash_prune(hash_history, groups)", self.src)
+
+    def test_cleanup_has_primary_wr_scope_param(self):
+        self.assertIn("primary_wr_scope: set[str] | None = None", self.src)
