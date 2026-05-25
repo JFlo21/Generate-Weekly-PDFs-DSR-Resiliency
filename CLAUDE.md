@@ -2871,11 +2871,15 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   the same bare filename (``WR_{wr}_WeekEnding_{mmddyy}_{ts}_{hash}.xlsx``),
   causing every group after the first to clobber the prior file on
   disk and producing a single-file output regardless of claimer count.
-  D added a gated ``elif PRIMARY_CLAIM_ATTRIBUTION_ENABLED and
-  identifier: variant_suffix = f"_User_{identifier}"`` branch
-  (mirroring the vac_crew ``_User_`` branch added by Subproject C),
-  so each claimer's file has a distinct on-disk name and can be
-  uploaded to a distinct Smartsheet attachment without collision.
+  D added a gated branch in the ``elif variant == 'primary':`` arm:
+  ``_pf = first_row.get('__current_foreman', '')`` then
+  ``if PRIMARY_CLAIM_ATTRIBUTION_ENABLED and _pf: variant_suffix =
+  f"_User_{_RE_SANITIZE_IDENTIFIER.sub('_', _pf)[:50]}"`` (else bare
+  ``''``) — mirroring the vac_crew ``_User_`` branch added by Subproject
+  C. The suffix derives from the attributed claimer (``__current_foreman``,
+  the partition key), sanitized via ``_RE_SANITIZE_IDENTIFIER`` exactly as
+  the four identity sites do, so each claimer's file has a distinct on-disk
+  name and round-trips through ``build_group_identity``.
   **Mirror-matcher rule applied.** ``_key_matches_wr`` (the WR_FILTER
   matcher, used in TEST_MODE diagnostic runs) gained the
   ``or suffix.startswith(f"{wr}_USER_")`` clause for D's per-claimer
@@ -2966,3 +2970,79 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   assertion inverted. ``pytest tests/`` → **854 passed / 26 skipped /
   61 subtests** (was 814 / 26 / 60 at Sub-project C close; +40 net
   passing, +1 subtest).
+- [2026-05-25 17:50] Sub-project D PR #223 pre-merge review hardening
+  (Opus final whole-implementation review + Codex/Copilot bot pass on the
+  PR). Two code fixes + doc reconciliation; all on the
+  ``feat/subproject-d-primary-claim-attribution`` branch BEFORE merge.
+  **(1) Parser earliest-reserved-token dispatch (final-review Issue #1,
+  commit 9489310).** ``build_group_identity`` dispatched variants by a
+  FIXED order (``if 'AEPBillable' in tail: elif 'ReducedSub' ... elif
+  'VacCrew' ... elif 'Helper' ... elif 'User'``), so a bare
+  ``_User_<claimer>`` primary file whose CLAIMER NAME contains a reserved
+  token (e.g. a foreman literally named "Pat Helper" →
+  ``_User_Pat_Helper_<hash>``) misparsed as ``helper`` — breaking the
+  identity round-trip (regeneration churn + orphan attachments). Fix:
+  dispatch on the EARLIEST reserved-token POSITION in the tail
+  (``min(_reserved_positions, key=...)``). Because ``generate_excel``
+  always emits the structural marker FIRST in ``variant_suffix`` (tail[0]
+  is the marker), the earliest-position token is ALWAYS the true variant —
+  so this is byte-equivalent to the old order for every PRODUCED filename
+  AND strictly more correct for reserved-token-in-name cases (an Opus
+  equivalence harness found 15 divergences, all bug fixes incl. latent
+  B-shape bugs like ``_ReducedSub_User_AEPBillable_Sue``). Generalizes the
+  [2026-05-21 13:20] reserved-token-parse-order rule (which fixed the
+  two-level ``_ReducedSub_User_`` shape) to the bare ``_User_`` /
+  ``_VacCrew`` / ``_Helper`` shapes. Branch bodies + tail-scoping
+  unchanged. Regression class
+  ``TestBuildGroupIdentityReservedTokenInClaimerName`` (11 tests).
+  **(2) Scope-builder authoritative-``__variant`` dispatch (Codex PR #223
+  P1).** ``_build_primary_wr_scope`` decided "is this a partitioned
+  primary group" by substring-matching the group KEY
+  (``'_USER_' in _key and '_REDUCEDSUB' not in _key and '_AEPBILLABLE'
+  not in _key``). Same fragility class: a helper NAMED "USER" →
+  ``..._HELPER_USER_...`` (key contains ``_USER_``) was mis-bucketed as a
+  primary, and a primary claimer named "REDUCEDSUB"/"AEPBILLABLE" was
+  wrongly excluded. Since the scope feeds the DESTRUCTIVE bare-primary
+  attachment cleanup AND the hash prune, a false positive could (in the
+  worst case, narrowed by the ``ident not in valid_wr_weeks`` exemption)
+  delete a legacy bare-primary attachment for a WR that never produced a
+  primary ``_User_`` group. Fix: gate on the authoritative ``__variant``
+  field (set at emission, ``r_copy['__variant'] = variant``):
+  ``_g_rows[0].get('__variant') == 'primary' and '_USER_' in _key``. The
+  ``__variant`` gate excludes helper/vac/sub groups regardless of NAME;
+  the ``'_USER_' in _key`` clause then distinguishes a partitioned primary
+  from a bare one (both call sites gate on
+  ``PRIMARY_CLAIM_ATTRIBUTION_ENABLED``, so in production ``'both'`` mode
+  every primary group is partitioned). Regression test
+  ``TestBuildPrimaryWrScope::test_reserved_token_in_name_does_not_false_positive``.
+  **New rule — variant detection MUST use the authoritative ``__variant``
+  field (or the positional ``build_group_identity`` parse), never a key
+  substring scan.** A claimer/helper/vac NAME — or a pathological WR token
+  — can itself contain any reserved word (``USER``/``HELPER``/``VACCREW``/
+  ``REDUCEDSUB``/``AEPBILLABLE``), so substring presence in a group key is
+  not a reliable variant signal. This applies to the parser dispatch
+  (fixed) and to ``_build_primary_wr_scope`` (fixed). NOTE: the sibling
+  ``_build_subcontractor_wr_scope`` (``'_REDUCEDSUB' in _key``) and
+  ``_build_vac_crew_wr_scope`` (``'_VACCREW' in _key``) carry the SAME
+  latent substring pattern; their tokens are uppercase-unique so the
+  realistic-data risk is nil (an all-caps "REDUCEDSUB"/"VACCREW" foreman
+  name is required to trigger, and the effect is benign — a skipped
+  migration / a no-op cleanup on a non-matching WR). They were left as-is
+  to keep PR #223 scoped to D + the flagged P1; converting all three to
+  ``__variant`` is a clean separate consistency-pass follow-up.
+  **(3) Doc/comment reconciliation (Copilot nits, no behavior change):**
+  (a) two D code comments said bare-primary "parsed identifier == ''" —
+  corrected to ``identifier=None`` (``build_group_identity`` returns
+  ``None`` for a bare primary with no ``_User_`` token; the ``not
+  _identifier`` gate handles both None and ''; B/C legacy shapes DO parse
+  to '' so their comments were left unchanged); (b) ``environment.md``
+  ``LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED`` clarified that the companion
+  hash prune is gated on ``PRIMARY_CLAIM_ATTRIBUTION_ENABLED`` (not this
+  cleanup flag) — the CODE was always correct (mirrors C); only the doc
+  was misleading; (c) this ledger entry's [2026-05-25 16:30] filename-suffix
+  description + the design-spec finding #3 ("ZERO parser changes") + the
+  plan's Task 11 intro ("No production code change") were updated to note
+  the post-review parser hardening. ``pytest tests/`` → **866 passed / 26
+  skipped / 61 subtests** (was 854 at the D close; +12: 11 reserved-token
+  parser tests + 1 scope-builder regression). CI on PR #223 was fully
+  green pre-fix (CodeQL, tests+coverage, codecov, Snyk, Semgrep, Vercel).

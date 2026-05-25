@@ -379,13 +379,15 @@ class TestBuildPrimaryWrScope(unittest.TestCase):
     _USER_ primary group in this run."""
 
     def test_scope_collects_partitioned_primary_wrs(self):
+        # __variant is the authoritative variant signal (set at emission);
+        # the scope builder reads it, not a key substring.
         groups = {
-            '041926_90001_USER_Alice': [{'Work Request #': '90001'}],
-            '041926_90002_USER_Bob': [{'Work Request #': '90002'}],
-            '041926_90003_HELPER_Carol': [{'Work Request #': '90003'}],
-            '041926_90004_VACCREW_Dan': [{'Work Request #': '90004'}],
-            '041926_90005_REDUCEDSUB_USER_Eve': [{'Work Request #': '90005'}],
-            '041926_90006': [{'Work Request #': '90006'}],  # bare primary (OFF mode)
+            '041926_90001_USER_Alice': [{'Work Request #': '90001', '__variant': 'primary'}],
+            '041926_90002_USER_Bob': [{'Work Request #': '90002', '__variant': 'primary'}],
+            '041926_90003_HELPER_Carol': [{'Work Request #': '90003', '__variant': 'helper'}],
+            '041926_90004_VACCREW_Dan': [{'Work Request #': '90004', '__variant': 'vac_crew'}],
+            '041926_90005_REDUCEDSUB_USER_Eve': [{'Work Request #': '90005', '__variant': 'reduced_sub'}],
+            '041926_90006': [{'Work Request #': '90006', '__variant': 'primary'}],  # bare primary (OFF/'primary' mode), no _USER_
         }
         scope = gwp._build_primary_wr_scope(groups)
         self.assertIn('90001', scope)
@@ -393,8 +395,8 @@ class TestBuildPrimaryWrScope(unittest.TestCase):
         # Helper / vac / subcontractor / bare-primary groups are NOT in scope.
         self.assertNotIn('90003', scope)
         self.assertNotIn('90004', scope)
-        self.assertNotIn('90005', scope)  # REDUCEDSUB_USER is B's, not D's
-        self.assertNotIn('90006', scope)
+        self.assertNotIn('90005', scope)  # reduced_sub variant is B's, not D's
+        self.assertNotIn('90006', scope)  # primary but bare (no _USER_)
 
     def test_empty_groups(self):
         self.assertEqual(gwp._build_primary_wr_scope({}), set())
@@ -404,11 +406,39 @@ class TestBuildPrimaryWrScope(unittest.TestCase):
         # primary group) must NOT appear in D's scope — D only owns WRs
         # it actually partitioned this run.
         groups = {
-            '041926_90010_HELPER_Carol': [{'Work Request #': '90010'}],
-            '041926_90011_VACCREW_Dan': [{'Work Request #': '90011'}],
+            '041926_90010_HELPER_Carol': [{'Work Request #': '90010', '__variant': 'helper'}],
+            '041926_90011_VACCREW_Dan': [{'Work Request #': '90011', '__variant': 'vac_crew'}],
         }
         scope = gwp._build_primary_wr_scope(groups)
         self.assertEqual(scope, set())
+
+    def test_reserved_token_in_name_does_not_false_positive(self):
+        # Codex PR #223 P1 regression guard. The scope builder must decide
+        # variant from the authoritative ``__variant`` field, NOT a key
+        # substring — otherwise a claimer / helper / vac name containing a
+        # reserved word mis-buckets the WR (and the scope feeds the
+        # DESTRUCTIVE bare-primary cleanup + the hash prune).
+        groups = {
+            # helper whose NAME contains the USER token -> key has _USER_
+            # substring but __variant=='helper' -> must be EXCLUDED.
+            '041926_90020_HELPER_USER_Smith': [
+                {'Work Request #': '90020', '__variant': 'helper'}],
+            # vac member named USER -> EXCLUDED.
+            '041926_90021_VACCREW_USER_Jones': [
+                {'Work Request #': '90021', '__variant': 'vac_crew'}],
+            # genuine primary claimer whose NAME contains a reserved word
+            # -> must be INCLUDED (the old substring exclusions wrongly
+            # dropped these).
+            '041926_90022_USER_ReducedSub_Bob': [
+                {'Work Request #': '90022', '__variant': 'primary'}],
+            '041926_90023_USER_AEPBillable_Sue': [
+                {'Work Request #': '90023', '__variant': 'primary'}],
+        }
+        scope = gwp._build_primary_wr_scope(groups)
+        self.assertNotIn('90020', scope)
+        self.assertNotIn('90021', scope)
+        self.assertIn('90022', scope)
+        self.assertIn('90023', scope)
 
 
 class TestSubprojectDHashPrune(unittest.TestCase):
@@ -424,7 +454,8 @@ class TestSubprojectDHashPrune(unittest.TestCase):
         gwp.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = self._attr
 
     def _groups(self):
-        return {'041926_90001_USER_Alice': [{'Work Request #': '90001'}]}
+        return {'041926_90001_USER_Alice': [
+            {'Work Request #': '90001', '__variant': 'primary'}]}
 
     def test_drops_bare_primary_orphan_for_in_scope_wr(self):
         hist = {

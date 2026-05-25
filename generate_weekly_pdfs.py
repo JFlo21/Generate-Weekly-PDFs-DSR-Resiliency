@@ -577,7 +577,8 @@ PRIMARY_CLAIM_ATTRIBUTION_ENABLED = os.getenv(
 
 # Subproject D (2026-05-25): default-ON kill switch for the one-time
 # removal of legacy UNPARTITIONED bare ``primary`` attachments (no
-# ``_User_`` token, parsed identifier == '') on TARGET_SHEET_ID for
+# ``_User_`` token; ``build_group_identity`` parses these to
+# ``identifier=None``) on TARGET_SHEET_ID for
 # non-subcontractor WRs, once those files are re-partitioned by frozen
 # primary claimer. Set to '0' to skip the destructive cleanup (legacy
 # duplicates then persist until removed manually). Separate from
@@ -3036,7 +3037,9 @@ def cleanup_untracked_sheet_attachments(
                         continue
                     # Subproject D (2026-05-25): one-time migration —
                     # delete LEGACY UNPARTITIONED bare ``primary``
-                    # attachments (parsed identifier == '') for in-scope
+                    # attachments (``build_group_identity`` parses a bare
+                    # primary to ``identifier=None``; the ``not _identifier``
+                    # gate below matches None and '') for in-scope
                     # NON-subcontractor WRs. D re-partitions production
                     # primary files by frozen claimer (``_User_<name>``),
                     # so the old bare one-file-per-WR attachment is an
@@ -3403,12 +3406,23 @@ def _build_primary_wr_scope(groups: dict) -> set[str]:
     """Return the set of sanitized WR tokens that have a partitioned
     production-primary ``_USER_`` group in this run (Subproject D).
 
-    A group key is a partitioned primary iff it contains ``'_USER_'`` AND
-    is NOT a subcontractor primary variant (``'_REDUCEDSUB'`` /
-    ``'_AEPBILLABLE'`` — those carry ``_USER_`` too but are owned by
-    Subproject B and route through B's own scope/cleanup). Helper
-    (``_HELPER_``) and vac (``_VACCREW``) groups never match because they
-    do not contain ``_USER_``.
+    A group qualifies iff its authoritative ``__variant`` field (set at
+    emission) is ``'primary'`` AND its key carries the ``_USER_`` partition
+    token. The ``__variant`` gate — NOT a key substring scan — is what
+    excludes helper / vac_crew / subcontractor groups, so a claimer,
+    helper, or vac-crew name (or a pathological WR token) that itself
+    contains a reserved word cannot false-positive into D's scope (Codex
+    PR #223 P1). For example a helper literally named "USER" produces a
+    key ``..._HELPER_USER_...`` whose ``_USER_`` substring the prior
+    implementation mis-bucketed as a primary group; the ``__variant ==
+    'primary'`` gate now rejects it. Conversely a genuine primary claimer
+    named "ReducedSub"/"AEPBillable" (key ``..._USER_ReducedSub``) is
+    correctly INCLUDED, whereas the prior ``'_REDUCEDSUB' not in _key``
+    substring exclusion wrongly dropped it. The ``'_USER_' in _key`` clause
+    then distinguishes a PARTITIONED primary (Subproject D ``_USER_`` group)
+    from a bare primary (OFF mode / legacy ``RES_GROUPING_MODE='primary'``).
+    Both call sites gate on ``PRIMARY_CLAIM_ATTRIBUTION_ENABLED``, so in
+    production ``'both'`` mode every primary group is the partitioned form.
 
     Shared by ``_run_subproject_d_hash_prune`` (hash-prune scope) and the
     TARGET ``cleanup_untracked_sheet_attachments`` call site (bare-primary
@@ -3417,12 +3431,9 @@ def _build_primary_wr_scope(groups: dict) -> set[str]:
     """
     _scope: set[str] = set()
     for _key, _g_rows in groups.items():
-        if (
-            '_USER_' in _key
-            and '_REDUCEDSUB' not in _key
-            and '_AEPBILLABLE' not in _key
-            and _g_rows
-        ):
+        if not _g_rows:
+            continue
+        if _g_rows[0].get('__variant') == 'primary' and '_USER_' in _key:
             _g_wr_raw = _g_rows[0].get('Work Request #', '')
             _g_wr = str(_g_wr_raw).split('.')[0]
             _g_wr = _RE_SANITIZE_HELPER_NAME.sub('_', _g_wr)[:50]

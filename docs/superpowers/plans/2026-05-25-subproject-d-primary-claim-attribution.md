@@ -1508,7 +1508,7 @@ git commit -m "feat(billing): Subproject D — forced bare-primary cleanup on TA
 
 ## Task 11: `build_group_identity` round-trip regression + production-invariants source-grep
 
-No production code change — the parser already handles `_User_<name>`. This task locks the contract and the four-site lockstep against silent regression.
+No production code change *in this task* — the parser already handles `_User_<name>`, so Task 11 just locks the contract and the four-site lockstep against silent regression. **(Post-implementation note:** a separate post-review fix later hardened `build_group_identity` to dispatch on the earliest reserved-token position, fixing a misparse when a claimer NAME contains a reserved token — see the Living Ledger entry. That parser change is NOT part of Task 11; this task remains test-only.)**
 
 **Files:**
 - Test: `tests/test_primary_claim_attribution.py`

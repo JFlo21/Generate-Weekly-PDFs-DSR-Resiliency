@@ -54,9 +54,16 @@ approximate and will drift; they are anchors, not contracts.
    Whatever foreman D puts in the emission tuple's 3rd element becomes the
    group's `__current_foreman`.
 3. **The parser already supports D's filename.** `build_group_identity`
-   (~line 2710-2714) parses `..._User_<name>_<hash>` → `('primary', wr,
-   week, name)` — the decommissioned activity-log "Primary+User" variant.
-   D needs ZERO parser changes.
+   parses `..._User_<name>_<hash>` → `('primary', wr, week, name)` — the
+   decommissioned activity-log "Primary+User" variant. D's *core* work
+   needed no parser change. **(Updated post-implementation:** the final
+   review surfaced a latent bug — when a claimer NAME contains a reserved
+   token (e.g. "Pat Helper"), the old fixed-order variant scan misparsed
+   `_User_Pat_Helper` as `helper`. So D ultimately *did* harden the parser:
+   `build_group_identity` now dispatches on the EARLIEST reserved-token
+   position. See the post-merge fix commit + the Living Ledger entry. The
+   "ZERO parser changes" framing held only for the originally-produced
+   filenames, not for reserved-token-in-name edge cases.)**
 4. **The legacy `User` column is never populated in production.** Only
    `__effective_user` is set (~line 4620). `first_row.get('User')` (the
    legacy primary identifier source at ~line 8054) returns `None` in

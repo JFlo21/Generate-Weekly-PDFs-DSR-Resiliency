@@ -495,9 +495,19 @@ Sub-project D one-time migration. When enabled, the legacy UNPARTITIONED
 bare primary attachments (no `_User_` token) on `TARGET_SHEET_ID` for
 non-subcontractor WRs that now produce a partitioned `_User_<claimer>`
 file are deleted — UNLESS the bare file's identity is live this run
-(`valid_wr_weeks` exemption). A matching one-time hash-history prune
-(`_subproject_d_prune_version` sentinel) drops the stale
-`{wr}|{week}|primary|` entries.
+(`valid_wr_weeks` exemption).
+
+**Scope note:** this flag gates only the destructive **attachment**
+cleanup. The companion one-time hash-history prune
+(`_subproject_d_prune_version` sentinel, which drops the stale
+`{wr}|{week}|primary|` entries) is gated on
+**`PRIMARY_CLAIM_ATTRIBUTION_ENABLED`** instead — not on this flag —
+because when attribution is off the bare `{wr}|{week}|primary|` key is the
+*active* legacy key and must not be pruned. So disabling this cleanup flag
+while leaving attribution on still mutates `hash_history.json` via the
+prune (the prune only drops a hash entry, forcing at most one benign
+regeneration — never a file deletion). This mirrors Sub-project C's
+`_run_vac_crew_hash_prune` gating.
 
 **Separate from `PRIMARY_CLAIM_ATTRIBUTION_ENABLED`,** which gates
 attribution resolution, NOT this cleanup. Set to `0` to skip the
