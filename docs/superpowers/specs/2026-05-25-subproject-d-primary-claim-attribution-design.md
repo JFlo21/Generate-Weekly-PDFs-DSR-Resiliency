@@ -105,7 +105,12 @@ approximate and will drift; they are anchors, not contracts.
 - `RES_GROUPING_MODE == 'primary'` legacy mode (non-production; it lumps
   helper + subcontractor rows into one primary file per WR, where
   partitioning by `primary_foreman` would be semantically wrong). Stays
-  bare/legacy.
+  bare/legacy. **Enforced (PR #223 Codex-P1 follow-up):** the pre-pass,
+  emission, the `generate_excel` filename suffix, AND all three identity
+  sites (`history_key`/`file_identifier`, `valid_wr_weeks`, `current_keys`)
+  are each gated on `RES_GROUPING_MODE in ('helper', 'both')` — not just on
+  `PRIMARY_CLAIM_ATTRIBUTION_ENABLED` — so every surface is consistently
+  bare in primary mode. See Living Ledger `[2026-05-25 18:15]`.
 - Subcontractor primary rows — Sub-project B already owns them via
   `_ReducedSub_User_` / `_AEPBillable_User_`; the bare primary for sub
   rows is already suppressed.

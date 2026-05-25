@@ -6565,7 +6565,19 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         # emission passes None -> `current_foreman or effective_user`),
         # but the kill-switch gate keeps the suffix bare in that case.
         _pf = first_row.get('__current_foreman', '')
-        if PRIMARY_CLAIM_ATTRIBUTION_ENABLED and _pf:
+        # PR #223 Codex-P1 follow-up: gate on the grouping mode too. In
+        # RES_GROUPING_MODE='primary' the emission deliberately stays bare and
+        # lumps every non-helper/non-sub foreman's rows into ONE workbook per
+        # WR/week (partitioning by primary_foreman there is documented as
+        # semantically wrong). A _User_<claimer> suffix would mislabel that
+        # merged file and let row-order flip the attachment identity between
+        # runs. Primary mode therefore stays bare here, matching the
+        # already-mode-gated pre-pass + emission and Sites 1/2/3.
+        if (
+            PRIMARY_CLAIM_ATTRIBUTION_ENABLED
+            and RES_GROUPING_MODE in ('helper', 'both')
+            and _pf
+        ):
             variant_suffix = (
                 f"_User_{_RE_SANITIZE_IDENTIFIER.sub('_', _pf)[:50]}"
             )
@@ -8416,7 +8428,10 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     # identity (history_key / file_identifier). Gated on kill
                     # switch: enabled → frozen claimer (__current_foreman);
                     # disabled → legacy ``User`` field ('' in production).
-                    if PRIMARY_CLAIM_ATTRIBUTION_ENABLED:
+                    if (
+                        PRIMARY_CLAIM_ATTRIBUTION_ENABLED
+                        and RES_GROUPING_MODE in ('helper', 'both')
+                    ):
                         _pf = first_row.get('__current_foreman', '')
                         identifier = (
                             _RE_SANITIZE_IDENTIFIER.sub('_', _pf)[:50]
@@ -9159,7 +9174,10 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     # (Site 2 — valid_wr_weeks). Mirror Site 1 so attachment
                     # cleanup keeps the live per-claimer primary file.
                     # Disabled mode preserves the legacy ``User``-field path.
-                    if PRIMARY_CLAIM_ATTRIBUTION_ENABLED:
+                    if (
+                        PRIMARY_CLAIM_ATTRIBUTION_ENABLED
+                        and RES_GROUPING_MODE in ('helper', 'both')
+                    ):
                         _pf = group_rows[0].get('__current_foreman', '')
                         file_id = (
                             _RE_SANITIZE_IDENTIFIER.sub('_', _pf)[:50]
@@ -9415,7 +9433,10 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                             # (sanitized claimer when on, legacy User-field
                             # when off) or the freshly-written entry is
                             # treated as stale and deleted before save.
-                            if PRIMARY_CLAIM_ATTRIBUTION_ENABLED:
+                            if (
+                                PRIMARY_CLAIM_ATTRIBUTION_ENABLED
+                                and RES_GROUPING_MODE in ('helper', 'both')
+                            ):
                                 _pf = group_rows[0].get('__current_foreman', '')
                                 _ident = (
                                     _RE_SANITIZE_IDENTIFIER.sub('_', _pf)[:50]

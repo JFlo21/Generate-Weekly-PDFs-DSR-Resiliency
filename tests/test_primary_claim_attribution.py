@@ -1,6 +1,8 @@
 """Sub-project D — primary-workflow primary claim attribution tests."""
 import datetime
 import inspect
+import os
+import tempfile
 import unittest
 from unittest import mock
 
@@ -54,9 +56,13 @@ class TestPrimaryFilenameSuffix(unittest.TestCase):
         # the kill switch + a non-empty __current_foreman.
         self.assertIn("_User_", src)
         # Confirm the gate wording is present in the primary suffix branch.
+        # PR #223 Codex-P1 follow-up widened the gate to also require
+        # RES_GROUPING_MODE in ('helper','both') (see TestPrimaryModeStaysBare),
+        # so the kill switch and ``and _pf`` are no longer adjacent — tolerate
+        # the interposed mode clause.
         self.assertRegex(
             src,
-            r"PRIMARY_CLAIM_ATTRIBUTION_ENABLED and _pf"
+            r"PRIMARY_CLAIM_ATTRIBUTION_ENABLED[\s\S]{0,120}and _pf"
             r"[\s\S]{0,200}_User_\{",
         )
 
@@ -242,6 +248,128 @@ class TestPrimaryEmission(unittest.TestCase):
         self.assertTrue(bare, f"expected a bare primary key, got {list(groups)}")
         # bare key shape is {week}_{wr}
         self.assertTrue(any(k.endswith('_90001') for k in bare))
+
+
+class TestPrimaryModeStaysBare(unittest.TestCase):
+    """PR #223 Codex P1 follow-up — primary-mode consistency.
+
+    In ``RES_GROUPING_MODE == 'primary'`` the emission deliberately stays
+    bare (``{week}_{wr}``) and lumps every non-helper/non-sub foreman's rows
+    into ONE workbook per WR/week — partitioning by ``primary_foreman`` there
+    is documented as *semantically wrong* (design spec §Scope / Out of scope;
+    Living Ledger). But pre-fix the ``generate_excel`` filename suffix and the
+    three identity sites gated ONLY on ``PRIMARY_CLAIM_ATTRIBUTION_ENABLED``
+    (default on), so they derived ``_User_<first-row foreman>`` even in
+    primary mode — mislabeling a multi-foreman workbook and letting row-order
+    changes flip the attachment identity between runs.
+
+    The fix gates all four surfaces on ``RES_GROUPING_MODE in ('helper',
+    'both')`` too, so primary mode is *consistently* bare at every surface
+    (matching the already-mode-gated pre-pass + emission). ``both`` / ``helper``
+    production behaviour is unchanged.
+    """
+
+    def setUp(self):
+        self._saved = {
+            'mode': gwp.RES_GROUPING_MODE,
+            'attr': gwp.PRIMARY_CLAIM_ATTRIBUTION_ENABLED,
+            'out': gwp.OUTPUT_FOLDER,
+        }
+        self._tmpdir = tempfile.TemporaryDirectory()
+        gwp.OUTPUT_FOLDER = self._tmpdir.name
+        gwp.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = True
+
+    def tearDown(self):
+        gwp.RES_GROUPING_MODE = self._saved['mode']
+        gwp.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = self._saved['attr']
+        gwp.OUTPUT_FOLDER = self._saved['out']
+        self._tmpdir.cleanup()
+
+    def _make_row(self, foreman):
+        return {
+            'Work Request #': '90001',
+            'Weekly Reference Logged Date': '2026-04-19',
+            'Units Completed?': True,
+            'Units Total Price': '$100.00',
+            'CU': 'XYZ',
+            'Work Type': 'Install',
+            'Quantity': 1,
+            'Customer Name': 'TestCustomer',
+            'Foreman': foreman,
+            'Dept #': '500',
+            'Job #': 'J-1',
+            '__effective_user': foreman,
+            '__current_foreman': foreman,
+            '__variant': 'primary',
+            '__week_ending_date': datetime.datetime(2026, 4, 19),
+        }
+
+    def _gen_basename(self):
+        rows = [self._make_row('PrimaryFM')]
+        result = gwp.generate_excel(
+            '041926_90001', rows, datetime.datetime(2026, 4, 19),
+            data_hash='deadbeefcafe0001',
+        )
+        return os.path.basename(result[0])
+
+    def test_primary_mode_filename_has_no_user_suffix(self):
+        gwp.RES_GROUPING_MODE = 'primary'
+        name = self._gen_basename()
+        self.assertNotIn(
+            '_User_', name,
+            f"primary-mode workbook must be bare (no _User_), got {name!r}",
+        )
+
+    def test_both_mode_filename_keeps_user_suffix(self):
+        # Positive control: the fix must NOT regress production ('both')
+        # mode, which DOES partition by claimer.
+        gwp.RES_GROUPING_MODE = 'both'
+        name = self._gen_basename()
+        self.assertIn(
+            '_User_PrimaryFM', name,
+            f"both-mode workbook must keep _User_<claimer>, got {name!r}",
+        )
+
+    def test_filename_suffix_gated_on_grouping_mode(self):
+        src = inspect.getsource(generate_weekly_pdfs)
+        # The primary filename-suffix branch must require helper/both mode
+        # in addition to the kill switch + non-empty __current_foreman.
+        # (\s+ tolerates the multi-line ``if (`` continuation form.)
+        self.assertRegex(
+            src,
+            r"PRIMARY_CLAIM_ATTRIBUTION_ENABLED\s+and\s+"
+            r"RES_GROUPING_MODE in \('helper', 'both'\)"
+            r"[\s\S]{0,160}_User_\{",
+        )
+
+    def test_site_a_identity_gated_on_grouping_mode(self):
+        src = inspect.getsource(generate_weekly_pdfs)
+        # Site 1 (main-loop history_key/file_identifier): gate must include
+        # the grouping-mode check so primary mode produces the legacy
+        # (User-field) identifier, NOT a __current_foreman _User_ identity.
+        self.assertRegex(
+            src,
+            r"PRIMARY_CLAIM_ATTRIBUTION_ENABLED\s+and\s+"
+            r"RES_GROUPING_MODE in \('helper', 'both'\)"
+            r"[\s\S]{0,520}__current_foreman"
+            r"[\s\S]{0,520}first_row\.get\('User'\)",
+        )
+
+    def test_sites_bc_identity_gated_on_grouping_mode(self):
+        import re as _re
+        src = inspect.getsource(generate_weekly_pdfs)
+        # Sites 2 & 3 (valid_wr_weeks / current_keys builders) plus the
+        # filename suffix and Site 1 all gate the __current_foreman primary
+        # partition on the grouping mode -> at least 4 occurrences.
+        count = len(_re.findall(
+            r"PRIMARY_CLAIM_ATTRIBUTION_ENABLED\s+and\s+"
+            r"RES_GROUPING_MODE in \('helper', 'both'\)",
+            src,
+        ))
+        self.assertGreaterEqual(
+            count, 4,
+            f"expected >=4 mode-gated primary surfaces, found {count}",
+        )
 
 
 class TestPrimaryFilenameRoundTrip(unittest.TestCase):
@@ -622,9 +750,14 @@ class TestSubprojectDProductionInvariants(unittest.TestCase):
             cls.src = f.read()
 
     def test_filename_suffix_user_gated(self):
+        # PR #223 Codex-P1 follow-up widened the primary suffix gate to also
+        # require RES_GROUPING_MODE in ('helper','both') (TestPrimaryModeStaysBare),
+        # so the kill switch and ``and _pf`` are no longer adjacent — tolerate
+        # the interposed mode clause.
         self.assertRegex(
             self.src,
-            r"PRIMARY_CLAIM_ATTRIBUTION_ENABLED and _pf[\s\S]{0,200}_User_\{",
+            r"PRIMARY_CLAIM_ATTRIBUTION_ENABLED[\s\S]{0,120}and _pf"
+            r"[\s\S]{0,200}_User_\{",
         )
 
     def test_wr_filter_matcher_has_user_clause(self):

@@ -3046,3 +3046,74 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   skipped / 61 subtests** (was 854 at the D close; +12: 11 reserved-token
   parser tests + 1 scope-builder regression). CI on PR #223 was fully
   green pre-fix (CodeQL, tests+coverage, codecov, Snyk, Semgrep, Vercel).
+- [2026-05-25 18:15] Sub-project D PR #223 follow-up — Codex P1
+  "partition primary groups in primary mode too": grouping-vs-identity
+  inconsistency in ``RES_GROUPING_MODE == 'primary'``. **Finding (valid).**
+  D's primary emission in ``group_source_rows`` correctly stays bare in
+  primary mode — ``if RES_GROUPING_MODE == 'primary': keys_to_add.append(
+  ('primary', f"{week}_{wr}", None))`` — lumping every non-helper/non-sub
+  foreman's rows into ONE workbook per WR+week (the pre-pass at the
+  ``_primary_claimer_map`` block is also already gated on
+  ``RES_GROUPING_MODE in ('helper', 'both')``). But the FOUR consuming
+  identity/filename surfaces gated ONLY on ``PRIMARY_CLAIM_ATTRIBUTION_ENABLED``
+  (default on), NEVER on the mode: (1) ``generate_excel``'s primary
+  ``variant_suffix`` branch, (2) Site 1 main-loop ``history_key`` /
+  ``file_identifier``, (3) Site 2 ``valid_wr_weeks`` builder, (4) Site 3
+  ``current_keys`` builder. ``__current_foreman`` is set on every row
+  (``r_copy['__current_foreman'] = current_foreman or effective_user``),
+  so in primary mode these surfaces derived ``_User_<first-sorted
+  foreman>`` for a MERGED multi-foreman workbook — mislabeling it under one
+  foreman and letting row-sort-order changes flip the filename / history
+  key / attachment identity between runs (regeneration churn + orphan
+  accumulation). Operator-reachable: the production schedule pins
+  ``RES_GROUPING_MODE='both'`` (unaffected), but a manual
+  ``workflow_dispatch`` with ``res_grouping_mode: primary`` hits it.
+  **Codex's proposed remedy ("partition in primary mode too") is REJECTED**
+  — the design spec (§Scope / Out of scope) documents that primary mode
+  lumps helper + subcontractor rows into one file per WR where
+  "partitioning by ``primary_foreman`` would be semantically wrong"; it
+  must "stay bare/legacy." **Fix (the spec-aligned remedy):** gate all
+  four consuming surfaces on ``PRIMARY_CLAIM_ATTRIBUTION_ENABLED and
+  RES_GROUPING_MODE in ('helper', 'both')`` so primary mode is
+  *consistently* bare at every surface — matching the already-mode-gated
+  pre-pass + emission. In primary mode the surfaces now fall through to the
+  legacy ``User``-field identifier path (``User`` "is never populated in
+  production" per the spec → identifier ``''`` → bare key/filename,
+  byte-identical to pre-D primary-mode behaviour). ``both`` / ``helper``
+  production behaviour is unchanged (the mode predicate is True there). The
+  Site 2/3 inner ``if (PRIMARY_CLAIM_ATTRIBUTION_ENABLED and _pf)`` ternary
+  re-checks were left unchanged (they sit inside the now-mode-gated outer
+  block, so they are unreachable in primary mode anyway). **New rule —
+  emission-mode gates must be mirrored at every consuming identity/filename
+  surface.** Extends the CR-01 four-site lockstep ([2026-05-15] /
+  [2026-05-21 09:21]): when a variant's GROUP-KEY emission is gated on a
+  grouping-mode predicate (``RES_GROUPING_MODE in (...)``), EVERY surface
+  that later derives an identifier from that variant's rows — the
+  ``generate_excel`` filename suffix AND all three identity sites
+  (``history_key``/``file_identifier``, ``valid_wr_weeks``,
+  ``current_keys``) — MUST carry the SAME mode predicate, not just the
+  kill switch. A kill-switch-only gate on the consumers while the emission
+  also gates on mode is a split-brain: the grouping says "bare/merged" but
+  the filename/identity say "partitioned," and whichever row sorts first
+  silently decides the (wrong) identity. The lesson generalizes the
+  long-standing rule that the identity tuple must be built identically at
+  every site — "identically" now explicitly includes the gating predicate,
+  not only the value expression. Coverage gap that let it ship: the D test
+  suite drove every ``group_source_rows`` / ``generate_excel`` case in
+  ``both`` mode and had ZERO ``RES_GROUPING_MODE == 'primary'`` coverage
+  for the identity/filename surfaces; the Sites A/B/C source-regex guards
+  asserted the kill-switch gate but not the mode gate. Regression tests:
+  new ``TestPrimaryModeStaysBare`` in
+  ``tests/test_primary_claim_attribution.py`` (5 methods) — a BEHAVIORAL
+  test that drives the real ``generate_excel`` in primary mode and asserts
+  the produced filename has NO ``_User_`` suffix, a ``both``-mode positive
+  control that asserts it DOES keep ``_User_<claimer>`` (guards against
+  over-fixing), and three source-regex guards that the filename suffix +
+  Sites 1/2/3 all carry the ``RES_GROUPING_MODE in ('helper', 'both')``
+  predicate. Two prior filename-suffix source guards
+  (``TestPrimaryFilenameSuffix.test_primary_branch_builds_user_suffix_gated``
+  and ``TestSubprojectDProductionInvariants.test_filename_suffix_user_gated``)
+  were reconciled in-place (regex widened to tolerate the interposed mode
+  clause, citing this entry) per the [2026-05-25 16:30] test-contract
+  reconciliation rule. ``pytest tests/`` → **871 passed / 26 skipped / 61
+  subtests** (was 866; +5, zero regressions).
