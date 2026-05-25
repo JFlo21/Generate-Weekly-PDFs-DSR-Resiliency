@@ -5191,6 +5191,80 @@ def group_source_rows(rows):
                 )
                 _vac_crew_claimer_map = {}
 
+    # Subproject D (2026-05-25): resolve the FROZEN primary claimer for
+    # every completed NON-subcontractor, non-vac primary row BEFORE the
+    # grouping loop, so no per-row Supabase round-trip runs inside the
+    # hot loop (honors [2026-04-25 14:00] latency lesson). The map is
+    # keyed by __row_id and consumed by the production primary emission
+    # branch. A row absent from the map (attribution disabled, pre-pass
+    # skipped, missing __row_id, or unexpected per-row error) resolves to
+    # use-current at emission. Unlike B/C, a ``hold`` outcome (Supabase
+    # outage) is ALSO consumed as use-current at emission — D never
+    # defers a primary file (operator decision: the core path prioritizes
+    # availability). resolve_claimer is still called so frozen attribution
+    # is used whenever Supabase is healthy.
+    _primary_claimer_map: dict = {}
+    if BILLING_AUDIT_AVAILABLE and PRIMARY_CLAIM_ATTRIBUTION_ENABLED:
+        _d_pre_rows = []
+        for _r in rows:
+            _rid = _r.get('__row_id')
+            if not isinstance(_rid, int):
+                continue
+            if _r.get('__is_vac_crew'):
+                continue
+            _sid = _r.get('__source_sheet_id')
+            if _sid is not None and _sid in _FOLDER_DISCOVERED_SUB_IDS:
+                continue  # subcontractor rows are Sub-project B's domain
+            _wr_raw = _r.get('Work Request #')
+            _ld = _r.get('Weekly Reference Logged Date')
+            if not _wr_raw or not _ld or not is_checked(_r.get('Units Completed?')):
+                continue
+            _we = excel_serial_to_date(_ld)
+            if _we is None:
+                continue
+            _d_pre_rows.append((
+                _rid,
+                str(_wr_raw).split('.')[0],
+                _we.date() if isinstance(_we, datetime.datetime) else _we,
+                _r.get('__effective_user', 'Unknown Foreman'),
+            ))
+        if _d_pre_rows:
+            try:
+                from billing_audit.writer import resolve_claimer as _resolve_claimer_primary
+
+                def _resolve_one_primary(_item):
+                    _rid, _wr, _we_date, _eu = _item
+                    return _rid, _resolve_claimer_primary(
+                        'primary', _eu,
+                        wr=_wr, week_ending=_we_date, row_id=_rid,
+                        enabled=PRIMARY_CLAIM_ATTRIBUTION_ENABLED,
+                    )
+
+                if len(_d_pre_rows) <= 1:
+                    for _item in _d_pre_rows:
+                        _rid, _out = _resolve_one_primary(_item)
+                        _primary_claimer_map[_rid] = _out
+                else:
+                    _workers = min(PARALLEL_WORKERS, len(_d_pre_rows))
+                    with ThreadPoolExecutor(max_workers=_workers) as _ex:
+                        _futs = [_ex.submit(_resolve_one_primary, _it) for _it in _d_pre_rows]
+                        for _fut in as_completed(_futs):
+                            try:
+                                _rid, _out = _fut.result()
+                                _primary_claimer_map[_rid] = _out
+                            except Exception:
+                                logging.exception(
+                                    "⚠️ Subproject D attribution pre-pass: "
+                                    "unexpected error for one row (treating "
+                                    "as use-current)"
+                                )
+            except Exception:
+                logging.exception(
+                    "⚠️ Subproject D attribution pre-pass failed; falling "
+                    "back to current foreman for all primary rows"
+                )
+                _primary_claimer_map = {}
+
     for r in rows:
         wr = r.get('Work Request #')
         log_date_str = r.get('Weekly Reference Logged Date')
