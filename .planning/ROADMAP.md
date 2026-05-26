@@ -55,7 +55,7 @@ Carried forward from v1.0's deferred scope (see
 |--------------------------------------------------|-----------|-------|------------------------------|------------|
 | 01. Subcontractor Rate Logic Modification        | v1.0      | 14/14 | ✅ Shipped (pending live UAT) | 2026-05-20 |
 | 01.1. Helper-Shadow Rescue (INSERTED)            | v1.0      | 6/6 | Complete    | 2026-05-20 |
-| 02. Attribution Bulk-Prefetch + Remediation      | v1.0 hotfix | 0/4 | 📋 Planned                  | -          |
+| 02. Attribution Bulk-Prefetch + Remediation      | v1.0 hotfix | 1/4 | In Progress|  |
 | —. Railway → Render Pre-Migration ADR            | v1.1      | 0/TBD | 📋 Planned (deferred, renumber on v1.1) | - |
 | —. Migration execution + Artifact Explorer       | v1.1      | 0/TBD | 📋 Planned (deferred)         | -          |
 
@@ -75,7 +75,7 @@ attribution work tracked in `docs/superpowers/`)
 
 Plans:
 **Wave 1**
-- [ ] 02-01-PLAN.md — Bulk RPC (`lookup_attribution_bulk`) + fail-safe `prefetch_attribution` reader + map-aware `resolve_claimer` (Wave 1)
+- [x] 02-01-PLAN.md — Bulk RPC (`lookup_attribution_bulk`) + fail-safe `prefetch_attribution` reader + map-aware `resolve_claimer` (Wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 02-02-PLAN.md — Wire the 4 pre-pass sites to the bulk map + drop `ATTRIBUTION_RESOLUTION_WEEKS` + historical-claimer RED/GREEN regression (Wave 2)

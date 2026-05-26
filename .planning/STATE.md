@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Subcontractor Rate Logic
 status: executing
-last_updated: "2026-05-26T18:40:02.170Z"
-last_activity: 2026-05-26 -- Phase 2 planning complete
+last_updated: "2026-05-26T18:55:31.647Z"
+last_activity: 2026-05-26 -- Phase 02 execution started
 progress:
   total_phases: 3
   completed_phases: 2
@@ -22,16 +22,16 @@ See: .planning/PROJECT.md (updated 2026-05-20 after v1.0 milestone)
 **Core value:** The production Smartsheet → Excel → Smartsheet attachment
 pipeline runs every 2 hours on weekdays and ships billing-grade Excel
 reports without regression.
-**Current focus:** Phase 01.1 — subcontractor-helper-shadow-rescue
+**Current focus:** Phase 02 — attribution-bulk-prefetch-historical-claimer-remediation
 Artifact Explorer).
 
 ## Current Position
 
 Milestone: v1.0 Subcontractor Rate Logic — ✅ SHIPPED 2026-05-20 (archived + tagged)
-Phase: 01.1
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-05-26 -- Phase 2 planning complete
+Phase: 02 (attribution-bulk-prefetch-historical-claimer-remediation) — EXECUTING
+Plan: 1 of 4
+Status: Executing Phase 02
+Last activity: 2026-05-26 -- Phase 02 execution started
 
 Shipped: 2 gating phases (01 + inserted 01.1), 20 plans, 688 tests passing.
 Audit: `tech_debt` (`milestones/v1.0-MILESTONE-AUDIT.md`). Full v1.0 detail in
