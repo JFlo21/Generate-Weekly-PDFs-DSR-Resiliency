@@ -570,5 +570,44 @@ class TestWorkflowPinned(unittest.TestCase):
         self.assertIn("SUPABASE_HASH_STORE_AUTHORITATIVE", doc)
 
 
+class TestProductionInvariants(unittest.TestCase):
+    """Task 11: source-grep guards locking in the E production wiring so a
+    future refactor can't silently revert it."""
+
+    def setUp(self):
+        self.src = inspect.getsource(gwp)
+
+    def test_clean_filename_gated_on_authoritative(self):
+        self.assertRegex(
+            self.src,
+            r"SUPABASE_HASH_STORE_AUTHORITATIVE[\s\S]{0,700}"
+            r'WR_\{wr_num\}_WeekEnding_\{week_end_raw\}\{variant_suffix\}\.xlsx',
+        )
+
+    def test_skip_gate_consults_supabase(self):
+        self.assertIn("lookup_group_hash(", self.src)
+
+    def test_shadow_write_present_and_gated(self):
+        self.assertIn("upsert_group_hash(", self.src)
+        self.assertRegex(
+            self.src,
+            r"SUPABASE_HASH_STORE_WRITE_ENABLED[\s\S]{0,500}"
+            r"upsert_group_hash\(",
+        )
+
+    def test_attachment_required_preserved(self):
+        self.assertIn("ATTACHMENT_REQUIRED_FOR_SKIP", self.src)
+
+    def test_resolve_helper_falls_back_to_json(self):
+        helper = inspect.getsource(gwp._resolve_unchanged_for_skip)
+        self.assertIn("hash_history.get(history_key)", helper)
+        # no_row must regenerate (the safe migration default).
+        self.assertIn("no_row", helper)
+
+    def test_delete_old_gated_on_authoritative(self):
+        fn = inspect.getsource(gwp.delete_old_excel_attachments)
+        self.assertIn("SUPABASE_HASH_STORE_AUTHORITATIVE", fn)
+
+
 if __name__ == "__main__":
     unittest.main()
