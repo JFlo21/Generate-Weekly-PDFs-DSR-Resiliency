@@ -430,7 +430,16 @@ jobs:
           # (fail-safe to regenerate). Revert: set AUTHORITATIVE back to
           # '0'. Living Ledger [2026-05-25].
           SUPABASE_HASH_STORE_WRITE_ENABLED: '1'
-          SUPABASE_HASH_STORE_AUTHORITATIVE: '1'
+          # REVERTED to '0' on 2026-05-26: with a near-empty
+          # group_content_hash store, AUTHORITATIVE=1 forced regeneration of
+          # historical (out-of-8-week-scope) groups whose claimer fell back to
+          # the current foreman (#NO MATCH / blank) instead of the real frozen
+          # claimer that exists in attribution_snapshot — producing
+          # _User__NO_MATCH / _User_Unknown_Foreman files uploaded over real
+          # historical attachments. Stays '0' until the attribution
+          # bulk-prefetch fix lands (removes the week-scope from key
+          # formation). See Living Ledger 2026-05-26.
+          SUPABASE_HASH_STORE_AUTHORITATIVE: '0'
 
           # Perf hotfix 2026-05-26: scope the per-row frozen-attribution
           # pre-pass (B/C/D + subcontractor-helper path) to the last N
