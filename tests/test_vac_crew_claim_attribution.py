@@ -460,10 +460,18 @@ class TestVacCrewLegacyCleanup(unittest.TestCase):
     # ------------------------------------------------------------------
 
     def test_scope_builder_collects_vac_wrs(self):
-        """_build_vac_crew_wr_scope extracts WR# from VACCREW groups only."""
+        """_build_vac_crew_wr_scope extracts WR# from vac_crew groups only.
+
+        Gates on the authoritative ``__variant`` field (set at emission),
+        not a ``'_VACCREW'`` key substring — mirrors ``_build_primary_wr_scope``
+        (Subproject D) so a non-vac name containing a reserved token cannot
+        false-positive. Production rows always carry ``__variant``.
+        """
         groups = {
-            '041926_91467680_VACCREW_John': [{'Work Request #': '91467680'}],
-            '041926_55555_REDUCEDSUB_USER_X': [{'Work Request #': '55555'}],
+            '041926_91467680_VACCREW_John': [
+                {'Work Request #': '91467680', '__variant': 'vac_crew'}],
+            '041926_55555_REDUCEDSUB_USER_X': [
+                {'Work Request #': '55555', '__variant': 'reduced_sub'}],
         }
         scope = generate_weekly_pdfs._build_vac_crew_wr_scope(groups)
         self.assertIn('91467680', scope)
@@ -474,13 +482,37 @@ class TestVacCrewLegacyCleanup(unittest.TestCase):
         self.assertEqual(generate_weekly_pdfs._build_vac_crew_wr_scope({}), set())
 
     def test_scope_builder_ignores_helper_and_primary_keys(self):
-        """Non-VACCREW group keys are excluded from the vac scope."""
+        """Non-vac_crew variants are excluded from the vac scope."""
         groups = {
-            '041926_11111_HELPER_Alice': [{'Work Request #': '11111'}],
-            '041926_22222': [{'Work Request #': '22222'}],
+            '041926_11111_HELPER_Alice': [
+                {'Work Request #': '11111', '__variant': 'helper'}],
+            '041926_22222': [
+                {'Work Request #': '22222', '__variant': 'primary'}],
         }
         scope = generate_weekly_pdfs._build_vac_crew_wr_scope(groups)
         self.assertEqual(scope, set())
+
+    def test_scope_builder_rejects_pathological_vaccrew_name(self):
+        """A helper/primary whose NAME is the all-caps reserved token
+        ``VACCREW`` produces a key containing the ``_VACCREW`` substring,
+        but its ``__variant`` is not ``vac_crew`` — the variant gate must
+        exclude it from the destructive vac cleanup scope (mirror of the
+        Subproject D Codex-P1 fix)."""
+        groups = {
+            # Helper literally named "VACCREW" → key has the _VACCREW substring.
+            '041926_33333_HELPER_VACCREW': [
+                {'Work Request #': '33333', '__variant': 'helper'}],
+            # Genuine vac group → must still be collected.
+            '041926_44444_VACCREW_Real_Vac': [
+                {'Work Request #': '44444', '__variant': 'vac_crew'}],
+        }
+        scope = generate_weekly_pdfs._build_vac_crew_wr_scope(groups)
+        self.assertIn('44444', scope)
+        self.assertNotIn(
+            '33333', scope,
+            "a non-vac group whose name contains 'VACCREW' must NOT enter "
+            "the vac cleanup scope (variant gate, not substring scan)",
+        )
 
     # ------------------------------------------------------------------
     # Legacy bare _VacCrew deletion + live per-claimer exemption
@@ -691,7 +723,13 @@ class TestVacCrewHashPrune(unittest.TestCase):
         _ensure_smartsheet_mocked()
 
     def _groups(self, wrs):
-        return {f"041926_{wr}_VACCREW_John": [{'Work Request #': wr}] for wr in wrs}
+        # Production rows always carry __variant (set at emission); the scope
+        # builder gates on it, so synthetic prune fixtures must include it.
+        return {
+            f"041926_{wr}_VACCREW_John": [
+                {'Work Request #': wr, '__variant': 'vac_crew'}]
+            for wr in wrs
+        }
 
     def test_drops_legacy_vaccrew_orphans_returns_true(self):
         hist = {
@@ -851,7 +889,8 @@ class TestVacCrewReviewFixes(unittest.TestCase):
         # Guard: with the kill switch ON, the prune still drops legacy orphans.
         generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED = True
         hist = {'91467680|041926|vac_crew|': {'hash': 'h1'}}
-        groups = {'041926_91467680_VACCREW_CrewA': [{'Work Request #': '91467680'}]}
+        groups = {'041926_91467680_VACCREW_CrewA': [
+            {'Work Request #': '91467680', '__variant': 'vac_crew'}]}
         changed = generate_weekly_pdfs._run_vac_crew_hash_prune(hist, groups)
         self.assertIs(changed, True)
         self.assertNotIn('91467680|041926|vac_crew|', hist)
