@@ -44,5 +44,135 @@ class TestSchemaHasGroupContentHash(unittest.TestCase):
             self.assertIn(col, sql)
 
 
+class TestBuildGroupIdentityCleanNames(unittest.TestCase):
+    """Task 4 (KEY RISK): build_group_identity parses token-LESS clean
+    names (no _<timestamp>/_<hash>) for every variant AND still parses
+    legacy token-bearing names (both coexist during migration)."""
+
+    def _id(self, name):
+        return gwp.build_group_identity(name)
+
+    def test_clean_bare_primary(self):
+        self.assertEqual(
+            self._id("WR_90001_WeekEnding_041926.xlsx"),
+            ("90001", "041926", "primary", None),
+        )
+
+    def test_clean_primary_user(self):
+        self.assertEqual(
+            self._id("WR_90001_WeekEnding_041926_User_Jane_Smith.xlsx"),
+            ("90001", "041926", "primary", "Jane_Smith"),
+        )
+
+    def test_clean_helper(self):
+        self.assertEqual(
+            self._id("WR_90001_WeekEnding_041926_Helper_Bob.xlsx"),
+            ("90001", "041926", "helper", "Bob"),
+        )
+
+    def test_clean_helper_underscored_name(self):
+        self.assertEqual(
+            self._id("WR_90001_WeekEnding_041926_Helper_Bob_Jones.xlsx"),
+            ("90001", "041926", "helper", "Bob_Jones"),
+        )
+
+    def test_clean_vaccrew_named(self):
+        self.assertEqual(
+            self._id("WR_90001_WeekEnding_041926_VacCrew_Vic.xlsx"),
+            ("90001", "041926", "vac_crew", "Vic"),
+        )
+
+    def test_clean_vaccrew_bare(self):
+        self.assertEqual(
+            self._id("WR_90001_WeekEnding_041926_VacCrew.xlsx"),
+            ("90001", "041926", "vac_crew", ""),
+        )
+
+    def test_clean_reducedsub_user(self):
+        self.assertEqual(
+            self._id("WR_90001_WeekEnding_041926_ReducedSub_User_Sue.xlsx"),
+            ("90001", "041926", "reduced_sub", "Sue"),
+        )
+
+    def test_clean_aepbillable_user(self):
+        self.assertEqual(
+            self._id("WR_90001_WeekEnding_041926_AEPBillable_User_Sue.xlsx"),
+            ("90001", "041926", "aep_billable", "Sue"),
+        )
+
+    def test_clean_reducedsub_helper(self):
+        self.assertEqual(
+            self._id("WR_90001_WeekEnding_041926_ReducedSub_Helper_Bob.xlsx"),
+            ("90001", "041926", "reduced_sub_helper", "Bob"),
+        )
+
+    def test_clean_legacy_unpartitioned_reducedsub(self):
+        self.assertEqual(
+            self._id("WR_90001_WeekEnding_041926_ReducedSub.xlsx"),
+            ("90001", "041926", "reduced_sub", ""),
+        )
+
+    def test_clean_identifier_with_reserved_word_in_name(self):
+        # Foreman literally named "Pat Helper" -> sanitized "Pat_Helper".
+        # Clean name: primary _User_ partition; identifier keeps both
+        # segments and variant stays 'primary' (earliest reserved token
+        # is 'User').
+        self.assertEqual(
+            self._id("WR_90001_WeekEnding_041926_User_Pat_Helper.xlsx"),
+            ("90001", "041926", "primary", "Pat_Helper"),
+        )
+
+    def test_clean_identifier_containing_weekending_token(self):
+        # Pathological clean name: identifier sanitizes to
+        # WeekEnding_<6digits>. The leftmost-weak structural WeekEnding
+        # must win; the identifier round-trips intact.
+        self.assertEqual(
+            self._id("WR_90001_WeekEnding_041926_User_WeekEnding_041926.xlsx"),
+            ("90001", "041926", "primary", "WeekEnding_041926"),
+        )
+
+    # --- Legacy token-bearing names MUST still parse (coexistence) ---
+
+    def test_legacy_tokened_primary_user(self):
+        self.assertEqual(
+            self._id(
+                "WR_90001_WeekEnding_041926_120000_User_Jane_Smith_"
+                "abcdef0123456789.xlsx"),
+            ("90001", "041926", "primary", "Jane_Smith"),
+        )
+
+    def test_legacy_tokened_helper(self):
+        self.assertEqual(
+            self._id(
+                "WR_90001_WeekEnding_041926_120000_Helper_Bob_Jones_"
+                "abcdef0123456789.xlsx"),
+            ("90001", "041926", "helper", "Bob_Jones"),
+        )
+
+    def test_legacy_tokened_vaccrew_bare(self):
+        self.assertEqual(
+            self._id(
+                "WR_90001_WeekEnding_041926_120000_VacCrew_"
+                "abcdef0123456789.xlsx"),
+            ("90001", "041926", "vac_crew", ""),
+        )
+
+    def test_legacy_tokened_reducedsub_helper(self):
+        self.assertEqual(
+            self._id(
+                "WR_90001_WeekEnding_041926_120000_ReducedSub_Helper_Bob_"
+                "abcdef0123456789.xlsx"),
+            ("90001", "041926", "reduced_sub_helper", "Bob"),
+        )
+
+    def test_legacy_no_timestamp_bare_primary(self):
+        # Oldest format: WR_{wr}_WeekEnding_{week}_{hash}.xlsx.
+        self.assertEqual(
+            self._id(
+                "WR_90001_WeekEnding_041926_abcdef0123456789.xlsx"),
+            ("90001", "041926", "primary", None),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

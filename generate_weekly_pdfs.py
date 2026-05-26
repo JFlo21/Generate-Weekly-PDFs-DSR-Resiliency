@@ -2725,6 +2725,29 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
     identifier = None
     tail = parts[we_idx + 2:]
 
+    # Sub-project E (2026-05-25): support BOTH legacy token-bearing names
+    # (``..._{HHMMSS}_<marker>_<id>_<hash>``) and the new deterministic
+    # clean names (``..._<marker>_<id>``, no timestamp/hash) that
+    # ``generate_excel`` produces when SUPABASE_HASH_STORE_AUTHORITATIVE is
+    # on. Both shapes coexist on Smartsheet during migration, so the parser
+    # must read either. The discriminator is the LEADING 6-digit ``HHMMSS``
+    # timestamp at ``tail[0]``: a legacy variant name ALWAYS carries it
+    # (immediately after the week) AND a trailing ``data_hash`` token; a
+    # clean name has NEITHER (``tail[0]`` is always a variant marker —
+    # alphabetic — or ``tail`` is empty). So when (and only when) the
+    # leading timestamp is present, strip it AND the trailing hash, leaving
+    # ``tail`` == ``[<marker>, <id parts...>]`` for the dispatch below.
+    # Clean names skip both strips, so their last identifier segment is
+    # never eaten (the bug the old unconditional ``[:-1]`` slice caused for
+    # token-less names). NOTE: the oldest legacy bare-primary format
+    # ``WR_{wr}_WeekEnding_{week}_{hash}.xlsx`` has a hash but no timestamp
+    # and no marker — its lone hash token stays in ``tail`` but, with no
+    # reserved marker, yields the correct ``('primary', None)`` regardless.
+    if tail and len(tail[0]) == 6 and tail[0].isdigit():
+        tail = tail[1:]          # drop the legacy HHMMSS timestamp
+        if tail:
+            tail = tail[:-1]     # drop the legacy trailing data_hash
+
     # Reserved-token precedence (ledger [2026-05-21 13:20], generalized to
     # the bare ``_User_`` shape by Subproject D 2026-05-25): the variant is
     # determined by the EARLIEST reserved marker token in ``tail``, NOT by a
@@ -2753,16 +2776,18 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
         aep_idx_rel = tail.index('AEPBillable')
         post_aep = tail[aep_idx_rel + 1:]
         if post_aep and post_aep[0] == 'User':
-            # Subproject B: _AEPBillable_User_<claimer>_<hash>. Reserved 'User'
-            # token marks a primary-claimer identifier. Span-join so an
+            # Subproject B: _AEPBillable_User_<claimer>[_<hash>]. Reserved
+            # 'User' token marks a primary-claimer identifier. Span-join so an
             # underscored claimer name survives; dangling 'User' -> '' (legacy).
+            # ``tail`` already had any legacy timestamp/hash stripped (E), so
+            # the identifier is everything after the marker.
             variant = 'aep_billable'
-            identifier = '_'.join(post_aep[1:-1])
+            identifier = '_'.join(post_aep[1:])
         elif 'Helper' in post_aep:
             variant = 'aep_billable_helper'
             helper_idx_rel = post_aep.index('Helper')
             if helper_idx_rel + 1 < len(post_aep):
-                identifier = '_'.join(post_aep[helper_idx_rel + 1:-1])
+                identifier = '_'.join(post_aep[helper_idx_rel + 1:])
         else:
             # Legacy unpartitioned _AEPBillable_<hash> (no User/Helper token).
             variant = 'aep_billable'
@@ -2772,12 +2797,12 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
         post_rs = tail[rs_idx_rel + 1:]
         if post_rs and post_rs[0] == 'User':
             variant = 'reduced_sub'
-            identifier = '_'.join(post_rs[1:-1])
+            identifier = '_'.join(post_rs[1:])
         elif 'Helper' in post_rs:
             variant = 'reduced_sub_helper'
             helper_idx_rel = post_rs.index('Helper')
             if helper_idx_rel + 1 < len(post_rs):
-                identifier = '_'.join(post_rs[helper_idx_rel + 1:-1])
+                identifier = '_'.join(post_rs[helper_idx_rel + 1:])
         else:
             # Legacy unpartitioned _ReducedSub_<hash> (no User/Helper token).
             variant = 'reduced_sub'
@@ -2789,17 +2814,17 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
         vac_idx_rel = tail.index('VacCrew')
         identifier = ''  # legacy _VacCrew (no name) -> '' per identity contract
         if vac_idx_rel + 1 < len(tail):
-            identifier = '_'.join(tail[vac_idx_rel + 1:-1])
+            identifier = '_'.join(tail[vac_idx_rel + 1:])
     elif _first_marker == 'Helper':
         variant = 'helper'
         helper_idx_rel = tail.index('Helper')
         if helper_idx_rel + 1 < len(tail):
-            identifier = '_'.join(tail[helper_idx_rel + 1:-1])
+            identifier = '_'.join(tail[helper_idx_rel + 1:])
     elif _first_marker == 'User':
         variant = 'primary'
         user_idx_rel = tail.index('User')
         if user_idx_rel + 1 < len(tail):
-            identifier = '_'.join(tail[user_idx_rel + 1:-1])
+            identifier = '_'.join(tail[user_idx_rel + 1:])
 
     return (wr, week, variant, identifier)
 
