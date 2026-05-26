@@ -609,6 +609,35 @@ SUPABASE_HASH_STORE_AUTHORITATIVE = os.getenv(
     'SUPABASE_HASH_STORE_AUTHORITATIVE', '0'
 ).strip().lower() in ('1', 'true', 'yes', 'on')
 
+# ── Phase 2 Plan 03 (D-06/D-07/D-08): Isolated garbage-attachment remediation ──
+# DEFAULT OFF: ``REMEDIATE_CLAIMERS='0'`` so the mode NEVER fires on a scheduled
+# cron run. An operator must explicitly set '1' via workflow_dispatch or a local
+# shell to activate the sweep. When active, ``main()`` returns immediately after
+# the sweep (isolation — no Excel generation occurs in the same session).
+REMEDIATE_CLAIMERS = os.getenv(
+    'REMEDIATE_CLAIMERS', '0'
+).strip().lower() in ('1', 'true', 'yes', 'on')
+# DRY_RUN (default ON): first run reports counts without deleting (D-08). Set
+# to '0' only after reviewing the dry-run log and confirming the scope is correct.
+REMEDIATION_DRY_RUN = os.getenv(
+    'REMEDIATION_DRY_RUN', '1'
+).strip().lower() in ('1', 'true', 'yes', 'on')
+# WINDOW_WEEKS (default 26): sweep only attachments whose week-ending date is
+# within the last N weeks. Limits blast radius; set 0 to disable the filter
+# (unbounded sweep). Safe-parsed: invalid values fall back to the default with
+# an operator WARNING.
+_remediation_window_env = os.getenv('REMEDIATION_WINDOW_WEEKS', '26')
+try:
+    REMEDIATION_WINDOW_WEEKS: int = int(_remediation_window_env)
+    if REMEDIATION_WINDOW_WEEKS < 0:
+        raise ValueError("negative")
+except (ValueError, TypeError):
+    logging.warning(
+        f"⚠️ REMEDIATION_WINDOW_WEEKS={_remediation_window_env!r} is not a valid "
+        f"non-negative integer — falling back to default 26"
+    )
+    REMEDIATION_WINDOW_WEEKS = 26
+
 # Recent-week scope for the per-row frozen-attribution pre-pass
 # (perf hotfix 2026-05-26). The B/C/D claim-attribution pre-passes and
 # the subcontractor-helper path each call the ``lookup_attribution``
@@ -824,6 +853,12 @@ logging.info(
 logging.info(
     f"📋 SUPABASE_HASH_STORE_AUTHORITATIVE="
     f"{SUPABASE_HASH_STORE_AUTHORITATIVE}"
+)
+# Phase 2 Plan 03: remediation kill switches surfaced at startup.
+logging.info(
+    f"📋 REMEDIATE_CLAIMERS={REMEDIATE_CLAIMERS} "
+    f"DRY_RUN={REMEDIATION_DRY_RUN} "
+    f"WINDOW_WEEKS={REMEDIATION_WINDOW_WEEKS}"
 )
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
 RESET_WR_LIST = {w.strip() for w in os.getenv('RESET_WR_LIST','').split(',') if w.strip()}  # When provided, only purge these WR numbers (overrides full reset)
@@ -3964,6 +3999,168 @@ def _run_subproject_d_hash_prune(hash_history: dict, groups: dict) -> bool:
     # Body path advanced the sentinel (and may have dropped orphans) —
     # report the mutation so the caller persists it even on a no-update run.
     return True
+
+
+# ── Garbage patterns for the claimer-remediation sweep (Phase 2 Plan 03) ──
+# These are the EXACT tokens that ``resolve_claimer`` emits when attribution
+# has no frozen history (``#NO_MATCH``) or a blank role (``Unknown_Foreman``).
+# They are not realistic human foreman names, so a simple substring match is
+# safe (WARNING 6 accepted tradeoff, per the plan's threat-model).
+_GARBAGE_PATTERNS: tuple[str, ...] = ('_NO_MATCH', '_Unknown_Foreman')
+
+
+def run_claimer_remediation(
+    client,
+    dry_run: bool,
+    window_weeks: int,
+    valid_wr_weeks: 'set | None' = None,
+) -> None:
+    """Sweep TARGET_SHEET_ID and SUBCONTRACTOR_PPP_SHEET_ID for garbage claimer
+    attachments (``*_NO_MATCH*`` / ``*_Unknown_Foreman*``) and delete them.
+
+    Phase 2 Plan 03 — D-06/D-07/D-08/D-12/D-14.
+
+    Parameters
+    ----------
+    client:
+        Initialized ``smartsheet.Smartsheet`` client.
+    dry_run:
+        When True, report counts only — no attachment is deleted.
+        Matches ``REMEDIATION_DRY_RUN`` default (``'1'``).
+    window_weeks:
+        Sweep only attachments whose week-ending date is within the last N
+        weeks of today (``0`` = unbounded).  Matches
+        ``REMEDIATION_WINDOW_WEEKS`` default (``26``).
+    valid_wr_weeks:
+        A set of ``(wr, week_mmddyy, variant, identifier)`` 4-tuples
+        representing the current run's live attachments.  When provided,
+        a garbage-named file whose parsed 4-tuple IS in this set is
+        EXEMPTED from deletion (live-identity exemption per
+        [2026-05-19 23:45]).  Pass ``None`` for the isolated-mode path
+        where no live-identity set is available — deletion is then gated
+        solely on the name-pattern and window filter (WARNING 6 accepted
+        tradeoff).
+    """
+    import datetime as _dt
+
+    _today = _dt.date.today()
+    _cutoff = (
+        _today - _dt.timedelta(weeks=window_weeks)
+        if window_weeks > 0
+        else None
+    )
+
+    # Determine which sheets to sweep.
+    _sheet_ids: list[int] = [TARGET_SHEET_ID]
+    if SUBCONTRACTOR_PPP_SHEET_ID:
+        _sheet_ids.append(SUBCONTRACTOR_PPP_SHEET_ID)
+
+    _total_scanned = 0
+    _total_garbage = 0
+    _total_deleted = 0
+    _total_exempted = 0
+    _total_out_of_window = 0
+
+    for _sheet_id in _sheet_ids:
+        try:
+            _sheet = client.Sheets.get_sheet(_sheet_id)
+        except Exception as _e:
+            logging.warning(
+                f"⚠️ run_claimer_remediation: failed to fetch sheet "
+                f"{_sheet_id}: {_redact_exception_message(_e)}"
+            )
+            continue
+
+        for _row in _sheet.rows:
+            try:
+                _row_resp = client.Attachments.list_row_attachments(
+                    _sheet_id, _row.id
+                )
+            except Exception as _e:
+                logging.warning(
+                    f"⚠️ run_claimer_remediation: failed to list attachments "
+                    f"for row {_row.id} on sheet {_sheet_id}: "
+                    f"{_redact_exception_message(_e)}"
+                )
+                continue
+
+            _attachments = getattr(_row_resp, 'attachments', None) or []
+            for _att in _attachments:
+                _name: str = getattr(_att, 'name', '') or ''
+                _att_id = _att.id
+                _total_scanned += 1
+
+                # ── Step 1: parse filename with the battle-hardened parser ──
+                # Files that build_group_identity cannot parse (non-WR filenames,
+                # malformed names) are left alone — never deleted.
+                _identity = build_group_identity(_name)
+                if _identity is None:
+                    continue  # unparseable → skip
+
+                _wr, _week_mmddyy, _variant, _identifier = _identity
+
+                # ── Step 2: window filter ──
+                # Convert the MMDDYY week token to a date for comparison.
+                if _cutoff is not None:
+                    try:
+                        _week_date = _dt.datetime.strptime(
+                            _week_mmddyy, '%m%d%y'
+                        ).date()
+                        if _week_date < _cutoff:
+                            _total_out_of_window += 1
+                            continue  # too old — skip
+                    except (ValueError, TypeError):
+                        # Unparseable week token → conservatively skip
+                        continue
+
+                # ── Step 3: garbage-pattern check ──
+                _is_garbage = any(pat in _name for pat in _GARBAGE_PATTERNS)
+                if not _is_garbage:
+                    continue  # clean real-claimer name → skip
+
+                _total_garbage += 1
+
+                # ── Step 4: live-identity exemption ──
+                if valid_wr_weeks is not None and _identity in valid_wr_weeks:
+                    _total_exempted += 1
+                    logging.debug(
+                        f"run_claimer_remediation: EXEMPT (live identity) "
+                        f"att={_att_id} sheet={_sheet_id} "
+                        f"wr={_wr} week={_week_mmddyy} variant={_variant}"
+                    )
+                    continue
+
+                # ── Step 5: dry-run or execute ──
+                if dry_run:
+                    logging.info(
+                        f"🔍 [DRY-RUN] would delete garbage attachment "
+                        f"att={_att_id} sheet={_sheet_id} "
+                        f"wr={_wr} week={_week_mmddyy} variant={_variant}"
+                    )
+                else:
+                    try:
+                        client.Attachments.delete_attachment(_sheet_id, _att_id)
+                        _total_deleted += 1
+                        logging.info(
+                            f"🗑️ run_claimer_remediation: deleted garbage att "
+                            f"att={_att_id} sheet={_sheet_id} "
+                            f"wr={_wr} week={_week_mmddyy} variant={_variant}"
+                        )
+                    except Exception as _del_e:
+                        logging.warning(
+                            f"⚠️ run_claimer_remediation: failed to delete "
+                            f"att={_att_id} sheet={_sheet_id}: "
+                            f"{_redact_exception_message(_del_e)}"
+                        )
+
+    # ── PII-safe aggregate summary (ASVS V7: counts + sanitized IDs only) ──
+    _mode = "DRY-RUN" if dry_run else "EXECUTE"
+    logging.info(
+        f"✅ run_claimer_remediation [{_mode}] complete: "
+        f"scanned={_total_scanned} garbage={_total_garbage} "
+        f"deleted={_total_deleted} exempted={_total_exempted} "
+        f"out_of_window={_total_out_of_window}"
+    )
 
 
 def load_billing_audit_row_cache(path: str) -> set[str]:
@@ -7600,7 +7797,25 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         
         client = smartsheet.Smartsheet(API_TOKEN)
         client.errors_as_exceptions(True)
-        
+
+        # ── Phase 2 Plan 03: isolated garbage-attachment remediation mode ──
+        # REMEDIATE_CLAIMERS defaults OFF ('0') — never fires on scheduled cron.
+        # When active, the sweep runs and main() returns immediately (isolation:
+        # no Excel generation occurs in this session).
+        if REMEDIATE_CLAIMERS:
+            logging.info(
+                f"🧹 REMEDIATE_CLAIMERS=True — running isolated claimer "
+                f"remediation sweep (dry_run={REMEDIATION_DRY_RUN}, "
+                f"window_weeks={REMEDIATION_WINDOW_WEEKS})"
+            )
+            run_claimer_remediation(
+                client,
+                dry_run=REMEDIATION_DRY_RUN,
+                window_weeks=REMEDIATION_WINDOW_WEEKS,
+                valid_wr_weeks=None,  # isolated path: no live-identity set
+            )
+            return
+
         # ── Start root Sentry transaction for full session tracing ──
         # _txn handle is already initialized to None at the top of main().
         if SENTRY_DSN:
