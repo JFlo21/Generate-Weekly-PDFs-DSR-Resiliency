@@ -39,6 +39,18 @@ claim-history attribution, all behind default-ON kill switches and additive to
 the existing primary/helper/VAC-crew/ORIG-folder outputs. Milestone audit:
 `tech_debt` (`milestones/v1.0-MILESTONE-AUDIT.md`).
 
+**Shipped: v1.0 hotfix — Phase 2 Attribution Bulk-Prefetch + Historical
+Claimer Remediation (2026-05-26).** 6 plans (4 + 2 gap-closure), `pytest
+tests/` → 986 passed / 29 skipped / 69 subtests. Replaces the per-row
+`lookup_attribution` pre-passes (the ~137k-call time-budget incident) with a
+single bulk `lookup_attribution_bulk` RPC + fail-safe `prefetch_attribution`
+reader, drops the `ATTRIBUTION_RESOLUTION_WEEKS` key-formation footgun, adds a
+default-OFF dry-run-first `run_claimer_remediation` garbage sweep, and makes the
+reader deploy-order-tolerant (`rpc_missing` → `ATTRIBUTION_BULK_PREFETCH_FALLBACK`
+degrades to per-row). Verified 6/6 must-haves; 3 operator validations pending
+(`02-HUMAN-UAT.md`): RPC deploy + production run, remediation dry-run, and the
+human-gated Sub-project E re-activation (`SUPABASE_HASH_STORE_AUTHORITATIVE=1`).
+
 **Pending live verification (carried into v1.1):** production-observable
 acceptance of the v1.0 variants is confirmed on the next scheduled cron run
 (4 HUMAN-UAT items), plus operator actions — apply `billing_audit/schema.sql`,
@@ -322,7 +334,9 @@ extracted from `CLAUDE.md` Living Ledger (see
 </decisions>
 
 ---
-*Last updated: 2026-05-20 after **v1.0 Subcontractor Rate Logic** milestone
+*Last updated: 2026-05-26 after **Phase 2** (v1.0 hotfix: Attribution Bulk-Prefetch + Historical Claimer Remediation) completed*
+
+*Previously updated: 2026-05-20 after **v1.0 Subcontractor Rate Logic** milestone
 completion (Phases 01 + 01.1, 19 plans, 682 tests passing). All 12 v1
 requirements (SUB-01..12) shipped code-complete and moved to Validated;
 production-observable acceptance is carried into v1.1 as live-cron UAT.
