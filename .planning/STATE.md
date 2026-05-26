@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Subcontractor Rate Logic
-status: executing
-last_updated: "2026-05-26T19:51:19.989Z"
+status: verifying
+last_updated: "2026-05-26T19:57:56.719Z"
 last_activity: 2026-05-26
 progress:
   total_phases: 3
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 24
-  completed_plans: 23
-  percent: 96
+  completed_plans: 24
+  percent: 100
 ---
 
 # Project State
@@ -22,15 +22,16 @@ See: .planning/PROJECT.md (updated 2026-05-20 after v1.0 milestone)
 **Core value:** The production Smartsheet → Excel → Smartsheet attachment
 pipeline runs every 2 hours on weekdays and ships billing-grade Excel
 reports without regression.
-**Current focus:** Phase 02 — attribution-bulk-prefetch-historical-claimer-remediation
-Artifact Explorer).
+**Current focus:** Phase 02 — COMPLETE. All 4 plans shipped (bulk RPC + prefetch,
+wiring + scope removal, remediation mode, runbook + Living Ledger).
 
 ## Current Position
 
 Milestone: v1.0 Subcontractor Rate Logic — ✅ SHIPPED 2026-05-20 (archived + tagged)
-Phase: 02 (attribution-bulk-prefetch-historical-claimer-remediation) — EXECUTING
+Phase: 02 (attribution-bulk-prefetch-historical-claimer-remediation) — COMPLETE
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — all documentation shipped; AUTHORITATIVE=1 flip is a
+  human-gated operator follow-up (D-11) — not performed by any plan.
 Last activity: 2026-05-26
 
 Shipped: 2 gating phases (01 + inserted 01.1), 20 plans, 688 tests passing.
@@ -76,6 +77,9 @@ for destructive TARGET variant cleanup.
 - [Phase 02-03]: D-06: REMEDIATE_CLAIMERS default OFF — isolated dispatch returns before Excel generation
 - [Phase 02-03]: D-07: _GARBAGE_PATTERNS ('_NO_MATCH', '_Unknown_Foreman'); build_group_identity parses filenames; unparseable files skipped
 - [Phase 02-03]: D-08: REMEDIATION_DRY_RUN default ON; REMEDIATION_WINDOW_WEEKS default 26 weeks for blast-radius control
+- [Phase 02-04]: D-09: ordered E re-activation procedure documented in operations.md (RPC deploy -> validate -> flip -> remediate)
+- [Phase 02-04]: D-10: evidence-based validation gate — zero garbage names, O(chunks) HTTP, <=165 min runtime, pytest green
+- [Phase 02-04]: D-11: AUTHORITATIVE=1 flip is a SEPARATE human-gated operator action, never bundled in fix PR (46cd05d/67539ec lesson)
 
 ### Roadmap Evolution
 

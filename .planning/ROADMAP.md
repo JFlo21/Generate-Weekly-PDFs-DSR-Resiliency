@@ -55,7 +55,7 @@ Carried forward from v1.0's deferred scope (see
 |--------------------------------------------------|-----------|-------|------------------------------|------------|
 | 01. Subcontractor Rate Logic Modification        | v1.0      | 14/14 | ✅ Shipped (pending live UAT) | 2026-05-20 |
 | 01.1. Helper-Shadow Rescue (INSERTED)            | v1.0      | 6/6 | Complete    | 2026-05-20 |
-| 02. Attribution Bulk-Prefetch + Remediation      | v1.0 hotfix | 1/4 | In Progress|  |
+| 02. Attribution Bulk-Prefetch + Remediation      | v1.0 hotfix | 4/4 | Complete   | 2026-05-26 |
 | —. Railway → Render Pre-Migration ADR            | v1.1      | 0/TBD | 📋 Planned (deferred, renumber on v1.1) | - |
 | —. Migration execution + Artifact Explorer       | v1.1      | 0/TBD | 📋 Planned (deferred)         | -          |
 
@@ -84,4 +84,4 @@ Plans:
 - [x] 02-03-PLAN.md — Default-OFF, dry-run-first, isolated `run_claimer_remediation` garbage sweep (TARGET + PPP, live-identity exempt) (Wave 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
-- [ ] 02-04-PLAN.md — E re-activation runbook (D-09/D-10/D-11 gated flip) + Living Ledger entry (Wave 4)
+- [x] 02-04-PLAN.md — E re-activation runbook (D-09/D-10/D-11 gated flip) + Living Ledger entry (Wave 4)
