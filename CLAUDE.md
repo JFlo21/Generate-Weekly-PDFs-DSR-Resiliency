@@ -3564,3 +3564,104 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   **973 passed / 26 skipped / 69 subtests** (was 955 at Phase 2 start;
   net +18 new, -13 deleted = +5 net passing). Plan 02-04 (this entry)
   is documentation-only; no additional test delta.
+- [2026-05-26 22:45] **Phase 2 gap-closure round — 10 review findings
+  closed (1 BLOCKER + 5 WARNING + 4 INFO) across Plans 02-05 and 02-06.**
+  The post-Phase-2 code review (`02-REVIEW.md`) surfaced correctness, safety,
+  and observability issues in the remediation mode and the bulk-prefetch
+  attribution wiring shipped by Plans 02-01 through 02-04. All 10 were closed
+  additively and surgically; the billing pipeline (Excel generation, upload,
+  hash history) is untouched.
+  **CR-01 (BLOCKER) — deployment-ordering hazard: a missing
+  ``lookup_attribution_bulk`` RPC (PGRST202) previously HELD all B/C/sub-helper
+  billing files** every run until an operator deployed the RPC. Fix (Plan
+  02-05): ``prefetch_attribution`` now emits a distinct ``rpc_missing`` status
+  (via a bounded one-call classification probe on the already-failed
+  ``with_retry`` path) vs the transient ``fetch_failure``. A new default-ON
+  workflow-pinned ``ATTRIBUTION_BULK_PREFETCH_FALLBACK`` kill switch degrades
+  ``rpc_missing`` to the deployed per-row ``lookup_attribution`` path (same
+  frozen data, slower — NOT a D-04 violation because frozen data is still
+  loaded), while a genuine transient outage still HOLDs B/C (D-04 preserved).
+  The merge no longer depends on deploy ordering. Fail-safe default: only a
+  provably-PGRST202 probe exception yields ``rpc_missing``; everything else
+  stays ``fetch_failure``.
+  **WR-01 — WR-sanitization split-brain in ``resolve_claimer``'s prefetched-map
+  lookup.** The map key was sanitized (``_WR_SANITIZE``) at build time but the
+  lookup key was raw, so a sanitization-sensitive WR# silently fell back to
+  use-current instead of resolving the frozen claimer. Fix (Plan 02-05):
+  sanitize the lookup key identically to the map key ([2026-04-23 18:25]
+  consumer-consistency rule). Numeric WR#s are a no-op.
+  **WR-02 — documented remediation activation path was unreachable.** The
+  operations.md Step 4 showed dedicated ``workflow_dispatch`` input keys that
+  don't exist (GitHub Actions 10-input limit is already exceeded), and the
+  Python defaults were overridden by literal step-``env:`` pins that silently
+  masked the ``$GITHUB_ENV`` path. Fix (Plan 02-06): three new case branches
+  in the ``advanced_options`` parser (``remediate_claimers``,
+  ``remediation_dry_run``, ``remediation_window_weeks``) export to
+  ``$GITHUB_ENV``; the three literal pins were removed so the parser path wins;
+  Python defaults (OFF/dry-run/26wk) supply the safe cron-run defaults when
+  ``advanced_options`` is unset. Docs rewritten to show the real activation path.
+  **WR-03 — misleading D-consumer comment (no ``action='disabled'``).** The
+  comment incorrectly stated a disabled ``resolve_claimer`` result carries
+  ``action='disabled'``; the actual value is ``'use'`` (disabled returns
+  use-current). Fixed inline (Plan 02-05).
+  **WR-04 — isolated EXECUTE sweep deleted a valid ``_Unknown_Foreman`` file.**
+  ``_Unknown_Foreman`` is a legitimate current sentinel emitted when
+  ``effective_user`` / ``Foreman Assigned?`` is blank. In the isolated path
+  (``valid_wr_weeks=None``) there is no live-identity set to protect it, so an
+  EXECUTE sweep would create a data-absent window until the next cron. Fix
+  (Plan 02-06): add ``_ALWAYS_GARBAGE_PATTERNS = ('_NO_MATCH',)`` (the
+  always-garbage subset) and select the active pattern set in
+  ``run_claimer_remediation`` by ``valid_wr_weeks is not None``. The isolated
+  path now deletes only ``_NO_MATCH`` (a pure Smartsheet ``#NO MATCH`` error
+  token, never a real filename component); the non-isolated path is unchanged
+  (both tokens eligible, subject to the live-identity exemption).
+  **WR-05 — sub-helper outage path dropped the per-WR fetch_failure WARNING.**
+  The ``_attr_status`` thread was not carried into the sub-helper block after
+  the CR-01 wiring, silencing the observability path. Fix (Plan 02-05):
+  thread ``_attr_status`` so the per-WR ``reason=fetch_failure`` WARNING fires
+  again.
+  **IN-01 through IN-04:** dead ``_resolve_claimer_bulk`` / ``_ResolveOutcome``
+  imports removed (IN-01); ``out_of_window`` reordered to count only garbage
+  files (IN-02); operations.md dry-run quote aligned to the real summary-line
+  format (IN-03); shadowing local ``import datetime as _dt`` removed from
+  ``run_claimer_remediation`` (IN-04).
+  **New rules:**
+  (1) **A hard-runtime RPC dependency MUST distinguish "not deployed"
+  (permanent — degrade gracefully) from "transient outage" (preserve strict
+  HOLD policy).** When ``with_retry`` collapses an APIError to ``None``,
+  re-probe once on the already-failed path to recover the reason_code.
+  The degrade path MUST be a default-ON workflow-pinned kill switch
+  (``ATTRIBUTION_BULK_PREFETCH_FALLBACK``) so deploy ordering can never suppress
+  billing; a transient outage must still HOLD (D-04) so the degrade never
+  becomes a back-door around correctness guarantees. Fail-safe: only a
+  provably-PGRST202 probe exception yields ``rpc_missing``; unknown errors stay
+  ``fetch_failure``.
+  (2) **An attachment-deleting sweep with no live-identity set (isolated path)
+  MUST restrict its garbage set to tokens that are NEVER a legitimate filename
+  component.** ``_NO_MATCH`` (Smartsheet ``#NO MATCH`` error) is always garbage.
+  ``_Unknown_Foreman`` is a legitimate current sentinel for blank foreman rows
+  and must NOT be deleted in the isolated path — a data-absent window until the
+  next cron is worse than leaving an ambiguous file in place. Only the
+  non-isolated path (``valid_wr_weeks`` provided, live-identity exemption active)
+  may sweep both tokens.
+  (3) **A rarely-used destructive operator control is wired through the
+  ``advanced_options`` parser, never a new top-level input (10-input limit), and
+  a literal step-``env:`` pin will silently mask the parser.** Remove the literal
+  pin so ``$GITHUB_ENV`` wins; Python module defaults supply the safe no-op
+  values when ``advanced_options`` is absent (OFF / dry-run-first / bounded
+  window). Verify the masking is gone by asserting the literal pin no longer
+  appears in the step ``env:`` block.
+  (4) **A counter that gates operator decisions about destructive scope
+  (``out_of_window``) MUST count only entities in scope for the gate.** Moving
+  the garbage check before the window filter is the correct fix; a label-only
+  rename would still mis-count. Apply the same reorder discipline to any future
+  filter pipeline with a scope-counting metric.
+  Regression tests (Plans 02-05 + 02-06): ``tests/test_billing_audit_shadow.py``
+  gains ``PrefetchAttributionTests`` + ``ResolveClaimerMapAwareTests``;
+  ``tests/test_subcontractor_helper_shadow_rescue.py`` gains
+  ``TestRpcMissingGracefulDegradation`` (6 tests);
+  ``tests/test_claimer_remediation.py`` gains
+  ``TestIsolatedPathUnknownForemanProtection`` (3 tests) +
+  ``TestOutOfWindowCountsOnlyGarbage`` (2 tests). ``pytest tests/`` →
+  **986 passed / 29 skipped / 69 subtests** (was 981 at Plan 02-05 close;
+  +5 net passing).
