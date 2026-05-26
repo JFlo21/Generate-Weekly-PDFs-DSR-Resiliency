@@ -430,7 +430,7 @@ jobs:
           # (fail-safe to regenerate). Revert: set AUTHORITATIVE back to
           # '0'. Living Ledger [2026-05-25].
           SUPABASE_HASH_STORE_WRITE_ENABLED: '1'
-          SUPABASE_HASH_STORE_AUTHORITATIVE: '0'
+          SUPABASE_HASH_STORE_AUTHORITATIVE: '1'
 
           # Perf hotfix 2026-05-26: scope the per-row frozen-attribution
           # pre-pass (B/C/D + subcontractor-helper path) to the last N
