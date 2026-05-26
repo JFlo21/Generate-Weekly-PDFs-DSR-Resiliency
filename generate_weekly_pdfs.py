@@ -638,8 +638,12 @@ try:
     ATTRIBUTION_RESOLUTION_WEEKS = int(
         os.getenv('ATTRIBUTION_RESOLUTION_WEEKS', '8').strip() or '8')
 except (ValueError, TypeError):
+    # Include the raw env value (repr) so a misconfiguration is
+    # diagnosable from the Actions log (mirrors the AEP_BILLABLE_CUTOFF
+    # safe-parse convention).
     logging.warning(
-        "⚠️ Invalid ATTRIBUTION_RESOLUTION_WEEKS; falling back to 8")
+        "⚠️ Invalid ATTRIBUTION_RESOLUTION_WEEKS="
+        f"{os.getenv('ATTRIBUTION_RESOLUTION_WEEKS')!r}; falling back to 8")
     ATTRIBUTION_RESOLUTION_WEEKS = 8
 
 # Cutoff date for ``_AEPBillable`` variant generation. Awarded to
