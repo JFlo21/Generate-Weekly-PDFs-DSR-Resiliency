@@ -71,14 +71,14 @@ claimer on every file; SPEC-3 no time-budget regression; SPEC-4 recent-window
 remediation; SPEC-5 safe Sub-project E re-activation; SPEC-6 regression coverage).
 **Depends on:** Phase 01.1 (and the shipped Foundation A / B / C / D / E
 attribution work tracked in `docs/superpowers/`)
-**Plans:** 4 plans (4 waves)
+**Plans:** 2/4 plans executed
 
 Plans:
 **Wave 1**
 - [x] 02-01-PLAN.md — Bulk RPC (`lookup_attribution_bulk`) + fail-safe `prefetch_attribution` reader + map-aware `resolve_claimer` (Wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 02-02-PLAN.md — Wire the 4 pre-pass sites to the bulk map + drop `ATTRIBUTION_RESOLUTION_WEEKS` + historical-claimer RED/GREEN regression (Wave 2)
+- [x] 02-02-PLAN.md — Wire the 4 pre-pass sites to the bulk map + drop `ATTRIBUTION_RESOLUTION_WEEKS` + historical-claimer RED/GREEN regression (Wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 02-03-PLAN.md — Default-OFF, dry-run-first, isolated `run_claimer_remediation` garbage sweep (TARGET + PPP, live-identity exempt) (Wave 3)

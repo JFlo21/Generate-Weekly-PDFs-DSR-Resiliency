@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Subcontractor Rate Logic
 status: executing
-last_updated: "2026-05-26T18:55:31.647Z"
-last_activity: 2026-05-26 -- Phase 02 execution started
+last_updated: "2026-05-26T19:37:34.452Z"
+last_activity: 2026-05-26
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 24
-  completed_plans: 20
-  percent: 83
+  completed_plans: 22
+  percent: 92
 ---
 
 # Project State
@@ -29,9 +29,9 @@ Artifact Explorer).
 
 Milestone: v1.0 Subcontractor Rate Logic — ✅ SHIPPED 2026-05-20 (archived + tagged)
 Phase: 02 (attribution-bulk-prefetch-historical-claimer-remediation) — EXECUTING
-Plan: 1 of 4
-Status: Executing Phase 02
-Last activity: 2026-05-26 -- Phase 02 execution started
+Plan: 2 of 4
+Status: Ready to execute
+Last activity: 2026-05-26
 
 Shipped: 2 gating phases (01 + inserted 01.1), 20 plans, 688 tests passing.
 Audit: `tech_debt` (`milestones/v1.0-MILESTONE-AUDIT.md`). Full v1.0 detail in
@@ -52,6 +52,7 @@ Audit: `tech_debt` (`milestones/v1.0-MILESTONE-AUDIT.md`). Full v1.0 detail in
 | 01.1 — Helper-Shadow Rescue (INSERTED)| 6/6   | ✅ Shipped   |
 
 *Updated at Phase 01.1 Plan 06 close (2026-05-20).*
+| Phase 02 P02 | 95 | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -67,6 +68,10 @@ partition; minimum-length key guard `< 4` replaces exact-length `!= 4`;
 shared `_build_subcontractor_wr_scope` prevents cleanup/prune scope drift;
 `SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED` kill switch (default ON)
 for destructive TARGET variant cleanup.
+
+- [Phase ?]: D-02: single bulk prefetch_attribution call replaces 4 per-variant ThreadPoolExecutor pre-passes
+- [Phase ?]: D-03: O(1) map reads via resolve_claimer(prefetched_map=_attr_map) replace per-row RPCs at all 4 consumer sites
+- [Phase ?]: D-05: ATTRIBUTION_RESOLUTION_WEEKS removed entirely from code, workflow, and docs — root cause of garbage-file incident
 
 ### Roadmap Evolution
 
