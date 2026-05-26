@@ -3,13 +3,14 @@ name: Weekly Excel Generation with Sentry Monitoring (Every 2 Hours + Weekly)
 permissions:
   contents: read
 
-# Serialize runs per-ref. With timeout-minutes: 110 and a cron every ~2h
-# (120min), a slow run would otherwise overlap with the next fire,
-# doubling Smartsheet API pressure and increasing the chance of
-# cascading RemoteDisconnected stalls. cancel-in-progress: false
-# (queue mode) is the safer choice for billing: a near-complete run
+# Serialize runs per-ref. With timeout-minutes: 180 and a cron every ~2h
+# (120min), a slow run could overlap with the next fire. cancel-in-progress:
+# false (queue mode) is the safer choice for billing: a near-complete run
 # must NEVER be cancelled right before hash_history.save / attachment
-# upload finishes. The 110min hard ceiling already bounds how long a
+# upload finishes — overlapping fires queue instead. In normal operation
+# the attribution-pre-pass recent-week scope (ATTRIBUTION_RESOLUTION_WEEKS)
+# keeps runs well under the cron interval, so the 180min ceiling is
+# headroom, not the expected runtime. The 180min hard ceiling bounds how long a
 # stuck run can hold the queue.
 concurrency:
   group: weekly-excel-${{ github.ref }}
@@ -123,9 +124,12 @@ jobs:
     runs-on: ubuntu-latest
     # Hard ceiling for the Actions runner. Must exceed TIME_BUDGET_MINUTES
     # so the Python process exits gracefully before Actions kills it.
-    # User requirement (2026-04-25): keep total run time under 1h50m.
-    # Reserve ~15 minutes for post-job cache/artifact steps.
-    timeout-minutes: 110
+    # User requirement (2026-05-26): raise the ceiling to 3h (was 1h50m)
+    # for headroom while the attribution-pre-pass recent-week scope
+    # (ATTRIBUTION_RESOLUTION_WEEKS) brings normal runs back under the
+    # cron interval. Reserve ~15 minutes for post-job cache/artifact steps
+    # (TIME_BUDGET_MINUTES is pinned to 165 below).
+    timeout-minutes: 180
     env:
       PYTHONUNBUFFERED: 1
       GITHUB_ACTIONS: 'true'
@@ -428,6 +432,17 @@ jobs:
           SUPABASE_HASH_STORE_WRITE_ENABLED: '1'
           SUPABASE_HASH_STORE_AUTHORITATIVE: '0'
 
+          # Perf hotfix 2026-05-26: scope the per-row frozen-attribution
+          # pre-pass (B/C/D + subcontractor-helper path) to the last N
+          # weeks. Run unbounded it resolved ~137k lookup_attribution RPCs
+          # per run (every completed row across ALL history), dominated by
+          # old weeks that change-detection skips anyway — which blew the
+          # time budget. 8 weeks (~2 months) is a generous active-billing
+          # horizon; lower if runs still approach the budget, raise if
+          # old-week edits must keep frozen attribution, or set 0 to
+          # disable scoping (pre-hotfix behavior). Living Ledger 2026-05-26.
+          ATTRIBUTION_RESOLUTION_WEEKS: '8'
+
           # AEP_BILLABLE_CUTOFF is intentionally UNSET in the
           # workflow — the Python default (datetime.date(2026,
           # 4, 12), the contract award date) is the source of
@@ -449,9 +464,11 @@ jobs:
           DEBUG_ESSENTIAL_ROWS: '3'
           UNMAPPED_COLUMN_SAMPLE_LIMIT: '3'
           # Graceful Python budget: stop group processing before runner hard-kill.
-          # Keep Python execution within ~95 minutes, leaving ~15 minutes for
-          # artifact/cache save + summary steps so end-to-end stays under 1h50m.
-          TIME_BUDGET_MINUTES: '95'
+          # Raised 2026-05-26 (95 -> 165) alongside timeout-minutes (110 -> 180):
+          # keep Python execution within ~165 minutes, leaving ~15 minutes for
+          # artifact/cache save + summary steps so end-to-end stays under 3h.
+          # Must stay strictly below timeout-minutes by the post-job margin.
+          TIME_BUDGET_MINUTES: '165'
         run: python generate_weekly_pdfs.py
       
       - name: Create Sentry release (optional)

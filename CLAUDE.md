@@ -3383,3 +3383,81 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   +62 net, zero regressions). E ships dormant; after it is validated in
   production, flip ``SUPABASE_HASH_STORE_AUTHORITATIVE=1`` (one-line
   workflow change, revertable).
+- [2026-05-26 01:45] **Production timeout incident: the per-row
+  ``lookup_attribution`` pre-pass resolved ~137k Supabase RPCs/run,
+  blowing the workflow time budget.** Scheduled weekly runs began hitting
+  the GitHub Actions ``timeout-minutes`` hard cap ("maximum execution time
+  of 1h50m0s" → 110min) and getting cancelled mid-generation. Root cause
+  (NOT Sub-project E — E's ``upsert_group_hash`` was only ~1,264
+  calls/~2min, and a PRE-E run timed out too): the claim-attribution
+  pre-passes added by Foundation A / B / C / D — three per-variant
+  pre-passes in ``group_source_rows`` (``_sub_primary_claimer_map`` /
+  ``_vac_crew_claimer_map`` / ``_primary_claimer_map``) PLUS the Phase 1.1
+  subcontractor-helper path's direct ``lookup_attribution`` call inside
+  the grouping loop — each call the ``lookup_attribution`` RPC once per
+  completed row. Run UNBOUNDED, they resolve EVERY completed row across
+  ALL historical weeks. The canceled-run log showed **136,960 successful
+  ``POST /rpc/lookup_attribution`` + 8,044 ``RemoteProtocolError`` retries**
+  (98% of all Supabase traffic), with "Skip (unchanged + attachment
+  exists)" spanning weeks from Nov 2025 (``112325``) through Mar 2026
+  (``032226``) — i.e. the pre-pass eagerly resolved attribution for tens
+  of thousands of OLD rows whose groups change-detection then SKIPPED
+  (so the resolved claimer was never even used). The cost scaled with
+  ACCUMULATED HISTORY, not active work, and crossed the ~95min
+  ``TIME_BUDGET_MINUTES`` as data grew (a 00:43 run took 73min; a 01:44
+  run jumped to 122+ and was killed). **Diagnosed via systematic-debugging
+  (Phase 1 evidence: workflow config 110/95 — NOT the documented 195/180;
+  ``gh run`` durations; ``gh run view --log`` HTTP-endpoint breakdown).
+  Fix (operator-chosen): recent-week scope.** New env var
+  ``ATTRIBUTION_RESOLUTION_WEEKS`` (default ``8``, workflow-pinned, safe-
+  parsed) + two module helpers ``_attribution_resolution_cutoff()`` /
+  ``_attribution_week_in_scope(week_ending)`` (cutoff = ``date.today() -
+  timedelta(weeks=N)``; ``N<=0`` disables scoping; ``None``/unparseable
+  date → in-scope fail-safe). All FOUR resolve sites gate row collection
+  on ``_attribution_week_in_scope`` so resolution cost tracks the recent
+  edit horizon, not total history. **Correctness:** an out-of-scope row
+  resolves to use-current at emission, but its group is either (1)
+  unchanged + attachment exists → skipped, claimer unused (zero impact),
+  or (2) the rare edit to a ``>N``-week-old row → regenerated with the
+  current foreman (the SAME legacy/no_history fallback the feature already
+  documents). Critically, the **freeze (write) side is UNTOUCHED** —
+  ``freeze_row`` still freezes every completed row during generation — so
+  the durable ``attribution_snapshot`` stays complete; only the wasteful
+  READ-backs of old skipped weeks are eliminated. Also raised
+  ``timeout-minutes`` 110→180 and ``TIME_BUDGET_MINUTES`` 95→165 (per
+  operator request) for headroom; with scoping, normal runs return to
+  ~recent-work runtime well under the cron interval (concurrency is
+  queue-mode, ``cancel-in-progress: false``). **New rules:** (1) **Any
+  per-row external I/O (Supabase RPC, HTTP, etc.) in a path that iterates
+  ALL source rows MUST be scoped to the work that will actually be
+  emitted/regenerated — never run eagerly over full accumulated history.**
+  The [2026-04-25 14:00] rule ("per-row I/O goes in a bounded
+  ThreadPoolExecutor pre-pass, not the hot loop") made the calls PARALLEL
+  but did NOT bound their COUNT; parallelism hides an O(all-history) call
+  count until the dataset grows enough to blow the budget. A pre-pass that
+  resolves data for rows whose groups will be skipped by change-detection
+  is pure waste — scope it (recent-week window here) so cost tracks active
+  work. (2) **A read-side optimization that skips resolution for some rows
+  MUST preserve the write/freeze side and degrade to the documented
+  fallback** (use-current here), never to a crash or a silent wrong value.
+  (3) **A new test module that calls ``_ensure_smartsheet_mocked()`` at
+  import MUST guard it behind ``try: import smartsheet except
+  ImportError:``** — calling it unconditionally at top level installs a
+  bare ``smartsheet`` MagicMock stub into ``sys.modules`` during pytest
+  COLLECTION, and if that module sorts alphabetically before suites that
+  need the REAL SDK (e.g. ``TestDiscoverFolderSheets`` doing ``from
+  smartsheet.models.sheet import Sheet``), it shadows the real package and
+  breaks them with "'smartsheet' is not a package". Use the real SDK when
+  installed; only stub when it is genuinely absent. Regression tests:
+  ``tests/test_attribution_resolution_scope.py`` —
+  ``TestAttributionResolutionWeeksConfig`` (env + banner),
+  ``TestAttributionWeekInScope`` (recent/old/boundary/disabled/datetime/
+  None decision table), ``TestPrePassRespectsWeekScope`` (behavioral:
+  ``group_source_rows`` does NOT call ``resolve_claimer`` for a 30-week-old
+  row but DOES for a 1-week-old row), ``TestResolveSitesGatedOnScope``
+  (source-grep: >=4 ``_attribution_week_in_scope`` gates). ``pytest tests/``
+  → **955 passed / 26 skipped / 69 subtests** (was 945; +10, zero
+  regressions). Separately noted (not the cause, benign): the "Node.js 20
+  is deprecated" Actions warning — a future maintenance item to bump
+  ``actions/checkout`` / ``actions/cache`` / ``actions/setup-python`` /
+  ``actions/upload-artifact`` to Node-24 versions.

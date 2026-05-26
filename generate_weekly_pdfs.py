@@ -609,6 +609,43 @@ SUPABASE_HASH_STORE_AUTHORITATIVE = os.getenv(
     'SUPABASE_HASH_STORE_AUTHORITATIVE', '0'
 ).strip().lower() in ('1', 'true', 'yes', 'on')
 
+# Recent-week scope for the per-row frozen-attribution pre-pass
+# (perf hotfix 2026-05-26). The B/C/D claim-attribution pre-passes and
+# the subcontractor-helper path each call the ``lookup_attribution``
+# Supabase RPC once per completed row. Run unbounded, that resolves
+# EVERY completed row across ALL historical weeks (observed: ~137k RPCs
+# per run), even though change-detection skips the vast majority of old
+# weeks (unchanged + attachment exists) — so the resolved claimer is
+# never even used. That eager work scaled with accumulated history and
+# blew the workflow time budget.
+#
+# This gate limits resolution to rows whose ``week_ending`` is within
+# the last N weeks of today, making the pre-pass cost track ACTIVE work
+# (current + recent edit horizon) instead of total history. Safe by
+# construction: an out-of-scope row resolves to use-current at emission,
+# but its group is one of two cases — (1) unchanged + attachment exists
+# -> skipped, claimer unused (zero impact); or (2) the rare edit to a
+# >N-week-old row -> regenerated with the CURRENT foreman (the same
+# legacy/no_history fallback the feature already documents). The freeze
+# (write) side is UNTOUCHED — every completed row is still frozen during
+# generation — so the durable attribution data stays complete.
+#
+# Set to 0 to disable scoping (resolve every week — the pre-hotfix
+# behavior / escape hatch). Default 8 weeks (~2 months) is a generous
+# active-billing horizon; lower it if runs still approach the budget,
+# raise it if old-week edits must keep frozen attribution.
+try:
+    ATTRIBUTION_RESOLUTION_WEEKS = int(
+        os.getenv('ATTRIBUTION_RESOLUTION_WEEKS', '8').strip() or '8')
+except (ValueError, TypeError):
+    # Include the raw env value (repr) so a misconfiguration is
+    # diagnosable from the Actions log (mirrors the AEP_BILLABLE_CUTOFF
+    # safe-parse convention).
+    logging.warning(
+        "⚠️ Invalid ATTRIBUTION_RESOLUTION_WEEKS="
+        f"{os.getenv('ATTRIBUTION_RESOLUTION_WEEKS')!r}; falling back to 8")
+    ATTRIBUTION_RESOLUTION_WEEKS = 8
+
 # Cutoff date for ``_AEPBillable`` variant generation. Awarded to
 # Linetec on 2026-04-12 (subcontractor rate contract). Plan 2 (parser
 # extension) and Plan 3 (variant emission) gate variant emission on
@@ -796,6 +833,11 @@ logging.info(
 logging.info(
     f"📋 SUPABASE_HASH_STORE_AUTHORITATIVE="
     f"{SUPABASE_HASH_STORE_AUTHORITATIVE}"
+)
+# Perf hotfix 2026-05-26: recent-week scope for the attribution pre-pass.
+logging.info(
+    f"📋 ATTRIBUTION_RESOLUTION_WEEKS={ATTRIBUTION_RESOLUTION_WEEKS}"
+    f"{' (scoping disabled — resolve all weeks)' if ATTRIBUTION_RESOLUTION_WEEKS <= 0 else ''}"
 )
 
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
@@ -5290,6 +5332,68 @@ def get_all_source_rows(client, source_sheets):
 
     return merged_rows
 
+def _attribution_resolution_cutoff():
+    """Earliest week-ending date for which the frozen-attribution pre-pass
+    resolves ``lookup_attribution`` (perf hotfix 2026-05-26). Returns None
+    when ``ATTRIBUTION_RESOLUTION_WEEKS`` <= 0 (scoping disabled — resolve
+    every week). Computed against ``date.today()`` at call time so a
+    long-lived process re-evaluates correctly."""
+    if ATTRIBUTION_RESOLUTION_WEEKS <= 0:
+        return None
+    try:
+        return datetime.date.today() - timedelta(
+            weeks=ATTRIBUTION_RESOLUTION_WEEKS)
+    except (OverflowError, OSError):
+        # Codex P2 (2026-05-26): an absurd configured value (e.g. a
+        # typo'd extra zero) overflows the date range. A window that
+        # large means "effectively no scoping", so degrade to None
+        # (resolve every week) rather than crash the run — never let a
+        # config typo take down billing generation.
+        return None
+
+def _attribution_week_in_scope(week_ending):
+    """True if ``week_ending`` is recent enough to resolve frozen
+    attribution for. Out-of-scope (older) rows resolve to use-current at
+    emission — safe because their groups are already frozen-attributed +
+    skipped, so the result is unused (see ATTRIBUTION_RESOLUTION_WEEKS
+    comment). Fail-safe: an unknown/None or unparseable date returns True
+    (resolve) so a row is never silently dropped from attribution because
+    its date couldn't be read.
+
+    Codex P1 (2026-05-26): a FORCED / EXPLICIT historical rebuild
+    regenerates old-week groups on purpose, so their frozen attribution
+    IS consumed and must NOT be scoped out. Mirror the
+    ``_history_eligible_for_skip`` force conditions exactly — when the run
+    (FORCE_GENERATION / RESET_HASH_HISTORY / RESET_WR_LIST) or the row's
+    week (REGEN_WEEKS) is NOT skip-eligible, always resolve regardless of
+    age. This keeps backfill fidelity precisely where the operator asked
+    for it. (The residual non-forced incidental-regeneration cases — an
+    edited >N-week-old row, or a missing attachment forcing regen — are
+    the documented rare edge: they degrade to current foreman, the
+    durable freeze data still exists, and REGEN_WEEKS / a larger
+    ATTRIBUTION_RESOLUTION_WEEKS / 0 are the escape hatches.)"""
+    _cut = _attribution_resolution_cutoff()
+    if _cut is None:
+        return True  # scoping disabled
+    # Forced / explicit full-run regeneration: never scope out (Codex P1).
+    if FORCE_GENERATION or RESET_HASH_HISTORY or RESET_WR_LIST:
+        return True
+    if week_ending is None:
+        return True
+    _d = (week_ending.date()
+          if isinstance(week_ending, datetime.datetime)
+          else week_ending)
+    # Per-week forced regeneration via REGEN_WEEKS (MMDDYY codes).
+    try:
+        if REGEN_WEEKS and _d.strftime('%m%d%y') in REGEN_WEEKS:
+            return True
+    except (AttributeError, ValueError):
+        pass
+    try:
+        return _d >= _cut
+    except TypeError:
+        return True
+
 def group_source_rows(rows):
     """
     VARIANT-AWARE GROUPING: Groups rows by Work Request #, Week Ending Date, and Variant (primary/helper/vac_crew).
@@ -5381,10 +5485,16 @@ def group_source_rows(rows):
             _we = excel_serial_to_date(_ld)
             if _we is None:
                 continue
+            _we_d = _we.date() if isinstance(_we, datetime.datetime) else _we
+            # Perf hotfix 2026-05-26: skip resolution for rows older than the
+            # recent-week window (their groups are frozen-attributed + skipped;
+            # out-of-scope rows resolve to use-current at emission).
+            if not _attribution_week_in_scope(_we_d):
+                continue
             _b_pre_rows.append((
                 _rid,
                 str(_wr_raw).split('.')[0],
-                _we.date() if isinstance(_we, datetime.datetime) else _we,
+                _we_d,
                 _r.get('__effective_user', 'Unknown Foreman'),
             ))
         if _b_pre_rows:
@@ -5450,10 +5560,14 @@ def group_source_rows(rows):
             _we = excel_serial_to_date(_ld)
             if _we is None:
                 continue
+            _we_d = _we.date() if isinstance(_we, datetime.datetime) else _we
+            # Perf hotfix 2026-05-26: recent-week scope (see Subproject B above).
+            if not _attribution_week_in_scope(_we_d):
+                continue
             _vac_pre_rows.append((
                 _rid,
                 str(_wr_raw).split('.')[0],
-                _we.date() if isinstance(_we, datetime.datetime) else _we,
+                _we_d,
                 _r.get('__vac_crew_name') or '',
             ))
         if _vac_pre_rows:
@@ -5538,10 +5652,14 @@ def group_source_rows(rows):
             _we = excel_serial_to_date(_ld)
             if _we is None:
                 continue
+            _we_d = _we.date() if isinstance(_we, datetime.datetime) else _we
+            # Perf hotfix 2026-05-26: recent-week scope (see Subproject B above).
+            if not _attribution_week_in_scope(_we_d):
+                continue
             _d_pre_rows.append((
                 _rid,
                 str(_wr_raw).split('.')[0],
-                _we.date() if isinstance(_we, datetime.datetime) else _we,
+                _we_d,
                 _r.get('__effective_user', 'Unknown Foreman'),
             ))
 
@@ -6074,9 +6192,15 @@ def group_source_rows(rows):
                         # WARNINGs.
                         _attributed_helper = helper_foreman  # D-12 default
                         _attribution_reason: str | None = None
+                        # Perf hotfix 2026-05-26: recent-week scope. An
+                        # out-of-scope (old) row keeps the D-12 default
+                        # (_attributed_helper = current helper_foreman) and
+                        # skips the per-row lookup_attribution RPC — its
+                        # helper file is already frozen-attributed + skipped.
                         if (
                             is_subcontractor_row
                             and SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED
+                            and _attribution_week_in_scope(week_ending_date)
                         ):
                             try:
                                 from billing_audit.writer import lookup_attribution
