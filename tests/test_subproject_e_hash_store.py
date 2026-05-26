@@ -483,5 +483,69 @@ class TestDeleteOldCleanNames(unittest.TestCase):
                 "WR_90001_WeekEnding_041926_User_PF.xlsx"))
 
 
+class TestMigrationCutover(unittest.TestCase):
+    """Task 9: the no-bulk-migration self-healing cutover. The first
+    authoritative run sees an empty store and regenerates everything once
+    (populating it); subsequent runs skip; an outage degrades to the json
+    cache; clean names carry no filename hash."""
+
+    def setUp(self):
+        self._saved = (
+            gwp.SUPABASE_HASH_STORE_AUTHORITATIVE,
+            gwp.BILLING_AUDIT_AVAILABLE,
+            gwp.TEST_MODE,
+        )
+
+    def tearDown(self):
+        (gwp.SUPABASE_HASH_STORE_AUTHORITATIVE,
+         gwp.BILLING_AUDIT_AVAILABLE,
+         gwp.TEST_MODE) = self._saved
+
+    def _authoritative(self):
+        gwp.SUPABASE_HASH_STORE_AUTHORITATIVE = True
+        gwp.BILLING_AUDIT_AVAILABLE = True
+        gwp.TEST_MODE = False
+
+    def test_first_authoritative_run_regenerates_on_empty_store(self):
+        self._authoritative()
+        with mock.patch.object(
+            gwp._billing_audit_writer, "lookup_group_hash",
+            return_value=(None, "no_row"),
+        ):
+            self.assertFalse(gwp._resolve_unchanged_for_skip(
+                "90001|041926|primary|", "h", {},
+                "90001", "2026-04-19", "primary", ""))
+
+    def test_shadow_populated_store_allows_skip(self):
+        self._authoritative()
+        with mock.patch.object(
+            gwp._billing_audit_writer, "lookup_group_hash",
+            return_value=("h", "success"),
+        ):
+            self.assertTrue(gwp._resolve_unchanged_for_skip(
+                "90001|041926|primary|", "h", {},
+                "90001", "2026-04-19", "primary", ""))
+
+    def test_outage_during_cutover_falls_back_to_json(self):
+        self._authoritative()
+        with mock.patch.object(
+            gwp._billing_audit_writer, "lookup_group_hash",
+            return_value=(None, "fetch_failure"),
+        ):
+            # Cache miss -> regenerate (safe).
+            self.assertFalse(gwp._resolve_unchanged_for_skip(
+                "90001|041926|primary|", "h", {},
+                "90001", "2026-04-19", "primary", ""))
+            # Cache hit -> skip (the json cache survives a brief outage).
+            self.assertTrue(gwp._resolve_unchanged_for_skip(
+                "90001|041926|primary|", "h",
+                {"90001|041926|primary|": {"hash": "h"}},
+                "90001", "2026-04-19", "primary", ""))
+
+    def test_extract_hash_returns_none_for_clean_name(self):
+        self.assertIsNone(gwp.extract_data_hash_from_filename(
+            "WR_90001_WeekEnding_041926_User_PF.xlsx"))
+
+
 if __name__ == "__main__":
     unittest.main()
