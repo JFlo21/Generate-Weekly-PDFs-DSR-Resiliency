@@ -405,5 +405,83 @@ class TestAuthoritativeSkipGate(unittest.TestCase):
                 data_hash="h", hash_history={}))
 
 
+class _FakeAtt:
+    def __init__(self, name, id_):
+        self.name = name
+        self.id = id_
+
+
+class TestDeleteOldCleanNames(unittest.TestCase):
+    """Task 8: delete_old_excel_attachments must not rely on the filename
+    hash short-circuit when authoritative (clean names carry no hash);
+    identity-based replacement of the prior attachment still runs."""
+
+    def setUp(self):
+        self._saved_auth = gwp.SUPABASE_HASH_STORE_AUTHORITATIVE
+
+    def tearDown(self):
+        gwp.SUPABASE_HASH_STORE_AUTHORITATIVE = self._saved_auth
+
+    def _client(self):
+        c = mock.Mock()
+        c.Attachments.delete_attachment.return_value = None
+        return c
+
+    def _row(self):
+        r = mock.Mock()
+        r.id = 99
+        return r
+
+    def test_source_references_authoritative_flag(self):
+        src = inspect.getsource(gwp.delete_old_excel_attachments)
+        self.assertIn("SUPABASE_HASH_STORE_AUTHORITATIVE", src)
+
+    def test_authoritative_off_legacy_hash_skip_preserved(self):
+        gwp.SUPABASE_HASH_STORE_AUTHORITATIVE = False
+        att = _FakeAtt(
+            "WR_90001_WeekEnding_041926_120000_deadbeefcafe0001.xlsx", 1)
+        client = self._client()
+        deleted, skipped = gwp.delete_old_excel_attachments(
+            client, 123, self._row(), "90001", "041926",
+            "deadbeefcafe0001", variant="primary", identifier=None,
+            cached_attachments=[att])
+        self.assertEqual((deleted, skipped), (0, True))
+        client.Attachments.delete_attachment.assert_not_called()
+
+    def test_authoritative_on_skips_filename_hash_short_circuit(self):
+        # A legacy token-named file whose hash matches must NOT short-
+        # circuit when authoritative — the durable gate decided upstream;
+        # here the prior attachment is replaced.
+        gwp.SUPABASE_HASH_STORE_AUTHORITATIVE = True
+        att = _FakeAtt(
+            "WR_90001_WeekEnding_041926_120000_deadbeefcafe0001.xlsx", 1)
+        client = self._client()
+        deleted, skipped = gwp.delete_old_excel_attachments(
+            client, 123, self._row(), "90001", "041926",
+            "deadbeefcafe0001", variant="primary", identifier=None,
+            cached_attachments=[att])
+        self.assertFalse(skipped)
+        self.assertEqual(deleted, 1)
+        client.Attachments.delete_attachment.assert_called_once_with(123, 1)
+
+    def test_authoritative_on_clean_name_identity_replacement(self):
+        # A clean prior attachment for the same identity is replaced.
+        gwp.SUPABASE_HASH_STORE_AUTHORITATIVE = True
+        clean = _FakeAtt("WR_90001_WeekEnding_041926_User_PF.xlsx", 7)
+        client = self._client()
+        deleted, skipped = gwp.delete_old_excel_attachments(
+            client, 123, self._row(), "90001", "041926",
+            "newhash0000000000", variant="primary", identifier="PF",
+            cached_attachments=[clean])
+        self.assertFalse(skipped)
+        self.assertEqual(deleted, 1)
+        client.Attachments.delete_attachment.assert_called_once_with(123, 7)
+
+    def test_extract_hash_returns_none_for_clean_name(self):
+        self.assertIsNone(
+            gwp.extract_data_hash_from_filename(
+                "WR_90001_WeekEnding_041926_User_PF.xlsx"))
+
+
 if __name__ == "__main__":
     unittest.main()

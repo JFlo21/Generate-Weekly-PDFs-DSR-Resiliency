@@ -3258,15 +3258,24 @@ def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, we
     if not candidates:
         return 0, False
 
-    # Skip if any existing candidate already carries the same hash (unless forced)
-    if not force_generation:
+    # Skip if any existing candidate already carries the same hash (unless
+    # forced). Sub-project E (2026-05-25): this filename-embedded-hash
+    # short-circuit is the LEGACY durable backstop. When
+    # SUPABASE_HASH_STORE_AUTHORITATIVE is on, the durable skip decision is
+    # made upstream by the Supabase-backed skip gate
+    # (_resolve_unchanged_for_skip in main), AND clean filenames carry no
+    # hash token (extract_data_hash_from_filename returns None for them), so
+    # this short-circuit MUST NOT fire — the identity-based replacement loop
+    # below still runs so a fresh clean file supersedes any prior (token-
+    # named or clean) attachment for the same identity. Forcing always wins.
+    if force_generation:
+        logging.info(f"⚐ FORCE GENERATION for {variant} WR {wr_num} Week {week_raw}; ignoring existing hash match")
+    elif not SUPABASE_HASH_STORE_AUTHORITATIVE:
         for att in candidates:
             existing_hash = extract_data_hash_from_filename(att.name)
             if existing_hash == current_data_hash:
                 logging.info(f"⏩ Unchanged ({variant} WR {wr_num} Week {week_raw}) hash {current_data_hash}; skipping regeneration & upload")
                 return 0, True
-    else:
-        logging.info(f"⚐ FORCE GENERATION for {variant} WR {wr_num} Week {week_raw}; ignoring existing hash match")
 
     logging.info(f"🗑️ Removing {len(candidates)} prior {variant} attachment(s) for WR {wr_num} Week {week_raw}")
     for att in candidates:
