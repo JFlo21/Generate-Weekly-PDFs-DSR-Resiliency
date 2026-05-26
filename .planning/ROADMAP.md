@@ -55,7 +55,7 @@ Carried forward from v1.0's deferred scope (see
 |--------------------------------------------------|-----------|-------|------------------------------|------------|
 | 01. Subcontractor Rate Logic Modification        | v1.0      | 14/14 | ✅ Shipped (pending live UAT) | 2026-05-20 |
 | 01.1. Helper-Shadow Rescue (INSERTED)            | v1.0      | 6/6 | Complete    | 2026-05-20 |
-| 02. Attribution Bulk-Prefetch + Remediation      | v1.0 hotfix | 6/6 | Complete   | 2026-05-26 |
+| 02. Attribution Bulk-Prefetch + Remediation      | v1.0 hotfix | 6/6 | Complete    | 2026-05-26 |
 | —. Railway → Render Pre-Migration ADR            | v1.1      | 0/TBD | 📋 Planned (deferred, renumber on v1.1) | - |
 | —. Migration execution + Artifact Explorer       | v1.1      | 0/TBD | 📋 Planned (deferred)         | -          |
 
