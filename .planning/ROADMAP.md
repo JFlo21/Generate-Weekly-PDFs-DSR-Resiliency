@@ -74,7 +74,14 @@ attribution work tracked in `docs/superpowers/`)
 **Plans:** 4 plans (4 waves)
 
 Plans:
+**Wave 1**
 - [ ] 02-01-PLAN.md — Bulk RPC (`lookup_attribution_bulk`) + fail-safe `prefetch_attribution` reader + map-aware `resolve_claimer` (Wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 02-02-PLAN.md — Wire the 4 pre-pass sites to the bulk map + drop `ATTRIBUTION_RESOLUTION_WEEKS` + historical-claimer RED/GREEN regression (Wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 02-03-PLAN.md — Default-OFF, dry-run-first, isolated `run_claimer_remediation` garbage sweep (TARGET + PPP, live-identity exempt) (Wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 02-04-PLAN.md — E re-activation runbook (D-09/D-10/D-11 gated flip) + Living Ledger entry (Wave 4)
