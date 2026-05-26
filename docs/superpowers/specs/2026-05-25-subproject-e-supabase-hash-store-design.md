@@ -1,6 +1,8 @@
 # Sub-project E — Supabase Hash-Store Migration + Filename Token Stripping
 
-**Status:** Design — awaiting implementation plan
+**Status:** Implemented — shipped dormant (PR #229, 2026-05-25). Default OFF
+(`SUPABASE_HASH_STORE_AUTHORITATIVE=0`); flip after the operator applies
+`billing_audit/schema.sql` + reloads the PostgREST schema cache.
 **Date:** 2026-05-25
 **Sequence:** The final piece of the universal-claim-attribution / change-detection
 modernization arc (Foundation A → Phase 1.1 → B → C → D → **E**).

@@ -138,8 +138,11 @@ CREATE INDEX IF NOT EXISTS idx_pipeline_run_wr_week_created_at
 --
 -- OPERATOR: this DDL must be applied to the Supabase project and the
 -- PostgREST schema cache reloaded (NOTIFY pgrst, 'reload schema';)
--- before the store can be read/written. Until then lookup returns
--- 'unavailable' and the pipeline behaves exactly as before (fail-safe).
+-- before the store can be read/written. Until then the lookup surfaces
+-- as 'fetch_failure' (creds are configured but the table/schema cache
+-- isn't ready — a PGRST/SQLSTATE error; PGRST106 also trips the run-
+-- global kill), and the pipeline falls back to hash_history.json and
+-- behaves exactly as before (fail-safe to regenerate).
 CREATE TABLE IF NOT EXISTS billing_audit.group_content_hash (
     wr            TEXT        NOT NULL,
     week_ending   DATE        NOT NULL,
@@ -151,7 +154,15 @@ CREATE TABLE IF NOT EXISTS billing_audit.group_content_hash (
 );
 
 -- Backfill-safe column adds (mirrors the pipeline_run convention) so a
--- partial-deploy environment can be brought current without DROP.
+-- partial-deploy environment can be brought current without DROP. The
+-- canonical CREATE TABLE above is authoritative for a fresh deploy
+-- (content_hash NOT NULL). The backfill ALTER intentionally adds
+-- content_hash as NULLABLE: it has no sensible default, and Postgres
+-- rejects ``ADD COLUMN ... NOT NULL`` without a default on a table that
+-- already has rows. This matches the pipeline_run pattern above, where
+-- content_hash is likewise added nullable while count columns (which DO
+-- have a sensible default) are added NOT NULL DEFAULT. updated_at carries
+-- NOT NULL DEFAULT NOW() because NOW() is a valid backfill default.
 ALTER TABLE billing_audit.group_content_hash
     ADD COLUMN IF NOT EXISTS content_hash TEXT;
 ALTER TABLE billing_audit.group_content_hash
