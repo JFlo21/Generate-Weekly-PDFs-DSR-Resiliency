@@ -391,7 +391,7 @@ for _r in <completed rows for this variant>:
 
 **If this table is empty:** it is not — all 5 are LOW-risk, none block planning; A1/A2 warrant a one-line operator confirmation at deploy.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Exact remediation-mode entry shape — top-level branch vs sibling entry point.**
    - What we know: D-06 mandates an isolated, env-gated, dry-run-first mode with own logging/counters; CONTEXT §Integration Points says "a new top-level branch in `generate_weekly_pdfs.py` (or a sibling entry point — planner picks)".

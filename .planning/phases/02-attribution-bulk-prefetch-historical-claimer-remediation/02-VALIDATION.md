@@ -39,30 +39,30 @@ created: 2026-05-26
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
 | 02-01-01 | 01 | 1 | SPEC-1 | T-02-01/02/03 | Parameterized jsonb RPC, service_role-only grant, op-isolated | structural | `python -c "assert 'lookup_attribution_bulk' in open('billing_audit/schema.sql').read()"` | ❌ W0 | ⬜ pending |
-| 02-01-02 | 01 | 1 | SPEC-1, SPEC-6 | T-02-03/04/05 | Fail-safe reader (distinct op id), no PII in logs, chunked payload | unit | `pytest tests/test_billing_audit_shadow.py::PrefetchAttributionTests tests/test_billing_audit_shadow.py::ResolveClaimerMapAwareTests -q` | ❌ W0 | ⬜ pending |
-| 02-02-01 | 02 | 2 | SPEC-2, SPEC-6 | T-02-07/10 | Historical group resolves real claimer; RED-before/GREEN-after | behavioral | `pytest tests/test_primary_claim_attribution.py::TestHistoricalClaimerRegression -q` | ❌ W0 | ⬜ pending |
+| 02-01-02 | 01 | 1 | SPEC-1, SPEC-6 | T-02-03/04/05 | Fail-safe reader (distinct op id), no PII in logs, chunked payload; RESOLVER-LEVEL historical-claimer RED/GREEN + direct-HOLD-zero-Supabase-calls locked HERE (Wave 1, BLOCKER 1/3) | unit | `pytest tests/test_billing_audit_shadow.py::PrefetchAttributionTests tests/test_billing_audit_shadow.py::ResolveClaimerMapAwareTests -q` | ❌ W0 | ⬜ pending |
+| 02-02-01 | 02 | 2 | SPEC-2, SPEC-6 | T-02-07/09 | BEHAVIORAL keystone ONLY (group_source_rows-driven; resolver-level cases live in Plan 01 Wave 1); + B/C direct-HOLD-0-Supabase wiring (BLOCKER 1); RED-before/GREEN-after | behavioral | `pytest tests/test_primary_claim_attribution.py::TestHistoricalClaimerRegression -q` | ❌ W0 | ⬜ pending |
 | 02-02-02 | 02 | 2 | SPEC-1, SPEC-2, SPEC-3 | T-02-06/08/09/10 | Single bulk prefetch; no per-row RPC; scope removed; CR-01 preserved; D-04 fallback | behavioral + grep | `pytest tests/ -q` | ⚠ extend | ⬜ pending |
 | 02-02-03 | 02 | 2 | SPEC-6 | — | Obsolete scope test deleted; no orphan import | suite | `pytest tests/ -q` | ✅ | ⬜ pending |
 | 02-03-01 | 03 | 3 | SPEC-4, SPEC-6 | T-02-11/13 | Dry-run-no-delete + live-identity exemption + pattern-only delete | unit | `pytest tests/test_claimer_remediation.py -q` | ❌ W0 | ⬜ pending |
 | 02-03-02 | 03 | 3 | SPEC-4 | T-02-11/12/13/14 | Isolated default-OFF sweep; parser-based identity; counts-only logs | unit + behavioral | `pytest tests/test_claimer_remediation.py -q` | ❌ W0 | ⬜ pending |
 | 02-03-03 | 03 | 3 | SPEC-4 | T-02-12/15 | Flags pinned default-OFF; AUTHORITATIVE not flipped here | suite + config | `pytest tests/test_claimer_remediation.py -q` | ✅ | ⬜ pending |
-| 02-04-01 | 04 | 4 | SPEC-5, SPEC-4 | T-02-16/17 | Runbook documents validation gate + human-gated flip + dry-run-first | doc | `python tools/check_phase2_docs.py` (executor-created) | ❌ W0 | ⬜ pending |
-| 02-04-02 | 04 | 4 | SPEC-5 | T-02-16 | Living Ledger records fix + rules + lineage; append-only | doc | `python tools/check_phase2_ledger.py` (executor-created) | ❌ W0 | ⬜ pending |
+| 02-04-01 | 04 | 4 | SPEC-5, SPEC-4 | T-02-16/17 | Runbook documents validation gate + human-gated flip + dry-run-first | doc (inline string assert) | `python -c "src=open('website/docs/runbook/operations.md',encoding='utf-8').read(); req=['SUPABASE_HASH_STORE_AUTHORITATIVE','lookup_attribution_bulk','REMEDIATE_CLAIMERS','TIME_BUDGET_MINUTES','NOTIFY pgrst','46cd05d']; missing=[r for r in req if r not in src]; assert not missing, missing; print('ok')"` | ❌ W0 | ⬜ pending |
+| 02-04-02 | 04 | 4 | SPEC-5 | T-02-16 | Living Ledger records fix + rules + lineage; append-only | doc (inline string+count assert) | `python -c "import re; t=open('CLAUDE.md',encoding='utf-8').read(); req=['lookup_attribution_bulk','ATTRIBUTION_RESOLUTION_WEEKS','run_claimer_remediation','PrefetchAttributionTests']; assert all(r in t for r in req); assert len(re.findall(r'\[2026-05-26 \d\d:\d\d\]', t))>=2; print('ok')"` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
 Sampling continuity check: no run of 3 consecutive tasks lacks an automated verify
-(every task above has an automated command; the two doc tasks use small
-executor-created assertion scripts or inline grep equivalents).
+(every task above has an automated command; the two doc tasks use INLINE
+`python -c` string assertions — no executor-created-script dependency, BLOCKER 2).
 
 ---
 
 ## Wave 0 Requirements
 
-- [ ] `tests/test_billing_audit_shadow.py` — add `PrefetchAttributionTests` (success / unavailable / global-kill-is-fetch-failure / with_retry-None-is-fetch_failure / unexpected-exception-is-fetch_failure / empty-pairs-no_row / chunking / no-per-row-RPC) + `ResolveClaimerMapAwareTests` (map-hit-frozen / map-miss-no_history / fetch_failure-holds-B/C / fetch_failure-uses-current-D / disabled) — Plan 01.
-- [ ] `tests/test_primary_claim_attribution.py` — add `TestHistoricalClaimerRegression` (RED-before/GREEN-after historical group → real claimer; no-frozen fallback) — Plan 02.
-- [ ] `tests/test_subcontractor_primary_claim_attribution.py` + `tests/test_vac_crew_claim_attribution.py` — map-aware resolution assertions (B/C HOLD on fetch_failure; map hit → frozen) — Plan 02.
-- [ ] `tests/test_claimer_remediation.py` — NEW module (Pitfall-4 import-guard; dry-run-no-delete / execute-only-garbage / live-identity-exemption / real-name-never-matches / window-filter / TARGET+PPP) — Plan 03.
+- [ ] `tests/test_billing_audit_shadow.py` — add `PrefetchAttributionTests` (success / unavailable / global-kill-is-fetch-failure / with_retry-None-is-fetch_failure / unexpected-exception-is-fetch_failure / empty-pairs-no_row / chunking / no-per-row-RPC) + `ResolveClaimerMapAwareTests` (map-hit-frozen / map-miss-no_history / disabled / RESOLVER-LEVEL historical-row-resolves-real-claimer + historical-no-frozen-falls-back / direct-HOLD-zero-Supabase-calls). The resolver-level historical-claimer RED/GREEN assertions are locked at Wave 1 HERE (they do not depend on generate_weekly_pdfs.py) — BLOCKER 3. Plan 01.
+- [ ] `tests/test_primary_claim_attribution.py` — add `TestHistoricalClaimerRegression` (the BEHAVIORAL group_source_rows-driven keystone ONLY: historical group emits real claimer key, garbage absent — RED-before/GREEN-after; depends on Wave 2 code) — Plan 02. Resolver-level cases are NOT here (they are in Plan 01's ResolveClaimerMapAwareTests, Wave 1).
+- [ ] `tests/test_subcontractor_primary_claim_attribution.py` + `tests/test_vac_crew_claim_attribution.py` — B/C direct-HOLD wiring tests (under `_attr_status=='fetch_failure'`, outcome is HOLD AND `_lookup_attribution_all.assert_not_called()` — 0 additional Supabase calls, BLOCKER 1); map hit → frozen — Plan 02.
+- [ ] `tests/test_claimer_remediation.py` — NEW module with INLINE `_ensure_smartsheet_mocked` def + import-guard (WARNING 5; the old defining module is deleted); dry-run-no-delete / execute-only-garbage / live-identity-exemption (valid_wr_weeks populated) / isolation-path (valid_wr_weeks=None, WARNING 6) / real-name-never-matches / window-filter / TARGET+PPP — Plan 03.
 - [ ] DELETE `tests/test_attribution_resolution_scope.py` (D-05; replacement regression lives in test_primary_claim_attribution.py) — Plan 02.
 
 ---
