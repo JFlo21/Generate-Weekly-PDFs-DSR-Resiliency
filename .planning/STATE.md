@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Subcontractor Rate Logic
 status: executing
-last_updated: "2026-05-26T19:37:34.452Z"
+last_updated: "2026-05-26T19:51:19.989Z"
 last_activity: 2026-05-26
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 24
-  completed_plans: 22
-  percent: 92
+  completed_plans: 23
+  percent: 96
 ---
 
 # Project State
@@ -29,7 +29,7 @@ Artifact Explorer).
 
 Milestone: v1.0 Subcontractor Rate Logic — ✅ SHIPPED 2026-05-20 (archived + tagged)
 Phase: 02 (attribution-bulk-prefetch-historical-claimer-remediation) — EXECUTING
-Plan: 2 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-05-26
 
@@ -53,6 +53,7 @@ Audit: `tech_debt` (`milestones/v1.0-MILESTONE-AUDIT.md`). Full v1.0 detail in
 
 *Updated at Phase 01.1 Plan 06 close (2026-05-20).*
 | Phase 02 P02 | 95 | 3 tasks | 8 files |
+| Phase 02 P03 | 35 | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,9 @@ for destructive TARGET variant cleanup.
 - [Phase ?]: D-02: single bulk prefetch_attribution call replaces 4 per-variant ThreadPoolExecutor pre-passes
 - [Phase ?]: D-03: O(1) map reads via resolve_claimer(prefetched_map=_attr_map) replace per-row RPCs at all 4 consumer sites
 - [Phase ?]: D-05: ATTRIBUTION_RESOLUTION_WEEKS removed entirely from code, workflow, and docs — root cause of garbage-file incident
+- [Phase 02-03]: D-06: REMEDIATE_CLAIMERS default OFF — isolated dispatch returns before Excel generation
+- [Phase 02-03]: D-07: _GARBAGE_PATTERNS ('_NO_MATCH', '_Unknown_Foreman'); build_group_identity parses filenames; unparseable files skipped
+- [Phase 02-03]: D-08: REMEDIATION_DRY_RUN default ON; REMEDIATION_WINDOW_WEEKS default 26 weeks for blast-radius control
 
 ### Roadmap Evolution
 
