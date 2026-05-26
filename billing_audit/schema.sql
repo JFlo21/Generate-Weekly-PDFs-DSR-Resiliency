@@ -275,3 +275,48 @@ AS $$
 $$;
 
 GRANT EXECUTE ON FUNCTION billing_audit.lookup_attribution(TEXT, DATE, BIGINT) TO service_role;
+
+-- ── lookup_attribution_bulk (RPC) — Phase 2 (2026-05-26) ─────────────
+-- Bulk generalization of lookup_attribution: accepts the run's
+-- (wr, week_ending) set as a jsonb array and returns ALL matching
+-- attribution_snapshot rows in one round-trip, applying the SAME
+-- per-role #NO MATCH / blank -> NULL normalization (one source of
+-- truth, D-01). Replaces ~137k per-row lookup_attribution RPCs/run.
+--
+-- OPERATOR: apply this CREATE OR REPLACE in the Supabase SQL Editor,
+-- then run `NOTIFY pgrst, 'reload schema';` (or Project Settings ->
+-- API -> Reload schema cache). Required before the bulk-prefetch fix
+-- resolves real claimers at runtime (D-01 operator coordination,
+-- mirrors the existing lookup_attribution deployment).
+CREATE OR REPLACE FUNCTION billing_audit.lookup_attribution_bulk(
+    p_wr_weeks jsonb   -- e.g. '[{"wr":"90001","week_ending":"2026-04-19"}, ...]'
+)
+RETURNS TABLE (
+    wr                TEXT,
+    week_ending       DATE,
+    smartsheet_row_id BIGINT,
+    primary_foreman   TEXT,
+    helper            TEXT,
+    helper_dept       TEXT,
+    vac_crew          TEXT,
+    source_run_id     TEXT
+)
+LANGUAGE sql
+STABLE
+AS $$
+    SELECT
+        s.wr,
+        s.week_ending,
+        s.smartsheet_row_id,
+        -- EXACT same CASE blocks as lookup_attribution above (D-01: one source of truth)
+        CASE WHEN s.frozen_primary     LIKE '#%' OR btrim(s.frozen_primary)     = '' THEN NULL ELSE s.frozen_primary     END,
+        CASE WHEN s.frozen_helper      LIKE '#%' OR btrim(s.frozen_helper)      = '' THEN NULL ELSE s.frozen_helper      END,
+        CASE WHEN s.frozen_helper_dept LIKE '#%' OR btrim(s.frozen_helper_dept) = '' THEN NULL ELSE s.frozen_helper_dept END,
+        CASE WHEN s.frozen_vac_crew    LIKE '#%' OR btrim(s.frozen_vac_crew)    = '' THEN NULL ELSE s.frozen_vac_crew    END,
+        s.source_run_id
+    FROM jsonb_to_recordset(p_wr_weeks) AS q(wr TEXT, week_ending DATE)
+    JOIN billing_audit.attribution_snapshot AS s
+      ON s.wr = q.wr AND s.week_ending = q.week_ending;
+$$;
+
+GRANT EXECUTE ON FUNCTION billing_audit.lookup_attribution_bulk(jsonb) TO service_role;
