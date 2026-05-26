@@ -5,8 +5,11 @@ default-OFF kill switches. See
 docs/superpowers/specs/2026-05-25-subproject-e-supabase-hash-store-design.md
 and docs/superpowers/plans/2026-05-25-subproject-e-supabase-hash-store.md.
 """
+import datetime
 import inspect
+import os
 import pathlib
+import tempfile
 import unittest
 
 from tests.test_billing_audit_shadow import _ensure_smartsheet_mocked
@@ -171,6 +174,79 @@ class TestBuildGroupIdentityCleanNames(unittest.TestCase):
             self._id(
                 "WR_90001_WeekEnding_041926_abcdef0123456789.xlsx"),
             ("90001", "041926", "primary", None),
+        )
+
+
+class TestCleanFilename(unittest.TestCase):
+    """Task 5: when SUPABASE_HASH_STORE_AUTHORITATIVE is on, generate_excel
+    produces a deterministic clean name (no _<timestamp>/_<hash>); when off
+    it keeps the legacy timestamp+hash tokens (byte-identical to today)."""
+
+    def setUp(self):
+        self._saved = {
+            'auth': gwp.SUPABASE_HASH_STORE_AUTHORITATIVE,
+            'attr': gwp.PRIMARY_CLAIM_ATTRIBUTION_ENABLED,
+            'mode': gwp.RES_GROUPING_MODE,
+            'out': gwp.OUTPUT_FOLDER,
+        }
+        self._tmp = tempfile.TemporaryDirectory()
+        gwp.OUTPUT_FOLDER = self._tmp.name
+        gwp.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = True
+        gwp.RES_GROUPING_MODE = 'both'
+
+    def tearDown(self):
+        gwp.SUPABASE_HASH_STORE_AUTHORITATIVE = self._saved['auth']
+        gwp.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = self._saved['attr']
+        gwp.RES_GROUPING_MODE = self._saved['mode']
+        gwp.OUTPUT_FOLDER = self._saved['out']
+        self._tmp.cleanup()
+
+    def _row(self, foreman="PF"):
+        return {
+            'Work Request #': '90001',
+            'Weekly Reference Logged Date': '2026-04-19',
+            'Units Completed?': True,
+            'Units Total Price': '$100.00',
+            'CU': 'XYZ',
+            'Work Type': 'Install',
+            'Quantity': 1,
+            'Customer Name': 'TestCustomer',
+            'Foreman': foreman,
+            'Dept #': '500',
+            'Job #': 'J-1',
+            '__effective_user': foreman,
+            '__current_foreman': foreman,
+            '__variant': 'primary',
+            '__week_ending_date': datetime.datetime(2026, 4, 19),
+        }
+
+    def _name(self):
+        result = gwp.generate_excel(
+            '041926_90001', [self._row()],
+            datetime.datetime(2026, 4, 19), data_hash='deadbeefcafe0001',
+        )
+        return os.path.basename(result[0])
+
+    def test_authoritative_on_strips_timestamp_and_hash(self):
+        gwp.SUPABASE_HASH_STORE_AUTHORITATIVE = True
+        name = self._name()
+        self.assertEqual(name, 'WR_90001_WeekEnding_041926_User_PF.xlsx')
+
+    def test_authoritative_off_keeps_tokens(self):
+        gwp.SUPABASE_HASH_STORE_AUTHORITATIVE = False
+        name = self._name()
+        self.assertIn('deadbeefcafe0001', name)
+        self.assertIn('_User_PF', name)
+        self.assertTrue(name.endswith('.xlsx'))
+
+    def test_clean_name_round_trips_through_parser(self):
+        # The clean name generate_excel emits must parse back to the
+        # same identity tuple via build_group_identity (Task 4).
+        gwp.SUPABASE_HASH_STORE_AUTHORITATIVE = True
+        name = self._name()
+        self.assertEqual(
+            gwp.build_group_identity(name),
+            ('90001', '041926', 'primary', 'PF'),
         )
 
 

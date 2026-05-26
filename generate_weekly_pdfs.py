@@ -2769,7 +2769,7 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
         if _tok in tail
     }
     _first_marker = (
-        min(_reserved_positions, key=_reserved_positions.get)
+        min(_reserved_positions, key=lambda _t: _reserved_positions[_t])
         if _reserved_positions else None
     )
     if _first_marker == 'AEPBillable':
@@ -6704,7 +6704,14 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     # and emit the per-sheet WARNING (D-17).
     missing_cus: collections.Counter = collections.Counter()
     
-    if data_hash:
+    if SUPABASE_HASH_STORE_AUTHORITATIVE:
+        # Sub-project E (2026-05-25): deterministic clean name. The durable
+        # change-detection hash lives in billing_audit.group_content_hash,
+        # so the filename carries IDENTITY ONLY (no _<timestamp>/_<hash>
+        # tokens) and round-trips through build_group_identity unchanged.
+        # Gated OFF by default — ships dormant until the store is validated.
+        output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}{variant_suffix}.xlsx"
+    elif data_hash:
         # Use full 16-character hash (calculate_data_hash already truncates to 16)
         output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}_{timestamp}{variant_suffix}_{data_hash}.xlsx"
     else:
