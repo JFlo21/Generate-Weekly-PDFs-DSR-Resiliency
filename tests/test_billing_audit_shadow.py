@@ -5436,6 +5436,50 @@ class ResolveClaimerMapAwareTests(unittest.TestCase):
         self.assertEqual(out.name, "PerRowForeman")
         self.assertEqual(out.reason, "success")
 
+    # ── Phase 2 Plan 05 (WR-01): sanitize the prefetched-map lookup key ──
+
+    def test_sanitization_sensitive_wr_resolves_frozen_claimer(self):
+        """A map keyed with the SANITIZED WR is HIT when resolve_claimer is
+        called with the RAW (sanitization-sensitive) WR.
+
+        WR-01: the map key is produced via _WR_SANITIZE (the RPC echoes back
+        the sanitized s.wr that freeze_row wrote). Pre-fix, resolve_claimer
+        built the lookup key from the RAW wr -> a guaranteed miss ->
+        no_history fall-back, silently dropping the real frozen claimer.
+        """
+        import billing_audit.writer as w
+        # freeze_row / prefetch_attribution would store the sanitized form.
+        raw_wr = "WR_1234/evil"
+        sanitized_wr = w._WR_SANITIZE.sub("_", str(raw_wr).split(".")[0])[:50]
+        we = datetime.date(2026, 4, 19)
+        row_id = 555
+        frozen_map = {(sanitized_wr, we, row_id): {"primary_foreman": "Real Frozen"}}
+        out = w.resolve_claimer(
+            "primary", "CurrentName",
+            wr=raw_wr, week_ending=we, row_id=row_id,
+            enabled=True, prefetched_map=frozen_map,
+        )
+        self.assertEqual(out.action, "use")
+        self.assertEqual(out.name, "Real Frozen")
+        self.assertEqual(out.source, "frozen")
+        self.assertEqual(out.reason, "success")
+
+    def test_numeric_wr_resolves_unchanged(self):
+        """A numeric WR (sanitize is a no-op) still resolves identically."""
+        import billing_audit.writer as w
+        we = datetime.date(2026, 4, 19)
+        row_id = 123
+        frozen_map = {("12345", we, row_id): {"primary_foreman": "NumFrozen"}}
+        out = w.resolve_claimer(
+            "primary", "CurrentName",
+            wr="12345", week_ending=we, row_id=row_id,
+            enabled=True, prefetched_map=frozen_map,
+        )
+        self.assertEqual(out.action, "use")
+        self.assertEqual(out.name, "NumFrozen")
+        self.assertEqual(out.source, "frozen")
+        self.assertEqual(out.reason, "success")
+
 
 if __name__ == "__main__":
     unittest.main()

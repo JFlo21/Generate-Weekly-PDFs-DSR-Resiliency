@@ -1025,7 +1025,15 @@ def resolve_claimer(
     # D-03: O(1) map read when a preloaded map is provided. Same (row, status)
     # shape as _lookup_attribution_all so the decision table below is unchanged.
     if prefetched_map is not None:
-        _key = (wr, week_ending, row_id) if (week_ending and row_id) else None
+        # WR-01: prefetch_attribution builds the map key from the SANITIZED
+        # WR (the RPC echoes back s.wr, which freeze_row wrote sanitized), so
+        # the lookup key MUST be sanitized identically or a valid frozen
+        # claimer is silently dropped (split-brain). Numeric WR#s are a no-op
+        # under _WR_SANITIZE so production data is unaffected. Per CLAUDE.md
+        # [2026-04-23 18:25]: every downstream consumer of the identifier MUST
+        # consume the sanitized value.
+        _wr_key = _WR_SANITIZE.sub("_", str(wr).split(".")[0])[:50]
+        _key = (_wr_key, week_ending, row_id) if (week_ending and row_id) else None
         if _key is not None and _key in prefetched_map:
             row, status = prefetched_map[_key], "success"
         else:
