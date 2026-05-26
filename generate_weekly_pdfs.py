@@ -2828,6 +2828,47 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
 
     return (wr, week, variant, identifier)
 
+def _resolve_unchanged_for_skip(history_key, data_hash, hash_history,
+                                wr_num, week_iso, variant, identifier):
+    """Decide whether a group's content hash is UNCHANGED vs the durable
+    store, for the change-detection skip gate (Sub-project E, 2026-05-25).
+
+    Decision model:
+    - ``SUPABASE_HASH_STORE_AUTHORITATIVE`` ON (and billing_audit
+      available, not TEST_MODE): Supabase
+      (``billing_audit.group_content_hash``) is authoritative.
+        * ``success``  -> compare the stored hash to ``data_hash``.
+        * ``no_row``   -> the group was never durably stored, so it is
+          treated as CHANGED (return False -> regenerate). This is the
+          safe default that makes the very first authoritative run
+          regenerate everything once, populating the store.
+        * ``fetch_failure`` / ``unavailable`` / ``disabled`` -> a
+          Supabase outage; fall through to the local ``hash_history``
+          json cache so a transient outage degrades to "use the cache /
+          regenerate", never a silent wrong-skip.
+    - Authoritative OFF (default): the ``hash_history`` json cache alone
+      decides — byte-identical to the pre-E behavior.
+
+    The caller must already have confirmed ``_history_eligible_for_skip``
+    (FORCE_GENERATION / REGEN_WEEKS / RESET_* gating) and still applies
+    the ``ATTACHMENT_REQUIRED_FOR_SKIP`` guard downstream — a matching
+    hash with a missing attachment must still regenerate.
+    """
+    if (
+        SUPABASE_HASH_STORE_AUTHORITATIVE
+        and BILLING_AUDIT_AVAILABLE
+        and not TEST_MODE
+    ):
+        _h, _status = _billing_audit_writer.lookup_group_hash(
+            wr_num, week_iso, variant, identifier or '')
+        if _status == 'success':
+            return _h == data_hash
+        if _status == 'no_row':
+            return False  # never durably stored -> regenerate (safe)
+        # fetch_failure / unavailable / disabled -> fall back to json cache.
+    _prev = hash_history.get(history_key)
+    return bool(_prev and _prev.get('hash') == data_hash)
+
 def cleanup_stale_excels(output_folder: str, kept_filenames: set):
     """Remove Excel files not generated in current run (VARIANT-AWARE).
 
@@ -8594,14 +8635,19 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         or RESET_WR_LIST
                     )
                 )
-                _prev_history_entry = (
-                    hash_history.get(history_key)
+                # Sub-project E: the unchanged decision now consults the
+                # durable Supabase hash store when authoritative, falling
+                # back to the local hash_history json cache on outage/miss.
+                # See _resolve_unchanged_for_skip for the full decision
+                # table. Default (authoritative OFF) is json-cache-only —
+                # byte-identical to the pre-E behavior.
+                _hash_unchanged = (
+                    _resolve_unchanged_for_skip(
+                        history_key, data_hash, hash_history,
+                        wr_num, week_iso, variant, identifier,
+                    )
                     if _history_eligible_for_skip
-                    else None
-                )
-                _hash_unchanged = bool(
-                    _prev_history_entry
-                    and _prev_history_entry.get('hash') == data_hash
+                    else False
                 )
 
                 # Pre-compute whether any eligible row in this group is absent

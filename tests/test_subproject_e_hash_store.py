@@ -11,6 +11,7 @@ import os
 import pathlib
 import tempfile
 import unittest
+from unittest import mock
 
 from tests.test_billing_audit_shadow import _ensure_smartsheet_mocked
 
@@ -274,6 +275,134 @@ class TestShadowWrite(unittest.TestCase):
             self.src,
             r"upsert_group_hash\(\s*[\s\S]{0,80}week_iso",
         )
+
+
+class TestAuthoritativeSkipGate(unittest.TestCase):
+    """Task 7: when authoritative, the unchanged decision reads Supabase
+    (json fallback on outage; regenerate on miss). The pure helper
+    _resolve_unchanged_for_skip makes the decision unit-testable."""
+
+    def setUp(self):
+        self._saved = {
+            'auth': gwp.SUPABASE_HASH_STORE_AUTHORITATIVE,
+            'avail': gwp.BILLING_AUDIT_AVAILABLE,
+            'test': gwp.TEST_MODE,
+        }
+
+    def tearDown(self):
+        gwp.SUPABASE_HASH_STORE_AUTHORITATIVE = self._saved['auth']
+        gwp.BILLING_AUDIT_AVAILABLE = self._saved['avail']
+        gwp.TEST_MODE = self._saved['test']
+
+    # ── Source-level guards ────────────────────────────────────────────
+    def test_gate_reads_supabase_when_authoritative(self):
+        src = inspect.getsource(gwp)
+        self.assertRegex(
+            src,
+            r"SUPABASE_HASH_STORE_AUTHORITATIVE[\s\S]{0,600}"
+            r"lookup_group_hash\(",
+        )
+
+    def test_json_fallback_remains_reachable(self):
+        # The helper must still consult the local hash_history cache.
+        src = inspect.getsource(gwp._resolve_unchanged_for_skip)
+        self.assertIn("hash_history.get(history_key)", src)
+
+    def test_attachment_required_preserved(self):
+        self.assertIn("ATTACHMENT_REQUIRED_FOR_SKIP", inspect.getsource(gwp))
+
+    # ── Behavioral: _resolve_unchanged_for_skip decision table ─────────
+    def _resolve(self, **kw):
+        defaults = dict(
+            history_key="90001|041926|primary|",
+            data_hash="h", hash_history={}, wr_num="90001",
+            week_iso="2026-04-19", variant="primary", identifier="",
+        )
+        defaults.update(kw)
+        return gwp._resolve_unchanged_for_skip(**defaults)
+
+    def _set_authoritative(self):
+        gwp.SUPABASE_HASH_STORE_AUTHORITATIVE = True
+        gwp.BILLING_AUDIT_AVAILABLE = True
+        gwp.TEST_MODE = False
+
+    def test_authoritative_success_match_is_unchanged(self):
+        self._set_authoritative()
+        with mock.patch.object(
+            gwp._billing_audit_writer, "lookup_group_hash",
+            return_value=("h", "success"),
+        ):
+            self.assertTrue(self._resolve(data_hash="h"))
+
+    def test_authoritative_success_mismatch_is_changed(self):
+        self._set_authoritative()
+        with mock.patch.object(
+            gwp._billing_audit_writer, "lookup_group_hash",
+            return_value=("OTHER", "success"),
+        ):
+            self.assertFalse(self._resolve(data_hash="h"))
+
+    def test_authoritative_no_row_regenerates(self):
+        self._set_authoritative()
+        with mock.patch.object(
+            gwp._billing_audit_writer, "lookup_group_hash",
+            return_value=(None, "no_row"),
+        ):
+            # Even with a matching json cache entry, a no_row in the
+            # authoritative store means "never durably stored" -> regenerate.
+            self.assertFalse(self._resolve(
+                data_hash="h",
+                hash_history={"90001|041926|primary|": {"hash": "h"}},
+            ))
+
+    def test_authoritative_fetch_failure_falls_back_to_json_true(self):
+        self._set_authoritative()
+        with mock.patch.object(
+            gwp._billing_audit_writer, "lookup_group_hash",
+            return_value=(None, "fetch_failure"),
+        ):
+            self.assertTrue(self._resolve(
+                data_hash="h",
+                hash_history={"90001|041926|primary|": {"hash": "h"}},
+            ))
+
+    def test_authoritative_fetch_failure_falls_back_to_json_false(self):
+        self._set_authoritative()
+        with mock.patch.object(
+            gwp._billing_audit_writer, "lookup_group_hash",
+            return_value=(None, "fetch_failure"),
+        ):
+            self.assertFalse(self._resolve(
+                data_hash="h",
+                hash_history={"90001|041926|primary|": {"hash": "STALE"}},
+            ))
+
+    def test_authoritative_unavailable_falls_back_to_json(self):
+        self._set_authoritative()
+        with mock.patch.object(
+            gwp._billing_audit_writer, "lookup_group_hash",
+            return_value=(None, "unavailable"),
+        ):
+            self.assertTrue(self._resolve(
+                data_hash="h",
+                hash_history={"90001|041926|primary|": {"hash": "h"}},
+            ))
+
+    def test_not_authoritative_uses_json_only(self):
+        gwp.SUPABASE_HASH_STORE_AUTHORITATIVE = False
+        gwp.BILLING_AUDIT_AVAILABLE = True
+        gwp.TEST_MODE = False
+        # lookup_group_hash must NOT be consulted when not authoritative.
+        with mock.patch.object(
+            gwp._billing_audit_writer, "lookup_group_hash",
+            side_effect=AssertionError("should not read Supabase"),
+        ):
+            self.assertTrue(self._resolve(
+                data_hash="h",
+                hash_history={"90001|041926|primary|": {"hash": "h"}},
+            ))
+            self.assertFalse(self._resolve(
+                data_hash="h", hash_history={}))
 
 
 if __name__ == "__main__":
