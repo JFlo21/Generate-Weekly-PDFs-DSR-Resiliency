@@ -55,7 +55,7 @@ Carried forward from v1.0's deferred scope (see
 |--------------------------------------------------|-----------|-------|------------------------------|------------|
 | 01. Subcontractor Rate Logic Modification        | v1.0      | 14/14 | ✅ Shipped (pending live UAT) | 2026-05-20 |
 | 01.1. Helper-Shadow Rescue (INSERTED)            | v1.0      | 6/6 | Complete    | 2026-05-20 |
-| 02. Attribution Bulk-Prefetch + Remediation      | v1.0 hotfix | 5/6 | In Progress|  |
+| 02. Attribution Bulk-Prefetch + Remediation      | v1.0 hotfix | 6/6 | Complete   | 2026-05-26 |
 | —. Railway → Render Pre-Migration ADR            | v1.1      | 0/TBD | 📋 Planned (deferred, renumber on v1.1) | - |
 | —. Migration execution + Artifact Explorer       | v1.1      | 0/TBD | 📋 Planned (deferred)         | -          |
 
@@ -88,4 +88,4 @@ Plans:
 
 **Gap closure** *(from 02-REVIEW.md: 1 BLOCKER + 5 WARNING + 4 INFO)*
 - [x] 02-05-PLAN.md — CR-01 graceful degradation (`rpc_missing` + default-ON `ATTRIBUTION_BULK_PREFETCH_FALLBACK`) + WR-01 sanitization key + WR-03 comment + WR-05 sub-helper observability + IN-01 dead imports (Wave 1, gap-closure)
-- [ ] 02-06-PLAN.md — WR-02 advanced_options activation path + WR-04 `_Unknown_Foreman` protection + IN-02 counter + IN-03 runbook quote + IN-04 datetime + Living Ledger entry (Wave 2, gap-closure; depends_on 02-05)
+- [x] 02-06-PLAN.md — WR-02 advanced_options activation path + WR-04 `_Unknown_Foreman` protection + IN-02 counter + IN-03 runbook quote + IN-04 datetime + Living Ledger entry (Wave 2, gap-closure; depends_on 02-05)
