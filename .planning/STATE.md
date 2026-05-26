@@ -68,9 +68,29 @@ shared `_build_subcontractor_wr_scope` prevents cleanup/prune scope drift;
 `SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED` kill switch (default ON)
 for destructive TARGET variant cleanup.
 
+### Roadmap Evolution
+
+- Phase 2 added (2026-05-26): **Attribution Bulk-Prefetch + Historical Claimer
+  Remediation** (v1.0 hotfix line). Fixes the claim-attribution week-scope /
+  Sub-project E interaction: the `ATTRIBUTION_RESOLUTION_WEEKS=8` scope gated
+  group-KEY formation, so E-authoritative `no_row` regeneration of historical
+  groups produced `_User__NO_MATCH` / `_User_Unknown_Foreman` files (real frozen
+  names exist in `attribution_snapshot`, ~99% populated, but went unread for
+  out-of-scope weeks). SPEC.md written (6 requirements, ambiguity 0.18).
+  Immediate mitigation: `SUPABASE_HASH_STORE_AUTHORITATIVE` reverted to `0`
+  (commit `46cd05d`, pending push to master). The "Phase 2: Railway → Render"
+  deferred v1.1 bullet was demoted (will be renumbered when v1.1 is formalized)
+  to resolve the number collision.
+
 ### Blockers/Concerns
 
 [Open items affecting future work — resolved v1.0 blockers cleared at close]
+
+- **Pending push:** mitigation commit `46cd05d` (revert
+  `SUPABASE_HASH_STORE_AUTHORITATIVE=0`) is committed locally but not yet on
+  `origin/master` — the production corruption fix is not live until it is
+  pushed. Direct push to master was blocked by the auto-mode guardrail; awaiting
+  user push / PR / authorization.
 
 - `.planning/INGEST-CONFLICTS.md` INFO #8: pre-migration ADR for
   Railway → Render still missing under `memory-bank/adr/`. Now tracked as
