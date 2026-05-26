@@ -188,10 +188,16 @@ class TestDryRunNeverDeletes(_BaseRemediationTest):
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestExecuteDeletesOnlyGarbage(_BaseRemediationTest):
-    """D-07: dry_run=False deletes only *_NO_MATCH* / *_Unknown_Foreman* files."""
+    """D-07: dry_run=False deletes only *_NO_MATCH* / *_Unknown_Foreman* files.
+
+    Post-WR-04: uses valid_wr_weeks=set() (non-isolated path) so both garbage
+    tokens remain eligible (the live-identity exemption is active but no file
+    is exempt).  The isolated path (valid_wr_weeks=None) is tested separately
+    in TestIsolatedPathUnknownForemanProtection.
+    """
 
     def test_execute_deletes_only_garbage(self):
-        """Execute mode: delete exactly the 3 garbage IDs; real-claimer untouched."""
+        """Execute mode (non-isolated): delete exactly the 3 garbage IDs; real-claimer untouched."""
         run_claimer_remediation = self._import_function()
 
         week = _week_mmddyy(3)
@@ -221,8 +227,10 @@ class TestExecuteDeletesOnlyGarbage(_BaseRemediationTest):
         row_resp.attachments = attachments
         self.client.Attachments.list_row_attachments.return_value = row_resp
 
+        # Post-WR-04: pass valid_wr_weeks=set() (non-isolated) so both garbage
+        # tokens are eligible — the isolated path restricts to _NO_MATCH only.
         run_claimer_remediation(
-            self.client, dry_run=False, window_weeks=26, valid_wr_weeks=None
+            self.client, dry_run=False, window_weeks=26, valid_wr_weeks=set()
         )
 
         # Collect all (sheet_id, att_id) pairs passed to delete
@@ -417,7 +425,12 @@ class TestWindowFilter(_BaseRemediationTest):
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestBothSheetsSwepped(_BaseRemediationTest):
-    """D-07: remediation sweeps both TARGET_SHEET_ID and SUBCONTRACTOR_PPP_SHEET_ID."""
+    """D-07: remediation sweeps both TARGET_SHEET_ID and SUBCONTRACTOR_PPP_SHEET_ID.
+
+    Post-WR-04: uses _NO_MATCH for both sheets (always-garbage token) so the
+    isolated path (valid_wr_weeks=None) deletes both.  _Unknown_Foreman is
+    tested in TestIsolatedPathUnknownForemanProtection.
+    """
 
     def test_ppp_and_target_both_swept(self):
         """Attachments on both TARGET and PPP are considered for deletion."""
@@ -425,9 +438,10 @@ class TestBothSheetsSwepped(_BaseRemediationTest):
 
         week = _week_mmddyy(2)
 
-        # One garbage attachment on TARGET, one on PPP
+        # One garbage attachment on TARGET, one on PPP — both _NO_MATCH
+        # so the isolated path (valid_wr_weeks=None) deletes both (WR-04).
         target_garbage = _clean_filename("90001", week, "User__NO_MATCH")
-        ppp_garbage = _clean_filename("90002", week, "ReducedSub_User_Unknown_Foreman")
+        ppp_garbage = _clean_filename("90002", week, "ReducedSub_User__NO_MATCH")
 
         target_att = _make_attachment(target_garbage, 901)
         ppp_att = _make_attachment(ppp_garbage, 902)
@@ -553,6 +567,245 @@ class TestPppDisabledOnlyTargetSwept(unittest.TestCase):
 
         # Only one get_sheet call — TARGET only (PPP disabled)
         self.assertEqual(client.Sheets.get_sheet.call_count, 1)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Test class 9: WR-04 — isolated path protects _Unknown_Foreman
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestIsolatedPathUnknownForemanProtection(_BaseRemediationTest):
+    """WR-04: in EXECUTE mode with valid_wr_weeks=None (isolated path),
+    _Unknown_Foreman attachments MUST NOT be deleted — only _NO_MATCH files
+    are swept.  _Unknown_Foreman is a legitimate current sentinel (emitted
+    when effective_user is blank) and there is no live-identity exemption
+    to protect it in the isolated path.
+
+    When valid_wr_weeks IS provided (non-isolated path) both tokens remain
+    eligible, subject to the live-identity exemption (existing behaviour
+    unchanged — see TestLiveIdentityExemption / TestExecuteDeletesOnlyGarbage).
+    """
+
+    def test_isolated_path_deletes_no_match(self):
+        """EXECUTE + valid_wr_weeks=None: a _NO_MATCH attachment IS deleted."""
+        run_claimer_remediation = self._import_function()
+
+        week = _week_mmddyy(2)
+        no_match_name = _clean_filename("90001", week, "User__NO_MATCH")
+        attachments = [_make_attachment(no_match_name, 2001)]
+
+        row = mock.MagicMock()
+        row.id = 10
+        sheet = mock.MagicMock()
+        sheet.rows = [row]
+        self.client.Sheets.get_sheet.return_value = sheet
+
+        row_resp = mock.MagicMock()
+        row_resp.attachments = attachments
+        self.client.Attachments.list_row_attachments.return_value = row_resp
+
+        run_claimer_remediation(
+            self.client, dry_run=False, window_weeks=26, valid_wr_weeks=None
+        )
+
+        delete_calls = self.client.Attachments.delete_attachment.call_args_list
+        deleted_ids = {call[0][1] for call in delete_calls if call[0] and len(call[0]) >= 2}
+        self.assertIn(2001, deleted_ids, "_NO_MATCH must be deleted in isolated path")
+
+    def test_isolated_path_preserves_unknown_foreman(self):
+        """EXECUTE + valid_wr_weeks=None: a _Unknown_Foreman attachment is NOT deleted.
+
+        _Unknown_Foreman is a legitimate current sentinel emitted when
+        effective_user/Foreman Assigned? is blank — it is a real billing
+        artifact. With no live-identity set to protect it, the isolated path
+        restricts deletion to the always-garbage _NO_MATCH token only (WR-04).
+        """
+        run_claimer_remediation = self._import_function()
+
+        week = _week_mmddyy(2)
+        unknown_name = _clean_filename("90001", week, "User_Unknown_Foreman")
+        no_match_name = _clean_filename("90002", week, "User__NO_MATCH")
+
+        attachments = [
+            _make_attachment(unknown_name, 2101),
+            _make_attachment(no_match_name, 2102),
+        ]
+
+        row = mock.MagicMock()
+        row.id = 11
+        sheet = mock.MagicMock()
+        sheet.rows = [row]
+        self.client.Sheets.get_sheet.return_value = sheet
+
+        row_resp = mock.MagicMock()
+        row_resp.attachments = attachments
+        self.client.Attachments.list_row_attachments.return_value = row_resp
+
+        run_claimer_remediation(
+            self.client, dry_run=False, window_weeks=26, valid_wr_weeks=None
+        )
+
+        delete_calls = self.client.Attachments.delete_attachment.call_args_list
+        deleted_ids = {call[0][1] for call in delete_calls if call[0] and len(call[0]) >= 2}
+
+        self.assertNotIn(
+            2101, deleted_ids,
+            "_Unknown_Foreman must NOT be deleted in isolated EXECUTE path (WR-04)"
+        )
+        self.assertIn(
+            2102, deleted_ids,
+            "_NO_MATCH must still be deleted in isolated EXECUTE path"
+        )
+
+    def test_non_isolated_path_both_tokens_eligible(self):
+        """Non-isolated path (valid_wr_weeks provided): both tokens remain eligible
+        (subject to live-identity exemption, which is active in this path).
+        Existing TestExecuteDeletesOnlyGarbage / TestLiveIdentityExemption
+        behaviour is preserved — this test is the guard.
+        """
+        run_claimer_remediation = self._import_function()
+
+        week = _week_mmddyy(3)
+        unknown_name = _clean_filename("90001", week, "User_Unknown_Foreman")
+        no_match_name = _clean_filename("90002", week, "User__NO_MATCH")
+
+        attachments = [
+            _make_attachment(unknown_name, 2201),
+            _make_attachment(no_match_name, 2202),
+        ]
+
+        row = mock.MagicMock()
+        row.id = 12
+        sheet = mock.MagicMock()
+        sheet.rows = [row]
+        self.client.Sheets.get_sheet.return_value = sheet
+
+        row_resp = mock.MagicMock()
+        row_resp.attachments = attachments
+        self.client.Attachments.list_row_attachments.return_value = row_resp
+
+        # Provide an empty set so the exemption logic is active but no file is exempt
+        run_claimer_remediation(
+            self.client, dry_run=False, window_weeks=26, valid_wr_weeks=set()
+        )
+
+        delete_calls = self.client.Attachments.delete_attachment.call_args_list
+        deleted_ids = {call[0][1] for call in delete_calls if call[0] and len(call[0]) >= 2}
+
+        self.assertIn(
+            2201, deleted_ids,
+            "_Unknown_Foreman IS eligible when valid_wr_weeks is provided (non-isolated)"
+        )
+        self.assertIn(
+            2202, deleted_ids,
+            "_NO_MATCH IS eligible in non-isolated path"
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Test class 10: IN-02 — out_of_window counts only garbage files
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestOutOfWindowCountsOnlyGarbage(_BaseRemediationTest):
+    """IN-02: the out_of_window counter must NOT be inflated by clean (non-garbage)
+    out-of-window attachments.  With IN-02 reorder, the garbage check runs BEFORE
+    the window filter, so only garbage files that are too old increment the counter.
+    """
+
+    def test_out_of_window_does_not_count_clean_files(self):
+        """A clean (non-garbage) out-of-window attachment must NOT inflate out_of_window.
+
+        Drives run_claimer_remediation and inspects the summary log line to
+        verify out_of_window stays 0 when the only out-of-window file is a
+        clean real-claimer name.
+        """
+        run_claimer_remediation = self._import_function()
+
+        # Out-of-window (40 weeks ago) CLEAN attachment
+        old_week = _week_mmddyy(40)
+        clean_old = _clean_filename("90001", old_week, "User_Jane_Smith")
+
+        # In-window garbage attachment (to confirm the function runs normally)
+        recent_week = _week_mmddyy(2)
+        recent_garbage = _clean_filename("90002", recent_week, "User__NO_MATCH")
+
+        attachments = [
+            _make_attachment(clean_old, 3001),
+            _make_attachment(recent_garbage, 3002),
+        ]
+
+        row = mock.MagicMock()
+        row.id = 20
+        sheet = mock.MagicMock()
+        sheet.rows = [row]
+        self.client.Sheets.get_sheet.return_value = sheet
+
+        row_resp = mock.MagicMock()
+        row_resp.attachments = attachments
+        self.client.Attachments.list_row_attachments.return_value = row_resp
+
+        import logging
+        with self.assertLogs('root', level='INFO') as log_ctx:
+            run_claimer_remediation(
+                self.client, dry_run=False, window_weeks=26, valid_wr_weeks=None
+            )
+
+        # Find the summary line
+        summary_lines = [l for l in log_ctx.output if 'run_claimer_remediation' in l and 'complete' in l]
+        self.assertEqual(len(summary_lines), 1, "Expected exactly one summary log line")
+        summary = summary_lines[0]
+
+        # out_of_window must be 0 (the old file is clean — it was skipped at the
+        # garbage-pattern gate before ever reaching the window-filter counter)
+        self.assertIn(
+            'out_of_window=0', summary,
+            f"out_of_window should be 0 (clean file skipped before window filter); got: {summary}"
+        )
+
+        # recent garbage was deleted
+        delete_calls = self.client.Attachments.delete_attachment.call_args_list
+        deleted_ids = {call[0][1] for call in delete_calls if call[0] and len(call[0]) >= 2}
+        self.assertIn(3002, deleted_ids, "recent garbage must be deleted")
+        self.assertNotIn(3001, deleted_ids, "clean old file must NOT be deleted")
+
+    def test_out_of_window_counts_garbage_older_than_window(self):
+        """An out-of-window GARBAGE attachment increments out_of_window (it IS garbage,
+        just too old to sweep).  This is the meaningful counter value.
+        PPP is disabled (=0) so only TARGET is swept — exactly 1 attachment."""
+        run_claimer_remediation = self._import_function()
+
+        old_week = _week_mmddyy(40)
+        old_garbage = _clean_filename("90001", old_week, "User__NO_MATCH")
+
+        attachments = [_make_attachment(old_garbage, 3101)]
+
+        row = mock.MagicMock()
+        row.id = 21
+        sheet = mock.MagicMock()
+        sheet.rows = [row]
+        self.client.Sheets.get_sheet.return_value = sheet
+
+        row_resp = mock.MagicMock()
+        row_resp.attachments = attachments
+        self.client.Attachments.list_row_attachments.return_value = row_resp
+
+        import logging
+        # Disable PPP so only TARGET is swept → out_of_window=1, not 2.
+        with mock.patch('generate_weekly_pdfs.SUBCONTRACTOR_PPP_SHEET_ID', 0), \
+             self.assertLogs('root', level='INFO') as log_ctx:
+            run_claimer_remediation(
+                self.client, dry_run=False, window_weeks=26, valid_wr_weeks=None
+            )
+
+        summary_lines = [l for l in log_ctx.output if 'run_claimer_remediation' in l and 'complete' in l]
+        self.assertEqual(len(summary_lines), 1)
+        summary = summary_lines[0]
+
+        self.assertIn(
+            'out_of_window=1', summary,
+            f"out_of_window should be 1 for an old garbage file; got: {summary}"
+        )
+        # Must NOT be deleted (out of window)
+        self.client.Attachments.delete_attachment.assert_not_called()
 
 
 if __name__ == '__main__':

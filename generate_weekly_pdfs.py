@@ -4023,6 +4023,14 @@ def _run_subproject_d_hash_prune(hash_history: dict, groups: dict) -> bool:
 # They are not realistic human foreman names, so a simple substring match is
 # safe (WARNING 6 accepted tradeoff, per the plan's threat-model).
 _GARBAGE_PATTERNS: tuple[str, ...] = ('_NO_MATCH', '_Unknown_Foreman')
+# WR-04: in the isolated EXECUTE path (valid_wr_weeks=None), only tokens that
+# are NEVER a legitimate filename component are swept.  _NO_MATCH is a pure
+# Smartsheet ``#NO MATCH`` error token that should never appear in a real file.
+# _Unknown_Foreman IS a legitimate current sentinel (emitted when
+# ``effective_user`` is blank) and is preserved in the isolated path because
+# there is no live-identity set to protect it — an EXECUTE sweep with
+# valid_wr_weeks=None would otherwise delete a valid billing artifact.
+_ALWAYS_GARBAGE_PATTERNS: tuple[str, ...] = ('_NO_MATCH',)
 
 
 def run_claimer_remediation(
@@ -4054,17 +4062,24 @@ def run_claimer_remediation(
         EXEMPTED from deletion (live-identity exemption per
         [2026-05-19 23:45]).  Pass ``None`` for the isolated-mode path
         where no live-identity set is available — deletion is then gated
-        solely on the name-pattern and window filter (WARNING 6 accepted
-        tradeoff).
+        solely on the name-pattern and window filter (WR-04: only the
+        always-garbage ``_NO_MATCH`` token is swept; ``_Unknown_Foreman``
+        is preserved because it is a legitimate current sentinel and there
+        is no live-identity set to protect it in the isolated path).
     """
-    import datetime as _dt
-
-    _today = _dt.date.today()
+    # IN-04: use the module-level datetime (not a shadowing local import).
+    _today = datetime.date.today()
     _cutoff = (
-        _today - _dt.timedelta(weeks=window_weeks)
+        _today - datetime.timedelta(weeks=window_weeks)
         if window_weeks > 0
         else None
     )
+
+    # WR-04: select the active garbage-pattern set based on whether the
+    # live-identity exemption is available.  When valid_wr_weeks is None
+    # (isolated path), restrict to _ALWAYS_GARBAGE_PATTERNS so a current
+    # _Unknown_Foreman billing artifact is never deleted.
+    _patterns = _GARBAGE_PATTERNS if valid_wr_weeks is not None else _ALWAYS_GARBAGE_PATTERNS
 
     # Determine which sheets to sweep.
     _sheet_ids: list[int] = [TARGET_SHEET_ID]
@@ -4115,11 +4130,21 @@ def run_claimer_remediation(
 
                 _wr, _week_mmddyy, _variant, _identifier = _identity
 
-                # ── Step 2: window filter ──
+                # ── Step 2: garbage-pattern check (IN-02: runs BEFORE window) ──
+                # Check the active pattern set (WR-04: _ALWAYS_GARBAGE_PATTERNS in
+                # the isolated path, _GARBAGE_PATTERNS when the live-identity
+                # exemption is available).  Clean real-claimer files never reach
+                # the window filter, so out_of_window counts only GARBAGE files
+                # that are too old — unambiguous blast-radius metric.
+                _is_garbage = any(pat in _name for pat in _patterns)
+                if not _is_garbage:
+                    continue  # clean real-claimer name → skip
+
+                # ── Step 3: window filter (runs only for garbage files) ──
                 # Convert the MMDDYY week token to a date for comparison.
                 if _cutoff is not None:
                     try:
-                        _week_date = _dt.datetime.strptime(
+                        _week_date = datetime.datetime.strptime(
                             _week_mmddyy, '%m%d%y'
                         ).date()
                         if _week_date < _cutoff:
@@ -4128,11 +4153,6 @@ def run_claimer_remediation(
                     except (ValueError, TypeError):
                         # Unparseable week token → conservatively skip
                         continue
-
-                # ── Step 3: garbage-pattern check ──
-                _is_garbage = any(pat in _name for pat in _GARBAGE_PATTERNS)
-                if not _is_garbage:
-                    continue  # clean real-claimer name → skip
 
                 _total_garbage += 1
 
