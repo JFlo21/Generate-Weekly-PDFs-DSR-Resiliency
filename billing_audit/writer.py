@@ -844,7 +844,14 @@ def prefetch_attribution(
 
     Phase 2 (2026-05-26). Returns a ``((wr, week_ending, smartsheet_row_id)
     -> roles-dict, status)`` tuple.
-    status in {'success', 'no_row', 'fetch_failure', 'unavailable'}.
+    status in {'success', 'no_row', 'fetch_failure', 'rpc_missing',
+    'unavailable'}.
+
+    rpc_missing = the lookup_attribution_bulk RPC is not deployed (PGRST202);
+    the caller may degrade to the per-row lookup_attribution path
+    (correctness-preserving — the deployed per-row RPC returns the SAME frozen
+    data, just slower). fetch_failure = a transient outage; the caller
+    preserves the D-04 HOLD contract for B/C.
 
     Fail-safe: NEVER raises; a Supabase failure returns ({}, 'fetch_failure')
     so resolve_claimer applies each variant's documented fallback.
@@ -898,7 +905,30 @@ def prefetch_attribution(
         try:
             result = with_retry(_invoke, op="lookup_attribution_bulk")
             if result is None:
-                return {}, "fetch_failure"
+                # with_retry swallows the APIError and returns only None,
+                # discarding the reason_code. CR-01 (Plan 05): distinguish a
+                # MISSING RPC (PGRST202 "function not found" — permanent, the
+                # caller can degrade to the deployed per-row path) from a
+                # transient outage (the caller preserves the D-04 HOLD).
+                # Bounded probe: ONE extra call only on the already-failed
+                # path, so it cannot reintroduce the per-row storm. Fail-safe
+                # default: anything not provably PGRST202 -> fetch_failure.
+                try:
+                    from postgrest import APIError as _APIError
+                except Exception:  # postgrest absent / import shape changed
+                    _APIError = ()
+                try:
+                    _invoke()
+                    # Re-invoke succeeded where with_retry didn't — treat the
+                    # original failure as transient (do NOT claim rpc_missing).
+                    return {}, "fetch_failure"
+                except Exception as _probe_exc:
+                    if isinstance(_probe_exc, _APIError) and (
+                        _client_mod._classify_postgrest_error(_probe_exc)[2]
+                        == "PGRST202"
+                    ):
+                        return {}, "rpc_missing"
+                    return {}, "fetch_failure"
             data = getattr(result, "data", None) or []
             if isinstance(data, dict):
                 data = [data] if data else []

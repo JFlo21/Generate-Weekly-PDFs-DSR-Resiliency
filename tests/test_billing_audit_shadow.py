@@ -5213,6 +5213,88 @@ class PrefetchAttributionTests(unittest.TestCase):
         self.assertEqual(out.name, "FrozenAlice")
         self.assertEqual(out.reason, "success")
 
+    # ── Phase 2 Plan 05 (CR-01): rpc_missing vs fetch_failure ──
+
+    def _make_apierror(self, code):
+        """Build a postgrest APIError-like object carrying ``.code``.
+
+        Falls back to a duck-typed stand-in when ``postgrest`` is not
+        installed (mirrors the dev-environment guard used elsewhere).
+        """
+        try:
+            from postgrest import APIError
+            return APIError({"code": code, "message": "x", "details": "",
+                             "hint": ""})
+        except Exception:  # pragma: no cover - dev env without postgrest
+            err = RuntimeError("apierror-stub")
+            err.code = code
+            return err
+
+    def test_pgrst202_returns_rpc_missing(self):
+        """A chunk RPC raising APIError(code='PGRST202') -> ({}, 'rpc_missing')."""
+        import billing_audit.writer as w
+        try:
+            from postgrest import APIError  # noqa: F401
+        except Exception:
+            self.skipTest("postgrest not installed")
+        fake = mock.MagicMock()
+        exc = self._make_apierror("PGRST202")
+        # with_retry bails on a permanent error and returns None; the probe
+        # then re-invokes once and observes the raw APIError.
+        with mock.patch.object(w, "get_client", return_value=fake), \
+             mock.patch.object(w, "with_retry", return_value=None), \
+             mock.patch.object(fake.schema.return_value.rpc.return_value,
+                               "execute", side_effect=exc):
+            m, status = w.prefetch_attribution(
+                {("90001", datetime.date(2026, 4, 19))})
+        self.assertEqual(status, "rpc_missing")
+        self.assertEqual(m, {})
+
+    def test_transient_failure_returns_fetch_failure(self):
+        """A chunk RPC raising a non-PGRST202 APIError -> ({}, 'fetch_failure')."""
+        import billing_audit.writer as w
+        try:
+            from postgrest import APIError  # noqa: F401
+        except Exception:
+            self.skipTest("postgrest not installed")
+        fake = mock.MagicMock()
+        exc = self._make_apierror("503")  # HTTP 5xx classifies transient
+        with mock.patch.object(w, "get_client", return_value=fake), \
+             mock.patch.object(w, "with_retry", return_value=None), \
+             mock.patch.object(fake.schema.return_value.rpc.return_value,
+                               "execute", side_effect=exc):
+            m, status = w.prefetch_attribution(
+                {("90001", datetime.date(2026, 4, 19))})
+        self.assertEqual(status, "fetch_failure")
+        self.assertEqual(m, {})
+
+    def test_rpc_missing_distinct_from_fetch_failure(self):
+        """rpc_missing and fetch_failure are distinct strings (CR-01 gate)."""
+        import billing_audit.writer as w
+        try:
+            from postgrest import APIError  # noqa: F401
+        except Exception:
+            self.skipTest("postgrest not installed")
+        fake = mock.MagicMock()
+        # PGRST202 -> rpc_missing
+        exc_missing = self._make_apierror("PGRST202")
+        with mock.patch.object(w, "get_client", return_value=fake), \
+             mock.patch.object(w, "with_retry", return_value=None), \
+             mock.patch.object(fake.schema.return_value.rpc.return_value,
+                               "execute", side_effect=exc_missing):
+            _, status_missing = w.prefetch_attribution(
+                {("90001", datetime.date(2026, 4, 19))})
+        # No code on the probe exception -> fail-safe fetch_failure
+        with mock.patch.object(w, "get_client", return_value=fake), \
+             mock.patch.object(w, "with_retry", return_value=None), \
+             mock.patch.object(fake.schema.return_value.rpc.return_value,
+                               "execute", side_effect=RuntimeError("boom")):
+            _, status_other = w.prefetch_attribution(
+                {("90001", datetime.date(2026, 4, 19))})
+        self.assertEqual(status_missing, "rpc_missing")
+        self.assertEqual(status_other, "fetch_failure")
+        self.assertNotEqual(status_missing, status_other)
+
 
 class ResolveClaimerMapAwareTests(unittest.TestCase):
     """Phase 2: map-aware resolve_claimer (prefetched_map param — D-03, D-04)."""
