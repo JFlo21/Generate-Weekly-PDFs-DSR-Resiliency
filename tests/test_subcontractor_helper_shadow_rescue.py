@@ -833,6 +833,9 @@ class TestHashPruneIdempotency(unittest.TestCase):
             groups[key] = [{
                 'Work Request #': wr,
                 '__source_sheet_id': 8162920222379908,
+                # Production rows always carry __variant (set at emission);
+                # the scope builder now gates on it.
+                '__variant': 'reduced_sub',
             }]
         return groups
 
@@ -1180,6 +1183,66 @@ class TestProductionCodeSiteInvariants(unittest.TestCase):
             'Phase 1.1 hash-history prune',
             generate_weekly_pdfs._PII_LOG_MARKERS,
         )
+
+
+class TestSubcontractorWrScopeVariantGate(unittest.TestCase):
+    """``_build_subcontractor_wr_scope`` gates on the authoritative
+    ``__variant`` field (subcontractor variant set), not a ``'_REDUCEDSUB'``
+    key substring — mirror of the Subproject D ``_build_primary_wr_scope``
+    Codex-P1 consistency fix. A non-sub group whose claimer/helper NAME is an
+    all-caps reserved token (``REDUCEDSUB`` / ``AEPBILLABLE``) must NOT enter
+    the destructive subcontractor cleanup scope. Production rows always carry
+    ``__variant`` (set at the ``group_source_rows`` emission site)."""
+
+    def test_collects_all_subcontractor_variants(self):
+        groups = {
+            '041926_111_REDUCEDSUB': [
+                {'Work Request #': '111', '__variant': 'reduced_sub'}],
+            '041926_222_AEPBILLABLE': [
+                {'Work Request #': '222', '__variant': 'aep_billable'}],
+            '041926_333_REDUCEDSUB_HELPER_H': [
+                {'Work Request #': '333', '__variant': 'reduced_sub_helper'}],
+            '041926_444_AEPBILLABLE_HELPER_H': [
+                {'Work Request #': '444', '__variant': 'aep_billable_helper'}],
+            '041926_555_REDUCEDSUB_USER_C': [
+                {'Work Request #': '555', '__variant': 'reduced_sub'}],
+        }
+        scope = generate_weekly_pdfs._build_subcontractor_wr_scope(groups)
+        self.assertEqual(scope, {'111', '222', '333', '444', '555'})
+
+    def test_excludes_non_subcontractor_variants(self):
+        groups = {
+            '041926_666_USER_Claimer': [
+                {'Work Request #': '666', '__variant': 'primary'}],
+            '041926_777_VACCREW_Vic': [
+                {'Work Request #': '777', '__variant': 'vac_crew'}],
+            '041926_888_HELPER_Help': [
+                {'Work Request #': '888', '__variant': 'helper'}],
+        }
+        scope = generate_weekly_pdfs._build_subcontractor_wr_scope(groups)
+        self.assertEqual(scope, set())
+
+    def test_rejects_pathological_reducedsub_name(self):
+        # Primary claimer literally named "REDUCEDSUB" → key contains the
+        # _REDUCEDSUB substring, but __variant is 'primary'. The variant gate
+        # must exclude it; the genuine sub group must still be collected.
+        groups = {
+            '041926_999_USER_REDUCEDSUB': [
+                {'Work Request #': '999', '__variant': 'primary'}],
+            '041926_123_REDUCEDSUB': [
+                {'Work Request #': '123', '__variant': 'reduced_sub'}],
+        }
+        scope = generate_weekly_pdfs._build_subcontractor_wr_scope(groups)
+        self.assertIn('123', scope)
+        self.assertNotIn(
+            '999', scope,
+            "a non-sub group whose claimer name contains 'REDUCEDSUB' must "
+            "NOT enter the subcontractor cleanup scope (variant gate)",
+        )
+
+    def test_empty_groups(self):
+        self.assertEqual(
+            generate_weekly_pdfs._build_subcontractor_wr_scope({}), set())
 
 
 if __name__ == '__main__':

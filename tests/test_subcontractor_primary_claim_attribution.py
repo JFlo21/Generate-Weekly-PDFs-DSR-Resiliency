@@ -574,7 +574,13 @@ class TestSubprojectBHashPrune(unittest.TestCase):
         groups = {}
         for wr in wrs:
             key = f"041926_{wr}_REDUCEDSUB_USER_John"
-            groups[key] = [{'Work Request #': wr, '__source_sheet_id': 8162920222379908}]
+            # Production rows always carry __variant (set at emission); the
+            # subcontractor scope builder now gates on it.
+            groups[key] = [{
+                'Work Request #': wr,
+                '__source_sheet_id': 8162920222379908,
+                '__variant': 'reduced_sub',
+            }]
         return groups
 
     def test_first_run_drops_legacy_primary_variant_orphans(self):

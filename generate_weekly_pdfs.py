@@ -3355,13 +3355,28 @@ def save_hash_history(path: str, history: dict):
         logging.warning(f"⚠️ Failed to save hash history: {e}")
 
 
+_SUBCONTRACTOR_SCOPE_VARIANTS = frozenset({
+    'reduced_sub', 'aep_billable',
+    'reduced_sub_helper', 'aep_billable_helper',
+})
+
+
 def _build_subcontractor_wr_scope(groups: dict) -> set[str]:
     """Return the set of sanitized WR tokens active as subcontractor in this run.
 
-    Scans ``groups.keys()`` for keys containing ``'_REDUCEDSUB'`` (the
-    simplified D-18 detection per RESEARCH.md §HP planner-discretion
-    recommendation), extracts each group's WR# from the first row of the
-    group, and returns the sanitized set.
+    Gates on each group's authoritative ``__variant`` field (set at the
+    ``group_source_rows`` emission site) — NOT a ``'_REDUCEDSUB'`` key
+    substring scan. The variant gate is what distinguishes a subcontractor
+    group, so a primary claimer, helper, or vac-crew name (or a pathological
+    WR token) that itself contains an all-caps reserved word like
+    ``REDUCEDSUB`` / ``AEPBILLABLE`` cannot false-positive into this
+    destructive cleanup scope. This mirrors the ``_build_primary_wr_scope``
+    consistency fix (Codex PR #223 P1) — variant detection MUST use the
+    ``__variant`` field, never a key substring. The prior substring scan also
+    silently missed ``_AEPBILLABLE``-only keys (the ``'_REDUCEDSUB'``
+    substring is absent there); it happened to produce the correct WR set
+    only because every sub WR always emits a ``reduced_sub`` group, so the
+    variant gate is both more robust and strictly more complete.
 
     Shared by ``_run_phase_1_1_hash_prune`` (hash-prune scope) and the
     TARGET ``cleanup_untracked_sheet_attachments`` call site (SUB-09
@@ -3370,8 +3385,10 @@ def _build_subcontractor_wr_scope(groups: dict) -> set[str]:
     warns against.
     """
     _scope: set[str] = set()
-    for _key, _g_rows in groups.items():
-        if '_REDUCEDSUB' in _key and _g_rows:
+    for _g_rows in groups.values():
+        if not _g_rows:
+            continue
+        if _g_rows[0].get('__variant') in _SUBCONTRACTOR_SCOPE_VARIANTS:
             _g_wr_raw = _g_rows[0].get('Work Request #', '')
             _g_wr = str(_g_wr_raw).split('.')[0]
             _g_wr = _RE_SANITIZE_HELPER_NAME.sub('_', _g_wr)[:50]
@@ -3383,17 +3400,24 @@ def _build_subcontractor_wr_scope(groups: dict) -> set[str]:
 def _build_vac_crew_wr_scope(groups: dict) -> set[str]:
     """Return the set of sanitized WR tokens active as vac_crew in this run.
 
-    Scans ``groups.keys()`` for keys containing ``'_VACCREW'``, extracts
-    each group's WR# from the first row of the group, and returns the
-    sanitized set.
+    Gates on each group's authoritative ``__variant`` field (``== 'vac_crew'``,
+    set at the ``group_source_rows`` emission site) — NOT a ``'_VACCREW'`` key
+    substring scan. The variant gate prevents a non-vac group whose
+    claimer/helper name is the all-caps reserved token ``VACCREW`` (key
+    ``..._HELPER_VACCREW``) from false-positiving into this destructive
+    cleanup scope. Mirrors the ``_build_primary_wr_scope`` /
+    ``_build_subcontractor_wr_scope`` consistency fix (Codex PR #223 P1):
+    variant detection MUST use the ``__variant`` field, never a key substring.
 
     Shared by the TARGET ``cleanup_untracked_sheet_attachments`` call site
     (Task 6 vac-crew legacy cleanup scope).  A single implementation prevents
     scope-build drift — mirrors ``_build_subcontractor_wr_scope``.
     """
     _scope: set[str] = set()
-    for _key, _g_rows in groups.items():
-        if '_VACCREW' in _key and _g_rows:
+    for _g_rows in groups.values():
+        if not _g_rows:
+            continue
+        if _g_rows[0].get('__variant') == 'vac_crew':
             _g_wr_raw = _g_rows[0].get('Work Request #', '')
             _g_wr = str(_g_wr_raw).split('.')[0]
             _g_wr = _RE_SANITIZE_HELPER_NAME.sub('_', _g_wr)[:50]

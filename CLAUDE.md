@@ -3199,3 +3199,58 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   (called exactly once for a primary+helper pair). ``pytest tests/``
   → **873 passed / 26 skipped / 69 subtests** (was 871; +2, zero
   regressions).
+- [2026-05-25 19:55] Scope-builder ``__variant`` consistency follow-up
+  (standalone PR off master, the deferred item from PR #223's
+  [2026-05-25 17:50] entry). Converted the two sibling scope builders
+  ``_build_subcontractor_wr_scope`` and ``_build_vac_crew_wr_scope`` from
+  key-substring detection (``'_REDUCEDSUB' in _key`` / ``'_VACCREW' in
+  _key``) to the authoritative ``__variant`` field gate, completing the
+  rule established by Subproject D's ``_build_primary_wr_scope`` fix
+  ([2026-05-25 17:50]): **variant detection MUST use the ``__variant``
+  field (or a positional ``build_group_identity`` parse), never a key
+  substring scan.** ``_build_subcontractor_wr_scope`` now gates on
+  ``__variant in {'reduced_sub','aep_billable','reduced_sub_helper',
+  'aep_billable_helper'}`` (new module frozenset
+  ``_SUBCONTRACTOR_SCOPE_VARIANTS``); ``_build_vac_crew_wr_scope`` gates
+  on ``__variant == 'vac_crew'``. **Why it matters:** both scopes feed
+  DESTRUCTIVE attachment-cleanup + hash-prune paths, and the substring
+  scan had two latent defects: (1) a non-sub/non-vac group whose
+  claimer/helper NAME is an all-caps reserved token (``REDUCEDSUB`` /
+  ``VACCREW`` — e.g. a helper named "VACCREW" → key ``..._HELPER_VACCREW``)
+  false-positived into the destructive scope (the ``valid_wr_weeks``
+  live-identity exemption is the only thing that prevented an actual
+  deletion); (2) ``_build_subcontractor_wr_scope``'s ``'_REDUCEDSUB'``
+  substring silently MISSED ``_AEPBILLABLE``-only keys — it produced the
+  correct WR set only by relying on the invariant that every sub WR also
+  emits a ``reduced_sub`` group. The ``__variant`` gate is both robust
+  (no pathological-name false positives) and strictly more complete
+  (catches every subcontractor variant directly). **Behavior-preserving
+  for production data:** realistic WR#s and foreman names produce the
+  identical WR scope set under either approach, so this is a robustness
+  hardening, not a behavior change. The realistic-data risk of the old
+  substring approach was nil (an all-caps reserved-word foreman name is
+  required to trigger, and the live-identity exemption blunts the
+  blast), which is why this was deferred from PR #223 to keep that PR
+  scoped — but the three sibling scope builders are now consistent, and
+  the rule has a regression net at all three. **Test-fixture
+  reconciliation** ([2026-05-20 00:26] rule 2): six hash-prune tests
+  across Subprojects A/B/C built synthetic ``groups`` dicts whose rows
+  omitted ``__variant`` (production always sets it at the
+  ``group_source_rows`` emission site); their fixtures
+  (``_make_groups_with_reducedsub``, the two ``_groups`` helpers, and
+  two inline group dicts) were updated to carry ``__variant`` — the same
+  fixture update D applied to ``TestBuildPrimaryWrScope`` /
+  ``TestSubprojectDHashPrune``. Regression tests:
+  ``tests/test_vac_crew_claim_attribution.py`` gains
+  ``test_scope_builder_rejects_pathological_vaccrew_name`` (a helper
+  named "VACCREW" must NOT enter the vac scope) and updates the three
+  existing vac-scope tests to the ``__variant`` contract;
+  ``tests/test_subcontractor_helper_shadow_rescue.py`` gains
+  ``TestSubcontractorWrScopeVariantGate`` (4 methods — collects all four
+  sub variants incl. ``_AEPBILLABLE``-only, excludes non-sub variants,
+  rejects a primary claimer named "REDUCEDSUB", empty-groups). ``pytest
+  tests/`` → **878 passed / 26 skipped / 69 subtests** (was 873 on
+  master; +5, zero regressions). NOTE for future variants: when adding
+  a new variant whose group key embeds a reserved token, the scope
+  builder (if any) MUST gate on ``__variant``, and synthetic prune/
+  cleanup test fixtures MUST set ``__variant`` on their rows.
