@@ -3254,3 +3254,132 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   a new variant whose group key embeds a reserved token, the scope
   builder (if any) MUST gate on ``__variant``, and synthetic prune/
   cleanup test fixtures MUST set ``__variant`` on their rows.
+- [2026-05-25 20:55] **Sub-project E (Supabase durable change-detection
+  hash store + filename token stripping) shipped — DORMANT.** The final
+  piece of the universal-claim-attribution + change-detection
+  modernization sequence (A → Phase 1.1 → B → C → D → E). E moves the
+  DURABLE per-group change-detection hash off the attachment FILENAME
+  (and off the ephemeral local ``hash_history.json``) into a new Supabase
+  table ``billing_audit.group_content_hash`` keyed on the SAME 4-tuple as
+  the engine's ``history_key`` (``wr | week_ending | variant |
+  identifier``), then — once authoritative — strips the ``_<timestamp>``
+  and ``_<hash>`` tokens from generated filenames so the canonical name
+  becomes ``WR_{wr}_WeekEnding_{MMDDYY}{variant_suffix}.xlsx`` (identity
+  only). Spec:
+  ``docs/superpowers/specs/2026-05-25-subproject-e-supabase-hash-store-design.md``;
+  plan:
+  ``docs/superpowers/plans/2026-05-25-subproject-e-supabase-hash-store.md``.
+  **Four operator-approved decisions (the contract):** (1) NEW per-group
+  table ``group_content_hash`` (NOT the existing ``pipeline_run.content_hash``,
+  which is only a per-(wr,week) aggregate and lacks the per-variant skip
+  granularity). (2) Supabase authoritative + ``hash_history.json`` as a
+  local fast cache / offline fallback; dual-write. A Supabase outage
+  degrades to "use json cache → regenerate", NEVER a silent skip. (3)
+  Strip BOTH the timestamp and the hash → deterministic canonical name.
+  (4) Ship DORMANT — shadow-write from day one, keep the authoritative
+  read + filename stripping behind a default-OFF kill switch, flip ON
+  after validation (mirrors Foundation A's dormant-ship).
+  **Two flags** (``generate_weekly_pdfs.py``, startup-banner-logged,
+  workflow-pinned): ``SUPABASE_HASH_STORE_WRITE_ENABLED`` (default ``'1'``
+  — shadow-write the per-group hash every run; harmless while not
+  authoritative) and ``SUPABASE_HASH_STORE_AUTHORITATIVE`` (default ``'0'``
+  — when ON, the skip gate reads Supabase, filenames go clean, and
+  ``delete_old_excel_attachments`` stops relying on the filename hash).
+  **Reader/writer** (``billing_audit/writer.py``, both fail-safe, sharing
+  the existing ``with_retry`` / per-op circuit breaker / run-global kill
+  switch via DISTINCT op identifiers so a hash-store outage cannot cascade
+  into disabling the attribution/pipeline_run writers): ``lookup_group_hash
+  (wr, week_ending, variant, identifier) -> (hash|None, status)`` with
+  status ∈ ``success`` / ``no_row`` / ``fetch_failure`` / ``unavailable``,
+  and ``upsert_group_hash(...)`` best-effort UPSERT on the 4-tuple PK
+  (``updated_at`` omitted from the payload — the column ``DEFAULT NOW()``
+  applies, avoiding any supabase-py literal-``now()`` rejection).
+  **Skip gate** extracted to a pure, unit-testable helper
+  ``_resolve_unchanged_for_skip(history_key, data_hash, hash_history,
+  wr_num, week_iso, variant, identifier)``: when authoritative it reads
+  ``lookup_group_hash`` (``success`` → compare; ``no_row`` → False /
+  regenerate — the safe migration default that makes the first
+  authoritative run rebuild everything once and populate the store;
+  ``fetch_failure`` / ``unavailable`` / ``disabled`` → fall back to the
+  ``hash_history.json`` cache). ``_history_eligible_for_skip``
+  (FORCE_GENERATION / REGEN_WEEKS / RESET_* gating) and the
+  ``ATTACHMENT_REQUIRED_FOR_SKIP`` guard are UNCHANGED — a matching hash
+  with a missing attachment still regenerates. Shadow-write is wired right
+  after the ``hash_history[history_key]`` json write, gated on
+  ``SUPABASE_HASH_STORE_WRITE_ENABLED and BILLING_AUDIT_AVAILABLE and not
+  TEST_MODE``, using a single ``week_iso`` (ISO ``YYYY-MM-DD`` from the
+  group's ``__week_ending_date``, normalized exactly like the existing
+  ``_week_snap`` the freeze/fingerprint calls use) so the reader and
+  writer agree on the DATE-typed key.
+  **KEY RISK — ``build_group_identity`` clean-name parsing (the one to
+  remember).** The parser's tail-extraction used to UNCONDITIONALLY strip
+  the last ``_``-split token as the 16-char hash and assume a leading
+  6-digit timestamp. A clean (token-less) name has NEITHER, so the
+  unconditional strip ate the last identifier segment (e.g.
+  ``_User_Jane_Smith`` → identifier ``'Jane'``). The fix discriminates
+  legacy vs clean by the **leading 6-digit ``HHMMSS`` timestamp at
+  ``tail[0]``**: a legacy variant name ALWAYS carries it (immediately
+  after the week) AND a trailing hash; a clean name NEVER does
+  (``tail[0]`` is always a variant marker — alphabetic — or ``tail`` is
+  empty). So strip BOTH decorations ONLY when the leading timestamp is
+  present, then the identifier is everything after the marker (the five
+  dispatch slices changed from ``[start:-1]`` to ``[start:]``). The first
+  attempt — strip a trailing token only if it is exactly 16-hex — was
+  REJECTED because the existing test corpus uses short placeholder hashes
+  (``abc123``, ``ab12cd34ef``) that the 16-hex rule would have left in the
+  identifier; the timestamp-discriminator preserves all legacy-name
+  parsing AND handles clean names. The leftmost-weak ``WeekEnding``
+  candidate selection + the D earliest-reserved-token dispatch are
+  unchanged, so a pathological clean identifier that sanitizes to
+  ``WeekEnding_<6digits>`` still round-trips. Legacy token-bearing names
+  and clean names COEXIST on Smartsheet during migration; the parser reads
+  either.
+  **Cleanup:** ``delete_old_excel_attachments`` gates its legacy
+  filename-hash short-circuit on ``not SUPABASE_HASH_STORE_AUTHORITATIVE``
+  (clean names return ``None`` from ``extract_data_hash_from_filename``
+  anyway) — forcing always wins, and the identity-based replacement loop
+  still runs so a fresh clean file supersedes any prior (token-named or
+  clean) attachment for the same identity. Return shape
+  ``(deleted_count, skipped_due_to_same_data)`` preserved.
+  **No bulk migration / self-healing cutover:** the first authoritative
+  run sees an empty store (``no_row`` everywhere) and regenerates each
+  group once, which the shadow-write then records; subsequent runs skip.
+  **OPERATOR PREREQUISITE (blocks activation — not code):** before
+  ``SUPABASE_HASH_STORE_AUTHORITATIVE`` can ever be flipped (and for
+  shadow writes to land at all), the operator MUST apply
+  ``billing_audit/schema.sql`` (the new ``group_content_hash`` table) to
+  the live Supabase project AND reload the PostgREST schema cache
+  (``NOTIFY pgrst, 'reload schema';``). Until then ``lookup_group_hash``
+  returns ``unavailable`` and the pipeline behaves exactly as today
+  (fail-safe). Default OFF = ZERO production behavior change.
+  **New rules:** (1) **The durable change-detection hash lives in
+  ``billing_audit.group_content_hash``; filenames are IDENTITY-ONLY (no
+  hash/timestamp) when authoritative; a Supabase outage degrades to
+  regenerate, never skip.** Any future change to the filename grammar or
+  the skip gate MUST preserve: clean filenames round-trip through
+  ``build_group_identity`` (both clean and legacy shapes), the json cache
+  remains the offline fallback, and ``no_row`` / a cache miss regenerates.
+  (2) **Filename-shape discrimination uses the leading 6-digit timestamp,
+  not the trailing token's hex-ness.** When a parser must read both a
+  legacy ``..._{HHMMSS}_<marker>_<id>_<hash>`` shape and a clean
+  ``..._<marker>_<id>`` shape, key the strip on the leading-timestamp
+  discriminator (a structural signal both formats agree on) rather than
+  on the trailing token's content — placeholder / edge-case hashes make a
+  content-based hash detector brittle (the rejected first attempt). (3)
+  **Any new Supabase reader/writer MUST use a DISTINCT ``with_retry`` op
+  identifier** (``lookup_group_hash`` / ``upsert_group_hash`` here) so its
+  circuit breaker is isolated and a hash-store outage cannot disable the
+  correctness-critical attribution / pipeline_run writers (extends the
+  [2026-04-25 14:00] op-isolation rule). Executed via TDD (Tasks 2–11,
+  each red→green→commit). Regression tests:
+  ``tests/test_subproject_e_hash_store.py`` (``TestConfigFlags``,
+  ``TestSchemaHasGroupContentHash``, ``TestBuildGroupIdentityCleanNames``,
+  ``TestCleanFilename``, ``TestShadowWrite``, ``TestAuthoritativeSkipGate``,
+  ``TestDeleteOldCleanNames``, ``TestMigrationCutover``,
+  ``TestWorkflowPinned``, ``TestProductionInvariants``) plus
+  ``LookupGroupHashTests`` + ``UpsertGroupHashTests`` in
+  ``tests/test_billing_audit_shadow.py``. ``pytest tests/`` →
+  **944 passed / 26 skipped / 69 subtests** (was 882 at the E-branch base;
+  +62 net, zero regressions). E ships dormant; after it is validated in
+  production, flip ``SUPABASE_HASH_STORE_AUTHORITATIVE=1`` (one-line
+  workflow change, revertable).

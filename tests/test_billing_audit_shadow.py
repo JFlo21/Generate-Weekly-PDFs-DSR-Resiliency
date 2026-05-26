@@ -4934,5 +4934,177 @@ class TestAttributionHoldSummary(unittest.TestCase):
         self.assertIn("(+5 more)", msg)
 
 
+def _make_group_hash_client(select_data=None, upsert_capture=None):
+    """Self-returning fluent mock for the ``group_content_hash`` chain.
+
+    Sub-project E. Supports both shapes used by ``lookup_group_hash`` /
+    ``upsert_group_hash``:
+      client.schema(...).table(...).select(...).eq(...)*.limit(...).execute()
+      client.schema(...).table(...).upsert(...).execute()
+
+    The select chain is self-returning so an arbitrary number of
+    chained ``.eq(...)`` calls all resolve to the same query object,
+    whose ``.execute()`` returns a response carrying ``select_data``.
+    ``upsert_capture`` (a list) records the upsert payload/kwargs.
+    """
+    client = mock.Mock()
+    schema = mock.Mock()
+    client.schema.return_value = schema
+    table = mock.Mock()
+    schema.table.return_value = table
+
+    # Select chain — every fluent step returns the same query object.
+    query = mock.Mock()
+    table.select.return_value = query
+    query.eq.return_value = query
+    query.limit.return_value = query
+    sel_resp = mock.Mock()
+    sel_resp.data = select_data if select_data is not None else []
+    query.execute.return_value = sel_resp
+
+    # Upsert chain.
+    upsert_obj = mock.Mock()
+
+    def _upsert(*a, **k):
+        if upsert_capture is not None:
+            upsert_capture.append((a, k))
+        return upsert_obj
+
+    table.upsert.side_effect = _upsert
+    upsert_obj.execute.return_value = mock.Mock(data=[])
+    return client
+
+
+class LookupGroupHashTests(unittest.TestCase):
+    """Sub-project E: durable per-group content-hash reader."""
+
+    def setUp(self):
+        _reset_all()
+
+    def tearDown(self):
+        _reset_all()
+
+    def test_success_returns_hash(self):
+        import billing_audit.writer as w
+        client = _make_group_hash_client(
+            select_data=[{"content_hash": "abc123"}])
+        with mock.patch.object(w, "get_client", return_value=client):
+            h, status = w.lookup_group_hash(
+                "90001", "2026-04-19", "primary", "Alice")
+        self.assertEqual(h, "abc123")
+        self.assertEqual(status, "success")
+
+    def test_no_row_returns_none(self):
+        import billing_audit.writer as w
+        client = _make_group_hash_client(select_data=[])
+        with mock.patch.object(w, "get_client", return_value=client):
+            h, status = w.lookup_group_hash(
+                "90001", "2026-04-19", "primary", "")
+        self.assertIsNone(h)
+        self.assertEqual(status, "no_row")
+
+    def test_dict_data_treated_as_single_row(self):
+        import billing_audit.writer as w
+        client = _make_group_hash_client(
+            select_data={"content_hash": "solo"})
+        with mock.patch.object(w, "get_client", return_value=client):
+            h, status = w.lookup_group_hash(
+                "90001", "2026-04-19", "vac_crew", "Vic")
+        self.assertEqual(h, "solo")
+        self.assertEqual(status, "success")
+
+    def test_client_none_returns_unavailable(self):
+        import billing_audit.writer as w
+        with mock.patch.object(w, "get_client", return_value=None):
+            h, status = w.lookup_group_hash(
+                "90001", "2026-04-19", "primary", "")
+        self.assertIsNone(h)
+        self.assertEqual(status, "unavailable")
+
+    def test_client_none_with_global_kill_is_fetch_failure(self):
+        import billing_audit.writer as w
+        from billing_audit import client as ba_client
+        ba_client._global_disable_reason = "PGRST106"
+        try:
+            with mock.patch.object(w, "get_client", return_value=None):
+                h, status = w.lookup_group_hash(
+                    "90001", "2026-04-19", "primary", "")
+        finally:
+            ba_client._global_disable_reason = None
+        self.assertIsNone(h)
+        self.assertEqual(status, "fetch_failure")
+
+    def test_with_retry_none_is_fetch_failure(self):
+        import billing_audit.writer as w
+        client = _make_group_hash_client()
+        with mock.patch.object(w, "get_client", return_value=client), \
+             mock.patch.object(w, "with_retry", return_value=None):
+            h, status = w.lookup_group_hash(
+                "90001", "2026-04-19", "primary", "")
+        self.assertIsNone(h)
+        self.assertEqual(status, "fetch_failure")
+
+    def test_unexpected_exception_is_fetch_failure(self):
+        import billing_audit.writer as w
+        client = _make_group_hash_client()
+        with mock.patch.object(w, "get_client", return_value=client), \
+             mock.patch.object(w, "with_retry",
+                               side_effect=RuntimeError("boom")):
+            h, status = w.lookup_group_hash(
+                "90001", "2026-04-19", "primary", "")
+        self.assertIsNone(h)
+        self.assertEqual(status, "fetch_failure")
+
+
+class UpsertGroupHashTests(unittest.TestCase):
+    """Sub-project E: durable per-group content-hash writer (fail-safe)."""
+
+    def setUp(self):
+        _reset_all()
+
+    def tearDown(self):
+        _reset_all()
+
+    def test_upsert_calls_supabase(self):
+        import billing_audit.writer as w
+        capture: list = []
+        client = _make_group_hash_client(upsert_capture=capture)
+        with mock.patch.object(w, "get_client", return_value=client):
+            w.upsert_group_hash(
+                "90001", "2026-04-19", "primary", "Alice", "h")
+        self.assertTrue(client.schema.called)
+        self.assertEqual(len(capture), 1)
+        payload = capture[0][0][0]
+        self.assertEqual(payload["wr"], "90001")
+        self.assertEqual(payload["week_ending"], "2026-04-19")
+        self.assertEqual(payload["variant"], "primary")
+        self.assertEqual(payload["identifier"], "Alice")
+        self.assertEqual(payload["content_hash"], "h")
+
+    def test_empty_identifier_normalized(self):
+        import billing_audit.writer as w
+        capture: list = []
+        client = _make_group_hash_client(upsert_capture=capture)
+        with mock.patch.object(w, "get_client", return_value=client):
+            w.upsert_group_hash(
+                "90001", "2026-04-19", "primary", None, "h")
+        self.assertEqual(capture[0][0][0]["identifier"], "")
+
+    def test_upsert_never_raises_on_error(self):
+        import billing_audit.writer as w
+        boom = mock.MagicMock()
+        boom.schema.side_effect = RuntimeError("supabase down")
+        with mock.patch.object(w, "get_client", return_value=boom):
+            # Must not raise — fail-safe like freeze_row.
+            w.upsert_group_hash(
+                "90001", "2026-04-19", "primary", "Alice", "h")
+
+    def test_upsert_noop_when_client_none(self):
+        import billing_audit.writer as w
+        with mock.patch.object(w, "get_client", return_value=None):
+            # No raise, no call.
+            w.upsert_group_hash("90001", "2026-04-19", "primary", "", "h")
+
+
 if __name__ == "__main__":
     unittest.main()

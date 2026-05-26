@@ -990,3 +990,126 @@ def lookup_attribution(
     # Preserve the historical helper-gated contract: callers of this
     # public function get the row only when a helper is present.
     return row if row.get("helper") else None
+
+
+def lookup_group_hash(wr, week_ending, variant, identifier):
+    """Read the durable per-group content hash from Supabase.
+
+    Sub-project E (2026-05-25). Returns a ``(content_hash | None,
+    status)`` tuple where status is one of:
+
+    - ``'success'``      : a row exists; content_hash is its stored
+                           hash (may be None only if the column were
+                           ever NULL, which the NOT NULL schema
+                           prevents).
+    - ``'no_row'``       : the query succeeded with zero rows — this
+                           group has never been stored. Consumers
+                           regenerate (the safe default).
+    - ``'fetch_failure'``: the call failed — retries exhausted /
+                           permanent error / run-global kill tripped.
+                           Consumers fall back to the json cache.
+    - ``'unavailable'``  : no client (TEST_MODE / missing creds) and
+                           NOT an outage. Consumers fall back to json.
+
+    Keyed on the same 4-tuple as the engine's ``history_key``
+    (``f"{wr}|{week}|{variant}|{identifier}"``). Shares the
+    ``with_retry`` / per-op circuit breaker / run-global kill switch
+    used by the rest of this module via the ``op="lookup_group_hash"``
+    identifier (DISTINCT from the attribution / pipeline_run ops so a
+    hash-store outage cannot cascade into disabling those writers).
+    NEVER raises — a Supabase failure degrades to ``fetch_failure``
+    so the caller regenerates rather than mis-skips.
+    """
+    from billing_audit import client as _client_mod
+
+    client = get_client()
+    if client is None:
+        if _client_mod._global_disable_reason is not None:
+            return None, "fetch_failure"
+        return None, "unavailable"
+
+    def _op():
+        return (
+            client.schema("billing_audit")
+            .table("group_content_hash")
+            .select("content_hash")
+            .eq("wr", str(wr))
+            .eq("week_ending", str(week_ending))
+            .eq("variant", str(variant))
+            .eq("identifier", identifier or "")
+            .limit(1)
+            .execute()
+        )
+
+    try:
+        resp = with_retry(_op, op="lookup_group_hash")
+        if resp is None:
+            return None, "fetch_failure"
+        data = getattr(resp, "data", None)
+        if isinstance(data, dict):
+            data = [data] if data else []
+        rows = data or []
+        if not rows:
+            return None, "no_row"
+        first = rows[0]
+        if isinstance(first, dict):
+            return first.get("content_hash"), "success"
+        return None, "no_row"
+    except Exception:
+        # Belt-and-suspenders: this reader MUST NEVER raise. Map any
+        # unexpected failure to fetch_failure so the skip gate falls
+        # back to the json cache / regenerates. ``with_retry`` already
+        # absorbs the classified PostgREST surface (returning None), so
+        # this handler only fires on an unexpected local error (e.g.
+        # result-object handling) whose traceback carries no row content
+        # — logging.exception aids diagnosis while staying PII-safe.
+        logging.exception(
+            "⚠️ Group-hash lookup hit an unexpected error; "
+            "treating as fetch_failure (fall back to json cache)."
+        )
+        return None, "fetch_failure"
+
+
+def upsert_group_hash(wr, week_ending, variant, identifier, content_hash):
+    """Best-effort durable write of a per-group content hash.
+
+    Sub-project E (2026-05-25). Fail-safe: catches its own errors and
+    NEVER raises (mirrors ``freeze_row`` / ``emit_run_fingerprint``),
+    so a Supabase problem can never break the billing pipeline. Keyed
+    on the 4-tuple PK ``(wr, week_ending, variant, identifier)`` — the
+    same identity as the engine's ``history_key``. ``identifier`` is
+    normalized to ``''`` for bare-primary / legacy-shape groups so the
+    NOT NULL DEFAULT '' column stays consistent with the reader.
+    """
+    client = get_client()
+    if client is None:
+        return
+    payload = {
+        "wr": str(wr),
+        "week_ending": str(week_ending),
+        "variant": str(variant),
+        "identifier": identifier or "",
+        "content_hash": content_hash,
+    }
+
+    def _op():
+        return (
+            client.schema("billing_audit")
+            .table("group_content_hash")
+            .upsert(payload, on_conflict="wr,week_ending,variant,identifier")
+            .execute()
+        )
+
+    try:
+        with_retry(_op, op="upsert_group_hash")
+    except Exception:
+        # Fail-safe (Spec §8): a durable-write failure is non-fatal.
+        # The json cache + filename-hash backstop still protect change
+        # detection. ``with_retry`` absorbs the classified PostgREST
+        # surface, so this only fires on an unexpected local error;
+        # logging.exception surfaces WHY the durable store isn't being
+        # populated (PII-safe — no row content in the traceback).
+        logging.exception(
+            "⚠️ Group-hash upsert failed (non-fatal); "
+            "durable store not updated this run."
+        )

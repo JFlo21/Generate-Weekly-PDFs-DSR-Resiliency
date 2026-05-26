@@ -589,6 +589,26 @@ LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED = os.getenv(
     'LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED', '1'
 ).strip().lower() in ('1', 'true', 'yes', 'on')
 
+# Sub-project E (2026-05-25): durable Supabase change-detection hash store.
+# WRITE (default ON): shadow-write the per-group content hash to Supabase
+# every run. Harmless even while not authoritative — it populates the
+# durable store so a later flip to authoritative finds current hashes and
+# skips the one-time regeneration wave.
+SUPABASE_HASH_STORE_WRITE_ENABLED = os.getenv(
+    'SUPABASE_HASH_STORE_WRITE_ENABLED', '1'
+).strip().lower() in ('1', 'true', 'yes', 'on')
+# AUTHORITATIVE (default OFF — ship dormant): when ON, (a) the change-
+# detection skip gate reads the Supabase group hash (falling back to the
+# hash_history.json cache, then regenerating on miss/outage — never
+# skipping unsafely), (b) generated filenames DROP the _<timestamp>/_<hash>
+# tokens (deterministic identity-only names), and (c)
+# delete_old_excel_attachments stops relying on the filename-embedded hash.
+# Flip to '1' only after the Supabase store is validated in production.
+# This is the one-line master revert for all of Sub-project E.
+SUPABASE_HASH_STORE_AUTHORITATIVE = os.getenv(
+    'SUPABASE_HASH_STORE_AUTHORITATIVE', '0'
+).strip().lower() in ('1', 'true', 'yes', 'on')
+
 # Cutoff date for ``_AEPBillable`` variant generation. Awarded to
 # Linetec on 2026-04-12 (subcontractor rate contract). Plan 2 (parser
 # extension) and Plan 3 (variant emission) gate variant emission on
@@ -767,6 +787,15 @@ logging.info(
 logging.info(
     f"📋 LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED="
     f"{LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED}"
+)
+# Sub-project E: surface the durable hash-store kill switches at startup.
+logging.info(
+    f"📋 SUPABASE_HASH_STORE_WRITE_ENABLED="
+    f"{SUPABASE_HASH_STORE_WRITE_ENABLED}"
+)
+logging.info(
+    f"📋 SUPABASE_HASH_STORE_AUTHORITATIVE="
+    f"{SUPABASE_HASH_STORE_AUTHORITATIVE}"
 )
 
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
@@ -2696,6 +2725,29 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
     identifier = None
     tail = parts[we_idx + 2:]
 
+    # Sub-project E (2026-05-25): support BOTH legacy token-bearing names
+    # (``..._{HHMMSS}_<marker>_<id>_<hash>``) and the new deterministic
+    # clean names (``..._<marker>_<id>``, no timestamp/hash) that
+    # ``generate_excel`` produces when SUPABASE_HASH_STORE_AUTHORITATIVE is
+    # on. Both shapes coexist on Smartsheet during migration, so the parser
+    # must read either. The discriminator is the LEADING 6-digit ``HHMMSS``
+    # timestamp at ``tail[0]``: a legacy variant name ALWAYS carries it
+    # (immediately after the week) AND a trailing ``data_hash`` token; a
+    # clean name has NEITHER (``tail[0]`` is always a variant marker —
+    # alphabetic — or ``tail`` is empty). So when (and only when) the
+    # leading timestamp is present, strip it AND the trailing hash, leaving
+    # ``tail`` == ``[<marker>, <id parts...>]`` for the dispatch below.
+    # Clean names skip both strips, so their last identifier segment is
+    # never eaten (the bug the old unconditional ``[:-1]`` slice caused for
+    # token-less names). NOTE: the oldest legacy bare-primary format
+    # ``WR_{wr}_WeekEnding_{week}_{hash}.xlsx`` has a hash but no timestamp
+    # and no marker — its lone hash token stays in ``tail`` but, with no
+    # reserved marker, yields the correct ``('primary', None)`` regardless.
+    if tail and len(tail[0]) == 6 and tail[0].isdigit():
+        tail = tail[1:]          # drop the legacy HHMMSS timestamp
+        if tail:
+            tail = tail[:-1]     # drop the legacy trailing data_hash
+
     # Reserved-token precedence (ledger [2026-05-21 13:20], generalized to
     # the bare ``_User_`` shape by Subproject D 2026-05-25): the variant is
     # determined by the EARLIEST reserved marker token in ``tail``, NOT by a
@@ -2717,23 +2769,25 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
         if _tok in tail
     }
     _first_marker = (
-        min(_reserved_positions, key=_reserved_positions.get)
+        min(_reserved_positions, key=lambda _t: _reserved_positions[_t])
         if _reserved_positions else None
     )
     if _first_marker == 'AEPBillable':
         aep_idx_rel = tail.index('AEPBillable')
         post_aep = tail[aep_idx_rel + 1:]
         if post_aep and post_aep[0] == 'User':
-            # Subproject B: _AEPBillable_User_<claimer>_<hash>. Reserved 'User'
-            # token marks a primary-claimer identifier. Span-join so an
+            # Subproject B: _AEPBillable_User_<claimer>[_<hash>]. Reserved
+            # 'User' token marks a primary-claimer identifier. Span-join so an
             # underscored claimer name survives; dangling 'User' -> '' (legacy).
+            # ``tail`` already had any legacy timestamp/hash stripped (E), so
+            # the identifier is everything after the marker.
             variant = 'aep_billable'
-            identifier = '_'.join(post_aep[1:-1])
+            identifier = '_'.join(post_aep[1:])
         elif 'Helper' in post_aep:
             variant = 'aep_billable_helper'
             helper_idx_rel = post_aep.index('Helper')
             if helper_idx_rel + 1 < len(post_aep):
-                identifier = '_'.join(post_aep[helper_idx_rel + 1:-1])
+                identifier = '_'.join(post_aep[helper_idx_rel + 1:])
         else:
             # Legacy unpartitioned _AEPBillable_<hash> (no User/Helper token).
             variant = 'aep_billable'
@@ -2743,12 +2797,12 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
         post_rs = tail[rs_idx_rel + 1:]
         if post_rs and post_rs[0] == 'User':
             variant = 'reduced_sub'
-            identifier = '_'.join(post_rs[1:-1])
+            identifier = '_'.join(post_rs[1:])
         elif 'Helper' in post_rs:
             variant = 'reduced_sub_helper'
             helper_idx_rel = post_rs.index('Helper')
             if helper_idx_rel + 1 < len(post_rs):
-                identifier = '_'.join(post_rs[helper_idx_rel + 1:-1])
+                identifier = '_'.join(post_rs[helper_idx_rel + 1:])
         else:
             # Legacy unpartitioned _ReducedSub_<hash> (no User/Helper token).
             variant = 'reduced_sub'
@@ -2760,19 +2814,67 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
         vac_idx_rel = tail.index('VacCrew')
         identifier = ''  # legacy _VacCrew (no name) -> '' per identity contract
         if vac_idx_rel + 1 < len(tail):
-            identifier = '_'.join(tail[vac_idx_rel + 1:-1])
+            identifier = '_'.join(tail[vac_idx_rel + 1:])
     elif _first_marker == 'Helper':
         variant = 'helper'
         helper_idx_rel = tail.index('Helper')
         if helper_idx_rel + 1 < len(tail):
-            identifier = '_'.join(tail[helper_idx_rel + 1:-1])
+            identifier = '_'.join(tail[helper_idx_rel + 1:])
     elif _first_marker == 'User':
         variant = 'primary'
         user_idx_rel = tail.index('User')
         if user_idx_rel + 1 < len(tail):
-            identifier = '_'.join(tail[user_idx_rel + 1:-1])
+            identifier = '_'.join(tail[user_idx_rel + 1:])
 
     return (wr, week, variant, identifier)
+
+def _resolve_unchanged_for_skip(history_key, data_hash, hash_history,
+                                wr_num, week_iso, variant, identifier):
+    """Decide whether a group's content hash is UNCHANGED vs the durable
+    store, for the change-detection skip gate (Sub-project E, 2026-05-25).
+
+    Decision model:
+    - ``SUPABASE_HASH_STORE_AUTHORITATIVE`` ON (and billing_audit
+      available, not TEST_MODE, and ``week_iso`` present): Supabase
+      (``billing_audit.group_content_hash``) is authoritative.
+        * ``success``  -> compare the stored hash to ``data_hash``.
+        * ``no_row``   -> the group was never durably stored, so it is
+          treated as CHANGED (return False -> regenerate). This is the
+          safe default that makes the very first authoritative run
+          regenerate everything once, populating the store.
+        * ``fetch_failure`` / ``unavailable`` -> a Supabase outage (or
+          the table/schema not yet exposed); fall through to the local
+          ``hash_history`` json cache so a transient outage degrades to
+          "use the cache / regenerate", never a silent wrong-skip.
+          (``lookup_group_hash`` returns only these four statuses.)
+    - A missing/empty ``week_iso`` (no ``__week_ending_date`` on the
+      group) skips the Supabase read entirely and uses the json cache —
+      ``week_ending`` is a DATE column, so passing ``''`` would be a
+      PostgREST type error that could needlessly trip the per-op
+      circuit breaker.
+    - Authoritative OFF (default): the ``hash_history`` json cache alone
+      decides — byte-identical to the pre-E behavior.
+
+    The caller must already have confirmed ``_history_eligible_for_skip``
+    (FORCE_GENERATION / REGEN_WEEKS / RESET_* gating) and still applies
+    the ``ATTACHMENT_REQUIRED_FOR_SKIP`` guard downstream — a matching
+    hash with a missing attachment must still regenerate.
+    """
+    if (
+        SUPABASE_HASH_STORE_AUTHORITATIVE
+        and BILLING_AUDIT_AVAILABLE
+        and not TEST_MODE
+        and week_iso
+    ):
+        _h, _status = _billing_audit_writer.lookup_group_hash(
+            wr_num, week_iso, variant, identifier or '')
+        if _status == 'success':
+            return _h == data_hash
+        if _status == 'no_row':
+            return False  # never durably stored -> regenerate (safe)
+        # fetch_failure / unavailable -> fall back to json cache.
+    _prev = hash_history.get(history_key)
+    return bool(_prev and _prev.get('hash') == data_hash)
 
 def cleanup_stale_excels(output_folder: str, kept_filenames: set):
     """Remove Excel files not generated in current run (VARIANT-AWARE).
@@ -3163,15 +3265,24 @@ def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, we
     if not candidates:
         return 0, False
 
-    # Skip if any existing candidate already carries the same hash (unless forced)
-    if not force_generation:
+    # Skip if any existing candidate already carries the same hash (unless
+    # forced). Sub-project E (2026-05-25): this filename-embedded-hash
+    # short-circuit is the LEGACY durable backstop. When
+    # SUPABASE_HASH_STORE_AUTHORITATIVE is on, the durable skip decision is
+    # made upstream by the Supabase-backed skip gate
+    # (_resolve_unchanged_for_skip in main), AND clean filenames carry no
+    # hash token (extract_data_hash_from_filename returns None for them), so
+    # this short-circuit MUST NOT fire — the identity-based replacement loop
+    # below still runs so a fresh clean file supersedes any prior (token-
+    # named or clean) attachment for the same identity. Forcing always wins.
+    if force_generation:
+        logging.info(f"⚐ FORCE GENERATION for {variant} WR {wr_num} Week {week_raw}; ignoring existing hash match")
+    elif not SUPABASE_HASH_STORE_AUTHORITATIVE:
         for att in candidates:
             existing_hash = extract_data_hash_from_filename(att.name)
             if existing_hash == current_data_hash:
                 logging.info(f"⏩ Unchanged ({variant} WR {wr_num} Week {week_raw}) hash {current_data_hash}; skipping regeneration & upload")
                 return 0, True
-    else:
-        logging.info(f"⚐ FORCE GENERATION for {variant} WR {wr_num} Week {week_raw}; ignoring existing hash match")
 
     logging.info(f"🗑️ Removing {len(candidates)} prior {variant} attachment(s) for WR {wr_num} Week {week_raw}")
     for att in candidates:
@@ -6650,7 +6761,14 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     # and emit the per-sheet WARNING (D-17).
     missing_cus: collections.Counter = collections.Counter()
     
-    if data_hash:
+    if SUPABASE_HASH_STORE_AUTHORITATIVE:
+        # Sub-project E (2026-05-25): deterministic clean name. The durable
+        # change-detection hash lives in billing_audit.group_content_hash,
+        # so the filename carries IDENTITY ONLY (no _<timestamp>/_<hash>
+        # tokens) and round-trips through build_group_identity unchanged.
+        # Gated OFF by default — ships dormant until the store is validated.
+        output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}{variant_suffix}.xlsx"
+    elif data_hash:
         # Use full 16-character hash (calculate_data_hash already truncates to 16)
         output_filename = f"WR_{wr_num}_WeekEnding_{week_end_raw}_{timestamp}{variant_suffix}_{data_hash}.xlsx"
     else:
@@ -8506,6 +8624,20 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 # History key includes variant dimension to prevent collisions
                 history_key = f"{wr_num}|{week_raw}|{variant}|{identifier}"
 
+                # Sub-project E: ISO week-ending date for the durable
+                # Supabase hash store (group_content_hash.week_ending is a
+                # DATE column). Derived from the SAME __week_ending_date the
+                # billing_audit freeze / fingerprint calls use (see the
+                # _week_snap normalization below), so the durable 4-tuple key
+                # matches across the reader, the writer, and those callers.
+                # Falls back to '' when the date is absent — the lookup then
+                # returns no_row and the upsert is keyed on '', both of which
+                # fail safe to "regenerate".
+                _wed = group_rows[0].get('__week_ending_date')
+                if hasattr(_wed, 'date'):
+                    _wed = _wed.date()
+                week_iso = _wed.isoformat() if hasattr(_wed, 'isoformat') else ''
+
                 # Pre-compute hash-change state before any optional side-effects.
                 # Billing audit RPCs are the single most expensive per-group operation
                 # in steady state, so we can safely skip them when the group hash is
@@ -8519,14 +8651,19 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         or RESET_WR_LIST
                     )
                 )
-                _prev_history_entry = (
-                    hash_history.get(history_key)
+                # Sub-project E: the unchanged decision now consults the
+                # durable Supabase hash store when authoritative, falling
+                # back to the local hash_history json cache on outage/miss.
+                # See _resolve_unchanged_for_skip for the full decision
+                # table. Default (authoritative OFF) is json-cache-only —
+                # byte-identical to the pre-E behavior.
+                _hash_unchanged = (
+                    _resolve_unchanged_for_skip(
+                        history_key, data_hash, hash_history,
+                        wr_num, week_iso, variant, identifier,
+                    )
                     if _history_eligible_for_skip
-                    else None
-                )
-                _hash_unchanged = bool(
-                    _prev_history_entry
-                    and _prev_history_entry.get('hash') == data_hash
+                    else False
                 )
 
                 # Pre-compute whether any eligible row in this group is absent
@@ -8991,6 +9128,40 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     'identifier': identifier,
                 }
                 history_updates += 1
+
+                # Sub-project E: shadow-write the durable per-group content
+                # hash to Supabase alongside the local json cache. Gated on
+                # SUPABASE_HASH_STORE_WRITE_ENABLED (default ON) — harmless
+                # while the store is not yet authoritative: it just populates
+                # billing_audit.group_content_hash so the eventual
+                # authoritative flip has data to read. ``upsert_group_hash``
+                # is fail-safe (returns a no-op when Supabase is unavailable /
+                # TEST_MODE and never raises); the extra guard keeps a future
+                # regression from breaking the generation path. ``week_iso``
+                # is the ISO DATE the column expects (NOT the MMDDYY
+                # week_raw), kept consistent with lookup_group_hash in the
+                # skip gate above.
+                if (
+                    SUPABASE_HASH_STORE_WRITE_ENABLED
+                    and BILLING_AUDIT_AVAILABLE
+                    and not TEST_MODE
+                    and week_iso
+                ):
+                    # ``week_iso`` is guarded truthy: week_ending is a DATE
+                    # column, so an empty string (missing __week_ending_date)
+                    # would be a PostgREST type error that could trip the
+                    # per-op circuit breaker. Skipping the shadow write for
+                    # such an edge-case group is harmless — the json cache
+                    # and (until authoritative) the filename hash still drive
+                    # change detection.
+                    try:
+                        _billing_audit_writer.upsert_group_hash(
+                            wr_num, week_iso, variant,
+                            identifier or '', data_hash,
+                        )
+                    except Exception:
+                        logging.exception(
+                            "E shadow hash write failed (non-fatal)")
                 
             except Exception as e:
                 _groups_errored += 1

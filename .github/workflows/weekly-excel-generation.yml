@@ -409,6 +409,25 @@ jobs:
           # resolution, NOT this cleanup). Living Ledger [2026-05-25].
           LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED: '1'
 
+          # Sub-project E (2026-05-25, DORMANT SHIP): durable Supabase
+          # change-detection hash store + clean (token-less) filenames.
+          # WRITE on from day one — shadow-writes the per-group content
+          # hash to billing_audit.group_content_hash every run (harmless
+          # while not authoritative; just populates the durable store).
+          # AUTHORITATIVE off — keeps the skip gate reading Supabase, the
+          # _<timestamp>/_<hash> filename stripping, and the legacy
+          # filename-hash cleanup short-circuit DISABLED until the store is
+          # validated in production. OPERATOR PREREQUISITE before flipping
+          # AUTHORITATIVE to '1' (and for shadow writes to land): apply
+          # billing_audit/schema.sql (the group_content_hash table) to the
+          # live Supabase project AND reload the PostgREST schema cache
+          # (NOTIFY pgrst, 'reload schema';). Until then lookup_group_hash
+          # returns 'unavailable' and the pipeline behaves exactly as today
+          # (fail-safe to regenerate). Revert: set AUTHORITATIVE back to
+          # '0'. Living Ledger [2026-05-25].
+          SUPABASE_HASH_STORE_WRITE_ENABLED: '1'
+          SUPABASE_HASH_STORE_AUTHORITATIVE: '0'
+
           # AEP_BILLABLE_CUTOFF is intentionally UNSET in the
           # workflow — the Python default (datetime.date(2026,
           # 4, 12), the contract award date) is the source of
