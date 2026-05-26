@@ -609,6 +609,18 @@ SUPABASE_HASH_STORE_AUTHORITATIVE = os.getenv(
     'SUPABASE_HASH_STORE_AUTHORITATIVE', '0'
 ).strip().lower() in ('1', 'true', 'yes', 'on')
 
+# Phase 2 Plan 05 gap-closure (CR-01): when the bulk lookup_attribution_bulk
+# RPC is not yet deployed (PGRST202 -> prefetch status 'rpc_missing'), degrade
+# to the already-deployed per-row lookup_attribution path instead of HOLDing
+# every B/C/sub-helper row. Default ON so a code-before-RPC deploy ordering
+# does NOT suppress billing. A genuine transient outage ('fetch_failure') still
+# HOLDs B/C (D-04). The per-row fallback is bounded to the rows actually
+# processed this run, so it cannot reintroduce the 137k per-row storm. Set to
+# '0' to force the strict bulk-only behavior.
+ATTRIBUTION_BULK_PREFETCH_FALLBACK = os.getenv(
+    'ATTRIBUTION_BULK_PREFETCH_FALLBACK', '1'
+).strip().lower() in ('1', 'true', 'yes', 'on')
+
 # ── Phase 2 Plan 03 (D-06/D-07/D-08): Isolated garbage-attachment remediation ──
 # DEFAULT OFF: ``REMEDIATE_CLAIMERS='0'`` so the mode NEVER fires on a scheduled
 # cron run. An operator must explicitly set '1' via workflow_dispatch or a local
@@ -859,6 +871,10 @@ logging.info(
     f"📋 REMEDIATE_CLAIMERS={REMEDIATE_CLAIMERS} "
     f"DRY_RUN={REMEDIATION_DRY_RUN} "
     f"WINDOW_WEEKS={REMEDIATION_WINDOW_WEEKS}"
+)
+# Phase 2 Plan 05 (CR-01): surface the bulk-prefetch fallback state at startup.
+logging.info(
+    f"📋 ATTRIBUTION_BULK_PREFETCH_FALLBACK={ATTRIBUTION_BULK_PREFETCH_FALLBACK}"
 )
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
 RESET_WR_LIST = {w.strip() for w in os.getenv('RESET_WR_LIST','').split(',') if w.strip()}  # When provided, only purge these WR numbers (overrides full reset)
@@ -5625,8 +5641,6 @@ def group_source_rows(rows):
         try:
             from billing_audit.writer import (
                 prefetch_attribution as _prefetch_attribution,
-                resolve_claimer as _resolve_claimer_bulk,
-                ResolveOutcome as _ResolveOutcome,
             )
             _prefetch_pairs_filtered = {(wr, we) for wr, we, _ in _prefetch_pairs}
             _attr_map, _attr_status = _prefetch_attribution(_prefetch_pairs_filtered)
@@ -5642,6 +5656,23 @@ def group_source_rows(rows):
                 "falling back to use-current for all attribution consumers."
             )
             _attr_map, _attr_status = {}, 'fetch_failure'
+
+    # CR-01 graceful degradation: a MISSING RPC (rpc_missing) is correctness-
+    # preserving to fall back per-row (the deployed lookup_attribution returns
+    # the SAME frozen data, just slower) — NOT a D-04 violation. A transient
+    # outage (fetch_failure) still HOLDs B/C. The fallback is bounded: per-row
+    # resolution only happens for the rows B/C/sub-helper actually process this
+    # run, so it cannot reintroduce the 137k per-row storm.
+    _attr_use_per_row_fallback = (
+        _attr_status == 'rpc_missing' and ATTRIBUTION_BULK_PREFETCH_FALLBACK
+    )
+    if _attr_use_per_row_fallback:
+        logging.warning(
+            "⚠️ Attribution bulk RPC missing (rpc_missing); "
+            "ATTRIBUTION_BULK_PREFETCH_FALLBACK=1 -> degrading to per-row "
+            "lookup_attribution for B/C/sub-helper (deploy lookup_attribution_bulk "
+            "to restore bulk; see runbook E re-activation Step 1)."
+        )
 
     # ── Subproject B: O(1) map read for sub-primary claimers (D-03) ──
     # The ThreadPoolExecutor per-row RPC block is replaced by O(1) lookups
@@ -5671,7 +5702,14 @@ def group_source_rows(rows):
                 _we_d = _we.date() if isinstance(_we, datetime.datetime) else _we
                 _eu = _r.get('__effective_user', 'Unknown Foreman')
                 _wr_key_b = str(_wr_raw).split('.')[0]
-                if _attr_status == 'fetch_failure':
+                # HOLD only on a genuine transient outage, or on rpc_missing
+                # when the operator has disabled the per-row fallback. On
+                # rpc_missing WITH fallback on, route per-row (prefetched_map=
+                # None) so B still generates with the real frozen claimer.
+                if _attr_status == 'fetch_failure' or (
+                    _attr_status == 'rpc_missing'
+                    and not ATTRIBUTION_BULK_PREFETCH_FALLBACK
+                ):
                     # D-04: construct HOLD directly, zero additional RPC calls.
                     _sub_primary_claimer_map[_rid] = _ResolveOutcome_b(
                         'hold', None, None, 'fetch_failure'
@@ -5683,7 +5721,9 @@ def group_source_rows(rows):
                         week_ending=_we_d,
                         row_id=_rid,
                         enabled=SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED,
-                        prefetched_map=_attr_map,
+                        prefetched_map=(
+                            None if _attr_use_per_row_fallback else _attr_map
+                        ),
                     )
         except Exception:
             logging.exception(
@@ -5717,7 +5757,14 @@ def group_source_rows(rows):
                 _we_d = _we.date() if isinstance(_we, datetime.datetime) else _we
                 _current_vac = _r.get('__vac_crew_name') or ''
                 _wr_key_c = str(_wr_raw).split('.')[0]
-                if _attr_status == 'fetch_failure':
+                # HOLD only on a genuine transient outage, or on rpc_missing
+                # when the operator has disabled the per-row fallback. On
+                # rpc_missing WITH fallback on, route per-row (prefetched_map=
+                # None) so C still generates with the real frozen claimer.
+                if _attr_status == 'fetch_failure' or (
+                    _attr_status == 'rpc_missing'
+                    and not ATTRIBUTION_BULK_PREFETCH_FALLBACK
+                ):
                     # D-04: construct HOLD directly, zero additional RPC calls.
                     _vac_crew_claimer_map[_rid] = _ResolveOutcome_c(
                         'hold', None, None, 'fetch_failure'
@@ -5729,7 +5776,9 @@ def group_source_rows(rows):
                         week_ending=_we_d,
                         row_id=_rid,
                         enabled=VAC_CREW_CLAIM_ATTRIBUTION_ENABLED,
-                        prefetched_map=_attr_map,
+                        prefetched_map=(
+                            None if _attr_use_per_row_fallback else _attr_map
+                        ),
                     )
         except Exception:
             logging.exception(
@@ -5779,17 +5828,22 @@ def group_source_rows(rows):
                 _we_d = _we.date() if isinstance(_we, datetime.datetime) else _we
                 _eu = _r.get('__effective_user', 'Unknown Foreman')
                 _wr_key_d = str(_wr_raw).split('.')[0]
-                # D never HOLDs: on fetch_failure, use-current at emission
-                # (resolve_claimer returns action='disabled' from prefetched_map
-                # when map is empty + fetch_failure status is handled at the
-                # emission site via the else/no_history fallback path).
+                # WR-03: D never HOLDs. On fetch_failure the bulk map is empty,
+                # so the prefetched-map miss yields a ('use', current,
+                # 'no_history') outcome and D emits with the current foreman —
+                # D never HOLDs by design (core primary path prioritizes
+                # availability). On rpc_missing with fallback on,
+                # prefetched_map=None routes the per-row lookup_attribution
+                # which returns the real frozen claimer.
                 _primary_claimer_map[_rid] = _resolve_claimer_d(
                     'primary', _eu,
                     wr=_wr_key_d,
                     week_ending=_we_d,
                     row_id=_rid,
                     enabled=PRIMARY_CLAIM_ATTRIBUTION_ENABLED,
-                    prefetched_map=_attr_map,
+                    prefetched_map=(
+                        None if _attr_use_per_row_fallback else _attr_map
+                    ),
                 )
         except Exception:
             logging.exception(
@@ -6294,6 +6348,24 @@ def group_source_rows(rows):
                         if (
                             is_subcontractor_row
                             and SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED
+                            and (
+                                _attr_status == 'fetch_failure'
+                                or (
+                                    _attr_status == 'rpc_missing'
+                                    and not ATTRIBUTION_BULK_PREFETCH_FALLBACK
+                                )
+                            )
+                        ):
+                            # WR-05: surface the outage explicitly. Sub-helper
+                            # does NOT HOLD (Phase 1.1 design) — it falls back
+                            # to the current `Foreman Helping?` (D-12 default),
+                            # but now LOGS the reason via the per-WR WARNING
+                            # below, restoring the Bug C observability the bulk
+                            # path dropped. No per-row RPC issued on this path.
+                            _attribution_reason = 'fetch_failure'
+                        elif (
+                            is_subcontractor_row
+                            and SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED
                         ):
                             try:
                                 from billing_audit.writer import (
@@ -6306,7 +6378,10 @@ def group_source_rows(rows):
                                     week_ending=week_ending_date,
                                     row_id=_sh_rid,
                                     enabled=SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED,
-                                    prefetched_map=_attr_map,
+                                    prefetched_map=(
+                                        None if _attr_use_per_row_fallback
+                                        else _attr_map
+                                    ),
                                 )
                                 if _sh_out.action == 'use':
                                     _attributed_helper = (

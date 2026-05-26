@@ -653,6 +653,47 @@ Pinned to `'26'` in `weekly-excel-generation.yml`.
 
 ---
 
+### `ATTRIBUTION_BULK_PREFETCH_FALLBACK`
+
+**Default:** `1` (ON — degrade to per-row on a missing bulk RPC)
+**Owns:** Python billing pipeline (`generate_weekly_pdfs.py`).
+**Purpose:** Controls how the claim-attribution consumers (Sub-projects
+B/C/D and the subcontractor helper-shadow path) react when the bulk
+`lookup_attribution_bulk` Supabase RPC is **not deployed**.
+
+`prefetch_attribution` now distinguishes two failure modes:
+
+- **`rpc_missing`** — the bulk RPC returns PostgREST `PGRST202` ("function
+  not found"). This is *permanent* and is **not** a transient outage. The
+  already-deployed per-row `lookup_attribution` RPC returns the SAME frozen
+  attribution data, just one round-trip per row instead of one bulk call.
+- **`fetch_failure`** — a genuine transient Supabase outage (network blip,
+  retries exhausted). Retrying might succeed.
+
+When `ATTRIBUTION_BULK_PREFETCH_FALLBACK=1` (default) **and** the status is
+`rpc_missing`, B/C/sub-helper degrade to the per-row path
+(`prefetched_map=None`) so they still **generate** their billing files with
+the real frozen claimer. This makes the merge tolerant of a code-before-RPC
+deploy order — operators do not have to deploy the RPC *before* the next
+production run to avoid suppressing billing. The per-row fallback is bounded
+to the rows actually processed this run, so it cannot reintroduce the ~137k
+per-row RPC storm that motivated the bulk path.
+
+A genuine **`fetch_failure`** still preserves the D-04 HOLD contract: B and C
+HOLD the affected rows (correctness over availability — a possibly
+mis-attributed billing file is worse than a late one); D uses-current (the
+core primary path prioritizes availability); the sub-helper path falls back
+to the current `Foreman Helping?` value and emits its per-WR WARNING.
+
+Set to `'0'` to force strict bulk-only behavior — a missing RPC will then
+HOLD B/C just like a transient outage (operator opt-out).
+
+The resolved value is printed at startup as
+`📋 ATTRIBUTION_BULK_PREFETCH_FALLBACK=<bool>`. Pinned to `'1'` in the
+`weekly-excel-generation.yml` `env:` block.
+
+---
+
 ### `AEP_BILLABLE_CUTOFF`
 
 **Default:** `2026-04-12` (AEP rate-increase contract awarded to Linetec)

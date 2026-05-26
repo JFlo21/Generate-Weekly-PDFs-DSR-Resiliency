@@ -452,6 +452,15 @@ jobs:
           REMEDIATION_DRY_RUN: '1'
           REMEDIATION_WINDOW_WEEKS: '26'
 
+          # Phase 2 Plan 05 gap-closure (CR-01): on a MISSING
+          # lookup_attribution_bulk RPC (PGRST202), degrade to per-row
+          # lookup_attribution instead of HOLDing B/C/sub-helper billing files.
+          # Default ON protects the deploy window automatically (the merge no
+          # longer depends on operators deploying the RPC first). Set '0' to
+          # force strict bulk-only. A transient outage still HOLDs (D-04).
+          # Living Ledger 2026-05-26 gap-closure.
+          ATTRIBUTION_BULK_PREFETCH_FALLBACK: '1'
+
           # AEP_BILLABLE_CUTOFF is intentionally UNSET in the
           # workflow — the Python default (datetime.date(2026,
           # 4, 12), the contract award date) is the source of

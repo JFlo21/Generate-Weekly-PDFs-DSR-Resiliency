@@ -548,6 +548,179 @@ class TestEndToEndPipeline(unittest.TestCase):
         )
 
 
+class TestRpcMissingGracefulDegradation(unittest.TestCase):
+    """Phase 2 Plan 05 (CR-01): a MISSING bulk RPC (rpc_missing) degrades to
+    the per-row path instead of HOLDing every B/C/sub-helper row.
+
+    Mirrors TestEndToEndPipeline's module-state setup (subcontractor sheet,
+    variant + attribution flags enabled, seeded rate) and reuses its
+    ``_make_synth_*`` row builders via delegation. Each test mocks
+    ``prefetch_attribution`` directly to control _attr_status, and
+    ``resolve_claimer`` to make the per-row outcome deterministic.
+    """
+
+    _SUB_SHEET_ID = TestEndToEndPipeline._SUB_SHEET_ID
+
+    def setUp(self):
+        _reset_all()
+        _ensure_smartsheet_mocked()
+        self._orig_enabled = generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED
+        self._orig_bug_a = generate_weekly_pdfs.SUBCONTRACTOR_RATE_RECALC_PREACCEPTANCE_ENABLED
+        self._orig_bug_c = generate_weekly_pdfs.SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED
+        self._orig_sub_ids = set(generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS)
+        self._orig_rates = dict(generate_weekly_pdfs._SUBCONTRACTOR_RATES)
+        self._orig_fallback = generate_weekly_pdfs.ATTRIBUTION_BULK_PREFETCH_FALLBACK
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = True
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_RECALC_PREACCEPTANCE_ENABLED = True
+        generate_weekly_pdfs.SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED = True
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.add(self._SUB_SHEET_ID)
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES['ANC-M'] = {
+            'new_install_price': 75.0,
+            'reduced_install_price': 50.0,
+            'new_remove_price': 60.0,
+            'reduced_remove_price': 45.0,
+            'new_transfer_price': 80.0,
+            'reduced_transfer_price': 55.0,
+        }
+
+    def tearDown(self):
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = self._orig_enabled
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_RECALC_PREACCEPTANCE_ENABLED = self._orig_bug_a
+        generate_weekly_pdfs.SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED = self._orig_bug_c
+        generate_weekly_pdfs.ATTRIBUTION_BULK_PREFETCH_FALLBACK = self._orig_fallback
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.update(self._orig_sub_ids)
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES.clear()
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES.update(self._orig_rates)
+        _reset_all()
+
+    # Reuse the parent's synthetic-row builders without inheriting its tests.
+    _make_synth_helper_row = TestEndToEndPipeline._make_synth_helper_row
+    _make_synth_non_helper_row = TestEndToEndPipeline._make_synth_non_helper_row
+
+    def test_rpc_missing_with_fallback_generates_sub_helper(self):
+        """rpc_missing + fallback ON: sub-helper resolves per-row and the
+        row GENERATES (no HOLD, no fetch_failure WARNING)."""
+        generate_weekly_pdfs.ATTRIBUTION_BULK_PREFETCH_FALLBACK = True
+        with mock.patch(
+            'billing_audit.writer.prefetch_attribution',
+            return_value=({}, 'rpc_missing'),
+        ), mock.patch(
+            'billing_audit.writer.resolve_claimer',
+            return_value=ResolveOutcome('use', 'FrozenHelper', 'frozen', 'success'),
+        ) as _rc:
+            row = self._make_synth_helper_row()
+            groups = generate_weekly_pdfs.group_source_rows([row])
+        # Per-row resolver WAS consulted (degrade path), not bypassed.
+        self.assertTrue(_rc.called)
+        keys = list(groups.keys())
+        self.assertTrue(
+            any('REDUCEDSUB_HELPER_FrozenHelper' in k for k in keys),
+            f"rpc_missing fallback: row should generate under the frozen "
+            f"helper; got: {keys}",
+        )
+
+    def test_rpc_missing_with_fallback_b_generates_user_variant(self):
+        """rpc_missing + fallback ON: subcontractor non-helper PRIMARY row
+        generates a _REDUCEDSUB_USER_ group (no HOLD)."""
+        generate_weekly_pdfs.ATTRIBUTION_BULK_PREFETCH_FALLBACK = True
+        with mock.patch(
+            'billing_audit.writer.prefetch_attribution',
+            return_value=({}, 'rpc_missing'),
+        ), mock.patch(
+            'billing_audit.writer.resolve_claimer',
+            return_value=ResolveOutcome('use', 'FrozenPrimary', 'frozen', 'success'),
+        ):
+            row = self._make_synth_non_helper_row()
+            row['__row_id'] = 71001
+            groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        self.assertTrue(
+            any('REDUCEDSUB_USER_FrozenPrimary' in k for k in keys),
+            f"rpc_missing fallback: B should emit a per-claimer primary "
+            f"group; got: {keys}",
+        )
+
+    def test_fetch_failure_still_holds_b_no_user_variant(self):
+        """fetch_failure: B HOLDs (D-04) — no _REDUCEDSUB_USER_ group emitted,
+        and resolve_claimer is NOT consulted (direct HOLD, zero RPC)."""
+        with mock.patch(
+            'billing_audit.writer.prefetch_attribution',
+            return_value=({}, 'fetch_failure'),
+        ), mock.patch(
+            'billing_audit.writer.resolve_claimer',
+            return_value=ResolveOutcome('use', 'ShouldNotAppear', 'frozen', 'success'),
+        ) as _rc:
+            row = self._make_synth_non_helper_row()
+            row['__row_id'] = 72001
+            groups = generate_weekly_pdfs.group_source_rows([row])
+        _rc.assert_not_called()
+        keys = list(groups.keys())
+        self.assertFalse(
+            any('REDUCEDSUB_USER_' in k for k in keys),
+            f"fetch_failure must HOLD the B row (no _USER_ group); got: {keys}",
+        )
+
+    def test_rpc_missing_fallback_off_holds_b(self):
+        """rpc_missing + fallback OFF: operator opted out -> B HOLDs (no
+        _REDUCEDSUB_USER_ group)."""
+        generate_weekly_pdfs.ATTRIBUTION_BULK_PREFETCH_FALLBACK = False
+        with mock.patch(
+            'billing_audit.writer.prefetch_attribution',
+            return_value=({}, 'rpc_missing'),
+        ), mock.patch(
+            'billing_audit.writer.resolve_claimer',
+            return_value=ResolveOutcome('use', 'ShouldNotAppear', 'frozen', 'success'),
+        ) as _rc:
+            row = self._make_synth_non_helper_row()
+            row['__row_id'] = 73001
+            groups = generate_weekly_pdfs.group_source_rows([row])
+        _rc.assert_not_called()
+        keys = list(groups.keys())
+        self.assertFalse(
+            any('REDUCEDSUB_USER_' in k for k in keys),
+            f"fallback-off rpc_missing must HOLD the B row; got: {keys}",
+        )
+
+    def test_wr05_fetch_failure_sub_helper_emits_warning(self):
+        """WR-05: on fetch_failure the sub-helper block sets
+        _attribution_reason='fetch_failure' so the per-WR WARNING fires,
+        WITHOUT consulting the per-row resolver (direct status thread)."""
+        with mock.patch(
+            'billing_audit.writer.prefetch_attribution',
+            return_value=({}, 'fetch_failure'),
+        ), mock.patch(
+            'billing_audit.writer.resolve_claimer',
+            return_value=ResolveOutcome('use', 'X', 'frozen', 'success'),
+        ) as _rc, self.assertLogs(level='WARNING') as log_cm:
+            row = self._make_synth_helper_row()
+            generate_weekly_pdfs.group_source_rows([row])
+        warning_bodies = '\n'.join(log_cm.output)
+        self.assertIn('reason=fetch_failure', warning_bodies)
+        self.assertIn(
+            'Subcontractor helper claim attribution fallback', warning_bodies
+        )
+        # WR-05 threads the status directly; the per-row resolver is NOT
+        # re-invoked for the strict-HOLD case.
+        _rc.assert_not_called()
+
+    def test_wr05_rpc_missing_fallback_off_sub_helper_emits_warning(self):
+        """WR-05: rpc_missing + fallback OFF also surfaces the WARNING."""
+        generate_weekly_pdfs.ATTRIBUTION_BULK_PREFETCH_FALLBACK = False
+        with mock.patch(
+            'billing_audit.writer.prefetch_attribution',
+            return_value=({}, 'rpc_missing'),
+        ), mock.patch(
+            'billing_audit.writer.resolve_claimer',
+            return_value=ResolveOutcome('use', 'X', 'frozen', 'success'),
+        ), self.assertLogs(level='WARNING') as log_cm:
+            row = self._make_synth_helper_row()
+            generate_weekly_pdfs.group_source_rows([row])
+        warning_bodies = '\n'.join(log_cm.output)
+        self.assertIn('reason=fetch_failure', warning_bodies)
+
+
 class TestBugB2WhitelistE2E(unittest.TestCase):
     """D-21(c): PPP cleanup whitelist defense-in-depth."""
 
@@ -1165,8 +1338,20 @@ class TestProductionCodeSiteInvariants(unittest.TestCase):
         # from shared _attr_map (prefetch_attribution / D-03). The old
         # per-row lookup_attribution call is gone; resolve_claimer_sh
         # performs the map lookup via prefetched_map=_attr_map.
+        #
+        # Phase 2 Plan 05 (CR-01): the sub-helper call now routes the
+        # prefetched map through the rpc_missing graceful-degradation gate
+        # (``None if _attr_use_per_row_fallback else _attr_map``), so the
+        # bare ``prefetched_map=_attr_map`` literal moved to the gated form.
+        # The guard's intent — the sub-helper site reads the shared map —
+        # is preserved by asserting the gated expression + the else-clause.
         self.assertIn('_resolve_claimer_sh', self._src)
-        self.assertIn('prefetched_map=_attr_map', self._src)
+        self.assertIn('_attr_use_per_row_fallback', self._src)
+        self.assertRegex(
+            self._src,
+            r'prefetched_map=\(\s*\n?\s*None if _attr_use_per_row_fallback'
+            r'\s*\n?\s*else _attr_map',
+        )
         self.assertIn('SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED', self._src)
 
     def test_hash_prune_version_constant_present_in_production(self):
