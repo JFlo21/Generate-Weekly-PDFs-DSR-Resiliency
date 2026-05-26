@@ -5628,7 +5628,8 @@ def group_source_rows(rows):
                 resolve_claimer as _resolve_claimer_bulk,
                 ResolveOutcome as _ResolveOutcome,
             )
-            _attr_map, _attr_status = _prefetch_attribution(_prefetch_pairs)
+            _prefetch_pairs_filtered = {(wr, we) for wr, we, _ in _prefetch_pairs}
+            _attr_map, _attr_status = _prefetch_attribution(_prefetch_pairs_filtered)
             if _attr_status == 'fetch_failure':
                 logging.warning(
                     "⚠️ Attribution bulk prefetch failed "
