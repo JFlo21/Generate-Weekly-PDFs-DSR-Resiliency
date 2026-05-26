@@ -3461,3 +3461,106 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   is deprecated" Actions warning — a future maintenance item to bump
   ``actions/checkout`` / ``actions/cache`` / ``actions/setup-python`` /
   ``actions/upload-artifact`` to Node-24 versions.
+- [2026-05-26 14:55] **Phase 2 — Attribution Bulk-Prefetch + Historical
+  Claimer Remediation.** Closes the emergent interaction between the
+  [2026-05-26 01:45] `ATTRIBUTION_RESOLUTION_WEEKS=8` scope hotfix and
+  Sub-project E's `SUPABASE_HASH_STORE_AUTHORITATIVE=1` activation
+  (commit `67539ec`). **Root cause:** the scope hotfix gated group-KEY /
+  filename formation (not merely skipping), so E's `no_row -> regenerate`
+  wave for historical groups resolved claimers from the scoped pre-pass
+  (empty for out-of-scope weeks) → `_User__NO_MATCH` (131 files) /
+  `_User_Unknown_Foreman` (241 files) uploaded over real historical
+  attachments in run 26439205107 (372 of 1,116 generated files affected).
+  `attribution_snapshot.frozen_primary` was ~99% populated with real names
+  back to mid-2025 — the data existed; the read side never loaded it for
+  old weeks. Immediate mitigation: reverted `SUPABASE_HASH_STORE_AUTHORITATIVE`
+  to `0` (commit `46cd05d`). **Fix (read-side only — three plans, TDD):**
+  **(Plan 02-01)** Added `lookup_attribution_bulk` Supabase RPC
+  (`billing_audit/schema.sql`, `jsonb_to_recordset` bulk join, CASE
+  blocks copied verbatim from `lookup_attribution`, `GRANT EXECUTE TO
+  service_role`). Added `prefetch_attribution(pairs)` bulk reader (chunked
+  at 500 pairs/RPC, fail-safe, op id `lookup_attribution_bulk` — distinct
+  from all existing ops). Updated `resolve_claimer(prefetched_map=)` with
+  a new keyword parameter for O(1) map reads (default `None` calls the
+  prior per-row path byte-identically). D-04 contract: on `fetch_failure`
+  the CALLER constructs `ResolveOutcome('hold', ...)` directly — zero
+  additional Supabase RPCs on total outage.
+  **(Plan 02-02)** Replaced all four per-variant `ThreadPoolExecutor`
+  pre-passes (sub-primary B, vac-crew C, primary D, sub-helper Phase 1.1)
+  with a single shared `_attr_map` built by one `prefetch_attribution()`
+  call before `group_source_rows`. Each consumer block does an O(1)
+  `resolve_claimer(prefetched_map=_attr_map)` map read — no per-row RPC
+  in the hot loop. B and C apply the D-04 direct-HOLD contract on
+  `fetch_failure`; D uses-current (no HOLD — correctness tradeoff, per
+  design). `ATTRIBUTION_RESOLUTION_WEEKS` removed entirely from code,
+  workflow pin, `environment.md`, and all 4 gate sites — the exact-set
+  bulk load makes recency-gating obsolete and eliminates the footgun that
+  caused the incident. `tests/test_attribution_resolution_scope.py`
+  deleted (13 tests against now-deleted helpers); `TestHistoricalClaimerRegression`
+  added.
+  **(Plan 02-03)** New default-OFF, dry-run-first, isolated
+  `run_claimer_remediation(client, dry_run, window_weeks, valid_wr_weeks=None)`
+  that sweeps `*_NO_MATCH*` / `*_Unknown_Foreman*` attachments across
+  TARGET and PPP within a configurable window (default 26 weeks).
+  `build_group_identity()` parses each filename (battle-hardened parser,
+  not a new regex); live-identity exemption preserves correct files
+  ([2026-05-19 23:45] rule); isolated dispatch returns before any Excel
+  generation. Three env vars workflow-pinned: `REMEDIATE_CLAIMERS='0'`,
+  `REMEDIATION_DRY_RUN='1'`, `REMEDIATION_WINDOW_WEEKS='26'`.
+  **Sequencing / gate (D-09/D-10/D-11):** the fix ships with
+  `SUPABASE_HASH_STORE_AUTHORITATIVE=0`. The flip to `1` is a SEPARATE,
+  human-gated operator action after an evidence-based validation run (zero
+  garbage names; O(chunks) attribution HTTP; runtime <=165 min; pytest
+  green) — explicitly NOT auto-committed in the fix PR; the human gate
+  preserves the separation that the premature `67539ec` flip skipped.
+  Remediation runs AFTER E activation so regenerated files are clean-named
+  (no double-churn). Operator procedure documented in
+  `website/docs/runbook/operations.md` (D-01 RPC deploy + reload, D-10
+  validation gate, D-11 separate flip, D-08 dry-run-first sweep).
+  **New rules:**
+  (1) **A recency/scope gate must NEVER sit on group-KEY / filename
+  formation — only on skip optimizations.** If a value (claimer name,
+  foreman, dept) participates in the identity tuple used for
+  `history_key`, `file_identifier`, `valid_wr_weeks`, or the on-disk
+  filename, it must be resolved for EVERY group that generates — not
+  just for the "recent" subset. The exact-set bulk load is the correct
+  pattern: collect all `(wr, week_ending, row_id)` triples that will
+  actually generate, load them in one round-trip, read O(1) from the
+  map. Extends [2026-05-26 01:45]: parallelism hides O(all-history)
+  call counts; the fix is BULK load (eliminate per-row network cost
+  entirely), not merely parallelize or scope.
+  (2) **Any new `billing_audit` reader must use `with_retry` + the
+  per-op circuit breaker with a DISTINCT op id** (op-isolation, extends
+  [2026-04-25 14:00]). Per-row external I/O over all source rows must be
+  ELIMINATED via bulk load, not merely parallelized (extends [2026-05-26
+  01:45]). On a bulk total-failure (`fetch_failure`) the CALLER applies
+  the per-variant fallback DIRECTLY — HOLD for B/C (correctness over
+  availability), use-current for D (availability over strict correctness
+  for the universal primary path) — with ZERO re-invocation of the
+  per-row RPC path. Never route a bulk-failure through the individual
+  `_lookup_attribution_all` path as a fallback: that would re-introduce
+  O(N) calls on the exact outage scenario the bulk load is meant to
+  eliminate.
+  (3) **A go-live flip that depends on a separate code fix must be a
+  documented, human-gated operator action — never bundled into the fix
+  PR.** The `SUPABASE_HASH_STORE_AUTHORITATIVE=1` flip is the canonical
+  example: E shipped dormant (correct), the premature flip (`67539ec`)
+  triggered the incident, the fix (Phase 2) restores correctness, and
+  the re-flip is a separate PR with a documented validation gate. Any
+  future dormant feature whose activation depends on a data contract
+  (Supabase RPC deploy, schema change, backfill) must follow this
+  pattern: fix ships at `FEATURE=0`; operator validates with evidence;
+  flip is a one-line commit in its own PR citing the validation run.
+  **Regression tests (all TDD red->green):**
+  `tests/test_billing_audit_shadow.py`: `PrefetchAttributionTests` (8),
+  `ResolveClaimerMapAwareTests` (7), `LookupGroupHashTests` (previously
+  shipped by E). `tests/test_primary_claim_attribution.py`:
+  `TestHistoricalClaimerRegression`. `tests/test_claimer_remediation.py`
+  (new file, 9 tests — `TestDryRunNeverDeletes`, `TestExecuteDeletesOnlyGarbage`,
+  `TestLiveIdentityExemption`, `TestIsolationPathValidWrWeeksNone`,
+  `TestWindowFilter`, `TestBothSheetsSwepped`, `TestUnparseableFilesIgnored`,
+  `TestPppDisabledOnlyTargetSwept`). `tests/test_attribution_resolution_scope.py`
+  deleted (13 tests, helpers removed). `pytest tests/` after Plan 02-03:
+  **973 passed / 26 skipped / 69 subtests** (was 955 at Phase 2 start;
+  net +18 new, -13 deleted = +5 net passing). Plan 02-04 (this entry)
+  is documentation-only; no additional test delta.
