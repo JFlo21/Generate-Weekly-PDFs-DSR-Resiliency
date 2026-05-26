@@ -837,6 +837,95 @@ def _lookup_attribution_all(
         return None, "fetch_failure"
 
 
+def prefetch_attribution(
+    pairs: "set[tuple[str, datetime.date]]",
+) -> "tuple[dict[tuple[str, datetime.date, int], dict], str]":
+    """Bulk-load frozen attribution for the run's (wr, week_ending) set.
+
+    Phase 2 (2026-05-26). Returns a ``((wr, week_ending, smartsheet_row_id)
+    -> roles-dict, status)`` tuple.
+    status in {'success', 'no_row', 'fetch_failure', 'unavailable'}.
+
+    Fail-safe: NEVER raises; a Supabase failure returns ({}, 'fetch_failure')
+    so resolve_claimer applies each variant's documented fallback.
+
+    TOTAL-FAILURE CONTRACT (D-04): the function signals total failure ONLY via
+    the RETURN status 'fetch_failure' (with an empty map). It does NOT re-issue
+    any RPC. The CALLER inspects this status and applies each variant's policy
+    DIRECTLY (B/C construct a HOLD ResolveOutcome; D uses-current) — the caller
+    must NEVER fall back to the per-row resolve_claimer RPC path on failure, or
+    an outage becomes a per-row retry storm.
+
+    Reuses with_retry(op="lookup_attribution_bulk") — DISTINCT op id so a
+    bulk-read outage cannot disable freeze_attribution / pipeline_run_* /
+    lookup_attribution / lookup_group_hash (op-isolation, D-13).
+    """
+    if not pairs:
+        return {}, "no_row"
+
+    from billing_audit import client as _client_mod
+
+    client = get_client()
+    if client is None:
+        if _client_mod._global_disable_reason is not None:
+            return {}, "fetch_failure"
+        return {}, "unavailable"
+
+    # Chunk pairs (≤ 500/payload — ~45 bytes/pair; 500 is two orders of
+    # magnitude under the ~1 MB PostgREST body limit; T-02-05 accept).
+    _CHUNK_SIZE = 500
+    pair_list = list(pairs)
+    chunks = [pair_list[i:i + _CHUNK_SIZE]
+              for i in range(0, len(pair_list), _CHUNK_SIZE)]
+
+    result_map: "dict[tuple[str, datetime.date, int], dict]" = {}
+    overall_status = "no_row"
+
+    for chunk in chunks:
+        payload = [
+            {"wr": _WR_SANITIZE.sub("_", str(wr).split(".")[0])[:50],
+             "week_ending": we.isoformat()}
+            for wr, we in chunk
+        ]
+
+        def _invoke(_p=payload):
+            return (
+                client.schema("billing_audit")
+                .rpc("lookup_attribution_bulk", {"p_wr_weeks": _p})
+                .execute()
+            )
+
+        try:
+            result = with_retry(_invoke, op="lookup_attribution_bulk")
+            if result is None:
+                return {}, "fetch_failure"
+            data = getattr(result, "data", None) or []
+            if isinstance(data, dict):
+                data = [data] if data else []
+            for row in data:
+                if not isinstance(row, dict):
+                    continue
+                try:
+                    key = (
+                        str(row["wr"]),
+                        datetime.date.fromisoformat(str(row["week_ending"])),
+                        int(row["smartsheet_row_id"]),
+                    )
+                except (KeyError, ValueError, TypeError):
+                    continue
+                result_map[key] = row
+            if data:
+                overall_status = "success"
+        except Exception:
+            logging.warning(
+                "⚠️ Attribution bulk prefetch hit an unexpected error; "
+                "treating as fetch_failure (HOLD for B/C, use-current for D)."
+            )
+            return {}, "fetch_failure"
+
+    return result_map, overall_status
+
+
 class ResolveOutcome(NamedTuple):
     """Result of resolving the claiming foreman for ONE row.
 
@@ -874,6 +963,7 @@ def resolve_claimer(
     week_ending: datetime.date | None,
     row_id: int,
     enabled: bool,
+    prefetched_map: "dict | None" = None,
 ) -> ResolveOutcome:
     """Resolve the claiming foreman for ONE row (Foundation A contract).
 
@@ -886,11 +976,32 @@ def resolve_claimer(
     HOLD is returned ONLY on a genuine outage (``fetch_failure``); a
     brand-new claim (``no_history``) uses the current value because
     this run is what freezes it.
+
+    D-03: when ``prefetched_map`` is provided (not None), the (wr,
+    week_ending, row_id) key is looked up O(1) from the preloaded map
+    instead of issuing a per-row RPC. The (row, status) shape is
+    identical to ``_lookup_attribution_all`` so the decision table
+    below is unchanged.
+
+    D-04 TOTAL-FAILURE CONTRACT: On a total bulk-load failure the
+    CALLER does NOT pass prefetched_map and does NOT re-invoke this
+    resolver — it constructs the per-variant fetch_failure outcome
+    DIRECTLY (B/C: ResolveOutcome('hold', None, None, 'fetch_failure');
+    D: use-current) so an outage triggers ZERO additional Supabase calls.
     """
     if not enabled:
         return ResolveOutcome("use", current_value, "current", "disabled")
 
-    row, status = _lookup_attribution_all(wr, week_ending, row_id)
+    # D-03: O(1) map read when a preloaded map is provided. Same (row, status)
+    # shape as _lookup_attribution_all so the decision table below is unchanged.
+    if prefetched_map is not None:
+        _key = (wr, week_ending, row_id) if (week_ending and row_id) else None
+        if _key is not None and _key in prefetched_map:
+            row, status = prefetched_map[_key], "success"
+        else:
+            row, status = None, "no_row"
+    else:
+        row, status = _lookup_attribution_all(wr, week_ending, row_id)
     if status == "unavailable":
         return ResolveOutcome("use", current_value, "current", "disabled")
     if status == "fetch_failure":
