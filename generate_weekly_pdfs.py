@@ -8567,6 +8567,20 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 # History key includes variant dimension to prevent collisions
                 history_key = f"{wr_num}|{week_raw}|{variant}|{identifier}"
 
+                # Sub-project E: ISO week-ending date for the durable
+                # Supabase hash store (group_content_hash.week_ending is a
+                # DATE column). Derived from the SAME __week_ending_date the
+                # billing_audit freeze / fingerprint calls use (see the
+                # _week_snap normalization below), so the durable 4-tuple key
+                # matches across the reader, the writer, and those callers.
+                # Falls back to '' when the date is absent — the lookup then
+                # returns no_row and the upsert is keyed on '', both of which
+                # fail safe to "regenerate".
+                _wed = group_rows[0].get('__week_ending_date')
+                if hasattr(_wed, 'date'):
+                    _wed = _wed.date()
+                week_iso = _wed.isoformat() if hasattr(_wed, 'isoformat') else ''
+
                 # Pre-compute hash-change state before any optional side-effects.
                 # Billing audit RPCs are the single most expensive per-group operation
                 # in steady state, so we can safely skip them when the group hash is
@@ -9052,6 +9066,32 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     'identifier': identifier,
                 }
                 history_updates += 1
+
+                # Sub-project E: shadow-write the durable per-group content
+                # hash to Supabase alongside the local json cache. Gated on
+                # SUPABASE_HASH_STORE_WRITE_ENABLED (default ON) — harmless
+                # while the store is not yet authoritative: it just populates
+                # billing_audit.group_content_hash so the eventual
+                # authoritative flip has data to read. ``upsert_group_hash``
+                # is fail-safe (returns a no-op when Supabase is unavailable /
+                # TEST_MODE and never raises); the extra guard keeps a future
+                # regression from breaking the generation path. ``week_iso``
+                # is the ISO DATE the column expects (NOT the MMDDYY
+                # week_raw), kept consistent with lookup_group_hash in the
+                # skip gate above.
+                if (
+                    SUPABASE_HASH_STORE_WRITE_ENABLED
+                    and BILLING_AUDIT_AVAILABLE
+                    and not TEST_MODE
+                ):
+                    try:
+                        _billing_audit_writer.upsert_group_hash(
+                            wr_num, week_iso, variant,
+                            identifier or '', data_hash,
+                        )
+                    except Exception:
+                        logging.exception(
+                            "E shadow hash write failed (non-fatal)")
                 
             except Exception as e:
                 _groups_errored += 1

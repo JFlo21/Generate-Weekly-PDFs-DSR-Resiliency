@@ -250,5 +250,31 @@ class TestCleanFilename(unittest.TestCase):
         )
 
 
+class TestShadowWrite(unittest.TestCase):
+    """Task 6: the generation path shadow-writes the per-group hash to
+    Supabase, gated on SUPABASE_HASH_STORE_WRITE_ENABLED + fail-safe."""
+
+    def setUp(self):
+        self.src = inspect.getsource(gwp)
+
+    def test_upsert_call_present(self):
+        self.assertIn("upsert_group_hash(", self.src)
+
+    def test_upsert_gated_on_write_flag(self):
+        self.assertRegex(
+            self.src,
+            r"SUPABASE_HASH_STORE_WRITE_ENABLED[\s\S]{0,500}"
+            r"upsert_group_hash\(",
+        )
+
+    def test_upsert_uses_iso_week(self):
+        # The shadow write must pass the ISO week-ending date (the DATE
+        # column representation), not the MMDDYY week_raw string.
+        self.assertRegex(
+            self.src,
+            r"upsert_group_hash\(\s*[\s\S]{0,80}week_iso",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
