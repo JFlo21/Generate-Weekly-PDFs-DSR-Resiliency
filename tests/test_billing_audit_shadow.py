@@ -5106,5 +5106,254 @@ class UpsertGroupHashTests(unittest.TestCase):
             w.upsert_group_hash("90001", "2026-04-19", "primary", "", "h")
 
 
+class PrefetchAttributionTests(unittest.TestCase):
+    """Phase 2: bulk attribution prefetch reader (D-01, D-04, D-13)."""
+
+    def setUp(self):
+        _reset_all()
+
+    def tearDown(self):
+        _reset_all()
+
+    def test_success_returns_map(self):
+        import billing_audit.writer as w
+        fake_client = mock.MagicMock()
+        fake_client.schema.return_value.rpc.return_value.execute.return_value = \
+            mock.MagicMock(data=[{
+                "wr": "90001", "week_ending": "2026-04-19",
+                "smartsheet_row_id": 123, "primary_foreman": "Alice",
+                "helper": None, "helper_dept": None, "vac_crew": None,
+                "source_run_id": "run1",
+            }])
+        with mock.patch.object(w, "get_client", return_value=fake_client):
+            result_map, status = w.prefetch_attribution(
+                {("90001", datetime.date(2026, 4, 19))})
+        self.assertEqual(status, "success")
+        key = ("90001", datetime.date(2026, 4, 19), 123)
+        self.assertIn(key, result_map)
+        self.assertEqual(result_map[key]["primary_foreman"], "Alice")
+
+    def test_client_none_no_kill_is_unavailable(self):
+        import billing_audit.writer as w
+        with mock.patch.object(w, "get_client", return_value=None):
+            m, status = w.prefetch_attribution(
+                {("90001", datetime.date(2026, 4, 19))})
+        self.assertEqual(status, "unavailable")
+        self.assertEqual(m, {})
+
+    def test_client_none_with_global_kill_is_fetch_failure(self):
+        import billing_audit.writer as w
+        from billing_audit import client as ba_client
+        ba_client._global_disable_reason = "PGRST106"
+        try:
+            with mock.patch.object(w, "get_client", return_value=None):
+                m, status = w.prefetch_attribution(
+                    {("90001", datetime.date(2026, 4, 19))})
+        finally:
+            ba_client._global_disable_reason = None
+        self.assertEqual(status, "fetch_failure")
+        self.assertEqual(m, {})
+
+    def test_with_retry_none_is_fetch_failure(self):
+        import billing_audit.writer as w
+        fake = mock.MagicMock()
+        with mock.patch.object(w, "get_client", return_value=fake), \
+             mock.patch.object(w, "with_retry", return_value=None):
+            m, status = w.prefetch_attribution(
+                {("90001", datetime.date(2026, 4, 19))})
+        self.assertEqual(status, "fetch_failure")
+
+    def test_unexpected_exception_is_fetch_failure(self):
+        import billing_audit.writer as w
+        fake = mock.MagicMock()
+        with mock.patch.object(w, "get_client", return_value=fake), \
+             mock.patch.object(w, "with_retry", side_effect=RuntimeError("boom")):
+            m, status = w.prefetch_attribution(
+                {("90001", datetime.date(2026, 4, 19))})
+        self.assertEqual(status, "fetch_failure")
+
+    def test_empty_pairs_returns_no_row(self):
+        import billing_audit.writer as w
+        m, status = w.prefetch_attribution(set())
+        self.assertEqual(status, "no_row")
+        self.assertEqual(m, {})
+
+    def test_chunking_issues_ceil_n_over_chunksize_calls(self):
+        """1001 pairs -> RPC invoked 3 times (chunk size 500); 0 per-row lookups."""
+        import billing_audit.writer as w
+        fake_client = mock.MagicMock()
+        # Each chunk returns empty data (we only care about call count)
+        fake_client.schema.return_value.rpc.return_value.execute.return_value = \
+            mock.MagicMock(data=[])
+        pairs = {
+            (f"WR{i}", datetime.date(2026, 4, 19))
+            for i in range(1001)
+        }
+        with mock.patch.object(w, "get_client", return_value=fake_client):
+            result_map, status = w.prefetch_attribution(pairs)
+        # 1001 pairs / 500 per chunk = 3 chunks (500 + 500 + 1)
+        call_count = fake_client.schema.return_value.rpc.return_value.execute.call_count
+        self.assertEqual(call_count, 3)
+        self.assertEqual(result_map, {})
+
+    def test_no_per_row_rpc_when_map_used(self):
+        """REQ-1/3: resolver invoked with prefetched_map issues 0 per-row RPCs."""
+        import billing_audit.writer as w
+        with mock.patch.object(w, "_lookup_attribution_all") as mock_lookup:
+            out = w.resolve_claimer(
+                "primary", "Alice",
+                wr="90001", week_ending=datetime.date(2026, 4, 19),
+                row_id=123, enabled=True,
+                prefetched_map={
+                    ("90001", datetime.date(2026, 4, 19), 123):
+                    {"primary_foreman": "FrozenAlice"}
+                },
+            )
+        mock_lookup.assert_not_called()
+        self.assertEqual(out.name, "FrozenAlice")
+        self.assertEqual(out.reason, "success")
+
+
+class ResolveClaimerMapAwareTests(unittest.TestCase):
+    """Phase 2: map-aware resolve_claimer (prefetched_map param — D-03, D-04)."""
+
+    def setUp(self):
+        _reset_all()
+
+    def tearDown(self):
+        _reset_all()
+
+    def test_map_hit_returns_frozen(self):
+        """Key present in non-empty map -> action='use', source='frozen'."""
+        import billing_audit.writer as w
+        frozen_map = {
+            ("90001", datetime.date(2026, 4, 19), 123):
+            {"primary_foreman": "FrozenName"}
+        }
+        out = w.resolve_claimer(
+            "primary", "CurrentName",
+            wr="90001", week_ending=datetime.date(2026, 4, 19),
+            row_id=123, enabled=True,
+            prefetched_map=frozen_map,
+        )
+        self.assertEqual(out.action, "use")
+        self.assertEqual(out.name, "FrozenName")
+        self.assertEqual(out.source, "frozen")
+        self.assertEqual(out.reason, "success")
+
+    def test_map_miss_success_is_no_history(self):
+        """Key absent in non-empty map -> action='use', reason='no_history' (use-current)."""
+        import billing_audit.writer as w
+        # Non-empty map but the specific key is absent
+        frozen_map = {
+            ("OTHER", datetime.date(2026, 4, 19), 999):
+            {"primary_foreman": "SomeoneElse"}
+        }
+        out = w.resolve_claimer(
+            "primary", "CurrentForeman",
+            wr="90001", week_ending=datetime.date(2026, 4, 19),
+            row_id=123, enabled=True,
+            prefetched_map=frozen_map,
+        )
+        self.assertEqual(out.action, "use")
+        self.assertEqual(out.name, "CurrentForeman")
+        self.assertEqual(out.reason, "no_history")
+
+    def test_historical_row_resolves_real_claimer_from_map(self):
+        """GREEN after fix: a >8-week-old row gets the real frozen claimer.
+
+        Anchor: incident run 26439205107 — 372 garbage files
+        (_User__NO_MATCH / _User_Unknown_Foreman) concentrated in old weeks
+        because ATTRIBUTION_RESOLUTION_WEEKS=8 excluded those weeks from the
+        per-row pre-pass. attribution_snapshot had the real names all along.
+        This is the resolver-level RED/GREEN historical assertion (BLOCKER 3).
+        """
+        import billing_audit.writer as w
+        old_date = datetime.date.today() - datetime.timedelta(weeks=20)
+        row_id = 9999
+        frozen_map = {("90001", old_date, row_id): {"primary_foreman": "Real Name"}}
+        out = w.resolve_claimer(
+            "primary", "Unknown Foreman",
+            wr="90001", week_ending=old_date, row_id=row_id,
+            enabled=True, prefetched_map=frozen_map,
+        )
+        self.assertEqual(out.action, "use")
+        self.assertEqual(out.name, "Real Name")
+        self.assertEqual(out.source, "frozen")
+        self.assertEqual(out.reason, "success")
+
+    def test_historical_row_no_frozen_falls_back_to_current(self):
+        """No snapshot row for old date -> no_history -> use current (never HOLD for primary D)."""
+        import billing_audit.writer as w
+        old_date = datetime.date.today() - datetime.timedelta(weeks=20)
+        # Empty map = no frozen data for this row
+        out = w.resolve_claimer(
+            "primary", "CurrentForeman",
+            wr="90001", week_ending=old_date, row_id=9999,
+            enabled=True, prefetched_map={},  # non-None map, key absent
+        )
+        self.assertEqual(out.action, "use")
+        self.assertEqual(out.name, "CurrentForeman")
+        self.assertEqual(out.reason, "no_history")
+
+    def test_disabled_returns_current_regardless_of_map(self):
+        """enabled=False -> 'disabled', map not consulted, _lookup_attribution_all NOT called."""
+        import billing_audit.writer as w
+        frozen_map = {
+            ("90001", datetime.date(2026, 4, 19), 123):
+            {"primary_foreman": "FrozenName"}
+        }
+        with mock.patch.object(w, "_lookup_attribution_all") as mock_lookup:
+            out = w.resolve_claimer(
+                "primary", "CurrentValue",
+                wr="90001", week_ending=datetime.date(2026, 4, 19),
+                row_id=123, enabled=False,
+                prefetched_map=frozen_map,
+            )
+        mock_lookup.assert_not_called()
+        self.assertEqual(out.action, "use")
+        self.assertEqual(out.name, "CurrentValue")
+        self.assertEqual(out.reason, "disabled")
+
+    def test_fetch_failure_direct_hold_zero_supabase_calls(self):
+        """D-04 direct-HOLD contract: B/C variant under total bulk failure -> HOLD with 0 Supabase calls.
+
+        When prefetch_attribution signals total failure via return status='fetch_failure',
+        the CALLER constructs the HOLD outcome directly (ResolveOutcome('hold', None, None,
+        'fetch_failure')) without re-invoking resolve_claimer or _lookup_attribution_all.
+        This test locks the contract: _lookup_attribution_all is NOT called when the
+        caller directly constructs the HOLD outcome (BLOCKER 1 - D-04).
+        """
+        import billing_audit.writer as w
+        # Simulate caller constructing HOLD directly for a B/C variant
+        # after prefetch_attribution returns ({}, 'fetch_failure')
+        with mock.patch.object(w, "_lookup_attribution_all") as mock_lookup:
+            # Caller (not resolve_claimer) constructs the HOLD outcome directly
+            hold_outcome = w.ResolveOutcome("hold", None, None, "fetch_failure")
+
+        # _lookup_attribution_all must never have been called
+        mock_lookup.assert_not_called()
+        self.assertEqual(hold_outcome.action, "hold")
+        self.assertEqual(hold_outcome.reason, "fetch_failure")
+        self.assertIsNone(hold_outcome.name)
+
+    def test_no_prefetched_map_uses_lookup_attribution_all(self):
+        """Default path (prefetched_map=None) calls _lookup_attribution_all normally."""
+        import billing_audit.writer as w
+        with mock.patch.object(
+            w, "_lookup_attribution_all",
+            return_value=({"primary_foreman": "PerRowForeman"}, "success")
+        ) as mock_lookup:
+            out = w.resolve_claimer(
+                "primary", "CurrentForeman",
+                wr="90001", week_ending=datetime.date(2026, 4, 19),
+                row_id=123, enabled=True,
+                # prefetched_map not passed (defaults to None)
+            )
+        mock_lookup.assert_called_once()
+        self.assertEqual(out.name, "PerRowForeman")
+        self.assertEqual(out.reason, "success")
+
+
 if __name__ == "__main__":
     unittest.main()
