@@ -52,6 +52,7 @@ from tests.test_billing_audit_shadow import (
 
 _ensure_smartsheet_mocked()
 import generate_weekly_pdfs  # noqa: E402 — must come after mock injection
+from billing_audit.writer import ResolveOutcome  # noqa: E402
 
 
 def _safe_reload_gwp():
@@ -414,13 +415,12 @@ class TestEndToEndPipeline(unittest.TestCase):
         the frozen helper from attribution_snapshot still wins over the
         current Smartsheet value in the shadow files.
         """
+        # Phase 2 Plan 02: sub-helper path now calls resolve_claimer with
+        # prefetched_map (O(1) map read, D-03). Mock resolve_claimer to
+        # return the frozen helper for the 'helper' variant.
         with mock.patch(
-            'billing_audit.writer.lookup_attribution',
-            return_value={
-                'helper': 'OriginalForeman',
-                'helper_dept': '500',
-                'source_run_id': 'run-1234',
-            },
+            'billing_audit.writer.resolve_claimer',
+            return_value=ResolveOutcome('use', 'OriginalForeman', 'frozen', 'success'),
         ):
             row = self._make_synth_helper_row(helper_foreman='ReplacementForeman')
             groups = generate_weekly_pdfs.group_source_rows([row])
@@ -462,13 +462,15 @@ class TestEndToEndPipeline(unittest.TestCase):
         )
 
     def test_bug_c_no_history_falls_back_to_current_helper_with_warning(self):
-        """D-12 no_history fallback + WARNING discipline."""
-        # Ensure not in fetch_failure state
-        from billing_audit import client as ba_client
-        ba_client._global_disable_reason = None
+        """D-12 no_history fallback + WARNING discipline.
+
+        Phase 2 Plan 02 update: the sub-helper path now calls
+        resolve_claimer with prefetched_map (O(1) map read, D-03).
+        A 'no_history' outcome triggers the D-12 fallback + WARNING.
+        """
         with mock.patch(
-            'billing_audit.writer.lookup_attribution',
-            return_value=None,
+            'billing_audit.writer.resolve_claimer',
+            return_value=ResolveOutcome('no_history', None, None, 'no_history'),
         ), self.assertLogs(level='WARNING') as log_cm:
             row = self._make_synth_helper_row()
             groups = generate_weekly_pdfs.group_source_rows([row])
@@ -486,28 +488,32 @@ class TestEndToEndPipeline(unittest.TestCase):
         )
 
     def test_bug_c_fetch_failure_falls_back_with_correct_reason(self):
-        """Distinguish no_history vs fetch_failure per D-12."""
-        from billing_audit import client as ba_client
-        ba_client._global_disable_reason = 'PGRST106'
-        try:
-            with mock.patch(
-                'billing_audit.writer.lookup_attribution',
-                return_value=None,
-            ), self.assertLogs(level='WARNING') as log_cm:
-                row = self._make_synth_helper_row()
-                generate_weekly_pdfs.group_source_rows([row])
-            warning_bodies = '\n'.join(log_cm.output)
-            self.assertIn('reason=fetch_failure', warning_bodies)
-        finally:
-            ba_client._global_disable_reason = None
+        """Distinguish no_history vs fetch_failure per D-12.
+
+        Phase 2 Plan 02 update: the sub-helper path now calls
+        resolve_claimer with prefetched_map (O(1) map read, D-03).
+        A 'hold' outcome (action='hold') signals fetch_failure and
+        triggers the D-12 fallback WARNING with reason=fetch_failure.
+        """
+        with mock.patch(
+            'billing_audit.writer.resolve_claimer',
+            return_value=ResolveOutcome('hold', None, None, 'fetch_failure'),
+        ), self.assertLogs(level='WARNING') as log_cm:
+            row = self._make_synth_helper_row()
+            generate_weekly_pdfs.group_source_rows([row])
+        warning_bodies = '\n'.join(log_cm.output)
+        self.assertIn('reason=fetch_failure', warning_bodies)
 
     def test_bug_c_warning_dedupe_per_wr_helper(self):
-        """Per-WR WARNING fires ONCE per (wr, week, helper) tuple."""
-        from billing_audit import client as ba_client
-        ba_client._global_disable_reason = None
+        """Per-WR WARNING fires ONCE per (wr, week, helper) tuple.
+
+        Phase 2 Plan 02 update: the sub-helper path now calls
+        resolve_claimer with prefetched_map (O(1) map read, D-03).
+        A 'no_history' outcome triggers the per-WR deduped WARNING.
+        """
         with mock.patch(
-            'billing_audit.writer.lookup_attribution',
-            return_value=None,
+            'billing_audit.writer.resolve_claimer',
+            return_value=ResolveOutcome('no_history', None, None, 'no_history'),
         ), self.assertLogs(level='WARNING') as log_cm:
             rows = [
                 self._make_synth_helper_row(row_id=i)
@@ -1154,12 +1160,13 @@ class TestProductionCodeSiteInvariants(unittest.TestCase):
         )
 
     def test_bug_c_reader_invocation_site_present_in_production(self):
-        """Bug C reader invocation site."""
-        self.assertIn('lookup_attribution(', self._src)
-        self.assertIn(
-            'from billing_audit.writer import lookup_attribution',
-            self._src,
-        )
+        """Bug C reader invocation site (Phase 2: O(1) map read from bulk prefetch)."""
+        # Phase 2 Plan 02: sub-helper attribution replaced by O(1) map read
+        # from shared _attr_map (prefetch_attribution / D-03). The old
+        # per-row lookup_attribution call is gone; resolve_claimer_sh
+        # performs the map lookup via prefetched_map=_attr_map.
+        self.assertIn('_resolve_claimer_sh', self._src)
+        self.assertIn('prefetched_map=_attr_map', self._src)
         self.assertIn('SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED', self._src)
 
     def test_hash_prune_version_constant_present_in_production(self):

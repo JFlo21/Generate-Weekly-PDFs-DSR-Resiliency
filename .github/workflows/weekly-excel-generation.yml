@@ -7,11 +7,10 @@ permissions:
 # (120min), a slow run could overlap with the next fire. cancel-in-progress:
 # false (queue mode) is the safer choice for billing: a near-complete run
 # must NEVER be cancelled right before hash_history.save / attachment
-# upload finishes — overlapping fires queue instead. In normal operation
-# the attribution-pre-pass recent-week scope (ATTRIBUTION_RESOLUTION_WEEKS)
-# keeps runs well under the cron interval, so the 180min ceiling is
-# headroom, not the expected runtime. The 180min hard ceiling bounds how long a
-# stuck run can hold the queue.
+# upload finishes — overlapping fires queue instead. The bulk attribution
+# prefetch (Phase 2 Plan 02) resolves all claimers in one RPC round-trip,
+# keeping runs well under the cron interval. The 180min hard ceiling bounds
+# how long a stuck run can hold the queue.
 concurrency:
   group: weekly-excel-${{ github.ref }}
   cancel-in-progress: false
@@ -124,10 +123,9 @@ jobs:
     runs-on: ubuntu-latest
     # Hard ceiling for the Actions runner. Must exceed TIME_BUDGET_MINUTES
     # so the Python process exits gracefully before Actions kills it.
-    # User requirement (2026-05-26): raise the ceiling to 3h (was 1h50m)
-    # for headroom while the attribution-pre-pass recent-week scope
-    # (ATTRIBUTION_RESOLUTION_WEEKS) brings normal runs back under the
-    # cron interval. Reserve ~15 minutes for post-job cache/artifact steps
+    # Raised to 3h (was 1h50m) 2026-05-26 for headroom; Phase 2 Plan 02
+    # bulk attribution prefetch keeps normal runs well under the cron
+    # interval. Reserve ~15 minutes for post-job cache/artifact steps
     # (TIME_BUDGET_MINUTES is pinned to 165 below).
     timeout-minutes: 180
     env:
@@ -440,17 +438,6 @@ jobs:
           # bulk-prefetch fix lands (removes the week-scope from key
           # formation). See Living Ledger 2026-05-26.
           SUPABASE_HASH_STORE_AUTHORITATIVE: '0'
-
-          # Perf hotfix 2026-05-26: scope the per-row frozen-attribution
-          # pre-pass (B/C/D + subcontractor-helper path) to the last N
-          # weeks. Run unbounded it resolved ~137k lookup_attribution RPCs
-          # per run (every completed row across ALL history), dominated by
-          # old weeks that change-detection skips anyway — which blew the
-          # time budget. 8 weeks (~2 months) is a generous active-billing
-          # horizon; lower if runs still approach the budget, raise if
-          # old-week edits must keep frozen attribution, or set 0 to
-          # disable scoping (pre-hotfix behavior). Living Ledger 2026-05-26.
-          ATTRIBUTION_RESOLUTION_WEEKS: '8'
 
           # AEP_BILLABLE_CUTOFF is intentionally UNSET in the
           # workflow — the Python default (datetime.date(2026,

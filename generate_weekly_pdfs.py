@@ -630,21 +630,12 @@ SUPABASE_HASH_STORE_AUTHORITATIVE = os.getenv(
 # (write) side is UNTOUCHED — every completed row is still frozen during
 # generation — so the durable attribution data stays complete.
 #
-# Set to 0 to disable scoping (resolve every week — the pre-hotfix
-# behavior / escape hatch). Default 8 weeks (~2 months) is a generous
-# active-billing horizon; lower it if runs still approach the budget,
-# raise it if old-week edits must keep frozen attribution.
-try:
-    ATTRIBUTION_RESOLUTION_WEEKS = int(
-        os.getenv('ATTRIBUTION_RESOLUTION_WEEKS', '8').strip() or '8')
-except (ValueError, TypeError):
-    # Include the raw env value (repr) so a misconfiguration is
-    # diagnosable from the Actions log (mirrors the AEP_BILLABLE_CUTOFF
-    # safe-parse convention).
-    logging.warning(
-        "⚠️ Invalid ATTRIBUTION_RESOLUTION_WEEKS="
-        f"{os.getenv('ATTRIBUTION_RESOLUTION_WEEKS')!r}; falling back to 8")
-    ATTRIBUTION_RESOLUTION_WEEKS = 8
+# Phase 2 Plan 02 (D-05): ATTRIBUTION_RESOLUTION_WEEKS removed. The bulk
+# prefetch (prefetch_attribution) now covers the exact (wr, week_ending)
+# pairs in the current run — no recency scope gate is needed. This fixes
+# the production incident (run 26439205107) where the 8-week scope gate
+# prevented historical frozen claimers from being resolved, producing
+# 372 garbage _User__NO_MATCH / _User_Unknown_Foreman files.
 
 # Cutoff date for ``_AEPBillable`` variant generation. Awarded to
 # Linetec on 2026-04-12 (subcontractor rate contract). Plan 2 (parser
@@ -834,12 +825,6 @@ logging.info(
     f"📋 SUPABASE_HASH_STORE_AUTHORITATIVE="
     f"{SUPABASE_HASH_STORE_AUTHORITATIVE}"
 )
-# Perf hotfix 2026-05-26: recent-week scope for the attribution pre-pass.
-logging.info(
-    f"📋 ATTRIBUTION_RESOLUTION_WEEKS={ATTRIBUTION_RESOLUTION_WEEKS}"
-    f"{' (scoping disabled — resolve all weeks)' if ATTRIBUTION_RESOLUTION_WEEKS <= 0 else ''}"
-)
-
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
 RESET_WR_LIST = {w.strip() for w in os.getenv('RESET_WR_LIST','').split(',') if w.strip()}  # When provided, only purge these WR numbers (overrides full reset)
 _env_hist_path = os.getenv('HASH_HISTORY_PATH')
@@ -5332,68 +5317,6 @@ def get_all_source_rows(client, source_sheets):
 
     return merged_rows
 
-def _attribution_resolution_cutoff():
-    """Earliest week-ending date for which the frozen-attribution pre-pass
-    resolves ``lookup_attribution`` (perf hotfix 2026-05-26). Returns None
-    when ``ATTRIBUTION_RESOLUTION_WEEKS`` <= 0 (scoping disabled — resolve
-    every week). Computed against ``date.today()`` at call time so a
-    long-lived process re-evaluates correctly."""
-    if ATTRIBUTION_RESOLUTION_WEEKS <= 0:
-        return None
-    try:
-        return datetime.date.today() - timedelta(
-            weeks=ATTRIBUTION_RESOLUTION_WEEKS)
-    except (OverflowError, OSError):
-        # Codex P2 (2026-05-26): an absurd configured value (e.g. a
-        # typo'd extra zero) overflows the date range. A window that
-        # large means "effectively no scoping", so degrade to None
-        # (resolve every week) rather than crash the run — never let a
-        # config typo take down billing generation.
-        return None
-
-def _attribution_week_in_scope(week_ending):
-    """True if ``week_ending`` is recent enough to resolve frozen
-    attribution for. Out-of-scope (older) rows resolve to use-current at
-    emission — safe because their groups are already frozen-attributed +
-    skipped, so the result is unused (see ATTRIBUTION_RESOLUTION_WEEKS
-    comment). Fail-safe: an unknown/None or unparseable date returns True
-    (resolve) so a row is never silently dropped from attribution because
-    its date couldn't be read.
-
-    Codex P1 (2026-05-26): a FORCED / EXPLICIT historical rebuild
-    regenerates old-week groups on purpose, so their frozen attribution
-    IS consumed and must NOT be scoped out. Mirror the
-    ``_history_eligible_for_skip`` force conditions exactly — when the run
-    (FORCE_GENERATION / RESET_HASH_HISTORY / RESET_WR_LIST) or the row's
-    week (REGEN_WEEKS) is NOT skip-eligible, always resolve regardless of
-    age. This keeps backfill fidelity precisely where the operator asked
-    for it. (The residual non-forced incidental-regeneration cases — an
-    edited >N-week-old row, or a missing attachment forcing regen — are
-    the documented rare edge: they degrade to current foreman, the
-    durable freeze data still exists, and REGEN_WEEKS / a larger
-    ATTRIBUTION_RESOLUTION_WEEKS / 0 are the escape hatches.)"""
-    _cut = _attribution_resolution_cutoff()
-    if _cut is None:
-        return True  # scoping disabled
-    # Forced / explicit full-run regeneration: never scope out (Codex P1).
-    if FORCE_GENERATION or RESET_HASH_HISTORY or RESET_WR_LIST:
-        return True
-    if week_ending is None:
-        return True
-    _d = (week_ending.date()
-          if isinstance(week_ending, datetime.datetime)
-          else week_ending)
-    # Per-week forced regeneration via REGEN_WEEKS (MMDDYY codes).
-    try:
-        if REGEN_WEEKS and _d.strftime('%m%d%y') in REGEN_WEEKS:
-            return True
-    except (AttributeError, ValueError):
-        pass
-    try:
-        return _d >= _cut
-    except TypeError:
-        return True
-
 def group_source_rows(rows):
     """
     VARIANT-AWARE GROUPING: Groups rows by Work Request #, Week Ending Date, and Variant (primary/helper/vac_crew).
@@ -5457,251 +5380,225 @@ def group_source_rows(rows):
     # call out as a P0 noise hazard.
     _bug_c_warning_seen: set[tuple[str, str, str]] = set()
 
-    # ── Subproject B (2026-05-20): parallel attribution pre-pass ──
-    # Resolve the FROZEN primary claimer for every completed
-    # subcontractor row BEFORE the grouping loop, so no per-row
-    # Supabase round-trip runs inside the hot loop (honors the
-    # [2026-04-25 14:00] latency lesson). The map is consumed by the
-    # subcontractor variant-emission block. A row absent from the map
-    # (attribution disabled, pre-pass skipped, missing __row_id, or an
-    # unexpected per-row error) resolves to use-current at emission —
-    # NEVER HOLD — so a plumbing fault can never silently suppress a
-    # billing file. resolve_claimer's own fetch_failure -> HOLD is the
-    # only path that defers a row.
+    # ── Phase 2 Plan 02: Single bulk attribution prefetch (D-02) ──
+    # Replace four separate per-row lookup_attribution RPC pre-passes
+    # (B/C/D/Phase-1.1-sub-helper, ~137k calls/run on full history) with
+    # ONE prefetch_attribution call that fetches ALL (wr, week_ending)
+    # pairs in the current row set in bulk, building a shared
+    #   {(wr, week_ending, row_id) -> roles_dict}
+    # map for O(1) per-row resolution (D-03: map-aware resolve_claimer).
+    #
+    # D-04 direct-HOLD contract: on fetch_failure, B and C construct
+    # ResolveOutcome('hold', None, None, 'fetch_failure') DIRECTLY from the
+    # status — zero additional Supabase calls. D uses-current (never HOLDs)
+    # per operator decision (core primary path prioritizes availability).
+    #
+    # D-05 scope removal: ATTRIBUTION_RESOLUTION_WEEKS and its scope gate
+    # have been deleted. The bulk prefetch covers the EXACT (wr, week_ending)
+    # pairs in the current run — no recency gate needed. Historical rows
+    # with valid frozen claimers are now correctly resolved regardless of age
+    # (fixes incident run 26439205107: 372 garbage _User__NO_MATCH files).
+    _attr_map: dict = {}
+    _attr_status: str = 'disabled'
+    if BILLING_AUDIT_AVAILABLE and (
+        SUBCONTRACTOR_RATE_VARIANTS_ENABLED
+        or VAC_CREW_CLAIM_ATTRIBUTION_ENABLED
+        or PRIMARY_CLAIM_ATTRIBUTION_ENABLED
+        or SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED
+    ):
+        # Build (wr, week_ending, row_id) pairs from all completed rows
+        # that any of the four attribution consumers will process.
+        _prefetch_pairs: set[tuple[str, datetime.date, int]] = set()
+        for _r in rows:
+            _rid = _r.get('__row_id')
+            if not isinstance(_rid, int):
+                continue
+            if not is_checked(_r.get('Units Completed?')):
+                continue
+            _wr_raw = _r.get('Work Request #')
+            _ld = _r.get('Weekly Reference Logged Date')
+            if not _wr_raw or not _ld:
+                continue
+            _we = excel_serial_to_date(_ld)
+            if _we is None:
+                continue
+            _we_d = _we.date() if isinstance(_we, datetime.datetime) else _we
+            _prefetch_pairs.add((str(_wr_raw).split('.')[0], _we_d, _rid))
+
+        try:
+            from billing_audit.writer import (
+                prefetch_attribution as _prefetch_attribution,
+                resolve_claimer as _resolve_claimer_bulk,
+                ResolveOutcome as _ResolveOutcome,
+            )
+            _attr_map, _attr_status = _prefetch_attribution(_prefetch_pairs)
+            if _attr_status == 'fetch_failure':
+                logging.warning(
+                    "⚠️ Attribution bulk prefetch failed "
+                    f"(status={_attr_status}); B/C will HOLD affected rows, "
+                    "D/sub-helper will use current foreman (D-04 contract)."
+                )
+        except Exception:
+            logging.exception(
+                "⚠️ Attribution bulk prefetch: unexpected error; "
+                "falling back to use-current for all attribution consumers."
+            )
+            _attr_map, _attr_status = {}, 'fetch_failure'
+
+    # ── Subproject B: O(1) map read for sub-primary claimers (D-03) ──
+    # The ThreadPoolExecutor per-row RPC block is replaced by O(1) lookups
+    # from the shared _attr_map. On fetch_failure, ResolveOutcome is
+    # constructed directly (D-04 direct-HOLD, zero additional Supabase calls).
     _sub_primary_claimer_map: dict = {}
     if BILLING_AUDIT_AVAILABLE and SUBCONTRACTOR_RATE_VARIANTS_ENABLED:
-        _b_pre_rows = []
-        for _r in rows:
-            _sid = _r.get('__source_sheet_id')
-            if _sid is None or _sid not in _FOLDER_DISCOVERED_SUB_IDS:
-                continue
-            _rid = _r.get('__row_id')
-            if not isinstance(_rid, int):
-                continue
-            _wr_raw = _r.get('Work Request #')
-            _ld = _r.get('Weekly Reference Logged Date')
-            if not _wr_raw or not _ld or not is_checked(_r.get('Units Completed?')):
-                continue
-            _we = excel_serial_to_date(_ld)
-            if _we is None:
-                continue
-            _we_d = _we.date() if isinstance(_we, datetime.datetime) else _we
-            # Perf hotfix 2026-05-26: skip resolution for rows older than the
-            # recent-week window (their groups are frozen-attributed + skipped;
-            # out-of-scope rows resolve to use-current at emission).
-            if not _attribution_week_in_scope(_we_d):
-                continue
-            _b_pre_rows.append((
-                _rid,
-                str(_wr_raw).split('.')[0],
-                _we_d,
-                _r.get('__effective_user', 'Unknown Foreman'),
-            ))
-        if _b_pre_rows:
-            try:
-                from billing_audit.writer import resolve_claimer as _resolve_claimer
-
-                def _resolve_one(_item):
-                    _rid, _wr, _we_date, _eu = _item
-                    return _rid, _resolve_claimer(
-                        'reduced_sub', _eu,
-                        wr=_wr, week_ending=_we_date, row_id=_rid,
-                        enabled=SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED,
+        try:
+            from billing_audit.writer import (
+                resolve_claimer as _resolve_claimer_b,
+                ResolveOutcome as _ResolveOutcome_b,
+            )
+            for _r in rows:
+                _sid = _r.get('__source_sheet_id')
+                if _sid is None or _sid not in _FOLDER_DISCOVERED_SUB_IDS:
+                    continue
+                _rid = _r.get('__row_id')
+                if not isinstance(_rid, int):
+                    continue
+                _wr_raw = _r.get('Work Request #')
+                _ld = _r.get('Weekly Reference Logged Date')
+                if not _wr_raw or not _ld or not is_checked(_r.get('Units Completed?')):
+                    continue
+                _we = excel_serial_to_date(_ld)
+                if _we is None:
+                    continue
+                _we_d = _we.date() if isinstance(_we, datetime.datetime) else _we
+                _eu = _r.get('__effective_user', 'Unknown Foreman')
+                _wr_key_b = str(_wr_raw).split('.')[0]
+                if _attr_status == 'fetch_failure':
+                    # D-04: construct HOLD directly, zero additional RPC calls.
+                    _sub_primary_claimer_map[_rid] = _ResolveOutcome_b(
+                        'hold', None, None, 'fetch_failure'
                     )
-
-                if len(_b_pre_rows) <= 1:
-                    for _item in _b_pre_rows:
-                        _rid, _out = _resolve_one(_item)
-                        _sub_primary_claimer_map[_rid] = _out
                 else:
-                    _workers = min(PARALLEL_WORKERS, len(_b_pre_rows))
-                    with ThreadPoolExecutor(max_workers=_workers) as _ex:
-                        _futs = [_ex.submit(_resolve_one, _it) for _it in _b_pre_rows]
-                        for _fut in as_completed(_futs):
-                            try:
-                                _rid, _out = _fut.result()
-                                _sub_primary_claimer_map[_rid] = _out
-                            except Exception:
-                                logging.exception(
-                                    "⚠️ Subproject B attribution pre-pass: "
-                                    "unexpected error for one row (treating "
-                                    "as use-current)"
-                                )
-            except Exception:
-                logging.exception(
-                    "⚠️ Subproject B attribution pre-pass failed; falling "
-                    "back to current foreman for all subcontractor rows"
-                )
-                _sub_primary_claimer_map = {}
+                    _sub_primary_claimer_map[_rid] = _resolve_claimer_b(
+                        'reduced_sub', _eu,
+                        wr=_wr_key_b,
+                        week_ending=_we_d,
+                        row_id=_rid,
+                        enabled=SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED,
+                        prefetched_map=_attr_map,
+                    )
+        except Exception:
+            logging.exception(
+                "⚠️ Subproject B attribution map-read failed; falling "
+                "back to current foreman for all subcontractor rows"
+            )
+            _sub_primary_claimer_map = {}
 
-    # Subproject C: Resolve the FROZEN vac-crew claimer for every completed
-    # VAC Crew row BEFORE the grouping loop, so no per-row Supabase
-    # round-trip runs inside the hot loop (honors [2026-04-25 14:00]
-    # latency lesson). The map is keyed by __row_id and consumed by the
-    # vac_crew emission block. A row absent from the map (attribution
-    # disabled, pre-pass skipped, missing __row_id, or unexpected per-row
-    # error) resolves to use-current at emission — NEVER HOLD — so a
-    # plumbing fault can never silently suppress a billing file.
-    # resolve_claimer's own fetch_failure -> HOLD is the only path that
-    # defers a row.
+    # ── Subproject C: O(1) map read for vac-crew claimers (D-03) ──
+    # D-04 direct-HOLD on fetch_failure, zero additional Supabase calls.
     _vac_crew_claimer_map: dict = {}
     if BILLING_AUDIT_AVAILABLE and VAC_CREW_CLAIM_ATTRIBUTION_ENABLED:
-        _vac_pre_rows = []
-        for _r in rows:
-            _rid = _r.get('__row_id')
-            if not isinstance(_rid, int):
-                continue
-            if not _r.get('__is_vac_crew'):
-                continue
-            _wr_raw = _r.get('Work Request #')
-            _ld = _r.get('Weekly Reference Logged Date')
-            if not _wr_raw or not _ld or not is_checked(_r.get('Units Completed?')):
-                continue
-            _we = excel_serial_to_date(_ld)
-            if _we is None:
-                continue
-            _we_d = _we.date() if isinstance(_we, datetime.datetime) else _we
-            # Perf hotfix 2026-05-26: recent-week scope (see Subproject B above).
-            if not _attribution_week_in_scope(_we_d):
-                continue
-            _vac_pre_rows.append((
-                _rid,
-                str(_wr_raw).split('.')[0],
-                _we_d,
-                _r.get('__vac_crew_name') or '',
-            ))
-        if _vac_pre_rows:
-            try:
-                from billing_audit.writer import resolve_claimer as _resolve_claimer_vac
-
-                def _resolve_one_vac(_item):
-                    _rid, _wr, _we_date, _current = _item
-                    return _rid, _resolve_claimer_vac(
-                        'vac_crew', _current,
-                        wr=_wr, week_ending=_we_date, row_id=_rid,
-                        enabled=VAC_CREW_CLAIM_ATTRIBUTION_ENABLED,
+        try:
+            from billing_audit.writer import (
+                resolve_claimer as _resolve_claimer_c,
+                ResolveOutcome as _ResolveOutcome_c,
+            )
+            for _r in rows:
+                _rid = _r.get('__row_id')
+                if not isinstance(_rid, int):
+                    continue
+                if not _r.get('__is_vac_crew'):
+                    continue
+                _wr_raw = _r.get('Work Request #')
+                _ld = _r.get('Weekly Reference Logged Date')
+                if not _wr_raw or not _ld or not is_checked(_r.get('Units Completed?')):
+                    continue
+                _we = excel_serial_to_date(_ld)
+                if _we is None:
+                    continue
+                _we_d = _we.date() if isinstance(_we, datetime.datetime) else _we
+                _current_vac = _r.get('__vac_crew_name') or ''
+                _wr_key_c = str(_wr_raw).split('.')[0]
+                if _attr_status == 'fetch_failure':
+                    # D-04: construct HOLD directly, zero additional RPC calls.
+                    _vac_crew_claimer_map[_rid] = _ResolveOutcome_c(
+                        'hold', None, None, 'fetch_failure'
                     )
-
-                if len(_vac_pre_rows) <= 1:
-                    for _item in _vac_pre_rows:
-                        _rid, _out = _resolve_one_vac(_item)
-                        _vac_crew_claimer_map[_rid] = _out
                 else:
-                    _workers = min(PARALLEL_WORKERS, len(_vac_pre_rows))
-                    with ThreadPoolExecutor(max_workers=_workers) as _ex:
-                        _futs = [_ex.submit(_resolve_one_vac, _it) for _it in _vac_pre_rows]
-                        for _fut in as_completed(_futs):
-                            try:
-                                _rid, _out = _fut.result()
-                                _vac_crew_claimer_map[_rid] = _out
-                            except Exception:
-                                logging.exception(
-                                    "⚠️ Subproject C attribution pre-pass: "
-                                    "unexpected error for one row (treating "
-                                    "as use-current)"
-                                )
-            except Exception:
-                logging.exception(
-                    "⚠️ Subproject C attribution pre-pass failed; falling "
-                    "back to current vac-crew name for all VAC Crew rows"
-                )
-                _vac_crew_claimer_map = {}
+                    _vac_crew_claimer_map[_rid] = _resolve_claimer_c(
+                        'vac_crew', _current_vac,
+                        wr=_wr_key_c,
+                        week_ending=_we_d,
+                        row_id=_rid,
+                        enabled=VAC_CREW_CLAIM_ATTRIBUTION_ENABLED,
+                        prefetched_map=_attr_map,
+                    )
+        except Exception:
+            logging.exception(
+                "⚠️ Subproject C attribution map-read failed; falling "
+                "back to current vac-crew name for all VAC Crew rows"
+            )
+            _vac_crew_claimer_map = {}
 
-    # Subproject D (2026-05-25): resolve the FROZEN primary claimer for
-    # every completed NON-subcontractor, non-vac primary row BEFORE the
-    # grouping loop, so no per-row Supabase round-trip runs inside the
-    # hot loop (honors [2026-04-25 14:00] latency lesson). The map is
-    # keyed by __row_id and consumed by the production primary emission
-    # branch. A row absent from the map (attribution disabled, pre-pass
-    # skipped, missing __row_id, or unexpected per-row error) resolves to
-    # use-current at emission. Unlike B/C, a ``hold`` outcome (Supabase
-    # outage) is ALSO consumed as use-current at emission — D never
-    # defers a primary file (operator decision: the core path prioritizes
-    # availability). resolve_claimer is still called so frozen attribution
-    # is used whenever Supabase is healthy.
+    # ── Subproject D: O(1) map read for primary claimers (D-03) ──
+    # Unlike B/C, D never HOLDs on fetch_failure — the core primary path
+    # prioritizes availability (operator decision; D uses-current on any
+    # failure so all primary billing still ships).
     _primary_claimer_map: dict = {}
     if (
         BILLING_AUDIT_AVAILABLE
         and PRIMARY_CLAIM_ATTRIBUTION_ENABLED
         and RES_GROUPING_MODE in ('helper', 'both')
     ):
-        _d_pre_rows = []
-        for _r in rows:
-            _rid = _r.get('__row_id')
-            if not isinstance(_rid, int):
-                continue
-            if _r.get('__is_vac_crew'):
-                continue
-            # Valid helper rows are excluded from the primary emission path
-            # below, so resolving a frozen primary claimer for them is pure
-            # overhead (extra Supabase load / latency). Mirror the
-            # valid_helper_row predicate (helper_dept required, job optional).
-            if (
-                _r.get('__is_helper_row')
-                and _r.get('__helper_foreman')
-                and _r.get('__helper_dept')
-            ):
-                continue
-            _sid = _r.get('__source_sheet_id')
-            if _sid is not None and _sid in _FOLDER_DISCOVERED_SUB_IDS:
-                continue  # subcontractor rows are Sub-project B's domain
-            _wr_raw = _r.get('Work Request #')
-            _ld = _r.get('Weekly Reference Logged Date')
-            if not _wr_raw or not _ld or not is_checked(_r.get('Units Completed?')):
-                continue
-            _we = excel_serial_to_date(_ld)
-            if _we is None:
-                continue
-            _we_d = _we.date() if isinstance(_we, datetime.datetime) else _we
-            # Perf hotfix 2026-05-26: recent-week scope (see Subproject B above).
-            if not _attribution_week_in_scope(_we_d):
-                continue
-            _d_pre_rows.append((
-                _rid,
-                str(_wr_raw).split('.')[0],
-                _we_d,
-                _r.get('__effective_user', 'Unknown Foreman'),
-            ))
-
-        if _d_pre_rows:
-            try:
-                from billing_audit.writer import resolve_claimer as _resolve_claimer_primary
-
-                def _resolve_one_primary(_item):
-                    _rid, _wr, _we_date, _eu = _item
-                    return _rid, _resolve_claimer_primary(
-                        'primary', _eu,
-                        wr=_wr, week_ending=_we_date, row_id=_rid,
-                        enabled=PRIMARY_CLAIM_ATTRIBUTION_ENABLED,
-                    )
-
-                if len(_d_pre_rows) <= 1:
-                    for _item in _d_pre_rows:
-                        _rid, _out = _resolve_one_primary(_item)
-                        _primary_claimer_map[_rid] = _out
-                else:
-                    _workers = min(PARALLEL_WORKERS, len(_d_pre_rows))
-                    with ThreadPoolExecutor(max_workers=_workers) as _ex:
-                        _futs = [
-                            _ex.submit(_resolve_one_primary, _it)
-                            for _it in _d_pre_rows
-                        ]
-                        for _fut in as_completed(_futs):
-                            try:
-                                _rid, _out = _fut.result()
-                                _primary_claimer_map[_rid] = _out
-                            except Exception:
-                                logging.exception(
-                                    "⚠️ Subproject D attribution pre-pass: "
-                                    "unexpected error for one row (treating "
-                                    "as use-current)"
-                                )
-            except Exception:
-                logging.exception(
-                    "⚠️ Subproject D attribution pre-pass failed; falling "
-                    "back to current foreman for all primary rows"
+        try:
+            from billing_audit.writer import (
+                resolve_claimer as _resolve_claimer_d,
+            )
+            for _r in rows:
+                _rid = _r.get('__row_id')
+                if not isinstance(_rid, int):
+                    continue
+                if _r.get('__is_vac_crew'):
+                    continue
+                # Valid helper rows are excluded from the primary emission
+                # path, so resolving their primary claimer is pure overhead.
+                if (
+                    _r.get('__is_helper_row')
+                    and _r.get('__helper_foreman')
+                    and _r.get('__helper_dept')
+                ):
+                    continue
+                _sid = _r.get('__source_sheet_id')
+                if _sid is not None and _sid in _FOLDER_DISCOVERED_SUB_IDS:
+                    continue  # subcontractor rows are Sub-project B's domain
+                _wr_raw = _r.get('Work Request #')
+                _ld = _r.get('Weekly Reference Logged Date')
+                if not _wr_raw or not _ld or not is_checked(_r.get('Units Completed?')):
+                    continue
+                _we = excel_serial_to_date(_ld)
+                if _we is None:
+                    continue
+                _we_d = _we.date() if isinstance(_we, datetime.datetime) else _we
+                _eu = _r.get('__effective_user', 'Unknown Foreman')
+                _wr_key_d = str(_wr_raw).split('.')[0]
+                # D never HOLDs: on fetch_failure, use-current at emission
+                # (resolve_claimer returns action='disabled' from prefetched_map
+                # when map is empty + fetch_failure status is handled at the
+                # emission site via the else/no_history fallback path).
+                _primary_claimer_map[_rid] = _resolve_claimer_d(
+                    'primary', _eu,
+                    wr=_wr_key_d,
+                    week_ending=_we_d,
+                    row_id=_rid,
+                    enabled=PRIMARY_CLAIM_ATTRIBUTION_ENABLED,
+                    prefetched_map=_attr_map,
                 )
-                _primary_claimer_map = {}
+        except Exception:
+            logging.exception(
+                "⚠️ Subproject D attribution map-read failed; falling "
+                "back to current foreman for all primary rows"
+            )
+            _primary_claimer_map = {}
 
     for r in rows:
         wr = r.get('Work Request #')
@@ -6192,76 +6089,52 @@ def group_source_rows(rows):
                         # WARNINGs.
                         _attributed_helper = helper_foreman  # D-12 default
                         _attribution_reason: str | None = None
-                        # Perf hotfix 2026-05-26: recent-week scope. An
-                        # out-of-scope (old) row keeps the D-12 default
-                        # (_attributed_helper = current helper_foreman) and
-                        # skips the per-row lookup_attribution RPC — its
-                        # helper file is already frozen-attributed + skipped.
+                        # Phase 2 Plan 02 (D-03): O(1) map read from the
+                        # shared _attr_map built by prefetch_attribution.
+                        # No per-row Supabase RPC; no recency scope gate
+                        # (D-05 removed ATTRIBUTION_RESOLUTION_WEEKS entirely).
                         if (
                             is_subcontractor_row
                             and SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED
-                            and _attribution_week_in_scope(week_ending_date)
                         ):
                             try:
-                                from billing_audit.writer import lookup_attribution
-                                _attribution_row = lookup_attribution(
-                                    wr_key,
-                                    week_ending_date,
-                                    r.get('__row_id'),
+                                from billing_audit.writer import (
+                                    resolve_claimer as _resolve_claimer_sh,
                                 )
+                                _sh_rid = r.get('__row_id')
+                                _sh_out = _resolve_claimer_sh(
+                                    'helper', helper_foreman,
+                                    wr=wr_key,
+                                    week_ending=week_ending_date,
+                                    row_id=_sh_rid,
+                                    enabled=SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED,
+                                    prefetched_map=_attr_map,
+                                )
+                                if _sh_out.action == 'use':
+                                    _attributed_helper = (
+                                        _sh_out.name or helper_foreman
+                                    )
+                                    _attribution_reason = None
+                                elif _sh_out.action == 'hold':
+                                    # fetch_failure: D-12 default (current
+                                    # helper), flag for WARNING below.
+                                    _attribution_reason = 'fetch_failure'
+                                else:
+                                    # 'disabled' or 'no_history': use D-12 default
+                                    _attribution_reason = (
+                                        _sh_out.reason
+                                        if _sh_out.reason in ('no_history', 'fetch_failure')
+                                        else None
+                                    )
                             except Exception:
-                                # Reader's own contract returns None on
-                                # failure; this except is
-                                # defense-in-depth against future
-                                # regressions (e.g., an unexpected
-                                # exception in the supabase client that
-                                # escapes the reader's exception
-                                # boundary). The pipeline MUST NEVER
-                                # crash on a reader failure — the
-                                # fall-back to current helper is the
-                                # safe semantic.
+                                # Defense-in-depth: pipeline MUST NEVER
+                                # crash on a reader failure — D-12 default.
                                 logging.exception(
                                     "⚠️ Subcontractor helper claim "
-                                    "attribution fallback: unexpected "
-                                    "reader exception (treating as "
-                                    "fetch_failure)"
+                                    "attribution map-read: unexpected "
+                                    "error (treating as fetch_failure)"
                                 )
-                                _attribution_row = None
                                 _attribution_reason = 'fetch_failure'
-
-                            if _attribution_row is None:
-                                # Distinguish no_history vs
-                                # fetch_failure: the reader already
-                                # returns None for both, but
-                                # fetch_failure is bound to a
-                                # PostgREST/global-kill state
-                                # observable via
-                                # ``_global_disable_reason``. The
-                                # no_history case is the expected
-                                # first-cron-run state for a brand-new
-                                # WR.
-                                if _attribution_reason is None:
-                                    try:
-                                        from billing_audit.client import (
-                                            _global_disable_reason,
-                                        )
-                                        if _global_disable_reason is not None:
-                                            _attribution_reason = 'fetch_failure'
-                                        else:
-                                            _attribution_reason = 'no_history'
-                                    except Exception:
-                                        _attribution_reason = 'no_history'
-                                # _attributed_helper stays as
-                                # helper_foreman (D-12 default)
-                            else:
-                                _frozen_helper = _attribution_row.get('helper')
-                                if _frozen_helper:
-                                    _attributed_helper = str(_frozen_helper).strip()
-                                else:
-                                    # Reader's contract already filters
-                                    # empty-string helpers to None; this
-                                    # guard is defense-in-depth.
-                                    _attribution_reason = 'no_history'
 
                         # Per-WR dedupe WARNING — operator-actionable,
                         # names the reason. `_bug_c_warning_seen` is

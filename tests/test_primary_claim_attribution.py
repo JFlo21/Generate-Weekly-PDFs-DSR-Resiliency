@@ -170,9 +170,11 @@ class TestPrimaryPrePassSource(unittest.TestCase):
     def test_prepass_block_present(self):
         src = inspect.getsource(generate_weekly_pdfs)
         self.assertIn("_primary_claimer_map", src)
+        # Phase 2 Plan 02: D uses O(1) map read (_resolve_claimer_d) from
+        # shared _attr_map built by prefetch_attribution (D-03).
         self.assertRegex(
             src,
-            r"resolve_claimer_primary\(\s*'primary'",
+            r"_resolve_claimer_d\(\s*\n?\s*'primary'",
         )
         # Pre-pass must exclude subcontractor + vac rows.
         self.assertRegex(
@@ -226,7 +228,7 @@ class TestPrimaryEmission(unittest.TestCase):
             _make_primary_row(2, wr='90001', effective_user='B'),
         ]
 
-        def _resolve(variant, current, *, wr, week_ending, row_id, enabled):
+        def _resolve(variant, current, *, wr, week_ending, row_id, enabled, prefetched_map=None):
             return ResolveOutcome(
                 'use', 'Alice' if row_id == 1 else 'Bob', 'frozen', 'success'
             )

@@ -286,12 +286,18 @@ class TestPrePassEmission(unittest.TestCase):
         row['__helper_foreman'] = 'HelperGuy'
         row['__helper_dept'] = '500'
         row['__helper_job'] = 'JOB-X'
+
+        def _resolve_by_variant(variant, current, *, wr, week_ending, row_id,
+                                enabled, prefetched_map=None):
+            # Primary variants resolve to PrimaryClaimer (guard must exclude them);
+            # helper variant resolves to HelperGuy (shadow file uses this).
+            if variant in ('reduced_sub', 'aep_billable'):
+                return ResolveOutcome('use', 'PrimaryClaimer', 'frozen', 'success')
+            return ResolveOutcome('use', 'HelperGuy', 'current', 'no_history')
+
         with mock.patch(
             'billing_audit.writer.resolve_claimer',
-            return_value=ResolveOutcome('use', 'PrimaryClaimer', 'frozen', 'success'),
-        ), mock.patch(
-            'billing_audit.writer.lookup_attribution',
-            return_value=None,  # no_history → shadow uses current helper
+            side_effect=_resolve_by_variant,
         ):
             groups = generate_weekly_pdfs.group_source_rows([row])
         keys = list(groups.keys())
@@ -310,7 +316,7 @@ class TestPrePassEmission(unittest.TestCase):
         )
 
     def test_two_claimers_same_wr_week_coexist(self):
-        def _resolve(variant, current, *, wr, week_ending, row_id, enabled):
+        def _resolve(variant, current, *, wr, week_ending, row_id, enabled, prefetched_map=None):
             name = 'ForemanA' if row_id == 5001 else 'ForemanB'
             return ResolveOutcome('use', name, 'frozen', 'success')
         with mock.patch('billing_audit.writer.resolve_claimer', side_effect=_resolve):
@@ -773,7 +779,7 @@ class TestPrePassConcurrency(unittest.TestCase):
     def test_fifty_rows_each_partition_to_their_own_claimer(self):
         # Each row's claimer is keyed to its row_id; assert every row
         # lands in its own claimer's group with no loss/duplication.
-        def _resolve(variant, current, *, wr, week_ending, row_id, enabled):
+        def _resolve(variant, current, *, wr, week_ending, row_id, enabled, prefetched_map=None):
             return ResolveOutcome('use', f'Foreman{row_id}', 'frozen', 'success')
         rows = [
             _make_sub_primary_row(wr='WRSAME', row_id=6000 + i)
@@ -801,7 +807,9 @@ class TestSubprojectBProductionInvariants(unittest.TestCase):
 
     def test_prepass_present(self):
         self.assertIn('_sub_primary_claimer_map', self._src)
-        self.assertIn('Subproject B attribution pre-pass', self._src)
+        # Phase 2 Plan 02: B pre-pass replaced by O(1) map read from
+        # shared _attr_map built by prefetch_attribution (D-03).
+        self.assertIn('Subproject B: O(1) map read', self._src)
 
     def test_emission_uses_user_token_keys(self):
         self.assertIn('_REDUCEDSUB_USER_', self._src)

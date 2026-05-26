@@ -122,7 +122,7 @@ class TestVacCrewPrePassConcurrency(unittest.TestCase):
         _reset_all()
 
     def test_fifty_rows_each_partition_to_their_own_claimer(self):
-        def _resolve(variant, current, *, wr, week_ending, row_id, enabled):
+        def _resolve(variant, current, *, wr, week_ending, row_id, enabled, prefetched_map=None):
             return ResolveOutcome('use', f'Crew{row_id}', 'frozen', 'success')
         rows = [_make_vac_row(row_id=7000 + i) for i in range(50)]
         with mock.patch('billing_audit.writer.resolve_claimer', side_effect=_resolve):
@@ -772,7 +772,7 @@ class TestVacCrewEndToEnd(unittest.TestCase):
         _reset_all()
 
     def test_two_claimers_same_wr_week_coexist(self):
-        def _resolve(variant, current, *, wr, week_ending, row_id, enabled):
+        def _resolve(variant, current, *, wr, week_ending, row_id, enabled, prefetched_map=None):
             return ResolveOutcome('use', 'CrewA' if row_id == 6001 else 'CrewB', 'frozen', 'success')
         with mock.patch('billing_audit.writer.resolve_claimer', side_effect=_resolve):
             groups = generate_weekly_pdfs.group_source_rows(
