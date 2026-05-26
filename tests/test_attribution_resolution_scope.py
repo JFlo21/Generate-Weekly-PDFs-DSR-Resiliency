@@ -41,10 +41,25 @@ class TestAttributionWeekInScope(unittest.TestCase):
     """Unit tests for the recent-week scope predicate."""
 
     def setUp(self):
-        self._saved = gwp.ATTRIBUTION_RESOLUTION_WEEKS
+        self._saved = {
+            'weeks': gwp.ATTRIBUTION_RESOLUTION_WEEKS,
+            'force': gwp.FORCE_GENERATION,
+            'reset_h': gwp.RESET_HASH_HISTORY,
+            'reset_wr': gwp.RESET_WR_LIST,
+            'regen': gwp.REGEN_WEEKS,
+        }
+        # Isolate force/reset flags OFF so age-based tests aren't masked.
+        gwp.FORCE_GENERATION = False
+        gwp.RESET_HASH_HISTORY = False
+        gwp.RESET_WR_LIST = set()
+        gwp.REGEN_WEEKS = set()
 
     def tearDown(self):
-        gwp.ATTRIBUTION_RESOLUTION_WEEKS = self._saved
+        gwp.ATTRIBUTION_RESOLUTION_WEEKS = self._saved['weeks']
+        gwp.FORCE_GENERATION = self._saved['force']
+        gwp.RESET_HASH_HISTORY = self._saved['reset_h']
+        gwp.RESET_WR_LIST = self._saved['reset_wr']
+        gwp.REGEN_WEEKS = self._saved['regen']
 
     def test_recent_week_in_scope(self):
         gwp.ATTRIBUTION_RESOLUTION_WEEKS = 8
@@ -80,6 +95,40 @@ class TestAttributionWeekInScope(unittest.TestCase):
         # drop attribution for a row whose date is unknown).
         gwp.ATTRIBUTION_RESOLUTION_WEEKS = 8
         self.assertTrue(gwp._attribution_week_in_scope(None))
+
+    # --- Codex P1: forced/explicit regeneration must bypass the scope ---
+    def test_force_generation_bypasses_scope(self):
+        gwp.ATTRIBUTION_RESOLUTION_WEEKS = 8
+        old = datetime.date.today() - datetime.timedelta(weeks=30)
+        gwp.FORCE_GENERATION = True
+        self.assertTrue(gwp._attribution_week_in_scope(old))
+
+    def test_reset_hash_history_bypasses_scope(self):
+        gwp.ATTRIBUTION_RESOLUTION_WEEKS = 8
+        old = datetime.date.today() - datetime.timedelta(weeks=30)
+        gwp.RESET_HASH_HISTORY = True
+        self.assertTrue(gwp._attribution_week_in_scope(old))
+
+    def test_reset_wr_list_bypasses_scope(self):
+        gwp.ATTRIBUTION_RESOLUTION_WEEKS = 8
+        old = datetime.date.today() - datetime.timedelta(weeks=30)
+        gwp.RESET_WR_LIST = {'90001'}
+        self.assertTrue(gwp._attribution_week_in_scope(old))
+
+    def test_regen_weeks_bypasses_scope_for_that_week(self):
+        gwp.ATTRIBUTION_RESOLUTION_WEEKS = 8
+        old = datetime.date.today() - datetime.timedelta(weeks=30)
+        gwp.REGEN_WEEKS = {old.strftime('%m%d%y')}
+        self.assertTrue(gwp._attribution_week_in_scope(old))
+
+    def test_regen_weeks_does_not_bypass_other_old_weeks(self):
+        # REGEN_WEEKS targets a SPECIFIC week; a different old week stays
+        # out of scope.
+        gwp.ATTRIBUTION_RESOLUTION_WEEKS = 8
+        old = datetime.date.today() - datetime.timedelta(weeks=30)
+        other_old = datetime.date.today() - datetime.timedelta(weeks=25)
+        gwp.REGEN_WEEKS = {old.strftime('%m%d%y')}
+        self.assertFalse(gwp._attribution_week_in_scope(other_old))
 
 
 class TestPrePassRespectsWeekScope(unittest.TestCase):

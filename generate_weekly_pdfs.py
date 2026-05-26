@@ -5345,15 +5345,37 @@ def _attribution_week_in_scope(week_ending):
     skipped, so the result is unused (see ATTRIBUTION_RESOLUTION_WEEKS
     comment). Fail-safe: an unknown/None or unparseable date returns True
     (resolve) so a row is never silently dropped from attribution because
-    its date couldn't be read."""
+    its date couldn't be read.
+
+    Codex P1 (2026-05-26): a FORCED / EXPLICIT historical rebuild
+    regenerates old-week groups on purpose, so their frozen attribution
+    IS consumed and must NOT be scoped out. Mirror the
+    ``_history_eligible_for_skip`` force conditions exactly — when the run
+    (FORCE_GENERATION / RESET_HASH_HISTORY / RESET_WR_LIST) or the row's
+    week (REGEN_WEEKS) is NOT skip-eligible, always resolve regardless of
+    age. This keeps backfill fidelity precisely where the operator asked
+    for it. (The residual non-forced incidental-regeneration cases — an
+    edited >N-week-old row, or a missing attachment forcing regen — are
+    the documented rare edge: they degrade to current foreman, the
+    durable freeze data still exists, and REGEN_WEEKS / a larger
+    ATTRIBUTION_RESOLUTION_WEEKS / 0 are the escape hatches.)"""
     _cut = _attribution_resolution_cutoff()
     if _cut is None:
+        return True  # scoping disabled
+    # Forced / explicit full-run regeneration: never scope out (Codex P1).
+    if FORCE_GENERATION or RESET_HASH_HISTORY or RESET_WR_LIST:
         return True
     if week_ending is None:
         return True
     _d = (week_ending.date()
           if isinstance(week_ending, datetime.datetime)
           else week_ending)
+    # Per-week forced regeneration via REGEN_WEEKS (MMDDYY codes).
+    try:
+        if REGEN_WEEKS and _d.strftime('%m%d%y') in REGEN_WEEKS:
+            return True
+    except (AttributeError, ValueError):
+        pass
     try:
         return _d >= _cut
     except TypeError:
