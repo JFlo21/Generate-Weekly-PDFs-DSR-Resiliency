@@ -264,7 +264,7 @@ class TestShadowWrite(unittest.TestCase):
     def test_upsert_gated_on_write_flag(self):
         self.assertRegex(
             self.src,
-            r"SUPABASE_HASH_STORE_WRITE_ENABLED[\s\S]{0,500}"
+            r"SUPABASE_HASH_STORE_WRITE_ENABLED[\s\S]{0,900}"
             r"upsert_group_hash\(",
         )
 
@@ -387,6 +387,22 @@ class TestAuthoritativeSkipGate(unittest.TestCase):
                 data_hash="h",
                 hash_history={"90001|041926|primary|": {"hash": "h"}},
             ))
+
+    def test_empty_week_iso_skips_supabase_uses_json(self):
+        # Copilot review #1: an empty week_iso (missing __week_ending_date)
+        # must NOT reach Supabase (week_ending is a DATE column) — fall back
+        # to the json cache instead of risking a PostgREST type error / a
+        # spurious circuit-breaker trip.
+        self._set_authoritative()
+        with mock.patch.object(
+            gwp._billing_audit_writer, "lookup_group_hash",
+            side_effect=AssertionError("must not read Supabase w/ empty week"),
+        ):
+            self.assertTrue(self._resolve(
+                week_iso="", data_hash="h",
+                hash_history={"90001|041926|primary|": {"hash": "h"}}))
+            self.assertFalse(self._resolve(week_iso="", data_hash="h",
+                                           hash_history={}))
 
     def test_not_authoritative_uses_json_only(self):
         gwp.SUPABASE_HASH_STORE_AUTHORITATIVE = False
@@ -591,7 +607,7 @@ class TestProductionInvariants(unittest.TestCase):
         self.assertIn("upsert_group_hash(", self.src)
         self.assertRegex(
             self.src,
-            r"SUPABASE_HASH_STORE_WRITE_ENABLED[\s\S]{0,500}"
+            r"SUPABASE_HASH_STORE_WRITE_ENABLED[\s\S]{0,900}"
             r"upsert_group_hash\(",
         )
 

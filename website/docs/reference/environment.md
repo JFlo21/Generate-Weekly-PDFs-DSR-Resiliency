@@ -585,8 +585,16 @@ the live Supabase project AND reload the PostgREST schema cache:
 NOTIFY pgrst, 'reload schema';
 ```
 
-Until then `lookup_group_hash` returns `unavailable` and the pipeline
-behaves exactly as today (fail-safe to regenerate).
+Until then the pipeline behaves exactly as today (fail-safe to
+regenerate). Note the precise log signature: because `billing_audit`
+credentials are already configured (the attribution writers use them),
+a missing `group_content_hash` table/schema-cache surfaces as
+`fetch_failure` (a PostgREST/SQLSTATE error classified by
+`with_retry`), **not** `unavailable` (which is reserved for missing
+credentials / `TEST_MODE`). Either way the skip gate falls back to the
+`hash_history.json` cache and regenerates on a miss — and a schema-not-
+exposed error (`PGRST106`) trips the run-global kill switch so the rest
+of the run skips Supabase at zero network cost.
 
 **Rollout:** ship dormant (`0`), confirm the store is filling correctly
 under real traffic, then flip to `1`. **Revert** is a one-line workflow

@@ -2835,17 +2835,23 @@ def _resolve_unchanged_for_skip(history_key, data_hash, hash_history,
 
     Decision model:
     - ``SUPABASE_HASH_STORE_AUTHORITATIVE`` ON (and billing_audit
-      available, not TEST_MODE): Supabase
+      available, not TEST_MODE, and ``week_iso`` present): Supabase
       (``billing_audit.group_content_hash``) is authoritative.
         * ``success``  -> compare the stored hash to ``data_hash``.
         * ``no_row``   -> the group was never durably stored, so it is
           treated as CHANGED (return False -> regenerate). This is the
           safe default that makes the very first authoritative run
           regenerate everything once, populating the store.
-        * ``fetch_failure`` / ``unavailable`` / ``disabled`` -> a
-          Supabase outage; fall through to the local ``hash_history``
-          json cache so a transient outage degrades to "use the cache /
-          regenerate", never a silent wrong-skip.
+        * ``fetch_failure`` / ``unavailable`` -> a Supabase outage (or
+          the table/schema not yet exposed); fall through to the local
+          ``hash_history`` json cache so a transient outage degrades to
+          "use the cache / regenerate", never a silent wrong-skip.
+          (``lookup_group_hash`` returns only these four statuses.)
+    - A missing/empty ``week_iso`` (no ``__week_ending_date`` on the
+      group) skips the Supabase read entirely and uses the json cache —
+      ``week_ending`` is a DATE column, so passing ``''`` would be a
+      PostgREST type error that could needlessly trip the per-op
+      circuit breaker.
     - Authoritative OFF (default): the ``hash_history`` json cache alone
       decides — byte-identical to the pre-E behavior.
 
@@ -2858,6 +2864,7 @@ def _resolve_unchanged_for_skip(history_key, data_hash, hash_history,
         SUPABASE_HASH_STORE_AUTHORITATIVE
         and BILLING_AUDIT_AVAILABLE
         and not TEST_MODE
+        and week_iso
     ):
         _h, _status = _billing_audit_writer.lookup_group_hash(
             wr_num, week_iso, variant, identifier or '')
@@ -2865,7 +2872,7 @@ def _resolve_unchanged_for_skip(history_key, data_hash, hash_history,
             return _h == data_hash
         if _status == 'no_row':
             return False  # never durably stored -> regenerate (safe)
-        # fetch_failure / unavailable / disabled -> fall back to json cache.
+        # fetch_failure / unavailable -> fall back to json cache.
     _prev = hash_history.get(history_key)
     return bool(_prev and _prev.get('hash') == data_hash)
 
@@ -9138,7 +9145,15 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     SUPABASE_HASH_STORE_WRITE_ENABLED
                     and BILLING_AUDIT_AVAILABLE
                     and not TEST_MODE
+                    and week_iso
                 ):
+                    # ``week_iso`` is guarded truthy: week_ending is a DATE
+                    # column, so an empty string (missing __week_ending_date)
+                    # would be a PostgREST type error that could trip the
+                    # per-op circuit breaker. Skipping the shadow write for
+                    # such an edge-case group is harmless — the json cache
+                    # and (until authoritative) the filename hash still drive
+                    # change detection.
                     try:
                         _billing_audit_writer.upsert_group_hash(
                             wr_num, week_iso, variant,

@@ -1058,9 +1058,12 @@ def lookup_group_hash(wr, week_ending, variant, identifier):
     except Exception:
         # Belt-and-suspenders: this reader MUST NEVER raise. Map any
         # unexpected failure to fetch_failure so the skip gate falls
-        # back to the json cache / regenerates. PII-safe: no row
-        # content in the log.
-        logging.warning(
+        # back to the json cache / regenerates. ``with_retry`` already
+        # absorbs the classified PostgREST surface (returning None), so
+        # this handler only fires on an unexpected local error (e.g.
+        # result-object handling) whose traceback carries no row content
+        # — logging.exception aids diagnosis while staying PII-safe.
+        logging.exception(
             "⚠️ Group-hash lookup hit an unexpected error; "
             "treating as fetch_failure (fall back to json cache)."
         )
@@ -1102,8 +1105,11 @@ def upsert_group_hash(wr, week_ending, variant, identifier, content_hash):
     except Exception:
         # Fail-safe (Spec §8): a durable-write failure is non-fatal.
         # The json cache + filename-hash backstop still protect change
-        # detection. PII-safe: no row content in the log.
-        logging.warning(
+        # detection. ``with_retry`` absorbs the classified PostgREST
+        # surface, so this only fires on an unexpected local error;
+        # logging.exception surfaces WHY the durable store isn't being
+        # populated (PII-safe — no row content in the traceback).
+        logging.exception(
             "⚠️ Group-hash upsert failed (non-fatal); "
             "durable store not updated this run."
         )
