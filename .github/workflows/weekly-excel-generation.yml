@@ -200,20 +200,26 @@ jobs:
           echo "should_run=true" >> $GITHUB_OUTPUT
       - name: Parse advanced options
         if: github.event.inputs.advanced_options != ''
+        # Bind the untrusted dispatch input to an env var so the ${{ }}
+        # expansion lands in the environment, NOT in the script text
+        # (prevents shell/command injection — the value feeds the
+        # destructive remediate_claimers path). All expansions quoted.
+        env:
+          ADVANCED_OPTIONS: ${{ github.event.inputs.advanced_options }}
         run: |
-          echo "Parsing advanced options: ${{ github.event.inputs.advanced_options }}"
+          echo "Parsing advanced options: ${ADVANCED_OPTIONS}"
           # Parse advanced_options format: max_groups:X,regen_weeks:MMDDYY1;MMDDYY2,reset_wr_list:WR1;WR2
-          OPTIONS="${{ github.event.inputs.advanced_options }}"
-          for option in $(echo $OPTIONS | tr ',' '\n'); do
-            key=$(echo $option | cut -d':' -f1)
-            value=$(echo $option | cut -d':' -f2-)
-            case $key in
-              max_groups) echo "MAX_GROUPS=$value" >> $GITHUB_ENV ;;
-              regen_weeks) echo "REGEN_WEEKS=$(echo $value | tr ';' ',')" >> $GITHUB_ENV ;;
-              reset_wr_list) echo "RESET_WR_LIST=$(echo $value | tr ';' ',')" >> $GITHUB_ENV ;;
-              remediate_claimers) echo "REMEDIATE_CLAIMERS=$value" >> $GITHUB_ENV ;;
-              remediation_dry_run) echo "REMEDIATION_DRY_RUN=$value" >> $GITHUB_ENV ;;
-              remediation_window_weeks) echo "REMEDIATION_WINDOW_WEEKS=$value" >> $GITHUB_ENV ;;
+          IFS=',' read -ra _ADV_OPTS <<< "${ADVANCED_OPTIONS}"
+          for option in "${_ADV_OPTS[@]}"; do
+            key="${option%%:*}"
+            value="${option#*:}"
+            case "$key" in
+              max_groups) echo "MAX_GROUPS=${value}" >> "$GITHUB_ENV" ;;
+              regen_weeks) echo "REGEN_WEEKS=$(echo "${value}" | tr ';' ',')" >> "$GITHUB_ENV" ;;
+              reset_wr_list) echo "RESET_WR_LIST=$(echo "${value}" | tr ';' ',')" >> "$GITHUB_ENV" ;;
+              remediate_claimers) echo "REMEDIATE_CLAIMERS=${value}" >> "$GITHUB_ENV" ;;
+              remediation_dry_run) echo "REMEDIATION_DRY_RUN=${value}" >> "$GITHUB_ENV" ;;
+              remediation_window_weeks) echo "REMEDIATION_WINDOW_WEEKS=${value}" >> "$GITHUB_ENV" ;;
             esac
           done
       - name: Generate reports
