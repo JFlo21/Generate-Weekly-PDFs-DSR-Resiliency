@@ -517,6 +517,84 @@ manually). The resolved value is printed at startup as
 `weekly-excel-generation.yml` `env:` block alongside
 `PRIMARY_CLAIM_ATTRIBUTION_ENABLED`.
 
+## Sub-project E — Supabase durable hash store
+
+*(Added 2026-05-25, Sub-project E — durable change-detection hash store +
+filename token stripping.)*
+
+Sub-project E moves the **durable** change-detection hash off the
+attachment filename and into Supabase
+(`billing_audit.group_content_hash`, keyed on the same 4-tuple as the
+engine's `history_key`: `wr | week_ending | variant | identifier`). Once
+authoritative, generated filenames drop the `_<timestamp>` and
+`_<hash>` tokens, so the canonical name becomes
+`WR_{wr}_WeekEnding_{MMDDYY}{variant_suffix}.xlsx` (identity only).
+`hash_history.json` is retained as a local fast cache + offline fallback;
+a Supabase outage degrades to **regenerate**, never a silent skip.
+
+The two flags ship **dormant**: shadow-write is on from day one so the
+durable store fills up under real traffic, while the authoritative read +
+filename stripping stay off until the store is validated (mirrors
+Foundation A's dormant-ship pattern).
+
+### `SUPABASE_HASH_STORE_WRITE_ENABLED`
+
+**Default:** `1` (enabled). Truthy values: `1`, `true`, `yes`, `on`.
+
+When enabled, every generated group shadow-writes its content hash to
+`billing_audit.group_content_hash` via `upsert_group_hash` — alongside
+the existing `hash_history.json` write. This is **harmless while the
+store is not yet authoritative**: it only populates the durable store so
+the eventual authoritative flip has data to read. The writer is
+fail-safe (a no-op when Supabase is unavailable / `TEST_MODE`, and never
+raises). The resolved value is printed at startup as
+`📋 SUPABASE_HASH_STORE_WRITE_ENABLED=<bool>`. Pinned to `1` in the
+`weekly-excel-generation.yml` `env:` block. Set to `0` to stop shadow
+writes (e.g. to reduce Supabase write volume) — change detection is
+unaffected because `hash_history.json` + the filename hash remain the
+active signals while not authoritative.
+
+### `SUPABASE_HASH_STORE_AUTHORITATIVE`
+
+**Default:** `0` (disabled — dormant). Truthy values: `1`, `true`, `yes`,
+`on`.
+
+When enabled, three behaviors flip together:
+
+1. **Skip gate reads Supabase.** The unchanged-vs-stored decision
+   (`_resolve_unchanged_for_skip`) calls `lookup_group_hash` first. On a
+   `success` it compares hashes; on `no_row` (never durably stored) it
+   regenerates; on an outage (`fetch_failure` / `unavailable`) it falls
+   back to the `hash_history.json` cache. A cache miss regenerates.
+2. **Clean filenames.** `generate_excel` emits
+   `WR_{wr}_WeekEnding_{MMDDYY}{variant_suffix}.xlsx` (no
+   `_<timestamp>`/`_<hash>` tokens). `build_group_identity` parses both
+   the new clean shape and the legacy token-bearing shape, so old and new
+   attachments coexist during migration.
+3. **Cleanup stops trusting the filename hash.**
+   `delete_old_excel_attachments` no longer short-circuits on the
+   filename-embedded hash (clean names carry none); identity-based
+   replacement of the prior attachment still runs.
+
+**OPERATOR PREREQUISITE (blocks activation — not code):** before flipping
+this to `1`, and for shadow writes to land at all, the operator MUST
+apply `billing_audit/schema.sql` (the new `group_content_hash` table) to
+the live Supabase project AND reload the PostgREST schema cache:
+
+```sql
+NOTIFY pgrst, 'reload schema';
+```
+
+Until then `lookup_group_hash` returns `unavailable` and the pipeline
+behaves exactly as today (fail-safe to regenerate).
+
+**Rollout:** ship dormant (`0`), confirm the store is filling correctly
+under real traffic, then flip to `1`. **Revert** is a one-line workflow
+change back to `SUPABASE_HASH_STORE_AUTHORITATIVE: '0'` — no code change.
+The resolved value is printed at startup as
+`📋 SUPABASE_HASH_STORE_AUTHORITATIVE=<bool>`. Pinned to `0` in the
+`weekly-excel-generation.yml` `env:` block.
+
 ### `AEP_BILLABLE_CUTOFF`
 
 **Default:** `2026-04-12` (AEP rate-increase contract awarded to Linetec)

@@ -547,5 +547,28 @@ class TestMigrationCutover(unittest.TestCase):
             "WR_90001_WeekEnding_041926_User_PF.xlsx"))
 
 
+class TestWorkflowPinned(unittest.TestCase):
+    """Task 10: both E flags are pinned in the weekly workflow env block
+    (WRITE on, AUTHORITATIVE off — dormant ship)."""
+
+    def _wf(self):
+        return pathlib.Path(
+            ".github/workflows/weekly-excel-generation.yml"
+        ).read_text(encoding="utf-8")
+
+    def test_write_flag_pinned_on(self):
+        self.assertIn("SUPABASE_HASH_STORE_WRITE_ENABLED: '1'", self._wf())
+
+    def test_authoritative_flag_pinned_off(self):
+        self.assertIn("SUPABASE_HASH_STORE_AUTHORITATIVE: '0'", self._wf())
+
+    def test_documented_in_environment_reference(self):
+        doc = pathlib.Path(
+            "website/docs/reference/environment.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("SUPABASE_HASH_STORE_WRITE_ENABLED", doc)
+        self.assertIn("SUPABASE_HASH_STORE_AUTHORITATIVE", doc)
+
+
 if __name__ == "__main__":
     unittest.main()
