@@ -55,7 +55,7 @@ Carried forward from v1.0's deferred scope (see
 |--------------------------------------------------|-----------|-------|------------------------------|------------|
 | 01. Subcontractor Rate Logic Modification        | v1.0      | 14/14 | ✅ Shipped (pending live UAT) | 2026-05-20 |
 | 01.1. Helper-Shadow Rescue (INSERTED)            | v1.0      | 6/6 | Complete    | 2026-05-20 |
-| 02. Attribution Bulk-Prefetch + Remediation      | v1.0 hotfix | 0/TBD | 🔧 Spec/Plan in progress    | -          |
+| 02. Attribution Bulk-Prefetch + Remediation      | v1.0 hotfix | 0/4 | 📋 Planned                  | -          |
 | —. Railway → Render Pre-Migration ADR            | v1.1      | 0/TBD | 📋 Planned (deferred, renumber on v1.1) | - |
 | —. Migration execution + Artifact Explorer       | v1.1      | 0/TBD | 📋 Planned (deferred)         | -          |
 
@@ -66,10 +66,15 @@ claimer from `billing_audit.attribution_snapshot` (no `_NO_MATCH` /
 `Unknown_Foreman` for rows that have a frozen claimer), with no time-budget
 regression, so Sub-project E (`SUPABASE_HASH_STORE_AUTHORITATIVE=1`, clean
 filenames) can be safely re-activated.
-**Requirements**: TBD (locked in SPEC.md)
+**Requirements**: 6 locked in 02-SPEC.md (SPEC-1 bulk prefetch; SPEC-2 correct
+claimer on every file; SPEC-3 no time-budget regression; SPEC-4 recent-window
+remediation; SPEC-5 safe Sub-project E re-activation; SPEC-6 regression coverage).
 **Depends on:** Phase 01.1 (and the shipped Foundation A / B / C / D / E
 attribution work tracked in `docs/superpowers/`)
-**Plans:** 0 plans
+**Plans:** 4 plans (4 waves)
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 2 to break down)
+- [ ] 02-01-PLAN.md — Bulk RPC (`lookup_attribution_bulk`) + fail-safe `prefetch_attribution` reader + map-aware `resolve_claimer` (Wave 1)
+- [ ] 02-02-PLAN.md — Wire the 4 pre-pass sites to the bulk map + drop `ATTRIBUTION_RESOLUTION_WEEKS` + historical-claimer RED/GREEN regression (Wave 2)
+- [ ] 02-03-PLAN.md — Default-OFF, dry-run-first, isolated `run_claimer_remediation` garbage sweep (TARGET + PPP, live-identity exempt) (Wave 3)
+- [ ] 02-04-PLAN.md — E re-activation runbook (D-09/D-10/D-11 gated flip) + Living Ledger entry (Wave 4)
