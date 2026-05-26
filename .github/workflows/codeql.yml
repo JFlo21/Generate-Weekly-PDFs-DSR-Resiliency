@@ -9,6 +9,11 @@
 # the `language` matrix defined below to confirm you have the correct set of
 # supported CodeQL languages.
 #
+# This repository currently uses GitHub Code Scanning default setup. That
+# conflicts with advanced CodeQL SARIF uploads, so this workflow stays in a
+# no-op mode unless CODEQL_ADVANCED_ENABLED=true is set in repository variables
+# *after* default setup has been disabled in GitHub settings.
+#
 name: "CodeQL Advanced"
 
 on:
@@ -58,7 +63,16 @@ jobs:
         # If you are analyzing a compiled language, you can modify the 'build-mode' for that language to customize how
         # your codebase is analyzed, see https://docs.github.com/en/code-security/code-scanning/creating-an-advanced-setup-for-code-scanning/codeql-code-scanning-for-compiled-languages
     steps:
+    - name: Skip advanced CodeQL while default setup is enabled
+      if: ${{ vars.CODEQL_ADVANCED_ENABLED != 'true' }}
+      shell: bash
+      run: |
+        echo "Skipping advanced CodeQL because repository default setup is enabled."
+        echo "Disable default setup in GitHub Code Scanning settings and set"
+        echo "CODEQL_ADVANCED_ENABLED=true before re-enabling this workflow."
+
     - name: Checkout repository
+      if: ${{ vars.CODEQL_ADVANCED_ENABLED == 'true' }}
       uses: actions/checkout@v4
 
     # Add any setup steps before running the `github/codeql-action/init` action.
@@ -69,6 +83,7 @@ jobs:
 
     # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL
+      if: ${{ vars.CODEQL_ADVANCED_ENABLED == 'true' }}
       uses: github/codeql-action/init@v4
       with:
         languages: ${{ matrix.language }}
@@ -87,7 +102,7 @@ jobs:
     # ℹ️ Command-line programs to run using the OS shell.
     # 📚 See https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#jobsjob_idstepsrun
     - name: Run manual build steps
-      if: matrix.build-mode == 'manual'
+      if: ${{ vars.CODEQL_ADVANCED_ENABLED == 'true' && matrix.build-mode == 'manual' }}
       shell: bash
       run: |
         echo 'If you are using a "manual" build mode for one or more of the' \
@@ -98,6 +113,7 @@ jobs:
         exit 1
 
     - name: Perform CodeQL Analysis
+      if: ${{ vars.CODEQL_ADVANCED_ENABLED == 'true' }}
       uses: github/codeql-action/analyze@v4
       with:
         category: "/language:${{matrix.language}}"
