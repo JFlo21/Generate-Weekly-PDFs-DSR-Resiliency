@@ -603,6 +603,56 @@ The resolved value is printed at startup as
 `📋 SUPABASE_HASH_STORE_AUTHORITATIVE=<bool>`. Pinned to `0` in the
 `weekly-excel-generation.yml` `env:` block.
 
+---
+
+### `REMEDIATE_CLAIMERS`
+
+**Default:** `0` (OFF — never fires on scheduled cron)
+**Purpose:** Activates the isolated garbage-attachment remediation sweep
+(Phase 2 Plan 03, D-06/D-07/D-08). When `1`, `main()` sweeps
+`TARGET_SHEET_ID` and `SUBCONTRACTOR_PPP_SHEET_ID` for attachments
+matching `*_NO_MATCH*` or `*_Unknown_Foreman*` patterns (the tokens
+`resolve_claimer` emits for unresolved historical rows), then **returns
+immediately** — no Excel generation occurs in the same session (isolation
+contract per D-06).
+
+**Operator workflow:**
+
+1. Set `REMEDIATE_CLAIMERS=1` and `REMEDIATION_DRY_RUN=1` (default) via
+   `workflow_dispatch`. Review the `🔍 [DRY-RUN] would delete...` log lines.
+2. If the scope is correct, set `REMEDIATION_DRY_RUN=0` and re-run.
+3. Restore `REMEDIATE_CLAIMERS=0` (the workflow pin) so subsequent cron
+   runs return to normal Excel generation.
+
+Pinned to `'0'` in `weekly-excel-generation.yml`. The resolved state is
+printed at startup alongside `REMEDIATION_DRY_RUN` and
+`REMEDIATION_WINDOW_WEEKS`.
+
+### `REMEDIATION_DRY_RUN`
+
+**Default:** `1` (dry-run ON — report counts, no deletions)
+**Purpose:** Controls whether the garbage-attachment sweep (D-08)
+actually deletes. When `1`, `run_claimer_remediation()` logs every
+matching attachment it *would* delete but calls `delete_attachment` zero
+times. Set to `0` only after reviewing a dry-run log and confirming the
+scope is correct. Has no effect when `REMEDIATE_CLAIMERS=0`.
+
+Pinned to `'1'` in `weekly-excel-generation.yml`.
+
+### `REMEDIATION_WINDOW_WEEKS`
+
+**Default:** `26` (roughly 6 months)
+**Format:** non-negative integer. Invalid values fall back to `26` with an
+`⚠️` warning log.
+**Purpose:** Limits the sweep to attachments whose parsed week-ending date
+is within the last N weeks of today (D-08 blast-radius guard). `0`
+disables the filter (unbounded — sweeps all history). Has no effect when
+`REMEDIATE_CLAIMERS=0`.
+
+Pinned to `'26'` in `weekly-excel-generation.yml`.
+
+---
+
 ### `AEP_BILLABLE_CUTOFF`
 
 **Default:** `2026-04-12` (AEP rate-increase contract awarded to Linetec)

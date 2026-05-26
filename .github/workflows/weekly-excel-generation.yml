@@ -439,6 +439,19 @@ jobs:
           # formation). See Living Ledger 2026-05-26.
           SUPABASE_HASH_STORE_AUTHORITATIVE: '0'
 
+          # Phase 2 Plan 03: Garbage-claimer attachment remediation.
+          # DEFAULT OFF — REMEDIATE_CLAIMERS='0' so this mode NEVER fires on a
+          # scheduled cron run. An operator must explicitly set '1' via
+          # workflow_dispatch or a local shell invocation. When active,
+          # main() runs the sweep and returns immediately (no Excel generation).
+          # REMEDIATION_DRY_RUN='1' (default ON): first run logs counts only;
+          # set to '0' only after reviewing the dry-run log.
+          # REMEDIATION_WINDOW_WEEKS='26' (default): sweep last 26 weeks only.
+          # Revert path: set REMEDIATE_CLAIMERS='0' (or remove it) to disable.
+          REMEDIATE_CLAIMERS: '0'
+          REMEDIATION_DRY_RUN: '1'
+          REMEDIATION_WINDOW_WEEKS: '26'
+
           # AEP_BILLABLE_CUTOFF is intentionally UNSET in the
           # workflow — the Python default (datetime.date(2026,
           # 4, 12), the contract award date) is the source of
