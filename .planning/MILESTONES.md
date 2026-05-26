@@ -70,5 +70,70 @@ deferred to the next scheduled GitHub Actions cron run:
   byte-divergence watch-list).
 - Nyquist VALIDATION docs incomplete (Phase 01 missing; Phase 01.1 draft)
   — 682 passing tests provide de-facto coverage.
+  *(Closed 2026-05-26 during the v1.0.1 close: Phase 01 VALIDATION.md
+  reconstructed (State B) and Phase 01.1 promoted to nyquist-compliant.)*
+
+---
+
+## v1.0.1 Attribution Bulk-Prefetch + Historical Claimer Remediation (Shipped: 2026-05-26)
+
+**Hotfix line on top of v1.0** (post-`v1.0`-tag work on master). This Phase 02
+is NOT the originally-planned MIG-01 ADR (that remains deferred to v1.1) — it is
+a blocking production fix for the claim-attribution week-scope × Sub-project E
+interaction.
+
+**Phases completed:** 1 (Phase 02), 6 plans (4 executed + 2 gap-closure).
+
+**Delivered:** A read-side fix making every generated Excel file
+partitioned/named by the real frozen claimer from
+`billing_audit.attribution_snapshot` — no `_NO_MATCH` / `_Unknown_Foreman` for
+rows that have a frozen claimer — with no time-budget regression, so
+Sub-project E (`SUPABASE_HASH_STORE_AUTHORITATIVE=1`, clean filenames) can be
+safely re-activated behind a human gate.
+
+**Root cause:** the v1.0 `ATTRIBUTION_RESOLUTION_WEEKS=8` scope hotfix gated
+group-KEY / filename formation (not just skip optimization); when Sub-project E
+was flipped authoritative (`67539ec`), its `no_row → regenerate` wave resolved
+claimers from the empty out-of-scope pre-pass → garbage names on 372 of 1,116
+files. Mitigated by reverting E to dormant (`46cd05d`); fixed read-side here.
+
+**Key accomplishments:**
+
+- **Bulk attribution prefetch.** A single `lookup_attribution_bulk` RPC +
+  fail-safe `prefetch_attribution` reader (chunked 500/call, distinct
+  `with_retry` op id) replaces the four per-row pre-passes; consumers read O(1)
+  from a shared `_attr_map`. Attribution HTTP drops from ~137k to O(chunks).
+- **Footgun removed.** `ATTRIBUTION_RESOLUTION_WEEKS` and its scope gates fully
+  excised (the gate-on-key-formation that caused the incident).
+- **Graceful degradation.** `ATTRIBUTION_BULK_PREFETCH_FALLBACK` (default-ON)
+  degrades a missing RPC (`rpc_missing` → per-row fallback) while a genuine
+  outage (`fetch_failure`) still HOLDs B/C billing files (D-04 preserved).
+- **Historical remediation.** Default-OFF, dry-run-first, isolated
+  `run_claimer_remediation` garbage-attachment sweep (TARGET + PPP,
+  live-identity exempt), operator-reachable via `advanced_options`.
+- **Safe E re-activation.** Documented D-09/D-10/D-11 runbook;
+  `SUPABASE_HASH_STORE_AUTHORITATIVE` stays dormant `'0'` — the flip is a
+  separate, deliberately human-gated operator action.
+
+**Stats:**
+
+- Phases: 1 (Phase 02: 6 plans — 02-01..04 executed + 02-05/06 gap-closure)
+- Requirements: 6/6 SPEC-1..6 satisfied code-side (02-SPEC.md)
+- Tests: 986 passed / 29 skipped / 69 subtests (from 682 at v1.0 close)
+- Audit: `tech_debt` (see `.planning/v1.0-MILESTONE-AUDIT.md`) — 18/18
+  requirements satisfied code-side (SUB-01..12 + SPEC-1..6), 5/5 cross-phase
+  integration seams wired, all 3 phases Nyquist-compliant.
+
+**Known deferred items at close (operator-action production gates, not code defects):**
+
+- Deploy `billing_audit.lookup_attribution_bulk` RPC to live Supabase +
+  `NOTIFY pgrst, 'reload schema'`.
+- Zero-garbage production run validation (O(chunks) attribution HTTP; no
+  `_NO_MATCH` / `_Unknown_Foreman` for frozen-claimer rows).
+- Remediation dry-run via `advanced_options`, then execute.
+- **Human-gated D-11 flip** of `SUPABASE_HASH_STORE_AUTHORITATIVE=1` (currently
+  dormant) after the above validate.
+- Carried-forward v1.0 operator gates (live cron observation, Supabase
+  `schema.sql` apply, data-team `lookup_attribution` RPC, Step B price-write).
 
 ---
