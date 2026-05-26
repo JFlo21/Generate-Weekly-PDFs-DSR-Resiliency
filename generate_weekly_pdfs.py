@@ -5336,7 +5336,16 @@ def _attribution_resolution_cutoff():
     long-lived process re-evaluates correctly."""
     if ATTRIBUTION_RESOLUTION_WEEKS <= 0:
         return None
-    return datetime.date.today() - timedelta(weeks=ATTRIBUTION_RESOLUTION_WEEKS)
+    try:
+        return datetime.date.today() - timedelta(
+            weeks=ATTRIBUTION_RESOLUTION_WEEKS)
+    except (OverflowError, OSError):
+        # Codex P2 (2026-05-26): an absurd configured value (e.g. a
+        # typo'd extra zero) overflows the date range. A window that
+        # large means "effectively no scoping", so degrade to None
+        # (resolve every week) rather than crash the run — never let a
+        # config typo take down billing generation.
+        return None
 
 def _attribution_week_in_scope(week_ending):
     """True if ``week_ending`` is recent enough to resolve frozen

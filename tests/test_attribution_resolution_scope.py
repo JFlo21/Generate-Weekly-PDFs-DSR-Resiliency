@@ -83,6 +83,14 @@ class TestAttributionWeekInScope(unittest.TestCase):
         old = datetime.date.today() - datetime.timedelta(weeks=200)
         self.assertTrue(gwp._attribution_week_in_scope(old))
 
+    def test_oversized_weeks_degrades_to_resolve_all(self):
+        # Codex P2: an absurd value (typo) must NOT crash with OverflowError;
+        # it degrades to "resolve all" (no scoping).
+        gwp.ATTRIBUTION_RESOLUTION_WEEKS = 10 ** 9
+        self.assertIsNone(gwp._attribution_resolution_cutoff())
+        old = datetime.date.today() - datetime.timedelta(weeks=30)
+        self.assertTrue(gwp._attribution_week_in_scope(old))
+
     def test_datetime_input_normalized(self):
         gwp.ATTRIBUTION_RESOLUTION_WEEKS = 8
         recent_dt = datetime.datetime.now() - datetime.timedelta(weeks=1)
