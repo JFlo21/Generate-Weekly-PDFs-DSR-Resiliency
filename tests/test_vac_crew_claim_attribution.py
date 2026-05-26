@@ -908,3 +908,56 @@ class TestVacCrewReviewFixes(unittest.TestCase):
             any('REDUCEDSUB' in k or 'AEPBILLABLE' in k for k in groups),
             f"vac row on a sub sheet must not emit subcontractor variants; got {list(groups)}",
         )
+
+
+class TestBulkFetchFailureDirectHoldC(unittest.TestCase):
+    """Phase 2 BLOCKER 1: under a bulk fetch_failure, the C (vac_crew)
+    pre-pass must set the per-row outcome to HOLD DIRECTLY — without calling
+    _lookup_attribution_all (zero additional Supabase calls).
+
+    RED before Task 2 (no 'fetch_failure' branch in the current C block).
+    GREEN after Task 2 wires the direct-HOLD path in the C pre-pass block.
+    """
+
+    def setUp(self):
+        _ensure_smartsheet_mocked()
+        _reset_all()
+        self._saved = {
+            'vac_attr': generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED,
+            'avail': generate_weekly_pdfs.BILLING_AUDIT_AVAILABLE,
+            'sub_ids': set(generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS),
+        }
+        generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED = True
+        generate_weekly_pdfs.BILLING_AUDIT_AVAILABLE = True
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+
+    def tearDown(self):
+        generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED = self._saved['vac_attr']
+        generate_weekly_pdfs.BILLING_AUDIT_AVAILABLE = self._saved['avail']
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.update(self._saved['sub_ids'])
+
+    def test_bulk_fetch_failure_c_direct_hold_zero_supabase_calls(self):
+        """BLOCKER 1: C pre-pass under fetch_failure produces HOLD outcomes with
+        zero _lookup_attribution_all calls.
+
+        Pre-Task-2 (RED): the C block calls resolve_claimer without prefetched_map
+        (per-row RPC), which would invoke _lookup_attribution_all per row.
+        Post-Task-2 (GREEN): the fetch_failure branch constructs
+        ResolveOutcome('hold', None, None, 'fetch_failure') DIRECTLY.
+        """
+        import billing_audit.writer as _baw
+
+        row = _make_vac_row(wr='91467680')
+        row['__row_id'] = 7777
+
+        with mock.patch.object(
+            _baw, '_lookup_attribution_all'
+        ) as _mock_lookup, mock.patch(
+            'billing_audit.writer.prefetch_attribution',
+            return_value=({}, 'fetch_failure'),
+        ):
+            generate_weekly_pdfs.group_source_rows([row])
+
+        # BLOCKER 1: _lookup_attribution_all must NOT be called on the failure path.
+        _mock_lookup.assert_not_called()

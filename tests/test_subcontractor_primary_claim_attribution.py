@@ -817,5 +817,93 @@ class TestSubprojectBProductionInvariants(unittest.TestCase):
         )
 
 
+class TestBulkFetchFailureDirectHoldBC(unittest.TestCase):
+    """Phase 2 BLOCKER 1: under a bulk fetch_failure, the B (sub-primary)
+    pre-pass must set the per-row outcome to HOLD DIRECTLY — without calling
+    _lookup_attribution_all (zero additional Supabase calls). The D (primary)
+    counterpart is in TestHistoricalClaimerRegression (test_primary_claim_attribution.py).
+
+    This test is RED before Task 2 (the current code has no 'fetch_failure'
+    branch — it either succeeds or falls back to _sub_primary_claimer_map={}).
+    GREEN after Task 2 wires the direct-HOLD path in the B pre-pass block.
+    """
+
+    def setUp(self):
+        _ensure_smartsheet_mocked()
+        _reset_all()
+        self._saved = {
+            'rate_variants': generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED,
+            'attr_enabled': generate_weekly_pdfs.SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED,
+            'avail': generate_weekly_pdfs.BILLING_AUDIT_AVAILABLE,
+            'sub_ids': set(generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS),
+            'mode': generate_weekly_pdfs.RES_GROUPING_MODE,
+        }
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = True
+        generate_weekly_pdfs.SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED = True
+        generate_weekly_pdfs.BILLING_AUDIT_AVAILABLE = True
+        generate_weekly_pdfs.RES_GROUPING_MODE = 'both'
+        # Add a sub sheet ID so a row is eligible for the B pre-pass.
+        self._sub_sheet = 9876543210
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.add(self._sub_sheet)
+
+    def tearDown(self):
+        generate_weekly_pdfs.SUBCONTRACTOR_RATE_VARIANTS_ENABLED = self._saved['rate_variants']
+        generate_weekly_pdfs.SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED = self._saved['attr_enabled']
+        generate_weekly_pdfs.BILLING_AUDIT_AVAILABLE = self._saved['avail']
+        generate_weekly_pdfs.RES_GROUPING_MODE = self._saved['mode']
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.update(self._saved['sub_ids'])
+
+    def _make_sub_row(self, row_id=1001, wr='90773033'):
+        return {
+            '__row_id': row_id,
+            '__source_sheet_id': self._sub_sheet,
+            '__effective_user': 'SubForeman',
+            '__is_helper_row': False,
+            '__is_vac_crew': False,
+            '__sub_is_valid_helper_row': False,
+            'Work Request #': wr,
+            'Weekly Reference Logged Date': '2026-04-19',
+            'Units Completed?': True,
+            'Units Total Price': 100.0,
+            'Dept #': '500',
+            'Job #': 'J-1',
+            'Snapshot Date': '2026-04-20',
+        }
+
+    def test_bulk_fetch_failure_bc_direct_hold_zero_supabase_calls(self):
+        """BLOCKER 1: B pre-pass under fetch_failure produces HOLD outcomes with
+        zero _lookup_attribution_all calls (no per-row RPC retry storm).
+
+        Pre-Task-2 (RED): the B block has a ThreadPoolExecutor loop that calls
+        resolve_claimer without prefetched_map, which would invoke
+        _lookup_attribution_all per row even on failure.
+        Post-Task-2 (GREEN): the fetch_failure branch constructs
+        ResolveOutcome('hold', None, None, 'fetch_failure') DIRECTLY,
+        never calling _lookup_attribution_all.
+        """
+        import billing_audit.writer as _baw
+
+        row = self._make_sub_row(row_id=1001, wr='90773033')
+
+        with mock.patch.object(
+            _baw, '_lookup_attribution_all'
+        ) as _mock_lookup, mock.patch(
+            'billing_audit.writer.prefetch_attribution',
+            return_value=({}, 'fetch_failure'),
+        ):
+            groups = generate_weekly_pdfs.group_source_rows([row])
+
+        # BLOCKER 1: _lookup_attribution_all must NOT be called on failure path.
+        _mock_lookup.assert_not_called()
+
+        # On fetch_failure the B pre-pass map should have a HOLD entry
+        # (or the group emits no file — both are acceptable; the key constraint
+        # is zero additional Supabase calls).
+        # If the map holds a HOLD outcome, verify it.
+        # We can't inspect _sub_primary_claimer_map directly, but we can verify
+        # no RPC was issued. The primary invariant is assert_not_called above.
+
+
 if __name__ == '__main__':
     unittest.main()

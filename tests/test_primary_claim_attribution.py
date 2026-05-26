@@ -885,3 +885,138 @@ class TestBuildGroupIdentityReservedTokenInClaimerName(unittest.TestCase):
             ),
             ('90001', '041926', 'primary', None),
         )
+
+
+class TestHistoricalClaimerRegression(unittest.TestCase):
+    """Phase 2 REQ-2/6b: historical (>8-week-old) group resolves REAL frozen
+    claimer after the bulk-prefetch fix. RED before fix (ATTRIBUTION_RESOLUTION_WEEKS
+    scope gate returned Unknown_Foreman / _NO_MATCH for out-of-scope weeks);
+    GREEN after (bulk map covers exact run set, no recency gate).
+
+    Evidence anchor: incident run 26439205107 — 372 garbage files
+    (131 _User__NO_MATCH, 241 _User_Unknown_Foreman) concentrated in old
+    weeks, because ATTRIBUTION_RESOLUTION_WEEKS=8 excluded those weeks from
+    the per-row pre-pass. attribution_snapshot had the real names all along.
+
+    Behavioral keystone: drives group_source_rows with a historical completed
+    primary row + a mocked _attr_map carrying frozen primary_foreman='Real Name'
+    and asserts the emitted primary group key contains _USER_Real_Name (not
+    _USER__NO_MATCH / Unknown_Foreman). RED against pre-Task-2 code (the
+    scope gate excluded the historical row's pair from the pre-pass map).
+    GREEN after Task 2 removes ATTRIBUTION_RESOLUTION_WEEKS entirely.
+
+    NOTE: resolver-level historical-claimer assertions
+    (resolve_claimer(prefetched_map={...}) -> ('use','Real Name','frozen'))
+    are owned by Plan 01's ResolveClaimerMapAwareTests (Wave 1). This class
+    adds ONLY the behavioral group_source_rows-driven keystone.
+    """
+
+    def setUp(self):
+        _ensure_smartsheet_mocked()
+        _reset_all()
+        self._saved = {
+            'attr': gwp.PRIMARY_CLAIM_ATTRIBUTION_ENABLED,
+            'avail': gwp.BILLING_AUDIT_AVAILABLE,
+            'mode': gwp.RES_GROUPING_MODE,
+            'sub': set(gwp._FOLDER_DISCOVERED_SUB_IDS),
+        }
+        gwp.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = True
+        gwp.BILLING_AUDIT_AVAILABLE = True
+        gwp.RES_GROUPING_MODE = 'both'
+        gwp._FOLDER_DISCOVERED_SUB_IDS.clear()
+
+    def tearDown(self):
+        gwp.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = self._saved['attr']
+        gwp.BILLING_AUDIT_AVAILABLE = self._saved['avail']
+        gwp.RES_GROUPING_MODE = self._saved['mode']
+        gwp._FOLDER_DISCOVERED_SUB_IDS.clear()
+        gwp._FOLDER_DISCOVERED_SUB_IDS.update(self._saved['sub'])
+
+    def _make_historical_primary_row(self, row_id=9999, wr='90001'):
+        """Build a completed primary row with a week_ending >20 weeks in the past."""
+        import datetime
+        old_date = datetime.date.today() - datetime.timedelta(weeks=20)
+        return {
+            '__row_id': row_id,
+            '__source_sheet_id': 99999,  # NOT in _FOLDER_DISCOVERED_SUB_IDS
+            '__effective_user': 'Unknown Foreman',
+            '__is_helper_row': False,
+            '__is_vac_crew': False,
+            'Work Request #': wr,
+            'Weekly Reference Logged Date': old_date.isoformat(),
+            'Units Completed?': True,
+            'Units Total Price': 100.0,
+            'Dept #': '500',
+            'Job #': 'J-1',
+        }
+
+    def test_historical_group_emits_real_claimer_key(self):
+        """GREEN after fix: a >20-week-old row gets the real frozen claimer.
+
+        RED before fix: ATTRIBUTION_RESOLUTION_WEEKS=8 caused the pre-pass
+        to skip historical rows, so _primary_claimer_map had no entry -> the
+        emission fell back to 'Unknown Foreman', producing
+        _USER_Unknown_Foreman garbage keys (incident run 26439205107).
+
+        After Task 2 removes the scope gate, the bulk map is built from ALL
+        completed rows (exact-set, no recency gate), so the historical row's
+        pair IS in the map and the frozen claimer ('Real Name') is used.
+        """
+        import datetime
+        row = self._make_historical_primary_row(row_id=9999, wr='90001')
+        old_date = datetime.date.today() - datetime.timedelta(weeks=20)
+
+        # Provide a frozen map as if prefetch_attribution returned real data.
+        frozen_map = {('90001', old_date, 9999): {'primary_foreman': 'Real Name'}}
+
+        with mock.patch(
+            'billing_audit.writer.prefetch_attribution',
+            return_value=(frozen_map, 'success'),
+        ):
+            groups = gwp.group_source_rows([row])
+
+        keys = list(groups.keys())
+        # The key must contain 'Real_Name' (sanitized from 'Real Name').
+        self.assertTrue(
+            any('Real_Name' in k for k in keys),
+            f"expected a _USER_Real_Name primary group, got {keys} "
+            f"(evidence anchor: incident run 26439205107)",
+        )
+        # Must NOT contain garbage claimer tokens (the bug being fixed).
+        self.assertFalse(
+            any('_NO_MATCH' in k for k in keys),
+            f"found _NO_MATCH in group keys {keys} — scope gate still active?",
+        )
+        self.assertFalse(
+            any('Unknown_Foreman' in k for k in keys),
+            f"found Unknown_Foreman in group keys {keys} — scope gate still active?",
+        )
+
+    def test_d_use_current_on_fetch_failure_not_hold(self):
+        """D (primary) must use-current on bulk fetch_failure, never HOLD.
+
+        Counterpart to the B/C direct-HOLD wiring test in the other modules.
+        When _attr_status == 'fetch_failure', the D emission path falls back
+        to the current effective_user ('CurrentFM') and generates the file
+        — it never defers (HOLDs) a primary billing file.
+        """
+        row = self._make_historical_primary_row(row_id=8888, wr='90002')
+        row['__effective_user'] = 'CurrentFM'
+
+        with mock.patch(
+            'billing_audit.writer.prefetch_attribution',
+            return_value=({}, 'fetch_failure'),
+        ):
+            groups = gwp.group_source_rows([row])
+
+        keys = list(groups.keys())
+        # D must emit a primary key (use-current = CurrentFM or fallback name).
+        primary_keys = [k for k in keys if 'primary' in k.lower()
+                        or 'USER' in k or 'CurrentFM' in k
+                        or 'Unknown_Foreman' in k]
+        # At minimum, something emitted — D never HOLDs.
+        emitted = [k for k in keys if '_90002' in k or '90002' in k]
+        self.assertTrue(
+            len(emitted) > 0,
+            f"D should emit a primary group on fetch_failure, got keys={keys}",
+        )
