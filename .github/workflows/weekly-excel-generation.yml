@@ -98,7 +98,7 @@ on:
         default: ''
         type: string
       advanced_options:
-        description: 'Advanced: max_groups:X,regen_weeks:MMDDYY1;MMDDYY2,reset_wr_list:WR1;WR2'
+        description: 'Advanced: max_groups:X,regen_weeks:MMDDYY1;MMDDYY2,reset_wr_list:WR1;WR2,remediate_claimers:1,remediation_dry_run:1,remediation_window_weeks:26'
         required: false
         default: ''
         type: string
@@ -211,6 +211,9 @@ jobs:
               max_groups) echo "MAX_GROUPS=$value" >> $GITHUB_ENV ;;
               regen_weeks) echo "REGEN_WEEKS=$(echo $value | tr ';' ',')" >> $GITHUB_ENV ;;
               reset_wr_list) echo "RESET_WR_LIST=$(echo $value | tr ';' ',')" >> $GITHUB_ENV ;;
+              remediate_claimers) echo "REMEDIATE_CLAIMERS=$value" >> $GITHUB_ENV ;;
+              remediation_dry_run) echo "REMEDIATION_DRY_RUN=$value" >> $GITHUB_ENV ;;
+              remediation_window_weeks) echo "REMEDIATION_WINDOW_WEEKS=$value" >> $GITHUB_ENV ;;
             esac
           done
       - name: Generate reports
@@ -439,18 +442,15 @@ jobs:
           # formation). See Living Ledger 2026-05-26.
           SUPABASE_HASH_STORE_AUTHORITATIVE: '0'
 
-          # Phase 2 Plan 03: Garbage-claimer attachment remediation.
-          # DEFAULT OFF — REMEDIATE_CLAIMERS='0' so this mode NEVER fires on a
-          # scheduled cron run. An operator must explicitly set '1' via
-          # workflow_dispatch or a local shell invocation. When active,
-          # main() runs the sweep and returns immediately (no Excel generation).
-          # REMEDIATION_DRY_RUN='1' (default ON): first run logs counts only;
-          # set to '0' only after reviewing the dry-run log.
-          # REMEDIATION_WINDOW_WEEKS='26' (default): sweep last 26 weeks only.
-          # Revert path: set REMEDIATE_CLAIMERS='0' (or remove it) to disable.
-          REMEDIATE_CLAIMERS: '0'
-          REMEDIATION_DRY_RUN: '1'
-          REMEDIATION_WINDOW_WEEKS: '26'
+          # Phase 2 Plan 03 / Plan 06: Garbage-claimer attachment remediation.
+          # Activated via the advanced_options workflow_dispatch field:
+          #   remediate_claimers:1,remediation_dry_run:1,remediation_window_weeks:26
+          # The advanced_options parser (above) exports these to $GITHUB_ENV so
+          # the Python process receives them. Python defaults keep a normal cron
+          # run OFF and safe (REMEDIATE_CLAIMERS='0', REMEDIATION_DRY_RUN='1',
+          # REMEDIATION_WINDOW_WEEKS='26') when advanced_options does not set them.
+          # Literal step-env pins were removed (WR-02): a literal pin overrides
+          # $GITHUB_ENV and would silently block the advanced_options path.
 
           # Phase 2 Plan 05 gap-closure (CR-01): on a MISSING
           # lookup_attribution_bulk RPC (PGRST202), degrade to per-row

@@ -618,15 +618,17 @@ contract per D-06).
 
 **Operator workflow:**
 
-1. Set `REMEDIATE_CLAIMERS=1` and `REMEDIATION_DRY_RUN=1` (default) via
-   `workflow_dispatch`. Review the `🔍 [DRY-RUN] would delete...` log lines.
-2. If the scope is correct, set `REMEDIATION_DRY_RUN=0` and re-run.
-3. Restore `REMEDIATE_CLAIMERS=0` (the workflow pin) so subsequent cron
-   runs return to normal Excel generation.
+1. Set via the `advanced_options` workflow_dispatch field as
+   `remediate_claimers:1` (the advanced_options parser exports it to
+   `$GITHUB_ENV`). Review the `🔍 [DRY-RUN] would delete...` log lines.
+2. If the scope is correct, re-run with `remediation_dry_run:0` in
+   `advanced_options`.
+3. Normal cron runs are unaffected — the Python default is `'0'` so the
+   sweep never fires when `advanced_options` does not set it.
 
-Pinned to `'0'` in `weekly-excel-generation.yml`. The resolved state is
-printed at startup alongside `REMEDIATION_DRY_RUN` and
-`REMEDIATION_WINDOW_WEEKS`.
+The Python default (`'0'`) applies when unset, so a normal cron run never
+sweeps. The resolved state is printed at startup alongside
+`REMEDIATION_DRY_RUN` and `REMEDIATION_WINDOW_WEEKS`.
 
 ### `REMEDIATION_DRY_RUN`
 
@@ -637,7 +639,9 @@ matching attachment it *would* delete but calls `delete_attachment` zero
 times. Set to `0` only after reviewing a dry-run log and confirming the
 scope is correct. Has no effect when `REMEDIATE_CLAIMERS=0`.
 
-Pinned to `'1'` in `weekly-excel-generation.yml`.
+Set via `remediation_dry_run:0` in the `advanced_options` workflow_dispatch
+field. The Python default (`'1'`) applies when unset — dry-run is always
+the safe starting point.
 
 ### `REMEDIATION_WINDOW_WEEKS`
 
@@ -649,7 +653,8 @@ is within the last N weeks of today (D-08 blast-radius guard). `0`
 disables the filter (unbounded — sweeps all history). Has no effect when
 `REMEDIATE_CLAIMERS=0`.
 
-Pinned to `'26'` in `weekly-excel-generation.yml`.
+Set via `remediation_window_weeks:N` in the `advanced_options`
+workflow_dispatch field. The Python default (`'26'`) applies when unset.
 
 ---
 

@@ -133,29 +133,35 @@ active billing window using the remediation mode. The default window is
 **Always run dry-run first** — the dry-run logs what it would delete without
 touching Smartsheet.
 
-```yaml
-# workflow_dispatch — dry-run pass (review would-delete counts)
-REMEDIATE_CLAIMERS: '1'
-REMEDIATION_DRY_RUN: '1'
-REMEDIATION_WINDOW_WEEKS: '26'
-SUPABASE_HASH_STORE_AUTHORITATIVE: '1'
+Trigger via the **Actions → "Run workflow"** button, setting the
+`advanced_options` field:
+
+```text
+advanced_options: remediate_claimers:1,remediation_dry_run:1,remediation_window_weeks:26
 ```
 
-Review the summary log line (`would delete N garbage attachments across
-TARGET/PPP, 0 executed`). If the counts look reasonable, re-run with
-dry-run off:
+Review the dry-run summary in the job log:
 
-```yaml
-# workflow_dispatch — execute pass (deletes garbage, leaves real files)
-REMEDIATE_CLAIMERS: '1'
-REMEDIATION_DRY_RUN: '0'
-REMEDIATION_WINDOW_WEEKS: '26'
-SUPABASE_HASH_STORE_AUTHORITATIVE: '1'
+```text
+✅ run_claimer_remediation [DRY-RUN] complete: scanned=N garbage=N deleted=0 exempted=N out_of_window=N
+```
+
+Also grep for the per-attachment lines to inspect scope:
+
+```text
+🔍 [DRY-RUN] would delete garbage attachment att=... sheet=... wr=... week=... variant=...
+```
+
+If the counts look reasonable, re-run with dry-run off:
+
+```text
+advanced_options: remediate_claimers:1,remediation_dry_run:0,remediation_window_weeks:26
 ```
 
 The remediation mode returns immediately (no Excel generation in the same
-session). After the execute pass, restore `REMEDIATE_CLAIMERS: '0'` in
-the workflow — it must never fire on the scheduled cron.
+session). Normal cron runs are unaffected — `REMEDIATE_CLAIMERS` Python
+default is `'0'` so the sweep never fires unless explicitly activated
+through `advanced_options`.
 
 Remediating **after** E activation means each regenerated file uses the
 clean-name format (no `_<timestamp>_<hash>` token churn). History deeper
