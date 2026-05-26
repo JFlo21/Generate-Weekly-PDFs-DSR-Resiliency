@@ -125,6 +125,38 @@ ALTER TABLE billing_audit.pipeline_run
 CREATE INDEX IF NOT EXISTS idx_pipeline_run_wr_week_created_at
     ON billing_audit.pipeline_run (wr, week_ending, created_at DESC);
 
+-- ── group_content_hash (Sub-project E) ──────────────────────
+-- Durable per-group change-detection hash store. Keyed on the same
+-- 4-tuple as the engine's history_key (f"{wr}|{week}|{variant}|{identifier}").
+-- ``identifier`` defaults to '' for bare primary / legacy-shape groups,
+-- matching the engine's '{wr}|{week}|{variant}|' json key.
+--
+-- This durable store replaces (when SUPABASE_HASH_STORE_AUTHORITATIVE)
+-- the role of (a) the ephemeral local hash_history.json and (b) the
+-- 16-char hash token embedded in the attachment filename. Once a row
+-- exists here, generated filenames no longer need to carry the hash.
+--
+-- OPERATOR: this DDL must be applied to the Supabase project and the
+-- PostgREST schema cache reloaded (NOTIFY pgrst, 'reload schema';)
+-- before the store can be read/written. Until then lookup returns
+-- 'unavailable' and the pipeline behaves exactly as before (fail-safe).
+CREATE TABLE IF NOT EXISTS billing_audit.group_content_hash (
+    wr            TEXT        NOT NULL,
+    week_ending   DATE        NOT NULL,
+    variant       TEXT        NOT NULL,
+    identifier    TEXT        NOT NULL DEFAULT '',
+    content_hash  TEXT        NOT NULL,
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (wr, week_ending, variant, identifier)
+);
+
+-- Backfill-safe column adds (mirrors the pipeline_run convention) so a
+-- partial-deploy environment can be brought current without DROP.
+ALTER TABLE billing_audit.group_content_hash
+    ADD COLUMN IF NOT EXISTS content_hash TEXT;
+ALTER TABLE billing_audit.group_content_hash
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
 -- ── freeze_attribution (RPC) ────────────────────────────────
 -- The ``freeze_attribution`` Postgres function is NOT defined
 -- here — its body is deployed and maintained directly in the

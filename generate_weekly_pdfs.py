@@ -589,6 +589,26 @@ LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED = os.getenv(
     'LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED', '1'
 ).strip().lower() in ('1', 'true', 'yes', 'on')
 
+# Sub-project E (2026-05-25): durable Supabase change-detection hash store.
+# WRITE (default ON): shadow-write the per-group content hash to Supabase
+# every run. Harmless even while not authoritative — it populates the
+# durable store so a later flip to authoritative finds current hashes and
+# skips the one-time regeneration wave.
+SUPABASE_HASH_STORE_WRITE_ENABLED = os.getenv(
+    'SUPABASE_HASH_STORE_WRITE_ENABLED', '1'
+).strip().lower() in ('1', 'true', 'yes', 'on')
+# AUTHORITATIVE (default OFF — ship dormant): when ON, (a) the change-
+# detection skip gate reads the Supabase group hash (falling back to the
+# hash_history.json cache, then regenerating on miss/outage — never
+# skipping unsafely), (b) generated filenames DROP the _<timestamp>/_<hash>
+# tokens (deterministic identity-only names), and (c)
+# delete_old_excel_attachments stops relying on the filename-embedded hash.
+# Flip to '1' only after the Supabase store is validated in production.
+# This is the one-line master revert for all of Sub-project E.
+SUPABASE_HASH_STORE_AUTHORITATIVE = os.getenv(
+    'SUPABASE_HASH_STORE_AUTHORITATIVE', '0'
+).strip().lower() in ('1', 'true', 'yes', 'on')
+
 # Cutoff date for ``_AEPBillable`` variant generation. Awarded to
 # Linetec on 2026-04-12 (subcontractor rate contract). Plan 2 (parser
 # extension) and Plan 3 (variant emission) gate variant emission on
@@ -767,6 +787,15 @@ logging.info(
 logging.info(
     f"📋 LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED="
     f"{LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED}"
+)
+# Sub-project E: surface the durable hash-store kill switches at startup.
+logging.info(
+    f"📋 SUPABASE_HASH_STORE_WRITE_ENABLED="
+    f"{SUPABASE_HASH_STORE_WRITE_ENABLED}"
+)
+logging.info(
+    f"📋 SUPABASE_HASH_STORE_AUTHORITATIVE="
+    f"{SUPABASE_HASH_STORE_AUTHORITATIVE}"
 )
 
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
