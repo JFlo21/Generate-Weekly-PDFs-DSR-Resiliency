@@ -3665,3 +3665,77 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   ``TestOutOfWindowCountsOnlyGarbage`` (2 tests). ``pytest tests/`` →
   **986 passed / 29 skipped / 69 subtests** (was 981 at Plan 02-05 close;
   +5 net passing).
+- [2026-05-27 14:45] **Production incident: stale Supabase
+  ``billing_audit`` schema — claim attribution silently degraded to the
+  current foreman, and the missing bulk RPC recreated the ~137k per-row
+  explosion.** Operator reported that every subcontractor
+  (``_ReducedSub`` / ``_AEPBillable``) and primary file was named after
+  the SAME (current) foreman regardless of which week/foreman actually
+  worked the WR, and recent scheduled runs were timing out at ~3h.
+  **Root cause (TWO contract drifts in the deployed DB, NOT a code
+  bug):** the live Supabase project (``poeyztlmsawfoqlanucc`` —
+  "Smarthsheet-Resiliency-Offloaded-Data") was never updated to the
+  current ``billing_audit/schema.sql``. (1) ``lookup_attribution_bulk``
+  was **not deployed at all** → ``prefetch_attribution`` returned
+  ``rpc_missing`` → with ``ATTRIBUTION_BULK_PREFETCH_FALLBACK=1`` the run
+  degraded to per-row ``lookup_attribution`` and fired **138,478**
+  per-row RPCs (the exact pre-Phase-2 [2026-05-26 01:45] explosion),
+  pushing scheduled runs to the 3h cancel ceiling. (2) The deployed
+  ``lookup_attribution`` was the **stale Phase-01.1 helper-only version**
+  returning only ``(helper, helper_dept, source_run_id)`` — it did NOT
+  return ``primary_foreman`` / ``vac_crew``. The reader
+  ``_lookup_attribution_all`` (and ``ROLE_BY_VARIANT['primary'] =
+  'primary_foreman'``) therefore read ``primary_foreman`` as absent →
+  ``resolve_claimer`` fell back to use-current for EVERY primary/vac row,
+  while HELPER attribution kept working (the deployed RPC still returned
+  ``frozen_helper``). That asymmetry — correct ``_Helper_<name>`` but
+  wrong/current ``_User_<name>`` — is the fingerprint. The
+  ``attribution_snapshot`` data was fine all along (142,806 rows, 49
+  weeks back to 2025-06, 99.3% real ``frozen_primary``; e.g. WR
+  90727774 correctly froze Mark Diaz for the March/early-May weeks and
+  Wade Watson for May 17/24 — but every file shipped as Wade Watson).
+  **Why the deploy silently never took (the latent ``schema.sql``
+  defect):** ``schema.sql`` instructed operators to "apply this CREATE
+  OR REPLACE", but Postgres ``CREATE OR REPLACE FUNCTION`` **cannot
+  change a function's return columns** (3 → 5). Running it over the
+  helper-only version errors with "cannot change return type of existing
+  function", so the multi-role contract never installed and no one
+  noticed (the error was in a manual SQL-editor step, not CI). **Fix:**
+  (1) Applied a migration to ``poeyztlmsawfoqlanucc`` that
+  ``DROP FUNCTION IF EXISTS billing_audit.lookup_attribution(TEXT, DATE,
+  BIGINT)`` then re-creates the 5-column version, creates
+  ``lookup_attribution_bulk``, grants EXECUTE to ``service_role``, and
+  ``NOTIFY pgrst, 'reload schema'``. Verified: per-row + bulk now resolve
+  ``primary_foreman='Mark Diaz'`` for WR 90727774 wk 2026-03-01 (was
+  Wade Watson). (2) Patched ``billing_audit/schema.sql`` to add the
+  ``DROP FUNCTION IF EXISTS`` before the ``lookup_attribution`` create
+  and corrected the misleading "adding columns is backward-compatible"
+  comment. **New rules:** (1) **A ``CREATE OR REPLACE FUNCTION`` that
+  changes ``RETURNS TABLE`` columns is NOT a valid in-place upgrade** —
+  it errors against any previously-deployed version with a different
+  output shape. Any ``schema.sql`` function whose return columns change
+  over time MUST carry a ``DROP FUNCTION IF EXISTS
+  <fully-qualified>(argtypes)`` immediately before its ``CREATE``.
+  Reviewers MUST flag a return-shape change that lacks a preceding DROP.
+  (2) **A Supabase RPC contract is a deployment artifact, not just a repo
+  file** — shipping the ``schema.sql`` change is necessary but NOT
+  sufficient; the DDL must be applied to the live project AND the
+  PostgREST cache reloaded, THEN verified by calling the function and
+  asserting the new columns return real data. The Foundation A / Phase 2
+  "operator must apply schema.sql + NOTIFY pgrst" gates are load-bearing;
+  treat an un-applied attribution schema as a P1 because the code
+  degrades SILENTLY (graceful fallback to current foreman — no crash, no
+  HOLD, wrong billing attribution). (3) **When attribution looks wrong,
+  compare ``attribution_snapshot`` (truth) against the deployed
+  function's ``pg_get_function_result`` FIRST** — the snapshot being
+  correct while files are wrong points at the read-path RPC shape, not
+  the freeze/write path. (4) The clean-filename flip
+  (``SUPABASE_HASH_STORE_AUTHORITATIVE=1``) MUST stay deferred until a
+  post-fix run is validated (correct per-week claimers + O(chunks)
+  attribution HTTP + runtime well under ``TIME_BUDGET_MINUTES``); the
+  persistent hash/timestamp tokens in filenames are EXPECTED while E is
+  dormant and are NOT part of this bug. No Python code changed — the
+  engine was correct; the database was stale. No new pytest tests (the
+  fix is a DB migration + a ``schema.sql`` deploy-safety correction;
+  existing ``LookupGroupHashTests`` / ``PrefetchAttributionTests`` /
+  ``TestLookupAttribution`` already lock the Python contract).

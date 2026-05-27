@@ -241,12 +241,20 @@ ALTER TABLE billing_audit.group_content_hash
 -- (_lookup_attribution_all / resolve_claimer). Do NOT rename the
 -- returned column names without updating those call sites.
 --
--- OPERATOR: apply this CREATE OR REPLACE in the Supabase SQL Editor,
--- then run `NOTIFY pgrst, 'reload schema';` (or Project Settings →
--- API → Reload schema cache). Adding columns is backward-compatible
--- with the prior helper-only consumer.
+-- OPERATOR: apply this DROP + CREATE in the Supabase SQL Editor, then
+-- run `NOTIFY pgrst, 'reload schema';` (or Project Settings → API →
+-- Reload schema cache).
+--
+-- The DROP is REQUIRED: an earlier helper-only version of this function
+-- returned (helper, helper_dept, source_run_id). Postgres CREATE OR
+-- REPLACE FUNCTION cannot change a function's return columns, so a bare
+-- CREATE OR REPLACE over the helper-only version fails with "cannot
+-- change return type of existing function" — which is why the multi-role
+-- contract silently never deployed (incident 2026-05-27). DROP FUNCTION
+-- IF EXISTS first, then create the 5-column version below.
+DROP FUNCTION IF EXISTS billing_audit.lookup_attribution(TEXT, DATE, BIGINT);
 
-CREATE OR REPLACE FUNCTION billing_audit.lookup_attribution(
+CREATE FUNCTION billing_audit.lookup_attribution(
     p_wr                TEXT,
     p_week_ending       DATE,
     p_smartsheet_row_id BIGINT
