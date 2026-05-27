@@ -191,7 +191,7 @@ Or run a workflow dispatch in GitHub Actions — Sentry will receive the cron ch
 
 #### Sentry Logs (structured logs product)
 
-`generate_weekly_pdfs.py` wires the SDK to support the Sentry **Logs** product (requires `sentry-sdk>=2.35.0`, already pinned in `requirements.txt`). Log forwarding is **gated and opt-in**: it activates only when the environment variable `SENTRY_ENABLE_LOGS` is set to `1` / `true` / `yes` / `on`. When unset (default) or `false`, `enable_logs` is `False` and no stdlib records are shipped to the Logs product — existing breadcrumb and event behavior is unaffected.
+`generate_weekly_pdfs.py` wires the SDK to support the Sentry **Logs** product (feature minimum: `sentry-sdk` 2.35.0; `requirements.txt` pins `sentry-sdk==2.35.0` for production stability). Log forwarding is **gated and opt-in**: it activates only when the environment variable `SENTRY_ENABLE_LOGS` is set to `1` / `true` / `yes` / `on`. When unset (default) or `false`, `enable_logs` is `False` and no stdlib records are shipped to the Logs product — existing breadcrumb and event behavior is unaffected.
 
 > **Privacy note.** Enabling `SENTRY_ENABLE_LOGS` ships every stdlib `logging` record captured by `LoggingIntegration(level=logging.INFO, ...)` to Sentry. This engine has INFO-level debug paths (e.g. `PER_CELL_DEBUG_ENABLED`, row-sample logs) that can include raw cell values, foreman names, dept/job numbers, WR numbers, and price values — all of which are billing-row PII per the [Privacy / Security](#privacy--security) section above. Before flipping `SENTRY_ENABLE_LOGS=true` in any environment, audit the log call sites, keep `PER_CELL_DEBUG_ENABLED` and row-sample debug flags **off** in production, and never add new log lines that embed billing row/cell content.
 >

@@ -361,7 +361,7 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   assignment logs, `Removing …` / `Unchanged (…` / `FORCE
   GENERATION for …` lines — all known INFO paths that embed WR /
   dept / job / foreman / cell / price data). Requires
-  `sentry-sdk>=2.35.0`, already pinned in `requirements.txt`.
+  `sentry-sdk==2.35.0`, pinned in `requirements.txt`.
   Rationale: the engine has INFO-level debug paths
   (`PER_CELL_DEBUG_ENABLED`, row-sample logs, helper / vac-crew
   diagnostics) that can emit billing-row PII; per
