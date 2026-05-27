@@ -220,6 +220,7 @@ jobs:
               remediate_claimers) echo "REMEDIATE_CLAIMERS=${value}" >> "$GITHUB_ENV" ;;
               remediation_dry_run) echo "REMEDIATION_DRY_RUN=${value}" >> "$GITHUB_ENV" ;;
               remediation_window_weeks) echo "REMEDIATION_WINDOW_WEEKS=${value}" >> "$GITHUB_ENV" ;;
+              legacy_hash_cleanup) echo "LEGACY_HASH_CLAIMER_CLEANUP_ENABLED=${value}" >> "$GITHUB_ENV" ;;
             esac
           done
       - name: Generate reports
@@ -419,6 +420,28 @@ jobs:
           # PRIMARY_CLAIM_ATTRIBUTION_ENABLED (which gates attribution
           # resolution, NOT this cleanup). Living Ledger [2026-05-25].
           LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED: '1'
+
+          # Legacy-hash cross-claimer cleanup (2026-05-27, debug session
+          # legacy-attachment-cleanup). DEFAULT OFF — operator-activated PREP
+          # step for the Sub-project E re-activation runbook. When active, the
+          # cleanup deletes legacy HASH-NAMED attachments for any
+          # (wr, week, variant) that also has a CLEAN-named current file,
+          # regardless of claimer — removing pre-migration wrong-claimer
+          # duplicates left after the 2026-05-27 attribution fix corrected
+          # historical frozen claimers (e.g. _User_Wade_Watson superseded by
+          # _User_Mark_Diaz). Two clean claimers both survive (no-cross-delete
+          # invariant intact). Independent of SUPABASE_HASH_STORE_AUTHORITATIVE
+          # by design (avoids the chicken-and-egg: run this BEFORE flipping E
+          # to '1').
+          #
+          # Activated via the advanced_options workflow_dispatch field:
+          #   legacy_hash_cleanup:1
+          # The advanced_options parser (above) exports it to $GITHUB_ENV so the
+          # Python process receives it. NO literal step-env pin here (WR-02): a
+          # literal pin would override $GITHUB_ENV and silently block the
+          # advanced_options activation path. The Python module default
+          # ('0' -> disabled) keeps a normal cron run OFF and safe.
+          # Living Ledger [2026-05-27].
 
           # Sub-project E (2026-05-25, DORMANT SHIP): durable Supabase
           # change-detection hash store + clean (token-less) filenames.
