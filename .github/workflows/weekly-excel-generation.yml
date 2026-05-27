@@ -443,10 +443,22 @@ jobs:
           # the current foreman (#NO MATCH / blank) instead of the real frozen
           # claimer that exists in attribution_snapshot — producing
           # _User__NO_MATCH / _User_Unknown_Foreman files uploaded over real
-          # historical attachments. Stays '0' until the attribution
-          # bulk-prefetch fix lands (removes the week-scope from key
-          # formation). See Living Ledger 2026-05-26.
-          SUPABASE_HASH_STORE_AUTHORITATIVE: '1'
+          # historical attachments.
+          #
+          # RE-REVERTED to '0' on 2026-05-27: the Supabase RPC contract fix
+          # (lookup_attribution multi-role + lookup_attribution_bulk deployed
+          # 2026-05-27) restored correct claimer resolution where frozen data
+          # exists, but a premature flip to '1' (commit 7077471) was made
+          # BEFORE the runbook's remediation step. Run 26534649865 confirmed
+          # ~147 clean-named _User__NO_MATCH / _User_Unknown_Foreman files were
+          # regenerated for old weeks whose SOURCE rows have no valid foreman
+          # (#NO MATCH / blank) — the exact failure mode this guard prevents.
+          # Stays '0' until: (1) remediation sweep deletes the garbage
+          # attachments (REMEDIATE_CLAIMERS=1, dry-run first), (2) a dormant
+          # run validates correct attribution, THEN (3) flip '1' WITH
+          # RESET_HASH_HISTORY=1 for a one-time full clean+correct regen.
+          # See operations.md re-activation runbook + Living Ledger 2026-05-27.
+          SUPABASE_HASH_STORE_AUTHORITATIVE: '0'
 
           # Phase 2 Plan 03 / Plan 06: Garbage-claimer attachment remediation.
           # Activated via the advanced_options workflow_dispatch field:
