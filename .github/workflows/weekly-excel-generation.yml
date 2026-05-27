@@ -446,7 +446,7 @@ jobs:
           # historical attachments. Stays '0' until the attribution
           # bulk-prefetch fix lands (removes the week-scope from key
           # formation). See Living Ledger 2026-05-26.
-          SUPABASE_HASH_STORE_AUTHORITATIVE: '0'
+          SUPABASE_HASH_STORE_AUTHORITATIVE: '1'
 
           # Phase 2 Plan 03 / Plan 06: Garbage-claimer attachment remediation.
           # Activated via the advanced_options workflow_dispatch field:
