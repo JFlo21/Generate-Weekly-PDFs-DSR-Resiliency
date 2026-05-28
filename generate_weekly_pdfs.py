@@ -589,37 +589,6 @@ LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED = os.getenv(
     'LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED', '1'
 ).strip().lower() in ('1', 'true', 'yes', 'on')
 
-# Legacy-hash cross-claimer cleanup (2026-05-27, debug session
-# ``legacy-attachment-cleanup``). DEFAULT OFF — operator-activated prep step.
-# Root cause: ``cleanup_untracked_sheet_attachments`` dedups ONLY within a
-# single identity ``(wr, week, variant, claimer)`` (the Foundation A
-# no-cross-delete invariant). After the 2026-05-27 attribution fix corrected
-# historical frozen claimers (e.g. Wade Watson -> Mark Diaz), each affected
-# group ADDS the correct ``_User_Mark_Diaz`` (clean) file but the OLD
-# wrong-claimer LEGACY HASH-NAMED ``_User_Wade_Watson_<ts>_<hash>`` file is a
-# DIFFERENT identity -> kept forever as a duplicate. No existing path
-# cross-deletes it (per-identity dedup skips it; ``run_claimer_remediation``
-# only sweeps ``_NO_MATCH`` / ``_Unknown_Foreman``).
-#
-# When ON, the cleanup deletes — for each ``(wr, week, variant)`` for which a
-# CLEAN-named (token-less, Sub-project E) current file exists on a row — the
-# LEGACY HASH-NAMED attachments for that same ``(wr, week, variant)``
-# REGARDLESS of claimer. The hash/timestamp token is the reliable legacy
-# signal (clean-named = current/correct scheme; hash-named = pre-migration /
-# possibly-wrong-claimer). The no-cross-delete invariant is preserved: two
-# CLEAN-named claimers for the same (wr, week, variant) BOTH survive (neither
-# is hash-named, so neither is deletion-eligible), and a hash-named file with
-# NO clean sibling is kept.
-#
-# Independent of ``SUPABASE_HASH_STORE_AUTHORITATIVE`` by operator decision —
-# this runs as a PREP step BEFORE E is flipped to '1' (avoids the
-# chicken-and-egg: E can't be activated while wrong-claimer duplicates linger,
-# but the duplicates can't be cleaned by an E-gated cleanup that only runs
-# when E is already active). Workflow-pinned per [2026-05-15 12:00] rule 7.
-LEGACY_HASH_CLAIMER_CLEANUP_ENABLED = os.getenv(
-    'LEGACY_HASH_CLAIMER_CLEANUP_ENABLED', '0'
-).strip().lower() in ('1', 'true', 'yes', 'on')
-
 # Sub-project E (2026-05-25): durable Supabase change-detection hash store.
 # WRITE (default ON): shadow-write the per-group content hash to Supabase
 # every run. Harmless even while not authoritative — it populates the
@@ -887,13 +856,6 @@ logging.info(
 logging.info(
     f"📋 LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED="
     f"{LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED}"
-)
-# Legacy-hash cross-claimer cleanup (2026-05-27): surface the prep-step
-# kill switch at startup so operators can confirm it is active for the
-# one-time wrong-claimer duplicate removal.
-logging.info(
-    f"📋 LEGACY_HASH_CLAIMER_CLEANUP_ENABLED="
-    f"{LEGACY_HASH_CLAIMER_CLEANUP_ENABLED}"
 )
 # Sub-project E: surface the durable hash-store kill switches at startup.
 logging.info(
@@ -1258,11 +1220,6 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     # containment with pre-existing markers (body does not overlap
     # "Subproject B hash-history prune" or "Vac crew hash-history prune").
     "Subproject D hash-history prune",
-    # Legacy-hash cross-claimer cleanup (2026-05-27). The log body below
-    # embeds the deleted attachment name (WR + week + claimer) which the
-    # sanitizer must drop under SENTRY_ENABLE_LOGS. Explicit marker per the
-    # [2026-05-15 12:00] rule 3 (no accidental substring containment).
-    "Removed legacy hash-named cross-claimer attachment",
 )
 
 
@@ -2715,45 +2672,6 @@ def list_generated_excel_files(folder: str) -> list[str]:
     except FileNotFoundError:
         return []
 
-def _is_legacy_hash_named(filename: str) -> bool:
-    """Return True when ``filename`` is a LEGACY HASH-NAMED Excel attachment.
-
-    Legacy-hash cross-claimer cleanup (2026-05-27). The discriminator is the
-    same structural signal ``build_group_identity`` uses to tell legacy
-    token-bearing names from Sub-project E clean (token-less) names: the token
-    IMMEDIATELY AFTER ``WeekEnding_<week>`` is a 6-digit numeric ``HHMMSS``
-    timestamp. Legacy names always carry it (followed by a trailing hash);
-    clean names never do (the position after the week is a variant marker or
-    the filename ends). This is the reliable "pre-migration / possibly
-    wrong-claimer" signal — clean-named files use the current/correct scheme.
-
-    Returns False for non-WR / non-xlsx names and for clean (token-less)
-    names. Uses the leftmost ``WeekEnding`` + 6-digit-week match (the
-    structural delimiter always precedes any identifier-internal candidate in
-    a generated filename), so a pathological identifier that itself contains
-    ``WeekEnding_<6digits>`` cannot false-positive.
-    """
-    if not filename.startswith('WR_'):
-        return False
-    base = filename[:-5] if filename.lower().endswith('.xlsx') else filename
-    parts = base.split('_')
-    if len(parts) < 4 or parts[0] != 'WR':
-        return False
-    for _i, _p in enumerate(parts):
-        if _p != 'WeekEnding' or _i < 2 or _i + 1 >= len(parts):
-            continue
-        _week = parts[_i + 1]
-        if not (len(_week) == 6 and _week.isdigit()):
-            continue
-        # Structural delimiter found. The token after the week is the legacy
-        # HHMMSS timestamp iff it is itself a 6-digit numeric token.
-        if _i + 2 < len(parts):
-            _ts_tok = parts[_i + 2]
-            return len(_ts_tok) == 6 and _ts_tok.isdigit()
-        return False
-    return False
-
-
 def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | None:
     """
     Parse filename to extract identity tuple: (wr, week_ending, variant, helper_or_user).
@@ -3091,7 +3009,6 @@ def cleanup_untracked_sheet_attachments(
     sub_legacy_primary_variants: set[str] | None = None,
     vac_legacy_wr_scope: set[str] | None = None,
     primary_wr_scope: set[str] | None = None,
-    legacy_hash_cleanup: bool = False,
 ):
     """Prune only older variants for identities processed this run (VARIANT-AWARE).
 
@@ -3187,7 +3104,6 @@ def cleanup_untracked_sheet_attachments(
         return
     removed_variants = 0
     removed_off_contract = 0  # Phase 1.1 Bug B2 (D-07 / SUB-10): off-contract counter
-    removed_legacy_hash = 0  # 2026-05-27: legacy-hash cross-claimer cleanup counter
     for row in sheet.rows:
         try:
             # Use pre-fetched cache if available; otherwise fall back to per-row API call
@@ -3347,26 +3263,6 @@ def cleanup_untracked_sheet_attachments(
                     f"⚠️ Could not delete off-contract variant "
                     f"{att.name}: {e}"
                 )
-        # Legacy-hash cross-claimer cleanup (2026-05-27). Pre-compute, per
-        # (wr, week, variant), whether a CLEAN-named current attachment exists
-        # on THIS row. A clean-named file is the supersession signal: if one
-        # exists for a (wr, week, variant), any LEGACY HASH-NAMED attachment
-        # for that same (wr, week, variant) — REGARDLESS of claimer — is a
-        # pre-migration / possibly-wrong-claimer duplicate and is deleted.
-        # Gated by ``legacy_hash_cleanup`` (default False -> byte-identical
-        # legacy behaviour). The no-cross-delete invariant is preserved: two
-        # CLEAN-named claimers for the same (wr, week, variant) are BOTH
-        # clean, so neither is deletion-eligible; a legacy file with no clean
-        # sibling is kept (handled by within-identity dedup only).
-        _clean_wwv: set = set()
-        if legacy_hash_cleanup:
-            for _ident_k, _atts_k in identity_groups.items():
-                _wr_k, _week_k, _variant_k, _ = _ident_k
-                for _a in _atts_k:
-                    if not _is_legacy_hash_named(getattr(_a, 'name', '') or ''):
-                        _clean_wwv.add((_wr_k, _week_k, _variant_k))
-                        break
-
         for ident, atts in identity_groups.items():
             # Skip identities not processed if preserving historical weeks
             if ident not in valid_wr_weeks and KEEP_HISTORICAL_WEEKS:
@@ -3390,41 +3286,9 @@ def cleanup_untracked_sheet_attachments(
                     logging.info(f"🗑️ Removed older variant: {old.name}")
                 except Exception as e:
                     logging.warning(f"⚠️ Could not delete variant {old.name}: {e}")
-            # Legacy-hash cross-claimer cleanup (2026-05-27): if this identity
-            # is itself LEGACY HASH-NAMED and a CLEAN-named current file exists
-            # for the same (wr, week, variant) under a (possibly) different
-            # claimer, delete the newest-kept legacy attachment too. The
-            # within-identity loop above already pruned its older copies; this
-            # removes the surviving legacy newest when a clean sibling
-            # supersedes it. CLEAN-named identities are never matched here
-            # (``_is_legacy_hash_named`` is False for them), so two clean
-            # claimers both survive — the Foundation A no-cross-delete
-            # invariant is intact.
-            if legacy_hash_cleanup and atts_sorted:
-                _wr_i, _week_i, _variant_i, _ = ident
-                _newest = atts_sorted[0]
-                if (
-                    (_wr_i, _week_i, _variant_i) in _clean_wwv
-                    and _is_legacy_hash_named(getattr(_newest, 'name', '') or '')
-                ):
-                    try:
-                        client.Attachments.delete_attachment(
-                            target_sheet_id, _newest.id)
-                        removed_legacy_hash += 1
-                        logging.info(
-                            f"🗑️ Removed legacy hash-named cross-claimer "
-                            f"attachment on sheet {target_sheet_id}: "
-                            f"{_newest.name}"
-                        )
-                    except Exception as e:
-                        logging.warning(
-                            f"⚠️ Could not delete legacy hash-named "
-                            f"attachment {_newest.name}: {e}"
-                        )
     logging.info(
         f"🧹 Variant pruning done: removed_variants={removed_variants}, "
-        f"removed_off_contract={removed_off_contract}, "
-        f"removed_legacy_hash={removed_legacy_hash}"
+        f"removed_off_contract={removed_off_contract}"
     )
 
 def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, week_raw, current_data_hash, variant='primary', identifier=None, force_generation=False, cached_attachments: list | None = None):
@@ -9932,15 +9796,6 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     sub_legacy_primary_variants=_target_legacy_primary,
                     vac_legacy_wr_scope=_vac_scope,
                     primary_wr_scope=_primary_scope,
-                    # Legacy-hash cross-claimer cleanup (2026-05-27): default
-                    # OFF kill switch. When ON, deletes legacy HASH-NAMED
-                    # attachments for any (wr, week, variant) that also has a
-                    # CLEAN-named current file (the supersession signal),
-                    # regardless of claimer — removing pre-migration
-                    # wrong-claimer duplicates (e.g. _User_Wade_Watson after
-                    # the attribution fix corrected the frozen claimer to
-                    # Mark Diaz). Two clean claimers both survive.
-                    legacy_hash_cleanup=LEGACY_HASH_CLAIMER_CLEANUP_ENABLED,
                 )
 
             # Phase 01 gap closure (REVIEW-WR-01): parallel cleanup pass
@@ -10019,13 +9874,6 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                             if _sub_scope and SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED
                             else None
                         ),
-                        # Legacy-hash cross-claimer cleanup (2026-05-27): same
-                        # default-OFF kill switch on PPP. Off-contract variants
-                        # are already pruned by ``variant_whitelist`` before
-                        # the cross-claimer gate, so this only ever acts on the
-                        # whitelisted ``reduced_sub`` / ``reduced_sub_helper``
-                        # legacy wrong-claimer duplicates.
-                        legacy_hash_cleanup=LEGACY_HASH_CLAIMER_CLEANUP_ENABLED,
                     )
 
         # Cleanup legacy / stale Excel files so only current system outputs remain

@@ -2763,33 +2763,22 @@ class TestPppCleanupUntrackedAttachments(unittest.TestCase):
         # sub_legacy_primary_variants. Subproject C Task 6 (2026-05-21)
         # appends one more trailing kwarg: vac_legacy_wr_scope. Subproject
         # D Task 10 (2026-05-25) appends one more trailing kwarg:
-        # primary_wr_scope. The legacy-hash cross-claimer cleanup
-        # (2026-05-27) appends one more trailing kwarg: legacy_hash_cleanup
-        # (a bool toggle defaulting False, mirroring the test_mode toggle —
-        # NOT a None-defaulted scope kwarg). All the scope kwargs remain
-        # optional (None default) so existing TARGET / PPP call sites remain
-        # byte-identical. IN-PLACE UPDATE per [2026-05-20 00:26] rule 2 — the
-        # assertion follows the current signature contract.
+        # primary_wr_scope. All six are optional (None default) so
+        # existing TARGET / PPP call sites remain byte-identical.
+        # IN-PLACE UPDATE per [2026-05-20 00:26] rule 2 — the assertion
+        # follows the v5 signature contract.
         self.assertEqual(
             params,
             ['client', 'target_sheet_id', 'valid_wr_weeks',
              'test_mode', 'attachment_cache', 'target_sheet',
              'variant_whitelist', 'sub_wr_scope', 'sub_offcontract_variants',
              'sub_legacy_primary_variants', 'vac_legacy_wr_scope',
-             'primary_wr_scope', 'legacy_hash_cleanup'],
-            "The legacy-hash cross-claimer cleanup (2026-05-27) appends a "
-            "trailing kwarg after 'primary_wr_scope': 'legacy_hash_cleanup'. "
+             'primary_wr_scope'],
+            "Subproject D Task 10 appends a trailing kwarg after "
+            "'vac_legacy_wr_scope': 'primary_wr_scope'. "
             "Any further drift must be reviewed against D-09 (TARGET "
             "legacy behavior). "
             f"Got: {params}"
-        )
-        # legacy_hash_cleanup is a bool TOGGLE (default False), not a
-        # None-defaulted scope kwarg — it gates the one-time cross-claimer
-        # cleanup OFF by default so existing call sites are byte-identical.
-        self.assertIs(
-            sig.parameters['legacy_hash_cleanup'].default, False,
-            'legacy_hash_cleanup must default to False (off-by-default '
-            'toggle, 2026-05-27).'
         )
         # All trailing kwargs must default to None (D-09) so
         # existing call sites without the new kwargs are unaffected.
