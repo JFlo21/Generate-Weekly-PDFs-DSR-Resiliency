@@ -1,0 +1,51 @@
+name: Python Lint (warn-only)
+
+# Visibility-first, non-blocking lint + type-check for the Python billing
+# engine. Findings NEVER fail CI, block a merge, or affect the production
+# cron pipeline (weekly-excel-generation.yml). This is intentionally
+# warn-only — enforcement is a separate, later decision.
+#
+# Isolated from production: this file is the ONLY lint/type-check workflow.
+# weekly-excel-generation.yml is untouched.
+
+permissions:
+  contents: read
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    # Belt-and-suspenders #1: the entire job is non-blocking, so even an
+    # infrastructure hiccup in lint/type-check cannot fail the check run.
+    continue-on-error: true
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dev tooling
+        # Dev tools only — NOT the production requirements.txt.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Ruff (warn-only)
+        # Belt-and-suspenders #2: --exit-zero makes ruff always exit 0 even
+        # when it reports findings, AND continue-on-error guards the step.
+        continue-on-error: true
+        run: ruff check . --exit-zero
+
+      - name: Mypy (warn-only)
+        # Belt-and-suspenders #2: `|| true` swallows a non-zero mypy exit,
+        # AND continue-on-error guards the step. Scope to first-party engine
+        # files; mypy reads exclude/ignore_missing_imports from pyproject.toml.
+        continue-on-error: true
+        run: mypy generate_weekly_pdfs.py audit_billing_changes.py billing_audit || true

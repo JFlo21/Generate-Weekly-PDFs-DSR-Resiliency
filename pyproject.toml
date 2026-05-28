@@ -1,0 +1,46 @@
+# Tool configuration ONLY (ruff + mypy). Deliberately NO [build-system]
+# and NO [project] table: this repo is a script collection, not a packaged
+# distribution. Adding packaging tables would change how pip/build tools
+# treat the repo and risk the production `pip install -r requirements.txt`
+# step. See the 260528-mdc quick PLAN.md (LOCKED constraint 4).
+
+[tool.ruff]
+# Match the repo's PEP 8 line-length convention (CLAUDE.md / AGENTS.md).
+line-length = 79
+# Lowest supported runtime is Python 3.10+ (CLAUDE.md). CI runs 3.12.
+target-version = "py310"
+# Never lint vendored / non-engine / other-language trees.
+extend-exclude = [
+    "portal",
+    "portal-v2",
+    "website",
+    "node_modules",
+    "archive",
+    ".planning",
+]
+
+[tool.ruff.lint]
+# Conservative baseline since the 3,100-line engine has never been linted:
+# E (pycodestyle errors), F (pyflakes), I (import sorting), UP (pyupgrade),
+# B (flake8-bugbear). Warn-only mode means findings are surfaced, not enforced.
+select = ["E", "F", "I", "UP", "B"]
+ignore = []
+
+[tool.mypy]
+# Lowest supported runtime (CLAUDE.md). Lenient — do NOT enable --strict.
+python_version = "3.10"
+# smartsheet-python-sdk, openpyxl, supabase, etc. ship without type stubs.
+ignore_missing_imports = true
+# Warn-only posture: surface issues without forcing annotations everywhere.
+warn_return_any = false
+warn_unused_configs = true
+# Scope to first-party engine code only; skip vendored / other-language trees.
+exclude = [
+    "portal/",
+    "portal-v2/",
+    "website/",
+    "node_modules/",
+    "archive/",
+    "tests/",
+    ".planning/",
+]

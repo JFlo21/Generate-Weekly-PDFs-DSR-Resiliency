@@ -1,0 +1,6 @@
+# Dev-only lint/type-check tooling. NOT part of the production pipeline.
+# The production pipeline installs ONLY requirements.txt — do NOT add these
+# tools there (LOCKED constraint 3). Install locally / in CI with:
+#   pip install -r requirements-dev.txt
+ruff==0.8.6
+mypy==1.14.1
