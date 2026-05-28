@@ -453,12 +453,29 @@ jobs:
           # ~147 clean-named _User__NO_MATCH / _User_Unknown_Foreman files were
           # regenerated for old weeks whose SOURCE rows have no valid foreman
           # (#NO MATCH / blank) — the exact failure mode this guard prevents.
-          # Stays '0' until: (1) remediation sweep deletes the garbage
-          # attachments (REMEDIATE_CLAIMERS=1, dry-run first), (2) a dormant
-          # run validates correct attribution, THEN (3) flip '1' WITH
-          # RESET_HASH_HISTORY=1 for a one-time full clean+correct regen.
-          # See operations.md re-activation runbook + Living Ledger 2026-05-27.
-          SUPABASE_HASH_STORE_AUTHORITATIVE: '0'
+          # FLIPPED to '1' on 2026-05-28 per operations.md runbook Step 3.
+          # Preconditions verified before flip:
+          #   (1) Supabase billing_audit.lookup_attribution 5-column
+          #       multi-role contract + lookup_attribution_bulk RPC
+          #       deployed 2026-05-27 (DROP-then-CREATE pattern; cache
+          #       reloaded) and validated returning real frozen_primary /
+          #       frozen_helper / frozen_vac_crew data — Living Ledger
+          #       [2026-05-27 14:45];
+          #   (2) billing_audit.group_content_hash table deployed and
+          #       already populated by shadow writes (~2.3k rows
+          #       accumulated since Sub-project E shipped dormant 2026-05-25);
+          #   (3) attribution_snapshot healthy (~143k rows, 99.3% valid
+          #       frozen_primary);
+          #   (4) post-revert (cc968a8) test suite green
+          #       (986 passed / 29 skipped / 69 subtests).
+          # First post-flip dispatch should pass reset_hash_history: true
+          # for the one-time full clean + correct regen. Subsequent cron
+          # runs use the Supabase store as change-detection authority and
+          # emit clean (token-less) filenames. Revert: set back to '0' per
+          # operations.md Roll-back notes; token-named filenames resume,
+          # shadow writes continue, no data loss.
+          # Living Ledger [2026-05-28 12:09].
+          SUPABASE_HASH_STORE_AUTHORITATIVE: '1'
 
           # Phase 2 Plan 03 / Plan 06: Garbage-claimer attachment remediation.
           # Activated via the advanced_options workflow_dispatch field:

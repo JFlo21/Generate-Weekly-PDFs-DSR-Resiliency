@@ -3739,3 +3739,100 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
   fix is a DB migration + a ``schema.sql`` deploy-safety correction;
   existing ``LookupGroupHashTests`` / ``PrefetchAttributionTests`` /
   ``TestLookupAttribution`` already lock the Python contract).
+- [2026-05-28 11:59] **Reverted misdiagnosed legacy-hash cross-claimer
+  cleanup** (``e68be29`` → ``cc968a8``). The 2026-05-27 16:45 fix
+  matched on ``(wr, week, variant)`` and deliberately IGNORED claimer,
+  so it would delete a hash-named file just because a clean-named file
+  existed for the same WR+week+variant under a (possibly) different
+  claimer. That directly violates the Foundation A no-cross-delete
+  invariant ([2026-05-20 13:45] rule 2): legitimate different claimers
+  for the same WR+week+variant must BOTH survive — the whole point of
+  the per-claimer billing_audit file model (track who claimed what per
+  week-ending date). The misdiagnosis treated a legitimate-different-
+  claimer file as a "wrong-claimer duplicate." **The actual goal is
+  met without any new code:** ``delete_old_excel_attachments``
+  ([generate_weekly_pdfs.py 3473-3513]) matches prior attachments on
+  the FULL identity including claimer (line 3476), and when
+  ``SUPABASE_HASH_STORE_AUTHORITATIVE=1`` the E-gated short-circuit at
+  line 3494 lets the identity-based replacement loop run — a fresh
+  clean file supersedes any prior (token-named or clean) attachment
+  for the SAME identity, while different claimers remain distinct
+  identities and are preserved. Flipping E + ``RESET_HASH_HISTORY=1``
+  achieves the clean-filename goal directly. Reverted:
+  ``_is_legacy_hash_named``, ``legacy_hash_cleanup`` param + cleanup
+  block in ``cleanup_untracked_sheet_attachments``,
+  ``LEGACY_HASH_CLAIMER_CLEANUP_ENABLED`` env var + startup banner +
+  workflow ``advanced_options`` parser branch, ``removed_legacy_hash``
+  counter + PII marker, and 14 tests in
+  ``tests/test_legacy_hash_claimer_cleanup.py``. The
+  ``test_security_audit_followup.py`` signature guard reverted in
+  lockstep. **New rule — the per-claimer file IS the data model, not
+  noise to dedupe across.** A "duplicate" requires identity match
+  INCLUDING claimer (``wr, week, variant, claimer``). Any future
+  cleanup that crosses claimers MUST consult ``attribution_snapshot``
+  to verify the lost claimer has zero frozen rows for that
+  week+variant — NEVER a format-only heuristic (hash vs clean).
+  **Residual orphans acknowledged:** wrong-claimer files written by
+  the broken pre-2026-05-27 read-path RPC (current foreman written
+  into the partition slot for historical weeks where the real
+  attribution belongs to someone else) linger as different-identity
+  orphans after the E + reset regen. Safe cleanup requires the
+  attribution-snapshot-aware sweep above. ``pytest tests/`` post-revert
+  → **986 passed / 29 skipped / 69 subtests** (was 1000 with the
+  now-removed 14 cleanup tests).
+- [2026-05-28 12:09] **Sub-project E activated —
+  ``SUPABASE_HASH_STORE_AUTHORITATIVE`` flipped to ``'1'`` after the
+  runbook gate cleared.** Closes the E re-activation runbook
+  (``website/docs/runbook/operations.md`` Step 3) after two prior
+  premature-flip incidents — ``67539ec`` on 2026-05-26 (reverted
+  ``46cd05d``, PR #234, 372 ``_NO_MATCH`` / ``_Unknown_Foreman``
+  clean-named files over real historical attachments) and ``7077471``
+  on 2026-05-27 (reverted ``2b890af``, preceded the stale-RPC contract
+  discovery). **Preconditions verified at flip time (the audit trail
+  for this third — and intended-final — flip):**
+  (1) Supabase ``billing_audit`` schema current — 5-column
+  ``lookup_attribution`` (returns ``primary_foreman, helper,
+  helper_dept, vac_crew, source_run_id``) + ``lookup_attribution_bulk``
+  RPC deployed 2026-05-27 via ``DROP FUNCTION IF EXISTS`` + ``CREATE``
+  pattern (per the [2026-05-27 14:45] return-shape rule), validated by
+  direct call returning real ``frozen_primary='Mark Diaz'`` for
+  WR 90727774 wk 2026-03-01 (was silently returning current foreman
+  Wade Watson pre-fix).
+  (2) ``billing_audit.group_content_hash`` table deployed + populated
+  with 2,285 rows by Sub-project E shadow writes since the 2026-05-25
+  dormant ship — confirms ``upsert_group_hash`` has been succeeding
+  through the dormant period.
+  (3) ``attribution_snapshot`` healthy — 143,236 rows, 99.3% valid
+  ``frozen_primary``, coverage back to mid-2025.
+  (4) Post-revert (``cc968a8``) test suite green — 986 passed / 29
+  skipped / 69 subtests.
+  **Operator dispatch:** first post-push run MUST be triggered via
+  ``workflow_dispatch`` with ``reset_hash_history: true`` for the
+  one-time full clean + correct regen (regenerates every group with
+  the correct frozen claimer AND populates the durable hash store
+  across the active window). Subsequent cron runs use Supabase
+  ``group_content_hash`` as the change-detection authority and emit
+  clean (token-less) filenames
+  ``WR_{wr}_WeekEnding_{MMDDYY}{variant_suffix}.xlsx``.
+  ``delete_old_excel_attachments`` supersedes prior same-claimer
+  attachments in-place (line 3494's E-gated short-circuit is bypassed
+  when authoritative — see [2026-05-25 20:55] rule 1); different
+  claimers remain distinct and preserved (Foundation A no-cross-
+  delete invariant, reinforced by the [2026-05-28 11:59] revert).
+  **Residual orphans (acknowledged, NOT auto-cleaned by this flip):**
+  historical wrong-claimer hash-named files written by the pre-fix
+  broken RPC. Safe cleanup requires the attribution-snapshot-aware
+  sweep documented in [2026-05-28 11:59] — explicitly NOT a
+  format-based heuristic.
+  **Revert path:** set back to ``'0'`` per operations.md Roll-back
+  notes; token-named filenames resume, shadow writes continue, no
+  data loss.
+  **New rule — three-incident gate for AUTHORITATIVE re-flips.** The
+  2026-05-26 and 2026-05-27 premature flips established a hard
+  procedural gate: AUTHORITATIVE may only be flipped to ``'1'`` AFTER
+  all four preconditions above are verified by direct evidence
+  (Supabase MCP table list, RPC sample-call result with real data,
+  ``attribution_snapshot`` row count, green test suite). The runbook
+  Step 3 enforces this via the human gate (separate commit). Any
+  future AUTHORITATIVE re-flip after a revert MUST cite this entry
+  and re-verify the four preconditions in the commit message.
