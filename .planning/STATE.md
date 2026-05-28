@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Subcontractor Rate Logic
 status: milestone_complete
-last_updated: "2026-05-28T20:43:24.611Z"
-last_activity: 2026-05-28 -- Completed quick task 260528-lu6 (reconcile AGENTS.md)
+last_updated: "2026-05-28T21:06:25.710Z"
+last_activity: 2026-05-28 -- Completed quick task 260528-mdc (ruff+mypy warn-only CI)
 progress:
   total_phases: 3
   completed_phases: 3
@@ -32,7 +32,7 @@ Phase: 02
 Plan: Not started
 Status: Milestone complete
   human-gated operator follow-up (D-11) — not performed by any plan.
-Last activity: 2026-05-28 - Completed quick task 260528-lu6: Reconcile AGENTS.md into a lean pointer mirroring CLAUDE.md
+Last activity: 2026-05-28 - Completed quick task 260528-mdc: Add warn-only ruff + mypy lint tooling and isolated CI workflow
 
 Shipped: 2 gating phases (01 + inserted 01.1), 20 plans, 688 tests passing.
 Audit: `tech_debt` (`milestones/v1.0-MILESTONE-AUDIT.md`). Full v1.0 detail in
@@ -114,6 +114,7 @@ for destructive TARGET variant cleanup.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260528-lu6 | Reconcile AGENTS.md into a lean pointer mirroring CLAUDE.md | 2026-05-28 | d30be0e | [260528-lu6-reconcile-agents-md-into-a-lean-pointer-](./quick/260528-lu6-reconcile-agents-md-into-a-lean-pointer-/) |
+| 260528-mdc | Add warn-only ruff + mypy lint tooling and isolated CI workflow | 2026-05-28 | 7f8dbfb | [260528-mdc-add-warn-only-ruff-and-mypy-lint-tooling](./quick/260528-mdc-add-warn-only-ruff-and-mypy-lint-tooling/) |
 
 ## Deferred Items
 
