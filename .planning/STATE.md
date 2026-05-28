@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Subcontractor Rate Logic
 status: milestone_complete
-last_updated: "2026-05-26T20:57:44.565Z"
-last_activity: 2026-05-26 -- Phase 02 execution started
+last_updated: "2026-05-28T20:43:24.611Z"
+last_activity: 2026-05-28 -- Completed quick task 260528-lu6 (reconcile AGENTS.md)
 progress:
   total_phases: 3
   completed_phases: 3
@@ -32,7 +32,7 @@ Phase: 02
 Plan: Not started
 Status: Milestone complete
   human-gated operator follow-up (D-11) — not performed by any plan.
-Last activity: 2026-05-26
+Last activity: 2026-05-28 - Completed quick task 260528-lu6: Reconcile AGENTS.md into a lean pointer mirroring CLAUDE.md
 
 Shipped: 2 gating phases (01 + inserted 01.1), 20 plans, 688 tests passing.
 Audit: `tech_debt` (`milestones/v1.0-MILESTONE-AUDIT.md`). Full v1.0 detail in
@@ -108,6 +108,12 @@ for destructive TARGET variant cleanup.
 - `.planning/INGEST-CONFLICTS.md` INFO #8: pre-migration ADR for
   Railway → Render still missing under `memory-bank/adr/`. Now tracked as
   MIG-01 in the v1.1 milestone (descoped from v1.0).
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260528-lu6 | Reconcile AGENTS.md into a lean pointer mirroring CLAUDE.md | 2026-05-28 | d30be0e | [260528-lu6-reconcile-agents-md-into-a-lean-pointer-](./quick/260528-lu6-reconcile-agents-md-into-a-lean-pointer-/) |
 
 ## Deferred Items
 
