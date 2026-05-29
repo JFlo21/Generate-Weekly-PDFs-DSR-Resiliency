@@ -578,6 +578,19 @@ jobs:
             echo "total_files=0" >> $GITHUB_OUTPUT
           fi
       
+      - name: Publish artifacts to Supabase
+        id: publish_supabase
+        if: always() && steps.exec.outputs.should_run == 'true'
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          ENVIRONMENT: production
+          SENTRY_RELEASE: ${{ env.SENTRY_RELEASE }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: python scripts/publish_artifacts_to_supabase.py generated_docs
+
       - name: Organize artifacts by Work Request
         id: organize
         if: always() && steps.exec.outputs.should_run == 'true'
