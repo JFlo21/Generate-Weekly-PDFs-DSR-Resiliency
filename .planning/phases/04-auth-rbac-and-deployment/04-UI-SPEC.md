@@ -96,14 +96,28 @@ Pre-populated from LoginPage.tsx, UsersPage.tsx patterns.
 | Role | Size | Weight | Line Height | Usage |
 |------|------|--------|-------------|-------|
 | Body | 14px (`text-sm`) | 400 (regular) | 1.5 | Form labels, table cells, descriptive copy |
-| Label | 14px (`text-sm`) | 500 (medium) | 1.4 | Form field labels (`font-medium`), table headers (`font-semibold`) |
+| Label | 14px (`text-sm`) | 400 (regular) | 1.4 | Form field labels, "Remember me" checkbox label |
 | Heading | 20px (`text-xl`) | 700 (bold) | 1.2 | Page headings (Users, Pending Approval) |
 | Display | 24px (`text-2xl`) | 700 (bold) | 1.2 | Auth card title ("Linetec Portal") |
 
-Only 2 weights used across the phase: **400** (body copy, placeholder, secondary
-text) and **700** (headings, CTAs). The `font-semibold` (600) on table-header
-uppercase labels is the sole exception — matches the existing UsersPage.tsx
-`text-xs font-semibold uppercase tracking-wide` pattern and must not be changed.
+**2 declared weights (400, 700), plus one inherited `font-semibold` exception
+on table headers.** The two weights are **400** (body copy, form labels,
+placeholder, secondary text) and **700** (headings, display, CTAs).
+
+Why labels are 400 (not 500): existing form labels used `font-medium` (500) in
+LoginPage.tsx, but at 14px on the system-UI stack 500 is visually
+indistinguishable from 400, so the contract collapses labels to **400** and
+removes weight 500 from the declared set. New auth surfaces use no weight class
+(`font-normal`) on labels. The pre-existing `font-medium` on LoginPage labels
+may remain untouched since it renders identically — but do not introduce new
+500-weight text anywhere.
+
+Inherited exception (NOT a third declared weight): the table-header uppercase
+labels in UsersPage.tsx use `font-semibold` (600) via the existing
+`text-xs font-semibold uppercase tracking-wide` pattern. This 600 weight is
+carried verbatim from working markup and is left untouched — rewriting the
+existing header is out of scope for this phase. It is explicitly an inherited
+exception, not part of the 2-weight declared contract.
 
 ---
 
