@@ -1,7 +1,7 @@
 ---
 slug: p01-hotfix-followups
 title: Phase 01 P0 hotfix follow-ups — substring-direction bug + watch list
-status: open
+status: in_progress
 created: 2026-05-17
 updated: 2026-05-17
 ---
@@ -64,6 +64,7 @@ elif 'tran' in work_type_raw or 'xfr' in work_type_raw:  # 'Tran', 'Trans', 'Tra
 1. *Substring direction discipline for abbreviation-tolerant matchers*
    — the matcher must search FOR the shortest unambiguous prefix
    WITHIN the user-entered value, not the other way around.
+
 2. *Test corpus must mirror production data shape* — regression tests
    must include the abbreviated forms operators actually enter, not
    only the canonical full forms.
@@ -84,6 +85,7 @@ broadening can't slip through silently.
 
 **Production-truth values for sanity:** for CU `CON-10-AAA-1-B-REEL`
 with `Work Type='Inst'`, quantity 153:
+
 - AEP file expected per-row Pricing: 153 × `new_install_price` (2.41) = **368.73**
 - ReducedSub file expected per-row Pricing: 153 × `reduced_install_price` (2.11) = **322.83**
 
@@ -138,8 +140,10 @@ For the **next** Claude Code session that picks this thread up:
 3. **Expected outcome on a clean post-fix run:**
    - For every WR+week that emits BOTH `_AEPBillable` and `_ReducedSub`:
      `sha256(_AEPBillable_*.xlsx) != sha256(_ReducedSub_*.xlsx)`
+
    - Per-row Pricing cell values differ — `new_*_price × qty` for AEP,
      `reduced_*_price × qty` for ReducedSub
+
    - **Note:** the operator-observed per-unit 2.106 was from SmartSheet's
      `Units Total Price` formula, not from any column in
      `data/subcontractor_rates.csv`. Post-fix AEP per-unit will be
@@ -148,6 +152,7 @@ For the **next** Claude Code session that picks this thread up:
 
 4. **If post-fix output is still byte-identical:** there's a second bug.
    Most likely candidates (none verified, ranked by suspicion):
+
    - **`__variant` mutation between `group_source_rows` and `generate_excel`** — only one write site exists (`generate_weekly_pdfs.py:4345`), but if a future refactor introduces a second write, both groups could end up tagged the same.
    - **Shared row references across groups** — `r.copy()` in `group_source_rows` is shallow; a future deep-mutation of any nested value could cross-contaminate.
    - **A new safety-floor trigger** — e.g., CU casing drift, an env-var change that empties `_SUBCONTRACTOR_RATES`, a sheet that bypasses the `_FOLDER_DISCOVERED_SUB_IDS` per-row gate.
@@ -167,8 +172,10 @@ For the **next** Claude Code session that picks this thread up:
 6. **Close this thread** when:
    - At least one post-fix scheduled production run produces different
      AEP and ReducedSub files with the expected rate-column attribution
+
    - Operator confirms via spot-check that the Smartsheet attachment
      panel now shows the corrected files
+
    - No new regression has been reported for 1 week of cron runs (≈ 21
      scheduled runs at every-2h cadence)
 

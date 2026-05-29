@@ -241,8 +241,10 @@ class TestWeekEndingIso(unittest.TestCase):
         self.assertEqual(result, "2025-05-17")
 
     def test_another_date(self):
+        # "082425" -> month=08, day=24, year=25 -> 2025-08-24
+        # Python strptime %y: 00-68 -> 2000-2068, 69-99 -> 1969-1999
         result = self.pub._mmddyy_to_iso("082425")
-        self.assertEqual(result, "2024-08-24")
+        self.assertEqual(result, "2025-08-24")
 
     def test_malformed_raises_or_returns_none(self):
         """A malformed MMDDYY must raise ValueError or return None -- never
