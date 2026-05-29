@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'viewer' | 'biller';
+export type UserRole = 'admin' | 'billing' | 'pending';
 
 export interface WorkflowRun {
   id: number;
@@ -30,14 +30,12 @@ export interface Artifact {
 
 export interface Profile {
   id: string;
-  email: string;
-  display_name: string | null;
-  role: UserRole;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
+  email: string;       // populated by handle_new_user() trigger
+  role: UserRole;      // 'admin' | 'billing' | 'pending'
+  created_at: string;  // ISO timestamp
 }
 
+// TODO(Plan 05): remove ActivityLog with ActivityPage deletion (D-14)
 export interface ActivityLog {
   id: string;
   user_id: string;
@@ -45,9 +43,10 @@ export interface ActivityLog {
   resource: string | null;
   metadata: Record<string, unknown> | null;
   created_at: string;
-  profiles?: Pick<Profile, 'email' | 'display_name'>;
+  profiles?: Pick<Profile, 'email'>;
 }
 
+// TODO(Plan 05): remove ArtifactDownload with ActivityPage deletion (D-14)
 export interface ArtifactDownload {
   id: string;
   user_id: string;
