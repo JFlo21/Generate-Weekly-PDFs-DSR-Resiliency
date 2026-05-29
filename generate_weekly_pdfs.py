@@ -877,6 +877,12 @@ logging.info(
     f"📋 ATTRIBUTION_BULK_PREFETCH_FALLBACK={ATTRIBUTION_BULK_PREFETCH_FALLBACK}"
 )
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
+BILLING_AUDIT_ROW_CACHE_ENABLED = os.getenv('BILLING_AUDIT_ROW_CACHE_ENABLED', '1').lower() in ('1', 'true', 'yes')
+# Reset local freeze-row cache when forcing history reset, unless explicitly overridden off.
+RESET_BILLING_AUDIT_ROW_CACHE = (
+    os.getenv('RESET_BILLING_AUDIT_ROW_CACHE', '1' if RESET_HASH_HISTORY else '0').lower()
+    in ('1', 'true', 'yes')
+)
 RESET_WR_LIST = {w.strip() for w in os.getenv('RESET_WR_LIST','').split(',') if w.strip()}  # When provided, only purge these WR numbers (overrides full reset)
 _env_hist_path = os.getenv('HASH_HISTORY_PATH')
 _default_hist_path = os.path.join(OUTPUT_FOLDER, 'hash_history.json')
@@ -4206,6 +4212,12 @@ def load_billing_audit_row_cache(path: str) -> set[str]:
     is best-effort only — if missing/corrupt we simply fall back to
     normal freeze-row behavior.
     """
+    if RESET_BILLING_AUDIT_ROW_CACHE:
+        logging.info(
+            "♻️ Billing-audit row cache reset requested; ignoring "
+            "existing cache file"
+        )
+        return set()
     try:
         with open(path, "r") as f:
             data = json.load(f)
@@ -8574,7 +8586,11 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
 
         billing_audit_row_cache: set[str] = set()
         billing_audit_row_cache_dirty = False
-        if BILLING_AUDIT_AVAILABLE and not TEST_MODE:
+        if (
+            BILLING_AUDIT_AVAILABLE
+            and not TEST_MODE
+            and BILLING_AUDIT_ROW_CACHE_ENABLED
+        ):
             billing_audit_row_cache = load_billing_audit_row_cache(
                 BILLING_AUDIT_ROW_CACHE_PATH
             )
@@ -9035,7 +9051,10 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                                 if not is_checked(_row.get("Units Completed?")):
                                     continue
                                 _cache_key = f"{wr_num}|{week_raw}|{_row_id}"
-                                if _cache_key in billing_audit_row_cache:
+                                if (
+                                    BILLING_AUDIT_ROW_CACHE_ENABLED
+                                    and _cache_key in billing_audit_row_cache
+                                ):
                                     continue
                                 _rows_to_freeze.append(_row)
                                 _freeze_row_keys[id(_row)] = _cache_key
@@ -9102,7 +9121,10 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                                     )
                                     if _ok:
                                         _rk = _freeze_row_keys.get(id(_row))
-                                        if _rk:
+                                        if (
+                                            _rk
+                                            and BILLING_AUDIT_ROW_CACHE_ENABLED
+                                        ):
                                             billing_audit_row_cache.add(_rk)
                                             billing_audit_row_cache_dirty = True
                             else:
@@ -9149,7 +9171,10 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                                             _rk = _freeze_row_keys.get(
                                                 id(_good_row)
                                             )
-                                            if _rk:
+                                            if (
+                                                _rk
+                                                and BILLING_AUDIT_ROW_CACHE_ENABLED
+                                            ):
                                                 billing_audit_row_cache.add(_rk)
                                                 billing_audit_row_cache_dirty = True
                                     except Exception:
@@ -9999,6 +10024,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         if (
             BILLING_AUDIT_AVAILABLE
             and not TEST_MODE
+            and BILLING_AUDIT_ROW_CACHE_ENABLED
             and billing_audit_row_cache_dirty
         ):
             save_billing_audit_row_cache(
