@@ -101,3 +101,73 @@ CREATE POLICY storage_artifacts_role_select ON storage.objects
         bucket_id = 'excel-artifacts'
         AND public.current_user_role() IN ('admin','billing')
     );
+
+-- ============================================================================
+-- Phase 04 D-01: Extend profiles with email + created_at
+-- ============================================================================
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS email      text,
+  ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
+
+-- Backfill email from auth.users for any pre-existing rows (e.g. first-admin seed).
+-- Safe to re-run: WHERE p.email IS NULL is idempotent.
+UPDATE public.profiles p
+SET email = u.email
+FROM auth.users u
+WHERE p.id = u.id AND p.email IS NULL;
+
+-- Make email NOT NULL after backfill. Safe to re-run (no-op if already NOT NULL).
+ALTER TABLE public.profiles
+  ALTER COLUMN email SET NOT NULL;
+
+-- ============================================================================
+-- Phase 04 D-04: handle_new_user trigger
+-- SECURITY DEFINER required: supabase_auth_admin lacks cross-schema permissions
+-- to INSERT into public.profiles. Without this, every signUp fails with
+-- "Database error saving new user".
+-- ON CONFLICT DO NOTHING: idempotent if the trigger fires more than once.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, role, created_at)
+  VALUES (NEW.id, NEW.email, 'pending', now())
+  ON CONFLICT (id) DO NOTHING;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- ============================================================================
+-- Phase 04 RBAC-04 (DB defense-in-depth): last-admin demotion guard
+-- Blocks demoting the only remaining admin even via the Supabase Table Editor
+-- or a direct API call (the UsersPage UI guard in Plan 05 is the first layer).
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.prevent_last_admin_demotion()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF OLD.role = 'admin' AND NEW.role <> 'admin' THEN
+    IF (SELECT COUNT(*) FROM public.profiles WHERE role = 'admin') <= 1 THEN
+      RAISE EXCEPTION 'Cannot demote the last admin';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS check_last_admin ON public.profiles;
+CREATE TRIGGER check_last_admin
+  BEFORE UPDATE ON public.profiles
+  FOR EACH ROW EXECUTE FUNCTION public.prevent_last_admin_demotion();
