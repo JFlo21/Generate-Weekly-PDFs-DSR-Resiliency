@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: Subcontractor Rate Logic
-status: milestone_complete
-last_updated: "2026-05-28T21:06:25.710Z"
-last_activity: 2026-05-28 -- Completed quick task 260528-mdc (ruff+mypy warn-only CI)
+milestone: v1.1
+milestone_name: Portal — Supabase-native Artifact Portal
+status: planning
+last_updated: "2026-05-29T14:41:53.248Z"
+last_activity: 2026-05-29
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 26
-  completed_plans: 24
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -27,16 +27,10 @@ wiring + scope removal, remediation mode, runbook + Living Ledger).
 
 ## Current Position
 
-Milestone: v1.0 Subcontractor Rate Logic — ✅ SHIPPED 2026-05-20 (archived + tagged)
-Phase: 02
-Plan: Not started
-Status: Milestone complete
-  human-gated operator follow-up (D-11) — not performed by any plan.
-Last activity: 2026-05-28 - Completed quick task 260528-mdc: Add warn-only ruff + mypy lint tooling and isolated CI workflow
-
-Shipped: 2 gating phases (01 + inserted 01.1), 20 plans, 688 tests passing.
-Audit: `tech_debt` (`milestones/v1.0-MILESTONE-AUDIT.md`). Full v1.0 detail in
-`milestones/v1.0-ROADMAP.md` + `milestones/v1.0-REQUIREMENTS.md`.
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-29 — Milestone v1.1 started
 
 ## Performance Metrics
 

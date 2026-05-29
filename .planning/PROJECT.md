@@ -29,6 +29,37 @@ The production Smartsheet → Excel → Smartsheet attachment pipeline runs ever
 **Every change in this project's roadmap must preserve that pipeline's
 correctness and stay inside its 195-minute Actions timeout budget.**
 
+## Current Milestone: v1.1 Portal — Supabase-native Artifact Portal
+
+**Goal:** Replace the Express backend with a Supabase-native architecture so the
+billing team can browse, search/filter, and download generated Excel billing
+artifacts from a fast, beautiful, secure, auth-gated portal linked from another
+site — with zero change to the production Python billing pipeline.
+
+**Target features:**
+- Supabase-native data layer — an **additive** GitHub Actions step pushes each
+  generated Excel to Supabase Storage and upserts per-artifact metadata
+  (`work_request`, `week_ending`, `variant`, `filename`, `storage_path`,
+  `size_bytes`, `sha256`, `run_id`, `created_at`) into a Postgres `artifacts`
+  table. `portal-v2` reads DIRECTLY via `supabase-js` with Row-Level Security;
+  downloads use signed Storage URLs; Supabase Realtime replaces the SSE poller.
+  The Express backend (`portal/`) is removed.
+- Fix the empty-table bug (eliminate the silent mock-data fallback) and rebuild
+  the artifact table for fast, low-memory rendering (indexed Postgres queries +
+  row virtualization).
+- Dynamic search bar (by Work Request # or week-ending date) + dynamic
+  filterable / sortable columns.
+- Modern, responsive, beautiful UI/UX with tasteful Framer Motion animations.
+- Supabase Auth login gate, reached via **link-out** (new tab) from another
+  site's nav; `frame-ancestors` locked to `'none'` (no iframe embedding).
+- Login hardening with **hCaptcha** (native Supabase Auth support).
+- Security hardening + a `/security-review` pass (RLS, signed-URL scoping,
+  CSP/headers, secret handling, auth flows).
+
+**Supersedes:** the prior v1.1 Railway → Render Express migration (MIG-01 and
+the migration/decommission requirements) — there is no Express server to
+migrate; it is removed. See Out of Scope.
+
 ## Current State
 
 **Shipped: v1.0 Subcontractor Rate Logic (2026-05-20).** 2 phases (01 +
@@ -88,27 +119,25 @@ are pending the first post-merge GitHub Actions cron run (see
 
 <!-- Next milestone (v1.1) scope. Building toward these. -->
 
-v1.1 is the **Backend Migration + Artifact Explorer** milestone, led by the
-pre-migration ADR. Promote via `/gsd-new-milestone`. Full source detail in
-`milestones/v1.0-REQUIREMENTS.md` (v1.1-deferred section).
+v1.1 is the **Portal — Supabase-native Artifact Portal** milestone (see
+"Current Milestone" above). It removes the Express backend and rebuilds
+`portal-v2/` to read artifacts directly from Supabase. Detailed,
+testable REQ-IDs are scoped in `.planning/REQUIREMENTS.md` (generated this
+milestone) and mapped to phases in `.planning/ROADMAP.md`. High-level
+requirement categories:
 
-- [ ] **MIG-01**: File the pre-migration ADR for Railway → Render under
-  `memory-bank/adr/` (Render Starter plan, in-memory LRU search, v1
-  download = original `.xlsx`) before the migration phases execute
-- [ ] **REQ-railway-render-migration**: Execute the Railway → Render
-  backend migration with zero user-visible downtime
-- [ ] **REQ-migration-staging-verification**: Stand up Render in parallel
-  to Railway, pass the staging-verification checklist
-- [ ] **REQ-migration-decommission**: Decommission Railway 48 h after a
-  clean cutover
-- [ ] **REQ-artifact-explorer-v1**: Ship the three-pane Artifact Explorer
-  redesign in `portal-v2/`
-- [ ] **REQ-excel-styled-renderer**: Hybrid Excel renderer (server-side
-  exceljs styled HTML + `@tanstack/react-virtual` table)
-- [ ] **REQ-cross-artifact-search**: Two-tier filter + `Cmd+K` palette
-  backed by in-memory LRU search index on Render
-- [ ] **REQ-backend-routes-for-explorer**: Five new Express routes on
-  `portal/` powering the explorer
+- [ ] **DATA-\***: Supabase-native artifact data layer — `artifacts` Postgres
+  table + Storage bucket, additive GitHub Actions publish step, RLS policies,
+  signed-URL downloads.
+- [ ] **TABLE-\***: Fast, low-memory, virtualized artifact table that fixes the
+  empty-table bug and renders real Supabase data.
+- [ ] **SEARCH-\***: Dynamic search (WR # / week-ending) + dynamic
+  filterable/sortable columns.
+- [ ] **UI-\***: Modern, responsive, animated UI/UX redesign.
+- [ ] **AUTH-\***: Supabase Auth login gate, link-out access model, hCaptcha
+  on login.
+- [ ] **SEC-\***: Security hardening + `/security-review` (RLS, signed-URL
+  scoping, CSP/headers, secrets).
 
 ### Carrying over to v1.1 (live verification of v1.0)
 
@@ -124,6 +153,28 @@ acceptance is confirmed on the first post-merge cron run:
 
 <!-- Explicit boundaries. Includes reasoning to prevent re-adding. -->
 
+- **Railway → Render Express migration (MIG-01, REQ-railway-render-migration,
+  REQ-migration-staging-verification, REQ-migration-decommission)** —
+  SUPERSEDED 2026-05-29. v1.1 removes the Express backend entirely and serves
+  artifacts from Supabase (Storage + Postgres `artifacts` table) read directly
+  by `portal-v2`. There is no Node server to migrate, stage, or decommission,
+  so the Render Starter plan, the parallel-staging checklist, and the 48 h
+  Railway warm-down no longer apply. The locked Render/Express `(SPEC)`
+  decisions in Key Decisions (Render Web Service, in-memory LRU search index,
+  five Express explorer routes, `VITE_API_BASE_URL` rollback flip) are retired
+  with this supersession.
+- **Express-backend Artifact Explorer internals (server-side `exceljs` styled
+  HTML, in-memory LRU search `max:200`, five Express routes)** — the Artifact
+  Explorer redesign survives but is re-based onto Supabase: filtering/search is
+  Postgres-backed (indexed columns), not an in-memory LRU index on a Node
+  server. Any Excel content-preview rendering, if scoped, runs client-side or
+  via a Supabase Edge Function — never a removed Express server.
+- **iframe embedding of the portal** — access is link-out (new tab) only;
+  `frame-ancestors 'none'` stays locked. Revisit only with an explicit
+  embedding requirement and a named parent domain.
+- **reCAPTCHA on the login page** — hCaptcha is used because Supabase Auth
+  supports it natively; reCAPTCHA would require a custom token-verification
+  Edge Function (extra code + attack surface) for no added benefit here.
 - **Re-enabling CSV-side rate recalc on ORIG-folder sheets** — Smartsheet
   now emits authoritative post-cutoff prices for folders
   `7644752003786628` / `8815193070299012`; running both pricing systems on
@@ -333,8 +384,32 @@ extracted from `CLAUDE.md` Living Ledger (see
 
 </decisions>
 
+## Evolution
+
+This document evolves at phase transitions and milestone boundaries.
+
+**After each phase transition** (via `/gsd-transition`):
+1. Requirements invalidated? → Move to Out of Scope with reason
+2. Requirements validated? → Move to Validated with phase reference
+3. New requirements emerged? → Add to Active
+4. Decisions to log? → Add to Key Decisions
+5. "What This Is" still accurate? → Update if drifted
+
+**After each milestone** (via `/gsd-complete-milestone`):
+1. Full review of all sections
+2. Core Value check — still the right priority?
+3. Audit Out of Scope — reasons still valid?
+4. Update Context with current state
+
 ---
-*Last updated: 2026-05-26 after **Phase 2** (v1.0 hotfix: Attribution Bulk-Prefetch + Historical Claimer Remediation) completed*
+*Last updated: 2026-05-29 — Milestone **v1.1 Portal — Supabase-native Artifact
+Portal** started. Supersedes the prior v1.1 Railway → Render Express migration
+(moved to Out of Scope). Express backend to be removed; `portal-v2` reads
+artifacts directly from Supabase (Storage + Postgres `artifacts` table) with
+RLS + signed URLs; hCaptcha-hardened Supabase Auth login; link-out access
+model. Production Python pipeline untouched (additive workflow publish step only).*
+
+*Previously updated: 2026-05-26 after **Phase 2** (v1.0 hotfix: Attribution Bulk-Prefetch + Historical Claimer Remediation) completed*
 
 *Previously updated: 2026-05-20 after **v1.0 Subcontractor Rate Logic** milestone
 completion (Phases 01 + 01.1, 19 plans, 682 tests passing). All 12 v1
