@@ -1,8 +1,8 @@
 ---
 phase: 3
 slug: supabase-data-layer-foundation
-status: draft
-nyquist_compliant: false
+status: planned
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-05-29
 ---
@@ -43,17 +43,18 @@ real Supabase API or upload real files in unit tests.
 
 ## Per-Task Verification Map
 
-> Planner populates concrete task IDs (03-0X-0Y). Each implementation task must
-> map to one automated row here unless listed under Manual-Only below.
+> Concrete task IDs populated by the planner (2026-05-29). Each implementation
+> task maps to one automated row here unless listed under Manual-Only below.
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 03-0X-0Y | 0X | 1 | DATA-03 | T-03-secret | service_role key read from env, never logged/printed | unit | `pytest tests/test_publish_artifacts_to_supabase.py -k secret -v` | ❌ W0 | ⬜ pending |
-| 03-0X-0Y | 0X | 1 | DATA-02 | — | variant normalizer maps all 7 emitted values + suffix tokens correctly | unit | `pytest tests/test_publish_artifacts_to_supabase.py -k variant -v` | ❌ W0 | ⬜ pending |
-| 03-0X-0Y | 0X | 1 | DATA-02 | — | upsert payload uses on_conflict="sha256" (idempotent) | unit | `pytest tests/test_publish_artifacts_to_supabase.py -k upsert -v` | ❌ W0 | ⬜ pending |
-| 03-0X-0Y | 0X | 1 | DATA-03 | — | publish failure → non-zero exit + WARNING + Sentry capture, NO exception propagated to caller | unit | `pytest tests/test_publish_artifacts_to_supabase.py -k isolation -v` | ❌ W0 | ⬜ pending |
-| 03-0X-0Y | 0X | 1 | DATA-03 | — | workflow step has `continue-on-error: true` and sits after manifest, before cache-save | grep | `grep -A3 'publish.*supabase' .github/workflows/weekly-excel-generation.yml \| grep 'continue-on-error: true'` | ❌ W0 | ⬜ pending |
-| 03-0X-0Y | 0X | 1 | DATA-02 | — | WR + week_ending derived via reused parse_excel_filename(); sha256 via calculate_file_hash | unit | `pytest tests/test_publish_artifacts_to_supabase.py -k parse -v` | ❌ W0 | ⬜ pending |
+| 03-02-feat | 02 | 1 | DATA-03 | T-03-secret | service_role key read from env, never logged/printed | unit | `pytest tests/test_publish_artifacts_to_supabase.py -k secret -v` | ❌ W0 | ⬜ pending |
+| 03-02-feat | 02 | 1 | DATA-02 | T-03-variant-coerce | variant normalizer maps all 7 emitted values + suffix tokens correctly | unit | `pytest tests/test_publish_artifacts_to_supabase.py -k variant -v` | ❌ W0 | ⬜ pending |
+| 03-02-feat | 02 | 1 | DATA-02 | — | upsert payload uses on_conflict="sha256" (idempotent) | unit | `pytest tests/test_publish_artifacts_to_supabase.py -k upsert -v` | ❌ W0 | ⬜ pending |
+| 03-02-feat | 02 | 1 | DATA-03 | T-03-publish-dos | publish failure → exit 0 + WARNING + Sentry capture, NO exception propagated to caller | unit | `pytest tests/test_publish_artifacts_to_supabase.py -k isolation -v` | ❌ W0 | ⬜ pending |
+| 03-02-feat | 02 | 1 | DATA-02 | — | WR + week_ending derived via reused parse_excel_filename(); sha256 via calculate_file_hash | unit | `pytest tests/test_publish_artifacts_to_supabase.py -k parse -v` | ❌ W0 | ⬜ pending |
+| 03-03-t1 | 03 | 2 | DATA-03 | T-03-publish-dos | workflow step has `continue-on-error: true` and sits after manifest, before cache-save | grep | `grep -A3 'Publish artifacts to Supabase' .github/workflows/weekly-excel-generation.yml \| grep 'continue-on-error: true'` | ❌ W0 | ⬜ pending |
+| 03-01-t1 | 01 | 1 | DATA-01/02/04/05 | T-03-rls-pending | DDL has role-aware RLS, no USING(true), variant TEXT no-CHECK | grep | `python -c "..."` (see 03-01-PLAN Task 1 verify) | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -92,4 +93,4 @@ real Supabase API or upload real files in unit tests.
 - [ ] Feedback latency < 5s (quick) / < 4 min (full)
 - [ ] `nyquist_compliant: true` set in frontmatter (after planner maps every task)
 
-**Approval:** pending
+**Approval:** planner-mapped 2026-05-29 (every task → automated row or Manual-Only entry)
