@@ -8,7 +8,7 @@ import { Badge } from '../ui/Badge';
 import { useToast } from '../../hooks/useToast';
 import { ToastContainer } from '../ui/Toast';
 
-const ROLES: UserRole[] = ['viewer', 'biller', 'admin'];
+const ROLES: UserRole[] = ['pending', 'billing', 'admin'];
 
 export function UsersPage() {
   const [users, setUsers] = useState<Profile[]>([]);
@@ -95,11 +95,11 @@ export function UsersPage() {
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-full bg-brand-red/10 text-brand-red flex items-center justify-center text-xs font-bold uppercase">
-                        {(user.display_name ?? user.email)[0]}
+                        {user.email[0]}
                       </div>
                       <div>
                         <p className="text-sm font-medium text-slate-800">
-                          {user.display_name ?? '—'}
+                          {user.email.split('@')[0]}
                         </p>
                         <p className="text-xs text-slate-400">{user.email}</p>
                       </div>
@@ -121,8 +121,8 @@ export function UsersPage() {
                     </select>
                   </td>
                   <td className="px-5 py-3">
-                    <Badge variant={user.is_active ? 'success' : 'default'}>
-                      {user.is_active ? 'Active' : 'Inactive'}
+                    <Badge variant={user.role !== 'pending' ? 'success' : 'default'}>
+                      {user.role !== 'pending' ? 'Active' : 'Pending'}
                     </Badge>
                   </td>
                   <td className="px-5 py-3 text-xs text-slate-400">

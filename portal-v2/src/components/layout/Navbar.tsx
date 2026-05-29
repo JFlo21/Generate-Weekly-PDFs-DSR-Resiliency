@@ -153,11 +153,11 @@ export function Navbar({
         {profile && (
           <div className="hidden sm:flex items-center gap-2">
             <div className="w-7 h-7 rounded-full bg-brand-red text-white flex items-center justify-center text-xs font-semibold uppercase">
-              {(profile.display_name ?? profile.email)[0]}
+              {profile.email[0]}
             </div>
             <div className="flex flex-col">
               <span className="text-xs font-medium text-slate-800 leading-none">
-                {profile.display_name ?? profile.email.split('@')[0]}
+                {profile.email.split('@')[0]}
               </span>
               <span className="text-[10px] text-slate-500 capitalize leading-none mt-0.5">
                 {profile.role}

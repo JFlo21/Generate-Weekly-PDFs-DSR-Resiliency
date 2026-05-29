@@ -13,7 +13,7 @@ export function ActivityPage() {
   useEffect(() => {
     supabase
       .from('activity_logs')
-      .select('*, profiles(email, display_name)')
+      .select('*, profiles(email)')
       .order('created_at', { ascending: false })
       .limit(100)
       .then(({ data, error: err }) => {
@@ -34,7 +34,7 @@ export function ActivityPage() {
           if (newLog.user_id) {
             const { data: profile } = await supabase
               .from('profiles')
-              .select('email, display_name')
+              .select('email')
               .eq('id', newLog.user_id)
               .single();
             if (profile) {
@@ -92,14 +92,12 @@ export function ActivityPage() {
                   className="flex items-start gap-4 px-5 py-3"
                 >
                   <div className="w-7 h-7 mt-0.5 rounded-full bg-brand-red/10 text-brand-red flex items-center justify-center text-xs font-bold uppercase shrink-0">
-                    {(log.profiles?.display_name ?? log.profiles?.email ?? '?')[0]}
+                    {(log.profiles?.email ?? '?')[0]}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-slate-800">
                       <span className="font-medium">
-                        {log.profiles?.display_name ??
-                          log.profiles?.email ??
-                          'Unknown'}
+                        {log.profiles?.email ?? 'Unknown'}
                       </span>{' '}
                       <span className="text-slate-500">{log.action}</span>
                       {log.resource && (
