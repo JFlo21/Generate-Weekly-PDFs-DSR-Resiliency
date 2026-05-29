@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Portal — Supabase-native Artifact Portal
 status: executing
-last_updated: "2026-05-29T19:15:37.887Z"
+last_updated: "2026-05-29T20:08:43.563Z"
 last_activity: 2026-05-29
 progress:
   total_phases: 6
