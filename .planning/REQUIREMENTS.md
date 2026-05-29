@@ -165,17 +165,54 @@ Explicitly excluded. Documented to prevent scope creep.
 
 ## Traceability
 
-Which phases cover which requirements. Populated during roadmap creation.
+Which phases cover which requirements.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (to be filled by roadmapper) | — | Pending |
+| DATA-01 | Phase 03 | Pending |
+| DATA-02 | Phase 03 | Pending |
+| DATA-03 | Phase 03 | Pending |
+| DATA-04 | Phase 03 | Pending |
+| DATA-05 | Phase 03 | Pending |
+| DATA-06 | Phase 06 | Pending |
+| TABLE-01 | Phase 05 | Pending |
+| TABLE-02 | Phase 05 | Pending |
+| TABLE-03 | Phase 05 | Pending |
+| TABLE-04 | Phase 05 | Pending |
+| TABLE-05 | Phase 05 | Pending |
+| SEARCH-01 | Phase 05 | Pending |
+| SEARCH-02 | Phase 05 | Pending |
+| SEARCH-03 | Phase 05 | Pending |
+| SEARCH-04 | Phase 05 | Pending |
+| UI-01 | Phase 06 | Pending |
+| UI-02 | Phase 06 | Pending |
+| UI-03 | Phase 06 | Pending |
+| AUTH-01 | Phase 04 | Pending |
+| AUTH-02 | Phase 04 | Pending |
+| AUTH-03 | Phase 04 | Pending |
+| AUTH-04 | Phase 04 | Pending |
+| AUTH-05 | Phase 04 | Pending |
+| AUTH-06 | Phase 04 | Pending |
+| RBAC-01 | Phase 04 | Pending |
+| RBAC-02 | Phase 04 | Pending |
+| RBAC-03 | Phase 04 | Pending |
+| RBAC-04 | Phase 04 | Pending |
+| RBAC-05 | Phase 04 | Pending |
+| DEPLOY-01 | Phase 04 | Pending |
+| DEPLOY-02 | Phase 04 | Pending |
+| DEPLOY-03 | Phase 04 | Pending |
+| DEPLOY-04 | Phase 04 | Pending |
+| SEC-01 | Phase 07 | Pending |
+| SEC-02 | Phase 07 | Pending |
+| SEC-03 | Phase 07 | Pending |
+| SEC-04 | Phase 07 | Pending |
+| SEC-05 | Phase 07 | Pending |
 
 **Coverage:**
 - v1.1 requirements: 33 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 33 ⚠️
+- Mapped to phases: 33 (Phase 03: 5, Phase 04: 15, Phase 05: 9, Phase 06: 4, Phase 07: 5)
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-05-29*
-*Last updated: 2026-05-29 after initial v1.1 definition*
+*Last updated: 2026-05-29 — traceability populated after roadmap creation (Phases 03–07)*

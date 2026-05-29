@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Portal — Supabase-native Artifact Portal
 status: planning
-last_updated: "2026-05-29T14:41:53.248Z"
+last_updated: "2026-05-29T16:45:00.000Z"
 last_activity: 2026-05-29
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,38 +17,44 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-20 after v1.0 milestone)
+See: .planning/PROJECT.md (updated 2026-05-29 after v1.1 milestone start)
 
 **Core value:** The production Smartsheet → Excel → Smartsheet attachment
 pipeline runs every 2 hours on weekdays and ships billing-grade Excel
-reports without regression.
-**Current focus:** Phase 02 — attribution-bulk-prefetch-historical-claimer-remediation
-wiring + scope removal, remediation mode, runbook + Living Ledger).
+reports without regression. The billing team can find and download the
+right generated Excel billing artifact fast, from a secure, auth-gated,
+beautiful web portal — with zero change to the production Python billing
+pipeline.
+
+**Current focus:** v1.1 Phase 03 — Supabase Data Layer Foundation (starting).
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-05-29 — Milestone v1.1 started
+Phase: 03 — Supabase Data Layer Foundation
+Plan: — (not yet started)
+Status: Roadmap created; ready for `/gsd-plan-phase 3`
+Last activity: 2026-05-29 — v1.1 roadmap created (Phases 03–07)
+
+```
+Progress: Phase 03 ░░░░░░░░░░░░░░░░░░░░ 0 % (v1.1 not started)
+```
 
 ## Performance Metrics
 
-**Velocity:**
+**Velocity (historical):**
 
-- Total plans completed (v1.0): 20 (Phase 01: 14, Phase 01.1: 6)
-- Test suite at close: 688 passed / 26 skipped / 58 subtests (from 537 pre-milestone)
+- v1.0 Phases 01 + 01.1: 20 plans completed; 682 tests at close
+- v1.0 hotfix Phase 02: 6 plans (4 + 2 gap-closure); 986 tests at close
 
-**By Phase:**
+**v1.1 Phase Plan Counts (TBD after planning):**
 
-| Phase                                 | Plans | Status      |
-|---------------------------------------|-------|-------------|
-| 01 — Subcontractor Rate Logic         | 14/14 | ✅ Shipped   |
-| 01.1 — Helper-Shadow Rescue (INSERTED)| 6/6   | ✅ Shipped   |
-
-*Updated at Phase 01.1 Plan 06 close (2026-05-20).*
-| Phase 02 P02 | 95 | 3 tasks | 8 files |
-| Phase 02 P03 | 35 | 3 tasks | 4 files |
+| Phase | Goal | Requirements | Plans | Status |
+|-------|------|--------------|-------|--------|
+| 03 — Supabase Data Layer Foundation | Supabase backend provisioned; CI publish step live | DATA-01..05 | TBD | Not started |
+| 04 — Auth, RBAC, and Deployment | Auth gate + RBAC + admin + Vercel deploy working | AUTH-01..06, RBAC-01..05, DEPLOY-01..04 | TBD | Not started |
+| 05 — Artifact Table and Search | Virtualized table on real data; search/filter/sort | TABLE-01..05, SEARCH-01..04 | TBD | Not started |
+| 06 — Realtime and UI Polish | Realtime toast; responsive; animations; accessible | DATA-06, UI-01..03 | TBD | Not started |
+| 07 — Security Hardening and Express Removal | Security review passed; `portal/` removed | SEC-01..05 | TBD | Not started |
 
 ## Accumulated Context
 
@@ -56,97 +62,123 @@ Last activity: 2026-05-29 — Milestone v1.1 started
 
 Full decision log lives in PROJECT.md `<decisions>` table (~30 dated
 ADR-equivalent rules from the CLAUDE.md Living Ledger + SPEC-level
-decisions). All operative-locked. v1.0 added the Phase 1.1 partitioning
-override (subcontractor rows partition, not additive), the Bug C D-12
-fail-safe fall-back, and the pre-acceptance-rescue-generalization rule.
-Phase 01.1-06 (2026-05-20): helper-path partition mirrors primary-path
-partition; minimum-length key guard `< 4` replaces exact-length `!= 4`;
-shared `_build_subcontractor_wr_scope` prevents cleanup/prune scope drift;
-`SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED` kill switch (default ON)
-for destructive TARGET variant cleanup.
+decisions). All operative-locked.
 
-- [Phase ?]: D-02: single bulk prefetch_attribution call replaces 4 per-variant ThreadPoolExecutor pre-passes
-- [Phase ?]: D-03: O(1) map reads via resolve_claimer(prefetched_map=_attr_map) replace per-row RPCs at all 4 consumer sites
-- [Phase ?]: D-05: ATTRIBUTION_RESOLUTION_WEEKS removed entirely from code, workflow, and docs — root cause of garbage-file incident
-- [Phase 02-03]: D-06: REMEDIATE_CLAIMERS default OFF — isolated dispatch returns before Excel generation
-- [Phase 02-03]: D-07: _GARBAGE_PATTERNS ('_NO_MATCH', '_Unknown_Foreman'); build_group_identity parses filenames; unparseable files skipped
-- [Phase 02-03]: D-08: REMEDIATION_DRY_RUN default ON; REMEDIATION_WINDOW_WEEKS default 26 weeks for blast-radius control
-- [Phase 02-04]: D-09: ordered E re-activation procedure documented in operations.md (RPC deploy -> validate -> flip -> remediate)
-- [Phase 02-04]: D-10: evidence-based validation gate — zero garbage names, O(chunks) HTTP, <=165 min runtime, pytest green
-- [Phase 02-04]: D-11: AUTHORITATIVE=1 flip is a SEPARATE human-gated operator action, never bundled in fix PR (46cd05d/67539ec lesson)
+**v1.1-specific decisions locked at milestone start (2026-05-29):**
+
+- Railway → Render Express migration (MIG-01) SUPERSEDED: Express is removed
+  entirely; `portal-v2` reads Supabase directly. No Node server to migrate.
+- `service_role` key belongs ONLY in GitHub Actions Secrets and Supabase project
+  settings — never in Vercel env vars or the frontend bundle.
+- Storage bucket `excel-artifacts` MUST be created with `public: false`; all
+  download access via `createSignedUrl` (5-minute TTL) exclusively.
+- Role-aware RLS policy: artifacts SELECT and Storage SELECT MUST JOIN `profiles`
+  and check `role IN ('admin','billing')` — `TO authenticated USING (true)` is
+  explicitly forbidden (allows `pending` users to read billing data).
+- `public.profiles` row created via DB trigger (AFTER INSERT ON auth.users) for
+  atomic creation — client-side insert after signUp is a race-condition trap.
+- Admin self-demotion guard: server-side check that rejects role change if admin
+  count would drop to zero; no recovery path without Supabase dashboard.
+- DATA-03 publish step position: MUST be ordered (1) Excel generation,
+  (2) Smartsheet upload, (3) Supabase publish — with `continue-on-error: true`.
+  A Supabase outage must never fail the billing run.
+- `week_ending` stored as DATE (ISO) in `public.artifacts`; `week_ending_fmt` as
+  TEXT (MMDDYY) for display — prevents sort/filter type inconsistency.
+- `public` schema for `artifacts` table (auto-exposed by PostgREST; avoids
+  PGRST106 schema-not-exposed footgun).
+- `supabase.auth.getUser()` (server round-trip) for data-gate decisions;
+  `getSession()` only for UI state — prevents JWT-tampering auth bypass.
+
+**v1.0 + Phase 02 decisions (operative-locked, inherited):**
+- [2026-04-22 16:05] Attachment pre-fetch sub-budget trifecta locked
+- [2026-04-22 17:10] TIME_BUDGET_MINUTES=180, timeout-minutes=195 locked
+- [2026-04-25 14:00] freeze_row ThreadPoolExecutor parallelization locked
+- [Phase 02-03]: REMEDIATE_CLAIMERS default OFF, REMEDIATION_DRY_RUN default ON
+- [Phase 02-04]: E re-activation is a separate human-gated operator action
+  (never bundled in a fix PR)
+
+See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ### Roadmap Evolution
 
-- Phase 2 added (2026-05-26): **Attribution Bulk-Prefetch + Historical Claimer
-  Remediation** (v1.0 hotfix line). Fixes the claim-attribution week-scope /
-  Sub-project E interaction: the `ATTRIBUTION_RESOLUTION_WEEKS=8` scope gated
-  group-KEY formation, so E-authoritative `no_row` regeneration of historical
-  groups produced `_User__NO_MATCH` / `_User_Unknown_Foreman` files (real frozen
-  names exist in `attribution_snapshot`, ~99% populated, but went unread for
-  out-of-scope weeks). SPEC.md written (6 requirements, ambiguity 0.18).
-  Immediate mitigation: `SUPABASE_HASH_STORE_AUTHORITATIVE` reverted to `0`
-  (commit `46cd05d`, pending push to master). The "Phase 2: Railway → Render"
-  deferred v1.1 bullet was demoted (will be renumbered when v1.1 is formalized)
-  to resolve the number collision.
+- v1.1 roadmap created (2026-05-29): Phases 03–07 continuing from Phase 02.
+  Supersedes the prior v1.1 Railway → Render migration scope (moved to Out of
+  Scope in PROJECT.md and REQUIREMENTS.md). The Railway → Render deferred bullets
+  previously listed in ROADMAP.md are retired.
+- Phase 02 completed (2026-05-26): Attribution Bulk-Prefetch + Historical Claimer
+  Remediation. 6/6 plans shipped; 3 operator validations pending (02-HUMAN-UAT.md).
+- Phase 02 added (2026-05-26): v1.0 hotfix. Replaced the per-row
+  `lookup_attribution` pre-passes with single bulk RPC.
 
 ### Blockers/Concerns
 
-[Open items affecting future work — resolved v1.0 blockers cleared at close]
+**Inherited from Phase 02 (pending operator actions before attribution is fully live):**
 
-- **Pending push:** mitigation commit `46cd05d` (revert
-  `SUPABASE_HASH_STORE_AUTHORITATIVE=0`) is committed locally but not yet on
-  `origin/master` — the production corruption fix is not live until it is
-  pushed. Direct push to master was blocked by the auto-mode guardrail; awaiting
-  user push / PR / authorization.
+- Operator: apply `billing_audit/schema.sql` to Supabase.
+- Data team: deploy `lookup_attribution` RPC.
+- Step B real-data SKIP_UPLOAD price-write spot-check.
+- Human-gated operator action: flip `SUPABASE_HASH_STORE_AUTHORITATIVE=1`
+  only after RPC deploy + production validation (per D-09/D-10/D-11 runbook).
 
-- `.planning/INGEST-CONFLICTS.md` INFO #8: pre-migration ADR for
-  Railway → Render still missing under `memory-bank/adr/`. Now tracked as
-  MIG-01 in the v1.1 milestone (descoped from v1.0).
+**v1.1 Phase 04 research flags (resolve before planning Phase 04):**
+
+- Remember Me client configuration: prototype needed for switching between
+  localStorage and sessionStorage without recreating the Supabase client.
+- DB trigger for atomic `profiles` creation: verify Supabase allows custom
+  AFTER INSERT ON auth.users triggers in managed Postgres before Phase 04 starts.
+- Admin page user enumeration: decide whether to include `email TEXT` in
+  `public.profiles` (populated by signup trigger) or use a `service_role` RPC.
+- Vercel preview vs production hCaptcha keys: verify environment-scoped env var
+  isolation before Phase 04 ships.
 
 ### Quick Tasks Completed
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
-| 260528-lu6 | Reconcile AGENTS.md into a lean pointer mirroring CLAUDE.md | 2026-05-28 | d30be0e | [260528-lu6-reconcile-agents-md-into-a-lean-pointer-](./quick/260528-lu6-reconcile-agents-md-into-a-lean-pointer-/) |
-| 260528-mdc | Add warn-only ruff + mypy lint tooling and isolated CI workflow | 2026-05-28 | 7f8dbfb | [260528-mdc-add-warn-only-ruff-and-mypy-lint-tooling](./quick/260528-mdc-add-warn-only-ruff-and-mypy-lint-tooling/) |
+| 260528-lu6 | Reconcile AGENTS.md into a lean pointer mirroring CLAUDE.md | 2026-05-28 | d30be0e | [260528-lu6](./quick/260528-lu6-reconcile-agents-md-into-a-lean-pointer-/) |
+| 260528-mdc | Add warn-only ruff + mypy lint tooling and isolated CI workflow | 2026-05-28 | 7f8dbfb | [260528-mdc](./quick/260528-mdc-add-warn-only-ruff-and-mypy-lint-tooling/) |
 
 ## Deferred Items
 
-### v1.1 scope (carried forward from planning bootstrap)
+### Deferred to v2 (from v1.1 REQUIREMENTS.md)
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| Migration pre-impl | MIG-01 (pre-migration ADR) | Deferred to v1.1 | 2026-05-20 (descoped from v1.0) |
-| Backend migration | REQ-railway-render-migration | Deferred to v1.1 | 2026-05-14 |
-| Backend migration | REQ-migration-staging-verification | Deferred to v1.1 | 2026-05-14 |
-| Backend migration | REQ-migration-decommission | Deferred to v1.1 | 2026-05-14 |
-| Artifact Explorer | REQ-artifact-explorer-v1 | Deferred to v1.1 | 2026-05-14 |
-| Artifact Explorer | REQ-excel-styled-renderer | Deferred to v1.1 | 2026-05-14 |
-| Artifact Explorer | REQ-cross-artifact-search | Deferred to v1.1 | 2026-05-14 |
-| Artifact Explorer | REQ-backend-routes-for-explorer | Deferred to v1.1 | 2026-05-14 |
+| Artifact Preview | PREV-01: in-browser Excel content preview | v2 | 2026-05-29 |
+| Bulk / Export | BULK-01: bulk ZIP download (Edge Function) | v2 | 2026-05-29 |
+| Bulk / Export | EXPORT-01: CSV / parsed-JSON export | v2 | 2026-05-29 |
+| Discoverability | CMDK-01: Cmd+K command palette | v2 | 2026-05-29 |
+
+### Retired (superseded by v1.1 scope change)
+
+| Category | Item | Status |
+|----------|------|--------|
+| Migration pre-impl | MIG-01 (pre-migration ADR) | SUPERSEDED — Express removed, not migrated |
+| Backend migration | REQ-railway-render-migration | SUPERSEDED |
+| Backend migration | REQ-migration-staging-verification | SUPERSEDED |
+| Backend migration | REQ-migration-decommission | SUPERSEDED |
+| Artifact Explorer | REQ-artifact-explorer-v1 | SUPERSEDED by TABLE-* + SEARCH-* requirements |
+| Artifact Explorer | REQ-excel-styled-renderer | SUPERSEDED (download-only in v1.1) |
+| Artifact Explorer | REQ-cross-artifact-search | SUPERSEDED by SEARCH-01..04 |
+| Artifact Explorer | REQ-backend-routes-for-explorer | SUPERSEDED (Express removed) |
 
 ### Open artifacts acknowledged at v1.0 close (2026-05-20)
-
-Acknowledged and deferred per the milestone-close artifact audit (6 items).
-All are deferred live-verification / watch-list items — none is failing code.
 
 | Category | Item | Status |
 |----------|------|--------|
 | debug | sub-helper-shadow-missing | root_cause_found (fix shipped in Phase 01.1) |
 | thread | p01-hotfix-followups | open (post-cron AEP/ReducedSub byte-divergence watch-list) |
-| uat_gap | 01-HUMAN-UAT.md | partial (0 open scenarios; pending live cron) |
-| uat_gap | 01.1-HUMAN-UAT.md | partial (0 open scenarios; pending live cron) |
+| uat_gap | 01-HUMAN-UAT.md | partial (pending live cron) |
+| uat_gap | 01.1-HUMAN-UAT.md | partial (pending live cron) |
+| uat_gap | 02-HUMAN-UAT.md | partial (3 operator validations pending) |
 | verification_gap | 01-VERIFICATION.md | human_needed (live-cron production observation) |
 | verification_gap | 01.1-VERIFICATION.md | human_needed (live-cron production observation) |
 
-**Operator actions still owed before flipping attribution on in prod:**
-apply `billing_audit/schema.sql` to Supabase; data team deploys the
-`lookup_attribution` RPC; Step B real-data SKIP_UPLOAD price-write spot-check.
-
 ## Operator Next Steps
 
-- Start the next milestone with `/gsd-new-milestone` (v1.1 — Backend
-  Migration + Artifact Explorer; fresh REQUIREMENTS.md will be created).
-
-- Independently: review/commit the uncommitted `generate_weekly_pdfs.py`
-  type-hint refinements (separate from this milestone close).
+1. **Start Phase 03** with `/gsd-plan-phase 3` — Supabase Data Layer Foundation.
+2. Before planning Phase 04: resolve the four research flags (Remember Me client
+   prototype, DB trigger verification, admin user enumeration decision, hCaptcha
+   key env isolation).
+3. Phase 04 planning flag: DATA-03 publish step must be ordered correctly in the
+   workflow (Excel → Smartsheet upload → Supabase publish, `continue-on-error: true`).
