@@ -1,0 +1,46 @@
+# Lightweight CI smoke-test workflow for pull requests targeting master.
+#
+# Purpose: prevent broken code from reaching the production billing pipeline
+# (generate_weekly_pdfs.py runs on a cron every 2 hours on weekdays). This
+# workflow validates two things on every PR and every push to master:
+#   1. The main entry-point still compiles (catches syntax errors).
+#   2. The pytest suite passes (catches behavioral regressions).
+#
+# This is intentionally separate from codecov.yml — codecov runs coverage
+# collection and uploads results to a third-party service; this workflow is
+# the minimal, fast-failing required status check that branch protection can
+# gate on without depending on Codecov availability.
+name: CI Checks
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Compile and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Syntax check (py_compile)
+        run: python -m py_compile generate_weekly_pdfs.py
+
+      - name: Run tests
+        run: python -m pytest tests/ -v --tb=short
