@@ -63,7 +63,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 01.1. Helper-Shadow Rescue (INSERTED) | v1.0 | 6/6 | ✅ Shipped | 2026-05-20 |
 | 02. Attribution Bulk-Prefetch + Remediation | v1.0 hotfix | 6/6 | ✅ Shipped | 2026-05-26 |
 | 03. Supabase Data Layer Foundation | v1.1 | 3/3 | Complete   | 2026-05-29 |
-| 04. Auth, RBAC, and Deployment | v1.1 | 0/TBD | Not started | — |
+| 04. Auth, RBAC, and Deployment | v1.1 | 0/6 | Planned | — |
 | 05. Artifact Table and Search | v1.1 | 0/TBD | Not started | — |
 | 06. Realtime and UI Polish | v1.1 | 0/TBD | Not started | — |
 | 07. Security Hardening and Express Removal | v1.1 | 0/TBD | Not started | — |
@@ -166,7 +166,24 @@ RBAC-02, RBAC-03, RBAC-04, RBAC-05, DEPLOY-01, DEPLOY-02, DEPLOY-03, DEPLOY-04
 5. The Vercel deployment serves the portal at the production URL, deep links do not 404 (SPA rewrite active), and the `service_role` key is absent from all Vercel env vars.
 6. Password reset (email → `/auth/reset` → `updateUser`) works end-to-end with hCaptcha on a Vercel preview deployment.
 
-**Plans:** TBD
+**Plans:** 6 plans in 5 waves
+
+Plans:
+**Wave 1** *(foundation + live-bug fixes; 01 and 02 run in parallel)*
+- [ ] 04-01-PLAN.md — vitest infra + types.ts reconciliation + supabase.ts fail-loud factory/Remember-Me + ConfigError + hCaptcha install
+- [ ] 04-02-PLAN.md — schema DDL (email/created_at + handle_new_user SECURITY DEFINER trigger + last-admin guard) + bootstrap runbook + [BLOCKING] manual live-DB apply (autonomous:false)
+
+**Wave 2** *(auth core)*
+- [ ] 04-03-PLAN.md — useAuth extension (captcha/remember-me/resetPassword/role helpers) + AuthGuard USE_MOCK removal & pending routing + RoleGuard + guard tests
+
+**Wave 3** *(auth surfaces)*
+- [ ] 04-04-PLAN.md — LoginPage (hCaptcha/remember-me/forgot link/post-signup→/pending) + ForgotPasswordPage + ResetPasswordPage + PendingApprovalPage
+
+**Wave 4** *(RBAC integration + routing)*
+- [ ] 04-05-PLAN.md — UsersPage reconciliation + last-admin UI guard + pending highlight + states + UsersPage test; delete ActivityPage; App.tsx routes + RoleGuard; Sidebar cleanup; dead-type removal
+
+**Wave 5** *(deployment)*
+- [ ] 04-06-PLAN.md — vercel.json SPA-rewrite verify + service_role grep + deployment runbook + full-build gate + [BLOCKING] Vercel connect/env-vars/live-deploy checkpoint (autonomous:false)
 
 **UI hint**: yes
 
