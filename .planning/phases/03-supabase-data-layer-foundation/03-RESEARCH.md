@@ -523,9 +523,15 @@ res = with_retry(
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **DDL file location (D-03 / discretion).**
+> All three resolved during Phase 03 planning: (1) DDL file → a new
+> `supabase/portal_schema.sql`; (2) variant → a separate `normalize_variant()`
+> in the publish script (lower blast-radius, zero change to the shared manifest);
+> (3) per-week subfolders → `collect_xlsx_files` scans both `generated_docs/`
+> root and `YYYY-MM-DD/` subfolders.
+
+1. **DDL file location (D-03 / discretion).** _(RESOLVED: new `supabase/portal_schema.sql`.)_
    - What we know: must be version-controlled in the same PR; options are extend `billing_audit/schema.sql` or create a new `portal/schema.sql` (or `supabase/schema.sql`).
    - Recommendation: a NEW `supabase/portal_schema.sql` (or `portal/schema.sql`) keeps `public.artifacts`/`profiles` cleanly separated from the data-team-owned `billing_audit` schema (which has its own apply runbook and exposed-schema requirement). One file, applied via Supabase SQL Editor, documented like `billing_audit/schema.sql`.
 
@@ -558,29 +564,29 @@ res = with_retry(
 |----------|-------|
 | Framework | pytest 9.0.3 (+ pytest-cov 6.0.0) |
 | Config file | none dedicated — pytest invoked as `pytest tests/ -v` |
-| Quick run command | `pytest tests/test_publish_artifacts.py -v` |
+| Quick run command | `pytest tests/test_publish_artifacts_to_supabase.py -v` |
 | Full suite command | `pytest tests/ -v` |
 
 ### Phase Requirements → Test Map
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
-| DATA-02 | `variant` normalizer maps all 7 token forms → 7 canonical values | unit | `pytest tests/test_publish_artifacts.py::test_normalize_variant -x` | ❌ Wave 0 |
-| DATA-02 | MMDDYY `"051725"` → `"2025-05-17"`; bad format raises (no null insert) | unit | `pytest tests/test_publish_artifacts.py::test_week_ending_iso -x` | ❌ Wave 0 |
-| DATA-02 | sha256 computed from file bytes (not filename token) | unit | `pytest tests/test_publish_artifacts.py::test_sha256_from_bytes -x` | ❌ Wave 0 |
-| DATA-02/08 | upsert payload has correct keys + `on_conflict="sha256"`; re-run does not duplicate | unit (mock client) | `pytest tests/test_publish_artifacts.py::test_upsert_idempotent -x` | ❌ Wave 0 |
-| DATA-03 | publish failure isolation — exceptions caught, `exit 0`, WARNING + summary emitted | unit (inject failing client) | `pytest tests/test_publish_artifacts.py::test_failure_isolation -x` | ❌ Wave 0 |
+| DATA-02 | `variant` normalizer maps all 7 token forms → 7 canonical values | unit | `pytest tests/test_publish_artifacts_to_supabase.py::test_normalize_variant -x` | ❌ Wave 0 |
+| DATA-02 | MMDDYY `"051725"` → `"2025-05-17"`; bad format raises (no null insert) | unit | `pytest tests/test_publish_artifacts_to_supabase.py::test_week_ending_iso -x` | ❌ Wave 0 |
+| DATA-02 | sha256 computed from file bytes (not filename token) | unit | `pytest tests/test_publish_artifacts_to_supabase.py::test_sha256_from_bytes -x` | ❌ Wave 0 |
+| DATA-02/08 | upsert payload has correct keys + `on_conflict="sha256"`; re-run does not duplicate | unit (mock client) | `pytest tests/test_publish_artifacts_to_supabase.py::test_upsert_idempotent -x` | ❌ Wave 0 |
+| DATA-03 | publish failure isolation — exceptions caught, `exit 0`, WARNING + summary emitted | unit (inject failing client) | `pytest tests/test_publish_artifacts_to_supabase.py::test_failure_isolation -x` | ❌ Wave 0 |
 | DATA-01/RBAC | anon `GET /rest/v1/artifacts` returns `[]` (no anon policy) | manual/CI curl | `curl -s "$URL/rest/v1/artifacts" -H "apikey:$ANON" → []` | manual proof |
 | DATA-01 | private bucket — unauth object GET returns 401/403; no `getPublicUrl` path works | manual | dashboard shows bucket Private; unauth GET 401/403 | manual proof |
 | DATA-04/RBAC | `pending`-role authenticated user gets 0 artifact rows; `billing` gets rows | manual (two test sessions) | supabase-js select under each role | manual proof |
 | DATA-05 | `createSignedUrl` succeeds for admin/billing (proves Storage SELECT policy); 403 without policy/role | manual | click-time signed URL issuance returns a 5-min URL | manual proof |
 
 ### Sampling Rate
-- **Per task commit:** `pytest tests/test_publish_artifacts.py -v`
+- **Per task commit:** `pytest tests/test_publish_artifacts_to_supabase.py -v`
 - **Per wave merge:** `pytest tests/ -v` (full suite — guards against any accidental import-time coupling to the billing engine)
 - **Phase gate (D-05 from SUMMARY):** manually dispatch the workflow once; confirm ≥1 row in `public.artifacts` and ≥1 object in `excel-artifacts`; run the anon-curl `[]` proof and the `pending` vs `billing` role proof before Phase 04 starts.
 
 ### Wave 0 Gaps
-- [ ] `tests/test_publish_artifacts.py` — variant normalization, MMDDYY→ISO, sha256-from-bytes, idempotent upsert payload, failure isolation (covers DATA-02/03/08)
+- [ ] `tests/test_publish_artifacts_to_supabase.py` — variant normalization, MMDDYY→ISO, sha256-from-bytes, idempotent upsert payload, failure isolation (covers DATA-02/03/08)
 - [ ] Storage bucket `excel-artifacts` provisioned (private) — prerequisite for any live publish
 - [ ] `public.artifacts` + `public.profiles` + RLS DDL applied + committed (DATA-01/02/04/05)
 - [ ] Seed at least one `profiles` row with `role='billing'` and one `role='pending'` (test users) for the role-aware RLS proofs
