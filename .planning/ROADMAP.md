@@ -135,8 +135,11 @@ pipeline internals, but DATA-03 appends to the same workflow)
 **Plans:** 3 plans (2 waves)
 
 Plans:
+**Wave 1**
 - [ ] 03-01-PLAN.md — public.artifacts + public.profiles DDL, role-aware RLS (artifacts/profiles/storage.objects), private excel-artifacts bucket (operator-applied)
 - [ ] 03-02-PLAN.md — scripts/publish_artifacts_to_supabase.py (TDD: mocked Wave 0 tests + fail-isolated Storage upload + sha256 upsert)
+
+**Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 03-03-PLAN.md — additive continue-on-error Supabase publish step wired into weekly-excel-generation.yml
 
 **UI hint**: no
