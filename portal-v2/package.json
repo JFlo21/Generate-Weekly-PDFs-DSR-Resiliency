@@ -12,6 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@hcaptcha/react-hcaptcha": "^2.0.2",
     "@sentry/react": "^8.0.0",
     "@supabase/supabase-js": "^2.45.4",
     "clsx": "^2.1.1",
