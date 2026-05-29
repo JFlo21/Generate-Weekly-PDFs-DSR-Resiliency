@@ -13,12 +13,12 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 
 - [ ] **DATA-01**: Every generated Excel artifact is stored in a **private**
   Supabase Storage bucket (no public read).
-- [ ] **DATA-02**: A `public.artifacts` Postgres table stores per-artifact
+- [x] **DATA-02**: A `public.artifacts` Postgres table stores per-artifact
   metadata — `work_request`, `week_ending` (DATE + display text), `variant`,
   `filename`, `storage_path`, `size_bytes`, `sha256`, `run_id`, `created_at` —
   with a UNIQUE constraint on `sha256` for idempotent upsert and indexes on
   `work_request` and `week_ending DESC`.
-- [ ] **DATA-03**: An **additive** step in `weekly-excel-generation.yml`
+- [x] **DATA-03**: An **additive** step in `weekly-excel-generation.yml`
   publishes each generated Excel to Storage and upserts its `artifacts` row
   using the `service_role` key, isolated with `continue-on-error: true` so a
   Supabase outage never fails the billing run, cache save, or `hash_history`
@@ -170,8 +170,8 @@ Which phases cover which requirements.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | DATA-01 | Phase 03 | Pending |
-| DATA-02 | Phase 03 | Pending |
-| DATA-03 | Phase 03 | Pending |
+| DATA-02 | Phase 03 | Complete |
+| DATA-03 | Phase 03 | Complete |
 | DATA-04 | Phase 03 | Pending |
 | DATA-05 | Phase 03 | Pending |
 | DATA-06 | Phase 06 | Pending |

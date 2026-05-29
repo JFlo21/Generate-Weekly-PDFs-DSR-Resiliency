@@ -62,7 +62,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 01. Subcontractor Rate Logic Modification | v1.0 | 14/14 | ✅ Shipped (pending live UAT) | 2026-05-20 |
 | 01.1. Helper-Shadow Rescue (INSERTED) | v1.0 | 6/6 | ✅ Shipped | 2026-05-20 |
 | 02. Attribution Bulk-Prefetch + Remediation | v1.0 hotfix | 6/6 | ✅ Shipped | 2026-05-26 |
-| 03. Supabase Data Layer Foundation | v1.1 | 1/3 | In Progress|  |
+| 03. Supabase Data Layer Foundation | v1.1 | 2/3 | In Progress|  |
 | 04. Auth, RBAC, and Deployment | v1.1 | 0/TBD | Not started | — |
 | 05. Artifact Table and Search | v1.1 | 0/TBD | Not started | — |
 | 06. Realtime and UI Polish | v1.1 | 0/TBD | Not started | — |
@@ -132,12 +132,12 @@ pipeline internals, but DATA-03 appends to the same workflow)
 4. A Supabase outage simulation (`continue-on-error: true`) causes the publish step to exit non-zero without failing the billing run, Smartsheet upload, or `hash_history` persistence.
 5. `portal-v2` fetches artifact metadata directly via `supabase-js` with no Express backend in the path.
 
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 Plans:
 **Wave 1**
 - [x] 03-01-PLAN.md — public.artifacts + public.profiles DDL, role-aware RLS (artifacts/profiles/storage.objects), private excel-artifacts bucket (operator-applied)
-- [ ] 03-02-PLAN.md — scripts/publish_artifacts_to_supabase.py (TDD: mocked Wave 0 tests + fail-isolated Storage upload + sha256 upsert)
+- [x] 03-02-PLAN.md — scripts/publish_artifacts_to_supabase.py (TDD: mocked Wave 0 tests + fail-isolated Storage upload + sha256 upsert)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 03-03-PLAN.md — additive continue-on-error Supabase publish step wired into weekly-excel-generation.yml
