@@ -8,7 +8,7 @@ const POLL_SECONDS = 120;
 const CIRCUMFERENCE = 2 * Math.PI * 16; // r=16
 
 // Docusaurus docs URL. Same env var as the sidebar link so they stay in sync.
-const DOCS_URL = (import.meta.env.VITE_DOCS_URL ?? '').trim();
+const DOCS_URL: string = (String(import.meta.env.VITE_DOCS_URL ?? '')).trim();
 
 interface NavbarProps {
   countdown: number;
