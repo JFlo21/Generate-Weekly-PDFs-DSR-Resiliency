@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Portal — Supabase-native Artifact Portal
-status: planning
-last_updated: "2026-05-29T16:45:00.000Z"
-last_activity: 2026-05-29
+status: Roadmap created; ready for `/gsd-plan-phase 3`
+last_updated: "2026-05-29T17:01:45.649Z"
+last_activity: 2026-05-29 — v1.1 roadmap created (Phases 03–07)
 progress:
-  total_phases: 5
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_phases: 6
+  completed_phases: 1
+  total_plans: 6
+  completed_plans: 6
+  percent: 100
 ---
 
 # Project State
@@ -68,28 +68,38 @@ decisions). All operative-locked.
 
 - Railway → Render Express migration (MIG-01) SUPERSEDED: Express is removed
   entirely; `portal-v2` reads Supabase directly. No Node server to migrate.
+
 - `service_role` key belongs ONLY in GitHub Actions Secrets and Supabase project
   settings — never in Vercel env vars or the frontend bundle.
+
 - Storage bucket `excel-artifacts` MUST be created with `public: false`; all
   download access via `createSignedUrl` (5-minute TTL) exclusively.
+
 - Role-aware RLS policy: artifacts SELECT and Storage SELECT MUST JOIN `profiles`
   and check `role IN ('admin','billing')` — `TO authenticated USING (true)` is
   explicitly forbidden (allows `pending` users to read billing data).
+
 - `public.profiles` row created via DB trigger (AFTER INSERT ON auth.users) for
   atomic creation — client-side insert after signUp is a race-condition trap.
+
 - Admin self-demotion guard: server-side check that rejects role change if admin
   count would drop to zero; no recovery path without Supabase dashboard.
+
 - DATA-03 publish step position: MUST be ordered (1) Excel generation,
   (2) Smartsheet upload, (3) Supabase publish — with `continue-on-error: true`.
   A Supabase outage must never fail the billing run.
+
 - `week_ending` stored as DATE (ISO) in `public.artifacts`; `week_ending_fmt` as
   TEXT (MMDDYY) for display — prevents sort/filter type inconsistency.
+
 - `public` schema for `artifacts` table (auto-exposed by PostgREST; avoids
   PGRST106 schema-not-exposed footgun).
+
 - `supabase.auth.getUser()` (server round-trip) for data-gate decisions;
   `getSession()` only for UI state — prevents JWT-tampering auth bypass.
 
 **v1.0 + Phase 02 decisions (operative-locked, inherited):**
+
 - [2026-04-22 16:05] Attachment pre-fetch sub-budget trifecta locked
 - [2026-04-22 17:10] TIME_BUDGET_MINUTES=180, timeout-minutes=195 locked
 - [2026-04-25 14:00] freeze_row ThreadPoolExecutor parallelization locked
@@ -105,8 +115,10 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
   Supersedes the prior v1.1 Railway → Render migration scope (moved to Out of
   Scope in PROJECT.md and REQUIREMENTS.md). The Railway → Render deferred bullets
   previously listed in ROADMAP.md are retired.
+
 - Phase 02 completed (2026-05-26): Attribution Bulk-Prefetch + Historical Claimer
   Remediation. 6/6 plans shipped; 3 operator validations pending (02-HUMAN-UAT.md).
+
 - Phase 02 added (2026-05-26): v1.0 hotfix. Replaced the per-row
   `lookup_attribution` pre-passes with single bulk RPC.
 
@@ -124,10 +136,13 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 - Remember Me client configuration: prototype needed for switching between
   localStorage and sessionStorage without recreating the Supabase client.
+
 - DB trigger for atomic `profiles` creation: verify Supabase allows custom
   AFTER INSERT ON auth.users triggers in managed Postgres before Phase 04 starts.
+
 - Admin page user enumeration: decide whether to include `email TEXT` in
   `public.profiles` (populated by signup trigger) or use a `service_role` RPC.
+
 - Vercel preview vs production hCaptcha keys: verify environment-scoped env var
   isolation before Phase 04 ships.
 
@@ -180,5 +195,6 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 2. Before planning Phase 04: resolve the four research flags (Remember Me client
    prototype, DB trigger verification, admin user enumeration decision, hCaptcha
    key env isolation).
+
 3. Phase 04 planning flag: DATA-03 publish step must be ordered correctly in the
    workflow (Excel → Smartsheet upload → Supabase publish, `continue-on-error: true`).
