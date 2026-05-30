@@ -1013,6 +1013,15 @@ class TestRateCutoffConfig(unittest.TestCase):
         self.assertTrue(hasattr(generate_weekly_pdfs, 'NEW_RATES_CSV'))
         self.assertTrue(len(generate_weekly_pdfs.NEW_RATES_CSV) > 0)
 
+    def test_old_rates_csv_defaults_to_tracked_repo_file(self):
+        """Test that OLD_RATES_CSV default resolves to the tracked Arrowhead CSV."""
+        self.assertTrue(hasattr(generate_weekly_pdfs, 'OLD_RATES_CSV'))
+        self.assertTrue(os.path.exists(generate_weekly_pdfs.OLD_RATES_CSV))
+        self.assertEqual(
+            os.path.basename(generate_weekly_pdfs.OLD_RATES_CSV),
+            'CU List Contract - Arrowhead Contract.csv',
+        )
+
     def test_rates_fingerprint_attribute_exists(self):
         """Test that _RATES_FINGERPRINT attribute exists on the module."""
         self.assertTrue(hasattr(generate_weekly_pdfs, '_RATES_FINGERPRINT'))

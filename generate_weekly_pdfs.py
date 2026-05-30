@@ -405,7 +405,7 @@ def _sanitize_csv_path(env_var, default):
     return resolved
 
 NEW_RATES_CSV = _sanitize_csv_path('NEW_RATES_CSV', 'New Contract Rates copy regenerated again.csv')
-OLD_RATES_CSV = _sanitize_csv_path('OLD_RATES_CSV', 'CU List - Corpus North & South.csv')
+OLD_RATES_CSV = _sanitize_csv_path('OLD_RATES_CSV', 'CU List Contract - Arrowhead Contract.csv')
 
 _RATES_FINGERPRINT = ''  # Populated at runtime by load_rate_versions()
 
