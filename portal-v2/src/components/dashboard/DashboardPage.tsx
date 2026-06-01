@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useArtifacts } from '../../hooks/useArtifacts';
+import { useIsMac } from '../../hooks/usePlatform';
 import { api } from '../../lib/api';
+import { commandPaletteHint } from '../../lib/platform';
 import type { WorkflowRun, Artifact } from '../../lib/types';
 import type { DashboardOutletContext } from '../layout/DashboardLayout';
 import { StatsGrid } from './StatsGrid';
@@ -28,6 +30,7 @@ export function DashboardPage() {
   // Tracks whether the user has manually interacted with run selection yet.
   // Prevents the auto-select effect from clobbering a deliberate deselection.
   const [userHasSelected, setUserHasSelected] = useState(false);
+  const isMac = useIsMac();
 
   const { artifacts, loading: artifactsLoading } = useArtifacts(
     selectedRun?.id ?? null
@@ -123,7 +126,7 @@ export function DashboardPage() {
         <p className="text-sm text-slate-500 ml-3">
           Monitor workflow runs and explore artifact contents. Press{' '}
           <kbd className="inline-flex items-center font-mono text-[10px] border border-slate-200 rounded px-1.5 py-0.5 bg-white shadow-[0_1px_0_rgba(0,0,0,0.04)] text-slate-700">
-            ⌘K
+            {commandPaletteHint(isMac)}
           </kbd>{' '}
           to search runs and artifacts.
         </p>

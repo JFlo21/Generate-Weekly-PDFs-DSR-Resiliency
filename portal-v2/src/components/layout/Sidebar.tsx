@@ -12,6 +12,8 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
+import { useIsMac } from '../../hooks/usePlatform';
+import { commandPaletteHint } from '../../lib/platform';
 import { cn } from '../../lib/utils';
 
 // Docusaurus URL — configured via env var so the Docusaurus deployment can
@@ -47,6 +49,7 @@ const navItems: NavItem[] = [
 
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
+  const isMac = useIsMac();
   const { profile } = useAuth();
   const isAdmin = profile?.role === 'admin';
   const visibleItems = navItems.filter((item) => !item.adminOnly || isAdmin);
@@ -195,7 +198,7 @@ export function Sidebar() {
             <p className="text-xs font-medium leading-relaxed text-white/90">
               Press{' '}
               <kbd className="inline-flex items-center justify-center px-1.5 py-0.5 rounded bg-white/15 border border-white/20 text-[10px] font-mono">
-                ⌘K
+                {commandPaletteHint(isMac)}
               </kbd>{' '}
               to search runs &amp; artifacts instantly.
             </p>

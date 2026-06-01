@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { RefreshCw, LogOut, Wifi, WifiOff, Search, Beaker, BookOpen } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
+import { useIsMac } from '../../hooks/usePlatform';
+import { commandPaletteHint } from '../../lib/platform';
 import { cn } from '../../lib/utils';
 
 const POLL_SECONDS = 120;
@@ -25,12 +26,7 @@ export function Navbar({
   onRefresh,
   onOpenCommandPalette,
 }: NavbarProps) {
-  const [isMac, setIsMac] = useState(false);
-  useEffect(() => {
-    if (typeof navigator !== 'undefined') {
-      setIsMac(/Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent));
-    }
-  }, []);
+  const isMac = useIsMac();
   const { profile, logout } = useAuth();
   const progress = countdown / POLL_SECONDS;
   const dashOffset = CIRCUMFERENCE * (1 - progress);
@@ -60,7 +56,7 @@ export function Navbar({
             <Search size={13} className="shrink-0" />
             <span className="text-xs flex-1 text-left">Search runs, artifacts…</span>
             <kbd className="text-[10px] font-mono text-slate-400 border border-slate-200 rounded px-1.5 py-0.5 bg-white">
-              {isMac ? '⌘K' : 'Ctrl K'}
+              {commandPaletteHint(isMac)}
             </kbd>
           </button>
         )}
