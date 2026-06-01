@@ -33,7 +33,15 @@ pipeline.
 Phase: 04 (auth-rbac-and-deployment) — EXECUTING
 Plan: 4 of 6
 Status: Ready to execute
-Last activity: 2026-06-01 - Completed quick task 260601-ktw (UAT UI fix): platform-aware command-palette hint (⌘K/Ctrl K) via shared helper+hook — Vitest 27/27, tsc clean. Auth flow confirmed working end-to-end by user. Pending: admin-role promotion (Supabase MCP, user authorizing) + Vercel prod promote to close Phase 04; UI redesign/logo+colors flagged as Phase 06 work.
+Last activity: 2026-06-01 - Promoted juflores@ltspower.com to admin (first-admin bootstrap) in the LIVE portal Supabase project. Also shipped quick tasks 260601-k34 (auth-C reset) + 260601-ktw (platform-aware ⌘K hint). Pending to close Phase 04: Vercel prod promote + verify. UI redesign/logo flagged as Phase 06.
+
+### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
+
+- **LIVE portal Supabase project = `poeyztlmsawfoqlanucc`** ("Smarthsheet-Resiliency-Offloaded-Data"). This is the ONLY project with BOTH `public.profiles` AND `public.artifacts` (the portal_schema.sql signature), and the project the deployed portal authenticates against (juflores@ltspower.com last_sign_in_at = 2026-06-01).
+- **Real data IS flowing:** `public.artifacts` has 2,383 rows, latest 2026-06-01 20:52 UTC — the CI Supabase publish step (Phase 03 DATA-03) is working in production.
+- **Portal login = `juflores@ltspower.com`** (work email), now `role=admin`. The account predated the `handle_new_user` trigger (created 2026-05-06), so it had NO profiles row — fixed via INSERT (first-admin bootstrap), not UPDATE.
+- **Red herring:** a SEPARATE older project `iixetbhhntwjinnwoegi` ("Promax Portal Hub") also has juflores@ltspower.com as admin but NO artifacts — a different/older app (likely the Lovable one). NOT the project that matters.
+- **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
 Progress: [█████████░] 93%
