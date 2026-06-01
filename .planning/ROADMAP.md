@@ -180,7 +180,7 @@ Plans:
 - [x] 04-04-PLAN.md — LoginPage (hCaptcha/remember-me/forgot link/post-signup→/pending) + ForgotPasswordPage + ResetPasswordPage + PendingApprovalPage
 
 **Wave 4** *(RBAC integration + routing)*
-- [ ] 04-05-PLAN.md — UsersPage reconciliation + last-admin UI guard + pending highlight + states + UsersPage test; delete ActivityPage; App.tsx routes + RoleGuard; Sidebar cleanup; dead-type removal
+- [x] 04-05-PLAN.md — UsersPage reconciliation + last-admin UI guard + pending highlight + states + UsersPage test; delete ActivityPage; App.tsx routes + RoleGuard; Sidebar cleanup; dead-type removal
 
 **Wave 5** *(deployment)*
 - [ ] 04-06-PLAN.md — vercel.json SPA-rewrite verify + service_role grep + deployment runbook + full-build gate + [BLOCKING] Vercel connect/env-vars/live-deploy checkpoint (autonomous:false)

@@ -88,14 +88,14 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 
 ### RBAC & Admin
 
-- [ ] **RBAC-01**: Each user has a role stored in a `profiles` table
+- [x] **RBAC-01**: Each user has a role stored in a `profiles` table
   (`admin`, `billing`, `pending`; the model is extensible for future roles).
-- [ ] **RBAC-02**: Row-Level Security gates artifact + Storage read access to
+- [x] **RBAC-02**: Row-Level Security gates artifact + Storage read access to
   roles that grant it (`admin`, `billing`); `pending` users can see no billing
   data.
-- [ ] **RBAC-03**: An admin-only Admin page lists users and lets an admin
+- [x] **RBAC-03**: An admin-only Admin page lists users and lets an admin
   assign/change a user's role.
-- [ ] **RBAC-04**: The Admin page and all role mutations are restricted to the
+- [x] **RBAC-04**: The Admin page and all role mutations are restricted to the
   `admin` role (UI guard + RLS), with a guard preventing the last admin from
   demoting/locking themselves out.
 - [x] **RBAC-05**: Role gating is implemented reusably so future portal
@@ -193,10 +193,10 @@ Which phases cover which requirements.
 | AUTH-04 | Phase 04 | Complete |
 | AUTH-05 | Phase 04 | Complete |
 | AUTH-06 | Phase 04 | Complete |
-| RBAC-01 | Phase 04 | Pending |
-| RBAC-02 | Phase 04 | Pending |
-| RBAC-03 | Phase 04 | Pending |
-| RBAC-04 | Phase 04 | Pending |
+| RBAC-01 | Phase 04 | Complete |
+| RBAC-02 | Phase 04 | Complete |
+| RBAC-03 | Phase 04 | Complete |
+| RBAC-04 | Phase 04 | Complete |
 | RBAC-05 | Phase 04 | Complete |
 | DEPLOY-01 | Phase 04 | Pending |
 | DEPLOY-02 | Phase 04 | Pending |
