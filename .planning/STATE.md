@@ -33,7 +33,7 @@ pipeline.
 Phase: 04 (auth-rbac-and-deployment) — ✅ COMPLETE (2026-06-01, 6/6 plans)
 Next: Phase 05 (Artifact Table and Search) — ready to plan
 Status: Phase 04 closed end-to-end (public Vercel prod verified, admin bootstrapped); Phase 05 not started
-Last activity: 2026-06-01 - Promoted juflores@ltspower.com to admin (first-admin bootstrap) in the LIVE portal Supabase project. Also shipped quick tasks 260601-k34 (auth-C reset) + 260601-ktw (platform-aware ⌘K hint). Pending to close Phase 04: Vercel prod promote + verify. UI redesign/logo flagged as Phase 06.
+Last activity: 2026-06-01 - Phase 04 CLOSED (public Vercel prod verified). Shipped quick tasks 260601-k34 (auth-C reset), 260601-ktw (⌘K hint), 260601-nzs (Linetec Services logo + brand-gray). Admin bootstrapped (juflores@ltspower.com). Next: Phase 05 (wire portal to the 2,383 real Supabase artifact rows).
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
@@ -169,6 +169,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 | 260601-iqq | Fix stale Living Ledger test file paths blocking pre-push gate (repoint to memory-bank/living-ledger.md; update E authoritative-flag test to active '1') | 2026-06-01 | eed82a1 | [260601-iqq-fix-stale-living-ledger-test-file-paths-](./quick/260601-iqq-fix-stale-living-ledger-test-file-paths-/) |
 | 260601-k34 | auth-C: ResetPasswordPage token_hash (verifyOtp) recovery flow + first component test (Phase 04 plan 04-06 item C) | 2026-06-01 | 500cb27 | [260601-k34-auth-c-portal-resetpasswordpage-token-ha](./quick/260601-k34-auth-c-portal-resetpasswordpage-token-ha/) |
 | 260601-ktw | UI: platform-aware command-palette hint (⌘K on mac, Ctrl K on Win/Linux) via shared helper + hook; UAT fix | 2026-06-01 | 368e97d | [260601-ktw-platform-aware-command-palette-shortcut-](./quick/260601-ktw-platform-aware-command-palette-shortcut-/) |
+| 260601-nzs | Branding: wire Linetec Services logo (Navbar/Login) + add brand-gray palette + title; logo asset committed | 2026-06-01 | a3c8325 | [260601-nzs-wire-linetec-services-logo-and-brand-col](./quick/260601-nzs-wire-linetec-services-logo-and-brand-col/) |
 
 ## Deferred Items
 
