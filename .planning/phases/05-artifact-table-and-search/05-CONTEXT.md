@@ -189,6 +189,20 @@ sort (SEARCH-03); dynamic + combinable search/filter/sort (SEARCH-04).
   `createSignedUrl` flow) the table download must follow.
 - `.planning/research/PITFALLS.md` — RLS `USING(true)` / signed-URL /
   `service_role` footguns to avoid when wiring the read + download path.
+- `.planning/STATE.md` §"Infrastructure Topology (discovered 2026-06-01 …) —
+  READ BEFORE PHASE 05" — **critical live grounding:** the deployed portal's
+  Supabase project is **`poeyztlmsawfoqlanucc`** ("Smarthsheet-Resiliency-
+  Offloaded-Data"), the only project with BOTH `public.profiles` AND
+  `public.artifacts`. `public.artifacts` already holds **~2,383 real rows**
+  (CI publish is live in production). The portal still shows sample data
+  because `api.ts` reads the **removed Express `/api`**, not Supabase — so the
+  failed `api.ts` call is what triggers the `useArtifacts` mock fallback. The
+  fix is to rewire the read path to `supabase.from('artifacts')` +
+  `createSignedUrl` directly, not merely to delete the fallback. (Ignore the
+  red-herring older project `iixetbhhntwjinnwoegi` "Promax Portal Hub" — no
+  artifacts.) The 2,383 live rows mean the table is **not** empty on day one;
+  the "no artifacts yet" empty state (D-07) is a correctness safety net, not
+  the expected first view.
 
 ### Auth/session contract (built in Phase 04)
 - `.planning/phases/04-auth-rbac-and-deployment/04-CONTEXT.md` — `useAuth`

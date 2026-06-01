@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Portal — Supabase-native Artifact Portal
 status: verifying
-last_updated: "2026-06-01T22:43:47.767Z"
-last_activity: "2026-06-01 - Phase 04 CLOSED (public Vercel prod verified). Shipped quick tasks 260601-k34 (auth-C reset), 260601-ktw (⌘K hint), 260601-nzs (Linetec Services logo + brand-gray). Admin bootstrapped (juflores@ltspower.com). Next: Phase 05 (wire portal to the 2,383 real Supabase artifact rows)."
+last_updated: "2026-06-01T22:44:50.000Z"
+last_activity: "2026-06-01 - Phase 05 CONTEXT gathered (05-CONTEXT.md committed c8c6fbd). 4 areas discussed: table replaces dashboard; TanStack Table+Virtual+Query headless on existing primitives; infinite windowed scroll + week-ending DESC + 3 tailored states; flexible date input + ilike substring + friendly variant labels. Quality steer: Fortune-500-grade enterprise table, modern methods. Next: /gsd-plan-phase 05."
 progress:
   total_phases: 6
   completed_phases: 3
@@ -26,14 +26,16 @@ right generated Excel billing artifact fast, from a secure, auth-gated,
 beautiful web portal — with zero change to the production Python billing
 pipeline.
 
-**Current focus:** Phase 04 — auth-rbac-and-deployment
+**Current focus:** Phase 05 — artifact-table-and-search (context gathered, ready to plan)
 
 ## Current Position
 
-Phase: 04 (auth-rbac-and-deployment) — ✅ COMPLETE (2026-06-01, 6/6 plans)
-Next: Phase 05 (Artifact Table and Search) — ready to plan
-Status: Phase 04 closed end-to-end (public Vercel prod verified, admin bootstrapped); Phase 05 not started
-Last activity: 2026-06-01 - Phase 04 CLOSED (public Vercel prod verified). Shipped quick tasks 260601-k34 (auth-C reset), 260601-ktw (⌘K hint), 260601-nzs (Linetec Services logo + brand-gray). Admin bootstrapped (juflores@ltspower.com). Next: Phase 05 (wire portal to the 2,383 real Supabase artifact rows).
+Phase: 05 (artifact-table-and-search) — 🟡 CONTEXT GATHERED (2026-06-01); ready to plan
+Prev: Phase 04 (auth-rbac-and-deployment) — ✅ COMPLETE (2026-06-01, 6/6 plans)
+Next: `/gsd-plan-phase 05` — then execute
+Status: 05-CONTEXT.md + 05-DISCUSSION-LOG.md committed (c8c6fbd). No plans yet.
+Resume file: .planning/phases/05-artifact-table-and-search/05-CONTEXT.md
+Last activity: 2026-06-01 - Phase 05 CONTEXT gathered. Decisions locked: (1) artifact table REPLACES the dashboard, remove only the mock path now (Express-coupled run/explorer files deleted in Phase 07); (2) TanStack Table v8 + TanStack Virtual + TanStack Query v5, headless on existing GlassCard/Badge/Skeleton/Toast primitives (no MUI/AG Grid); (3) infinite windowed scroll + week-ending DESC default + 3 tailored loading/empty/error states; (4) flexible date input (MMDDYY/slashed/ISO) + case-insensitive ilike substring on WR#/week-ending + human-friendly variant chips. Quality steer: Fortune-500-grade enterprise table using correct modern methods. Live data is real (project poeyztlmsawfoqlanucc, ~2,383 artifact rows); fix is to rewire the read path off the dead Express api.ts to supabase.from('artifacts') + createSignedUrl.
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
@@ -58,9 +60,9 @@ Progress: [█████████░] 93%
 
 | Phase | Goal | Requirements | Plans | Status |
 |-------|------|--------------|-------|--------|
-| 03 — Supabase Data Layer Foundation | Supabase backend provisioned; CI publish step live | DATA-01..05 | TBD | Not started |
-| 04 — Auth, RBAC, and Deployment | Auth gate + RBAC + admin + Vercel deploy working | AUTH-01..06, RBAC-01..05, DEPLOY-01..04 | TBD | Not started |
-| 05 — Artifact Table and Search | Virtualized table on real data; search/filter/sort | TABLE-01..05, SEARCH-01..04 | TBD | Not started |
+| 03 — Supabase Data Layer Foundation | Supabase backend provisioned; CI publish step live | DATA-01..05 | 3 | ✅ Complete |
+| 04 — Auth, RBAC, and Deployment | Auth gate + RBAC + admin + Vercel deploy working | AUTH-01..06, RBAC-01..05, DEPLOY-01..04 | 6 | ✅ Complete |
+| 05 — Artifact Table and Search | Virtualized table on real data; search/filter/sort | TABLE-01..05, SEARCH-01..04 | TBD | 🟡 Context gathered — ready to plan |
 | 06 — Realtime and UI Polish | Realtime toast; responsive; animations; accessible | DATA-06, UI-01..03 | TBD | Not started |
 | 07 — Security Hardening and Express Removal | Security review passed; `portal/` removed | SEC-01..05 | TBD | Not started |
 | Phase 03 P03-02 | 7m | 2 tasks | 2 files |
@@ -209,10 +211,18 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Operator Next Steps
 
-1. **Start Phase 03** with `/gsd-plan-phase 3` — Supabase Data Layer Foundation.
-2. Before planning Phase 04: resolve the four research flags (Remember Me client
-   prototype, DB trigger verification, admin user enumeration decision, hCaptcha
-   key env isolation).
-
-3. Phase 04 planning flag: DATA-03 publish step must be ordered correctly in the
-   workflow (Excel → Smartsheet upload → Supabase publish, `continue-on-error: true`).
+1. **Plan Phase 05** with `/gsd-plan-phase 05` — Artifact Table and Search.
+   Context is captured in `05-CONTEXT.md` (10 decisions D-01..D-10 + canonical
+   refs + code context). `/clear` first for a clean planning context.
+2. Phase 05 planning grounding (from `05-CONTEXT.md`):
+   - Read `05-CONTEXT.md` canonical_refs — especially the live-topology pointer
+     (project `poeyztlmsawfoqlanucc`, ~2,383 real `public.artifacts` rows) and
+     Phase 03 `03-CONTEXT.md` (artifacts schema, signed-URL `storage.objects`
+     SELECT-policy requirement, role-aware RLS).
+   - Add deps `@tanstack/react-table`, `@tanstack/react-virtual`,
+     `@tanstack/react-query` to `portal-v2/package.json` (ESM, React-18 safe).
+   - The fix is to rewire the read path off the dead Express `api.ts` to
+     `supabase.from('artifacts')` + `createSignedUrl` — not merely delete the
+     mock fallback.
+3. Deep animation polish, full responsive breakpoints, WCAG-AA audit, and the
+   Realtime toast are **Phase 06** — do not pull them into Phase 05.
