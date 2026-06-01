@@ -23,6 +23,26 @@ export function ResetPasswordPage() {
   const [readyToReset, setReadyToReset] = useState(false);
 
   useEffect(() => {
+    // Token-hash (PKCE) recovery flow: the corrected Supabase email template
+    // links to `?token_hash=...&type=recovery`, which does NOT emit a
+    // PASSWORD_RECOVERY event. Verify the OTP explicitly so the form unlocks
+    // instead of hanging forever on "Verifying your reset link…".
+    const params = new URLSearchParams(window.location.search);
+    const tokenHash = params.get('token_hash');
+    const type = params.get('type');
+    if (tokenHash && type === 'recovery') {
+      supabase.auth
+        .verifyOtp({ token_hash: tokenHash, type: 'recovery' })
+        .then(({ error: verifyError }) => {
+          if (verifyError) {
+            setError('This reset link has expired. Request a new one.');
+          } else {
+            setReadyToReset(true);
+          }
+        });
+    }
+
+    // Implicit-flow fallback: older recovery links still emit PASSWORD_RECOVERY.
     const { data: listener } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'PASSWORD_RECOVERY') setReadyToReset(true);
     });
