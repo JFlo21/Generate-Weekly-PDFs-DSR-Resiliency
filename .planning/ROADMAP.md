@@ -46,8 +46,8 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 
 - [x] **Phase 03: Supabase Data Layer Foundation** — `public.artifacts` + `public.profiles` (completed 2026-05-29)
   DDL, role-aware RLS, private Storage bucket, additive publish step in CI.
-- [ ] **Phase 04: Auth, RBAC, and Deployment** — hCaptcha-hardened login/signup/reset,
-  `profiles`-backed role system, admin user management, Vercel deploy correctness.
+- [x] **Phase 04: Auth, RBAC, and Deployment** — hCaptcha-hardened login/signup/reset,
+  `profiles`-backed role system, admin user management, Vercel deploy correctness. (completed 2026-06-01)
 - [ ] **Phase 05: Artifact Table and Search** — virtualized table on real Supabase data,
   mock fallback removed, debounced search, variant filter, sortable columns.
 - [ ] **Phase 06: Realtime and UI Polish** — Supabase Realtime INSERT subscription,
@@ -63,7 +63,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 01.1. Helper-Shadow Rescue (INSERTED) | v1.0 | 6/6 | ✅ Shipped | 2026-05-20 |
 | 02. Attribution Bulk-Prefetch + Remediation | v1.0 hotfix | 6/6 | ✅ Shipped | 2026-05-26 |
 | 03. Supabase Data Layer Foundation | v1.1 | 3/3 | Complete   | 2026-05-29 |
-| 04. Auth, RBAC, and Deployment | v1.1 | 4/6 | In Progress|  |
+| 04. Auth, RBAC, and Deployment | v1.1 | 6/6 | ✅ Complete | 2026-06-01 |
 | 05. Artifact Table and Search | v1.1 | 0/TBD | Not started | — |
 | 06. Realtime and UI Polish | v1.1 | 0/TBD | Not started | — |
 | 07. Security Hardening and Express Removal | v1.1 | 0/TBD | Not started | — |
@@ -166,7 +166,7 @@ RBAC-02, RBAC-03, RBAC-04, RBAC-05, DEPLOY-01, DEPLOY-02, DEPLOY-03, DEPLOY-04
 5. The Vercel deployment serves the portal at the production URL, deep links do not 404 (SPA rewrite active), and the `service_role` key is absent from all Vercel env vars.
 6. Password reset (email → `/auth/reset` → `updateUser`) works end-to-end with hCaptcha on a Vercel preview deployment.
 
-**Plans:** 4/6 plans executed
+**Plans:** 6/6 plans complete ✅ (Phase closed 2026-06-01)
 
 Plans:
 **Wave 1** *(foundation + live-bug fixes; 01 and 02 run in parallel)*
@@ -183,7 +183,7 @@ Plans:
 - [x] 04-05-PLAN.md — UsersPage reconciliation + last-admin UI guard + pending highlight + states + UsersPage test; delete ActivityPage; App.tsx routes + RoleGuard; Sidebar cleanup; dead-type removal
 
 **Wave 5** *(deployment)*
-- [ ] 04-06-PLAN.md — vercel.json SPA-rewrite verify + service_role grep + deployment runbook + full-build gate + [BLOCKING] Vercel connect/env-vars/live-deploy checkpoint (autonomous:false)
+- [x] 04-06-PLAN.md — vercel.json SPA-rewrite verify + service_role grep + deployment runbook + full-build gate + [BLOCKING] Vercel connect/env-vars/live-deploy checkpoint (autonomous:false) — verified public prod + SPA deep links 200; Vercel Auth disabled (DEPLOY-04 root cause)
 
 **UI hint**: yes
 
