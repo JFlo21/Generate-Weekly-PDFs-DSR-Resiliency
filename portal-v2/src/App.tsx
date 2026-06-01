@@ -6,6 +6,10 @@ import { LoginPage } from './components/auth/LoginPage';
 import { DashboardLayout } from './components/layout/DashboardLayout';
 import { DashboardPage } from './components/dashboard/DashboardPage';
 import { UsersPage } from './components/admin/UsersPage';
+import { ForgotPasswordPage } from './components/auth/ForgotPasswordPage';
+import { ResetPasswordPage } from './components/auth/ResetPasswordPage';
+import { PendingApprovalPage } from './components/auth/PendingApprovalPage';
+import { RoleGuard } from './components/auth/RoleGuard';
 import { PageTransition } from './components/layout/PageTransition';
 import { ToastContainer } from './components/ui/Toast';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
@@ -26,6 +30,9 @@ export default function App() {
         <AnimatePresence mode="wait">
           <Routes>
             <Route path="/login" element={<PageTransition><LoginPage /></PageTransition>} />
+            <Route path="/auth/forgot" element={<PageTransition><ForgotPasswordPage /></PageTransition>} />
+            <Route path="/auth/reset" element={<PageTransition><ResetPasswordPage /></PageTransition>} />
+            <Route path="/pending" element={<PageTransition><PendingApprovalPage /></PageTransition>} />
 
             <Route
               path="/dashboard"
@@ -46,9 +53,11 @@ export default function App() {
               <Route
                 path="admin/users"
                 element={
-                  <PageTransition>
-                    <UsersPage />
-                  </PageTransition>
+                  <RoleGuard allow={['admin']}>
+                    <PageTransition>
+                      <UsersPage />
+                    </PageTransition>
+                  </RoleGuard>
                 }
               />
             </Route>
