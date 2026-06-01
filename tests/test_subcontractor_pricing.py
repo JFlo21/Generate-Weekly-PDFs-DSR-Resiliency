@@ -4145,7 +4145,7 @@ class TestPhase1FilenameRoundTripCoverage(unittest.TestCase):
 
 class TestPhase1GapClosureLedgerEntryPresent(unittest.TestCase):
     """Phase 01 gap closure (Living Ledger / autonomous-cloud-memory):
-    a CLAUDE.md Living Ledger entry timestamped 2026-05-15 MUST
+    a memory-bank/living-ledger.md Living Ledger entry timestamped 2026-05-15 MUST
     document the 13-finding gap-closure round and the 7 new rules
     encoded therein. Per CLAUDE.md's "AUTONOMOUS CLOUD MEMORY
     INJECTION (CRITICAL)" rule, any architectural standard /
@@ -4158,13 +4158,13 @@ class TestPhase1GapClosureLedgerEntryPresent(unittest.TestCase):
 
     @staticmethod
     def _read_ledger() -> str:
-        # CLAUDE.md is at the repo root, sibling to
-        # generate_weekly_pdfs.py.
+        # Living Ledger was relocated from CLAUDE.md to
+        # memory-bank/living-ledger.md on 2026-05-28.
         import pathlib
         repo_root = pathlib.Path(
             generate_weekly_pdfs.__file__,
         ).parent
-        return (repo_root / 'CLAUDE.md').read_text(encoding='utf-8')
+        return (repo_root / 'memory-bank' / 'living-ledger.md').read_text(encoding='utf-8')
 
     def test_timestamp_present(self):
         ledger = self._read_ledger()

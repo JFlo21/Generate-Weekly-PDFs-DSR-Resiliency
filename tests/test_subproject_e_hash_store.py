@@ -565,7 +565,7 @@ class TestMigrationCutover(unittest.TestCase):
 
 class TestWorkflowPinned(unittest.TestCase):
     """Task 10: both E flags are pinned in the weekly workflow env block
-    (WRITE on, AUTHORITATIVE off — dormant ship)."""
+    (WRITE on, AUTHORITATIVE on — E is active)."""
 
     def _wf(self):
         return pathlib.Path(
@@ -575,8 +575,8 @@ class TestWorkflowPinned(unittest.TestCase):
     def test_write_flag_pinned_on(self):
         self.assertIn("SUPABASE_HASH_STORE_WRITE_ENABLED: '1'", self._wf())
 
-    def test_authoritative_flag_pinned_off(self):
-        self.assertIn("SUPABASE_HASH_STORE_AUTHORITATIVE: '0'", self._wf())
+    def test_authoritative_flag_pinned_on(self):
+        self.assertIn("SUPABASE_HASH_STORE_AUTHORITATIVE: '1'", self._wf())
 
     def test_documented_in_environment_reference(self):
         doc = pathlib.Path(
