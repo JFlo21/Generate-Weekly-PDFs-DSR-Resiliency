@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Portal — Supabase-native Artifact Portal
 status: executing
-last_updated: "2026-06-01T03:56:20.109Z"
-last_activity: 2026-06-01 -- Phase 04 execution started
+last_updated: "2026-06-01T04:04:38.589Z"
+last_activity: 2026-06-01
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 15
-  completed_plans: 10
-  percent: 67
+  completed_plans: 12
+  percent: 80
 ---
 
 # Project State
@@ -31,12 +31,12 @@ pipeline.
 ## Current Position
 
 Phase: 04 (auth-rbac-and-deployment) — EXECUTING
-Plan: 1 of 6
-Status: Executing Phase 04
-Last activity: 2026-06-01 -- Phase 04 execution started
+Plan: 2 of 6
+Status: Ready to execute
+Last activity: 2026-06-01
 
 ```
-Progress: [██████████] 100%
+Progress: [████████░░] 80%
 ```
 
 ## Performance Metrics
@@ -57,6 +57,7 @@ Progress: [██████████] 100%
 | 07 — Security Hardening and Express Removal | Security review passed; `portal/` removed | SEC-01..05 | TBD | Not started |
 | Phase 03 P03-02 | 7m | 2 tasks | 2 files |
 | Phase 03 P03-03 | 5m | 1 tasks | 1 files |
+| Phase 04-auth-rbac-and-deployment P03 | 25m | 3 tasks | 5 files |
 
 ## Accumulated Context
 

@@ -71,18 +71,18 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 
 ### Authentication
 
-- [ ] **AUTH-01**: User can sign in with email and password.
-- [ ] **AUTH-02**: The login form is protected by **hCaptcha** (token passed to
+- [x] **AUTH-01**: User can sign in with email and password.
+- [x] **AUTH-02**: The login form is protected by **hCaptcha** (token passed to
   Supabase `signInWithPassword`).
-- [ ] **AUTH-03**: A "Remember me" option controls session persistence
+- [x] **AUTH-03**: A "Remember me" option controls session persistence
   (persistent storage when checked, session-only when unchecked).
-- [ ] **AUTH-04**: User can request a password reset ("Forgot password?" →
+- [x] **AUTH-04**: User can request a password reset ("Forgot password?" →
   `resetPasswordForEmail`) and set a new password on a dedicated reset page
   (`updateUser`).
-- [ ] **AUTH-05**: User can self-sign-up with email and password (hCaptcha-
+- [x] **AUTH-05**: User can self-sign-up with email and password (hCaptcha-
   protected); signup creates the account and a `profiles` row defaulted to the
   `pending` role with NO access to billing artifacts.
-- [ ] **AUTH-06**: Unauthenticated users are redirected to the login page
+- [x] **AUTH-06**: Unauthenticated users are redirected to the login page
   before any portal content loads (link-out access model; `frame-ancestors
   'none'` — no iframe embedding).
 
@@ -98,7 +98,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 - [ ] **RBAC-04**: The Admin page and all role mutations are restricted to the
   `admin` role (UI guard + RLS), with a guard preventing the last admin from
   demoting/locking themselves out.
-- [ ] **RBAC-05**: Role gating is implemented reusably so future portal
+- [x] **RBAC-05**: Role gating is implemented reusably so future portal
   features can be restricted by role without re-plumbing auth.
 
 ### Deployment (Vercel)
@@ -187,17 +187,17 @@ Which phases cover which requirements.
 | UI-01 | Phase 06 | Pending |
 | UI-02 | Phase 06 | Pending |
 | UI-03 | Phase 06 | Pending |
-| AUTH-01 | Phase 04 | Pending |
-| AUTH-02 | Phase 04 | Pending |
-| AUTH-03 | Phase 04 | Pending |
-| AUTH-04 | Phase 04 | Pending |
-| AUTH-05 | Phase 04 | Pending |
-| AUTH-06 | Phase 04 | Pending |
+| AUTH-01 | Phase 04 | Complete |
+| AUTH-02 | Phase 04 | Complete |
+| AUTH-03 | Phase 04 | Complete |
+| AUTH-04 | Phase 04 | Complete |
+| AUTH-05 | Phase 04 | Complete |
+| AUTH-06 | Phase 04 | Complete |
 | RBAC-01 | Phase 04 | Pending |
 | RBAC-02 | Phase 04 | Pending |
 | RBAC-03 | Phase 04 | Pending |
 | RBAC-04 | Phase 04 | Pending |
-| RBAC-05 | Phase 04 | Pending |
+| RBAC-05 | Phase 04 | Complete |
 | DEPLOY-01 | Phase 04 | Pending |
 | DEPLOY-02 | Phase 04 | Pending |
 | DEPLOY-03 | Phase 04 | Pending |

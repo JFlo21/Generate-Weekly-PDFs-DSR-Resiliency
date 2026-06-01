@@ -174,7 +174,7 @@ Plans:
 - [x] 04-02-PLAN.md — schema DDL (email/created_at + handle_new_user SECURITY DEFINER trigger + last-admin guard) + bootstrap runbook + [BLOCKING] manual live-DB apply (autonomous:false)
 
 **Wave 2** *(auth core)*
-- [ ] 04-03-PLAN.md — useAuth extension (captcha/remember-me/resetPassword/role helpers) + AuthGuard USE_MOCK removal & pending routing + RoleGuard + guard tests
+- [x] 04-03-PLAN.md — useAuth extension (captcha/remember-me/resetPassword/role helpers) + AuthGuard USE_MOCK removal & pending routing + RoleGuard + guard tests
 
 **Wave 3** *(auth surfaces)*
 - [ ] 04-04-PLAN.md — LoginPage (hCaptcha/remember-me/forgot link/post-signup→/pending) + ForgotPasswordPage + ResetPasswordPage + PendingApprovalPage
