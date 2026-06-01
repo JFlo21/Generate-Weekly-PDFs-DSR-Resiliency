@@ -114,11 +114,7 @@ locally. A green local run means a red Vercel build is almost always a
 missing-env or Root-Directory misconfiguration, not a code problem.
 
 ```bash
-cd portal-v2
-npm ci
-npm run build
-npm run lint
-npm test
+cd portal-v2 && npm ci && npm run build && npm run lint && npm test
 ```
 
 Expected results:
@@ -126,10 +122,19 @@ Expected results:
 - `npm run lint` exits 0 (no ESLint warnings or errors)
 - `npm test` exits 0 (all unit tests green)
 
-**Note on lint:** `eslint` must be present in `devDependencies` for
-`npm run lint` to run. If it is absent, `tsc -b` (run inside
-`npm run build`) and vitest serve as the equivalent type-checking and
-correctness gate.
+**Phase 04 verified results (2026-05-31):**
+- `npm run build`: EXIT 0 — `dist/index.html` produced (2237 modules, 2.46 s)
+- `npm run lint`: non-functional — `eslint` is not in `devDependencies` and
+  there is no ESLint config file. This is a **pre-existing gap** (not
+  introduced by Phase 04). `tsc -b` (inside `npm run build`) and vitest
+  (15 tests, 4 test files) serve as the equivalent type-checking and
+  correctness gate. ESLint setup is deferred to Phase 07 (security hardening).
+- `npm test`: EXIT 0 — 15 tests pass across AuthGuard, RoleGuard, UsersPage,
+  and types (4 test files)
+
+**Note on lint:** Until ESLint is added, `npm run lint` will fail with
+"'eslint' is not recognized". This does not block a Vercel deployment —
+Vercel only runs `npm run build`. Use `tsc -b` errors as the type gate.
 
 ---
 
