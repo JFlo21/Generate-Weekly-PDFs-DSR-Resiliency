@@ -33,7 +33,7 @@ pipeline.
 Phase: 04 (auth-rbac-and-deployment) — EXECUTING
 Plan: 4 of 6
 Status: Ready to execute
-Last activity: 2026-06-01 - Completed quick task 260601-iqq: fixed 16 pre-existing test failures (stale Living Ledger path + E authoritative-flag) — full suite green, pre-push gate unblocked
+Last activity: 2026-06-01 - Completed quick task 260601-k34 (auth-C): ResetPasswordPage token_hash/verifyOtp recovery flow + first component test — Vitest 20/20, pytest 1020 green. Phase 04 plan 04-06 now blocked only on user-side dashboard work (auth-A/B, Vercel promote).
 
 ```
 Progress: [█████████░] 93%
@@ -159,6 +159,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 | 260528-lu6 | Reconcile AGENTS.md into a lean pointer mirroring CLAUDE.md | 2026-05-28 | d30be0e | [260528-lu6](./quick/260528-lu6-reconcile-agents-md-into-a-lean-pointer-/) |
 | 260528-mdc | Add warn-only ruff + mypy lint tooling and isolated CI workflow | 2026-05-28 | 7f8dbfb | [260528-mdc](./quick/260528-mdc-add-warn-only-ruff-and-mypy-lint-tooling/) |
 | 260601-iqq | Fix stale Living Ledger test file paths blocking pre-push gate (repoint to memory-bank/living-ledger.md; update E authoritative-flag test to active '1') | 2026-06-01 | eed82a1 | [260601-iqq-fix-stale-living-ledger-test-file-paths-](./quick/260601-iqq-fix-stale-living-ledger-test-file-paths-/) |
+| 260601-k34 | auth-C: ResetPasswordPage token_hash (verifyOtp) recovery flow + first component test (Phase 04 plan 04-06 item C) | 2026-06-01 | 500cb27 | [260601-k34-auth-c-portal-resetpasswordpage-token-ha](./quick/260601-k34-auth-c-portal-resetpasswordpage-token-ha/) |
 
 ## Deferred Items
 
