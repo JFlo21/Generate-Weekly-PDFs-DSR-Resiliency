@@ -4,7 +4,6 @@ import { motion } from 'framer-motion';
 import {
   LayoutDashboard,
   Users,
-  Activity,
   ChevronLeft,
   ChevronRight,
   Package,
@@ -44,7 +43,6 @@ const navItems: NavItem[] = [
       ]
     : []),
   { to: '/dashboard/admin/users', icon: Users, label: 'Admin Users', adminOnly: true },
-  { to: '/dashboard/admin/activity', icon: Activity, label: 'Activity', adminOnly: true },
 ];
 
 export function Sidebar() {

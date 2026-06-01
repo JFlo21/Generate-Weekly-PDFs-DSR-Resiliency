@@ -35,27 +35,6 @@ export interface Profile {
   created_at: string;  // ISO timestamp
 }
 
-// TODO(Plan 05): remove ActivityLog with ActivityPage deletion (D-14)
-export interface ActivityLog {
-  id: string;
-  user_id: string;
-  action: string;
-  resource: string | null;
-  metadata: Record<string, unknown> | null;
-  created_at: string;
-  profiles?: Pick<Profile, 'email'>;
-}
-
-// TODO(Plan 05): remove ArtifactDownload with ActivityPage deletion (D-14)
-export interface ArtifactDownload {
-  id: string;
-  user_id: string;
-  artifact_name: string;
-  artifact_url: string;
-  file_size_bytes: number;
-  downloaded_at: string;
-}
-
 export type ToastType = 'success' | 'error' | 'info';
 
 export interface Toast {
