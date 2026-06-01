@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useRef } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mail, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react';
+import HCaptcha from '@hcaptcha/react-hcaptcha';
 import { useAuth } from '../../hooks/useAuth';
 import { ParticleBackground } from '../ui/ParticleBackground';
 import { GlassCard } from '../ui/GlassCard';
@@ -18,6 +19,9 @@ export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [rememberMe, setRememberMe] = useState(false);
+  const captchaRef = useRef<HCaptcha>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -25,15 +29,18 @@ export function LoginPage() {
     setError(null);
     try {
       if (mode === 'signin') {
-        await login(email, password);
+        await login(email, password, captchaToken ?? undefined, rememberMe);
+        navigate('/dashboard', { replace: true }); // AuthGuard re-routes pending->/pending
       } else {
-        await signup(email, password);
+        await signup(email, password, captchaToken ?? undefined);
+        navigate('/pending', { replace: true }); // D-15: signup ALWAYS -> /pending
       }
-      navigate('/dashboard', { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Authentication failed');
     } finally {
       setLoading(false);
+      captchaRef.current?.resetCaptcha();
+      setCaptchaToken(null);
     }
   }
 
@@ -138,6 +145,37 @@ export function LoginPage() {
               </div>
             </motion.div>
 
+            {/* Forgot password link — sign-in mode only */}
+            {mode === 'signin' && (
+              <div className="flex justify-end -mt-2">
+                <Link
+                  to="/auth/forgot"
+                  className="text-xs text-white/50 hover:text-white/80 transition-colors"
+                >
+                  Forgot password?
+                </Link>
+              </div>
+            )}
+
+            {/* Remember me checkbox */}
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="rounded border-white/20 bg-white/10 text-brand-red focus:ring-brand-red/60"
+              />
+              <span className="text-sm text-white/70">Remember me</span>
+            </label>
+
+            {/* hCaptcha widget */}
+            <HCaptcha
+              sitekey={import.meta.env.VITE_HCAPTCHA_SITEKEY}
+              onVerify={(token) => setCaptchaToken(token)}
+              onExpire={() => setCaptchaToken(null)}
+              ref={captchaRef}
+            />
+
             {/* Error */}
             <AnimatePresence>
               {error && (
@@ -162,7 +200,7 @@ export function LoginPage() {
             >
               <motion.button
                 type="submit"
-                disabled={loading}
+                disabled={loading || !captchaToken}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 className={cn(
