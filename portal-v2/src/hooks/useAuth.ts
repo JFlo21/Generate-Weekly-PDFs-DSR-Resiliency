@@ -1,16 +1,21 @@
 import { useState, useEffect, createContext, useContext } from 'react';
 import type { User, Session } from '@supabase/supabase-js';
-import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import type { Profile } from '../lib/types';
+import { supabase, isSupabaseConfigured, setSessionStorage } from '../lib/supabase';
+import type { Profile, UserRole } from '../lib/types';
 
 interface AuthContextValue {
   user: User | null;
   session: Session | null;
   profile: Profile | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  signup: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, captchaToken?: string, rememberMe?: boolean) => Promise<void>;
+  signup: (email: string, password: string, captchaToken?: string) => Promise<void>;
   logout: () => Promise<void>;
+  resetPassword: (email: string, captchaToken?: string) => Promise<void>;
+  // Role helpers (D-16)
+  role: UserRole | null;
+  isAdmin: boolean;
+  isBilling: boolean;
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null);
@@ -27,7 +32,7 @@ export function useAuthState(): AuthContextValue {
     // Supabase user hasn't had their profile row created yet.
     const { data, error } = await supabase
       .from('profiles')
-      .select('*')
+      .select('id, email, role, created_at')
       .eq('id', userId)
       .maybeSingle();
     if (error) {
@@ -72,16 +77,35 @@ export function useAuthState(): AuthContextValue {
     return () => listener.subscription.unsubscribe();
   }, []);
 
-  async function login(email: string, password: string): Promise<void> {
+  async function login(
+    email: string,
+    password: string,
+    captchaToken?: string,
+    rememberMe = false,
+  ): Promise<void> {
+    // Storage is captured at createClient time — swap BEFORE signInWithPassword
+    // (RESEARCH.md Pitfall 4). Unchecked "Remember me" → sessionStorage (tab-only).
+    setSessionStorage(!rememberMe);
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
+      options: captchaToken ? { captchaToken } : undefined,
     });
     if (error) throw error;
   }
 
-  async function signup(email: string, password: string): Promise<void> {
-    const { error } = await supabase.auth.signUp({ email, password });
+  async function signup(
+    email: string,
+    password: string,
+    captchaToken?: string,
+  ): Promise<void> {
+    // Do NOT insert into profiles here — handle_new_user() trigger does it
+    // atomically (client-side insert is a race-condition trap).
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: captchaToken ? { captchaToken } : undefined,
+    });
     if (error) throw error;
   }
 
@@ -89,7 +113,26 @@ export function useAuthState(): AuthContextValue {
     await supabase.auth.signOut();
   }
 
-  return { user, session, profile, loading, login, signup, logout };
+  async function resetPassword(
+    email: string,
+    captchaToken?: string,
+  ): Promise<void> {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth/reset`,
+      ...(captchaToken ? { captchaToken } : {}),
+    });
+    if (error) throw error;
+  }
+
+  const role = profile?.role ?? null;
+  const isAdmin = role === 'admin';
+  const isBilling = role === 'billing';
+
+  return {
+    user, session, profile, loading,
+    login, signup, logout, resetPassword,
+    role, isAdmin, isBilling,
+  };
 }
 
 export function useAuth(): AuthContextValue {
