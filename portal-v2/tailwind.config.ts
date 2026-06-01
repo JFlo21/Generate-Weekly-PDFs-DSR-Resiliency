@@ -8,6 +8,10 @@ const config: Config = {
         'brand-red': '#C41230',
         'brand-red-dark': '#9E0E26',
         'brand-red-light': '#E8364E',
+        // Linetec Services secondary — the logo's steel gray ("SERVICES" wordmark).
+        'brand-gray': '#58595B',
+        'brand-gray-dark': '#3F4042',
+        'brand-gray-light': '#808285',
       },
       fontFamily: {
         sans: [

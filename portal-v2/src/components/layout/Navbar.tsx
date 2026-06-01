@@ -34,13 +34,12 @@ export function Navbar({
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between h-16 px-6 bg-white border-b border-slate-200 shadow-sm">
       {/* Logo */}
-      <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-lg bg-brand-red flex items-center justify-center">
-          <span className="text-white text-xs font-bold">L</span>
-        </div>
-        <span className="font-semibold text-slate-900 text-sm">
-          Linetec Portal
-        </span>
+      <div className="flex items-center">
+        <img
+          src="/linetec-services-logo.png"
+          alt="Linetec Services"
+          className="h-10 w-auto"
+        />
       </div>
 
       {/* Right side */}

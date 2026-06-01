@@ -76,10 +76,14 @@ export function LoginPage() {
             transition={{ delay: 0.1 }}
             className="text-center mb-8"
           >
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-brand-red shadow-lg mb-4">
-              <span className="text-white text-2xl font-bold">L</span>
+            <div className="inline-flex items-center justify-center bg-white rounded-2xl px-5 py-3 shadow-lg mb-4">
+              <img
+                src="/linetec-services-logo.png"
+                alt="Linetec Services"
+                className="h-12 w-auto"
+              />
             </div>
-            <h1 className="text-2xl font-bold text-white">Linetec Portal</h1>
+            <h1 className="text-xl font-bold text-white">Report Portal</h1>
             <p className="text-white/60 text-sm mt-1">
               {mode === 'signin' ? 'Sign in to your account' : 'Create a new account'}
             </p>
