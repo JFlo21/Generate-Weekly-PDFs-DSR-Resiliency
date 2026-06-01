@@ -1,0 +1,3 @@
+# Keep shell scripts LF-only so they run under bash on Windows checkouts
+# (CRLF in a .sh breaks the shebang / emits $'\r' errors).
+*.sh text eol=lf
