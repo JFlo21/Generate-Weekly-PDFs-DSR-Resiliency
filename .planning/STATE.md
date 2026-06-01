@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Portal — Supabase-native Artifact Portal
 status: executing
-last_updated: "2026-05-29T21:24:36.083Z"
-last_activity: 2026-05-29 -- Phase 04 planning complete
+last_updated: "2026-06-01T03:56:20.109Z"
+last_activity: 2026-06-01 -- Phase 04 execution started
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 15
-  completed_plans: 9
-  percent: 60
+  completed_plans: 10
+  percent: 67
 ---
 
 # Project State
@@ -26,14 +26,14 @@ right generated Excel billing artifact fast, from a secure, auth-gated,
 beautiful web portal — with zero change to the production Python billing
 pipeline.
 
-**Current focus:** Phase 03 — supabase-data-layer-foundation
+**Current focus:** Phase 04 — auth-rbac-and-deployment
 
 ## Current Position
 
-Phase: 03 (supabase-data-layer-foundation) — EXECUTING
-Plan: 3 of 3
-Status: Ready to execute
-Last activity: 2026-05-29 -- Phase 04 planning complete
+Phase: 04 (auth-rbac-and-deployment) — EXECUTING
+Plan: 1 of 6
+Status: Executing Phase 04
+Last activity: 2026-06-01 -- Phase 04 execution started
 
 ```
 Progress: [██████████] 100%

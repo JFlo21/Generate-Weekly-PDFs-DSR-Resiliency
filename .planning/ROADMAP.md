@@ -63,7 +63,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 01.1. Helper-Shadow Rescue (INSERTED) | v1.0 | 6/6 | ✅ Shipped | 2026-05-20 |
 | 02. Attribution Bulk-Prefetch + Remediation | v1.0 hotfix | 6/6 | ✅ Shipped | 2026-05-26 |
 | 03. Supabase Data Layer Foundation | v1.1 | 3/3 | Complete   | 2026-05-29 |
-| 04. Auth, RBAC, and Deployment | v1.1 | 0/6 | Planned | — |
+| 04. Auth, RBAC, and Deployment | v1.1 | 2/6 | In Progress|  |
 | 05. Artifact Table and Search | v1.1 | 0/TBD | Not started | — |
 | 06. Realtime and UI Polish | v1.1 | 0/TBD | Not started | — |
 | 07. Security Hardening and Express Removal | v1.1 | 0/TBD | Not started | — |
@@ -166,12 +166,12 @@ RBAC-02, RBAC-03, RBAC-04, RBAC-05, DEPLOY-01, DEPLOY-02, DEPLOY-03, DEPLOY-04
 5. The Vercel deployment serves the portal at the production URL, deep links do not 404 (SPA rewrite active), and the `service_role` key is absent from all Vercel env vars.
 6. Password reset (email → `/auth/reset` → `updateUser`) works end-to-end with hCaptcha on a Vercel preview deployment.
 
-**Plans:** 6 plans in 5 waves
+**Plans:** 2/6 plans executed
 
 Plans:
 **Wave 1** *(foundation + live-bug fixes; 01 and 02 run in parallel)*
-- [ ] 04-01-PLAN.md — vitest infra + types.ts reconciliation + supabase.ts fail-loud factory/Remember-Me + ConfigError + hCaptcha install
-- [ ] 04-02-PLAN.md — schema DDL (email/created_at + handle_new_user SECURITY DEFINER trigger + last-admin guard) + bootstrap runbook + [BLOCKING] manual live-DB apply (autonomous:false)
+- [x] 04-01-PLAN.md — vitest infra + types.ts reconciliation + supabase.ts fail-loud factory/Remember-Me + ConfigError + hCaptcha install
+- [x] 04-02-PLAN.md — schema DDL (email/created_at + handle_new_user SECURITY DEFINER trigger + last-admin guard) + bootstrap runbook + [BLOCKING] manual live-DB apply (autonomous:false)
 
 **Wave 2** *(auth core)*
 - [ ] 04-03-PLAN.md — useAuth extension (captcha/remember-me/resetPassword/role helpers) + AuthGuard USE_MOCK removal & pending routing + RoleGuard + guard tests
