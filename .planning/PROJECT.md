@@ -87,7 +87,7 @@ acceptance of the v1.0 variants is confirmed on the next scheduled cron run
 (4 HUMAN-UAT items), plus operator actions — apply `billing_audit/schema.sql`,
 data-team `lookup_attribution` RPC deploy, and the Step B price-write check.
 
-**In progress: v1.1 — Portal (Supabase-native Artifact Portal).** Phases 03–05
+**In progress: v1.1 — Portal (Supabase-native Artifact Portal).** Phases 03–06
 complete (2026-06-02). The portal now reads real Supabase data directly
 (`poeyztlmsawfoqlanucc`, ~2,383 artifacts): Phase 03 provisioned the
 `public.artifacts` / `public.profiles` schema + additive CI publish step; Phase 04
@@ -95,10 +95,15 @@ shipped the auth gate, RBAC, admin surface, and Vercel deploy; Phase 05 wired a
 virtualized, searchable, filterable, sortable artifact table onto that real data
 and removed the silent Express mock fallback (TABLE-01..05, SEARCH-01..04; build
 clean, 85 vitest tests; 5 live-session UAT items tracked in `05-HUMAN-UAT.md`).
-Remaining: Phase 06 (Realtime + UI polish — includes the `/frontend-design` pass
-deferred from Phase 05) and Phase 07 (security hardening + `portal/` Express
-removal). The earlier Railway→Render migration scope (MIG-01) is superseded —
-Express is removed, not migrated.
+Phase 06 made it feel alive and polished (DATA-06, UI-01..03): Supabase Realtime
+count-only toast + "Load new" pill (role-gated, RLS-per-subscriber; `artifacts`
+added to the `supabase_realtime` publication), responsive table↔card swap,
+opacity-only row-entrance stagger, single global `ToastContext` (C-01), variant
+query cap (C-02), jest-axe a11y net + the operator-approved `/frontend-design`
+polish pass (build clean, 107 vitest tests; 10/10 automated must-haves verified;
+6 live-browser UAT items tracked in `06-HUMAN-UAT.md`). Remaining: Phase 07
+(security hardening + `portal/` Express removal). The earlier Railway→Render
+migration scope (MIG-01) is superseded — Express is removed, not migrated.
 
 ## Requirements
 
@@ -136,14 +141,14 @@ testable REQ-IDs are scoped in `.planning/REQUIREMENTS.md` (generated this
 milestone) and mapped to phases in `.planning/ROADMAP.md`. High-level
 requirement categories:
 
-- [ ] **DATA-\***: Supabase-native artifact data layer — `artifacts` Postgres
+- [x] **DATA-\***: Supabase-native artifact data layer — `artifacts` Postgres
   table + Storage bucket, additive GitHub Actions publish step, RLS policies,
-  signed-URL downloads.
-- [ ] **TABLE-\***: Fast, low-memory, virtualized artifact table that fixes the
-  empty-table bug and renders real Supabase data.
-- [ ] **SEARCH-\***: Dynamic search (WR # / week-ending) + dynamic
-  filterable/sortable columns.
-- [ ] **UI-\***: Modern, responsive, animated UI/UX redesign.
+  signed-URL downloads (DATA-01..05 Phase 03; DATA-06 Realtime Phase 06).
+- [x] **TABLE-\***: Fast, low-memory, virtualized artifact table that fixes the
+  empty-table bug and renders real Supabase data (Phase 05).
+- [x] **SEARCH-\***: Dynamic search (WR # / week-ending) + dynamic
+  filterable/sortable columns (Phase 05).
+- [x] **UI-\***: Modern, responsive, animated, accessible UI/UX (UI-01..03 Phase 06).
 - [ ] **AUTH-\***: Supabase Auth login gate, link-out access model, hCaptcha
   on login.
 - [ ] **SEC-\***: Security hardening + `/security-review` (RLS, signed-URL
@@ -412,9 +417,14 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-02 — Phase 05 (Artifact Table and Search) complete;
-v1.1 Phases 03–05 shipped. Milestone **v1.1 Portal — Supabase-native Artifact
-Portal**. Supersedes the prior v1.1 Railway → Render Express migration
+*Last updated: 2026-06-02 — Phase 06 (Realtime and UI Polish) complete;
+v1.1 Phases 03–06 shipped (only Phase 07 — security hardening + Express
+removal — remains). Phase 06 added Supabase Realtime (count-only, role-gated
+toast + pill; `artifacts` in the `supabase_realtime` publication), responsive
+mobile cards, tasteful animations, a single global ToastContext, jest-axe a11y
+coverage, and the operator-approved `/frontend-design` polish pass; 10/10
+automated must-haves verified, 6 live-browser UAT items pending. Milestone
+**v1.1 Portal — Supabase-native Artifact Portal**. Supersedes the prior v1.1 Railway → Render Express migration
 (moved to Out of Scope). Express backend to be removed; `portal-v2` reads
 artifacts directly from Supabase (Storage + Postgres `artifacts` table) with
 RLS + signed URLs; hCaptcha-hardened Supabase Auth login; link-out access
