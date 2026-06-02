@@ -146,6 +146,21 @@ describe('useRealtimeArtifacts (D-05 mock-channel assertions)', () => {
     expect(channelSpy).not.toHaveBeenCalled();
   });
 
+  it('Test 4b (CR-01): two hook instances use distinct channel names', () => {
+    const { wrapper: wrapperA } = makeWrapper();
+    const { wrapper: wrapperB } = makeWrapper();
+
+    renderHook(() => useRealtimeArtifacts(), { wrapper: wrapperA });
+    renderHook(() => useRealtimeArtifacts(), { wrapper: wrapperB });
+
+    expect(channelSpy).toHaveBeenCalledTimes(2);
+    const nameA = channelSpy.mock.calls[0][0] as string;
+    const nameB = channelSpy.mock.calls[1][0] as string;
+    expect(nameA).toMatch(/^artifacts:/);
+    expect(nameB).toMatch(/^artifacts:/);
+    expect(nameA).not.toBe(nameB);
+  });
+
   it('Test 5 (loading race, Pitfall 4): loading=true → no subscribe even if role would qualify', () => {
     mockAuth.loading = true;
     mockAuth.isBilling = true;

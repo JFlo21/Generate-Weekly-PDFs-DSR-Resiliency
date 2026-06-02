@@ -17,7 +17,17 @@ import { useAuth } from './useAuth';
  * Returns { pendingCount, clearPending, dismissPending }:
  *   clearPending  — resets count + invalidates ['artifacts'] query (triggers refetch)
  *   dismissPending — resets count WITHOUT refetch (pill dismiss, D-03 no-auto-insert)
+ *
+ * CR-01 / IN-02: channel name is unique per hook instance so React StrictMode
+ * double-invoke creates two independent channels — cleanup from the first mount
+ * tears down only its own channel, never the second mount's. The module-level
+ * counter is stable, lightweight, and avoids Math.random(). channelRef removed
+ * (was dead code — local channel closure is the correct cleanup target).
  */
+
+/** Module-level counter: increments once per hook instance, never resets. */
+let _channelInstanceCounter = 0;
+
 export function useRealtimeArtifacts(): {
   pendingCount: number;
   clearPending: () => void;
@@ -26,8 +36,14 @@ export function useRealtimeArtifacts(): {
   const { isBilling, isAdmin, loading } = useAuth();
   const queryClient = useQueryClient();
   const [pendingCount, setPendingCount] = useState(0);
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | undefined>(
-    undefined
+
+  // CR-01: stable unique name generated once per hook instance. useRef ensures
+  // the name never changes across re-renders. Supabase deduplicates channels by
+  // name on a single client — a shared 'artifacts' name caused StrictMode
+  // cleanup to unsubscribe the live second-mount channel. Unique names give
+  // each mount its own independent channel lifecycle.
+  const channelName = useRef(
+    `artifacts:${(_channelInstanceCounter++).toString()}`
   );
 
   useEffect(() => {
@@ -36,7 +52,7 @@ export function useRealtimeArtifacts(): {
     if (loading || (!isBilling && !isAdmin)) return;
 
     const channel = supabase
-      .channel('artifacts')
+      .channel(channelName.current)
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'artifacts' },
@@ -46,8 +62,6 @@ export function useRealtimeArtifacts(): {
         }
       )
       .subscribe();
-
-    channelRef.current = channel;
 
     return () => {
       void channel.unsubscribe(); // zero subscription leak (D-04 / UI-SPEC)
