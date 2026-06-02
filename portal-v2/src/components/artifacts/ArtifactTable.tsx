@@ -95,14 +95,18 @@ export function ArtifactTable() {
   const q = useArtifactsInfinite(params);
   const allRows = q.data?.pages.flatMap((p) => p.rows) ?? [];
 
-  // UI-02: initial-load gate — stagger animation fires once on first data arrival;
-  // scroll-loaded rows get delay=0 so they never re-animate (RESEARCH.md Pattern 3).
-  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
+  // WR-03: useRef instead of useState — this is a "has-fired-once" gate, not
+  // derived UI data. A ref mutation does not trigger a re-render, eliminating
+  // the extra render cycle that useState caused. The stagger still applies on
+  // first paint because initialLoadRef.current is false during the first render;
+  // the effect sets it to true after paint, and subsequent renders (e.g. from
+  // infinite scroll) correctly see true and return delay=0.
+  const initialLoadRef = useRef(false);
   useEffect(() => {
-    if (q.status === 'success' && allRows.length > 0 && !initialLoadComplete) {
-      setInitialLoadComplete(true);
+    if (q.status === 'success' && allRows.length > 0 && !initialLoadRef.current) {
+      initialLoadRef.current = true;
     }
-  }, [q.status, allRows.length, initialLoadComplete]);
+  }, [q.status, allRows.length]);
 
   // Dynamic variant options: dedicated lightweight query for the FULL dataset (SEARCH-04 / D-10)
   // so a narrow filter doesn't hide unselected variants in the options list.
@@ -207,9 +211,9 @@ export function ArtifactTable() {
           {virtualItems.map((virtualRow) => {
             const row = allRows[virtualRow.index];
             // UI-02: per-row delay on initial load only (index × 20ms, cap 200ms / 10 rows).
-            // After initialLoadComplete flips to true, all subsequent scroll-loaded rows
-            // get delay=0 and never animate (RESEARCH.md Pattern 3 / Pitfall 2).
-            const staggerDelay = !initialLoadComplete
+            // After initialLoadRef.current flips to true, all subsequent scroll-loaded
+            // rows get delay=0 and never animate (RESEARCH.md Pattern 3 / Pitfall 2).
+            const staggerDelay = !initialLoadRef.current
               ? Math.min(virtualRow.index * 0.02, 0.2)
               : 0;
             return (
