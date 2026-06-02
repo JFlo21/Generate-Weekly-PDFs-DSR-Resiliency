@@ -1,4 +1,5 @@
 import React from 'react';
+import { motion, useReducedMotion } from 'framer-motion';
 import { Download, Loader2 } from 'lucide-react';
 import { Badge } from '../ui/Badge';
 import { getVariantLabel } from '../../lib/variantLabels';
@@ -23,6 +24,8 @@ export const ArtifactCard = React.memo(function ArtifactCard({
   onDownload,
   isDownloading,
 }: ArtifactCardProps) {
+  // Respect prefers-reduced-motion — zero out animation when user opts out (UI-SPEC §Reduced Motion)
+  const prefersReduced = useReducedMotion();
   // Format week_ending_fmt (MMDDYY "052625") → "05/26/25" for readability.
   // Never use raw ISO week_ending in display cells (Pitfall 8).
   const weekDisplay =
@@ -31,8 +34,15 @@ export const ArtifactCard = React.memo(function ArtifactCard({
       : row.week_ending_fmt;
 
   return (
-    <div
+    <motion.div
       role="listitem"
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={
+        prefersReduced
+          ? { duration: 0 }
+          : { duration: 0.15, ease: 'easeOut' }
+      }
       className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 space-y-2 mb-2"
     >
       {/* Row 1: WR # + week-ending — always visible (UI-SPEC §Column Visibility) */}
@@ -70,6 +80,6 @@ export const ArtifactCard = React.memo(function ArtifactCard({
           )}
         </button>
       </div>
-    </div>
+    </motion.div>
   );
 });

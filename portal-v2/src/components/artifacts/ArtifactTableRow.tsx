@@ -77,8 +77,11 @@ export const ArtifactTableRow = React.memo(function ArtifactTableRow({
         <button
           onClick={() => onDownload(row.id, row.storage_path, row.filename)}
           disabled={isDownloading}
-          aria-label={`Download ${row.filename}`}
-          className="inline-flex items-center gap-1.5 text-xs text-brand-red hover:text-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          aria-label={isDownloading ? `Downloading ${row.filename}` : `Download ${row.filename}`}
+          aria-disabled={isDownloading}
+          className="inline-flex items-center gap-1.5 text-xs text-brand-red hover:text-red-700
+                     disabled:opacity-50 disabled:cursor-not-allowed transition-colors rounded
+                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-red/50"
         >
           {isDownloading ? (
             <Loader2 size={14} className="animate-spin" />

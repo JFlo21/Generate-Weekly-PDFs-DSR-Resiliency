@@ -1,3 +1,4 @@
+import React from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { X } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -40,6 +41,12 @@ export function NewArtifactPill({ count, onLoad, onDismiss }: NewArtifactPillPro
           transition={
             prefersReduced ? { duration: 0 } : { duration: 0.2, ease: 'easeOut' }
           }
+          onKeyDown={(e: React.KeyboardEvent) => {
+            if (e.key === 'Escape') {
+              e.stopPropagation();
+              onDismiss();
+            }
+          }}
           className={cn(
             'sticky top-0 z-10 mb-2 flex items-center gap-2 px-4 py-2',
             'backdrop-blur-sm border shadow-md rounded-full sm:inline-flex',

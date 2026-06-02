@@ -116,19 +116,20 @@ describe('ArtifactTable (TABLE-05 / D-07)', () => {
     mockQuery.status = 'error';
     mockQuery.error = new Error('network failure');
     renderWithToast(<ArtifactTable />);
-    expect(screen.getByText("Couldn't load artifacts.")).toBeTruthy();
-    expect(screen.getByText('Retry')).toBeTruthy();
+    // A-01: copy updated to match UI-SPEC §Copywriting Contract
+    expect(screen.getAllByText('Could not load artifacts. Check your connection and try again.').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Try again').length).toBeGreaterThan(0);
   });
 
   it('renders EmptyDBState when success with empty rows and no filters', () => {
     mockQuery.status = 'success';
     mockQuery.data = { pages: [{ rows: [], count: 0 }] };
     renderWithToast(<ArtifactTable />);
+    // A-01: copy updated to match UI-SPEC §Copywriting Contract
+    expect(screen.getAllByText('No artifacts yet').length).toBeGreaterThan(0);
     expect(
-      screen.getByText(
-        "No artifacts yet — they'll appear here after the next billing run."
-      )
-    ).toBeTruthy();
+      screen.getAllByText('Billing artifacts will appear here after the next CI run completes.').length
+    ).toBeGreaterThan(0);
   });
 
   it('renders row data when one row is returned', () => {

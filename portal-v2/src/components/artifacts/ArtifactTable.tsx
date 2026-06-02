@@ -270,14 +270,36 @@ export function ArtifactTable() {
                   <div
                     key={header.id}
                     role="columnheader"
+                    tabIndex={isSortable ? 0 : undefined}
+                    aria-sort={
+                      isSortable
+                        ? isAsc
+                          ? 'ascending'
+                          : isDesc
+                            ? 'descending'
+                            : 'none'
+                        : undefined
+                    }
                     onClick={
                       isSortable
                         ? header.column.getToggleSortingHandler()
                         : undefined
                     }
+                    onKeyDown={
+                      isSortable
+                        ? (e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              header.column.getToggleSortingHandler()?.(e);
+                            }
+                          }
+                        : undefined
+                    }
                     className={[
                       'text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide',
-                      isSortable ? 'cursor-pointer select-none hover:text-slate-700' : '',
+                      isSortable
+                        ? 'cursor-pointer select-none hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-red/50 rounded transition-colors'
+                        : '',
                     ].join(' ')}
                   >
                     <span className="inline-flex items-center gap-1">
@@ -307,19 +329,38 @@ export function ArtifactTable() {
         </div>
       </div>
 
-      {/* Mobile: stacked ArtifactCard list (<640px) — UI-01 responsive swap.
-          Natural page scroll, no separate virtualization (A1).
-          ArtifactCard's React.memo bounds re-renders.
-          Empty/loading: allRows is [] so nothing renders — acceptable for Phase 06. */}
-      <div className="sm:hidden" role="list">
-        {allRows.map((row) => (
-          <ArtifactCard
-            key={row.id}
-            row={row}
-            onDownload={download}
-            isDownloading={downloading === row.id}
-          />
-        ))}
+      {/* Mobile: stacked ArtifactCard list (<640px) — UI-01 responsive swap */}
+      <div className="sm:hidden">
+        {q.status === 'pending' && (
+          <div role="list" className="space-y-2">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-28 w-full rounded-2xl" />
+            ))}
+          </div>
+        )}
+
+        {q.status === 'error' && <ErrorState onRetry={() => q.refetch()} />}
+
+        {q.status === 'success' && allRows.length === 0 && !debouncedSearch && variants.length === 0 && (
+          <EmptyDBState />
+        )}
+
+        {q.status === 'success' && allRows.length === 0 && (debouncedSearch || variants.length > 0) && (
+          <NoResultsState onClear={clearFilters} />
+        )}
+
+        {q.status === 'success' && allRows.length > 0 && (
+          <div role="list">
+            {allRows.map((row) => (
+              <ArtifactCard
+                key={row.id}
+                row={row}
+                onDownload={download}
+                isDownloading={downloading === row.id}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
     </>
