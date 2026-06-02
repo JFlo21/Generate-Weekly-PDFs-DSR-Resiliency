@@ -4,7 +4,7 @@ milestone: v1.1
 milestone_name: Portal — Supabase-native Artifact Portal
 status: executing
 last_updated: "2026-06-02T20:51:00.000Z"
-last_activity: 2026-06-02 -- Phase 07 plan 07-02 complete (live RLS/signed-URL probe EXIT:0, all 4 PASS, SEC-05 audit confirmed TTL=300)
+last_activity: 2026-06-02 -- Quick task 260602-nws complete (fixed stuck Sign Out on /pending + UI upgrade); Phase 07 paused at plan 07-03
 progress:
   total_phases: 6
   completed_phases: 5
@@ -34,9 +34,9 @@ Phase: 07 (security-hardening-and-express-removal) — EXECUTING
 Plan: 3 of 4
 Prev: Phase 07 plan 07-02 — ✅ COMPLETE (2026-06-02; live RLS probe EXIT:0 all 4 PASS, SEC-05 audit confirmed TTL=300)
 Next: Execute plan 07-03 (Express removal + SEC-03 secret gate + CSP enforce-flip) — Wave 2
-Status: Executing Phase 07
+Status: Executing Phase 07 (paused for quick task 260602-nws — now resuming)
 Resume file: .planning/phases/07-security-hardening-and-express-removal/07-03-PLAN.md
-Last activity: 2026-06-02 -- Phase 07 plan 07-02 complete (live RLS/signed-URL probe EXIT:0, all 4 PASS, SEC-05 audit confirmed TTL=300)
+Last activity: 2026-06-02 -- Quick task 260602-nws complete (stuck Sign Out on /pending fixed + UI upgrade; TDD, suite 112/112); Phase 07 resumes at 07-03
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
@@ -191,6 +191,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 | 260601-k34 | auth-C: ResetPasswordPage token_hash (verifyOtp) recovery flow + first component test (Phase 04 plan 04-06 item C) | 2026-06-01 | 500cb27 | [260601-k34-auth-c-portal-resetpasswordpage-token-ha](./quick/260601-k34-auth-c-portal-resetpasswordpage-token-ha/) |
 | 260601-ktw | UI: platform-aware command-palette hint (⌘K on mac, Ctrl K on Win/Linux) via shared helper + hook; UAT fix | 2026-06-01 | 368e97d | [260601-ktw-platform-aware-command-palette-shortcut-](./quick/260601-ktw-platform-aware-command-palette-shortcut-/) |
 | 260601-nzs | Branding: wire Linetec Services logo (Navbar/Login) + add brand-gray palette + title; logo asset committed | 2026-06-01 | a3c8325 | [260601-nzs-wire-linetec-services-logo-and-brand-col](./quick/260601-nzs-wire-linetec-services-logo-and-brand-col/) |
+| 260602-nws | Fix stuck Sign Out on Pending Approval screen (auth-state redirect + robust handler) + senior UI upgrade; TDD 5 tests, suite 112/112 | 2026-06-02 | 264efc3 | [260602-nws-fix-stuck-sign-out-on-pending-approval-s](./quick/260602-nws-fix-stuck-sign-out-on-pending-approval-s/) |
 
 ## Deferred Items
 
