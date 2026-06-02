@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Portal — Supabase-native Artifact Portal
 status: executing
-last_updated: "2026-06-02T20:51:00.000Z"
-last_activity: 2026-06-02 -- Quick task 260602-nws complete (fixed stuck Sign Out on /pending + UI upgrade); Phase 07 paused at plan 07-03
+last_updated: "2026-06-02T23:40:00.000Z"
+last_activity: 2026-06-02 -- Plan 07-03 complete (Express removed, CSP enforcing, smoke test PASS); Phase 07 at plan 4 of 4
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 28
-  completed_plans: 26
-  percent: 89
+  completed_plans: 27
+  percent: 96
 ---
 
 # Project State
@@ -31,12 +31,12 @@ pipeline.
 ## Current Position
 
 Phase: 07 (security-hardening-and-express-removal) — EXECUTING
-Plan: 3 of 4
-Prev: Phase 07 plan 07-02 — ✅ COMPLETE (2026-06-02; live RLS probe EXIT:0 all 4 PASS, SEC-05 audit confirmed TTL=300)
-Next: Execute plan 07-03 (Express removal + SEC-03 secret gate + CSP enforce-flip) — Wave 2
-Status: Executing Phase 07 (paused for quick task 260602-nws — now resuming)
-Resume file: .planning/phases/07-security-hardening-and-express-removal/07-03-PLAN.md
-Last activity: 2026-06-02 -- Quick task 260602-nws complete (stuck Sign Out on /pending fixed + UI upgrade; TDD, suite 112/112); Phase 07 resumes at 07-03
+Plan: 4 of 4
+Prev: Phase 07 plan 07-03 — ✅ COMPLETE (2026-06-02; Express removed, CSP enforcing, 6-step smoke test PASS, SEC-03 PASS)
+Next: Execute plan 07-04 (Wave 3 — SEC-04 npm audit + Dependabot CVE remediation + write 07-SECURITY.md)
+Status: Executing Phase 07 — Wave 3 ready
+Resume file: .planning/phases/07-security-hardening-and-express-removal/07-04-PLAN.md
+Last activity: 2026-06-02 -- Plan 07-03 complete: portal/ deleted (29 files), all Express coupling severed, CSP enforcing, live smoke test PASS
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
@@ -143,6 +143,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 07-02]: SEC-01 CONFIRMED live (EXIT:0): anon REST artifacts → []; anon Storage GET → 400; pending JWT artifacts → 0 rows; pending JWT createSignedUrl → denied — against poeyztlmsawfoqlanucc 2026-06-02
 - [Phase 07-02]: SEC-05 CONFIRMED audit-only: useDownloadArtifact.ts SIGNED_URL_TTL=300, single storagePath, {download} scope — no code change required
 - [Phase 07-02]: scripts/security-probe.ts is the re-runnable regression harness for SEC-01/SEC-05; CI env vars: SUPABASE_ANON_KEY, SUPABASE_PROBE_PENDING_EMAIL, SUPABASE_PROBE_PENDING_PASSWORD in GitHub Actions Secrets
+- [Phase 07-03]: portal/ Express backend deleted (29 files); all portal-v2/src Express coupling severed; USE_MOCK gated solely on VITE_USE_MOCK (never inferred from absent VITE_API_BASE_URL); CSP enforce-flip gated on 07-01 zero-violation walkthrough confirmation; 6-step live smoke test PASS under enforcing CSP with real Supabase data (2026-06-02)
 
 ### Roadmap Evolution
 
