@@ -15,6 +15,7 @@ import { useToastContext } from '../../contexts/ToastContext';
 import { useRealtimeArtifacts } from '../../hooks/useRealtimeArtifacts';
 import { Skeleton } from '../ui/Skeleton';
 import { ArtifactTableRow } from './ArtifactTableRow';
+import { ArtifactCard } from './ArtifactCard';
 import { NewArtifactPill } from './NewArtifactPill';
 import { EmptyDBState, NoResultsState, ErrorState } from './ArtifactEmptyState';
 import { ArtifactSearchBar } from './ArtifactSearchBar';
@@ -77,6 +78,15 @@ export function ArtifactTable() {
 
   const q = useArtifactsInfinite(params);
   const allRows = q.data?.pages.flatMap((p) => p.rows) ?? [];
+
+  // UI-02: initial-load gate — stagger animation fires once on first data arrival;
+  // scroll-loaded rows get delay=0 so they never re-animate (RESEARCH.md Pattern 3).
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
+  useEffect(() => {
+    if (q.status === 'success' && allRows.length > 0 && !initialLoadComplete) {
+      setInitialLoadComplete(true);
+    }
+  }, [q.status, allRows.length, initialLoadComplete]);
 
   // Dynamic variant options: dedicated lightweight query for the FULL dataset (SEARCH-04 / D-10)
   // so a narrow filter doesn't hide unselected variants in the options list.
@@ -180,6 +190,12 @@ export function ArtifactTable() {
         >
           {virtualItems.map((virtualRow) => {
             const row = allRows[virtualRow.index];
+            // UI-02: per-row delay on initial load only (index × 20ms, cap 200ms / 10 rows).
+            // After initialLoadComplete flips to true, all subsequent scroll-loaded rows
+            // get delay=0 and never animate (RESEARCH.md Pattern 3 / Pitfall 2).
+            const staggerDelay = !initialLoadComplete
+              ? Math.min(virtualRow.index * 0.02, 0.2)
+              : 0;
             return (
               <div
                 key={virtualRow.key}
@@ -197,7 +213,7 @@ export function ArtifactTable() {
                     row={row}
                     onDownload={download}
                     isDownloading={downloading === row.id}
-                    staggerDelay={0}
+                    staggerDelay={staggerDelay}
                   />
                 ) : (
                   <Skeleton className="h-12 w-full mx-5 my-1" />
@@ -233,59 +249,77 @@ export function ArtifactTable() {
         )}
       </div>
 
-      {/* UsersPage.tsx card shell — bg-white rounded-2xl border shadow-sm */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        {/* Sticky header row (6 column labels) with interactive sort (SEARCH-03) */}
-        <div className="border-b border-slate-100">
-          <div
-            role="row"
-            className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] items-center"
-          >
-            {table.getFlatHeaders().map((header) => {
-              const colId = header.column.id as ArtifactsQueryParams['sortColumn'];
-              const isSortable = SORTABLE_IDS.has(colId);
-              const isSorted = sort.id === colId;
-              const isDesc = isSorted && sort.desc;
-              const isAsc = isSorted && !sort.desc;
+      {/* Desktop/tablet: virtualized table (sm+) — UI-01 responsive swap */}
+      <div className="hidden sm:block">
+        {/* UsersPage.tsx card shell — bg-white rounded-2xl border shadow-sm */}
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+          {/* Sticky header row (6 column labels) with interactive sort (SEARCH-03) */}
+          <div className="border-b border-slate-100">
+            <div
+              role="row"
+              className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] items-center"
+            >
+              {table.getFlatHeaders().map((header) => {
+                const colId = header.column.id as ArtifactsQueryParams['sortColumn'];
+                const isSortable = SORTABLE_IDS.has(colId);
+                const isSorted = sort.id === colId;
+                const isDesc = isSorted && sort.desc;
+                const isAsc = isSorted && !sort.desc;
 
-              return (
-                <div
-                  key={header.id}
-                  role="columnheader"
-                  onClick={
-                    isSortable
-                      ? header.column.getToggleSortingHandler()
-                      : undefined
-                  }
-                  className={[
-                    'text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide',
-                    isSortable ? 'cursor-pointer select-none hover:text-slate-700' : '',
-                  ].join(' ')}
-                >
-                  <span className="inline-flex items-center gap-1">
-                    {typeof header.column.columnDef.header === 'string'
-                      ? header.column.columnDef.header
-                      : header.id}
-                    {isSortable && (
-                      <span className="text-slate-400">
-                        {isAsc ? (
-                          <ArrowUp size={12} />
-                        ) : isDesc ? (
-                          <ArrowDown size={12} />
-                        ) : (
-                          <ArrowUpDown size={12} />
-                        )}
-                      </span>
-                    )}
-                  </span>
-                </div>
-              );
-            })}
+                return (
+                  <div
+                    key={header.id}
+                    role="columnheader"
+                    onClick={
+                      isSortable
+                        ? header.column.getToggleSortingHandler()
+                        : undefined
+                    }
+                    className={[
+                      'text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide',
+                      isSortable ? 'cursor-pointer select-none hover:text-slate-700' : '',
+                    ].join(' ')}
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      {typeof header.column.columnDef.header === 'string'
+                        ? header.column.columnDef.header
+                        : header.id}
+                      {isSortable && (
+                        <span className="text-slate-400">
+                          {isAsc ? (
+                            <ArrowUp size={12} />
+                          ) : isDesc ? (
+                            <ArrowDown size={12} />
+                          ) : (
+                            <ArrowUpDown size={12} />
+                          )}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
 
-        {/* Body: 4-state render */}
-        {renderBody()}
+          {/* Body: 4-state render */}
+          {renderBody()}
+        </div>
+      </div>
+
+      {/* Mobile: stacked ArtifactCard list (<640px) — UI-01 responsive swap.
+          Natural page scroll, no separate virtualization (A1).
+          ArtifactCard's React.memo bounds re-renders.
+          Empty/loading: allRows is [] so nothing renders — acceptable for Phase 06. */}
+      <div className="sm:hidden" role="list">
+        {allRows.map((row) => (
+          <ArtifactCard
+            key={row.id}
+            row={row}
+            onDownload={download}
+            isDownloading={downloading === row.id}
+          />
+        ))}
       </div>
 
     </>

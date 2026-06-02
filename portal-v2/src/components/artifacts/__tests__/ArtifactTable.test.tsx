@@ -135,7 +135,9 @@ describe('ArtifactTable (TABLE-05 / D-07)', () => {
     mockQuery.status = 'success';
     mockQuery.data = { pages: [{ rows: [SAMPLE_ROW], count: 1 }] };
     renderWithToast(<ArtifactTable />);
-    expect(screen.getByText('WR-90001')).toBeTruthy();
+    // UI-01: responsive swap renders WR# in BOTH the desktop table (ArtifactTableRow)
+    // and the mobile card list (ArtifactCard) — getAllByText handles both matches.
+    expect(screen.getAllByText('WR-90001').length).toBeGreaterThanOrEqual(1);
     // Download button present (column header + button both say "Download")
     expect(screen.getAllByText('Download').length).toBeGreaterThan(0);
   });
