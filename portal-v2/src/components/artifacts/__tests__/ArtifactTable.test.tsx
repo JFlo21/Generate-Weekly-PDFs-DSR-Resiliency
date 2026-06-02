@@ -1,7 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { ArtifactTable } from '../ArtifactTable';
+import { ToastProvider } from '../../../contexts/ToastContext';
 import type { BillingArtifact } from '../../../lib/types';
+
+// Helper: wrap renders with the global ToastProvider (required since C-01
+// moved useToast out of ArtifactTable into context — without it,
+// useToastContext() throws).
+function renderWithToast(ui: React.ReactElement) {
+  return render(<ToastProvider>{ui}</ToastProvider>);
+}
 
 // ---------------------------------------------------------------------------
 // Mock useQuery (used inside ArtifactTable for dynamic variant options).
@@ -89,7 +97,7 @@ beforeEach(() => {
 describe('ArtifactTable (TABLE-05 / D-07)', () => {
   it('renders Skeleton rows while pending', () => {
     mockQuery.status = 'pending';
-    render(<ArtifactTable />);
+    renderWithToast(<ArtifactTable />);
     // Skeletons render as animate-pulse divs.
     const skeletons = document.querySelectorAll('.animate-pulse');
     expect(skeletons.length).toBeGreaterThan(0);
@@ -98,7 +106,7 @@ describe('ArtifactTable (TABLE-05 / D-07)', () => {
   it('renders error state with retry when status is error', () => {
     mockQuery.status = 'error';
     mockQuery.error = new Error('network failure');
-    render(<ArtifactTable />);
+    renderWithToast(<ArtifactTable />);
     expect(screen.getByText("Couldn't load artifacts.")).toBeTruthy();
     expect(screen.getByText('Retry')).toBeTruthy();
   });
@@ -106,7 +114,7 @@ describe('ArtifactTable (TABLE-05 / D-07)', () => {
   it('renders EmptyDBState when success with empty rows and no filters', () => {
     mockQuery.status = 'success';
     mockQuery.data = { pages: [{ rows: [], count: 0 }] };
-    render(<ArtifactTable />);
+    renderWithToast(<ArtifactTable />);
     expect(
       screen.getByText(
         "No artifacts yet — they'll appear here after the next billing run."
@@ -117,7 +125,7 @@ describe('ArtifactTable (TABLE-05 / D-07)', () => {
   it('renders row data when one row is returned', () => {
     mockQuery.status = 'success';
     mockQuery.data = { pages: [{ rows: [SAMPLE_ROW], count: 1 }] };
-    render(<ArtifactTable />);
+    renderWithToast(<ArtifactTable />);
     expect(screen.getByText('WR-90001')).toBeTruthy();
     // Download button present (column header + button both say "Download")
     expect(screen.getAllByText('Download').length).toBeGreaterThan(0);
