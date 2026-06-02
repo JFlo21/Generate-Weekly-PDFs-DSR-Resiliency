@@ -77,10 +77,18 @@ export function ArtifactTable() {
 
   // Derive ArtifactsQueryParams from state (SEARCH-03 / SEARCH-04)
   const sort = sorting[0] ?? { id: 'week_ending', desc: true };
+  // WR-02: validate before casting so non-sortable column ids (e.g. 'download',
+  // 'variant') cannot reach the query layer. SORTABLE_IDS is the whitelist.
+  const rawSortId = sort.id;
+  const validatedSortColumn: ArtifactsQueryParams['sortColumn'] = SORTABLE_IDS.has(
+    rawSortId as ArtifactsQueryParams['sortColumn']
+  )
+    ? (rawSortId as ArtifactsQueryParams['sortColumn'])
+    : 'week_ending';
   const params: ArtifactsQueryParams = {
     search: debouncedSearch,
     variants,
-    sortColumn: sort.id as ArtifactsQueryParams['sortColumn'],
+    sortColumn: validatedSortColumn,
     sortAscending: !sort.desc,
   };
 
