@@ -27,7 +27,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
   `supabase-js` (no Express backend in the path).
 - [ ] **DATA-05**: Artifact downloads use short-lived (5-minute) signed Storage
   URLs generated client-side from the authenticated session.
-- [ ] **DATA-06**: Supabase Realtime delivers new-artifact INSERT events to the
+- [x] **DATA-06**: Supabase Realtime delivers new-artifact INSERT events to the
   portal (replacing the Express SSE poller), with the `artifacts` table added to
   the `supabase_realtime` publication.
 
@@ -65,7 +65,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 - [ ] **UI-02**: Tasteful Framer Motion animations (row entrance, view
   transitions, toasts) enhance the experience without degrading table
   performance.
-- [ ] **UI-03**: A consistent, modern, accessible visual design (keyboard
+- [x] **UI-03**: A consistent, modern, accessible visual design (keyboard
   navigable, sufficient contrast) built on the existing UI primitives
   (GlassCard, Badge, Skeleton, Toast).
 
@@ -174,7 +174,7 @@ Which phases cover which requirements.
 | DATA-03 | Phase 03 | Complete |
 | DATA-04 | Phase 03 | Pending |
 | DATA-05 | Phase 03 | Pending |
-| DATA-06 | Phase 06 | Pending |
+| DATA-06 | Phase 06 | Complete |
 | TABLE-01 | Phase 05 | Complete |
 | TABLE-02 | Phase 05 | Complete |
 | TABLE-03 | Phase 05 | Complete |
@@ -186,7 +186,7 @@ Which phases cover which requirements.
 | SEARCH-04 | Phase 05 | Complete |
 | UI-01 | Phase 06 | Pending |
 | UI-02 | Phase 06 | Pending |
-| UI-03 | Phase 06 | Pending |
+| UI-03 | Phase 06 | Complete |
 | AUTH-01 | Phase 04 | Complete |
 | AUTH-02 | Phase 04 | Complete |
 | AUTH-03 | Phase 04 | Complete |

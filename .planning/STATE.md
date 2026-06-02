@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Portal — Supabase-native Artifact Portal
 status: executing
-last_updated: "2026-06-02T16:10:21.173Z"
-last_activity: 2026-06-02 -- Phase 06 planning complete
+last_updated: "2026-06-02T17:18:54.345Z"
+last_activity: 2026-06-02
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 24
-  completed_plans: 19
-  percent: 79
+  completed_plans: 20
+  percent: 83
 ---
 
 # Project State
@@ -26,17 +26,17 @@ right generated Excel billing artifact fast, from a secure, auth-gated,
 beautiful web portal — with zero change to the production Python billing
 pipeline.
 
-**Current focus:** Phase 06 — realtime-and-ui-polish (context gathered, ready to plan)
+**Current focus:** Phase 06 — Realtime and UI Polish
 
 ## Current Position
 
-Phase: 06 — Realtime and UI Polish
-Plan: Not started (context gathered — ready to plan)
+Phase: 06 (Realtime and UI Polish) — EXECUTING
+Plan: 2 of 5
 Prev: Phase 05 (Artifact Table and Search) — ✅ COMPLETE (2026-06-02)
 Next: Plan Phase 06 — /gsd-plan-phase 06 (Realtime toast/pill, responsive, animations, a11y, C-01/C-02)
 Status: Ready to execute
-Resume file: .planning/phases/06-realtime-and-ui-polish/06-CONTEXT.md
-Last activity: 2026-06-02 -- Phase 06 planning complete
+Resume file: None
+Last activity: 2026-06-02
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
@@ -47,7 +47,7 @@ Last activity: 2026-06-02 -- Phase 06 planning complete
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [██████████] 100%
+Progress: [████████░░] 83%
 ```
 
 ## Performance Metrics
@@ -72,6 +72,7 @@ Progress: [██████████] 100%
 | Phase 04-auth-rbac-and-deployment P04 | 3m | 3 tasks | 4 files |
 | Phase 05-artifact-table-and-search P01 | 5min | 3 tasks | 10 files |
 | Phase 05-artifact-table-and-search P03 | 4min | 3 tasks | 5 files |
+| Phase 06-realtime-and-ui-polish P01 | 5m | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -127,6 +128,7 @@ decisions). All operative-locked.
 See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 - [Phase ?]: D-15 compliance
+- [Phase ?]: jest-axe pinned to 10.0.0 (test-only dev dep); jsdom disables color-contrast axe rule — contrast is manual UAT (D-07)
 
 ### Roadmap Evolution
 
