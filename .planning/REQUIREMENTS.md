@@ -36,15 +36,15 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 - [x] **TABLE-01**: User sees a table of available artifacts with columns
   Work Request #, week-ending date, variant, file size, created date, and a
   download action.
-- [ ] **TABLE-02**: The table renders REAL Supabase data; the silent
+- [x] **TABLE-02**: The table renders REAL Supabase data; the silent
   mock-data fallback is removed and genuine fetch failures surface a real
   error state (not fake rows).
-- [ ] **TABLE-03**: The table is row-virtualized and fetches via server-side
+- [x] **TABLE-03**: The table is row-virtualized and fetches via server-side
   filtering + pagination so rendering stays fast and low-memory regardless of
   how much artifact history accumulates.
-- [ ] **TABLE-04**: User can download an artifact via its signed URL, with a
+- [x] **TABLE-04**: User can download an artifact via its signed URL, with a
   visible in-progress/download state.
-- [ ] **TABLE-05**: The table shows distinct, explicit loading, empty, and
+- [x] **TABLE-05**: The table shows distinct, explicit loading, empty, and
   error states.
 
 ### Search & Filter
@@ -176,10 +176,10 @@ Which phases cover which requirements.
 | DATA-05 | Phase 03 | Pending |
 | DATA-06 | Phase 06 | Pending |
 | TABLE-01 | Phase 05 | Complete |
-| TABLE-02 | Phase 05 | Pending |
-| TABLE-03 | Phase 05 | Pending |
-| TABLE-04 | Phase 05 | Pending |
-| TABLE-05 | Phase 05 | Pending |
+| TABLE-02 | Phase 05 | Complete |
+| TABLE-03 | Phase 05 | Complete |
+| TABLE-04 | Phase 05 | Complete |
+| TABLE-05 | Phase 05 | Complete |
 | SEARCH-01 | Phase 05 | Complete |
 | SEARCH-02 | Phase 05 | Complete |
 | SEARCH-03 | Phase 05 | Pending |

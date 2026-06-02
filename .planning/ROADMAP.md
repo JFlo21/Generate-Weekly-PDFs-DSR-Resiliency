@@ -218,7 +218,7 @@ Plans:
 - [x] 05-02-PLAN.md — useArtifactsInfinite (supabase.from('artifacts') useInfiniteQuery + combinable .or/.in/.order/.range, DATA-04/TABLE-03) + useDownloadArtifact (300s signed URL + browser download + error toast, TABLE-04/DATA-05) + remove the silent mock fallback (TABLE-02/D-02)
 
 **Wave 3** *(table UI — blocked on Wave 2)*
-- [ ] 05-03-PLAN.md — ArtifactTable (TanStack Virtual + manualSorting + 4 D-07 states + infinite scroll) + memoized ArtifactTableRow (6 TABLE-01 columns + download) + ArtifactEmptyState; render at /dashboard, stop rendering legacy runs view (D-01/D-02)
+- [x] 05-03-PLAN.md — ArtifactTable (TanStack Virtual + manualSorting + 4 D-07 states + infinite scroll) + memoized ArtifactTableRow (6 TABLE-01 columns + download) + ArtifactEmptyState; render at /dashboard, stop rendering legacy runs view (D-01/D-02)
 
 **Wave 4** *(search/filter/sort — blocked on Wave 3)*
 - [ ] 05-04-PLAN.md — ArtifactSearchBar (debounced 250ms, SEARCH-01) + VariantFilterBar (dynamic friendly-label multi-select + clearable chips, SEARCH-02/D-10) + wire search+variants+sort into useArtifactsInfinite params so they combine server-side (SEARCH-03/SEARCH-04)

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Portal — Supabase-native Artifact Portal
 status: executing
-last_updated: "2026-06-02T01:04:52.762Z"
+last_updated: "2026-06-02T01:27:46.479Z"
 last_activity: 2026-06-02
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 19
-  completed_plans: 17
-  percent: 89
+  completed_plans: 18
+  percent: 95
 ---
 
 # Project State
@@ -31,12 +31,12 @@ pipeline.
 ## Current Position
 
 Phase: 05 (artifact-table-and-search) — EXECUTING
-Plan: 3 of 4 (Waves 1–2 complete: foundation + data layer)
-Prev: Phase 04 (auth-rbac-and-deployment) — ✅ COMPLETE (2026-06-01, 6/6 plans)
-Next: Wave 3 (05-03) — virtualized ArtifactTable at /dashboard
-Status: Executing — 2/4 plans done, build+tests green
-Resume file: .planning/phases/05-artifact-table-and-search/05-03-PLAN.md
-Last activity: 2026-06-02 -- Phase 05 Wave 2 (05-02 data layer) complete
+Plan: 4 of 4 (Waves 1–3 complete: foundation + data layer + virtualized table)
+Prev: 05-03 (ArtifactTable at /dashboard) — ✅ COMPLETE (2026-06-02)
+Next: Wave 4 (05-04) — search bar + variant filter + sort controls
+Status: Executing — 3/4 plans done, build + 73 tests green
+Resume file: .planning/phases/05-artifact-table-and-search/05-04-PLAN.md
+Last activity: 2026-06-02 -- Phase 05 Wave 3 (05-03 ArtifactTable) complete
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
@@ -47,7 +47,7 @@ Last activity: 2026-06-02 -- Phase 05 Wave 2 (05-02 data layer) complete
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [████████░░] 84%
+Progress: [██████████] 95%
 ```
 
 ## Performance Metrics
@@ -71,6 +71,7 @@ Progress: [████████░░] 84%
 | Phase 04-auth-rbac-and-deployment P03 | 25m | 3 tasks | 5 files |
 | Phase 04-auth-rbac-and-deployment P04 | 3m | 3 tasks | 4 files |
 | Phase 05-artifact-table-and-search P01 | 5min | 3 tasks | 10 files |
+| Phase 05-artifact-table-and-search P03 | 4min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
