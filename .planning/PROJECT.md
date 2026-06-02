@@ -87,8 +87,18 @@ acceptance of the v1.0 variants is confirmed on the next scheduled cron run
 (4 HUMAN-UAT items), plus operator actions — apply `billing_audit/schema.sql`,
 data-team `lookup_attribution` RPC deploy, and the Step B price-write check.
 
-**Next milestone (v1.1):** Backend Migration + Artifact Explorer, led by the
-MIG-01 pre-migration ADR. Start with `/gsd-new-milestone`.
+**In progress: v1.1 — Portal (Supabase-native Artifact Portal).** Phases 03–05
+complete (2026-06-02). The portal now reads real Supabase data directly
+(`poeyztlmsawfoqlanucc`, ~2,383 artifacts): Phase 03 provisioned the
+`public.artifacts` / `public.profiles` schema + additive CI publish step; Phase 04
+shipped the auth gate, RBAC, admin surface, and Vercel deploy; Phase 05 wired a
+virtualized, searchable, filterable, sortable artifact table onto that real data
+and removed the silent Express mock fallback (TABLE-01..05, SEARCH-01..04; build
+clean, 85 vitest tests; 5 live-session UAT items tracked in `05-HUMAN-UAT.md`).
+Remaining: Phase 06 (Realtime + UI polish — includes the `/frontend-design` pass
+deferred from Phase 05) and Phase 07 (security hardening + `portal/` Express
+removal). The earlier Railway→Render migration scope (MIG-01) is superseded —
+Express is removed, not migrated.
 
 ## Requirements
 
@@ -402,8 +412,9 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-29 — Milestone **v1.1 Portal — Supabase-native Artifact
-Portal** started. Supersedes the prior v1.1 Railway → Render Express migration
+*Last updated: 2026-06-02 — Phase 05 (Artifact Table and Search) complete;
+v1.1 Phases 03–05 shipped. Milestone **v1.1 Portal — Supabase-native Artifact
+Portal**. Supersedes the prior v1.1 Railway → Render Express migration
 (moved to Out of Scope). Express backend to be removed; `portal-v2` reads
 artifacts directly from Supabase (Storage + Postgres `artifacts` table) with
 RLS + signed URLs; hCaptcha-hardened Supabase Auth login; link-out access

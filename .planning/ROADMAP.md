@@ -244,6 +244,15 @@ accessible and visually consistent.
 3. Row entrance animations (Framer Motion `AnimatePresence` + `motion.tr` stagger) play on initial load without degrading table scroll performance.
 4. All interactive elements are keyboard-navigable, color contrast meets WCAG AA, and the design is visually consistent using the existing `GlassCard`, `Badge`, `Skeleton`, and `Toast` primitives.
 
+**Build note (carried from Phase 05 — operator requirement):** The Phase 06 plan
+MUST invoke the `/frontend-design` skill for the artifact table + search/filter
+surface. Phase 05 was deliberately functional-only and reused the existing design
+system; the distinctive-design pass was explicitly deferred here. Also fold in the
+non-blocking Phase 05 code-review warnings best handled during polish: WR-05 (two
+`ToastContainer` stacks — App.tsx vs ArtifactTable.tsx) and WR-03 (the
+`['artifact-variants']` query fetches all rows for client-side dedup — add a
+`.limit()` cap + longer `staleTime`). Source: `05-REVIEW.md`.
+
 **Plans:** TBD
 
 **UI hint**: yes
