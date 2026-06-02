@@ -1,48 +1,48 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useDownloadArtifact } from '../useDownloadArtifact';
 
-// --- Mock supabase storage ---
-const mockCreateSignedUrl = vi.fn();
+// vi.hoisted allows variables referenced in vi.mock factory to be defined first.
+const { mockCreateSignedUrl, mockStorageFrom } = vi.hoisted(() => {
+  const mockCreateSignedUrl = vi.fn();
+  const mockStorageFrom = vi.fn().mockReturnValue({ createSignedUrl: mockCreateSignedUrl });
+  return { mockCreateSignedUrl, mockStorageFrom };
+});
 
 vi.mock('../../lib/supabase', () => ({
   supabase: {
     storage: {
-      from: vi.fn().mockReturnValue({
-        createSignedUrl: mockCreateSignedUrl,
-      }),
+      from: mockStorageFrom,
     },
   },
 }));
 
-import { supabase } from '../../lib/supabase';
+import { useDownloadArtifact } from '../useDownloadArtifact';
 
 // --- DOM spy helpers ---
 let fakeAnchor: HTMLAnchorElement;
 let appendChildSpy: ReturnType<typeof vi.spyOn>;
 let removeChildSpy: ReturnType<typeof vi.spyOn>;
 let clickSpy: ReturnType<typeof vi.fn>;
-let createElementSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
   vi.clearAllMocks();
 
-  // Reset storage mock
-  (supabase.storage.from as ReturnType<typeof vi.fn>).mockReturnValue({
-    createSignedUrl: mockCreateSignedUrl,
-  });
+  // Reset storage mock for each test
+  mockStorageFrom.mockReturnValue({ createSignedUrl: mockCreateSignedUrl });
 
   // Create a fake <a> element with a click spy
   fakeAnchor = document.createElement('a');
   clickSpy = vi.fn();
   fakeAnchor.click = clickSpy;
 
-  createElementSpy = vi
-    .spyOn(document, 'createElement')
-    .mockImplementation((tag: string) => {
+  // Only intercept 'a' tag creation; let the spy passthrough for other tags
+  vi.spyOn(document, 'createElement').mockImplementation(
+    (tag: string, ...rest: unknown[]) => {
       if (tag === 'a') return fakeAnchor;
-      return document.createElement(tag);
-    });
+      // Use the original HTMLDocument prototype so we don't recurse
+      return HTMLDocument.prototype.createElement.call(document, tag, ...(rest as []));
+    }
+  );
 
   appendChildSpy = vi.spyOn(document.body, 'appendChild').mockReturnValue(fakeAnchor);
   removeChildSpy = vi.spyOn(document.body, 'removeChild').mockReturnValue(fakeAnchor);
@@ -67,7 +67,7 @@ describe('useDownloadArtifact', () => {
       await result.current.download('row-1', '2026-05-17/file.xlsx', 'file.xlsx');
     });
 
-    expect(supabase.storage.from).toHaveBeenCalledWith('excel-artifacts');
+    expect(mockStorageFrom).toHaveBeenCalledWith('excel-artifacts');
     expect(mockCreateSignedUrl).toHaveBeenCalledWith('2026-05-17/file.xlsx', 300);
   });
 
@@ -91,7 +91,7 @@ describe('useDownloadArtifact', () => {
   });
 
   it('sets downloading to rowId while in flight and resets to undefined in finally', async () => {
-    let resolveSignedUrl: (v: unknown) => void;
+    let resolveSignedUrl!: (v: unknown) => void;
     mockCreateSignedUrl.mockReturnValue(
       new Promise((resolve) => { resolveSignedUrl = resolve; })
     );
@@ -99,7 +99,7 @@ describe('useDownloadArtifact', () => {
     const { result } = renderHook(() => useDownloadArtifact(addToast));
 
     // Start download but don't await — check mid-flight state
-    let downloadPromise: Promise<void>;
+    let downloadPromise!: Promise<void>;
     act(() => {
       downloadPromise = result.current.download('row-abc', 'path', 'name.xlsx');
     });
@@ -109,8 +109,8 @@ describe('useDownloadArtifact', () => {
 
     // Resolve the promise
     await act(async () => {
-      resolveSignedUrl!({ data: { signedUrl: 'https://x.com/f' }, error: null });
-      await downloadPromise!;
+      resolveSignedUrl({ data: { signedUrl: 'https://x.com/f' }, error: null });
+      await downloadPromise;
     });
 
     // After completion, downloading resets to undefined
