@@ -4,12 +4,12 @@ milestone: v1.1
 milestone_name: Portal — Supabase-native Artifact Portal
 status: executing
 last_updated: "2026-06-02T20:51:00.000Z"
-last_activity: 2026-06-02 -- Phase 07 plan 07-01 complete (SEC-02 headers + Report-Only CSP verified live)
+last_activity: 2026-06-02 -- Phase 07 plan 07-02 complete (live RLS/signed-URL probe EXIT:0, all 4 PASS, SEC-05 audit confirmed TTL=300)
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 28
-  completed_plans: 25
+  completed_plans: 26
   percent: 89
 ---
 
@@ -31,12 +31,12 @@ pipeline.
 ## Current Position
 
 Phase: 07 (security-hardening-and-express-removal) — EXECUTING
-Plan: 2 of 4
-Prev: Phase 07 plan 07-01 — ✅ COMPLETE (2026-06-02; SEC-02 headers + Report-Only CSP verified live, zero violations)
-Next: Execute plan 07-02 (live RLS/signed-URL probe + SEC-05 audit) — Wave 1
+Plan: 3 of 4
+Prev: Phase 07 plan 07-02 — ✅ COMPLETE (2026-06-02; live RLS probe EXIT:0 all 4 PASS, SEC-05 audit confirmed TTL=300)
+Next: Execute plan 07-03 (Express removal + SEC-03 secret gate + CSP enforce-flip) — Wave 2
 Status: Executing Phase 07
-Resume file: .planning/phases/07-security-hardening-and-express-removal/07-02-PLAN.md
-Last activity: 2026-06-02 -- Phase 07 plan 07-01 complete (SEC-02 headers + Report-Only CSP verified live)
+Resume file: .planning/phases/07-security-hardening-and-express-removal/07-03-PLAN.md
+Last activity: 2026-06-02 -- Phase 07 plan 07-02 complete (live RLS/signed-URL probe EXIT:0, all 4 PASS, SEC-05 audit confirmed TTL=300)
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
@@ -77,6 +77,7 @@ Progress: [██████████] 100%
 | Phase 06 P04 | 15 | 3 tasks | 5 files |
 | Phase 06-realtime-and-ui-polish P05 | 35m | 2 tasks | 8 files |
 | Phase 07-security-hardening-and-express-removal P01 | 15m | 2 tasks | 1 files |
+| Phase 07-security-hardening-and-express-removal P02 | ~2h | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -139,6 +140,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 07-01]: SEC-02 — ship CSP as Content-Security-Policy-Report-Only FIRST (D-04); enforce-flip deferred to 07-03 Task 2, gated on live zero-violation walkthrough (PASS 2026-06-02)
 - [Phase 07-01]: Sentry org region CONFIRMED US — CSP connect-src uses https://*.ingest.sentry.io (no EU *.ingest.de.sentry.io); confirmed live via walkthrough step 7
 - [Phase 07-01]: HSTS max-age=63072000; includeSubDomains — preload deliberately omitted (operator-only, permanent)
+- [Phase 07-02]: SEC-01 CONFIRMED live (EXIT:0): anon REST artifacts → []; anon Storage GET → 400; pending JWT artifacts → 0 rows; pending JWT createSignedUrl → denied — against poeyztlmsawfoqlanucc 2026-06-02
+- [Phase 07-02]: SEC-05 CONFIRMED audit-only: useDownloadArtifact.ts SIGNED_URL_TTL=300, single storagePath, {download} scope — no code change required
+- [Phase 07-02]: scripts/security-probe.ts is the re-runnable regression harness for SEC-01/SEC-05; CI env vars: SUPABASE_ANON_KEY, SUPABASE_PROBE_PENDING_EMAIL, SUPABASE_PROBE_PENDING_PASSWORD in GitHub Actions Secrets
 
 ### Roadmap Evolution
 

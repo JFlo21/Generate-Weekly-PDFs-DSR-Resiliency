@@ -66,7 +66,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 04. Auth, RBAC, and Deployment | v1.1 | 6/6 | ✅ Complete | 2026-06-01 |
 | 05. Artifact Table and Search | v1.1 | 4/4 | Complete    | 2026-06-02 |
 | 06. Realtime and UI Polish | v1.1 | 5/5 | Complete    | 2026-06-02 |
-| 07. Security Hardening and Express Removal | v1.1 | 1/4 | In progress | — |
+| 07. Security Hardening and Express Removal | v1.1 | 2/4 | In progress | — |
 
 ---
 
@@ -298,7 +298,7 @@ the legacy debugging surface)
 Plans:
 **Wave 1**
 - [x] 07-01-PLAN.md — SEC-02 security headers + Report-Only CSP on vercel.json; live zero-violation walkthrough (✅ complete 2026-06-02, zero violations, US Sentry confirmed)
-- [ ] 07-02-PLAN.md — Live RLS/signed-URL probe (scripts/security-probe.ts, anon + pending JWT only) + SEC-05 audit
+- [x] 07-02-PLAN.md — Live RLS/signed-URL probe (scripts/security-probe.ts, anon + pending JWT only) + SEC-05 audit (✅ complete 2026-06-02, EXIT:0 all 4 PASS, SEC-05 confirmed TTL=300)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 07-03-PLAN.md — Express removal (sever -> grep-gate -> git rm portal/ -> smoke test) + SEC-03 secret gate + CSP enforce-flip
