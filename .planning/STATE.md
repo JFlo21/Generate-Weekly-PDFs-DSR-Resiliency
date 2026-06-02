@@ -9,8 +9,8 @@ progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 19
-  completed_plans: 16
-  percent: 84
+  completed_plans: 17
+  percent: 89
 ---
 
 # Project State
@@ -31,12 +31,12 @@ pipeline.
 ## Current Position
 
 Phase: 05 (artifact-table-and-search) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4 (Waves 1–2 complete: foundation + data layer)
 Prev: Phase 04 (auth-rbac-and-deployment) — ✅ COMPLETE (2026-06-01, 6/6 plans)
-Next: `/gsd-plan-phase 05` — then execute
-Status: Ready to execute
-Resume file: None
-Last activity: 2026-06-02
+Next: Wave 3 (05-03) — virtualized ArtifactTable at /dashboard
+Status: Executing — 2/4 plans done, build+tests green
+Resume file: .planning/phases/05-artifact-table-and-search/05-03-PLAN.md
+Last activity: 2026-06-02 -- Phase 05 Wave 2 (05-02 data layer) complete
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
