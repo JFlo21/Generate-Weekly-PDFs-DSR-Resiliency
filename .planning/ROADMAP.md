@@ -50,8 +50,8 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
   `profiles`-backed role system, admin user management, Vercel deploy correctness. (completed 2026-06-01)
 - [x] **Phase 05: Artifact Table and Search** — virtualized table on real Supabase data, (completed 2026-06-02)
   mock fallback removed, debounced search, variant filter, sortable columns.
-- [ ] **Phase 06: Realtime and UI Polish** — Supabase Realtime INSERT subscription,
-  Framer Motion animations, responsive layout, accessible visual design.
+- [x] **Phase 06: Realtime and UI Polish** — Supabase Realtime INSERT subscription,
+  Framer Motion animations, responsive layout, accessible visual design. (completed automated scope 2026-06-02; manual UAT pending)
 - [ ] **Phase 07: Security Hardening and Express Removal** — CSP/headers, full RLS audit,
   signed-URL scoping verification, secret handling audit, `portal/` directory removed.
 
@@ -65,7 +65,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 03. Supabase Data Layer Foundation | v1.1 | 3/3 | Complete   | 2026-05-29 |
 | 04. Auth, RBAC, and Deployment | v1.1 | 6/6 | ✅ Complete | 2026-06-01 |
 | 05. Artifact Table and Search | v1.1 | 4/4 | Complete    | 2026-06-02 |
-| 06. Realtime and UI Polish | v1.1 | 0/5 | Planned | — |
+| 06. Realtime and UI Polish | v1.1 | 5/5 | ✅ Complete (auto) | 2026-06-02 |
 | 07. Security Hardening and Express Removal | v1.1 | 0/TBD | Not started | — |
 
 ---
@@ -267,7 +267,7 @@ Plans:
 - [x] 06-04-PLAN.md — mobile `ArtifactCard` + responsive table↔card swap (UI-01) + opacity-only initial-load row stagger via `staggerDelay`/`initialLoadComplete` (UI-02) + WCAG slate-400→slate-500 upgrade (UI-03)
 
 **Wave 4** *(polish + manual a11y — blocked on 02/03/04)*
-- [ ] 06-05-PLAN.md — `/frontend-design` propose-then-approve polish pass within locked UI-SPEC tokens (D-01/D-02) + D-07 manual WCAG-AA/keyboard/screen-reader/contrast + live-Realtime UAT walkthrough (autonomous:false)
+- [x] 06-05-PLAN.md — `/frontend-design` propose-then-approve polish pass within locked UI-SPEC tokens (D-01/D-02) + D-07 manual WCAG-AA/keyboard/screen-reader/contrast + live-Realtime UAT walkthrough (autonomous:false)
 
 **UI hint**: yes
 

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Portal — Supabase-native Artifact Portal
 status: executing
-last_updated: "2026-06-02T17:43:33.054Z"
+last_updated: "2026-06-02T18:15:00.000Z"
 last_activity: 2026-06-02
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 24
-  completed_plans: 23
-  percent: 96
+  completed_plans: 24
+  percent: 100
 ---
 
 # Project State
@@ -30,11 +30,11 @@ pipeline.
 
 ## Current Position
 
-Phase: 06 (Realtime and UI Polish) — EXECUTING
-Plan: 5 of 5
+Phase: 06 (Realtime and UI Polish) — ✅ COMPLETE (automated scope)
+Plan: 5 of 5 — COMPLETE
 Prev: Phase 05 (Artifact Table and Search) — ✅ COMPLETE (2026-06-02)
-Next: Plan Phase 06 — /gsd-plan-phase 06 (Realtime toast/pill, responsive, animations, a11y, C-01/C-02)
-Status: Ready to execute
+Next: /gsd-verify-work Phase 06 after operator completes 06-HUMAN-UAT.md manual walkthrough
+Status: Awaiting manual UAT (06-HUMAN-UAT.md — 6 items pending operator)
 Resume file: None
 Last activity: 2026-06-02
 
@@ -47,7 +47,7 @@ Last activity: 2026-06-02
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [██████████] 96%
+Progress: [██████████] 100%
 ```
 
 ## Performance Metrics
@@ -64,7 +64,7 @@ Progress: [██████████] 96%
 | 03 — Supabase Data Layer Foundation | Supabase backend provisioned; CI publish step live | DATA-01..05 | 3 | ✅ Complete |
 | 04 — Auth, RBAC, and Deployment | Auth gate + RBAC + admin + Vercel deploy working | AUTH-01..06, RBAC-01..05, DEPLOY-01..04 | 6 | ✅ Complete |
 | 05 — Artifact Table and Search | Virtualized table on real data; search/filter/sort | TABLE-01..05, SEARCH-01..04 | 4 | ✅ Complete |
-| 06 — Realtime and UI Polish | Realtime toast; responsive; animations; accessible | DATA-06, UI-01..03 | TBD | 🟡 Context gathered — ready to plan |
+| 06 — Realtime and UI Polish | Realtime toast; responsive; animations; accessible | DATA-06, UI-01..03 | 5 | ✅ Complete (automated scope; manual UAT pending) |
 | 07 — Security Hardening and Express Removal | Security review passed; `portal/` removed | SEC-01..05 | TBD | Not started |
 | Phase 03 P03-02 | 7m | 2 tasks | 2 files |
 | Phase 03 P03-03 | 5m | 1 tasks | 1 files |
@@ -75,6 +75,7 @@ Progress: [██████████] 96%
 | Phase 06-realtime-and-ui-polish P01 | 5m | 2 tasks | 3 files |
 | Phase 06-realtime-and-ui-polish P02 | 12m | 3 tasks | 5 files |
 | Phase 06 P04 | 15 | 3 tasks | 5 files |
+| Phase 06-realtime-and-ui-polish P05 | 35m | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -221,23 +222,14 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Operator Next Steps
 
-1. **Plan Phase 06** with `/gsd-plan-phase 06` — Realtime and UI Polish.
-   Context is captured in `06-CONTEXT.md` (8 decisions D-01..D-08 + canonical
-   refs + code context) and the authoritative `06-UI-SPEC.md`. `/clear` first
-   for a clean planning context.
+1. **Perform manual UAT walkthrough** using
+   `.planning/phases/06-realtime-and-ui-polish/06-HUMAN-UAT.md` (6 pending items).
+   Items cover: Live Realtime, Keyboard Nav, Screen Reader, Color-Contrast,
+   Responsive layout, Reduced Motion. Record PASS/FAIL per item in the file.
 
-2. Phase 06 planning grounding (from `06-CONTEXT.md` / `.continue-here.md`):
-   - The planner MUST treat `06-UI-SPEC.md` as authoritative (D-01); the
-     `/frontend-design` pass is execution-polish ONLY, propose-then-approve (D-02).
+2. **Run `/gsd-verify-work` for Phase 06** after the manual UAT is signed off.
+   Any FAIL items must be captured as gaps for `/gsd-plan-phase --gaps`.
 
-   - Dispatch a researcher to confirm the 2026 Supabase Realtime RLS/authorization
-     model for `postgres_changes` (D-04) — must withhold row payloads from
-     `pending`/anon sockets; this must come back clean for the Phase 07 audit.
-
-   - 4 net-new components to plan: `useRealtimeArtifacts`, `NewArtifactPill`,
-     `ArtifactCard`, `ToastContext` (the C-01 fix). Animate/subscribe against the
-     stable Phase 05 table — do NOT rebuild it.
-
-3. Security headers/CSP, the full RLS + signed-URL audit, and physical removal
-   of the Express backend (`portal/`) are **Phase 07** — do not pull them into
-   Phase 06.
+3. **Plan Phase 07** — Security Hardening and Express Removal (SEC-01..05).
+   Security headers/CSP, the full RLS + signed-URL audit, and physical removal
+   of the Express backend (`portal/`) are deferred to Phase 07.
