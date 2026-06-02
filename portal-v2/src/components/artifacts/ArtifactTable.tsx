@@ -1,56 +1,87 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   useReactTable,
   getCoreRowModel,
   type SortingState,
+  type ColumnDef,
 } from '@tanstack/react-table';
+import { useQuery } from '@tanstack/react-query';
+import { ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import { useArtifactsInfinite, type ArtifactsQueryParams } from '../../hooks/useArtifactsInfinite';
 import { useDownloadArtifact } from '../../hooks/useDownloadArtifact';
+import { useDebounce } from '../../hooks/useDebounce';
 import { useToast } from '../../hooks/useToast';
 import { ToastContainer } from '../ui/Toast';
 import { Skeleton } from '../ui/Skeleton';
 import { ArtifactTableRow } from './ArtifactTableRow';
 import { EmptyDBState, NoResultsState, ErrorState } from './ArtifactEmptyState';
+import { ArtifactSearchBar } from './ArtifactSearchBar';
+import { VariantFilterBar } from './VariantFilterBar';
+import { supabase } from '../../lib/supabase';
 import type { BillingArtifact } from '../../lib/types';
-import type { ColumnDef } from '@tanstack/react-table';
 
 // Column definitions (TABLE-01). manualSorting/manualPagination — no client-side ops.
-// Interactive header clicks are wired in Plan 04; these defs land now.
 const COLUMNS: ColumnDef<BillingArtifact>[] = [
   { id: 'work_request',   accessorKey: 'work_request',   header: 'Work Request #' },
   { id: 'week_ending',    accessorKey: 'week_ending_fmt', header: 'Week Ending'   },
-  { id: 'variant',        accessorKey: 'variant',         header: 'Variant'       },
+  { id: 'variant',        accessorKey: 'variant',         header: 'Variant',        enableSorting: false },
   { id: 'size_bytes',     accessorKey: 'size_bytes',      header: 'File Size'     },
   { id: 'created_at',     accessorKey: 'created_at',      header: 'Created'       },
   { id: 'download',       header: 'Download',             enableSorting: false    },
 ];
 
-const DEFAULT_SORTING: SortingState = [{ id: 'week_ending', desc: true }];
-
-// D-06 default: week_ending DESC; Plan 04 lifts these into interactive state.
-const FIXED_PARAMS: ArtifactsQueryParams = {
-  search: '',
-  variants: [],
-  sortColumn: 'week_ending',
-  sortAscending: false,
-};
+// Sortable column IDs (subset of COLUMNS — T-05-12: typed union prevents injection)
+const SORTABLE_IDS = new Set<ArtifactsQueryParams['sortColumn']>([
+  'work_request', 'week_ending', 'size_bytes', 'created_at',
+]);
 
 export function ArtifactTable() {
   // Pitfall 7: hoist useToast here, thread addToast to useDownloadArtifact.
   const { toasts, addToast, removeToast } = useToast();
   const { download, downloading } = useDownloadArtifact(addToast);
 
-  const params = FIXED_PARAMS;
-  const q = useArtifactsInfinite(params);
+  // --- Search / filter / sort state (lifted from FIXED_PARAMS in Plan 03) ---
+  const [searchInput, setSearchInput] = useState('');
+  const debouncedSearch = useDebounce(searchInput, 250); // SEARCH-01 / D-09
 
+  const [variants, setVariants] = useState<string[]>([]);
+
+  // D-06 default: week_ending DESC
+  const [sorting, setSorting] = useState<SortingState>([{ id: 'week_ending', desc: true }]);
+
+  // Derive ArtifactsQueryParams from state (SEARCH-03 / SEARCH-04)
+  const sort = sorting[0] ?? { id: 'week_ending', desc: true };
+  const params: ArtifactsQueryParams = {
+    search: debouncedSearch,
+    variants,
+    sortColumn: sort.id as ArtifactsQueryParams['sortColumn'],
+    sortAscending: !sort.desc,
+  };
+
+  const q = useArtifactsInfinite(params);
   const allRows = q.data?.pages.flatMap((p) => p.rows) ?? [];
 
-  // TanStack Table headless setup (Pattern 4 / manualSorting).
-  useReactTable({
+  // Dynamic variant options: dedicated lightweight query for the FULL dataset (SEARCH-04 / D-10)
+  // so a narrow filter doesn't hide unselected variants in the options list.
+  const { data: variantOptionsData } = useQuery({
+    queryKey: ['artifact-variants'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('artifacts')
+        .select('variant');
+      if (error) throw error;
+      return Array.from(new Set((data ?? []).map((r: { variant: string }) => r.variant)));
+    },
+  });
+  const variantOptions = variantOptionsData ?? [];
+
+  // TanStack Table headless setup (Pattern 4 / manualSorting). SEARCH-03: onSortingChange wired.
+  const table = useReactTable({
     data: allRows,
     columns: COLUMNS,
-    state: { sorting: DEFAULT_SORTING },
+    state: { sorting },
+    onSortingChange: setSorting,
     manualSorting: true,
     manualFiltering: true,
     manualPagination: true,
@@ -79,6 +110,12 @@ export function ArtifactTable() {
     void q.fetchNextPage();
   }
 
+  // Clear all active filters (search + variants; sort stays at default)
+  const clearFilters = () => {
+    setSearchInput('');
+    setVariants([]);
+  };
+
   // Four-state render (D-07 / TABLE-05). TanStack Query v5: 'pending' not 'loading'.
   const renderBody = () => {
     if (q.status === 'pending') {
@@ -95,13 +132,13 @@ export function ArtifactTable() {
       return <ErrorState onRetry={() => q.refetch()} />;
     }
 
-    if (allRows.length === 0 && !params.search && params.variants.length === 0) {
+    if (allRows.length === 0 && !debouncedSearch && variants.length === 0) {
       return <EmptyDBState />;
     }
 
     if (allRows.length === 0) {
       // Filters active but zero matches.
-      return <NoResultsState onClear={() => { /* Plan 04 wires the clear action */ }} />;
+      return <NoResultsState onClear={clearFilters} />;
     }
 
     // Virtualized table (Pattern 3 — fixed-height container, Pitfall 5).
@@ -149,23 +186,68 @@ export function ArtifactTable() {
 
   return (
     <>
+      {/* Search + variant filter controls (SEARCH-01, SEARCH-02) */}
+      <div className="flex flex-wrap gap-3 mb-4">
+        <div className="flex-1 min-w-[240px]">
+          <ArtifactSearchBar value={searchInput} onChange={setSearchInput} />
+        </div>
+        {variantOptions.length > 0 && (
+          <VariantFilterBar
+            options={variantOptions}
+            selected={variants}
+            onChange={setVariants}
+          />
+        )}
+      </div>
+
       {/* UsersPage.tsx card shell — bg-white rounded-2xl border shadow-sm */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        {/* Sticky header row (6 column labels) */}
+        {/* Sticky header row (6 column labels) with interactive sort (SEARCH-03) */}
         <div className="border-b border-slate-100">
           <div
             role="row"
             className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] items-center"
           >
-            {COLUMNS.map((col) => (
-              <div
-                key={col.id}
-                role="columnheader"
-                className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide"
-              >
-                {typeof col.header === 'string' ? col.header : col.id}
-              </div>
-            ))}
+            {table.getFlatHeaders().map((header) => {
+              const colId = header.column.id as ArtifactsQueryParams['sortColumn'];
+              const isSortable = SORTABLE_IDS.has(colId);
+              const isSorted = sort.id === colId;
+              const isDesc = isSorted && sort.desc;
+              const isAsc = isSorted && !sort.desc;
+
+              return (
+                <div
+                  key={header.id}
+                  role="columnheader"
+                  onClick={
+                    isSortable
+                      ? header.column.getToggleSortingHandler()
+                      : undefined
+                  }
+                  className={[
+                    'text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide',
+                    isSortable ? 'cursor-pointer select-none hover:text-slate-700' : '',
+                  ].join(' ')}
+                >
+                  <span className="inline-flex items-center gap-1">
+                    {typeof header.column.columnDef.header === 'string'
+                      ? header.column.columnDef.header
+                      : header.id}
+                    {isSortable && (
+                      <span className="text-slate-400">
+                        {isAsc ? (
+                          <ArrowUp size={12} />
+                        ) : isDesc ? (
+                          <ArrowDown size={12} />
+                        ) : (
+                          <ArrowUpDown size={12} />
+                        )}
+                      </span>
+                    )}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
 

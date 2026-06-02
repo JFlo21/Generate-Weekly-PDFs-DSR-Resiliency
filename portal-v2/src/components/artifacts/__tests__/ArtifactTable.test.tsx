@@ -4,6 +4,18 @@ import { ArtifactTable } from '../ArtifactTable';
 import type { BillingArtifact } from '../../../lib/types';
 
 // ---------------------------------------------------------------------------
+// Mock useQuery (used inside ArtifactTable for dynamic variant options).
+// Returns an empty options list so tests focus on table states, not variant UI.
+// ---------------------------------------------------------------------------
+vi.mock('@tanstack/react-query', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-query')>();
+  return {
+    ...actual,
+    useQuery: () => ({ data: [] }),
+  };
+});
+
+// ---------------------------------------------------------------------------
 // Mock TanStack Query hooks
 // ---------------------------------------------------------------------------
 const mockQuery = {
