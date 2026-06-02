@@ -1,4 +1,5 @@
 import React from 'react';
+import { motion, useReducedMotion } from 'framer-motion';
 import { Download, Loader2 } from 'lucide-react';
 import { Badge } from '../ui/Badge';
 import { getVariantLabel } from '../../lib/variantLabels';
@@ -9,6 +10,7 @@ interface ArtifactTableRowProps {
   row: BillingArtifact;
   onDownload: (rowId: string, storagePath: string, filename: string) => void;
   isDownloading: boolean;
+  staggerDelay: number;  // 0 after initial load; index * 0.02 capped at 0.2 on initial load
 }
 
 /**
@@ -20,7 +22,10 @@ export const ArtifactTableRow = React.memo(function ArtifactTableRow({
   row,
   onDownload,
   isDownloading,
+  staggerDelay,
 }: ArtifactTableRowProps) {
+  // Respect prefers-reduced-motion — zero out animation when user opts out (UI-SPEC §Reduced Motion)
+  const prefersReduced = useReducedMotion();
   // Format week_ending_fmt (MMDDYY "052625") → "05/26/25" for readability.
   // Never use raw ISO week_ending in display cells (Pitfall 8).
   const weekDisplay =
@@ -29,9 +34,18 @@ export const ArtifactTableRow = React.memo(function ArtifactTableRow({
       : row.week_ending_fmt;
 
   return (
-    <div
+    // Opacity-only entrance — NO y/x animation (Pitfall 2 / A3: avoids transform
+    // conflict with the virtualizer's outer translateY positioning wrapper).
+    <motion.div
       role="row"
       className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] items-center border-b border-slate-50 hover:bg-slate-50/50 transition-colors w-full h-14"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={
+        prefersReduced
+          ? { duration: 0 }
+          : { duration: 0.15, ease: 'easeOut', delay: staggerDelay }
+      }
     >
       {/* 1. Work Request # */}
       <div role="cell" className="px-5 py-3 text-sm font-medium text-slate-800 truncate">
@@ -54,7 +68,7 @@ export const ArtifactTableRow = React.memo(function ArtifactTableRow({
       </div>
 
       {/* 5. Created */}
-      <div role="cell" className="px-5 py-3 text-xs text-slate-400 truncate">
+      <div role="cell" className="px-5 py-3 text-xs text-slate-500 truncate">
         {formatDate(row.created_at)}
       </div>
 
@@ -74,6 +88,6 @@ export const ArtifactTableRow = React.memo(function ArtifactTableRow({
           <span>{isDownloading ? 'Downloading…' : 'Download'}</span>
         </button>
       </div>
-    </div>
+    </motion.div>
   );
 });

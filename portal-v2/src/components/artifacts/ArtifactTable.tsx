@@ -197,6 +197,7 @@ export function ArtifactTable() {
                     row={row}
                     onDownload={download}
                     isDownloading={downloading === row.id}
+                    staggerDelay={0}
                   />
                 ) : (
                   <Skeleton className="h-12 w-full mx-5 my-1" />
