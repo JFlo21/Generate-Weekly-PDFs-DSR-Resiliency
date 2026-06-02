@@ -1,7 +1,7 @@
 ---
 phase: 6
 slug: realtime-and-ui-polish
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-06-01
@@ -125,17 +125,15 @@ a multiple of 4.
 | Body | 14px | 400 (regular) | 1.5 (leading-normal) | `text-sm` |
 | Label / meta | 12px | 400 (regular) | 1.4 (leading-snug) | `text-xs` |
 | Column header | 12px | 600 (semibold) | 1.4 (leading-snug) | `text-xs font-semibold` |
-| Heading | 24px | 700 (bold) | 1.2 (leading-tight) | `text-2xl font-bold` |
+| Heading | 24px | 600 (semibold) | 1.2 (leading-tight) | `text-2xl font-semibold` |
 
 **Notes:**
 - Exactly 3 distinct sizes in use: 12px (label/header), 14px (body), 24px (heading).
-- **3 numeric weight values across 2 semantic tiers:**
-  - **regular = 400** — body and meta text.
-  - **emphasis = 600** (`font-semibold`) for column headers, the WR # in mobile
-    cards, and the count inside the "Load new" pill / toast; **700**
-    (`font-bold`) is reserved for the single page heading only.
-  Usage stays disciplined: no weight other than 400 / 600 / 700 appears, and 700
-  is used exactly once on screen (the "Artifacts" heading).
+- 2 weight values: 400 (regular — body, meta) and 600 (semibold — all emphasis
+  incl. the page heading). At 24px the heading is already dominant over 14px
+  body / 12px label by size alone, so no heavier weight is needed.
+- Emphasis (600 / `font-semibold`) is used for: the page heading, column headers,
+  the WR # in mobile cards, and the count inside the "Load new" pill / toast.
 - Toast message text: `text-sm text-slate-700` (14px, weight 400) — preserved from
   existing `Toast.tsx` implementation.
 - "N new artifacts" in toast/pill uses body size (14px); the numeric count is
