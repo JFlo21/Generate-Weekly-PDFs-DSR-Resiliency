@@ -11,8 +11,7 @@ import { ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import { useArtifactsInfinite, type ArtifactsQueryParams } from '../../hooks/useArtifactsInfinite';
 import { useDownloadArtifact } from '../../hooks/useDownloadArtifact';
 import { useDebounce } from '../../hooks/useDebounce';
-import { useToast } from '../../hooks/useToast';
-import { ToastContainer } from '../ui/Toast';
+import { useToastContext } from '../../contexts/ToastContext';
 import { Skeleton } from '../ui/Skeleton';
 import { ArtifactTableRow } from './ArtifactTableRow';
 import { EmptyDBState, NoResultsState, ErrorState } from './ArtifactEmptyState';
@@ -37,8 +36,8 @@ const SORTABLE_IDS = new Set<ArtifactsQueryParams['sortColumn']>([
 ]);
 
 export function ArtifactTable() {
-  // Pitfall 7: hoist useToast here, thread addToast to useDownloadArtifact.
-  const { toasts, addToast, removeToast } = useToast();
+  // C-01: addToast sourced from global ToastContext (single stack).
+  const { addToast } = useToastContext();
   const { download, downloading } = useDownloadArtifact(addToast);
 
   // --- Search / filter / sort state (lifted from FIXED_PARAMS in Plan 03) ---
@@ -262,8 +261,6 @@ export function ArtifactTable() {
         {renderBody()}
       </div>
 
-      {/* Toast container co-located here (Pitfall 7) */}
-      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </>
   );
 }

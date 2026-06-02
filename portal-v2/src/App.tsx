@@ -12,9 +12,8 @@ import { ResetPasswordPage } from './components/auth/ResetPasswordPage';
 import { PendingApprovalPage } from './components/auth/PendingApprovalPage';
 import { RoleGuard } from './components/auth/RoleGuard';
 import { PageTransition } from './components/layout/PageTransition';
-import { ToastContainer } from './components/ui/Toast';
+import { ToastProvider } from './contexts/ToastContext';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
-import { useToast } from './hooks/useToast';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -32,56 +31,54 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  const { toasts, removeToast } = useToast();
-
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <ErrorBoundary>
-        <AuthProvider>
-          <AnimatePresence mode="wait">
-            <Routes>
-              <Route path="/login" element={<PageTransition><LoginPage /></PageTransition>} />
-              <Route path="/auth/forgot" element={<PageTransition><ForgotPasswordPage /></PageTransition>} />
-              <Route path="/auth/reset" element={<PageTransition><ResetPasswordPage /></PageTransition>} />
-              <Route path="/pending" element={<PageTransition><PendingApprovalPage /></PageTransition>} />
+      <ToastProvider>
+        <BrowserRouter>
+          <ErrorBoundary>
+          <AuthProvider>
+            <AnimatePresence mode="wait">
+              <Routes>
+                <Route path="/login" element={<PageTransition><LoginPage /></PageTransition>} />
+                <Route path="/auth/forgot" element={<PageTransition><ForgotPasswordPage /></PageTransition>} />
+                <Route path="/auth/reset" element={<PageTransition><ResetPasswordPage /></PageTransition>} />
+                <Route path="/pending" element={<PageTransition><PendingApprovalPage /></PageTransition>} />
 
-              <Route
-                path="/dashboard"
-                element={
-                  <AuthGuard>
-                    <DashboardLayout />
-                  </AuthGuard>
-                }
-              >
                 <Route
-                  index
+                  path="/dashboard"
                   element={
-                    <PageTransition>
-                      <DashboardPage />
-                    </PageTransition>
+                    <AuthGuard>
+                      <DashboardLayout />
+                    </AuthGuard>
                   }
-                />
-                <Route
-                  path="admin/users"
-                  element={
-                    <RoleGuard allow={['admin']}>
+                >
+                  <Route
+                    index
+                    element={
                       <PageTransition>
-                        <UsersPage />
+                        <DashboardPage />
                       </PageTransition>
-                    </RoleGuard>
-                  }
-                />
-              </Route>
+                    }
+                  />
+                  <Route
+                    path="admin/users"
+                    element={
+                      <RoleGuard allow={['admin']}>
+                        <PageTransition>
+                          <UsersPage />
+                        </PageTransition>
+                      </RoleGuard>
+                    }
+                  />
+                </Route>
 
-              <Route path="*" element={<Navigate to="/dashboard" replace />} />
-            </Routes>
-          </AnimatePresence>
-
-          <ToastContainer toasts={toasts} onRemove={removeToast} />
-        </AuthProvider>
-        </ErrorBoundary>
-      </BrowserRouter>
+                <Route path="*" element={<Navigate to="/dashboard" replace />} />
+              </Routes>
+            </AnimatePresence>
+          </AuthProvider>
+          </ErrorBoundary>
+        </BrowserRouter>
+      </ToastProvider>
     </QueryClientProvider>
   );
 }
