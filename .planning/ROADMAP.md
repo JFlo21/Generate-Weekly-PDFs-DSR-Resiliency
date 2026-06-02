@@ -48,7 +48,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
   DDL, role-aware RLS, private Storage bucket, additive publish step in CI.
 - [x] **Phase 04: Auth, RBAC, and Deployment** — hCaptcha-hardened login/signup/reset,
   `profiles`-backed role system, admin user management, Vercel deploy correctness. (completed 2026-06-01)
-- [ ] **Phase 05: Artifact Table and Search** — virtualized table on real Supabase data,
+- [x] **Phase 05: Artifact Table and Search** — virtualized table on real Supabase data, (completed 2026-06-02)
   mock fallback removed, debounced search, variant filter, sortable columns.
 - [ ] **Phase 06: Realtime and UI Polish** — Supabase Realtime INSERT subscription,
   Framer Motion animations, responsive layout, accessible visual design.
@@ -64,7 +64,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 02. Attribution Bulk-Prefetch + Remediation | v1.0 hotfix | 6/6 | ✅ Shipped | 2026-05-26 |
 | 03. Supabase Data Layer Foundation | v1.1 | 3/3 | Complete   | 2026-05-29 |
 | 04. Auth, RBAC, and Deployment | v1.1 | 6/6 | ✅ Complete | 2026-06-01 |
-| 05. Artifact Table and Search | v1.1 | 2/4 | In Progress|  |
+| 05. Artifact Table and Search | v1.1 | 4/4 | Complete   | 2026-06-02 |
 | 06. Realtime and UI Polish | v1.1 | 0/TBD | Not started | — |
 | 07. Security Hardening and Express Removal | v1.1 | 0/TBD | Not started | — |
 
@@ -208,7 +208,7 @@ SEARCH-02, SEARCH-03, SEARCH-04
 4. The table renders 500+ rows without UI jank — row virtualization keeps the DOM shallow and memory flat.
 5. The table shows distinct, non-overlapping loading skeleton, empty state, and error-with-retry states; a genuine fetch failure surfaces an actionable error (not fake rows).
 
-**Plans:** 2/4 plans executed
+**Plans:** 4/4 plans complete
 
 Plans:
 **Wave 1** *(foundation — deps, provider, types, pure helpers)*
@@ -221,7 +221,7 @@ Plans:
 - [x] 05-03-PLAN.md — ArtifactTable (TanStack Virtual + manualSorting + 4 D-07 states + infinite scroll) + memoized ArtifactTableRow (6 TABLE-01 columns + download) + ArtifactEmptyState; render at /dashboard, stop rendering legacy runs view (D-01/D-02)
 
 **Wave 4** *(search/filter/sort — blocked on Wave 3)*
-- [ ] 05-04-PLAN.md — ArtifactSearchBar (debounced 250ms, SEARCH-01) + VariantFilterBar (dynamic friendly-label multi-select + clearable chips, SEARCH-02/D-10) + wire search+variants+sort into useArtifactsInfinite params so they combine server-side (SEARCH-03/SEARCH-04)
+- [x] 05-04-PLAN.md — ArtifactSearchBar (debounced 250ms, SEARCH-01) + VariantFilterBar (dynamic friendly-label multi-select + clearable chips, SEARCH-02/D-10) + wire search+variants+sort into useArtifactsInfinite params so they combine server-side (SEARCH-03/SEARCH-04)
 
 **UI hint**: yes
 

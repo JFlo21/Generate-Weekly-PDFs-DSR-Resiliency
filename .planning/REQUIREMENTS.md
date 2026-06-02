@@ -53,7 +53,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
   Request # or week-ending date.
 - [x] **SEARCH-02**: User can filter by variant via a multi-select control
   with clearable filter chips.
-- [ ] **SEARCH-03**: User can sort columns (WR #, week-ending, size, created)
+- [x] **SEARCH-03**: User can sort columns (WR #, week-ending, size, created)
   with clear ascending/descending indicators.
 - [x] **SEARCH-04**: Search and filters are dynamic (reflect the actual data
   present) and combine (results satisfy search AND active filters).
@@ -182,7 +182,7 @@ Which phases cover which requirements.
 | TABLE-05 | Phase 05 | Complete |
 | SEARCH-01 | Phase 05 | Complete |
 | SEARCH-02 | Phase 05 | Complete |
-| SEARCH-03 | Phase 05 | Pending |
+| SEARCH-03 | Phase 05 | Complete |
 | SEARCH-04 | Phase 05 | Complete |
 | UI-01 | Phase 06 | Pending |
 | UI-02 | Phase 06 | Pending |

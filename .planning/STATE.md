@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Portal — Supabase-native Artifact Portal
-status: executing
-last_updated: "2026-06-02T01:27:46.479Z"
+status: verifying
+last_updated: "2026-06-02T01:47:16.260Z"
 last_activity: 2026-06-02
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 19
-  completed_plans: 18
-  percent: 95
+  completed_plans: 19
+  percent: 100
 ---
 
 # Project State
@@ -34,9 +34,9 @@ Phase: 05 (artifact-table-and-search) — EXECUTING
 Plan: 4 of 4 (Waves 1–3 complete: foundation + data layer + virtualized table)
 Prev: 05-03 (ArtifactTable at /dashboard) — ✅ COMPLETE (2026-06-02)
 Next: Wave 4 (05-04) — search bar + variant filter + sort controls
-Status: Executing — 3/4 plans done, build + 73 tests green
-Resume file: .planning/phases/05-artifact-table-and-search/05-04-PLAN.md
-Last activity: 2026-06-02 -- Phase 05 Wave 3 (05-03 ArtifactTable) complete
+Status: Phase complete — ready for verification
+Resume file: None
+Last activity: 2026-06-02
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
@@ -47,7 +47,7 @@ Last activity: 2026-06-02 -- Phase 05 Wave 3 (05-03 ArtifactTable) complete
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [██████████] 95%
+Progress: [██████████] 100%
 ```
 
 ## Performance Metrics
