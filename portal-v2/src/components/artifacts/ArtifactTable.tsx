@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   useReactTable,
@@ -98,17 +98,24 @@ export function ArtifactTable() {
     overscan: 5,
   });
 
-  // Guarded infinite-scroll trigger (Pitfall 6 — no re-fire while fetching).
+  // Virtual items drive both the effect below and the render pass.
   const virtualItems = rowVirtualizer.getVirtualItems();
-  const lastItem = virtualItems[virtualItems.length - 1];
-  if (
-    lastItem &&
-    lastItem.index >= allRows.length - 1 &&
-    q.hasNextPage &&
-    !q.isFetchingNextPage
-  ) {
-    void q.fetchNextPage();
-  }
+  const lastItemIndex = virtualItems[virtualItems.length - 1]?.index;
+
+  // Guarded infinite-scroll trigger (Pitfall 6 — no re-fire while fetching).
+  // CR-01: run as an effect, never during render. A bare `fetchNextPage()` in
+  // the component body is a render-phase side effect — React 18/StrictMode
+  // fires it twice and warns about updating a component while rendering.
+  useEffect(() => {
+    if (
+      lastItemIndex !== undefined &&
+      lastItemIndex >= allRows.length - 1 &&
+      q.hasNextPage &&
+      !q.isFetchingNextPage
+    ) {
+      void q.fetchNextPage();
+    }
+  }, [lastItemIndex, allRows.length, q.hasNextPage, q.isFetchingNextPage, q.fetchNextPage]);
 
   // Clear all active filters (search + variants; sort stays at default)
   const clearFilters = () => {

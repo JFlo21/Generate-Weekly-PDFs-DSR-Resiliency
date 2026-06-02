@@ -31,4 +31,12 @@ describe('sanitizeSearchTerm', () => {
   it('trims whitespace and preserves underscores', () => {
     expect(sanitizeSearchTerm('  WR_123 ')).toBe('WR_123');
   });
+
+  it('strips single quote so an apostrophe name cannot break .or() (CR-02)', () => {
+    expect(sanitizeSearchTerm("O'Brien")).toBe('OBrien');
+  });
+
+  it('strips double-quote and ilike wildcard', () => {
+    expect(sanitizeSearchTerm('"WR*123"')).toBe('WR123');
+  });
 });
