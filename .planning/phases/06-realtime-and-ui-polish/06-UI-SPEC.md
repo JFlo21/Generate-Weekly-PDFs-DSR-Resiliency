@@ -78,10 +78,22 @@ with no visible UI change, but it is part of the polish pass.
 
 ---
 
+## Visual Hierarchy
+
+**Primary focal point:** the artifact-table GlassCard (L1 surface), anchored by
+the brand-red heading stripe above it; the "Load new" pill is the secondary,
+transient focal point that appears at the top of the table only when Realtime
+INSERT events arrive, then dismisses. Everything else (search bar, variant
+filters, toasts) is supporting chrome that must not compete with the table for
+attention.
+
+---
+
 ## Spacing Scale
 
 Tailwind default 4px-based scale (confirmed from `tailwind.config.ts` — no
-custom spacing overrides declared). All values are multiples of 4.
+custom spacing overrides declared). Every declared spacing value in this spec is
+a multiple of 4.
 
 | Token | Value | Usage |
 |-------|-------|-------|
@@ -93,13 +105,16 @@ custom spacing overrides declared). All values are multiples of 4.
 | 2xl | 48px (`py-12`) | Empty-state vertical breathing room |
 | 3xl | 64px | Major section breaks (not used in table UI) |
 
-**Exceptions:**
-- Mobile download button: minimum touch target 44px height (`min-h-[44px]`).
-  Achievable with `py-2.5 px-4` (10px + 16px = 52px actual) on the Download
-  button in mobile card view.
-- Table header cells: `px-5 py-3` (20px + 12px) — preserved from Phase 05
-  implementation; matches `UsersPage.tsx` canonical pattern.
-- Table data cells: `px-5 py-3` — same as header, 56px estimated row height.
+**Exceptions (multiples of 4 outside the standard token set — deliberate, documented):**
+- `px-5` / `py-3` (20px / 12px) on table header AND data cells — carried from the
+  Phase 05 `UsersPage.tsx` / `ArtifactTable.tsx` canonical pattern; both are
+  multiples of 4. Kept for visual continuity with the already-shipped table; row
+  height stays at the 56px virtualizer estimate.
+- `min-h-[44px]` on the mobile Download button — NOT a spacing/padding value but a
+  sizing constraint that fulfils the WCAG 2.5.5 (Target Size) 44px minimum
+  touch-target guarantee (44 = 4 × 11). The button's own padding is `py-3 px-4`
+  (12px / 16px, both multiples of 4); `min-h-[44px]` only floors the rendered
+  height so the target is never smaller than 44px regardless of line-height.
 
 ---
 
@@ -114,12 +129,17 @@ custom spacing overrides declared). All values are multiples of 4.
 
 **Notes:**
 - Exactly 3 distinct sizes in use: 12px (label/header), 14px (body), 24px (heading).
-- Exactly 2 weights: 400 (body, meta) and 600–700 (semibold/bold for headings and
-  column headers). Use `font-semibold` (600) for column headers; `font-bold` (700)
-  for page headings only.
+- **3 numeric weight values across 2 semantic tiers:**
+  - **regular = 400** — body and meta text.
+  - **emphasis = 600** (`font-semibold`) for column headers, the WR # in mobile
+    cards, and the count inside the "Load new" pill / toast; **700**
+    (`font-bold`) is reserved for the single page heading only.
+  Usage stays disciplined: no weight other than 400 / 600 / 700 appears, and 700
+  is used exactly once on screen (the "Artifacts" heading).
 - Toast message text: `text-sm text-slate-700` (14px, weight 400) — preserved from
   existing `Toast.tsx` implementation.
-- "N new artifacts" in toast/pill uses same body size; count shown in `font-semibold`.
+- "N new artifacts" in toast/pill uses body size (14px); the numeric count is
+  shown in `font-semibold` (600).
 
 ---
 
@@ -224,11 +244,12 @@ pattern library as structural templates.
   - Row 1: WR # in `text-sm font-semibold text-slate-900` + week-ending date
     in `text-xs text-slate-500` — always visible.
   - Row 2: Variant `<Badge>` (existing variants: success=primary, info=AEP,
-    default=base) + file size in `text-xs text-slate-400`.
-  - Row 3: Created date in `text-xs text-slate-400` + Download button.
-- Download button: `min-h-[44px]` touch target, `bg-brand-red text-white
-  rounded-lg px-4 py-2.5 text-sm font-medium`. Loading state: spinner icon
-  replaces download icon (use `lucide-react` `Loader2` with `animate-spin`).
+    default=base) + file size in `text-xs text-slate-500`.
+  - Row 3: Created date in `text-xs text-slate-500` + Download button.
+- Download button: `min-h-[44px] py-3 px-4` (44px WCAG 2.5.5 floor; padding
+  12px / 16px — all multiples of 4), `bg-brand-red text-white rounded-lg
+  text-sm font-medium`. Loading state: spinner icon replaces download icon
+  (use `lucide-react` `Loader2` with `animate-spin`).
 - `React.memo` wrapped at module level (same Pitfall 3 rule from Phase 05).
 
 ### 4. `ToastContext` (replaces dual-stack — C-01 fix)
@@ -348,7 +369,7 @@ const transition = prefersReduced ? { duration: 0 } : { duration: 0.2 };
 | Element | Copy |
 |---------|------|
 | Page heading | "Artifacts" (existing — preserve) |
-| Primary CTA (download) | "Download" (icon + label on desktop); icon-only with aria-label="Download {filename}" on mobile |
+| Primary CTA (download) | Desktop: download icon + visible text "Download" with `aria-label="Download {filename}"`. Mobile: icon-only button with `aria-label="Download {filename}"`. The object ("artifact") is implicit from the table row / card context. |
 | Download in-progress | aria-label="Downloading {filename}" (button disabled state) |
 | Empty state heading | "No artifacts yet" |
 | Empty state body | "Billing artifacts will appear here after the next CI run completes." |
@@ -356,13 +377,20 @@ const transition = prefersReduced ? { duration: 0 } : { duration: 0.2 };
 | No results body | "Try adjusting your search or clearing the filters." |
 | No results CTA | "Clear filters" |
 | Error state | "Could not load artifacts. Check your connection and try again." |
-| Error CTA | "Retry" |
+| Error CTA | "Try again" (visible button label; matches the error-toast voice — see Download error toast below) |
 | Download error toast | "Download failed. Please try again." |
 | Download success (no toast needed) | — (file download is the signal) |
 | New artifact toast | "N new artifact" (N=1) / "N new artifacts" (N>1) |
 | "Load new" pill | "Load 1 new artifact" / "Load {N} new artifacts" |
 | Pill dismiss aria-label | "Dismiss new artifact notification" |
 | Realtime connection info (not a toast) | No copy needed — silent reconnect |
+
+**CTA voice note:** Visible action labels use the imperative "Download" / "Try
+again" / "Clear filters" / "Load N new artifacts". The download button's object
+is intentionally implicit on screen (the row already identifies the artifact);
+the `aria-label` supplies the full "Download {filename}" for assistive tech. The
+error retry was changed from "Retry" to "Try again" so the visible button and the
+"Please try again." toast copy share one voice.
 
 **Destructive actions in this phase:** None. The download is not destructive.
 No delete/remove actions are in Phase 06 scope.
@@ -405,9 +433,10 @@ All of the following must be TRUE at phase close (maps to UI-03 / WCAG AA):
 | `text-slate-400` on `bg-white` | ~2.8:1 | FAIL for normal text |
 
 **Action for `text-slate-400`:** Upgrade secondary meta text to `text-slate-500`
-in all new Phase 06 components (`ArtifactCard`, `NewArtifactPill`). Existing
-Phase 05 uses of `text-slate-400` should be evaluated; upgrade where text carries
-meaning (dates, sizes) and leave decorative uses (icon color, separator) as-is.
+in all new Phase 06 components (`ArtifactCard`, `NewArtifactPill`) — already
+reflected in the `ArtifactCard` contract above. Existing Phase 05 uses of
+`text-slate-400` should be evaluated; upgrade where text carries meaning (dates,
+sizes) and leave decorative uses (icon color, separator) as-is.
 
 ---
 
