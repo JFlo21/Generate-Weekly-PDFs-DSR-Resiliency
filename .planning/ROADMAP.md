@@ -296,9 +296,14 @@ the legacy debugging surface)
 **Plans:** 4 plans
 
 Plans:
+**Wave 1**
 - [ ] 07-01-PLAN.md — SEC-02 security headers + Report-Only CSP on vercel.json; live zero-violation walkthrough
 - [ ] 07-02-PLAN.md — Live RLS/signed-URL probe (scripts/security-probe.ts, anon + pending JWT only) + SEC-05 audit
+
+**Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 07-03-PLAN.md — Express removal (sever -> grep-gate -> git rm portal/ -> smoke test) + SEC-03 secret gate + CSP enforce-flip
+
+**Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 07-04-PLAN.md — /security-review + gsd-secure-phase 07 + Dependabot critical/high CVE remediation; author 07-SECURITY.md
 
 **UI hint**: no
