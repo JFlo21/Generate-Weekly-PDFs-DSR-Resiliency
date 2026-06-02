@@ -44,7 +44,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 
 ### v1.1 Portal — Supabase-native Artifact Portal
 
-- [x] **Phase 03: Supabase Data Layer Foundation** — `public.artifacts` + `public.profiles` (completed 2026-05-29)
+- [x] **Phase 03: Supabase Data Layer Foundation** — `public.artifacts` + `public.profiles` (completed 2026-05-29)
   DDL, role-aware RLS, private Storage bucket, additive publish step in CI.
 - [x] **Phase 04: Auth, RBAC, and Deployment** — hCaptcha-hardened login/signup/reset,
   `profiles`-backed role system, admin user management, Vercel deploy correctness. (completed 2026-06-01)
@@ -64,7 +64,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 02. Attribution Bulk-Prefetch + Remediation | v1.0 hotfix | 6/6 | ✅ Shipped | 2026-05-26 |
 | 03. Supabase Data Layer Foundation | v1.1 | 3/3 | Complete   | 2026-05-29 |
 | 04. Auth, RBAC, and Deployment | v1.1 | 6/6 | ✅ Complete | 2026-06-01 |
-| 05. Artifact Table and Search | v1.1 | 0/TBD | Not started | — |
+| 05. Artifact Table and Search | v1.1 | 0/4 | Planned | — |
 | 06. Realtime and UI Polish | v1.1 | 0/TBD | Not started | — |
 | 07. Security Hardening and Express Removal | v1.1 | 0/TBD | Not started | — |
 
@@ -208,7 +208,20 @@ SEARCH-02, SEARCH-03, SEARCH-04
 4. The table renders 500+ rows without UI jank — row virtualization keeps the DOM shallow and memory flat.
 5. The table shows distinct, non-overlapping loading skeleton, empty state, and error-with-retry states; a genuine fetch failure surfaces an actionable error (not fake rows).
 
-**Plans:** TBD
+**Plans:** 4 plans
+
+Plans:
+**Wave 1** *(foundation — deps, provider, types, pure helpers)*
+- [ ] 05-01-PLAN.md — install 3 TanStack deps + mount QueryClientProvider + BillingArtifact type + searchNormalize/sanitize (D-08) + variantLabels (D-10) + useDebounce, RED tests first
+
+**Wave 2** *(data layer — blocked on Wave 1)*
+- [ ] 05-02-PLAN.md — useArtifactsInfinite (supabase.from('artifacts') useInfiniteQuery + combinable .or/.in/.order/.range, DATA-04/TABLE-03) + useDownloadArtifact (300s signed URL + browser download + error toast, TABLE-04/DATA-05) + remove the silent mock fallback (TABLE-02/D-02)
+
+**Wave 3** *(table UI — blocked on Wave 2)*
+- [ ] 05-03-PLAN.md — ArtifactTable (TanStack Virtual + manualSorting + 4 D-07 states + infinite scroll) + memoized ArtifactTableRow (6 TABLE-01 columns + download) + ArtifactEmptyState; render at /dashboard, stop rendering legacy runs view (D-01/D-02)
+
+**Wave 4** *(search/filter/sort — blocked on Wave 3)*
+- [ ] 05-04-PLAN.md — ArtifactSearchBar (debounced 250ms, SEARCH-01) + VariantFilterBar (dynamic friendly-label multi-select + clearable chips, SEARCH-02/D-10) + wire search+variants+sort into useArtifactsInfinite params so they combine server-side (SEARCH-03/SEARCH-04)
 
 **UI hint**: yes
 
