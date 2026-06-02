@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Portal — Supabase-native Artifact Portal
 status: executing
-last_updated: "2026-06-02T17:35:24.342Z"
+last_updated: "2026-06-02T17:43:33.054Z"
 last_activity: 2026-06-02
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 24
-  completed_plans: 22
-  percent: 92
+  completed_plans: 23
+  percent: 96
 ---
 
 # Project State
@@ -31,7 +31,7 @@ pipeline.
 ## Current Position
 
 Phase: 06 (Realtime and UI Polish) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Prev: Phase 05 (Artifact Table and Search) — ✅ COMPLETE (2026-06-02)
 Next: Plan Phase 06 — /gsd-plan-phase 06 (Realtime toast/pill, responsive, animations, a11y, C-01/C-02)
 Status: Ready to execute
@@ -47,7 +47,7 @@ Last activity: 2026-06-02
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [█████████░] 92%
+Progress: [██████████] 96%
 ```
 
 ## Performance Metrics
@@ -74,6 +74,7 @@ Progress: [█████████░] 92%
 | Phase 05-artifact-table-and-search P03 | 4min | 3 tasks | 5 files |
 | Phase 06-realtime-and-ui-polish P01 | 5m | 2 tasks | 3 files |
 | Phase 06-realtime-and-ui-polish P02 | 12m | 3 tasks | 5 files |
+| Phase 06 P04 | 15 | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -130,6 +131,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 - [Phase ?]: D-15 compliance
 - [Phase ?]: jest-axe pinned to 10.0.0 (test-only dev dep); jsdom disables color-contrast axe rule — contrast is manual UAT (D-07)
+- [Phase ?]: opacity-only framer-motion on virtualizer rows avoids translateY conflict
+- [Phase ?]: initialLoadComplete gate: first batch staggers, scroll rows get delay=0
+- [Phase ?]: responsive swap hidden sm:block table / sm:hidden ArtifactCard list, no mobile virtualization
 
 ### Roadmap Evolution
 

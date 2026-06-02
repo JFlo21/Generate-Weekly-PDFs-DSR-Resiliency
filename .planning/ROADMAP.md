@@ -264,7 +264,7 @@ Plans:
 - [x] 06-03-PLAN.md — `useRealtimeArtifacts` count-only role-gated leak-free hook + mock-channel tests (D-03/D-04/D-05) + `NewArtifactPill` + wire count-only info toast + persistent "Load N" pill into ArtifactTable (DATA-06/UI-02)
 
 **Wave 3** *(responsive + animation — blocked on 03)*
-- [ ] 06-04-PLAN.md — mobile `ArtifactCard` + responsive table↔card swap (UI-01) + opacity-only initial-load row stagger via `staggerDelay`/`initialLoadComplete` (UI-02) + WCAG slate-400→slate-500 upgrade (UI-03)
+- [x] 06-04-PLAN.md — mobile `ArtifactCard` + responsive table↔card swap (UI-01) + opacity-only initial-load row stagger via `staggerDelay`/`initialLoadComplete` (UI-02) + WCAG slate-400→slate-500 upgrade (UI-03)
 
 **Wave 4** *(polish + manual a11y — blocked on 02/03/04)*
 - [ ] 06-05-PLAN.md — `/frontend-design` propose-then-approve polish pass within locked UI-SPEC tokens (D-01/D-02) + D-07 manual WCAG-AA/keyboard/screen-reader/contrast + live-Realtime UAT walkthrough (autonomous:false)
