@@ -48,6 +48,15 @@ vi.mock('../../../hooks/useDownloadArtifact', () => ({
   useDownloadArtifact: () => ({ download: mockDownload, downloading: undefined }),
 }));
 
+// Mock useRealtimeArtifacts — DATA-06 hook; tested separately in its own suite.
+vi.mock('../../../hooks/useRealtimeArtifacts', () => ({
+  useRealtimeArtifacts: () => ({
+    pendingCount: 0,
+    clearPending: vi.fn(),
+    dismissPending: vi.fn(),
+  }),
+}));
+
 // ---------------------------------------------------------------------------
 // Mock useVirtualizer — JSDOM has no layout, getVirtualItems() would be empty.
 // We return one virtual item per row so the ArtifactTableRow renders in tests.

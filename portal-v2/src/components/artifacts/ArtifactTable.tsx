@@ -12,8 +12,10 @@ import { useArtifactsInfinite, type ArtifactsQueryParams } from '../../hooks/use
 import { useDownloadArtifact } from '../../hooks/useDownloadArtifact';
 import { useDebounce } from '../../hooks/useDebounce';
 import { useToastContext } from '../../contexts/ToastContext';
+import { useRealtimeArtifacts } from '../../hooks/useRealtimeArtifacts';
 import { Skeleton } from '../ui/Skeleton';
 import { ArtifactTableRow } from './ArtifactTableRow';
+import { NewArtifactPill } from './NewArtifactPill';
 import { EmptyDBState, NoResultsState, ErrorState } from './ArtifactEmptyState';
 import { ArtifactSearchBar } from './ArtifactSearchBar';
 import { VariantFilterBar } from './VariantFilterBar';
@@ -39,6 +41,21 @@ export function ArtifactTable() {
   // C-01: addToast sourced from global ToastContext (single stack).
   const { addToast } = useToastContext();
   const { download, downloading } = useDownloadArtifact(addToast);
+
+  // DATA-06: count-only Realtime INSERT notification (D-03/D-04)
+  const { pendingCount, clearPending, dismissPending } = useRealtimeArtifacts();
+
+  // Toast on new-artifact arrival (D-03). Hook is pure data; toast fires here.
+  useEffect(() => {
+    if (pendingCount > 0) {
+      const label = pendingCount === 1
+        ? '1 new artifact'
+        : `${pendingCount} new artifacts`;
+      addToast('info', label);
+    }
+    // addToast is a stable context ref — depend only on pendingCount to avoid re-firing
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingCount]);
 
   // --- Search / filter / sort state (lifted from FIXED_PARAMS in Plan 03) ---
   const [searchInput, setSearchInput] = useState('');
@@ -194,6 +211,13 @@ export function ArtifactTable() {
 
   return (
     <>
+      {/* DATA-06: new-artifact pill — persists until user loads or dismisses (D-03) */}
+      <NewArtifactPill
+        count={pendingCount}
+        onLoad={clearPending}
+        onDismiss={dismissPending}
+      />
+
       {/* Search + variant filter controls (SEARCH-01, SEARCH-02) */}
       <div className="flex flex-wrap gap-3 mb-4">
         <div className="flex-1 min-w-[240px]">
