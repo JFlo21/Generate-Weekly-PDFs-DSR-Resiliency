@@ -64,7 +64,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 02. Attribution Bulk-Prefetch + Remediation | v1.0 hotfix | 6/6 | ✅ Shipped | 2026-05-26 |
 | 03. Supabase Data Layer Foundation | v1.1 | 3/3 | Complete   | 2026-05-29 |
 | 04. Auth, RBAC, and Deployment | v1.1 | 6/6 | ✅ Complete | 2026-06-01 |
-| 05. Artifact Table and Search | v1.1 | 0/4 | Planned | — |
+| 05. Artifact Table and Search | v1.1 | 1/4 | In Progress|  |
 | 06. Realtime and UI Polish | v1.1 | 0/TBD | Not started | — |
 | 07. Security Hardening and Express Removal | v1.1 | 0/TBD | Not started | — |
 
@@ -208,11 +208,11 @@ SEARCH-02, SEARCH-03, SEARCH-04
 4. The table renders 500+ rows without UI jank — row virtualization keeps the DOM shallow and memory flat.
 5. The table shows distinct, non-overlapping loading skeleton, empty state, and error-with-retry states; a genuine fetch failure surfaces an actionable error (not fake rows).
 
-**Plans:** 4 plans
+**Plans:** 1/4 plans executed
 
 Plans:
 **Wave 1** *(foundation — deps, provider, types, pure helpers)*
-- [ ] 05-01-PLAN.md — install 3 TanStack deps + mount QueryClientProvider + BillingArtifact type + searchNormalize/sanitize (D-08) + variantLabels (D-10) + useDebounce, RED tests first
+- [x] 05-01-PLAN.md — install 3 TanStack deps + mount QueryClientProvider + BillingArtifact type + searchNormalize/sanitize (D-08) + variantLabels (D-10) + useDebounce, RED tests first
 
 **Wave 2** *(data layer — blocked on Wave 1)*
 - [ ] 05-02-PLAN.md — useArtifactsInfinite (supabase.from('artifacts') useInfiniteQuery + combinable .or/.in/.order/.range, DATA-04/TABLE-03) + useDownloadArtifact (300s signed URL + browser download + error toast, TABLE-04/DATA-05) + remove the silent mock fallback (TABLE-02/D-02)

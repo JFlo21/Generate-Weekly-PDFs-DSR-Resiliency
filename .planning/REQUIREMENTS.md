@@ -33,7 +33,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 
 ### Artifact Table
 
-- [ ] **TABLE-01**: User sees a table of available artifacts with columns
+- [x] **TABLE-01**: User sees a table of available artifacts with columns
   Work Request #, week-ending date, variant, file size, created date, and a
   download action.
 - [ ] **TABLE-02**: The table renders REAL Supabase data; the silent
@@ -49,13 +49,13 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 
 ### Search & Filter
 
-- [ ] **SEARCH-01**: A debounced search bar filters the table by Work
+- [x] **SEARCH-01**: A debounced search bar filters the table by Work
   Request # or week-ending date.
-- [ ] **SEARCH-02**: User can filter by variant via a multi-select control
+- [x] **SEARCH-02**: User can filter by variant via a multi-select control
   with clearable filter chips.
 - [ ] **SEARCH-03**: User can sort columns (WR #, week-ending, size, created)
   with clear ascending/descending indicators.
-- [ ] **SEARCH-04**: Search and filters are dynamic (reflect the actual data
+- [x] **SEARCH-04**: Search and filters are dynamic (reflect the actual data
   present) and combine (results satisfy search AND active filters).
 
 ### UI / UX
@@ -175,15 +175,15 @@ Which phases cover which requirements.
 | DATA-04 | Phase 03 | Pending |
 | DATA-05 | Phase 03 | Pending |
 | DATA-06 | Phase 06 | Pending |
-| TABLE-01 | Phase 05 | Pending |
+| TABLE-01 | Phase 05 | Complete |
 | TABLE-02 | Phase 05 | Pending |
 | TABLE-03 | Phase 05 | Pending |
 | TABLE-04 | Phase 05 | Pending |
 | TABLE-05 | Phase 05 | Pending |
-| SEARCH-01 | Phase 05 | Pending |
-| SEARCH-02 | Phase 05 | Pending |
+| SEARCH-01 | Phase 05 | Complete |
+| SEARCH-02 | Phase 05 | Complete |
 | SEARCH-03 | Phase 05 | Pending |
-| SEARCH-04 | Phase 05 | Pending |
+| SEARCH-04 | Phase 05 | Complete |
 | UI-01 | Phase 06 | Pending |
 | UI-02 | Phase 06 | Pending |
 | UI-03 | Phase 06 | Pending |
