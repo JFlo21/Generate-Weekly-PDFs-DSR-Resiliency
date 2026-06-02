@@ -35,6 +35,22 @@ export interface Profile {
   created_at: string;  // ISO timestamp
 }
 
+/**
+ * Matches the public.artifacts row shape exactly (supabase-js returns DATE as ISO string).
+ * 9 required keys — any drift from the schema will be caught by the type-contract test.
+ */
+export interface BillingArtifact {
+  id: string;              // uuid
+  work_request: string;    // e.g. "90001"
+  week_ending: string;     // ISO date string "2026-05-17" (supabase-js returns DATE as ISO)
+  week_ending_fmt: string; // MMDDYY display "051726"
+  variant: string;         // '' | 'helper' | 'vac_crew' | '_AEPBillable' | ...
+  filename: string;        // "WR_90001_WeekEnding_051726.xlsx"
+  storage_path: string;    // "{week_ending_iso}/{filename}"
+  size_bytes: number;
+  created_at: string;      // ISO timestamp
+}
+
 export type ToastType = 'success' | 'error' | 'info';
 
 export interface Toast {
