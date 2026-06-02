@@ -460,6 +460,17 @@ added as a gate in the weekly health-check workflow for ongoing regression prote
 - Produces/updates `07-SECURITY.md`.
 - **Blocks advancement** if `threats_open > 0` after all options exhausted.
 
+**Adversarial code audit — the `security-reviewer` skill** (CONFIRMED INSTALLED at
+`~/.claude/skills/security-reviewer/SKILL.md`, with `references/security-standards.md`):
+This is the installed skill that satisfies D-05's "/security-review" intent. It is
+invoked **by skill name `security-reviewer`** (there is NO `/security-review`
+command alias in this repo — verified `~/.claude/commands` has no security command).
+The skill takes an adversarial OWASP-Top-10 stance ("find vulnerabilities before
+they ship"), is restricted to `Read`/`Grep`/`Glob`, and emits a Critical/High/
+Medium/Low audit report with file:line + attack scenario + recommended fix for each
+finding. It audits the portal-v2 code + the live RLS/Storage/headers/secrets
+posture; `gsd-secure-phase 07` then verifies each declared mitigation in code.
+
 **What `07-SECURITY.md` must capture (per workflow):**
 - Full threat register with IDs, categories, components, dispositions, evidence.
 - Explicitly verify Phase 06 D-04 Realtime mitigations (code-verified below).
@@ -487,12 +498,6 @@ change events. Rows that fail the RLS check are not delivered to that subscriber
 [CITED: https://supabase.com/docs/guides/realtime/postgres-changes — "database
 records are sent only to clients who are allowed to read them based on your RLS
 policies"]
-
-**`/security-review` skill:** This is the `gsd-security-auditor` agent invoked
-through the `gsd-secure-phase` orchestration. The auditor reads PLAN.md threat model
-blocks, takes an adversarial stance ("assume every mitigation is absent until grep
-proves it"), and verifies each declared mitigation in the implementation files.
-BLOCKERS = open threats that must be resolved before the phase closes.
 
 ### Question 7: Dependabot critical/high triage (D-06)
 
@@ -533,7 +538,9 @@ are auto-resolved by deletion. No need to triage `portal/node_modules`.
 
 **`website/` (Docusaurus):** Run `npm audit` in `website/` separately to check for
 critical/high CVEs. If any exist, targeted bumps apply there too. Not verified in
-this research session — add to Phase 07 plan as a triage task.
+this research session — add to Phase 07 plan as a triage task. (RESOLVED — see Open
+Questions §3: 07-04 Task 1 runs `npm audit` in both `portal-v2/` and `website/` at
+execute-time and remediates critical/high on each deployed surface.)
 
 ### Question 8: Express removal mechanics (D-01/D-02)
 
@@ -548,7 +555,7 @@ The grep-gate D-02 will flag the following files as containing Express surface:
 | `portal-v2/src/hooks/useRuns.ts` | Entire file: SSE connection to `/api/events`, polling `/api/runs`, `VITE_API_BASE_URL` | **DELETE**: `DashboardLayout` already removed `useRuns()` usage; this hook is dead |
 | `portal-v2/src/components/dashboard/ArtifactExplorer.tsx` | `import { api }` | **ASSESS**: not in any routed path in `App.tsx` — dead code if unrouted |
 | `portal-v2/src/components/dashboard/ArtifactPanel.tsx` | `import { api }` | Same — assess if routed anywhere |
-| `portal-v2/src/components/dashboard/CommandPalette.tsx` | `import { api }` for search | Dormant behind cmd+K (deferred to v2 per REQUIREMENTS.md) |
+| `portal-v2/src/components/dashboard/CommandPalette.tsx` | `import { api }` for search | Dormant behind cmd+K (deferred to v2 per REQUIREMENTS.md) — SEVER the import + stub the single `api.search(...)` call site to `Promise.resolve({ hits: [], total: 0 })`; component stays (routed via DashboardLayout) |
 | `portal-v2/src/components/dashboard/FilePreview.tsx` | `import { api }` | Assess routing |
 | `portal-v2/src/components/dashboard/InteractiveExcelView.tsx` | `import { api }` | Assess routing |
 | `portal-v2/src/components/dashboard/StyledExcelView.tsx` | `import { api }` | Assess routing |
@@ -753,7 +760,7 @@ categories:
 | Category | Items Found | Action Required |
 |----------|-------------|-----------------|
 | Stored data | None — `portal/` Express backend holds no persistent state. No database, no cache. In-memory LRU search index dies with the process. | None — deletion is clean |
-| Live service config | `portal/` may be registered as a service on Render (if the Render migration was ever partially completed) or Railway (the prior deployment). Check if any Render/Railway service still points to this repo's `portal/`. | Operator: verify no active Render/Railway service uses `portal/` as root |
+| Live service config | `portal/` may be registered as a service on Render (if the Render migration was ever partially completed) or Railway (the prior deployment). Check if any Render/Railway service still points to this repo's `portal/`. | Operator: verify no active Render/Railway service uses `portal/` as root (07-03 user_setup + Task 2 precondition) |
 | OS-registered state | None identified | None |
 | Secrets/env vars | `VITE_API_BASE_URL` is in Vercel env vars (referenced in D-01) and `.env.example`. `GITHUB_TOKEN`, `SESSION_SECRET`, `PORT` are in `.env.example` only (not GitHub Secrets). | Remove `VITE_API_BASE_URL` from Vercel project env vars (Preview + Production) via Vercel Dashboard |
 | Build artifacts | `portal/node_modules/` — deleted with `git rm -r portal/`. Vercel and local `node_modules` in `portal/` are not tracked by git. | `git rm -r portal/` removes all tracked files. Run `npm install` in `portal-v2/` only. |
@@ -784,7 +791,7 @@ cron, systemd, or pm2 config referencing `portal/`. None found.
 | SEC-01 | anon REST artifacts → []; pending JWT artifacts → 0 rows; anon Storage GET → 403; pending JWT createSignedUrl → denied | live probe | `npx tsx scripts/security-probe.ts` (with env vars) | ❌ Wave 0 — create `scripts/security-probe.ts` |
 | SEC-02 | All Vercel responses carry 5 required headers + CSP | header check | `curl -sI <VERCEL_URL> \| grep -iE "x-frame-options\|x-content-type-options\|referrer-policy\|strict-transport\|content-security-policy"` | ❌ Manual curl check (no file needed) |
 | SEC-03 | `grep -r SERVICE_ROLE portal-v2/` returns nothing; `VITE_API_BASE_URL` absent from codebase | grep gate | `grep -r "SERVICE_ROLE" portal-v2/src/` (must exit 1 = no match) | ❌ Inline grep command in plan task |
-| SEC-04 | No HIGH/critical RLS, signed-URL, or secret-handling findings in `/security-review` | audit + human | `gsd-secure-phase 07` → `07-SECURITY.md` | ❌ Wave 0 — PLAN.md must include `<threat_model>` blocks |
+| SEC-04 | No HIGH/critical RLS, signed-URL, or secret-handling findings in `security-reviewer` audit | audit + human | `gsd-secure-phase 07` → `07-SECURITY.md` | ❌ Wave 0 — PLAN.md must include `<threat_model>` blocks |
 | SEC-05 | Signed URLs 5-min TTL, single-object scoped | code audit | `grep -n "SIGNED_URL_TTL" portal-v2/src/hooks/useDownloadArtifact.ts` → must show `300` | ✅ File exists, value verified = 300 |
 | Express removal (D-01) | `portal/` directory deleted from git | grep + file check | `ls portal/ 2>/dev/null && echo "FAIL: portal still exists" \|\| echo "PASS"` | ❌ Gate to run post-deletion |
 | SPA rewrite (D-02) | Deep-link `/dashboard` after removal doesn't 404 | smoke test | Manual: `curl -sI <VERCEL_URL>/dashboard` → must be 200 or 3xx (not 404) | ❌ Manual smoke test |
@@ -847,6 +854,8 @@ behavior — no new unit tests required for this phase beyond the probe script.)
 | `SUPABASE_PROBE_PENDING_EMAIL` / `_PASSWORD` Secrets | CI probe execution | ✗ — must be created | — | Create in GitHub Secrets + Supabase Auth before running probe in CI |
 | Vercel deployed URL | Smoke test (D-02), header check (SEC-02) | ✓ | — (Phase 04 confirmed working) | — |
 | `curl` | Header presence check | ✓ | system | Any HTTP client |
+| `security-reviewer` skill | SEC-04 adversarial code audit (D-05) | ✓ | `~/.claude/skills/security-reviewer/SKILL.md` (confirmed) | None — invoked by skill name; no `/security-review` command alias exists |
+| `gsd-secure-phase` skill | SEC-04 threat-model verification (D-05) | ✓ | `~/.claude/skills/gsd-secure-phase/SKILL.md` (confirmed) | None |
 
 **Missing dependencies with no fallback:**
 - Dedicated `pending`-role Supabase test account + GitHub Secrets for the probe.
@@ -872,10 +881,10 @@ behavior — no new unit tests required for this phase beyond the probe script.)
 
 | # | Claim | Section | Risk if Wrong |
 |---|-------|---------|---------------|
-| A1 | Sentry DSN is a US-region `o{id}.ingest.sentry.io` endpoint | CSP connect-src directive | If EU region: use `https://*.ingest.de.sentry.io` instead; CSP blocks Sentry events silently |
+| A1 | Sentry DSN is a US-region `o{id}.ingest.sentry.io` endpoint | CSP connect-src directive | If EU region: use `https://*.ingest.de.sentry.io` instead. RESOLVED by design — caught by the 07-01 Report-Only walkthrough (step 7) before the enforce-flip; never shipped enforcing wrong. See Open Questions §1. |
 | A2 | Vercel Toolbar is not intentionally enabled on the production portal | CSP note | If toolbar is enabled, CSP will break it; additional Vercel Toolbar domains needed |
 | A3 | HSTS `preload` is not currently intended for submission to the preload list | HSTS value | If preload is committed, the domain is permanently in browsers' preload lists; difficult to undo |
-| A4 | No active Render/Railway service currently uses `portal/` as its root directory | Runtime State Inventory | If a service exists, it will 404 after deletion without a decommission step |
+| A4 | No active Render/Railway service currently uses `portal/` as its root directory | Runtime State Inventory | If a service exists, it will 404 after deletion without a decommission step. RESOLVED → 07-03 user_setup + Task 2 precondition confirm/decommission before `git rm`. See Open Questions §2. |
 | A5 | `portal-v2` dashboard components that import `api.ts` (ArtifactExplorer, ArtifactPanel, etc.) are not reachable via any current route | Express removal assessment | If any is routed (checked App.tsx — none are), they must be updated before deletion of `api.ts` |
 
 **Note on A5:** Verified — `App.tsx` only routes `/login`, `/auth/forgot`, `/auth/reset`,
@@ -890,30 +899,46 @@ confirmation.
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Sentry DSN region**
-   - What we know: `VITE_SENTRY_DSN` is stored in GitHub/Vercel secrets (not
-     committed). The ingest domain pattern differs by region (US vs EU).
-   - What's unclear: Is the Sentry org on US servers or EU? The CSP `connect-src`
-     wildcard needs the right pattern.
-   - Recommendation: Operator checks the Sentry organization settings before
-     writing the CSP value. Use `https://*.ingest.sentry.io` for US,
-     `https://*.ingest.de.sentry.io` for EU. Alternatively, use both if uncertain.
+1. **Sentry DSN region (US/EU) → `connect-src` token** — **RESOLVED by design (no blocker).**
+   - What we knew: `VITE_SENTRY_DSN` is stored in GitHub/Vercel secrets (not
+     committed). The ingest domain pattern differs by region — US
+     `https://*.ingest.sentry.io` vs EU `https://*.ingest.de.sentry.io`.
+   - Resolution: The locked D-04 rollout ships
+     `Content-Security-Policy-Report-Only` FIRST. A wrong or missing Sentry
+     `connect-src` origin surfaces as a Report-Only console violation during
+     **07-01 Task 2's zero-violation walkthrough** (step 7 explicitly checks
+     Sentry events are still arriving), BEFORE the enforce-flip in 07-03. The
+     exact Sentry ingest origin is confirmed by the operator at execute-time
+     (already declared in 07-01's `user_setup`, and amended-then-redeployed if the
+     walkthrough surfaces an EU-region violation). **Net: the wrong-value failure
+     mode is caught by the Report-Only process, never shipped enforcing.** Default
+     to the US pattern `https://*.ingest.sentry.io`; switch to
+     `https://*.ingest.de.sentry.io` only if the walkthrough shows an
+     `ingest.sentry.io` violation. No pre-flight operator block required.
 
-2. **Render/Railway decommission**
-   - What we know: The prior Railway → Render migration was superseded (MIG-01 out
-     of scope). `portal/` on Render/Railway may or may not be actively deployed.
-   - What's unclear: Is any external service currently pointed at `portal/`'s
-     `server.js`? If so, deleting the directory causes that service to 404 on next
-     deploy.
-   - Recommendation: Operator verifies Render/Railway dashboards before the `git rm`.
+2. **Render/Railway decommission before `git rm portal/`** — **RESOLVED → execute-time operator check.**
+   - What we knew: The prior Railway → Render migration was superseded (MIG-01 out
+     of scope). `portal/` on Render/Railway may or may not still be deployed; if a
+     live service still roots at `portal/server.js`, deleting the directory 404s it
+     on next deploy.
+   - Resolution: 07-03 carries an explicit pre-removal acceptance item — a
+     `render` `user_setup` task PLUS a Task 2 precondition — requiring the operator
+     to confirm **no live Render/Railway (or other) service still points at
+     `portal/`** before the `git rm -r portal/`. The threat is dispositioned
+     `accept→verify` (T-07-04-orphan-service) and re-confirmed in the 07-03 SUMMARY.
 
-3. **`website/` Dependabot CVEs**
-   - What we know: D-06 scopes to `portal-v2`/`website` runtime surface.
-   - What's unclear: The `website/` npm audit was not run in this session.
-   - Recommendation: Run `npm audit` in `website/` at plan execution time and triage
-     critical/high the same way as `portal-v2/`.
+3. **`website/` Dependabot CVEs** — **RESOLVED → `npm audit` at execute-time as ground truth.**
+   - What we knew: D-06 scopes to the `portal-v2`/`website` runtime surface; the
+     `website/` audit was not run in the research session.
+   - Resolution: Consistent with 07-04's existing approach for `portal-v2`, 07-04
+     Task 1 runs `npm audit` in **BOTH `portal-v2/` AND `website/`** at execute-time
+     and remediates critical/high on each deployed surface with targeted bumps
+     (never `--force`); the 15 moderate advisories are deferred per D-06 and logged
+     in 07-SECURITY.md's Accepted Risks Log. `npm audit` output is authoritative —
+     CONTEXT.md's "2 critical + 5 high" count may have drifted (local audit showed
+     1 critical + 6 moderate on 2026-06-02).
 
 ---
 
@@ -925,6 +950,7 @@ confirmation.
 - `supabase/portal_schema.sql` — RLS policy text verified
 - `portal-v2/dist/index.html` — build output verified (no inline scripts/styles)
 - `portal-v2/src/hooks/useRealtimeArtifacts.ts` — D-04 mitigations verified in source
+- `~/.claude/skills/security-reviewer/SKILL.md` — adversarial OWASP audit skill confirmed installed (no `/security-review` command alias)
 - npm audit output (2026-06-02) — vitest CRITICAL confirmed
 - [CITED: https://vercel.com/docs/project-configuration/vercel-json] — `headers` array with `source: "/(.*)"` applies to all responses
 - [CITED: https://vercel.com/docs/cdn-security/security-headers] — CSP and security header configuration patterns
@@ -949,7 +975,7 @@ confirmation.
 - Standard stack: HIGH — verified installed versions from package.json
 - Architecture / headers: HIGH — verified against Vercel docs + live build output (no inline scripts)
 - RLS/Security posture: HIGH — schema SQL verified; live data confirmed (2383 rows)
-- CSP directive list: HIGH for Supabase/hCaptcha/Vite origins; MEDIUM for Sentry (DSN unknown)
+- CSP directive list: HIGH for Supabase/hCaptcha/Vite origins; MEDIUM for Sentry (DSN unknown, but Report-Only walkthrough catches it)
 - Pitfalls: HIGH — all derived from actual code inspection findings
 - Dependabot CVEs: HIGH — npm audit run locally 2026-06-02
 
