@@ -258,7 +258,7 @@ non-blocking Phase 05 code-review warnings best handled during polish: WR-05 (tw
 Plans:
 **Wave 1** *(foundation — parallel; no file overlap)*
 - [x] 06-01-PLAN.md — [BLOCKING] verify/enable `artifacts` in the `supabase_realtime` publication (DATA-06 gate) + install jest-axe + wire `expect.extend(toHaveNoViolations)` into test setup (D-07 automated) (autonomous:false)
-- [ ] 06-02-PLAN.md — `ToastContext` single global toast stack (C-01/D-06) + App.tsx rewire inside QueryClientProvider + ArtifactTable consumes context (no local container) + C-02 `.limit(2000)`+`staleTime` variant query (D-08)
+- [x] 06-02-PLAN.md — `ToastContext` single global toast stack (C-01/D-06) + App.tsx rewire inside QueryClientProvider + ArtifactTable consumes context (no local container) + C-02 `.limit(2000)`+`staleTime` variant query (D-08)
 
 **Wave 2** *(Realtime — blocked on 01+02)*
 - [ ] 06-03-PLAN.md — `useRealtimeArtifacts` count-only role-gated leak-free hook + mock-channel tests (D-03/D-04/D-05) + `NewArtifactPill` + wire count-only info toast + persistent "Load N" pill into ArtifactTable (DATA-06/UI-02)
