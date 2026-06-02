@@ -62,7 +62,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 
 - [ ] **UI-01**: The portal is responsive across desktop, tablet, and mobile
   widths.
-- [ ] **UI-02**: Tasteful Framer Motion animations (row entrance, view
+- [x] **UI-02**: Tasteful Framer Motion animations (row entrance, view
   transitions, toasts) enhance the experience without degrading table
   performance.
 - [x] **UI-03**: A consistent, modern, accessible visual design (keyboard
@@ -185,7 +185,7 @@ Which phases cover which requirements.
 | SEARCH-03 | Phase 05 | Complete |
 | SEARCH-04 | Phase 05 | Complete |
 | UI-01 | Phase 06 | Pending |
-| UI-02 | Phase 06 | Pending |
+| UI-02 | Phase 06 | Complete |
 | UI-03 | Phase 06 | Complete |
 | AUTH-01 | Phase 04 | Complete |
 | AUTH-02 | Phase 04 | Complete |

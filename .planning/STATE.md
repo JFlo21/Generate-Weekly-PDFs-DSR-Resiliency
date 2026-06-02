@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Portal — Supabase-native Artifact Portal
 status: executing
-last_updated: "2026-06-02T17:27:30.034Z"
+last_updated: "2026-06-02T17:35:24.342Z"
 last_activity: 2026-06-02
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 24
-  completed_plans: 21
-  percent: 88
+  completed_plans: 22
+  percent: 92
 ---
 
 # Project State
@@ -31,7 +31,7 @@ pipeline.
 ## Current Position
 
 Phase: 06 (Realtime and UI Polish) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Prev: Phase 05 (Artifact Table and Search) — ✅ COMPLETE (2026-06-02)
 Next: Plan Phase 06 — /gsd-plan-phase 06 (Realtime toast/pill, responsive, animations, a11y, C-01/C-02)
 Status: Ready to execute
@@ -47,7 +47,7 @@ Last activity: 2026-06-02
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [█████████░] 88%
+Progress: [█████████░] 92%
 ```
 
 ## Performance Metrics

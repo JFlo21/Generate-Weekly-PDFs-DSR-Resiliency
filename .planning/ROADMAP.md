@@ -261,7 +261,7 @@ Plans:
 - [x] 06-02-PLAN.md — `ToastContext` single global toast stack (C-01/D-06) + App.tsx rewire inside QueryClientProvider + ArtifactTable consumes context (no local container) + C-02 `.limit(2000)`+`staleTime` variant query (D-08)
 
 **Wave 2** *(Realtime — blocked on 01+02)*
-- [ ] 06-03-PLAN.md — `useRealtimeArtifacts` count-only role-gated leak-free hook + mock-channel tests (D-03/D-04/D-05) + `NewArtifactPill` + wire count-only info toast + persistent "Load N" pill into ArtifactTable (DATA-06/UI-02)
+- [x] 06-03-PLAN.md — `useRealtimeArtifacts` count-only role-gated leak-free hook + mock-channel tests (D-03/D-04/D-05) + `NewArtifactPill` + wire count-only info toast + persistent "Load N" pill into ArtifactTable (DATA-06/UI-02)
 
 **Wave 3** *(responsive + animation — blocked on 03)*
 - [ ] 06-04-PLAN.md — mobile `ArtifactCard` + responsive table↔card swap (UI-01) + opacity-only initial-load row stagger via `staggerDelay`/`initialLoadComplete` (UI-02) + WCAG slate-400→slate-500 upgrade (UI-03)
