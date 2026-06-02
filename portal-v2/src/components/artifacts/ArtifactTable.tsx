@@ -46,13 +46,21 @@ export function ArtifactTable() {
   // DATA-06: count-only Realtime INSERT notification (D-03/D-04)
   const { pendingCount, clearPending, dismissPending } = useRealtimeArtifacts();
 
+  // CR-02: track whether a toast has already fired for the current pending batch.
+  // A burst of INSERT events must produce exactly ONE toast, not N.
+  // The flag is reset to false when pendingCount returns to 0 (user loaded or
+  // dismissed), so the next batch can fire a fresh toast.
+  const toastFiredRef = useRef(false);
+
   // Toast on new-artifact arrival (D-03). Hook is pure data; toast fires here.
   useEffect(() => {
-    if (pendingCount > 0) {
-      const label = pendingCount === 1
-        ? '1 new artifact'
-        : `${pendingCount} new artifacts`;
-      addToast('info', label);
+    if (pendingCount > 0 && !toastFiredRef.current) {
+      toastFiredRef.current = true;
+      addToast('info', 'New artifacts are available — click to load.');
+    }
+    if (pendingCount === 0) {
+      // Reset so the next batch can fire a fresh toast.
+      toastFiredRef.current = false;
     }
     // addToast is a stable context ref — depend only on pendingCount to avoid re-firing
     // eslint-disable-next-line react-hooks/exhaustive-deps
