@@ -65,7 +65,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 03. Supabase Data Layer Foundation | v1.1 | 3/3 | Complete   | 2026-05-29 |
 | 04. Auth, RBAC, and Deployment | v1.1 | 6/6 | ✅ Complete | 2026-06-01 |
 | 05. Artifact Table and Search | v1.1 | 4/4 | Complete    | 2026-06-02 |
-| 06. Realtime and UI Polish | v1.1 | 5/5 | ✅ Complete (auto) | 2026-06-02 |
+| 06. Realtime and UI Polish | v1.1 | 5/5 | Complete    | 2026-06-02 |
 | 07. Security Hardening and Express Removal | v1.1 | 0/TBD | Not started | — |
 
 ---
@@ -253,7 +253,7 @@ non-blocking Phase 05 code-review warnings best handled during polish: WR-05 (tw
 `['artifact-variants']` query fetches all rows for client-side dedup — add a
 `.limit()` cap + longer `staleTime`). Source: `05-REVIEW.md`.
 
-**Plans:** 5 plans
+**Plans:** 5/5 plans complete
 
 Plans:
 **Wave 1** *(foundation — parallel; no file overlap)*
