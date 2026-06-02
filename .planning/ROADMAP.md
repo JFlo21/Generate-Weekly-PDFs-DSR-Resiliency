@@ -66,7 +66,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 04. Auth, RBAC, and Deployment | v1.1 | 6/6 | ✅ Complete | 2026-06-01 |
 | 05. Artifact Table and Search | v1.1 | 4/4 | Complete    | 2026-06-02 |
 | 06. Realtime and UI Polish | v1.1 | 5/5 | Complete    | 2026-06-02 |
-| 07. Security Hardening and Express Removal | v1.1 | 0/TBD | Not started | — |
+| 07. Security Hardening and Express Removal | v1.1 | 0/4 | Planned | — |
 
 ---
 
@@ -293,6 +293,12 @@ the legacy debugging surface)
 4. A `/security-review` checklist pass finds no HIGH/critical RLS, signed-URL scoping, or secret-handling findings; all findings at that severity are resolved and documented before milestone close.
 5. The `portal/` Express backend directory is deleted, `VITE_API_BASE_URL` is removed from all env configs, and the Vercel SPA rewrite in `vercel.json` remains intact and working after Express removal.
 
-**Plans:** TBD
+**Plans:** 4 plans
+
+Plans:
+- [ ] 07-01-PLAN.md — SEC-02 security headers + Report-Only CSP on vercel.json; live zero-violation walkthrough
+- [ ] 07-02-PLAN.md — Live RLS/signed-URL probe (scripts/security-probe.ts, anon + pending JWT only) + SEC-05 audit
+- [ ] 07-03-PLAN.md — Express removal (sever -> grep-gate -> git rm portal/ -> smoke test) + SEC-03 secret gate + CSP enforce-flip
+- [ ] 07-04-PLAN.md — /security-review + gsd-secure-phase 07 + Dependabot critical/high CVE remediation; author 07-SECURITY.md
 
 **UI hint**: no
