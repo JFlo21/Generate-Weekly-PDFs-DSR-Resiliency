@@ -1,7 +1,7 @@
 /**
  * Mock data layer for v0 preview / demo mode.
- * When VITE_API_BASE_URL is not set, this provides sample data so the UI
- * can be fully explored without a running Express backend.
+ * Activated only when VITE_USE_MOCK is explicitly "true" (demo/testing mode).
+ * The SPA reads directly from Supabase and does NOT require any Express backend.
  */
 import type {
   WorkflowRun,
@@ -15,15 +15,11 @@ import type {
 } from './types';
 
 /**
- * Activate mock mode when:
- *  - VITE_API_BASE_URL is missing or an empty string (no backend configured)
- *  - VITE_USE_MOCK is explicitly "true" (force demo mode)
- * We treat the trimmed empty string as "not configured" because Vite sometimes
- * bakes an empty env var into the bundle.
+ * Activate mock mode only when VITE_USE_MOCK is explicitly "true".
+ * Set VITE_USE_MOCK=true in .env.local for local demo/testing mode.
  */
-const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').trim();
-const forceMock = String(import.meta.env.VITE_USE_MOCK ?? '').toLowerCase() === 'true';
-export const USE_MOCK = !apiBase || forceMock;
+export const USE_MOCK =
+  String(import.meta.env.VITE_USE_MOCK ?? '').toLowerCase() === 'true';
 
 // ---------------------------------------------------------------------------
 // Sample Runs

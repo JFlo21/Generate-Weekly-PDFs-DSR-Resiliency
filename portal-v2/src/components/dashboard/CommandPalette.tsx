@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Search, Loader2, Package, PlayCircle, FileText, CornerDownLeft } from 'lucide-react';
-import { api } from '../../lib/api';
 import type { SearchHit } from '../../lib/types';
 import { cn, formatSize } from '../../lib/utils';
 
@@ -78,15 +77,13 @@ export function CommandPalette({ open, onClose, onSelect }: CommandPaletteProps)
     let cancelled = false;
     setLoading(true);
     setError(null);
-    api
-      .search(debounced, scope, 20)
-      .then((r) => {
-        if (cancelled) return;
-        setHits(r.hits);
-        setActive(0);
-      })
-      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : 'Search failed'))
-      .finally(() => !cancelled && setLoading(false));
+    // Cmd+K search deferred to v2 (CONTEXT.md Deferred); Express /api/search removed in Phase 07.
+    void Promise.resolve({ hits: [] as SearchHit[], total: 0 }).then((r) => {
+      if (cancelled) return;
+      setHits(r.hits);
+      setActive(0);
+      setLoading(false);
+    });
     return () => {
       cancelled = true;
     };
