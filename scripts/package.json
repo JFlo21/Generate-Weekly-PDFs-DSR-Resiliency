@@ -1,0 +1,14 @@
+{
+  "name": "gsd-scripts",
+  "private": true,
+  "type": "module",
+  "description": "Standalone repo utility scripts (security probe, etc.)",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "tsx": "^4.19.0",
+    "typescript": "^6.0.3"
+  }
+}
