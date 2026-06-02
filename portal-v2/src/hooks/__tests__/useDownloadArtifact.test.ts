@@ -57,7 +57,7 @@ afterEach(() => {
 const addToast = vi.fn();
 
 describe('useDownloadArtifact', () => {
-  it('calls supabase.storage.from("excel-artifacts").createSignedUrl with path and TTL 300', async () => {
+  it('calls createSignedUrl with path, TTL 300, and { download } to force attachment', async () => {
     mockCreateSignedUrl.mockResolvedValue({
       data: { signedUrl: 'https://example.com/file.xlsx' },
       error: null,
@@ -70,7 +70,11 @@ describe('useDownloadArtifact', () => {
     });
 
     expect(mockStorageFrom).toHaveBeenCalledWith('excel-artifacts');
-    expect(mockCreateSignedUrl).toHaveBeenCalledWith('2026-05-17/file.xlsx', 300);
+    // The { download } option sets Content-Disposition: attachment so the browser
+    // saves the file instead of opening it in the Office viewer (cross-origin fix).
+    expect(mockCreateSignedUrl).toHaveBeenCalledWith('2026-05-17/file.xlsx', 300, {
+      download: 'file.xlsx',
+    });
   });
 
   it('creates an <a> with href=signedUrl and download=filename, appends, clicks, removes on success', async () => {

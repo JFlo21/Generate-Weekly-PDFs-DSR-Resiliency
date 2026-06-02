@@ -14,9 +14,13 @@ export function useDownloadArtifact(
     async (rowId: string, storagePath: string, filename: string) => {
       setDownloading(rowId);
       try {
+        // { download: filename } stamps Content-Disposition: attachment on the
+        // signed URL so the browser SAVES the .xlsx instead of opening it in the
+        // Office/Excel-Online viewer. Required because the <a download> attribute
+        // below is ignored for cross-origin URLs (the signed URL is on *.supabase.co).
         const { data, error } = await supabase.storage
           .from(BUCKET)
-          .createSignedUrl(storagePath, SIGNED_URL_TTL);
+          .createSignedUrl(storagePath, SIGNED_URL_TTL, { download: filename });
         if (error || !data?.signedUrl) {
           throw new Error(error?.message ?? 'Failed to generate download link');
         }

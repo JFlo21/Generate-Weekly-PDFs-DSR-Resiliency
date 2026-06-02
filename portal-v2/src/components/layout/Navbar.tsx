@@ -1,35 +1,25 @@
-import { motion } from 'framer-motion';
-import { RefreshCw, LogOut, Wifi, WifiOff, Search, Beaker, BookOpen } from 'lucide-react';
+import { LogOut, Search, BookOpen } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useIsMac } from '../../hooks/usePlatform';
 import { commandPaletteHint } from '../../lib/platform';
-import { cn } from '../../lib/utils';
-
-const POLL_SECONDS = 120;
-const CIRCUMFERENCE = 2 * Math.PI * 16; // r=16
 
 // Docusaurus docs URL. Same env var as the sidebar link so they stay in sync.
 const DOCS_URL = (import.meta.env.VITE_DOCS_URL ?? '').trim();
 
 interface NavbarProps {
-  countdown: number;
-  isConnected: boolean;
-  isSampleData?: boolean;
-  onRefresh: () => void;
   onOpenCommandPalette?: () => void;
 }
 
-export function Navbar({
-  countdown,
-  isConnected,
-  isSampleData = false,
-  onRefresh,
-  onOpenCommandPalette,
-}: NavbarProps) {
+/**
+ * Navbar — Supabase-native top bar.
+ *
+ * The legacy run-polling UI (the Live/Offline/Sample-data connection pill and the
+ * 120s refresh countdown ring) was removed alongside `useRuns()` in DashboardLayout;
+ * it reflected the now-removed Express/Railway backend, not the Supabase data path.
+ */
+export function Navbar({ onOpenCommandPalette }: NavbarProps) {
   const isMac = useIsMac();
   const { profile, logout } = useAuth();
-  const progress = countdown / POLL_SECONDS;
-  const dashOffset = CIRCUMFERENCE * (1 - progress);
 
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between h-16 px-6 bg-white border-b border-slate-200 shadow-sm">
@@ -74,75 +64,6 @@ export function Navbar({
             <span>Docs</span>
           </a>
         )}
-
-        {/* Connection status — three distinct visual states:
-            sample data (amber), live (emerald), offline (slate). */}
-        <div
-          className={cn(
-            'flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-full border',
-            isSampleData
-              ? 'text-amber-700 bg-amber-50 border-amber-200'
-              : isConnected
-              ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
-              : 'text-slate-500 bg-slate-50 border-slate-200'
-          )}
-          title={
-            isSampleData
-              ? 'Sample data — backend unreachable'
-              : isConnected
-              ? 'Live — backend connected'
-              : 'Offline — no backend connection'
-          }
-        >
-          {isSampleData ? (
-            <Beaker size={12} />
-          ) : isConnected ? (
-            <Wifi size={12} />
-          ) : (
-            <WifiOff size={12} />
-          )}
-          <span className="hidden sm:inline">
-            {isSampleData ? 'Sample data' : isConnected ? 'Live' : 'Offline'}
-          </span>
-        </div>
-
-        {/* Refresh countdown ring */}
-        <button
-          onClick={onRefresh}
-          className="relative flex items-center justify-center w-9 h-9 rounded-full hover:bg-slate-100 transition-colors"
-          aria-label="Refresh now"
-          title={`Next refresh in ${countdown}s`}
-        >
-          <svg
-            width="36"
-            height="36"
-            viewBox="0 0 36 36"
-            className="absolute inset-0 -rotate-90"
-            aria-hidden="true"
-          >
-            <circle
-              cx="18"
-              cy="18"
-              r="16"
-              fill="none"
-              stroke="#e2e8f0"
-              strokeWidth="2"
-            />
-            <motion.circle
-              cx="18"
-              cy="18"
-              r="16"
-              fill="none"
-              stroke="#C41230"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeDasharray={CIRCUMFERENCE}
-              strokeDashoffset={dashOffset}
-              transition={{ duration: 1, ease: 'linear' }}
-            />
-          </svg>
-          <RefreshCw size={14} className="text-slate-500 relative" />
-        </button>
 
         {/* User info */}
         {profile && (
