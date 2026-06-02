@@ -68,10 +68,12 @@ export function ArtifactTable() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('artifacts')
-        .select('variant');
+        .select('variant')
+        .limit(2000);           // C-02: cap unbounded query
       if (error) throw error;
       return Array.from(new Set((data ?? []).map((r: { variant: string }) => r.variant)));
     },
+    staleTime: 10 * 60 * 1000, // C-02: 10-min staleTime (variants change rarely)
   });
   const variantOptions = variantOptionsData ?? [];
 
