@@ -3522,3 +3522,46 @@
   Step 3 enforces this via the human gate (separate commit). Any
   future AUTHORITATIVE re-flip after a revert MUST cite this entry
   and re-verify the four preconditions in the commit message.
+
+
+[2026-06-02 11:31] Variant-migration orphan attachment: primary superseded by helper
+
+**Incident:** A dual-checkbox helper row with blank `helper_dept` on Run 1
+fails helper qualification and falls back to the primary foreman group,
+uploading a primary Excel attachment to the TARGET Smartsheet row. After the
+operator corrects `helper_dept` and re-runs, the row migrates to the helper
+variant — the primary group disappears from `groups` entirely, its identity
+is never added to `valid_wr_weeks`, and the stale primary attachment survives
+every subsequent run (silent, no exception, double-crediting the primary foreman).
+
+**Root cause:** `cleanup_untracked_sheet_attachments` has no mechanism to detect
+a primary attachment whose group disappeared because the row migrated to a
+helper variant. The variant-pruning loop only removes OLDER DUPLICATES of each
+identity; a lone orphaned primary has no duplicate, so it is never deleted.
+
+**Fix:** Added a "variant-migration orphan gate" in
+`cleanup_untracked_sheet_attachments` (generate_weekly_pdfs.py) immediately
+before the `identity_groups[ident].append(att)` fallthrough. The gate fires
+when ALL three conditions hold:
+  1. `variant == 'primary'`
+  2. The attachment identity `(wr, week, 'primary', identifier)` is NOT in
+     `valid_wr_weeks` (so a legitimately live primary is never touched).
+  3. At least one helper-family variant (`helper`, `aep_billable_helper`,
+     `reduced_sub_helper`) for the SAME `(wr, week)` IS live in
+     `valid_wr_weeks` this run (confirming the migration occurred — prevents
+     over-eager deletion when a primary is simply out-of-scope for other
+     reasons like WR_FILTER or time-budget cutoff).
+
+Matching attachments are routed into `off_contract_attachments` for
+unconditional deletion with Sentry scope tag
+`cleanup.reason=variant_migration_orphan`.
+
+**Test:** tests/test_orphaned_primary_attachment.py —
+TestOrphanedPrimaryAttachmentOnHelperMigration (5 tests, RED before fix, all
+GREEN after). Full suite: 1025 passed, 29 skipped, 0 failures.
+
+**Rule:** Any future change to `cleanup_untracked_sheet_attachments` or
+`valid_wr_weeks` population must verify that this gate still fires for the
+variant-migration scenario. The confirming-signal condition (helper-family live
+for same wr+week) is load-bearing — removing it would cause over-eager
+deletion of primaries that are simply not in scope on a given run.

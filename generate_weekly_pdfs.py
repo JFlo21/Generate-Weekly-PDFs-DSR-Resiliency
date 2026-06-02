@@ -3241,6 +3241,66 @@ def cleanup_untracked_sheet_attachments(
                     ):
                         off_contract_attachments.append(att)
                         continue
+                    # Variant-migration orphan gate (2026-06-02):
+                    # A dual-checkbox helper row that had blank helper_dept
+                    # on Run 1 fell back to a primary group and produced a
+                    # primary Excel attachment on Smartsheet. On Run 2, once
+                    # helper_dept is corrected, the row migrates to the helper
+                    # variant — the primary group disappears from ``groups``
+                    # and its identity is NEVER added to ``valid_wr_weeks``.
+                    # The identity_groups loop below keeps the single remaining
+                    # attachment (no duplicate to prune), so it silently
+                    # survives every subsequent run.
+                    #
+                    # Detection rule: this attachment is a 'primary' variant
+                    # whose identity is NOT in ``valid_wr_weeks``, AND at
+                    # least one helper-family variant for the SAME (wr, week)
+                    # IS live in ``valid_wr_weeks`` this run. That combination
+                    # is the unambiguous signal that the primary credit was
+                    # superseded by a helper.
+                    #
+                    # Safety: the ``ident not in valid_wr_weeks`` guard ensures
+                    # a legitimately live primary (one that IS still produced
+                    # this run) is never touched. The helper-family presence
+                    # check (any helper/aep_billable_helper/reduced_sub_helper
+                    # for same wr+week) is the confirming signal that prevents
+                    # over-eager deletion when a primary is simply not in scope
+                    # today for other reasons (WR_FILTER, time-budget cutoff,
+                    # KEEP_HISTORICAL_WEEKS). Without this confirming signal we
+                    # would risk deleting a primary that is still valid but just
+                    # not regenerated in this run.
+                    _HELPER_VARIANTS_FOR_ORPHAN_GATE = frozenset({
+                        'helper', 'aep_billable_helper', 'reduced_sub_helper'
+                    })
+                    if (
+                        variant == 'primary'
+                        and ident not in valid_wr_weeks
+                        and any(
+                            _vw[0] == wr
+                            and _vw[1] == week
+                            and _vw[2] in _HELPER_VARIANTS_FOR_ORPHAN_GATE
+                            for _vw in valid_wr_weeks
+                        )
+                    ):
+                        try:
+                            import sentry_sdk as _sentry_sdk
+                            with _sentry_sdk.new_scope() as _scope:
+                                _scope.set_tag(
+                                    'cleanup.reason',
+                                    'variant_migration_orphan',
+                                )
+                                _scope.set_tag('wr', wr)
+                                _scope.set_tag('week', week)
+                        except Exception:
+                            pass
+                        off_contract_attachments.append(att)
+                        logging.info(
+                              f"🔄 Variant-migration orphan detected: "
+                            f"primary attachment {att.name!r} superseded "
+                            f"by live helper for WR {wr} week {week}. "
+                            f"Queued for deletion."
+                        )
+                        continue
                     identity_groups[ident].append(att)
         # Phase 1.1 Bug B2 (D-07 / SUB-10): unconditionally delete
         # off-contract attachments. These are NEVER subject to
