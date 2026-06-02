@@ -670,14 +670,12 @@ contract for NewArtifactPill.
 
 ## Approval
 
-> **This section is populated by the operator after reviewing sections A and B.**
+Status: APPROVED
 
-Status: PENDING
-
-<!-- Operator: fill in below when approving/rejecting -->
-
-**Approved items (A-xx):** [PENDING]
-**Rejected items (A-xx with reason):** [PENDING]
-**Change requests:** [PENDING]
-**Approved by:** [PENDING]
-**Date:** [PENDING]
+**Approved items (A-xx):** A-01, A-02, A-03, A-04, A-05, A-06, A-07, A-08 — all Section A items approved.
+**Rejected items (A-xx with reason):** None.
+**Change requests:** None.
+**Section B:** Deferred to v2 visual refresh — no Section B items applied.
+**Approved by:** Operator (Juan Flores)
+**Date:** 2026-06-02
+**Applied in commit:** ab8d642 — `feat(06-05): apply approved frontend-design polish (A-01..A-08)`
