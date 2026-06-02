@@ -1,8 +1,8 @@
 ---
 phase: 06
 slug: realtime-and-ui-polish
-status: draft
-nyquist_compliant: false
+status: approved
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-06-02
 ---
@@ -88,11 +88,11 @@ created: 2026-06-02
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references (jest-axe install + setup, 4 test files, publication SQL)
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 30s
-- [ ] `nyquist_compliant: true` set in frontmatter (after plans map every req to a verify)
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies (checkpoint tasks exempt — 06-01 T1, 06-05 T1/T2)
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references (jest-axe install + setup, 4 test files, publication SQL)
+- [x] No watch-mode flags
+- [x] Feedback latency < 30s
+- [x] `nyquist_compliant: true` set in frontmatter (every req maps to a verify across plans 06-01..06-05)
 
-**Approval:** pending
+**Approval:** approved 2026-06-02 (plan-checker iteration 1; substance verified — all auto tasks carry `npm test`/`npm run build` verify)

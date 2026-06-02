@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Portal — Supabase-native Artifact Portal
-status: planning
-last_updated: "2026-06-02T05:24:30.800Z"
-last_activity: 2026-06-02
+status: executing
+last_updated: "2026-06-02T16:10:21.173Z"
+last_activity: 2026-06-02 -- Phase 06 planning complete
 progress:
   total_phases: 6
   completed_phases: 4
-  total_plans: 19
+  total_plans: 24
   completed_plans: 19
-  percent: 100
+  percent: 79
 ---
 
 # Project State
@@ -26,17 +26,17 @@ right generated Excel billing artifact fast, from a secure, auth-gated,
 beautiful web portal — with zero change to the production Python billing
 pipeline.
 
-**Current focus:** Phase 05 — artifact-table-and-search
+**Current focus:** Phase 06 — realtime-and-ui-polish (context gathered, ready to plan)
 
 ## Current Position
 
-Phase: 06
-Plan: Not started
-Prev: 05-03 (ArtifactTable at /dashboard) — ✅ COMPLETE (2026-06-02)
-Next: Wave 4 (05-04) — search bar + variant filter + sort controls
-Status: Ready to plan
+Phase: 06 — Realtime and UI Polish
+Plan: Not started (context gathered — ready to plan)
+Prev: Phase 05 (Artifact Table and Search) — ✅ COMPLETE (2026-06-02)
+Next: Plan Phase 06 — /gsd-plan-phase 06 (Realtime toast/pill, responsive, animations, a11y, C-01/C-02)
+Status: Ready to execute
 Resume file: .planning/phases/06-realtime-and-ui-polish/06-CONTEXT.md
-Last activity: 2026-06-02
+Last activity: 2026-06-02 -- Phase 06 planning complete
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
@@ -63,8 +63,8 @@ Progress: [██████████] 100%
 |-------|------|--------------|-------|--------|
 | 03 — Supabase Data Layer Foundation | Supabase backend provisioned; CI publish step live | DATA-01..05 | 3 | ✅ Complete |
 | 04 — Auth, RBAC, and Deployment | Auth gate + RBAC + admin + Vercel deploy working | AUTH-01..06, RBAC-01..05, DEPLOY-01..04 | 6 | ✅ Complete |
-| 05 — Artifact Table and Search | Virtualized table on real data; search/filter/sort | TABLE-01..05, SEARCH-01..04 | TBD | 🟡 Context gathered — ready to plan |
-| 06 — Realtime and UI Polish | Realtime toast; responsive; animations; accessible | DATA-06, UI-01..03 | TBD | Not started |
+| 05 — Artifact Table and Search | Virtualized table on real data; search/filter/sort | TABLE-01..05, SEARCH-01..04 | 4 | ✅ Complete |
+| 06 — Realtime and UI Polish | Realtime toast; responsive; animations; accessible | DATA-06, UI-01..03 | TBD | 🟡 Context gathered — ready to plan |
 | 07 — Security Hardening and Express Removal | Security review passed; `portal/` removed | SEC-01..05 | TBD | Not started |
 | Phase 03 P03-02 | 7m | 2 tasks | 2 files |
 | Phase 03 P03-03 | 5m | 1 tasks | 1 files |
@@ -214,22 +214,23 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Operator Next Steps
 
-1. **Plan Phase 05** with `/gsd-plan-phase 05` — Artifact Table and Search.
-   Context is captured in `05-CONTEXT.md` (10 decisions D-01..D-10 + canonical
-   refs + code context). `/clear` first for a clean planning context.
+1. **Plan Phase 06** with `/gsd-plan-phase 06` — Realtime and UI Polish.
+   Context is captured in `06-CONTEXT.md` (8 decisions D-01..D-08 + canonical
+   refs + code context) and the authoritative `06-UI-SPEC.md`. `/clear` first
+   for a clean planning context.
 
-2. Phase 05 planning grounding (from `05-CONTEXT.md`):
-   - Read `05-CONTEXT.md` canonical_refs — especially the live-topology pointer
-     (project `poeyztlmsawfoqlanucc`, ~2,383 real `public.artifacts` rows) and
-     Phase 03 `03-CONTEXT.md` (artifacts schema, signed-URL `storage.objects`
-     SELECT-policy requirement, role-aware RLS).
+2. Phase 06 planning grounding (from `06-CONTEXT.md` / `.continue-here.md`):
+   - The planner MUST treat `06-UI-SPEC.md` as authoritative (D-01); the
+     `/frontend-design` pass is execution-polish ONLY, propose-then-approve (D-02).
 
-   - Add deps `@tanstack/react-table`, `@tanstack/react-virtual`,
-     `@tanstack/react-query` to `portal-v2/package.json` (ESM, React-18 safe).
+   - Dispatch a researcher to confirm the 2026 Supabase Realtime RLS/authorization
+     model for `postgres_changes` (D-04) — must withhold row payloads from
+     `pending`/anon sockets; this must come back clean for the Phase 07 audit.
 
-   - The fix is to rewire the read path off the dead Express `api.ts` to
-     `supabase.from('artifacts')` + `createSignedUrl` — not merely delete the
-     mock fallback.
+   - 4 net-new components to plan: `useRealtimeArtifacts`, `NewArtifactPill`,
+     `ArtifactCard`, `ToastContext` (the C-01 fix). Animate/subscribe against the
+     stable Phase 05 table — do NOT rebuild it.
 
-3. Deep animation polish, full responsive breakpoints, WCAG-AA audit, and the
-   Realtime toast are **Phase 06** — do not pull them into Phase 05.
+3. Security headers/CSP, the full RLS + signed-URL audit, and physical removal
+   of the Express backend (`portal/`) are **Phase 07** — do not pull them into
+   Phase 06.

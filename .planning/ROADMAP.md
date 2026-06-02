@@ -65,7 +65,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 03. Supabase Data Layer Foundation | v1.1 | 3/3 | Complete   | 2026-05-29 |
 | 04. Auth, RBAC, and Deployment | v1.1 | 6/6 | ✅ Complete | 2026-06-01 |
 | 05. Artifact Table and Search | v1.1 | 4/4 | Complete    | 2026-06-02 |
-| 06. Realtime and UI Polish | v1.1 | 0/TBD | Not started | — |
+| 06. Realtime and UI Polish | v1.1 | 0/5 | Planned | — |
 | 07. Security Hardening and Express Removal | v1.1 | 0/TBD | Not started | — |
 
 ---
@@ -253,7 +253,21 @@ non-blocking Phase 05 code-review warnings best handled during polish: WR-05 (tw
 `['artifact-variants']` query fetches all rows for client-side dedup — add a
 `.limit()` cap + longer `staleTime`). Source: `05-REVIEW.md`.
 
-**Plans:** TBD
+**Plans:** 5 plans
+
+Plans:
+**Wave 1** *(foundation — parallel; no file overlap)*
+- [ ] 06-01-PLAN.md — [BLOCKING] verify/enable `artifacts` in the `supabase_realtime` publication (DATA-06 gate) + install jest-axe + wire `expect.extend(toHaveNoViolations)` into test setup (D-07 automated) (autonomous:false)
+- [ ] 06-02-PLAN.md — `ToastContext` single global toast stack (C-01/D-06) + App.tsx rewire inside QueryClientProvider + ArtifactTable consumes context (no local container) + C-02 `.limit(2000)`+`staleTime` variant query (D-08)
+
+**Wave 2** *(Realtime — blocked on 01+02)*
+- [ ] 06-03-PLAN.md — `useRealtimeArtifacts` count-only role-gated leak-free hook + mock-channel tests (D-03/D-04/D-05) + `NewArtifactPill` + wire count-only info toast + persistent "Load N" pill into ArtifactTable (DATA-06/UI-02)
+
+**Wave 3** *(responsive + animation — blocked on 03)*
+- [ ] 06-04-PLAN.md — mobile `ArtifactCard` + responsive table↔card swap (UI-01) + opacity-only initial-load row stagger via `staggerDelay`/`initialLoadComplete` (UI-02) + WCAG slate-400→slate-500 upgrade (UI-03)
+
+**Wave 4** *(polish + manual a11y — blocked on 02/03/04)*
+- [ ] 06-05-PLAN.md — `/frontend-design` propose-then-approve polish pass within locked UI-SPEC tokens (D-01/D-02) + D-07 manual WCAG-AA/keyboard/screen-reader/contrast + live-Realtime UAT walkthrough (autonomous:false)
 
 **UI hint**: yes
 

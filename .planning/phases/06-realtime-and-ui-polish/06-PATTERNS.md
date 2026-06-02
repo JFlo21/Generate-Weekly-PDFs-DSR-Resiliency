@@ -154,8 +154,10 @@ useEffect(() => {
 
 **Return shape:**
 ```typescript
-return { pendingCount, clearPending };
-// Never return addToast — hook is pure data (RESEARCH.md Open Question 3)
+return { pendingCount, clearPending, dismissPending };
+// clearPending: reset count + invalidateQueries(['artifacts']) (load action)
+// dismissPending: reset count WITHOUT refetch (pill dismiss action, D-03)
+// Never return addToast — hook is pure data (RESEARCH.md Open Question 3 RESOLVED)
 // ArtifactTable watches pendingCount in a useEffect and calls addToast there
 ```
 

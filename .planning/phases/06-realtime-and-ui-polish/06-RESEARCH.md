@@ -820,21 +820,21 @@ The following CANNOT be validated in vitest/CI and require manual verification a
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Is `artifacts` already in the `supabase_realtime` publication on `poeyztlmsawfoqlanucc`?**
    - What we know: `portal_schema.sql` has no `ALTER PUBLICATION` statement. The Supabase dashboard allows toggling this via Settings → Replication.
    - What's unclear: Whether the publication was enabled manually via the dashboard (outside of SQL files tracked in git).
-   - Recommendation: Wave 0 executor runs `SELECT tablename FROM pg_publication_tables WHERE pubname = 'supabase_realtime'` in the SQL Editor before applying the migration.
+   - **RESOLVED:** Handled by design as a Wave 0 gating task — Plan 06-01 Task 1 (`[BLOCKING]`) runs `SELECT tablename FROM pg_publication_tables WHERE pubname = 'supabase_realtime'` in the SQL Editor and, if `artifacts` is absent, applies `ALTER PUBLICATION supabase_realtime ADD TABLE public.artifacts;` (idempotent no-op if already present), recording the verify-query result for the Phase 07 audit.
 
 2. **`framer-motion` v11 vs. v12 breaking changes**
    - What we know: Project pins `^11.11.17`; npm latest is `12.40.0`.
    - What's unclear: Whether any Phase 06 animation patterns require v12 APIs.
-   - Recommendation: All patterns specified in this research use the v11 API (`motion.div`, `AnimatePresence`, `useReducedMotion`). Do NOT upgrade to v12 in this phase.
+   - **RESOLVED:** All patterns specified in this research use the v11 API (`motion.div`, `AnimatePresence`, `useReducedMotion`). Do NOT upgrade to v12 in this phase — the plans pin to the installed `^11.11.17`.
 
 3. **Should `useRealtimeArtifacts` call `addToast` internally or delegate to the caller?**
    - What we know: The UI-SPEC §Component Inventory says "On INSERT: increments `pendingCount`" — toast is triggered separately in `ArtifactTable`.
-   - Recommendation: The hook returns `{ pendingCount, clearPending }` only. The `ArtifactTable` (which has `useToastContext()` access) calls `addToast` in a `useEffect` watching `pendingCount`. This keeps `useRealtimeArtifacts` testable in isolation without a `ToastProvider` wrapper.
+   - **RESOLVED:** The hook delegates — it returns `{ pendingCount, clearPending, dismissPending }` and does NOT call `addToast`. `ArtifactTable` (which has `useToastContext()` access) calls `addToast` in a `useEffect` watching `pendingCount`. This keeps `useRealtimeArtifacts` testable in isolation without a `ToastProvider` wrapper. (`dismissPending` resets the count without refetching, for the pill's dismiss action — D-03.)
 
 ---
 
