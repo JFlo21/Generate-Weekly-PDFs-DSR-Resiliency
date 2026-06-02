@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Portal — Supabase-native Artifact Portal
 status: executing
-last_updated: "2026-06-02T20:28:01.738Z"
-last_activity: 2026-06-02 -- Phase 07 planning complete
+last_updated: "2026-06-02T20:51:00.000Z"
+last_activity: 2026-06-02 -- Phase 07 plan 07-01 complete (SEC-02 headers + Report-Only CSP verified live)
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 28
-  completed_plans: 24
-  percent: 86
+  completed_plans: 25
+  percent: 89
 ---
 
 # Project State
@@ -26,17 +26,17 @@ right generated Excel billing artifact fast, from a secure, auth-gated,
 beautiful web portal — with zero change to the production Python billing
 pipeline.
 
-**Current focus:** Phase 06 — Realtime and UI Polish
+**Current focus:** Phase 07 — security-hardening-and-express-removal
 
 ## Current Position
 
-Phase: 07
-Plan: Not started
-Prev: Phase 05 (Artifact Table and Search) — ✅ COMPLETE (2026-06-02)
-Next: /gsd-verify-work Phase 06 after operator completes 06-HUMAN-UAT.md manual walkthrough
-Status: Ready to execute
-Resume file: .planning/phases/07-security-hardening-and-express-removal/07-CONTEXT.md
-Last activity: 2026-06-02 -- Phase 07 planning complete
+Phase: 07 (security-hardening-and-express-removal) — EXECUTING
+Plan: 2 of 4
+Prev: Phase 07 plan 07-01 — ✅ COMPLETE (2026-06-02; SEC-02 headers + Report-Only CSP verified live, zero violations)
+Next: Execute plan 07-02 (live RLS/signed-URL probe + SEC-05 audit) — Wave 1
+Status: Executing Phase 07
+Resume file: .planning/phases/07-security-hardening-and-express-removal/07-02-PLAN.md
+Last activity: 2026-06-02 -- Phase 07 plan 07-01 complete (SEC-02 headers + Report-Only CSP verified live)
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
@@ -76,6 +76,7 @@ Progress: [██████████] 100%
 | Phase 06-realtime-and-ui-polish P02 | 12m | 3 tasks | 5 files |
 | Phase 06 P04 | 15 | 3 tasks | 5 files |
 | Phase 06-realtime-and-ui-polish P05 | 35m | 2 tasks | 8 files |
+| Phase 07-security-hardening-and-express-removal P01 | 15m | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -135,6 +136,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase ?]: opacity-only framer-motion on virtualizer rows avoids translateY conflict
 - [Phase ?]: initialLoadComplete gate: first batch staggers, scroll rows get delay=0
 - [Phase ?]: responsive swap hidden sm:block table / sm:hidden ArtifactCard list, no mobile virtualization
+- [Phase 07-01]: SEC-02 — ship CSP as Content-Security-Policy-Report-Only FIRST (D-04); enforce-flip deferred to 07-03 Task 2, gated on live zero-violation walkthrough (PASS 2026-06-02)
+- [Phase 07-01]: Sentry org region CONFIRMED US — CSP connect-src uses https://*.ingest.sentry.io (no EU *.ingest.de.sentry.io); confirmed live via walkthrough step 7
+- [Phase 07-01]: HSTS max-age=63072000; includeSubDomains — preload deliberately omitted (operator-only, permanent)
 
 ### Roadmap Evolution
 
