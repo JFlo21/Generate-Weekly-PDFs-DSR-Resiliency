@@ -38,6 +38,11 @@ const SORTABLE_IDS = new Set<ArtifactsQueryParams['sortColumn']>([
   'work_request', 'week_ending', 'size_bytes', 'created_at',
 ]);
 
+// WR-04: named constant for the variant-options query row cap (C-02).
+// Variant values are ~5 distinct strings in practice; 2000 ensures the full
+// set is always fetched even if the artifacts table grows substantially.
+const VARIANT_OPTIONS_ROW_CAP = 2000;
+
 export function ArtifactTable() {
   // C-01: addToast sourced from global ToastContext (single stack).
   const { addToast } = useToastContext();
@@ -116,7 +121,7 @@ export function ArtifactTable() {
       const { data, error } = await supabase
         .from('artifacts')
         .select('variant')
-        .limit(2000);           // C-02: cap unbounded query
+        .limit(VARIANT_OPTIONS_ROW_CAP); // C-02: cap unbounded query
       if (error) throw error;
       return Array.from(new Set((data ?? []).map((r: { variant: string }) => r.variant)));
     },
