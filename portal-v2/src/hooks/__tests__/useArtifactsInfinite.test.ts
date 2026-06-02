@@ -162,7 +162,7 @@ describe('useArtifactsInfinite', () => {
 
   it('throws (status becomes error) when supabase returns an error object', async () => {
     spyFrom.mockReturnValue(
-      makeChain({ data: null, error: { message: 'DB error' }, count: null })
+      makeChain({ data: [], error: { message: 'DB error' }, count: null })
     );
     const { result } = renderHook(
       () => useArtifactsInfinite(DEFAULT_PARAMS),

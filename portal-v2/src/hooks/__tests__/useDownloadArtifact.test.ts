@@ -20,8 +20,10 @@ import { useDownloadArtifact } from '../useDownloadArtifact';
 
 // --- DOM spy helpers ---
 let fakeAnchor: HTMLAnchorElement;
-let appendChildSpy: ReturnType<typeof vi.spyOn>;
-let removeChildSpy: ReturnType<typeof vi.spyOn>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let appendChildSpy: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let removeChildSpy: any;
 let clickSpy: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -44,8 +46,8 @@ beforeEach(() => {
     }
   );
 
-  appendChildSpy = vi.spyOn(document.body, 'appendChild').mockReturnValue(fakeAnchor);
-  removeChildSpy = vi.spyOn(document.body, 'removeChild').mockReturnValue(fakeAnchor);
+  appendChildSpy = vi.spyOn(document.body, 'appendChild').mockReturnValue(fakeAnchor as unknown as ChildNode);
+  removeChildSpy = vi.spyOn(document.body, 'removeChild').mockReturnValue(fakeAnchor as unknown as ChildNode);
 });
 
 afterEach(() => {
