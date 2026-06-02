@@ -1,54 +1,51 @@
 {
   "version": "1.0",
-  "timestamp": "2026-06-01T19:21:25.975Z",
-  "phase": "04",
-  "phase_name": "auth-rbac-and-deployment",
-  "phase_dir": ".planning/phases/04-auth-rbac-and-deployment",
-  "plan": 6,
-  "task": 3,
-  "total_tasks": 3,
+  "timestamp": "2026-06-02T05:25:06.870Z",
+  "phase": "06",
+  "phase_name": "realtime-and-ui-polish",
+  "phase_dir": ".planning/phases/06-realtime-and-ui-polish",
+  "plan": null,
+  "task": 0,
+  "total_tasks": 0,
   "status": "paused",
-  "head_commit": "7470966",
+  "stage": "context-gathered (ready to plan)",
   "branch": "master",
-  "branch_sync": "in sync with origin/master (0 ahead, 0 behind)",
+  "head_commit": "6ad0654",
   "completed_tasks": [
-    {"id": "env-claude-mem", "name": "Fix claude-mem plugin on Windows (printf hook + bun install worker deps)", "status": "done", "commit": "n/a (plugin cache + manual worker start; NOT a repo commit)"},
-    {"id": "quick-260601-iqq", "name": "Fix 16 pre-existing failing tests (stale Living Ledger path + E authoritative flag)", "status": "done", "commit": "eed82a1 (tests) + d961c34 (docs)"},
-    {"id": "push", "name": "Push 39 commits to origin/master (all Phase 04 auth code now on GitHub; pre-push pytest gate passed)", "status": "done", "commit": "7470966"},
-    {"id": "04-06-task1", "name": "04-06 Task 1: vercel.json SPA rewrite + service_role grep + deployment runbook", "status": "done", "commit": "860af87"},
-    {"id": "04-06-task2", "name": "04-06 Task 2: full pre-deploy build/lint/test gate", "status": "done", "commit": "ef4fd07"}
+    {"id": "discuss-06", "name": "Phase 06 discuss-phase — identify gray areas, lock decisions D-01..D-08", "status": "done", "commit": "364d22a"},
+    {"id": "context-06", "name": "Write 06-CONTEXT.md + 06-DISCUSSION-LOG.md", "status": "done", "commit": "364d22a"},
+    {"id": "state-06", "name": "Record context session in STATE.md", "status": "done", "commit": "6ad0654"}
   ],
   "remaining_tasks": [
-    {"id": "auth-A", "name": "Supabase email template: swap {{ .SiteURL }}/field/update-password -> {{ .RedirectTo }} (polished HTML in .continue-here.md). USER pastes in dashboard.", "status": "not_started"},
-    {"id": "auth-B", "name": "Supabase Redirect URLs allow-list: add https://*.vercel.app/**, prod-domain/**, http://localhost:5173/**. USER, dashboard. Leave Site URL (Lovable) as-is.", "status": "not_started"},
-    {"id": "auth-C", "name": "PORTAL CODE (CLAUDE, via /gsd-quick): ResetPasswordPage.tsx add token_hash flow via supabase.auth.verifyOtp({token_hash,type:'recovery'}); keep PASSWORD_RECOVERY listener fallback; update __tests__.", "status": "not_started"},
-    {"id": "auth-D", "name": "Lovable app (USER, outside repo): ensure resetPasswordForEmail passes redirectTo='<lovable>/field/update-password' or shared-template switch breaks it.", "status": "not_started"},
-    {"id": "04-06-task3-promote", "name": "Promote Vercel deploy 7470966 (dpl_Ccr2ShBK7b7A5dM6inWY6xPCaJ9n) to Production (no auto-promote; prod pinned to old 99e48de). Durable fix: Production Branch = master.", "status": "not_started"},
-    {"id": "04-06-task3-protection", "name": "Vercel Deployment Protection: ensure PRODUCTION is public (Standard, not All Deployments). Preview returns 401 — likely the DEPLOY-04 'not connecting' cause.", "status": "not_started"},
-    {"id": "04-06-task3-verify", "name": "Verify production: LoginPage+Forgot-password renders, deep links no 404, login works. Then write 04-06-SUMMARY.md to CLOSE Phase 04.", "status": "not_started"}
+    {"id": "plan-06", "name": "Plan Phase 06 — /gsd-plan-phase 06 (produces PLAN.md set)", "status": "not_started"},
+    {"id": "execute-06", "name": "Execute Phase 06 plans (Realtime, responsive, animations, a11y, C-01/C-02 fixes)", "status": "not_started"},
+    {"id": "phase-07", "name": "Phase 07 — Security Hardening + Express removal (later, separate phase)", "status": "not_started"}
   ],
-  "blockers": [
-    {"description": "Password reset email always routes to the Lovable app because the Supabase template hardcodes {{ .SiteURL }}", "type": "external", "workaround": "Switch template to {{ .RedirectTo }} (auth-A) + allow-list (auth-B) + portal verifyOtp (auth-C)"},
-    {"description": "Vercel preview deployments return HTTP 401 (Deployment Protection on)", "type": "external", "workaround": "Ensure production is public; user is logged into Vercel so can view previews"}
-  ],
+  "blockers": [],
   "human_actions_pending": [
-    {"action": "Paste corrected reset-password email template into Supabase dashboard", "context": "auth-A; Claude cannot edit Supabase dashboard (unless Supabase MCP authenticated)", "blocking": true},
-    {"action": "Add portal reset URLs to Supabase Redirect URLs allow-list", "context": "auth-B; required or {{ .RedirectTo }} falls back to Site URL", "blocking": true},
-    {"action": "Verify Lovable app passes its own redirectTo", "context": "auth-D; outside this repo", "blocking": false},
-    {"action": "Promote Vercel build 7470966 to Production + check Deployment Protection is public", "context": "04-06 Task 3 close-out", "blocking": true}
+    {"action": "None required for this pause", "context": "Discuss-phase is fully committed; nothing is mid-implementation.", "blocking": false}
+  ],
+  "research_dependencies": [
+    {"item": "Confirm current (2026) Supabase Realtime authorization/RLS behavior for postgres_changes — does the supabase_realtime publication + table RLS withhold row payloads from pending/anon sockets?", "for_decision": "D-04 (defense-in-depth Realtime gating)", "consumed_by": "gsd-plan-phase 06 researcher"}
   ],
   "decisions": [
-    {"decision": "E (SUPABASE_HASH_STORE_AUTHORITATIVE) is intentionally ACTIVE ('1') — updated the test to match rather than reverting the workflow", "rationale": "User confirmed E activated after D-09/D-10/D-11 validation", "phase": "04"},
-    {"decision": "Use {{ .RedirectTo }} + token_hash flow for the reset email (not {{ .ConfirmationURL }})", "rationale": "Keeps Lovable on its existing token_hash flow; portal updated to match. ConfirmationURL alternative needs no portal change but risks breaking Lovable.", "phase": "04"},
-    {"decision": "Run quick task 260601-iqq without worktree isolation, directly on master", "rationale": "Fix had to land on master alongside the 38 unpushed commits to unblock the push", "phase": "04"}
+    {"decision": "06-UI-SPEC.md is the authoritative visual/interaction contract; /frontend-design runs as an execution-polish layer ONLY within the locked tokens", "rationale": "Reconciles the ROADMAP 'MUST invoke /frontend-design' mandate with the already-approved UI-SPEC without re-litigating it", "phase": "06", "id": "D-01"},
+    {"decision": "/frontend-design output is propose-then-approve", "rationale": "Polish pass must not silently override the approved UI-SPEC", "phase": "06", "id": "D-02"},
+    {"decision": "Realtime notification = count-only toast + 'Load new' pill, both fire on INSERT; no mid-scroll auto-insert", "rationale": "Resolves the toast-vs-pill ambiguity in UI-SPEC — they coexist in one C-01 stack", "phase": "06", "id": "D-03"},
+    {"decision": "Defense-in-depth Realtime gating: subscribe only when isBilling/isAdmin + count-only payload + researcher confirms RLS withholds rows from pending/anon sockets", "rationale": "Matches UI-gate + DB-RLS project pattern; built to pass the Phase 07 security audit clean", "phase": "06", "id": "D-04"},
+    {"decision": "Realtime unit-tested by mocking the Supabase channel in vitest; live behavior verified in UAT", "rationale": "Cheap deterministic CI coverage; real INSERT path checked manually", "phase": "06", "id": "D-05"},
+    {"decision": "C-01 fix = custom ToastContext on existing Toast.tsx primitives (sonner rejected)", "rationale": "Honors the 'minimize external deps' value; existing primitive already has spring/swipe/a11y", "phase": "06", "id": "D-06"},
+    {"decision": "WCAG AA verified with BOTH jest-axe (CI, dev-only dep) AND a manual keyboard/focus/screen-reader walkthrough at close", "rationale": "Matches the Fortune-500 quality bar; automated catches regressions, manual catches flow/announce issues", "phase": "06", "id": "D-07"},
+    {"decision": "Apply UI-SPEC C-02 verbatim — .limit(2000) + 10-min staleTime on the ['artifact-variants'] query", "rationale": "Locked carryover from 05-REVIEW.md (WR-03)", "phase": "06", "id": "D-08"}
   ],
   "uncommitted_files": [
-    ".github/prompts/architecture-analysis.md (unrelated in-flight edit — do NOT commit with auth work)",
-    ".github/prompts/configuration-environment.md (unrelated)",
-    ".github/prompts/memory-integration-codebase-context.md (unrelated)",
-    ".github/prompts/testing-and-validation.md (unrelated)",
-    ".planning/quick/260528-na5-mark-unimplemented-env-vars-as-not-imple/ (untracked — separate quick task 260528-na5)"
+    {"path": ".github/prompts/architecture-analysis.md", "note": "PRE-EXISTING (modified before this session) — unrelated to Phase 06; do NOT sweep into Phase 06 commits"},
+    {"path": ".github/prompts/configuration-environment.md", "note": "PRE-EXISTING — unrelated to Phase 06"},
+    {"path": ".github/prompts/memory-integration-codebase-context.md", "note": "PRE-EXISTING — unrelated to Phase 06"},
+    {"path": ".github/prompts/testing-and-validation.md", "note": "PRE-EXISTING — unrelated to Phase 06"},
+    {"path": ".planning/phases/05-artifact-table-and-search/05-PATTERNS.md", "note": "PRE-EXISTING untracked — Phase 05 artifact"},
+    {"path": ".planning/quick/260528-na5-mark-unimplemented-env-vars-as-not-imple/", "note": "PRE-EXISTING untracked quick-task dir (260528-na5)"}
   ],
-  "next_action": "Implement auth-C: update portal-v2/src/components/auth/ResetPasswordPage.tsx to handle the token_hash recovery flow (verifyOtp), via /gsd-quick. In parallel, hand the user auth-A (email template HTML — in .continue-here.md) + auth-B (allow-list). Keep pytest green (python -m pytest) before any push.",
-  "context_notes": "Conversation got large; user cleared to save tokens. All Phase 04 auth code is already pushed to origin/master (commit 7470966) and built on Vercel as a PREVIEW. The ONLY remaining repo code change is the portal ResetPasswordPage verifyOtp handling (auth-C). Everything else is user dashboard work (Supabase template + allow-list, Vercel promote + protection) or external (Lovable). The full email-template HTML and exact verifyOtp change are spelled out in .continue-here.md so no chat replay is needed. pre-push hook gates on `python -m pytest tests/` (bare `pytest` not on PATH)."
+  "next_action": "Run `/clear` then `/gsd-plan-phase 06` to produce the Phase 06 plan set. The planner MUST treat 06-UI-SPEC.md as authoritative (D-01) and dispatch the researcher to confirm the Supabase Realtime RLS/authorization model (D-04).",
+  "context_notes": "Phase 06 is unusual: the approved, exhaustive 06-UI-SPEC.md already locks the entire visual/interaction system, so discuss-phase only resolved the four genuinely-open decisions (design-pass authority, toast mechanism, Realtime gating, a11y verification) plus three sensible-default smaller items. All eight decisions live in 06-CONTEXT.md as D-01..D-08. Nothing is mid-implementation — clean pause right after context capture, ready to plan. Prior HANDOFF.json was a stale Phase 04 handoff (now-closed) and was overwritten."
 }
