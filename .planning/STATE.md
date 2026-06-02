@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Portal — Supabase-native Artifact Portal
-status: verifying
-last_updated: "2026-06-01T22:44:50.000Z"
-last_activity: "2026-06-01 - Phase 05 CONTEXT gathered (05-CONTEXT.md committed c8c6fbd). 4 areas discussed: table replaces dashboard; TanStack Table+Virtual+Query headless on existing primitives; infinite windowed scroll + week-ending DESC + 3 tailored states; flexible date input + ilike substring + friendly variant labels. Quality steer: Fortune-500-grade enterprise table, modern methods. Next: /gsd-plan-phase 05."
+status: executing
+last_updated: "2026-06-02T00:36:58.400Z"
+last_activity: 2026-06-02 -- Phase 05 planning complete
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 15
+  total_plans: 19
   completed_plans: 15
-  percent: 100
+  percent: 79
 ---
 
 # Project State
@@ -33,9 +33,9 @@ pipeline.
 Phase: 05 (artifact-table-and-search) — 🟡 CONTEXT GATHERED (2026-06-01); ready to plan
 Prev: Phase 04 (auth-rbac-and-deployment) — ✅ COMPLETE (2026-06-01, 6/6 plans)
 Next: `/gsd-plan-phase 05` — then execute
-Status: 05-CONTEXT.md + 05-DISCUSSION-LOG.md committed (c8c6fbd). No plans yet.
+Status: Ready to execute
 Resume file: .planning/phases/05-artifact-table-and-search/05-CONTEXT.md
-Last activity: 2026-06-01 - Phase 05 CONTEXT gathered. Decisions locked: (1) artifact table REPLACES the dashboard, remove only the mock path now (Express-coupled run/explorer files deleted in Phase 07); (2) TanStack Table v8 + TanStack Virtual + TanStack Query v5, headless on existing GlassCard/Badge/Skeleton/Toast primitives (no MUI/AG Grid); (3) infinite windowed scroll + week-ending DESC default + 3 tailored loading/empty/error states; (4) flexible date input (MMDDYY/slashed/ISO) + case-insensitive ilike substring on WR#/week-ending + human-friendly variant chips. Quality steer: Fortune-500-grade enterprise table using correct modern methods. Live data is real (project poeyztlmsawfoqlanucc, ~2,383 artifact rows); fix is to rewire the read path off the dead Express api.ts to supabase.from('artifacts') + createSignedUrl.
+Last activity: 2026-06-02 -- Phase 05 planning complete
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
@@ -214,15 +214,19 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 1. **Plan Phase 05** with `/gsd-plan-phase 05` — Artifact Table and Search.
    Context is captured in `05-CONTEXT.md` (10 decisions D-01..D-10 + canonical
    refs + code context). `/clear` first for a clean planning context.
+
 2. Phase 05 planning grounding (from `05-CONTEXT.md`):
    - Read `05-CONTEXT.md` canonical_refs — especially the live-topology pointer
      (project `poeyztlmsawfoqlanucc`, ~2,383 real `public.artifacts` rows) and
      Phase 03 `03-CONTEXT.md` (artifacts schema, signed-URL `storage.objects`
      SELECT-policy requirement, role-aware RLS).
+
    - Add deps `@tanstack/react-table`, `@tanstack/react-virtual`,
      `@tanstack/react-query` to `portal-v2/package.json` (ESM, React-18 safe).
+
    - The fix is to rewire the read path off the dead Express `api.ts` to
      `supabase.from('artifacts')` + `createSignedUrl` — not merely delete the
      mock fallback.
+
 3. Deep animation polish, full responsive breakpoints, WCAG-AA audit, and the
    Realtime toast are **Phase 06** — do not pull them into Phase 05.
