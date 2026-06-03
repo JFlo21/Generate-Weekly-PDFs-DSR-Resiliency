@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Portal — Supabase-native Artifact Portal
 status: executing
-last_updated: "2026-06-02T23:40:00.000Z"
-last_activity: 2026-06-02 -- Plan 07-03 complete (Express removed, CSP enforcing, smoke test PASS); Phase 07 at plan 4 of 4
+last_updated: "2026-06-03T15:30:00.000Z"
+last_activity: 2026-06-03 -- Plan 07-04 Task 1 COMPLETE (CVE triage: portal-v2 + website both 0 critical/high; 9 moderates deferred); Task 2 (SEC-04 audit + 07-SECURITY.md) remains, blocked on live Vercel URL
 progress:
   total_phases: 6
   completed_phases: 5
@@ -31,12 +31,12 @@ pipeline.
 ## Current Position
 
 Phase: 07 (security-hardening-and-express-removal) — EXECUTING
-Plan: 4 of 4
+Plan: 4 of 4 — Task 1 of 2 ✅ COMPLETE
 Prev: Phase 07 plan 07-03 — ✅ COMPLETE (2026-06-02; Express removed, CSP enforcing, 6-step smoke test PASS, SEC-03 PASS)
-Next: Execute plan 07-04 (Wave 3 — SEC-04 npm audit + Dependabot CVE remediation + write 07-SECURITY.md)
-Status: Executing Phase 07 — Wave 3 ready
-Resume file: .planning/phases/07-security-hardening-and-express-removal/07-04-PLAN.md
-Last activity: 2026-06-02 -- Plan 07-03 complete: portal/ deleted (29 files), all Express coupling severed, CSP enforcing, live smoke test PASS
+Next: Plan 07-04 Task 2 — invoke security-reviewer skill + gsd-secure-phase 07, author 07-SECURITY.md (threats_open:0 + status:verified), write 07-04-SUMMARY.md. BLOCKED on live Vercel production URL (SEC-02 header curl + SEC-04 sign-off).
+Status: Executing Phase 07 — Task 1 (CVE triage) done; Task 2 (SEC-04 audit) pending live Vercel URL
+Resume file: .planning/HANDOFF.json (Task 1 done; Task 2 only) + .planning/phases/07-security-hardening-and-express-removal/07-04-PLAN.md
+Last activity: 2026-06-03 -- Plan 07-04 Task 1 COMPLETE: portal-v2 (vitest ^4.1.8, runtime audit EXIT 0) + website (npm audit 0 critical/0 high/7 moderate, build EXIT 0) both clean; 9 moderates (portal-v2: postcss, ws | website: body-parser, express, qs, sockjs, uuid, webpack-dev-server, ws) deferred to Accepted Risks Log per D-06
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
