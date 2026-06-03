@@ -3609,3 +3609,60 @@ ALWAYS verify `git status` for an unintended root `SECURITY.md` modification and
 is `.planning/phases/{NN}-*/{NN}-SECURITY.md` (authored by the orchestrator) —
 the repo-root `SECURITY.md` is the public disclosure policy and must stay
 untouched.
+
+---
+
+## [2026-06-03 16:48] Rate CSVs now optional: benign skip replaces recurring Sentry ERROR
+
+**What changed:** `load_contract_rates` and `build_cu_to_group_mapping` in
+`generate_weekly_pdfs.py` gained an `os.path.isfile()` existence guard at the
+top of each function body, before the `try:/open()` path. When the resolved
+path does not exist, the loaders now emit `logging.info("Rate CSV not present,
+skipping load: ...")` and a `sentry_add_breadcrumb(level="info")` with
+`data={"path_present": False}`, then return the empty dict — no `logging.error`,
+no Sentry event. The `except Exception` block is preserved for genuinely
+present-but-malformed files, now fingerprinted
+`["rate-csv-load-failure", "<fn_name>"]` via `sentry_capture_with_context` with
+`_redact_exception_message(e)` in `context_data` (never raw `str(e)`).
+
+**Root cause:** `OLD_RATES_CSV` resolves to its uncommitted default
+`'CU List - Corpus North & South.csv'` on every run. The production workflow
+pins `OLD_RATES_CSV: ''` in `weekly-excel-generation.yml`, but
+`_sanitize_csv_path` treats an empty string as "use the default", so the pin
+never disables the load. Both loaders caught the resulting `FileNotFoundError`
+into `logging.error(...)`, and because `LoggingIntegration(event_level=ERROR)`
+is configured, each `logging.error` fired a Sentry event on every cron run.
+Billing blast radius confirmed ZERO: `RATE_CUTOFF_DATE` is pinned empty
+(gating `load_rate_versions` and the entire recalc path since 2026-04-24), and
+`revert_subcontractor_price` — the only consumer of `load_contract_rates` output
+— has no call sites. The net effect was pure operational noise.
+
+**Why NOT to point the default at a tracked CSV:** Semantically incorrect and
+against the 2026-04-24 retirement decision. See ledger entry [2026-04-24 14:30].
+The uncommitted default and workflow pin are left in place as the documented
+one-line revert path.
+
+**Also corrected in this commit:**
+- Sentry cron `monitor_config` was stale (`"30 17 * * 1"` / `America/Phoenix` /
+  `max_runtime 120`); corrected to the real production weekday schedule
+  (`"0 13,15,17,19,21,23,1 * * 1-5"` / `America/Chicago` / `max_runtime 180`
+  aligned with `timeout-minutes: 180` in the workflow).
+- Added PII-safe run-mode Sentry tags alongside the existing tag block:
+  `res_grouping_mode` (fixed enum), `wr_filter_active` (`str(bool(WR_FILTER))` —
+  a True/False string, **never the WR list**), `force_generation` (bool).
+  `set_tag` bypasses `before_send_log`; WR numbers are row-PII and must never
+  appear in tags/contexts/attachments.
+- Closed a pre-existing PII leak: `set_context("configuration")` was sending the
+  raw `WR_FILTER` list to Sentry (list of WR strings = row-PII; `set_context`
+  also bypasses `before_send_log`). Replaced `"wr_filter": WR_FILTER` with
+  `"wr_filter_active": bool(WR_FILTER)` + `"wr_filter_count": len(WR_FILTER)`.
+
+**Guardrails preserved:** `_sanitize_csv_path` untouched; `:408` default string
+untouched; workflow pinned-empty rate vars untouched (one-line revert intact);
+empty-dict return contract preserved; `sentry-sdk>=2.35.0` floor unchanged;
+`SENTRY_ENABLE_LOGS` stays OFF by default.
+
+**Tests:** Two new `assertNoLogs(level="ERROR")` tests (TDD RED then GREEN) in
+`tests/test_subcontractor_pricing.py` — one per loader — confirm the benign
+branch emits no ERROR-level log. Existing `:43`/`:759` `test_missing_file_returns_empty`
+tests continue to pass (empty-dict contract preserved). Full suite: all passed.
