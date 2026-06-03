@@ -8131,6 +8131,14 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             _txn.set_data("test_mode", TEST_MODE)
             _txn.set_data("github_actions", GITHUB_ACTIONS_MODE)
 
+        # #7 - milestone structured log: run start (counts/booleans only)
+        _sentry_log_event(
+            "info",
+            "weekly run started",
+            test_mode=TEST_MODE,
+            github_actions=GITHUB_ACTIONS_MODE,
+        )
+
         # ── Source sheet discovery (includes folder discovery on cache miss) ──
         _phase_start = datetime.datetime.now()
         logging.info(f"\n{'='*60}")
@@ -10299,6 +10307,33 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 "errored": _groups_errored,
             })
             
+            # #6 - SUCCESS-path root-transaction KPIs (counts only, no PII)
+            if _txn:
+                for _k, _v in _build_run_kpis(
+                    files_generated=generated_files_count,
+                    groups_total=len(groups),
+                    groups_skipped=_groups_skipped,
+                    groups_generated=_groups_generated,
+                    groups_uploaded=_groups_uploaded,
+                    groups_errored=_groups_errored,
+                    duration_seconds=session_duration.total_seconds(),
+                    sheets_discovered=len(source_sheets) if 'source_sheets' in dir() else 0,
+                    rows_fetched=len(all_rows) if 'all_rows' in dir() else 0,
+                    api_calls=_api_calls_count,
+                ).items():
+                    _txn.set_data(_k, _v)
+
+            # #7 - milestone structured log: run complete (counts only, no PII)
+            _sentry_log_event(
+                "info",
+                "weekly run complete",
+                files_generated=generated_files_count,
+                groups_generated=_groups_generated,
+                groups_uploaded=_groups_uploaded,
+                groups_errored=_groups_errored,
+                duration_seconds=session_duration.total_seconds(),
+            )
+
             # Finish the root transaction
             if _txn:
                 _txn.set_status("ok")
@@ -10338,7 +10373,28 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             scope.set_tag("failure_type", "general_exception")
             scope.set_tag("groups_errored", str(_groups_errored))
             scope.set_level("error")
-            
+
+            # #5 - FAILURE-path PII-safe attachment (counts/booleans only)
+            # add_attachment bypasses before_send_log — this try/except guard
+            # ensures a telemetry failure can NEVER mask the real exception.
+            try:
+                _snap = _build_run_context_snapshot(
+                    success=False,
+                    duration_seconds=session_duration.total_seconds(),
+                    groups_attempted=len(groups) if 'groups' in dir() else 0,
+                    groups_generated=_groups_generated,
+                    groups_uploaded=_groups_uploaded if '_groups_uploaded' in dir() else 0,
+                    groups_errored=_groups_errored,
+                    error_type=type(e).__name__,
+                )
+                scope.add_attachment(
+                    bytes=json.dumps(_snap, indent=2).encode("utf-8"),
+                    filename="run-context.json",
+                    content_type="application/json",
+                )
+            except Exception:
+                pass  # telemetry must never mask the real failure
+
             sentry_capture_with_context(
                 exception=e,
                 context_name="session_failure",
