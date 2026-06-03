@@ -35,7 +35,7 @@ beforeEach(() => {
   // Create a fake <a> element with a click spy
   fakeAnchor = document.createElement('a');
   clickSpy = vi.fn();
-  fakeAnchor.click = clickSpy;
+  fakeAnchor.click = clickSpy as unknown as () => void;
 
   // Only intercept 'a' tag creation; let the spy passthrough for other tags
   vi.spyOn(document, 'createElement').mockImplementation(
