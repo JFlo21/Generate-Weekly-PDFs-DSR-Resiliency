@@ -3609,3 +3609,83 @@ ALWAYS verify `git status` for an unintended root `SECURITY.md` modification and
 is `.planning/phases/{NN}-*/{NN}-SECURITY.md` (authored by the orchestrator) —
 the repo-root `SECURITY.md` is the public disclosure policy and must stay
 untouched.
+
+---
+
+## [2026-06-03 16:48] Rate CSVs now optional: benign skip replaces recurring Sentry ERROR
+
+**What changed:** `load_contract_rates` and `build_cu_to_group_mapping` in
+`generate_weekly_pdfs.py` gained an `os.path.isfile()` existence guard at the
+top of each function body, before the `try:/open()` path. When the resolved
+path does not exist, the loaders now emit `logging.info("Rate CSV not present,
+skipping load: ...")` and a `sentry_add_breadcrumb(level="info")` with
+`data={"path_present": False}`, then return the empty dict — no `logging.error`,
+no Sentry event. The `except Exception` block is preserved for genuinely
+present-but-malformed files, now fingerprinted
+`["rate-csv-load-failure", "<fn_name>"]` via `sentry_capture_with_context` with
+`_redact_exception_message(e)` in `context_data` (never raw `str(e)`).
+
+**Root cause:** `OLD_RATES_CSV` resolves to its uncommitted default
+`'CU List - Corpus North & South.csv'` on every run. The production workflow
+pins `OLD_RATES_CSV: ''` in `weekly-excel-generation.yml`, but
+`_sanitize_csv_path` treats an empty string as "use the default", so the pin
+never disables the load. Both loaders caught the resulting `FileNotFoundError`
+into `logging.error(...)`, and because `LoggingIntegration(event_level=ERROR)`
+is configured, each `logging.error` fired a Sentry event on every cron run.
+Billing blast radius confirmed ZERO: `RATE_CUTOFF_DATE` is pinned empty
+(gating `load_rate_versions` and the entire recalc path since 2026-04-24), and
+`revert_subcontractor_price` — the only consumer of `load_contract_rates` output
+— has no call sites. The net effect was pure operational noise.
+
+**Why NOT to point the default at a tracked CSV:** Semantically incorrect and
+against the 2026-04-24 retirement decision. See ledger entry [2026-04-24 14:30].
+The uncommitted default and workflow pin are left in place as the documented
+one-line revert path.
+
+**Also corrected in this commit:**
+- Sentry cron `monitor_config` was stale (`"30 17 * * 1"` / `America/Phoenix` /
+  `max_runtime 120`); corrected to the real production weekday schedule
+  (`"0 13,15,17,19,21,23,1 * * 1-5"` / `America/Chicago` / `max_runtime 180`
+  aligned with `timeout-minutes: 180` in the workflow).
+- Added PII-safe run-mode Sentry tags alongside the existing tag block:
+  `res_grouping_mode` (fixed enum), `wr_filter_active` (`str(bool(WR_FILTER))` —
+  a True/False string, **never the WR list**), `force_generation` (bool).
+  `set_tag` bypasses `before_send_log`; WR numbers are row-PII and must never
+  appear in tags/contexts/attachments.
+- Closed a pre-existing PII leak: `set_context("configuration")` was sending the
+  raw `WR_FILTER` list to Sentry (list of WR strings = row-PII; `set_context`
+  also bypasses `before_send_log`). Replaced `"wr_filter": WR_FILTER` with
+  `"wr_filter_active": bool(WR_FILTER)` + `"wr_filter_count": len(WR_FILTER)`.
+
+**Guardrails preserved:** `_sanitize_csv_path` untouched; `:408` default string
+untouched; workflow pinned-empty rate vars untouched (one-line revert intact);
+empty-dict return contract preserved; `sentry-sdk>=2.35.0` floor unchanged;
+`SENTRY_ENABLE_LOGS` stays OFF by default.
+
+**Tests:** Two new `assertNoLogs(level="ERROR")` tests (TDD RED then GREEN) in
+`tests/test_subcontractor_pricing.py` — one per loader — confirm the benign
+branch emits no ERROR-level log. Existing `:43`/`:759` `test_missing_file_returns_empty`
+tests continue to pass (empty-dict contract preserved). Full suite: all passed.
+
+---
+
+## [2026-06-03 17:21] Deferred Sentry telemetry upgrades: run-level KPIs, failure attachment, structured-log milestone calls
+
+**What changed (research #5/#6/#7):** Three additive Sentry telemetry enhancements wired into `generate_weekly_pdfs.py`'s `main()`:
+
+- **#6 Root-transaction KPIs (success path):** Immediately before `_txn.set_status("ok")`, a loop calls `_build_run_kpis(...)` and sets each numeric KPI on the root Sentry transaction via `_txn.set_data(k, v)`. KPIs include `files_generated`, `groups_total`, `groups_skipped`, `groups_generated`, `groups_uploaded`, `groups_errored`, `duration_seconds`, `sheets_discovered`, `rows_fetched`, `api_calls`, and a derived `groups_per_minute` throughput. All values are `int | float` — no strings — so there is zero risk of PII leakage via `set_data`.
+
+- **#5 Failure-path PII-safe attachment:** Inside `except Exception as e:`, in the `if SENTRY_DSN:` block, before the existing `sentry_capture_with_context(...)` call, `_build_run_context_snapshot(...)` builds a counts/booleans dict (success flag, duration, group counts, error class name only) which is JSON-serialised and attached via `scope.add_attachment(bytes=..., filename="run-context.json", content_type="application/json")`. The entire block is wrapped in `try/except: pass` so a telemetry failure can NEVER mask the real exception.
+
+- **#7 Milestone structured logs:** `_sentry_log_event(...)` is called at two non-PII checkpoints only — run start (after `_txn` init, passing `test_mode` and `github_actions` booleans) and run complete (after the #6 KPI loop, passing aggregate counts). No calls inside per-group loops. The helper no-ops unless `SENTRY_ENABLE_LOGS=true` (default OFF in production).
+
+**PII-safety enforcement via TDD:** `add_attachment` and `sentry_sdk.logger` both bypass `before_send_log`. To make the PII guarantee test-enforced rather than review-only, three pure/guarded helpers were written TDD-style (RED → GREEN, 16 new assertions in `TestSentryTelemetryHelpers`):
+- `_build_run_kpis(...)` — pure; tests assert every value is `int | float` (no strings = no PII leakage path).
+- `_build_run_context_snapshot(...)` — pure; tests assert no WR token, no `$`, no foreman name in serialised JSON; values are counts/booleans/None/error class name only.
+- `_sentry_log_event(level, message, **attributes)` — guarded wrapper; tests assert no-op without `SENTRY_DSN`, no-op without `sentry_sdk.logger` attr (older SDK), swallows all internal errors (never propagates).
+
+**sentry-sdk floor bump:** `requirements.txt` raised from `sentry-sdk>=2.35.0` to `sentry-sdk>=2.54.0`. The `sentry_sdk.logger` structured-log API was stabilised in 2.54.0. Strictly 2.x — no 3.x APIs (`set_attribute`, OTel) used. `set_measurement` intentionally NOT used (deprecated since 2.28.0); `_txn.set_data` is the correct 2.x pattern.
+
+**Guardrails preserved:** Additive only — billing/grouping/hashing/filename/upload paths untouched; `_sanitize_csv_path` untouched; plan-01 edits untouched; `SENTRY_ENABLE_LOGS` default stays `false` (milestone logs are no-ops in prod until an operator explicitly enables them). `if _txn:` guard preserved on all transaction calls.
+
+**Tests:** Full suite 1043 passed, 0 failed; `python -m py_compile generate_weekly_pdfs.py` clean.

@@ -210,10 +210,12 @@ All behavior is controlled by `os.getenv()` with defaults. Full reference lives 
 - `DISCOVERY_CACHE_TTL_MIN` (default `10080` = 7 days), `USE_DISCOVERY_CACHE`, `EXTENDED_CHANGE_DETECTION`
 - Time-budget family (GitHub Actions only):
   - `TIME_BUDGET_MINUTES` — session graceful-stop budget. Default `0`
-    (disabled) for local runs; the weekly workflow sets `180` (3h). Raised
-    from `80` on 2026-04-22 after a pre-fetch stall consumed the whole
-    session with zero output. Must stay strictly less than the workflow's
-    `timeout-minutes` (currently `195`).
+    (disabled) for local runs; the weekly workflow sets `165` (2h45m).
+    Most recently raised `95` → `165` on 2026-05-26 (alongside the runner
+    `timeout-minutes` `110` → `180`); an earlier `80`→ raise on 2026-04-22
+    followed a pre-fetch stall that consumed the whole session with zero
+    output. Must stay strictly less than the workflow's `timeout-minutes`
+    (currently `180`).
   - `ATTACHMENT_PREFETCH_MAX_MINUTES` (default `10`) — phase sub-budget
     for the target-row attachment pre-fetch. Also the threshold for the
     pre-flight guard that skips pre-fetch entirely when the session
@@ -244,8 +246,8 @@ Do not delete this parser even if the top-level input count is below GitHub's li
 - Weekly deep run: `0 5 * * 1` (UTC Monday 05:00 = Sunday 23:00 CST / Monday 00:00 CDT Central). The job's `if: day==1 && hour==23` guard in Central time is what flips the run into the "weekly comprehensive" branch.
 
 **Runner timeouts (the `core` job in `weekly-excel-generation.yml`):**
-- `timeout-minutes: 195` — hard Actions ceiling.
-- `TIME_BUDGET_MINUTES: '180'` — Python graceful-stop budget.
+- `timeout-minutes: 180` — hard Actions ceiling.
+- `TIME_BUDGET_MINUTES: '165'` — Python graceful-stop budget.
 - The 15-minute gap is reserved for post-job cache-save and artifact-
   upload steps. Never raise `TIME_BUDGET_MINUTES` without also raising
   `timeout-minutes` by at least as much — otherwise Actions hard-kills

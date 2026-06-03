@@ -1035,6 +1035,103 @@ def sentry_capture_message_with_context(message: str, level: SentryLogLevel = "e
     
     sentry_sdk.capture_message(message, level=level)
 
+
+def _build_run_kpis(
+    *,
+    files_generated: int,
+    groups_total: int,
+    groups_skipped: int,
+    groups_generated: int,
+    groups_uploaded: int,
+    groups_errored: int,
+    duration_seconds: float,
+    sheets_discovered: int,
+    rows_fetched: int,
+    api_calls: int,
+) -> dict[str, int | float]:
+    """Return a flat dict of numeric run-level KPIs for the root Sentry transaction.
+
+    ALL values are int or float — no strings — so there is zero risk of PII
+    leakage via set_data().  A derived throughput metric is included.
+
+    This helper is intentionally pure (no side effects) so it is fully
+    unit-testable and the no-PII guarantee is test-enforced.
+    """
+    if duration_seconds and duration_seconds > 0:
+        groups_per_minute = round(groups_generated / (duration_seconds / 60.0), 2)
+    else:
+        groups_per_minute = 0.0
+    return {
+        "files_generated": files_generated,
+        "groups_total": groups_total,
+        "groups_skipped": groups_skipped,
+        "groups_generated": groups_generated,
+        "groups_uploaded": groups_uploaded,
+        "groups_errored": groups_errored,
+        "duration_seconds": duration_seconds,
+        "sheets_discovered": sheets_discovered,
+        "rows_fetched": rows_fetched,
+        "api_calls": api_calls,
+        "groups_per_minute": groups_per_minute,
+    }
+
+
+def _build_run_context_snapshot(
+    *,
+    success: bool,
+    duration_seconds: float,
+    groups_attempted: int,
+    groups_generated: int,
+    groups_uploaded: int,
+    groups_errored: int,
+    error_type: str | None = None,
+) -> dict:
+    """Return a PII-safe counts/booleans snapshot for failure-path Sentry attachments.
+
+    This dict is serialised to JSON and attached via scope.add_attachment, which
+    BYPASSES before_send_log.  Every value must be a count, boolean, None, or the
+    already-safe exception class name only — never a WR number, foreman/dept/job
+    name, dollar amount, or any row-level data.
+
+    This helper is intentionally pure (no side effects) so PII-safety is
+    test-enforced rather than relying on review alone.
+    """
+    return {
+        "success": success,
+        "duration_seconds": duration_seconds,
+        "groups_attempted": groups_attempted,
+        "groups_generated": groups_generated,
+        "groups_uploaded": groups_uploaded,
+        "groups_errored": groups_errored,
+        "error_type": error_type,  # exception class name only — never the message
+    }
+
+
+def _sentry_log_event(level: str, message: str, **attributes: int | float | bool | str | None) -> None:
+    """Guarded structured-log emitter using sentry_sdk.logger (SDK >= 2.54.0).
+
+    ONLY pass non-PII scalars (counts, booleans, fixed enums) as attributes.
+    This path BYPASSES before_send_log — never pass row data, WR numbers,
+    foreman/dept/job names, dollar amounts, or any per-row values.
+
+    Safety contract:
+    - No-ops immediately if SENTRY_DSN is falsy.
+    - No-ops immediately if sentry_sdk has no 'logger' attribute (older SDK).
+    - Swallows all internal errors (try/except) — never raises, never masks
+      the caller's exception.
+    - Only emits to Sentry when SENTRY_ENABLE_LOGS is True (the SDK gate).
+    """
+    if not SENTRY_DSN:
+        return
+    if not hasattr(sentry_sdk, "logger"):
+        return
+    try:
+        log_fn = getattr(sentry_sdk.logger, level, sentry_sdk.logger.info)
+        log_fn(message, **attributes)
+    except Exception as _log_exc:
+        logging.debug(f"_sentry_log_event swallowed error: {_log_exc}")
+
+
 # Substring markers that identify billing-engine log messages known
 # to embed row-level PII (WR, dept, job, foreman, helper / vac-crew
 # names, cell values, prices). If any of these appear in a log body,
@@ -1392,14 +1489,22 @@ if SENTRY_DSN:
         sentry_sdk.set_tag("process", "weekly_reports")
         sentry_sdk.set_tag("test_mode", str(TEST_MODE))
         sentry_sdk.set_tag("github_actions", str(bool(os.getenv('GITHUB_ACTIONS'))))
-        
+        # PII-safe run-mode tags for issue filtering (no raw WR list - WR numbers are row-PII;
+        # set_tag bypasses before_send_log so only booleans/enums/counts are permitted here)
+        sentry_sdk.set_tag("res_grouping_mode", RES_GROUPING_MODE)
+        sentry_sdk.set_tag("wr_filter_active", str(bool(WR_FILTER)))   # BOOL, never the WR list
+        sentry_sdk.set_tag("force_generation", str(FORCE_GENERATION))
+
         # Set initial context (SDK 2.x: top-level API)
         sentry_sdk.set_context("configuration", {
             "max_groups": MAX_GROUPS,
             "extended_change_detection": EXTENDED_CHANGE_DETECTION,
             "use_discovery_cache": USE_DISCOVERY_CACHE,
             "force_generation": FORCE_GENERATION,
-            "wr_filter": WR_FILTER,
+            # was: "wr_filter": WR_FILTER  (raw WR list - row-PII; set_context bypasses
+            # before_send_log so the list would reach Sentry servers on every init)
+            "wr_filter_active": bool(WR_FILTER),
+            "wr_filter_count": len(WR_FILTER),
         })
         
         logger = logging.getLogger(__name__)
@@ -1433,6 +1538,17 @@ def load_contract_rates(filepath):
     """Loads contract rates into a fast lookup dictionary."""
     rates = {}
     REQUIRED_HEADERS = {'CU', 'Install Price', 'Removal Price', 'Transfer Price'}
+    if not os.path.isfile(filepath):
+        # Optional/retired rate CSV absent (e.g. pinned-empty OLD_RATES_CSV
+        # resolving to its uncommitted default 'CU List - Corpus North & South.csv').
+        # Benign - skip cleanly. INFO (not error) so LoggingIntegration
+        # (event_level=ERROR) does NOT fire a Sentry event every run.
+        logging.info(f"Rate CSV not present, skipping load: {filepath}")
+        sentry_add_breadcrumb(
+            "rate_loading", "rate CSV absent - skipped",
+            level="info", data={"path_present": False},
+        )
+        return rates
     try:
         with open(filepath, mode='r', encoding='utf-8-sig') as f:
             reader = csv.DictReader(f)
@@ -1453,6 +1569,16 @@ def load_contract_rates(filepath):
         logging.info(f"Loaded {len(rates)} CU rates from {filepath}")
     except Exception as e:
         logging.error(f"Failed to load rates from {filepath}: {e}")
+        sentry_capture_with_context(
+            e,
+            context_name="rate_loading",
+            context_data={
+                "file_present": True,
+                "error": _redact_exception_message(e),
+            },
+            tags={"phase": "rate_load"},
+            fingerprint=["rate-csv-load-failure", "load_contract_rates"],
+        )
     return rates
 
 
@@ -1500,6 +1626,17 @@ def build_cu_to_group_mapping(old_csv_path):
         dict: {DETAILED_CU_CODE: GROUP_CODE} e.g. {'ANC-DHM-10-84-D1': 'ANC-M'}
     """
     mapping = {}
+    if not os.path.isfile(old_csv_path):
+        # Optional/retired rate CSV absent (e.g. pinned-empty OLD_RATES_CSV
+        # resolving to its uncommitted default 'CU List - Corpus North & South.csv').
+        # Benign - skip cleanly. INFO (not error) so LoggingIntegration
+        # (event_level=ERROR) does NOT fire a Sentry event every run.
+        logging.info(f"Rate CSV not present, skipping load: {old_csv_path}")
+        sentry_add_breadcrumb(
+            "rate_loading", "rate CSV absent - skipped",
+            level="info", data={"path_present": False},
+        )
+        return mapping
     try:
         with open(old_csv_path, mode='r', encoding='utf-8-sig') as f:
             reader = csv.DictReader(f)
@@ -1514,6 +1651,16 @@ def build_cu_to_group_mapping(old_csv_path):
         logging.info(f"Built CU-to-group mapping: {len(mapping)} CU codes -> groups")
     except Exception as e:
         logging.error(f"Failed to build CU-to-group mapping from {old_csv_path}: {e}")
+        sentry_capture_with_context(
+            e,
+            context_name="rate_loading",
+            context_data={
+                "file_present": True,
+                "error": _redact_exception_message(e),
+            },
+            tags={"phase": "rate_load"},
+            fingerprint=["rate-csv-load-failure", "build_cu_to_group_mapping"],
+        )
     return mapping
 
 
@@ -7888,12 +8035,12 @@ def _sentry_cron_checkin_start(monitor_slug):
             monitor_slug=monitor_slug,
             status=MonitorStatus.IN_PROGRESS,
             monitor_config={
-                "schedule": {"type": "crontab", "value": "30 17 * * 1"},
-                "checkin_margin": 10,
-                "max_runtime": 120,
-                "failure_issue_threshold": 2,
+                "schedule": {"type": "crontab", "value": "0 13,15,17,19,21,23,1 * * 1-5"},
+                "timezone": "America/Chicago",
+                "checkin_margin": 5,
+                "max_runtime": 180,
+                "failure_issue_threshold": 1,
                 "recovery_threshold": 1,
-                "timezone": "America/Phoenix",
             },
         )
     except Exception as exc:
@@ -7983,6 +8130,14 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             _txn.__enter__()
             _txn.set_data("test_mode", TEST_MODE)
             _txn.set_data("github_actions", GITHUB_ACTIONS_MODE)
+
+        # #7 - milestone structured log: run start (counts/booleans only)
+        _sentry_log_event(
+            "info",
+            "weekly run started",
+            test_mode=TEST_MODE,
+            github_actions=GITHUB_ACTIONS_MODE,
+        )
 
         # ── Source sheet discovery (includes folder discovery on cache miss) ──
         _phase_start = datetime.datetime.now()
@@ -10152,6 +10307,33 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 "errored": _groups_errored,
             })
             
+            # #6 - SUCCESS-path root-transaction KPIs (counts only, no PII)
+            if _txn:
+                for _k, _v in _build_run_kpis(
+                    files_generated=generated_files_count,
+                    groups_total=len(groups),
+                    groups_skipped=_groups_skipped,
+                    groups_generated=_groups_generated,
+                    groups_uploaded=_groups_uploaded,
+                    groups_errored=_groups_errored,
+                    duration_seconds=session_duration.total_seconds(),
+                    sheets_discovered=len(source_sheets) if 'source_sheets' in dir() else 0,
+                    rows_fetched=len(all_rows) if 'all_rows' in dir() else 0,
+                    api_calls=_api_calls_count,
+                ).items():
+                    _txn.set_data(_k, _v)
+
+            # #7 - milestone structured log: run complete (counts only, no PII)
+            _sentry_log_event(
+                "info",
+                "weekly run complete",
+                files_generated=generated_files_count,
+                groups_generated=_groups_generated,
+                groups_uploaded=_groups_uploaded,
+                groups_errored=_groups_errored,
+                duration_seconds=session_duration.total_seconds(),
+            )
+
             # Finish the root transaction
             if _txn:
                 _txn.set_status("ok")
@@ -10191,7 +10373,28 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             scope.set_tag("failure_type", "general_exception")
             scope.set_tag("groups_errored", str(_groups_errored))
             scope.set_level("error")
-            
+
+            # #5 - FAILURE-path PII-safe attachment (counts/booleans only)
+            # add_attachment bypasses before_send_log — this try/except guard
+            # ensures a telemetry failure can NEVER mask the real exception.
+            try:
+                _snap = _build_run_context_snapshot(
+                    success=False,
+                    duration_seconds=session_duration.total_seconds(),
+                    groups_attempted=len(groups) if 'groups' in dir() else 0,
+                    groups_generated=_groups_generated,
+                    groups_uploaded=_groups_uploaded if '_groups_uploaded' in dir() else 0,
+                    groups_errored=_groups_errored,
+                    error_type=type(e).__name__,
+                )
+                scope.add_attachment(
+                    bytes=json.dumps(_snap, indent=2).encode("utf-8"),
+                    filename="run-context.json",
+                    content_type="application/json",
+                )
+            except Exception:
+                pass  # telemetry must never mask the real failure
+
             sentry_capture_with_context(
                 exception=e,
                 context_name="session_failure",
