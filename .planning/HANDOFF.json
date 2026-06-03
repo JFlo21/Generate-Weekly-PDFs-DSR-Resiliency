@@ -1,51 +1,78 @@
 {
   "version": "1.0",
-  "timestamp": "2026-06-02T05:25:06.870Z",
-  "phase": "06",
-  "phase_name": "realtime-and-ui-polish",
-  "phase_dir": ".planning/phases/06-realtime-and-ui-polish",
-  "plan": null,
-  "task": 0,
-  "total_tasks": 0,
+  "timestamp": "2026-06-03T02:58:46.221Z",
+  "phase": "07",
+  "phase_name": "security-hardening-and-express-removal",
+  "phase_dir": ".planning/phases/07-security-hardening-and-express-removal",
+  "plan": 4,
+  "task": 1,
+  "total_tasks": 2,
   "status": "paused",
-  "stage": "context-gathered (ready to plan)",
+  "stage": "executing plan 07-04 (4 of 4) — Task 1 in progress, Task 2 not started",
   "branch": "master",
-  "head_commit": "6ad0654",
+  "head_commit": "6dd1ed8",
   "completed_tasks": [
-    {"id": "discuss-06", "name": "Phase 06 discuss-phase — identify gray areas, lock decisions D-01..D-08", "status": "done", "commit": "364d22a"},
-    {"id": "context-06", "name": "Write 06-CONTEXT.md + 06-DISCUSSION-LOG.md", "status": "done", "commit": "364d22a"},
-    {"id": "state-06", "name": "Record context session in STATE.md", "status": "done", "commit": "6ad0654"}
+    {
+      "id": 1,
+      "name": "Triage + remediate critical/high Dependabot CVEs (portal-v2 + website; defer moderate)",
+      "status": "in_progress",
+      "progress": "portal-v2 DONE: vitest bumped to ^4 (critical dev-only CVE), moderates deferred, 107-test suite re-verified green, committed 6dd1ed8. website/ NOT finalized: audit investigated (Docusaurus pinned 3.7.0; transitive vulns surfaced in the 3.10.0 dep tree) but no decision committed and no website/package.json change staged."
+    }
   ],
   "remaining_tasks": [
-    {"id": "plan-06", "name": "Plan Phase 06 — /gsd-plan-phase 06 (produces PLAN.md set)", "status": "not_started"},
-    {"id": "execute-06", "name": "Execute Phase 06 plans (Realtime, responsive, animations, a11y, C-01/C-02 fixes)", "status": "not_started"},
-    {"id": "phase-07", "name": "Phase 07 — Security Hardening + Express removal (later, separate phase)", "status": "not_started"}
+    {
+      "id": "1-website",
+      "name": "Task 1 (website portion): finalize website/ critical/high CVE triage — run `cd website && npm audit --audit-level=high`, remediate criticals/highs via targeted bumps, confirm `npm run build` still green, OR document residual + rationale; record deferred moderates",
+      "status": "in_progress"
+    },
+    {
+      "id": 2,
+      "name": "Invoke security-reviewer skill + run gsd-secure-phase 07; author 07-SECURITY.md consolidating all phase evidence (threat register, SEC-03 verify, D-04 re-verify, probe results, header curl, accepted risks); set threats_open:0 + status:verified; then write 07-04-SUMMARY.md",
+      "status": "not_started"
+    }
   ],
-  "blockers": [],
+  "blockers": [
+    {
+      "description": "Task 2 header verification + SEC-04 sign-off require the live production Vercel URL (curl -sI for the 5 SEC-02 headers on the enforcing-CSP deploy).",
+      "type": "human_action",
+      "workaround": "Operator provides Vercel production domain (Vercel Dashboard -> Project -> Deployments -> Production)."
+    },
+    {
+      "description": "website/ critical/high CVE remediation undecided — Docusaurus is pinned at 3.7.0 but transitive vulns appear in the 3.10.0 dep tree; needs a remediate-vs-defer decision at resume.",
+      "type": "technical",
+      "workaround": "Re-run `cd website && npm audit` as ground truth; apply targeted bumps for critical/high only; defer moderates to Accepted Risks Log."
+    }
+  ],
   "human_actions_pending": [
-    {"action": "None required for this pause", "context": "Discuss-phase is fully committed; nothing is mid-implementation.", "blocking": false}
-  ],
-  "research_dependencies": [
-    {"item": "Confirm current (2026) Supabase Realtime authorization/RLS behavior for postgres_changes — does the supabase_realtime publication + table RLS withhold row payloads from pending/anon sockets?", "for_decision": "D-04 (defense-in-depth Realtime gating)", "consumed_by": "gsd-plan-phase 06 researcher"}
+    {
+      "action": "Provide live production Vercel URL for the SEC-02 header curl check and the one-time SEC-04 audit sign-off",
+      "context": "Plan 07-04 user_setup: header-presence check + SEC-04 sign-off run against the live deploy",
+      "blocking": true
+    }
   ],
   "decisions": [
-    {"decision": "06-UI-SPEC.md is the authoritative visual/interaction contract; /frontend-design runs as an execution-polish layer ONLY within the locked tokens", "rationale": "Reconciles the ROADMAP 'MUST invoke /frontend-design' mandate with the already-approved UI-SPEC without re-litigating it", "phase": "06", "id": "D-01"},
-    {"decision": "/frontend-design output is propose-then-approve", "rationale": "Polish pass must not silently override the approved UI-SPEC", "phase": "06", "id": "D-02"},
-    {"decision": "Realtime notification = count-only toast + 'Load new' pill, both fire on INSERT; no mid-scroll auto-insert", "rationale": "Resolves the toast-vs-pill ambiguity in UI-SPEC — they coexist in one C-01 stack", "phase": "06", "id": "D-03"},
-    {"decision": "Defense-in-depth Realtime gating: subscribe only when isBilling/isAdmin + count-only payload + researcher confirms RLS withholds rows from pending/anon sockets", "rationale": "Matches UI-gate + DB-RLS project pattern; built to pass the Phase 07 security audit clean", "phase": "06", "id": "D-04"},
-    {"decision": "Realtime unit-tested by mocking the Supabase channel in vitest; live behavior verified in UAT", "rationale": "Cheap deterministic CI coverage; real INSERT path checked manually", "phase": "06", "id": "D-05"},
-    {"decision": "C-01 fix = custom ToastContext on existing Toast.tsx primitives (sonner rejected)", "rationale": "Honors the 'minimize external deps' value; existing primitive already has spring/swipe/a11y", "phase": "06", "id": "D-06"},
-    {"decision": "WCAG AA verified with BOTH jest-axe (CI, dev-only dep) AND a manual keyboard/focus/screen-reader walkthrough at close", "rationale": "Matches the Fortune-500 quality bar; automated catches regressions, manual catches flow/announce issues", "phase": "06", "id": "D-07"},
-    {"decision": "Apply UI-SPEC C-02 verbatim — .limit(2000) + 10-min staleTime on the ['artifact-variants'] query", "rationale": "Locked carryover from 05-REVIEW.md (WR-03)", "phase": "06", "id": "D-08"}
+    {
+      "decision": "vitest bumped to ^4 (semver-major) rather than patched",
+      "rationale": "Critical CVE only fixed in vitest 4.x; dev-only (not shipped to Vercel) so exploit risk LOW but bumped for hygiene; config reviewed for 2.x->4.x breakage; 107 tests confirmed green",
+      "phase": "07"
+    },
+    {
+      "decision": "Moderate Dependabot advisories deferred, not blanket-fixed",
+      "rationale": "D-06: remediate critical/high only this phase; no `npm audit fix --force` (regression-prone). Moderates -> Accepted Risks Log in 07-SECURITY.md",
+      "phase": "07"
+    }
   ],
   "uncommitted_files": [
-    {"path": ".github/prompts/architecture-analysis.md", "note": "PRE-EXISTING (modified before this session) — unrelated to Phase 06; do NOT sweep into Phase 06 commits"},
-    {"path": ".github/prompts/configuration-environment.md", "note": "PRE-EXISTING — unrelated to Phase 06"},
-    {"path": ".github/prompts/memory-integration-codebase-context.md", "note": "PRE-EXISTING — unrelated to Phase 06"},
-    {"path": ".github/prompts/testing-and-validation.md", "note": "PRE-EXISTING — unrelated to Phase 06"},
-    {"path": ".planning/phases/05-artifact-table-and-search/05-PATTERNS.md", "note": "PRE-EXISTING untracked — Phase 05 artifact"},
+    {"path": ".github/prompts/architecture-analysis.md", "note": "PRE-EXISTING (modified before this session) — unrelated to Phase 07; do NOT sweep into 07-04 commits"},
+    {"path": ".github/prompts/configuration-environment.md", "note": "PRE-EXISTING — unrelated to Phase 07"},
+    {"path": ".github/prompts/memory-integration-codebase-context.md", "note": "PRE-EXISTING — unrelated to Phase 07"},
+    {"path": ".github/prompts/testing-and-validation.md", "note": "PRE-EXISTING — unrelated to Phase 07"},
+    {"path": ".planning/debug/orphaned-primary-attachment.md", "note": "PRE-EXISTING untracked — separate production-bug debug note (diagnosed this session); not part of 07-04"},
+    {"path": ".planning/phases/05-artifact-table-and-search/05-PATTERNS.md", "note": "PRE-EXISTING untracked — Phase 05 planning artifact"},
+    {"path": ".planning/phases/06-realtime-and-ui-polish/06-REVIEW-FIX.md", "note": "PRE-EXISTING untracked — Phase 06 review-fix note"},
+    {"path": ".planning/phases/07-security-hardening-and-express-removal/07-PATTERNS.md", "note": "PRE-EXISTING untracked — Phase 07 planning artifact (referenced by 07-04 read_first)"},
     {"path": ".planning/quick/260528-na5-mark-unimplemented-env-vars-as-not-imple/", "note": "PRE-EXISTING untracked quick-task dir (260528-na5)"}
   ],
-  "next_action": "Run `/clear` then `/gsd-plan-phase 06` to produce the Phase 06 plan set. The planner MUST treat 06-UI-SPEC.md as authoritative (D-01) and dispatch the researcher to confirm the Supabase Realtime RLS/authorization model (D-04).",
-  "context_notes": "Phase 06 is unusual: the approved, exhaustive 06-UI-SPEC.md already locks the entire visual/interaction system, so discuss-phase only resolved the four genuinely-open decisions (design-pass authority, toast mechanism, Realtime gating, a11y verification) plus three sensible-default smaller items. All eight decisions live in 06-CONTEXT.md as D-01..D-08. Nothing is mid-implementation — clean pause right after context capture, ready to plan. Prior HANDOFF.json was a stale Phase 04 handoff (now-closed) and was overwritten."
+  "next_action": "Finalize Task 1 website/ CVE triage (run `cd website && npm audit --audit-level=high`; remediate critical/high via targeted bumps or document residual), then start Task 2: invoke the `security-reviewer` skill + run `gsd-secure-phase 07`, then author 07-SECURITY.md (mirror 03-SECURITY.md), then write 07-04-SUMMARY.md.",
+  "context_notes": "Plans 07-01/02/03 are COMPLETE (Express removed, CSP enforcing, RLS/signed-URL probe PASS, SEC-03 grep-gate PASS). Only 07-04 remains to close Phase 07 (the milestone-gating audit). KEY GOTCHA: Task 1's verify gate runs `npm audit --omit=dev` which HIDES the dev-only vitest CVE — so the package.json `devDependencies.vitest` version string (must be ^4+) is the authoritative confirmation the major bump shipped, NOT the audit exit code. The vitest 4 upgrade left noisy `useToastContext`/provider error logs in the test output but the suite is GREEN — do not be alarmed. 07-SECURITY.md must mirror 03-SECURITY.md structure; gsd-secure-phase 07 BLOCKS if threats_open > 0. Prior HANDOFF.json was a stale Phase 06 handoff (now-closed) and was overwritten."
 }
