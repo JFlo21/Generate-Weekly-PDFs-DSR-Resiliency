@@ -36,6 +36,19 @@ checks = [
      "_redact_exception_message(e)" in s),
     ("sentry-sdk floor NOT bumped / no banned APIs",
      "set_measurement" not in s),
+    # PART D: confirm the pre-existing PII leak (raw WR list -> Sentry) is closed.
+    # The old key must not appear as live code (a comment explaining the old value is ok).
+    # Regex: no non-comment line has "wr_filter": WR_FILTER as a dict entry.
+    ("raw WR list no longer in set_context configuration (PII leak closed)",
+     not any(
+         line.strip() and not line.strip().startswith('#')
+         and '"wr_filter": WR_FILTER' in line
+         for line in s.splitlines()
+     )),
+    ("wr_filter_active bool present in configuration context",
+     '"wr_filter_active": bool(WR_FILTER)' in s),
+    ("wr_filter_count int present in configuration context",
+     '"wr_filter_count": len(WR_FILTER)' in s),
 ]
 
 if "--with-ledger" in sys.argv:

@@ -1392,14 +1392,22 @@ if SENTRY_DSN:
         sentry_sdk.set_tag("process", "weekly_reports")
         sentry_sdk.set_tag("test_mode", str(TEST_MODE))
         sentry_sdk.set_tag("github_actions", str(bool(os.getenv('GITHUB_ACTIONS'))))
-        
+        # PII-safe run-mode tags for issue filtering (no raw WR list - WR numbers are row-PII;
+        # set_tag bypasses before_send_log so only booleans/enums/counts are permitted here)
+        sentry_sdk.set_tag("res_grouping_mode", RES_GROUPING_MODE)
+        sentry_sdk.set_tag("wr_filter_active", str(bool(WR_FILTER)))   # BOOL, never the WR list
+        sentry_sdk.set_tag("force_generation", str(FORCE_GENERATION))
+
         # Set initial context (SDK 2.x: top-level API)
         sentry_sdk.set_context("configuration", {
             "max_groups": MAX_GROUPS,
             "extended_change_detection": EXTENDED_CHANGE_DETECTION,
             "use_discovery_cache": USE_DISCOVERY_CACHE,
             "force_generation": FORCE_GENERATION,
-            "wr_filter": WR_FILTER,
+            # was: "wr_filter": WR_FILTER  (raw WR list - row-PII; set_context bypasses
+            # before_send_log so the list would reach Sentry servers on every init)
+            "wr_filter_active": bool(WR_FILTER),
+            "wr_filter_count": len(WR_FILTER),
         })
         
         logger = logging.getLogger(__name__)
@@ -7930,12 +7938,12 @@ def _sentry_cron_checkin_start(monitor_slug):
             monitor_slug=monitor_slug,
             status=MonitorStatus.IN_PROGRESS,
             monitor_config={
-                "schedule": {"type": "crontab", "value": "30 17 * * 1"},
-                "checkin_margin": 10,
-                "max_runtime": 120,
-                "failure_issue_threshold": 2,
+                "schedule": {"type": "crontab", "value": "0 13,15,17,19,21,23,1 * * 1-5"},
+                "timezone": "America/Chicago",
+                "checkin_margin": 5,
+                "max_runtime": 180,
+                "failure_issue_threshold": 1,
                 "recovery_threshold": 1,
-                "timezone": "America/Phoenix",
             },
         )
     except Exception as exc:
