@@ -3666,3 +3666,26 @@ empty-dict return contract preserved; `sentry-sdk>=2.35.0` floor unchanged;
 `tests/test_subcontractor_pricing.py` — one per loader — confirm the benign
 branch emits no ERROR-level log. Existing `:43`/`:759` `test_missing_file_returns_empty`
 tests continue to pass (empty-dict contract preserved). Full suite: all passed.
+
+---
+
+## [2026-06-03 17:21] Deferred Sentry telemetry upgrades: run-level KPIs, failure attachment, structured-log milestone calls
+
+**What changed (research #5/#6/#7):** Three additive Sentry telemetry enhancements wired into `generate_weekly_pdfs.py`'s `main()`:
+
+- **#6 Root-transaction KPIs (success path):** Immediately before `_txn.set_status("ok")`, a loop calls `_build_run_kpis(...)` and sets each numeric KPI on the root Sentry transaction via `_txn.set_data(k, v)`. KPIs include `files_generated`, `groups_total`, `groups_skipped`, `groups_generated`, `groups_uploaded`, `groups_errored`, `duration_seconds`, `sheets_discovered`, `rows_fetched`, `api_calls`, and a derived `groups_per_minute` throughput. All values are `int | float` — no strings — so there is zero risk of PII leakage via `set_data`.
+
+- **#5 Failure-path PII-safe attachment:** Inside `except Exception as e:`, in the `if SENTRY_DSN:` block, before the existing `sentry_capture_with_context(...)` call, `_build_run_context_snapshot(...)` builds a counts/booleans dict (success flag, duration, group counts, error class name only) which is JSON-serialised and attached via `scope.add_attachment(bytes=..., filename="run-context.json", content_type="application/json")`. The entire block is wrapped in `try/except: pass` so a telemetry failure can NEVER mask the real exception.
+
+- **#7 Milestone structured logs:** `_sentry_log_event(...)` is called at two non-PII checkpoints only — run start (after `_txn` init, passing `test_mode` and `github_actions` booleans) and run complete (after the #6 KPI loop, passing aggregate counts). No calls inside per-group loops. The helper no-ops unless `SENTRY_ENABLE_LOGS=true` (default OFF in production).
+
+**PII-safety enforcement via TDD:** `add_attachment` and `sentry_sdk.logger` both bypass `before_send_log`. To make the PII guarantee test-enforced rather than review-only, three pure/guarded helpers were written TDD-style (RED → GREEN, 16 new assertions in `TestSentryTelemetryHelpers`):
+- `_build_run_kpis(...)` — pure; tests assert every value is `int | float` (no strings = no PII leakage path).
+- `_build_run_context_snapshot(...)` — pure; tests assert no WR token, no `$`, no foreman name in serialised JSON; values are counts/booleans/None/error class name only.
+- `_sentry_log_event(level, message, **attributes)` — guarded wrapper; tests assert no-op without `SENTRY_DSN`, no-op without `sentry_sdk.logger` attr (older SDK), swallows all internal errors (never propagates).
+
+**sentry-sdk floor bump:** `requirements.txt` raised from `sentry-sdk>=2.35.0` to `sentry-sdk>=2.54.0`. The `sentry_sdk.logger` structured-log API was stabilised in 2.54.0. Strictly 2.x — no 3.x APIs (`set_attribute`, OTel) used. `set_measurement` intentionally NOT used (deprecated since 2.28.0); `_txn.set_data` is the correct 2.x pattern.
+
+**Guardrails preserved:** Additive only — billing/grouping/hashing/filename/upload paths untouched; `_sanitize_csv_path` untouched; plan-01 edits untouched; `SENTRY_ENABLE_LOGS` default stays `false` (milestone logs are no-ops in prod until an operator explicitly enables them). `if _txn:` guard preserved on all transaction calls.
+
+**Tests:** Full suite 1043 passed, 0 failed; `python -m py_compile generate_weekly_pdfs.py` clean.
