@@ -11,8 +11,18 @@ export function AuthGuard({ children }: AuthGuardProps) {
   const { user, profile, loading } = useAuth();
   const navigate = useNavigate();
 
+  // Authorization is not resolved until we know the session AND, for a
+  // logged-in user, their profile (role). useAuth resolves the session
+  // (loading=false) and the profile in two separate async steps, so there is a
+  // window where `user` is set but `profile` is still null. Treat that as still
+  // resolving — otherwise a pending user transiently renders the dashboard
+  // shell before the /pending redirect fires (SEC-04 HIGH-03). A logged-in user
+  // always has a profiles row (handle_new_user trigger), so `user && !profile`
+  // means "fetch in flight", not "no profile".
+  const resolving = loading || (Boolean(user) && !profile);
+
   useEffect(() => {
-    if (loading) return;
+    if (resolving) return;
     if (!user) {
       navigate('/login', { replace: true });
       return;
@@ -21,9 +31,9 @@ export function AuthGuard({ children }: AuthGuardProps) {
     if (profile?.role === 'pending') {
       navigate('/pending', { replace: true });
     }
-  }, [user, profile, loading, navigate]);
+  }, [user, profile, resolving, navigate]);
 
-  if (loading) {
+  if (resolving) {
     return (
       <div className="min-h-screen bg-slate-50 p-8 space-y-4">
         <Skeleton className="h-16 w-full" />

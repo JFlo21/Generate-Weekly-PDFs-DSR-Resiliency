@@ -27,4 +27,15 @@ describe('AuthGuard (AUTH-06)', () => {
     render(<AuthGuard><div>secret</div></AuthGuard>);
     expect(screen.getByText('secret')).toBeTruthy();
   });
+  // SEC-04 HIGH-03: useAuth resolves the session (loading=false) and the profile
+  // in two separate async steps, so there is a window where user is set but
+  // profile is still null. The guard must treat that as "still resolving" — it
+  // must NOT leak the protected dashboard shell, and must NOT route yet (a
+  // pending user would otherwise flash the dashboard before the /pending redirect).
+  it('does not render children or route while the profile is still loading (SEC-04 HIGH-03)', () => {
+    Object.assign(authState, { user: { id: 'u1' }, profile: null, loading: false });
+    render(<AuthGuard><div>secret</div></AuthGuard>);
+    expect(screen.queryByText('secret')).toBeNull();
+    expect(navigate).not.toHaveBeenCalled();
+  });
 });
