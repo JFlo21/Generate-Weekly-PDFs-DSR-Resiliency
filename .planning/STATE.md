@@ -36,7 +36,7 @@ Prev: Phase 07 plan 07-03 — ✅ COMPLETE (2026-06-02; Express removed, CSP enf
 Next: v1.1 milestone COMPLETE (28/28 plans). Optional follow-ups: /gsd-validate-phase 07, /gsd-verify-work 07, /gsd-complete-milestone, or the pending Phase 06 manual UAT (06-HUMAN-UAT.md, 6 items).
 Status: Phase 07 + v1.1 milestone CLOSED — SEC-04 verified (07-SECURITY.md threats_open:0); all SEC-01..05 met
 Resume file: (none — milestone complete; HANDOFF.json consumed)
-Last activity: 2026-06-03 -- Plan 07-04 COMPLETE: SEC-04 two-auditor audit -> 07-SECURITY.md verified (threats_open:0); HIGH-03 AuthGuard profile-load race FIXED (515837b); stale schema draft deleted (76a99d3 doc); live SEC-02 header curl PASS (enforcing CSP); 113 tests green, build EXIT 0
+Last activity: 2026-06-03 -- Completed quick task 260603-mmc: fixed the missing OLD_RATES_CSV default that fired a recurring Sentry ERROR every run (now a benign INFO/breadcrumb skip; billing blast radius confirmed zero) + modernized Sentry (fingerprinted rate-load except, corrected stale cron monitor_config to America/Chicago + real schedule + max_runtime 180, PII-safe run-mode tags, closed a raw WR-list set_context leak). TDD RED->GREEN; pytest 1027 passed/0 failed; verified 7/7 must-haves
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
@@ -193,6 +193,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 | 260601-ktw | UI: platform-aware command-palette hint (⌘K on mac, Ctrl K on Win/Linux) via shared helper + hook; UAT fix | 2026-06-01 | 368e97d | [260601-ktw-platform-aware-command-palette-shortcut-](./quick/260601-ktw-platform-aware-command-palette-shortcut-/) |
 | 260601-nzs | Branding: wire Linetec Services logo (Navbar/Login) + add brand-gray palette + title; logo asset committed | 2026-06-01 | a3c8325 | [260601-nzs-wire-linetec-services-logo-and-brand-col](./quick/260601-nzs-wire-linetec-services-logo-and-brand-col/) |
 | 260602-nws | Fix stuck Sign Out on Pending Approval screen (auth-state redirect + robust handler) + senior UI upgrade; TDD 5 tests, suite 112/112 | 2026-06-02 | 264efc3 | [260602-nws-fix-stuck-sign-out-on-pending-approval-s](./quick/260602-nws-fix-stuck-sign-out-on-pending-approval-s/) |
+| 260603-mmc | Fix missing OLD_RATES_CSV default (recurring Sentry ERROR) + modernize Sentry: optional-CSV benign skip w/ fingerprinted except, corrected cron monitor_config (Chicago/real schedule/180), PII-safe run-mode tags, closed raw WR-list set_context leak. TDD; suite 1027/1027; verified ✓ | 2026-06-03 | d10aded | [260603-mmc-fix-missing-old-rates-csv-default-fileno](./quick/260603-mmc-fix-missing-old-rates-csv-default-fileno/) |
 
 ## Deferred Items
 

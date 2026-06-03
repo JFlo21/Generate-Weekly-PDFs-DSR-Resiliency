@@ -21,6 +21,7 @@ must_haves:
     - "A file that EXISTS but is malformed still raises a Sentry ERROR, now grouped under a stable fingerprint ['rate-csv-load-failure', <fn>]."
     - "The Sentry cron monitor_config describes the REAL production schedule (weekday every-2h, America/Chicago, max_runtime aligned to the live workflow timeout), not the stale 'every Monday 17:30 America/Phoenix' values."
     - "Sentry issues can be filtered by run mode: res_grouping_mode, wr_filter_active (BOOL), force_generation - with NO raw WR list, names, or dollar amounts in any tag/context."
+    - "The pre-existing set_context('configuration') block no longer leaks the raw WR_FILTER list to Sentry: the 'wr_filter' key is replaced by 'wr_filter_active' (BOOL) + 'wr_filter_count' (int)."
     - "pytest tests/ passes in full; python -m py_compile generate_weekly_pdfs.py succeeds."
   artifacts:
     - path: "generate_weekly_pdfs.py"
@@ -269,6 +270,29 @@ tests/test_subcontractor_pricing.py:759 TestBuildCuToGroupMapping.test_missing_f
     second run-summary context or capture_message. If (and only if) it is somehow
     absent, STOP and report - do not invent a new one.
 
+    PART D - Redact a pre-existing PII leak (surfaced by the plan-checker; in
+    scope because this is a Sentry-PII task and WR numbers are row-PII per
+    CLAUDE.md). At generate_weekly_pdfs.py:1397-1403 the
+    set_context("configuration", {...}) block currently includes
+    "wr_filter": WR_FILTER - the RAW WR list. set_context BYPASSES
+    before_send_log, so this leaks WR numbers to Sentry on every init. Replace
+    that SINGLE key with PII-safe aggregates (keep every other key as-is):
+        # was: "wr_filter": WR_FILTER,   (raw WR list - row-PII)
+        "wr_filter_active": bool(WR_FILTER),
+        "wr_filter_count": len(WR_FILTER),
+    Do NOT modify the other configuration keys (max_groups,
+    extended_change_detection, use_discovery_cache, force_generation - all
+    non-PII config scalars). This is the only raw-WR-list -> Sentry path in the
+    init block; the new :1391-area tags (Part B) and this redaction together
+    guarantee no WR list crosses the Sentry boundary.
+
+    Then EXTEND the static verifier
+    .planning/quick/260603-mmc-fix-missing-old-rates-csv-default-fileno/verify_sentry_mods.py
+    with an assertion that the literal `"wr_filter": WR_FILTER` is GONE from
+    generate_weekly_pdfs.py and that both `wr_filter_active` and
+    `wr_filter_count` appear in the configuration context. Match the verifier's
+    existing assertion style.
+
     DO NOT bump sentry-sdk in requirements.txt (stays >=2.35.0). DO NOT add
     set_measurement, add_attachment, span set_data, or the structured logger.
     DO NOT change SENTRY_ENABLE_LOGS. Additive/surgical only.
@@ -276,7 +300,7 @@ tests/test_subcontractor_pricing.py:759 TestBuildCuToGroupMapping.test_missing_f
   <verify>
     <automated>cd "C:/Users/juflores/dev/Generate-Weekly-PDFs-DSR-Resiliency" && python -m py_compile generate_weekly_pdfs.py && python ".planning/quick/260603-mmc-fix-missing-old-rates-csv-default-fileno/verify_sentry_mods.py"</automated>
   </verify>
-  <done>monitor_config now uses the real weekday crontab + America/Chicago + max_runtime 180; America/Phoenix and "30 17 * * 1" are gone; res_grouping_mode / wr_filter_active(BOOL) / force_generation tags present near :1391; existing session_summary set_context untouched (count == 1); no set_measurement and no sentry-sdk floor bump; verify_sentry_mods.py exits 0.</done>
+  <done>monitor_config now uses the real weekday crontab + America/Chicago + max_runtime 180; America/Phoenix and "30 17 * * 1" are gone; res_grouping_mode / wr_filter_active(BOOL) / force_generation tags present near :1391; the pre-existing "wr_filter": WR_FILTER leak at :1402 is replaced by wr_filter_active(bool)+wr_filter_count(int) (no raw WR list reaches Sentry); existing session_summary set_context untouched (count == 1); no set_measurement and no sentry-sdk floor bump; verify_sentry_mods.py exits 0.</done>
 </task>
 
 <task type="auto">
@@ -312,6 +336,10 @@ tests/test_subcontractor_pricing.py:759 TestBuildCuToGroupMapping.test_missing_f
         "0 13,15,17,19,21,23,1 * * 1-5" / America/Chicago / max_runtime 180).
       - Added PII-safe run-mode tags: res_grouping_mode, wr_filter_active (a BOOL,
         never the WR list), force_generation.
+      - Closed a pre-existing PII leak: set_context("configuration") was sending
+        the raw WR_FILTER list to Sentry (set_context bypasses before_send_log);
+        replaced "wr_filter": WR_FILTER with wr_filter_active(bool) +
+        wr_filter_count(int).
       - Guardrails preserved: did NOT change the :408 default string, the
         workflow's pinned-empty rate vars (one-line revert path intact), the
         empty-dict contract, _sanitize_csv_path, the sentry-sdk>=2.35.0 floor, or
@@ -380,6 +408,9 @@ Sentry boundary.
   America/Phoenix / "30 17 * * 1" / 120 values are gone.
 - res_grouping_mode, wr_filter_active (BOOL), force_generation tags are present;
   no raw WR list anywhere.
+- The pre-existing set_context("configuration") leak is closed: "wr_filter":
+  WR_FILTER is replaced by wr_filter_active(bool)+wr_filter_count(int); no raw
+  WR list reaches Sentry from the init block.
 - The pre-existing session_summary set_context is untouched (improvement #2 was
   already implemented; not duplicated).
 - requirements.txt sentry-sdk floor unchanged (>=2.35.0); SENTRY_ENABLE_LOGS
