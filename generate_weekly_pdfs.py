@@ -1433,6 +1433,17 @@ def load_contract_rates(filepath):
     """Loads contract rates into a fast lookup dictionary."""
     rates = {}
     REQUIRED_HEADERS = {'CU', 'Install Price', 'Removal Price', 'Transfer Price'}
+    if not os.path.isfile(filepath):
+        # Optional/retired rate CSV absent (e.g. pinned-empty OLD_RATES_CSV
+        # resolving to its uncommitted default 'CU List - Corpus North & South.csv').
+        # Benign - skip cleanly. INFO (not error) so LoggingIntegration
+        # (event_level=ERROR) does NOT fire a Sentry event every run.
+        logging.info(f"Rate CSV not present, skipping load: {filepath}")
+        sentry_add_breadcrumb(
+            "rate_loading", "rate CSV absent - skipped",
+            level="info", data={"path_present": False},
+        )
+        return rates
     try:
         with open(filepath, mode='r', encoding='utf-8-sig') as f:
             reader = csv.DictReader(f)
@@ -1453,6 +1464,16 @@ def load_contract_rates(filepath):
         logging.info(f"Loaded {len(rates)} CU rates from {filepath}")
     except Exception as e:
         logging.error(f"Failed to load rates from {filepath}: {e}")
+        sentry_capture_with_context(
+            e,
+            context_name="rate_loading",
+            context_data={
+                "file_present": True,
+                "error": _redact_exception_message(e),
+            },
+            tags={"phase": "rate_load"},
+            fingerprint=["rate-csv-load-failure", "load_contract_rates"],
+        )
     return rates
 
 
@@ -1500,6 +1521,17 @@ def build_cu_to_group_mapping(old_csv_path):
         dict: {DETAILED_CU_CODE: GROUP_CODE} e.g. {'ANC-DHM-10-84-D1': 'ANC-M'}
     """
     mapping = {}
+    if not os.path.isfile(old_csv_path):
+        # Optional/retired rate CSV absent (e.g. pinned-empty OLD_RATES_CSV
+        # resolving to its uncommitted default 'CU List - Corpus North & South.csv').
+        # Benign - skip cleanly. INFO (not error) so LoggingIntegration
+        # (event_level=ERROR) does NOT fire a Sentry event every run.
+        logging.info(f"Rate CSV not present, skipping load: {old_csv_path}")
+        sentry_add_breadcrumb(
+            "rate_loading", "rate CSV absent - skipped",
+            level="info", data={"path_present": False},
+        )
+        return mapping
     try:
         with open(old_csv_path, mode='r', encoding='utf-8-sig') as f:
             reader = csv.DictReader(f)
@@ -1514,6 +1546,16 @@ def build_cu_to_group_mapping(old_csv_path):
         logging.info(f"Built CU-to-group mapping: {len(mapping)} CU codes -> groups")
     except Exception as e:
         logging.error(f"Failed to build CU-to-group mapping from {old_csv_path}: {e}")
+        sentry_capture_with_context(
+            e,
+            context_name="rate_loading",
+            context_data={
+                "file_present": True,
+                "error": _redact_exception_message(e),
+            },
+            tags={"phase": "rate_load"},
+            fingerprint=["rate-csv-load-failure", "build_cu_to_group_mapping"],
+        )
     return mapping
 
 

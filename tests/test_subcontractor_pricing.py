@@ -45,6 +45,12 @@ class TestLoadContractRates(unittest.TestCase):
         rates = generate_weekly_pdfs.load_contract_rates('/nonexistent/path.csv')
         self.assertEqual(rates, {})
 
+    def test_missing_file_is_benign_not_error(self):
+        """Missing rate CSV must NOT emit ERROR-level log (benign INFO skip, not a Sentry event)."""
+        with self.assertNoLogs(level="ERROR"):
+            rates = generate_weekly_pdfs.load_contract_rates("/nonexistent/path.csv")
+        self.assertEqual(rates, {})
+
     def test_empty_csv_returns_empty(self):
         """Test that a CSV with only headers returns an empty dict."""
         with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, newline='') as f:
@@ -759,6 +765,12 @@ class TestBuildCuToGroupMapping(unittest.TestCase):
     def test_missing_file_returns_empty(self):
         """Test that missing file returns empty mapping."""
         mapping = generate_weekly_pdfs.build_cu_to_group_mapping('/nonexistent/old.csv')
+        self.assertEqual(mapping, {})
+
+    def test_missing_file_is_benign_not_error(self):
+        """Missing old-rates CSV must NOT emit ERROR-level log (benign INFO skip, not a Sentry event)."""
+        with self.assertNoLogs(level="ERROR"):
+            mapping = generate_weekly_pdfs.build_cu_to_group_mapping("/nonexistent/old.csv")
         self.assertEqual(mapping, {})
 
     def test_cu_codes_uppercased(self):
