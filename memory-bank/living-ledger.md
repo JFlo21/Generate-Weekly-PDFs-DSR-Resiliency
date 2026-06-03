@@ -3565,3 +3565,47 @@ GREEN after). Full suite: 1025 passed, 29 skipped, 0 failures.
 variant-migration scenario. The confirming-signal condition (helper-family live
 for same wr+week) is load-bearing — removing it would cause over-eager
 deletion of primaries that are simply not in scope on a given run.
+
+---
+
+## [2026-06-03 11:45] AuthGuard authorization-resolution gate (SEC-04 HIGH-03) + gsd-security-auditor writes to the WRONG SECURITY.md
+
+**Context:** Phase 07 plan 07-04 (milestone-gating SEC-04 audit). Two reusable
+rules surfaced.
+
+**1. Client-side auth guards must gate on "authorization resolved", not just
+`loading`.** `useAuth` (portal-v2) resolves the *session* (`getSession()` →
+`setLoading(false)`) and the *profile/role* (`fetchProfile()`) in TWO separate
+async steps. `AuthGuard` previously rendered children once `loading===false`,
+so in the window where `user` is set but `profile` is still `null`, a `pending`
+user transiently rendered the dashboard shell before the `/pending` redirect
+fired (SEC-04 HIGH-03). Data was never exposed (Supabase RLS via
+`current_user_role()` returns 0 rows for pending), but the client gate was
+wrong.
+
+**Fix:** `const resolving = loading || (Boolean(user) && !profile);` — use
+`resolving` for both the effect's early-return and the render guard. A logged-in
+user always has a `profiles` row (the `handle_new_user` trigger creates it
+atomically), so `user && !profile` reliably means "fetch in flight", not "no
+profile". RED→GREEN test in `AuthGuard.test.tsx`. Commit `515837b`.
+
+**Rule:** Any auth/role guard in `portal-v2` must treat `user && !profile` (or
+`user && role===null`) as still-resolving and block the protected render — never
+pass the guard on `!loading` alone. The DB RLS layer (`current_user_role()`
+reads `profiles.role` LIVE per query) is the real data boundary; `getSession()`
+is for UI state only (locked decision). HIGH-01 (`getSession` bootstrap) and
+HIGH-02 (`profiles_admin_all FOR ALL`) were correctly accepted-with-rationale
+for the same reason: no non-admin escalation path exists (non-admins have NO
+profiles UPDATE policy) and revoked roles take effect server-side immediately.
+
+**2. `gsd-security-auditor` writes its output to the repo-root `SECURITY.md`,
+clobbering the public GitHub vulnerability-disclosure policy.** The subagent has
+Write access and defaults to `./SECURITY.md`. During 07-04 it overwrote the
+standard `# Security Policy` template with phase-audit tables.
+
+**Rule:** After running `gsd-secure-phase {N}` / spawning `gsd-security-auditor`,
+ALWAYS verify `git status` for an unintended root `SECURITY.md` modification and
+`git checkout HEAD -- SECURITY.md` if found. The authoritative phase audit doc
+is `.planning/phases/{NN}-*/{NN}-SECURITY.md` (authored by the orchestrator) —
+the repo-root `SECURITY.md` is the public disclosure policy and must stay
+untouched.
