@@ -156,3 +156,49 @@ No new network endpoints, auth paths, or file access patterns introduced. The `s
 - `memory-bank/living-ledger.md` modified: confirmed (new bottom entry with [2026-06-03 16:48])
 - All 17 verifier checks: PASS
 - Full pytest: 1027 passed, 0 failed
+
+---
+
+## Plan 02
+
+**One-liner:** TDD-enforced PII-safe Sentry telemetry: run-level KPIs on root transaction, counts-only failure attachment, guarded structured-log milestone calls; sentry-sdk floor raised to 2.54.0.
+
+### Tasks Completed
+
+| Task | Name | Commit | Files |
+|------|------|--------|-------|
+| 1 | TDD - pure PII-safe helpers (KPIs, snapshot, log wrapper) | `941021f` | `generate_weekly_pdfs.py`, `tests/test_subcontractor_pricing.py` |
+| 2 | Wire helpers into main() - root-txn KPIs (#6), failure attachment (#5), milestone logs (#7) | `1a33e14` | `generate_weekly_pdfs.py`, `requirements.txt` |
+| 3 | Living Ledger entry | `d8a1121` | `memory-bank/living-ledger.md` |
+
+### What Was Built
+
+**Helper A - `_build_run_kpis`** (pure, after `sentry_capture_message_with_context`): Returns a flat `dict[str, int | float]` with 10 KPI fields plus a derived `groups_per_minute` throughput (`0.0` on zero duration — no `ZeroDivisionError`). All values are `int | float`; no strings possible, guaranteeing no PII leakage via `set_data`.
+
+**Helper B - `_build_run_context_snapshot`** (pure): Returns counts/booleans/`error_type` class name only. Designed for `scope.add_attachment` which bypasses `before_send_log`. Tests assert no WR token, no `$`, no foreman name in serialised JSON.
+
+**Helper C - `_sentry_log_event`** (guarded): Wraps `sentry_sdk.logger` with three no-op gates (no DSN, no `logger` attribute on older SDK, internal `try/except` swallow) and a module-level comment: "ONLY pass non-PII scalars — this path BYPASSES before_send_log".
+
+**Wired into main():**
+- `#6` SUCCESS path: `_build_run_kpis` loop → `_txn.set_data` for each KPI, guarded by `if _txn:`, placed immediately before `_txn.set_status("ok")`.
+- `#7` Milestone logs: `_sentry_log_event` at run-start (after `_txn` init, `test_mode`/`github_actions` booleans) and run-complete (after #6 KPI loop, aggregate counts). Zero calls in per-group loops.
+- `#5` FAILURE path: `_build_run_context_snapshot` → `scope.add_attachment(bytes=json.dumps(...), filename="run-context.json")` before `sentry_capture_with_context`, wrapped in `try/except: pass` — can never mask the real exception.
+
+**`requirements.txt`:** `sentry-sdk>=2.35.0` → `sentry-sdk>=2.54.0` (structured logger API floor; 2.x only, no 3.x OTel APIs).
+
+### Deviations from Plan
+
+None — plan executed exactly as written.
+
+### PII-Safety Test Gate
+
+16 new assertions in `TestSentryTelemetryHelpers`:
+- KPI: returns expected keys; throughput computed; zero-duration → `0.0`; every value is `int | float`.
+- Snapshot: success/failure shapes; values are `int|float|bool|None|str`; no WR token; no `$`; no foreman name in JSON.
+- Log event: no-op without DSN; no-op without `sentry_sdk.logger` attr; no raise on bad level; swallows broken logger.
+
+### Verification
+
+- `python -m py_compile generate_weekly_pdfs.py`: CLEAN
+- `python -m pytest tests/ -q`: **1043 passed, 29 skipped, 76 subtests passed**
+- No `set_measurement` added. `SENTRY_ENABLE_LOGS` default unchanged (stays `false`). Billing path untouched. Plan-01 edits untouched.
