@@ -52,8 +52,8 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
   mock fallback removed, debounced search, variant filter, sortable columns.
 - [x] **Phase 06: Realtime and UI Polish** — Supabase Realtime INSERT subscription,
   Framer Motion animations, responsive layout, accessible visual design. (completed automated scope 2026-06-02; manual UAT pending)
-- [ ] **Phase 07: Security Hardening and Express Removal** — CSP/headers, full RLS audit,
-  signed-URL scoping verification, secret handling audit, `portal/` directory removed.
+- [x] **Phase 07: Security Hardening and Express Removal** — CSP/headers, full RLS audit,
+  signed-URL scoping verification, secret handling audit, `portal/` directory removed. ✅ 2026-06-03
 
 ## Progress
 
@@ -66,7 +66,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 04. Auth, RBAC, and Deployment | v1.1 | 6/6 | ✅ Complete | 2026-06-01 |
 | 05. Artifact Table and Search | v1.1 | 4/4 | Complete    | 2026-06-02 |
 | 06. Realtime and UI Polish | v1.1 | 5/5 | Complete    | 2026-06-02 |
-| 07. Security Hardening and Express Removal | v1.1 | 3/4 | In progress | — |
+| 07. Security Hardening and Express Removal | v1.1 | 4/4 | ✅ Complete | 2026-06-03 |
 
 ---
 
@@ -304,6 +304,6 @@ Plans:
 - [x] 07-03-PLAN.md — Express removal (sever -> grep-gate -> git rm portal/ -> smoke test) + SEC-03 secret gate + CSP enforce-flip (✅ complete 2026-06-02; 6-step smoke test PASS, SEC-03 PASS, CSP enforcing)
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 07-04-PLAN.md — /security-review + gsd-secure-phase 07 + Dependabot critical/high CVE remediation; author 07-SECURITY.md
+- [x] 07-04-PLAN.md — security-reviewer skill + gsd-secure-phase 07 (both D-05 auditors) + Dependabot critical/high CVE remediation; author 07-SECURITY.md (✅ complete 2026-06-03; threats_open:0/verified, HIGH-03 AuthGuard race fixed, stale schema deleted, 9 moderates deferred)
 
 **UI hint**: no

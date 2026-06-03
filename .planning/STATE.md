@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Portal — Supabase-native Artifact Portal
-status: executing
-last_updated: "2026-06-03T15:30:00.000Z"
-last_activity: 2026-06-03 -- Plan 07-04 Task 1 COMPLETE (CVE triage: portal-v2 + website both 0 critical/high; 9 moderates deferred); Task 2 (SEC-04 audit + 07-SECURITY.md) remains, blocked on live Vercel URL
+status: milestone_complete
+last_updated: "2026-06-03T16:45:00.000Z"
+last_activity: 2026-06-03 -- Plan 07-04 COMPLETE: SEC-04 two-auditor audit (security-reviewer skill + gsd-secure-phase 07) -> 07-SECURITY.md threats_open:0/status:verified; HIGH-03 AuthGuard profile-load race FIXED (515837b, RED->GREEN); stale portal-v2/supabase/schema.sql draft deleted; live SEC-02 header curl PASS (enforcing CSP). Phase 07 + v1.1 milestone CLOSED (28/28 plans).
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 28
-  completed_plans: 27
-  percent: 96
+  completed_plans: 28
+  percent: 100
 ---
 
 # Project State
@@ -30,13 +30,13 @@ pipeline.
 
 ## Current Position
 
-Phase: 07 (security-hardening-and-express-removal) — EXECUTING
-Plan: 4 of 4 — Task 1 of 2 ✅ COMPLETE
+Phase: 07 (security-hardening-and-express-removal) — ✅ COMPLETE
+Plan: 4 of 4 — ✅ COMPLETE (both tasks done)
 Prev: Phase 07 plan 07-03 — ✅ COMPLETE (2026-06-02; Express removed, CSP enforcing, 6-step smoke test PASS, SEC-03 PASS)
-Next: Plan 07-04 Task 2 — invoke security-reviewer skill + gsd-secure-phase 07, author 07-SECURITY.md (threats_open:0 + status:verified), write 07-04-SUMMARY.md. BLOCKED on live Vercel production URL (SEC-02 header curl + SEC-04 sign-off).
-Status: Executing Phase 07 — Task 1 (CVE triage) done; Task 2 (SEC-04 audit) pending live Vercel URL
-Resume file: .planning/HANDOFF.json (Task 1 done; Task 2 only) + .planning/phases/07-security-hardening-and-express-removal/07-04-PLAN.md
-Last activity: 2026-06-03 -- Plan 07-04 Task 1 COMPLETE: portal-v2 (vitest ^4.1.8, runtime audit EXIT 0) + website (npm audit 0 critical/0 high/7 moderate, build EXIT 0) both clean; 9 moderates (portal-v2: postcss, ws | website: body-parser, express, qs, sockjs, uuid, webpack-dev-server, ws) deferred to Accepted Risks Log per D-06
+Next: v1.1 milestone COMPLETE (28/28 plans). Optional follow-ups: /gsd-validate-phase 07, /gsd-verify-work 07, /gsd-complete-milestone, or the pending Phase 06 manual UAT (06-HUMAN-UAT.md, 6 items).
+Status: Phase 07 + v1.1 milestone CLOSED — SEC-04 verified (07-SECURITY.md threats_open:0); all SEC-01..05 met
+Resume file: (none — milestone complete; HANDOFF.json consumed)
+Last activity: 2026-06-03 -- Plan 07-04 COMPLETE: SEC-04 two-auditor audit -> 07-SECURITY.md verified (threats_open:0); HIGH-03 AuthGuard profile-load race FIXED (515837b); stale schema draft deleted (76a99d3 doc); live SEC-02 header curl PASS (enforcing CSP); 113 tests green, build EXIT 0
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
