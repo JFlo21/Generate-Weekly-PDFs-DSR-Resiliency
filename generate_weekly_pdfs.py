@@ -1035,6 +1035,103 @@ def sentry_capture_message_with_context(message: str, level: SentryLogLevel = "e
     
     sentry_sdk.capture_message(message, level=level)
 
+
+def _build_run_kpis(
+    *,
+    files_generated: int,
+    groups_total: int,
+    groups_skipped: int,
+    groups_generated: int,
+    groups_uploaded: int,
+    groups_errored: int,
+    duration_seconds: float,
+    sheets_discovered: int,
+    rows_fetched: int,
+    api_calls: int,
+) -> dict[str, int | float]:
+    """Return a flat dict of numeric run-level KPIs for the root Sentry transaction.
+
+    ALL values are int or float — no strings — so there is zero risk of PII
+    leakage via set_data().  A derived throughput metric is included.
+
+    This helper is intentionally pure (no side effects) so it is fully
+    unit-testable and the no-PII guarantee is test-enforced.
+    """
+    if duration_seconds and duration_seconds > 0:
+        groups_per_minute = round(groups_generated / (duration_seconds / 60.0), 2)
+    else:
+        groups_per_minute = 0.0
+    return {
+        "files_generated": files_generated,
+        "groups_total": groups_total,
+        "groups_skipped": groups_skipped,
+        "groups_generated": groups_generated,
+        "groups_uploaded": groups_uploaded,
+        "groups_errored": groups_errored,
+        "duration_seconds": duration_seconds,
+        "sheets_discovered": sheets_discovered,
+        "rows_fetched": rows_fetched,
+        "api_calls": api_calls,
+        "groups_per_minute": groups_per_minute,
+    }
+
+
+def _build_run_context_snapshot(
+    *,
+    success: bool,
+    duration_seconds: float,
+    groups_attempted: int,
+    groups_generated: int,
+    groups_uploaded: int,
+    groups_errored: int,
+    error_type: str | None = None,
+) -> dict:
+    """Return a PII-safe counts/booleans snapshot for failure-path Sentry attachments.
+
+    This dict is serialised to JSON and attached via scope.add_attachment, which
+    BYPASSES before_send_log.  Every value must be a count, boolean, None, or the
+    already-safe exception class name only — never a WR number, foreman/dept/job
+    name, dollar amount, or any row-level data.
+
+    This helper is intentionally pure (no side effects) so PII-safety is
+    test-enforced rather than relying on review alone.
+    """
+    return {
+        "success": success,
+        "duration_seconds": duration_seconds,
+        "groups_attempted": groups_attempted,
+        "groups_generated": groups_generated,
+        "groups_uploaded": groups_uploaded,
+        "groups_errored": groups_errored,
+        "error_type": error_type,  # exception class name only — never the message
+    }
+
+
+def _sentry_log_event(level: str, message: str, **attributes: int | float | bool | str | None) -> None:
+    """Guarded structured-log emitter using sentry_sdk.logger (SDK >= 2.54.0).
+
+    ONLY pass non-PII scalars (counts, booleans, fixed enums) as attributes.
+    This path BYPASSES before_send_log — never pass row data, WR numbers,
+    foreman/dept/job names, dollar amounts, or any per-row values.
+
+    Safety contract:
+    - No-ops immediately if SENTRY_DSN is falsy.
+    - No-ops immediately if sentry_sdk has no 'logger' attribute (older SDK).
+    - Swallows all internal errors (try/except) — never raises, never masks
+      the caller's exception.
+    - Only emits to Sentry when SENTRY_ENABLE_LOGS is True (the SDK gate).
+    """
+    if not SENTRY_DSN:
+        return
+    if not hasattr(sentry_sdk, "logger"):
+        return
+    try:
+        log_fn = getattr(sentry_sdk.logger, level, sentry_sdk.logger.info)
+        log_fn(message, **attributes)
+    except Exception as _log_exc:
+        logging.debug(f"_sentry_log_event swallowed error: {_log_exc}")
+
+
 # Substring markers that identify billing-engine log messages known
 # to embed row-level PII (WR, dept, job, foreman, helper / vac-crew
 # names, cell values, prices). If any of these appear in a log body,
