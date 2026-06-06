@@ -3689,3 +3689,52 @@ tests continue to pass (empty-dict contract preserved). Full suite: all passed.
 **Guardrails preserved:** Additive only — billing/grouping/hashing/filename/upload paths untouched; `_sanitize_csv_path` untouched; plan-01 edits untouched; `SENTRY_ENABLE_LOGS` default stays `false` (milestone logs are no-ops in prod until an operator explicitly enables them). `if _txn:` guard preserved on all transaction calls.
 
 **Tests:** Full suite 1043 passed, 0 failed; `python -m py_compile generate_weekly_pdfs.py` clean.
+
+---
+
+## [2026-06-05 16:15] Sentry Crons monitor timezone MUST be UTC (GitHub Actions crons are UTC) — fixes perpetual false "missed check-in"
+
+**Root cause (Sentry issue `GENERATE-WEEKLY-EXCEL-6V`, 130 events, last seen
+the day of this fix):** the Sentry Crons `monitor_config` in
+`_sentry_cron_checkin_start()` carried `"timezone": "America/Chicago"` while its
+`schedule` value (`0 13,15,17,19,21,23,1 * * 1-5`) is the **weekday GitHub
+Actions cron** — and GitHub Actions evaluates every `schedule:` cron in **UTC**.
+Labeling the monitor `America/Chicago` made Sentry expect each check-in 5–6h
+later than the job actually checks in, so every weekday slot was flagged as a
+missed check-in (an `outage`-category issue). The earlier PR #261 correction
+(Phoenix → Chicago) fixed the schedule string + max_runtime but introduced this
+tz mismatch; the correct value is **UTC**.
+
+**RULE (operative, locked):** The Sentry cron `monitor_config.timezone` MUST
+equal the timezone GitHub Actions uses to evaluate the workflow `schedule:`
+cron — which is always **UTC**. Never set it to a local zone
+(`America/Chicago`, `America/Phoenix`) just because the *job's* internal
+`TZ` env is Central. The monitor `schedule.value` MUST also stay byte-for-byte
+identical to the weekday cron in `.github/workflows/weekly-excel-generation.yml`.
+
+**What changed (`generate_weekly_pdfs.py`):** Extracted a pure, testable
+`_build_cron_monitor_config()` helper (+ module constant `_CRON_MONITOR_SCHEDULE`)
+out of `_sentry_cron_checkin_start()`; flipped `timezone` `America/Chicago` → `UTC`.
+Behavior otherwise identical (`checkin_margin:5`, `max_runtime:180`,
+`failure_issue_threshold:1`, `recovery_threshold:1`). No billing/grouping/upload
+path touched — monitoring config only. `-6V` left unresolved in Sentry; it
+auto-recovers (`recovery_threshold:1`) on the first correctly-timed check-in
+after deploy.
+
+**Tests (TDD RED→GREEN):** New `tests/test_cron_monitor_config.py` (5 tests):
+asserts `timezone == "UTC"` and never a local zone (the regression guard), the
+schedule/runtime shape, AND that `_CRON_MONITOR_SCHEDULE` matches the workflow's
+weekday cron parsed live from `weekly-excel-generation.yml` (locks out the whole
+drift class). RED confirmed on `America/Chicago` first, then GREEN. Full suite:
+1048 passed, 29 skipped, 0 failed; `py_compile` clean.
+
+**Sentry hygiene (same session, 2026-06-05):** Triaged all 61 unresolved issues
+across `generate-weekly-excel` + `generate-weekly-excel-frontend` (the two
+deleted Express projects had 0). Resolved 34 verified-fixed (rates-CSV `-72`
+post-PR#261; the 29 `KeyError 'refId'` issues — that code path no longer exists
+in `get_all_source_rows`, all stopped 2026-03-18; 4 frontend errors from the
+broken 2026-04-18 deploy: `USE_MOCK`/`DOCS_URL`/React-queue). Ignored 27 transient
+infra / third-party (Smartsheet `ApiError 0/1278/4000/503`, `JSONDecodeError`;
+3 `str+None` TypeErrors raised *inside the Smartsheet SDK's* error formatter,
+`handled:yes`; 2 frontend third-party — a browser-extension `Range` error and a
+`getItem` null inside Sentry's own `feedback/instrument.js`).

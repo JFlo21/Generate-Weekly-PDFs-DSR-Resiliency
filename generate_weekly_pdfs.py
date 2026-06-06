@@ -8022,6 +8022,32 @@ def _run_synthetic_test_mode(session_start):
 
 # --- MAIN EXECUTION ---
 
+# Sentry Crons monitor schedule. This cron VALUE must stay byte-for-byte
+# identical to the weekday ``schedule.cron`` in
+# .github/workflows/weekly-excel-generation.yml. GitHub Actions evaluates every
+# ``schedule:`` cron in UTC, so the monitor ``timezone`` below MUST be "UTC".
+# (Mislabeling it "America/Chicago" made Sentry expect each check-in 5-6h late
+# and fire a perpetual "missed check-in" outage — GENERATE-WEEKLY-EXCEL-6V.)
+_CRON_MONITOR_SCHEDULE = "0 13,15,17,19,21,23,1 * * 1-5"
+
+
+def _build_cron_monitor_config():
+    """Return the Sentry Crons ``monitor_config`` for the weekly billing job.
+
+    Pure (no I/O); extracted so the schedule/timezone contract can be unit
+    tested. ``timezone`` MUST equal the timezone GitHub Actions evaluates the
+    workflow ``schedule:`` cron in (UTC); see ``_CRON_MONITOR_SCHEDULE``.
+    """
+    return {
+        "schedule": {"type": "crontab", "value": _CRON_MONITOR_SCHEDULE},
+        "timezone": "UTC",
+        "checkin_margin": 5,
+        "max_runtime": 180,
+        "failure_issue_threshold": 1,
+        "recovery_threshold": 1,
+    }
+
+
 def _sentry_cron_checkin_start(monitor_slug):
     """Send a Sentry cron 'in_progress' check-in. Returns the check-in id or None.
 
@@ -8034,14 +8060,7 @@ def _sentry_cron_checkin_start(monitor_slug):
         return capture_checkin(
             monitor_slug=monitor_slug,
             status=MonitorStatus.IN_PROGRESS,
-            monitor_config={
-                "schedule": {"type": "crontab", "value": "0 13,15,17,19,21,23,1 * * 1-5"},
-                "timezone": "America/Chicago",
-                "checkin_margin": 5,
-                "max_runtime": 180,
-                "failure_issue_threshold": 1,
-                "recovery_threshold": 1,
-            },
+            monitor_config=_build_cron_monitor_config(),
         )
     except Exception as exc:
         logging.warning(f"⚠️ Sentry cron check-in (in_progress) failed: {exc}")
