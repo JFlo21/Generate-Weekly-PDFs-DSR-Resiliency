@@ -67,7 +67,14 @@ import sys
 import json
 import signal
 import csv
-from typing import Any, cast
+from typing import Any, cast, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # ``MonitorConfig`` is a TypedDict consulted only by the static type
+    # checker to validate ``capture_checkin(monitor_config=...)``. Importing it
+    # under ``TYPE_CHECKING`` keeps the runtime import surface unchanged (it is
+    # never imported when the script actually runs).
+    from sentry_sdk._types import MonitorConfig
 
 # Load environment variables
 load_dotenv()
@@ -1126,7 +1133,12 @@ def _sentry_log_event(level: str, message: str, **attributes: int | float | bool
     if not hasattr(sentry_sdk, "logger"):
         return
     try:
-        log_fn = getattr(sentry_sdk.logger, level, sentry_sdk.logger.info)
+        # ``sentry_sdk.logger`` is a lazily-bound attribute (real in
+        # sentry-sdk >= 2.54.0; presence already asserted by the hasattr guard
+        # above). Resolve it via getattr so static analysis does not flag it as
+        # an unknown module attribute. Runtime behavior is unchanged.
+        _logger = getattr(sentry_sdk, "logger")
+        log_fn = getattr(_logger, level, _logger.info)
         log_fn(message, **attributes)
     except Exception as _log_exc:
         logging.debug(f"_sentry_log_event swallowed error: {_log_exc}")
@@ -8031,7 +8043,7 @@ def _run_synthetic_test_mode(session_start):
 _CRON_MONITOR_SCHEDULE = "0 13,15,17,19,21,23,1 * * 1-5"
 
 
-def _build_cron_monitor_config():
+def _build_cron_monitor_config() -> "MonitorConfig":
     """Return the Sentry Crons ``monitor_config`` for the weekly billing job.
 
     Pure (no I/O); extracted so the schedule/timezone contract can be unit
