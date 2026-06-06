@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Portal — Supabase-native Artifact Portal
 status: milestone_complete
-last_updated: "2026-06-03T16:45:00.000Z"
+last_updated: "2026-06-05T23:55:00.000Z"
 last_activity: 2026-06-03 -- Plan 07-04 COMPLETE: SEC-04 two-auditor audit (security-reviewer skill + gsd-secure-phase 07) -> 07-SECURITY.md threats_open:0/status:verified; HIGH-03 AuthGuard profile-load race FIXED (515837b, RED->GREEN); stale portal-v2/supabase/schema.sql draft deleted; live SEC-02 header curl PASS (enforcing CSP). Phase 07 + v1.1 milestone CLOSED (28/28 plans).
 progress:
   total_phases: 6
@@ -33,7 +33,7 @@ pipeline.
 Phase: 07 (security-hardening-and-express-removal) — ✅ COMPLETE
 Plan: 4 of 4 — ✅ COMPLETE (both tasks done)
 Prev: Phase 07 plan 07-03 — ✅ COMPLETE (2026-06-02; Express removed, CSP enforcing, 6-step smoke test PASS, SEC-03 PASS)
-Next: v1.1 milestone COMPLETE (28/28 plans). Optional follow-ups: /gsd-validate-phase 07, /gsd-verify-work 07, /gsd-complete-milestone, or the pending Phase 06 manual UAT (06-HUMAN-UAT.md, 6 items).
+Next: Phase 07 verify-work (7/7 PASS, 0 issues — 07-UAT.md) + validate-phase (Nyquist-compliant, 9/9 COVERED, 0 gaps — 07-VALIDATION.md) COMPLETE this session. Open: merge cron-monitor-UTC fix PR #264 (Sentry -6V); optional /gsd-complete-milestone; pending Phase 06 manual UAT (06-HUMAN-UAT.md, 6 items).
 Status: Phase 07 + v1.1 milestone CLOSED — SEC-04 verified (07-SECURITY.md threats_open:0); all SEC-01..05 met
 Resume file: (none — milestone complete; HANDOFF.json consumed)
 Last activity: 2026-06-03 -- Completed quick task 260603-mmc (2 plans): P01 fixed the missing OLD_RATES_CSV default that fired a recurring Sentry ERROR every run (benign INFO/breadcrumb skip; billing blast radius zero) + Sentry hardening (fingerprinted rate-load except, corrected stale cron monitor_config to America/Chicago + real schedule + max_runtime 180, PII-safe run-mode tags, closed raw WR-list set_context leak). P02 added the deferred Sentry telemetry upgrades (root-transaction run KPIs, PII-safe run-context.json attachment on failure, guarded structured-log helper, sentry-sdk floor →2.54.0) and fixed the CLAUDE.md/AGENTS.md runner-timeout doc-drift. All via TDD pure helpers; pytest 1043 passed/0 failed
@@ -194,6 +194,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 | 260601-nzs | Branding: wire Linetec Services logo (Navbar/Login) + add brand-gray palette + title; logo asset committed | 2026-06-01 | a3c8325 | [260601-nzs-wire-linetec-services-logo-and-brand-col](./quick/260601-nzs-wire-linetec-services-logo-and-brand-col/) |
 | 260602-nws | Fix stuck Sign Out on Pending Approval screen (auth-state redirect + robust handler) + senior UI upgrade; TDD 5 tests, suite 112/112 | 2026-06-02 | 264efc3 | [260602-nws-fix-stuck-sign-out-on-pending-approval-s](./quick/260602-nws-fix-stuck-sign-out-on-pending-approval-s/) |
 | 260603-mmc | Fix missing OLD_RATES_CSV default (recurring Sentry ERROR) + Sentry modernization. P01: optional-CSV benign skip w/ fingerprinted except, corrected cron monitor_config (Chicago/real schedule/180), PII-safe run-mode tags, closed raw WR-list set_context leak. P02 (deferred upgrades): root-txn run KPIs (#6), PII-safe run-context.json attachment on failure (#5), guarded structured-log helper (#7), sentry-sdk floor →2.54.0. Also fixed CLAUDE.md/AGENTS.md timeout doc-drift (195/180→180/165). TDD pure helpers; suite 1043/1043; verified ✓ | 2026-06-03 | d8a1121 | [260603-mmc-fix-missing-old-rates-csv-default-fileno](./quick/260603-mmc-fix-missing-old-rates-csv-default-fileno/) |
+| 260605-cron | Fix Sentry cron-monitor false "missed check-in" (-6V): monitor timezone `America/Chicago` → `UTC` (GitHub Actions crons are UTC; the 260603-mmc Chicago tz was itself the bug). TDD pure `_build_cron_monitor_config()` + 5 tests incl. live-workflow schedule-match guard; Living Ledger rule. Same session: /gsd-verify-work 07 (7/7) + /gsd-validate-phase 07 (Nyquist-compliant); Sentry triage of all 61 issues → 34 resolved, 27 ignored. pytest 1048 passed. | 2026-06-05 | 80c7abb | PR #264 (branch `fix/260605-cron-monitor-utc-timezone`) |
 
 ## Deferred Items
 
