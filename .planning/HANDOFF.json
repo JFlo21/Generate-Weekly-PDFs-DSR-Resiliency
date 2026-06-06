@@ -1,0 +1,48 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-06-06T04:06:40.899Z",
+  "context": "default",
+  "phase": null,
+  "phase_name": "PR-backlog triage & merge (resumed from /remember handoff)",
+  "phase_dir": null,
+  "status": "paused",
+  "completed_tasks": [
+    {"id": 1, "name": "Verify + merge PR #270 (docs-changelog: stop per-commit runbook PR pile-up)", "status": "done", "commit": "20fa030", "notes": "Confirmed triple-layer loop protection before merge: job-actor guard + GITHUB_TOKEN no-retrigger + [skip ci] + generator short-circuit. Tightens perms (drops pull-requests:write)."},
+    {"id": 2, "name": "Verify fix works in production", "status": "done", "notes": "Zero new runbook/log-* stubs; 5/5 docs-changelog runs success; entries land directly on master as [skip ci] commits (261d1c7, 67cc477) which did NOT retrigger the workflow."},
+    {"id": 3, "name": "Close obsolete stubs #271, #272", "status": "done", "notes": "Branches runbook/log-3cfc845 + runbook/log-1e264ea deleted. Matches prior 36-stub cleanup precedent."},
+    {"id": 4, "name": "Merge deferred PR #202 (clarify VITE_USE_MOCK in .env.example)", "status": "done", "commit": "d03453f", "notes": "Was a DRAFT; marked ready first. Docs-only, +5 comment lines, no secrets."},
+    {"id": 5, "name": "Merge deferred PR #208 (daily code-review audit doc)", "status": "done", "commit": "d3768d9", "notes": "Was a DRAFT; marked ready first. .planning/ doc only, +223 lines."}
+  ],
+  "remaining_tasks": [
+    {"id": 6, "name": "REBASE batch (mechanical, low-risk)", "status": "not_started", "prs": ["#149 (logo SVG, Docusaurus — now CONFLICTING/DIRTY)", "#166 (Sentry privacy hardening)", "#128 (Smartsheet API retries)", "#133 (attachment-cache test)", "#134 (type hints in generate_weekly_pdfs.py)"]},
+    {"id": 7, "name": "RED-CI fixes (need a real fix before merge)", "status": "not_started", "prs": ["#137 (path-injection autofix)", "#138 (artifact/CSV/login-rate-limit hardening)", "#139 (webhook security hardening)"]},
+    {"id": 8, "name": "#198 — invalid job-level secrets/if: YAML semantics", "status": "not_started"},
+    {"id": 9, "name": "#80 — imports a module that was deleted", "status": "not_started"},
+    {"id": 10, "name": "#91 — HIGH-RISK: edits deleted portal/ tree + prod cron. DO NOT blind-merge; deliberate owner review only.", "status": "not_started", "blocking": true},
+    {"id": 11, "name": "Newly surfaced PRs (not in original handoff) — triage", "status": "not_started", "prs": ["#75 (RUNBOOK.md + Mermaid)", "#86 (Vercel Speed Insights)", "#87 (remove .vade-report from VCS)"]},
+    {"id": 12, "name": "Housekeeping: sync local master with origin, push 4 unpushed .planning/ doc commits", "status": "not_started", "notes": "Restore .github/prompts/*.md (IDE re-edits) BEFORE any branch sync/rebase."}
+  ],
+  "blockers": [
+    {"description": "code/snyk 'Code test limit reached' fails on EVERY PR", "type": "external", "workaround": "Account quota, non-blocking. Ignore — it does not gate merges (confirmed: #270/#202/#208 all merged with it red)."},
+    {"description": "IDE Pylance/Copilot keeps re-editing .github/prompts/*.md (and previously generate_weekly_pdfs.py) in the working tree", "type": "technical", "workaround": "git restore the prompt files before switching branches or rebasing; never commit these drive-by edits."}
+  ],
+  "human_actions_pending": [
+    {"action": "Owner decision on PR #91", "context": "HIGH-risk: touches deleted portal/ + production cron. Per owner rule, never blind-merge production-touching PRs — verify zero-runtime/regression first.", "blocking": true},
+    {"action": "Pick next batch direction", "context": "Recommended order: REBASE batch (task 6) first (mechanical, unblocks 5 PRs cheaply) → RED-CI group (task 7) → leave #91 for deliberate review.", "blocking": false}
+  ],
+  "decisions": [
+    {"decision": "Merged #270 only after verifying loop protection", "rationale": "Direct-push-to-master risks an infinite trigger loop; confirmed job-actor guard + GITHUB_TOKEN no-retrigger + [skip ci] + generator short-circuit all present. Safe AND actively bleeding (2 new stubs since handoff)."},
+    {"decision": "Closed #271/#272 instead of merging", "rationale": "Obsolete once #270 commits entries directly; matches prior 36-stub cleanup precedent."},
+    {"decision": "Marked #202/#208 ready (were drafts) and merged", "rationale": "Pre-approved deferred merges; docs-only, additive, no secrets, no code/CI impact."},
+    {"decision": "#149 demoted to needs-work", "rationale": "Re-query after master moved showed CONFLICTING/DIRTY — needs a rebase, can't merge as-is."}
+  ],
+  "uncommitted_files": [
+    ".github/prompts/architecture-analysis.md (IDE re-edit — DO NOT commit, restore)",
+    ".github/prompts/configuration-environment.md (IDE re-edit — DO NOT commit, restore)",
+    ".github/prompts/memory-integration-codebase-context.md (IDE re-edit — DO NOT commit, restore)",
+    ".github/prompts/testing-and-validation.md (IDE re-edit — DO NOT commit, restore)",
+    ".planning/ untracked docs (debug/, phases/05/06/07 artifacts, quick/) — pre-existing, unrelated to this session"
+  ],
+  "next_action": "Resume the REBASE batch: start with #149 (git fetch its branch, rebase onto origin/master, resolve the Docusaurus logo asset conflict, push, then merge). Then #166/#128/#133/#134.",
+  "context_notes": "This is PR-backlog triage resumed from the /remember handoff (.remember/remember.md), NOT GSD phase execution — phases 05/06/07 are all complete. 5 PRs cleared this session (merged #270/#202/#208, closed #271/#272). The big win: #270 permanently stops the runbook-stub pile-up, VERIFIED in production. Remaining queue is risk-tiered: mechanical rebases → red-CI fixes → #91 (hands-off until owner review). Origin/master is the source of truth; local master is behind + has 4 unpushed .planning doc commits."
+}
