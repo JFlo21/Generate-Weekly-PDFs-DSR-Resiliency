@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Portal — Supabase-native Artifact Portal
 status: milestone_complete
-last_updated: "2026-06-06T01:50:00.000Z"
+last_updated: "2026-06-06T02:15:00.000Z"
 last_activity: 2026-06-03 -- Plan 07-04 COMPLETE: SEC-04 two-auditor audit (security-reviewer skill + gsd-secure-phase 07) -> 07-SECURITY.md threats_open:0/status:verified; HIGH-03 AuthGuard profile-load race FIXED (515837b, RED->GREEN); stale portal-v2/supabase/schema.sql draft deleted; live SEC-02 header curl PASS (enforcing CSP). Phase 07 + v1.1 milestone CLOSED (28/28 plans).
 progress:
   total_phases: 6
@@ -195,6 +195,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 | 260602-nws | Fix stuck Sign Out on Pending Approval screen (auth-state redirect + robust handler) + senior UI upgrade; TDD 5 tests, suite 112/112 | 2026-06-02 | 264efc3 | [260602-nws-fix-stuck-sign-out-on-pending-approval-s](./quick/260602-nws-fix-stuck-sign-out-on-pending-approval-s/) |
 | 260603-mmc | Fix missing OLD_RATES_CSV default (recurring Sentry ERROR) + Sentry modernization. P01: optional-CSV benign skip w/ fingerprinted except, corrected cron monitor_config (Chicago/real schedule/180), PII-safe run-mode tags, closed raw WR-list set_context leak. P02 (deferred upgrades): root-txn run KPIs (#6), PII-safe run-context.json attachment on failure (#5), guarded structured-log helper (#7), sentry-sdk floor →2.54.0. Also fixed CLAUDE.md/AGENTS.md timeout doc-drift (195/180→180/165). TDD pure helpers; suite 1043/1043; verified ✓ | 2026-06-03 | d8a1121 | [260603-mmc-fix-missing-old-rates-csv-default-fileno](./quick/260603-mmc-fix-missing-old-rates-csv-default-fileno/) |
 | 260605-cron | Fix Sentry cron-monitor false "missed check-in" (-6V): monitor timezone `America/Chicago` → `UTC` (GitHub Actions crons are UTC; the 260603-mmc Chicago tz was itself the bug). TDD pure `_build_cron_monitor_config()` + 5 tests incl. live-workflow schedule-match guard; Living Ledger rule. Same session: /gsd-verify-work 07 (7/7) + /gsd-validate-phase 07 (Nyquist-compliant); Sentry triage of all 61 issues → 34 resolved, 27 ignored. pytest 1048 passed. | 2026-06-05 | 80c7abb | PR #264 (branch `fix/260605-cron-monitor-utc-timezone`) |
+| 260605-tgi | Fix 3 Pylance/Pyright type ERRORS in generate_weekly_pdfs.py (Sentry helpers) — type-only, zero runtime change: `_sentry_log_event` logger via getattr (×2 "not a known attribute"); `_build_cron_monitor_config` → TYPE_CHECKING `MonitorConfig` return annotation (dict-not-assignable). IDE getDiagnostics Error 3→0 (369 Hints untouched); pytest 1048 passed. | 2026-06-06 | 1c5caf9 | PR #266 (branch `fix/260605-tgi-pylance-type-errors`) |
 
 ## Deferred Items
 
