@@ -2100,6 +2100,22 @@ class TestDualTargetSheetRouting(unittest.TestCase):
             'distinguish which sheet is missing the WR',
         )
 
+    def test_reduced_sub_does_not_route_to_ppp_without_primary_membership(self):
+        """Security gate: PPP routing is allowed only when the WR is
+        present on TARGET_SHEET_ID. A WR present only on PPP must not
+        create any upload task."""
+        kwargs = self._make_kwargs(
+            'reduced_sub',
+            target_map={},
+            target_map_ppp={'90093002': 'row-PPP-90093002'},
+        )
+        tasks = generate_weekly_pdfs._build_upload_tasks_for_group(**kwargs)
+        self.assertEqual(
+            tasks, [],
+            'reduced_sub must not create PPP upload tasks when WR is '
+            'absent from TARGET_SHEET_ID',
+        )
+
     def test_helper_short_circuits_when_wr_num_blank(self):
         """Defensive: if ``wr_num`` is blank/None (degenerate row),
         the helper returns an empty list — no warning, no task."""
