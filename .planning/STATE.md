@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: Portal — Supabase-native Artifact Portal
-status: milestone_complete
-last_updated: "2026-06-06T02:15:00.000Z"
-last_activity: 2026-06-03 -- Plan 07-04 COMPLETE: SEC-04 two-auditor audit (security-reviewer skill + gsd-secure-phase 07) -> 07-SECURITY.md threats_open:0/status:verified; HIGH-03 AuthGuard profile-load race FIXED (515837b, RED->GREEN); stale portal-v2/supabase/schema.sql draft deleted; live SEC-02 header curl PASS (enforcing CSP). Phase 07 + v1.1 milestone CLOSED (28/28 plans).
+milestone: v1.2
+milestone_name: smartsheet-python-sdk 4.0.0 Compatibility Migration
+status: planning
+last_updated: "2026-06-08T17:32:37.180Z"
+last_activity: 2026-06-08
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 28
-  completed_plans: 28
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -30,13 +30,10 @@ pipeline.
 
 ## Current Position
 
-Phase: 07 (security-hardening-and-express-removal) — ✅ COMPLETE
-Plan: 4 of 4 — ✅ COMPLETE (both tasks done)
-Prev: Phase 07 plan 07-03 — ✅ COMPLETE (2026-06-02; Express removed, CSP enforcing, 6-step smoke test PASS, SEC-03 PASS)
-Next: This session COMPLETE — Phase 07 verify-work (7/7 PASS) + validate-phase (Nyquist-compliant, 0 gaps); Sentry triage of all 61 issues (34 resolved / 27 ignored); cron-monitor-UTC fix PR #264 MERGED to master (d60da4d) → Sentry -6V auto-recovers on the next weekday cron. Open: optional /gsd-complete-milestone; pending Phase 06 manual UAT (06-HUMAN-UAT.md, 6 items).
-Status: Phase 07 + v1.1 milestone CLOSED — SEC-04 verified (07-SECURITY.md threats_open:0); all SEC-01..05 met
-Resume file: (none — milestone complete; HANDOFF.json consumed)
-Last activity: 2026-06-08 -- Completed quick task 260608-gwm: hotfix CI import crash by pinning smartsheet-python-sdk >=3.1.0,<4.0.0 (SDK 4.0.0 published 2026-06-08 removed smartsheet.exceptions, crashing generate_weekly_pdfs.py:28 on CI fresh install). One-line requirements.txt pin + Living Ledger rule; py_compile OK, dry-run resolves 3.7.2. Follow-up: planning a deliberate 4.0.0 migration via GSD. | Prev: 2026-06-03 -- Completed quick task 260603-mmc (2 plans): P01 fixed the missing OLD_RATES_CSV default that fired a recurring Sentry ERROR every run (benign INFO/breadcrumb skip; billing blast radius zero) + Sentry hardening (fingerprinted rate-load except, corrected stale cron monitor_config to America/Chicago + real schedule + max_runtime 180, PII-safe run-mode tags, closed raw WR-list set_context leak). P02 added the deferred Sentry telemetry upgrades (root-transaction run KPIs, PII-safe run-context.json attachment on failure, guarded structured-log helper, sentry-sdk floor →2.54.0) and fixed the CLAUDE.md/AGENTS.md runner-timeout doc-drift. All via TDD pure helpers; pytest 1043 passed/0 failed
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-06-08 — Milestone v1.2 started
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 

@@ -29,7 +29,43 @@ The production Smartsheet → Excel → Smartsheet attachment pipeline runs ever
 **Every change in this project's roadmap must preserve that pipeline's
 correctness and stay inside its 195-minute Actions timeout budget.**
 
-## Current Milestone: v1.1 Portal — Supabase-native Artifact Portal
+## Current Milestone: v1.2 smartsheet-python-sdk 4.0.0 Compatibility Migration
+
+**Goal:** Make the production Python billing engine compatible with
+`smartsheet-python-sdk` 4.0.0 and lift the temporary `<4.0.0` pin (hotfix
+260608-gwm / PR #273) — with **zero behavior change** to the
+Smartsheet → Excel → Smartsheet pipeline. Compat-only; not a redesign.
+
+**Why now:** SDK 4.0.0 (published 2026-06-08) is a breaking major that
+restructured `smartsheet.exceptions` (crashing `generate_weekly_pdfs.py:28`
+on CI's fresh `pip install`). The emergency hotfix pins `>=3.1.0,<4.0.0`;
+this milestone does the deliberate, tested migration so the pin can be lifted
+without a transitive auto-upgrade surprise.
+
+**Target features (compat-only, additive):**
+- Reconcile the Smartsheet exception-class imports + retry blocks
+  (`generate_weekly_pdfs.py:28`, the retry handlers, and the
+  `smartsheet.smartsheet` re-export workaround at lines 30-54) with 4.0.0's
+  module layout.
+- Verify every in-use SDK call site against 4.0.0 signatures: `Sheets.get_sheet`
+  (`include=`/`row_numbers=`), `Attachments.list_row_attachments` /
+  `delete_attachment` / `attach_file_to_row`, `Folders.get_folder_children`
+  (`last_key` token pagination — already 4.0-aligned).
+- Update test mocks/fixtures for any relocated symbols
+  (`tests/test_billing_audit_shadow.py`, pagination tests) and pass the full
+  `pytest tests/` suite under 4.0.0.
+- Lift the `<4.0.0` pin in `requirements.txt` only after compat is proven.
+
+**Scope guard:** No optimization/redesign of the billing workflow (user chose
+compat-only over "comprehensive rework"). Preserve the pipeline per CLAUDE.md
+"additive logic only".
+
+**Phase numbering:** continues from v1.1 — this milestone is **Phase 08**.
+v1.1 phase artifacts (Phases 03–07) are intentionally preserved (v1.1 was not
+formally archived via `/gsd-complete-milestone`; it has pending Phase 06 manual
+UAT).
+
+## Previous Milestone: v1.1 Portal — Supabase-native Artifact Portal (Shipped 2026-06-03)
 
 **Goal:** Replace the Express backend with a Supabase-native architecture so the
 billing team can browse, search/filter, and download generated Excel billing
@@ -417,7 +453,14 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-02 — Phase 06 (Realtime and UI Polish) complete;
+*Last updated: 2026-06-08 — Milestone **v1.2 smartsheet-python-sdk 4.0.0
+Compatibility Migration** started (Phase 08). Compat-only migration to SDK
+4.0.0 so the temporary `<4.0.0` pin (hotfix 260608-gwm / PR #273) can be
+lifted, with zero behavior change to the billing pipeline. v1.1 Portal shipped
+(Phases 03–07); its artifacts are preserved (not archived — pending Phase 06
+manual UAT). Requirements `SDK-01..06` in REQUIREMENTS.md; roadmap Phase 08.*
+
+*Previously updated: 2026-06-02 — Phase 06 (Realtime and UI Polish) complete;
 v1.1 Phases 03–06 shipped (only Phase 07 — security hardening + Express
 removal — remains). Phase 06 added Supabase Realtime (count-only, role-gated
 toast + pill; `artifacts` in the `supabase_realtime` publication), responsive

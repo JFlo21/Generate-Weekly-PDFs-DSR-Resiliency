@@ -128,6 +128,43 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 - [ ] **SEC-05**: Signed download URLs are short-lived (5 min) and scoped to a
   single object.
 
+## v1.2 Requirements (smartsheet-python-sdk 4.0.0 Compatibility Migration)
+
+Compat-only migration. Each maps to roadmap **Phase 08**. Scope guard: **zero
+behavior change** to the Smartsheet → Excel → Smartsheet billing pipeline —
+additive/compat only (CLAUDE.md "additive logic only"). Not a redesign or
+optimization pass. Context: SDK 4.0.0 was published 2026-06-08; the emergency
+hotfix pins `>=3.1.0,<4.0.0` (260608-gwm / PR #273); this milestone proves
+compatibility so the pin can be lifted.
+
+### SDK 4.0.0 Migration
+
+- [ ] **SDK-01**: The billing engine resolves Smartsheet exception classes
+  (`RateLimitExceededError`, `UnexpectedErrorShouldRetryError`,
+  `InternalServerError`, `ServerTimeoutExceededError`) under SDK 4.0.0 — the
+  `import smartsheet.exceptions` at `generate_weekly_pdfs.py:28` and the retry
+  `except` blocks (~8389/8397/8603/8620-8622/9835/9843) work without
+  `ModuleNotFoundError` / `AttributeError`.
+- [ ] **SDK-02**: The `smartsheet.smartsheet` retry-exception re-export
+  workaround (`generate_weekly_pdfs.py:30-54`) is reconciled with 4.0.0 — kept,
+  updated, or removed if 4.0.0 makes it obsolete — and the SDK's internal
+  retryable-exception lookup still succeeds (no silently-swallowed retries).
+- [ ] **SDK-03**: Every in-use SDK call site is verified compatible with 4.0.0
+  signatures and return shapes: `Sheets.get_sheet(sheet_id, include=…,
+  row_numbers=…)`, `Attachments.list_row_attachments / delete_attachment /
+  attach_file_to_row`, and `Folders.get_folder_children(..., last_key=…)`
+  token-based pagination.
+- [ ] **SDK-04**: The full `pytest tests/` suite passes against SDK 4.0.0; test
+  mocks/fixtures are updated for any relocated symbols (notably
+  `tests/test_billing_audit_shadow.py:64` and the `last_key` pagination tests in
+  `test_subcontractor_pricing.py` / `test_vac_crew.py`).
+- [ ] **SDK-05**: The `requirements.txt` upper-bound pin is lifted to allow
+  4.0.0 (e.g. `smartsheet-python-sdk>=4.0.0`) **only after** SDK-01..04 pass,
+  and the corresponding Living Ledger / CLAUDE.md pin notes are updated.
+- [ ] **SDK-06**: A non-upload validation run (`TEST_MODE=true` and/or
+  `SKIP_UPLOAD=true`) confirms the pipeline produces identical grouping and
+  Excel output under 4.0.0 — proving zero behavior change.
+
 ## v2 / Future Requirements
 
 Deferred to a future milestone. Tracked but not in this roadmap.
@@ -207,12 +244,17 @@ Which phases cover which requirements.
 | SEC-03 | Phase 07 | Pending |
 | SEC-04 | Phase 07 | Pending |
 | SEC-05 | Phase 07 | Pending |
+| SDK-01 | Phase 08 | Pending |
+| SDK-02 | Phase 08 | Pending |
+| SDK-03 | Phase 08 | Pending |
+| SDK-04 | Phase 08 | Pending |
+| SDK-05 | Phase 08 | Pending |
+| SDK-06 | Phase 08 | Pending |
 
 **Coverage:**
-- v1.1 requirements: 33 total
-- Mapped to phases: 33 (Phase 03: 5, Phase 04: 15, Phase 05: 9, Phase 06: 4, Phase 07: 5)
-- Unmapped: 0 ✓
+- v1.1 requirements: 33 total — mapped to phases: 33 (Phase 03: 5, Phase 04: 15, Phase 05: 9, Phase 06: 4, Phase 07: 5); unmapped: 0 ✓
+- v1.2 requirements: 6 total — mapped to phases: 6 (Phase 08: 6); unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-05-29*
-*Last updated: 2026-05-29 — traceability populated after roadmap creation (Phases 03–07)*
+*Last updated: 2026-06-08 — appended v1.2 SDK-01..06 (smartsheet-python-sdk 4.0.0 compatibility migration), all mapped to Phase 08*

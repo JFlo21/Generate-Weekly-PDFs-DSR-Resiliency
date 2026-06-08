@@ -6,9 +6,15 @@
   Full detail archived in [`milestones/v1.0-ROADMAP.md`](milestones/v1.0-ROADMAP.md).
 - ✅ **v1.0 hotfix line** — Phase 02 (Attribution Bulk-Prefetch + Historical
   Claimer Remediation, shipped 2026-05-26). 6 plans (4 + 2 gap-closure).
-- 🔧 **v1.1 Portal — Supabase-native Artifact Portal** — Phases 03–07.
-  Replaces the Express backend with a Supabase-native architecture.
+- ✅ **v1.1 Portal — Supabase-native Artifact Portal** — Phases 03–07 (shipped
+  2026-06-03). Replaces the Express backend with a Supabase-native architecture.
   Supersedes the prior Railway → Render migration (moved to Out of Scope).
+  (Not yet formally archived via `/gsd-complete-milestone` — pending Phase 06
+  manual UAT.)
+- 🔧 **v1.2 smartsheet-python-sdk 4.0.0 Compatibility Migration** — Phase 08.
+  Compat-only migration to SDK 4.0.0 so the temporary `<4.0.0` pin (hotfix
+  260608-gwm / PR #273) can be lifted, with zero behavior change to the billing
+  pipeline.
 
 ## Phases
 
@@ -55,6 +61,15 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 - [x] **Phase 07: Security Hardening and Express Removal** — CSP/headers, full RLS audit,
   signed-URL scoping verification, secret handling audit, `portal/` directory removed. ✅ 2026-06-03
 
+### v1.2 smartsheet-python-sdk 4.0.0 Compatibility Migration
+
+- [ ] **Phase 08: smartsheet-python-sdk 4.0.0 Compatibility Migration** —
+  reconcile exception-class imports + retry blocks + the `smartsheet.smartsheet`
+  re-export workaround with 4.0.0's module layout, verify all in-use SDK call
+  sites (`Sheets.get_sheet`, `Attachments.*`, `Folders.get_folder_children`),
+  update test mocks, pass full `pytest` under 4.0.0, then lift the `<4.0.0`
+  pin. Compat-only — zero behavior change to the billing pipeline. (SDK-01..06)
+
 ## Progress
 
 | Phase | Milestone | Plans | Status | Completed |
@@ -67,6 +82,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 05. Artifact Table and Search | v1.1 | 4/4 | Complete    | 2026-06-02 |
 | 06. Realtime and UI Polish | v1.1 | 5/5 | Complete    | 2026-06-02 |
 | 07. Security Hardening and Express Removal | v1.1 | 4/4 | ✅ Complete | 2026-06-03 |
+| 08. smartsheet-python-sdk 4.0.0 Compatibility Migration | v1.2 | 0/? | Planning | — |
 
 ---
 
@@ -307,3 +323,52 @@ Plans:
 - [x] 07-04-PLAN.md — security-reviewer skill + gsd-secure-phase 07 (both D-05 auditors) + Dependabot critical/high CVE remediation; author 07-SECURITY.md (✅ complete 2026-06-03; threats_open:0/verified, HIGH-03 AuthGuard race fixed, stale schema deleted, 9 moderates deferred)
 
 **UI hint**: no
+
+---
+
+### Phase 08: smartsheet-python-sdk 4.0.0 Compatibility Migration
+
+**Milestone:** v1.2
+
+**Goal:** Make the production Python billing engine (`generate_weekly_pdfs.py`,
+`audit_billing_changes.py`, `diagnose_pricing_issues.py`, and the test suite)
+fully compatible with `smartsheet-python-sdk` 4.0.0, then lift the temporary
+`>=3.1.0,<4.0.0` pin — with **zero behavior change** to the
+Smartsheet → Excel → Smartsheet pipeline. Compat-only; explicitly NOT a redesign
+or optimization pass.
+
+**Requirements:** SDK-01, SDK-02, SDK-03, SDK-04, SDK-05, SDK-06
+
+**Depends on:** Hotfix 260608-gwm / PR #273 (the `<4.0.0` pin that keeps
+production green while this migration is planned and executed). Execution must
+be based on **current `origin/master`** (local `master` has diverged 10/10 and
+must be reconciled first).
+
+**Known surface (from the 4.0.0 changelog, fetched 2026-06-08):**
+- BREAKING and **relevant**: `smartsheet.exceptions` module relocated/removed →
+  the line-28 import, the retry `except` blocks, and the `smartsheet.smartsheet`
+  re-export workaround. Research must confirm where the retryable exception
+  classes live in 4.0.0.
+- BREAKING but **NOT used** by this codebase (no action expected, verify):
+  removed `Folders.get_folder`/`list_folders` + `Templates`; token-pagination
+  changes to `list_workspaces`/`list_sights`/`list_webhooks`. The code already
+  uses `Folders.get_folder_children` with `last_key` pagination, which 4.0.0
+  standardizes on.
+
+**Success criteria:**
+1. A clean install of `smartsheet-python-sdk==4.0.0` lets
+   `python -m py_compile generate_weekly_pdfs.py` and the import of all four
+   retryable exception classes succeed (no `ModuleNotFoundError`/`AttributeError`).
+2. `pytest tests/ -v` passes in full against SDK 4.0.0, with test mocks/fixtures
+   updated for any relocated symbols.
+3. A `TEST_MODE=true` (and/or `SKIP_UPLOAD=true`) run produces byte-identical
+   grouping and Excel output vs. the 3.x baseline for the same inputs — proving
+   no behavior change.
+4. `requirements.txt` is updated to allow 4.0.0 (pin lifted) and the Living
+   Ledger / CLAUDE.md SDK-pin notes reflect the migration.
+5. The production weekly workflow runs green on 4.0.0 (observed on the next
+   scheduled cron after merge).
+
+**Plans:** TBD — run `/gsd-plan-phase 08` (focused SDK research → planner →
+plan-checker). The 4.0.0 CHANGELOG is already indexed in the context-mode KB
+under source `smartsheet-sdk-changelog`.
