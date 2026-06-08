@@ -3738,3 +3738,38 @@ infra / third-party (Smartsheet `ApiError 0/1278/4000/503`, `JSONDecodeError`;
 3 `str+None` TypeErrors raised *inside the Smartsheet SDK's* error formatter,
 `handled:yes`; 2 frontend third-party — a browser-extension `Range` error and a
 `getItem` null inside Sentry's own `feedback/instrument.js`).
+
+---
+
+[2026-06-08 10:45] **Pin transport-critical SDK dependencies with an upper bound — smartsheet-python-sdk 4.0.0 import crash**
+
+**What:** Pinned `smartsheet-python-sdk` to `>=3.1.0,<4.0.0` in `requirements.txt`. The
+previous spec (`>=3.1.0`, no ceiling) caused GitHub Actions to silently pull the breaking
+4.0.0 major on its publish day (2026-06-08), crashing `generate_weekly_pdfs.py` at line 28
+(`import smartsheet.exceptions as ss_exc`) before any billing work could run.
+
+**Why:** SDK 4.0.0 is a backward-incompatible major that removed `smartsheet.exceptions`
+entirely, removed `Folders.get_folder` and `Folders.list_folders`, removed the `Templates`
+endpoint, and changed pagination — all surfaces the billing pipeline depends on. CI runs a
+fresh `pip install -r requirements.txt` on every workflow execution; an open `>=` lower-bound
+on a rapidly evolving SDK is equivalent to an unpinned dependency in a fresh-install
+environment.
+
+**Root cause pattern:** A transport-critical library (one whose import or API surfaces are
+called unconditionally at the top of the production script) was given only a lower bound in
+`requirements.txt`. When the library published a breaking major, the next CI run resolved
+to that major, crashing before a single row was processed. The failure was silent until the
+scheduled run fired — no local developer environment surfaced the issue.
+
+**Rule established:** Transport-critical / production-pipeline dependencies — any package
+whose import or API is called unconditionally by `generate_weekly_pdfs.py` or
+`audit_billing_changes.py` — MUST carry an upper bound that excludes the next major version.
+Format: `>=CURRENT_MAJOR.MINOR.PATCH,<NEXT_MAJOR.0.0`. A deliberate major-version migration
+(e.g., adopting smartsheet-python-sdk 4.x) is a separate planned effort with explicit
+compatibility testing — it must never arrive as a transitive auto-upgrade on publish day.
+Apply this rule to: `smartsheet-python-sdk`, `openpyxl`, `sentry-sdk`, `supabase`, and any
+future SDK added as a direct import in the billing engine.
+
+**Fix:** Single-line change in `requirements.txt`; zero change to `generate_weekly_pdfs.py`,
+`ss_exc` usage, or the SDK retry-exception re-export workaround. Fully reversible by removing
+`,<4.0.0`. Dry-run confirmed `smartsheet-python-sdk 3.7.2` resolves correctly post-pin.
