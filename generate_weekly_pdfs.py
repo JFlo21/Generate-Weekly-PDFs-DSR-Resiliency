@@ -4501,6 +4501,37 @@ def _normalize_column_title_for_vac_crew(t):
     return s
 
 
+def _is_vac_crew_excluded_row(
+    row_data: dict,
+    sheet_has_vac_crew_columns: bool,
+) -> bool:
+    """Single source of truth for the VAC-crew claim / foreman exclusion.
+
+    Returns ``True`` iff the row is a VAC-crew claim: a named VAC crew
+    (``VAC Crew Helping?``) together with the VAC crew's own completion
+    attestation (``Vac Crew Completed Unit?``) checked.
+
+    Per the operator contract (2026-06-08) a VAC claim is DOMINANT: it
+    excludes the unit from BOTH the primary-foreman and helping-foreman
+    sheets (line items AND totals) and credits the VAC crew REGARDLESS of
+    ``Units Completed?`` and REGARDLESS of any helper checkbox. The
+    ``units_completed`` term is intentionally NOT part of this predicate —
+    coupling exclusion to ``Units Completed?`` was the original leak.
+
+    The decision is row-local: a row that carries the VAC fields is
+    self-describing. ``sheet_has_vac_crew_columns`` is accepted for
+    call-site symmetry (callers gate on it before admitting a row, and a
+    future point-level reconciliation will reuse this signature); the
+    predicate itself deliberately ignores it so the same flag drives both
+    the line-item routing and the per-group totals.
+    """
+    vac_name = str(row_data.get('VAC Crew Helping?') or '').strip()
+    vac_completed_checked = is_checked(
+        row_data.get('Vac Crew Completed Unit?')
+    )
+    return bool(vac_name and vac_completed_checked)
+
+
 def discover_source_sheets(client):
     """Strict deterministic discovery: anchored keywords + type filtered. Skips sheets missing Weekly Reference Logged Date."""
     global _FOLDER_DISCOVERED_SUB_IDS, _FOLDER_DISCOVERED_ORIG_IDS, SUBCONTRACTOR_SHEET_IDS
@@ -5374,8 +5405,23 @@ def get_all_source_rows(client, source_sheets):
                             fr_val = (row_data.get('Foreman') or '').strip() or '<<blank>>'
                             sheet_foreman_counts[wr_key_for_diag][fr_val] += 1
 
-                        # Acceptance logic (STRICT: Units Completed? must be checked/true)
-                        if work_request and weekly_date and units_completed_checked and has_price:
+                        # VAC-claimed rows must reach the VacCrew file even
+                        # when Units Completed? is unchecked (operator contract
+                        # 2026-06-08): Vac Crew Completed Unit? is the VAC
+                        # crew's OWN completion attestation. NARROW intake
+                        # widening — by the VAC detection + L6162 routing below
+                        # these rows emit ONLY vac_crew keys, never
+                        # primary/helper, so no non-VAC row's intake changes.
+                        _row_is_vac_claim = (
+                            sheet_has_vac_crew_columns
+                            and _is_vac_crew_excluded_row(
+                                row_data, sheet_has_vac_crew_columns
+                            )
+                        )
+
+                        # Acceptance logic (STRICT: Units Completed? checked,
+                        # OR a VAC-crew claim — see above)
+                        if work_request and weekly_date and (units_completed_checked or _row_is_vac_claim) and has_price:
                             # CU no-match exclusion: drop backend placeholder rows like "#NO MATCH..."
                             cu_raw = (row_data.get('CU') or row_data.get('Billable Unit Code') or '')
                             cu_text = str(cu_raw).strip().upper()
@@ -5460,7 +5506,12 @@ def get_all_source_rows(client, source_sheets):
                                 vac_crew_name = str(vac_crew_helping_val).strip() if vac_crew_helping_val else ''
                                 vac_crew_completed = row_data.get('Vac Crew Completed Unit?')
                                 vac_crew_completed_checked = is_checked(vac_crew_completed)
-                                is_vac_crew_row = bool(vac_crew_name and vac_crew_completed_checked and units_completed_checked)
+                                # Single source of truth: a VAC claim is
+                                # dominant and ignores Units Completed? (the
+                                # original leak). See _is_vac_crew_excluded_row.
+                                is_vac_crew_row = _is_vac_crew_excluded_row(
+                                    row_data, sheet_has_vac_crew_columns
+                                )
                                 
                                 if FILTER_DIAGNOSTICS and sheet_row_counter < DEBUG_ESSENTIAL_ROWS:
                                     logging.info(f"🚐 VAC Crew detection for row {sheet_row_counter+1}:")
@@ -6091,6 +6142,43 @@ def group_source_rows(rows):
             )
             _primary_claimer_map = {}
 
+    # ── VAC-crew cross-row unit reconciliation (operator contract
+    # 2026-06-08). A WR can span multiple source sheets: a foreman /
+    # original-contract sheet (no VAC columns) AND a VAC-crew sheet (VAC
+    # columns). The SAME physical unit can then exist as two rows — only the
+    # VAC-sheet copy carries the VAC claim, so the row-local predicate cannot
+    # see the claim on the foreman's copy and the unit leaks onto the foreman
+    # sheet (duplicated with the VacCrew sheet). Build the set of VAC-claimed
+    # unit identities up front so the non-VAC emission below can drop any unit
+    # that is VAC-claimed on ANY row. Keyed at the UNIT grain
+    # (WR + week + Point + CU) — NOT the pole — so the foreman's OTHER units on
+    # the same pole are retained (operator: per-unit, not per-pole).
+    _vac_claimed_units = set()
+    for _vr in rows:
+        if not _vr.get('__is_vac_crew'):
+            continue
+        _vwr = _vr.get('Work Request #')
+        _vdate_raw = _vr.get('Weekly Reference Logged Date')
+        if not _vwr or not _vdate_raw:
+            continue
+        _vweek_date = excel_serial_to_date(_vdate_raw)
+        if _vweek_date is None:
+            continue
+        _vpoint = str(
+            _vr.get('Pole #') or _vr.get('Point #')
+            or _vr.get('Point Number') or ''
+        ).strip()
+        _vcu = str(
+            _vr.get('CU') or _vr.get('Billable Unit Code') or ''
+        ).strip()
+        if _vpoint and _vcu:
+            _vac_claimed_units.add((
+                str(_vwr).split('.')[0],
+                _vweek_date.strftime("%m%d%y"),
+                _vpoint,
+                _vcu,
+            ))
+
     for r in rows:
         wr = r.get('Work Request #')
         log_date_str = r.get('Weekly Reference Logged Date')
@@ -6108,8 +6196,18 @@ def group_source_rows(rows):
         # Check if Units Completed? is true/1
         units_completed_checked = is_checked(units_completed)
 
-        # REQUIRE: Work Request # AND Weekly Reference Logged Date AND Units Completed? = true/1 AND Units Total Price exists
-        if not wr or not log_date_str or not units_completed_checked or total_price is None:
+        # A VAC-crew claim is admitted even when Units Completed? is
+        # unchecked: Vac Crew Completed Unit? is the VAC crew's OWN completion
+        # attestation (operator contract 2026-06-08). __is_vac_crew was set
+        # upstream by the single-source-of-truth predicate
+        # (_is_vac_crew_excluded_row); such rows route ONLY to the vac_crew
+        # variant below, never to primary/helper — so the foreman is never
+        # affected by this widening.
+        _row_is_vac_claim = bool(r.get('__is_vac_crew', False))
+
+        # REQUIRE: Work Request # AND Weekly Reference Logged Date AND
+        # (Units Completed? = true/1 OR a VAC-crew claim) AND Units Total Price exists
+        if not wr or not log_date_str or (not units_completed_checked and not _row_is_vac_claim) or total_price is None:
             continue # Skip if any essential grouping information is missing
 
         wr_key = str(wr).split('.')[0]
@@ -6130,6 +6228,32 @@ def group_source_rows(rows):
             
             # Check if this row was detected as VAC Crew (row-level column-based detection)
             is_vac_crew_row = r.get('__is_vac_crew', False)
+
+            # Cross-row unit reconciliation: a non-VAC row whose unit
+            # (WR + week + Point + CU) is VAC-claimed on ANOTHER source row is
+            # the duplicate foreman/helper copy of a unit the VAC crew earns.
+            # Drop it from ALL non-VAC variants (primary, helper, and the
+            # subcontractor variants below) so the unit appears ONLY on the
+            # VacCrew sheet (operator contract 2026-06-08; per-unit, not
+            # per-pole). The VAC crew's own row is untouched.
+            if not is_vac_crew_row:
+                _unit_point = str(
+                    r.get('Pole #') or r.get('Point #')
+                    or r.get('Point Number') or ''
+                ).strip()
+                _unit_cu = str(
+                    r.get('CU') or r.get('Billable Unit Code') or ''
+                ).strip()
+                if _unit_point and _unit_cu and (
+                    wr_key, week_end_for_key, _unit_point, _unit_cu
+                ) in _vac_claimed_units:
+                    logging.info(
+                        "➖ EXCLUDING from foreman/helper (unit VAC-claimed "
+                        f"on another row): WR={wr_key}, "
+                        f"Week={week_end_for_key}, Point={_unit_point}, "
+                        f"CU={_unit_cu}"
+                    )
+                    continue
 
             # Phase 1.1 Bug B1 (D-04 / SUB-09): hoist
             # is_subcontractor_row to BEFORE the primary-emission
