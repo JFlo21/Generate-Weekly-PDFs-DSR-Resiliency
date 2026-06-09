@@ -1186,6 +1186,7 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     "foremen(top5)",
     "Excluding row",
     "EXCLUDING from main Excel",
+    "EXCLUDING from foreman/helper",
     # WR-keyed log lines
     "for WR#",
     "WR# ",
@@ -6039,7 +6040,15 @@ def group_source_rows(rows):
                     continue
                 _wr_raw = _r.get('Work Request #')
                 _ld = _r.get('Weekly Reference Logged Date')
-                if not _wr_raw or not _ld or not is_checked(_r.get('Units Completed?')):
+                # VAC claims are admitted regardless of Units Completed?
+                # (operator contract 2026-06-08; see the widened acceptance
+                # gates). Every row reaching here is already a VAC claim
+                # (__is_vac_crew), so freeze its claimer attribution even when
+                # Units Completed? is unchecked — otherwise the rows the
+                # widened gate newly admits miss the frozen-claimer / HOLD
+                # path and fall back to the current VAC name (Codex PR #274
+                # P2 #1).
+                if not _wr_raw or not _ld:
                     continue
                 _we = excel_serial_to_date(_ld)
                 if _we is None:

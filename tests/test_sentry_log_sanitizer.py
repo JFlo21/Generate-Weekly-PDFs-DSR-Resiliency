@@ -65,6 +65,7 @@ class TestPiiLogMarkers:
             "foremen(top5)",
             "Excluding row",
             "EXCLUDING from main Excel",
+            "EXCLUDING from foreman/helper",
             "Sample group keys",
             "for WR ",
             "Work request ",
@@ -220,6 +221,17 @@ class TestSentryBeforeSendLog:
             "body": (
                 "➖ EXCLUDING from main Excel: WR=WR42, Week=010124 "
                 "(Helper row with both checkboxes)"
+            ),
+        }
+        assert gwp.sentry_before_send_log(record, {}) is None
+
+    def test_drops_excluding_from_foreman_helper(self):
+        # VAC-crew cross-row reconciliation log embeds WR + Point + CU.
+        record = {
+            "body": (
+                "➖ EXCLUDING from foreman/helper (unit VAC-claimed on "
+                "another row): WR=WR42, Week=010124, Point=Point 11, "
+                "CU=ANC-DSC-16-96-D1"
             ),
         }
         assert gwp.sentry_before_send_log(record, {}) is None
