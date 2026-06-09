@@ -1,51 +1,43 @@
 {
   "version": "1.0",
-  "timestamp": "2026-06-08T21:12:17.437Z",
-  "context": "multi-strand",
-  "phase": "08",
-  "phase_name": "smartsheet-python-sdk 4.0.0 Compatibility Migration",
-  "phase_dir": ".planning/phases/08-smartsheet-python-sdk-4-0-0-compatibility-migration",
-  "milestone": "v1.2",
-  "plan": 0,
-  "task": 0,
-  "total_tasks": 0,
+  "timestamp": "2026-06-09T06:49:53.054Z",
+  "context": "default",
+  "phase": null,
+  "phase_name": "Standalone debug + fix: VAC-crew unit duplication (+ poc PDF)",
+  "phase_dir": null,
+  "plan": null,
+  "task": null,
+  "total_tasks": null,
   "status": "paused",
   "completed_tasks": [
-    {"id": 1, "name": "Hotfix 260608-gwm: pin smartsheet-python-sdk <4.0.0", "status": "done", "commit": "a5c3fc8", "notes": "PR #273 squash-merged to origin/master; production recovered (Run2271 green)."},
-    {"id": 2, "name": "Create v1.2 milestone scaffold (PROJECT/REQUIREMENTS/ROADMAP/STATE; SDK-01..06; Phase 08)", "status": "done", "commit": "0014680", "notes": "pushed to origin/master."},
-    {"id": 3, "name": "Reconcile local master with origin (squash-redundancy) + push v1.2 docs", "status": "done", "commit": "0014680", "notes": "reset to origin + cherry-picked 8 unique doc commits; clean fast-forward push."},
-    {"id": 4, "name": "Phase 08 research (08-RESEARCH.md)", "status": "done", "commit": "86413d8", "notes": "LOCAL-ONLY, unpushed. KEY FINDING: 4.0.0 crash is a broken WHEEL (ships only version.py), NOT an API removal."},
-    {"id": 5, "name": "PDF print POC: per-day-composition print-ready PDFs from real WRs", "status": "in_progress", "progress": "Approach validated on real spilling data; deliverables in poc/out/ (untracked). Awaiting boss sign-off before GSD productionization."}
+    {"id": 1, "name": "Diagnose VAC-crew unit duplication via /gsd-debug", "status": "done", "commit": "47fe16d"},
+    {"id": 2, "name": "Fix: unit-level cross-row reconciliation in group_source_rows + PII log marker", "status": "done", "commit": "47fe16d"},
+    {"id": 3, "name": "Verify on real WR 90922617 (read-only SKIP_UPLOAD dry run)", "status": "done"},
+    {"id": 4, "name": "Address Codex review; finalize as units-required (revert unchecked-VAC widening)", "status": "done", "commit": "47fe16d"},
+    {"id": 5, "name": "Merge PR #274 to origin/master (squash)", "status": "done", "commit": "47fe16d"},
+    {"id": 6, "name": "Generate poc print PDF for WR 91029362 WE 060726", "status": "done"}
   ],
   "remaining_tasks": [
-    {"id": 6, "name": "Phase 08 DECISION: migrate now via `--no-binary` sdist vs wait for upstream 4.0.1 fixed wheel", "status": "not_started"},
-    {"id": 7, "name": "Phase 08 plan + execute (only AFTER decision; planner NOT yet spawned)", "status": "not_started"},
-    {"id": 8, "name": "PDF feature: on boss approval, brainstorm->spec->plan productionization (likely new phase: additive PDF-per-Excel, flag-gated, LibreOffice on CI)", "status": "not_started"},
-    {"id": 9, "name": "Push local commits to origin (86413d8 research + this handoff)", "status": "not_started"}
+    {"id": 7, "name": "Sync local master to origin/master (it diverged)", "status": "not_started"}
   ],
   "blockers": [
-    {"description": "smartsheet-python-sdk 4.0.0 WHEEL is broken upstream (ships only version.py); the module/API are intact in the sdist. Migration is a decision, not a code problem: use `--no-binary smartsheet-python-sdk` (sdist) now, OR stay pinned <4.0.0 and wait for Smartsheet 4.0.1.", "type": "external", "workaround": "Stay pinned <4.0.0 (current state) — production green on 3.9.0."},
-    {"description": "PDF productionization gated on stakeholder (boss) sign-off of POC PDFs.", "type": "human_action", "workaround": "POC deliverables ready in poc/out/ to show boss."}
+    {"description": "Local master diverged from origin/master: 2 unpushed pre-session WIP commits (0ae1427, 86413d8) whose content was swept into the squash, plus pre-existing uncommitted .github/prompts edits. gh's post-merge auto-pull could not fast-forward.", "type": "technical", "workaround": "git stash push -- .github/prompts/ ; git reset --hard origin/master ; git stash pop  (untracked poc/, generated_docs, .planning/debug survive reset). Do this deliberately after reviewing the .github/prompts edits."}
   ],
   "human_actions_pending": [
-    {"action": "Boss reviews POC PDFs in poc/out/ and approves the print-PDF feature", "context": "Decides whether to productionize via GSD", "blocking": true},
-    {"action": "Decide Phase 08 path: migrate now via --no-binary sdist, or wait for upstream 4.0.1", "context": "4.0.0 wheel is broken; both options valid", "blocking": true},
-    {"action": "Push local master (86413d8 + handoff) to origin", "context": "local ahead of origin/master 0014680", "blocking": false}
+    {"action": "Rotate the Smartsheet API token", "context": "A live token was pasted into the chat to run the read-only verification dry run; treat it as compromised.", "blocking": true},
+    {"action": "Reconcile local master with origin/master", "context": "Remote is correct (has the merged fix); local is stale. See blockers workaround.", "blocking": false}
   ],
   "decisions": [
-    {"decision": "Hotfix = pin smartsheet-python-sdk>=3.1.0,<4.0.0", "rationale": "Correct regardless of root cause (avoids broken 4.0.0 wheel); reversible; zero billing-logic change", "phase": "quick-260608-gwm"},
-    {"decision": "v1.2 = COMPAT-ONLY SDK migration (chosen over comprehensive rework)", "rationale": "Preserve pipeline per CLAUDE.md; additive only", "phase": "v1.2"},
-    {"decision": "PDF: per-day composition (each day = own section; repeating print-title = [report header + that day's date + column header]); stitch to one PDF per WR", "rationale": "Excel print-titles are fixed top rows and cannot vary per day; per-day composition is the only way to repeat the correct date+columns on every spill page", "phase": "PDF-POC"},
-    {"decision": "PDF engine: Excel COM locally / LibreOffice headless on CI", "rationale": "Local Windows has Excel (no LibreOffice); CI ubuntu has no Excel; both honor the same openpyxl print settings", "phase": "PDF-POC"},
-    {"decision": "Buddy Mavin = Abraham Hernandez's 06/07 WRs (relabeled demo name)", "rationale": "No real foreman named Buddy Mavin exists", "phase": "PDF-POC"}
+    {"decision": "VAC-crew billing requires Units Completed? checked (same as the helper rule)", "rationale": "Operator confirmed VAC rows always have Units Completed checked in practice; avoids propagating a widened 'billable' definition through the Subproject-C attribution chain (bulk prefetch / claimer freeze / freeze_row).", "phase": null},
+    {"decision": "Exclusion is PER-UNIT (WR + week + Pole # + CU), NOT per-pole", "rationale": "A pole can hold both VAC-claimed and genuinely foreman-completed units; per-pole would strip the foreman's own units.", "phase": null},
+    {"decision": "Squash-merge PR #274 to master", "rationale": "Operator requested merge so the next scheduled run uses the debugged code.", "phase": null}
   ],
   "uncommitted_files": [
-    ".github/prompts/architecture-analysis.md (pre-existing working-tree edit)",
-    ".github/prompts/configuration-environment.md (pre-existing)",
-    ".github/prompts/memory-integration-codebase-context.md (pre-existing)",
-    ".github/prompts/testing-and-validation.md (pre-existing)",
-    "poc/ (UNTRACKED - do NOT commit: poc/_tools is 30MB pymupdf; poc/out has binary PDFs with real billing data)"
+    ".github/prompts/architecture-analysis.md",
+    ".github/prompts/configuration-environment.md",
+    ".github/prompts/memory-integration-codebase-context.md",
+    ".github/prompts/testing-and-validation.md"
   ],
-  "next_action": "Pick a strand: (A) on boss approval of poc/out PDFs -> brainstorm->spec->plan PDF productionization; (B) decide Phase 08 migrate-now vs wait-for-4.0.1 then /gsd-plan-phase 08; or (C) push local commits to origin.",
-  "context_notes": "Multi-strand session. PRODUCTION IS SAFE: hotfix merged (a5c3fc8); weekly pipeline recovered (Run2271 green on 3.9.0). Phase 08 research found the 4.0.0 crash is a broken WHEEL (packaging bug), NOT an API break -> migration is tiny and arguably should wait for upstream 4.0.1. Most of the session became a PDF print POC: validated per-day composition fixing (1) sloppy mid-day spills (each spill page now repeats day+date+column header, reads as continuation) and (2) clipped date headers (day/date row merged full-width, never clips). Deliverables = one PDF per WR (mirrors Excel generation) in poc/out/. Reusable builder: poc/build_wr_pdf.py (uses poc/_tools/pymupdf for stitch+render; Excel COM for convert). PDF work is PRE-SPEC POC validation; productionize (new phase) only after boss sign-off."
+  "next_action": "Rotate the exposed Smartsheet token. Then (optional) sync local master to origin/master per the blocker workaround. The VAC fix itself is complete and merged - nothing further required on it.",
+  "context_notes": "VAC-crew duplicate-billing bug: a unit completed by the VAC crew appeared on BOTH the foreman/helper Excel and the VacCrew Excel because the WR spans two source sheets (one without VAC columns) so the same physical unit exists as two rows. Fix = a pre-pass in group_source_rows that collects (WR, week, Pole #, CU) of every __is_vac_crew row, then drops any non-VAC row with a matching unit identity from all non-VAC variants (continue), so the unit appears only on the VacCrew sheet. Net production diff vs baseline: that reconciliation + an 'EXCLUDING from foreman/helper' _PII_LOG_MARKERS entry. Verified on WR 90922617: foreman $30,023.63 -> $26,098.52 (the 3 VAC units), VacCrew unchanged, zero dups. Full debug record: .planning/debug/vac-crew-leak-foreman-sheet.md (status resolved). HARNESS NOTE: subagents here cannot execute shell/python (read-only only) - run pipeline/poc commands in the main context."
 }
