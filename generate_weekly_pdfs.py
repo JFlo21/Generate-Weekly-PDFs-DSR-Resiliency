@@ -1186,6 +1186,7 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     "foremen(top5)",
     "Excluding row",
     "EXCLUDING from main Excel",
+    "EXCLUDING from foreman/helper",
     # WR-keyed log lines
     "for WR#",
     "WR# ",
@@ -6091,6 +6092,43 @@ def group_source_rows(rows):
             )
             _primary_claimer_map = {}
 
+    # ── VAC-crew cross-row unit reconciliation (operator contract
+    # 2026-06-08). A WR can span multiple source sheets: a foreman /
+    # original-contract sheet (no VAC columns) AND a VAC-crew sheet (VAC
+    # columns). The SAME physical unit can then exist as two rows — only the
+    # VAC-sheet copy carries the VAC claim, so the row-local predicate cannot
+    # see the claim on the foreman's copy and the unit leaks onto the foreman
+    # sheet (duplicated with the VacCrew sheet). Build the set of VAC-claimed
+    # unit identities up front so the non-VAC emission below can drop any unit
+    # that is VAC-claimed on ANY row. Keyed at the UNIT grain
+    # (WR + week + Point + CU) — NOT the pole — so the foreman's OTHER units on
+    # the same pole are retained (operator: per-unit, not per-pole).
+    _vac_claimed_units = set()
+    for _vr in rows:
+        if not _vr.get('__is_vac_crew'):
+            continue
+        _vwr = _vr.get('Work Request #')
+        _vdate_raw = _vr.get('Weekly Reference Logged Date')
+        if not _vwr or not _vdate_raw:
+            continue
+        _vweek_date = excel_serial_to_date(_vdate_raw)
+        if _vweek_date is None:
+            continue
+        _vpoint = str(
+            _vr.get('Pole #') or _vr.get('Point #')
+            or _vr.get('Point Number') or ''
+        ).strip()
+        _vcu = str(
+            _vr.get('CU') or _vr.get('Billable Unit Code') or ''
+        ).strip()
+        if _vpoint and _vcu:
+            _vac_claimed_units.add((
+                str(_vwr).split('.')[0],
+                _vweek_date.strftime("%m%d%y"),
+                _vpoint,
+                _vcu,
+            ))
+
     for r in rows:
         wr = r.get('Work Request #')
         log_date_str = r.get('Weekly Reference Logged Date')
@@ -6130,6 +6168,32 @@ def group_source_rows(rows):
             
             # Check if this row was detected as VAC Crew (row-level column-based detection)
             is_vac_crew_row = r.get('__is_vac_crew', False)
+
+            # Cross-row unit reconciliation: a non-VAC row whose unit
+            # (WR + week + Point + CU) is VAC-claimed on ANOTHER source row is
+            # the duplicate foreman/helper copy of a unit the VAC crew earns.
+            # Drop it from ALL non-VAC variants (primary, helper, and the
+            # subcontractor variants below) so the unit appears ONLY on the
+            # VacCrew sheet (operator contract 2026-06-08; per-unit, not
+            # per-pole). The VAC crew's own row is untouched.
+            if not is_vac_crew_row:
+                _unit_point = str(
+                    r.get('Pole #') or r.get('Point #')
+                    or r.get('Point Number') or ''
+                ).strip()
+                _unit_cu = str(
+                    r.get('CU') or r.get('Billable Unit Code') or ''
+                ).strip()
+                if _unit_point and _unit_cu and (
+                    wr_key, week_end_for_key, _unit_point, _unit_cu
+                ) in _vac_claimed_units:
+                    logging.info(
+                        "➖ EXCLUDING from foreman/helper (unit VAC-claimed "
+                        f"on another row): WR={wr_key}, "
+                        f"Week={week_end_for_key}, Point={_unit_point}, "
+                        f"CU={_unit_cu}"
+                    )
+                    continue
 
             # Phase 1.1 Bug B1 (D-04 / SUB-09): hoist
             # is_subcontractor_row to BEFORE the primary-emission
