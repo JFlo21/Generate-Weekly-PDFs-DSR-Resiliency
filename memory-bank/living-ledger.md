@@ -3776,52 +3776,63 @@ future SDK added as a direct import in the billing engine.
 
 ---
 
-[2026-06-08 21:15] **VAC-crew completed units are credited ONLY to the VAC crew — `Vac Crew Completed Unit?` is the dominant exclusion trigger (cross-sheet, unit-level)**
+[2026-06-09 00:10] **VAC-crew completed units go ONLY to the VAC crew, never the primary/helper foreman — cross-sheet, UNIT-level de-duplication**
 
-**What:** A unit whose `Vac Crew Completed Unit?` checkbox is checked (with a named
-`VAC Crew Helping?` crew) is now credited ONLY to the VAC crew and excluded from BOTH the
-primary-foreman (`_User_`) AND helping-foreman (`_Helper_`) sheets — line items AND totals —
-regardless of `Units Completed?` and regardless of any helper checkbox. Coordinated changes in
-`generate_weekly_pdfs.py`: (1) new single-source-of-truth predicate
-`_is_vac_crew_excluded_row(row_data, sheet_has_vac_crew_columns)`; (2) VAC detection
-de-coupled from `units_completed_checked`; (3) BOTH units-completed admission gates (the
-sheet-acceptance gate AND the `group_source_rows` gate) widened to admit a VAC claim even when
-`Units Completed?` is unchecked; and the decisive (4) a UNIT-LEVEL cross-row reconciliation
-pre-pass in `group_source_rows`.
+**What:** A unit is credited to the VAC crew when `Vac Crew Completed Unit?` is checked (with a
+named `VAC Crew Helping?` crew) AND `Units Completed?` is checked. Such a unit is excluded from
+BOTH the primary-foreman (`_User_`) AND helping-foreman (`_Helper_`) sheets — line items AND
+totals — with NO duplication. This is the same dominance the dual-checkbox helper rule already
+has over the primary. The fix is a UNIT-LEVEL cross-row reconciliation pre-pass in
+`group_source_rows` plus a new `_PII_LOG_MARKERS` entry (`"EXCLUDING from foreman/helper"`).
+NO change to the detection conjunction, the acceptance gates, or the billing-audit attribution
+machinery (see "Reverted" below).
 
 **Why:** Operator reported the same unit (WR 90922617, Point 11 `ANC-DSC-16-96-D1`, Point 11
-`PLA-HDIG`, Point 15 `ANC-`) appearing on BOTH the foreman's `_User_` Excel and the `_VacCrew_`
-Excel — double-crediting/double-billing. `Vac Crew Completed Unit?` is the VAC crew's OWN
-completion attestation; when checked, the foreman/helper must not also be paid for that unit.
+`PLA-HDIG`, Point 15 `ANC-`) appearing on BOTH the foreman's `_User_` Excel and Hugo Garcia's
+`_VacCrew_` Excel — double-crediting/double-billing.
 
-**Root cause pattern:** TWO failures. (a) DETECTION OVERLOAD: `__is_vac_crew` was the single
-boolean for both "emit a VacCrew group" and "exclude from foreman", and it was gated on
-`units_completed_checked` and on per-page `sheet_has_vac_crew_columns` — orthogonal to the
-exclusion intent. (b) MULTI-SHEET DUPLICATION (the real production mechanism): a WR spans
-multiple source sheets — a foreman/original-contract sheet (no VAC columns) AND a VAC-crew
-sheet (VAC columns). The SAME physical unit exists as TWO rows; only the VAC-sheet copy carries
-the VAC claim, so a purely row-local predicate cannot see the claim on the foreman's copy and
-the unit leaks onto the foreman sheet. The clean one-row→one-group `if/else` routing was
-correct but irrelevant — the duplication is across two rows.
+**Root cause:** MULTI-SHEET DUPLICATION. A WR spans multiple source sheets — a
+foreman/original-contract sheet (no VAC columns) AND a VAC-crew sheet (VAC columns). The SAME
+physical unit exists as TWO rows; only the VAC-sheet copy carries the VAC claim, so the foreman
+copy (no VAC signal on its row) routes to the foreman and the unit appears on both files. The
+clean one-row→one-group `if/else` routing in `group_source_rows` is correct but irrelevant —
+the duplication is across two rows on two sheets, so no row-local check can catch it.
 
-**Rule established:** VAC-crew attribution is PER-UNIT, keyed on `(WR, week_ending, Pole #, CU)`
-— NOT per-pole. A unit VAC-claimed on ANY source row is removed from ALL non-VAC variants
-(primary, helper, subcontractor) on every page the WR spans; the foreman's OTHER units on the
-same pole are retained. The exclusion flag must be a SINGLE row-level predicate consumed by
-both the line-item routing and the per-group totals so they can never disagree. There are TWO
-`Units Completed?` admission gates (sheet acceptance in `_fetch_and_process_sheet` and the gate
-in `group_source_rows`) — any rule about which rows enter billing MUST be applied at BOTH or
-rows are silently dropped one stage later. The existing dual-checkbox helper-exclusion rule is
-preserved and layered under VAC (VAC dominates helper). Column identity uses the codebase
-convention: `CU`/`Billable Unit Code` and `Pole #`/`Point #`/`Point Number` (verified against
-`_validate_single_sheet` synonyms; never invent names).
+**Rule established:** VAC-crew exclusion is PER-UNIT, keyed on `(WR, week_ending, Pole #, CU)`
+— NOT per-pole. A pre-pass over all rows collects the `(wr, week, point, cu)` of every row
+flagged `__is_vac_crew`; in the per-row loop, any NON-VAC row whose unit identity is in that set
+is dropped (`continue`) from ALL non-VAC variants (primary, helper, subcontractor). Per-unit,
+not per-pole, so the foreman's OTHER units on the same pole are retained (a pole-level dedup
+would wrongly strip the foreman's legitimately-completed units). Column identity uses the
+codebase convention: `CU`/`Billable Unit Code` and `Pole #`/`Point #`/`Point Number` (verified
+against `_validate_single_sheet` synonyms; never invent names). The dual-checkbox helper rule is
+untouched; VAC dominates both primary and helper.
 
-**Fix:** `generate_weekly_pdfs.py` (predicate + detection + two gate widenings + cross-row
-reconciliation pre-pass/skip) and new TDD `tests/test_vac_crew_exclusion_leak.py`. Verified by
-a read-only `SKIP_UPLOAD` dry run against real WR 90922617 (week 060726): Chris's `_User_`
-total dropped $30,023.63→$26,098.52 (exactly the 3 VAC-claimed units, −$3,925.11), Hugo's
-`_VacCrew_` total unchanged ($11,419.29), zero cross-sheet duplicates, all 26 of Chris's own
-Point 11 units retained. Suite 1060 passed / 0 failures; `py_compile` OK. Hash key NOT
-shortened (dropping a leaked row changes the affected `_User_`/`_VacCrew_` group hashes →
-expected regeneration, not a regression). No `@cell`; `safe_merge_cells`/`oddFooter`/
-`PARALLEL_WORKERS` untouched.
+**Operator decision — VAC billing requires `Units Completed?`:** When the VAC crew completes a
+unit, `Units Completed?` is also checked in practice (the production `_VacCrew_` files only exist
+because the pre-existing detection required it). So VAC billing keeps requiring `Units
+Completed?` — same as the foreman/helper. This keeps the billing-audit attribution subsystem's
+"billable = Units Completed? checked" invariant intact across ALL its stages (bulk prefetch,
+claimer-freeze prepass, freeze-write) with zero changes there.
+
+**Reverted (do NOT reintroduce without re-opening the attribution work):** An earlier attempt
+ALSO widened admission so VAC claims billed even when `Units Completed?` was unchecked (a
+`_is_vac_crew_excluded_row` predicate, detection de-coupled from units, and BOTH acceptance
+gates + the claimer-freeze prepass widened). Codex review correctly showed this required
+propagating the widened "billable" definition through the entire Subproject-C attribution chain
+(Phase-02 bulk prefetch `_prefetch_pairs`, `_vac_crew_claimer_map` resolve, and the
+`freeze_row` write path / `billing_audit.writer`) or those rows would silently miss
+frozen-claimer / HOLD attribution. Per the operator decision above, the unchecked case does not
+occur, so the whole widening was REVERTED rather than chased through the billing-audit internals
+— keeping the change surgical (dedup + log marker only) and the attribution subsystem untouched.
+
+**Fix:** `generate_weekly_pdfs.py` (cross-row reconciliation pre-pass + per-row `continue`; the
+`EXCLUDING from foreman/helper` log marker added to `_PII_LOG_MARKERS`), new TDD
+`tests/test_vac_crew_exclusion_leak.py`, and a sanitizer test in
+`tests/test_sentry_log_sanitizer.py`. Verified by a read-only `SKIP_UPLOAD` dry run against real
+WR 90922617 (week 060726): Chris's `_User_` total dropped $30,023.63→$26,098.52 (exactly the 3
+VAC-claimed units, −$3,925.11), Hugo's `_VacCrew_` total unchanged ($11,419.29), zero
+cross-sheet duplicates, all 26 of Chris's own Point 11 units retained. Suite 1055 passed / 0
+failures; `py_compile` OK. Hash key NOT shortened (dropping a leaked row changes the affected
+`_User_`/`_VacCrew_` group hashes → expected regeneration, not a regression). No `@cell`;
+`safe_merge_cells`/`oddFooter`/`PARALLEL_WORKERS` untouched. PR #274.
