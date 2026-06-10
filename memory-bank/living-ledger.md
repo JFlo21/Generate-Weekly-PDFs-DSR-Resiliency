@@ -3836,3 +3836,35 @@ cross-sheet duplicates, all 26 of Chris's own Point 11 units retained. Suite 105
 failures; `py_compile` OK. Hash key NOT shortened (dropping a leaked row changes the affected
 `_User_`/`_VacCrew_` group hashes → expected regeneration, not a regression). No `@cell`;
 `safe_merge_cells`/`oddFooter`/`PARALLEL_WORKERS` untouched. PR #274.
+
+---
+
+## [2026-06-10 01:20] SIGTERM must unwind through main()'s finally — fixes Sentry "timeout check-in detected" (PYTHON-6V)
+
+**Root cause (Sentry issue `PYTHON-6V`, GitHub issue #127):** when GitHub
+Actions cancels a run or hits `timeout-minutes`, it delivers SIGINT → SIGTERM
+→ SIGKILL. Python's **default SIGTERM action terminates the process without
+unwinding the stack**, so the terminal Sentry cron check-in in `main()`'s
+`finally` never fired — the `in_progress` check-in stayed open until Sentry
+flagged "a timeout check-in was detected". Two secondary defects compounded
+it: (1) the terminal status logic (`_cron_ok = '_groups_errored' not in dir()
+or _groups_errored == 0`) closed interrupted/early-failed sessions as **OK**,
+and (2) the terminal check-in sat in the SDK queue until the trailing
+`flush(timeout=10)` — longer than the runner's SIGTERM→SIGKILL grace window.
+
+**RULE (operative):** Any process that opens a Sentry cron `in_progress`
+check-in MUST (a) install a SIGTERM handler that raises `SystemExit` so
+`finally`-based cleanup runs (`_install_sigterm_finalizer()`), (b) compute the
+terminal status with `_resolve_cron_final_status(session_failed,
+exc_in_flight, groups_errored)` — handled failures set `_session_failed`,
+propagating `SystemExit`/`KeyboardInterrupt` are detected via
+`sys.exc_info()` inside `finally` — and (c) `sentry_sdk.flush(timeout=5)`
+immediately after the terminal `capture_checkin` so it escapes the
+termination grace window. Never close the monitor OK on an interrupted
+session.
+
+**Tests:** new `tests/test_cron_checkin_lifecycle.py` (7 tests: status
+matrix + SIGTERM-raises-SystemExit + finally-unwind contract). Manually
+verified: sending a real SIGTERM to the process → `finally` runs, exit
+code 143. Full suite 1091 passed / 0 failed; `py_compile` clean.
+Monitoring-only change — no billing/grouping/upload path touched.

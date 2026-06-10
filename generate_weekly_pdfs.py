@@ -8125,6 +8125,43 @@ def _build_cron_monitor_config() -> "MonitorConfig":
     }
 
 
+def _resolve_cron_final_status(session_failed, exc_in_flight, groups_errored):
+    """Map the session outcome to the terminal Sentry cron check-in status.
+
+    Pure (no I/O); extracted so the status contract can be unit tested.
+    Any handled session failure, any in-flight exception propagating through
+    ``main()``'s ``finally`` (e.g. ``SystemExit`` from the SIGTERM guard or a
+    ``KeyboardInterrupt``), or any errored group means the run must NOT close
+    the monitor as OK — doing so masked real outages (PYTHON-6V).
+    """
+    if session_failed or exc_in_flight or (groups_errored or 0) > 0:
+        return MonitorStatus.ERROR
+    return MonitorStatus.OK
+
+
+def _install_sigterm_finalizer():
+    """Convert SIGTERM into ``SystemExit`` so ``main()``'s ``finally`` runs.
+
+    GitHub Actions delivers SIGINT then SIGTERM (then SIGKILL) when a job is
+    cancelled or hits ``timeout-minutes``. Python's default SIGTERM action
+    kills the process WITHOUT unwinding the stack, so the terminal Sentry
+    cron check-in in ``main()``'s ``finally`` never fires and Sentry flags
+    "a timeout check-in was detected" (PYTHON-6V). Raising ``SystemExit``
+    lets the ``finally`` close the check-in (as ERROR) before the kill.
+    """
+    def _raise_system_exit(signum, frame):  # pragma: no cover - signal glue
+        # Exit code follows shell convention: 128 + signal number
+        # (SIGTERM=15 → 143), matching what the default handler reports.
+        raise SystemExit(128 + signum)
+
+    try:
+        signal.signal(signal.SIGTERM, _raise_system_exit)
+    except (ValueError, OSError, AttributeError) as exc:
+        # ValueError: not the main thread; OSError/AttributeError: platform
+        # without SIGTERM support. Best-effort guard — never fatal.
+        logging.debug(f"SIGTERM finalizer not installed: {exc}")
+
+
 def _sentry_cron_checkin_start(monitor_slug):
     """Send a Sentry cron 'in_progress' check-in. Returns the check-in id or None.
 
@@ -8180,6 +8217,16 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
     # Sentry cron check-in: signal "in_progress" at session start
     _cron_monitor_slug = os.getenv("SENTRY_CRON_MONITOR_SLUG", "weekly-excel-generation")
     _cron_checkin_id = _sentry_cron_checkin_start(_cron_monitor_slug)
+    # Tracks handled session failures so the terminal cron check-in reports
+    # ERROR instead of OK (the except blocks below swallow the exception).
+    _session_failed = False
+    # Initialized here (not only deep inside the try) so the except/finally
+    # blocks can reference it without fragile 'in dir()' introspection even
+    # when a failure occurs before the processing loop assigns it.
+    _groups_errored = 0
+    # Ensure a runner cancellation / timeout-minutes SIGTERM still unwinds
+    # through the finally below and closes the cron check-in (PYTHON-6V).
+    _install_sigterm_finalizer()
 
     try:
         # Set Sentry context (SDK 2.x: top-level API)
@@ -10437,6 +10484,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 _txn = None
 
     except FileNotFoundError as e:
+        _session_failed = True
         error_context = f"Missing required file: {e}"
         logging.error(f"💥 {error_context}")
         sentry_capture_with_context(
@@ -10457,6 +10505,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             _txn = None
             
     except Exception as e:
+        _session_failed = True
         session_duration = datetime.datetime.now() - session_start
         error_context = f"Session failed after {session_duration}"
         logging.error(f"💥 {error_context}: {e}")
@@ -10515,15 +10564,27 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             _txn = None
     
     finally:
-        # Sentry cron check-in: signal final status
+        # Sentry cron check-in: signal final status. sys.exc_info() detects an
+        # exception still propagating through this finally (SystemExit from
+        # the SIGTERM guard, KeyboardInterrupt, ...) which the except blocks
+        # above never see — those runs must close the monitor as ERROR.
         if SENTRY_DSN and _cron_checkin_id:
             try:
-                _cron_ok = '_groups_errored' not in dir() or _groups_errored == 0
+                _cron_status = _resolve_cron_final_status(
+                    session_failed=_session_failed,
+                    exc_in_flight=sys.exc_info()[0] is not None,
+                    groups_errored=_groups_errored,
+                )
                 capture_checkin(
                     monitor_slug=_cron_monitor_slug,
                     check_in_id=_cron_checkin_id,
-                    status=MonitorStatus.OK if _cron_ok else MonitorStatus.ERROR,
+                    status=_cron_status,
                 )
+                # Flush the terminal check-in immediately with a short
+                # timeout: on cancellation the runner escalates SIGTERM →
+                # SIGKILL within seconds, and a check-in still sitting in
+                # the SDK queue is lost → Sentry flags a timeout check-in.
+                sentry_sdk.flush(timeout=5)
             except Exception as exc:
                 logging.warning(f"⚠️ Sentry cron check-in (final) failed: {exc}")
         
