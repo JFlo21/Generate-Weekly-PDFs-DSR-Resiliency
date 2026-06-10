@@ -8150,6 +8150,8 @@ def _install_sigterm_finalizer():
     lets the ``finally`` close the check-in (as ERROR) before the kill.
     """
     def _raise_system_exit(signum, frame):  # pragma: no cover - signal glue
+        # Exit code follows shell convention: 128 + signal number
+        # (SIGTERM=15 → 143), matching what the default handler reports.
         raise SystemExit(128 + signum)
 
     try:
@@ -8218,6 +8220,10 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
     # Tracks handled session failures so the terminal cron check-in reports
     # ERROR instead of OK (the except blocks below swallow the exception).
     _session_failed = False
+    # Initialized here (not only deep inside the try) so the except/finally
+    # blocks can reference it without fragile 'in dir()' introspection even
+    # when a failure occurs before the processing loop assigns it.
+    _groups_errored = 0
     # Ensure a runner cancellation / timeout-minutes SIGTERM still unwinds
     # through the finally below and closes the cron check-in (PYTHON-6V).
     _install_sigterm_finalizer()
@@ -10567,9 +10573,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 _cron_status = _resolve_cron_final_status(
                     session_failed=_session_failed,
                     exc_in_flight=sys.exc_info()[0] is not None,
-                    groups_errored=(
-                        _groups_errored if '_groups_errored' in dir() else 0
-                    ),
+                    groups_errored=_groups_errored,
                 )
                 capture_checkin(
                     monitor_slug=_cron_monitor_slug,
