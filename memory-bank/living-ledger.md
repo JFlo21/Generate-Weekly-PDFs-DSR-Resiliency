@@ -3836,3 +3836,33 @@ cross-sheet duplicates, all 26 of Chris's own Point 11 units retained. Suite 105
 failures; `py_compile` OK. Hash key NOT shortened (dropping a leaked row changes the affected
 `_User_`/`_VacCrew_` group hashes → expected regeneration, not a regression). No `@cell`;
 `safe_merge_cells`/`oddFooter`/`PARALLEL_WORKERS` untouched. PR #274.
+
+[2026-06-16 00:00] **VAC exclusion-set pre-pass MUST gate on `Units Completed?` — an incomplete VAC row was poisoning the foreman's completed copy (revenue leak)**
+
+**What:** Follow-up to PR #274. The cross-row reconciliation pre-pass that builds
+`_vac_claimed_units` in `group_source_rows` added EVERY `__is_vac_crew` row's `(WR, week, Point,
+CU)` to the exclusion set without checking `Units Completed?`. The per-row emission loop below it,
+however, drops any row whose `Units Completed?` is unchecked (the `units_completed_checked` gate).
+
+**Bug (HIGH, revenue leak):** When the SAME unit exists as an INCOMPLETE VAC row
+(`Units Completed? = False`) and a COMPLETE foreman row (`Units Completed? = True`) — the realistic
+two-sheet case — the VAC row poisoned the exclusion set, then was itself dropped at the
+`units_completed_checked` gate (never billed on the VacCrew sheet). The foreman's completed copy was
+then excluded as a "VAC-claimed duplicate." Net: the completed, billable unit appeared on NO sheet
+and was billed to NOBODY. This silently violated the PR #274 operator contract documented one entry
+above ("a unit is VAC-claimed only when `Units Completed?` is checked"): that gate was applied in the
+consumer loop but MISSED in the new pre-pass builder.
+
+**Rule established:** Any pre-pass that mirrors a downstream emission/admission gate MUST replay that
+gate's full predicate. The exclusion-set builder now `continue`s on
+`not is_checked(_vr.get('Units Completed?'))`, byte-for-byte the same gate the emission loop uses —
+so a unit enters `_vac_claimed_units` only when the VAC crew will actually bill it. Incomplete VAC
+rows no longer suppress anything.
+
+**Fix:** `generate_weekly_pdfs.py` (one `is_checked` guard + comment in the `_vac_claimed_units`
+pre-pass). Regression test `tests/test_vac_crew_exclusion_leak.py::TestVacCrewRequiresUnitsCompleted
+::test_incomplete_vac_row_does_not_suppress_completed_foreman` — proven to FAIL on the pre-fix code
+(foreman unit lands in an empty set) and PASS after. Full suite 1056 passed / 29 skipped / 0
+failures; `py_compile` OK. Surgical/additive: no change to grouping keys, hashing, filenames,
+attachment cleanup, or the billing-audit attribution chain; no `@cell`;
+`safe_merge_cells`/`oddFooter`/`PARALLEL_WORKERS` untouched.

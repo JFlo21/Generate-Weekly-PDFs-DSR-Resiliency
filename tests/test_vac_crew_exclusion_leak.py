@@ -182,6 +182,36 @@ class TestVacCrewRequiresUnitsCompleted(unittest.TestCase):
             "any variant."
         )
 
+    def test_incomplete_vac_row_does_not_suppress_completed_foreman(self):
+        """Cross-row poisoning guard.
+
+        A VAC row for a unit is NOT completed (``Units Completed?``
+        unchecked), so it is dropped at the grouping gate and never billed
+        on the VacCrew sheet. The foreman's copy of the SAME unit IS
+        completed. The incomplete VAC row must NOT add the unit to the
+        VAC-claimed exclusion set; otherwise the completed foreman copy is
+        wrongly dropped and the unit is billed to nobody (revenue leak).
+        """
+        vac = _vac_row('Point 11', 'ANC-DSC-16-96-D1')
+        vac['Units Completed?'] = False
+        rows = [
+            vac,
+            _foreman_row('Point 11', 'ANC-DSC-16-96-D1'),  # completed -> keep
+        ]
+        groups = generate_weekly_pdfs.group_source_rows(rows)
+        primary = _cus_for_variant(groups, 'primary')
+        vac_cus = _cus_for_variant(groups, 'vac_crew')
+        self.assertIn(
+            'ANC-DSC-16-96-D1', primary,
+            "An incomplete VAC row wrongly suppressed the foreman's "
+            "completed copy of the same unit -- the unit is now billed to "
+            "nobody."
+        )
+        self.assertNotIn(
+            'ANC-DSC-16-96-D1', vac_cus,
+            "An incomplete VAC row must not appear on the VacCrew sheet."
+        )
+
 
 if __name__ == '__main__':
     unittest.main()

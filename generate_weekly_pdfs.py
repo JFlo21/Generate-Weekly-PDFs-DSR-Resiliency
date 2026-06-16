@@ -6107,6 +6107,16 @@ def group_source_rows(rows):
     for _vr in rows:
         if not _vr.get('__is_vac_crew'):
             continue
+        # Gate on Units Completed? exactly as the emission loop below
+        # (the `units_completed_checked` requirement) does. A VAC row that
+        # is NOT completed is dropped at that gate and never billed on the
+        # VacCrew sheet, so it must NOT suppress the foreman/helper copy of
+        # the same unit — otherwise a unit that IS completed on the foreman
+        # row vanishes from every sheet and is billed to nobody (revenue
+        # leak). Mirrors operator contract 2026-06-08: a unit is VAC-claimed
+        # only when Units Completed? is checked.
+        if not is_checked(_vr.get('Units Completed?')):
+            continue
         _vwr = _vr.get('Work Request #')
         _vdate_raw = _vr.get('Weekly Reference Logged Date')
         if not _vwr or not _vdate_raw:
