@@ -6107,14 +6107,17 @@ def group_source_rows(rows):
     for _vr in rows:
         if not _vr.get('__is_vac_crew'):
             continue
-        # Gate on Units Completed? exactly as the emission loop below
-        # (the `units_completed_checked` requirement) does. A VAC row that
-        # is NOT completed is dropped at that gate and never billed on the
-        # VacCrew sheet, so it must NOT suppress the foreman/helper copy of
-        # the same unit — otherwise a unit that IS completed on the foreman
-        # row vanishes from every sheet and is billed to nobody (revenue
-        # leak). Mirrors operator contract 2026-06-08: a unit is VAC-claimed
-        # only when Units Completed? is checked.
+        # Defense-in-depth: replay the emission loop's `Units Completed?`
+        # gate in this pre-pass too. Today this is belt-and-suspenders — the
+        # only place `__is_vac_crew` is set (get_all_source_rows ~L5464)
+        # already requires `units_completed_checked`, so no production row
+        # reaches here with `__is_vac_crew=True` and `Units Completed?`
+        # unchecked. The guard future-proofs against that detection ever
+        # being decoupled: an incomplete VAC row, if it slipped through,
+        # would be dropped at the emission gate (never billed on VacCrew)
+        # yet could still suppress the foreman/helper copy of the same unit,
+        # billing a completed unit to nobody. Repo rule: a pre-pass that
+        # mirrors a downstream gate must replay that gate's full predicate.
         if not is_checked(_vr.get('Units Completed?')):
             continue
         _vwr = _vr.get('Work Request #')

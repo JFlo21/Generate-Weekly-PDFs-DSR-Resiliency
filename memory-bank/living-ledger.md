@@ -3837,32 +3837,40 @@ failures; `py_compile` OK. Hash key NOT shortened (dropping a leaked row changes
 `_User_`/`_VacCrew_` group hashes → expected regeneration, not a regression). No `@cell`;
 `safe_merge_cells`/`oddFooter`/`PARALLEL_WORKERS` untouched. PR #274.
 
-[2026-06-16 00:00] **VAC exclusion-set pre-pass MUST gate on `Units Completed?` — an incomplete VAC row was poisoning the foreman's completed copy (revenue leak)**
+[2026-06-16 00:00] **VAC exclusion-set pre-pass replays the `Units Completed?` gate — defense-in-depth against a latent coupling (NOT an active production leak)**
 
-**What:** Follow-up to PR #274. The cross-row reconciliation pre-pass that builds
-`_vac_claimed_units` in `group_source_rows` added EVERY `__is_vac_crew` row's `(WR, week, Point,
-CU)` to the exclusion set without checking `Units Completed?`. The per-row emission loop below it,
-however, drops any row whose `Units Completed?` is unchecked (the `units_completed_checked` gate).
+**What:** Follow-up to PR #274 (shipped as PR #278). The cross-row reconciliation pre-pass that
+builds `_vac_claimed_units` in `group_source_rows` added EVERY `__is_vac_crew` row's `(WR, week,
+Point, CU)` to the exclusion set without re-checking `Units Completed?`. The per-row emission loop
+below it drops any row whose `Units Completed?` is unchecked (the `units_completed_checked` gate).
+The guard added here replays that same gate inside the pre-pass.
 
-**Bug (HIGH, revenue leak):** When the SAME unit exists as an INCOMPLETE VAC row
-(`Units Completed? = False`) and a COMPLETE foreman row (`Units Completed? = True`) — the realistic
-two-sheet case — the VAC row poisoned the exclusion set, then was itself dropped at the
-`units_completed_checked` gate (never billed on the VacCrew sheet). The foreman's completed copy was
-then excluded as a "VAC-claimed duplicate." Net: the completed, billable unit appeared on NO sheet
-and was billed to NOBODY. This silently violated the PR #274 operator contract documented one entry
-above ("a unit is VAC-claimed only when `Units Completed?` is checked"): that gate was applied in the
-consumer loop but MISSED in the new pre-pass builder.
+**Reachability (corrected during PR #278 review — Copilot cross-reference, verified):** This is NOT
+an active revenue leak in the current pipeline. `__is_vac_crew` is assigned in exactly ONE place
+(`get_all_source_rows`, line 5483) from `is_vac_crew_row = bool(vac_crew_name and
+vac_crew_completed_checked and units_completed_checked)` (line 5464), where
+`units_completed_checked = is_checked(row_data.get('Units Completed?'))` (line 5366) — the IDENTICAL
+predicate the guard uses. So no production row can reach the pre-pass with `__is_vac_crew=True` and
+`Units Completed?` unchecked; the guard is logically unreachable today. (Matches the PR #274 operator
+note one entry above: the `_VacCrew_` files only exist because detection already required
+`Units Completed?`.) The initial daily-review framing as a HIGH revenue-leak bug read the pre-pass
+in isolation and missed this upstream coupling — corrected here for the record.
 
-**Rule established:** Any pre-pass that mirrors a downstream emission/admission gate MUST replay that
-gate's full predicate. The exclusion-set builder now `continue`s on
-`not is_checked(_vr.get('Units Completed?'))`, byte-for-byte the same gate the emission loop uses —
-so a unit enters `_vac_claimed_units` only when the VAC crew will actually bill it. Incomplete VAC
-rows no longer suppress anything.
+**Why keep it (defense-in-depth + regression lock):** Were line 5464 ever decoupled (detection split
+from `units_completed_checked`), an incomplete VAC row would be dropped at the emission gate (never
+billed on VacCrew) yet could still suppress the foreman/helper copy of the same unit — billing a
+completed unit to nobody. The guard forecloses that, and the regression test locks it.
+
+**Rule (reaffirmed):** Any pre-pass that mirrors a downstream emission/admission gate MUST replay
+that gate's full predicate, even when an upstream invariant currently makes the gap unreachable —
+the invariant can drift; the pre-pass should not silently depend on it.
 
 **Fix:** `generate_weekly_pdfs.py` (one `is_checked` guard + comment in the `_vac_claimed_units`
 pre-pass). Regression test `tests/test_vac_crew_exclusion_leak.py::TestVacCrewRequiresUnitsCompleted
-::test_incomplete_vac_row_does_not_suppress_completed_foreman` — proven to FAIL on the pre-fix code
-(foreman unit lands in an empty set) and PASS after. Full suite 1056 passed / 29 skipped / 0
-failures; `py_compile` OK. Surgical/additive: no change to grouping keys, hashing, filenames,
-attachment cleanup, or the billing-audit attribution chain; no `@cell`;
-`safe_merge_cells`/`oddFooter`/`PARALLEL_WORKERS` untouched.
+::test_incomplete_vac_row_does_not_suppress_completed_foreman` synthetically constructs the
+`__is_vac_crew=True, Units Completed?=False` state the upstream pipeline prevents — proven to FAIL on
+the pre-fix code (foreman unit lands in an empty set) and PASS after. Full suite 1056 passed / 29
+skipped / 0 failures; `py_compile` OK. Surgical/additive: no behavioral change in production (guard
+unreachable today), none to grouping keys, hashing, filenames, attachment cleanup, or the
+billing-audit attribution chain; no `@cell`; `safe_merge_cells`/`oddFooter`/`PARALLEL_WORKERS`
+untouched. PR #278.

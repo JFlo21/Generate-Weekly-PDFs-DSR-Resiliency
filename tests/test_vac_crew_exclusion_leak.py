@@ -183,14 +183,17 @@ class TestVacCrewRequiresUnitsCompleted(unittest.TestCase):
         )
 
     def test_incomplete_vac_row_does_not_suppress_completed_foreman(self):
-        """Cross-row poisoning guard.
+        """Cross-row poisoning guard (defense-in-depth).
 
-        A VAC row for a unit is NOT completed (``Units Completed?``
-        unchecked), so it is dropped at the grouping gate and never billed
-        on the VacCrew sheet. The foreman's copy of the SAME unit IS
-        completed. The incomplete VAC row must NOT add the unit to the
-        VAC-claimed exclusion set; otherwise the completed foreman copy is
-        wrongly dropped and the unit is billed to nobody (revenue leak).
+        Synthetic state: a row flagged ``__is_vac_crew`` whose
+        ``Units Completed?`` is unchecked. In production this state is
+        currently UNREACHABLE — upstream detection (``get_all_source_rows``
+        ~L5464) only sets ``__is_vac_crew`` when ``Units Completed?`` is
+        already checked — so this test constructs it directly to lock the
+        pre-pass guard against a future decoupling of that detection.
+        Without the guard, the incomplete VAC row adds the unit to the
+        VAC-claimed exclusion set, the completed foreman copy of the SAME
+        unit is wrongly dropped, and a completed unit is billed to nobody.
         """
         vac = _vac_row('Point 11', 'ANC-DSC-16-96-D1')
         vac['Units Completed?'] = False
