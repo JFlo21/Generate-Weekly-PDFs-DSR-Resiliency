@@ -42,6 +42,7 @@ import smartsheet.exceptions as ss_exc
 # here so the SDK's internal lookup succeeds. The ``if not hasattr``
 # guard makes this a no-op if the upstream SDK ever re-exports them.
 import smartsheet.smartsheet as _ss_smartsheet_module
+_exc_name = None
 for _exc_name in (
     'RateLimitExceededError',
     'UnexpectedErrorShouldRetryError',
@@ -51,7 +52,8 @@ for _exc_name in (
 ):
     if not hasattr(_ss_smartsheet_module, _exc_name) and hasattr(ss_exc, _exc_name):
         setattr(_ss_smartsheet_module, _exc_name, getattr(ss_exc, _exc_name))
-del _ss_smartsheet_module, _exc_name
+del _ss_smartsheet_module
+del _exc_name
 import openpyxl
 from openpyxl.styles import Font, numbers, Alignment, PatternFill
 from openpyxl.drawing.image import Image
@@ -3097,13 +3099,15 @@ def _resolve_unchanged_for_skip(history_key, data_hash, hash_history,
     the ``ATTACHMENT_REQUIRED_FOR_SKIP`` guard downstream — a matching
     hash with a missing attachment must still regenerate.
     """
+    _writer = globals().get('_billing_audit_writer')
     if (
         SUPABASE_HASH_STORE_AUTHORITATIVE
         and BILLING_AUDIT_AVAILABLE
+        and _writer is not None
         and not TEST_MODE
         and week_iso
     ):
-        _h, _status = _billing_audit_writer.lookup_group_hash(
+        _h, _status = _writer.lookup_group_hash(
             wr_num, week_iso, variant, identifier or '')
         if _status == 'success':
             return _h == data_hash
