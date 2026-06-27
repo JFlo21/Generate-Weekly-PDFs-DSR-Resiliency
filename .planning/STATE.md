@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: smartsheet-python-sdk 4.0.0 Compatibility Migration
-status: planning
-last_updated: "2026-06-08T17:32:37.180Z"
-last_activity: 2026-06-08
+status: executing
+last_updated: "2026-06-27T00:10:00Z"
+last_activity: 2026-06-26
 progress:
-  total_phases: 0
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_phases: 8
+  completed_phases: 7
+  total_plans: 35
+  completed_plans: 34
+  percent: 88
 ---
 
 # Project State
@@ -26,14 +26,18 @@ right generated Excel billing artifact fast, from a secure, auth-gated,
 beautiful web portal — with zero change to the production Python billing
 pipeline.
 
-**Current focus:** Phase 07 — security-hardening-and-express-removal
+**Current focus:** Phase 09 — engine-modularization-pipeline-package-split
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-06-08 — Milestone v1.2 started
+Phase: 09 (engine-modularization-pipeline-package-split) — ✅ COMPLETE
+Plan: 7 of 7 complete
+Status: 09-06 (Wave 6: orchestrate + thin facade) complete — PHASE 09 COMPLETE.
+  Engine 10,476 -> 709-line thin facade; 13-module pipeline/ package; 0 behavior
+  change; all 7 waves independently 6-gate-verified. Next: /gsd-verify-work 09,
+  then PR / milestone close. (Phase 08 SDK 4.0.0 migration still outstanding — same
+  file, so it could not run concurrently; now unblocked.)
+Last activity: 2026-06-26
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
@@ -44,7 +48,7 @@ Last activity: 2026-06-08 — Milestone v1.2 started
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [██████████] 100%
+Progress: [██████████] 100% (Phase 09 / v1.3 engine modularization complete)
 ```
 
 ## Performance Metrics
@@ -75,6 +79,11 @@ Progress: [██████████] 100%
 | Phase 06-realtime-and-ui-polish P05 | 35m | 2 tasks | 8 files |
 | Phase 07-security-hardening-and-express-removal P01 | 15m | 2 tasks | 1 files |
 | Phase 07-security-hardening-and-express-removal P02 | ~2h | 2 tasks | 3 files |
+| Phase 09 P00 | 25m | 4 tasks | 13 files |
+| Phase 09 P01 | 50m | 3 tasks | 6 files |
+| Phase 09 P02 | 50m | 2 tasks | 6 files |
+| Phase 09 P03 | 55m | 3 tasks | 7 files |
+| Phase 09 P04 | ~75m | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -141,6 +150,17 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 07-02]: SEC-05 CONFIRMED audit-only: useDownloadArtifact.ts SIGNED_URL_TTL=300, single storagePath, {download} scope — no code change required
 - [Phase 07-02]: scripts/security-probe.ts is the re-runnable regression harness for SEC-01/SEC-05; CI env vars: SUPABASE_ANON_KEY, SUPABASE_PROBE_PENDING_EMAIL, SUPABASE_PROBE_PENDING_PASSWORD in GitHub Actions Secrets
 - [Phase 07-03]: portal/ Express backend deleted (29 files); all portal-v2/src Express coupling severed; USE_MOCK gated solely on VITE_USE_MOCK (never inferred from absent VITE_API_BASE_URL); CSP enforce-flip gated on 07-01 zero-violation walkthrough confirmation; 6-step live smoke test PASS under enforcing CSP with real Supabase data (2026-06-02)
+- [Phase ?]: [Phase 09-00]: 6-gate harness calibrated GREEN on unmodified post-D-06 engine (177 AST names, 105-name facade allowlist incl. 4 live-proxy, mypy 56-line/22-error baseline, 21-key run_summary) — Phase 09 behavior-neutrality oracle (D-03)
+- [Phase ?]: [Phase 09-00]: run_6_gates.sh forces PYTHONUTF8=1 (engine emoji banners crash Windows cp1252 stdout; no-op on Linux/CI); Gate 4 skips when mypy absent, baseline frozen with pinned mypy==1.14.1
+- [Phase ?]: [Phase 09-00]: TEST_MODE synthetic path does NOT rewrite run_summary.json — Gate 6 = synthetic smoke test + structural snapshot of frozen 21-key contract (flag for W6 orchestrate)
+- [Phase ?]: [Phase 09-02]: D-06 resolved — _resolve_unchanged_for_skip takes billing_audit_writer as an explicit kwarg (no globals() lookup); facade main() injects _billing_audit_writer immediately (no interim silent disable). Wave 6 MUST re-verify the injection survives the main()->orchestrate.py move.
+- [Phase ?]: [Phase 09-02]: SUBCONTRACTOR_PPP_SHEET_ID + _RATES_FINGERPRINT stay facade-resident; pricing owns _SUBCONTRACTOR_RATES but _resolve_row_price/_subcontractor_rescue_price read it from the facade so mock.patch.object rebind + in-place mutation are both honoured.
+- [Phase ?]: [Phase 09-02]: calculate_data_hash late-imports pipeline.fetch._RATES_FINGERPRINT ('' fallback, W3 seam); reads EXTENDED_CHANGE_DETECTION/RATE_CUTOFF_DATE/_SUBCONTRACTOR_RATES_FINGERPRINT from the facade. All 6 gates green.
+- [Phase ?]: [Phase 09-03]: discovery + fetch relocated byte-for-byte; the 4 runtime-rebound globals (SUBCONTRACTOR_SHEET_IDS/_FOLDER_DISCOVERED_SUB_IDS/_FOLDER_DISCOVERED_ORIG_IDS->discovery; _RATES_FINGERPRINT->fetch) EXCLUDED from facade static namespace + served via PEP-562 __getattr__ live-proxy (__dir__ co-override + guard comment, D-01). All 6 gates green.
+- [Phase ?]: [Phase 09-03]: relocated discover_source_sheets/get_all_source_rows read test-mutated facade constants + discovery live-proxy globals via a documented facade-read prelude (Wave-2 pattern); change_detection late-import seam removed now-unused type-ignore + added logging.warning on the '' fallback (silent-hash-degradation guard); group_source_rows in-root readers qualified to _pipeline_discovery.NAME.
+- [Phase ?]: [Phase 09-04]: grouping + excel relocated byte-for-byte to pipeline/grouping.py (group_source_rows ~1145 lines + validate_group_totals; discovery globals read live via _discovery._FOLDER_DISCOVERED_SUB_IDS) and pipeline/excel.py (safe_merge_cells billing guard + 2 variant-suffix helpers + generate_excel ~627 lines; openpyxl-only, no oddFooter.right.text write, no xlsxwriter). Used facade-read preludes (11 names in group_source_rows, 6 in generate_excel) NOT _cfg.NAME because the suite rebinds those constants on the facade. 11 source-grep guards repointed (follow-the-code). All 6 gates green; facade 6613 -> 4745 lines.
+- [Phase ?]: [Phase 09-05]: cleanup + upload + attribution relocated byte-for-byte as THREE separate modules (D-02 distinct lifecycles) — pipeline/cleanup.py (5 fns, 631 ln), pipeline/upload.py (3 fns, 347 ln), pipeline/attribution.py (17 symbols: 3 wr-scope builders + 4 hash-prune runners + run_claimer_remediation + 2 row-cache I/O + 4 *_HASH_PRUNE_VERSION constants + 2 row-cache constants + _SUBCONTRACTOR_SCOPE_VARIANTS, 819 ln). delete-old-then-upload ORDER (MOD-04) stays in the facade _upload_one worker (delete L2484 -> attach L2499); @cell=0/0/0; PARALLEL_WORKERS≤8 unchanged; PII aggregate-only + REMEDIATE_CLAIMERS-OFF/DRY_RUN-ON defaults byte-for-byte. Per-module EMPIRICAL facade-read prelude sets: cleanup 3 (KEEP_HISTORICAL_WEEKS/SUPABASE_HASH_STORE_AUTHORITATIVE/OUTPUT_FOLDER), upload 2 (TARGET_SHEET_ID + facade-resident SUBCONTRACTOR_PPP_SHEET_ID), attribution 5 (incl. BILLING_AUDIT_ROW_CACHE_MAX_ENTRIES). cleanup needed NO discovery live-proxy (AST: zero SUBCONTRACTOR_SHEET_IDS refs). Adversarial verify: silent-failure PASS, PII PASS, billing-invariant CONCERN dispositioned (prelude + deferred circular import = locked W2-W4 pattern, behaviour-neutral; no code change). All 6 gates green (independent re-run, exit 0, 1101 pytest); facade 4745 -> 3190 lines. Commits 8992725/7f960d3/8a81de9.
+- [Phase ?]: [Phase 09-06] PHASE COMPLETE: main() (~2380 ln, un-decomposed D-05) + 2 testmode helpers -> pipeline/orchestrate.py (2748 ln); generate_weekly_pdfs.py reduced to FINAL 709-ln thin facade (import-time side-effects D-04 + 183-name re-exports + PEP-562 __getattr__/__dir__ live-proxy + __main__ -> pipeline.orchestrate.main). D-06 seam CLOSED: _resolve_unchanged_for_skip(..., billing_audit_writer=getattr(_gwp,'_billing_audit_writer',None)) at orchestrate.py:1493 (live facade read, authoritative Supabase hash lookup NOT silently disabled). 6 gates green (independent, exit 0, 1101 pytest); 3 adversarial lenses architecture/billing-invariant/silent-failure ALL PASS. Facade 709 ln (>~300 target) JUSTIFIED — 0 dead imports (183 re-export surface + D-04 side-effects + proxy docs). Workflow's final StructuredOutput serialization failed but both commits (0fe0d83/e5061ed) landed; recovered via ground-truth git + re-run gates + direct verify-agent dispatch (lesson: keep workflow schemas lean). Phase 09 = 13-module pipeline/ package, engine 10,476 -> 709-ln facade, 0 behavior change across 7 waves. Durable invariants: no module-level facade back-import; 4 live-proxy globals out of static re-exports (D-01); the 2 API gates (177/105) are the contract.
 
 ### Roadmap Evolution
 

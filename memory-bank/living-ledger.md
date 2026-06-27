@@ -3836,3 +3836,494 @@ cross-sheet duplicates, all 26 of Chris's own Point 11 units retained. Suite 105
 failures; `py_compile` OK. Hash key NOT shortened (dropping a leaked row changes the affected
 `_User_`/`_VacCrew_` group hashes → expected regeneration, not a regression). No `@cell`;
 `safe_merge_cells`/`oddFooter`/`PARALLEL_WORKERS` untouched. PR #274.
+
+---
+
+## [2026-06-25 14:20] ClaudeOS repo wiring — landing spots, repo skills/agents, write-back convention
+
+**Context:** Audited whether this repo is fully wired into the ClaudeOS environment
+(8-agent workflow + adversarial critic). Verdict: **PARTIAL** — enforcement and the
+second-brain write-back *bridge* are GLOBAL-by-design and verified working (vault
+reachable; `audit_vault_writes.js` ledger live at 137 lines; global Stop/PreToolUse
+guardrail stack active on every repo). The gaps were repo-LOCAL only: missing
+write-back *landing spots*, no discoverability map, and empty `.claude/skills/` +
+`.claude/agents/`.
+
+**Standard established — every repo should carry its own ClaudeOS surface, not rely
+solely on the global layer** (a teammate without Juan's global stack, or a cloud
+`@claude` run, gets nothing repo-local otherwise). Applied (all additive, reversible,
+zero production-code change):
+- `.claude/project-state.md` — canonical "where it stands" status file (the global
+  Stop write-back reminder now has a real destination).
+- `.claude/context-map.md` — one-screen routing map (3 components + durable-context +
+  MCP wiring note: Smartsheet/Sentry MCP are the pipeline-relevant ones; the local
+  `supabase` MCP is `portal-v2`-only).
+- `CLAUDE.md` → new "Second-Brain Write-Back (Repo Convention)" section: repo-scoped
+  subagents RETURN a write-back packet (→ `.claude/writeback-pending/`), main session
+  applies vault edits. Never put secrets in a packet.
+- Skills: `.claude/skills/run-billing-pipeline-locally`, `.../force-week-regeneration`.
+- Rule: `.claude/rules/billing-pipeline-guardrails.md` — **pointer only** (rules
+  auto-load into every context; a content copy would create the same drift risk this
+  ledger warns about — canonical text stays in `CLAUDE.md` + here).
+- Agent: `.claude/agents/smartsheet-pipeline-debugger.md` — Claude Code-format,
+  READ-ONLY port of the stale `.github/agents/*.agent.md` Copilot agent; fact-corrected
+  (TTL 10080/7d, the three `*_FOLDER_IDS` vars, hash key WR/week/variant/foreman/dept/job).
+- Drift fixes: banner on stale `memory-bank/activeContext.md` (→ `.planning/STATE.md`);
+  `.github/copilot-instructions.md` "33 tests" → "full suite".
+
+**Deferred / surfaced (not applied):** pre-push pytest gate (`.github/hooks/
+pre-push-tests.json`) is unwired AND keyed to `run_in_terminal` (Copilot tool), not
+Claude Code's `Bash` — needs corrected wiring in `settings.local.json` (held: it gates
+every push on the full ~1048-test suite with session-wide blast radius — confirm first).
+P2 polish (writeback-pending/.gitkeep, context-policy.json, docs ledger stubs,
+AI_CONTEXT_RESUME refresh, 2 more read-only agents, session-handoff.sh claude-mem cleanup,
+remove retired claude-mem allowlist entry) pending. GLOBAL: `subagent-writeback-reminder.js`
+exists in `~/.claude/hooks` but is unregistered under SubagentStop.
+
+---
+
+## [2026-06-25 14:40] ClaudeOS continuity made self-driving (enforce + SessionStart injection)
+
+**Context:** Follow-on to the wiring entry above — goal was to make the project
+"know when to run context-continuity, write back to the second brain, and ground
+decisions in second-brain context" with minimal babysitting.
+
+**What was applied (additive config only; no production-code change):**
+- `.claude/context-policy.json` → `contextContinuity.mode = enforce`. The global
+  Stop hook `require_context_update_on_stop.js` now **blocks session end** until a
+  recognized ledger is updated when code/config changed (was warn).
+- New SessionStart hook `.claude/hooks/session-context-inject.sh` (registered in
+  `settings.local.json`) injects `.claude/project-state.md` + vault
+  `wiki/current-state.md` into every session via `hookSpecificOutput.additionalContext`.
+  JSON-safe (Python-encoded, not shell-interpolated); bounded <10k chars; fails open.
+- `.claude/writeback-pending/` parking dir live (first packet dropped:
+  `2026-06-25-claudeos-self-driving-wiring.md`).
+
+**Decision — vault write auto-approval: Option B (one prompt per session).** NOT
+auto-approving via symlink. Two durable facts drove this: (1) `additionalDirectories`
+truncates the spaced OneDrive vault path; (2) path-scoped `Write()/Edit()` allow-rules
+are bugged on Windows (#67849), so `wiki/`-only scoping is unreliable — the only
+zero-prompt path is whole-vault auto-approve via a home-dir symlink, a wider blast
+radius than warranted. In-repo logging (project-state, living-ledger, .remember,
+session-delta) is already fully automatic + enforced; the vault mirror costs one click.
+
+**Rule established:** Verify hook/permission *schemas against the actual hook source*
+before configuring — the audit's synthesis hallucinated the `context-policy.json` key
+(`stopReminder` vs the real `contextContinuity.mode`); reading
+`require_context_update_on_stop.js` caught it. Generated config artifacts are drafts,
+not ground truth.
+
+---
+
+## [2026-06-25 15:17] Decision: split generate_weekly_pdfs.py (incremental, behavior-preserving)
+
+**Assessment (read-only, 6-agent workflow + adversarial critic):** see
+`docs/refactor-assessment-generate-weekly-pdfs.md`. The engine is **10,476 lines**
+(CLAUDE.md's "~3100" is stale), 74 top-level symbols, 106-name external import
+surface consumed by 19 test files + analyze_*/diagnose_*/scripts.
+
+**Decision: SPLIT = yes-incremental.** Relocate cohesive groups into a `pipeline/`
+package one PR at a time, leaf-first (config → utils → observability → pricing →
+change_detection/identity → discovery/fetch → grouping → excel → cleanup/upload/
+attribution/testmode → orchestrate). Keep `generate_weekly_pdfs.py` as a thin
+**facade** re-exporting all 106 public names + `__main__`. The pytest suite is the
+regression net at every step. NO big-bang rewrite.
+
+**No dead code to remove** — every symbol referenced; size reduction is relocation,
+not deletion. Only `archive/` backup copies are safe-to-delete (separate housekeeping).
+
+**CRITICAL hazard recorded (must design in, not discover):** two `global` rebinds
+reassign public-contract names at runtime — `discover_source_sheets` rebinds
+`SUBCONTRACTOR_SHEET_IDS` + `_FOLDER_DISCOVERED_*`; `get_all_source_rows` rebinds
+`_RATES_FINGERPRINT`. A value-copy facade goes stale → failing tests AND silent
+subcontractor-vs-original billing mis-classification. **Fix:** co-locate each
+stateful global with its mutating function + expose via facade-module `__getattr__`
+(PEP 562) live-proxy, never value re-export; explicit re-exports only (no `import *`;
+no `__all__` exists). Applies at GSD steps 6/7.
+
+**Side-findings (separate, non-refactor):** `VAC_CREW_FOLDER_IDS` is documented as an
+active discovery input but has zero production consumers (doc fix); `utcnow()` ×2 is
+deprecated on Py3.12 (needs-human-confirm housekeeping); Serena LSP is mis-set to
+`cpp` (fix to Python before symbol-assisted refactor); CLAUDE.md line-count stale.
+
+**Next:** route execution through GSD (spec → plan → execute) — not started; no code
+changed in this assessment.
+
+---
+
+## [2026-06-25 17:18] — Phase 09 plan-phase: research + validation committed (planning in progress)
+
+GSD `plan-phase 9` underway (manual, ClaudeOS session). `09-RESEARCH.md` (commit
+`a61a241`) + `09-VALIDATION.md` (commit `e902317`) committed; opus planner pending.
+Findings that BIND the planner:
+
+- **Live-proxy safe.** All 4 runtime-rebound globals (`SUBCONTRACTOR_SHEET_IDS`,
+  `_FOLDER_DISCOVERED_SUB_IDS`, `_FOLDER_DISCOVERED_ORIG_IDS`, `_RATES_FINGERPRINT`)
+  are read in tests only via module-attribute form; in-place set mutations
+  (`.clear/.add/.update`) propagate correctly through the PEP-562 `__getattr__`
+  live-proxy. **Read-only delegation is sufficient** — confirms D-01.
+- **One cross-wave forward-ref, NO cycle.** `calculate_data_hash()` (W2/change_detection)
+  reads `_RATES_FINGERPRINT` (W3/fetch). Fetch never imports change_detection, so no
+  circular import — resolve with a **late import inside the function body + ImportError
+  fallback** (the single documented "last resort").
+- **D-06 relocation hazard (planner MUST address).** Juan's uncommitted production fix
+  added `globals().get('_billing_audit_writer')` inside `_resolve_unchanged_for_skip()`.
+  After that fn moves to `change_detection.py`, `globals()` is the NEW module's namespace
+  and the facade-owned writer won't be found → guard silently disables. Redesign access
+  (optional kwarg or late-import from facade). Exactly the silent-behavior-change class
+  D-01 forbids.
+- **Inventory & oracle.** 177 top-level names / 74 funcs+classes; ~90 unique test-visible
+  names = the facade-completeness allowlist. 6-gate harness fully specified; golden
+  `run_summary.json` baseline = 21 keys. VALIDATION.md treats the **existing pytest suite
+  (100% green/wave) + the 6-gate harness (Wave-0 scaffolding)** as the oracle, not new
+  per-task unit tests (it's a relocation refactor).
+
+**CORRECTION to the prior handoff note:** the uncommitted hunks in
+`generate_weekly_pdfs.py` are **Juan's intentional production error-fix** (done with
+another agent), NOT a stray concurrent editor. Leave them; **commit them as a standalone
+PR (D-06 pre-flight) before the wave-1 branch** so revert-not-patch works on a clean
+baseline. No production logic changed this session — planning docs only.
+
+---
+
+## [2026-06-25 18:00] — Phase 09 PLANNED ✓ (7 plans / 7 waves, ready to execute)
+
+GSD `plan-phase 9` complete. Planner (opus) wrote **7 plans in 7 waves** (leaf-first
+sequential chain 09-00→09-06; every wave touches the facade so all sequential per D-02/D-03),
+committed `a3355ca`. plan-checker (sonnet) returned ISSUES FOUND = **1 formal blocker + 2
+warnings, ALL administrative** (RESEARCH.md "Open Questions" needed RESOLVED markers;
+VALIDATION.md `nyquist_compliant` flag + per-task map) — resolved directly (no plan
+revisions; checker confirmed substantive quality passes), commit `f2c769c`. **Decision-
+coverage gate 7/7 (D-01..D-07).** §13e gap report's "44/44 uncovered" is a FALSE ALARM —
+it matches project-wide REQUIREMENTS.md (portal AUTH/RBAC/UI/SDK from phases 04-08) against
+this engine-split phase, which carries no REQ-IDs (its reqs = SPEC MOD-01..06).
+
+**Wave map:** W0 = D-06 pre-flight PR + 6-gate harness (TDD) + frozen baselines + empty
+`pipeline/` scaffold (autonomous:false); W1 config/utils/observability (D-04 import-time
+Sentry); W2 pricing/change_detection (late-import + `_billing_audit_writer` kwarg); W3
+discovery/fetch + PEP-562 live-proxy for the 4 rebound globals (D-01); W4 grouping/excel
+(safe_merge_cells/oddFooter); W5 cleanup/upload/attribution; W6 orchestrate(main) + thin-
+facade finalize + human verify. Per-wave acceptance = `bash scripts/run_6_gates.sh` green;
+`enterprise-pr-review` + `verification-before-completion` before merge; revert-not-patch on red.
+
+**OS hardening this session:** Serena `.serena/project.yml` language **cpp→python** (unblocks
+symbol-level relocation verification — the #1 overlooked capability for a 10k-line Python
+refactor). OS gates wired into plans at their high-risk seams: `silent-failure-hunter`→W2
+(change_detection / D-06 silent-disable class), `excel-output-verifier`→W4, `global-python-
+architecture-reviewer`+Serena→W3, Context7 PEP-562 idiom check→W0.
+
+**Next:** `/clear` → D-06 pre-flight (commit Juan's engine fix as standalone PR) → `/gsd:
+execute-phase 09`. Phase 08 (SDK 4.0.0) must NOT run concurrently — same file.
+
+---
+
+## [2026-06-25 18:16] — D-06 pre-flight executed (PR #279); ready to execute Phase 09
+
+Committed Juan's production engine fix atomically (`809d81e` on `chore`; also cherry-picked
+to `fix/billing-audit-writer-null-guard` → **PR #279** to master). Fix = 2 defensive hunks
+in `generate_weekly_pdfs.py` (6 ins / 2 del): (1) `_resolve_unchanged_for_skip()` resolves
+`_billing_audit_writer` via `globals().get()` + `is not None` skip-guard (prevents
+NameError/AttributeError when BILLING_AUDIT_AVAILABLE but writer unset); (2) SDK exc-shim
+predefines `_exc_name` + splits the `del`. **No billing logic change.** Gate: `py_compile` ✓
++ `pytest tests/ -q` = **1078 passed, 130 subtests** (deps installed this session —
+sentry-sdk/supabase/pandas/pandera). Working tree clean of the engine change; fix present on
+`chore` so execute-phase can run from this branch without merging #279 first.
+
+**ENV side effect:** installing `requirements.txt` into the global uv python downgraded
+`httpx` 0.28.1→0.27.2 and `psutil` 7.2.2→6.0.0, conflicting with `hermes-agent` pins →
+recommend a project venv before further dep work.
+
+Second-brain logout applied (project page + `wiki/log.md`). Ready: `/gsd:execute-phase 09`.
+
+---
+
+## [2026-06-25 19:23] — Phase 09 execution started; Wave 0 oracle built + green
+
+`/gsd:execute-phase 09` underway on `chore/claudeos-project-wiring`. **Orchestration
+decisions (this session):** (1) **sequential, no git-worktree isolation** — the 7 waves are a
+strictly-sequential leaf-first chain (one plan/wave, each `depends_on` the prior), so
+worktrees add Windows fork/merge surface for zero parallel gain; executors run inline on the
+branch and update STATE/ROADMAP directly. (2) **Opus executors** for the relocation waves
+(subtle facade / `globals()` import semantics on a production billing engine). (3) **Wave-0
+human gate cleared "proceed on-branch"** — D-06 guard already committed (`809d81e`); PR #279
+left OPEN (not required, fix is on-branch). (4) **Wave-by-wave pacing** — independent
+`run_6_gates.sh` re-run + explicit human go between every wave.
+
+**Wave 0 (09-00) COMPLETE & independently verified.** Built the validation oracle BEFORE any
+relocation: `scripts/run_6_gates.sh` + 4 check scripts, `tests/test_facade_harness.py`,
+frozen golden baselines (`tests/golden/*`), and the empty `pipeline/` package
+(`__init__.py` + `types.py`). Commits `6266c17` / `3eb7018` / `f5df714` / `5c116c8`. Engine
+**byte-for-byte unchanged** since D-06. Independent `bash scripts/run_6_gates.sh` = exit 0:
+G1 AST equality (177 names) · G2 facade completeness (105 names, 4 live-proxy) · G3 pytest
+**1088 passed** / 130 subtests · G4 mypy delta neutral (56→56) · G5 py_compile · G6 golden
+run_summary (21 keys). Commit scope clean — the ~13 unrelated working files (`poc/`,
+`.serena/`, `.github/prompts`) were NOT swept in.
+
+**Oracle carry-forward (for W6):** harness driver forces `PYTHONUTF8=1` (Windows cp1252 vs the
+engine's import-time emoji banners; env-only, engine untouched). **Gate 6 is the weakest** —
+`TEST_MODE` does not rewrite `run_summary.json`, so G6 is a structural snapshot + synthetic
+smoke, not full output equality; flagged to strengthen in the W6 orchestrate plan. The other
+5 gates are strong.
+
+**Position:** ◆ Wave 1 (09-01, leaf relocation: config / utils / observability) executing.
+Plan-index mislabeled 09-01 `autonomous:false`, but the plan is `autonomous:true` (no
+checkpoint task) — the gates are the oracle. **Next checkpoint = the wave-by-wave human pause
+before Wave 2 (the D-06 `globals()` `_billing_audit_writer` relocation-hazard wave).**
+
+---
+
+## [2026-06-25 20:55] — Phase 09 Waves 1-2 complete; HIGH silent-failure fix (post-review)
+
+**Wave 1 (09-01) ✓** — relocated config / utils / observability → `pipeline/` (facade re-exports).
+Gates green (177 / 105 / 1091). Added regression tests for the two security-sensitive
+`observability` pieces that moved: `init_sentry()` idempotency + the `before_send_log` PII
+sanitizer. Commits `cefb0c5`→`3deb5c0`.
+
+**Wave 2 (09-02) ✓** — relocated `pricing.py` + `change_detection.py`. RATE_RECALC guard + the
+change-detection key `(WR, week, variant, foreman, dept, job)` preserved byte-for-byte.
+**D-06 hazard closed:** `_resolve_unchanged_for_skip` now takes `billing_audit_writer` as an
+explicit kwarg (`globals().get()` removed); the facade `main()` injects the real writer
+IMMEDIATELY (orchestrator hardening — no interim silent-disable; W6 must carry the injection into
+`orchestrate.py`). 5 deviations to satisfy the frozen oracle, all the correct "read mutable globals
+from the facade via *direct attribute access*" pattern (static `from pipeline.x import X` would
+capture import-time values + silently miss runtime rebinds; direct attr access also raises loudly
+on a missing name instead of silently defaulting). Commits `deb1443` / `d8eaf67` / `ac40297`.
+
+**Post-review HIGH fix (silent-failure-hunter, orchestrator-run) — NEW BILLING RULE.** The Wave-2
+relocation introduced an EAGER reference to the module global `_billing_audit_writer` at the
+`_resolve_unchanged_for_skip` call site, but the `billing_audit` import-guard `except` block never
+bound that name (only set `BILLING_AUDIT_AVAILABLE=False`). A real `billing_audit` import failure
+(Supabase is flaky) → `NameError` on the first skip-eligible group → **entire production billing run
+crashes**, violating the documented no-op-on-failure invariant (engine L105-110). The 6-gate oracle
+**could not** catch it — gates run TEST_MODE with `billing_audit` importable, so the `except` path is
+never exercised. Fix: `_billing_audit_writer = None` in the `except` (`baa9374`), guarded by a faithful
+RED→GREEN regression test that execs the real import guard with `billing_audit` forced to fail
+(`28509b4`). Gate 3 now 1093.
+**Durable rule (billing engine):** when relocating a call site that consumes an *optionally-imported*
+global, the import guard's `except` MUST bind every consumed name to a safe sentinel (`None`).
+`globals().get(name)` and an explicit `name = None` default are equivalent graceful guards; replacing
+the former with a bare module-global reference is a crash regression. (Also in `09-02-SUMMARY.md`.)
+
+**Carry-forward:**
+- **W3 (discovery/fetch):** when `pipeline.fetch` wires the real `_RATES_FINGERPRINT`, add a
+  `logging.warning` to `change_detection.py`'s `except (ImportError, AttributeError): _RATES_FINGERPRINT=''`
+  fallback. Today it is the *expected* W2-W5 state (no warning yet — it would spam every hash); post-W3
+  it becomes a silent change-detection-hash degradation path in BOTH directions (mass spurious regen, or
+  rate changes that stop triggering regen) and must be observable.
+- **W6 (orchestrate):** re-verify the `_billing_audit_writer` injection survives the `main()`→
+  `orchestrate.py` move (confirm with the `test_subproject_e_hash_store.py` authoritative decision table).
+
+**Position:** ✓ Waves 0-2 · ◆ Wave 3 (09-03 discovery/fetch, correctness-critical D-01) next.
+
+---
+
+## [2026-06-26 13:01] — Phase 09 Wave 3 pre-flight hygiene; latent Sentry NameError found + fixed
+
+**Context:** Orchestrated `/gsd-execute-phase 9` (ultracode, Opus). Pre-flight on the Wave-3 dispatch
+found the working tree NOT clean: two orphaned-but-correct edits sat uncommitted in already-"verified"
+W1/W2 `pipeline/` code, plus a change-detection mypy hygiene edit.
+
+**Latent production bug found (observability, from W1 relocation `0a945b7`) — NEW LESSON.**
+`pipeline.observability._set_sentry_session_tags` had `from pipeline import config as _cfg`
+mis-indented one level too deep, UNDER `if not SENTRY_DSN: return`. On the Sentry-CONFIGURED path
+(production: `SENTRY_DSN` set) the import was unreachable, so `str(_cfg.TEST_MODE)` raised
+`UnboundLocalError` (a `NameError` subclass — Python treats `_cfg` as a function local because of the
+unreachable assignment). Shielded by the facade call-site `try` (engine L5604/L5607), so it never
+crashed the run — it silently dropped ALL session Sentry tags (session_start/test_mode/github_actions)
+and fed a spurious exception into the handler. The 6-gate oracle **could not** catch it: every
+pre-existing Sentry test forces `SENTRY_DSN` empty, so the early `return` always fired and the buggy
+live path was never exercised — a direct twin of the W2 `billing_audit` blind spot.
+Fix: de-indent to function-body level (`c23659a`), guarded by a faithful RED→GREEN regression test
+`tests/test_sentry_session_tags.py` that forces `SENTRY_DSN` truthy and asserts the three tags apply
+without raising (`3efdc65` RED → `c23659a` GREEN). Plus `chore(09-02)` `3ba74b1`: annotate the
+`pipeline.fetch` import `# type: ignore[import-not-found]` (resolves once W3 creates the module).
+**Durable rule (oracle coverage):** a guard like `if not <FLAG>: return` splits a function into two
+paths; tests that exercise only the disabled-FLAG path leave the ENABLED path completely unguarded.
+When relocating ANY config/guard-gated function, add at least one test that drives the ENABLED path —
+the gates run with the feature OFF (TEST_MODE, empty DSN, importable deps) and will never see the live
+branch. (Same root cause as the W2 import-guard miss; both are oracle blind spots, not gate failures.)
+
+**Baseline:** independent `scripts/run_6_gates.sh` GREEN after the 3 commits — G1 177 · G2 105 ·
+G3 1095 pytest (+2) · G4 mypy 56→56 · G5 py_compile · G6 21-key run_summary. Clean ground for Wave 3.
+
+**Wave 3 (09-03) dispatched** — Opus gsd-executor, sequential/main-tree, baseline `3ba74b1`. Carries
+TWO mandatory injections in its contract: (1) the carry-forward `logging.warning` on the
+`_RATES_FINGERPRINT` fallback (above); (2) REMOVE the now-resolvable `# type: ignore[import-not-found]`
+once `pipeline/fetch.py` exists (else Gate 4 trips on an unused ignore under `--warn-unused-ignores`).
+
+**Wave 3 (09-03) ✓ COMPLETE & INDEPENDENTLY VERIFIED.** Opus executor relocated `discover_source_sheets`
+→ `pipeline/discovery.py` (664 ln) + the 795-line `get_all_source_rows` (owner of `_RATES_FINGERPRINT`)
+→ `pipeline/fetch.py` (876 ln), byte-fidelity confirmed (5 symbols identical modulo two documented
+facade-read preludes). The 4 runtime-rebound globals are EXCLUDED from the facade static namespace and
+served via PEP-562 `__getattr__` (+`__dir__` co-override) — AST-confirmed no static bind; new
+`tests/test_live_proxy_globals.py` (6/6) proves rebind + in-place mutation + `__dir__`. Both mandatory
+injections landed and were orchestrator-verified in source: (1) `logging.warning` on the
+`change_detection.py` `_RATES_FINGERPRINT='' ` fallback (does NOT fire on the normal path → hash
+byte-identical); (2) `# type: ignore[import-not-found]` removed, `# noqa: PLC0415` kept (Gate 4 56→56).
+Two out-of-scope test files (`test_security_audit_followup.py`, `test_subcontractor_helper_shadow_rescue.py`)
+had grep-guards repointed to read facade + relocated `pipeline/fetch.py` (the "source-grep guard
+follows relocated source" pattern — extends coverage, does not weaken). Commits `84bc734`→`ec9dbfe`.
+**Independent `run_6_gates.sh` (orchestrator, not executor self-report) = exit 0:** 177 · 105 ·
+**1101 pytest** +130 subtests · mypy 56→56 · py_compile · 21-key run_summary. (Note: the
+`global-python-architecture-reviewer` OS gate could not spawn in sequential mode —
+`MISSING_GLOBAL_SKILL_OR_PLUGIN` — an equivalent manual sweep ran clean: no circular import, no
+module-level facade import in `pipeline/`, no stale-read seam.)
+
+**Carry-forward:**
+- **W4 (grouping/excel):** when `group_source_rows` moves, repoint its `_pipeline_discovery.NAME` reads
+  to grouping's local `_discovery.NAME`; a test-only `gwp._RATES_FINGERPRINT` facade-`__dict__` shadow
+  caveat is documented in `09-03-SUMMARY.md`.
+- **W6 (orchestrate):** unchanged — re-verify `_billing_audit_writer` injection survives `main()`→
+  `orchestrate.py`.
+
+**Position:** ✓ Waves 0-3 (incl. W3 pre-flight hygiene, 3 commits) · ⏸ STOPPED for human go before
+Wave 4 (grouping/excel). All gates GREEN @ 1101 pytest.
+
+---
+
+## [2026-06-26 14:30] — DEBUG (read-only): frozen claim-attribution historical-claim gaps
+
+GSD debug `find_root_cause_only` (session `.planning/debug/frozen-claim-history-gap.md`). Operator
+asked whether frozen-attribution preserves the PREVIOUS actor's historical Excel file when a job's
+actor is reassigned (Smartsheet overwrites the live foreman), across primary / helper / VAC /
+subcontractor. Anchor case WR 89834661. **TWO independent problems found (NO fixes applied):**
+
+**P1 — DATA (cold-start backfill froze the wrong foreman).** The freeze system began writing
+~2026-04-24; WR 89834661's Sept-2025 work was frozen in ONE backfill on 2026-04-24, by which time
+Smartsheet had already been overwritten from the true foreman-of-record to the current foreman.
+First-write-wins captured the post-overwrite value → all weeks 09/07–03/29 frozen to the CURRENT
+foreman, the real prior foreman absent, 52 rows in 09/21 frozen `Unknown Foreman`. **First-write-wins
+only preserves history when the first write precedes the reassignment** — for all pre-system work the
+backfill captured stale state. Systemic: 5,183 rows / 89 of 617 WRs frozen as `Unknown Foreman`
+(blank-`Foreman`-at-first-completion → `pipeline/fetch.py:548` NO_FOREMAN → literal string frozen,
+first-write-wins, truthy sentinel WINS over the later real foreman).
+
+**P2 — CODE coverage (2 of 5 actor classes don't preserve the previous actor).** Audited via 7-agent
+workflow + orchestrator spot-verify:
+- ✅ primary (`_User_<frozen>`), VAC (`_VacCrew_<frozen>`), subcontractor-primary — frozen claimer
+  drives BOTH group key AND filename/attachment identity (previous actor preserved).
+- ❌ **primary `helper` — UNCOVERED**: no `HELPER_CLAIM_ATTRIBUTION_ENABLED`, no `resolve_claimer`;
+  key (gwp L2464/2481) + filename (L3367) built from LIVE `helper_foreman`. The only helper
+  `resolve_claimer` is gated `is_subcontractor_row` (L2758-2772). A helper swap collapses all helper
+  rows into the new helper's file. (Orchestrator-spot-verified.)
+- ⚠️ **subcontractor `helper` — HALF-WIRED**: frozen drives group key + in-Excel cell, but FILENAME
+  suffix + upload id + change-detection `history_key` read LIVE `__helper_foreman` → wrong-named file,
+  orphaned prior attachment, change-detection churn.
+- Cleanup is identity-aware and STRUCTURALLY preserves a previous-actor file on same-variant swaps
+  (delete_old_excel L1099-1102) — defect is at the producer for the helper layers, not cleanup.
+- Remediation does NOT self-heal: `REMEDIATE_CLAIMERS` off, attachment-only, `_NO_MATCH`-scoped,
+  idempotent over first-write-wins. Correcting requires manual Supabase DELETE/UPDATE + re-freeze.
+
+**Recommended fix shapes (NOT applied, await approval):** wire `helper` attribution; make sub-helper
+filename/upload/history_key use frozen `__current_foreman`; blank-foreman guard at freeze; one-time
+controlled re-attribution of the 5,183 Unknown rows from cell history; dedicated
+`SUBCONTRACTOR_PRIMARY_CLAIM_ATTRIBUTION_ENABLED`. Supabase billing_audit lives in project
+`poeyztlmsawfoqlanucc` (Smarthsheet-Resiliency-Offloaded-Data).
+
+**Position:** Phase 09 still ⏸ before Wave 4. This debug is a separate read-only finding; no code
+or billing logic changed.
+
+---
+
+## [2026-06-26 15:45] — Phase 09 Wave 4 (09-04): grouping + excel relocation COMPLETE
+
+Opus executor, sequential / no-worktree (locked Phase 09 model). Relocated the two heaviest
+transform/output modules byte-for-byte (D-05, zero behavior change):
+- `group_source_rows` (1145 ln, highest-fan-in transform) + `validate_group_totals` →
+  `pipeline/grouping.py` (1225 ln). Imports config + discovery + change_detection.
+- `safe_merge_cells` + `_subcontractor_primary_variant_suffix` + `_vac_crew_variant_suffix` +
+  `generate_excel` (627 ln) → `pipeline/excel.py` (786 ln). openpyxl-only.
+- Facade `generate_weekly_pdfs.py` 6613 → 4745 ln, re-exports all 6 symbols.
+
+**Billing guards preserved byte-for-byte (MOD-04):** `(WR, week, variant, foreman, dept, job)`
+grouping key; helper dual-checkbox exclusion; Job# synonyms (not collapsed); `safe_merge_cells` is the
+sole merge path (8 call sites + the lone raw `ws.merge_cells` inside the wrapper); 0 `oddFooter.right.text`
+writes (string present only in protective NOTE comments); no xlsxwriter (docstring guard only).
+
+**W3→W4 carry-forward CLOSED:** `group_source_rows`'s 3 discovery live-proxy globals now read via
+`_discovery._FOLDER_DISCOVERED_SUB_IDS` / `…_ORIG_IDS` / `SUBCONTRACTOR_SHEET_IDS` (live access; replaces
+the W3 in-root `_pipeline_discovery.NAME` qualification).
+
+**Deviation (behavior-preserving, W3 precedent):** config-name reads use the facade-read PRELUDE pattern,
+NOT literal `_cfg.NAME` — the test suite rebinds RES_GROUPING_MODE / `*_CLAIM_ATTRIBUTION_ENABLED` /
+TEST_MODE / WR_FILTER / EXCLUDE_WRS / OUTPUT_FOLDER / SUPABASE_HASH_STORE_AUTHORITATIVE / BILLING_AUDIT_AVAILABLE
+on the **facade**; `_cfg.NAME` would have failed ~40 tests. Function bodies stay byte-for-byte. 11 source-grep
+guards across 7 test files repointed to the relocated modules (follow-the-code, not weakening).
+
+**Verification (orchestrator-independent, fresh process after `__pycache__` purge):** `run_6_gates.sh` =
+exit 0 (G1 177 names · G2 105 allowlist · G3 **1101 pytest** +130 subtests · G4 mypy 56→56 · G5 py_compile ·
+G6 21-key run_summary). `excel-output-verifier` agent re-confirmed all 4 excel billing guards — no blocking
+findings (NOTE: dormant `SUPABASE_HASH_STORE_AUTHORITATIVE` filename branch omits `_{ts}_{hash}` suffix by
+design; keep that flag OFF until the Supabase store is validated). Commits `a2827da` (grouping) → `5aea62c`
+(excel) → `1820255` (SUMMARY+STATE+ROADMAP).
+
+**Position:** ✓ Waves 0-4 complete & independently gate-verified · ⏸ STOPPED for human go before Wave 5
+(cleanup/upload/attribution). Gates GREEN @ 1101 pytest.
+
+---
+
+## [2026-06-26 19:10] Phase 09 COMPLETE — engine modularization (Waves 5+6): 10,476-line engine → 13-module `pipeline/` package behind a 709-line thin facade, zero behavior change
+
+**What shipped.** Phase 09 (engine-modularization-pipeline-package-split) is DONE — all 7 waves (09-00…09-06).
+The monolithic `generate_weekly_pdfs.py` is now a **13-module `pipeline/` package** (`types, config, utils,
+pricing, observability, discovery, fetch, change_detection, grouping, excel, cleanup, upload, attribution,
+orchestrate`) behind a **709-line thin facade**. Every wave was independently 6-gate-verified; the engine's
+behavior is byte-for-byte unchanged.
+
+**Wave 5 (09-05) — cleanup/upload/attribution (D-02, three SEPARATE modules).** 25 symbols relocated
+byte-for-byte: `pipeline/cleanup.py` (5 fns), `pipeline/upload.py` (3 fns), `pipeline/attribution.py`
+(17: hash-prune runners + `run_claimer_remediation` + row-cache I/O + `*_HASH_PRUNE_VERSION` constants).
+Billing guards intact: delete-old-then-upload order stays in the facade `_upload_one` worker; `@cell`=0;
+`PARALLEL_WORKERS≤8`; PII aggregate-only; `REMEDIATE_CLAIMERS`-OFF/`DRY_RUN`-ON. Facade 4745→3190.
+Commits `8992725`/`7f960d3`/`8a81de9`.
+
+**Wave 6 (09-06) — orchestrate + facade finalization (highest fan-in).** `main()` (~2380 ln, ONE
+un-decomposed function — D-05) + 2 testmode helpers → `pipeline/orchestrate.py` (2748 ln). Facade reduced
+to its FINAL 709-line form. Commits `0fe0d83`/`e5061ed`.
+
+**RULE — D-06 seam CLOSED (billing-critical).** When `main()` left the facade, the `_resolve_unchanged_for_skip`
+call site can no longer see the facade-local `_billing_audit_writer`. It MUST inject it via a late
+`import generate_weekly_pdfs as _gwp` and pass `billing_audit_writer=getattr(_gwp, "_billing_audit_writer", None)`
+(orchestrate.py:1493). This reads the **live facade attribute at call time** — if you instead snapshot it or
+drop the kwarg, the authoritative Supabase hash lookup silently disables. Verified: every other positional arg
+byte-identical to baseline; the change-detection key `f"{wr_num}|{week_raw}|{variant}|{identifier}"` (identifier =
+helper `foreman|dept|job`) is unchanged.
+
+**RULE — facade architecture invariants (do not regress).** (1) NO module-level back-import of the facade —
+every `import generate_weekly_pdfs` inside `pipeline/` is an **in-function late import** (facade-read prelude /
+writer injection); a module-level back-import reintroduces a real cycle. (2) The 4 runtime-rebound live-proxy
+globals (`SUBCONTRACTOR_SHEET_IDS`, `_FOLDER_DISCOVERED_SUB_IDS`, `_FOLDER_DISCOVERED_ORIG_IDS`,
+`_RATES_FINGERPRINT`) MUST stay OUT of every static `from pipeline.X import` block — served only via the facade
+PEP-562 `__getattr__` live-proxy (D-01); a static import snapshots a stale value. (3) The two API gates —
+`scripts/check_api_equality.py` (177 names) and `scripts/check_facade_completeness.py` (105 allowlist) — are the
+public-surface contract guards. (4) D-04 import-time side-effect order is load-bearing for Sentry/env timing:
+SDK workaround → `load_dotenv` → SIGPIPE → billing_audit try/except (defines `_billing_audit_writer`) → banners →
+`basicConfig` → `from pipeline import config` (FIRST) → observability → `init_sentry()`. (5) The facade-read
+prelude is the behavior-preserving seam for test-rebound facade constants (tests rebind `gwp.NAME=`, so
+`_cfg.NAME` would read config's unmutated copy and break ~40 tests).
+
+**NOTE — facade is 709 lines, not the SPEC's `<~300` aspiration, and that is JUSTIFIED.** Architecture-review AST
+audit found **0 confirmed dead imports**; the budget is a 183-name re-export surface + the mandated D-04
+import-time side-effects + the live-proxy guard docs (221 comment lines). The `<300` target was unrealistic
+against the re-export surface. 4 re-exports sit outside both gate contracts but are intentional external
+consumables (`smartsheet`, `config`, `logger`, `HASH_HISTORY_PATH`).
+
+**LESSON — workflow result schemas must be lean.** The Wave-6 orchestration workflow reported `failed` purely
+because its FINAL `StructuredOutput` (a ~9-required-field object with `additionalProperties:false`) hit the
+5-retry cap — AFTER both task commits had already landed and the tree was clean. Recovery was by inspecting
+ground truth (git log + working tree), re-running the authoritative 6-gate (exit 0), and dispatching the 3
+verify lenses directly (no rigid schema). Takeaway: keep `Workflow` `agent({schema})` objects small (few required
+fields, avoid `additionalProperties:false` on large reports); and ALWAYS treat gates + git as ground truth, never
+an agent's reporting layer.
+
+**Verification (independent, main-session, final tree).** `run_6_gates.sh` = exit 0 (G1 177 · G2 105 ·
+**G3 1101 pytest** +130 subtests · G4 mypy 56→56 · G5 py_compile · G6 21-key run_summary). 3 adversarial lenses
+ALL PASS: architecture (`global-python-architecture-reviewer` — no circular import, acyclic DAG, `pricing` pure
+calculator, 709-ln facade justified), billing-invariant (`reviewer` — D-06 injection + change-key + delete→upload
++ `@cell`=0), silent-failure (`silent-failure-hunter` — error skeleton byte-identical, D-06 fallback a loud
+degrade). Human checkpoint (09-06 is `autonomous:false`): Juan delegated "verify independently to close"; all
+close-out checks green.
+
+**Position:** ✅ Phase 09 COMPLETE (7/7 waves). Next: `/gsd-verify-work 09` → PR / milestone close; the ultimate
+proof is the next scheduled 2h production cron running green on the package structure. **Phase 08 (SDK 4.0.0
+breaking migration) is now unblocked** — it touches the same file, so it could not run concurrently with Phase 09.

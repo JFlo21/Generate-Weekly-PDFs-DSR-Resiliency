@@ -394,9 +394,18 @@ class TestThreeIdentitySitesCarryClaimer(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls._src = pathlib.Path(
-            inspect.getsourcefile(generate_weekly_pdfs)
-        ).read_text(encoding='utf-8')
+        # Phase 09 W6: main() relocated to pipeline/orchestrate.py — grep
+        # facade + orchestrate (follow-the-code superset).
+        import pipeline.orchestrate
+        cls._src = (
+            pathlib.Path(
+                inspect.getsourcefile(generate_weekly_pdfs)
+            ).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(
+                inspect.getsourcefile(pipeline.orchestrate)
+            ).read_text(encoding='utf-8')
+        )
 
     def test_exactly_three_identity_site_markers(self):
         # Each of Site 1/2/3 carries the marker comment so the lockstep
@@ -440,9 +449,16 @@ class TestHoldSummaryWiredIntoMain(unittest.TestCase):
     """Task 6: summarize_attribution_holds is invoked once at end-of-run."""
 
     def test_summary_call_present_in_source(self):
-        src = pathlib.Path(
-            inspect.getsourcefile(generate_weekly_pdfs)
-        ).read_text(encoding='utf-8')
+        import pipeline.orchestrate  # W6: summary call lives in main()
+        src = (
+            pathlib.Path(
+                inspect.getsourcefile(generate_weekly_pdfs)
+            ).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(
+                inspect.getsourcefile(pipeline.orchestrate)
+            ).read_text(encoding='utf-8')
+        )
         self.assertIn('summarize_attribution_holds()', src)
 
 
@@ -631,15 +647,32 @@ class TestSubprojectBHashPrune(unittest.TestCase):
         )
 
     def test_version_constant_present_in_source(self):
-        src = pathlib.Path(
-            inspect.getsourcefile(generate_weekly_pdfs)
-        ).read_text(encoding='utf-8')
+        # W5: SUBPROJECT_B_HASH_PRUNE_VERSION relocated to
+        # pipeline/attribution.py — grep facade + relocated module so the
+        # source guard follows the code.
+        import pipeline.attribution
+        src = (
+            pathlib.Path(
+                inspect.getsourcefile(generate_weekly_pdfs)
+            ).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(
+                inspect.getsourcefile(pipeline.attribution)
+            ).read_text(encoding='utf-8')
+        )
         self.assertRegex(src, r'(?m)^SUBPROJECT_B_HASH_PRUNE_VERSION = 1$')
 
     def test_call_site_present_in_source(self):
-        src = pathlib.Path(
-            inspect.getsourcefile(generate_weekly_pdfs)
-        ).read_text(encoding='utf-8')
+        import pipeline.orchestrate  # W6: prune call site lives in main()
+        src = (
+            pathlib.Path(
+                inspect.getsourcefile(generate_weekly_pdfs)
+            ).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(
+                inspect.getsourcefile(pipeline.orchestrate)
+            ).read_text(encoding='utf-8')
+        )
         self.assertIn('_run_subproject_b_hash_prune(hash_history, groups)', src)
 
     def test_returns_true_when_orphans_dropped(self):
@@ -680,9 +713,16 @@ class TestSubprojectBHashPrune(unittest.TestCase):
     def test_save_gate_persists_one_time_prune_in_source(self):
         # Codex P2 wiring: the hash-history save must fire on a no-update
         # run when a one-time migration prune mutated the history.
-        src = pathlib.Path(
-            inspect.getsourcefile(generate_weekly_pdfs)
-        ).read_text(encoding='utf-8')
+        import pipeline.orchestrate  # W6: save-gate wiring lives in main()
+        src = (
+            pathlib.Path(
+                inspect.getsourcefile(generate_weekly_pdfs)
+            ).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(
+                inspect.getsourcefile(pipeline.orchestrate)
+            ).read_text(encoding='utf-8')
+        )
         self.assertIn('_hash_history_migration_dirty', src)
 
 
@@ -801,9 +841,23 @@ class TestSubprojectBProductionInvariants(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls._src = pathlib.Path(
-            inspect.getsourcefile(generate_weekly_pdfs)
-        ).read_text(encoding='utf-8')
+        # W4: group_source_rows relocated to pipeline/grouping.py — grep
+        # facade + relocated module so the source guards follow the code.
+        import pipeline.grouping
+        import pipeline.cleanup  # W5: cleanup_untracked_sheet_attachments relocated here
+        cls._src = (
+            pathlib.Path(
+                inspect.getsourcefile(generate_weekly_pdfs)
+            ).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(
+                inspect.getsourcefile(pipeline.grouping)
+            ).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(
+                inspect.getsourcefile(pipeline.cleanup)
+            ).read_text(encoding='utf-8')
+        )
 
     def test_prepass_present(self):
         self.assertIn('_sub_primary_claimer_map', self._src)

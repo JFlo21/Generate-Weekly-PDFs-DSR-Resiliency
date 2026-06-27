@@ -5,6 +5,8 @@ default-OFF kill switches. See
 docs/superpowers/specs/2026-05-25-subproject-e-supabase-hash-store-design.md
 and docs/superpowers/plans/2026-05-25-subproject-e-supabase-hash-store.md.
 """
+import ast
+import builtins
 import datetime
 import inspect
 import os
@@ -256,7 +258,12 @@ class TestShadowWrite(unittest.TestCase):
     Supabase, gated on SUPABASE_HASH_STORE_WRITE_ENABLED + fail-safe."""
 
     def setUp(self):
-        self.src = inspect.getsource(gwp)
+        # Phase 09 W6: the shadow upsert_group_hash call site lives in main(),
+        # relocated to pipeline/orchestrate.py — grep facade + orchestrate
+        # (follow-the-code superset).
+        import pipeline.orchestrate
+        self.src = (inspect.getsource(gwp)
+                    + "\n" + inspect.getsource(pipeline.orchestrate))
 
     def test_upsert_call_present(self):
         self.assertIn("upsert_group_hash(", self.src)
@@ -296,7 +303,10 @@ class TestAuthoritativeSkipGate(unittest.TestCase):
 
     # ── Source-level guards ────────────────────────────────────────────
     def test_gate_reads_supabase_when_authoritative(self):
-        src = inspect.getsource(gwp)
+        # Phase 09 W2: _resolve_unchanged_for_skip relocated to
+        # pipeline/change_detection.py; inspect the function object's source
+        # (follows the facade re-export) rather than the facade module.
+        src = inspect.getsource(gwp._resolve_unchanged_for_skip)
         self.assertRegex(
             src,
             r"SUPABASE_HASH_STORE_AUTHORITATIVE[\s\S]{0,600}"
@@ -313,10 +323,14 @@ class TestAuthoritativeSkipGate(unittest.TestCase):
 
     # ── Behavioral: _resolve_unchanged_for_skip decision table ─────────
     def _resolve(self, **kw):
+        # Phase 09 W2 (D-06): the writer is now injected explicitly by the
+        # caller (production wires _billing_audit_writer at the main() call
+        # site); mirror that here instead of relying on a module global.
         defaults = dict(
             history_key="90001|041926|primary|",
             data_hash="h", hash_history={}, wr_num="90001",
             week_iso="2026-04-19", variant="primary", identifier="",
+            billing_audit_writer=gwp._billing_audit_writer,
         )
         defaults.update(kw)
         return gwp._resolve_unchanged_for_skip(**defaults)
@@ -530,7 +544,8 @@ class TestMigrationCutover(unittest.TestCase):
         ):
             self.assertFalse(gwp._resolve_unchanged_for_skip(
                 "90001|041926|primary|", "h", {},
-                "90001", "2026-04-19", "primary", ""))
+                "90001", "2026-04-19", "primary", "",
+                billing_audit_writer=gwp._billing_audit_writer))
 
     def test_shadow_populated_store_allows_skip(self):
         self._authoritative()
@@ -540,7 +555,8 @@ class TestMigrationCutover(unittest.TestCase):
         ):
             self.assertTrue(gwp._resolve_unchanged_for_skip(
                 "90001|041926|primary|", "h", {},
-                "90001", "2026-04-19", "primary", ""))
+                "90001", "2026-04-19", "primary", "",
+                billing_audit_writer=gwp._billing_audit_writer))
 
     def test_outage_during_cutover_falls_back_to_json(self):
         self._authoritative()
@@ -551,12 +567,14 @@ class TestMigrationCutover(unittest.TestCase):
             # Cache miss -> regenerate (safe).
             self.assertFalse(gwp._resolve_unchanged_for_skip(
                 "90001|041926|primary|", "h", {},
-                "90001", "2026-04-19", "primary", ""))
+                "90001", "2026-04-19", "primary", "",
+                billing_audit_writer=gwp._billing_audit_writer))
             # Cache hit -> skip (the json cache survives a brief outage).
             self.assertTrue(gwp._resolve_unchanged_for_skip(
                 "90001|041926|primary|", "h",
                 {"90001|041926|primary|": {"hash": "h"}},
-                "90001", "2026-04-19", "primary", ""))
+                "90001", "2026-04-19", "primary", "",
+                billing_audit_writer=gwp._billing_audit_writer))
 
     def test_extract_hash_returns_none_for_clean_name(self):
         self.assertIsNone(gwp.extract_data_hash_from_filename(
@@ -591,7 +609,14 @@ class TestProductionInvariants(unittest.TestCase):
     future refactor can't silently revert it."""
 
     def setUp(self):
-        self.src = inspect.getsource(gwp)
+        # W4: the clean-filename builder lives in generate_excel
+        # (pipeline/excel.py) — grep facade + the relocated module so the
+        # source guards follow the code.
+        import pipeline.excel
+        import pipeline.orchestrate  # W6: main() shadow-write call site
+        self.src = (inspect.getsource(gwp)
+                    + "\n" + inspect.getsource(pipeline.excel)
+                    + "\n" + inspect.getsource(pipeline.orchestrate))
 
     def test_clean_filename_gated_on_authoritative(self):
         self.assertRegex(
@@ -601,7 +626,12 @@ class TestProductionInvariants(unittest.TestCase):
         )
 
     def test_skip_gate_consults_supabase(self):
-        self.assertIn("lookup_group_hash(", self.src)
+        # Phase 09 W2: the skip-gate helper moved to change_detection.py;
+        # inspect the relocated function source (follows the re-export).
+        self.assertIn(
+            "lookup_group_hash(",
+            inspect.getsource(gwp._resolve_unchanged_for_skip),
+        )
 
     def test_shadow_write_present_and_gated(self):
         self.assertIn("upsert_group_hash(", self.src)
@@ -623,6 +653,128 @@ class TestProductionInvariants(unittest.TestCase):
     def test_delete_old_gated_on_authoritative(self):
         fn = inspect.getsource(gwp.delete_old_excel_attachments)
         self.assertIn("SUPABASE_HASH_STORE_AUTHORITATIVE", fn)
+
+
+def _extract_billing_audit_import_guard() -> str:
+    """Return the exact ``try/except`` source of the billing_audit
+    import guard from ``generate_weekly_pdfs.py``.
+
+    Extracted via AST (not reconstructed) so the regression test
+    exercises the REAL guard the production engine ships, not a
+    paraphrase that could drift from it.
+    """
+    src = inspect.getsource(gwp)
+    tree = ast.parse(src)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Try):
+            seg = ast.get_source_segment(src, node)
+            if seg and "billing_audit import writer" in seg:
+                return seg
+    raise AssertionError(
+        "billing_audit import-guard try/except not found in "
+        "generate_weekly_pdfs.py"
+    )
+
+
+class TestBillingAuditImportFailureBindsWriterNone(unittest.TestCase):
+    """Post-review HIGH (silent-failure-hunter): the billing_audit
+    import guard MUST bind ``_billing_audit_writer = None`` on import
+    failure.
+
+    Wave 2 (commit d8eaf67) added an EAGER reference to
+    ``_billing_audit_writer`` at the ``_resolve_unchanged_for_skip``
+    call site in ``main()``, gated by ``_history_eligible_for_skip``
+    (NOT by ``BILLING_AUDIT_AVAILABLE``). Because the old
+    ``except`` block set ``BILLING_AUDIT_AVAILABLE = False`` but never
+    bound ``_billing_audit_writer``, a real ``billing_audit`` import
+    failure (it talks to Supabase — a flaky external dep) leaves the
+    module-level name UNBOUND, and the first skip-eligible group raises
+    ``NameError`` and crashes the entire production billing run —
+    violating the no-op-on-failure invariant at lines 105-110.
+
+    These tests are RED before the one-line fix and GREEN after.
+    """
+
+    def test_import_failure_binds_writer_to_none(self):
+        """Behavioral: exec the REAL guard with ``billing_audit``
+        forced to fail importing, and assert it leaves
+        ``_billing_audit_writer = None`` (not unbound) so the eager
+        call-site reference degrades gracefully instead of crashing.
+        """
+        guard_src = _extract_billing_audit_import_guard()
+        real_import = builtins.__import__
+
+        def _failing_import(name, *args, **kwargs):
+            if name == "billing_audit" or name.startswith(
+                "billing_audit."
+            ):
+                raise ImportError(
+                    "forced billing_audit import failure (test)"
+                )
+            return real_import(name, *args, **kwargs)
+
+        ns: dict = {
+            "__builtins__": {
+                **vars(builtins),
+                "__import__": _failing_import,
+                # Suppress the guard's banner print during the test.
+                "print": lambda *a, **k: None,
+            }
+        }
+
+        # Exec must NOT raise — the guard catches broad Exception.
+        exec(  # noqa: S102 - executing the engine's own audited guard
+            compile(guard_src, "<billing_audit_import_guard>", "exec"),
+            ns,
+        )
+
+        self.assertFalse(
+            ns.get("BILLING_AUDIT_AVAILABLE"),
+            "BILLING_AUDIT_AVAILABLE must be False on import failure",
+        )
+        self.assertIn(
+            "_billing_audit_writer", ns,
+            "REGRESSION: import-failure path left "
+            "_billing_audit_writer UNBOUND -> eager call-site "
+            "reference would raise NameError and crash the run",
+        )
+        self.assertIsNone(
+            ns["_billing_audit_writer"],
+            "_billing_audit_writer must default to None so the "
+            "_resolve_unchanged_for_skip '_writer is not None' guard "
+            "falls back to the JSON cache",
+        )
+
+    def test_except_block_binds_writer_none_in_source(self):
+        """Source characterization (repo style): the guard's
+        ``except`` block binds ``_billing_audit_writer = None``.
+
+        Uses AST structural matching rather than a windowed regex so
+        the assertion stays robust to explanatory comments / line
+        wraps inside the handler, while remaining scoped to the
+        extracted guard (an unrelated ``except`` block elsewhere in
+        the 8000-line engine cannot satisfy it).
+        """
+        guard_src = _extract_billing_audit_import_guard()
+        try_node = ast.parse(guard_src).body[0]
+        self.assertIsInstance(try_node, ast.Try)
+        bound_to_none = any(
+            isinstance(stmt, ast.Assign)
+            and any(
+                isinstance(t, ast.Name)
+                and t.id == "_billing_audit_writer"
+                for t in stmt.targets
+            )
+            and isinstance(stmt.value, ast.Constant)
+            and stmt.value.value is None
+            for handler in try_node.handlers
+            for stmt in handler.body
+        )
+        self.assertTrue(
+            bound_to_none,
+            "the billing_audit import-guard except block must bind "
+            "_billing_audit_writer = None",
+        )
 
 
 if __name__ == "__main__":

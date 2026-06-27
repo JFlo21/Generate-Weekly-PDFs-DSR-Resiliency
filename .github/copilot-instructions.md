@@ -14,7 +14,7 @@ Three components:
 ```bash
 # Python (core engine)
 pip install -r requirements.txt
-pytest tests/ -v                          # 33 tests, all must pass
+pytest tests/ -v                          # full suite — all must pass before push
 python -m py_compile generate_weekly_pdfs.py  # syntax check
 
 # Portal v2 (React frontend)

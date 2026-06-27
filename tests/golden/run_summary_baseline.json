@@ -1,0 +1,23 @@
+{
+  "success": true,
+  "files_generated": 2372,
+  "groups_total": 2372,
+  "groups_skipped": 0,
+  "groups_generated": 2372,
+  "groups_uploaded": 0,
+  "groups_errored": 0,
+  "duration_seconds": 1716.35863,
+  "duration_minutes": 28.61,
+  "history_updates": 2372,
+  "sheets_discovered": 92,
+  "rows_fetched": 150294,
+  "api_calls": 0,
+  "audit_risk_level": "HIGH",
+  "mode": "PRODUCTION",
+  "timestamp": "2026-06-09T02:23:09.970379+00:00",
+  "snapshots_written": 0,
+  "snapshots_already_frozen": 0,
+  "snapshots_errored": 0,
+  "fingerprint_changes_detected": 0,
+  "attribution_rows_held": 0
+}

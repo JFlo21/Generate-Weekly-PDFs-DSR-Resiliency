@@ -2696,7 +2696,7 @@ class HoistedEnvVarDefaultsTests(unittest.TestCase):
     when the env is completely unset."""
 
     def test_main_script_hoists_env_vars_with_empty_default(self):
-        src = _read_source("generate_weekly_pdfs.py")
+        src = (_read_source("generate_weekly_pdfs.py") + "\n" + _read_source("pipeline/orchestrate.py"))
         collapsed = _collapse_ws(src)
         # SENTRY_RELEASE → empty-string sentinel. Quote-form and
         # whitespace-tolerant.
@@ -2891,7 +2891,7 @@ class CrossVariantFingerprintAggregationTests(unittest.TestCase):
     """
 
     def test_bucket_is_built_before_group_loop(self):
-        src = _read_source("generate_weekly_pdfs.py")
+        src = (_read_source("generate_weekly_pdfs.py") + "\n" + _read_source("pipeline/orchestrate.py"))
         bucket_init = src.find(
             "_billing_audit_fp_buckets: dict[tuple[str, str], list[dict]] = {}"
         )
@@ -2917,7 +2917,7 @@ class CrossVariantFingerprintAggregationTests(unittest.TestCase):
           • Per-bucket ``calculate_data_hash`` is lazy + memoized
             inside the per-group emit block, not eagerly pre-loop.
         """
-        src = _read_source("generate_weekly_pdfs.py")
+        src = (_read_source("generate_weekly_pdfs.py") + "\n" + _read_source("pipeline/orchestrate.py"))
         collapsed = _collapse_ws(src)
 
         # Gate shape — whitespace-tolerant regex. Must contain all
@@ -2968,7 +2968,7 @@ class CrossVariantFingerprintAggregationTests(unittest.TestCase):
         """The emit call inside the per-group block must pull
         from ``_billing_audit_fp_buckets`` (aggregated across
         variants), not ``group_rows`` directly."""
-        collapsed = _collapse_ws(_read_source("generate_weekly_pdfs.py"))
+        collapsed = _collapse_ws((_read_source("generate_weekly_pdfs.py") + "\n" + _read_source("pipeline/orchestrate.py")))
         self.assertRegex(
             collapsed,
             r"_agg_fp_rows\s*=\s*_billing_audit_fp_buckets\.get\("
@@ -2987,7 +2987,12 @@ class CrossVariantFingerprintAggregationTests(unittest.TestCase):
         sort-order-dependent output that can miss variant-
         specific fields entirely.
         """
-        src = _read_source("generate_weekly_pdfs.py")
+        # Phase 09 W2: _compute_aggregated_content_hash + calculate_data_hash
+        # relocated to pipeline/change_detection.py; the caller (memo + emit
+        # call site) stays in the facade. Search the combined source so both the
+        # caller-side and the relocated-helper-body guards still hold.
+        src = ((_read_source("generate_weekly_pdfs.py") + "\n" + _read_source("pipeline/orchestrate.py")) + "\n"
+               + _read_source("pipeline/change_detection.py"))
         collapsed = _collapse_ws(src)
         # The aggregation memo must exist.
         self.assertRegex(

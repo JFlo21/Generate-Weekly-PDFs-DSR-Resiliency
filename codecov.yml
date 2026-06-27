@@ -1,0 +1,30 @@
+# Codecov configuration.
+#
+# Coverage in this repository is INFORMATIONAL, not a merge gate. Correctness
+# of the production billing engine is gated by the frozen behavioral-
+# equivalence oracle `scripts/run_6_gates.sh` (AST public-API equality, facade
+# completeness, the full pytest suite, the mypy delta, py_compile, and the
+# golden run_summary structure) — not by line-coverage thresholds.
+#
+# Why patch coverage is informational specifically: large relocation PRs (e.g.
+# the Phase 09 engine split that moved a 10,540-line monolith into the
+# `pipeline/` package) move thousands of ALREADY-tested lines into new files.
+# Codecov scores those as "new" patch lines, so patch coverage reads low even
+# though real coverage is unchanged and every behavior is pinned by the oracle.
+# Gating merges on that number would block correct, equivalence-verified work.
+#
+# Coverage reports remain valuable as a guide for reviewers — they are still
+# posted on every PR; they simply do not fail the build.
+
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+comment:
+  layout: "reach, diff, flags, files"
+  require_changes: false

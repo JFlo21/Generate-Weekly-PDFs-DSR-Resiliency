@@ -1,5 +1,11 @@
 # Active Context
 
+> ⚠️ **SUPERSEDED — DO NOT TREAT AS CURRENT STATE.** This file is frozen at the
+> April 6, 2026 VAC-crew isolation work. For live project status see
+> **`.planning/STATE.md`** (GSD front door) and **`.claude/project-state.md`**;
+> for dated history see **`memory-bank/living-ledger.md`**. Retained for
+> historical/root-cause context only.
+
 ## Last Updated: April 6, 2026
 
 ## Current State

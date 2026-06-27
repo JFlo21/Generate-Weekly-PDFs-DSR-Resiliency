@@ -9,7 +9,12 @@
 > Codex mirror [`/AGENTS.md`](../AGENTS.md)). This file is the *status / resume*
 > layer, not the rulebook.
 
-_Last updated: 2026-05-21._
+_Last updated: 2026-06-26._
+
+> **Live status now lives in [`.claude/project-state.md`](../.claude/project-state.md)**
+> (overwritten each session) and [`.planning/STATE.md`](../.planning/STATE.md). This
+> file is the periodic *snapshot*; the dated history is in
+> [`memory-bank/living-ledger.md`](../memory-bank/living-ledger.md).
 
 ## Project status (one paragraph)
 
@@ -22,7 +27,48 @@ member who actually claimed each line item, sourced from the
 `billing_audit.attribution_snapshot` Supabase table via the Foundation A read
 layer.
 
-## The claim-attribution rollout (the current multi-phase effort)
+## Current active work — Phase 09: engine modularization (v1.3)
+
+Splitting the 10,476-line `generate_weekly_pdfs.py` into a `pipeline/` package,
+**facade-preserved, zero behavior change**, validated by a 6-gate oracle
+(`scripts/run_6_gates.sh`: AST 177-name equality · facade allowlist · pytest ·
+mypy delta · py_compile · 21-key run_summary). GSD phase, 7 waves (09-00→09-06),
+run **sequential / no-worktree, Opus executors, wave-by-wave** with an
+independent gate run + human go between every wave.
+
+- **Waves 0–4 ✓ COMPLETE & independently gate-verified.** W0 harness/scaffold ·
+  W1 config/utils/observability · W2 pricing/change_detection · W3 discovery/fetch
+  (PEP-562 live-proxy) · **W4 grouping/excel** (added `pipeline/grouping.py` +
+  `pipeline/excel.py`; facade now 4745 ln; billing guards byte-for-byte).
+- **⏸ Wave 5 NEXT (cleanup/upload/attribution), awaiting human go.** Then W6
+  (orchestrate + facade finalize — must re-verify `_billing_audit_writer`
+  injection survives the `main()`→`orchestrate.py` move).
+- Live status: `.claude/project-state.md` + `.planning/STATE.md`; dated history:
+  `memory-bank/living-ledger.md`.
+
+> **Phase 08** (smartsheet-python-sdk 4.0.0 migration) is paused; SDK pinned
+> `<4.0.0`. **Phase 08 must NOT run concurrently with Phase 09 — same file.**
+
+## Frozen claim-attribution — diagnosed gaps (read-only debug 2026-06-26, NO fixes applied)
+
+A GSD `find_root_cause_only` debug (`.planning/debug/frozen-claim-history-gap.md`)
+found the frozen-attribution system does **not** preserve the previous actor's
+historical file for 2 of 5 actor classes, plus a data backfill flaw. **Fixes are
+parked pending approval** — Phase 09 Wave 5 relocates this code byte-for-byte, it
+does NOT repair it.
+
+- **DATA (P1):** the freeze ran as a one-shot cold-start backfill (~2026-04-24)
+  that captured the *current* foreman for all historical weeks (the source
+  `Foreman` is a live per-WR value, not per-week history). WR 89834661: 5 weeks of
+  the prior foreman's work frozen to the current one; 52 rows frozen
+  `Unknown Foreman`. Systemic: 5,183 rows / 89 of 617 WRs frozen `Unknown Foreman`.
+- **CODE (P2):** primary `helper` is **uncovered** (no flag, no `resolve_claimer`;
+  key + filename use the live helper); subcontractor `helper` is **half-wired**
+  (frozen drives group key + Excel cell, but filename/upload-id/change-key use the
+  live helper). primary / VAC / sub-primary are correctly wired.
+- Fix shapes recorded in the debug file + `living-ledger.md [2026-06-26 14:30]`.
+
+## The claim-attribution rollout (mostly shipped; see status table)
 
 Sequencing — **A → B → C → D → E**:
 
@@ -33,8 +79,8 @@ Sequencing — **A → B → C → D → E**:
 | **Subproject B** | Subcontractor **primary** variants (`reduced_sub`/`aep_billable`) re-partitioned by frozen primary claimer → `_ReducedSub_User_<name>` / `_AEPBillable_User_<name>`. | ✅ Merged (PR #215) |
 | **Helper-exclusion hotfix** | Helper-completed subcontractor rows excluded from primary files (no double-count). | ✅ Merged (PR #216) |
 | **Dept-#/Job-# fix** | Sub-helper Excel files show Helper Dept #/Job # (not the primary's). | ✅ In master via the B branch |
-| **Subproject C** | `vac_crew` files re-partitioned by frozen vac-crew claimer → `_VacCrew_<name>`, all sheets. | 🔵 **PR #219 open — awaiting merge** |
-| **Subproject D** | Primary-workflow (non-subcontractor) **primary** foreman partitioning. Highest blast radius; deliberately last before E. | ⏳ Not started |
+| **Subproject C** | `vac_crew` files re-partitioned by frozen vac-crew claimer → `_VacCrew_<name>`, all sheets. | ✅ Merged (PR #219; cross-sheet unit-dedup follow-up PR #274) |
+| **Subproject D** | Primary-workflow (non-subcontractor) **primary** foreman partitioning. Highest blast radius; deliberately last before E. | ✅ Shipped (PR #223; `__variant` follow-up PR #225) |
 | **Subproject E** | Supabase hash-store migration + stripping `_<hash>`/`_<timestamp>` tokens from filenames (depends on Supabase being the change-detection source of truth). | ⏳ Not started |
 
 ## Recent work completed (most recent first)
@@ -50,17 +96,17 @@ Sequencing — **A → B → C → D → E**:
 
 ## Current open tasks / next recommended steps
 
-1. **Merge PR #219 (Subproject C)** once CI is green.
-2. **Validate UAT** after the merge: the `_VacCrew_<name>` per-claimer files
-   (and the Subproject B `_*_User_<name>` files) only appear once the branch
-   actually runs on the 2-hour cron — verify against real generated files.
-3. **Subproject D** — primary-workflow primary partitioning. Start with
-   `brainstorming` → spec → plan → subagent-driven TDD, branched off
-   post-C-merge `master`. Mirror the B/C pattern (Approach-A parallel pre-pass,
-   CR-01 four-site lockstep, kill switch, HOLD-on-outage, migration cleanup +
-   distinct hash-prune sentinel). Expect the **largest** attachment migration.
-4. **Subproject E** — Supabase change-detection cutover + filename hash-token
-   strip (the thing that finally removes `_<hash>` from filenames).
+1. **Phase 09 Wave 5** (cleanup/upload/attribution) — NEXT, on human go. Same
+   model: Opus executor, sequential / no-worktree, independent `run_6_gates.sh` +
+   stop. Then Wave 6 (orchestrate + facade finalize).
+2. **Frozen-attribution fix (parked, awaiting approval)** — wire primary-`helper`
+   attribution; fix the sub-helper filename/upload/change-key asymmetry; add a
+   blank-foreman guard at freeze; one-time controlled re-attribution of the 5,183
+   `Unknown Foreman` rows + the WR 89834661 weeks (manual Supabase + re-freeze
+   runbook). Full diagnosis: `.planning/debug/frozen-claim-history-gap.md`.
+3. **Subproject E** (last claim-attribution rollout item, not started) — Supabase
+   change-detection cutover + filename `_<hash>`/`_<timestamp>` strip. Lands
+   cleaner *after* Phase 09 modularizes the upload/change-detection code.
 
 ## Known blockers / risks
 

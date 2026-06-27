@@ -1301,9 +1301,36 @@ class TestProductionCodeSiteInvariants(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls._src = pathlib.Path(
-            inspect.getsourcefile(generate_weekly_pdfs)
-        ).read_text(encoding='utf-8')
+        # Phase 09 W3: the Bug-A rescue gate (is_subcontractor_sheet +
+        # SUBCONTRACTOR_RATE_RECALC_PREACCEPTANCE_ENABLED + _subcontractor_
+        # rescue_price) lives inside get_all_source_rows, relocated to
+        # pipeline/fetch.py. Grep the facade + the relocated module so the
+        # production-site invariants follow the code.
+        import pipeline.fetch
+        import pipeline.grouping  # W4: group_source_rows relocated here
+        import pipeline.cleanup  # W5: cleanup_untracked_sheet_attachments relocated here
+        import pipeline.attribution  # W5: hash-prune version constants relocated here
+        cls._src = (
+            pathlib.Path(
+                inspect.getsourcefile(generate_weekly_pdfs)
+            ).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(
+                inspect.getsourcefile(pipeline.fetch)
+            ).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(
+                inspect.getsourcefile(pipeline.grouping)
+            ).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(
+                inspect.getsourcefile(pipeline.cleanup)
+            ).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(
+                inspect.getsourcefile(pipeline.attribution)
+            ).read_text(encoding='utf-8')
+        )
 
     def test_bug_a_rescue_gate_present_in_production(self):
         """Bug A rescue gate: is_subcontractor_sheet + kill switch."""
