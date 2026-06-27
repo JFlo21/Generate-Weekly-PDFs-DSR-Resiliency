@@ -30,6 +30,82 @@ import unittest
 import generate_weekly_pdfs
 
 
+class TestSanitizeCsvPath(unittest.TestCase):
+    """Lock the `_sanitize_csv_path` containment mitigation.
+
+    The rate-CSV loaders in `pipeline.pricing` (`load_contract_rates`,
+    `load_new_contract_rates`, `build_cu_to_group_mapping`,
+    `load_subcontractor_rates`) pass these env-derived paths straight to
+    `open()`. CodeQL flags those sinks as `py/path-injection` because it
+    cannot statically track this cross-module barrier (the safe root is a
+    runtime `realpath('.')`, not a literal). These tests prove the barrier
+    is real at runtime: any path that resolves OUTSIDE the working directory
+    is rejected and the in-tree default is used instead, so a hostile env
+    value can never reach `open()` with a traversal target. The six CodeQL
+    alerts are therefore validated false positives.
+    """
+
+    _ENV = 'TEST_SANITIZE_CSV_PATH_PROBE'
+
+    def _cwd(self):
+        return os.path.normpath(os.path.realpath('.'))
+
+    def _within_cwd(self, path):
+        cwd = self._cwd()
+        return path == cwd or path.startswith(cwd + os.sep)
+
+    def tearDown(self):
+        os.environ.pop(self._ENV, None)
+
+    def test_default_resolves_within_cwd(self):
+        os.environ.pop(self._ENV, None)
+        result = generate_weekly_pdfs._sanitize_csv_path(
+            self._ENV, 'data/subcontractor_rates.csv'
+        )
+        self.assertTrue(os.path.isabs(result))
+        self.assertTrue(
+            self._within_cwd(result),
+            f'default resolved outside cwd: {result!r}',
+        )
+
+    def test_in_cwd_override_is_honored(self):
+        os.environ[self._ENV] = 'data/subcontractor_rates.csv'
+        result = generate_weekly_pdfs._sanitize_csv_path(
+            self._ENV, 'fallback.csv'
+        )
+        self.assertEqual(
+            result,
+            os.path.normpath(os.path.realpath('data/subcontractor_rates.csv')),
+        )
+
+    def test_relative_traversal_is_rejected_and_falls_back(self):
+        os.environ[self._ENV] = os.path.join(
+            '..', '..', '..', '..', 'etc', 'passwd'
+        )
+        result = generate_weekly_pdfs._sanitize_csv_path(
+            self._ENV, 'data/subcontractor_rates.csv'
+        )
+        # Rejected -> fell back to the in-tree default; never the traversal.
+        self.assertEqual(
+            result,
+            os.path.normpath(os.path.realpath('data/subcontractor_rates.csv')),
+        )
+        self.assertTrue(self._within_cwd(result))
+        self.assertNotIn('passwd', result)
+
+    def test_absolute_path_outside_cwd_is_rejected(self):
+        parent = os.path.normpath(os.path.join(self._cwd(), os.pardir))
+        os.environ[self._ENV] = os.path.join(parent, 'evil_rates.csv')
+        result = generate_weekly_pdfs._sanitize_csv_path(
+            self._ENV, 'data/subcontractor_rates.csv'
+        )
+        self.assertEqual(
+            result,
+            os.path.normpath(os.path.realpath('data/subcontractor_rates.csv')),
+        )
+        self.assertTrue(self._within_cwd(result))
+
+
 class TestWrNumFilenameSanitization(unittest.TestCase):
     """Verify the WR# sanitizer blocks path traversal in Excel filenames."""
 

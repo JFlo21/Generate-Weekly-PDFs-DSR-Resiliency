@@ -101,8 +101,8 @@ PARALLEL_WORKERS_DISCOVERY = int(os.getenv('PARALLEL_WORKERS_DISCOVERY', '8') or
 # Graceful time budget (minutes). When set and running in GitHub Actions, the script will
 # stop processing new groups once this many minutes have elapsed since session start.
 # This prevents the Actions runner from hard-killing the job and losing cache/artifact saves.
-# Set to 0 to disable. The weekly workflow sets this to 180 (3h) with a matching
-# timeout-minutes: 195 on the runner (15min cushion for cache/artifact save steps).
+# Set to 0 to disable. The weekly workflow sets this to 165 (2h45m) with a matching
+# timeout-minutes: 180 on the runner (15min cushion for cache/artifact save steps).
 TIME_BUDGET_MINUTES = int(os.getenv('TIME_BUDGET_MINUTES', '0') or 0)
 
 # Sub-budget for the attachment pre-fetch phase. Prevents a flaky Smartsheet
@@ -227,7 +227,11 @@ def _parse_sheet_ids(env_val):
 
 
 # Folder-based discovery: Smartsheet folder IDs whose child sheets should be auto-discovered
-# Subcontractor folders (sheets priced at subcontractor rates, will be reverted to original contract rates)
+# Subcontractor folders (child sheets discovered and processed as subcontractor-
+# priced sheets; see pipeline/pricing.py for the rate logic). NOTE: production
+# keeps the Smartsheet/subcontractor pricing as-is — no reversion to original
+# contract rates is performed (revert_subcontractor_price() exists but is only
+# exercised by tests, never called in the live pipeline).
 SUBCONTRACTOR_FOLDER_IDS = _parse_sheet_ids(os.getenv('SUBCONTRACTOR_FOLDER_IDS', '4232010517505924,2588197684307844'))
 # Original contract folders (sheets already at original contract rates)
 ORIGINAL_CONTRACT_FOLDER_IDS = _parse_sheet_ids(os.getenv('ORIGINAL_CONTRACT_FOLDER_IDS', '7644752003786628,8815193070299012'))
