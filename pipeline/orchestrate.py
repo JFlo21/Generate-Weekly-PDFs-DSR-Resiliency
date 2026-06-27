@@ -329,6 +329,44 @@ def _run_synthetic_test_mode(session_start):
             logging.error(f"Synthetic group failure {group_key}: {e}")
     session_duration = datetime.datetime.now() - session_start
     logging.info(f"🧪 Synthetic session complete: {generated_files_count} file(s) in {session_duration}")
+    # Emit run_summary.json on the synthetic path too (Codex P2 / 09-UAT
+    # note). Gate 6 (scripts/check_run_summary_structure.py) reads the
+    # gitignored generated_docs/run_summary.json; without this, a clean
+    # checkout / CI job with no SMARTSHEET_API_TOKEN takes this synthetic
+    # branch, never writes the file, and Gate 6 either crashes
+    # (FileNotFoundError) or validates a STALE artifact from an earlier run.
+    # Mirror the real path's 21-key structure with synthetic values so the
+    # structural oracle validates a FRESH artifact every run.
+    try:
+        _synth_secs = session_duration.total_seconds()
+        _synth_summary = {
+            "timestamp": datetime.datetime.now().isoformat(),
+            "mode": "synthetic",
+            "success": True,
+            "duration_seconds": round(_synth_secs, 3),
+            "duration_minutes": round(_synth_secs / 60.0, 3),
+            "sheets_discovered": 0,
+            "rows_fetched": len(synthetic_rows),
+            "groups_total": len(groups),
+            "groups_generated": generated_files_count,
+            "groups_uploaded": 0,
+            "groups_skipped": 0,
+            "groups_errored": len(groups) - generated_files_count,
+            "files_generated": generated_files_count,
+            "history_updates": 0,
+            "fingerprint_changes_detected": 0,
+            "api_calls": 0,
+            "audit_risk_level": "NONE",
+            "attribution_rows_held": 0,
+            "snapshots_written": 0,
+            "snapshots_already_frozen": 0,
+            "snapshots_errored": 0,
+        }
+        os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+        with open(os.path.join(OUTPUT_FOLDER, 'run_summary.json'), 'w') as _rsf:
+            json.dump(_synth_summary, _rsf, indent=2)
+    except Exception as _rse:
+        logging.warning(f"⚠️ Could not write synthetic run_summary.json: {_rse}")
     return generated_files_count
 
 

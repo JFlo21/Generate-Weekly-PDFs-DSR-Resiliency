@@ -664,8 +664,15 @@ from pipeline.attribution import (  # noqa: E402
 # main() (the 2380-line production entry point) and the two synthetic
 # TEST_MODE helpers now live in pipeline/orchestrate.py, relocated
 # byte-for-byte (D-05, no internal decomposition). Re-export main so
-# ``gwp.main`` resolves for consumers and the facade-completeness gate.
-from pipeline.orchestrate import main  # noqa: E402
+# ``gwp.main`` resolves for consumers and the facade-completeness gate. Also
+# re-export the two synthetic TEST_MODE helpers, which the monolith exposed as
+# top-level ``generate_weekly_pdfs`` attributes — keep the old module API
+# intact for any debug/test automation that imports them via the facade.
+from pipeline.orchestrate import (  # noqa: E402
+    main,
+    _build_synthetic_rows,
+    _run_synthetic_test_mode,
+)
 
 # ─── PEP-562 live-proxy for the 4 runtime-rebound globals (D-01) ──────────────
 # GUARD: SUBCONTRACTOR_SHEET_IDS, _FOLDER_DISCOVERED_SUB_IDS,

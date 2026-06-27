@@ -2,7 +2,7 @@
 # Gate 4 — mypy error-line count must NOT increase vs the frozen baseline.
 #
 # Compares the line count of
-#   mypy generate_weekly_pdfs.py audit_billing_changes.py billing_audit
+#   mypy generate_weekly_pdfs.py audit_billing_changes.py billing_audit pipeline
 # (config read from pyproject.toml [tool.mypy]) against the count frozen in
 # tests/golden/mypy_baseline_count.txt. Fails only on an INCREASE — a
 # neutral or reduced count passes (warn-only posture, matches CI
@@ -16,7 +16,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BASELINE_TXT="$REPO_ROOT/tests/golden/mypy_baseline.txt"
 BASELINE_COUNT_FILE="$REPO_ROOT/tests/golden/mypy_baseline_count.txt"
-MYPY_TARGETS=(generate_weekly_pdfs.py audit_billing_changes.py billing_audit)
+MYPY_TARGETS=(generate_weekly_pdfs.py audit_billing_changes.py billing_audit pipeline)
 
 # Resolve a mypy runner: prefer the module form, fall back to the binary.
 if python -m mypy --version >/dev/null 2>&1; then
