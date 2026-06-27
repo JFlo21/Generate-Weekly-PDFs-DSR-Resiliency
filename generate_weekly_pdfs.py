@@ -705,5 +705,17 @@ def __dir__() -> list[str]:
 
 
 if __name__ == "__main__":
-    from pipeline.orchestrate import main
+    # Direct-execution guard (Phase 09 / Greptile P1). Run as
+    # ``python generate_weekly_pdfs.py`` this file is loaded as ``__main__``
+    # and ``sys.modules['generate_weekly_pdfs']`` is unset. The facade-read
+    # prelude inside pipeline.orchestrate (``import generate_weekly_pdfs as
+    # _gwp``, executed when main() runs) would otherwise RE-IMPORT this file
+    # from scratch and re-run every top-level startup banner + init_sentry()
+    # — a duplicate-log / observability regression (billing is unaffected:
+    # config is identical on both objects and Sentry init is idempotent).
+    # Alias this already-initialized module under its import name so the
+    # prelude resolves to it instead of re-importing. `main` is already bound
+    # above (line ~668), so no second import is needed.
+    import sys
+    sys.modules.setdefault("generate_weekly_pdfs", sys.modules["__main__"])
     main()
