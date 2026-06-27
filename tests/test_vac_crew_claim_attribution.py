@@ -187,9 +187,18 @@ class TestVacCrewEmission(unittest.TestCase):
 class TestVacCrewIdentitySitesAndDisplay(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls._src = pathlib.Path(
-            inspect.getsourcefile(generate_weekly_pdfs)
-        ).read_text(encoding='utf-8')
+        # Phase 09 W6: main() relocated to pipeline/orchestrate.py — grep
+        # facade + orchestrate (follow-the-code superset).
+        import pipeline.orchestrate
+        cls._src = (
+            pathlib.Path(
+                inspect.getsourcefile(generate_weekly_pdfs)
+            ).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(
+                inspect.getsourcefile(pipeline.orchestrate)
+            ).read_text(encoding='utf-8')
+        )
 
     def test_current_keys_site_carries_vac_claimer(self):
         # Site 3: the hash-prune current_keys reconstruction must derive the
@@ -629,9 +638,17 @@ class TestVacCrewLegacyCleanup(unittest.TestCase):
         cleanup_untracked_sheet_attachments(...)) rather than the
         function-signature occurrence.
         """
-        src = pathlib.Path(
-            inspect.getsourcefile(generate_weekly_pdfs)
-        ).read_text(encoding='utf-8')
+        # Phase 09 W6: the TARGET call site lives in main() (orchestrate.py).
+        import pipeline.orchestrate
+        src = (
+            pathlib.Path(
+                inspect.getsourcefile(generate_weekly_pdfs)
+            ).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(
+                inspect.getsourcefile(pipeline.orchestrate)
+            ).read_text(encoding='utf-8')
+        )
         # The TARGET call site must gate the vac scope on the kill switch.
         self.assertIn(
             'VAC_CREW_LEGACY_CLEANUP_ENABLED',
@@ -756,7 +773,18 @@ class TestVacCrewHashPrune(unittest.TestCase):
         self.assertIn('Vac crew hash-history prune', generate_weekly_pdfs._PII_LOG_MARKERS)
 
     def test_call_site_present_and_wired_to_migration_dirty(self):
-        src = pathlib.Path(inspect.getsourcefile(generate_weekly_pdfs)).read_text(encoding='utf-8')
+        # W5: VAC_CREW_HASH_PRUNE_VERSION + _run_vac_crew_hash_prune relocated
+        # to pipeline/attribution.py — grep facade (call site) + relocated
+        # module (constant) so the source guard follows the code.
+        import pipeline.attribution
+        import pipeline.orchestrate  # W6: call site lives in main()
+        src = (
+            pathlib.Path(inspect.getsourcefile(generate_weekly_pdfs)).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(inspect.getsourcefile(pipeline.attribution)).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(inspect.getsourcefile(pipeline.orchestrate)).read_text(encoding='utf-8')
+        )
         self.assertIn('_run_vac_crew_hash_prune(hash_history, groups)', src)
         self.assertRegex(src, r'(?m)^VAC_CREW_HASH_PRUNE_VERSION = 1$')
 
@@ -797,7 +825,20 @@ class TestVacCrewEndToEnd(unittest.TestCase):
 class TestVacCrewProductionInvariants(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls._src = pathlib.Path(inspect.getsourcefile(generate_weekly_pdfs)).read_text(encoding='utf-8')
+        # W4: group_source_rows relocated to pipeline/grouping.py — grep
+        # facade + relocated module so the source guards follow the code.
+        import pipeline.grouping
+        import pipeline.attribution  # W5: hash-prune version constant relocated here
+        import pipeline.orchestrate  # W6: prune call site lives in main()
+        cls._src = (
+            pathlib.Path(inspect.getsourcefile(generate_weekly_pdfs)).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(inspect.getsourcefile(pipeline.grouping)).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(inspect.getsourcefile(pipeline.attribution)).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(inspect.getsourcefile(pipeline.orchestrate)).read_text(encoding='utf-8')
+        )
 
     def test_prepass_present(self):
         self.assertIn('_vac_crew_claimer_map', self._src)

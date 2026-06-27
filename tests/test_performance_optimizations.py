@@ -183,7 +183,10 @@ class TestAttachmentPrefetchBudget(unittest.TestCase):
         # wait (phase sub-budget) and from future.result (per-future guard).
         # If this import is removed the pre-fetch will crash on a stall
         # instead of falling back to the per-row path.
-        self.assertTrue(hasattr(generate_weekly_pdfs, 'FuturesTimeoutError'))
+        # Phase 09 W6: the consumer loop (main()) relocated to
+        # pipeline/orchestrate.py, which owns this import now.
+        import pipeline.orchestrate
+        self.assertTrue(hasattr(pipeline.orchestrate, 'FuturesTimeoutError'))
 
 
 class TestPppAttachmentPrefetchBudget(unittest.TestCase):
@@ -206,11 +209,21 @@ class TestPppAttachmentPrefetchBudget(unittest.TestCase):
 
     @staticmethod
     def _read_source() -> str:
+        # Phase 09 W6: the PPP attachment-prefetch block lives in main(),
+        # relocated to pipeline/orchestrate.py — concatenate facade +
+        # orchestrate (follow-the-code superset).
         import inspect
         import pathlib
-        return pathlib.Path(
-            inspect.getsourcefile(generate_weekly_pdfs)
-        ).read_text(encoding='utf-8')
+        import pipeline.orchestrate
+        return (
+            pathlib.Path(
+                inspect.getsourcefile(generate_weekly_pdfs)
+            ).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(
+                inspect.getsourcefile(pipeline.orchestrate)
+            ).read_text(encoding='utf-8')
+        )
 
     def test_constants_present(self):
         # The pre-flight guard depends on three constants — verify

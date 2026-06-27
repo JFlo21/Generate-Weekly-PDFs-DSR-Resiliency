@@ -2399,9 +2399,18 @@ class TestExcludeWrsMatchesAllVariants(unittest.TestCase):
         # the file text and search for the four characteristic
         # f-string fragments.
         import pathlib
-        src = pathlib.Path(
-            inspect.getsourcefile(generate_weekly_pdfs)
-        ).read_text(encoding='utf-8')
+        # W4: _key_matches_excluded_wr is nested in group_source_rows, now
+        # relocated to pipeline/grouping.py — grep facade + relocated module.
+        import pipeline.grouping
+        src = (
+            pathlib.Path(
+                inspect.getsourcefile(generate_weekly_pdfs)
+            ).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(
+                inspect.getsourcefile(pipeline.grouping)
+            ).read_text(encoding='utf-8')
+        )
         for needle in (
             'f"{wr}_REDUCEDSUB"',
             'f"{wr}_AEPBILLABLE"',
@@ -2511,9 +2520,19 @@ class TestWrFilterMatchesAllVariants(unittest.TestCase):
         # to their respective functions at the bash level).
         import inspect
         import pathlib
-        src = pathlib.Path(
-            inspect.getsourcefile(generate_weekly_pdfs)
-        ).read_text(encoding='utf-8')
+        # W4: both matchers are nested in group_source_rows, now relocated to
+        # pipeline/grouping.py — grep facade + relocated module (count >= 2
+        # from the relocated module where both matchers now live).
+        import pipeline.grouping
+        src = (
+            pathlib.Path(
+                inspect.getsourcefile(generate_weekly_pdfs)
+            ).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(
+                inspect.getsourcefile(pipeline.grouping)
+            ).read_text(encoding='utf-8')
+        )
         # _key_matches_wr's new clauses are character-identical to
         # _key_matches_excluded_wr's — assert each appears AT LEAST
         # twice (once in each function) to confirm both fixes landed.
@@ -2552,11 +2571,26 @@ class TestSourceSheetIdFieldConsistency(unittest.TestCase):
 
     @staticmethod
     def _read_source() -> str:
+        # Phase 09 W3: get_all_source_rows — the __sheet_id/__source_sheet_id
+        # populate site and the WR-06 writer comment — relocated to
+        # pipeline/fetch.py. The production contract these grep guards protect
+        # now spans the facade + the relocated module, so read both.
         import inspect
         import pathlib
-        return pathlib.Path(
+        import pipeline.fetch
+        # Phase 09 W6: the missing-CU attribution loop lives in main()
+        # (relocated to pipeline/orchestrate.py) — read it too.
+        import pipeline.orchestrate
+        facade = pathlib.Path(
             inspect.getsourcefile(generate_weekly_pdfs)
         ).read_text(encoding='utf-8')
+        fetch = pathlib.Path(
+            inspect.getsourcefile(pipeline.fetch)
+        ).read_text(encoding='utf-8')
+        orchestrate = pathlib.Path(
+            inspect.getsourcefile(pipeline.orchestrate)
+        ).read_text(encoding='utf-8')
+        return facade + "\n" + fetch + "\n" + orchestrate
 
     def test_populate_site_writes_both_aliases(self):
         # Writer must populate BOTH names so back-compat with
@@ -2612,9 +2646,24 @@ class TestPppCleanupUntrackedAttachments(unittest.TestCase):
     def _read_source() -> str:
         import inspect
         import pathlib
-        return pathlib.Path(
-            inspect.getsourcefile(generate_weekly_pdfs)
-        ).read_text(encoding='utf-8')
+        # W5: cleanup_untracked_sheet_attachments relocated to
+        # pipeline/cleanup.py — grep facade + the relocated module so the
+        # call-site (main()) AND definition-site invariants follow the code.
+        import pipeline.cleanup
+        import pipeline.orchestrate  # W6: cleanup call sites live in main()
+        return (
+            pathlib.Path(
+                inspect.getsourcefile(generate_weekly_pdfs)
+            ).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(
+                inspect.getsourcefile(pipeline.cleanup)
+            ).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(
+                inspect.getsourcefile(pipeline.orchestrate)
+            ).read_text(encoding='utf-8')
+        )
 
     def test_cleanup_invoked_twice_in_main(self):
         # Count invocations (call-sites with ``(`` after the

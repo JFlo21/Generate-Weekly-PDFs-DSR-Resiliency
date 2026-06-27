@@ -2477,7 +2477,9 @@ class TestSubcontractorMissingCUWarning(unittest.TestCase):
     def test_warning_text_marker_present_in_module(self):
         """The WARNING template uses the stable marker the sanitizer recognises."""
         import inspect
-        src = inspect.getsource(generate_weekly_pdfs)
+        import pipeline.orchestrate  # W6: end-of-sheet WARNING lives in main()
+        src = (inspect.getsource(generate_weekly_pdfs)
+               + "\n" + inspect.getsource(pipeline.orchestrate))
         self.assertIn(
             'Subcontractor rates CSV missing', src,
             "Missing-CU WARNING template must include the marker "
@@ -2951,9 +2953,16 @@ class TestSubcontractorB1PartitioningGate(unittest.TestCase):
         """
         import inspect
         import pathlib
-        src = pathlib.Path(
-            inspect.getsourcefile(generate_weekly_pdfs)
-        ).read_text(encoding='utf-8')
+        import pipeline.grouping  # W4: group_source_rows relocated here
+        src = (
+            pathlib.Path(
+                inspect.getsourcefile(generate_weekly_pdfs)
+            ).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(
+                inspect.getsourcefile(pipeline.grouping)
+            ).read_text(encoding='utf-8')
+        )
         self.assertIn(
             'if not is_subcontractor_row and not valid_helper_row:',
             src,
@@ -3273,9 +3282,24 @@ class TestHelperShadowSuffixDefensiveRaise(unittest.TestCase):
         # suspenders complement to the behavioral tests above.
         import inspect
         import pathlib
-        src = pathlib.Path(
-            inspect.getsourcefile(generate_weekly_pdfs)
-        ).read_text(encoding='utf-8')
+        # W4: variant-suffix / generate_excel logic relocated to
+        # pipeline/excel.py; group_source_rows to pipeline/grouping.py —
+        # grep facade + both relocated modules so the guard follows the code.
+        import pipeline.grouping
+        import pipeline.excel
+        src = (
+            pathlib.Path(
+                inspect.getsourcefile(generate_weekly_pdfs)
+            ).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(
+                inspect.getsourcefile(pipeline.grouping)
+            ).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(
+                inspect.getsourcefile(pipeline.excel)
+            ).read_text(encoding='utf-8')
+        )
         # The raise text should be unique enough to grep for.
         self.assertIn(
             'aep_billable_helper requires __helper_foreman', src,
@@ -3770,9 +3794,16 @@ class TestHelperShadowVariantFileIdentifier(unittest.TestCase):
         # "test mirror passes but production reverted" failure mode.
         import inspect
         import pathlib
-        src = pathlib.Path(
-            inspect.getsourcefile(generate_weekly_pdfs)
-        ).read_text(encoding='utf-8')
+        import pipeline.orchestrate  # W6: main-loop Site 1 gate lives in main()
+        src = (
+            pathlib.Path(
+                inspect.getsourcefile(generate_weekly_pdfs)
+            ).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(
+                inspect.getsourcefile(pipeline.orchestrate)
+            ).read_text(encoding='utf-8')
+        )
         # Either single- or double-quote tuple syntax acceptable.
         gate_present = (
             "variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper')"
@@ -3796,9 +3827,16 @@ class TestHelperShadowVariantFileIdentifier(unittest.TestCase):
         # slightly different -- count BOTH forms.
         import inspect
         import pathlib
-        src = pathlib.Path(
-            inspect.getsourcefile(generate_weekly_pdfs)
-        ).read_text(encoding='utf-8')
+        import pipeline.orchestrate  # W6: Sites 1/2/3 gates live in main()
+        src = (
+            pathlib.Path(
+                inspect.getsourcefile(generate_weekly_pdfs)
+            ).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(
+                inspect.getsourcefile(pipeline.orchestrate)
+            ).read_text(encoding='utf-8')
+        )
         count_v1 = (
             src.count("variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper')")
             + src.count('variant in ("helper", "aep_billable_helper", "reduced_sub_helper")')
@@ -4039,11 +4077,12 @@ class TestResolveRowPriceQuantityCoercion(unittest.TestCase):
 
     def test_production_source_does_not_carry_or_zero_pattern(self):
         # Source-level guard: the ``or 0`` short-circuit is removed.
+        # Phase 09 W2: ``_resolve_row_price`` was relocated to
+        # ``pipeline/pricing.py``; inspect the function object's source
+        # (which follows the facade re-export to the new module) instead
+        # of the facade file so the guard tracks the code's real home.
         import inspect
-        import pathlib
-        src = pathlib.Path(
-            inspect.getsourcefile(generate_weekly_pdfs)
-        ).read_text(encoding='utf-8')
+        src = inspect.getsource(generate_weekly_pdfs._resolve_row_price)
         self.assertNotIn(
             "row.get('Quantity') or 0",
             src,
@@ -4661,8 +4700,11 @@ class TestCleanupVariantWhitelist(unittest.TestCase):
         the production function. Mirrors the WR-01 source-level
         pattern in TestPppCleanupUntrackedAttachments."""
         import inspect, pathlib
+        import pipeline.cleanup  # W5: cleanup_untracked_sheet_attachments relocated here
         src = pathlib.Path(
             inspect.getsourcefile(generate_weekly_pdfs)
+        ).read_text(encoding='utf-8') + "\n" + pathlib.Path(
+            inspect.getsourcefile(pipeline.cleanup)
         ).read_text(encoding='utf-8')
         self.assertIn(
             'removed_off_contract = 0', src,
@@ -4697,8 +4739,11 @@ class TestCleanupVariantWhitelist(unittest.TestCase):
 
     def test_source_off_contract_delete_log_body_present(self):
         import inspect, pathlib
+        import pipeline.cleanup  # W5: cleanup_untracked_sheet_attachments relocated here
         src = pathlib.Path(
             inspect.getsourcefile(generate_weekly_pdfs)
+        ).read_text(encoding='utf-8') + "\n" + pathlib.Path(
+            inspect.getsourcefile(pipeline.cleanup)
         ).read_text(encoding='utf-8')
         self.assertIn(
             'Removed off-contract variant on sheet', src,
@@ -4716,10 +4761,19 @@ class TestPppCleanupInvocationCarriesWhitelist(unittest.TestCase):
 
     @staticmethod
     def _read_source() -> str:
+        # Phase 09 W6: the PPP cleanup invocation lives in main() (relocated
+        # to pipeline/orchestrate.py) — concatenate it (follow-the-code).
         import inspect, pathlib
-        return pathlib.Path(
-            inspect.getsourcefile(generate_weekly_pdfs)
-        ).read_text(encoding='utf-8')
+        import pipeline.orchestrate
+        return (
+            pathlib.Path(
+                inspect.getsourcefile(generate_weekly_pdfs)
+            ).read_text(encoding='utf-8')
+            + "\n"
+            + pathlib.Path(
+                inspect.getsourcefile(pipeline.orchestrate)
+            ).read_text(encoding='utf-8')
+        )
 
     def test_ppp_invocation_passes_literal_whitelist(self):
         src = self._read_source()

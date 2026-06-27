@@ -56,7 +56,7 @@ NEXTSTEP="$(grep -m1 '^Next:' .planning/STATE.md 2>/dev/null | sed 's/^Next: *//
   echo "- \`.planning/STATE.md\` — start here (position, decisions, next step)"
   echo "- \`.planning/phases/*/*-CONTEXT.md\` — locked decisions per phase"
   echo "- \`.planning/phases/*/*-DISCUSSION-LOG.md\` — alternatives considered"
-  echo "- claude-mem observations + context-mode KB — searchable session history"
+  echo "- \`.remember/\` + context-mode KB — searchable session history"
 } > "$HANDOFF" 2>/dev/null
 
 exit 0

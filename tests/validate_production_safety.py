@@ -124,7 +124,16 @@ def validate_test_mode_is_inert() -> None:
 def validate_per_group_try_catches_all() -> None:
     name = "Claim 3: per-group try/except catches arbitrary writer exceptions"
     import inspect
-    src = Path(REPO_ROOT / "generate_weekly_pdfs.py").read_text(encoding="utf-8")
+    # Phase 09 W6: main() relocated to pipeline/orchestrate.py; concatenate
+    # it (follow-the-code superset) so the per-group / pre-loop try blocks the
+    # validators search for are still found after the relocation.
+    src = (
+        Path(REPO_ROOT / "generate_weekly_pdfs.py").read_text(encoding="utf-8")
+        + "\n"
+        + Path(REPO_ROOT / "pipeline" / "orchestrate.py").read_text(
+            encoding="utf-8"
+        )
+    )
     # Locate the billing_audit try/except and verify it catches
     # ``Exception`` (not a narrower class).
     idx = src.find("# ── Billing audit snapshot: freeze personnel")
@@ -183,7 +192,16 @@ def validate_pre_loop_has_outer_try() -> None:
     name = ("Claim 4: pre-loop bucket block is wrapped in try/except "
             "(after hardening)")
     import re as _re
-    src = Path(REPO_ROOT / "generate_weekly_pdfs.py").read_text(encoding="utf-8")
+    # Phase 09 W6: main() relocated to pipeline/orchestrate.py; concatenate
+    # it (follow-the-code superset) so the per-group / pre-loop try blocks the
+    # validators search for are still found after the relocation.
+    src = (
+        Path(REPO_ROOT / "generate_weekly_pdfs.py").read_text(encoding="utf-8")
+        + "\n"
+        + Path(REPO_ROOT / "pipeline" / "orchestrate.py").read_text(
+            encoding="utf-8"
+        )
+    )
     # Whitespace-tolerant regex: look for a ``try:`` whose body's
     # first ``if`` statement is the three-condition gate, and for
     # the paired ``except Exception as _preloop_err:``. Survives

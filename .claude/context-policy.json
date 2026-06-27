@@ -1,0 +1,6 @@
+{
+  "contextContinuity": {
+    "mode": "enforce"
+  },
+  "_comment": "Read by ~/.claude/hooks/require_context_update_on_stop.js. 'enforce' = the Stop hook blocks session end until a recognized context ledger is updated whenever this session changed code/config. 'warn' = one reminder you may skip with a stated reason. 'off' = disabled. Recognized ledgers that satisfy it: .claude/project-state.md, docs/CHANGELOG_CONTEXT.md, docs/AI_CONTEXT_RESUME.md, docs/DECISIONS.md, docs/RUNBOOK.md, or a second-brain page (wiki/log.md, wiki/current-state.md, wiki/project-dashboard.md, wiki/projects/*.md, wiki/skills/Claude-Code-Skill-Registry.md). To dial back, change 'enforce' -> 'warn'."
+}

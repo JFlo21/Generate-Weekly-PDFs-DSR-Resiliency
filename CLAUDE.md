@@ -346,3 +346,18 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
 > **Self-documenting:** per "Autonomous Cloud Memory Injection" above, append new dated
 > `[YYYY-MM-DD HH:MM]` entries to the BOTTOM of `memory-bank/living-ledger.md` — do NOT
 > inline the ledger back into this file.
+
+## Second-Brain Write-Back (Repo Convention)
+
+Repo-scoped subagents MUST NOT edit Juan's second brain (the OneDrive `my-wiki`
+vault) directly. When a subagent produces durable, cross-session knowledge
+(architecture decisions, incident root-causes, new operational rules), it
+**RETURNS a compact Second-Brain Write-Back Packet** (what changed · why it
+matters · target vault page) in its final message and, if a file is needed,
+drops it in `.claude/writeback-pending/<topic>.md`. The **main session** applies
+vault edits via the `global-second-brain-writeback-bridge` /
+`global-context-continuity` skills, then clears the packet. Never place secrets,
+tokens, or env values in a packet. This mirrors the global ClaudeOS contract and
+keeps vault writes auditable via the `audit_vault_writes.js` hook. Repo status
+itself lands in `.claude/project-state.md`; the navigation map is
+`.claude/context-map.md`.

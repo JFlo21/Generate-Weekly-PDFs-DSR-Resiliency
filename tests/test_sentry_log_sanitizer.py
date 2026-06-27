@@ -503,13 +503,20 @@ def _reload_gwp_with_env(env_overrides):
     with ``sentry_sdk.init`` patched. Returns the mock (so the caller
     can inspect ``call_args``) and the freshly reloaded module.
 
-    The module's Sentry init block runs at import time inside
-    ``if SENTRY_DSN:``, so reloading with a fake DSN while the real
-    ``sentry_sdk.init`` is replaced by a ``MagicMock`` is the only way
-    to verify the init kwargs without a live DSN.
+    Phase 09 Wave 1: the Sentry init block was relocated into
+    ``pipeline.observability.init_sentry()`` (invoked from the facade body
+    at import time — same trigger as the old module-scope ``if SENTRY_DSN:``
+    block). Its import-time state — ``SENTRY_DSN`` and the idempotent
+    ``_SENTRY_INITIALIZED`` flag — now lives in ``pipeline.observability``, so
+    reloading the facade alone neither refreshes the DSN nor re-runs init.
+    We therefore reload ``pipeline.observability`` FIRST under the new env
+    (refreshing ``SENTRY_DSN`` and clearing the flag = a fresh-process
+    simulation), then reload the facade, which re-runs ``init_sentry()``.
     """
+    import pipeline.observability
     with patch.dict(os.environ, env_overrides, clear=False):
         with patch("sentry_sdk.init") as mock_init:
+            importlib.reload(pipeline.observability)
             importlib.reload(gwp)
             return mock_init, gwp
 
@@ -530,11 +537,16 @@ class TestSentryInitWiring:
     def teardown_class(cls):
         # Restore the module to its unpatched, DSN-less state so any
         # subsequent tests in the run see the production code path.
+        # Phase 09 Wave 1: also reload pipeline.observability so the fake
+        # DSN + init flag set during these tests do not leak (SENTRY_DSN now
+        # lives there, re-exported by the facade).
+        import pipeline.observability
         with patch.dict(
             os.environ,
             {"SENTRY_DSN": "", "SENTRY_ENABLE_LOGS": ""},
             clear=False,
         ):
+            importlib.reload(pipeline.observability)
             importlib.reload(gwp)
 
     def test_init_called_when_dsn_is_set(self):

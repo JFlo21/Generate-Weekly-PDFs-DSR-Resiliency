@@ -51,7 +51,13 @@ class TestPrimaryFilenameSuffix(unittest.TestCase):
         gwp.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = self._orig
 
     def test_primary_branch_builds_user_suffix_gated(self):
-        src = inspect.getsource(generate_weekly_pdfs)
+        # W4: filename-suffix logic lives in generate_excel (pipeline/excel.py)
+        # and group_source_rows (pipeline/grouping.py) — grep facade + both.
+        import pipeline.grouping
+        import pipeline.excel
+        src = (inspect.getsource(generate_weekly_pdfs)
+               + "\n" + inspect.getsource(pipeline.grouping)
+               + "\n" + inspect.getsource(pipeline.excel))
         # The primary branch must build _User_<sanitized claimer> gated on
         # the kill switch + a non-empty __current_foreman.
         self.assertIn("_User_", src)
@@ -168,7 +174,11 @@ class TestPrimaryPrePassSource(unittest.TestCase):
     """Task 3: the pre-pass exists with the right shape."""
 
     def test_prepass_block_present(self):
-        src = inspect.getsource(generate_weekly_pdfs)
+        # W4: group_source_rows relocated to pipeline/grouping.py — grep
+        # facade + relocated module so the source guard follows the code.
+        import pipeline.grouping
+        src = (inspect.getsource(generate_weekly_pdfs)
+               + "\n" + inspect.getsource(pipeline.grouping))
         self.assertIn("_primary_claimer_map", src)
         # Phase 2 Plan 02: D uses O(1) map read (_resolve_claimer_d) from
         # shared _attr_map built by prefetch_attribution (D-03).
@@ -367,7 +377,13 @@ class TestPrimaryModeStaysBare(unittest.TestCase):
         )
 
     def test_filename_suffix_gated_on_grouping_mode(self):
-        src = inspect.getsource(generate_weekly_pdfs)
+        # W4: filename-suffix logic lives in generate_excel (pipeline/excel.py)
+        # and group_source_rows (pipeline/grouping.py) — grep facade + both.
+        import pipeline.grouping
+        import pipeline.excel
+        src = (inspect.getsource(generate_weekly_pdfs)
+               + "\n" + inspect.getsource(pipeline.grouping)
+               + "\n" + inspect.getsource(pipeline.excel))
         # The primary filename-suffix branch must require helper/both mode
         # in addition to the kill switch + non-empty __current_foreman.
         # (\s+ tolerates the multi-line ``if (`` continuation form.)
@@ -379,7 +395,9 @@ class TestPrimaryModeStaysBare(unittest.TestCase):
         )
 
     def test_site_a_identity_gated_on_grouping_mode(self):
-        src = inspect.getsource(generate_weekly_pdfs)
+        import pipeline.orchestrate  # W6: main() relocated
+        src = (inspect.getsource(generate_weekly_pdfs)
+               + "\n" + inspect.getsource(pipeline.orchestrate))
         # Site 1 (main-loop history_key/file_identifier): gate must include
         # the grouping-mode check so primary mode produces the legacy
         # (User-field) identifier, NOT a __current_foreman _User_ identity.
@@ -393,7 +411,16 @@ class TestPrimaryModeStaysBare(unittest.TestCase):
 
     def test_sites_bc_identity_gated_on_grouping_mode(self):
         import re as _re
-        src = inspect.getsource(generate_weekly_pdfs)
+        # W4: these mode-gated surfaces span group_source_rows
+        # (pipeline/grouping.py) and generate_excel (pipeline/excel.py) plus
+        # the facade main loop — grep facade + both relocated modules.
+        import pipeline.grouping
+        import pipeline.excel
+        import pipeline.orchestrate  # W6: main()-loop gate relocated
+        src = (inspect.getsource(generate_weekly_pdfs)
+               + "\n" + inspect.getsource(pipeline.grouping)
+               + "\n" + inspect.getsource(pipeline.excel)
+               + "\n" + inspect.getsource(pipeline.orchestrate))
         # Sites 2 & 3 (valid_wr_weeks / current_keys builders) plus the
         # filename suffix and Site 1 all gate the __current_foreman primary
         # partition on the grouping mode -> at least 4 occurrences.
@@ -440,7 +467,9 @@ class TestSiteAMainLoopIdentity(unittest.TestCase):
     when attribution is on (gated), legacy User field when off."""
 
     def test_site_a_gated_primary_identity(self):
-        src = inspect.getsource(generate_weekly_pdfs)
+        import pipeline.orchestrate  # W6: main() relocated
+        src = (inspect.getsource(generate_weekly_pdfs)
+               + "\n" + inspect.getsource(pipeline.orchestrate))
         # The primary identity branch must derive from __current_foreman
         # gated on PRIMARY_CLAIM_ATTRIBUTION_ENABLED, and keep the legacy
         # User-field path for the disabled case.
@@ -462,7 +491,9 @@ class TestSitesBCIdentity(unittest.TestCase):
     branches derive from __current_foreman gated on the kill switch."""
 
     def test_sites_b_and_c_gated_primary_identity(self):
-        src = inspect.getsource(generate_weekly_pdfs)
+        import pipeline.orchestrate  # W6: main() relocated
+        src = (inspect.getsource(generate_weekly_pdfs)
+               + "\n" + inspect.getsource(pipeline.orchestrate))
         # Site 2 (valid_wr_weeks builder): the else branch builds file_id
         # from __current_foreman gated on PRIMARY_CLAIM_ATTRIBUTION_ENABLED.
         self.assertRegex(
@@ -652,7 +683,9 @@ class TestSubprojectDHashPrune(unittest.TestCase):
         self.assertNotIn('_subproject_d_prune_version', hist)
 
     def test_call_site_wired_into_migration_dirty(self):
-        src = inspect.getsource(generate_weekly_pdfs)
+        import pipeline.orchestrate  # W6: prune call site lives in main()
+        src = (inspect.getsource(generate_weekly_pdfs)
+               + "\n" + inspect.getsource(pipeline.orchestrate))
         self.assertRegex(
             src,
             r"if _run_subproject_d_hash_prune\(hash_history, groups\):"
@@ -782,8 +815,30 @@ class TestSubprojectDProductionInvariants(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        # W4: group_source_rows -> pipeline/grouping.py, generate_excel +
+        # variant-suffix helpers -> pipeline/excel.py — grep facade + both
+        # relocated modules so the source guards follow the code.
+        import pipeline.grouping
+        import pipeline.excel
+        import pipeline.cleanup
         with open(inspect.getsourcefile(generate_weekly_pdfs), encoding='utf-8') as f:
             cls.src = f.read()
+        with open(inspect.getsourcefile(pipeline.grouping), encoding='utf-8') as f:
+            cls.src += "\n" + f.read()
+        with open(inspect.getsourcefile(pipeline.excel), encoding='utf-8') as f:
+            cls.src += "\n" + f.read()
+        # W5: cleanup_untracked_sheet_attachments (+ siblings) -> pipeline/cleanup.py
+        with open(inspect.getsourcefile(pipeline.cleanup), encoding='utf-8') as f:
+            cls.src += "\n" + f.read()
+        # W5: _run_subproject_d_hash_prune + SUBPROJECT_D_HASH_PRUNE_VERSION
+        # (+ siblings) -> pipeline/attribution.py
+        import pipeline.attribution
+        with open(inspect.getsourcefile(pipeline.attribution), encoding='utf-8') as f:
+            cls.src += "\n" + f.read()
+        # W6: main() (prune call site) -> pipeline/orchestrate.py
+        import pipeline.orchestrate
+        with open(inspect.getsourcefile(pipeline.orchestrate), encoding='utf-8') as f:
+            cls.src += "\n" + f.read()
 
     def test_filename_suffix_user_gated(self):
         # PR #223 Codex-P1 follow-up widened the primary suffix gate to also
@@ -804,13 +859,16 @@ class TestSubprojectDProductionInvariants(unittest.TestCase):
         )
 
     def test_prune_gated_on_kill_switch(self):
-        # Window widened to 2000: Task 9 added a long docstring (~1824 chars)
-        # between the def line and the kill-switch guard. The structural
-        # invariant (kill-switch early-return) is present and correct in
-        # production; only the scan window needed adjustment.
+        # Window widened to 2600: Task 9 added a long docstring (~1824 chars)
+        # between the def line and the kill-switch guard; Phase 09 W5 relocated
+        # _run_subproject_d_hash_prune to pipeline/attribution.py and prepended
+        # a behaviour-preserving facade-read prelude (~490 chars) that binds
+        # PRIMARY_CLAIM_ATTRIBUTION_ENABLED from the facade before the guard.
+        # The structural invariant (kill-switch early-return) is present and
+        # correct in production; only the scan window needed adjustment.
         self.assertRegex(
             self.src,
-            r"def _run_subproject_d_hash_prune[\s\S]{0,2000}"
+            r"def _run_subproject_d_hash_prune[\s\S]{0,2600}"
             r"if not PRIMARY_CLAIM_ATTRIBUTION_ENABLED:\s*\n\s*return False",
         )
 
