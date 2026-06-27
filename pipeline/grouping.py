@@ -405,6 +405,14 @@ def group_source_rows(rows):
     for _vr in rows:
         if not _vr.get('__is_vac_crew'):
             continue
+        # LOW-01 hardening (2026-06-27): mirror the consumer emission gate's
+        # Units Completed? rule. A VAC claim may only suppress the
+        # foreman/helper copy when the VAC crew is ACTUALLY billed for the
+        # unit (Units Completed? checked). A VAC row without it is dropped
+        # downstream, so suppressing the foreman's completed copy would bill
+        # the unit to nobody (silent under-billing).
+        if not is_checked(_vr.get('Units Completed?')):
+            continue
         _vwr = _vr.get('Work Request #')
         _vdate_raw = _vr.get('Weekly Reference Logged Date')
         if not _vwr or not _vdate_raw:

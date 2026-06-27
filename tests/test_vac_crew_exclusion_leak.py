@@ -145,6 +145,30 @@ class TestVacCrewCrossRowDuplication(unittest.TestCase):
             "A unit not VAC-claimed anywhere must remain with the foreman."
         )
 
+    def test_vac_unchecked_does_not_suppress_foreman_copy(self):
+        # LOW-01 hardening: the cross-row suppression pre-pass must mirror the
+        # consumer emission gate's Units Completed? rule. A VAC row whose unit
+        # is NOT billed (Units Completed? unchecked -> dropped downstream) must
+        # NOT suppress the foreman's COMPLETED copy of that same unit, or the
+        # unit is billed to nobody (silent data loss / under-billing).
+        vac = _vac_row('Point 11', 'ANC-DSC-16-96-D1')
+        vac['Units Completed?'] = False  # VAC crew did NOT complete it
+        rows = [
+            vac,
+            _foreman_row('Point 11', 'ANC-DSC-16-96-D1'),  # foreman DID
+        ]
+        groups = generate_weekly_pdfs.group_source_rows(rows)
+        self.assertIn(
+            'ANC-DSC-16-96-D1', _cus_for_variant(groups, 'primary'),
+            "A VAC row with Units Completed? unchecked is not billed to the "
+            "VAC crew, so it must not suppress the foreman's completed copy -- "
+            "otherwise the unit is billed to nobody."
+        )
+        self.assertNotIn(
+            'ANC-DSC-16-96-D1', _cus_for_variant(groups, 'vac_crew'),
+            "An unchecked VAC row must not be billed to the VAC crew either."
+        )
+
 
 class TestVacCrewSingleRowRouting(unittest.TestCase):
     """A single VAC row routes ONLY to the VacCrew variant, never primary."""
