@@ -4327,3 +4327,88 @@ close-out checks green.
 **Position:** ✅ Phase 09 COMPLETE (7/7 waves). Next: `/gsd-verify-work 09` → PR / milestone close; the ultimate
 proof is the next scheduled 2h production cron running green on the package structure. **Phase 08 (SDK 4.0.0
 breaking migration) is now unblocked** — it touches the same file, so it could not run concurrently with Phase 09.
+
+## [2026-06-30 17:45] — v1.3.1: Smartsheet API-resilience + silent-failure hardening (`pipeline/retry.py`, F1, Sentry frame scrub)
+
+**Context / root cause.** Operator-reported "API errors when the sheets are getting called because there are so
+many sheets inside of the folder." Root cause: the hot **discovery + per-sheet fetch** path issued **bare**
+Smartsheet SDK calls with NO app-level retry — `client.Folders.get_folder_children` (folder browse) and
+`client.Sheets.get_sheet` (validate + fetch). Large folders/sheets intermittently return **Smartsheet error
+code 4000** ("An unexpected error has occurred. Please retry.") which the **SDK does NOT auto-retry** (it is a
+generic `ApiError`, not one of the typed `should_retry=True` exceptions). A single 4000 blip therefore fell into
+`discovery.py`'s `except Exception: … return None`, **silently dropping a whole source sheet — i.e. dropping its
+billing rows from the run with only a log WARNING.** The three attachment-prefetch/upload paths in
+`orchestrate.py` already had retry, but as **three copy-pasted inline loops** (drift risk), and the discovery
+path — the one actually failing — had none.
+
+**RULE — `pipeline/retry.py` is the single source of truth for Smartsheet transient retry.**
+`smartsheet_call_with_retry(func, *args, label, max_attempts=4, max_total_sleep=90.0, **kwargs)`. Retry ONLY the
+transients the SDK does not itself drive to success, and re-raise everything else immediately so real bugs
+surface fast:
+- generic **`ApiError` code 4000** ONLY (`_RETRYABLE_API_CODES = frozenset({4000})`); any other code (1006
+  not-found, 1002 auth, …) is permanent → raise at once. Retrying a permanent code only burns the time budget.
+- transport drops by **TYPE**, not name: the SDK's `_request` wraps every `requests.RequestException` as
+  `UnexpectedRequestError` and an `requests.SSLError` as a bare `HttpError` — so `_TRANSIENT_EXC` lists those
+  TYPES (plus `UnexpectedErrorShouldRetryError`/`ServerTimeoutExceededError`/`SystemMaintenanceError`). The old
+  inline class-**name** substring list silently missed `UnexpectedRequestError` (no network tag in the name).
+- `RateLimitExceededError` → long backoff (15/30/45s), do not hammer a 429.
+- **bounded total sleep** (`max_total_sleep`, default 90s): a single stuck call can NEVER consume
+  `ATTACHMENT_PREFETCH_MAX_MINUTES` / `TIME_BUDGET_MINUTES` (the 2026-04-22 prefetch-stall failure mode).
+- on exhaust → **re-raise the last exception**; callers decide policy. Module imports only stdlib +
+  `smartsheet.exceptions` (zero `pipeline` siblings) so it is import-cycle-safe anywhere.
+
+**RULE — a dropped source sheet must be LOUD but PII-safe.** `discovery.py`'s drop handler now escalates via
+`observability.sentry_capture_sheet_drop(sid, e)` instead of swallowing. It does NOT use a raw
+`capture_exception(exc)`: the engine runs Sentry with `include_local_variables=True` + `attach_stacktrace=True`,
+so frame locals (which on the discovery path hold sampled billing rows — foreman/customer/WR/prices in
+`_sample_rows_cache`) would be serialized into the event. Instead it emits a **sanitized message** (sheet id +
+exception class only) on an isolated scope whose `_strip_frame_vars` event-processor pops `vars` from every
+exception- and thread-stacktrace frame, and fingerprints all same-type drops into ONE grouped issue. **Never add
+a bare `capture_exception` on a billing path without stripping frame vars.**
+
+**RULE — F1 (deferred finding) closed: propagate `resolve_claimer` `no_history`, and branch the remediation
+text by reason.** The sub-helper `no_history` fallback was silent: `resolve_claimer` returns
+`('use', current_value, 'current', 'no_history')` (writer.py:1048-1049,1060) — action is `'use'`, and the
+`action=='use'` branch in `grouping.py` reset `_attribution_reason=None`, so the per-WR observability WARNING
+never fired. Fix: propagate `'no_history'` when `_sh_out.reason == 'no_history'`. **AND** the WARNING's
+remediation text now branches by reason — `fetch_failure` (a genuine PostgREST outage) keeps the "check Supabase
+Logs for PGRST106/PGRST301/PGRST404" guidance; `no_history` (the BENIGN brand-new-claim case — the lookup
+SUCCEEDED, just no frozen row yet, this run freezes it) gets "No frozen attribution exists yet … no action
+needed". A correct alert with the WRONG remediation trains operators to chase phantom Supabase outages or to
+ignore the WARNING entirely.
+
+**LESSON — the operator-proposed patch was directionally right, mechanically wrong (3 ways).** The suggested
+`_smartsheet_api_call_with_retry` (a) targeted "after line 54" = module top, NOT the actual failing call sites
+on the discovery path; (b) caught codes **4002/4003** — but those are already typed `should_retry=True`
+exceptions the SDK retries inside its own ~15s window; the REAL un-retried gap is **4000**; (c) would have added
+a **4th** duplicated retry block. Correct design: one DRY helper, applied at the bare call sites, with the 3
+inline `orchestrate.py` loops consolidated into it (now-dead `import time` / `import smartsheet.exceptions as
+ss_exc` removed). TDD also exposed that **`InternalServerError(500,"msg")` is unconstructable in SDK 3.9.0**
+(broken `super().__init__`) — so tests build transient `ApiError`s via a mock `.error.result.code`, and the
+helper catches generic `ApiError` 4000 rather than the rarely-raised `InternalServerError`.
+
+**LESSON — a dead-branch test gives false confidence.** The two pre-existing F1 tests mocked
+`ResolveOutcome('no_history', None, None, 'no_history')` — an `action` value `resolve_claimer` NEVER returns —
+so they exercised an unreachable `else` and stayed green while the real `action=='use'` path silently zeroed the
+reason. Rewritten to the REAL contract (`('use','ReplacementForeman','current','no_history')`), proven red-first.
+
+**NOTE — intentional behavior delta (4001).** `SystemMaintenanceError` (4001) is in `_TRANSIENT_EXC`, so this
+helper adds a bounded **secondary** backoff on top of the SDK's own retry of 4001. Intentional and bounded by
+`max_total_sleep`; documented here and in the PR body.
+
+**Adversarial self-review before first push — 4 findings, ALL resolved in-PR:** (1) SDK transport-wrap gap →
+fixed by matching `UnexpectedRequestError`/`HttpError` by type; (2) 4001 secondary-backoff delta → documented
+(this NOTE); (3) Sentry frame-var PII exfiltration on the new drop capture → fixed by `_strip_frame_vars` +
+sanitized message; (4) misleading no_history→PGRST remediation text → fixed by branching by reason.
+
+**Verification.** `scripts/run_6_gates.sh` = exit 0 — G1 177 names · G2 107 facade · **G3 1127 pytest** +130
+subtests (new: `tests/test_smartsheet_retry.py` 11, `tests/test_sentry_frame_var_scrub.py` 3; rewrote 2 F1
+tests + 1 perf assertion) · G4 mypy 56→56 neutral · G5 py_compile · G6 21-key TEST_MODE run_summary. Branch
+`fix/api-resilience-silent-failures` cut fresh from `origin/master`. Billing guards intact: change-key /
+delete→upload order / `@cell`=0 / `PARALLEL_WORKERS≤8` / PII-aggregate-only all unchanged; retry is additive on
+existing bare/duplicated call sites only.
+
+**Position:** ✅ implemented + all gates green + adversarial review clean. Next: commit → PR (Objective /
+Changes Made / Production Safety Check) → reviewer-comment-resolution loop until zero open comments → merge to
+`master`. Ultimate proof: the next scheduled 2h production cron surviving a real 4000 blip without dropping a
+source sheet.
