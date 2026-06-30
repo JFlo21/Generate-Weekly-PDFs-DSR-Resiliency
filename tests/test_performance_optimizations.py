@@ -265,6 +265,37 @@ class TestPppAttachmentPrefetchBudget(unittest.TestCase):
         self.assertIn('SUBCONTRACTOR_PPP_SHEET_ID', body)
         self.assertNotIn('TARGET_SHEET_ID', body)
 
+    def test_upload_retry_bypasses_stale_attachment_cache(self):
+        # Codex P2 (PR #281): the Excel upload worker's retry must NOT reuse
+        # the prefetched (pre-upload) attachment_cache on a second attempt —
+        # a prior attempt may have already uploaded the workbook (Smartsheet
+        # accepted it, the SDK then raised a transient), so reusing the stale
+        # cache would make delete_old_excel_attachments miss that file and
+        # upload a DUPLICATE. The worker tracks the attempt number and feeds
+        # delete_old_excel_attachments None on retry to force a LIVE lookup.
+        import re
+        src = self._read_source()
+        m = re.search(
+            r'def _do_upload_attempt\(\):.*?'
+            r'return smartsheet_call_with_retry\(',
+            src,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(
+            m, '_do_upload_attempt body / retry wrapper not found'
+        )
+        body = m.group(0)
+        # First attempt uses the cache; retries fall back to a live lookup.
+        self.assertIn("_upload_attempt['n'] == 1", body)
+        self.assertIn('attachment_cache.get(target_row.id)', body)
+        self.assertIn('else None', body)
+        # The conditional result — not the raw cache read — is what reaches
+        # delete_old_excel_attachments.
+        self.assertIn('cached_attachments=_cached_attachments', body)
+        self.assertNotIn(
+            'cached_attachments=attachment_cache.get(target_row.id)', body
+        )
+
     def test_ppp_prefetch_uses_daemon_executor_explicit_lifecycle(self):
         src = self._read_source()
         # Extract the PPP prefetch block so the executor-lifecycle

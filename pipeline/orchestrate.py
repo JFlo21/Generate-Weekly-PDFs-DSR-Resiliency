@@ -2035,16 +2035,37 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 that's the point: routing decisions live in the
                 builder, mutations live in the worker.
                 """
+                # Per-task attempt counter (local → thread-safe under the
+                # executor.map fan-out below; each _upload_one call owns its
+                # own dict). Used to bypass the stale prefetch cache on retry.
+                _upload_attempt = {'n': 0}
+
                 def _do_upload_attempt():
+                    _upload_attempt['n'] += 1
                     target_row = task['target_row']
                     force_this = FORCE_GENERATION or (task['week_raw'] in REGEN_WEEKS)
 
+                    # Codex P2: the prefetched attachment_cache is a PRE-UPLOAD
+                    # snapshot. On a RETRY it is stale — if a prior attempt's
+                    # attach_file_to_row was accepted by Smartsheet but the SDK
+                    # raised a transient before we observed the response, the
+                    # cached list cannot see that just-created file, so reusing
+                    # it here would make delete_old_excel_attachments miss it and
+                    # upload a DUPLICATE workbook. After the first attempt, pass
+                    # None to force a LIVE per-row attachment lookup, which sees
+                    # and reconciles the prior upload (skip if current-hash file
+                    # already present; delete+reupload under force_generation).
+                    _cached_attachments = (
+                        attachment_cache.get(target_row.id)
+                        if _upload_attempt['n'] == 1
+                        else None
+                    )
                     deleted_count, skipped = delete_old_excel_attachments(
                         client, task['target_sheet_id'], target_row, task['wr_num'],
                         task['week_raw'], task['data_hash'],
                         variant=task['variant'], identifier=task['file_identifier'],
                         force_generation=force_this,
-                        cached_attachments=attachment_cache.get(target_row.id)
+                        cached_attachments=_cached_attachments
                     )
                     if force_this and skipped:
                         skipped = False
