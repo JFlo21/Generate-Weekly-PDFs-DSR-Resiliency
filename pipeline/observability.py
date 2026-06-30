@@ -144,6 +144,54 @@ def sentry_capture_with_context(exception: Exception, context_name: str | None =
     sentry_sdk.capture_exception(exception)
 
 
+def _strip_frame_vars(event: Any, hint: Any) -> Any:
+    """Sentry event processor: drop local-variable values from every
+    stacktrace frame.
+
+    The engine runs Sentry with ``include_local_variables=True``, so frame
+    locals are serialized into every event. On the billing paths those locals
+    can hold row data (foreman / customer / WR / prices). Stripping ``vars``
+    keeps the exception type + stack structure (grouping and debugging still
+    work) while ensuring no row PII rides along. Handles both the
+    ``exception`` stacktrace and the ``threads`` stacktrace that
+    ``attach_stacktrace=True`` adds to message events.
+    """
+    for exc in (event.get("exception") or {}).get("values") or []:
+        for frame in (exc.get("stacktrace") or {}).get("frames") or []:
+            frame.pop("vars", None)
+    for thread in (event.get("threads") or {}).get("values") or []:
+        for frame in (thread.get("stacktrace") or {}).get("frames") or []:
+            frame.pop("vars", None)
+    return event
+
+
+def sentry_capture_sheet_drop(sheet_id: object, exc: BaseException) -> None:
+    """Loud-but-PII-safe Sentry signal for a dropped Smartsheet source sheet.
+
+    A dropped source sheet means missing billing rows, so it must escalate to
+    a Sentry issue rather than hide behind a log WARNING. But a raw
+    ``capture_exception(exc)`` here would attach the caller's frame locals —
+    which on the discovery path include sampled billing rows — because the SDK
+    runs with ``include_local_variables=True``. So we emit a SANITIZED message
+    (sheet id + exception class only) on an isolated scope that strips frame
+    locals, keeping the loud, grouped alert without exfiltrating row PII.
+    """
+    if not SENTRY_DSN:
+        return
+    with sentry_sdk.isolation_scope() as scope:
+        scope.add_event_processor(_strip_frame_vars)
+        scope.set_tag("error_location", "discovery_sheet_drop")
+        scope.set_tag("sheet_id", str(sheet_id))
+        # Group all discovery drops of the same exception type into ONE issue
+        # (loud, not a per-sheet flood); the sheet id is a filterable tag.
+        scope.fingerprint = ["discovery-sheet-drop", type(exc).__name__]
+        sentry_sdk.capture_message(
+            f"Discovery dropped source sheet {sheet_id} after retries "
+            f"({type(exc).__name__})",
+            level="error",
+        )
+
+
 # Log level type for Sentry SDK 2.x
 SentryLogLevel = Literal["fatal", "critical", "error", "warning", "info", "debug"]
 

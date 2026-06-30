@@ -43,7 +43,11 @@ from pipeline.config import (
     PARALLEL_WORKERS_DISCOVERY,
     _parse_sheet_ids,
 )
-from pipeline.observability import sentry_add_breadcrumb
+from pipeline.observability import (
+    sentry_add_breadcrumb,
+    sentry_capture_sheet_drop,
+)
+from pipeline.retry import smartsheet_call_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -90,10 +94,12 @@ def discover_folder_sheets(client, folder_ids: list[int], label: str) -> set[int
                 page_start_time = time.monotonic()
                 seen_last_keys: set = set()
                 for _page_num in range(max_pages):
-                    page = client.Folders.get_folder_children(
+                    page = smartsheet_call_with_retry(
+                        client.Folders.get_folder_children,
                         fid,
                         children_resource_types=["sheets", "folders"],
                         last_key=last_key,
+                        label=f"folder children {fid}",
                     )
                     pages_fetched += 1
                     for item in getattr(page, 'data', None) or []:
@@ -415,7 +421,13 @@ def discover_source_sheets(client):
         try:
             # PERFORMANCE FIX: Fetch only column metadata initially (no row data needed yet)
             # This prevents Error 4000 for large sheets during discovery phase
-            sheet = client.Sheets.get_sheet(sid, include='columns')
+            # RESILIENCE FIX: retry transient API errors (residual 4000, server
+            # timeout, network drop) so a single blip does not silently drop a
+            # whole source sheet (and its billing rows). Bounded backoff.
+            sheet = smartsheet_call_with_retry(
+                client.Sheets.get_sheet, sid, include='columns',
+                label=f"validate sheet {sid}",
+            )
             cols = sheet.columns
             mapping = {}
             by_title = { _title(c.title): c for c in cols }
@@ -605,7 +617,15 @@ def discover_source_sheets(client):
                 logging.warning(f"❌ Skipping sheet {sheet.name} (ID {sid}) - Weekly Reference Logged Date not found (strict mode)")
                 return None
         except Exception as e:
+            # Loud failure: a dropped source sheet = missing billing rows.
+            # Transient errors were already retried (get_sheet above is wrapped
+            # in smartsheet_call_with_retry), so a failure here is persistent.
+            # Escalate to a SANITIZED Sentry capture (frame locals stripped) so
+            # the drop is loud WITHOUT exfiltrating sampled row PII held in this
+            # frame's locals (_sample_rows_cache etc.) — a raw capture_exception
+            # would ship those because the SDK runs include_local_variables=True.
             logging.warning(f"⚡ Failed to validate sheet {sid}: {e}")
+            sentry_capture_sheet_drop(sid, e)
             return None
 
     # ── Incremental mode: only validate NEW sheet IDs, keep cached ones ──
