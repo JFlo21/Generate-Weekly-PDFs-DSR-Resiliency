@@ -16,11 +16,16 @@ changes, both TDD'd, all 6 gates green:
    `ATTACHMENT_PREFETCH_MAX_MINUTES` / `TIME_BUDGET_MINUTES`, **raises on
    exhaust**. Applied to the hot bare call sites (`fetch.py` per-sheet
    `get_sheet`, `discovery.py` folder browse + validate `get_sheet`); the
-   discovery drop handler (was silent `return None`) now **escalates to
-   `sentry_sdk.capture_exception`** so a dropped source sheet (= missing
-   billing) is loud. The 3 duplicate inline retry blocks in
-   `orchestrate.py` (target/PPP attachment prefetch + upload) were
-   **consolidated** into the helper; now-dead `time` / `ss_exc` imports removed.
+   discovery drop handler (was silent `return None`) now **escalates via
+   `observability.sentry_capture_sheet_drop`** — a SANITIZED `capture_message`
+   on an isolated scope with a `_strip_frame_vars` PII processor (NOT
+   `capture_exception`, which would attach `include_local_variables` frames
+   holding sampled billing-row PII) — so a dropped source sheet (= missing
+   billing) is loud without exfiltrating row data. The 3 duplicate inline
+   retry blocks in `orchestrate.py` (target/PPP attachment prefetch + upload)
+   were **consolidated** into the helper (the upload path bypasses the stale
+   prefetch attachment cache on retry to avoid duplicate uploads — Codex P2);
+   now-dead `time` / `ss_exc` imports removed.
 2. **F1 (pre-existing deferred finding) fixed.** `grouping.py` sub-helper
    `no_history` fallback was silent — `resolve_claimer` returns
    `('use', current, 'current', 'no_history')` and the `action=='use'` branch
@@ -29,10 +34,10 @@ changes, both TDD'd, all 6 gates green:
    rewritten to the **real** `resolve_claimer` contract (red-first proven).
 
 **Status:** implemented + `run_6_gates.sh` exit 0 (G1 177 names · G2 107 facade
-· **G3 1122 pytest** +130 subtests · G4 mypy 56→56 · G5 py_compile · G6 21-key
-TEST_MODE run). Adversarial self-review + PR + reviewer-comment-resolution loop
-in progress. See `memory-bank/living-ledger.md` (newest entry) for the full
-what/why/rules.
+· **G3 1130 pytest** +130 subtests · G4 mypy 56→56 · G5 py_compile · G6 21-key
+TEST_MODE run). PR #281 open; adversarial self-review clean + first reviewer
+pass resolved (Copilot doc-accuracy nit + Codex P2 retry-cache-bypass). See
+`memory-bank/living-ledger.md` (newest entry) for the full what/why/rules.
 
 ## History pointer
 **Phase 09 — engine modularization (✅ COMPLETE & MERGED, PR #280 → `889ca2e`).**
