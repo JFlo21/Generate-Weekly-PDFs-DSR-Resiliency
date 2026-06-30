@@ -247,12 +247,23 @@ class TestPppAttachmentPrefetchBudget(unittest.TestCase):
 
     def test_ppp_prefetch_targets_ppp_sheet(self):
         src = self._read_source()
-        # Worker calls Attachments.list_row_attachments with the
-        # PPP sheet id constant (not TARGET_SHEET_ID).
-        self.assertIn(
-            'list_row_attachments(SUBCONTRACTOR_PPP_SHEET_ID',
+        # The PPP worker fetches attachments from the PPP sheet (not
+        # TARGET_SHEET_ID). Post-Phase-10 the list_row_attachments call is
+        # routed through the shared retry helper (smartsheet_call_with_retry),
+        # so the sheet id is a positional arg rather than inside the
+        # method-call parens — assert on the worker body, not a single line.
+        import re
+        m = re.search(
+            r'def _fetch_ppp_row_attachments\b.*?\n(?= {16}\w)',
             src,
+            re.DOTALL,
         )
+        self.assertIsNotNone(m, 'PPP worker function body not found')
+        body = m.group(0)
+        self.assertIn('smartsheet_call_with_retry', body)
+        self.assertIn('list_row_attachments', body)
+        self.assertIn('SUBCONTRACTOR_PPP_SHEET_ID', body)
+        self.assertNotIn('TARGET_SHEET_ID', body)
 
     def test_ppp_prefetch_uses_daemon_executor_explicit_lifecycle(self):
         src = self._read_source()
