@@ -4426,16 +4426,31 @@ its 50-credit trial after pass 1; substantive review came from Codex + Copilot).
 nit (project-state said the drop handler used `capture_exception` — corrected to the sanitized
 `sentry_capture_sheet_drop`, since the stale wording risked a maintainer "restoring" the PII leak). The
 upload-retry thread ran duplicate → data-loss → staleness across three Codex re-reviews of successive fix tips,
-ending in the revert-and-defer RULE above. Declined with evidence (×2): Codex's "add repo-root `sys.path` setup"
-on the two new test files — does NOT reproduce (standalone `pytest <file>` passes; **0 of 26** test files use
-that pattern — pytest rootdir supplies the path; the two smartsheet-stubbing modules install MagicMocks ONLY
-when the real SDK is absent, so they can't shadow `smartsheet.exceptions`). **LESSON — wait for the bot to
-re-review your FIX, not just the original bug; and when a fix chain keeps spawning new failures, the premise is
-wrong.** Each upload-retry "improvement" passed all 6 gates and its own invariant test yet introduced a worse
-billing failure, because they all assumed the row's attachments could reveal what happened — clean-filename mode
-erased that signal by design (hash moved to Supabase). The right move on an unwinnable local fix is to revert to
-the safest baseline and scope the real fix (different mechanism: attachment ordering/age) as its own change —
-never ship a billing data-loss/staleness path to silence a reviewer.
+ending in the revert-and-defer RULE above.
+
+**RULE — `_ensure_smartsheet_mocked` must stub ONLY when the real SDK is unimportable (collection-order test
+isolation).** The shared helper (`tests/test_billing_audit_shadow.py`, called at module load by
+`test_subcontractor_helper_shadow_rescue.py` BEFORE it imports `generate_weekly_pdfs`) originally guarded on
+`if "smartsheet" not in sys.modules`. When that module is collected FIRST, the real-but-not-yet-imported SDK is
+absent from `sys.modules`, so it stubbed `smartsheet.exceptions` as a `MagicMock`; `pipeline.retry` imported
+under that stub bound MagicMocks into `_TRANSIENT_EXC`, and `test_smartsheet_retry` (collected after) raised
+`TypeError: catching classes that do not inherit from BaseException`. The FULL suite passed only because an
+earlier file imported the real SDK first — masking the order-sensitivity. FIX: try the real import first; stub
+ONLY on `ImportError` (genuine SDK-absent CI). Guard: `test_ensure_smartsheet_mocked_does_not_stub_importable_sdk`.
+
+**LESSON — a bot that has been right keeps earning scrutiny; do not dismiss a falsifiable repro.** Codex raised
+this test-isolation concern THREE times; I declined it twice on the `sys.path` framing (which WAS a red herring —
+0/26 files manipulate `sys.path`, pytest rootdir supplies it) and missed that the *underlying* MagicMock-
+contamination was REAL — I had checked the wrong two stubbing files and overlooked the third
+(`test_subcontractor_helper_shadow_rescue`). The third time Codex attached a concrete reproduction
+(`PYTHONPATH=. pytest <stub-file> <retry-file>` → 10 failed); RUNNING it immediately proved the bug. **When a
+reviewer hands you a falsifiable command, run it before replying — especially a reviewer already proven right on
+this PR.** **LESSON — wait for the bot to re-review your FIX, not just the original bug; and when a fix chain
+keeps spawning new failures, the premise is wrong.** Each upload-retry "improvement" passed all 6 gates and its
+own invariant test yet introduced a worse billing failure, because they all assumed the row's attachments could
+reveal what happened — clean-filename mode erased that signal by design (hash moved to Supabase). The right move
+on an unwinnable local fix is to revert to the safest baseline and scope the real fix (different mechanism:
+attachment ordering/age) as its own change — never ship a billing data-loss/staleness path to silence a reviewer.
 
 **Verification.** `scripts/run_6_gates.sh` = exit 0 — G1 177 names · G2 107 facade · **G3 1127 pytest** +130
 subtests (new: `tests/test_smartsheet_retry.py` 11, `tests/test_sentry_frame_var_scrub.py` 3; rewrote 2 F1
