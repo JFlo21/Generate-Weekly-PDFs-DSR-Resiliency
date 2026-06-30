@@ -4401,31 +4401,41 @@ fixed by matching `UnexpectedRequestError`/`HttpError` by type; (2) 4001 seconda
 (this NOTE); (3) Sentry frame-var PII exfiltration on the new drop capture → fixed by `_strip_frame_vars` +
 sanitized message; (4) misleading no_history→PGRST remediation text → fixed by branching by reason.
 
-**RULE — upload retry MUST be idempotent; NEVER delete a committed upload on retry (billing data-loss guard).**
-The Excel-upload worker (`orchestrate.py` `_do_upload_attempt`) wraps the whole delete+upload op in
-`smartsheet_call_with_retry`. The naïve "retry = delete-then-reupload again" is UNSAFE: a prior attempt may have
-COMMITTED the workbook (Smartsheet accepted `attach_file_to_row`) but had the SDK raise a transient before the
-response was observed. In `SUPABASE_HASH_STORE_AUTHORITATIVE` mode the filename is CLEAN (no embedded hash), so
-`delete_old_excel_attachments` has **no filename-hash skip** (cleanup.py:520-527 only short-circuits in legacy
-mode) — it would DELETE that committed copy and, if the re-upload then fails, leave the row with **zero
-workbooks** (data loss, strictly worse than a duplicate). FIX: on a retry, fetch the row's LIVE attachment state
-once and, if a same-identity workbook is already present, PRESERVE it and return `'uploaded'` (do NOT
-delete+reupload); reuse that snapshot for the delete. `force_generation` is exempt (force always regenerates).
-The FIRST attempt still uses the fast prefetch cache. The prefetch cache is a PRE-upload snapshot — never feed it
-to the delete on a retry. (Codex P2 review on PR #281. Pre-existing latent issue in the old inline retry loop;
-the consolidation made it the single fix site.)
+**RULE — upload-retry idempotency is UNSOLVABLE by attachment inspection in clean-filename authoritative mode;
+keep the safe baseline and defer the real fix.** The Excel-upload worker (`orchestrate.py` `_do_upload_attempt`)
+wraps the whole delete+upload op in `smartsheet_call_with_retry`. A retry is hard because a prior attempt may
+have COMMITTED the workbook (Smartsheet accepted `attach_file_to_row`) but had the SDK raise a transient before
+the response was observed. The decisive fact: production sets `SUPABASE_HASH_STORE_AUTHORITATIVE='1'`
+(`weekly-excel-generation.yml`), so filenames are CLEAN — pure identity, **no timestamp and no hash**
+(`excel.py:401-407`) — and `delete_old_excel_attachments` has **no filename-hash skip** (cleanup.py:520-527 only
+short-circuits in legacy mode). Therefore a freshly committed file is **indistinguishable from a stale
+same-identity one** by ANY attachment inspection. A 3-step fix chain proved this the hard way (each fix spawned
+the next failure): (1) bypass cache → live-delete-then-reupload → **data loss** if the re-upload fails; (2)
+preserve any same-identity file as success → **silent staleness** (reports a stale Excel as uploaded when a prior
+delete failed). RESOLUTION: revert to the ORIGINAL behavior — pass the prefetched cache on every attempt
+(behavior-preserving vs the pre-PR inline loop). Its only residual is a **benign, self-healing, visible
+DUPLICATE** on the rare commit-then-transient retry, reconciled by the next run's delete→upload. The proper fix
+is **upload-then-delete-by-attachment-age** (upload first so the new file always lands, then delete older
+same-identity attachments by `createdAt`/id) — this CHANGES the documented delete→upload ordering guardrail, so
+it is deferred to a dedicated, separately-tested PR. Do NOT re-introduce a retry special-case in
+`_do_upload_attempt` without that ordering change (guarded by
+`test_upload_worker_retry_is_behavior_preserving`).
 
-**Reviewer-comment-resolution loop (PR #281).** Two automated review passes after first push (Greptile exhausted
-its 50-credit trial; review came from Codex + Copilot). Resolved: Copilot doc-accuracy nit (project-state said
-the drop handler used `capture_exception` — corrected to the sanitized `sentry_capture_sheet_drop`, since the
-stale wording risked a maintainer "restoring" the PII leak); Codex P2 retry duplicate→**evolved into** the
-data-loss RULE above when Codex's re-review of the fix tip caught that the first fix (cache-bypass) traded a
-duplicate for data loss. Declined with evidence: Codex's "add repo-root `sys.path` setup" on the two new test
-files — does NOT reproduce here (standalone `pytest <file>` passes; **0 of 26** test files use that pattern —
-pytest rootdir supplies the path; the two smartsheet-stubbing modules install MagicMocks ONLY when the real SDK
-is absent, so they can't shadow `smartsheet.exceptions`). LESSON: an automated reviewer's re-review of YOUR FIX
-is where the highest-value findings land — wait for the bot to review the actual fix commit before merging; the
-first fix can introduce a worse failure mode than the bug it closed.
+**Reviewer-comment-resolution loop (PR #281).** Four automated review passes after first push (Greptile exhausted
+its 50-credit trial after pass 1; substantive review came from Codex + Copilot). Resolved: Copilot doc-accuracy
+nit (project-state said the drop handler used `capture_exception` — corrected to the sanitized
+`sentry_capture_sheet_drop`, since the stale wording risked a maintainer "restoring" the PII leak). The
+upload-retry thread ran duplicate → data-loss → staleness across three Codex re-reviews of successive fix tips,
+ending in the revert-and-defer RULE above. Declined with evidence (×2): Codex's "add repo-root `sys.path` setup"
+on the two new test files — does NOT reproduce (standalone `pytest <file>` passes; **0 of 26** test files use
+that pattern — pytest rootdir supplies the path; the two smartsheet-stubbing modules install MagicMocks ONLY
+when the real SDK is absent, so they can't shadow `smartsheet.exceptions`). **LESSON — wait for the bot to
+re-review your FIX, not just the original bug; and when a fix chain keeps spawning new failures, the premise is
+wrong.** Each upload-retry "improvement" passed all 6 gates and its own invariant test yet introduced a worse
+billing failure, because they all assumed the row's attachments could reveal what happened — clean-filename mode
+erased that signal by design (hash moved to Supabase). The right move on an unwinnable local fix is to revert to
+the safest baseline and scope the real fix (different mechanism: attachment ordering/age) as its own change —
+never ship a billing data-loss/staleness path to silence a reviewer.
 
 **Verification.** `scripts/run_6_gates.sh` = exit 0 — G1 177 names · G2 107 facade · **G3 1127 pytest** +130
 subtests (new: `tests/test_smartsheet_retry.py` 11, `tests/test_sentry_frame_var_scrub.py` 3; rewrote 2 F1

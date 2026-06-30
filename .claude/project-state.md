@@ -23,12 +23,17 @@ changes, both TDD'd, all 6 gates green:
    holding sampled billing-row PII) — so a dropped source sheet (= missing
    billing) is loud without exfiltrating row data. The 3 duplicate inline
    retry blocks in `orchestrate.py` (target/PPP attachment prefetch + upload)
-   were **consolidated** into the helper. The upload path is now **retry-
-   idempotent**: on a retry it preserves a same-identity workbook a prior
-   attempt already committed (treats it as uploaded) rather than delete-then-
-   reupload — which in clean-filename authoritative mode would risk leaving the
-   row with no workbook (Codex P2 data-loss guard). Now-dead `time` / `ss_exc`
-   imports removed.
+   were **consolidated** into the helper. The upload worker is **behavior-
+   preserving** vs the original inline loop (passes the prefetch cache every
+   attempt). Codex flagged a retry idempotency gap in `SUPABASE_HASH_STORE_
+   AUTHORITATIVE` clean-filename mode (ON in prod), but it is **not solvable by
+   attachment inspection** (clean names carry no timestamp/hash, so a freshly
+   committed file is indistinguishable from a stale same-identity one — both
+   delete-then-reupload and preserve-on-identity are unsafe). Kept the safe
+   baseline (benign self-healing duplicate on a rare retry, reconciled next
+   run); the proper fix (upload-then-delete-by-attachment-age) changes the
+   delete→upload guardrail and is **deferred to a dedicated PR**. Now-dead
+   `time` / `ss_exc` imports removed.
 2. **F1 (pre-existing deferred finding) fixed.** `grouping.py` sub-helper
    `no_history` fallback was silent — `resolve_claimer` returns
    `('use', current, 'current', 'no_history')` and the `action=='use'` branch
