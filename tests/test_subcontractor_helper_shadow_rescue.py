@@ -464,13 +464,18 @@ class TestEndToEndPipeline(unittest.TestCase):
     def test_bug_c_no_history_falls_back_to_current_helper_with_warning(self):
         """D-12 no_history fallback + WARNING discipline.
 
-        Phase 2 Plan 02 update: the sub-helper path now calls
-        resolve_claimer with prefetched_map (O(1) map read, D-03).
-        A 'no_history' outcome triggers the D-12 fallback + WARNING.
+        Uses the REAL resolve_claimer contract: a genuine no-history row
+        returns ResolveOutcome('use', current_value, 'current', 'no_history')
+        (writer.py:1048-1049, 1060) — action is 'use', NOT 'no_history'. The
+        previous mock returned action='no_history', a value the resolver
+        never produces; it exercised an unreachable else branch and hid the
+        silent-fallback bug (the 'use' path reset the reason to None, so the
+        per-WR WARNING never fired in production).
         """
         with mock.patch(
             'billing_audit.writer.resolve_claimer',
-            return_value=ResolveOutcome('no_history', None, None, 'no_history'),
+            return_value=ResolveOutcome(
+                'use', 'ReplacementForeman', 'current', 'no_history'),
         ), self.assertLogs(level='WARNING') as log_cm:
             row = self._make_synth_helper_row()
             groups = generate_weekly_pdfs.group_source_rows([row])
@@ -480,6 +485,12 @@ class TestEndToEndPipeline(unittest.TestCase):
             warning_bodies,
         )
         self.assertIn('reason=no_history', warning_bodies)
+        # F1 follow-up: no_history is the benign brand-new-claim case (the
+        # lookup SUCCEEDED, just no frozen row yet — this run freezes it), so
+        # the remediation must NOT point operators at a Supabase PGRST outage
+        # that never happened.
+        self.assertIn('No frozen attribution', warning_bodies)
+        self.assertNotIn('PGRST', warning_bodies)
         # Row falls back to current helper
         keys = list(groups.keys())
         self.assertTrue(
@@ -503,17 +514,21 @@ class TestEndToEndPipeline(unittest.TestCase):
             generate_weekly_pdfs.group_source_rows([row])
         warning_bodies = '\n'.join(log_cm.output)
         self.assertIn('reason=fetch_failure', warning_bodies)
+        # fetch_failure IS a real PostgREST outage — keep the Supabase Logs
+        # investigation guidance (contrast with the benign no_history case).
+        self.assertIn('PGRST', warning_bodies)
 
     def test_bug_c_warning_dedupe_per_wr_helper(self):
         """Per-WR WARNING fires ONCE per (wr, week, helper) tuple.
 
-        Phase 2 Plan 02 update: the sub-helper path now calls
-        resolve_claimer with prefetched_map (O(1) map read, D-03).
-        A 'no_history' outcome triggers the per-WR deduped WARNING.
+        Uses the REAL resolve_claimer contract (action='use',
+        reason='no_history') so the dedupe is verified on the path
+        production actually takes, not the unreachable else branch.
         """
         with mock.patch(
             'billing_audit.writer.resolve_claimer',
-            return_value=ResolveOutcome('no_history', None, None, 'no_history'),
+            return_value=ResolveOutcome(
+                'use', 'ReplacementForeman', 'current', 'no_history'),
         ), self.assertLogs(level='WARNING') as log_cm:
             rows = [
                 self._make_synth_helper_row(row_id=i)

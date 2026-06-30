@@ -996,7 +996,17 @@ def group_source_rows(rows):
                                     _attributed_helper = (
                                         _sh_out.name or helper_foreman
                                     )
-                                    _attribution_reason = None
+                                    # F1 fix: a genuine no-history row returns
+                                    # action='use' with reason='no_history'
+                                    # (writer.py:1048-1049, 1060). Propagate
+                                    # it so the per-WR fallback WARNING below
+                                    # fires; a real frozen/current 'success'
+                                    # attribution stays silent (reason=None).
+                                    _attribution_reason = (
+                                        'no_history'
+                                        if _sh_out.reason == 'no_history'
+                                        else None
+                                    )
                                 elif _sh_out.action == 'hold':
                                     # fetch_failure: D-12 default (current
                                     # helper), flag for WARNING below.
@@ -1037,6 +1047,30 @@ def group_source_rows(rows):
                             )
                             if _warning_key not in _bug_c_warning_seen:
                                 _bug_c_warning_seen.add(_warning_key)
+                                # Remediation text branches by reason. The two
+                                # fallback reasons are NOT the same severity:
+                                #   fetch_failure → a genuine PostgREST outage
+                                #     (the lookup RPC errored): point the
+                                #     operator at Supabase Logs to confirm and
+                                #     clear the outage.
+                                #   no_history → the BENIGN brand-new-claim
+                                #     case: the lookup SUCCEEDED, there is just
+                                #     no frozen row yet (this run freezes it).
+                                #     A PGRST outage hunt here is a false lead —
+                                #     so the remediation must NOT cite PGRST.
+                                if _attribution_reason == 'fetch_failure':
+                                    _remediation = (
+                                        "To investigate: check Supabase Logs "
+                                        "for PGRST106/PGRST301/PGRST404 on the "
+                                        "'lookup_attribution' op."
+                                    )
+                                else:  # no_history
+                                    _remediation = (
+                                        "No frozen attribution exists yet — "
+                                        "this run freezes it; no action needed "
+                                        "unless a prior frozen claim was "
+                                        "expected for this helper."
+                                    )
                                 # PII marker: "Subcontractor helper
                                 # claim attribution fallback" — added
                                 # to _PII_LOG_MARKERS in Step 2.
@@ -1048,10 +1082,7 @@ def group_source_rows(rows):
                                     f"(reason={_attribution_reason}). "
                                     f"Helper file rows will fall back to "
                                     f"the current `Foreman Helping?` "
-                                    f"value. To investigate: check "
-                                    f"Supabase Logs for "
-                                    f"PGRST106/PGRST301/PGRST404 on the "
-                                    f"'lookup_attribution' op."
+                                    f"value. {_remediation}"
                                 )
 
                         # Use the attributed helper (or current helper
