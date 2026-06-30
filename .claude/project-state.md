@@ -23,9 +23,12 @@ changes, both TDD'd, all 6 gates green:
    holding sampled billing-row PII) — so a dropped source sheet (= missing
    billing) is loud without exfiltrating row data. The 3 duplicate inline
    retry blocks in `orchestrate.py` (target/PPP attachment prefetch + upload)
-   were **consolidated** into the helper (the upload path bypasses the stale
-   prefetch attachment cache on retry to avoid duplicate uploads — Codex P2);
-   now-dead `time` / `ss_exc` imports removed.
+   were **consolidated** into the helper. The upload path is now **retry-
+   idempotent**: on a retry it preserves a same-identity workbook a prior
+   attempt already committed (treats it as uploaded) rather than delete-then-
+   reupload — which in clean-filename authoritative mode would risk leaving the
+   row with no workbook (Codex P2 data-loss guard). Now-dead `time` / `ss_exc`
+   imports removed.
 2. **F1 (pre-existing deferred finding) fixed.** `grouping.py` sub-helper
    `no_history` fallback was silent — `resolve_claimer` returns
    `('use', current, 'current', 'no_history')` and the `action=='use'` branch
