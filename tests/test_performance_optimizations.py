@@ -265,14 +265,18 @@ class TestPppAttachmentPrefetchBudget(unittest.TestCase):
         self.assertIn('SUBCONTRACTOR_PPP_SHEET_ID', body)
         self.assertNotIn('TARGET_SHEET_ID', body)
 
-    def test_upload_retry_bypasses_stale_attachment_cache(self):
-        # Codex P2 (PR #281): the Excel upload worker's retry must NOT reuse
-        # the prefetched (pre-upload) attachment_cache on a second attempt —
-        # a prior attempt may have already uploaded the workbook (Smartsheet
-        # accepted it, the SDK then raised a transient), so reusing the stale
-        # cache would make delete_old_excel_attachments miss that file and
-        # upload a DUPLICATE. The worker tracks the attempt number and feeds
-        # delete_old_excel_attachments None on retry to force a LIVE lookup.
+    def test_upload_retry_preserves_committed_upload(self):
+        # Codex P2 (PR #281): the Excel upload worker's retry must be
+        # idempotent and must NOT cause data loss. A prior attempt may have
+        # committed the workbook (Smartsheet accepted it, the SDK then raised a
+        # transient before observing the response). In clean-filename
+        # SUPABASE_HASH_STORE_AUTHORITATIVE mode there is no filename-hash skip,
+        # so a naive delete-then-reupload on retry would delete that committed
+        # copy and, if the re-upload then fails, leave the row with NO workbook
+        # (data loss — worse than a duplicate). The worker therefore, on retry,
+        # does a LIVE identity lookup and PRESERVES an already-present
+        # same-identity attachment (treats it as uploaded) instead of
+        # delete+reupload.
         import re
         src = self._read_source()
         m = re.search(
@@ -285,13 +289,15 @@ class TestPppAttachmentPrefetchBudget(unittest.TestCase):
             m, '_do_upload_attempt body / retry wrapper not found'
         )
         body = m.group(0)
-        # First attempt uses the cache; retries fall back to a live lookup.
-        self.assertIn("_upload_attempt['n'] == 1", body)
+        # Retry is distinguished from the first attempt.
+        self.assertIn('_is_retry', body)
+        # On retry, an existing same-identity attachment is detected and
+        # PRESERVED (early-return as uploaded) — never deleted-then-reuploaded.
+        self.assertIn('_has_existing_week_attachment(', body)
+        self.assertIn("return 'uploaded'", body)
+        # First attempt still uses the fast prefetch cache; the retry path must
+        # NOT feed the stale pre-upload prefetch snapshot into the delete.
         self.assertIn('attachment_cache.get(target_row.id)', body)
-        self.assertIn('else None', body)
-        # The conditional result — not the raw cache read — is what reaches
-        # delete_old_excel_attachments.
-        self.assertIn('cached_attachments=_cached_attachments', body)
         self.assertNotIn(
             'cached_attachments=attachment_cache.get(target_row.id)', body
         )

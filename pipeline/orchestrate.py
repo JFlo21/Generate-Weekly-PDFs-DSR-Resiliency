@@ -2037,29 +2037,58 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 """
                 # Per-task attempt counter (local → thread-safe under the
                 # executor.map fan-out below; each _upload_one call owns its
-                # own dict). Used to bypass the stale prefetch cache on retry.
+                # own dict). Drives the retry idempotency guard in the closure.
                 _upload_attempt = {'n': 0}
 
                 def _do_upload_attempt():
                     _upload_attempt['n'] += 1
+                    _is_retry = _upload_attempt['n'] > 1
                     target_row = task['target_row']
                     force_this = FORCE_GENERATION or (task['week_raw'] in REGEN_WEEKS)
 
-                    # Codex P2: the prefetched attachment_cache is a PRE-UPLOAD
-                    # snapshot. On a RETRY it is stale — if a prior attempt's
-                    # attach_file_to_row was accepted by Smartsheet but the SDK
-                    # raised a transient before we observed the response, the
-                    # cached list cannot see that just-created file, so reusing
-                    # it here would make delete_old_excel_attachments miss it and
-                    # upload a DUPLICATE workbook. After the first attempt, pass
-                    # None to force a LIVE per-row attachment lookup, which sees
-                    # and reconciles the prior upload (skip if current-hash file
-                    # already present; delete+reupload under force_generation).
-                    _cached_attachments = (
-                        attachment_cache.get(target_row.id)
-                        if _upload_attempt['n'] == 1
-                        else None
-                    )
+                    # Codex P2 — retry idempotency / data-loss guard. The
+                    # prefetched attachment_cache is a PRE-UPLOAD snapshot, so on
+                    # a retry it is stale. A prior attempt may have uploaded the
+                    # workbook successfully but had the SDK raise a transient
+                    # before we observed the response (commit-then-report-fail).
+                    # In SUPABASE_HASH_STORE_AUTHORITATIVE mode filenames are
+                    # clean (no hash token), so delete_old_excel_attachments has
+                    # NO filename-hash skip and would DELETE that committed copy
+                    # then re-upload — leaving the row with NO workbook if the
+                    # re-upload then fails (data loss, strictly worse than a
+                    # duplicate). So on a retry: fetch the row's LIVE attachment
+                    # state ONCE, and if the same-identity workbook is already
+                    # present (a prior committed attempt), PRESERVE it and report
+                    # success instead of delete-then-reupload. Reuse that same
+                    # live snapshot for the delete so it sees the row's true
+                    # state. force_this is exempt (force always regenerates).
+                    if _is_retry:
+                        try:
+                            _live_atts = client.Attachments.list_row_attachments(
+                                task['target_sheet_id'], target_row.id
+                            ).data
+                        except Exception:
+                            _live_atts = None  # fall back to per-call live lookup
+                        if (
+                            not force_this
+                            and not SKIP_UPLOAD
+                            and _has_existing_week_attachment(
+                                client, task['target_sheet_id'], target_row,
+                                task['wr_num'], task['week_raw'],
+                                variant=task['variant'],
+                                identifier=task['file_identifier'],
+                                cached_attachments=_live_atts,
+                            )
+                        ):
+                            logging.info(
+                                f"✅ Retry: {task['filename']} already on row "
+                                f"{target_row.id} from a prior committed "
+                                f"attempt; preserving (treating as uploaded)."
+                            )
+                            return 'uploaded'
+                        _cached_attachments = _live_atts
+                    else:
+                        _cached_attachments = attachment_cache.get(target_row.id)
                     deleted_count, skipped = delete_old_excel_attachments(
                         client, task['target_sheet_id'], target_row, task['wr_num'],
                         task['week_raw'], task['data_hash'],
