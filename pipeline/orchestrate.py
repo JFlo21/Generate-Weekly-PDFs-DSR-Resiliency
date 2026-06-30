@@ -2035,66 +2035,36 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 that's the point: routing decisions live in the
                 builder, mutations live in the worker.
                 """
-                # Per-task attempt counter (local → thread-safe under the
-                # executor.map fan-out below; each _upload_one call owns its
-                # own dict). Drives the retry idempotency guard in the closure.
-                _upload_attempt = {'n': 0}
-
                 def _do_upload_attempt():
-                    _upload_attempt['n'] += 1
-                    _is_retry = _upload_attempt['n'] > 1
                     target_row = task['target_row']
                     force_this = FORCE_GENERATION or (task['week_raw'] in REGEN_WEEKS)
 
-                    # Codex P2 — retry idempotency / data-loss guard. The
-                    # prefetched attachment_cache is a PRE-UPLOAD snapshot, so on
-                    # a retry it is stale. A prior attempt may have uploaded the
-                    # workbook successfully but had the SDK raise a transient
-                    # before we observed the response (commit-then-report-fail).
-                    # In SUPABASE_HASH_STORE_AUTHORITATIVE mode filenames are
-                    # clean (no hash token), so delete_old_excel_attachments has
-                    # NO filename-hash skip and would DELETE that committed copy
-                    # then re-upload — leaving the row with NO workbook if the
-                    # re-upload then fails (data loss, strictly worse than a
-                    # duplicate). So on a retry: fetch the row's LIVE attachment
-                    # state ONCE, and if the same-identity workbook is already
-                    # present (a prior committed attempt), PRESERVE it and report
-                    # success instead of delete-then-reupload. Reuse that same
-                    # live snapshot for the delete so it sees the row's true
-                    # state. force_this is exempt (force always regenerates).
-                    if _is_retry:
-                        try:
-                            _live_atts = client.Attachments.list_row_attachments(
-                                task['target_sheet_id'], target_row.id
-                            ).data
-                        except Exception:
-                            _live_atts = None  # fall back to per-call live lookup
-                        if (
-                            not force_this
-                            and not SKIP_UPLOAD
-                            and _has_existing_week_attachment(
-                                client, task['target_sheet_id'], target_row,
-                                task['wr_num'], task['week_raw'],
-                                variant=task['variant'],
-                                identifier=task['file_identifier'],
-                                cached_attachments=_live_atts,
-                            )
-                        ):
-                            logging.info(
-                                f"✅ Retry: {task['filename']} already on row "
-                                f"{target_row.id} from a prior committed "
-                                f"attempt; preserving (treating as uploaded)."
-                            )
-                            return 'uploaded'
-                        _cached_attachments = _live_atts
-                    else:
-                        _cached_attachments = attachment_cache.get(target_row.id)
+                    # Retry idempotency note (Codex P2 thread, PR #281): this
+                    # delete+upload op is wrapped in smartsheet_call_with_retry
+                    # and is behavior-preserving vs the original inline loop —
+                    # it passes the prefetched attachment_cache on every attempt.
+                    # Making the retry STRICTLY idempotent is not achievable by
+                    # attachment inspection in SUPABASE_HASH_STORE_AUTHORITATIVE
+                    # clean-filename mode (ON in production:
+                    # weekly-excel-generation.yml). Clean names carry no
+                    # timestamp/hash (excel.py:401-407), so a freshly committed
+                    # file is INDISTINGUISHABLE from a stale same-identity one —
+                    # both "live-delete-then-reupload" (risks data loss if the
+                    # re-upload fails) and "preserve any same-identity file"
+                    # (risks reporting a stale Excel as success) are unsafe. The
+                    # only residual issue with the current behavior is a benign,
+                    # self-healing DUPLICATE on the rare commit-then-transient
+                    # retry, which the next scheduled run's delete→upload
+                    # reconciles. A proper fix (upload-then-delete-by-attachment-
+                    # age) changes the delete→upload ordering guardrail and is
+                    # deferred to a dedicated PR. Do NOT re-introduce a retry
+                    # special-case here without that ordering change.
                     deleted_count, skipped = delete_old_excel_attachments(
                         client, task['target_sheet_id'], target_row, task['wr_num'],
                         task['week_raw'], task['data_hash'],
                         variant=task['variant'], identifier=task['file_identifier'],
                         force_generation=force_this,
-                        cached_attachments=_cached_attachments
+                        cached_attachments=attachment_cache.get(target_row.id)
                     )
                     if force_this and skipped:
                         skipped = False
