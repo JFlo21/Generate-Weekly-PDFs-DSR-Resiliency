@@ -26,12 +26,18 @@ re-raised — callers decide whether to degrade (return ``[]``) or fail loud
 """
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from unittest import mock
 
 import pytest
 import smartsheet.exceptions as ss_exc
 
-from pipeline.retry import smartsheet_call_with_retry
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from pipeline.retry import smartsheet_call_with_retry  # noqa: E402
 
 
 def _api_error(code: int, message: str = "api error") -> ss_exc.ApiError:

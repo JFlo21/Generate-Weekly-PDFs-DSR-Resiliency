@@ -4495,3 +4495,33 @@ final tip: before_send PII scrub + `unavailable` status), 6 gates green (G3 1133
 verified. Next: push → confirm Codex's review of the fix tip is silent → merge to `master`. Ultimate proof: the
 next scheduled 2h cron surviving a real 4000 blip without dropping a source sheet, and a genuinely-unavailable
 Supabase producing an accurate (not misleading) attribution WARNING.
+
+---
+
+## [2026-06-30 19:48] — RULE: new test files importing `pipeline.*` MUST bootstrap `_REPO_ROOT` into `sys.path`
+
+**RULE — a test module that imports `pipeline.*` / `billing_audit.*` / `generate_weekly_pdfs` at top level MUST
+insert the repo root into `sys.path` BEFORE that import; do not rely on collection-order side effects.** The repo
+has no `conftest.py` and no `[tool.pytest.ini_options] pythonpath` in `pyproject.toml`, so `pipeline` is importable
+only because 8 existing test files each run, at import time:
+
+```python
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+```
+
+and that mutation persists in the shared `sys.path` for the rest of the process. A new file WITHOUT the bootstrap
+(`tests/test_smartsheet_retry.py`, `tests/test_sentry_frame_var_scrub.py`) passes in the full `pytest tests/` run
+only because an alphabetically-earlier file (`test_billing_audit_shadow.py`, "b") mutates `sys.path` during
+collection before the "s" files import. Run one alone —
+`cd tests && python -m pytest test_smartsheet_retry.py` — and collection dies with
+`ModuleNotFoundError: No module named 'pipeline'`. That single-file workflow is documented in `CLAUDE.md`
+("run one file"), so it must work. Fix = the standard bootstrap block + `# noqa: E402` on the post-bootstrap
+import, matching every sibling. Codex P2 ×2, PR #281 — the SECOND time Codex has caught `sys.path` fragility on
+this PR (the first was the `_ensure_smartsheet_mocked` MagicMock stub). **Reviewer proven right on `sys.path`
+twice: run the falsifiable single-file repro before replying.**
+
+**Position:** ✅ all findings across 6 reviewer passes resolved. 6 gates green (G3 1133 + 17 standalone-verified).
+Both new test files now import standalone. Next: push → confirm Codex's 7th-tip review is silent → merge to
+`master`.
