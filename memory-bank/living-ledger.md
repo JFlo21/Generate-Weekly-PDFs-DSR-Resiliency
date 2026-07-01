@@ -4459,7 +4459,39 @@ tests + 1 perf assertion) · G4 mypy 56→56 neutral · G5 py_compile · G6 21-k
 delete→upload order / `@cell`=0 / `PARALLEL_WORKERS≤8` / PII-aggregate-only all unchanged; retry is additive on
 existing bare/duplicated call sites only.
 
-**Position:** ✅ implemented + all gates green + adversarial review clean. Next: commit → PR (Objective /
-Changes Made / Production Safety Check) → reviewer-comment-resolution loop until zero open comments → merge to
-`master`. Ultimate proof: the next scheduled 2h production cron surviving a real 4000 blip without dropping a
-source sheet.
+**RULE — a Sentry PII scrub for a message event MUST run in `before_send`, not a scope event-processor; verify
+it empirically.** The engine runs Sentry with `include_local_variables=True` + `attach_stacktrace=True`. For a
+`capture_message`, the SDK appends the current thread's `threads[*].stacktrace.frames[*]` (with `vars` +
+source-context) AFTER scope event-processors run — so a scope `add_event_processor` scrub NEVER sees them
+(empirically confirmed with a dummy transport: a caller local `_sample_rows_cache` with WR/price/foreman still
+shipped). `sentry_capture_sheet_drop` therefore only TAGS the event (`error_location=discovery_sheet_drop`); the
+global `before_send_filter` calls `_scrub_sheet_drop_frame_vars` → `_strip_frame_vars`, which pops
+`vars`/`pre_context`/`context_line`/`post_context` from every frame of THAT event (gated by tag so
+`include_local_variables` stays intact for other events). This was a PII leak my OWN PR introduced (the pre-PR
+discovery drop sent nothing to Sentry; adding a capture without a working scrub is worse than silence). Codex P1,
+PR #281. **Any new billing-path Sentry capture must be dummy-transport-verified to carry no frame data.**
+
+**RULE — attribution `unavailable` ≠ `no_history`.** `prefetch_attribution` returns status ∈ {success, no_row,
+fetch_failure, rpc_missing, `unavailable`}. `unavailable` = no Supabase client (store unconfigured/unreachable);
+`no_row` = store reachable, no frozen row yet. Both yield an EMPTY map, and `resolve_claimer` collapses an empty
+map to `no_history` — so the status must be preserved UPSTREAM (grouping layer, where `_attr_status` is still
+known). The sub-helper guard now short-circuits `unavailable` (like `fetch_failure`) with a distinct reason +
+config-oriented remediation, instead of letting it become a misleading "no_history: no action needed" WARNING
+(Codex P2). B/C/D reduced_sub/vac_crew/primary branches intentionally keep use-current on `unavailable`
+(availability-first: billing still ships when the store is unconfigured — do NOT change to HOLD). Tests must set
+an explicit `prefetch_attribution` status; relying on the TEST_MODE `unavailable` default silently conflated it
+with `no_history`.
+
+**LESSON — the review loop paid off five passes deep.** After the PR looked "clean," Codex's re-reviews of each
+fix tip surfaced, in order: upload-retry duplicate → data-loss → staleness (→ revert+defer), a real
+test-isolation MagicMock bug I'd wrongly declined twice (→ root-cause fix), a P1 PII leak in my own scrub (scope
+processor ran too early), and a P2 attribution-status conflation. Every one was on code THIS PR added or changed.
+Takeaway: for a PR that touches production + adds new observability/security code, keep watching the bot re-review
+the actual fix commits until a full pass is silent — the last finding (a PII leak) was the highest-severity of
+all and arrived on the 6th tip.
+
+**Position:** ✅ all findings across 5 reviewer passes resolved (2 real Codex functional/security fixes on the
+final tip: before_send PII scrub + `unavailable` status), 6 gates green (G3 1133), PII scrub dummy-transport-
+verified. Next: push → confirm Codex's review of the fix tip is silent → merge to `master`. Ultimate proof: the
+next scheduled 2h cron surviving a real 4000 blip without dropping a source sheet, and a genuinely-unavailable
+Supabase producing an accurate (not misleading) attribution WARNING.
