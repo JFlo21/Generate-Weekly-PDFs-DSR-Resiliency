@@ -4603,3 +4603,41 @@ tag + `before_send` mechanism accurately.
 breadcrumb message-scrub · breadcrumb data-scrub; 2 sys.path bootstraps; 2 Copilot doc-accuracy nits). 6 gates
 green. Breadcrumb message+data scrub dummy-transport-verified. Next: push → confirm Codex's review of this tip is
 silent → merge to `master`.
+
+---
+
+## [2026-06-30 21:49] — MERGED: v1.3.1 shipped to `master` as `8c51a3c` (closes the API-resilience / PII loop)
+
+**MERGE — v1.3.1 (Smartsheet API-resilience & silent-failure/PII hardening) is MERGED to `master` as squash
+commit `8c51a3c`** (from `fix/api-resilience-silent-failures`, branch deleted on merge; `docs-changelog.yml`
+auto-logged the merge as `666e551`). This closes the forward-looking "Next: push → … merge to `master`" clause
+that ended each of the four preceding 2026-06-30 entries (17:45 main · 19:48 sys.path · 20:10 breadcrumb plane ·
+20:40 breadcrumb `data`). The work itself is documented there and is NOT repeated here — this entry only records
+that it landed.
+
+**Reviewer loop closed — 8 automated passes, every finding resolved.** 4 real Codex functional/security fixes
+(`before_send` frame scrub · attribution `unavailable`≠`no_history` · breadcrumb `message` scrub · breadcrumb
+`data` key-scrub), 2 `sys.path` test-bootstrap fixes, and 3 Copilot doc-accuracy nits (incl. the `retry.py`
+4000-vs-`InternalServerError` contract). 0 unresolved review threads; the final Copilot pass generated no new
+comments. Codex's auto-review was exhausted after 8 passes (an explicit `@codex review` drew no response), so
+the merge gate was: 0 unresolved threads + all checks green + `MERGEABLE`/`CLEAN` + Copilot's final clean pass.
+
+**LESSON — the merge gate is a whole-PR property, not a per-tip delta.** The per-push watch loop had a blind
+spot: it only inspected findings created *after each push*, so three standing Copilot `retry.py` doc threads
+raised on earlier tips stayed invisible until a full `reviewThreads(isResolved==false && isOutdated==false)`
+audit right before merge surfaced them. "No review comments" means the whole unresolved-thread SET is empty —
+audit the set, not the delta, before merging.
+
+**Verification at merge:** `run_6_gates.sh` exit 0 — G1 178 · G2 108 · G3 1149 (+130 subtests) · G4 mypy 56→56
+· G5 py_compile · G6 21-key TEST_MODE run; all three Sentry PII scrubs dummy-transport-verified. Production
+guardrails UNCHANGED (change-detection key · delete→upload order · `@cell`=0 · `PARALLEL_WORKERS≤8` ·
+filename/attachment logic).
+
+**Deferred (own PR):** retry-idempotency in `SUPABASE_HASH_STORE_AUTHORITATIVE` clean-filename mode — not
+solvable by attachment inspection; the real fix (upload-then-delete-by-attachment-age) changes the delete→upload
+guardrail.
+
+**Position:** ✅ v1.3.1 MERGED (`8c51a3c`). Closeout follow-up PR #282 bumps `.claude/project-state.md`, this
+ledger, and `docs/AI_CONTEXT_RESUME.md` to the merged state; second brain (project page, current-state,
+dashboard, log) updated the same session. Ultimate proof still pending: the next scheduled 2h production cron
+surviving a real code-4000 blip without dropping a source sheet.
