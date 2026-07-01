@@ -11,9 +11,18 @@ Design contract
 ---------------
 * Retry ONLY the transient failures the Smartsheet SDK does not itself drive
   to success:
-    - ``InternalServerError`` — HTTP 500 / Smartsheet error 4000. The SDK
-      does NOT auto-retry this (it is an ``HttpError`` subclass with no
-      ``should_retry`` flag); this app-level retry is the real gap-filler.
+    - generic ``ApiError`` with ``error.result.code == 4000`` ("An unexpected
+      error has occurred. Please retry.") — matched by RESULT CODE via
+      ``_RETRYABLE_API_CODES``, NOT by exception type: the SDK maps no
+      ``should_retry`` typed exception to 4000, so it never retries it. This
+      is the real gap-filler on the oversized-response discovery / per-sheet
+      fetch path.
+    - ``InternalServerError`` — a raw HTTP 500, retried transitively as an
+      ``HttpError`` subclass via ``_TRANSIENT_EXC`` (it carries no
+      ``should_retry`` flag). This is a DISTINCT failure from API code 4000;
+      the two share no code path (and 500 is rare — the SDK 3.9.0
+      ``InternalServerError`` constructor is broken, so a raw 500 usually
+      surfaces as its ``HttpError`` base anyway).
     - ``ServerTimeoutExceededError`` / ``UnexpectedErrorShouldRetryError`` —
       the SDK retries these inside its own ~15s window; we add a bounded
       secondary backoff for the case where that window is exhausted.
