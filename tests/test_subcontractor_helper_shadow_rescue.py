@@ -419,6 +419,11 @@ class TestEndToEndPipeline(unittest.TestCase):
         # prefetched_map (O(1) map read, D-03). Mock resolve_claimer to
         # return the frozen helper for the 'helper' variant.
         with mock.patch(
+            # Store reachable (status reaches resolve_claimer, not the
+            # unavailable/fetch_failure short-circuit).
+            'billing_audit.writer.prefetch_attribution',
+            return_value=({}, 'no_row'),
+        ), mock.patch(
             'billing_audit.writer.resolve_claimer',
             return_value=ResolveOutcome('use', 'OriginalForeman', 'frozen', 'success'),
         ):
@@ -473,6 +478,12 @@ class TestEndToEndPipeline(unittest.TestCase):
         per-WR WARNING never fired in production).
         """
         with mock.patch(
+            # Store reachable + genuinely no frozen row yet (status 'no_row'),
+            # so resolve_claimer's no_history is a REAL brand-new claim — not
+            # the unavailable short-circuit.
+            'billing_audit.writer.prefetch_attribution',
+            return_value=({}, 'no_row'),
+        ), mock.patch(
             'billing_audit.writer.resolve_claimer',
             return_value=ResolveOutcome(
                 'use', 'ReplacementForeman', 'current', 'no_history'),
@@ -507,6 +518,12 @@ class TestEndToEndPipeline(unittest.TestCase):
         triggers the D-12 fallback WARNING with reason=fetch_failure.
         """
         with mock.patch(
+            # Store reachable (status 'no_row' reaches resolve_claimer); the
+            # 'hold' outcome is what signals fetch_failure here — distinct from
+            # the store-level 'unavailable' short-circuit.
+            'billing_audit.writer.prefetch_attribution',
+            return_value=({}, 'no_row'),
+        ), mock.patch(
             'billing_audit.writer.resolve_claimer',
             return_value=ResolveOutcome('hold', None, None, 'fetch_failure'),
         ), self.assertLogs(level='WARNING') as log_cm:
@@ -734,6 +751,45 @@ class TestRpcMissingGracefulDegradation(unittest.TestCase):
             generate_weekly_pdfs.group_source_rows([row])
         warning_bodies = '\n'.join(log_cm.output)
         self.assertIn('reason=fetch_failure', warning_bodies)
+
+    def test_wr05_unavailable_sub_helper_emits_distinct_warning(self):
+        """Codex P2 (PR #281): 'unavailable' (no Supabase client) must NOT be
+        collapsed to 'no_history'. It threads the status directly (resolver not
+        consulted) and gets a config-oriented remediation — never the benign
+        no_history "this run freezes it; no action needed" text, and never the
+        fetch_failure PGRST guidance."""
+        with mock.patch(
+            'billing_audit.writer.prefetch_attribution',
+            return_value=({}, 'unavailable'),
+        ), mock.patch(
+            'billing_audit.writer.resolve_claimer',
+            return_value=ResolveOutcome('use', 'X', 'frozen', 'success'),
+        ) as _rc, self.assertLogs(level='WARNING') as log_cm:
+            row = self._make_synth_helper_row()
+            generate_weekly_pdfs.group_source_rows([row])
+        warning_bodies = '\n'.join(log_cm.output)
+        self.assertIn('reason=unavailable', warning_bodies)
+        self.assertIn(
+            'Subcontractor helper claim attribution fallback', warning_bodies
+        )
+        # Config-oriented remediation, NOT the benign no_history message.
+        self.assertIn('unavailable', warning_bodies)
+        self.assertIn('SUPABASE', warning_bodies)
+        self.assertNotIn('this run freezes it', warning_bodies)
+        self.assertNotIn('reason=no_history', warning_bodies)
+        self.assertNotIn('PGRST', warning_bodies)
+        # The sub-helper block threads the status directly — resolve_claimer is
+        # NOT consulted for the 'helper' role. (The reduced_sub/B primary path
+        # legitimately calls it for its own role with use-current fallback; that
+        # availability-first behavior is unrelated and intentionally unchanged.)
+        helper_role_calls = [
+            c for c in _rc.call_args_list if c.args and c.args[0] == 'helper'
+        ]
+        self.assertEqual(
+            helper_role_calls, [],
+            "sub-helper block must thread 'unavailable' directly, not consult "
+            "resolve_claimer for the 'helper' role",
+        )
 
 
 class TestBugB2WhitelistE2E(unittest.TestCase):
