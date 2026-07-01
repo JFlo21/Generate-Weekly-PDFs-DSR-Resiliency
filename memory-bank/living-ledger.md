@@ -4327,3 +4327,279 @@ close-out checks green.
 **Position:** ✅ Phase 09 COMPLETE (7/7 waves). Next: `/gsd-verify-work 09` → PR / milestone close; the ultimate
 proof is the next scheduled 2h production cron running green on the package structure. **Phase 08 (SDK 4.0.0
 breaking migration) is now unblocked** — it touches the same file, so it could not run concurrently with Phase 09.
+
+## [2026-06-30 17:45] — v1.3.1: Smartsheet API-resilience + silent-failure hardening (`pipeline/retry.py`, F1, Sentry frame scrub)
+
+**Context / root cause.** Operator-reported "API errors when the sheets are getting called because there are so
+many sheets inside of the folder." Root cause: the hot **discovery + per-sheet fetch** path issued **bare**
+Smartsheet SDK calls with NO app-level retry — `client.Folders.get_folder_children` (folder browse) and
+`client.Sheets.get_sheet` (validate + fetch). Large folders/sheets intermittently return **Smartsheet error
+code 4000** ("An unexpected error has occurred. Please retry.") which the **SDK does NOT auto-retry** (it is a
+generic `ApiError`, not one of the typed `should_retry=True` exceptions). A single 4000 blip therefore fell into
+`discovery.py`'s `except Exception: … return None`, **silently dropping a whole source sheet — i.e. dropping its
+billing rows from the run with only a log WARNING.** The three attachment-prefetch/upload paths in
+`orchestrate.py` already had retry, but as **three copy-pasted inline loops** (drift risk), and the discovery
+path — the one actually failing — had none.
+
+**RULE — `pipeline/retry.py` is the single source of truth for Smartsheet transient retry.**
+`smartsheet_call_with_retry(func, *args, label, max_attempts=4, max_total_sleep=90.0, **kwargs)`. Retry ONLY the
+transients the SDK does not itself drive to success, and re-raise everything else immediately so real bugs
+surface fast:
+- generic **`ApiError` code 4000** ONLY (`_RETRYABLE_API_CODES = frozenset({4000})`); any other code (1006
+  not-found, 1002 auth, …) is permanent → raise at once. Retrying a permanent code only burns the time budget.
+- transport drops by **TYPE**, not name: the SDK's `_request` wraps every `requests.RequestException` as
+  `UnexpectedRequestError` and an `requests.SSLError` as a bare `HttpError` — so `_TRANSIENT_EXC` lists those
+  TYPES (plus `UnexpectedErrorShouldRetryError`/`ServerTimeoutExceededError`/`SystemMaintenanceError`). The old
+  inline class-**name** substring list silently missed `UnexpectedRequestError` (no network tag in the name).
+- `RateLimitExceededError` → long backoff (15/30/45s), do not hammer a 429.
+- **bounded total sleep** (`max_total_sleep`, default 90s): a single stuck call can NEVER consume
+  `ATTACHMENT_PREFETCH_MAX_MINUTES` / `TIME_BUDGET_MINUTES` (the 2026-04-22 prefetch-stall failure mode).
+- on exhaust → **re-raise the last exception**; callers decide policy. Module imports only stdlib +
+  `smartsheet.exceptions` (zero `pipeline` siblings) so it is import-cycle-safe anywhere.
+
+**RULE — a dropped source sheet must be LOUD but PII-safe.** `discovery.py`'s drop handler now escalates via
+`observability.sentry_capture_sheet_drop(sid, e)` instead of swallowing. It does NOT use a raw
+`capture_exception(exc)`: the engine runs Sentry with `include_local_variables=True` + `attach_stacktrace=True`,
+so frame locals (which on the discovery path hold sampled billing rows — foreman/customer/WR/prices in
+`_sample_rows_cache`) would be serialized into the event. Instead it emits a **sanitized message** (sheet id +
+exception class only), TAGS it `error_location=discovery_sheet_drop`, and fingerprints all same-type drops into
+ONE grouped issue. The frame-var strip runs in the global `before_send` hook (`_scrub_sheet_drop_frame_vars` →
+`_strip_frame_vars`), NOT a scope event-processor: with `attach_stacktrace` the SDK appends the thread
+stacktrace AFTER scope processors run, so a scope processor never sees those frames (**corrected 2026-06-30** —
+this entry originally described an isolated-scope `_strip_frame_vars` event-processor, which proved ineffective;
+see the `before_send` PII-scrub entry below). **Never add a bare `capture_exception` on a billing path without
+stripping frame vars.**
+
+**RULE — F1 (deferred finding) closed: propagate `resolve_claimer` `no_history`, and branch the remediation
+text by reason.** The sub-helper `no_history` fallback was silent: `resolve_claimer` returns
+`('use', current_value, 'current', 'no_history')` (writer.py:1048-1049,1060) — action is `'use'`, and the
+`action=='use'` branch in `grouping.py` reset `_attribution_reason=None`, so the per-WR observability WARNING
+never fired. Fix: propagate `'no_history'` when `_sh_out.reason == 'no_history'`. **AND** the WARNING's
+remediation text now branches by reason — `fetch_failure` (a genuine PostgREST outage) keeps the "check Supabase
+Logs for PGRST106/PGRST301/PGRST404" guidance; `no_history` (the BENIGN brand-new-claim case — the lookup
+SUCCEEDED, just no frozen row yet, this run freezes it) gets "No frozen attribution exists yet … no action
+needed". A correct alert with the WRONG remediation trains operators to chase phantom Supabase outages or to
+ignore the WARNING entirely.
+
+**LESSON — the operator-proposed patch was directionally right, mechanically wrong (3 ways).** The suggested
+`_smartsheet_api_call_with_retry` (a) targeted "after line 54" = module top, NOT the actual failing call sites
+on the discovery path; (b) caught codes **4002/4003** — but those are already typed `should_retry=True`
+exceptions the SDK retries inside its own ~15s window; the REAL un-retried gap is **4000**; (c) would have added
+a **4th** duplicated retry block. Correct design: one DRY helper, applied at the bare call sites, with the 3
+inline `orchestrate.py` loops consolidated into it (now-dead `import time` / `import smartsheet.exceptions as
+ss_exc` removed). TDD also exposed that **`InternalServerError(500,"msg")` is unconstructable in SDK 3.9.0**
+(broken `super().__init__`) — so tests build transient `ApiError`s via a mock `.error.result.code`, and the
+helper catches generic `ApiError` 4000 rather than the rarely-raised `InternalServerError`.
+
+**LESSON — a dead-branch test gives false confidence.** The two pre-existing F1 tests mocked
+`ResolveOutcome('no_history', None, None, 'no_history')` — an `action` value `resolve_claimer` NEVER returns —
+so they exercised an unreachable `else` and stayed green while the real `action=='use'` path silently zeroed the
+reason. Rewritten to the REAL contract (`('use','ReplacementForeman','current','no_history')`), proven red-first.
+
+**NOTE — intentional behavior delta (4001).** `SystemMaintenanceError` (4001) is in `_TRANSIENT_EXC`, so this
+helper adds a bounded **secondary** backoff on top of the SDK's own retry of 4001. Intentional and bounded by
+`max_total_sleep`; documented here and in the PR body.
+
+**Adversarial self-review before first push — 4 findings, ALL resolved in-PR:** (1) SDK transport-wrap gap →
+fixed by matching `UnexpectedRequestError`/`HttpError` by type; (2) 4001 secondary-backoff delta → documented
+(this NOTE); (3) Sentry frame-var PII exfiltration on the new drop capture → fixed by `_strip_frame_vars` +
+sanitized message; (4) misleading no_history→PGRST remediation text → fixed by branching by reason.
+
+**RULE — upload-retry idempotency is UNSOLVABLE by attachment inspection in clean-filename authoritative mode;
+keep the safe baseline and defer the real fix.** The Excel-upload worker (`orchestrate.py` `_do_upload_attempt`)
+wraps the whole delete+upload op in `smartsheet_call_with_retry`. A retry is hard because a prior attempt may
+have COMMITTED the workbook (Smartsheet accepted `attach_file_to_row`) but had the SDK raise a transient before
+the response was observed. The decisive fact: production sets `SUPABASE_HASH_STORE_AUTHORITATIVE='1'`
+(`weekly-excel-generation.yml`), so filenames are CLEAN — pure identity, **no timestamp and no hash**
+(`excel.py:401-407`) — and `delete_old_excel_attachments` has **no filename-hash skip** (cleanup.py:520-527 only
+short-circuits in legacy mode). Therefore a freshly committed file is **indistinguishable from a stale
+same-identity one** by ANY attachment inspection. A 3-step fix chain proved this the hard way (each fix spawned
+the next failure): (1) bypass cache → live-delete-then-reupload → **data loss** if the re-upload fails; (2)
+preserve any same-identity file as success → **silent staleness** (reports a stale Excel as uploaded when a prior
+delete failed). RESOLUTION: revert to the ORIGINAL behavior — pass the prefetched cache on every attempt
+(behavior-preserving vs the pre-PR inline loop). Its only residual is a **benign, self-healing, visible
+DUPLICATE** on the rare commit-then-transient retry, reconciled by the next run's delete→upload. The proper fix
+is **upload-then-delete-by-attachment-age** (upload first so the new file always lands, then delete older
+same-identity attachments by `createdAt`/id) — this CHANGES the documented delete→upload ordering guardrail, so
+it is deferred to a dedicated, separately-tested PR. Do NOT re-introduce a retry special-case in
+`_do_upload_attempt` without that ordering change (guarded by
+`test_upload_worker_retry_is_behavior_preserving`).
+
+**Reviewer-comment-resolution loop (PR #281).** Four automated review passes after first push (Greptile exhausted
+its 50-credit trial after pass 1; substantive review came from Codex + Copilot). Resolved: Copilot doc-accuracy
+nit (project-state said the drop handler used `capture_exception` — corrected to the sanitized
+`sentry_capture_sheet_drop`, since the stale wording risked a maintainer "restoring" the PII leak). The
+upload-retry thread ran duplicate → data-loss → staleness across three Codex re-reviews of successive fix tips,
+ending in the revert-and-defer RULE above.
+
+**RULE — `_ensure_smartsheet_mocked` must stub ONLY when the real SDK is unimportable (collection-order test
+isolation).** The shared helper (`tests/test_billing_audit_shadow.py`, called at module load by
+`test_subcontractor_helper_shadow_rescue.py` BEFORE it imports `generate_weekly_pdfs`) originally guarded on
+`if "smartsheet" not in sys.modules`. When that module is collected FIRST, the real-but-not-yet-imported SDK is
+absent from `sys.modules`, so it stubbed `smartsheet.exceptions` as a `MagicMock`; `pipeline.retry` imported
+under that stub bound MagicMocks into `_TRANSIENT_EXC`, and `test_smartsheet_retry` (collected after) raised
+`TypeError: catching classes that do not inherit from BaseException`. The FULL suite passed only because an
+earlier file imported the real SDK first — masking the order-sensitivity. FIX: try the real import first; stub
+ONLY on `ImportError` (genuine SDK-absent CI). Guard: `test_ensure_smartsheet_mocked_does_not_stub_importable_sdk`.
+
+**LESSON — a bot that has been right keeps earning scrutiny; do not dismiss a falsifiable repro.** Codex raised
+this test-isolation concern THREE times; I declined it twice on the `sys.path` framing (which WAS a red herring —
+0/26 files manipulate `sys.path`, pytest rootdir supplies it) and missed that the *underlying* MagicMock-
+contamination was REAL — I had checked the wrong two stubbing files and overlooked the third
+(`test_subcontractor_helper_shadow_rescue`). The third time Codex attached a concrete reproduction
+(`PYTHONPATH=. pytest <stub-file> <retry-file>` → 10 failed); RUNNING it immediately proved the bug. **When a
+reviewer hands you a falsifiable command, run it before replying — especially a reviewer already proven right on
+this PR.** **LESSON — wait for the bot to re-review your FIX, not just the original bug; and when a fix chain
+keeps spawning new failures, the premise is wrong.** Each upload-retry "improvement" passed all 6 gates and its
+own invariant test yet introduced a worse billing failure, because they all assumed the row's attachments could
+reveal what happened — clean-filename mode erased that signal by design (hash moved to Supabase). The right move
+on an unwinnable local fix is to revert to the safest baseline and scope the real fix (different mechanism:
+attachment ordering/age) as its own change — never ship a billing data-loss/staleness path to silence a reviewer.
+
+**Verification.** `scripts/run_6_gates.sh` = exit 0 — G1 177 names · G2 107 facade · **G3 1127 pytest** +130
+subtests (new: `tests/test_smartsheet_retry.py` 11, `tests/test_sentry_frame_var_scrub.py` 3; rewrote 2 F1
+tests + 1 perf assertion) · G4 mypy 56→56 neutral · G5 py_compile · G6 21-key TEST_MODE run_summary. Branch
+`fix/api-resilience-silent-failures` cut fresh from `origin/master`. Billing guards intact: change-key /
+delete→upload order / `@cell`=0 / `PARALLEL_WORKERS≤8` / PII-aggregate-only all unchanged; retry is additive on
+existing bare/duplicated call sites only.
+
+**RULE — a Sentry PII scrub for a message event MUST run in `before_send`, not a scope event-processor; verify
+it empirically.** The engine runs Sentry with `include_local_variables=True` + `attach_stacktrace=True`. For a
+`capture_message`, the SDK appends the current thread's `threads[*].stacktrace.frames[*]` (with `vars` +
+source-context) AFTER scope event-processors run — so a scope `add_event_processor` scrub NEVER sees them
+(empirically confirmed with a dummy transport: a caller local `_sample_rows_cache` with WR/price/foreman still
+shipped). `sentry_capture_sheet_drop` therefore only TAGS the event (`error_location=discovery_sheet_drop`); the
+global `before_send_filter` calls `_scrub_sheet_drop_frame_vars` → `_strip_frame_vars`, which pops
+`vars`/`pre_context`/`context_line`/`post_context` from every frame of THAT event (gated by tag so
+`include_local_variables` stays intact for other events). This was a PII leak my OWN PR introduced (the pre-PR
+discovery drop sent nothing to Sentry; adding a capture without a working scrub is worse than silence). Codex P1,
+PR #281. **Any new billing-path Sentry capture must be dummy-transport-verified to carry no frame data.**
+
+**RULE — attribution `unavailable` ≠ `no_history`.** `prefetch_attribution` returns status ∈ {success, no_row,
+fetch_failure, rpc_missing, `unavailable`}. `unavailable` = no Supabase client (store unconfigured/unreachable);
+`no_row` = store reachable, no frozen row yet. Both yield an EMPTY map, and `resolve_claimer` collapses an empty
+map to `no_history` — so the status must be preserved UPSTREAM (grouping layer, where `_attr_status` is still
+known). The sub-helper guard now short-circuits `unavailable` (like `fetch_failure`) with a distinct reason +
+config-oriented remediation, instead of letting it become a misleading "no_history: no action needed" WARNING
+(Codex P2). B/C/D reduced_sub/vac_crew/primary branches intentionally keep use-current on `unavailable`
+(availability-first: billing still ships when the store is unconfigured — do NOT change to HOLD). Tests must set
+an explicit `prefetch_attribution` status; relying on the TEST_MODE `unavailable` default silently conflated it
+with `no_history`.
+
+**LESSON — the review loop paid off five passes deep.** After the PR looked "clean," Codex's re-reviews of each
+fix tip surfaced, in order: upload-retry duplicate → data-loss → staleness (→ revert+defer), a real
+test-isolation MagicMock bug I'd wrongly declined twice (→ root-cause fix), a P1 PII leak in my own scrub (scope
+processor ran too early), and a P2 attribution-status conflation. Every one was on code THIS PR added or changed.
+Takeaway: for a PR that touches production + adds new observability/security code, keep watching the bot re-review
+the actual fix commits until a full pass is silent — the last finding (a PII leak) was the highest-severity of
+all and arrived on the 6th tip.
+
+**Position:** ✅ all findings across 5 reviewer passes resolved (2 real Codex functional/security fixes on the
+final tip: before_send PII scrub + `unavailable` status), 6 gates green (G3 1133), PII scrub dummy-transport-
+verified. Next: push → confirm Codex's review of the fix tip is silent → merge to `master`. Ultimate proof: the
+next scheduled 2h cron surviving a real 4000 blip without dropping a source sheet, and a genuinely-unavailable
+Supabase producing an accurate (not misleading) attribution WARNING.
+
+---
+
+## [2026-06-30 19:48] — RULE: new test files importing `pipeline.*` MUST bootstrap `_REPO_ROOT` into `sys.path`
+
+**RULE — a test module that imports `pipeline.*` / `billing_audit.*` / `generate_weekly_pdfs` at top level MUST
+insert the repo root into `sys.path` BEFORE that import; do not rely on collection-order side effects.** The repo
+has no `conftest.py` and no `[tool.pytest.ini_options] pythonpath` in `pyproject.toml`, so `pipeline` is importable
+only because 8 existing test files each run, at import time:
+
+```python
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+```
+
+and that mutation persists in the shared `sys.path` for the rest of the process. A new file WITHOUT the bootstrap
+(`tests/test_smartsheet_retry.py`, `tests/test_sentry_frame_var_scrub.py`) passes in the full `pytest tests/` run
+only because an alphabetically-earlier file (`test_billing_audit_shadow.py`, "b") mutates `sys.path` during
+collection before the "s" files import. Run one alone —
+`cd tests && python -m pytest test_smartsheet_retry.py` — and collection dies with
+`ModuleNotFoundError: No module named 'pipeline'`. That single-file workflow is documented in `CLAUDE.md`
+("run one file"), so it must work. Fix = the standard bootstrap block + `# noqa: E402` on the post-bootstrap
+import, matching every sibling. Codex P2 ×2, PR #281 — the SECOND time Codex has caught `sys.path` fragility on
+this PR (the first was the `_ensure_smartsheet_mocked` MagicMock stub). **Reviewer proven right on `sys.path`
+twice: run the falsifiable single-file repro before replying.**
+
+**Position:** ✅ all findings across 6 reviewer passes resolved. 6 gates green (G3 1133 + 17 standalone-verified).
+Both new test files now import standalone. Next: push → confirm Codex's 7th-tip review is silent → merge to
+`master`.
+
+---
+
+## [2026-06-30 20:10] — RULE: breadcrumbs are a THIRD PII plane — scrub them with `before_breadcrumb` + `_PII_LOG_MARKERS`
+
+**RULE — Sentry has THREE data planes that can carry billing-row PII, and each needs its own scrub keyed on the
+single `_PII_LOG_MARKERS` registry: (1) event frames → `before_send` (`_scrub_sheet_drop_frame_vars`); (2) the
+Sentry Logs product → `before_send_log` (`sentry_before_send_log`); (3) BREADCRUMBS → `before_breadcrumb`
+(`sentry_before_breadcrumb`, added this PR).** The engine inits `LoggingIntegration(level=logging.INFO,
+event_level=logging.ERROR)`, so EVERY INFO/WARNING log record becomes a breadcrumb **unconditionally** — the
+`SENTRY_ENABLE_LOGS` gate only guards plane (2), not breadcrumbs. Breadcrumbs then attach to any later captured
+event, so the always-on PII INFO lines (`🧑 PRIMARY GROUP CREATED: WR=… Week=…`, `Totals Validation …
+total=$…`, the `_HELPER_`/`_VACCREW`/`_WeekEnding_` bodies) plus the sub-helper attribution-fallback WARNING were
+riding onto unrelated error events. `sentry_before_breadcrumb(crumb, hint)` drops any crumb whose string
+`message` contains a marker (reusing the SAME registry — no drift), keeps non-log crumbs (`message=None`:
+navigation/http/manual), and fails closed on inspection error. Wired via `before_breadcrumb=cast(Any, …)` next
+to `before_send`; re-exported on the facade + locked in `baseline_names.json` (G1 178) + `facade_allowlist.json`
+(G2 108), symmetric to `sentry_before_send_log`.
+
+**Why THIS PR triggered it:** F1 made the attribution-fallback WARNING fire on the common `no_history` path
+(before, only rare `fetch_failure`), so a `WR=…helper=…` breadcrumb now generates on essentially every
+brand-new helper claim. Codex P2 (7th tip) caught it. But the gap was PRE-EXISTING and broad — the hook closes
+the breadcrumb plane for ALL ~70 markers at once, not just the one WARNING. **Empirically proven** with a real
+`sentry_sdk.Client` + dummy transport + the engine's exact `LoggingIntegration` config: WITHOUT the hook the PII
+WARNING lands in a captured event's breadcrumbs (`leaked=True`); WITH it, the PII crumb is gone and a benign
+crumb survives (`leaked=False, benign=True`). **No `grouping.py` / billing-logic change** — the operator-
+actionable WARNING stays; the fix is pure observability hardening on the breadcrumb plane.
+
+**LESSON — a PII scrub is only as complete as the set of PLANES it covers.** The repo had built a thorough
+`_PII_LOG_MARKERS` registry but wired it into only 2 of the 3 places a log record can surface in Sentry. When
+adding a marker-based scrub, enumerate every sink (events, Logs, breadcrumbs, spans/attributes, transaction
+names) and gate each. Codex's 7th-tip catch was on code THIS PR widened, but it exposed a latent always-on leak.
+
+**Position:** ✅ 7 reviewer passes resolved (3 real Codex fixes on the last two tips: before_send PII scrub +
+`unavailable` status + breadcrumb PII scrub; plus 2 sys.path bootstraps). 6 gates green (G1 178 · G2 108 · G3
+1143 +130 subtests · G4 56→56 · G5 · G6). Breadcrumb scrub dummy-transport-verified. Next: push → confirm
+Codex's review of this tip is silent → merge to `master`.
+
+---
+
+## [2026-06-30 20:40] — RULE: a breadcrumb's `data` dict is a SECOND PII sub-field — scrub it by KEY, not by marker
+
+**RULE — `sentry_before_breadcrumb` must scrub BOTH breadcrumb sub-fields, with two different models.** A
+breadcrumb carries PII in two places: (1) `message` (free text) — dropped whole on a `_PII_LOG_MARKERS` hit
+(allow-by-default / deny-on-marker, like logs); (2) `data` (structured key/value) — row-identifier keys in the
+new `_PII_BREADCRUMB_DATA_KEYS` frozenset are STRIPPED IN PLACE. A message-marker sweep CANNOT catch `data`: a
+bare value like `wr="90093002"` matches no text marker. Manual breadcrumbs (`sentry_add_breadcrumb`) route PII
+specifically through `data` under a benign message — e.g. `orchestrate.py:1814` skip crumb
+`message="Skipped unchanged group", data={"wr":…, "week":…, "variant":…, "hash":…}`. The message-only v1 of this
+hook (previous tip d0dd2eb) kept those, so WR + week + (variant embeds foreman) still leaked on every
+skip/regenerate — the common path. Codex P2 (8th tip) caught it with that exact repro. Fix: strip
+`_PII_BREADCRUMB_DATA_KEYS` (wr/week/variant/foreman/helper/dept/job/price/point/cu/customer/filename/… — a
+central registry mirroring `_PII_LOG_MARKERS`) from `data`, keeping the flow crumb + non-PII keys (`count`,
+`hash`, `risk_level`, …). The two models COMPOSE and fail safe: the regenerate crumb's message contains the
+`"Regenerating "` marker, so it is dropped whole (data and all) before key-stripping even runs. **Empirically
+re-verified** with a real `sentry_sdk.Client` + dummy transport: a manual crumb with `data={"wr":…, "week":…}`
+lands in a captured event WITHOUT the hook, and has those keys stripped WITH it; benign crumbs survive both
+sub-fields.
+
+**LESSON (reinforced) — enumerate every FIELD of a sink, not just the obvious one.** The [20:10] entry said
+"cover every PLANE"; this shows a plane can have multiple data-bearing FIELDS (`message` vs `data`), each needing
+its own detection model. Free text → substring markers; structured k/v → key deny-list. One model does not cover
+the other.
+
+**Doc-accuracy corrections (Copilot, same tip):** `.claude/project-state.md` and the historical
+[2026-06-30 sheet-drop] ledger entry both described `sentry_capture_sheet_drop` as using an isolated-scope
+`_strip_frame_vars` event-processor. That was the PRE-Codex-P1 implementation; the scrub was moved to
+`before_send` (a scope processor never sees `attach_stacktrace`'s thread frames). Both docs now describe the
+tag + `before_send` mechanism accurately.
+
+**Position:** ✅ 8 reviewer passes resolved (4 real Codex fixes: before_send scrub · `unavailable` status ·
+breadcrumb message-scrub · breadcrumb data-scrub; 2 sys.path bootstraps; 2 Copilot doc-accuracy nits). 6 gates
+green. Breadcrumb message+data scrub dummy-transport-verified. Next: push → confirm Codex's review of this tip is
+silent → merge to `master`.

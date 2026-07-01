@@ -71,19 +71,65 @@ def _ensure_smartsheet_mocked():
     ``sys.modules['smartsheet.smartsheet']`` explicitly.  We register
     both sub-stubs so all three import forms succeed.
 
-    The guard is idempotent: if the real SDK is already installed this
-    function is a no-op.
+    Only stubs when the real SDK is genuinely UNIMPORTABLE. The SDK can be
+    installed but not yet imported (e.g. this module is collected first), so a
+    bare ``"smartsheet" not in sys.modules`` guard would wrongly stub a present
+    SDK — poisoning ``sys.modules['smartsheet.exceptions']`` for every later
+    importer. In particular ``pipeline.retry``'s ``_TRANSIENT_EXC`` tuple would
+    then hold ``MagicMock`` objects instead of real exception classes, so a
+    collection-order-sensitive suite (e.g. ``test_smartsheet_retry`` collected
+    after this module) would raise ``TypeError: catching classes that do not
+    inherit from BaseException``. So attempt the real import first and only fall
+    back to stubs on ``ImportError`` (the genuine SDK-absent CI case).
     """
-    if "smartsheet" not in sys.modules:
+    if "smartsheet" in sys.modules:
+        return
+    try:
+        import smartsheet  # noqa: F401 — real SDK present; use it, don't stub
+        import smartsheet.exceptions  # noqa: F401
+        import smartsheet.smartsheet  # noqa: F401
+    except ImportError:
         _ss_stub = mock.MagicMock()
         sys.modules["smartsheet"] = _ss_stub
         sys.modules["smartsheet.exceptions"] = mock.MagicMock()
         sys.modules["smartsheet.smartsheet"] = mock.MagicMock()
-    elif "smartsheet.exceptions" not in sys.modules:
-        # Real package present but sub-stubs missing — shouldn't happen,
-        # but guard anyway.
-        sys.modules["smartsheet.exceptions"] = mock.MagicMock()
-        sys.modules["smartsheet.smartsheet"] = mock.MagicMock()
+
+
+def test_ensure_smartsheet_mocked_does_not_stub_importable_sdk():
+    """Regression (Codex P2, PR #281): when the real SDK is installed but not
+    yet imported (this module collected first), ``_ensure_smartsheet_mocked``
+    must import the REAL package, never a MagicMock stub. Stubbing here poisons
+    ``sys.modules['smartsheet.exceptions']`` for later importers — notably
+    ``pipeline.retry``'s ``_TRANSIENT_EXC`` tuple, which would then hold
+    MagicMocks and make ``test_smartsheet_retry`` raise ``TypeError: catching
+    classes that do not inherit from BaseException`` when collected after this
+    module.
+    """
+    import importlib.util
+    if importlib.util.find_spec("smartsheet") is None:
+        import pytest
+        pytest.skip("real smartsheet SDK not installed (CI-absent case)")
+    # Simulate "installed but not yet imported" by evicting the cached real
+    # modules, then restore them afterward so sibling tests are unaffected.
+    saved = {
+        k: sys.modules[k]
+        for k in list(sys.modules)
+        if k == "smartsheet" or k.startswith("smartsheet.")
+    }
+    for k in saved:
+        del sys.modules[k]
+    try:
+        _ensure_smartsheet_mocked()
+        import smartsheet.exceptions as ss_exc
+        assert isinstance(ss_exc.ApiError, type), (
+            "ApiError must be a real exception class, not a MagicMock stub"
+        )
+        assert issubclass(ss_exc.ApiError, BaseException)
+    finally:
+        for k in list(sys.modules):
+            if k == "smartsheet" or k.startswith("smartsheet."):
+                del sys.modules[k]
+        sys.modules.update(saved)
 
 
 def _fake_rpc_response(source_run_id):

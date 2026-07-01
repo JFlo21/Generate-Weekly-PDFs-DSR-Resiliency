@@ -144,6 +144,85 @@ def sentry_capture_with_context(exception: Exception, context_name: str | None =
     sentry_sdk.capture_exception(exception)
 
 
+# Frame fields that can carry runtime data or embedded source literals. We
+# strip all of them from the sheet-drop event: ``vars`` holds sampled row
+# locals, and the source-context fields can echo a data literal from the source
+# line. Structural fields (function / filename / lineno / module) are kept so
+# grouping and "where did it fail" debugging still work.
+_PII_FRAME_FIELDS = ("vars", "pre_context", "context_line", "post_context")
+
+
+def _strip_frame_vars(event: Any, hint: Any = None) -> Any:
+    """Drop data-bearing fields (``vars`` + source context) from every
+    stacktrace frame in ``event``.
+
+    The engine runs Sentry with ``include_local_variables=True``, so frame
+    locals are serialized into events; on the billing paths those locals hold
+    row data (foreman / customer / WR / prices). We strip ``vars`` AND the
+    source-context fields (``pre_context`` / ``context_line`` / ``post_context``)
+    so neither a runtime local value nor an embedded source literal leaks, while
+    keeping the frame's structural metadata (function / filename / lineno) for
+    grouping and debugging.
+
+    IMPORTANT — for message events this MUST run at ``before_send`` time, not as
+    a scope event-processor. With ``attach_stacktrace=True`` the SDK appends the
+    current thread's ``threads[*].stacktrace.frames[*]`` AFTER scope
+    event-processors run, so a scope processor never sees (and cannot remove)
+    them (empirically verified — Codex P1, PR #281). The authoritative call
+    site is ``_scrub_sheet_drop_frame_vars`` inside ``before_send_filter``.
+    """
+    for _container in ("exception", "threads"):
+        for _val in (event.get(_container) or {}).get("values") or []:
+            for _frame in (_val.get("stacktrace") or {}).get("frames") or []:
+                for _field in _PII_FRAME_FIELDS:
+                    _frame.pop(_field, None)
+    return event
+
+
+def _scrub_sheet_drop_frame_vars(event: Any) -> Any:
+    """``before_send`` hook: strip frame-local ``vars`` from the discovery
+    sheet-drop event ONLY.
+
+    Gated on the ``error_location`` tag so ``include_local_variables`` stays
+    intact for every other event (debugging non-PII errors still gets locals).
+    This is the load-bearing PII scrub for ``sentry_capture_sheet_drop`` — the
+    thread-stacktrace ``vars`` that ``attach_stacktrace=True`` adds only exist
+    at ``before_send`` time, after scope processors have run.
+    """
+    if (event.get("tags") or {}).get("error_location") == "discovery_sheet_drop":
+        _strip_frame_vars(event)
+    return event
+
+
+def sentry_capture_sheet_drop(sheet_id: object, exc: BaseException) -> None:
+    """Loud-but-PII-safe Sentry signal for a dropped Smartsheet source sheet.
+
+    A dropped source sheet means missing billing rows, so it must escalate to
+    a Sentry issue rather than hide behind a log WARNING. But the SDK runs with
+    ``include_local_variables=True`` + ``attach_stacktrace=True``, so the emitted
+    message would otherwise carry this frame's locals (sampled billing rows on
+    the discovery path). We tag the event ``error_location=discovery_sheet_drop``;
+    ``before_send_filter`` -> ``_scrub_sheet_drop_frame_vars`` then strips every
+    frame's ``vars`` from THIS event before it is sent — keeping the loud,
+    grouped alert (sheet id + exception class) without exfiltrating row PII. A
+    scope event-processor cannot do this: the thread-stacktrace ``vars`` are
+    attached only after scope processors run (Codex P1, PR #281).
+    """
+    if not SENTRY_DSN:
+        return
+    with sentry_sdk.isolation_scope() as scope:
+        scope.set_tag("error_location", "discovery_sheet_drop")
+        scope.set_tag("sheet_id", str(sheet_id))
+        # Group all discovery drops of the same exception type into ONE issue
+        # (loud, not a per-sheet flood); the sheet id is a filterable tag.
+        scope.fingerprint = ["discovery-sheet-drop", type(exc).__name__]
+        sentry_sdk.capture_message(
+            f"Discovery dropped source sheet {sheet_id} after retries "
+            f"({type(exc).__name__})",
+            level="error",
+        )
+
+
 # Log level type for Sentry SDK 2.x
 SentryLogLevel = Literal["fatal", "critical", "error", "warning", "info", "debug"]
 
@@ -456,6 +535,27 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
 )
 
 
+# Row-identifier keys that must never survive in a Sentry breadcrumb's
+# structured ``data`` dict. Manual breadcrumbs (``sentry_add_breadcrumb``)
+# attach PII via ``data`` with a BENIGN ``message`` that no ``_PII_LOG_MARKERS``
+# entry matches — e.g. ``orchestrate.py`` skip/regenerate crumbs carry
+# ``data={"wr":…, "week":…, "variant":…}`` under ``message="Skipped unchanged
+# group"``. The message-marker sweep cannot catch a bare ``90093002`` value, so
+# ``sentry_before_breadcrumb`` strips these keys by NAME (Codex P2, PR #281).
+# ``variant`` is included because ``_User_<foreman>`` / ``_Helper_<foreman>``
+# embed the foreman name. Keep lowercase; matching is case-insensitive.
+_PII_BREADCRUMB_DATA_KEYS: frozenset[str] = frozenset({
+    "wr", "wr_num", "wr_number", "work_request",
+    "week", "week_raw", "week_ending", "week_end",
+    "variant",
+    "foreman", "helper", "helper_foreman",
+    "dept", "helper_dept",
+    "job", "job_number",
+    "price", "point", "cu", "customer",
+    "filename", "file_identifier",
+})
+
+
 def sentry_before_send_log(record, hint):
     """Drop Sentry Logs records that embed billing-row PII.
 
@@ -496,6 +596,60 @@ def sentry_before_send_log(record, hint):
         # unclassified records don't slip through to Sentry Logs.
         return None
     return record
+
+
+def sentry_before_breadcrumb(crumb, hint):
+    """Drop breadcrumbs whose log message embeds billing-row PII.
+
+    ``LoggingIntegration(level=logging.INFO)`` converts every INFO/WARNING
+    log record into a Sentry breadcrumb UNCONDITIONALLY — independent of the
+    ``SENTRY_ENABLE_LOGS`` gate that guards the Sentry Logs product (and thus
+    ``sentry_before_send_log``). Breadcrumbs attach to any subsequently
+    captured event, so a PII-bearing log body — e.g. the subcontractor
+    helper-claim attribution fallback WARNING, which names ``WR=`` + helper
+    foreman, or the always-on ``PRIMARY GROUP CREATED`` / totals-validation
+    INFO lines — would ride onto an unrelated error event and exfiltrate row
+    data. ``before_send_log`` never sees these (wrong plane), and the
+    sheet-drop scrub only strips frame vars (wrong field). This hook is the
+    breadcrumb-plane counterpart, reusing the SINGLE ``_PII_LOG_MARKERS``
+    registry so there is no marker drift.
+
+    Two sub-fields carry PII and are handled by two models:
+      * ``message`` (free text) — dropped whole if it contains a
+        ``_PII_LOG_MARKERS`` entry (the same allow-by-default / deny-on-marker
+        model as ``sentry_before_send_log``). Non-log breadcrumbs (navigation,
+        http, manual ``add_breadcrumb``) legitimately carry ``message=None``
+        and are kept so the debug trail is not gutted.
+      * ``data`` (structured key/value) — row-identifier keys in
+        ``_PII_BREADCRUMB_DATA_KEYS`` are stripped IN PLACE (a bare ``wr``
+        value like ``90093002`` never matches a text marker, so a
+        deny-by-key model is required; e.g. the ``orchestrate.py`` skip /
+        regenerate crumbs). The breadcrumb + its non-PII keys survive.
+
+    Returns ``None`` to drop, or the (possibly sanitized) crumb to keep. A
+    ``message``-marker hit drops the whole crumb (its ``data`` goes with it),
+    taking precedence over key-stripping. Fails closed on an inspection error
+    (drops) so an uninspectable payload cannot bypass the checks.
+    """
+    try:
+        if isinstance(crumb, dict):
+            message = crumb.get("message")
+            data = crumb.get("data")
+        else:
+            message = getattr(crumb, "message", None)
+            data = getattr(crumb, "data", None)
+        if isinstance(message, str):
+            for marker in _PII_LOG_MARKERS:
+                if marker in message:
+                    return None
+        if isinstance(data, dict):
+            for key in [k for k in data if str(k).lower() in _PII_BREADCRUMB_DATA_KEYS]:
+                del data[key]
+    except Exception:
+        # Never let the scrubber crash the SDK — drop on error so an
+        # uninspectable crumb cannot slip PII past the marker checks.
+        return None
+    return crumb
 
 
 def _parse_sentry_enable_logs(raw: str | None) -> bool:
@@ -638,6 +792,13 @@ def init_sentry() -> None:
                 'python_version': sys.version,
             }
 
+            # PII guard (Codex P1, PR #281): strip frame-local vars from the
+            # discovery sheet-drop event. MUST happen here — attach_stacktrace
+            # appends thread-frame vars after scope processors run, so this is
+            # the only stage that sees them. Gated by tag; other events keep
+            # include_local_variables for debugging.
+            event = _scrub_sheet_drop_frame_vars(event)
+
             return event
 
         def traces_sampler(sampling_context):
@@ -673,6 +834,15 @@ def init_sentry() -> None:
 
                 # Error enrichment
                 before_send=before_send_filter,
+                # Breadcrumb PII scrub (Codex P2, PR #281): LoggingIntegration
+                # records INFO/WARNING logs as breadcrumbs unconditionally
+                # (the SENTRY_ENABLE_LOGS gate only guards before_send_log's
+                # Logs product), and breadcrumbs attach to any later event.
+                # Reuse the _PII_LOG_MARKERS registry to drop row-PII crumbs.
+                # Cast to Any: the SDK's typed signature is
+                # (Breadcrumb, Hint) -> Breadcrumb | None but our hook is
+                # intentionally generic over dict/object crumbs.
+                before_breadcrumb=cast(Any, sentry_before_breadcrumb),
                 attach_stacktrace=True,
                 include_local_variables=True,  # SDK 2.x: Replaces with_locals
                 max_breadcrumbs=100,

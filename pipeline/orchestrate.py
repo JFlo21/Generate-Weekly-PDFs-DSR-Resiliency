@@ -21,7 +21,6 @@ from __future__ import annotations
 import os
 import datetime
 from datetime import timedelta
-import time
 import threading
 import json
 import re
@@ -39,7 +38,6 @@ from typing import Any
 
 from dateutil import parser
 import smartsheet
-import smartsheet.exceptions as ss_exc
 import sentry_sdk
 from sentry_sdk.crons import capture_checkin
 from sentry_sdk.crons.consts import MonitorStatus
@@ -60,6 +58,7 @@ from pipeline import excel as _excel
 from pipeline import cleanup as _cleanup
 from pipeline import upload as _upload
 from pipeline import attribution as _attr
+from pipeline.retry import smartsheet_call_with_retry
 
 # Named re-export imports (byte-exact from the facade) so every bare sibling
 # reference inside main()/testmode resolves identically (W1-W5 pattern). The
@@ -693,38 +692,20 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 def _fetch_row_attachments(row_item):
                     # row_item is (wr_num, target_row); only target_row is needed.
                     _, target_row = row_item
-                    max_retries = 4
-                    for attempt in range(max_retries):
-                        try:
-                            atts = client.Attachments.list_row_attachments(TARGET_SHEET_ID, target_row.id).data
-                            return (target_row.id, atts)
-                        except (ss_exc.RateLimitExceededError,) as e:
-                            if attempt < max_retries - 1:
-                                backoff = 15 * (attempt + 1)  # 15s, 30s, 45s for rate limits
-                                logging.warning(f"⚠️ Rate limited on attachment fetch for row {target_row.id}, backoff {backoff}s (attempt {attempt+1}/{max_retries})")
-                                time.sleep(backoff)
-                            else:
-                                logging.warning(f"⚠️ Attachment fetch failed after {max_retries} rate-limit retries for row {target_row.id}")
-                                return (target_row.id, [])
-                        except (ss_exc.UnexpectedErrorShouldRetryError, ss_exc.InternalServerError, ss_exc.ServerTimeoutExceededError) as e:
-                            if attempt < max_retries - 1:
-                                backoff = 2 ** attempt + 0.5
-                                logging.warning(f"⚠️ Attachment fetch retry {attempt+1}/{max_retries} for row {target_row.id} ({type(e).__name__}), backoff {backoff:.1f}s")
-                                time.sleep(backoff)
-                            else:
-                                logging.warning(f"⚠️ Attachment fetch failed after {max_retries} attempts for row {target_row.id}: {type(e).__name__}")
-                                return (target_row.id, [])
-                        except Exception as e:
-                            err_name = type(e).__name__
-                            is_transient = any(tag in err_name for tag in ('RemoteDisconnected', 'ConnectionError', 'ConnectionReset', 'SSLError', 'SSLEOFError', 'Timeout'))
-                            if is_transient and attempt < max_retries - 1:
-                                backoff = 2 ** attempt + 0.5
-                                logging.warning(f"⚠️ Attachment fetch retry {attempt+1}/{max_retries} for row {target_row.id} ({err_name}), backoff {backoff:.1f}s")
-                                time.sleep(backoff)
-                            else:
-                                if attempt > 0:
-                                    logging.warning(f"⚠️ Attachment fetch failed after {max_retries} attempts for row {target_row.id}: {err_name}")
-                                return (target_row.id, [])
+                    # Phase 10: retry transient failures via the shared helper
+                    # (API 4000, server timeout, rate limit, network drop —
+                    # bounded total backoff). Degrade to no-attachments on
+                    # persistent failure, exactly as before (the row then falls
+                    # back to per-row on-demand lookup at generation time).
+                    try:
+                        atts = smartsheet_call_with_retry(
+                            client.Attachments.list_row_attachments,
+                            TARGET_SHEET_ID, target_row.id,
+                            label=f"attachment fetch row {target_row.id}",
+                        ).data
+                        return (target_row.id, atts)
+                    except Exception:
+                        return (target_row.id, [])
 
                 _prefetch_budget_exceeded = False
                 _prefetch_stuck_futures = 0     # future.result timed out after as_completed yielded
@@ -907,74 +888,18 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 def _fetch_ppp_row_attachments(row_item):
                     # row_item is (wr_num, target_row); only target_row is needed.
                     _, target_row = row_item
-                    max_retries = 4
-                    for attempt in range(max_retries):
-                        try:
-                            atts = client.Attachments.list_row_attachments(SUBCONTRACTOR_PPP_SHEET_ID, target_row.id).data
-                            return (target_row.id, atts)
-                        except (ss_exc.RateLimitExceededError,) as e:
-                            if attempt < max_retries - 1:
-                                backoff = 15 * (attempt + 1)
-                                logging.warning(
-                                    f"⚠️ PPP rate limited on attachment fetch "
-                                    f"for row {target_row.id}, backoff {backoff}s "
-                                    f"(attempt {attempt + 1}/{max_retries})"
-                                )
-                                time.sleep(backoff)
-                            else:
-                                logging.warning(
-                                    f"⚠️ PPP attachment fetch failed after "
-                                    f"{max_retries} rate-limit retries for row "
-                                    f"{target_row.id}"
-                                )
-                                return (target_row.id, [])
-                        except (
-                            ss_exc.UnexpectedErrorShouldRetryError,
-                            ss_exc.InternalServerError,
-                            ss_exc.ServerTimeoutExceededError,
-                        ) as e:
-                            if attempt < max_retries - 1:
-                                backoff = 2 ** attempt + 0.5
-                                logging.warning(
-                                    f"⚠️ PPP attachment fetch retry "
-                                    f"{attempt + 1}/{max_retries} for row "
-                                    f"{target_row.id} ({type(e).__name__}), "
-                                    f"backoff {backoff:.1f}s"
-                                )
-                                time.sleep(backoff)
-                            else:
-                                logging.warning(
-                                    f"⚠️ PPP attachment fetch failed after "
-                                    f"{max_retries} attempts for row "
-                                    f"{target_row.id}: {type(e).__name__}"
-                                )
-                                return (target_row.id, [])
-                        except Exception as e:
-                            err_name = type(e).__name__
-                            is_transient = any(
-                                tag in err_name for tag in (
-                                    'RemoteDisconnected', 'ConnectionError',
-                                    'ConnectionReset', 'SSLError',
-                                    'SSLEOFError', 'Timeout',
-                                )
-                            )
-                            if is_transient and attempt < max_retries - 1:
-                                backoff = 2 ** attempt + 0.5
-                                logging.warning(
-                                    f"⚠️ PPP attachment fetch retry "
-                                    f"{attempt + 1}/{max_retries} for row "
-                                    f"{target_row.id} ({err_name}), backoff "
-                                    f"{backoff:.1f}s"
-                                )
-                                time.sleep(backoff)
-                            else:
-                                if attempt > 0:
-                                    logging.warning(
-                                        f"⚠️ PPP attachment fetch failed "
-                                        f"after {max_retries} attempts for row "
-                                        f"{target_row.id}: {err_name}"
-                                    )
-                                return (target_row.id, [])
+                    # Phase 10: same shared-helper retry as the target prefetch
+                    # above (bounded backoff; degrade to no-attachments on
+                    # persistent failure → per-row on-demand fallback).
+                    try:
+                        atts = smartsheet_call_with_retry(
+                            client.Attachments.list_row_attachments,
+                            SUBCONTRACTOR_PPP_SHEET_ID, target_row.id,
+                            label=f"PPP attachment fetch row {target_row.id}",
+                        ).data
+                        return (target_row.id, atts)
+                    except Exception:
+                        return (target_row.id, [])
 
                 _ppp_prefetch_budget_exceeded = False
                 _ppp_prefetch_cancelled = 0
@@ -2110,72 +2035,75 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 that's the point: routing decisions live in the
                 builder, mutations live in the worker.
                 """
-                max_retries = 4
-                last_err = None
-                for attempt in range(max_retries):
-                    try:
-                        target_row = task['target_row']
-                        force_this = FORCE_GENERATION or (task['week_raw'] in REGEN_WEEKS)
+                def _do_upload_attempt():
+                    target_row = task['target_row']
+                    force_this = FORCE_GENERATION or (task['week_raw'] in REGEN_WEEKS)
 
-                        deleted_count, skipped = delete_old_excel_attachments(
-                            client, task['target_sheet_id'], target_row, task['wr_num'],
-                            task['week_raw'], task['data_hash'],
-                            variant=task['variant'], identifier=task['file_identifier'],
-                            force_generation=force_this,
-                            cached_attachments=attachment_cache.get(target_row.id)
-                        )
-                        if force_this and skipped:
-                            skipped = False
+                    # Retry idempotency note (Codex P2 thread, PR #281): this
+                    # delete+upload op is wrapped in smartsheet_call_with_retry
+                    # and is behavior-preserving vs the original inline loop —
+                    # it passes the prefetched attachment_cache on every attempt.
+                    # Making the retry STRICTLY idempotent is not achievable by
+                    # attachment inspection in SUPABASE_HASH_STORE_AUTHORITATIVE
+                    # clean-filename mode (ON in production:
+                    # weekly-excel-generation.yml). Clean names carry no
+                    # timestamp/hash (excel.py:401-407), so a freshly committed
+                    # file is INDISTINGUISHABLE from a stale same-identity one —
+                    # both "live-delete-then-reupload" (risks data loss if the
+                    # re-upload fails) and "preserve any same-identity file"
+                    # (risks reporting a stale Excel as success) are unsafe. The
+                    # only residual issue with the current behavior is a benign,
+                    # self-healing DUPLICATE on the rare commit-then-transient
+                    # retry, which the next scheduled run's delete→upload
+                    # reconciles. A proper fix (upload-then-delete-by-attachment-
+                    # age) changes the delete→upload ordering guardrail and is
+                    # deferred to a dedicated PR. Do NOT re-introduce a retry
+                    # special-case here without that ordering change.
+                    deleted_count, skipped = delete_old_excel_attachments(
+                        client, task['target_sheet_id'], target_row, task['wr_num'],
+                        task['week_raw'], task['data_hash'],
+                        variant=task['variant'], identifier=task['file_identifier'],
+                        force_generation=force_this,
+                        cached_attachments=attachment_cache.get(target_row.id)
+                    )
+                    if force_this and skipped:
+                        skipped = False
 
-                        if skipped:
-                            return 'skipped'
+                    if skipped:
+                        return 'skipped'
 
-                        if not SKIP_UPLOAD:
-                            with open(task['excel_path'], 'rb') as file:
-                                client.Attachments.attach_file_to_row(
-                                    task['target_sheet_id'],
-                                    target_row.id,
-                                    (task['filename'], file, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-                                )
-                            logging.info(
-                                f"✅ Uploaded: {task['filename']} → sheet "
-                                f"{task['target_sheet_id']}"
+                    if not SKIP_UPLOAD:
+                        with open(task['excel_path'], 'rb') as file:
+                            client.Attachments.attach_file_to_row(
+                                task['target_sheet_id'],
+                                target_row.id,
+                                (task['filename'], file, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
                             )
-                            return 'uploaded'
-                        else:
-                            logging.info(f"⏭️  Skipping upload (SKIP_UPLOAD=true): {task['filename']}")
-                            return 'skip_upload'
-                    except ss_exc.RateLimitExceededError as e:
-                        last_err = e
-                        if attempt < max_retries - 1:
-                            backoff = 15 * (attempt + 1)  # 15s, 30s, 45s for rate limits
-                            logging.warning(f"⚠️ Rate limited on upload for {task['filename']}, backoff {backoff}s (attempt {attempt+1}/{max_retries})")
-                            time.sleep(backoff)
-                        else:
-                            break
-                    except (ss_exc.UnexpectedErrorShouldRetryError, ss_exc.InternalServerError, ss_exc.ServerTimeoutExceededError) as e:
-                        last_err = e
-                        if attempt < max_retries - 1:
-                            backoff = 2 ** attempt + 0.5
-                            logging.warning(f"⚠️ Upload retry {attempt+1}/{max_retries} for {task['filename']} ({type(e).__name__}), backoff {backoff:.1f}s")
-                            time.sleep(backoff)
-                        else:
-                            break
-                    except Exception as e:
-                        last_err = e
-                        err_name = type(e).__name__
-                        is_transient = any(tag in err_name for tag in ('RemoteDisconnected', 'ConnectionError', 'ConnectionReset', 'SSLError', 'SSLEOFError', 'Timeout'))
-                        if is_transient and attempt < max_retries - 1:
-                            backoff = 2 ** attempt + 0.5
-                            logging.warning(f"⚠️ Upload retry {attempt+1}/{max_retries} for {task['filename']} ({err_name}), backoff {backoff:.1f}s")
-                            time.sleep(backoff)
-                        else:
-                            break
-                logging.error(f"❌ Upload failed for {task['filename']}: {last_err}")
-                sentry_add_breadcrumb("upload", f"Upload failed for {task['filename']}", level="error", data={
-                    "wr": task['wr_num'], "error": str(last_err)[:200],
-                })
-                return 'error'
+                        logging.info(
+                            f"✅ Uploaded: {task['filename']} → sheet "
+                            f"{task['target_sheet_id']}"
+                        )
+                        return 'uploaded'
+                    else:
+                        logging.info(f"⏭️  Skipping upload (SKIP_UPLOAD=true): {task['filename']}")
+                        return 'skip_upload'
+
+                # Phase 10: retry the whole delete+upload op via the shared
+                # helper (transient API 4000 / server timeout / rate limit /
+                # network drop, bounded backoff). On persistent failure, fail
+                # loud — error log + Sentry breadcrumb — and report 'error',
+                # exactly as the previous inline retry loop did.
+                try:
+                    return smartsheet_call_with_retry(
+                        _do_upload_attempt,
+                        label=f"upload {task['filename']}",
+                    )
+                except Exception as e:
+                    logging.error(f"❌ Upload failed for {task['filename']}: {e}")
+                    sentry_add_breadcrumb("upload", f"Upload failed for {task['filename']}", level="error", data={
+                        "wr": task['wr_num'], "error": str(e)[:200],
+                    })
+                    return 'error'
 
             with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
                 upload_results = list(executor.map(_upload_one, _upload_tasks))

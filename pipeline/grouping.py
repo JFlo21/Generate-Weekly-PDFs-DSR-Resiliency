@@ -958,20 +958,33 @@ def group_source_rows(rows):
                             is_subcontractor_row
                             and SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED
                             and (
-                                _attr_status == 'fetch_failure'
+                                _attr_status in ('fetch_failure', 'unavailable')
                                 or (
                                     _attr_status == 'rpc_missing'
                                     and not ATTRIBUTION_BULK_PREFETCH_FALLBACK
                                 )
                             )
                         ):
-                            # WR-05: surface the outage explicitly. Sub-helper
-                            # does NOT HOLD (Phase 1.1 design) — it falls back
-                            # to the current `Foreman Helping?` (D-12 default),
-                            # but now LOGS the reason via the per-WR WARNING
-                            # below, restoring the Bug C observability the bulk
-                            # path dropped. No per-row RPC issued on this path.
-                            _attribution_reason = 'fetch_failure'
+                            # WR-05: surface the store-level problem explicitly.
+                            # Sub-helper does NOT HOLD (Phase 1.1 design) — it
+                            # falls back to the current `Foreman Helping?`
+                            # (D-12 default), but LOGS the reason via the per-WR
+                            # WARNING below, restoring the Bug C observability
+                            # the bulk path dropped. No per-row RPC issued here.
+                            #
+                            # Codex P2 (PR #281): keep 'unavailable' DISTINCT
+                            # from 'fetch_failure'. 'unavailable' = no Supabase
+                            # client (store unconfigured/unreachable), so nothing
+                            # can be frozen this run; routing it through the
+                            # resolve_claimer `elif` below would return an empty
+                            # map → 'no_history' → a misleading "this run freezes
+                            # it; no action needed" WARNING. Preserve the real
+                            # status so the remediation text is accurate.
+                            _attribution_reason = (
+                                'unavailable'
+                                if _attr_status == 'unavailable'
+                                else 'fetch_failure'
+                            )
                         elif (
                             is_subcontractor_row
                             and SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED
@@ -996,7 +1009,17 @@ def group_source_rows(rows):
                                     _attributed_helper = (
                                         _sh_out.name or helper_foreman
                                     )
-                                    _attribution_reason = None
+                                    # F1 fix: a genuine no-history row returns
+                                    # action='use' with reason='no_history'
+                                    # (writer.py:1048-1049, 1060). Propagate
+                                    # it so the per-WR fallback WARNING below
+                                    # fires; a real frozen/current 'success'
+                                    # attribution stays silent (reason=None).
+                                    _attribution_reason = (
+                                        'no_history'
+                                        if _sh_out.reason == 'no_history'
+                                        else None
+                                    )
                                 elif _sh_out.action == 'hold':
                                     # fetch_failure: D-12 default (current
                                     # helper), flag for WARNING below.
@@ -1027,7 +1050,9 @@ def group_source_rows(rows):
                         if (
                             is_subcontractor_row
                             and SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED
-                            and _attribution_reason in ('no_history', 'fetch_failure')
+                            and _attribution_reason in (
+                                'no_history', 'fetch_failure', 'unavailable'
+                            )
                         ):
                             _warning_helper_key = _RE_SANITIZE_HELPER_NAME.sub(
                                 '_', helper_foreman
@@ -1037,6 +1062,45 @@ def group_source_rows(rows):
                             )
                             if _warning_key not in _bug_c_warning_seen:
                                 _bug_c_warning_seen.add(_warning_key)
+                                # Remediation text branches by reason. The two
+                                # fallback reasons are NOT the same severity:
+                                #   fetch_failure → a genuine PostgREST outage
+                                #     (the lookup RPC errored): point the
+                                #     operator at Supabase Logs to confirm and
+                                #     clear the outage.
+                                #   unavailable → the Supabase attribution store
+                                #     has no client (unconfigured/unreachable):
+                                #     nothing can be frozen this run. Distinct
+                                #     from a transient outage; check config, not
+                                #     PostgREST logs.
+                                #   no_history → the BENIGN brand-new-claim
+                                #     case: the lookup SUCCEEDED, there is just
+                                #     no frozen row yet (this run freezes it).
+                                #     A PGRST outage hunt here is a false lead —
+                                #     so the remediation must NOT cite PGRST.
+                                if _attribution_reason == 'fetch_failure':
+                                    _remediation = (
+                                        "To investigate: check Supabase Logs "
+                                        "for PGRST106/PGRST301/PGRST404 on the "
+                                        "'lookup_attribution' op."
+                                    )
+                                elif _attribution_reason == 'unavailable':
+                                    _remediation = (
+                                        "The Supabase attribution store is "
+                                        "unavailable (no client configured), so "
+                                        "no attribution can be frozen this run. "
+                                        "Verify SUPABASE_* configuration if "
+                                        "frozen attribution was expected; "
+                                        "otherwise this is expected (e.g. local "
+                                        "/ TEST_MODE)."
+                                    )
+                                else:  # no_history
+                                    _remediation = (
+                                        "No frozen attribution exists yet — "
+                                        "this run freezes it; no action needed "
+                                        "unless a prior frozen claim was "
+                                        "expected for this helper."
+                                    )
                                 # PII marker: "Subcontractor helper
                                 # claim attribution fallback" — added
                                 # to _PII_LOG_MARKERS in Step 2.
@@ -1048,10 +1112,7 @@ def group_source_rows(rows):
                                     f"(reason={_attribution_reason}). "
                                     f"Helper file rows will fall back to "
                                     f"the current `Foreman Helping?` "
-                                    f"value. To investigate: check "
-                                    f"Supabase Logs for "
-                                    f"PGRST106/PGRST301/PGRST404 on the "
-                                    f"'lookup_attribution' op."
+                                    f"value. {_remediation}"
                                 )
 
                         # Use the attributed helper (or current helper

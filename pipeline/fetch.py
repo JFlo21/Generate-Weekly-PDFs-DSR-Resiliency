@@ -36,6 +36,7 @@ from pipeline.config import (
     PARALLEL_WORKERS,
     PER_CELL_DEBUG_ENABLED,
 )
+from pipeline.retry import smartsheet_call_with_retry
 from pipeline.pricing import (
     OLD_RATES_CSV,
     RATE_RECALC_WEEKLY_FALLBACK,
@@ -186,9 +187,15 @@ def get_all_source_rows(client, source_sheets):
                 column_mapping = source['column_mapping']
                 required_column_ids = list(column_mapping.values())
                 with sentry_sdk.start_span(op="smartsheet.api", name=f"Fetch sheet {source['name']}") as api_span:
-                    sheet = client.Sheets.get_sheet(
-                        source['id'], 
-                        column_ids=required_column_ids
+                    # Retry transient API errors (4000 on large sheets, server
+                    # timeouts, network drops) before the existing per-sheet
+                    # handler drops the sheet. Bounded total backoff respects
+                    # PARALLEL_WORKERS / TIME_BUDGET (see pipeline.retry).
+                    sheet = smartsheet_call_with_retry(
+                        client.Sheets.get_sheet,
+                        source['id'],
+                        column_ids=required_column_ids,
+                        label=f"fetch sheet {source['name']}",
                     )
                     api_span.set_data("sheet_id", source['id'])
                     api_span.set_data("sheet_name", source['name'])
