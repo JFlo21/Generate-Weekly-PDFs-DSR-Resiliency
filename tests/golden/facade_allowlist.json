@@ -105,5 +105,6 @@
   "run_claimer_remediation",
   "save_billing_audit_row_cache",
   "save_hash_history",
+  "sentry_before_breadcrumb",
   "sentry_before_send_log"
 ]

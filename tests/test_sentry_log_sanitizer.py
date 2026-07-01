@@ -498,6 +498,83 @@ class TestSentryBeforeSendLog:
         assert gwp.sentry_before_send_log(rec, {}) is None
 
 
+class TestSentryBeforeBreadcrumb:
+    """Breadcrumb sanitizer drops crumbs whose log message hits a PII marker.
+
+    ``LoggingIntegration(level=logging.INFO)`` turns every INFO/WARNING log
+    record into a Sentry breadcrumb UNCONDITIONALLY — independent of the
+    ``SENTRY_ENABLE_LOGS`` gate that guards the Logs product (and thus
+    ``sentry_before_send_log``). Those breadcrumbs then attach to any
+    subsequently-captured event, so a PII-bearing log body would ride onto
+    an unrelated error event. ``sentry_before_breadcrumb`` reuses the same
+    ``_PII_LOG_MARKERS`` registry to drop them (Codex P2, PR #281).
+    """
+
+    def test_drops_helper_claim_attribution_fallback(self):
+        # The exact WARNING F1 made fire on the common no_history path —
+        # it names WR= + helper foreman, matched by the registered marker.
+        crumb = {
+            "type": "log",
+            "category": "root",
+            "level": "warning",
+            "message": (
+                "⚠️ Subcontractor helper claim attribution fallback for "
+                "WR=WR42 week=010124 helper=Jane_Doe (reason=no_history). "
+                "Helper file rows will fall back to the current "
+                "`Foreman Helping?` value. No frozen attribution exists yet"
+            ),
+        }
+        assert gwp.sentry_before_breadcrumb(crumb, {}) is None
+
+    def test_drops_primary_group_created_breadcrumb(self):
+        # Pre-existing INFO log that always fires in prod, now also covered.
+        crumb = {
+            "message": "🧑 PRIMARY GROUP CREATED: WR=90093002, Week=070526",
+        }
+        assert gwp.sentry_before_breadcrumb(crumb, {}) is None
+
+    def test_drops_totals_validation_breadcrumb(self):
+        crumb = {"message": "   010124_WR42_HELPER_Jane_Doe: rows=3 total=$789.00"}
+        assert gwp.sentry_before_breadcrumb(crumb, {}) is None
+
+    def test_forwards_benign_breadcrumb(self):
+        crumb = {"message": "🛡️ Sentry.io error monitoring initialized (SDK 2.x)"}
+        assert gwp.sentry_before_breadcrumb(crumb, {}) is crumb
+
+    def test_forwards_none_message_breadcrumb(self):
+        # Non-log breadcrumbs (navigation / http / manual add_breadcrumb)
+        # legitimately carry message=None. They are NOT the log-record PII
+        # vector, so they must be kept — dropping them would gut the trail.
+        crumb = {"type": "navigation", "category": "navigation", "message": None}
+        assert gwp.sentry_before_breadcrumb(crumb, {}) is crumb
+
+    def test_forwards_missing_message_breadcrumb(self):
+        crumb = {"type": "http", "category": "httplib"}
+        assert gwp.sentry_before_breadcrumb(crumb, {}) is crumb
+
+    def test_forwards_object_style_breadcrumb(self):
+        class _Crumb:
+            message = "nothing sensitive here"
+
+        crumb = _Crumb()
+        assert gwp.sentry_before_breadcrumb(crumb, {}) is crumb
+
+    def test_drops_object_style_pii_breadcrumb(self):
+        class _Crumb:
+            message = "🔧 HELPER GROUP CREATED: WR=WR42, Week=010124, Helper=Jane"
+
+        assert gwp.sentry_before_breadcrumb(_Crumb(), {}) is None
+
+    def test_fails_closed_on_exception(self):
+        # An uninspectable payload that raises on access must not propagate;
+        # the hook fails closed (drops) so PII can never bypass the check.
+        class _Boom:
+            def __getattribute__(self, name):
+                raise RuntimeError("boom")
+
+        assert gwp.sentry_before_breadcrumb(_Boom(), {}) is None
+
+
 def _reload_gwp_with_env(env_overrides):
     """Reload ``generate_weekly_pdfs`` under the given env overrides
     with ``sentry_sdk.init`` patched. Returns the mock (so the caller
@@ -611,6 +688,19 @@ class TestSentryInitWiring:
         # module-scope sanitizer so the PII markers apply.
         assert kwargs["before_send_log"] is reloaded.sentry_before_send_log
 
+    def test_before_breadcrumb_is_sanitizer(self):
+        # LoggingIntegration turns INFO/WARNING logs into breadcrumbs
+        # regardless of the SENTRY_ENABLE_LOGS gate, so the breadcrumb PII
+        # scrub must ALWAYS be wired (Codex P2, PR #281).
+        mock_init, reloaded = _reload_gwp_with_env({
+            "SENTRY_DSN": "https://fake@localhost/0",
+        })
+        kwargs = mock_init.call_args.kwargs
+        assert "before_breadcrumb" in kwargs, (
+            "sentry_sdk.init must receive the before_breadcrumb keyword"
+        )
+        assert kwargs["before_breadcrumb"] is reloaded.sentry_before_breadcrumb
+
     def test_installed_sdk_accepts_enable_logs_and_before_send_log(self):
         """Verify the *real* sentry_sdk.init accepts both new kwargs.
 
@@ -631,4 +721,5 @@ class TestSentryInitWiring:
             dsn=None,
             enable_logs=False,
             before_send_log=lambda record, hint: record,
+            before_breadcrumb=lambda crumb, hint: crumb,
         )

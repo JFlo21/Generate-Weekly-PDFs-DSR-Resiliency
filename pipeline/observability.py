@@ -577,6 +577,44 @@ def sentry_before_send_log(record, hint):
     return record
 
 
+def sentry_before_breadcrumb(crumb, hint):
+    """Drop breadcrumbs whose log message embeds billing-row PII.
+
+    ``LoggingIntegration(level=logging.INFO)`` converts every INFO/WARNING
+    log record into a Sentry breadcrumb UNCONDITIONALLY — independent of the
+    ``SENTRY_ENABLE_LOGS`` gate that guards the Sentry Logs product (and thus
+    ``sentry_before_send_log``). Breadcrumbs attach to any subsequently
+    captured event, so a PII-bearing log body — e.g. the subcontractor
+    helper-claim attribution fallback WARNING, which names ``WR=`` + helper
+    foreman, or the always-on ``PRIMARY GROUP CREATED`` / totals-validation
+    INFO lines — would ride onto an unrelated error event and exfiltrate row
+    data. ``before_send_log`` never sees these (wrong plane), and the
+    sheet-drop scrub only strips frame vars (wrong field). This hook is the
+    breadcrumb-plane counterpart, reusing the SINGLE ``_PII_LOG_MARKERS``
+    registry so there is no marker drift.
+
+    Returns ``None`` to drop, or the crumb unchanged to keep. Only the string
+    log-message vector is inspected: non-log breadcrumbs (navigation, http,
+    manual ``add_breadcrumb`` calls) legitimately carry ``message=None`` and
+    are kept so the debug trail is not gutted. Fails closed on an inspection
+    error (drops) so an uninspectable payload cannot bypass the marker checks.
+    """
+    try:
+        if isinstance(crumb, dict):
+            message = crumb.get("message")
+        else:
+            message = getattr(crumb, "message", None)
+        if isinstance(message, str):
+            for marker in _PII_LOG_MARKERS:
+                if marker in message:
+                    return None
+    except Exception:
+        # Never let the scrubber crash the SDK — drop on error so an
+        # uninspectable crumb cannot slip PII past the marker checks.
+        return None
+    return crumb
+
+
 def _parse_sentry_enable_logs(raw: str | None) -> bool:
     """Parse the SENTRY_ENABLE_LOGS env value into a bool.
 
@@ -759,6 +797,15 @@ def init_sentry() -> None:
 
                 # Error enrichment
                 before_send=before_send_filter,
+                # Breadcrumb PII scrub (Codex P2, PR #281): LoggingIntegration
+                # records INFO/WARNING logs as breadcrumbs unconditionally
+                # (the SENTRY_ENABLE_LOGS gate only guards before_send_log's
+                # Logs product), and breadcrumbs attach to any later event.
+                # Reuse the _PII_LOG_MARKERS registry to drop row-PII crumbs.
+                # Cast to Any: the SDK's typed signature is
+                # (Breadcrumb, Hint) -> Breadcrumb | None but our hook is
+                # intentionally generic over dict/object crumbs.
+                before_breadcrumb=cast(Any, sentry_before_breadcrumb),
                 attach_stacktrace=True,
                 include_local_variables=True,  # SDK 2.x: Replaces with_locals
                 max_breadcrumbs=100,

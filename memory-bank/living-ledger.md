@@ -4525,3 +4525,40 @@ twice: run the falsifiable single-file repro before replying.**
 **Position:** ✅ all findings across 6 reviewer passes resolved. 6 gates green (G3 1133 + 17 standalone-verified).
 Both new test files now import standalone. Next: push → confirm Codex's 7th-tip review is silent → merge to
 `master`.
+
+---
+
+## [2026-06-30 20:10] — RULE: breadcrumbs are a THIRD PII plane — scrub them with `before_breadcrumb` + `_PII_LOG_MARKERS`
+
+**RULE — Sentry has THREE data planes that can carry billing-row PII, and each needs its own scrub keyed on the
+single `_PII_LOG_MARKERS` registry: (1) event frames → `before_send` (`_scrub_sheet_drop_frame_vars`); (2) the
+Sentry Logs product → `before_send_log` (`sentry_before_send_log`); (3) BREADCRUMBS → `before_breadcrumb`
+(`sentry_before_breadcrumb`, added this PR).** The engine inits `LoggingIntegration(level=logging.INFO,
+event_level=logging.ERROR)`, so EVERY INFO/WARNING log record becomes a breadcrumb **unconditionally** — the
+`SENTRY_ENABLE_LOGS` gate only guards plane (2), not breadcrumbs. Breadcrumbs then attach to any later captured
+event, so the always-on PII INFO lines (`🧑 PRIMARY GROUP CREATED: WR=… Week=…`, `Totals Validation …
+total=$…`, the `_HELPER_`/`_VACCREW`/`_WeekEnding_` bodies) plus the sub-helper attribution-fallback WARNING were
+riding onto unrelated error events. `sentry_before_breadcrumb(crumb, hint)` drops any crumb whose string
+`message` contains a marker (reusing the SAME registry — no drift), keeps non-log crumbs (`message=None`:
+navigation/http/manual), and fails closed on inspection error. Wired via `before_breadcrumb=cast(Any, …)` next
+to `before_send`; re-exported on the facade + locked in `baseline_names.json` (G1 178) + `facade_allowlist.json`
+(G2 108), symmetric to `sentry_before_send_log`.
+
+**Why THIS PR triggered it:** F1 made the attribution-fallback WARNING fire on the common `no_history` path
+(before, only rare `fetch_failure`), so a `WR=…helper=…` breadcrumb now generates on essentially every
+brand-new helper claim. Codex P2 (7th tip) caught it. But the gap was PRE-EXISTING and broad — the hook closes
+the breadcrumb plane for ALL ~70 markers at once, not just the one WARNING. **Empirically proven** with a real
+`sentry_sdk.Client` + dummy transport + the engine's exact `LoggingIntegration` config: WITHOUT the hook the PII
+WARNING lands in a captured event's breadcrumbs (`leaked=True`); WITH it, the PII crumb is gone and a benign
+crumb survives (`leaked=False, benign=True`). **No `grouping.py` / billing-logic change** — the operator-
+actionable WARNING stays; the fix is pure observability hardening on the breadcrumb plane.
+
+**LESSON — a PII scrub is only as complete as the set of PLANES it covers.** The repo had built a thorough
+`_PII_LOG_MARKERS` registry but wired it into only 2 of the 3 places a log record can surface in Sentry. When
+adding a marker-based scrub, enumerate every sink (events, Logs, breadcrumbs, spans/attributes, transaction
+names) and gate each. Codex's 7th-tip catch was on code THIS PR widened, but it exposed a latent always-on leak.
+
+**Position:** ✅ 7 reviewer passes resolved (3 real Codex fixes on the last two tips: before_send PII scrub +
+`unavailable` status + breadcrumb PII scrub; plus 2 sys.path bootstraps). 6 gates green (G1 178 · G2 108 · G3
+1143 +130 subtests · G4 56→56 · G5 · G6). Breadcrumb scrub dummy-transport-verified. Next: push → confirm
+Codex's review of this tip is silent → merge to `master`.

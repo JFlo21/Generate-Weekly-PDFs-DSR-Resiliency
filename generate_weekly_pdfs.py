@@ -510,6 +510,7 @@ from pipeline.observability import (  # noqa: E402,F401
     _set_sentry_session_tags,
     logger,
     sentry_add_breadcrumb,
+    sentry_before_breadcrumb,
     sentry_before_send_log,
     sentry_capture_message_with_context,
     sentry_capture_with_context,
