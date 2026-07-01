@@ -574,6 +574,73 @@ class TestSentryBeforeBreadcrumb:
 
         assert gwp.sentry_before_breadcrumb(_Boom(), {}) is None
 
+    def test_strips_pii_keys_from_breadcrumb_data(self):
+        # Manual breadcrumbs (sentry_add_breadcrumb) carry PII in `data`
+        # with a benign `message` that no marker matches — e.g. the
+        # common skip path at orchestrate.py:1814. The message-only scrub
+        # would keep them, so `data` row-identifier keys must be stripped
+        # in place while the flow crumb + non-PII keys survive (Codex P2).
+        crumb = {
+            "category": "group",
+            "message": "Skipped unchanged group",
+            "data": {
+                "wr": "90093002",
+                "week": "070526",
+                "variant": "_Helper_Jane_Doe",
+                "hash": "abc1234",
+            },
+        }
+        out = gwp.sentry_before_breadcrumb(crumb, {})
+        assert out is crumb  # kept (message is benign), sanitized in place
+        assert "wr" not in out["data"]
+        assert "week" not in out["data"]
+        assert "variant" not in out["data"]  # embeds foreman name
+        assert out["data"] == {"hash": "abc1234"}  # non-PII key preserved
+
+    def test_regenerate_breadcrumb_dropped_whole_by_message_marker(self):
+        # orchestrate.py:1820 regenerate path carries PII in `data`, but its
+        # message ALSO contains the "Regenerating " marker (which targets the
+        # PII log line "🔁 Regenerating {variant} WR {wr} week {week}"). The
+        # message-marker drop takes precedence, so the WHOLE crumb (data and
+        # all) is removed — the two models compose to fail safe.
+        crumb = {
+            "message": "Regenerating despite same hash (attachment missing)",
+            "data": {"wr": "42", "week": "010124", "variant": ""},
+        }
+        assert gwp.sentry_before_breadcrumb(crumb, {}) is None
+
+    def test_keeps_benign_data_keys(self):
+        # Aggregate/flow counters carry no row identity — keep untouched.
+        crumb = {
+            "message": "Discovered 13 source sheets",
+            "data": {"count": 13, "row_count": 550, "risk_level": "LOW"},
+        }
+        out = gwp.sentry_before_breadcrumb(crumb, {})
+        assert out is crumb
+        assert out["data"] == {"count": 13, "row_count": 550, "risk_level": "LOW"}
+
+    def test_message_marker_drops_whole_crumb_even_with_data(self):
+        # If the message itself hits a PII marker, the entire crumb is
+        # dropped (data goes with it) — the message drop takes precedence.
+        crumb = {
+            "message": "🔧 HELPER GROUP CREATED: WR=WR42, Week=010124",
+            "data": {"wr": "42", "count": 3},
+        }
+        assert gwp.sentry_before_breadcrumb(crumb, {}) is None
+
+    def test_non_dict_data_is_left_alone(self):
+        # A non-dict `data` payload must not raise and must be kept.
+        crumb = {"message": "benign", "data": "not-a-dict"}
+        out = gwp.sentry_before_breadcrumb(crumb, {})
+        assert out is crumb
+        assert out["data"] == "not-a-dict"
+
+    def test_pii_breadcrumb_data_keys_cover_known_row_identifiers(self):
+        # Guard the registry shape: the keys the engine actually emits in
+        # breadcrumb data (orchestrate skip/regenerate) must be covered.
+        assert isinstance(gwp._PII_BREADCRUMB_DATA_KEYS, frozenset)
+        assert {"wr", "week", "variant"}.issubset(gwp._PII_BREADCRUMB_DATA_KEYS)
+
 
 def _reload_gwp_with_env(env_overrides):
     """Reload ``generate_weekly_pdfs`` under the given env overrides

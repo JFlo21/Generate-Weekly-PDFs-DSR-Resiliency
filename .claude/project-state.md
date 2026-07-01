@@ -18,10 +18,14 @@ changes, both TDD'd, all 6 gates green:
    `get_sheet`, `discovery.py` folder browse + validate `get_sheet`); the
    discovery drop handler (was silent `return None`) now **escalates via
    `observability.sentry_capture_sheet_drop`** — a SANITIZED `capture_message`
-   on an isolated scope with a `_strip_frame_vars` PII processor (NOT
-   `capture_exception`, which would attach `include_local_variables` frames
-   holding sampled billing-row PII) — so a dropped source sheet (= missing
-   billing) is loud without exfiltrating row data. The 3 duplicate inline
+   (NOT `capture_exception`, which would attach `include_local_variables`
+   frames holding sampled billing-row PII) that TAGS the event
+   `error_location=discovery_sheet_drop`; the global `before_send` hook
+   (`_scrub_sheet_drop_frame_vars`) then strips every frame's data-bearing
+   fields from that tagged event (a scope event-processor runs too early —
+   `attach_stacktrace` appends the thread stacktrace after scope processors
+   run) — so a dropped source sheet (= missing billing) is loud without
+   exfiltrating row data. The 3 duplicate inline
    retry blocks in `orchestrate.py` (target/PPP attachment prefetch + upload)
    were **consolidated** into the helper. The upload worker is **behavior-
    preserving** vs the original inline loop (passes the prefetch cache every

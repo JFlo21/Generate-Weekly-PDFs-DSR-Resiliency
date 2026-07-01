@@ -535,6 +535,27 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
 )
 
 
+# Row-identifier keys that must never survive in a Sentry breadcrumb's
+# structured ``data`` dict. Manual breadcrumbs (``sentry_add_breadcrumb``)
+# attach PII via ``data`` with a BENIGN ``message`` that no ``_PII_LOG_MARKERS``
+# entry matches — e.g. ``orchestrate.py`` skip/regenerate crumbs carry
+# ``data={"wr":…, "week":…, "variant":…}`` under ``message="Skipped unchanged
+# group"``. The message-marker sweep cannot catch a bare ``90093002`` value, so
+# ``sentry_before_breadcrumb`` strips these keys by NAME (Codex P2, PR #281).
+# ``variant`` is included because ``_User_<foreman>`` / ``_Helper_<foreman>``
+# embed the foreman name. Keep lowercase; matching is case-insensitive.
+_PII_BREADCRUMB_DATA_KEYS: frozenset[str] = frozenset({
+    "wr", "wr_num", "wr_number", "work_request",
+    "week", "week_raw", "week_ending", "week_end",
+    "variant",
+    "foreman", "helper", "helper_foreman",
+    "dept", "helper_dept",
+    "job", "job_number",
+    "price", "point", "cu", "customer",
+    "filename", "file_identifier",
+})
+
+
 def sentry_before_send_log(record, hint):
     """Drop Sentry Logs records that embed billing-row PII.
 
@@ -593,21 +614,37 @@ def sentry_before_breadcrumb(crumb, hint):
     breadcrumb-plane counterpart, reusing the SINGLE ``_PII_LOG_MARKERS``
     registry so there is no marker drift.
 
-    Returns ``None`` to drop, or the crumb unchanged to keep. Only the string
-    log-message vector is inspected: non-log breadcrumbs (navigation, http,
-    manual ``add_breadcrumb`` calls) legitimately carry ``message=None`` and
-    are kept so the debug trail is not gutted. Fails closed on an inspection
-    error (drops) so an uninspectable payload cannot bypass the marker checks.
+    Two sub-fields carry PII and are handled by two models:
+      * ``message`` (free text) — dropped whole if it contains a
+        ``_PII_LOG_MARKERS`` entry (the same allow-by-default / deny-on-marker
+        model as ``sentry_before_send_log``). Non-log breadcrumbs (navigation,
+        http, manual ``add_breadcrumb``) legitimately carry ``message=None``
+        and are kept so the debug trail is not gutted.
+      * ``data`` (structured key/value) — row-identifier keys in
+        ``_PII_BREADCRUMB_DATA_KEYS`` are stripped IN PLACE (a bare ``wr``
+        value like ``90093002`` never matches a text marker, so a
+        deny-by-key model is required; e.g. the ``orchestrate.py`` skip /
+        regenerate crumbs). The breadcrumb + its non-PII keys survive.
+
+    Returns ``None`` to drop, or the (possibly sanitized) crumb to keep. A
+    ``message``-marker hit drops the whole crumb (its ``data`` goes with it),
+    taking precedence over key-stripping. Fails closed on an inspection error
+    (drops) so an uninspectable payload cannot bypass the checks.
     """
     try:
         if isinstance(crumb, dict):
             message = crumb.get("message")
+            data = crumb.get("data")
         else:
             message = getattr(crumb, "message", None)
+            data = getattr(crumb, "data", None)
         if isinstance(message, str):
             for marker in _PII_LOG_MARKERS:
                 if marker in message:
                     return None
+        if isinstance(data, dict):
+            for key in [k for k in data if str(k).lower() in _PII_BREADCRUMB_DATA_KEYS]:
+                del data[key]
     except Exception:
         # Never let the scrubber crash the SDK — drop on error so an
         # uninspectable crumb cannot slip PII past the marker checks.

@@ -4362,9 +4362,13 @@ surface fast:
 `capture_exception(exc)`: the engine runs Sentry with `include_local_variables=True` + `attach_stacktrace=True`,
 so frame locals (which on the discovery path hold sampled billing rows — foreman/customer/WR/prices in
 `_sample_rows_cache`) would be serialized into the event. Instead it emits a **sanitized message** (sheet id +
-exception class only) on an isolated scope whose `_strip_frame_vars` event-processor pops `vars` from every
-exception- and thread-stacktrace frame, and fingerprints all same-type drops into ONE grouped issue. **Never add
-a bare `capture_exception` on a billing path without stripping frame vars.**
+exception class only), TAGS it `error_location=discovery_sheet_drop`, and fingerprints all same-type drops into
+ONE grouped issue. The frame-var strip runs in the global `before_send` hook (`_scrub_sheet_drop_frame_vars` →
+`_strip_frame_vars`), NOT a scope event-processor: with `attach_stacktrace` the SDK appends the thread
+stacktrace AFTER scope processors run, so a scope processor never sees those frames (**corrected 2026-06-30** —
+this entry originally described an isolated-scope `_strip_frame_vars` event-processor, which proved ineffective;
+see the `before_send` PII-scrub entry below). **Never add a bare `capture_exception` on a billing path without
+stripping frame vars.**
 
 **RULE — F1 (deferred finding) closed: propagate `resolve_claimer` `no_history`, and branch the remediation
 text by reason.** The sub-helper `no_history` fallback was silent: `resolve_claimer` returns
@@ -4562,3 +4566,40 @@ names) and gate each. Codex's 7th-tip catch was on code THIS PR widened, but it 
 `unavailable` status + breadcrumb PII scrub; plus 2 sys.path bootstraps). 6 gates green (G1 178 · G2 108 · G3
 1143 +130 subtests · G4 56→56 · G5 · G6). Breadcrumb scrub dummy-transport-verified. Next: push → confirm
 Codex's review of this tip is silent → merge to `master`.
+
+---
+
+## [2026-06-30 20:40] — RULE: a breadcrumb's `data` dict is a SECOND PII sub-field — scrub it by KEY, not by marker
+
+**RULE — `sentry_before_breadcrumb` must scrub BOTH breadcrumb sub-fields, with two different models.** A
+breadcrumb carries PII in two places: (1) `message` (free text) — dropped whole on a `_PII_LOG_MARKERS` hit
+(allow-by-default / deny-on-marker, like logs); (2) `data` (structured key/value) — row-identifier keys in the
+new `_PII_BREADCRUMB_DATA_KEYS` frozenset are STRIPPED IN PLACE. A message-marker sweep CANNOT catch `data`: a
+bare value like `wr="90093002"` matches no text marker. Manual breadcrumbs (`sentry_add_breadcrumb`) route PII
+specifically through `data` under a benign message — e.g. `orchestrate.py:1814` skip crumb
+`message="Skipped unchanged group", data={"wr":…, "week":…, "variant":…, "hash":…}`. The message-only v1 of this
+hook (previous tip d0dd2eb) kept those, so WR + week + (variant embeds foreman) still leaked on every
+skip/regenerate — the common path. Codex P2 (8th tip) caught it with that exact repro. Fix: strip
+`_PII_BREADCRUMB_DATA_KEYS` (wr/week/variant/foreman/helper/dept/job/price/point/cu/customer/filename/… — a
+central registry mirroring `_PII_LOG_MARKERS`) from `data`, keeping the flow crumb + non-PII keys (`count`,
+`hash`, `risk_level`, …). The two models COMPOSE and fail safe: the regenerate crumb's message contains the
+`"Regenerating "` marker, so it is dropped whole (data and all) before key-stripping even runs. **Empirically
+re-verified** with a real `sentry_sdk.Client` + dummy transport: a manual crumb with `data={"wr":…, "week":…}`
+lands in a captured event WITHOUT the hook, and has those keys stripped WITH it; benign crumbs survive both
+sub-fields.
+
+**LESSON (reinforced) — enumerate every FIELD of a sink, not just the obvious one.** The [20:10] entry said
+"cover every PLANE"; this shows a plane can have multiple data-bearing FIELDS (`message` vs `data`), each needing
+its own detection model. Free text → substring markers; structured k/v → key deny-list. One model does not cover
+the other.
+
+**Doc-accuracy corrections (Copilot, same tip):** `.claude/project-state.md` and the historical
+[2026-06-30 sheet-drop] ledger entry both described `sentry_capture_sheet_drop` as using an isolated-scope
+`_strip_frame_vars` event-processor. That was the PRE-Codex-P1 implementation; the scrub was moved to
+`before_send` (a scope processor never sees `attach_stacktrace`'s thread frames). Both docs now describe the
+tag + `before_send` mechanism accurately.
+
+**Position:** ✅ 8 reviewer passes resolved (4 real Codex fixes: before_send scrub · `unavailable` status ·
+breadcrumb message-scrub · breadcrumb data-scrub; 2 sys.path bootstraps; 2 Copilot doc-accuracy nits). 6 gates
+green. Breadcrumb message+data scrub dummy-transport-verified. Next: push → confirm Codex's review of this tip is
+silent → merge to `master`.
