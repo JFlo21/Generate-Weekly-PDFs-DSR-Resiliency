@@ -144,24 +144,53 @@ def sentry_capture_with_context(exception: Exception, context_name: str | None =
     sentry_sdk.capture_exception(exception)
 
 
-def _strip_frame_vars(event: Any, hint: Any) -> Any:
-    """Sentry event processor: drop local-variable values from every
-    stacktrace frame.
+# Frame fields that can carry runtime data or embedded source literals. We
+# strip all of them from the sheet-drop event: ``vars`` holds sampled row
+# locals, and the source-context fields can echo a data literal from the source
+# line. Structural fields (function / filename / lineno / module) are kept so
+# grouping and "where did it fail" debugging still work.
+_PII_FRAME_FIELDS = ("vars", "pre_context", "context_line", "post_context")
+
+
+def _strip_frame_vars(event: Any, hint: Any = None) -> Any:
+    """Drop data-bearing fields (``vars`` + source context) from every
+    stacktrace frame in ``event``.
 
     The engine runs Sentry with ``include_local_variables=True``, so frame
-    locals are serialized into every event. On the billing paths those locals
-    can hold row data (foreman / customer / WR / prices). Stripping ``vars``
-    keeps the exception type + stack structure (grouping and debugging still
-    work) while ensuring no row PII rides along. Handles both the
-    ``exception`` stacktrace and the ``threads`` stacktrace that
-    ``attach_stacktrace=True`` adds to message events.
+    locals are serialized into events; on the billing paths those locals hold
+    row data (foreman / customer / WR / prices). We strip ``vars`` AND the
+    source-context fields (``pre_context`` / ``context_line`` / ``post_context``)
+    so neither a runtime local value nor an embedded source literal leaks, while
+    keeping the frame's structural metadata (function / filename / lineno) for
+    grouping and debugging.
+
+    IMPORTANT — for message events this MUST run at ``before_send`` time, not as
+    a scope event-processor. With ``attach_stacktrace=True`` the SDK appends the
+    current thread's ``threads[*].stacktrace.frames[*]`` AFTER scope
+    event-processors run, so a scope processor never sees (and cannot remove)
+    them (empirically verified — Codex P1, PR #281). The authoritative call
+    site is ``_scrub_sheet_drop_frame_vars`` inside ``before_send_filter``.
     """
-    for exc in (event.get("exception") or {}).get("values") or []:
-        for frame in (exc.get("stacktrace") or {}).get("frames") or []:
-            frame.pop("vars", None)
-    for thread in (event.get("threads") or {}).get("values") or []:
-        for frame in (thread.get("stacktrace") or {}).get("frames") or []:
-            frame.pop("vars", None)
+    for _container in ("exception", "threads"):
+        for _val in (event.get(_container) or {}).get("values") or []:
+            for _frame in (_val.get("stacktrace") or {}).get("frames") or []:
+                for _field in _PII_FRAME_FIELDS:
+                    _frame.pop(_field, None)
+    return event
+
+
+def _scrub_sheet_drop_frame_vars(event: Any) -> Any:
+    """``before_send`` hook: strip frame-local ``vars`` from the discovery
+    sheet-drop event ONLY.
+
+    Gated on the ``error_location`` tag so ``include_local_variables`` stays
+    intact for every other event (debugging non-PII errors still gets locals).
+    This is the load-bearing PII scrub for ``sentry_capture_sheet_drop`` — the
+    thread-stacktrace ``vars`` that ``attach_stacktrace=True`` adds only exist
+    at ``before_send`` time, after scope processors have run.
+    """
+    if (event.get("tags") or {}).get("error_location") == "discovery_sheet_drop":
+        _strip_frame_vars(event)
     return event
 
 
@@ -169,17 +198,19 @@ def sentry_capture_sheet_drop(sheet_id: object, exc: BaseException) -> None:
     """Loud-but-PII-safe Sentry signal for a dropped Smartsheet source sheet.
 
     A dropped source sheet means missing billing rows, so it must escalate to
-    a Sentry issue rather than hide behind a log WARNING. But a raw
-    ``capture_exception(exc)`` here would attach the caller's frame locals —
-    which on the discovery path include sampled billing rows — because the SDK
-    runs with ``include_local_variables=True``. So we emit a SANITIZED message
-    (sheet id + exception class only) on an isolated scope that strips frame
-    locals, keeping the loud, grouped alert without exfiltrating row PII.
+    a Sentry issue rather than hide behind a log WARNING. But the SDK runs with
+    ``include_local_variables=True`` + ``attach_stacktrace=True``, so the emitted
+    message would otherwise carry this frame's locals (sampled billing rows on
+    the discovery path). We tag the event ``error_location=discovery_sheet_drop``;
+    ``before_send_filter`` -> ``_scrub_sheet_drop_frame_vars`` then strips every
+    frame's ``vars`` from THIS event before it is sent — keeping the loud,
+    grouped alert (sheet id + exception class) without exfiltrating row PII. A
+    scope event-processor cannot do this: the thread-stacktrace ``vars`` are
+    attached only after scope processors run (Codex P1, PR #281).
     """
     if not SENTRY_DSN:
         return
     with sentry_sdk.isolation_scope() as scope:
-        scope.add_event_processor(_strip_frame_vars)
         scope.set_tag("error_location", "discovery_sheet_drop")
         scope.set_tag("sheet_id", str(sheet_id))
         # Group all discovery drops of the same exception type into ONE issue
@@ -685,6 +716,13 @@ def init_sentry() -> None:
                 'extended_change_detection': _cfg.EXTENDED_CHANGE_DETECTION,
                 'python_version': sys.version,
             }
+
+            # PII guard (Codex P1, PR #281): strip frame-local vars from the
+            # discovery sheet-drop event. MUST happen here — attach_stacktrace
+            # appends thread-frame vars after scope processors run, so this is
+            # the only stage that sees them. Gated by tag; other events keep
+            # include_local_variables for debugging.
+            event = _scrub_sheet_drop_frame_vars(event)
 
             return event
 
