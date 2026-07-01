@@ -9,7 +9,7 @@
 > Codex mirror [`/AGENTS.md`](../AGENTS.md)). This file is the *status / resume*
 > layer, not the rulebook.
 
-_Last updated: 2026-06-26._
+_Last updated: 2026-06-30._
 
 > **Live status now lives in [`.claude/project-state.md`](../.claude/project-state.md)**
 > (overwritten each session) and [`.planning/STATE.md`](../.planning/STATE.md). This
@@ -85,6 +85,18 @@ Sequencing — **A → B → C → D → E**:
 
 ## Recent work completed (most recent first)
 
+- **v1.3.1 — Smartsheet API resilience & silent-failure/PII hardening** —
+  new `pipeline/retry.py smartsheet_call_with_retry` (bounded transient retry
+  for `ApiError` code 4000 / typed `should_retry` / rate-limit / the SDK's
+  transport-drop wrappers) on the discovery + per-sheet fetch hot path; a
+  dropped source sheet is now LOUD but PII-safe (`sentry_capture_sheet_drop`)
+  instead of a silent `return None`. Also un-silenced the F1 `no_history`
+  attribution WARNING and scrubbed row PII from Sentry across all three planes
+  (event frames via `before_send`; breadcrumb `message` + `data` via
+  `before_breadcrumb`). Additive/surgical — billing behavior unchanged; 6 gates
+  green (G3 1149); PII scrubs dummy-transport-verified; all 8 reviewer passes
+  resolved. Merged as **PR #281** → commit `8c51a3c`. Deferred to its own PR:
+  retry-idempotency in `SUPABASE_HASH_STORE_AUTHORITATIVE` clean-filename mode.
 - **Subproject C** (`vac_crew` claim attribution) — implemented via
   brainstorm → spec → plan → subagent-driven TDD; final comprehensive review
   = READY TO MERGE; **PR #219** opened against `master`. Suite: 809 passed.
