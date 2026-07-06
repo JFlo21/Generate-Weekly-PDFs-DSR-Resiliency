@@ -831,6 +831,54 @@ class TestCrashConsistencyDeferredFlush(unittest.TestCase):
             r"_res in \('uploaded', 'skipped'\)",
         )
 
+    # ── Codex P2 follow-up (PR #283): local json parity ──────────────
+    # The json hash_history cache is the skip gate's fallback on a
+    # Supabase outage and its sole source with authoritative OFF, so
+    # it must obey the SAME "advance only after upload success"
+    # contract as the durable store — otherwise a failed/dry-run
+    # upload is still skippable as "unchanged" through the fallback.
+
+    def test_json_hash_history_deferred_in_production(self):
+        # The emission loop may write hash_history immediately ONLY on
+        # the TEST_MODE branch (no upload phase exists there); the
+        # production branch must defer the entry instead.
+        _pre_upload = self.src[: self.src.index("PARALLEL UPLOAD PHASE")]
+        self.assertRegex(
+            _pre_upload,
+            r"if TEST_MODE:\s*\n\s*"
+            r"hash_history\[history_key\] = _history_entry",
+        )
+        self.assertIn(
+            "_deferred_history_updates.append(", _pre_upload,
+        )
+        # No unconditional emission-time write may come back.
+        self.assertNotRegex(
+            _pre_upload,
+            r"hash_history\[history_key\] = \{",
+        )
+
+    def test_json_flush_not_gated_on_supabase_flag(self):
+        # The json flush must run in EVERY mode — including
+        # SUPABASE_HASH_STORE_WRITE_ENABLED=false — because the json
+        # contract is independent of the durable store.
+        self.assertRegex(
+            self.src,
+            r"if _deferred_history_updates or \(",
+        )
+
+    def test_json_flush_consults_upload_results(self):
+        # The deferred json entries are applied only after
+        # upload_results exists, gated per group on _group_upload_ok.
+        _post_results = self.src[
+            self.src.index("upload_results = list("):
+        ]
+        self.assertRegex(
+            _post_results,
+            r"if not _group_upload_ok\.get\(_rec\['group_key'\]\):"
+            r"[\s\S]{0,200}"
+            r"hash_history\[_rec\['history_key'\]\] = _rec\['entry'\]",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

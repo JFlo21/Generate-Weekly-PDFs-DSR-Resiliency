@@ -1091,6 +1091,16 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # exists" forever (root cause of the WR 90968595 / week 070526
         # incident, failed run 28752355941).
         _deferred_hash_upserts = []
+        # Codex P2 (PR #283): the LOCAL json hash_history entry is
+        # deferred through the SAME gate. The json cache is the
+        # documented fallback the skip gate consults on Supabase
+        # outage (fetch_failure/unavailable) and the sole decider when
+        # authoritative mode is OFF — persisting it at emission would
+        # let a failed/dry-run upload still be skipped as "unchanged"
+        # next run through that fallback, the same staleness one layer
+        # down. TEST_MODE keeps the immediate write (no upload phase
+        # exists there; see the emission-site comment).
+        _deferred_history_updates = []
 
         _phase_group_start = datetime.datetime.now()
         _time_budget_exceeded = False
@@ -1921,8 +1931,17 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     )
                     _upload_tasks.extend(_new_upload_tasks)
 
-                # Update hash history with variant-aware key (even in TEST_MODE so future prod runs can leverage)
-                hash_history[history_key] = {
+                # Update hash history with variant-aware key. TEST_MODE
+                # writes immediately (documented intent: "so future
+                # prod runs can leverage"; there is no upload phase to
+                # defer against). Production defers the entry through
+                # the post-upload flush gate — the json cache is the
+                # skip gate's fallback when Supabase is unreachable and
+                # its sole source when authoritative mode is OFF, so it
+                # must obey the same "hash advances only after ALL
+                # upload legs succeed" contract as the durable store
+                # (Codex P2, PR #283).
+                _history_entry = {
                     'hash': data_hash,
                     'rows': len(group_rows),
                     'updated_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -1931,7 +1950,15 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     'variant': variant,
                     'identifier': identifier,
                 }
-                history_updates += 1
+                if TEST_MODE:
+                    hash_history[history_key] = _history_entry
+                    history_updates += 1
+                else:
+                    _deferred_history_updates.append({
+                        'group_key': group_key,
+                        'history_key': history_key,
+                        'entry': _history_entry,
+                    })
 
                 # Sub-project E: durable per-group content hash for
                 # Supabase (billing_audit.group_content_hash). Gated on
@@ -2145,7 +2172,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             # delete-then-upload next run, never a stale file reported
             # as current. upsert_group_hash is fail-safe/no-op when
             # Supabase is unavailable and never raises past the guard.
-            if (
+            if _deferred_history_updates or (
                 SUPABASE_HASH_STORE_WRITE_ENABLED
                 and _deferred_hash_upserts
             ):
@@ -2156,32 +2183,55 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     _group_upload_ok[_gk] = (
                         _group_upload_ok.get(_gk, True) and _ok
                     )
-                _hashes_flushed = 0
-                _hashes_withheld = 0
-                for _rec in _deferred_hash_upserts:
+                # Local json cache first (Codex P2, PR #283): it is the
+                # fallback layer the skip gate consults on Supabase
+                # outage and the sole decider with authoritative OFF,
+                # so it must never advance for a withheld group. Note
+                # this flush is NOT gated on the Supabase write flag —
+                # the json contract holds in every mode.
+                _json_withheld = 0
+                for _rec in _deferred_history_updates:
                     if not _group_upload_ok.get(_rec['group_key']):
-                        _hashes_withheld += 1
+                        _json_withheld += 1
                         continue
-                    try:
-                        _billing_audit_writer.upsert_group_hash(
-                            _rec['wr_num'], _rec['week_iso'],
-                            _rec['variant'], _rec['identifier'],
-                            _rec['data_hash'],
-                        )
-                        _hashes_flushed += 1
-                    except Exception:
-                        logging.exception(
-                            "E hash write failed (non-fatal)")
-                if _hashes_withheld:
+                    hash_history[_rec['history_key']] = _rec['entry']
+                    history_updates += 1
+                if _json_withheld:
                     logging.warning(
-                        f"⚠️ Durable hash withheld for {_hashes_withheld} "
-                        f"group(s) whose upload did not complete — they "
-                        f"will regenerate next run"
+                        f"⚠️ Local hash-history entry withheld for "
+                        f"{_json_withheld} group(s) whose upload did "
+                        f"not complete — they will regenerate next run"
                     )
-                logging.info(
-                    f"🧾 Durable hash store: {_hashes_flushed} flushed, "
-                    f"{_hashes_withheld} withheld"
-                )
+                if (
+                    SUPABASE_HASH_STORE_WRITE_ENABLED
+                    and _deferred_hash_upserts
+                ):
+                    _hashes_flushed = 0
+                    _hashes_withheld = 0
+                    for _rec in _deferred_hash_upserts:
+                        if not _group_upload_ok.get(_rec['group_key']):
+                            _hashes_withheld += 1
+                            continue
+                        try:
+                            _billing_audit_writer.upsert_group_hash(
+                                _rec['wr_num'], _rec['week_iso'],
+                                _rec['variant'], _rec['identifier'],
+                                _rec['data_hash'],
+                            )
+                            _hashes_flushed += 1
+                        except Exception:
+                            logging.exception(
+                                "E hash write failed (non-fatal)")
+                    if _hashes_withheld:
+                        logging.warning(
+                            f"⚠️ Durable hash withheld for {_hashes_withheld} "
+                            f"group(s) whose upload did not complete — they "
+                            f"will regenerate next run"
+                        )
+                    logging.info(
+                        f"🧾 Durable hash store: {_hashes_flushed} flushed, "
+                        f"{_hashes_withheld} withheld"
+                    )
 
         # Validation summary
         summaries = validate_group_totals(groups)

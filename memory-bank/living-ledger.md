@@ -4696,3 +4696,21 @@ but purges ALL weeks' attachments for that WR — broader than needed.)
 **Ops lesson:** a failed Actions run ("runner lost communication") can now be loud in the ledger — any group
 it emitted-but-did-not-upload was, pre-fix, permanently stale. Post-fix the withheld-hash WARNING + next-run
 regenerate make this self-healing.
+
+## [2026-07-06 20:45] Follow-up (Codex P2, PR #283): the LOCAL json hash_history obeys the same upload-success gate
+
+**Gap found in review:** the 15:05 fix deferred only the Supabase upsert. The local
+`generated_docs/hash_history.json` entry was still written in the emission loop and persisted by
+`save_hash_history` at end of run — so a withheld group (upload `'error'` or SKIP_UPLOAD dry-run) still
+advanced the json cache. The skip gate's documented decision table falls back to that json cache on a Supabase
+outage (`fetch_failure`/`unavailable`) and uses it as the sole decider when `SUPABASE_HASH_STORE_AUTHORITATIVE`
+is OFF — in either mode the stale group could be skipped as "unchanged + attachment exists," the same
+staleness one layer down.
+
+**RULE (extends the 15:05 rule):** BOTH hash layers — `billing_audit.group_content_hash` AND the local
+`hash_history` json — may only advance after ALL of the group's upload legs return `'uploaded'`/`'skipped'`.
+`orchestrate.py` collects json entries in `_deferred_history_updates` and applies them in the same
+post-upload flush, NOT gated on `SUPABASE_HASH_STORE_WRITE_ENABLED` (the json contract holds in every mode).
+TEST_MODE keeps the immediate write — no upload phase exists there and the documented intent is seeding
+future prod runs. Regression guard: the three `test_json_*` tests in
+`TestCrashConsistencyDeferredFlush` (`tests/test_subproject_e_hash_store.py`).
