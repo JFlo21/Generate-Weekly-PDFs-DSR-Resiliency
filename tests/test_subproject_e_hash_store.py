@@ -777,5 +777,60 @@ class TestBillingAuditImportFailureBindsWriterNone(unittest.TestCase):
         )
 
 
+class TestCrashConsistencyDeferredFlush(unittest.TestCase):
+    """2026-07-06 WR 90968595 / week 070526 incident regression guard.
+
+    The durable group hash (billing_audit.group_content_hash) must be
+    persisted ONLY after the group's attachment upload succeeds. Run
+    28752355941 (runner lost mid-run) upserted the new hash during the
+    emission loop, died before the deferred upload phase executed, and
+    left the store claiming the new content was published while
+    Smartsheet kept the stale attachment — with authoritative clean
+    (hash-less) filenames the skip gate then deadlocked on
+    "unchanged + attachment exists" on every subsequent run.
+    """
+
+    def setUp(self):
+        import pipeline.orchestrate
+        self.src = inspect.getsource(pipeline.orchestrate)
+
+    def test_emission_loop_defers_instead_of_upserting(self):
+        # The generation path appends a deferred record (still gated on
+        # the write flag); the inline upsert must not come back.
+        self.assertRegex(
+            self.src,
+            r"SUPABASE_HASH_STORE_WRITE_ENABLED[\s\S]{0,1200}"
+            r"_deferred_hash_upserts\.append\(",
+        )
+
+    def test_upsert_not_called_before_upload_phase(self):
+        # No writer upsert call may exist before the parallel upload
+        # phase begins — a crash in that window must never be able to
+        # advance the durable store.
+        _pre_upload = self.src[: self.src.index("PARALLEL UPLOAD PHASE")]
+        self.assertNotIn(
+            "_billing_audit_writer.upsert_group_hash(", _pre_upload
+        )
+
+    def test_flush_consults_upload_results(self):
+        # The only upsert call site must live after upload_results is
+        # produced by the executor.
+        _post_results = self.src[
+            self.src.index("upload_results = list("):
+        ]
+        self.assertIn(
+            "_billing_audit_writer.upsert_group_hash(", _post_results
+        )
+
+    def test_skip_upload_dry_run_withholds_hash(self):
+        # 'skip_upload' (SKIP_UPLOAD dry-run) and 'error' must NOT count
+        # as publish success — only a replaced attachment ('uploaded')
+        # or a verified-current one ('skipped') may advance the store.
+        self.assertRegex(
+            self.src,
+            r"_res in \('uploaded', 'skipped'\)",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -4641,3 +4641,58 @@ guardrail.
 ledger, and `docs/AI_CONTEXT_RESUME.md` to the merged state; second brain (project page, current-state,
 dashboard, log) updated the same session. Ultimate proof still pending: the next scheduled 2h production cron
 surviving a real code-4000 blip without dropping a source sheet.
+
+## [2026-07-06 14:30] Debug session opened: WR 90968595 late-arriving ProMax rows missing from main-file Excel
+
+**Symptom (operator-reported):** WR 909-685-95's current-week Excel generates, and its 7/2 snapshot rows are
+present, but rows that arrived from ProMax on **2026-07-05** (units claimed by the foreman + department
+members, dept number and "Units Completed?" checkboxes populated) are **absent — and stay absent on forced
+regeneration**. Main foreman (primary) variant affected.
+
+**Why it matters:** missing claimed units = missing billed revenue for that WR/week; regen-resistance means an
+operator cannot self-heal it with `REGEN_WEEKS`/`RESET_HASH_HISTORY`.
+
+**Diagnostic read:** regeneration bypassing change-detection but still excluding the rows implicates **row
+filtering or claim attribution upstream of grouping**, not stale hashes. Seeded hypotheses (ranked): (1) the
+parked Phase 09 frozen-claim-attribution gap — "late backfill froze wrong foreman" (Wave 5 parked); (2) helper
+dual-checkbox exclusion (both "Helping Foreman Completed Unit?" + "Units Completed?" checked → main-file
+exclusion by design); (3) Weekly Reference Logged Date vs Snapshot Date filtering dropping the 7/5 rows from
+the week-ending group.
+
+**State:** GSD debug session `.planning/debug/wr-90968595-rows-not-pulled.md` (goal: find_and_fix,
+investigation read-only, fix gated on Juan's checkpoint + full pytest). Root cause NOT yet confirmed — do not
+change grouping/attribution code from this entry alone; wait for the session's evidence-backed resolution.
+
+## [2026-07-06 15:05] RESOLVED root cause + NEW RULE: durable group hash may only advance after upload success (WR 90968595 incident)
+
+**Root cause (confirmed):** crash-consistency bug in the Sub-project E authoritative hash store. The per-group
+content hash was upserted to `billing_audit.group_content_hash` in the EMISSION loop, but attachment uploads
+run later in the deferred batch phase. Failed run **28752355941** (2026-07-05, "hosted runner lost
+communication") died after upserting hash `561017c7` for WR 90968595 / week 2026-07-05 / primary but before
+the upload phase replaced the attachment. Under `SUPABASE_HASH_STORE_AUTHORITATIVE=1` filenames are clean
+(hash-less), so the skip gate can only verify an attachment EXISTS, not that it is current → every later run:
+computed==stored + attachment exists → **skip forever**. Regeneration cannot recover by design; the 7/5 ProMax
+rows were fetched and grouped correctly every run — the file was simply never re-published. Discriminator that
+killed all other hypotheses (fetch-gate drop, frozen attribution, week-ending math, helper dual-checkbox): the
+stored hash flipped `2ececf55→561017c7` with zero generation/upload lines in any successful run's log.
+
+**RULE (billing-critical, do not regress):** the durable group hash in `billing_audit.group_content_hash` is a
+claim that "this content is what is attached in Smartsheet." It may only be written AFTER the group's
+attachment upload succeeds — never in the emission loop. `orchestrate.py` now defers upserts to
+`_deferred_hash_upserts` and flushes after the parallel upload phase, gated per group on ALL its upload legs
+returning `'uploaded'`/`'skipped'`; `'error'`, `'skip_upload'` (SKIP_UPLOAD dry-run), and missing-task cases
+WITHHOLD the hash (WARNING logged) so the group regenerates next run. Fail-safe direction: one extra
+regenerate, never a stale file reported as current. Regression guard:
+`tests/test_subproject_e_hash_store.py::TestCrashConsistencyDeferredFlush` (4 tests; ordering assertion fails
+against pre-fix code). Bonus closure: local SKIP_UPLOAD dry-runs with prod Supabase creds can no longer poison
+change detection.
+
+**One-time remediation (after the fix merges):** `workflow_dispatch` with `advanced_options` =
+`regen_weeks:070526` — bypasses the poisoned skip gate for week 07/05/26 and force-replaces attachments,
+healing WR 90968595 and any other groups the failed run poisoned. Verify the regenerated
+`WR_90968595_WeekEnding_070526` file contains the July 5th ProMax rows. (`reset_wr_list:90968595` also works
+but purges ALL weeks' attachments for that WR — broader than needed.)
+
+**Ops lesson:** a failed Actions run ("runner lost communication") can now be loud in the ledger — any group
+it emitted-but-did-not-upload was, pre-fix, permanently stale. Post-fix the withheld-hash WARNING + next-run
+regenerate make this self-healing.

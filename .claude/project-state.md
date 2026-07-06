@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-06-30 · **overwrite-in-place each session** (this is the
+_Last updated: 2026-07-06 · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
@@ -77,6 +77,21 @@ InternalServerError contract). 0 unresolved review threads; final Copilot
 review generated no new comments. Production guardrails UNCHANGED (change-key,
 delete→upload order, `@cell`=0, `PARALLEL_WORKERS≤8`, filename/attachment). See
 `memory-bank/living-ledger.md` (newest entries) for the full what/why/rules.
+
+## Active work
+**🔧 WR 90968595 missing-rows bug: ROOT CAUSE CONFIRMED, fix in PR (2026-07-06).**
+Not attribution/filtering — a crash-consistency bug in the Sub-project E hash
+store: failed run 28752355941 (7/5, runner lost) upserted the new group hash
+during emission but died before the upload phase, so under authoritative clean
+filenames the skip gate deadlocks ("unchanged + attachment exists") and the 7/5
+ProMax rows never publish; regen can't recover. Fix: `orchestrate.py` defers hash
+upserts and flushes ONLY after the group's upload legs succeed (withhold on
+error/dry-run → regenerate next run). 4 regression tests; suite 1153 passed +130
+subtests. **Pending:** merge fix PR (stacked on #282) → one-time remediation
+`workflow_dispatch` `advanced_options=regen_weeks:070526` → verify the 7/5 rows in
+the regenerated file → archive debug session `wr-90968595-rows-not-pulled` +
+apply the held second-brain write-back packet. Full rule: newest
+`memory-bank/living-ledger.md` entry.
 
 ## History pointer
 **Phase 09 — engine modularization (✅ COMPLETE & MERGED, PR #280 → `889ca2e`).**
