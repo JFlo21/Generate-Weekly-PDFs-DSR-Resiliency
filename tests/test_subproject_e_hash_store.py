@@ -875,8 +875,57 @@ class TestCrashConsistencyDeferredFlush(unittest.TestCase):
         self.assertRegex(
             _post_results,
             r"if not _group_upload_ok\.get\(_rec\['group_key'\]\):"
-            r"[\s\S]{0,200}"
+            r"[\s\S]{0,400}"
             r"hash_history\[_rec\['history_key'\]\] = _rec\['entry'\]",
+        )
+
+    # ── Codex P2 / Greptile P1 (PR #283): missing PPP upload leg ─────
+    # A reduced_sub group degrades to a single TARGET task when the WR
+    # is absent from the PPP map, so the all-legs flush gate cannot see
+    # the never-emitted leg. The skip gate therefore must ALSO require
+    # the PPP attachment whenever the WR is currently in the PPP map —
+    # one regeneration then converges when the WR appears there, with
+    # no churn while it is legitimately absent.
+
+    def test_skip_gate_requires_ppp_attachment_for_reduced_sub(self):
+        _pre_upload = self.src[: self.src.index("PARALLEL UPLOAD PHASE")]
+        self.assertRegex(
+            _pre_upload,
+            r"can_skip\s*\n\s*and variant in \(\s*\n\s*"
+            r"'reduced_sub', 'reduced_sub_helper',"
+            r"[\s\S]{0,300}target_map_ppp\.get\("
+            r"[\s\S]{0,600}SUBCONTRACTOR_PPP_SHEET_ID"
+            r"[\s\S]{0,600}can_skip = False",
+        )
+
+    # ── Codex P2 (PR #283): repair-path stale-hash invalidation ──────
+    # When a forced/regen run repairs a group whose stored hash already
+    # equals the computed one and the upload then FAILS, withholding
+    # the new write leaves the stale matching hash in place — the next
+    # non-forced run would skip the group and the repair never retries.
+    # Groups withheld due to a real 'error' leg must invalidate BOTH
+    # layers; SKIP_UPLOAD dry-runs must not mutate anything.
+
+    def test_error_legs_invalidate_both_hash_layers(self):
+        _post_results = self.src[
+            self.src.index("upload_results = list("):
+        ]
+        # _group_had_error is derived from 'error' results ONLY —
+        # 'skip_upload' dry-runs never invalidate.
+        self.assertRegex(
+            _post_results,
+            r"if _res == 'error':\s*\n\s*_group_had_error\[_gk\] = True",
+        )
+        # json layer: withheld-with-error pops the stale entry.
+        self.assertRegex(
+            _post_results,
+            r"if _group_had_error\.get\(_rec\['group_key'\]\):"
+            r"[\s\S]{0,200}hash_history\.pop\(",
+        )
+        # durable layer: withheld-with-error overwrites the row with a
+        # sentinel that can never equal a computed SHA256.
+        self.assertIn(
+            "'withheld:' + _rec['data_hash']", _post_results,
         )
 
 

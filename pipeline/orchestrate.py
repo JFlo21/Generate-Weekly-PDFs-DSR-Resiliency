@@ -1829,6 +1829,47 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                                 )
                                 if not has_attachment:
                                     can_skip = False
+                            # Codex P2 / Greptile P1 (PR #283):
+                            # reduced_sub groups fan out to a second
+                            # upload leg on the subcontractor PPP
+                            # sheet. When the WR was absent from the
+                            # PPP map at upload time, that leg was
+                            # never attempted — so "unchanged +
+                            # TARGET attachment exists" is not
+                            # sufficient to skip once the WR appears
+                            # on the PPP sheet. Require the PPP
+                            # attachment too whenever the WR is
+                            # CURRENTLY in the PPP map; a WR (still)
+                            # absent from the map adds no requirement,
+                            # so legitimately single-leg groups do not
+                            # churn. Fail-safe direction only: this
+                            # can force a regeneration (which uploads
+                            # both legs and converges), never add a
+                            # skip.
+                            if (
+                                can_skip
+                                and variant in (
+                                    'reduced_sub', 'reduced_sub_helper',
+                                )
+                                and target_map_ppp
+                            ):
+                                _ppp_skip_row = target_map_ppp.get(
+                                    str(wr_num)
+                                )
+                                if (
+                                    _ppp_skip_row is not None
+                                    and not _has_existing_week_attachment(
+                                        client,
+                                        SUBCONTRACTOR_PPP_SHEET_ID,
+                                        _ppp_skip_row,
+                                        str(wr_num), week_raw, variant,
+                                        file_identifier,
+                                        cached_attachments=attachment_cache.get(
+                                            _ppp_skip_row.id
+                                        ),
+                                    )
+                                ):
+                                    can_skip = False
                         if can_skip:
                             logging.info(f"⏩ Skip (unchanged + attachment exists) {variant} WR {wr_num} week {week_raw} hash {data_hash}")
                             _groups_skipped += 1
@@ -2177,12 +2218,31 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 and _deferred_hash_upserts
             ):
                 _group_upload_ok: dict = {}
+                _group_had_error: dict = {}
                 for _task, _res in zip(_upload_tasks, upload_results):
                     _gk = _task.get('group_key')
                     _ok = _res in ('uploaded', 'skipped')
                     _group_upload_ok[_gk] = (
                         _group_upload_ok.get(_gk, True) and _ok
                     )
+                    if _res == 'error':
+                        _group_had_error[_gk] = True
+                # Codex P2 (PR #283, repair-path): withholding the NEW
+                # hash is not enough when a forced/regen run was
+                # repairing a group whose STORED hash already equals
+                # the computed one (exactly the incident-remediation
+                # scenario) — if the re-upload then fails, the stale
+                # stored hash would let the next non-forced run skip
+                # the group and the repair would never retry. For
+                # groups withheld due to a REAL upload 'error' we
+                # therefore actively invalidate both layers: pop the
+                # json entry, and overwrite the durable row with a
+                # 'withheld:'-prefixed sentinel that can never equal a
+                # computed SHA256 (lookup mismatches -> regenerate;
+                # the next successful upload overwrites it).
+                # 'skip_upload' (SKIP_UPLOAD dry-run) does NOT
+                # invalidate — a local dry run must never mutate prod
+                # change-detection state in either direction.
                 # Local json cache first (Codex P2, PR #283): it is the
                 # fallback layer the skip gate consults on Supabase
                 # outage and the sole decider with authoritative OFF,
@@ -2193,6 +2253,11 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 for _rec in _deferred_history_updates:
                     if not _group_upload_ok.get(_rec['group_key']):
                         _json_withheld += 1
+                        if _group_had_error.get(_rec['group_key']):
+                            if hash_history.pop(
+                                _rec['history_key'], None,
+                            ) is not None:
+                                history_updates += 1
                         continue
                     hash_history[_rec['history_key']] = _rec['entry']
                     history_updates += 1
@@ -2211,6 +2276,18 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     for _rec in _deferred_hash_upserts:
                         if not _group_upload_ok.get(_rec['group_key']):
                             _hashes_withheld += 1
+                            if _group_had_error.get(_rec['group_key']):
+                                try:
+                                    _billing_audit_writer.upsert_group_hash(
+                                        _rec['wr_num'], _rec['week_iso'],
+                                        _rec['variant'],
+                                        _rec['identifier'],
+                                        'withheld:' + _rec['data_hash'],
+                                    )
+                                except Exception:
+                                    logging.exception(
+                                        "E hash invalidation failed "
+                                        "(non-fatal)")
                             continue
                         try:
                             _billing_audit_writer.upsert_group_hash(

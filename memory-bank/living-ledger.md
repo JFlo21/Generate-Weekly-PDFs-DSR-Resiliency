@@ -4714,3 +4714,30 @@ post-upload flush, NOT gated on `SUPABASE_HASH_STORE_WRITE_ENABLED` (the json co
 TEST_MODE keeps the immediate write — no upload phase exists there and the documented intent is seeding
 future prod runs. Regression guard: the three `test_json_*` tests in
 `TestCrashConsistencyDeferredFlush` (`tests/test_subproject_e_hash_store.py`).
+
+## [2026-07-06 21:00] Review closures (PR #283): reduced_sub PPP-leg skip-gate check + repair-path hash invalidation
+
+**Gap 1 (Codex P2 + Greptile P1, pre-existing):** a `reduced_sub`/`reduced_sub_helper` group degrades to a
+single TARGET upload leg when the WR is absent from the PPP map (`_build_upload_tasks_for_group` emits one
+task), so the all-legs flush gate cannot see the never-emitted leg — the hash flushes on TARGET success, and
+once the WR later appears on the PPP sheet the skip gate ("unchanged + TARGET attachment exists") never
+publishes the PPP file until the group's content changes. **Fix (chosen over withholding, which would
+regenerate + delete/re-upload every 2h run for WRs legitimately absent from the PPP sheet):** the skip gate
+now ALSO requires the PPP attachment whenever the WR is CURRENTLY in `target_map_ppp` (uses the shared
+prefetch `attachment_cache`; per-row fallback otherwise). One regeneration converges when the WR appears; no
+churn while absent; fail-safe direction only (can force regeneration, never adds a skip).
+
+**Gap 2 (Codex P2, repair path):** withholding the new hash on upload `'error'` is insufficient when a
+forced/regen run repairs a group whose STORED hash already equals the computed one (exactly the
+`regen_weeks:070526` remediation scenario) — the stale matching hash lets the next non-forced run skip, and
+the repair never retries. **Fix:** groups withheld due to a REAL `'error'` leg now invalidate BOTH layers:
+the json entry is popped, and the durable row is overwritten with a `withheld:<hash>` sentinel via the
+existing fail-safe `upsert_group_hash` (can never equal a computed SHA256 → lookup mismatch → regenerate; the
+next successful upload overwrites it). `'skip_upload'` (SKIP_UPLOAD dry-run) does NOT invalidate — a local
+dry run must never mutate prod change-detection state in either direction.
+
+**RULE:** any future upload-outcome value must be classified into exactly one of: publish-success
+(`'uploaded'`/`'skipped'` → flush), real-failure (`'error'` → withhold + invalidate), or
+no-op (`'skip_upload'` → withhold, touch nothing). Regression guards:
+`test_skip_gate_requires_ppp_attachment_for_reduced_sub`, `test_error_legs_invalidate_both_hash_layers`
+(`tests/test_subproject_e_hash_store.py::TestCrashConsistencyDeferredFlush`).
