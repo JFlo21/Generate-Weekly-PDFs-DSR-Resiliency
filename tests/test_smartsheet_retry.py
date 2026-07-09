@@ -51,6 +51,24 @@ def _api_error(code: int, message: str = "api error") -> ss_exc.ApiError:
     return ss_exc.ApiError(err, message)
 
 
+def _api_error_with_status(
+    code: int, status_code: int, message: str = "api error"
+) -> ss_exc.ApiError:
+    """Build a generic ``ApiError`` with BOTH ``result.code`` and
+    ``result.status_code`` set explicitly.
+
+    Mirrors the real SDK shape for an HTTP 5xx it cannot parse into a
+    meaningful result code: ``error.result.code == 0`` and
+    ``error.result.status_code`` carrying the real HTTP status (e.g. 503).
+    ``status_code`` is set explicitly to an int rather than relying on the
+    auto-Mock attribute (which would compare unequal to any real int).
+    """
+    err = mock.Mock()
+    err.result.code = code
+    err.result.status_code = status_code
+    return ss_exc.ApiError(err, message)
+
+
 def _rate_limit_error() -> ss_exc.RateLimitExceededError:
     # RateLimitExceededError(error, message) — should_retry=True in the SDK.
     return ss_exc.RateLimitExceededError(None, "rate limit exceeded")
@@ -108,6 +126,51 @@ def test_retries_typed_server_timeout_then_succeeds():
 
 def test_raises_after_exhausting_attempts_on_4000():
     func = mock.Mock(side_effect=_api_error(4000))
+    with mock.patch("pipeline.retry.time.sleep"):
+        with pytest.raises(ss_exc.ApiError):
+            smartsheet_call_with_retry(func, max_attempts=4)
+    assert func.call_count == 4  # all attempts used
+
+
+# --- GENERATE-WEEKLY-EXCEL-89: HTTP 5xx wrapped as a generic code-0 ApiError ---
+# The SDK cannot parse a 5xx body into a meaningful result code, so it wraps
+# it as ApiError with result.code == 0 and result.status_code == 5xx. Prior
+# to the fix these dropped a whole source sheet on attempt 1 with zero
+# backoff (the "Resiliency Promax Database Backup 59" 0-row billing gap).
+
+
+def test_retries_api_error_status_503_then_succeeds():
+    func = mock.Mock(side_effect=[_api_error_with_status(0, 503), "ok"])
+    with mock.patch("pipeline.retry.time.sleep") as slept:
+        result = smartsheet_call_with_retry(func, max_attempts=4)
+    assert result == "ok"
+    assert func.call_count == 2
+    assert slept.call_count == 1
+
+
+@pytest.mark.parametrize("status_code", [500, 502, 504])
+def test_retries_api_error_5xx_status_then_succeeds(status_code):
+    func = mock.Mock(side_effect=[_api_error_with_status(0, status_code), "ok"])
+    with mock.patch("pipeline.retry.time.sleep") as slept:
+        result = smartsheet_call_with_retry(func, max_attempts=4)
+    assert result == "ok"
+    assert func.call_count == 2
+    slept.assert_called_once()
+
+
+def test_permanent_code_and_4xx_status_raises_immediately():
+    # Fail-fast preserved: a permanent code (1006 not-found) with a 4xx
+    # status must still raise on attempt 1 with no backoff.
+    func = mock.Mock(side_effect=_api_error_with_status(1006, 404, "not found"))
+    with mock.patch("pipeline.retry.time.sleep") as slept:
+        with pytest.raises(ss_exc.ApiError):
+            smartsheet_call_with_retry(func, max_attempts=4)
+    func.assert_called_once()
+    slept.assert_not_called()
+
+
+def test_raises_after_exhausting_attempts_on_status_503():
+    func = mock.Mock(side_effect=_api_error_with_status(0, 503))
     with mock.patch("pipeline.retry.time.sleep"):
         with pytest.raises(ss_exc.ApiError):
             smartsheet_call_with_retry(func, max_attempts=4)

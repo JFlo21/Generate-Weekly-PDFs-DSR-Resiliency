@@ -17,6 +17,14 @@ Design contract
       ``should_retry`` typed exception to 4000, so it never retries it. This
       is the real gap-filler on the oversized-response discovery / per-sheet
       fetch path.
+    - generic ``ApiError`` with ``error.result.code == 0`` and a transient
+      HTTP status (500/502/503/504) — matched via ``_RETRYABLE_HTTP_STATUS``.
+      The SDK cannot parse a 5xx response body into a meaningful result
+      code, so it wraps it as a code-0 ``ApiError`` it never retries either.
+      This gap dropped source sheet "Resiliency Promax Database Backup 59"
+      with 0 rows on a transient 503 (GENERATE-WEEKLY-EXCEL-89). Permanent
+      codes (1006 not-found, 1002 auth) and 4xx statuses still fail fast on
+      attempt 1.
     - ``InternalServerError`` — a raw HTTP 500, retried transitively as an
       ``HttpError`` subclass via ``_TRANSIENT_EXC`` (it carries no
       ``should_retry`` flag). This is a DISTINCT failure from API code 4000;
@@ -87,6 +95,14 @@ _TRANSIENT_EXC: tuple[type[BaseException], ...] = (
 # once — retrying it would only burn the time budget.
 _RETRYABLE_API_CODES: frozenset[int] = frozenset({4000})
 
+# Transient HTTP 5xx statuses that the Smartsheet SDK cannot parse into a
+# meaningful ``error.result.code`` — it surfaces them as a generic ApiError
+# with code 0 and never retries them itself. This was the real billing-drop
+# gap: a 503 on the discovery / per-sheet fetch path raised on attempt 1
+# with zero backoff, dropping the whole source sheet's rows
+# (GENERATE-WEEKLY-EXCEL-89). 500/502/504 are wrapped the same way.
+_RETRYABLE_HTTP_STATUS: frozenset[int] = frozenset({500, 502, 503, 504})
+
 # Fallback only: class-name substring match for a RAW requests/urllib3/ssl
 # error that somehow escapes the SDK's wrapping (normally these arrive as the
 # types in _TRANSIENT_EXC above). Defense in depth; mirrors the inline list
@@ -120,6 +136,21 @@ def _api_error_code(exc: BaseException) -> int | None:
     """
     try:
         return exc.error.result.code  # type: ignore[attr-defined]
+    except AttributeError:
+        return None
+
+
+def _http_status_code(exc: BaseException) -> int | None:
+    """Best-effort extraction of a Smartsheet ``ApiError`` HTTP status code.
+
+    The SDK's ``ErrorResult`` carries a ``status_code`` property alongside
+    ``code`` — populated when the response was a raw HTTP error (e.g. 503)
+    the SDK could not parse into a meaningful ``code``. Returns the integer
+    status or None when absent, in which case it is treated as
+    non-retryable.
+    """
+    try:
+        return exc.error.result.status_code  # type: ignore[attr-defined]
     except AttributeError:
         return None
 
@@ -164,14 +195,20 @@ def smartsheet_call_with_retry(
             backoff = float(2 ** (attempt - 1)) + 0.5  # 1.5, 2.5, 4.5, ...
             kind = type(exc).__name__
         except ss_exc.ApiError as exc:
-            # Generic API error: retry ONLY the transient codes (4000); any
-            # other code is permanent and must surface immediately.
+            # Generic API error: retry the transient codes (4000) OR a
+            # transient HTTP 5xx the SDK wrapped as a code-0 ApiError
+            # (GENERATE-WEEKLY-EXCEL-89); any other code/status combo is
+            # permanent and must surface immediately.
             code = _api_error_code(exc)
-            if code not in _RETRYABLE_API_CODES:
+            status = _http_status_code(exc)
+            if (
+                code not in _RETRYABLE_API_CODES
+                and status not in _RETRYABLE_HTTP_STATUS
+            ):
                 raise
             last_exc = exc
             backoff = float(2 ** (attempt - 1)) + 0.5
-            kind = f"ApiError {code}"
+            kind = f"ApiError code={code} http={status}"
         except Exception as exc:  # noqa: BLE001 — narrowed by the guard below.
             if not is_transient_network_error(exc):
                 raise  # Non-transient (e.g. a real bug) — surface immediately.
