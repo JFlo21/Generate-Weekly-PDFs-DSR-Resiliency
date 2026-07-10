@@ -49,7 +49,7 @@ class TestBuildCronMonitorConfig:
     def test_runtime_and_threshold_fields(self):
         cfg = gwp._build_cron_monitor_config()
         assert cfg["max_runtime"] == 180
-        assert cfg["checkin_margin"] == 5
+        assert cfg["checkin_margin"] == 60
         assert cfg["failure_issue_threshold"] == 1
         assert cfg["recovery_threshold"] == 1
 

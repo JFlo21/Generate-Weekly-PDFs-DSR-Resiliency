@@ -37,7 +37,7 @@ Status: 09-06 (Wave 6: orchestrate + thin facade) complete — PHASE 09 COMPLETE
   change; all 7 waves independently 6-gate-verified. Next: /gsd-verify-work 09,
   then PR / milestone close. (Phase 08 SDK 4.0.0 migration still outstanding — same
   file, so it could not run concurrently; now unblocked.)
-Last activity: 2026-06-26
+Last activity: 2026-07-09 - Completed quick task 260709-oa7: Sentry 5xx ApiError retry gap + cron checkin_margin fixes
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
@@ -203,6 +203,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 260709-oa7 | Fix Sentry 503 ApiError retry gap (GENERATE-WEEKLY-EXCEL-89) and cron checkin_margin 5→60 (GENERATE-WEEKLY-EXCEL-6V) | 2026-07-09 | 1791246, 7469204 | [260709-oa7](./quick/260709-oa7-fix-sentry-503-apierror-retry-gap-and-cr/) |
 | 260528-lu6 | Reconcile AGENTS.md into a lean pointer mirroring CLAUDE.md | 2026-05-28 | d30be0e | [260528-lu6](./quick/260528-lu6-reconcile-agents-md-into-a-lean-pointer-/) |
 | 260528-mdc | Add warn-only ruff + mypy lint tooling and isolated CI workflow | 2026-05-28 | 7f8dbfb | [260528-mdc](./quick/260528-mdc-add-warn-only-ruff-and-mypy-lint-tooling/) |
 | 260601-iqq | Fix stale Living Ledger test file paths blocking pre-push gate (repoint to memory-bank/living-ledger.md; update E authoritative-flag test to active '1') | 2026-06-01 | eed82a1 | [260601-iqq-fix-stale-living-ledger-test-file-paths-](./quick/260601-iqq-fix-stale-living-ledger-test-file-paths-/) |

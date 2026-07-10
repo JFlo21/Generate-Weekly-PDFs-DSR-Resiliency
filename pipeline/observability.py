@@ -705,7 +705,11 @@ def _build_cron_monitor_config() -> "MonitorConfig":
     return {
         "schedule": {"type": "crontab", "value": _CRON_MONITOR_SCHEDULE},
         "timezone": "UTC",
-        "checkin_margin": 5,
+        # 60 min absorbs GitHub Actions' observed 25-57 min scheduling delay
+        # for this job (jobs still succeed) while staying well under the 2h
+        # run interval, so a true no-show still alerts. A 5-min margin fired
+        # 78 false missed-check-in events / 14 days. GENERATE-WEEKLY-EXCEL-6V.
+        "checkin_margin": 60,
         "max_runtime": 180,
         "failure_issue_threshold": 1,
         "recovery_threshold": 1,

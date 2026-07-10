@@ -4741,3 +4741,50 @@ dry run must never mutate prod change-detection state in either direction.
 no-op (`'skip_upload'` → withhold, touch nothing). Regression guards:
 `test_skip_gate_requires_ppp_attachment_for_reduced_sub`, `test_error_legs_invalidate_both_hash_layers`
 (`tests/test_subproject_e_hash_store.py::TestCrashConsistencyDeferredFlush`).
+
+## [2026-07-09 17:35] Sentry triage: 5xx ApiError retry gap + cron check-in margin (in progress, quick task 260709-oa7)
+
+Root-caused the two open production Sentry issues against the codebase (branch
+`fix/sentry-503-retry-cron-margin`, cut from `origin/master`):
+
+1. **GENERATE-WEEKLY-EXCEL-89 (billing-drop bug).** The Smartsheet SDK wraps an
+   HTTP 5xx with an unparseable error body as a **generic `ApiError` with
+   `error.result.code == 0`, `should_retry: false`, and the real HTTP status in
+   `error.result.status_code`** (verified against installed SDK: `ErrorResult`
+   has a `status_code` property). `pipeline/retry.py` classified generic
+   `ApiError` as transient only for result code 4000, so a 503 on `get_sheet`
+   raised on attempt 1 with zero backoff and the source sheet ("Resiliency
+   Promax Database Backup 59", 2026-07-06) dropped with 0 rows. **Rule: 5xx
+   HTTP statuses on `ApiError` (500/502/503/504) are transient regardless of
+   result code — retry them; the SDK's `shouldRetry:false` on code-0 errors is
+   an artifact of the unparseable body, not a real retry verdict.** Fix: new
+   `_RETRYABLE_HTTP_STATUS` set + status-code extraction in
+   `smartsheet_call_with_retry`, TDD in `tests/test_smartsheet_retry.py`.
+2. **GENERATE-WEEKLY-EXCEL-6V (monitoring noise, 78 events/14d).** GitHub
+   Actions starts the scheduled billing runs **25–57 minutes late** (measured
+   from `gh run list`, 25 recent runs, 24 succeeded), but the Sentry Crons
+   monitor upserted from `_build_cron_monitor_config()` had
+   `checkin_margin: 5` — so nearly every *successful* run still fired a
+   "missed check-in" outage. **Rule: for GH-Actions-scheduled monitors the
+   check-in margin must absorb worst-case cron queue delay (observed ≤ ~60
+   min) while staying under the run interval (2 h) so true no-shows still
+   alert.** Fix: margin 5 → 60. (The monitor's earlier perpetual-miss incident
+   was the timezone mislabel — see the existing `_CRON_MONITOR_SCHEDULE`
+   comment; this is the second, delay-margin failure mode of the same issue.)
+
+Commits will carry `Fixes GENERATE-WEEKLY-EXCEL-89` / `Fixes
+GENERATE-WEEKLY-EXCEL-6V` so Sentry auto-resolves on merge. Entry to be
+finalized with commit hashes + full-suite result when the executor completes.
+
+## [2026-07-09 18:05] Quick task 260709-oa7 SHIPPED — closes the 5xx retry gap + cron margin
+
+Finalizing the 17:35 entry: commits `1791246` (retry HTTP 5xx ApiError, Fixes
+GENERATE-WEEKLY-EXCEL-89) and `7469204` (checkin_margin 5→60, Fixes
+GENERATE-WEEKLY-EXCEL-6V) on branch `fix/sentry-503-retry-cron-margin`.
+Validation: targeted suites 17/17 + 5/5; full suite 1163 passed / 1 failed —
+`test_entrypoint_no_double_import.py::test_startup_banner_printed_once`
+**reproduced identically on pristine origin/master in a temp worktree**
+(UnicodeDecodeError, Windows cp1252 decoding the UTF-8 emoji startup banner
+from a subprocess pipe; Ubuntu CI unaffected). Known-footgun note: that test
+harness should eventually pass `encoding='utf-8'` to its subprocess reader —
+separate test-infra fix, do not band-aid production code for it.
