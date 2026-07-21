@@ -1,32 +1,34 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-07-06 · **overwrite-in-place each session** (this is the
+_Last updated: 2026-07-21 · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
-## Latest work (2026-07-09) — Sentry fixes SHIPPED to PR
-**GSD quick task `260709-oa7` COMPLETE** on branch
-`fix/sentry-503-retry-cron-margin` (cut from `origin/master` @ `c563b90`; the
-parked `fix/hash-store-crash-consistency` branch is untouched). Two Sentry
-issues root-caused and fixed TDD-first (red proven before green):
-1. **GENERATE-WEEKLY-EXCEL-89** (`1791246`) — HTTP 503 on `get_sheet` arrives
-   as generic `ApiError` code 0 / `status_code` 503 (`shouldRetry:false` is an
-   unparseable-body artifact), which `pipeline/retry.py` classified as
-   permanent (only result code 4000 retried) → source sheet dropped with 0
-   rows. Fix: new `_RETRYABLE_HTTP_STATUS = {500, 502, 503, 504}` +
-   `_http_status_code()` extractor; permanent codes/4xx still fail fast;
-   bounded-sleep contract unchanged. 5 new tests, 17/17 in
-   `tests/test_smartsheet_retry.py`.
-2. **GENERATE-WEEKLY-EXCEL-6V** (`7469204`) — cron monitor `checkin_margin: 5`
-   vs observed GH Actions cron start delays of 25–57 min (24/25 recent runs
-   succeeded) → 78 false "missed check-in" events/14d. Fix: margin 5 → 60 in
-   `pipeline/observability.py::_build_cron_monitor_config` (+ test flip).
-Full suite on this host: 1163 passed / 1 failed —
-`test_startup_banner_printed_once`, **verified pre-existing on pristine
-`origin/master`** (Windows cp1252 subprocess decode of the emoji banner;
-green in Ubuntu CI). Commit bodies carry `Fixes GENERATE-WEEKLY-EXCEL-89/-6V`
-so Sentry auto-resolves on merge. Next: merge PR, then confirm the next
-scheduled run fetches all sheets and the missed-check-in noise stops.
+## Latest work (2026-07-21) — Sentry fixes VERIFIED in prod · Phase 08 context LOCKED
+1. **PR #284 post-merge validation CLOSED.** Both 260709-oa7 fixes confirmed
+   working 12 days post-merge: GENERATE-WEEKLY-EXCEL-89 (503 retry) zero
+   events since merge; GENERATE-WEEKLY-EXCEL-6V missed-check-in storm (was
+   78/14d) fully stopped, `checkin_margin: 60` live in the monitor config.
+   One 2026-07-18 "timeout check-in" event = lost closing check-in on a run
+   that actually succeeded in 65 min (GH run 29620427187) — one-off, not
+   actionable unless it recurs.
+2. **Branch hygiene:** local `master` had diverged (3 wip commits vs 19
+   remote). WIP preserved on `wip/phase08-research-pdf-poc` (Phase-08
+   research doc + PDF POC pause-commits); `master` hard-reset to
+   `origin/master` @ `720b0aa`; merged `fix/sentry-503-retry-cron-margin`
+   deleted.
+3. **Phase 08 (SDK 4.x migration) UNBLOCKED + context gathered** via
+   `/gsd-discuss-phase 08` (advisor mode; subagent spawns failed on a
+   transient org billing issue → research done inline). Four decisions
+   locked in `08-CONTEXT.md` (commit `631f757` on branch
+   `feat/phase-08-sdk-430-migration`): exact pin `==4.3.0`; NO workflow
+   edits (`--no-binary` obsolete — wheel bug fixed upstream in 4.0.1 #144,
+   wheel sizes verified); proof = 6-gate harness + live read-only Smartsheet
+   probe (mocked-ApiError blind spot); rollout = branch SKIP_UPLOAD dry-run
+   → weekday merge after green cron → one watched canary dispatch.
+   Key research facts embedded in CONTEXT.md `<specifics>` (changelog
+   4.0.1→4.3.0 all additive; 08-RESEARCH.md staleness corrections in D-08).
+   **Next: `/gsd-plan-phase 08`** on the phase branch.
 
 ## Current milestone
 **v1.3.1 — Smartsheet API resilience & silent-failure hardening** (follow-up to

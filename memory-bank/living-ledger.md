@@ -4788,3 +4788,34 @@ Validation: targeted suites 17/17 + 5/5; full suite 1163 passed / 1 failed —
 from a subprocess pipe; Ubuntu CI unaffected). Known-footgun note: that test
 harness should eventually pass `encoding='utf-8'` to its subprocess reader —
 separate test-infra fix, do not band-aid production code for it.
+
+## [2026-07-21 18:20] Phase 08 SDK 4.x migration — decisions locked; exact-pin rule for transport-critical deps
+
+Phase 08 (lift the `<4.0.0` smartsheet-python-sdk pin) unblocked and context
+gathered (`/gsd-discuss-phase 08`, branch `feat/phase-08-sdk-430-migration`,
+commit `631f757`). Durable rules and facts:
+
+- **Exact-pin rule (extends 260608-gwm):** transport-critical deps get an
+  EXACT pin (`smartsheet-python-sdk==4.3.0`), not just an upper bound.
+  Version bumps are deliberate, changelog-reviewed PRs. Rationale: the June
+  2026 CI crash happened because an unreviewed release auto-entered
+  production through an open range.
+- **`--no-binary` is obsolete:** the 4.0.0 wheel packaging bug (7,842 B
+  wheel shipping only `version.py`) was fixed upstream in 4.0.1 (issue
+  #144). Wheel sizes verified via PyPI JSON 2026-07-21: 4.0.1–4.3.0 =
+  259–271 KB, none yanked. The 08-RESEARCH.md prescription to add
+  `--no-binary` to the workflows is retired; the migration makes ZERO
+  GitHub Actions edits.
+- **Changelog 4.0.1→4.3.0 reviewed 2026-07-21:** all additive; nothing
+  touches `smartsheet.exceptions`, `ApiError.error.result` internals, or
+  any in-use call signature. Only 4.3.0 grazes in-use models (additive
+  `Row.proof` field; template case in `PaginatedChildrenResult.append_data`).
+- **Validation blind-spot rule:** `tests/test_smartsheet_retry.py` builds
+  `ApiError.error.result` with `mock.Mock()` and TEST_MODE synthetic runs
+  never touch the transport — neither can catch real SDK error-shape drift.
+  Any SDK version change must therefore include a LIVE read-only probe
+  (real `get_sheet` + attachment list) in addition to the 6-gate harness.
+- Post-merge validation of PR #284 closed: 503-retry fix quiet since merge;
+  cron missed-check-in storm stopped (margin 60 live). The single 07-18
+  "timeout check-in" was a lost closing check-in on a 65-min successful run
+  (GH 29620427187) — benign one-off.
