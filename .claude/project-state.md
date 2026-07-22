@@ -48,8 +48,16 @@ write-back reminder). Keep it terse; link to history rather than duplicating it.
    reads; unset the token for local gate runs). New automated row
    08-SEC-T1 covers the SKIP_UPLOAD zero-mutation invariant. Commits
    `fa80b48` (validation), `8777246` (security docs), `442cb92` (fix).
-6. **Next:** PR per D-06 (weekday daytime merge after green cron + one
-   watched canary dispatch); then `/gsd:verify-work 08` if desired. Also: Juan's `.env` line-1 token
+6. **UAT COMPLETE (2026-07-22 ~16:30 CDT): `/gsd-verify-work 08` — 6/6
+   passed, 0 issues** (commit `d78e7d5`). Full-UAT in
+   `.planning/phases/08-*/08-UAT.md`; the old 1-test `08-HUMAN-UAT.md`
+   closed (its attachment-loss check = Test 5, Juan-confirmed: WR
+   89881161 self-healed via cron, WR 89708709/90093002 intact).
+   `08-VERIFICATION.md` flipped `human_needed` → `passed` (the human
+   gate it awaited was exactly Test 5). Roadmap/STATE/PROJECT transition
+   had already run in the prior session — no re-transition.
+7. **Next:** PR per D-06 (weekday daytime merge after green cron + one
+   watched canary dispatch); then `/gsd-verify-work 09`. Also: Juan's `.env` line-1 token
    surfaced in an editor selection into chat — rotation recommended.
    Carry-forward WARNING for next phase's register: `TEST_MODE=true` with
    a real token still performs real Smartsheet reads.
