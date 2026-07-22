@@ -84,3 +84,25 @@ gated (skip both, or neither) so a "read-only" dry-run flag is actually
 read-only. Low/medium priority — the self-healing withheld-hash behavior
 means no data is silently lost, but the flag's name currently overpromises
 what it does; worth a small dedicated fix + test in a future plan.
+
+## 08 (verification): TEST_MODE with a real token still performs real Smartsheet reads
+
+**Found during:** Phase 08 goal verification (2026-07-22)
+
+**Issue:** `pipeline/orchestrate.py` takes the pure in-memory synthetic path
+only when `SMARTSHEET_API_TOKEN` is ABSENT (`if not API_TOKEN`). With a
+token present (e.g. injected from a repo-root `.env` via `load_dotenv()`),
+`TEST_MODE=true` still initializes a real Smartsheet client and performs
+real discovery/fetch reads before generating fixture output. Gate 6 of
+`scripts/run_6_gates.sh` and direct `TEST_MODE=true` invocations therefore
+hit production reads on developer machines that carry a `.env`.
+
+**Write-safety:** deletes/uploads remain impossible in TEST_MODE — the
+target map is built only `if not TEST_MODE` (orchestrate.py:595), and
+`delete_old_excel_attachments` requires a target-row hit (orchestrate.py:2140).
+Read-only exposure only.
+
+**Suggested future fix:** make TEST_MODE authoritative — take the synthetic
+path whenever `TEST_MODE=true` regardless of token presence (or explicitly
+blank the token when TEST_MODE is set). Related: the entrypoint test now
+empty-strings the token for the same load_dotenv reason (commit 4aa19ff).
