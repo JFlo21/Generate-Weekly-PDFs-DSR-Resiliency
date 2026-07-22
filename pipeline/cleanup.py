@@ -99,6 +99,7 @@ def cleanup_untracked_sheet_attachments(
     sub_legacy_primary_variants: set[str] | None = None,
     vac_legacy_wr_scope: set[str] | None = None,
     primary_wr_scope: set[str] | None = None,
+    dry_run: bool = False,
 ):
     """Prune only older variants for identities processed this run (VARIANT-AWARE).
 
@@ -193,6 +194,9 @@ def cleanup_untracked_sheet_attachments(
     KEEP_HISTORICAL_WEEKS = _gwp.KEEP_HISTORICAL_WEEKS
     if test_mode:
         logging.info("🧪 Test mode – skipping sheet attachment pruning")
+        return
+    if dry_run:
+        logging.info("⏭️  Dry run (SKIP_UPLOAD) – skipping sheet attachment pruning")
         return
     try:
         sheet = target_sheet if target_sheet is not None else client.Sheets.get_sheet(target_sheet_id)
@@ -448,7 +452,7 @@ def cleanup_untracked_sheet_attachments(
         f"removed_off_contract={removed_off_contract}"
     )
 
-def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, week_raw, current_data_hash, variant='primary', identifier=None, force_generation=False, cached_attachments: list | None = None):
+def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, week_raw, current_data_hash, variant='primary', identifier=None, force_generation=False, cached_attachments: list | None = None, dry_run: bool = False):
     """Delete prior Excel attachment(s) ONLY for the specific (WR, week, variant, identifier) identity.
 
     VARIANT-AWARE BEHAVIOR:
@@ -462,6 +466,10 @@ def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, we
         variant: 'primary' or 'helper'
         identifier: For helper variant, the helper name; for primary+user, the user identifier
         cached_attachments: Pre-fetched attachment list (avoids redundant API call)
+        dry_run: When True (SKIP_UPLOAD runs), keep every read-only
+            decision (identity matching, legacy hash skip) but never
+            call delete_attachment — a validation run must not mutate
+            the sheet (Phase 08 T-08-03).
 
     Returns (deleted_count, skipped_due_to_same_data)
     """
@@ -526,6 +534,10 @@ def delete_old_excel_attachments(client, target_sheet_id, target_row, wr_num, we
                 logging.info(f"⏩ Unchanged ({variant} WR {wr_num} Week {week_raw}) hash {current_data_hash}; skipping regeneration & upload")
                 return 0, True
 
+    if dry_run:
+        logging.info(f"⏭️  Dry run (SKIP_UPLOAD): preserving {len(candidates)} prior {variant} attachment(s) for WR {wr_num} Week {week_raw}")
+        return 0, False
+
     logging.info(f"🗑️ Removing {len(candidates)} prior {variant} attachment(s) for WR {wr_num} Week {week_raw}")
     for att in candidates:
         try:
@@ -570,7 +582,7 @@ def _has_existing_week_attachment(client, target_sheet_id, target_row, wr_num: s
     
     return False
 
-def purge_existing_hashed_outputs(client, target_sheet_id: int, wr_subset: set | None, test_mode: bool):
+def purge_existing_hashed_outputs(client, target_sheet_id: int, wr_subset: set | None, test_mode: bool, dry_run: bool = False):
     """Delete existing hashed Excel attachments and local files so hashes recompute fresh.
 
     wr_subset: if provided, only purge attachments for these WR numbers; otherwise purge all WR_*.xlsx attachments.
@@ -601,6 +613,9 @@ def purge_existing_hashed_outputs(client, target_sheet_id: int, wr_subset: set |
 
     if test_mode:
         logging.info("🧪 Test mode active – skipping remote attachment purge")
+        return
+    if dry_run:
+        logging.info("⏭️  Dry run (SKIP_UPLOAD) – skipping remote attachment purge")
         return
     try:
         sheet = client.Sheets.get_sheet(target_sheet_id)

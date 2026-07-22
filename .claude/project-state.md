@@ -1,32 +1,75 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-07-06 · **overwrite-in-place each session** (this is the
+_Last updated: 2026-07-22 · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
-## Latest work (2026-07-09) — Sentry fixes SHIPPED to PR
-**GSD quick task `260709-oa7` COMPLETE** on branch
-`fix/sentry-503-retry-cron-margin` (cut from `origin/master` @ `c563b90`; the
-parked `fix/hash-store-crash-consistency` branch is untouched). Two Sentry
-issues root-caused and fixed TDD-first (red proven before green):
-1. **GENERATE-WEEKLY-EXCEL-89** (`1791246`) — HTTP 503 on `get_sheet` arrives
-   as generic `ApiError` code 0 / `status_code` 503 (`shouldRetry:false` is an
-   unparseable-body artifact), which `pipeline/retry.py` classified as
-   permanent (only result code 4000 retried) → source sheet dropped with 0
-   rows. Fix: new `_RETRYABLE_HTTP_STATUS = {500, 502, 503, 504}` +
-   `_http_status_code()` extractor; permanent codes/4xx still fail fast;
-   bounded-sleep contract unchanged. 5 new tests, 17/17 in
-   `tests/test_smartsheet_retry.py`.
-2. **GENERATE-WEEKLY-EXCEL-6V** (`7469204`) — cron monitor `checkin_margin: 5`
-   vs observed GH Actions cron start delays of 25–57 min (24/25 recent runs
-   succeeded) → 78 false "missed check-in" events/14d. Fix: margin 5 → 60 in
-   `pipeline/observability.py::_build_cron_monitor_config` (+ test flip).
-Full suite on this host: 1163 passed / 1 failed —
-`test_startup_banner_printed_once`, **verified pre-existing on pristine
-`origin/master`** (Windows cp1252 subprocess decode of the emoji banner;
-green in Ubuntu CI). Commit bodies carry `Fixes GENERATE-WEEKLY-EXCEL-89/-6V`
-so Sentry auto-resolves on merge. Next: merge PR, then confirm the next
-scheduled run fetches all sheets and the missed-check-in noise stops.
+## Latest work (2026-07-22) — Phase 08 SDK 4.3.0 migration EXECUTED (both plans)
+1. **Phase 08 executed via `/gsd-execute-phase 08`** on branch
+   `feat/phase-08-sdk-430-migration` (unpushed; no PR yet). Wave 1 (08-01,
+   merge `6334531`): SDK 4.3.0 installed (env upgrade 3.9.0→4.3.0), dead
+   27-line 3.x re-export shim removed from `generate_weekly_pdfs.py`, Gate 1
+   baseline 178→177 (`_exc_name`), six gates ALL PASSED + full suite green.
+   Wave 2 (08-02, merge `72f72ef`): `requirements.txt` pin lifted to exact
+   `smartsheet-python-sdk==4.3.0`, Living Ledger entries added, D-06/D-07
+   rollout+rollback runbooks captured in `08-02-SUMMARY.md`.
+2. **D-05 live read-only probe: APPROVED by Juan** (bounded
+   `SKIP_UPLOAD=true WR_FILTER=... MAX_GROUPS=5` run, real transport, 2,771
+   groups validated, 5 Excel generated, zero SDK error-shape drift).
+   **Finding:** `SKIP_UPLOAD=true` is NOT fully read-only — the
+   delete-old-attachment step still ran (WR 89881161 weeks 072025/081725
+   deleted; hash withheld → next weekday cron regenerates + re-uploads
+   automatically; Juan chose wait-for-cron). Logged in phase
+   `deferred-items.md` + Living Ledger; follow-up fix candidate: gate the
+   delete on SKIP_UPLOAD too.
+3. **Test hermeticity fix (`4aa19ff`):**
+   `tests/test_entrypoint_no_double_import.py` now sets
+   `SMARTSHEET_API_TOKEN=''` (was `pop()`) — the engine's `load_dotenv()`
+   re-injected the token from Juan's new repo-root `.env`, flipping the
+   banner test into a real multi-minute API fetch (180s timeout). Empty
+   string survives dotenv (no override) and stays falsy → synthetic path.
+   Post-merge gate green: 1164 passed + 130 subtests.
+4. **Security gate CLEARED (2026-07-22 PM): `/gsd:secure-phase 08` run.**
+   gsd-security-auditor verified 5/6 threats closed; the 6th (T-08-03,
+   `SKIP_UPLOAD=true` still ran the attachment DELETE — materialized in
+   the D-05 probe) was **fixed same-session, Juan-approved**: `dry_run`
+   param on `delete_old_excel_attachments` /
+   `cleanup_untracked_sheet_attachments` / `purge_existing_hashed_outputs`
+   (`pipeline/cleanup.py`), wired `dry_run=SKIP_UPLOAD` at all 5 mutating
+   call sites in `pipeline/orchestrate.py`. New invariant (ledger
+   `[2026-07-22 14:37]`): SKIP_UPLOAD=true ⇒ zero Smartsheet mutations.
+   TDD'd (`tests/test_skip_upload_delete_gating.py`, 7 tests; signature
+   pin → v6); full suite **1171 passed + 130 subtests**. Threat register:
+   `.planning/phases/08-*/08-SECURITY.md` (6/6 closed, threats_open: 0).
+   Deferred item "SKIP_UPLOAD deletes prior attachments" marked RESOLVED.
+5. **Nyquist gate CLEARED (2026-07-22 PM): `/gsd:validate-phase 08` run.**
+   0 gaps; all 6 task commands re-run live and green (six gates PASSED —
+   note: gate run took ~35 min because TEST_MODE + `.env` token does real
+   reads; unset the token for local gate runs). New automated row
+   08-SEC-T1 covers the SKIP_UPLOAD zero-mutation invariant. Commits
+   `fa80b48` (validation), `8777246` (security docs), `442cb92` (fix).
+6. **UAT COMPLETE (2026-07-22 ~16:30 CDT): `/gsd-verify-work 08` — 6/6
+   passed, 0 issues** (commit `d78e7d5`). Full-UAT in
+   `.planning/phases/08-*/08-UAT.md`; the old 1-test `08-HUMAN-UAT.md`
+   closed (its attachment-loss check = Test 5, Juan-confirmed: WR
+   89881161 self-healed via cron, WR 89708709/90093002 intact).
+   `08-VERIFICATION.md` flipped `human_needed` → `passed` (the human
+   gate it awaited was exactly Test 5). Roadmap/STATE/PROJECT transition
+   had already run in the prior session — no re-transition.
+7. **PR #286 OPEN** (branch pushed 2026-07-22 ~16:40 CDT). **Review fix
+   shipped (quick task 260722-nst, ~17:35 CDT):** the 6th mutating call
+   site — `run_claimer_remediation` in the isolated REMEDIATE_CLAIMERS
+   branch (`pipeline/orchestrate.py` ~452) — now uses
+   `dry_run=REMEDIATION_DRY_RUN or SKIP_UPLOAD` (test `458d7e5`, fix
+   `60d0473`, docs `1b6ff9a`; TestRemediationGatesOnSkipUpload pins it;
+   8/8 gating tests green; haiku-verifier PASS 4/4). SKIP_UPLOAD=true ⇒
+   zero mutations now covers ALL 6 call sites. **Next per D-06:** merge
+   in a weekday daytime window right after a green scheduled run, then
+   fire ONE watched `workflow_dispatch` canary; then
+   `/gsd-verify-work 09`. Also: Juan's `.env` line-1 token
+   surfaced in an editor selection into chat — rotation recommended.
+   Carry-forward WARNING for next phase's register: `TEST_MODE=true` with
+   a real token still performs real Smartsheet reads.
 
 ## Current milestone
 **v1.3.1 — Smartsheet API resilience & silent-failure hardening** (follow-up to

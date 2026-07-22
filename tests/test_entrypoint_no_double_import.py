@@ -25,12 +25,23 @@ class TestEntrypointNoDoubleImport(unittest.TestCase):
         env['SKIP_UPLOAD'] = 'true'        # no Smartsheet writes
         env['PYTHONUTF8'] = '1'            # emoji banners on Windows cp1252
         env['PYTHONIOENCODING'] = 'utf-8'
-        env.pop('SMARTSHEET_API_TOKEN', None)  # force the synthetic path
+        # Force the synthetic path. An EMPTY string (not pop): the engine's
+        # load_dotenv() re-injects the token from a developer .env when the
+        # var is absent, flipping this test into a real multi-minute API
+        # fetch. load_dotenv never overrides an existing var, and empty is
+        # falsy so orchestrate falls back to the synthetic dataset.
+        env['SMARTSHEET_API_TOKEN'] = ''
 
         result = subprocess.run(
             [sys.executable, 'generate_weekly_pdfs.py'],
             cwd=repo_root, env=env,
-            capture_output=True, text=True, timeout=180,
+            capture_output=True, text=True,
+            # Parent-side decode must match the child's forced UTF-8: on a
+            # vanilla Windows shell the default cp1252 codec dies on the
+            # emoji banner bytes, returning stdout/stderr as None and
+            # masking the assertion diagnostics with a TypeError.
+            encoding='utf-8', errors='replace',
+            timeout=180,
         )
         combined = result.stdout + result.stderr
         count = combined.count('CRITICAL FIXES APPLIED')

@@ -2,15 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: smartsheet-python-sdk 4.0.0 Compatibility Migration
-status: executing
-last_updated: "2026-06-27T00:10:00Z"
-last_activity: 2026-06-26
+status: ready_to_plan
+last_updated: 2026-07-22T21:30:00.000Z
+last_activity: 2026-07-22 -- Quick task 260722-nst: SKIP_UPLOAD gate extended to claimer remediation (PR #286 review fix)
 progress:
   total_phases: 8
-  completed_phases: 7
-  total_plans: 35
-  completed_plans: 34
-  percent: 88
+  completed_phases: 6
+  total_plans: 30
+  completed_plans: 50
+  percent: 75
+stopped_at: Phase 08 UAT complete (6/6 pass) + verification human-gate resolved — next is the D-06 PR/rollout, then Phase 9 verify
 ---
 
 # Project State
@@ -26,18 +27,18 @@ right generated Excel billing artifact fast, from a secure, auth-gated,
 beautiful web portal — with zero change to the production Python billing
 pipeline.
 
-**Current focus:** Phase 09 — engine-modularization-pipeline-package-split
+**Current focus:** Phase 9 — engine modularization (pipeline package split)
 
 ## Current Position
 
-Phase: 09 (engine-modularization-pipeline-package-split) — ✅ COMPLETE
-Plan: 7 of 7 complete
-Status: 09-06 (Wave 6: orchestrate + thin facade) complete — PHASE 09 COMPLETE.
+Phase: 9
+Plan: Not started
+Status: Ready to plan
   Engine 10,476 -> 709-line thin facade; 13-module pipeline/ package; 0 behavior
   change; all 7 waves independently 6-gate-verified. Next: /gsd-verify-work 09,
   then PR / milestone close. (Phase 08 SDK 4.0.0 migration still outstanding — same
   file, so it could not run concurrently; now unblocked.)
-Last activity: 2026-07-09 - Completed quick task 260709-oa7: Sentry 5xx ApiError retry gap + cron checkin_margin fixes
+Last activity: 2026-07-22
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
@@ -203,6 +204,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 260722-nst | Gate claimer remediation on SKIP_UPLOAD (PR #286 review fix — 6th mutating call site) | 2026-07-22 | 458d7e5, 60d0473 | [260722-nst](./quick/260722-nst-gate-claimer-remediation-on-skip-upload-/) |
 | 260709-oa7 | Fix Sentry 503 ApiError retry gap (GENERATE-WEEKLY-EXCEL-89) and cron checkin_margin 5→60 (GENERATE-WEEKLY-EXCEL-6V) | 2026-07-09 | 1791246, 7469204 | [260709-oa7](./quick/260709-oa7-fix-sentry-503-apierror-retry-gap-and-cr/) |
 | 260528-lu6 | Reconcile AGENTS.md into a lean pointer mirroring CLAUDE.md | 2026-05-28 | d30be0e | [260528-lu6](./quick/260528-lu6-reconcile-agents-md-into-a-lean-pointer-/) |
 | 260528-mdc | Add warn-only ruff + mypy lint tooling and isolated CI workflow | 2026-05-28 | 7f8dbfb | [260528-mdc](./quick/260528-mdc-add-warn-only-ruff-and-mypy-lint-tooling/) |

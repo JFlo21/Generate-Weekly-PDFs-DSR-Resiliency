@@ -4788,3 +4788,136 @@ Validation: targeted suites 17/17 + 5/5; full suite 1163 passed / 1 failed —
 from a subprocess pipe; Ubuntu CI unaffected). Known-footgun note: that test
 harness should eventually pass `encoding='utf-8'` to its subprocess reader —
 separate test-infra fix, do not band-aid production code for it.
+
+## [2026-07-21 18:20] Phase 08 SDK 4.x migration — decisions locked; exact-pin rule for transport-critical deps
+
+Phase 08 (lift the `<4.0.0` smartsheet-python-sdk pin) unblocked and context
+gathered (`/gsd-discuss-phase 08`, branch `feat/phase-08-sdk-430-migration`,
+commit `631f757`). Durable rules and facts:
+
+- **Exact-pin rule (extends 260608-gwm):** transport-critical deps get an
+  EXACT pin (`smartsheet-python-sdk==4.3.0`), not just an upper bound.
+  Version bumps are deliberate, changelog-reviewed PRs. Rationale: the June
+  2026 CI crash happened because an unreviewed release auto-entered
+  production through an open range.
+- **`--no-binary` is obsolete:** the 4.0.0 wheel packaging bug (7,842 B
+  wheel shipping only `version.py`) was fixed upstream in 4.0.1 (issue
+  #144). Wheel sizes verified via PyPI JSON 2026-07-21: 4.0.1–4.3.0 =
+  259–271 KB, none yanked. The 08-RESEARCH.md prescription to add
+  `--no-binary` to the workflows is retired; the migration makes ZERO
+  GitHub Actions edits.
+- **Changelog 4.0.1→4.3.0 reviewed 2026-07-21:** all additive; nothing
+  touches `smartsheet.exceptions`, `ApiError.error.result` internals, or
+  any in-use call signature. Only 4.3.0 grazes in-use models (additive
+  `Row.proof` field; template case in `PaginatedChildrenResult.append_data`).
+- **Validation blind-spot rule:** `tests/test_smartsheet_retry.py` builds
+  `ApiError.error.result` with `mock.Mock()` and TEST_MODE synthetic runs
+  never touch the transport — neither can catch real SDK error-shape drift.
+  Any SDK version change must therefore include a LIVE read-only probe
+  (real `get_sheet` + attachment list) in addition to the 6-gate harness.
+- Post-merge validation of PR #284 closed: 503-retry fix quiet since merge;
+  cron missed-check-in storm stopped (margin 60 live). The single 07-18
+  "timeout check-in" was a lost closing check-in on a 65-min successful run
+  (GH 29620427187) — benign one-off.
+
+## [2026-07-21 19:10] Phase 08 planning started — validation strategy committed
+
+- `/gsd-plan-phase 08` in progress on `feat/phase-08-sdk-430-migration`.
+  `08-VALIDATION.md` created + committed (`68ac4ae`): pytest quick/full
+  commands, and a **manual-only** live read-only Smartsheet probe row
+  (SDK-05) encoding the mocked-ApiError blind-spot rule above — mocks
+  cannot prove real SDK exception shapes, so the probe is part of the
+  phase's validation contract, not an afterthought.
+- Planning inputs: `08-CONTEXT.md` (locked: exact pin `==4.3.0`, no
+  workflow edits, 6-gate harness + live probe, staged rollout) overrides
+  stale `08-RESEARCH.md` (written vs 4.0) via D-08 corrections. PLAN.md
+  files not yet written — planner/checker loop pending.
+
+## [2026-07-22 02:31] Phase 08 SDK 4.x migration — exact pin ==4.3.0 landed, dead re-export block removed
+
+Phase 08 code change complete on branch `feat/phase-08-sdk-430-migration`:
+`generate_weekly_pdfs.py`'s dead 3.x `smartsheet.smartsheet` re-export shim
+(27 lines) removed (Plan 08-01, commit `b2e76bf`), `tests/golden/baseline_names.json`
+rebaselined 178 -> 177 names (the `_exc_name` import-time temp, never public
+API), and the emergency `>=3.1.0,<4.0.0` pin lifted to the exact
+`smartsheet-python-sdk==4.3.0` (Plan 08-02, commit `76e2471`).
+
+- **Verification evidence:** `scripts/run_6_gates.sh` on 4.3.0 -> `=== ALL 6
+  GATES PASSED ===` (AST equality 177 names, facade completeness 108 names,
+  pytest 1164 passed/130 subtests, mypy delta neutral, py_compile clean,
+  golden run_summary 21-key match). Full `pytest tests/ -v` independently:
+  1164 passed, 130 subtests passed, 0 failed.
+- **Live probe status:** the D-05 live read-only `SKIP_UPLOAD=true` probe
+  against real Smartsheet on 4.3.0 is this plan's Task 3 — human-gated
+  (operator-run, `checkpoint:human-verify` / `gate=blocking-human`), writes
+  nothing to Smartsheet. Result recorded in `08-02-SUMMARY.md` once the
+  operator runs it; not fabricated here.
+- **`--no-binary` retirement:** already recorded in the 2026-07-21 18:20
+  entry above — cross-referenced, not restated.
+- **Exact-pin rule applied:** this entry is the first transport-critical dep
+  bump to actually land under the 18:20 exact-pin rule — future SDK bumps
+  must repeat this shape (changelog review date + commit hash + 6-gate +
+  live-probe evidence) before merge.
+
+## [2026-07-22 10:20] Phase 08 D-05 live probe SIGNED OFF — SDK 4.3.0 real-transport green, one pre-existing SKIP_UPLOAD finding
+
+Operator (Juan) ran the D-05 bounded read-only probe against real
+Smartsheet on 4.3.0 (~10:07 CDT, `SKIP_UPLOAD=true
+WR_FILTER=84157414,89881161 MAX_GROUPS=5`, SDK version confirmed 4.3.0 via
+`python -m pip`). Result: **PASSED** for all SDK-facing criteria — all
+source sheets fetched, "Grouping validation passed: 2771 groups", 676
+target-row + 545 PPP attachment-list calls completed via the retry wrapper
+(12.8s/9.5s, 8 workers, 0 cancelled), 5 Excel files generated locally under
+`generated_docs/`, zero `ModuleNotFoundError`/`AttributeError`/retry-path
+exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
+`ApiError.error.result` introspection matches the real 4.3.0 response shape.
+
+- **Pre-existing finding, NOT SDK drift:** `SKIP_UPLOAD=true` gates only the
+  upload half of the engine's delete-then-upload sequence, not the delete
+  half. The probe deleted 2 prior WR 89881161 attachments on the production
+  `TARGET_SHEET_ID` sheet before correctly skipping the re-upload — this is
+  byte-identical behavior on 3.x, unrelated to the SDK migration. Full
+  detail + suggested fix logged in
+  `.planning/phases/08-smartsheet-python-sdk-4-0-0-compatibility-migration/deferred-items.md`.
+- **Self-healing rule confirmed:** the hash-history write is withheld
+  whenever an upload does not complete (`SKIP_UPLOAD=true` counts), so a
+  deleted-then-skipped attachment always regenerates and re-uploads on the
+  next scheduled run — no silent permanent data loss from this class of
+  defect. Operator let the next weekday cron self-heal rather than manually
+  restoring.
+- **SDK-06 live half CLOSED:** this is the real-transport confirmation
+  mocks and TEST_MODE cannot give (per the 18:20 entry's validation
+  blind-spot rule) — commits `76e2471` (exact pin) / `038816c` (prior
+  ledger entry) are now proven against production data, not just synthetic
+  suites.
+
+## [2026-07-22 14:37] Phase 08 secure-phase: SKIP_UPLOAD is now fully read-only (T-08-03 fix)
+
+- **Rule (new invariant):** `SKIP_UPLOAD=true` ⇒ **zero Smartsheet
+  mutations** — deletes included, not just uploads. Any future code path
+  that mutates a sheet must be gated on it (pattern: `dry_run: bool =
+  False` param, wired `dry_run=SKIP_UPLOAD` at the orchestrate call
+  site). Read-only decisions (legacy hash short-circuit, identity
+  matching, skip logging) still run so dry-run output stays
+  representative.
+- **Why:** the D-05 live probe (`SKIP_UPLOAD=true`) deleted 2 real
+  production attachments (WR 89881161, weeks 072025/081725) because
+  `delete_old_excel_attachments()` ran unconditionally in `_upload_one`
+  while `SKIP_UPLOAD` gated only the `attach_file_to_row` call.
+  Pre-existing defect (identical under SDK 3.x), surfaced by the probe,
+  self-healed by the withheld-hash → next-cron regeneration.
+- **Fix (Juan-approved via /gsd:secure-phase 08):** `dry_run` param added
+  to `delete_old_excel_attachments`, `cleanup_untracked_sheet_attachments`,
+  and `purge_existing_hashed_outputs` (`pipeline/cleanup.py`); all five
+  mutating call sites in `pipeline/orchestrate.py` pass
+  `dry_run=SKIP_UPLOAD`. Default `False` keeps every existing call site
+  byte-identical (signature-pin test updated in-place to v6 per the
+  [2026-05-20 00:26] rule).
+- **Evidence:** TDD RED→GREEN in `tests/test_skip_upload_delete_gating.py`
+  (7 tests: dry-run preserves candidates, legacy hash skip still fires,
+  default-False regression guard, source-wiring pins); full suite
+  **1171 passed + 130 subtests**. Threat register: `08-SECURITY.md`
+  (6/6 closed, threats_open: 0).
+- **Carry-forward flag (unregistered, WARNING):** `TEST_MODE=true` with a
+  real token still performs real Smartsheet READS (synthetic path only
+  `if not API_TOKEN`) — add to the next phase's threat register.

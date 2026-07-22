@@ -139,29 +139,29 @@ compatibility so the pin can be lifted.
 
 ### SDK 4.0.0 Migration
 
-- [ ] **SDK-01**: The billing engine resolves Smartsheet exception classes
+- [x] **SDK-01**: The billing engine resolves Smartsheet exception classes
   (`RateLimitExceededError`, `UnexpectedErrorShouldRetryError`,
   `InternalServerError`, `ServerTimeoutExceededError`) under SDK 4.0.0 — the
   `import smartsheet.exceptions` at `generate_weekly_pdfs.py:28` and the retry
   `except` blocks (~8389/8397/8603/8620-8622/9835/9843) work without
   `ModuleNotFoundError` / `AttributeError`.
-- [ ] **SDK-02**: The `smartsheet.smartsheet` retry-exception re-export
+- [x] **SDK-02**: The `smartsheet.smartsheet` retry-exception re-export
   workaround (`generate_weekly_pdfs.py:30-54`) is reconciled with 4.0.0 — kept,
   updated, or removed if 4.0.0 makes it obsolete — and the SDK's internal
   retryable-exception lookup still succeeds (no silently-swallowed retries).
-- [ ] **SDK-03**: Every in-use SDK call site is verified compatible with 4.0.0
+- [x] **SDK-03**: Every in-use SDK call site is verified compatible with 4.0.0
   signatures and return shapes: `Sheets.get_sheet(sheet_id, include=…,
   row_numbers=…)`, `Attachments.list_row_attachments / delete_attachment /
   attach_file_to_row`, and `Folders.get_folder_children(..., last_key=…)`
   token-based pagination.
-- [ ] **SDK-04**: The full `pytest tests/` suite passes against SDK 4.0.0; test
+- [x] **SDK-04**: The full `pytest tests/` suite passes against SDK 4.0.0; test
   mocks/fixtures are updated for any relocated symbols (notably
   `tests/test_billing_audit_shadow.py:64` and the `last_key` pagination tests in
   `test_subcontractor_pricing.py` / `test_vac_crew.py`).
-- [ ] **SDK-05**: The `requirements.txt` upper-bound pin is lifted to allow
+- [x] **SDK-05**: The `requirements.txt` upper-bound pin is lifted to allow
   4.0.0 (e.g. `smartsheet-python-sdk>=4.0.0`) **only after** SDK-01..04 pass,
   and the corresponding Living Ledger / CLAUDE.md pin notes are updated.
-- [ ] **SDK-06**: A non-upload validation run (`TEST_MODE=true` and/or
+- [x] **SDK-06**: A non-upload validation run (`TEST_MODE=true` and/or
   `SKIP_UPLOAD=true`) confirms the pipeline produces identical grouping and
   Excel output under 4.0.0 — proving zero behavior change.
 
@@ -244,12 +244,12 @@ Which phases cover which requirements.
 | SEC-03 | Phase 07 | Pending |
 | SEC-04 | Phase 07 | Pending |
 | SEC-05 | Phase 07 | Pending |
-| SDK-01 | Phase 08 | Pending |
-| SDK-02 | Phase 08 | Pending |
-| SDK-03 | Phase 08 | Pending |
-| SDK-04 | Phase 08 | Pending |
-| SDK-05 | Phase 08 | Pending |
-| SDK-06 | Phase 08 | Pending |
+| SDK-01 | Phase 08 | Complete |
+| SDK-02 | Phase 08 | Complete |
+| SDK-03 | Phase 08 | Complete |
+| SDK-04 | Phase 08 | Complete |
+| SDK-05 | Phase 08 | Complete |
+| SDK-06 | Phase 08 | Complete |
 
 **Coverage:**
 - v1.1 requirements: 33 total — mapped to phases: 33 (Phase 03: 5, Phase 04: 15, Phase 05: 9, Phase 06: 4, Phase 07: 5); unmapped: 0 ✓

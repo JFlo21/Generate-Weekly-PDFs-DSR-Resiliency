@@ -98,6 +98,15 @@ migrate; it is removed. See Out of Scope.
 
 ## Current State
 
+**Phase 08 complete (2026-07-22): SDK 4.3.0 migration executed.** Both plans
+shipped on `feat/phase-08-sdk-430-migration` (unpushed, PR pending per D-06
+weekday merge window): exact pin `smartsheet-python-sdk==4.3.0`, dead 3.x
+re-export shim removed, six-gate harness + 1164-test suite green, D-05 live
+read-only probe approved by the operator (one finding: `SKIP_UPLOAD=true`
+does not gate the attachment-delete half — logged in phase deferred-items +
+Living Ledger). Verification 6/6 must-haves; `08-HUMAN-UAT.md` tracks one
+partial item.
+
 **Shipped: v1.0 Subcontractor Rate Logic (2026-05-20).** 2 phases (01 +
 inserted 01.1), 19 plans, `pytest tests/` → 682 passed / 26 skipped /
 58 subtests. The pipeline now emits two subcontractor-scoped Excel variants
@@ -453,8 +462,10 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-08 — Milestone **v1.2 smartsheet-python-sdk 4.0.0
-Compatibility Migration** started (Phase 08). Compat-only migration to SDK
+*Last updated: 2026-07-22 — Phase 08 executed: SDK migrated to the exact
+`==4.3.0` pin with behavior-neutrality proven (six gates + full suite) and
+the live probe approved. Milestone **v1.2 smartsheet-python-sdk 4.0.0
+Compatibility Migration** started 2026-06-08 (Phase 08). Compat-only migration to SDK
 4.0.0 so the temporary `<4.0.0` pin (hotfix 260608-gwm / PR #273) can be
 lifted, with zero behavior change to the billing pipeline. v1.1 Portal shipped
 (Phases 03–07); its artifacts are preserved (not archived — pending Phase 06

@@ -449,14 +449,15 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # When active, the sweep runs and main() returns immediately (isolation:
         # no Excel generation occurs in this session).
         if REMEDIATE_CLAIMERS:
+            _effective_dry_run = REMEDIATION_DRY_RUN or SKIP_UPLOAD
             logging.info(
                 f"🧹 REMEDIATE_CLAIMERS=True — running isolated claimer "
-                f"remediation sweep (dry_run={REMEDIATION_DRY_RUN}, "
+                f"remediation sweep (dry_run={_effective_dry_run}, "
                 f"window_weeks={REMEDIATION_WINDOW_WEEKS})"
             )
             run_claimer_remediation(
                 client,
-                dry_run=REMEDIATION_DRY_RUN,
+                dry_run=_effective_dry_run,
                 window_weeks=REMEDIATION_WINDOW_WEEKS,
                 valid_wr_weeks=None,  # isolated path: no live-identity set
             )
@@ -567,11 +568,11 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     logging.info(f"🧨 Hash reset requested for specific WRs: {sorted(list(RESET_WR_LIST))}")
                     span.set_data("purge_type", "wr_subset")
                     span.set_data("wr_count", len(RESET_WR_LIST))
-                    purge_existing_hashed_outputs(client, TARGET_SHEET_ID, RESET_WR_LIST, TEST_MODE)
+                    purge_existing_hashed_outputs(client, TARGET_SHEET_ID, RESET_WR_LIST, TEST_MODE, dry_run=SKIP_UPLOAD)
                 else:
                     logging.info("🧨 Global hash reset requested (RESET_HASH_HISTORY=1)")
                     span.set_data("purge_type", "global")
-                    purge_existing_hashed_outputs(client, TARGET_SHEET_ID, None, TEST_MODE)
+                    purge_existing_hashed_outputs(client, TARGET_SHEET_ID, None, TEST_MODE, dry_run=SKIP_UPLOAD)
             # After purge, any regenerated files get new timestamp+hash filenames and re-upload
         
         if not groups:
@@ -2142,7 +2143,8 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         task['week_raw'], task['data_hash'],
                         variant=task['variant'], identifier=task['file_identifier'],
                         force_generation=force_this,
-                        cached_attachments=attachment_cache.get(target_row.id)
+                        cached_attachments=attachment_cache.get(target_row.id),
+                        dry_run=SKIP_UPLOAD
                     )
                     if force_this and skipped:
                         skipped = False
@@ -2478,6 +2480,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     sub_legacy_primary_variants=_target_legacy_primary,
                     vac_legacy_wr_scope=_vac_scope,
                     primary_wr_scope=_primary_scope,
+                    dry_run=SKIP_UPLOAD,
                 )
 
             # Phase 01 gap closure (REVIEW-WR-01): parallel cleanup pass
@@ -2556,6 +2559,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                             if _sub_scope and SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED
                             else None
                         ),
+                        dry_run=SKIP_UPLOAD,
                     )
 
         # Cleanup legacy / stale Excel files so only current system outputs remain
