@@ -56,10 +56,17 @@ write-back reminder). Keep it terse; link to history rather than duplicating it.
    `08-VERIFICATION.md` flipped `human_needed` → `passed` (the human
    gate it awaited was exactly Test 5). Roadmap/STATE/PROJECT transition
    had already run in the prior session — no re-transition.
-7. **PR #286 OPEN** (branch pushed 2026-07-22 ~16:40 CDT). **Next per
-   D-06:** merge in a weekday daytime window right after a green
-   scheduled run, then fire ONE watched `workflow_dispatch` canary;
-   then `/gsd-verify-work 09`. Also: Juan's `.env` line-1 token
+7. **PR #286 OPEN** (branch pushed 2026-07-22 ~16:40 CDT). **Review fix
+   shipped (quick task 260722-nst, ~17:35 CDT):** the 6th mutating call
+   site — `run_claimer_remediation` in the isolated REMEDIATE_CLAIMERS
+   branch (`pipeline/orchestrate.py` ~452) — now uses
+   `dry_run=REMEDIATION_DRY_RUN or SKIP_UPLOAD` (test `458d7e5`, fix
+   `60d0473`, docs `1b6ff9a`; TestRemediationGatesOnSkipUpload pins it;
+   8/8 gating tests green; haiku-verifier PASS 4/4). SKIP_UPLOAD=true ⇒
+   zero mutations now covers ALL 6 call sites. **Next per D-06:** merge
+   in a weekday daytime window right after a green scheduled run, then
+   fire ONE watched `workflow_dispatch` canary; then
+   `/gsd-verify-work 09`. Also: Juan's `.env` line-1 token
    surfaced in an editor selection into chat — rotation recommended.
    Carry-forward WARNING for next phase's register: `TEST_MODE=true` with
    a real token still performs real Smartsheet reads.
