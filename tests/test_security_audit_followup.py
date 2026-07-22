@@ -2906,20 +2906,30 @@ class TestPppCleanupUntrackedAttachments(unittest.TestCase):
         # D Task 10 (2026-05-25) appends one more trailing kwarg:
         # primary_wr_scope. All six are optional (None default) so
         # existing TARGET / PPP call sites remain byte-identical.
+        # Phase 08 security follow-up T-08-03 (2026-07-22) appends one
+        # more trailing kwarg: dry_run (bool, default False) — gates
+        # the SKIP_UPLOAD dry-run so validation runs never delete
+        # attachments. Reviewed against D-09: default False preserves
+        # byte-identical legacy behavior.
         # IN-PLACE UPDATE per [2026-05-20 00:26] rule 2 — the assertion
-        # follows the v5 signature contract.
+        # follows the v6 signature contract.
         self.assertEqual(
             params,
             ['client', 'target_sheet_id', 'valid_wr_weeks',
              'test_mode', 'attachment_cache', 'target_sheet',
              'variant_whitelist', 'sub_wr_scope', 'sub_offcontract_variants',
              'sub_legacy_primary_variants', 'vac_legacy_wr_scope',
-             'primary_wr_scope'],
-            "Subproject D Task 10 appends a trailing kwarg after "
-            "'vac_legacy_wr_scope': 'primary_wr_scope'. "
+             'primary_wr_scope', 'dry_run'],
+            "Phase 08 T-08-03 appends a trailing kwarg after "
+            "'primary_wr_scope': 'dry_run'. "
             "Any further drift must be reviewed against D-09 (TARGET "
             "legacy behavior). "
             f"Got: {params}"
+        )
+        self.assertIs(
+            sig.parameters['dry_run'].default, False,
+            'dry_run must default to False (Phase 08 T-08-03) so all '
+            'existing call sites keep mutating behavior unchanged.'
         )
         # All trailing kwargs must default to None (D-09) so
         # existing call sites without the new kwargs are unaffected.

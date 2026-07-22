@@ -4890,3 +4890,34 @@ exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
   blind-spot rule) — commits `76e2471` (exact pin) / `038816c` (prior
   ledger entry) are now proven against production data, not just synthetic
   suites.
+
+## [2026-07-22 14:37] Phase 08 secure-phase: SKIP_UPLOAD is now fully read-only (T-08-03 fix)
+
+- **Rule (new invariant):** `SKIP_UPLOAD=true` ⇒ **zero Smartsheet
+  mutations** — deletes included, not just uploads. Any future code path
+  that mutates a sheet must be gated on it (pattern: `dry_run: bool =
+  False` param, wired `dry_run=SKIP_UPLOAD` at the orchestrate call
+  site). Read-only decisions (legacy hash short-circuit, identity
+  matching, skip logging) still run so dry-run output stays
+  representative.
+- **Why:** the D-05 live probe (`SKIP_UPLOAD=true`) deleted 2 real
+  production attachments (WR 89881161, weeks 072025/081725) because
+  `delete_old_excel_attachments()` ran unconditionally in `_upload_one`
+  while `SKIP_UPLOAD` gated only the `attach_file_to_row` call.
+  Pre-existing defect (identical under SDK 3.x), surfaced by the probe,
+  self-healed by the withheld-hash → next-cron regeneration.
+- **Fix (Juan-approved via /gsd:secure-phase 08):** `dry_run` param added
+  to `delete_old_excel_attachments`, `cleanup_untracked_sheet_attachments`,
+  and `purge_existing_hashed_outputs` (`pipeline/cleanup.py`); all five
+  mutating call sites in `pipeline/orchestrate.py` pass
+  `dry_run=SKIP_UPLOAD`. Default `False` keeps every existing call site
+  byte-identical (signature-pin test updated in-place to v6 per the
+  [2026-05-20 00:26] rule).
+- **Evidence:** TDD RED→GREEN in `tests/test_skip_upload_delete_gating.py`
+  (7 tests: dry-run preserves candidates, legacy hash skip still fires,
+  default-False regression guard, source-wiring pins); full suite
+  **1171 passed + 130 subtests**. Threat register: `08-SECURITY.md`
+  (6/6 closed, threats_open: 0).
+- **Carry-forward flag (unregistered, WARNING):** `TEST_MODE=true` with a
+  real token still performs real Smartsheet READS (synthetic path only
+  `if not API_TOKEN`) — add to the next phase's threat register.
