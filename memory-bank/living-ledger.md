@@ -4819,3 +4819,16 @@ commit `631f757`). Durable rules and facts:
   cron missed-check-in storm stopped (margin 60 live). The single 07-18
   "timeout check-in" was a lost closing check-in on a 65-min successful run
   (GH 29620427187) — benign one-off.
+
+## [2026-07-21 19:10] Phase 08 planning started — validation strategy committed
+
+- `/gsd-plan-phase 08` in progress on `feat/phase-08-sdk-430-migration`.
+  `08-VALIDATION.md` created + committed (`68ac4ae`): pytest quick/full
+  commands, and a **manual-only** live read-only Smartsheet probe row
+  (SDK-05) encoding the mocked-ApiError blind-spot rule above — mocks
+  cannot prove real SDK exception shapes, so the probe is part of the
+  phase's validation contract, not an afterthought.
+- Planning inputs: `08-CONTEXT.md` (locked: exact pin `==4.3.0`, no
+  workflow edits, 6-gate harness + live probe, staged rollout) overrides
+  stale `08-RESEARCH.md` (written vs 4.0) via D-08 corrections. PLAN.md
+  files not yet written — planner/checker loop pending.

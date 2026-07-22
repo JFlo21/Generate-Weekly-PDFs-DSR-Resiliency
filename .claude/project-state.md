@@ -28,7 +28,11 @@ write-back reminder). Keep it terse; link to history rather than duplicating it.
    → weekday merge after green cron → one watched canary dispatch.
    Key research facts embedded in CONTEXT.md `<specifics>` (changelog
    4.0.1→4.3.0 all additive; 08-RESEARCH.md staleness corrections in D-08).
-   **Next: `/gsd-plan-phase 08`** on the phase branch.
+4. **Phase 08 planning IN PROGRESS** (`/gsd-plan-phase 08`, same session):
+   `08-VALIDATION.md` created + committed (`68ac4ae`) — pytest sampling
+   contract + manual live-probe row for SDK-05. Pattern-mapper →
+   planner (opus) → plan-checker loop running; PLAN.md files not yet
+   written. **Next: finish plan-phase 08, then `/gsd-execute-phase 08`.**
 
 ## Current milestone
 **v1.3.1 — Smartsheet API resilience & silent-failure hardening** (follow-up to
