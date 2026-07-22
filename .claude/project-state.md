@@ -29,12 +29,25 @@ write-back reminder). Keep it terse; link to history rather than duplicating it.
    banner test into a real multi-minute API fetch (180s timeout). Empty
    string survives dotenv (no override) and stays falsy → synthetic path.
    Post-merge gate green: 1164 passed + 130 subtests.
-4. **In flight at session close:** phase code-review agent (08-REVIEW.md)
-   + gsd-verifier (08-VERIFICATION.md) then phase-complete roadmap update;
-   security note: `/gsd:secure-phase 08` not yet run. Next after close:
-   PR per D-06 (weekday daytime merge after green cron + one watched
-   canary dispatch). Also: Juan's `.env` line-1 token surfaced in an editor
-   selection into chat — rotation recommended.
+4. **Security gate CLEARED (2026-07-22 PM): `/gsd:secure-phase 08` run.**
+   gsd-security-auditor verified 5/6 threats closed; the 6th (T-08-03,
+   `SKIP_UPLOAD=true` still ran the attachment DELETE — materialized in
+   the D-05 probe) was **fixed same-session, Juan-approved**: `dry_run`
+   param on `delete_old_excel_attachments` /
+   `cleanup_untracked_sheet_attachments` / `purge_existing_hashed_outputs`
+   (`pipeline/cleanup.py`), wired `dry_run=SKIP_UPLOAD` at all 5 mutating
+   call sites in `pipeline/orchestrate.py`. New invariant (ledger
+   `[2026-07-22 14:37]`): SKIP_UPLOAD=true ⇒ zero Smartsheet mutations.
+   TDD'd (`tests/test_skip_upload_delete_gating.py`, 7 tests; signature
+   pin → v6); full suite **1171 passed + 130 subtests**. Threat register:
+   `.planning/phases/08-*/08-SECURITY.md` (6/6 closed, threats_open: 0).
+   Deferred item "SKIP_UPLOAD deletes prior attachments" marked RESOLVED.
+5. **Next:** PR per D-06 (weekday daytime merge after green cron + one
+   watched canary dispatch); then `/gsd:validate-phase 08` /
+   `/gsd:verify-work 08` if desired. Also: Juan's `.env` line-1 token
+   surfaced in an editor selection into chat — rotation recommended.
+   Carry-forward WARNING for next phase's register: `TEST_MODE=true` with
+   a real token still performs real Smartsheet reads.
 
 ## Current milestone
 **v1.3.1 — Smartsheet API resilience & silent-failure hardening** (follow-up to

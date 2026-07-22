@@ -85,6 +85,16 @@ read-only. Low/medium priority — the self-healing withheld-hash behavior
 means no data is silently lost, but the flag's name currently overpromises
 what it does; worth a small dedicated fix + test in a future plan.
 
+**✅ RESOLVED 2026-07-22 (`/gsd:secure-phase 08`, T-08-03, Juan-approved):**
+`dry_run: bool = False` added to `delete_old_excel_attachments`,
+`cleanup_untracked_sheet_attachments`, and `purge_existing_hashed_outputs`
+in `pipeline/cleanup.py`; all five mutating call sites in
+`pipeline/orchestrate.py` now pass `dry_run=SKIP_UPLOAD`. `SKIP_UPLOAD=true`
+is now fully read-only against Smartsheet (read-only skip decisions
+preserved). TDD'd in `tests/test_skip_upload_delete_gating.py` (7 tests);
+signature pin updated in `tests/test_security_audit_followup.py`; full
+suite 1171 passed + 130 subtests. See `08-SECURITY.md`.
+
 ## 08 (verification): TEST_MODE with a real token still performs real Smartsheet reads
 
 **Found during:** Phase 08 goal verification (2026-07-22)
