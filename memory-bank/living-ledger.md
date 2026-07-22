@@ -4832,3 +4832,29 @@ commit `631f757`). Durable rules and facts:
   workflow edits, 6-gate harness + live probe, staged rollout) overrides
   stale `08-RESEARCH.md` (written vs 4.0) via D-08 corrections. PLAN.md
   files not yet written — planner/checker loop pending.
+
+## [2026-07-22 02:31] Phase 08 SDK 4.x migration — exact pin ==4.3.0 landed, dead re-export block removed
+
+Phase 08 code change complete on branch `feat/phase-08-sdk-430-migration`:
+`generate_weekly_pdfs.py`'s dead 3.x `smartsheet.smartsheet` re-export shim
+(27 lines) removed (Plan 08-01, commit `b2e76bf`), `tests/golden/baseline_names.json`
+rebaselined 178 -> 177 names (the `_exc_name` import-time temp, never public
+API), and the emergency `>=3.1.0,<4.0.0` pin lifted to the exact
+`smartsheet-python-sdk==4.3.0` (Plan 08-02, commit `76e2471`).
+
+- **Verification evidence:** `scripts/run_6_gates.sh` on 4.3.0 -> `=== ALL 6
+  GATES PASSED ===` (AST equality 177 names, facade completeness 108 names,
+  pytest 1164 passed/130 subtests, mypy delta neutral, py_compile clean,
+  golden run_summary 21-key match). Full `pytest tests/ -v` independently:
+  1164 passed, 130 subtests passed, 0 failed.
+- **Live probe status:** the D-05 live read-only `SKIP_UPLOAD=true` probe
+  against real Smartsheet on 4.3.0 is this plan's Task 3 — human-gated
+  (operator-run, `checkpoint:human-verify` / `gate=blocking-human`), writes
+  nothing to Smartsheet. Result recorded in `08-02-SUMMARY.md` once the
+  operator runs it; not fabricated here.
+- **`--no-binary` retirement:** already recorded in the 2026-07-21 18:20
+  entry above — cross-referenced, not restated.
+- **Exact-pin rule applied:** this entry is the first transport-critical dep
+  bump to actually land under the 18:20 exact-pin rule — future SDK bumps
+  must repeat this shape (changelog review date + commit hash + 6-gate +
+  live-probe evidence) before merge.
