@@ -164,3 +164,12 @@ None - no external service configuration required.
 ---
 *Phase: 08-smartsheet-python-sdk-4-0-0-compatibility-migration*
 *Completed: 2026-07-22*
+
+## Self-Check: PASSED
+
+- FOUND: generate_weekly_pdfs.py
+- FOUND: tests/golden/baseline_names.json
+- FOUND: .planning/phases/08-smartsheet-python-sdk-4-0-0-compatibility-migration/08-01-SUMMARY.md
+- FOUND: .planning/phases/08-smartsheet-python-sdk-4-0-0-compatibility-migration/deferred-items.md
+- FOUND: commit b2e76bf (fix(08-01): remove dead 3.x SDK re-export workaround)
+- FOUND: commit 39d7f0e (docs(08-01): complete SDK 4.3.0 install + dead-block removal plan)
