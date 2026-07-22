@@ -77,7 +77,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 
 ### v1.2 smartsheet-python-sdk 4.0.0 Compatibility Migration
 
-- [ ] **Phase 08: smartsheet-python-sdk 4.0.0 Compatibility Migration** —
+- [x] **Phase 08: smartsheet-python-sdk 4.0.0 Compatibility Migration** — (completed 2026-07-22)
   reconcile exception-class imports + retry blocks + the `smartsheet.smartsheet`
   re-export workaround with 4.0.0's module layout, verify all in-use SDK call
   sites (`Sheets.get_sheet`, `Attachments.*`, `Folders.get_folder_children`),
@@ -106,7 +106,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 05. Artifact Table and Search | v1.1 | 4/4 | Complete    | 2026-06-02 |
 | 06. Realtime and UI Polish | v1.1 | 5/5 | Complete    | 2026-06-02 |
 | 07. Security Hardening and Express Removal | v1.1 | 4/4 | ✅ Complete | 2026-06-03 |
-| 08. smartsheet-python-sdk 4.0.0 Compatibility Migration | v1.2 | 1/2 | In Progress|  |
+| 08. smartsheet-python-sdk 4.0.0 Compatibility Migration | v1.2 | 2/2 | Complete   | 2026-07-22 |
 | 09. Engine Modularization (pipeline package split) | v1.3 | 5/7 | In Progress|  |
 
 ---
@@ -474,7 +474,7 @@ must be reconciled first).
 5. The production weekly workflow runs green on 4.0.0 (observed on the next
    scheduled cron after merge).
 
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 **Wave 1**
@@ -483,4 +483,4 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 — pin lifted only after the automated proof is green)*
 
-- [ ] 08-02-PLAN.md — Lift the exact pin `smartsheet-python-sdk==4.3.0` + Living Ledger entry + [BLOCKING] live read-only Smartsheet probe (D-05) + rollout/rollback runbook (SDK-03/05/06)
+- [x] 08-02-PLAN.md — Lift the exact pin `smartsheet-python-sdk==4.3.0` + Living Ledger entry + [BLOCKING] live read-only Smartsheet probe (D-05) + rollout/rollback runbook (SDK-03/05/06)
