@@ -56,8 +56,10 @@ write-back reminder). Keep it terse; link to history rather than duplicating it.
    `08-VERIFICATION.md` flipped `human_needed` → `passed` (the human
    gate it awaited was exactly Test 5). Roadmap/STATE/PROJECT transition
    had already run in the prior session — no re-transition.
-7. **Next:** PR per D-06 (weekday daytime merge after green cron + one
-   watched canary dispatch); then `/gsd-verify-work 09`. Also: Juan's `.env` line-1 token
+7. **PR #286 OPEN** (branch pushed 2026-07-22 ~16:40 CDT). **Next per
+   D-06:** merge in a weekday daytime window right after a green
+   scheduled run, then fire ONE watched `workflow_dispatch` canary;
+   then `/gsd-verify-work 09`. Also: Juan's `.env` line-1 token
    surfaced in an editor selection into chat — rotation recommended.
    Carry-forward WARNING for next phase's register: `TEST_MODE=true` with
    a real token still performs real Smartsheet reads.
