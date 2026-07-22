@@ -42,9 +42,14 @@ write-back reminder). Keep it terse; link to history rather than duplicating it.
    pin → v6); full suite **1171 passed + 130 subtests**. Threat register:
    `.planning/phases/08-*/08-SECURITY.md` (6/6 closed, threats_open: 0).
    Deferred item "SKIP_UPLOAD deletes prior attachments" marked RESOLVED.
-5. **Next:** PR per D-06 (weekday daytime merge after green cron + one
-   watched canary dispatch); then `/gsd:validate-phase 08` /
-   `/gsd:verify-work 08` if desired. Also: Juan's `.env` line-1 token
+5. **Nyquist gate CLEARED (2026-07-22 PM): `/gsd:validate-phase 08` run.**
+   0 gaps; all 6 task commands re-run live and green (six gates PASSED —
+   note: gate run took ~35 min because TEST_MODE + `.env` token does real
+   reads; unset the token for local gate runs). New automated row
+   08-SEC-T1 covers the SKIP_UPLOAD zero-mutation invariant. Commits
+   `fa80b48` (validation), `8777246` (security docs), `442cb92` (fix).
+6. **Next:** PR per D-06 (weekday daytime merge after green cron + one
+   watched canary dispatch); then `/gsd:verify-work 08` if desired. Also: Juan's `.env` line-1 token
    surfaced in an editor selection into chat — rotation recommended.
    Carry-forward WARNING for next phase's register: `TEST_MODE=true` with
    a real token still performs real Smartsheet reads.
