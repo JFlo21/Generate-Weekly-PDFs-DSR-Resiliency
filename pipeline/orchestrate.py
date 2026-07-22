@@ -449,14 +449,15 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # When active, the sweep runs and main() returns immediately (isolation:
         # no Excel generation occurs in this session).
         if REMEDIATE_CLAIMERS:
+            _effective_dry_run = REMEDIATION_DRY_RUN or SKIP_UPLOAD
             logging.info(
                 f"🧹 REMEDIATE_CLAIMERS=True — running isolated claimer "
-                f"remediation sweep (dry_run={REMEDIATION_DRY_RUN}, "
+                f"remediation sweep (dry_run={_effective_dry_run}, "
                 f"window_weeks={REMEDIATION_WINDOW_WEEKS})"
             )
             run_claimer_remediation(
                 client,
-                dry_run=REMEDIATION_DRY_RUN,
+                dry_run=_effective_dry_run,
                 window_weeks=REMEDIATION_WINDOW_WEEKS,
                 valid_wr_weeks=None,  # isolated path: no live-identity set
             )

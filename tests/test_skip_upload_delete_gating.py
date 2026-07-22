@@ -130,5 +130,25 @@ class TestUploadWorkerWiresSkipUpload(unittest.TestCase):
         self.assertGreaterEqual(src.count("dry_run=SKIP_UPLOAD"), 5)
 
 
+class TestRemediationGatesOnSkipUpload(unittest.TestCase):
+    """PR #286 follow-up: the 6th mutating call site.
+
+    The isolated REMEDIATE_CLAIMERS sweep calls
+    ``run_claimer_remediation(..., dry_run=REMEDIATION_DRY_RUN)``
+    without folding in SKIP_UPLOAD, so SKIP_UPLOAD=true +
+    REMEDIATION_DRY_RUN=0 could still issue delete_attachment calls
+    against production. This pins the fix: the effective dry_run must
+    be ``REMEDIATION_DRY_RUN or SKIP_UPLOAD``.
+    """
+
+    def test_remediation_call_ors_in_skip_upload(self):
+        import pipeline.orchestrate as orch
+        src = inspect.getsource(orch)
+        branch_start = src.index("if REMEDIATE_CLAIMERS:")
+        branch_end = src.index("return", branch_start)
+        branch_src = src[branch_start:branch_end]
+        self.assertIn("REMEDIATION_DRY_RUN or SKIP_UPLOAD", branch_src)
+
+
 if __name__ == "__main__":
     unittest.main()
