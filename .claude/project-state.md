@@ -1,38 +1,40 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-07-21 · **overwrite-in-place each session** (this is the
+_Last updated: 2026-07-22 · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
-## Latest work (2026-07-21) — Sentry fixes VERIFIED in prod · Phase 08 context LOCKED
-1. **PR #284 post-merge validation CLOSED.** Both 260709-oa7 fixes confirmed
-   working 12 days post-merge: GENERATE-WEEKLY-EXCEL-89 (503 retry) zero
-   events since merge; GENERATE-WEEKLY-EXCEL-6V missed-check-in storm (was
-   78/14d) fully stopped, `checkin_margin: 60` live in the monitor config.
-   One 2026-07-18 "timeout check-in" event = lost closing check-in on a run
-   that actually succeeded in 65 min (GH run 29620427187) — one-off, not
-   actionable unless it recurs.
-2. **Branch hygiene:** local `master` had diverged (3 wip commits vs 19
-   remote). WIP preserved on `wip/phase08-research-pdf-poc` (Phase-08
-   research doc + PDF POC pause-commits); `master` hard-reset to
-   `origin/master` @ `720b0aa`; merged `fix/sentry-503-retry-cron-margin`
-   deleted.
-3. **Phase 08 (SDK 4.x migration) UNBLOCKED + context gathered** via
-   `/gsd-discuss-phase 08` (advisor mode; subagent spawns failed on a
-   transient org billing issue → research done inline). Four decisions
-   locked in `08-CONTEXT.md` (commit `631f757` on branch
-   `feat/phase-08-sdk-430-migration`): exact pin `==4.3.0`; NO workflow
-   edits (`--no-binary` obsolete — wheel bug fixed upstream in 4.0.1 #144,
-   wheel sizes verified); proof = 6-gate harness + live read-only Smartsheet
-   probe (mocked-ApiError blind spot); rollout = branch SKIP_UPLOAD dry-run
-   → weekday merge after green cron → one watched canary dispatch.
-   Key research facts embedded in CONTEXT.md `<specifics>` (changelog
-   4.0.1→4.3.0 all additive; 08-RESEARCH.md staleness corrections in D-08).
-4. **Phase 08 planning IN PROGRESS** (`/gsd-plan-phase 08`, same session):
-   `08-VALIDATION.md` created + committed (`68ac4ae`) — pytest sampling
-   contract + manual live-probe row for SDK-05. Pattern-mapper →
-   planner (opus) → plan-checker loop running; PLAN.md files not yet
-   written. **Next: finish plan-phase 08, then `/gsd-execute-phase 08`.**
+## Latest work (2026-07-22) — Phase 08 SDK 4.3.0 migration EXECUTED (both plans)
+1. **Phase 08 executed via `/gsd-execute-phase 08`** on branch
+   `feat/phase-08-sdk-430-migration` (unpushed; no PR yet). Wave 1 (08-01,
+   merge `6334531`): SDK 4.3.0 installed (env upgrade 3.9.0→4.3.0), dead
+   27-line 3.x re-export shim removed from `generate_weekly_pdfs.py`, Gate 1
+   baseline 178→177 (`_exc_name`), six gates ALL PASSED + full suite green.
+   Wave 2 (08-02, merge `72f72ef`): `requirements.txt` pin lifted to exact
+   `smartsheet-python-sdk==4.3.0`, Living Ledger entries added, D-06/D-07
+   rollout+rollback runbooks captured in `08-02-SUMMARY.md`.
+2. **D-05 live read-only probe: APPROVED by Juan** (bounded
+   `SKIP_UPLOAD=true WR_FILTER=... MAX_GROUPS=5` run, real transport, 2,771
+   groups validated, 5 Excel generated, zero SDK error-shape drift).
+   **Finding:** `SKIP_UPLOAD=true` is NOT fully read-only — the
+   delete-old-attachment step still ran (WR 89881161 weeks 072025/081725
+   deleted; hash withheld → next weekday cron regenerates + re-uploads
+   automatically; Juan chose wait-for-cron). Logged in phase
+   `deferred-items.md` + Living Ledger; follow-up fix candidate: gate the
+   delete on SKIP_UPLOAD too.
+3. **Test hermeticity fix (`4aa19ff`):**
+   `tests/test_entrypoint_no_double_import.py` now sets
+   `SMARTSHEET_API_TOKEN=''` (was `pop()`) — the engine's `load_dotenv()`
+   re-injected the token from Juan's new repo-root `.env`, flipping the
+   banner test into a real multi-minute API fetch (180s timeout). Empty
+   string survives dotenv (no override) and stays falsy → synthetic path.
+   Post-merge gate green: 1164 passed + 130 subtests.
+4. **In flight at session close:** phase code-review agent (08-REVIEW.md)
+   + gsd-verifier (08-VERIFICATION.md) then phase-complete roadmap update;
+   security note: `/gsd:secure-phase 08` not yet run. Next after close:
+   PR per D-06 (weekday daytime merge after green cron + one watched
+   canary dispatch). Also: Juan's `.env` line-1 token surfaced in an editor
+   selection into chat — rotation recommended.
 
 ## Current milestone
 **v1.3.1 — Smartsheet API resilience & silent-failure hardening** (follow-up to
