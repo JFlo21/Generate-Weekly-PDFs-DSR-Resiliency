@@ -41,3 +41,46 @@ logged here, not fixed inline.
 normalize `tests/golden/mypy_baseline_count.txt` to LF-only. Low priority —
 warn-only posture per the script's own docstring; revisit alongside any
 future mypy-baseline refresh.
+
+## 08-02: SKIP_UPLOAD deletes prior attachments before skipping upload
+
+**Found during:** Task 3 (D-05 operator-run live read-only probe on 4.3.0,
+2026-07-22, `SKIP_UPLOAD=true WR_FILTER=84157414,89881161 MAX_GROUPS=5`)
+
+**Issue:** `SKIP_UPLOAD=true` is documented and intended as a read-only dry
+run flag, but it is NOT fully read-only. The delete-old-then-upload sequence
+in the upload worker gates only the UPLOAD half on `SKIP_UPLOAD` — the
+DELETE half runs unconditionally. During the probe, the run deleted 2 prior
+primary attachments on the production `TARGET_SHEET_ID` sheet
+(`5723337641643908`) for WR 89881161 (weeks 072025 and 081725 —
+`WR_89881161_WeekEnding_072025_User_Chad_Wheat.xlsx` and the 081725
+equivalent), then correctly skipped the re-upload per `SKIP_UPLOAD=true`.
+
+**Verified NOT a regression from SDK 4.3.0:** the delete-then-upload
+ordering and its gating are pre-existing engine behavior, byte-identical
+under 3.x — this is a pre-existing defect discovered by the D-05 probe, not
+a migration-caused change. `pipeline/upload.py`'s `_upload_one` worker
+(delete before attach, MOD-04 ordering) is out of this plan's authorized
+file list (`requirements.txt`, `memory-bank/living-ledger.md`, `CLAUDE.md`).
+
+**Self-healing confirmed (no data loss):** the run's hash-history write was
+withheld for all 5 affected groups ("upload did not complete — they will
+regenerate next run"), so the change-detection hash never recorded the
+deleted-then-skipped state as "done." The next scheduled weekday cron run
+will regenerate both files from source data and re-upload them normally.
+Operator decision (2026-07-22): let the next cron run self-heal — no manual
+attachment restore performed.
+
+**Why deferred, not fixed:** Fixing the gate (making DELETE conditional on
+`SKIP_UPLOAD` same as UPLOAD) is a real behavior change to
+`pipeline/upload.py`, outside this plan's compat-only, zero-behavior-change
+scope and outside its authorized file list. Also out of scope per the
+executor SCOPE BOUNDARY rule — this is a pre-existing issue the probe
+happened to surface, not one introduced by this plan's changes.
+
+**Suggested future fix:** in `pipeline/upload.py`'s `_upload_one` worker,
+gate the attachment DELETE on `SKIP_UPLOAD` the same way the UPLOAD is
+gated (skip both, or neither) so a "read-only" dry-run flag is actually
+read-only. Low/medium priority — the self-healing withheld-hash behavior
+means no data is silently lost, but the flag's name currently overpromises
+what it does; worth a small dedicated fix + test in a future plan.

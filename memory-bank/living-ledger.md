@@ -4832,3 +4832,61 @@ commit `631f757`). Durable rules and facts:
   workflow edits, 6-gate harness + live probe, staged rollout) overrides
   stale `08-RESEARCH.md` (written vs 4.0) via D-08 corrections. PLAN.md
   files not yet written — planner/checker loop pending.
+
+## [2026-07-22 02:31] Phase 08 SDK 4.x migration — exact pin ==4.3.0 landed, dead re-export block removed
+
+Phase 08 code change complete on branch `feat/phase-08-sdk-430-migration`:
+`generate_weekly_pdfs.py`'s dead 3.x `smartsheet.smartsheet` re-export shim
+(27 lines) removed (Plan 08-01, commit `b2e76bf`), `tests/golden/baseline_names.json`
+rebaselined 178 -> 177 names (the `_exc_name` import-time temp, never public
+API), and the emergency `>=3.1.0,<4.0.0` pin lifted to the exact
+`smartsheet-python-sdk==4.3.0` (Plan 08-02, commit `76e2471`).
+
+- **Verification evidence:** `scripts/run_6_gates.sh` on 4.3.0 -> `=== ALL 6
+  GATES PASSED ===` (AST equality 177 names, facade completeness 108 names,
+  pytest 1164 passed/130 subtests, mypy delta neutral, py_compile clean,
+  golden run_summary 21-key match). Full `pytest tests/ -v` independently:
+  1164 passed, 130 subtests passed, 0 failed.
+- **Live probe status:** the D-05 live read-only `SKIP_UPLOAD=true` probe
+  against real Smartsheet on 4.3.0 is this plan's Task 3 — human-gated
+  (operator-run, `checkpoint:human-verify` / `gate=blocking-human`), writes
+  nothing to Smartsheet. Result recorded in `08-02-SUMMARY.md` once the
+  operator runs it; not fabricated here.
+- **`--no-binary` retirement:** already recorded in the 2026-07-21 18:20
+  entry above — cross-referenced, not restated.
+- **Exact-pin rule applied:** this entry is the first transport-critical dep
+  bump to actually land under the 18:20 exact-pin rule — future SDK bumps
+  must repeat this shape (changelog review date + commit hash + 6-gate +
+  live-probe evidence) before merge.
+
+## [2026-07-22 10:20] Phase 08 D-05 live probe SIGNED OFF — SDK 4.3.0 real-transport green, one pre-existing SKIP_UPLOAD finding
+
+Operator (Juan) ran the D-05 bounded read-only probe against real
+Smartsheet on 4.3.0 (~10:07 CDT, `SKIP_UPLOAD=true
+WR_FILTER=84157414,89881161 MAX_GROUPS=5`, SDK version confirmed 4.3.0 via
+`python -m pip`). Result: **PASSED** for all SDK-facing criteria — all
+source sheets fetched, "Grouping validation passed: 2771 groups", 676
+target-row + 545 PPP attachment-list calls completed via the retry wrapper
+(12.8s/9.5s, 8 workers, 0 cancelled), 5 Excel files generated locally under
+`generated_docs/`, zero `ModuleNotFoundError`/`AttributeError`/retry-path
+exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
+`ApiError.error.result` introspection matches the real 4.3.0 response shape.
+
+- **Pre-existing finding, NOT SDK drift:** `SKIP_UPLOAD=true` gates only the
+  upload half of the engine's delete-then-upload sequence, not the delete
+  half. The probe deleted 2 prior WR 89881161 attachments on the production
+  `TARGET_SHEET_ID` sheet before correctly skipping the re-upload — this is
+  byte-identical behavior on 3.x, unrelated to the SDK migration. Full
+  detail + suggested fix logged in
+  `.planning/phases/08-smartsheet-python-sdk-4-0-0-compatibility-migration/deferred-items.md`.
+- **Self-healing rule confirmed:** the hash-history write is withheld
+  whenever an upload does not complete (`SKIP_UPLOAD=true` counts), so a
+  deleted-then-skipped attachment always regenerates and re-uploads on the
+  next scheduled run — no silent permanent data loss from this class of
+  defect. Operator let the next weekday cron self-heal rather than manually
+  restoring.
+- **SDK-06 live half CLOSED:** this is the real-transport confirmation
+  mocks and TEST_MODE cannot give (per the 18:20 entry's validation
+  blind-spot rule) — commits `76e2471` (exact pin) / `038816c` (prior
+  ledger entry) are now proven against production data, not just synthetic
+  suites.
