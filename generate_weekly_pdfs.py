@@ -17,33 +17,6 @@ import logging
 import smartsheet
 import smartsheet.exceptions as ss_exc
 
-# Upstream SDK workaround: smartsheet-python-sdk 3.8.0 raises an
-# AttributeError from smartsheet.smartsheet.Smartsheet._request_with_retry
-# whenever the API returns a retryable error (429, 5xx). At
-# smartsheet/smartsheet.py:303 it does
-# ``getattr(sys.modules[__name__], native.result.name)`` to look up the
-# exception class to raise, but that module's top-level imports only
-# expose ApiError / HttpError / UnexpectedRequestError. The retryable
-# exception classes (RateLimitExceededError, UnexpectedErrorShouldRetry-
-# Error, InternalServerError, ServerTimeoutExceededError, SystemMainte-
-# nanceError) live in smartsheet.exceptions and were never re-exported
-# into smartsheet.smartsheet, so the getattr fails and our retry
-# wrapper never gets the real exception. Re-export the missing names
-# here so the SDK's internal lookup succeeds. The ``if not hasattr``
-# guard makes this a no-op if the upstream SDK ever re-exports them.
-import smartsheet.smartsheet as _ss_smartsheet_module
-_exc_name = None
-for _exc_name in (
-    'RateLimitExceededError',
-    'UnexpectedErrorShouldRetryError',
-    'InternalServerError',
-    'ServerTimeoutExceededError',
-    'SystemMaintenanceError',
-):
-    if not hasattr(_ss_smartsheet_module, _exc_name) and hasattr(ss_exc, _exc_name):
-        setattr(_ss_smartsheet_module, _exc_name, getattr(ss_exc, _exc_name))
-del _ss_smartsheet_module
-del _exc_name
 from dotenv import load_dotenv
 import signal
 

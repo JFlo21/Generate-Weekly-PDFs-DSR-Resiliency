@@ -112,7 +112,6 @@
   "_cutoff_str",
   "_default_hist_path",
   "_env_hist_path",
-  "_exc_name",
   "_has_existing_week_attachment",
   "_normalize_column_title_for_vac_crew",
   "_parse_sentry_enable_logs",
