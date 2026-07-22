@@ -1,14 +1,14 @@
 ---
-status: partial
+status: complete
 phase: 08-smartsheet-python-sdk-4-0-0-compatibility-migration
 source: [08-VERIFICATION.md]
 started: 2026-07-22T17:30:00Z
-updated: 2026-07-22T17:30:00Z
+updated: 2026-07-22T21:24:22Z
 ---
 
 ## Current Test
 
-[awaiting human confirmation]
+[testing complete — resolved as Test 5 of 08-UAT.md (full-UAT session, pass)]
 
 ## Tests
 
@@ -31,14 +31,17 @@ deletes. The only real-delete exposure remains NON-test-mode
 SKIP_UPLOAD runs — already logged in deferred-items.md (WR 89881161,
 self-restoring via cron).
 
-result: [pending]
+result: pass
+resolved: 2026-07-22 via 08-UAT.md Test 5 — Juan confirmed no lingering
+attachment loss on target sheet 5723337641643908 (WR 89881161 self-healed
+via cron regeneration; WR 89708709 / WR 90093002 intact).
 
 ## Summary
 
 total: 1
-passed: 0
+passed: 1
 issues: 0
-pending: 1
+pending: 0
 skipped: 0
 blocked: 0
 
