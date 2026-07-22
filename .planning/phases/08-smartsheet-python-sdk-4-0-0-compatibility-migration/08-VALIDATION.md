@@ -1,10 +1,11 @@
 ---
 phase: 08
 slug: smartsheet-python-sdk-4-0-0-compatibility-migration
-status: planned
+status: validated
 nyquist_compliant: true
 wave_0_complete: true
 created: 2026-07-21
+validated: 2026-07-22
 ---
 
 # Phase 08 — Validation Strategy
@@ -39,12 +40,13 @@ created: 2026-07-21
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 08-01-T1 | 08-01 | 1 | SDK-01, SDK-03 | T-08-SC | Trusted first-party exact-pin install; every in-use SDK symbol resolves | smoke import | `python -c "import smartsheet.exceptions as e, smartsheet.smartsheet; from smartsheet.models.sheet import Sheet; from smartsheet.models.folder import Folder; [getattr(e,n) for n in ('RateLimitExceededError','UnexpectedErrorShouldRetryError','InternalServerError','ServerTimeoutExceededError')]; print('SDK_401_OK')"` | ✅ generate_weekly_pdfs.py | ⬜ pending |
-| 08-01-T2 | 08-01 | 1 | SDK-02 | T-08-01, T-08-02 | Remove dead re-export without breaking retry lookup; baseline reflects ONLY the authorized `_exc_name` deletion | AST / unit | `python -m py_compile generate_weekly_pdfs.py && python scripts/check_api_equality.py` | ✅ tests/golden/baseline_names.json | ⬜ pending |
-| 08-01-T3 | 08-01 | 1 | SDK-04, SDK-06 | T-08-01 | Full behavior-neutrality: six gates + full pytest green, zero test changes | full suite + gates | `bash scripts/run_6_gates.sh && pytest tests/ -v` | ✅ scripts/run_6_gates.sh | ⬜ pending |
-| 08-02-T1 | 08-02 | 2 | SDK-05 | T-08-04 | Exact pin blocks unreviewed auto-bump into production | config assertion | `python -c "import re,sys; t=open('requirements.txt').read(); m=re.search(r'^smartsheet-python-sdk(.*)$',t,re.M); sys.exit(0 if (m and m.group(1).strip()=='==4.3.0') else 1)"` | ✅ requirements.txt | ⬜ pending |
-| 08-02-T2 | 08-02 | 2 | SDK-05 | T-08-04 | Durable ledger record of the migration + exact-pin rule | docs assertion | `python -c "assert 'smartsheet-python-sdk==4.3.0' in open('memory-bank/living-ledger.md',encoding='utf-8').read(); print('LEDGER_OK')"` | ✅ memory-bank/living-ledger.md | ⬜ pending |
-| 08-02-T3 | 08-02 | 2 | SDK-03, SDK-06 | T-08-03, T-08-05 | Live read-only probe validates real 4.3.0 transport + error shape; ZERO writes to Smartsheet | manual live probe | `SKIP_UPLOAD=true WR_FILTER=<WRs> MAX_GROUPS=5 python generate_weekly_pdfs.py` (operator-run) + `pip show smartsheet-python-sdk` | ✅ generate_weekly_pdfs.py | ⬜ pending |
+| 08-01-T1 | 08-01 | 1 | SDK-01, SDK-03 | T-08-SC | Trusted first-party exact-pin install; every in-use SDK symbol resolves | smoke import | `python -c "import smartsheet.exceptions as e, smartsheet.smartsheet; from smartsheet.models.sheet import Sheet; from smartsheet.models.folder import Folder; [getattr(e,n) for n in ('RateLimitExceededError','UnexpectedErrorShouldRetryError','InternalServerError','ServerTimeoutExceededError')]; print('SDK_401_OK')"` | ✅ generate_weekly_pdfs.py | ✅ green |
+| 08-01-T2 | 08-01 | 1 | SDK-02 | T-08-01, T-08-02 | Remove dead re-export without breaking retry lookup; baseline reflects ONLY the authorized `_exc_name` deletion | AST / unit | `python -m py_compile generate_weekly_pdfs.py && python scripts/check_api_equality.py` | ✅ tests/golden/baseline_names.json | ✅ green |
+| 08-01-T3 | 08-01 | 1 | SDK-04, SDK-06 | T-08-01 | Full behavior-neutrality: six gates + full pytest green, zero test changes | full suite + gates | `bash scripts/run_6_gates.sh && pytest tests/ -v` | ✅ scripts/run_6_gates.sh | ✅ green |
+| 08-02-T1 | 08-02 | 2 | SDK-05 | T-08-04 | Exact pin blocks unreviewed auto-bump into production | config assertion | `python -c "import re,sys; t=open('requirements.txt').read(); m=re.search(r'^smartsheet-python-sdk(.*)$',t,re.M); sys.exit(0 if (m and m.group(1).strip()=='==4.3.0') else 1)"` | ✅ requirements.txt | ✅ green |
+| 08-02-T2 | 08-02 | 2 | SDK-05 | T-08-04 | Durable ledger record of the migration + exact-pin rule | docs assertion | `python -c "assert 'smartsheet-python-sdk==4.3.0' in open('memory-bank/living-ledger.md',encoding='utf-8').read(); print('LEDGER_OK')"` | ✅ memory-bank/living-ledger.md | ✅ green |
+| 08-02-T3 | 08-02 | 2 | SDK-03, SDK-06 | T-08-03, T-08-05 | Live read-only probe validates real 4.3.0 transport + error shape; ZERO writes to Smartsheet | manual live probe | `SKIP_UPLOAD=true WR_FILTER=<WRs> MAX_GROUPS=5 python generate_weekly_pdfs.py` (operator-run) + `pip show smartsheet-python-sdk` | ✅ generate_weekly_pdfs.py | ✅ green (see audit note) |
+| 08-SEC-T1 | secure-08 | post | SDK-06 (dry-run write-safety) | T-08-03 | `SKIP_UPLOAD=true` performs ZERO Smartsheet mutations (deletes included), read-only skip decisions preserved | unit + source-wiring pins | `pytest tests/test_skip_upload_delete_gating.py -v` | ✅ tests/test_skip_upload_delete_gating.py | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -82,3 +84,38 @@ gap: `tests/golden/baseline_names.json` drops the transient `_exc_name`
 - [x] `nyquist_compliant: true` set in frontmatter
 
 **Approval:** approved (planner) — ready for `/gsd:execute-phase 08`
+
+---
+
+## Validation Audit 2026-07-22
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+
+All 6 planned tasks re-verified live this audit (commands re-run, not
+inherited): smoke import `SDK_401_OK`; `check_api_equality.py`
+`PASS: all 177 baseline names present`; pin + ledger assertions OK;
+`bash scripts/run_6_gates.sh` → `=== ALL 6 GATES PASSED ===` (exit 0);
+full suite `1171 passed + 130 subtests` (2026-07-22, includes the 7 new
+security tests). Phase is Nyquist-compliant with zero open gaps.
+
+**08-02-T3 audit note (manual probe):** executed by operator 2026-07-22
+(~10:07 CDT). The "ZERO writes" secure behavior was VIOLATED as planned
+— the probe deleted 2 prior attachments (WR 89881161) because
+`SKIP_UPLOAD` gated only the upload half (T-08-03, `08-SECURITY.md`).
+Fixed same day (commit `442cb92`): `dry_run=SKIP_UPLOAD` now gates all
+mutating cleanup paths, and the formerly manual-only "zero writes"
+property is now AUTOMATED (row 08-SEC-T1,
+`tests/test_skip_upload_delete_gating.py`). The manual probe remains
+manual for the transport/error-shape half (T-08-05) only.
+
+**Infrastructure note:** the six-gate harness's estimated runtime
+(~150s) assumed a synthetic TEST_MODE run. With a repo-root `.env`
+token present, TEST_MODE performs real Smartsheet reads (deferred item
+"TEST_MODE with a real token") — the audit run took **~35 minutes**.
+Either unset the token (`SMARTSHEET_API_TOKEN=''`) when running gates
+locally, or budget accordingly, until the TEST_MODE synthetic-path gate
+is fixed in a future phase.
