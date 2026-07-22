@@ -106,7 +106,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 05. Artifact Table and Search | v1.1 | 4/4 | Complete    | 2026-06-02 |
 | 06. Realtime and UI Polish | v1.1 | 5/5 | Complete    | 2026-06-02 |
 | 07. Security Hardening and Express Removal | v1.1 | 4/4 | ✅ Complete | 2026-06-03 |
-| 08. smartsheet-python-sdk 4.0.0 Compatibility Migration | v1.2 | 0/2 | Planned | — |
+| 08. smartsheet-python-sdk 4.0.0 Compatibility Migration | v1.2 | 1/2 | In Progress|  |
 | 09. Engine Modularization (pipeline package split) | v1.3 | 5/7 | In Progress|  |
 
 ---
@@ -474,12 +474,12 @@ must be reconciled first).
 5. The production weekly workflow runs green on 4.0.0 (observed on the next
    scheduled cron after merge).
 
-**Plans:** 2 plans in 2 waves
+**Plans:** 1/2 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 08-01-PLAN.md — Install SDK 4.3.0 + remove the dead 3.x re-export block + rebaseline Gate 1 (`_exc_name` 178→177) + green six-gate & full-pytest behavior-neutrality proof (SDK-01/02/03/04/06)
+- [x] 08-01-PLAN.md — Install SDK 4.3.0 + remove the dead 3.x re-export block + rebaseline Gate 1 (`_exc_name` 178→177) + green six-gate & full-pytest behavior-neutrality proof (SDK-01/02/03/04/06)
 
 **Wave 2** *(blocked on Wave 1 — pin lifted only after the automated proof is green)*
 
