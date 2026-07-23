@@ -194,7 +194,7 @@ def get_all_source_rows(client, source_sheets):
                     sheet = smartsheet_call_with_retry(
                         client.Sheets.get_sheet,
                         source['id'],
-                        column_ids=required_column_ids,
+                        column_ids=",".join(str(c) for c in required_column_ids),
                         label=f"fetch sheet {source['name']}",
                     )
                     api_span.set_data("sheet_id", source['id'])
