@@ -185,7 +185,12 @@ def get_all_source_rows(client, source_sheets):
                 # Fetch sheet once (no column history); include columns to support unmapped summary
                 # PERFORMANCE FIX: Use column_ids parameter to only fetch mapped columns
                 column_mapping = source['column_mapping']
-                required_column_ids = list(column_mapping.values())
+                required_column_ids_list = list(column_mapping.values())
+                # The Smartsheet API expects a single comma-separated string for
+                # columnIds; passing a Python list results in repeated query params
+                # (?columnIds=1&columnIds=2) which the API ignores, causing a full
+                # (potentially massive) sheet to be returned and triggering error 4000.
+                required_column_ids = ",".join(str(c) for c in required_column_ids_list)
                 with sentry_sdk.start_span(op="smartsheet.api", name=f"Fetch sheet {source['name']}") as api_span:
                     # Retry transient API errors (4000 on large sheets, server
                     # timeouts, network drops) before the existing per-sheet
@@ -200,7 +205,7 @@ def get_all_source_rows(client, source_sheets):
                     api_span.set_data("sheet_id", source['id'])
                     api_span.set_data("sheet_name", source['name'])
                     api_span.set_data("row_count", len(sheet.rows) if sheet.rows else 0)
-                    api_span.set_data("column_count", len(required_column_ids))
+                    api_span.set_data("column_count", len(required_column_ids_list))
 
                 logging.info(f"📋 Available mapped columns in {source['name']}: {list(column_mapping.keys())}")
                 
