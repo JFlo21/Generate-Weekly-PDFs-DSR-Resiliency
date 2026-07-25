@@ -4947,10 +4947,15 @@ exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
      fired on *every* master push and dispatched the raw commit message
      to `runlog-linetec` — including bot/worker docs commits. Added
      `paths-ignore` for `website/docs/runbook/whats-new.md` +
-     `website/blog/**` and a job guard skipping
-     `github-actions[bot]` and messages starting with `docs(runbook):`.
-     **Rule: automation-authored docs commits must never be forwarded
-     to the Linetec runlog as release notes.**
+     `website/blog/**` and a job guard filtering by **commit-message
+     pattern, not actor** — skips `docs(runbook):`, `chore(notion):`,
+     `[skip ci]`, and `[skip runlog]` messages. An earlier blanket
+     `!endsWith(github.actor, '[bot]')` guard was reverted per operator
+     feedback: the runlog SHOULD keep receiving context-bearing entries
+     (including bot-merged work); only contextless Notion-CI jargon is
+     excluded. **Rule: filter Linetec runlog dispatches by message
+     pattern (Notion-CI/bookkeeping jargon), never by blanket bot-actor
+     exclusion — contextful entries must keep flowing.**
 - **Bonus fix:** the root `azure-pipelines.yml` itself was corrupted —
   `env:` blocks had been spliced into the middle of three `script: |`
   bodies (invalid YAML → every Azure DevOps sync run failed). Script

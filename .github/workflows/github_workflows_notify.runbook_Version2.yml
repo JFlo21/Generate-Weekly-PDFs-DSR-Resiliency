@@ -28,13 +28,20 @@ permissions:
 
 jobs:
   notify:
-    # Only fire on the repo's default branch (works whether it's main or master)
-    # and skip bot-authored commits plus automated runbook docs commits so the
-    # Linetec runlog only receives human release notes with real context.
+    # Only fire on the repo's default branch (works whether it's main or master).
+    # The runlog SHOULD keep receiving context-bearing release notes — including
+    # bot-merged feature/fix work — so filtering is by commit-message pattern,
+    # not by actor. Skip only the contextless Notion-CI / bookkeeping jargon:
+    #   - "docs(runbook): ..." — Notion Worker whats-new page + changelog bot
+    #   - "chore(notion): ..." — Notion sync housekeeping
+    #   - "[skip ci]"          — automation bookkeeping commits
+    #   - "[skip runlog]"      — explicit opt-out marker for any commit
     if: >-
       github.ref_name == github.event.repository.default_branch &&
-      !endsWith(github.actor, '[bot]') &&
-      !startsWith(github.event.head_commit.message, 'docs(runbook):')
+      !startsWith(github.event.head_commit.message, 'docs(runbook):') &&
+      !startsWith(github.event.head_commit.message, 'chore(notion):') &&
+      !contains(github.event.head_commit.message, '[skip ci]') &&
+      !contains(github.event.head_commit.message, '[skip runlog]')
     runs-on: ubuntu-latest
     steps:
       - name: Send release note to runbook
