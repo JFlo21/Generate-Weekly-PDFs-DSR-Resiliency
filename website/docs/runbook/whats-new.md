@@ -17,12 +17,12 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 - ✅ Problem fixed: prevent Smartsheet API 4000 by correctly formatting column_ids
 - ✨ New capability: smartsheet-python-sdk 4.3.0 migration (Phase 08)
-- 📄 Help guides updated: log d335f49 [skip ci]
+- 📄 Help guides updated: log 8a47bf4 [skip ci]
 - 📄 Help guides updated: automated plain-language update from Notion Worker
+- 📄 Help guides updated: log d335f49 [skip ci]
 - 📄 Help guides updated: log 99e86a8 [skip ci]
 - 📄 Help guides updated: log fc2f562 [skip ci]
 - 📄 Help guides updated: log 26dba31 [skip ci]
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
 ## Locator Spreadsheet Sync
 
