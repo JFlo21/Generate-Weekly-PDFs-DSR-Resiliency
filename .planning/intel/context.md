@@ -178,7 +178,7 @@ Upload back to TARGET_SHEET_ID (parallel; delete old attachment,
 > `README_AZURE.md`
 
 The repo's GitHub workflows are mirrored to Azure DevOps via
-`.github/workflows/azure-pipelines.yml`. Setup and
+the root-level `azure-pipelines.yml`. Setup and
 architecture are documented in the four AZURE_* files at repo
 root; this is a side channel for organizations that require
 Azure Pipelines visibility.

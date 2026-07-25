@@ -80,13 +80,7 @@ jobs:
           if [ -f generated_docs/system_health.json ]; then
             echo "Health report:";
             cat generated_docs/system_health.json;
-            status=$(python - <<'PYCODE'
-import json
-with open('generated_docs/system_health.json') as f:
-    data = json.load(f)
-print(data.get('overall_status','UNKNOWN'))
-PYCODE
-)
+            status=$(python -c "import json; print(json.load(open('generated_docs/system_health.json')).get('overall_status', 'UNKNOWN'))")
             echo "Overall status: $status";
             if [ "$status" = "CRITICAL" ]; then
               echo "❌ System health is CRITICAL";

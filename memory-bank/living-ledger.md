@@ -4921,3 +4921,42 @@ exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
 - **Carry-forward flag (unregistered, WARNING):** `TEST_MODE=true` with a
   real token still performs real Smartsheet READS (synthetic path only
   `if not API_TOKEN`) — add to the next phase's threat register.
+
+## [2026-07-25 04:45] CI notification noise fixed — invalid workflow YAML + contextless Linetec runlog dispatches
+
+- **Symptoms:** every push to `master` (including the Notion Worker's
+  automated `docs(runbook): ...` commits) produced two instant
+  workflow-failure emails, and the Linetec runlog (`runlog-linetec`)
+  received contextless "docs(runbook): automated plain-language update"
+  release-note entries.
+- **Root causes (3, all CI-config; zero production code involved):**
+  1. `.github/workflows/azure-pipelines.yml` was a stray duplicate of
+     the root-level Azure DevOps pipeline. GitHub Actions cannot parse
+     Azure Pipelines YAML (`trigger:`/`pool:`/`steps:` with no `on:`),
+     so it registered an instant `failure` run on every push. The
+     **root-level `azure-pipelines.yml` is the authoritative copy**
+     (documented in `website/docs/runbook/workflows.md`); the workflows
+     copy was deleted.
+  2. `system-health-check.yml` had a shell heredoc (`<<'PYCODE'`) whose
+     body dedented to column 1, breaking the YAML block scalar →
+     invalid-workflow-file failure on every push. Replaced with a
+     single-line `python -c`. **Rule: heredoc bodies inside a `run: |`
+     block scalar must keep at least the block's base indentation —
+     dedenting them to column 1 terminates the YAML block scalar.**
+  3. `github_workflows_notify.runbook_Version2.yml` ("Notify runbook")
+     fired on *every* master push and dispatched the raw commit message
+     to `runlog-linetec` — including bot/worker docs commits. Added
+     `paths-ignore` for `website/docs/runbook/whats-new.md` +
+     `website/blog/**` and a job guard filtering by **commit-message
+     pattern, not actor** — skips `docs(runbook):`, `chore(notion):`,
+     `[skip ci]`, and `[skip runlog]` messages. An earlier blanket
+     `!endsWith(github.actor, '[bot]')` guard was reverted per operator
+     feedback: the runlog SHOULD keep receiving context-bearing entries
+     (including bot-merged work); only contextless Notion-CI jargon is
+     excluded. **Rule: filter Linetec runlog dispatches by message
+     pattern (Notion-CI/bookkeeping jargon), never by blanket bot-actor
+     exclusion — contextful entries must keep flowing.**
+- **Bonus fix:** the root `azure-pipelines.yml` itself was corrupted —
+  `env:` blocks had been spliced into the middle of three `script: |`
+  bodies (invalid YAML → every Azure DevOps sync run failed). Script
+  content restored intact with `env:` back below each script.
