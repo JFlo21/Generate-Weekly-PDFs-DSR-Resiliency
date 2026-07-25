@@ -9,6 +9,21 @@ _Last updated: July 25, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
+## linetec-inspector-manifest-generator
+
+> ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
+
+### 📋 Changelog — July 25, 2026
+
+- ✅ Problem fixed: live admin role/ban recheck + sync banned-user skip (post-7.7 hardening)
+- ✅ Problem fixed: scope filter tolerates base-scope ProMax rows (5-WR zero-row Parser Error incident)
+- 📄 Help guides updated: full-autonomy master-schedule intake requirement (Phase 18 scope detail)
+- ✨ New capability: optional version_number input on generate-manifest workflow (manual regen of versioned rows)
+- 📄 Help guides updated: Gen B go-live record (gate armed, recovery enqueue proven)
+- 📄 Help guides updated: phase 14 post-merge ledger sync
+- ✅ Problem fixed: Gen B enqueue must not write formula-owned 'Inspector Ready?' cell
+- • Phase 14: Approved-with-Modifications + Gen B regen-on-approval lifecycle
+
 ## Weekly Billing Reports (DSR Resiliency)
 
 > ℹ️ **What this system does:** Automated billing system that generates weekly Excel reports from Smartsheet data.
@@ -17,27 +32,12 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 - ✅ Problem fixed: prevent Smartsheet API 4000 by correctly formatting column_ids
 - ✨ New capability: smartsheet-python-sdk 4.3.0 migration (Phase 08)
+- 📄 Help guides updated: log fc2f562 [skip ci]
+- 📄 Help guides updated: automated plain-language update from Notion Worker
 - 📄 Help guides updated: log 26dba31 [skip ci]
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - 📄 Help guides updated: log 2ab0e00 [skip ci]
 - ✅ Problem fixed: prevent Smartsheet API 4000 by correctly formatting column_ids ()
-- 📄 Help guides updated: log a5b1b50 [skip ci]
-- ✨ New capability: smartsheet-python-sdk 4.3.0 migration (Phase 08) ()
-
-## linetec-inspector-manifest-generator
-
-> ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
-
-### 📋 Changelog — July 25, 2026
-
-- ✨ New capability: optional version_number input on generate-manifest workflow (manual regen of versioned rows)
-- 📄 Help guides updated: Gen B go-live record (gate armed, recovery enqueue proven)
-- 📄 Help guides updated: phase 14 post-merge ledger sync
-- ✅ Problem fixed: Gen B enqueue must not write formula-owned 'Inspector Ready?' cell
-- • Phase 14: Approved-with-Modifications + Gen B regen-on-approval lifecycle
-- 📄 Help guides updated: PR  review fixes + milestone v1.2 Lifecycle Automation planning
-- 📄 Help guides updated: lifecycle design v2 — DV auto-hide, Revisions Made status, manager oversight (item 8)
-- 📄 Help guides updated: ledger sync — PR  merged, post-merge protocol done
 
 ## JFlo21
 
