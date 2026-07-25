@@ -4940,8 +4940,9 @@ exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
   2. `system-health-check.yml` had a shell heredoc (`<<'PYCODE'`) whose
      body dedented to column 1, breaking the YAML block scalar →
      invalid-workflow-file failure on every push. Replaced with a
-     single-line `python -c`. **Rule: never put column-1 heredoc bodies
-     inside a `run: |` block scalar.**
+     single-line `python -c`. **Rule: heredoc bodies inside a `run: |`
+     block scalar must keep at least the block's base indentation —
+     dedenting them to column 1 terminates the YAML block scalar.**
   3. `github_workflows_notify.runbook_Version2.yml` ("Notify runbook")
      fired on *every* master push and dispatched the raw commit message
      to `runlog-linetec` — including bot/worker docs commits. Added

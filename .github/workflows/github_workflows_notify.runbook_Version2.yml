@@ -15,15 +15,16 @@ name: Notify runbook
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [master, main]
     # Automated docs commits (Notion Worker runbook page, changelog bot
     # blog posts) are not release notes — don't spam the Linetec runlog
     # with contextless "docs(runbook): ..." entries.
     paths-ignore:
       - "website/docs/runbook/whats-new.md"
       - "website/blog/**"
+
+permissions:
+  contents: read
 
 jobs:
   notify:
@@ -32,7 +33,7 @@ jobs:
     # Linetec runlog only receives human release notes with real context.
     if: >-
       github.ref_name == github.event.repository.default_branch &&
-      github.actor != 'github-actions[bot]' &&
+      !endsWith(github.actor, '[bot]') &&
       !startsWith(github.event.head_commit.message, 'docs(runbook):')
     runs-on: ubuntu-latest
     steps:
