@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: July 25, 2026 (updated automatically)_
+_Last updated: July 26, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -13,16 +13,16 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Automated billing system that generates weekly Excel reports from Smartsheet data.
 
-### 📋 Changelog — July 25, 2026
+### 📋 Changelog — July 26, 2026
 
+- ✅ Problem fixed: stop CI failure emails + filter Linetec runlog to contextful entries
 - ✅ Problem fixed: prevent Smartsheet API 4000 by correctly formatting column_ids
 - ✨ New capability: smartsheet-python-sdk 4.3.0 migration (Phase 08)
-- 📄 Help guides updated: log 8a47bf4 [skip ci]
+- 📄 Help guides updated: log 3f33146 [skip ci]
+- ✅ Problem fixed: stop CI failure emails + filter Linetec runlog to contextful entries ()
+- 📄 Help guides updated: log e17dc14 [skip ci]
 - 📄 Help guides updated: automated plain-language update from Notion Worker
-- 📄 Help guides updated: log d335f49 [skip ci]
-- 📄 Help guides updated: log 99e86a8 [skip ci]
-- 📄 Help guides updated: log fc2f562 [skip ci]
-- 📄 Help guides updated: log 26dba31 [skip ci]
+- 📄 Help guides updated: log 8a47bf4 [skip ci]
 
 ## Locator Spreadsheet Sync
 
