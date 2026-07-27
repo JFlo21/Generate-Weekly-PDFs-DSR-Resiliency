@@ -9,6 +9,21 @@ _Last updated: July 27, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
+## Weekly Billing Reports (DSR Resiliency)
+
+> ℹ️ **What this system does:** Automated billing system that generates weekly Excel reports from Smartsheet data.
+
+### 📋 Changelog — July 27, 2026
+
+- ✅ Problem fixed: stop CI failure emails + filter Linetec runlog to contextful entries
+- ✅ Problem fixed: prevent Smartsheet API 4000 by correctly formatting column&#95;ids
+- ✨ New capability: smartsheet-python-sdk 4.3.0 migration (Phase 08)
+- 📄 Help guides updated: log aa552d3 &#91;skip ci&#93;
+- 📄 Help guides updated: automated plain-language update from Notion Worker
+- 📄 Help guides updated: log 0f963f2 &#91;skip ci&#93;
+- 📄 Help guides updated: log 887e22e &#91;skip ci&#93;
+- 📄 Help guides updated: log 9ae3ac4 &#91;skip ci&#93;
+
 ## linetec-inspector-manifest-generator
 
 > ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
@@ -38,21 +53,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - 📄 Help guides updated: update README for workers.json linking (remove obsolete &#96;ntn workers link&#96; wording)
 - 📄 Help guides updated: remove stray code-fence attribute from workers.json example
 - 📄 Help guides updated: replace nonexistent &#96;ntn workers link&#96; with workers.json linking per official Notion CLI reference
-
-## Weekly Billing Reports (DSR Resiliency)
-
-> ℹ️ **What this system does:** Automated billing system that generates weekly Excel reports from Smartsheet data.
-
-### 📋 Changelog — July 27, 2026
-
-- ✅ Problem fixed: stop CI failure emails + filter Linetec runlog to contextful entries
-- ✅ Problem fixed: prevent Smartsheet API 4000 by correctly formatting column&#95;ids
-- ✨ New capability: smartsheet-python-sdk 4.3.0 migration (Phase 08)
-- 📄 Help guides updated: log 0f963f2 &#91;skip ci&#93;
-- 📄 Help guides updated: automated plain-language update from Notion Worker
-- 📄 Help guides updated: log 887e22e &#91;skip ci&#93;
-- 📄 Help guides updated: log 9ae3ac4 &#91;skip ci&#93;
-- 📄 Help guides updated: log 3f33146 &#91;skip ci&#93;
 
 ## JFlo21
 
