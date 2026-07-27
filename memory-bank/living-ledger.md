@@ -4997,3 +4997,21 @@ exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
   this repo, then rotate the `GITHUB_TOKEN` / `SESSION_SECRET` it held.
   Until that is done, each real merge to `master` still produces one
   failed-deploy email (the loop multiplier is gone).
+
+## [2026-07-27 22:55] `[skip docs]` removed from the Notion bookkeeping filter — the two feeds must match exactly
+
+- **Correction to the [2026-07-27 22:30] entry:** the `sync_commits`
+  bookkeeping filter in `scripts/notion_sync.py` initially also skipped
+  the `[skip docs]` marker, but the runlog-dispatch filter it mirrors
+  (`github_workflows_notify.runbook_Version2.yml`) does not. A commit
+  carrying only `[skip docs]` was therefore omitted from the Notion
+  changelog while still being dispatched to the Linetec runlog worker —
+  the two automation feeds drifted apart.
+- **Fix:** `BOOKKEEPING_MARKERS` is now `("[skip ci]", "[skip runlog]")`,
+  matching the workflow exactly.
+- **Rule: `[skip docs]` is scoped to the Docusaurus site changelog
+  only** (`generate_runbook_entry.py` bails out on it, per
+  `website/docs/reference/how-this-site-updates.md`). It must NOT be
+  treated as automation bookkeeping — such commits still flow to both
+  the runlog dispatch and the Notion changelog. When editing either
+  bookkeeping filter, update the other in the same PR.

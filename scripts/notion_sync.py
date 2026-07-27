@@ -256,8 +256,11 @@ def _create_incident(notion: Client, run_title: str, error_summary: str, audit_r
 # them buries the meaningful changelog entries (fixes, features) under
 # hundreds of "docs(runbook): log <sha> [skip ci]" rows. Mirrors the
 # commit-message filter in github_workflows_notify.runbook_Version2.yml.
+# Note: "[skip docs]" is intentionally NOT here — it only opts a commit
+# out of the Docusaurus site changelog (generate_runbook_entry.py); such
+# commits still reach the runlog worker and belong in this feed too.
 BOOKKEEPING_PREFIXES = ("docs(runbook):", "chore(notion):")
-BOOKKEEPING_MARKERS = ("[skip ci]", "[skip docs]", "[skip runlog]")
+BOOKKEEPING_MARKERS = ("[skip ci]", "[skip runlog]")
 
 
 def _is_bookkeeping_commit(message: str) -> bool:

@@ -31,7 +31,9 @@ _spec.loader.exec_module(ns)
         ("chore(notion): refresh dashboard KPIs", True),
         ("chore: bump deps [skip ci]", True),
         ("fix: prevent double upload [skip runlog]", True),
-        ("docs: update README [skip docs]", True),
+        # "[skip docs]" only opts out of the Docusaurus site changelog —
+        # the runlog dispatch still fires, so Notion must sync it too.
+        ("docs: update README [skip docs]", False),
         ("fix: retry Smartsheet 5xx + widen cron margin (#284)", False),
         ("feat: smartsheet-python-sdk 4.3.0 migration (Phase 08)", False),
         ("docs: clarify helper-row rules in prompts", False),
