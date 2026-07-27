@@ -1,9 +1,20 @@
 # Railway → Render Transition Plan & Artifact Explorer Redesign
 
-> Status: **Approved plan, pre-implementation.** No backend routing, Vercel
-> env vars, or Render services have been touched yet. This document is the
-> source of truth for the migration and the artifact-visibility work that
-> ships alongside it.
+> Status: **SUPERSEDED — do not implement.** Phase 07
+> (`.planning/phases/07-security-hardening-and-express-removal/`) removed
+> the `portal/` Express backend entirely on 2026-06-02; `portal-v2/` now
+> talks to Supabase directly, so there is no backend service to host on
+> Render (or Railway). The `render.yaml` blueprint was deleted with this
+> notice for the same reason — its `rootDir: portal` no longer exists, so
+> any Render service synced to it fails its build on every push.
+>
+> **Operator action (dashboard-side, cannot be done from this repo):**
+> any Railway (or Render) service still connected to
+> `JFlo21/Generate-Weekly-PDFs-DSR-Resiliency` must be deleted /
+> disconnected in its dashboard. Its build target (`portal/`) was removed
+> from the repo, so every push to `master` produces a failed deploy and a
+> failure email. After deletion, rotate any `GITHUB_TOKEN` /
+> `SESSION_SECRET` values that host held (Phase 5 below).
 
 ---
 
