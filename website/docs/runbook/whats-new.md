@@ -20,10 +20,10 @@ This page explains what each of our tools does and its recent updates, in everyd
 - ✅ Problem fixed: stop CI failure emails + filter Linetec runlog to contextful entries
 - ✅ Problem fixed: prevent Smartsheet API 4000 by correctly formatting column&#95;ids
 - ✨ New capability: smartsheet-python-sdk 4.3.0 migration (Phase 08)
+- 📄 Help guides updated: automated plain-language update from Notion Worker
 - 📄 Help guides updated: log 70b71f8 &#91;skip ci&#93;
 - ✅ Problem fixed: break runbook push loop, filter Notion changelog noise, remove stale Render blueprint ()
 - 📄 Help guides updated: log 6af4ee3 &#91;skip ci&#93;
-- 📄 Help guides updated: automated plain-language update from Notion Worker
 
 <!-- /runbook-repo -->
 
