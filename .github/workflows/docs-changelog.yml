@@ -105,5 +105,5 @@ jobs:
           if [ -n "${POST_PATH:-}" ]; then
             printf 'Committed runbook entry to %s: %s\n' "${REF_NAME}" "$POST_PATH" >> "$GITHUB_STEP_SUMMARY"
           else
-            printf 'No runbook entry generated (empty diff, skip marker, or blog-only push).\n' >> "$GITHUB_STEP_SUMMARY"
+            printf 'No runbook entry generated (empty diff, skip marker, or bot-maintained-only push).\n' >> "$GITHUB_STEP_SUMMARY"
           fi
