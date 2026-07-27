@@ -4987,7 +4987,9 @@ exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
      `[skip ci]` / `[skip docs]` / `[skip runlog]` markers), mirroring
      the runlog-dispatch filter in
      `github_workflows_notify.runbook_Version2.yml`. **Rule: keep the
-     two bookkeeping filters in sync.**
+     two bookkeeping filters in sync.** *(Superseded in part — see the
+     [2026-07-27 22:55] correction below: `[skip docs]` was later
+     removed from the marker list.)*
   3. `render.yaml` deleted + `docs/railway-to-render-transition-plan.md`
      marked SUPERSEDED: Phase 07 removed the Express backend entirely,
      so there is no service to host — a Render blueprint pointing at

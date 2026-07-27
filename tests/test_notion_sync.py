@@ -34,6 +34,8 @@ _spec.loader.exec_module(ns)
         # "[skip docs]" only opts out of the Docusaurus site changelog —
         # the runlog dispatch still fires, so Notion must sync it too.
         ("docs: update README [skip docs]", False),
+        # ...but a real bookkeeping marker alongside it still filters.
+        ("docs: update README [skip docs] [skip ci]", True),
         ("fix: retry Smartsheet 5xx + widen cron margin (#284)", False),
         ("feat: smartsheet-python-sdk 4.3.0 migration (Phase 08)", False),
         ("docs: clarify helper-row rules in prompts", False),
