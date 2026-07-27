@@ -18,11 +18,11 @@ This page explains what each of our tools does and its recent updates, in everyd
 - ✅ Problem fixed: stop CI failure emails + filter Linetec runlog to contextful entries
 - ✅ Problem fixed: prevent Smartsheet API 4000 by correctly formatting column&#95;ids
 - ✨ New capability: smartsheet-python-sdk 4.3.0 migration (Phase 08)
-- 📄 Help guides updated: log 6a93c0a &#91;skip ci&#93;
+- 📄 Help guides updated: log 9e8b12b &#91;skip ci&#93;
 - 📄 Help guides updated: automated plain-language update from Notion Worker
+- 📄 Help guides updated: log 6a93c0a &#91;skip ci&#93;
 - 📄 Help guides updated: log a8dc597 &#91;skip ci&#93;
 - 📄 Help guides updated: log 7994f52 &#91;skip ci&#93;
-- 📄 Help guides updated: log 3523518 &#91;skip ci&#93;
 
 ## linetec-inspector-manifest-generator
 
