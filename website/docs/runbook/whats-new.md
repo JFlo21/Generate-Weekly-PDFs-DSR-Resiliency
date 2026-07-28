@@ -5,16 +5,25 @@ title: What's New
 
 # What's New
 
-_Last updated: July 27, 2026 (updated automatically)_
+_Last updated: July 28, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
+
+<!-- runbook-repo: JFlo21/JFlo21 -->
+## JFlo21
+
+> ℹ️ **What this system does:** &gt; 💡 The snake animation above is generated automatically by a GitHub Action — it eats your contribution tiles&#33;
+
+_Running steadily — no meaningful changes were detected in this period._ ✅
+
+<!-- /runbook-repo -->
 
 <!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
 ## Weekly Billing Reports (DSR Resiliency)
 
 > ℹ️ **What this system does:** Automated billing system that generates weekly Excel reports from Smartsheet data.
 
-### 📋 Changelog — July 27, 2026
+### 📋 Changelog — July 28, 2026
 
 - ✅ Problem fixed: break runbook push loop, filter Notion changelog noise, remove stale Render blueprint
 - ✅ Problem fixed: stop CI failure emails + filter Linetec runlog to contextful entries
@@ -32,7 +41,7 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
 
-### 📋 Changelog — July 27, 2026
+### 📋 Changelog — July 28, 2026
 
 - ✨ New capability: plumb D-23 Week-Ending override into intake worker
 - 📄 Help guides updated: capture Phase 15.1 (Bret GF Excel-edit revision loop) + Phase 15 debug-first gate
@@ -50,7 +59,7 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** A Notion Worker that keeps your operations runbook up to date automatically:
 
-### 📋 Changelog — July 27, 2026
+### 📋 Changelog — July 28, 2026
 
 - 🔒 Security improvement: Rename GITHUB&#95;&#42; secret/env names to GH&#95;&#42;
 - • Replace dated runbook pages with per-system Runbooks database (in-place updates, archived history, humanized wording)
@@ -60,15 +69,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - 📄 Help guides updated: update README for workers.json linking (remove obsolete &#96;ntn workers link&#96; wording)
 - 📄 Help guides updated: remove stray code-fence attribute from workers.json example
 - 📄 Help guides updated: replace nonexistent &#96;ntn workers link&#96; with workers.json linking per official Notion CLI reference
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/JFlo21 -->
-## JFlo21
-
-> ℹ️ **What this system does:** &gt; 💡 The snake animation above is generated automatically by a GitHub Action — it eats your contribution tiles&#33;
-
-_Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
@@ -86,7 +86,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — July 27, 2026
+### 📋 Changelog — July 28, 2026
 
 - • 📊 Audit: 2026-07-27T07:40:56Z
 
@@ -97,7 +97,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
 
-### 📋 Changelog — July 27, 2026
+### 📋 Changelog — July 28, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -108,7 +108,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** A comprehensive Python web application that processes PDF point material sheets to validate, filter, and redact Compatible Unit (CU) codes against a valid Underground (UG) product catalog.
 
-### 📋 Changelog — July 27, 2026
+### 📋 Changelog — July 28, 2026
 
 - ✨ New capability: add self-service PDF batch interface
 - • data: seed generated Work Request registry
@@ -121,7 +121,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Daily sync from Supabase pricing.vwrpricingrollup → Smartsheet sheet 1444139672489860 ("Master storms data").
 
-### 📋 Changelog — July 27, 2026
+### 📋 Changelog — July 28, 2026
 
 - ✅ Problem fixed: Fix Sentry run-health evidence for pricing sync
 - • Merge PR : verify Sentry positive run health
@@ -139,7 +139,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
 
-### 📋 Changelog — July 27, 2026
+### 📋 Changelog — July 28, 2026
 
 - • Ledger: context-rot defense entry (compact-handoff loop, 40c981d)
 - • Add automatic compact-handoff loop + context compaction protocol skill
@@ -476,7 +476,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — July 27, 2026
+### 📋 Changelog — July 28, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -487,7 +487,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Private, version-controlled execution infrastructure for Juan's guarded Todoist GTD system.
 
-### 📋 Changelog — July 27, 2026
+### 📋 Changelog — July 28, 2026
 
 - • Enforce daily Inbox and Capture routing
 - • Align cloud Focus health with guard v4
@@ -517,3 +517,4 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
+
