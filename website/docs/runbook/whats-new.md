@@ -27,6 +27,39 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 <!-- /runbook-repo -->
 
+<!-- runbook-repo: JFlo21/master-to-sibling-smartsheet-function -->
+## Master-to-Sibling Sheet Sync
+
+> ℹ️ **What this system does:** Automated Smartsheet synchronization system supporting multi-source snapshot tracking with historical backfill capabilities.
+
+### 📋 Changelog — July 28, 2026
+
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/lock_sheet_rows -->
+## Weekly Sheet Locking
+
+> ℹ️ **What this system does:** Locks sheet rows on smartsheet after each week ending date has been reached.
+
+### 📋 Changelog — July 28, 2026
+
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/smartsheet-sync-locators -->
+## Locator Spreadsheet Sync
+
+> ℹ️ **What this system does:** This code automatically synchronizes the locators spreadsheets with the spreadsheets on smartsheet for seemless integration
+
+### 📋 Changelog — July 28, 2026
+
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/JFlo21 -->
 ## JFlo21
 
@@ -183,34 +216,12 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/smartsheet-sync-locators -->
-## Locator Spreadsheet Sync
-
-> ℹ️ **What this system does:** This code automatically synchronizes the locators spreadsheets with the spreadsheets on smartsheet for seemless integration
-
-### 📋 Changelog — July 28, 2026
-
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/sync-master-schedule -->
 ## Master Schedule Sync
 
 > ℹ️ **What this system does:** Automatically synchronize attachments between two Smartsheet sheets based on matching column criteria. Runs daily at 5:00 AM UTC via GitHub Actions.
 
 _Running steadily — no meaningful changes were detected in this period._ ✅
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/master-to-sibling-smartsheet-function -->
-## Master-to-Sibling Sheet Sync
-
-> ℹ️ **What this system does:** Automated Smartsheet synchronization system supporting multi-source snapshot tracking with historical backfill capabilities.
-
-### 📋 Changelog — July 28, 2026
-
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
 <!-- /runbook-repo -->
 
@@ -346,17 +357,6 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 > ℹ️ **What this system does:** This repo contains a scheduled job that syncs Smartsheet sheets into Supabase every 5 minutes.
 
 _Running steadily — no meaningful changes were detected in this period._ ✅
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/lock_sheet_rows -->
-## Weekly Sheet Locking
-
-> ℹ️ **What this system does:** Locks sheet rows on smartsheet after each week ending date has been reached.
-
-### 📋 Changelog — July 28, 2026
-
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
 <!-- /runbook-repo -->
 
@@ -523,3 +523,4 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
+
