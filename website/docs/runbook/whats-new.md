@@ -9,15 +9,6 @@ _Last updated: July 28, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
-<!-- runbook-repo: JFlo21/JFlo21 -->
-## JFlo21
-
-> ℹ️ **What this system does:** &gt; 💡 The snake animation above is generated automatically by a GitHub Action — it eats your contribution tiles&#33;
-
-_Running steadily — no meaningful changes were detected in this period._ ✅
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
 ## Weekly Billing Reports (DSR Resiliency)
 
@@ -33,6 +24,15 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 - 📄 Help guides updated: log 70b71f8 &#91;skip ci&#93;
 - ✅ Problem fixed: break runbook push loop, filter Notion changelog noise, remove stale Render blueprint ()
 - 📄 Help guides updated: log 6af4ee3 &#91;skip ci&#93;
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/JFlo21 -->
+## JFlo21
+
+> ℹ️ **What this system does:** &gt; 💡 The snake animation above is generated automatically by a GitHub Action — it eats your contribution tiles&#33;
+
+_Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
