@@ -127,12 +127,12 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 - 🔒 Security improvement: Rename GITHUB&#95;&#42; secret/env names to GH&#95;&#42;
 - • Replace dated runbook pages with per-system Runbooks database (in-place updates, archived history, humanized wording)
+- 📄 Help guides updated: record production and GitHub verification
 - • merge: reconcile remote notification workflow
 - ✅ Problem fixed: stabilize webhook and scheduled runbook sync
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - 📄 Help guides updated: complete professional runbook phase
 - 📄 Help guides updated: verify professional runbook goal
-- 📄 Help guides updated: verify security threat controls
 
 <!-- /runbook-repo -->
 
