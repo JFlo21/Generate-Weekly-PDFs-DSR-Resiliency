@@ -9,6 +9,24 @@ _Last updated: July 29, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
+<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
+## Weekly Billing Reports (DSR Resiliency)
+
+> ℹ️ **What this system does:** Automated billing system that generates weekly Excel reports from Smartsheet data.
+
+### 📋 Changelog — July 29, 2026
+
+- ✅ Problem fixed: break runbook push loop, filter Notion changelog noise, remove stale Render blueprint
+- ✅ Problem fixed: stop CI failure emails + filter Linetec runlog to contextful entries
+- ✅ Problem fixed: prevent Smartsheet API 4000 by correctly formatting column&#95;ids
+- ✨ New capability: smartsheet-python-sdk 4.3.0 migration (Phase 08)
+- 📄 Help guides updated: automated plain-language update from Notion Worker
+- 📄 Help guides updated: log 70b71f8 &#91;skip ci&#93;
+- ✅ Problem fixed: break runbook push loop, filter Notion changelog noise, remove stale Render blueprint ()
+- 📄 Help guides updated: log 6af4ee3 &#91;skip ci&#93;
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/JFlo21 -->
 ## JFlo21
 
@@ -35,24 +53,6 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 ### 📋 Changelog — July 29, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
-## Weekly Billing Reports (DSR Resiliency)
-
-> ℹ️ **What this system does:** Automated billing system that generates weekly Excel reports from Smartsheet data.
-
-### 📋 Changelog — July 29, 2026
-
-- ✅ Problem fixed: break runbook push loop, filter Notion changelog noise, remove stale Render blueprint
-- ✅ Problem fixed: stop CI failure emails + filter Linetec runlog to contextful entries
-- ✅ Problem fixed: prevent Smartsheet API 4000 by correctly formatting column&#95;ids
-- ✨ New capability: smartsheet-python-sdk 4.3.0 migration (Phase 08)
-- 📄 Help guides updated: automated plain-language update from Notion Worker
-- 📄 Help guides updated: log 70b71f8 &#91;skip ci&#93;
-- ✅ Problem fixed: break runbook push loop, filter Notion changelog noise, remove stale Render blueprint ()
-- 📄 Help guides updated: log 6af4ee3 &#91;skip ci&#93;
 
 <!-- /runbook-repo -->
 
