@@ -5,25 +5,25 @@ title: What's New
 
 # What's New
 
-_Last updated: July 29, 2026 (updated automatically)_
+_Last updated: July 30, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
-<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
-## Weekly Billing Reports (DSR Resiliency)
+<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
+## linetec-inspector-manifest-generator
 
-> ℹ️ **What this system does:** Automated billing system that generates weekly Excel reports from Smartsheet data.
+> ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
 
-### 📋 Changelog — July 29, 2026
+### 📋 Changelog — July 30, 2026
 
-- ✅ Problem fixed: break runbook push loop, filter Notion changelog noise, remove stale Render blueprint
-- ✅ Problem fixed: stop CI failure emails + filter Linetec runlog to contextful entries
-- ✅ Problem fixed: prevent Smartsheet API 4000 by correctly formatting column&#95;ids
-- ✨ New capability: smartsheet-python-sdk 4.3.0 migration (Phase 08)
-- 📄 Help guides updated: automated plain-language update from Notion Worker
-- 📄 Help guides updated: log 70b71f8 &#91;skip ci&#93;
-- ✅ Problem fixed: break runbook push loop, filter Notion changelog noise, remove stale Render blueprint ()
-- 📄 Help guides updated: log 6af4ee3 &#91;skip ci&#93;
+- ✅ Problem fixed: bot-triage follow-ups — GF-variant render width/flag threading, gf&#95;genb record-pick guards, stale-stage route race
+- 📄 Help guides updated: planning sync — Phase 16 planned (10 plans/5 waves) + session ledgers
+- ✅ Problem fixed: row-level Week Ending Override column (unsticks Not-Completed returned workbooks)
+- • Phases 15 + 15.1: Gen-C billing pipeline + GF manifest edit-revision loop (closeout backlog)
+- ✨ New capability: plumb D-23 Week-Ending override into intake worker
+- 📄 Help guides updated: capture Phase 15.1 (Bret GF Excel-edit revision loop) + Phase 15 debug-first gate
+- ✅ Problem fixed: live admin role/ban recheck + sync banned-user skip (post-7.7 hardening)
+- ✅ Problem fixed: scope filter tolerates base-scope ProMax rows (5-WR zero-row Parser Error incident)
 
 <!-- /runbook-repo -->
 
@@ -33,6 +33,42 @@ This page explains what each of our tools does and its recent updates, in everyd
 > ℹ️ **What this system does:** &gt; 💡 The snake animation above is generated automatically by a GitHub Action — it eats your contribution tiles&#33;
 
 _Running steadily — no meaningful changes were detected in this period._ ✅
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
+## Weekly Billing Reports (DSR Resiliency)
+
+> ℹ️ **What this system does:** Automated billing system that generates weekly Excel reports from Smartsheet data.
+
+### 📋 Changelog — July 30, 2026
+
+- ✅ Problem fixed: break runbook push loop, filter Notion changelog noise, remove stale Render blueprint
+- ✅ Problem fixed: stop CI failure emails + filter Linetec runlog to contextful entries
+- ✅ Problem fixed: prevent Smartsheet API 4000 by correctly formatting column&#95;ids
+- 📄 Help guides updated: automated plain-language update from Notion Worker
+- 📄 Help guides updated: log 70b71f8 &#91;skip ci&#93;
+- ✅ Problem fixed: break runbook push loop, filter Notion changelog noise, remove stale Render blueprint ()
+- 📄 Help guides updated: log 6af4ee3 &#91;skip ci&#93;
+- 📄 Help guides updated: log 766b63a &#91;skip ci&#93;
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/notion-runbook-worker -->
+## Runbook Automation
+
+> ℹ️ **What this system does:** A Notion Worker that turns GitHub activity into a professional, living operations runbook. It gives nontechnical readers a concise current-state summary while preserving source links and technical evidence for engineers.
+
+### 📋 Changelog — July 30, 2026
+
+- 🔒 Security improvement: Rename GITHUB&#95;&#42; secret/env names to GH&#95;&#42;
+- • Replace dated runbook pages with per-system Runbooks database (in-place updates, archived history, humanized wording)
+- 📄 Help guides updated: record production and GitHub verification
+- • merge: reconcile remote notification workflow
+- ✅ Problem fixed: stabilize webhook and scheduled runbook sync
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- 📄 Help guides updated: complete professional runbook phase
+- 📄 Help guides updated: verify professional runbook goal
 
 <!-- /runbook-repo -->
 
@@ -50,7 +86,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
 
-### 📋 Changelog — July 29, 2026
+### 📋 Changelog — July 30, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -61,7 +97,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automatically synchronize attachments between two Smartsheet sheets based on matching column criteria. Runs daily at 5:00 AM UTC via GitHub Actions.
 
-### 📋 Changelog — July 29, 2026
+### 📋 Changelog — July 30, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -72,7 +108,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated Smartsheet synchronization system supporting multi-source snapshot tracking with historical backfill capabilities.
 
-### 📋 Changelog — July 29, 2026
+### 📋 Changelog — July 30, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -83,7 +119,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Locks sheet rows on smartsheet after each week ending date has been reached.
 
-### 📋 Changelog — July 29, 2026
+### 📋 Changelog — July 30, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -94,45 +130,9 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** This code automatically synchronizes the locators spreadsheets with the spreadsheets on smartsheet for seemless integration
 
-### 📋 Changelog — July 29, 2026
+### 📋 Changelog — July 30, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
-## linetec-inspector-manifest-generator
-
-> ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
-
-### 📋 Changelog — July 29, 2026
-
-- ✨ New capability: plumb D-23 Week-Ending override into intake worker
-- 📄 Help guides updated: capture Phase 15.1 (Bret GF Excel-edit revision loop) + Phase 15 debug-first gate
-- ✅ Problem fixed: live admin role/ban recheck + sync banned-user skip (post-7.7 hardening)
-- ✅ Problem fixed: scope filter tolerates base-scope ProMax rows (5-WR zero-row Parser Error incident)
-- 📄 Help guides updated: full-autonomy master-schedule intake requirement (Phase 18 scope detail)
-- ✨ New capability: optional version&#95;number input on generate-manifest workflow (manual regen of versioned rows)
-- 📄 Help guides updated: Gen B go-live record (gate armed, recovery enqueue proven)
-- 📄 Help guides updated: phase 14 post-merge ledger sync
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/notion-runbook-worker -->
-## Runbook Automation
-
-> ℹ️ **What this system does:** A Notion Worker that turns GitHub activity into a professional, living operations runbook. It gives nontechnical readers a concise current-state summary while preserving source links and technical evidence for engineers.
-
-### 📋 Changelog — July 29, 2026
-
-- 🔒 Security improvement: Rename GITHUB&#95;&#42; secret/env names to GH&#95;&#42;
-- • Replace dated runbook pages with per-system Runbooks database (in-place updates, archived history, humanized wording)
-- 📄 Help guides updated: record production and GitHub verification
-- • merge: reconcile remote notification workflow
-- ✅ Problem fixed: stabilize webhook and scheduled runbook sync
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- 📄 Help guides updated: complete professional runbook phase
-- 📄 Help guides updated: verify professional runbook goal
 
 <!-- /runbook-repo -->
 
@@ -141,7 +141,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — July 29, 2026
+### 📋 Changelog — July 30, 2026
 
 - • 📊 Audit: 2026-07-27T07:40:56Z
 
@@ -152,7 +152,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
 
-### 📋 Changelog — July 29, 2026
+### 📋 Changelog — July 30, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -163,7 +163,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** A comprehensive Python web application that processes PDF point material sheets to validate, filter, and redact Compatible Unit (CU) codes against a valid Underground (UG) product catalog.
 
-### 📋 Changelog — July 29, 2026
+### 📋 Changelog — July 30, 2026
 
 - ✨ New capability: add self-service PDF batch interface
 - • data: seed generated Work Request registry
@@ -473,7 +473,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — July 29, 2026
+### 📋 Changelog — July 30, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -484,16 +484,16 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Private, version-controlled execution infrastructure for Juan's guarded Todoist GTD system.
 
-### 📋 Changelog — July 29, 2026
+### 📋 Changelog — July 30, 2026
 
 - • Enforce daily Inbox and Capture routing
 - • Align cloud Focus health with guard v4
 - • Sync guard-v4 filter and rollover controls
 - • Host Todoist runtime in an isolated Supabase schema
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- ✨ New capability: sync Todoist guard v4
 - ✅ Problem fixed: enforce daily inbox capture routing ()
+- • Merge pull request from Linetec-Services-LLC/fix/guard-v4-cloud-focus-health-20260723
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- ✅ Problem fixed: verify cloud carryover from prior shutdown
 
 <!-- /runbook-repo -->
 
@@ -514,3 +514,4 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
+
