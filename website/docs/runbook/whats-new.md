@@ -5,25 +5,16 @@ title: What's New
 
 # What's New
 
-_Last updated: August 2, 2026 (updated automatically)_
+_Last updated: August 3, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
-
-<!-- runbook-repo: JFlo21/JFlo21 -->
-## JFlo21
-
-> ℹ️ **What this system does:** &gt; 💡 The snake animation above is generated automatically by a GitHub Action — it eats your contribution tiles&#33;
-
-_Running steadily — no meaningful changes were detected in this period._ ✅
-
-<!-- /runbook-repo -->
 
 <!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
 ## linetec-inspector-manifest-generator
 
 > ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
 
-### 📋 Changelog — August 2, 2026
+### 📋 Changelog — August 3, 2026
 
 - ✅ Problem fixed: cron incident 2026-08-01 — transient-5xx event-publish retry + stage-pack hourly cron backstop
 - ✅ Problem fixed: verify callbacks against multiple comma-separated shared secrets
@@ -36,6 +27,15 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
+<!-- runbook-repo: JFlo21/JFlo21 -->
+## JFlo21
+
+> ℹ️ **What this system does:** &gt; 💡 The snake animation above is generated automatically by a GitHub Action — it eats your contribution tiles&#33;
+
+_Running steadily — no meaningful changes were detected in this period._ ✅
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/Cognos-pdf-parser -->
 ## Parser that will offload grid format information from work request completed packets
 
@@ -45,12 +45,23 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
+<!-- runbook-repo: JFlo21/smartsheet-bot -->
+## smartsheet-bot
+
+> ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
+
+### 📋 Changelog — August 3, 2026
+
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
 ## Weekly Billing Reports (DSR Resiliency)
 
 > ℹ️ **What this system does:** Automated billing system that generates weekly Excel reports from Smartsheet data.
 
-### 📋 Changelog — August 2, 2026
+### 📋 Changelog — August 3, 2026
 
 - ✅ Problem fixed: break runbook push loop, filter Notion changelog noise, remove stale Render blueprint
 - 📄 Help guides updated: automated plain-language update from Notion Worker
@@ -75,7 +86,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** A Notion Worker that turns GitHub activity into a professional, living operations runbook. It gives nontechnical readers a concise current-state summary while preserving source links and technical evidence for engineers.
 
-### 📋 Changelog — August 2, 2026
+### 📋 Changelog — August 3, 2026
 
 - 📄 Help guides updated: record production and GitHub verification
 - • merge: reconcile remote notification workflow
@@ -89,7 +100,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
 
-### 📋 Changelog — August 2, 2026
+### 📋 Changelog — August 3, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -100,7 +111,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automatically synchronize attachments between two Smartsheet sheets based on matching column criteria. Runs daily at 5:00 AM UTC via GitHub Actions.
 
-### 📋 Changelog — August 2, 2026
+### 📋 Changelog — August 3, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -111,7 +122,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated Smartsheet synchronization system supporting multi-source snapshot tracking with historical backfill capabilities.
 
-### 📋 Changelog — August 2, 2026
+### 📋 Changelog — August 3, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -122,7 +133,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Locks sheet rows on smartsheet after each week ending date has been reached.
 
-### 📋 Changelog — August 2, 2026
+### 📋 Changelog — August 3, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -133,7 +144,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** This code automatically synchronizes the locators spreadsheets with the spreadsheets on smartsheet for seemless integration
 
-### 📋 Changelog — August 2, 2026
+### 📋 Changelog — August 3, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -144,20 +155,9 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — August 2, 2026
+### 📋 Changelog — August 3, 2026
 
 - • 📊 Audit: 2026-07-27T07:40:56Z
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/smartsheet-bot -->
-## smartsheet-bot
-
-> ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
-
-### 📋 Changelog — August 2, 2026
-
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
 <!-- /runbook-repo -->
 
@@ -463,7 +463,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — August 2, 2026
+### 📋 Changelog — August 3, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -474,7 +474,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Private, version-controlled execution infrastructure for Juan's guarded Todoist GTD system.
 
-### 📋 Changelog — August 2, 2026
+### 📋 Changelog — August 3, 2026
 
 - ✨ New capability: add owner-tolerant routine canaries
 - ✅ Problem fixed: restore cloud audit API surface
