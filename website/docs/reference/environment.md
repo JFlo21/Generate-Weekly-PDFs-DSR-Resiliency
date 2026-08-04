@@ -805,4 +805,4 @@ ever needed. See the `[2026-04-24]` Living Ledger entry in
 | `NOTION_CHANGELOG_DB` | Changelog DB. |
 | `NOTION_METRICS_DB` | Metrics DB. |
 | `NOTION_INCIDENTS_DB` | Incidents DB. |
-| `NOTION_ENABLED` | Repository variable toggle — the workflow short-circuits when this isn't `true`. |
+| `NOTION_ENABLED` | Optional repository variable toggle — set to `false` to disable Notion sync even when `NOTION_TOKEN` is configured. |

@@ -33,8 +33,8 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Only run if Notion is configured
-    if: ${{ vars.NOTION_ENABLED == 'true' }}
+    # Run when Notion is configured; allow explicit disable via NOTION_ENABLED=false
+    if: ${{ vars.NOTION_ENABLED != 'false' && secrets.NOTION_TOKEN != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4

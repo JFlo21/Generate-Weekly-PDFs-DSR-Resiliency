@@ -32,7 +32,8 @@ Key behaviors:
 - Runs `scripts/generate_artifact_manifest.py`, organizes Excel files
   `by_wr/` and `by_week/` in `artifact_staging/`, and uploads multiple
   named artifacts (Complete, By-WorkRequest, By-WeekEnding, Manifest).
-- Calls `scripts/notion_sync.py --mode run` when `vars.NOTION_ENABLED == 'true'`.
+- Calls `scripts/notion_sync.py --mode run` when `NOTION_TOKEN` is present and
+  `NOTION_ENABLED` is not explicitly set to `false`.
 
 ### Subcontractor rate variants
 
