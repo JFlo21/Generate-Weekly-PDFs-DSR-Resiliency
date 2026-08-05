@@ -76,7 +76,7 @@ Reports are welcome for any part of this repository, including:
 | Secret scanning & push protection | GitHub repository settings |
 | Lint / test gates on every PR | `.github/workflows/ci-checks.yml`, `python-lint.yml` |
 | System health monitoring | `.github/workflows/system-health-check.yml` |
-| Error monitoring with PII scrubbing | Sentry (Python + Node + React) |
+| Error monitoring | Sentry (Python + React); PII scrubbing hooks are implemented in the Python integration only — the React initializer sets `sendDefaultPii: false` but has no event scrubber, so do not treat frontend telemetry as sanitized |
 | Financial audit trail | `audit_billing_changes.py` risk-level detection |
 
 ## Hardening Guidelines for Contributors

@@ -147,7 +147,7 @@ Full details: `.github/prompts/configuration-environment.md`.
 |----------|---------|
 | Weekdays (Mon–Fri) | 7 runs/day (UTC 13, 15, 17, 19, 21, 23, 01) |
 | Weekends | 3 runs/day (UTC 15, 19, 23) |
-| Weekly deep run | UTC Monday 05:00 (Sunday 11 PM Central) |
+| Weekly deep run | UTC Monday 05:00 (Central: Sunday 11 PM during CST, Monday 12 AM during CDT) |
 
 - Runner ceiling `timeout-minutes: 180`; Python graceful stop at
   `TIME_BUDGET_MINUTES=165`. The 15-minute gap protects cache-save and
@@ -170,7 +170,10 @@ pytest tests/ -v                                   # must pass before push
 python -m py_compile generate_weekly_pdfs.py       # syntax check
 
 SKIP_UPLOAD=true python generate_weekly_pdfs.py    # local dry run
-TEST_MODE=true python generate_weekly_pdfs.py      # synthetic data, no token
+# Synthetic in-memory data — synthetic route fires only when
+# SMARTSHEET_API_TOKEN is absent; unset it to avoid touching
+# production data:
+SMARTSHEET_API_TOKEN= TEST_MODE=true python generate_weekly_pdfs.py
 
 python diagnose_pricing_issues.py                  # pricing exclusions
 python audit_billing_changes.py                    # audit sweep

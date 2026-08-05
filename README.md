@@ -85,11 +85,14 @@ python generate_weekly_pdfs.py
 # Local dry run — generate Excel files but skip Smartsheet upload
 SKIP_UPLOAD=true python generate_weekly_pdfs.py
 
-# Synthetic test mode — no API token required
-TEST_MODE=true python generate_weekly_pdfs.py
+# Synthetic test mode — uses an in-memory dataset ONLY when
+# SMARTSHEET_API_TOKEN is absent. If a token is set in your
+# environment, the real Smartsheet client is used instead, so
+# unset it to guarantee the synthetic, offline route:
+SMARTSHEET_API_TOKEN= TEST_MODE=true python generate_weekly_pdfs.py
 
 # Limit scope to specific Work Requests
-TEST_MODE=true WR_FILTER=WR_12345,WR_67890 python generate_weekly_pdfs.py
+SMARTSHEET_API_TOKEN= TEST_MODE=true WR_FILTER=WR_12345,WR_67890 python generate_weekly_pdfs.py
 ```
 
 Generated files land in `generated_docs/` as

@@ -227,7 +227,9 @@ EXECUTION TYPE DETECTION:
     else 
       t=scheduled
     fi
-    if [ $day -eq 1 ] && [ $hour -eq 23 ]; then 
+    # Weekly deep run cron '0 5 * * 1' (UTC Mon 05:00) is Central
+    # Sunday 23:00 (CST) or Monday 00:00 (CDT):
+    if { [ $day -eq 0 ] && [ $hour -eq 23 ]; } || { [ $day -eq 1 ] && [ $hour -eq 0 ]; }; then
       t=weekly_comprehensive
     fi
     echo "execution_type=$t" >> $GITHUB_OUTPUT
