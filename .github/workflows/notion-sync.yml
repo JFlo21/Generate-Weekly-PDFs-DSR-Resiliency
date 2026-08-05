@@ -33,23 +33,41 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Only run if Notion is configured
-    if: ${{ vars.NOTION_ENABLED == 'true' }}
+    # Run whenever the Notion token secret is configured. The optional
+    # NOTION_ENABLED repository variable acts as an explicit kill-switch
+    # (set it to 'false' to pause syncing) — previously the job required
+    # NOTION_ENABLED == 'true', so every run was skipped when the
+    # variable was never created.
+    # NOTE: the `secrets` context is not allowed in `if:` expressions
+    # (GitHub rejects the workflow file at validation), so token
+    # presence is exported as a job-level env flag and each step gates
+    # on `env.NOTION_CONFIGURED` instead.
+    if: ${{ vars.NOTION_ENABLED != 'false' }}
+    env:
+      NOTION_CONFIGURED: ${{ secrets.NOTION_TOKEN != '' }}
     steps:
+      - name: Notion token not configured — skipping sync
+        if: env.NOTION_CONFIGURED != 'true'
+        run: echo "::notice::NOTION_TOKEN secret is not set; all sync steps are skipped. Add the secret in Settings → Secrets and variables → Actions."
+
       - name: Checkout
+        if: env.NOTION_CONFIGURED == 'true'
         uses: actions/checkout@v4
         with:
           fetch-depth: 100  # Enough history for commit sync
 
       - name: Setup Python
+        if: env.NOTION_CONFIGURED == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
       - name: Install dependencies
+        if: env.NOTION_CONFIGURED == 'true'
         run: pip install "notion-client==2.2.1"
 
       - name: Sync to Notion
+        if: env.NOTION_CONFIGURED == 'true'
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_PIPELINE_DB: ${{ secrets.NOTION_PIPELINE_DB }}
