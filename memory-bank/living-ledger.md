@@ -5200,3 +5200,21 @@ exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
 - **Rule:** any variable referenced by `main()`'s except/finally
   handlers must be initialized BEFORE the try block. When adding new
   session counters, hoist them next to `_txn`.
+
+## [2026-08-05 21:20] Quantity parsing refined: shared float-first `_parse_quantity` helper (supersedes the strip-only rule above)
+
+- **Refinement (Copilot review, PR #297):** the [2026-08-05 21:10] rule
+  ("parse Quantity through the `_RE_EXTRACT_NUMBERS` strip") corrupted
+  purely numeric scientific-notation values — `str(1e+20)` strips to
+  `'120'`, a silently WRONG number rather than a safe fall-through.
+- **Rule (updated):** every consumer of the canonical `Quantity` key —
+  pricing (`_resolve_row_price`, `_subcontractor_rescue_price`) AND the
+  Excel display path (`pipeline/excel.py`) — MUST parse through the
+  single shared `pipeline.pricing._parse_quantity` helper: direct
+  `float()` first (preserves every purely numeric form), decoration
+  strip (`'2 EA'` → `2.0`) only on failure, `0.0` otherwise. Never
+  reintroduce a strip-first or bare-float parse at any call site.
+- **Sentry PII:** the pricing fall-through WARNING
+  ("Subcontractor price fall-through …") embeds CU, rate, and the raw
+  Quantity cell, so its prefix is registered in `_PII_LOG_MARKERS`
+  (covers both the Sentry Logs plane and the breadcrumb plane).

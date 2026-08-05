@@ -4075,6 +4075,17 @@ class TestResolveRowPriceQuantityCoercion(unittest.TestCase):
                 999.0,
             )
 
+    def test_quantity_scientific_notation_parses_directly(self):
+        # Copilot review (PR #297): the float-first parse preserves
+        # scientific notation exactly as the pre-incident code did.
+        # A strip-first parse corrupts it (str(1e+20) → '120') into a
+        # WRONG number rather than a safe fall-through.
+        with mock.patch.object(
+            generate_weekly_pdfs, '_SUBCONTRACTOR_RATES', self.RATES_STUB,
+        ):
+            self.assertEqual(self._resolve(self._row('2e0')), 200.0)
+            self.assertEqual(self._resolve(self._row(1e20)), 100.0 * 1e20)
+
     def test_quantity_decorated_string_uses_rate_times_qty(self):
         # 2026-08-05 BKT-IP8-F incident: operator-entered unit
         # decoration ('2 EA') previously raised in the bare float()
@@ -4105,11 +4116,12 @@ class TestResolveRowPriceQuantityCoercion(unittest.TestCase):
             "(2026-08-05 BKT-IP8-F incident) — see 01-11-PLAN.md for "
             "the original IN-02 rationale.",
         )
-        # Confirm the normalized parse is present: pricing MUST use the
-        # same _RE_EXTRACT_NUMBERS strip as the Excel display parser so
-        # a decorated Quantity ('2 EA') can never price differently
-        # than it displays (2026-08-05 BKT-IP8-F incident).
-        self.assertIn("_RE_EXTRACT_NUMBERS.sub", src)
+        # Confirm the SHARED parser is used: pricing MUST route through
+        # _parse_quantity — the same float-first-then-strip helper the
+        # Excel display path uses — so a Quantity value can never price
+        # differently than it displays (2026-08-05 BKT-IP8-F incident;
+        # float-first refinement per Copilot review, PR #297).
+        self.assertIn("_parse_quantity(", src)
 
 
 class TestPhase1FilenameRoundTripCoverage(unittest.TestCase):

@@ -1,9 +1,10 @@
-# Dependabot configuration — automated dependency update PRs.
+# Dependabot configuration — automated VERSION-update PRs.
 #
-# Security-update PRs are always enabled by GitHub once this file exists;
-# the schedules below additionally keep routine version bumps flowing so
-# vulnerable ranges never linger. Weekly cadence + small PR limits keep
-# the noise manageable for a single-maintainer repo.
+# This file schedules routine version bumps so vulnerable ranges never
+# linger. Security-update PRs are governed separately: enable
+# "Dependabot security updates" under the repository's Settings →
+# Code security. Weekly cadence + small PR limits keep the noise
+# manageable for a single-maintainer repo.
 #
 # NOTE: requirements.txt intentionally pins transport-critical deps
 # exactly (see memory-bank/living-ledger.md, 260608-gwm rule) — review

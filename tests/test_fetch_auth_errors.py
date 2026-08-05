@@ -9,10 +9,21 @@ Covers:
     zero-row run WITHOUT auth errors keeps the legacy contract (returns
     an empty list; the caller raises the generic message).
 """
+import sys
 import unittest
+from pathlib import Path
 from unittest import mock
 
-import pipeline.fetch as fetch
+# Ledger rule [2026-06-30 19:48]: test modules importing pipeline.*
+# MUST bootstrap the repo root into sys.path themselves — there is no
+# conftest.py, so relying on an alphabetically-earlier sibling's
+# bootstrap breaks the documented single-file workflow
+# (cd tests && python -m pytest test_fetch_auth_errors.py).
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+import pipeline.fetch as fetch  # noqa: E402
 
 
 class _StructuredApiError(Exception):

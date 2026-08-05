@@ -56,6 +56,9 @@ accepted.
   truly non-numeric value is the usual cause. Decorated values like `2 EA` no
   longer trigger this.
 - **After correcting quantity data for a past week**, force regeneration the
-  usual way (`REGEN_WEEKS` / `RESET_HASH_HISTORY` via the workflow's
-  `advanced_options`) so the corrected rate × quantity price reaches the
-  attached workbook.
+  usual way: pass the `regen_weeks:<MMDDYY>` key inside the workflow's
+  `advanced_options` field for targeted weeks, or set the separate
+  `reset_hash_history` workflow input to `true` for a full rebuild — so the
+  corrected rate × quantity price reaches the attached workbook.
+  (`RESET_HASH_HISTORY` is its own top-level `workflow_dispatch` input; the
+  `advanced_options` parser does not accept it.)

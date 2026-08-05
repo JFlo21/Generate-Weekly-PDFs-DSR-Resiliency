@@ -87,6 +87,40 @@ SUBCONTRACTOR_RATES_CSV = _sanitize_csv_path(
 )
 
 
+def _parse_quantity(qty_raw: "str | float | int | None") -> float:
+    """Parse a canonical ``Quantity`` cell value to a float.
+
+    THE single shared parser for pricing AND the Excel display path
+    (2026-08-05 BKT-IP8-F incident + Copilot review, PR #297):
+
+    1. Direct ``float()`` first — preserves every purely numeric form
+       exactly as the pre-incident code did, including scientific
+       notation, which the decoration-strip would silently corrupt
+       (``str(1e+20)`` regex-strips to ``'120'`` — a WRONG number,
+       not a safe fall-through).
+    2. On failure, strip unit decorations via ``_RE_EXTRACT_NUMBERS``
+       (``'2 EA'`` → ``'2'``) and retry.
+    3. Anything else parses to ``0.0`` — callers treat that as a
+       degenerate quantity.
+
+    Display and pricing MUST both route through this helper so a value
+    can never display as N while pricing as anything other than N.
+    """
+    if qty_raw is None:
+        return 0.0
+    try:
+        return float(qty_raw)
+    except (TypeError, ValueError):
+        pass
+    qty_str = _RE_EXTRACT_NUMBERS.sub('', str(qty_raw))
+    if qty_str in ('', '.', '-', '-.', '.-'):
+        return 0.0
+    try:
+        return float(qty_str)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def parse_price(price_str: str | float | int | None) -> float:
     """Safely convert a price string to a float.
     
@@ -507,17 +541,13 @@ def _subcontractor_rescue_price(row_data: dict) -> float:
         rate = rate_row.get('reduced_transfer_price', 0.0)
     else:
         return 0.0
-    # 2026-08-05 BKT-IP8-F incident: normalize Quantity exactly like
-    # ``_resolve_row_price`` / the Excel writer (strip unit decorations
-    # such as '2 EA' via ``_RE_EXTRACT_NUMBERS``) so a decorated
-    # quantity cannot silently fail admission here while displaying a
-    # positive quantity downstream. Clean numeric inputs parse
-    # identically to the previous bare-float implementation.
-    qty_str = _RE_EXTRACT_NUMBERS.sub('', str(row_data.get('Quantity', '') or ''))
-    try:
-        qty = float(qty_str) if qty_str not in ('', '.', '-', '-.', '.-') else 0.0
-    except (TypeError, ValueError):
-        qty = 0.0
+    # 2026-08-05 BKT-IP8-F incident: parse Quantity through the shared
+    # ``_parse_quantity`` helper (float-first, then decoration strip)
+    # so a decorated quantity ('2 EA') cannot silently fail admission
+    # here while displaying a positive quantity downstream. Clean
+    # numeric inputs parse identically to the previous bare-float
+    # implementation.
+    qty = _parse_quantity(row_data.get('Quantity'))
     if rate <= 0 or qty <= 0:
         return 0.0
     return rate * qty
@@ -643,20 +673,16 @@ def _resolve_row_price(row: dict, variant: str, missing_cus) -> float:
         rate = rate_row.get(f'reduced_{wt}_price', 0.0)
 
     # Canonical 'Quantity' ONLY — never 'Units Completed' (checkbox).
-    # 2026-08-05 BKT-IP8-F incident: parse Quantity with the SAME
-    # normalization the Excel writer uses (``_RE_EXTRACT_NUMBERS``
-    # strips unit decorations such as ``'2 EA'`` before ``float()``).
-    # The previous bare ``float(qty_raw)`` raised on any decorated
-    # value, silently falling through to the raw SmartSheet
-    # ``Units Total Price`` — the workbook then displayed Quantity=2
-    # (lenient display parser) alongside a 1-unit price (strict
-    # pricing parser). Clean numeric inputs (None, '', 0, 0.0, '1.5',
-    # invalid) parse identically to the previous implementation.
-    qty_str = _RE_EXTRACT_NUMBERS.sub('', str(row.get('Quantity', '') or ''))
-    try:
-        qty = float(qty_str) if qty_str not in ('', '.', '-', '-.', '.-') else 0.0
-    except (TypeError, ValueError):
-        qty = 0.0
+    # 2026-08-05 BKT-IP8-F incident: parse Quantity through the shared
+    # ``_parse_quantity`` helper — the SAME parser the Excel display
+    # path uses. The previous bare ``float(qty_raw)`` raised on any
+    # decorated value ('2 EA'), silently falling through to the raw
+    # SmartSheet ``Units Total Price`` — the workbook then displayed
+    # Quantity=2 (lenient display parser) alongside a 1-unit price
+    # (strict pricing parser). Clean numeric inputs (None, '', 0, 0.0,
+    # '1.5', scientific notation, invalid) parse identically to the
+    # pre-incident implementation.
+    qty = _parse_quantity(row.get('Quantity'))
 
     if rate <= 0 or qty <= 0:
         # Degenerate row: SmartSheet pricing as the safety floor,
