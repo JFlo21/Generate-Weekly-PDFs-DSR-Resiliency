@@ -19,6 +19,26 @@ const config: Config = {
   organizationName: 'jflo21',
   projectName: 'generate-weekly-pdfs-dsr-resiliency',
 
+  // Docusaurus Faster (Rspack/SWC bundling) + v4-ready defaults.
+  // `faster: true` swaps webpack for Rspack via @docusaurus/faster.
+  // v4 future flags are opted into individually: mdx1Compat must STAY
+  // ENABLED because the change-log generator and the Notion runbook
+  // worker continuously emit HTML comments (`<!-- truncate -->`,
+  // `<!-- runbook-repo -->`) that MDX rejects once compat is disabled.
+  future: {
+    v4: {
+      removeLegacyPostBuildHeadAttribute: true,
+      useCssCascadeLayers: true,
+      siteStorageNamespacing: true,
+      fasterByDefault: true,
+      mdx1CompatDisabledByDefault: false,
+    },
+    faster: true,
+  },
+
+  // Keep 'warn' (not 'throw'): the change log and whats-new.md are
+  // bot-written on every push — a bad link in generated content must not
+  // stop the runbook from deploying.
   onBrokenLinks: 'warn',
 
   markdown: {
