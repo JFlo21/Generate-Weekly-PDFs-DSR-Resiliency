@@ -243,7 +243,7 @@ Do not delete this parser even if the top-level input count is below GitHub's li
 **Schedule (UTC crons, `TZ: America/Chicago` inside the job):**
 - Weekdays (Mon–Fri): 7 runs/day at UTC `13,15,17,19,21,23,01` (`0 13,15,17,19,21,23,1 * * 1-5`) → roughly every 2 hours during US business hours.
 - Weekends (Sat, Sun): 3 runs/day at UTC `15,19,23` (`0 15,19,23 * * 0,6`).
-- Weekly deep run: `0 5 * * 1` (UTC Monday 05:00 = Sunday 23:00 CST / Monday 00:00 CDT Central). The job's `if: day==1 && hour==23` guard in Central time is what flips the run into the "weekly comprehensive" branch.
+- Weekly deep run: `0 5 * * 1` (UTC Monday 05:00 = Sunday 23:00 CST / Monday 00:00 CDT Central). The job classifies this run by cron identity — `github.event.schedule == '0 5 * * 1'` — rather than wall-clock time, so a GitHub scheduling delay cannot mislabel it, and manual dispatches (empty `github.event.schedule`) always stay `manual`.
 
 **Runner timeouts (the `core` job in `weekly-excel-generation.yml`):**
 - `timeout-minutes: 180` — hard Actions ceiling.

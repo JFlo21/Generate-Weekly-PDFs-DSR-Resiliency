@@ -1,155 +1,186 @@
-# Smartsheet Weekly PDF Generator
+<div align="center">
 
-Automated billing system that generates weekly Excel reports from Smartsheet data.
+<img src="https://github.com/user-attachments/assets/6f99f3d6-a519-47d8-bbf0-7cf8b356e773" alt="LineTec Services — A Centuri Company" width="480">
 
-## 🚀 Quick Start on Replit
+# LineTec Services — Weekly Billing Automation
 
-This project is now configured to run on Replit! Here's how to get started:
+**Production billing engine that turns Smartsheet field data into
+polished, audit-ready weekly Excel reports — automatically.**
 
-### 1. Configure Your Environment
+![Python](https://img.shields.io/badge/Python-3.10%2B-b22222?logo=python&logoColor=white)
+![Smartsheet](https://img.shields.io/badge/Smartsheet-API-708090?logo=smartsheet&logoColor=white)
+![Excel](https://img.shields.io/badge/Excel-openpyxl-b22222?logo=microsoftexcel&logoColor=white)
+![GitHub Actions](https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-708090?logo=githubactions&logoColor=white)
+![Sentry](https://img.shields.io/badge/Monitoring-Sentry-b22222?logo=sentry&logoColor=white)
 
-Create a `.env` file from the example:
-```bash
-cp .env.example .env
-```
-
-Then edit `.env` and add your Smartsheet API token:
-```
-SMARTSHEET_API_TOKEN=your_actual_api_token_here
-```
-
-### 2. Run the Generator
-
-The main script generates weekly billing Excel files:
-```bash
-python generate_weekly_pdfs_complete_fixed.py
-```
-
-For local testing without uploading to Smartsheet:
-```bash
-SKIP_UPLOAD=true python generate_weekly_pdfs_complete_fixed.py
-```
-
-### 3. View Help & Available Scripts
-
-Click the "Run" button or execute:
-```bash
-python run_info.py
-```
-
-## 📚 Available Scripts
-
-### Main Scripts
-- `generate_weekly_pdfs_complete_fixed.py` - **Primary production script** for generating weekly PDFs
-- `generate_weekly_pdfs.py` - Alternative version of the generator
-
-### Utility Scripts
-- `audit_billing_changes.py` - Monitor Smartsheet for unauthorized billing changes
-- `cleanup_excels.py` - Clean up old Excel files (typically for CI/CD)
-- `analyze_excel_totals.py` - Diagnostic tool for analyzing Excel file totals
-- `analyze_specific_excel.py` - Analyze specific Excel files
-- `diagnose_pricing_issues.py` - Identify why work items are excluded due to pricing
-
-### Testing
-```bash
-pytest tests/
-```
-
-## 🎯 What This Tool Does
-
-1. **Connects to Smartsheet** - Pulls data from configured Smartsheet sheets
-2. **Groups Data** - Organizes by work request number and week ending date
-3. **Generates Excel Files** - Creates formatted billing reports with:
-   - Company logo
-   - Formatted headers and styling
-   - Financial data and totals
-   - Proper number formatting
-4. **Uploads to Smartsheet** - Attaches generated reports (unless `SKIP_UPLOAD=true`)
-5. **Audit Tracking** - Monitors for unauthorized billing changes
-
-## ⚙️ Configuration
-
-### Required Environment Variables
-- `SMARTSHEET_API_TOKEN` - Your Smartsheet API token (required)
-
-### Optional Environment Variables
-- `TARGET_SHEET_ID` - Destination sheet for Excel attachments (default: 5723337641643908)
-- `AUDIT_SHEET_ID` - Destination for audit rows/stats
-- `SKIP_UPLOAD` - Skip Smartsheet uploads for local testing (default: false)
-- `SKIP_CELL_HISTORY` - Skip cell history for performance (default: false)
-- `RES_GROUPING_MODE` - Grouping mode: primary, helper, or both (default: both)
-- `SENTRY_DSN` - Sentry.io DSN for error monitoring (optional)
-
-## 📁 Output
-
-Generated Excel files are saved to the `generated_docs/` directory.
-
-## 🔐 Getting a Smartsheet API Token
-
-1. Log into Smartsheet
-2. Click your profile picture → Apps & Integrations
-3. Click "API Access"
-4. Click "Generate new access token"
-5. Give it a name and copy the token
-6. Add it to your `.env` file
-
-## 🏗️ Azure DevOps Integration
-
-This project includes complete Azure Pipeline configuration for automated GitHub to Azure DevOps synchronization:
-
-- See `README_AZURE.md` for setup instructions
-- See `AZURE_QUICKSTART.md` for quick 5-minute setup
-- See `AZURE_PIPELINE_SETUP.md` for detailed configuration
-- See `AZURE_ARCHITECTURE.md` for architecture details
-
-## 🧪 Testing
-
-Run the test suite:
-```bash
-pytest tests/
-```
-
-Run with coverage:
-```bash
-pytest tests/ --cov
-```
-
-## 📝 Features
-
-✅ **WR 90093002 Excel generation fix** - Critical fix applied  
-✅ **WR 89954686 specific handling** - Custom handling  
-✅ **Concurrent processing** - ThreadPoolExecutor for performance  
-✅ **Sentry integration** - Error monitoring and reporting  
-✅ **Audit system** - Financial data validation  
-✅ **Flexible grouping** - Multiple grouping modes supported  
-
-## 🛠️ Development
-
-This project uses:
-- Python 3.11
-- `smartsheet-python-sdk` for Smartsheet API
-- `openpyxl` for Excel file generation
-- `pandas` for data processing
-- `pytest` for testing
-
-## 📖 More Documentation
-
-- **Living runbook site** → `website/` (Docusaurus). Runs locally with
-  `cd website && npm install && npm run start`. Deploys to Vercel; every
-  merge to `master` appends a change-log entry via
-  `.github/workflows/docs-changelog.yml`.
-- `README_AZURE.md` - Azure DevOps pipeline documentation
-- `AZURE_QUICKSTART.md` - Quick setup guide  
-- `AZURE_PIPELINE_SETUP.md` - Complete setup guide
-- `AZURE_ARCHITECTURE.md` - Architecture details
-
-## 🆘 Support
-
-For issues with:
-- **Smartsheet connection**: Check your API token in `.env`
-- **Excel generation**: Check logs in console output
-- **Azure Pipeline**: See Azure documentation files
+</div>
 
 ---
 
-**Note**: This is a command-line tool. There is no web interface.
+## 🏗️ What This Repository Is
+
+This is LineTec Services' **production billing automation system**. On a
+cron schedule (roughly every 2 hours on weekdays), it:
+
+1. **Connects to Smartsheet** and auto-discovers 13+ source sheets via
+   folder-based discovery, validating column mappings.
+2. **Fetches ~550 rows in parallel** (ThreadPoolExecutor, capped at 8
+   workers to respect Smartsheet's 300 req/min rate limit).
+3. **Filters and groups rows** by Work Request #, week-ending date,
+   variant, foreman, department, and job.
+4. **Detects changes** with SHA256 hashes per group so unchanged weeks
+   are skipped (`generated_docs/hash_history.json`).
+5. **Generates styled Excel workbooks** (`openpyxl`) with the LineTec
+   logo, formatted headers, and totals.
+6. **Audits financial data** (`audit_billing_changes.py`) for price
+   anomalies with LOW/MEDIUM/HIGH risk levels.
+7. **Uploads the finished reports back to Smartsheet** as attachments
+   on the target sheet.
+
+```
+Smartsheet API → discovery → parallel fetch → filter + group by WR/week
+   → SHA256 change detection → Excel generation → audit → upload
+```
+
+## 📁 Repository Layout
+
+| Path | Purpose |
+|------|---------|
+| `generate_weekly_pdfs.py` | Production entry point (facade over `pipeline/`) |
+| `pipeline/` | Core engine modules — discovery, fetch, grouping, pricing, change detection, Excel, upload, cleanup |
+| `audit_billing_changes.py` | Price anomaly / risk-level audit engine |
+| `billing_audit/` | Supabase-backed audit fingerprinting and writer |
+| `portal-v2/` | React 18 + TypeScript + Vite + Supabase dashboard (deploys to Vercel) |
+| `website/` | Docusaurus living runbook (deploys to Vercel) |
+| `scripts/` | Notion sync, artifact manifest, runbook, and Supabase publishing utilities |
+| `tests/` | Pytest suite for the Python engine |
+| `.github/workflows/weekly-excel-generation.yml` | Production cron + manual dispatch workflow |
+| `generated_docs/` | Output directory (gitignored, safe to clear) |
+
+## 🚀 Quick Start
+
+### 1. Install
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. Configure
+
+```bash
+cp .env.example .env
+# Edit .env and set:
+SMARTSHEET_API_TOKEN=your_actual_api_token_here
+```
+
+To get a token: Smartsheet → profile picture → **Apps & Integrations**
+→ **API Access** → **Generate new access token**.
+
+### 3. Run
+
+```bash
+# Full production run
+python generate_weekly_pdfs.py
+
+# Local dry run — generate Excel files but skip Smartsheet upload
+SKIP_UPLOAD=true python generate_weekly_pdfs.py
+
+# Synthetic test mode — uses an in-memory dataset ONLY when
+# SMARTSHEET_API_TOKEN is absent. If a token is set in your
+# environment, the real Smartsheet client is used instead, so
+# unset it to guarantee the synthetic, offline route:
+SMARTSHEET_API_TOKEN= TEST_MODE=true python generate_weekly_pdfs.py
+
+# Limit scope to specific Work Requests
+SMARTSHEET_API_TOKEN= TEST_MODE=true WR_FILTER=WR_12345,WR_67890 python generate_weekly_pdfs.py
+```
+
+Generated files land in `generated_docs/` as
+`WR_{wr}_WeekEnding_{MMDDYY}_{timestamp}{variant}_{hash}.xlsx`.
+
+## 🧪 Testing & Validation
+
+```bash
+pytest tests/ -v                               # full suite — must pass before push
+pytest tests/ --cov                            # with coverage
+python -m py_compile generate_weekly_pdfs.py   # syntax-only check
+```
+
+## ⚙️ Configuration
+
+All behavior is controlled by **30+ environment variables** read via
+`os.getenv()` with safe defaults. The most commonly used:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `SMARTSHEET_API_TOKEN` | — | **Required.** Smartsheet API access |
+| `TARGET_SHEET_ID` | `5723337641643908` | Destination sheet for Excel attachments |
+| `AUDIT_SHEET_ID` | — | Destination for audit rows/stats |
+| `SKIP_UPLOAD` | `false` | Generate locally without uploading |
+| `TEST_MODE` | `false` | Synthetic data only when `SMARTSHEET_API_TOKEN` is absent |
+| `RES_GROUPING_MODE` | `both` | `primary`, `helper`, or `both` |
+| `WR_FILTER` | — | Comma list of Work Requests to process |
+| `FORCE_GENERATION` | `false` | Bypass change detection |
+| `RESET_HASH_HISTORY` | `false` | Force full regeneration in CI |
+| `SENTRY_DSN` | — | Sentry.io error monitoring |
+
+Full reference: `.github/prompts/configuration-environment.md` and
+`.github/instructions/copilot-setup.instructions.md`.
+
+## 🔄 CI/CD & Operations
+
+- **`weekly-excel-generation.yml`** — production cron: 7 runs/day on
+  weekdays, 3 runs/day on weekends, plus a weekly comprehensive Monday
+  run. Manual dispatch supports an `advanced_options`
+  `key:value,key:value` field (e.g.
+  `max_groups:50,regen_weeks:081725;082425`).
+- **`snyk-security.yml`** / **`python-lint.yml`** / **`ci-checks.yml`**
+  — security scanning and lint/test gates.
+- **`docs-changelog.yml`** — appends a runbook changelog entry on every
+  merge to `master`.
+- **Azure DevOps mirror** — see `README_AZURE.md`,
+  `AZURE_QUICKSTART.md`, `AZURE_PIPELINE_SETUP.md`, and
+  `AZURE_ARCHITECTURE.md`.
+- **Sentry** — Python, Node, and React monitoring
+  (`docs/sentry-implementation.md`).
+
+## 🛠️ Utility Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `audit_billing_changes.py` | Monitor Smartsheet for unauthorized billing changes |
+| `cleanup_excels.py` | Remove stale Excel files, preserving the latest per (WR, week) |
+| `diagnose_pricing_issues.py` | Explain why work items were excluded due to pricing |
+| `analyze_excel_totals.py` | Diagnostic tool for analyzing Excel file totals |
+| `run_info.py` | List available scripts and usage |
+
+## 📖 Documentation
+
+- **`wiki.md`** — the in-repo wiki: architecture deep dive, data flow,
+  and operations guide.
+- **`website/`** — Docusaurus living runbook
+  (`cd website && npm install && npm run start`).
+- **`SECURITY.md`** — security policy and vulnerability reporting.
+- **`memory-bank/`** — long-form project context and the Living Ledger
+  of operational rules.
+- **`AGENTS.md` / `CLAUDE.md`** — AI-agent working agreements for this
+  codebase.
+
+## 🆘 Support
+
+| Problem | Where to look |
+|---------|---------------|
+| Smartsheet connection | Check `SMARTSHEET_API_TOKEN` in `.env` |
+| Excel generation | Console logs (emoji-tagged: 🚀 ⚠️ ❌ ✅) |
+| Change detection | `.github/prompts/change-detection-troubleshooting.md` |
+| Azure pipeline | `README_AZURE.md` and companion docs |
+
+---
+
+<div align="center">
+
+**LineTec Services** · *A Centuri Company*
+
+⚡ Powering weekly billing operations with automation, accuracy, and audit trails. ⚡
+
+</div>
