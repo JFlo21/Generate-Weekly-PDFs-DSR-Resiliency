@@ -32,6 +32,7 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — August 5, 2026
 
+- 📄 Help guides updated: record command center rollout
 - ✅ Problem fixed: route and verify Notion runbook updates
 - 📄 Help guides updated: record production and GitHub verification
 - • merge: reconcile remote notification workflow
@@ -501,4 +502,3 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
-
