@@ -12,18 +12,18 @@ This page explains what each of our tools does and its recent updates, in everyd
 <!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
 ## Weekly Billing Reports (DSR Resiliency)
 
-> ℹ️ **What this system does:** Automated billing system that generates weekly Excel reports from Smartsheet data.
+> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
 ### 📋 Changelog — August 5, 2026
 
+- 📄 Help guides updated: rebrand README, SECURITY, and add wiki.md with LineTec branding
 - ✨ New capability: upgrade runbook to Docusaurus 3.10.2 + Faster, harden Vercel update pipeline
 - ✅ Problem fixed: Notion sync skipped every run — gate on token secret instead of unset variable
 - ✅ Problem fixed: correct column&#95;ids serialization for get&#95;sheet API
+- 📄 Help guides updated: rebrand README, SECURITY, and add wiki.md with LineTec branding ()
+- 📄 Help guides updated: automated plain-language update from Notion Worker
 - 📄 Help guides updated: log 4cddbea &#91;skip ci&#93;
 - ✨ New capability: upgrade runbook to Docusaurus 3.10.2 + Faster, harden Vercel update pipeline ()
-- 📄 Help guides updated: automated plain-language update from Notion Worker
-- 📄 Help guides updated: log 6e0751d &#91;skip ci&#93;
-- ✅ Problem fixed: Notion sync skipped every run — gate on token secret instead of unset variable ()
 
 <!-- /runbook-repo -->
 
