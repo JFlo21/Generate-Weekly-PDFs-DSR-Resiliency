@@ -117,7 +117,7 @@ All behavior is controlled by **30+ environment variables** read via
 | `TARGET_SHEET_ID` | `5723337641643908` | Destination sheet for Excel attachments |
 | `AUDIT_SHEET_ID` | — | Destination for audit rows/stats |
 | `SKIP_UPLOAD` | `false` | Generate locally without uploading |
-| `TEST_MODE` | `false` | Synthetic data, no API token needed |
+| `TEST_MODE` | `false` | Synthetic data only when `SMARTSHEET_API_TOKEN` is absent |
 | `RES_GROUPING_MODE` | `both` | `primary`, `helper`, or `both` |
 | `WR_FILTER` | — | Comma list of Work Requests to process |
 | `FORCE_GENERATION` | `false` | Bypass change detection |
