@@ -16,12 +16,14 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — August 5, 2026
 
+- ✨ New capability: upgrade runbook to Docusaurus 3.10.2 + Faster, harden Vercel update pipeline
 - ✅ Problem fixed: Notion sync skipped every run — gate on token secret instead of unset variable
 - ✅ Problem fixed: correct column&#95;ids serialization for get&#95;sheet API
+- 📄 Help guides updated: log 4cddbea &#91;skip ci&#93;
+- ✨ New capability: upgrade runbook to Docusaurus 3.10.2 + Faster, harden Vercel update pipeline ()
 - 📄 Help guides updated: automated plain-language update from Notion Worker
 - 📄 Help guides updated: log 6e0751d &#91;skip ci&#93;
 - ✅ Problem fixed: Notion sync skipped every run — gate on token secret instead of unset variable ()
-- ✅ Problem fixed: correct column&#95;ids serialization for get&#95;sheet API ()
 
 <!-- /runbook-repo -->
 
@@ -504,4 +506,3 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
-
