@@ -9,15 +9,6 @@ _Last updated: August 5, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
-<!-- runbook-repo: JFlo21/claudeos -->
-## ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
-
-> ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
-
-_Running steadily — no meaningful changes were detected in this period._ ✅
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
 ## Weekly Billing Reports (DSR Resiliency)
 
@@ -25,7 +16,53 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 ### 📋 Changelog — August 5, 2026
 
+- ✅ Problem fixed: Notion sync skipped every run — gate on token secret instead of unset variable
+- ✅ Problem fixed: correct column&#95;ids serialization for get&#95;sheet API
 - 📄 Help guides updated: automated plain-language update from Notion Worker
+- 📄 Help guides updated: log 6e0751d &#91;skip ci&#93;
+- ✅ Problem fixed: Notion sync skipped every run — gate on token secret instead of unset variable ()
+- ✅ Problem fixed: correct column&#95;ids serialization for get&#95;sheet API ()
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/notion-runbook-worker -->
+## Runbook Automation
+
+> ℹ️ **What this system does:** A Notion Worker that turns GitHub activity into a professional, living operations runbook. It gives nontechnical readers a concise current-state summary while preserving source links and technical evidence for engineers.
+
+### 📋 Changelog — August 5, 2026
+
+- ✅ Problem fixed: route and verify Notion runbook updates
+- 📄 Help guides updated: record production and GitHub verification
+- • merge: reconcile remote notification workflow
+- ✅ Problem fixed: stabilize webhook and scheduled runbook sync
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/claudeos -->
+## ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
+
+> ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
+
+### 📋 Changelog — August 5, 2026
+
+- • Use merged main in portable-computer test runbook
+- ✅ Problem fixed: Fix final ClaudeOS/CodexOS portability and parity gaps
+- • Add portable ClaudeOS/CodexOS parity, managed agents, and device handoff
+- • Use merged main in portable-computer test runbook
+- ✅ Problem fixed: Fix final ClaudeOS/CodexOS portability and parity gaps
+- • Merge pull request from JFlo21/agent/portable-claude-codex-phase1
+- • Record Greptile installer and handoff fixes
+- • Add installer and handoff regression validation
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/Cognos-pdf-parser -->
+## Parser that will offload grid format information from work request completed packets
+
+> ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
+
+_Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
@@ -67,15 +104,6 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/Cognos-pdf-parser -->
-## Parser that will offload grid format information from work request completed packets
-
-> ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
-
-_Running steadily — no meaningful changes were detected in this period._ ✅
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/smartsheet-bot -->
 ## smartsheet-bot
 
@@ -93,20 +121,6 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 > ℹ️ **What this system does:** Read-only-by-default field data layer with deterministic Check My Work rules.
 
 _Running steadily — no meaningful changes were detected in this period._ ✅
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/notion-runbook-worker -->
-## Runbook Automation
-
-> ℹ️ **What this system does:** A Notion Worker that turns GitHub activity into a professional, living operations runbook. It gives nontechnical readers a concise current-state summary while preserving source links and technical evidence for engineers.
-
-### 📋 Changelog — August 5, 2026
-
-- ✅ Problem fixed: route and verify Notion runbook updates
-- 📄 Help guides updated: record production and GitHub verification
-- • merge: reconcile remote notification workflow
-- ✅ Problem fixed: stabilize webhook and scheduled runbook sync
 
 <!-- /runbook-repo -->
 
@@ -487,3 +501,4 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
+
