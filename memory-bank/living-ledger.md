@@ -5017,3 +5017,80 @@ exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
   treated as automation bookkeeping — such commits still flow to both
   the runlog dispatch and the Notion changelog. When editing either
   bookkeeping filter, update the other in the same PR.
+
+## [2026-08-05 06:45] Notion sync was silently skipping every run — `NOTION_ENABLED` repo variable was never set
+
+- **Symptom:** all 280 runs of `notion-sync.yml` (push, schedule, and
+  even manual `workflow_dispatch`) concluded `skipped`; nothing ever
+  synced to the Notion databases.
+- **Root cause:** the job gate was
+  `if: vars.NOTION_ENABLED == 'true'`, but the `NOTION_ENABLED`
+  repository *variable* (Settings → Secrets and variables → Actions →
+  Variables) was never created. An unset variable evaluates to empty
+  string, so the condition was always false. The same gate existed on
+  the "Sync run to Notion" step in `weekly-excel-generation.yml`.
+- **Fix:** both gates now use
+  `vars.NOTION_ENABLED != 'false' && secrets.NOTION_TOKEN != ''` —
+  sync runs whenever the `NOTION_TOKEN` secret is configured, and
+  `NOTION_ENABLED` is demoted to an explicit opt-out kill-switch
+  (set it to `false` to pause syncing).
+- **Rule:** never gate a workflow on a repo variable equaling `'true'`
+  unless that variable is provisioned in the same change; prefer
+  secret-presence checks with a variable as opt-out kill-switch.
+- **Railway:** the Railway service must be disconnected in the Railway
+  dashboard (repo has no Railway config files — the connection is a
+  GitHub App / dashboard-side integration). See the [2026-07-27 22:30]
+  entry: the build target (`portal/`) was deleted in Phase 07-03, so
+  every push produces a failed Railway build until the service is
+  deleted or its GitHub connection is removed at railway.app →
+  project → service → Settings → Disconnect, plus removing the
+  Railway GitHub App from https://github.com/settings/installations
+  if no other repo uses it.
+
+## [2026-08-05 15:55] Correction: `secrets` context is not allowed in `if:` — Notion gates now use a job-level env presence flag
+
+- **Correction to the [2026-08-05 06:45] entry:** the fix there placed
+  `secrets.NOTION_TOKEN != ''` directly in `if:` conditions. GitHub
+  Actions does not permit the `secrets` context in `if:` expressions —
+  the workflow file is rejected at configuration validation, so both
+  branch runs of `notion-sync.yml` failed with **zero jobs** (the run
+  name shows the raw file path when parsing fails). Caught by Greptile
+  review.
+- **Fix:** the `secrets` context IS allowed in job-level `env`, so a
+  boolean presence flag is computed there and tested in `if:` instead:
+  - `weekly-excel-generation.yml` (`core` job): job env gains
+    `NOTION_CONFIGURED: ${{ secrets.NOTION_TOKEN != '' }}`; the
+    "Sync run to Notion" step gates on
+    `always() && vars.NOTION_ENABLED != 'false' && env.NOTION_CONFIGURED == 'true'`.
+  - `notion-sync.yml`: job `if:` keeps only the vars kill-switch
+    (`vars.NOTION_ENABLED != 'false'` — job-level `if:` only allows
+    github/needs/vars/inputs); job env computes `NOTION_CONFIGURED`
+    and every step gates on `env.NOTION_CONFIGURED == 'true'`.
+- **Rule:** never reference `secrets.*` inside any `if:` expression
+  (job- or step-level). Compute a presence boolean in job-level `env`
+  and test the env value — same pattern already used for
+  `SENTRY_AUTH_TOKEN` in the `core` job.
+
+## [2026-08-05 16:10] Notion runbook pages corrected — `NOTION_ENABLED` is opt-out, not opt-in
+
+- **Symptom:** after the two entries above flipped the gate, the
+  canonical operator runbook under `website/` still documented
+  `NOTION_ENABLED` as an opt-in toggle
+  (`website/docs/runbook/workflows.md` — "when `vars.NOTION_ENABLED ==
+  'true'`"; `website/docs/reference/environment.md` — "the workflow
+  short-circuits when this isn't `true`"). An operator who unset the
+  variable, or set it to anything other than `false`, would believe
+  syncing was paused while it kept running. Caught by Greptile review.
+- **Fix:** both pages now state the real contract — sync is enabled by
+  the presence of the `NOTION_TOKEN` secret (surfaced as the job-level
+  `NOTION_CONFIGURED` env flag), and `NOTION_ENABLED` only pauses it
+  when set to the literal string `false`. Added an admonition on each
+  page plus a gating description under the `notion-sync.yml` section of
+  `workflows.md`, which previously documented no gate at all.
+- **Rule:** when an `if:` gate flips polarity (opt-in ⇄ opt-out), update
+  the operator-facing runbook pages under `website/docs/` in the *same*
+  PR. Grep for the variable name across `website/` before merging —
+  `website/docs/reference/environment.md` and
+  `website/docs/runbook/workflows.md` are the two canonical surfaces for
+  workflow toggles, and stale gating docs are how a "paused" integration
+  keeps writing to production systems.

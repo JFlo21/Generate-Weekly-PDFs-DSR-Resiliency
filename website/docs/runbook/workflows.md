@@ -32,7 +32,15 @@ Key behaviors:
 - Runs `scripts/generate_artifact_manifest.py`, organizes Excel files
   `by_wr/` and `by_week/` in `artifact_staging/`, and uploads multiple
   named artifacts (Complete, By-WorkRequest, By-WeekEnding, Manifest).
-- Calls `scripts/notion_sync.py --mode run` when `vars.NOTION_ENABLED == 'true'`.
+- Calls `scripts/notion_sync.py --mode run` whenever the `NOTION_TOKEN`
+  secret is configured. Token presence is computed in the `core` job env
+  as `NOTION_CONFIGURED: ${{ secrets.NOTION_TOKEN != '' }}` (the `secrets`
+  context is not allowed in `if:`) and the step gates on
+  `always() && vars.NOTION_ENABLED != 'false' && env.NOTION_CONFIGURED == 'true'`.
+  `NOTION_ENABLED` is an **opt-out kill-switch**: set the repository
+  variable to `false` to pause syncing — any other value (including
+  unset) leaves syncing on. The step is `continue-on-error: true`, so a
+  Notion failure never fails the billing job.
 
 ### Subcontractor rate variants
 
@@ -172,6 +180,19 @@ fails the job if the report is `CRITICAL`. Uploads
 
 Dedicated path for syncing existing run data into Notion (outside of the
 generator job).
+
+Gating matches `weekly-excel-generation.yml`: the job runs unless the
+`NOTION_ENABLED` repository variable is set to `false` (opt-out
+kill-switch), and every step additionally requires
+`env.NOTION_CONFIGURED == 'true'`, which is derived from
+`secrets.NOTION_TOKEN != ''` in the job env. With no token configured the
+job emits a `::notice::` and every sync step is skipped.
+
+:::warning Pausing the sync
+Setting `NOTION_ENABLED` to anything other than `false` — including
+leaving it unset — keeps syncing **enabled**. To pause it you must set
+the variable to exactly `false` (or remove the `NOTION_TOKEN` secret).
+:::
 
 ## `snyk-security.yml`
 
