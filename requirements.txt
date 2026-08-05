@@ -27,4 +27,4 @@ pytest-cov==6.0.0
 notion-client==2.2.1
 
 # Billing audit attribution snapshot (Supabase, shadow mode)
-supabase==2.9.1
+supabase==2.31.0
