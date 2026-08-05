@@ -86,6 +86,29 @@ class TestGetAllSourceRowsAuthFailure(unittest.TestCase):
             result = fetch.get_all_source_rows(mock.Mock(), self.SOURCES)
         self.assertEqual(result, [])
 
+    def test_partial_auth_failure_logs_aggregate_summary_without_raise(self):
+        # One sheet 403s, the other dies with a non-auth error: not an
+        # all-sheets authorization failure, so no raise — but the
+        # aggregate 🔐 summary MUST still emit (Copilot review, PR #297)
+        # so a partial authorization loss is not buried in scattered
+        # per-sheet error lines.
+        def _per_sheet(_fn, sheet_id, **_kwargs):
+            if sheet_id == 111:
+                raise Exception(_SERIALIZED_403)
+            raise Exception("server exploded")
+
+        with mock.patch.object(
+            fetch, 'smartsheet_call_with_retry', side_effect=_per_sheet,
+        ):
+            with self.assertLogs(level='ERROR') as logs:
+                result = fetch.get_all_source_rows(mock.Mock(), self.SOURCES)
+        self.assertEqual(result, [])
+        self.assertTrue(
+            any('1 of 2 source sheets failed with 401/403' in line
+                for line in logs.output),
+            f"aggregate auth summary missing from: {logs.output}",
+        )
+
 
 if __name__ == '__main__':
     unittest.main()

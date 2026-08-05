@@ -916,15 +916,17 @@ def get_all_source_rows(client, source_sheets):
     # 2026-08-05 incident: every one of the 113 source sheets returned
     # 403 and the run failed with the generic "No valid data rows
     # found" — the real cause (revoked token / removed sharing) was
-    # invisible without reading 113 per-sheet error lines. When zero
-    # rows came back AND auth errors occurred, surface an actionable
-    # authorization diagnosis. Total auth failure raises directly
-    # (the caller raises on the empty list anyway, so the run outcome
-    # is unchanged — only the message improves); a partial auth
-    # failure logs loudly and returns whatever rows were fetched.
-    if not merged_rows and auth_error_sheet_ids:
+    # invisible without reading 113 per-sheet error lines. Surface an
+    # actionable authorization diagnosis whenever auth errors occurred
+    # (Copilot review, PR #297: the aggregate summary must emit even
+    # when other sheets returned rows, otherwise a 5-of-113 partial
+    # authorization loss hides in scattered per-sheet errors). Total
+    # auth failure with zero rows raises directly — the caller raises
+    # on the empty list anyway, so the run outcome is unchanged and
+    # only the message improves.
+    if auth_error_sheet_ids:
         distinct_auth_failures = len(set(auth_error_sheet_ids))
-        if distinct_auth_failures >= len(source_sheets):
+        if not merged_rows and distinct_auth_failures >= len(source_sheets):
             raise Exception(
                 f"Smartsheet authorization failure: all {len(source_sheets)} "
                 f"source sheets returned 401/403. The SMARTSHEET_API_TOKEN "

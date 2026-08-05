@@ -197,6 +197,18 @@ class TestEndToEndPipeline(unittest.TestCase):
         })
         self.assertEqual(rescued, 100.0)
 
+    def test_bug_a_rescue_decorated_quantity_uses_rate_times_qty(self):
+        """2026-08-05 BKT-IP8-F incident: a decorated Quantity ('2 EA')
+        must rescue at reduced_install × 2, not fail admission. The
+        rescue runs BEFORE row acceptance, so a strict-parse regression
+        here drops the row before ``_resolve_row_price`` is reached."""
+        rescued = generate_weekly_pdfs._subcontractor_rescue_price({
+            'CU': 'ANC-M',
+            'Work Type': 'Inst',
+            'Quantity': '2 EA',
+        })
+        self.assertEqual(rescued, 100.0)
+
     def test_bug_a_rescue_returns_zero_for_unknown_cu(self):
         """Bug A rescue: unknown CU falls through to 0.0 (caller drops row)."""
         rescued = generate_weekly_pdfs._subcontractor_rescue_price({
