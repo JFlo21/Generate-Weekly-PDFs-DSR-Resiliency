@@ -46,6 +46,10 @@ jobs:
     env:
       NOTION_CONFIGURED: ${{ secrets.NOTION_TOKEN != '' }}
     steps:
+      - name: Notion token not configured — skipping sync
+        if: env.NOTION_CONFIGURED != 'true'
+        run: echo "::notice::NOTION_TOKEN secret is not set; all sync steps are skipped. Add the secret in Settings → Secrets and variables → Actions."
+
       - name: Checkout
         if: env.NOTION_CONFIGURED == 'true'
         uses: actions/checkout@v4
