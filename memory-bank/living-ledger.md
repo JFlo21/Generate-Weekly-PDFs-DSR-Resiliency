@@ -5017,3 +5017,20 @@ exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
   treated as automation bookkeeping — such commits still flow to both
   the runlog dispatch and the Notion changelog. When editing either
   bookkeeping filter, update the other in the same PR.
+
+## [2026-08-05 16:50] Weekly-comprehensive override is gated to `schedule` events — manual dispatches always stay `manual`
+
+- **Bug (Greptile review):** the Central-time weekly-window guard in the
+  "Determine execution type" step of
+  `.github/workflows/weekly-excel-generation.yml` ran after
+  `workflow_dispatch` set `t=manual` and did not check the event type. A
+  manual dispatch during Sunday 23:xx CST or Monday 00:xx CDT was
+  relabeled `weekly_comprehensive`, silently flipping the run into the
+  weekly deep-run branch the operator did not ask for.
+- **Fix:** the override now requires
+  `[ "${{ github.event_name }}" = "schedule" ]` in addition to the
+  DST-sensitive day/hour window match.
+- **Rule:** `EXECUTION_TYPE=manual` is authoritative for
+  `workflow_dispatch` runs — no later classification step may overwrite
+  it. Any future execution-type branches added to this step must gate
+  schedule-derived overrides on `github.event_name == 'schedule'`.

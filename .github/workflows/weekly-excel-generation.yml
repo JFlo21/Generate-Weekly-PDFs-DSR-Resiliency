@@ -197,8 +197,9 @@ jobs:
           else t=scheduled; fi
           # Weekly deep run: cron '0 5 * * 1' (UTC Monday 05:00) lands in
           # Central time at Sunday 23:00 during CST or Monday 00:00 during
-          # CDT — match both DST-sensitive instants.
-          if { [ $day -eq 0 ] && [ $hour -eq 23 ]; } || { [ $day -eq 1 ] && [ $hour -eq 0 ]; }; then t=weekly_comprehensive; fi
+          # CDT — match both DST-sensitive instants. Scheduled events only:
+          # a manual dispatch in this window must stay 'manual'.
+          if [ "${{ github.event_name }}" = "schedule" ] && { { [ $day -eq 0 ] && [ $hour -eq 23 ]; } || { [ $day -eq 1 ] && [ $hour -eq 0 ]; }; }; then t=weekly_comprehensive; fi
           echo "execution_type=$t" >> $GITHUB_OUTPUT
           echo "should_run=true" >> $GITHUB_OUTPUT
       - name: Parse advanced options
