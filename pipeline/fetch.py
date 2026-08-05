@@ -925,18 +925,25 @@ def get_all_source_rows(client, source_sheets):
     # on the empty list anyway, so the run outcome is unchanged and
     # only the message improves.
     if auth_error_sheet_ids:
+        # Compare distinct-to-distinct (Codex review, PR #297): the
+        # accumulator appends once per source ENTRY while discovery can
+        # legitimately seed duplicate sheet IDs, so measuring the raise
+        # condition against len(source_sheets) would let an
+        # every-sheet-403 run slip into the partial branch and die with
+        # the generic zero-rows message instead of this diagnosis.
         distinct_auth_failures = len(set(auth_error_sheet_ids))
-        if not merged_rows and distinct_auth_failures >= len(source_sheets):
+        distinct_source_count = len({s.get('id') for s in source_sheets})
+        if not merged_rows and distinct_auth_failures >= distinct_source_count:
             raise Exception(
-                f"Smartsheet authorization failure: all {len(source_sheets)} "
-                f"source sheets returned 401/403. The SMARTSHEET_API_TOKEN "
-                f"is likely revoked/expired, or sheet sharing for the token's "
-                f"account was removed. Rotate the token secret (GitHub "
-                f"Actions → SMARTSHEET_API_TOKEN) or restore sharing, then "
-                f"re-run."
+                f"Smartsheet authorization failure: all "
+                f"{distinct_source_count} source sheets returned 401/403. "
+                f"The SMARTSHEET_API_TOKEN is likely revoked/expired, or "
+                f"sheet sharing for the token's account was removed. Rotate "
+                f"the token secret (GitHub Actions → SMARTSHEET_API_TOKEN) "
+                f"or restore sharing, then re-run."
             )
         logging.error(
-            f"🔐 {distinct_auth_failures} of {len(source_sheets)} source "
+            f"🔐 {distinct_auth_failures} of {distinct_source_count} source "
             f"sheets failed with 401/403 (authorization) — check token "
             f"scopes / sheet sharing for those sheets."
         )

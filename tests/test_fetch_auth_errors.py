@@ -75,6 +75,27 @@ class TestGetAllSourceRowsAuthFailure(unittest.TestCase):
         self.assertIn('all 2', msg)
         self.assertIn('SMARTSHEET_API_TOKEN', msg)
 
+    def test_duplicate_source_ids_still_raise_on_total_auth_failure(self):
+        # Codex review (PR #297): discovery can seed duplicate sheet
+        # IDs. The raise condition compares DISTINCT failed IDs against
+        # DISTINCT source IDs — with a naive len(source_sheets)
+        # denominator, an every-sheet-403 run with one duplicated entry
+        # would slip into the partial branch and lose the diagnosis.
+        sources_with_dupe = [
+            {'id': 111, 'name': 'Sheet A', 'column_mapping': {'Work Request #': 1}},
+            {'id': 111, 'name': 'Sheet A (dupe)', 'column_mapping': {'Work Request #': 1}},
+            {'id': 222, 'name': 'Sheet B', 'column_mapping': {'Work Request #': 1}},
+        ]
+        with mock.patch.object(
+            fetch, 'smartsheet_call_with_retry',
+            side_effect=Exception(_SERIALIZED_403),
+        ):
+            with self.assertRaises(Exception) as ctx:
+                fetch.get_all_source_rows(mock.Mock(), sources_with_dupe)
+        msg = str(ctx.exception)
+        self.assertIn('Smartsheet authorization failure', msg)
+        self.assertIn('all 2', msg)  # 2 distinct sheet IDs, not 3 entries
+
     def test_non_auth_failures_keep_legacy_empty_return(self):
         # Non-auth per-sheet failures (e.g. transient 500s) preserve the
         # legacy contract: swallow per sheet, return [] — the caller
