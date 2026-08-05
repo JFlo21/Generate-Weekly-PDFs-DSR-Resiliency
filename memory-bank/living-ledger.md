@@ -5161,3 +5161,42 @@ exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
   time. Docs aligned in the same PR: `CLAUDE.md`, `AGENTS.md`,
   `.github/prompts/configuration-environment.md`,
   `.planning/intel/constraints.md`.
+
+## [2026-08-05 21:10] Quantity parsing unified across pricing + display; early-failure counter hoist; 403 auth diagnosis (BKT-IP8-F incident)
+
+- **Incident 1 (BKT-IP8-F, qty-2 priced as 1 unit):** a subcontractor
+  variant workbook showed `Quantity=2` for CU `BKT-IP8-F` but priced the
+  row at the single-unit rate. Root cause: `_resolve_row_price` (and
+  `_subcontractor_rescue_price`) parsed Quantity with a bare
+  `float(qty_raw)`, which raises on operator-decorated values such as
+  `'2 EA'` → `qty=0.0` → silent safety-floor fall-through to the raw
+  SmartSheet `Units Total Price` (which held the per-unit price). The
+  Excel writer's display parser strips non-numerics via
+  `_RE_EXTRACT_NUMBERS` first, so the same cell displayed `2`. Two
+  parsers, one column, different answers.
+- **Fix:** both pricing helpers in `pipeline/pricing.py` now apply the
+  identical `_RE_EXTRACT_NUMBERS.sub('', str(...))` normalization the
+  Excel writer uses, and the degenerate fall-through now logs a WARNING
+  naming the CU, variant, rate, and raw Quantity.
+- **Rule:** every consumer of the canonical `Quantity` key MUST parse it
+  through the `_RE_EXTRACT_NUMBERS` strip — a value that displays as N
+  must never price as anything other than N. Guarded by
+  `TestResolveRowPriceQuantityCoercion` (decorated-string test +
+  source-inspection assertion on `_RE_EXTRACT_NUMBERS.sub`).
+- **Incident 2 (2026-08-05 GHA run, all-sheets 403):** every folder and
+  sheet call returned HTTP 403 (token revoked/expired or sharing
+  removed — an ops issue, not code). The run died with the generic
+  "No valid data rows found", and the except handler then crashed with
+  `UnboundLocalError: _groups_errored` because the group counters were
+  initialized AFTER the fetch phase inside `main()`'s try block —
+  masking the real failure in both the log and Sentry.
+- **Fix:** counters (`_groups_skipped/_generated/_uploaded/_errored`,
+  `_api_calls_count`, `history_updates`) are hoisted above the try
+  (same rationale as the existing `_txn = None` hoist);
+  `get_all_source_rows` now counts 401/403 ApiErrors per sheet
+  (`_is_auth_api_error`) and, when ZERO rows return and ALL sheets hit
+  auth errors, raises an explicit "Smartsheet authorization failure"
+  message naming the token rotation / re-sharing remediation.
+- **Rule:** any variable referenced by `main()`'s except/finally
+  handlers must be initialized BEFORE the try block. When adding new
+  session counters, hoist them next to `_txn`.

@@ -423,6 +423,21 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
     # further down, which would otherwise leave _txn unbound and turn any
     # main() exit through finally into an UnboundLocalError.
     _txn = None
+    # Group-processing counters. Hoisted for the same reason as _txn:
+    # the general except handler and the finally-block cron check-in
+    # reference these unconditionally, but their in-flow initialization
+    # sits AFTER the discovery/fetch phases. An early failure (e.g.
+    # "No valid data rows found" raised in Phase 2 — the 2026-08-05
+    # all-sheets-403 incident) previously turned the real error into
+    # ``UnboundLocalError: _groups_errored`` inside the handler,
+    # masking the root cause in both the log and Sentry. The later
+    # in-flow re-initialization is kept (harmless re-zeroing).
+    _groups_skipped = 0
+    _groups_generated = 0
+    _groups_uploaded = 0
+    _groups_errored = 0
+    _api_calls_count = 0
+    history_updates = 0
 
     # Sentry cron check-in: signal "in_progress" at session start
     _cron_monitor_slug = os.getenv("SENTRY_CRON_MONITOR_SLUG", "weekly-excel-generation")

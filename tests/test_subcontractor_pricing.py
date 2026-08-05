@@ -4075,6 +4075,19 @@ class TestResolveRowPriceQuantityCoercion(unittest.TestCase):
                 999.0,
             )
 
+    def test_quantity_decorated_string_uses_rate_times_qty(self):
+        # 2026-08-05 BKT-IP8-F incident: operator-entered unit
+        # decoration ('2 EA') previously raised in the bare float()
+        # parse → qty=0.0 → silent fall-through to the SmartSheet
+        # price, while the Excel display parser (which strips
+        # non-numerics) still showed Quantity=2. The pricing parser
+        # now applies the same _RE_EXTRACT_NUMBERS normalization, so
+        # the row prices as rate × 2.
+        with mock.patch.object(
+            generate_weekly_pdfs, '_SUBCONTRACTOR_RATES', self.RATES_STUB,
+        ):
+            self.assertEqual(self._resolve(self._row('2 EA')), 200.0)
+
     def test_production_source_does_not_carry_or_zero_pattern(self):
         # Source-level guard: the ``or 0`` short-circuit is removed.
         # Phase 09 W2: ``_resolve_row_price`` was relocated to
@@ -4087,11 +4100,16 @@ class TestResolveRowPriceQuantityCoercion(unittest.TestCase):
             "row.get('Quantity') or 0",
             src,
             "IN-02 regression: the ``or 0`` short-circuit pattern has "
-            "been re-introduced. Use explicit ``row.get('Quantity', 0)`` "
-            "+ ``if qty_raw not in (None, '')`` per 01-11-PLAN.md.",
+            "been re-introduced on the Quantity read. Quantity parsing "
+            "must keep the _RE_EXTRACT_NUMBERS normalization "
+            "(2026-08-05 BKT-IP8-F incident) — see 01-11-PLAN.md for "
+            "the original IN-02 rationale.",
         )
-        # Confirm the explicit pattern is present.
-        self.assertIn("qty_raw not in (None, '')", src)
+        # Confirm the normalized parse is present: pricing MUST use the
+        # same _RE_EXTRACT_NUMBERS strip as the Excel display parser so
+        # a decorated Quantity ('2 EA') can never price differently
+        # than it displays (2026-08-05 BKT-IP8-F incident).
+        self.assertIn("_RE_EXTRACT_NUMBERS.sub", src)
 
 
 class TestPhase1FilenameRoundTripCoverage(unittest.TestCase):

@@ -66,6 +66,25 @@ logger = logging.getLogger(__name__)
 _RATES_FINGERPRINT: str = ''   # rebound inside get_all_source_rows via `global`
 
 
+def _is_auth_api_error(exc: Exception) -> bool:
+    """Return True when *exc* is a Smartsheet ApiError carrying an HTTP
+    401/403 status (revoked/expired API token or removed sheet sharing).
+
+    Prefers the SDK's structured ``exc.error.result.status_code``
+    attribute; falls back to matching the serialized error payload
+    (``'"statusCode": 403'``) so a plain-Exception wrapper is still
+    recognized. Added after the 2026-08-05 incident where every source
+    sheet returned 403 and the run died with the unactionable generic
+    message "No valid data rows found".
+    """
+    result = getattr(getattr(exc, 'error', None), 'result', None)
+    status = getattr(result, 'status_code', None) if result is not None else None
+    if status in (401, 403):
+        return True
+    msg = str(exc)
+    return '"statusCode": 401' in msg or '"statusCode": 403' in msg
+
+
 def get_all_source_rows(client, source_sheets):
     """Fetch rows from all source sheets with filtering.
     
@@ -107,6 +126,10 @@ def get_all_source_rows(client, source_sheets):
     SUBCONTRACTOR_SHEET_IDS = _gwp.SUBCONTRACTOR_SHEET_IDS
     _FOLDER_DISCOVERED_ORIG_IDS = _gwp._FOLDER_DISCOVERED_ORIG_IDS
     merged_rows = []
+    # Sheet IDs that failed with a 401/403 ApiError. list.append is
+    # atomic under the GIL, so the worker threads below can share this
+    # accumulator without extra locking.
+    auth_error_sheet_ids = []
     global_row_counter = 0
     original_rates = load_contract_rates(OLD_RATES_CSV)
     # Load new rate versions if rate cutoff is configured
@@ -797,6 +820,8 @@ def get_all_source_rows(client, source_sheets):
                         )
 
             except Exception as e:
+                if _is_auth_api_error(e):
+                    auth_error_sheet_ids.append(source.get('id'))
                 logging.error(f"Error processing sheet {source['id']}: {e}")
                 sentry_capture_with_context(
                     exception=e,
@@ -813,6 +838,8 @@ def get_all_source_rows(client, source_sheets):
                 )
             
         except Exception as e:
+            if _is_auth_api_error(e):
+                auth_error_sheet_ids.append(source.get('id'))
             logging.error(f"Could not process Sheet ID {source.get('id', 'N/A')}: {e}")
             sentry_capture_with_context(
                 exception=e,
@@ -885,5 +912,31 @@ def get_all_source_rows(client, source_sheets):
         logging.info("🎯 Change detection ACTIVE: Existing attachment with matching data hash will skip regeneration & upload")
     else:
         logging.warning("⚠️ No valid rows found with updated filtering (missing Work Request #, Weekly Reference Logged Date, Units Completed?, or Units Total Price)")
+
+    # 2026-08-05 incident: every one of the 113 source sheets returned
+    # 403 and the run failed with the generic "No valid data rows
+    # found" — the real cause (revoked token / removed sharing) was
+    # invisible without reading 113 per-sheet error lines. When zero
+    # rows came back AND auth errors occurred, surface an actionable
+    # authorization diagnosis. Total auth failure raises directly
+    # (the caller raises on the empty list anyway, so the run outcome
+    # is unchanged — only the message improves); a partial auth
+    # failure logs loudly and returns whatever rows were fetched.
+    if not merged_rows and auth_error_sheet_ids:
+        distinct_auth_failures = len(set(auth_error_sheet_ids))
+        if distinct_auth_failures >= len(source_sheets):
+            raise Exception(
+                f"Smartsheet authorization failure: all {len(source_sheets)} "
+                f"source sheets returned 401/403. The SMARTSHEET_API_TOKEN "
+                f"is likely revoked/expired, or sheet sharing for the token's "
+                f"account was removed. Rotate the token secret (GitHub "
+                f"Actions → SMARTSHEET_API_TOKEN) or restore sharing, then "
+                f"re-run."
+            )
+        logging.error(
+            f"🔐 {distinct_auth_failures} of {len(source_sheets)} source "
+            f"sheets failed with 401/403 (authorization) — check token "
+            f"scopes / sheet sharing for those sheets."
+        )
 
     return merged_rows

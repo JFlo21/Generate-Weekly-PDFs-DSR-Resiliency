@@ -507,9 +507,15 @@ def _subcontractor_rescue_price(row_data: dict) -> float:
         rate = rate_row.get('reduced_transfer_price', 0.0)
     else:
         return 0.0
-    qty_raw = row_data.get('Quantity', 0)
+    # 2026-08-05 BKT-IP8-F incident: normalize Quantity exactly like
+    # ``_resolve_row_price`` / the Excel writer (strip unit decorations
+    # such as '2 EA' via ``_RE_EXTRACT_NUMBERS``) so a decorated
+    # quantity cannot silently fail admission here while displaying a
+    # positive quantity downstream. Clean numeric inputs parse
+    # identically to the previous bare-float implementation.
+    qty_str = _RE_EXTRACT_NUMBERS.sub('', str(row_data.get('Quantity', '') or ''))
     try:
-        qty = float(qty_raw) if qty_raw not in (None, '') else 0.0
+        qty = float(qty_str) if qty_str not in ('', '.', '-', '-.', '.-') else 0.0
     except (TypeError, ValueError):
         qty = 0.0
     if rate <= 0 or qty <= 0:
@@ -637,23 +643,34 @@ def _resolve_row_price(row: dict, variant: str, missing_cus) -> float:
         rate = rate_row.get(f'reduced_{wt}_price', 0.0)
 
     # Canonical 'Quantity' ONLY — never 'Units Completed' (checkbox).
-    # Phase 01 gap closure (REVIEW-IN-02): explicit None / empty-string
-    # handling. The previous ``or 0`` short-circuit collapsed
-    # legitimate ``Quantity=0.0`` to int ``0`` (functionally correct
-    # after the subsequent ``float()`` coercion but opaque to readers).
-    # Numeric output is byte-identical for every pre-existing input case
-    # (None, '', 0, 0.0, '1.5', invalid → 0.0 / 0.0 / 0.0 / 0.0 / 1.5
-    # / 0.0 respectively).
-    qty_raw = row.get('Quantity', 0)
+    # 2026-08-05 BKT-IP8-F incident: parse Quantity with the SAME
+    # normalization the Excel writer uses (``_RE_EXTRACT_NUMBERS``
+    # strips unit decorations such as ``'2 EA'`` before ``float()``).
+    # The previous bare ``float(qty_raw)`` raised on any decorated
+    # value, silently falling through to the raw SmartSheet
+    # ``Units Total Price`` — the workbook then displayed Quantity=2
+    # (lenient display parser) alongside a 1-unit price (strict
+    # pricing parser). Clean numeric inputs (None, '', 0, 0.0, '1.5',
+    # invalid) parse identically to the previous implementation.
+    qty_str = _RE_EXTRACT_NUMBERS.sub('', str(row.get('Quantity', '') or ''))
     try:
-        qty = float(qty_raw) if qty_raw not in (None, '') else 0.0
+        qty = float(qty_str) if qty_str not in ('', '.', '-', '-.', '.-') else 0.0
     except (TypeError, ValueError):
         qty = 0.0
 
     if rate <= 0 or qty <= 0:
         # Degenerate row: SmartSheet pricing as the safety floor,
         # NEVER silently zero out (mirrors the recalc fall-through
-        # pattern in Living Ledger 2026-04-21 22:35).
+        # pattern in Living Ledger 2026-04-21 22:35). WARN so a
+        # known-CU row that falls back is visible in the run log —
+        # the 2026-08-05 incident was invisible precisely because
+        # this path was silent.
+        logging.warning(
+            f"⚠️ Subcontractor price fall-through for CU '{cu}' "
+            f"(variant={variant}): rate={rate}, parsed qty={qty} "
+            f"(raw Quantity={row.get('Quantity')!r}) — keeping "
+            f"SmartSheet Units Total Price"
+        )
         return parse_price(row.get('Units Total Price'))
     return rate * qty
 
