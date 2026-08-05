@@ -38,22 +38,32 @@ jobs:
     # (set it to 'false' to pause syncing) — previously the job required
     # NOTION_ENABLED == 'true', so every run was skipped when the
     # variable was never created.
-    if: ${{ vars.NOTION_ENABLED != 'false' && secrets.NOTION_TOKEN != '' }}
+    # NOTE: the `secrets` context is not allowed in `if:` expressions
+    # (GitHub rejects the workflow file at validation), so token
+    # presence is exported as a job-level env flag and each step gates
+    # on `env.NOTION_CONFIGURED` instead.
+    if: ${{ vars.NOTION_ENABLED != 'false' }}
+    env:
+      NOTION_CONFIGURED: ${{ secrets.NOTION_TOKEN != '' }}
     steps:
       - name: Checkout
+        if: env.NOTION_CONFIGURED == 'true'
         uses: actions/checkout@v4
         with:
           fetch-depth: 100  # Enough history for commit sync
 
       - name: Setup Python
+        if: env.NOTION_CONFIGURED == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
       - name: Install dependencies
+        if: env.NOTION_CONFIGURED == 'true'
         run: pip install "notion-client==2.2.1"
 
       - name: Sync to Notion
+        if: env.NOTION_CONFIGURED == 'true'
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_PIPELINE_DB: ${{ secrets.NOTION_PIPELINE_DB }}

@@ -5046,3 +5046,27 @@ exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
   project → service → Settings → Disconnect, plus removing the
   Railway GitHub App from https://github.com/settings/installations
   if no other repo uses it.
+
+## [2026-08-05 15:55] Correction: `secrets` context is not allowed in `if:` — Notion gates now use a job-level env presence flag
+
+- **Correction to the [2026-08-05 06:45] entry:** the fix there placed
+  `secrets.NOTION_TOKEN != ''` directly in `if:` conditions. GitHub
+  Actions does not permit the `secrets` context in `if:` expressions —
+  the workflow file is rejected at configuration validation, so both
+  branch runs of `notion-sync.yml` failed with **zero jobs** (the run
+  name shows the raw file path when parsing fails). Caught by Greptile
+  review.
+- **Fix:** the `secrets` context IS allowed in job-level `env`, so a
+  boolean presence flag is computed there and tested in `if:` instead:
+  - `weekly-excel-generation.yml` (`core` job): job env gains
+    `NOTION_CONFIGURED: ${{ secrets.NOTION_TOKEN != '' }}`; the
+    "Sync run to Notion" step gates on
+    `always() && vars.NOTION_ENABLED != 'false' && env.NOTION_CONFIGURED == 'true'`.
+  - `notion-sync.yml`: job `if:` keeps only the vars kill-switch
+    (`vars.NOTION_ENABLED != 'false'` — job-level `if:` only allows
+    github/needs/vars/inputs); job env computes `NOTION_CONFIGURED`
+    and every step gates on `env.NOTION_CONFIGURED == 'true'`.
+- **Rule:** never reference `secrets.*` inside any `if:` expression
+  (job- or step-level). Compute a presence boolean in job-level `env`
+  and test the env value — same pattern already used for
+  `SENTRY_AUTH_TOKEN` in the `core` job.
