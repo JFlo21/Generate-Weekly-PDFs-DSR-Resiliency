@@ -5017,3 +5017,29 @@ exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
   treated as automation bookkeeping — such commits still flow to both
   the runlog dispatch and the Notion changelog. When editing either
   bookkeeping filter, update the other in the same PR.
+
+## [2026-08-05 16:20] Docusaurus 3.10.2 + Faster (Rspack) — `mdx1Compat` must STAY ENABLED
+
+- **Upgrade:** `website/` moved to Docusaurus `^3.10.2` with
+  `@docusaurus/faster` (Rspack/SWC bundler, `future.faster: true`) and
+  the v4 future flags opted in individually in `docusaurus.config.ts`.
+- **Rule: never set `future.v4: true` (boolean) or
+  `mdx1CompatDisabledByDefault: true` for this site.** Disabling MDX v1
+  compat makes MDX reject HTML comments — and BOTH content bots emit
+  them continuously: `scripts/generate_runbook_entry.py` writes
+  `<!-- truncate -->` into every change-log post, and the Notion
+  Runbook Worker writes `<!-- runbook-repo: ... -->` markers into
+  `website/docs/runbook/whats-new.md`. Flipping the flag broke the
+  build for every existing post plus whats-new.md. If compat is ever to
+  be disabled, both generators (one lives outside this repo) must first
+  switch to `{/* ... */}` comments and all historical posts must be
+  migrated.
+- **CI safety net:** `.github/workflows/docs-site-build.yml`
+  (path-filtered to `website/**`) typechecks and builds the site on
+  PRs, mirroring the Vercel production build, so config/MDX breakage is
+  caught before it can stop the runbook from deploying.
+- **Vercel wiring is documented** in
+  `website/docs/reference/how-this-site-updates.md` (root directory
+  `website`, production branch `master`, framework preset
+  `docusaurus-2`, build pinned by `website/vercel.json`; `trailingSlash`
+  must match between `vercel.json` and `docusaurus.config.ts`).

@@ -6,7 +6,9 @@ sidebar_position: 2
 
 # How this site updates
 
-This runbook is intentionally low-ceremony. Two moving parts keep it fresh.
+This runbook is intentionally low-ceremony. Three moving parts keep it
+fresh: the change-log generator, the Vercel deployment hook, and manual
+edits.
 
 ## 1. Automatic change log entries
 
@@ -26,30 +28,58 @@ On every push to `master`, `.github/workflows/docs-changelog.yml` runs
    `website/blog/YYYY-MM-DD-<short-sha>-<slug>.md` with frontmatter
    (title, authors, tags).
 
-The workflow then opens a **pull request** via
-[`peter-evans/create-pull-request`](https://github.com/peter-evans/create-pull-request)
-on a branch named `runbook/log-<short-sha>`, scoped to only paths under
-`website/blog/`. Reviewers merge it — that merge is the push Vercel picks
-up to rebuild the Docusaurus site.
+The workflow then **commits the post directly to `master`** with a
+`docs(runbook): log <short-sha> [skip ci]` message, staging only paths
+under `website/blog/`. A rebase-retry loop (5 attempts) absorbs
+concurrent pushes; each entry is a unique new file, so the rebase never
+conflicts. That commit is the push Vercel picks up to rebuild the site.
 
-:::info Why a PR instead of a direct push?
-Branch protection on `master` (required reviews, status checks, linear
-history) would block a direct push from `github-actions[bot]`. Opening a
-PR keeps the workflow compatible with any protection rules and lets a
-human skim the entry before it ships.
-
-The PR's own commit is tagged `[skip ci]`, and GitHub won't re-trigger
-`push`/`pull_request` workflows from events authored by the default
-`GITHUB_TOKEN`, so the act of opening the PR is safe. When the PR is
-eventually merged into `master`, however, the resulting commit is a
-normal human-authored push — `notion-sync`, `snyk-security`, and
-`codecov` run as they would for any other merge, and this workflow may
-generate a follow-up entry. The generator's own guards (skip markers
-and the "only `website/blog/`" short-circuit) keep that from turning
-into a feedback loop.
+:::info Why a direct commit instead of a PR?
+An earlier version of this workflow opened a pull request per push via
+`peter-evans/create-pull-request`. The PRs were never auto-merged and
+piled up unbounded (36 stale stubs were closed on 2026-06-06), so the
+workflow now commits straight to `master`. Loop protection is layered:
+the job-level `if: github.actor != 'github-actions[bot]'` guard, GitHub's
+rule that `GITHUB_TOKEN`-authored pushes never re-trigger `push`
+workflows, and the generator's own short-circuit when a push touches only
+bot-maintained paths (`website/blog/`, `whats-new.md`).
 :::
 
-## 2. Manual runbook edits
+## 2. Vercel deployment (repo → live site)
+
+The runbook deploys to Vercel from this repository. The wiring is:
+
+| Setting | Value | Where |
+|---------|-------|-------|
+| Connected Git repository | `JFlo21/Generate-Weekly-PDFs-DSR-Resiliency` | Vercel project → Settings → Git |
+| Production branch | `master` | Vercel project → Settings → Git |
+| Root Directory | `website` | Vercel project → Settings → Build & Output |
+| Framework preset | Docusaurus (v2+) | pinned by `website/vercel.json` (`"framework": "docusaurus-2"` — the correct preset slug for Docusaurus 2/3) |
+| Build command / output | `npm run build` → `build/` | pinned by `website/vercel.json` |
+| Install command | `npm ci` | pinned by `website/vercel.json` |
+| Node.js version | 20.x | matches `engines.node` in `website/package.json` |
+
+Because every meaningful push to `master` produces a `website/blog/`
+commit (section 1), Vercel rebuilds and redeploys the site shortly after
+**every** repo change — the change log entry and the deploy ride the same
+commit. `[skip ci]` in the bot commit message suppresses GitHub Actions,
+not Vercel, so the deploy still fires.
+
+`website/vercel.json` also sets `cleanUrls: true` and
+`trailingSlash: false`, which **must** stay in sync with
+`trailingSlash: false` in `docusaurus.config.ts` — if they disagree, the
+router emits canonical URLs Vercel 308-redirects away from, and client
+navigation lands on "Page Not Found."
+
+**Healthy signal:** after a merge to `master`, the Vercel deployments
+list shows a new production build for the `docs(runbook): log …` commit,
+and the Change Log front page shows the matching entry.
+
+CI safety net: `.github/workflows/docs-site-build.yml` builds and
+typechecks the site on every PR that touches `website/`, so a broken
+config or MDX error is caught before Vercel ever sees it.
+
+## 3. Manual runbook edits
 
 The `website/docs/` tree is hand-authored. When you add or change a
 behavior that future operators need to know about, edit the relevant
