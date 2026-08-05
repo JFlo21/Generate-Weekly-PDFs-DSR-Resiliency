@@ -227,10 +227,11 @@ EXECUTION TYPE DETECTION:
     else 
       t=scheduled
     fi
-    # Weekly deep run cron '0 5 * * 1' (UTC Mon 05:00) is Central
-    # Sunday 23:00 (CST) or Monday 00:00 (CDT). Scheduled events only:
-    # a manual dispatch in this window must stay 'manual'.
-    if [ "${{ github.event_name }}" = "schedule" ] && { { [ $day -eq 0 ] && [ $hour -eq 23 ]; } || { [ $day -eq 1 ] && [ $hour -eq 0 ]; }; }; then
+    # Weekly deep run: classify by cron identity, not wall-clock time.
+    # GitHub can delay the '0 5 * * 1' run past the expected Central
+    # hour; github.event.schedule carries the exact cron that fired and
+    # is empty on workflow_dispatch, so manual runs stay 'manual'.
+    if [ "${{ github.event.schedule }}" = "0 5 * * 1" ]; then
       t=weekly_comprehensive
     fi
     echo "execution_type=$t" >> $GITHUB_OUTPUT

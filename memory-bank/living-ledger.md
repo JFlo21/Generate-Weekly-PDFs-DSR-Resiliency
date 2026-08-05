@@ -5034,3 +5034,27 @@ exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
   `workflow_dispatch` runs — no later classification step may overwrite
   it. Any future execution-type branches added to this step must gate
   schedule-derived overrides on `github.event_name == 'schedule'`.
+
+## [2026-08-05 17:35] Weekly-comprehensive classification now uses cron identity (`github.event.schedule`), not wall-clock time
+
+- **Bug (Greptile review, follow-up to [2026-08-05 16:50]):** the weekly
+  deep-run guard in the "Determine execution type" step of
+  `.github/workflows/weekly-excel-generation.yml` matched the runner's
+  Central-time day/hour window. GitHub can delay a `0 5 * * 1` scheduled
+  run past that window (scheduled runs routinely start late under load),
+  so a delayed weekly run was classified from wall-clock time as
+  `production_frequent` or `weekend_maintenance`, mislabeling artifact
+  names and Notion sync records.
+- **Fix:** the guard now compares
+  `[ "${{ github.event.schedule }}" = "0 5 * * 1" ]`.
+  `github.event.schedule` carries the exact cron expression that fired
+  the run — it is the run's identity, immune to start-time delays and
+  DST, and empty on `workflow_dispatch`, so the [2026-08-05 16:50] rule
+  (manual dispatches always stay `manual`) is preserved without an extra
+  event-name check. This supersedes the day/hour-window mechanism from
+  that entry; the `manual`-is-authoritative rule itself still stands.
+- **Rule:** when classifying scheduled runs in this workflow, key off
+  `github.event.schedule` (cron identity), never the runner's wall-clock
+  time. Docs aligned in the same PR: `CLAUDE.md`, `AGENTS.md`,
+  `.github/prompts/configuration-environment.md`,
+  `.planning/intel/constraints.md`.

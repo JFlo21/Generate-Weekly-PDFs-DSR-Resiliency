@@ -280,9 +280,10 @@ no manual wiring.
 - Weekdays (Mon–Fri): 7 runs/day at UTC `13,15,17,19,21,23,01`.
 - Weekends (Sat, Sun): 3 runs/day at UTC `15,19,23`.
 - Weekly deep run: `0 5 * * 1` (UTC Monday 05:00 = Sunday
-  23:00 CST / Monday 00:00 CDT Central). The `if: day==1 &&
-  hour==23` Central-time guard inside the job flips the run
-  into the "weekly comprehensive" branch.
+  23:00 CST / Monday 00:00 CDT Central). The job classifies
+  this run by cron identity (`github.event.schedule ==
+  '0 5 * * 1'`), so scheduling delays cannot mislabel it and
+  manual dispatches always stay `manual`.
 - Container TZ inside the job: `America/Chicago`.
 
 ## Supabase / `billing_audit` schema contract

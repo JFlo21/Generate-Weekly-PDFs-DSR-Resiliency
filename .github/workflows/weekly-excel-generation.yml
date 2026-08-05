@@ -195,11 +195,12 @@ jobs:
           elif [ $day -ge 1 ] && [ $day -le 5 ]; then t=production_frequent
           elif [ $day -eq 0 ] || [ $day -eq 6 ]; then t=weekend_maintenance
           else t=scheduled; fi
-          # Weekly deep run: cron '0 5 * * 1' (UTC Monday 05:00) lands in
-          # Central time at Sunday 23:00 during CST or Monday 00:00 during
-          # CDT — match both DST-sensitive instants. Scheduled events only:
-          # a manual dispatch in this window must stay 'manual'.
-          if [ "${{ github.event_name }}" = "schedule" ] && { { [ $day -eq 0 ] && [ $hour -eq 23 ]; } || { [ $day -eq 1 ] && [ $hour -eq 0 ]; }; }; then t=weekly_comprehensive; fi
+          # Weekly deep run: classify by cron identity, not wall-clock
+          # time. GitHub can delay the '0 5 * * 1' run past the expected
+          # Central-time hour, so a day/hour match would mislabel it.
+          # github.event.schedule carries the exact cron that fired and
+          # is empty on workflow_dispatch, so manual runs stay 'manual'.
+          if [ "${{ github.event.schedule }}" = "0 5 * * 1" ]; then t=weekly_comprehensive; fi
           echo "execution_type=$t" >> $GITHUB_OUTPUT
           echo "should_run=true" >> $GITHUB_OUTPUT
       - name: Parse advanced options
