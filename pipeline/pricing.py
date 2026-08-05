@@ -26,6 +26,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import logging
+import math
 import os
 from collections.abc import Sequence
 
@@ -109,16 +110,23 @@ def _parse_quantity(qty_raw: "str | float | int | None") -> float:
     if qty_raw is None:
         return 0.0
     try:
-        return float(qty_raw)
+        qty = float(qty_raw)
     except (TypeError, ValueError):
-        pass
-    qty_str = _RE_EXTRACT_NUMBERS.sub('', str(qty_raw))
-    if qty_str in ('', '.', '-', '-.', '.-'):
-        return 0.0
-    try:
-        return float(qty_str)
-    except (TypeError, ValueError):
-        return 0.0
+        qty_str = _RE_EXTRACT_NUMBERS.sub('', str(qty_raw))
+        if qty_str in ('', '.', '-', '-.', '.-'):
+            return 0.0
+        try:
+            qty = float(qty_str)
+        except (TypeError, ValueError):
+            return 0.0
+    # Copilot review (PR #297): float() accepts non-finite forms —
+    # float('nan') and float('1e999') (→ inf) — which slip past every
+    # caller's ``qty <= 0`` degenerate gate (NaN compares False to
+    # everything) and would compute a non-finite billing price. The
+    # documented contract is 0.0 for degenerate values; gate BOTH parse
+    # paths (the strip path can also overflow to inf on a long digit
+    # run).
+    return qty if math.isfinite(qty) else 0.0
 
 
 def parse_price(price_str: str | float | int | None) -> float:

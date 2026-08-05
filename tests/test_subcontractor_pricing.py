@@ -4112,6 +4112,18 @@ class TestResolveRowPriceQuantityCoercion(unittest.TestCase):
             self.assertEqual(self._resolve(self._row('2e0')), 200.0)
             self.assertEqual(self._resolve(self._row(1e20)), 100.0 * 1e20)
 
+    def test_quantity_non_finite_falls_through_to_units_total_price(self):
+        # Copilot review (PR #297): float() accepts 'nan' and '1e999'
+        # (→ inf), and NaN compares False to the callers' qty <= 0
+        # degenerate gate — without the isfinite() gate in
+        # _parse_quantity a non-finite billing price would be written.
+        with mock.patch.object(
+            generate_weekly_pdfs, '_SUBCONTRACTOR_RATES', self.RATES_STUB,
+        ):
+            self.assertEqual(self._resolve(self._row('nan')), 999.0)
+            self.assertEqual(self._resolve(self._row('1e999')), 999.0)
+            self.assertEqual(self._resolve(self._row(float('inf'))), 999.0)
+
     def test_quantity_decorated_string_uses_rate_times_qty(self):
         # 2026-08-05 BKT-IP8-F incident: operator-entered unit
         # decoration ('2 EA') previously raised in the bare float()
