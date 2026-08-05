@@ -831,15 +831,16 @@ def recalculate_row_price(row_data, cu_to_group, rates_dict, *, out_status=None)
     elif 'tran' in work_type_raw or 'xfr' in work_type_raw:
         wt_key = 'transfer'
 
-    # Parse quantity — if missing or unparseable, keep SmartSheet price
-    qty_str = str(row_data.get('Quantity', '') or '')
-    try:
-        qty = float(_RE_EXTRACT_NUMBERS.sub('', qty_str) or 0)
-    except ValueError:
-        qty = 0.0
+    # Parse quantity — if missing or unparseable, keep SmartSheet price.
+    # Copilot review (PR #297): routed through the shared float-first
+    # ``_parse_quantity`` helper. The old strip-first parse corrupted
+    # scientific notation (str(1e+20) → '120') and this function writes
+    # its result IN-PLACE to 'Units Total Price', so the corrupted
+    # quantity became a wrong recalculated price, not a fall-through.
+    qty = _parse_quantity(row_data.get('Quantity'))
 
     if qty <= 0:
-        logging.debug(f"Rate recalculation: quantity '{qty_str}' is zero/missing for CU '{cu_code}', keeping SmartSheet price")
+        logging.debug(f"Rate recalculation: quantity {row_data.get('Quantity')!r} is zero/missing for CU '{cu_code}', keeping SmartSheet price")
         _set_status('invalid_quantity')
         return price_val
 
@@ -881,11 +882,10 @@ def revert_subcontractor_price(row_data, original_rates):
     elif 'tran' in work_type_raw or 'xfr' in work_type_raw:
         wt_key = 'transfer'
 
-    qty_str = str(row_data.get('Quantity', '') or '0')
-    try:
-        qty = float(_RE_EXTRACT_NUMBERS.sub('', qty_str) or 0)
-    except ValueError:
-        qty = 0.0
+    # Copilot review (PR #297): shared float-first parser — see
+    # ``_parse_quantity`` and the recalc comment above; same in-place
+    # price-write hazard applies here.
+    qty = _parse_quantity(row_data.get('Quantity'))
 
     if cu_code in original_rates:
         exact_original_rate = original_rates[cu_code].get(wt_key, 0.0)

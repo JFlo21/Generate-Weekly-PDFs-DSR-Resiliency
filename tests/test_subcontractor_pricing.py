@@ -823,6 +823,32 @@ class TestRecalculateRowPrice(unittest.TestCase):
         expected = round(75.94 * 2, 2)  # 151.88
         self.assertAlmostEqual(result, expected)
 
+    def test_recalc_decorated_quantity_uses_rate_times_qty(self):
+        """PR #297: decorated Quantity ('3 EA') recalculates as rate × 3
+        through the shared _parse_quantity helper."""
+        row = {'CU': 'ANC-DHM-10-84-D1', 'Work Type': 'Install', 'Quantity': '3 EA', 'Units Total Price': '$650.00'}
+        result = generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary)
+        self.assertAlmostEqual(result, round(224.06 * 3, 2))
+
+    def test_recalc_scientific_notation_quantity_not_corrupted(self):
+        """PR #297 (Copilot round 3): the old strip-first parse turned
+        str(1e+20) into '120', and recalculate_row_price writes the
+        result IN-PLACE to 'Units Total Price' — a silently WRONG price.
+        The shared float-first parser preserves the true quantity."""
+        row = {'CU': 'ANC-DHM-10-84-D1', 'Work Type': 'Install', 'Quantity': 1e20, 'Units Total Price': '$650.00'}
+        result = generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary)
+        self.assertEqual(result, round(224.06 * 1e20, 2))
+        self.assertNotEqual(result, round(224.06 * 120, 2))
+
+    def test_revert_scientific_notation_quantity_not_corrupted(self):
+        """PR #297 (Copilot round 3): revert_subcontractor_price shares
+        the same in-place price-write hazard; float-first parse keeps
+        the true quantity."""
+        row = {'CU': 'ANC-M', 'Work Type': 'Install', 'Quantity': 1e20, 'Units Total Price': '$100.00'}
+        original_rates = {'ANC-M': {'install': 100.0, 'removal': 0.0, 'transfer': 0.0}}
+        result = generate_weekly_pdfs.revert_subcontractor_price(row, original_rates)
+        self.assertEqual(result, round(100.0 * 1e20, 2))
+
     def test_transfer_work_type(self):
         """Test transfer work type mapping."""
         row = {'CU': 'ARM-10D-60HS', 'Work Type': 'Transfer', 'Quantity': '1', 'Units Total Price': '$150.00'}
