@@ -34,6 +34,7 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — August 5, 2026
 
+- 📄 Help guides updated: record fast-uri production verification
 - 📄 Help guides updated: record fast-uri remediation
 - ✅ Problem fixed: update fast-uri to 3.1.5
 - 📄 Help guides updated: record command center rollout
