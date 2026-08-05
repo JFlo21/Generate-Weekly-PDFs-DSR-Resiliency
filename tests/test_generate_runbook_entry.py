@@ -181,6 +181,60 @@ def test_bucket_files_omits_empty_buckets() -> None:
     assert list(result.keys()) == ["Project docs"]
 
 
+# ---------- is_bot_maintained / feedback-loop guard ----------
+
+@pytest.mark.parametrize(
+    "path,expected",
+    [
+        ("website/blog/2026-07-27-post.md", True),
+        ("website/docs/runbook/whats-new.md", True),
+        ("website/docs/runbook/index.md", False),
+        ("website/docs/intro.md", False),
+        ("generate_weekly_pdfs.py", False),
+    ],
+)
+def test_is_bot_maintained(path: str, expected: bool) -> None:
+    assert gre.is_bot_maintained(path) is expected
+
+
+def test_main_skips_notion_worker_whats_new_only_push() -> None:
+    """Regression: the Notion Worker's whats-new.md commits must not
+    generate a changelog post — logging them creates a new commit the
+    worker reports on its next poll, an infinite push loop."""
+    ctx = gre.PushContext(
+        before="a" * 40, after="b" * 40, branch="master",
+        repo="x/y", run_url=None, pusher="worker",
+    )
+    with patch.object(gre, "load_context", return_value=ctx), \
+         patch.object(gre, "skip_markers_in_range", return_value=False), \
+         patch.object(
+             gre, "changed_files",
+             return_value=["website/docs/runbook/whats-new.md"],
+         ), \
+         patch.object(gre, "build_post") as build:
+        assert gre.main() == 0
+        build.assert_not_called()
+
+
+def test_main_skips_mixed_blog_and_whats_new_push() -> None:
+    ctx = gre.PushContext(
+        before="a" * 40, after="b" * 40, branch="master",
+        repo="x/y", run_url=None, pusher="worker",
+    )
+    with patch.object(gre, "load_context", return_value=ctx), \
+         patch.object(gre, "skip_markers_in_range", return_value=False), \
+         patch.object(
+             gre, "changed_files",
+             return_value=[
+                 "website/blog/2026-07-27-post.md",
+                 "website/docs/runbook/whats-new.md",
+             ],
+         ), \
+         patch.object(gre, "build_post") as build:
+        assert gre.main() == 0
+        build.assert_not_called()
+
+
 # ---------- slugify ----------
 
 @pytest.mark.parametrize(

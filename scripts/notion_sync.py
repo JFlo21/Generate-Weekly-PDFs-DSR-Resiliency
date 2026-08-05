@@ -252,6 +252,25 @@ def _create_incident(notion: Client, run_title: str, error_summary: str, audit_r
 #  MODE: commits — Sync recent git commits
 # ═══════════════════════════════════════════════════════════════════════════
 
+# Automation bookkeeping commits carry no operational context — syncing
+# them buries the meaningful changelog entries (fixes, features) under
+# hundreds of "docs(runbook): log <sha> [skip ci]" rows. Mirrors the
+# commit-message filter in github_workflows_notify.runbook_Version2.yml.
+# Note: "[skip docs]" is intentionally NOT here — it only opts a commit
+# out of the Docusaurus site changelog (generate_runbook_entry.py); such
+# commits still reach the runlog worker and belong in this feed too.
+BOOKKEEPING_PREFIXES = ("docs(runbook):", "chore(notion):")
+BOOKKEEPING_MARKERS = ("[skip ci]", "[skip runlog]")
+
+
+def _is_bookkeeping_commit(message: str) -> bool:
+    """Return True for contextless automation commits to skip in sync."""
+    msg = message.strip()
+    if msg.startswith(BOOKKEEPING_PREFIXES):
+        return True
+    return any(marker in msg for marker in BOOKKEEPING_MARKERS)
+
+
 def _classify_commit(message: str):
     """Parse conventional commit type from message."""
     msg_lower = message.lower().strip()
@@ -339,7 +358,11 @@ def sync_commits(notion: Client, since_days: int = 7):
                 current["deletions"] = int(m_del.group(1))
 
     synced = 0
+    skipped_bookkeeping = 0
     for c in commits:
+        if _is_bookkeeping_commit(c["message"]):
+            skipped_bookkeeping += 1
+            continue
         short_sha = c["sha"][:7]
         if _page_exists(notion, NOTION_CHANGELOG_DB, "Commit", short_sha):
             continue
@@ -364,7 +387,11 @@ def sync_commits(notion: Client, since_days: int = 7):
         )
         synced += 1
 
-    log.info(f"📝 Synced {synced} commit(s) to Notion Changelog (checked {len(commits)} since {since_date})")
+    log.info(
+        f"📝 Synced {synced} commit(s) to Notion Changelog "
+        f"(checked {len(commits)} since {since_date}, "
+        f"skipped {skipped_bookkeeping} bookkeeping)"
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════

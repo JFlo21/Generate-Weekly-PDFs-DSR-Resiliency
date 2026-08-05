@@ -25,6 +25,21 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 BLOG_DIR = REPO_ROOT / "website" / "blog"
 SKIP_MARKERS = ("[skip docs]", "[docs skip]")
 
+# Bot-maintained paths. Pushes that touch ONLY these files are automation
+# bookkeeping, not human work, and must never produce a changelog post.
+# `website/blog/` is this script's own output; `whats-new.md` is rewritten
+# by the external Notion Runbook Worker on every poll. Logging the worker's
+# commit creates a NEW commit for the worker to report on its next poll —
+# an infinite worker → docs-changelog → worker feedback loop that pushed
+# to master every few minutes (and re-triggered every push-driven deploy).
+BOT_MAINTAINED_PREFIXES = ("website/blog/",)
+BOT_MAINTAINED_FILES = ("website/docs/runbook/whats-new.md",)
+
+
+def is_bot_maintained(path: str) -> bool:
+    """Return True when `path` is written by automation, not humans."""
+    return path.startswith(BOT_MAINTAINED_PREFIXES) or path in BOT_MAINTAINED_FILES
+
 # (label, predicate) — first match wins, so ordering matters.
 BUCKETS: list[tuple[str, Callable[[str], bool]]] = [
     ("Workflows & CI", lambda p: p.startswith(".github/workflows/") or p == "azure-pipelines.yml"),
@@ -252,10 +267,15 @@ def main() -> int:
         return 0
 
     files = changed_files(ctx.before, ctx.after)
-    # Don't churn a post for commits that only touch the blog itself.
-    meaningful = [f for f in files if not f.startswith("website/blog/")]
+    # Don't churn a post for pushes that only touch bot-maintained files
+    # (this blog itself, or the Notion Worker's whats-new page).
+    meaningful = [f for f in files if not is_bot_maintained(f)]
     if not meaningful:
-        print("Push only touched website/blog/; skipping to avoid a feedback loop.")
+        print(
+            "Push only touched bot-maintained paths "
+            "(website/blog/, runbook whats-new); "
+            "skipping to avoid a feedback loop."
+        )
         return 0
 
     commits = commits_in_range(ctx.before, ctx.after)

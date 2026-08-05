@@ -1,0 +1,30 @@
+name: Notify Notion Runbook Worker
+
+# Copy this file into .github/workflows/ of any repository you want the
+# Runbook Worker to react to in real time. It fires the worker's
+# "onGitHubPush" webhook whenever code lands on the default branch, so the
+# runbook stays current without waiting for the weekly sync.
+#
+# Required Actions secrets in the repo that uses this workflow:
+#   NOTION_WORKER_WEBHOOK_URL → the webhook endpoint from `ntn workers deploy`
+#   NOTION_WORKER_SECRET      → same value as the worker's WEBHOOK_SHARED_SECRET
+
+on:
+  push:
+    branches: [master, main]
+    # Don't re-notify the worker for the commit it just made to the generated
+    # runbook page — without this the worker's PAT-authored push would trigger
+    # this workflow again and create a self-triggering loop.
+    paths-ignore:
+      - "website/docs/runbook/whats-new.md"
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST to Notion worker webhook
+        run: |
+          curl --fail -X POST "${{ secrets.NOTION_WORKER_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -H "X-Webhook-Secret: ${{ secrets.NOTION_WORKER_SECRET }}" \
+            -d '{"repository":"${{ github.repository }}","sha":"${{ github.sha }}"}'

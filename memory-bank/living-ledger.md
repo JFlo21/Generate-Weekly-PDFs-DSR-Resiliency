@@ -4921,3 +4921,99 @@ exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
 - **Carry-forward flag (unregistered, WARNING):** `TEST_MODE=true` with a
   real token still performs real Smartsheet READS (synthetic path only
   `if not API_TOKEN`) — add to the next phase's threat register.
+
+## [2026-07-25 04:45] CI notification noise fixed — invalid workflow YAML + contextless Linetec runlog dispatches
+
+- **Symptoms:** every push to `master` (including the Notion Worker's
+  automated `docs(runbook): ...` commits) produced two instant
+  workflow-failure emails, and the Linetec runlog (`runlog-linetec`)
+  received contextless "docs(runbook): automated plain-language update"
+  release-note entries.
+- **Root causes (3, all CI-config; zero production code involved):**
+  1. `.github/workflows/azure-pipelines.yml` was a stray duplicate of
+     the root-level Azure DevOps pipeline. GitHub Actions cannot parse
+     Azure Pipelines YAML (`trigger:`/`pool:`/`steps:` with no `on:`),
+     so it registered an instant `failure` run on every push. The
+     **root-level `azure-pipelines.yml` is the authoritative copy**
+     (documented in `website/docs/runbook/workflows.md`); the workflows
+     copy was deleted.
+  2. `system-health-check.yml` had a shell heredoc (`<<'PYCODE'`) whose
+     body dedented to column 1, breaking the YAML block scalar →
+     invalid-workflow-file failure on every push. Replaced with a
+     single-line `python -c`. **Rule: heredoc bodies inside a `run: |`
+     block scalar must keep at least the block's base indentation —
+     dedenting them to column 1 terminates the YAML block scalar.**
+  3. `github_workflows_notify.runbook_Version2.yml` ("Notify runbook")
+     fired on *every* master push and dispatched the raw commit message
+     to `runlog-linetec` — including bot/worker docs commits. Added
+     `paths-ignore` for `website/docs/runbook/whats-new.md` +
+     `website/blog/**` and a job guard filtering by **commit-message
+     pattern, not actor** — skips `docs(runbook):`, `chore(notion):`,
+     `[skip ci]`, and `[skip runlog]` messages. An earlier blanket
+     `!endsWith(github.actor, '[bot]')` guard was reverted per operator
+     feedback: the runlog SHOULD keep receiving context-bearing entries
+     (including bot-merged work); only contextless Notion-CI jargon is
+     excluded. **Rule: filter Linetec runlog dispatches by message
+     pattern (Notion-CI/bookkeeping jargon), never by blanket bot-actor
+     exclusion — contextful entries must keep flowing.**
+- **Bonus fix:** the root `azure-pipelines.yml` itself was corrupted —
+  `env:` blocks had been spliced into the middle of three `script: |`
+  bodies (invalid YAML → every Azure DevOps sync run failed). Script
+  content restored intact with `env:` back below each script.
+
+## [2026-07-27 22:30] Notion Worker ↔ docs-changelog push loop broken — root cause of the Railway failure-email flood
+
+- **Symptom:** failed-build emails from Railway roughly every 15 minutes,
+  plus a Notion changelog / runbook full of contextless
+  "docs(runbook): log <sha> [skip ci]" entries.
+- **Root cause — a self-feeding commit loop:** the external Notion
+  Runbook Worker rewrites `website/docs/runbook/whats-new.md` on every
+  poll. `docs-changelog.yml` treated that push as meaningful and
+  committed a blog stub ("docs(runbook): log <sha> [skip ci]") under
+  `website/blog/`. On its next poll the worker saw that new commit,
+  rewrote `whats-new.md` again → another blog stub → forever. Every
+  push in the loop re-triggered any deploy host watching `master`.
+  Railway's build target (`portal/`, removed 2026-06-02 in Phase 07-03)
+  no longer exists, so **every** loop push produced a failed Railway
+  build + email.
+- **Fixes:**
+  1. `scripts/generate_runbook_entry.py` — new `is_bot_maintained()`
+     guard: pushes touching ONLY `website/blog/` and/or
+     `website/docs/runbook/whats-new.md` never generate a post.
+     **Rule: `whats-new.md` is bot-maintained output, same as
+     `website/blog/` — never changelog it, or the worker loop returns.**
+  2. `scripts/notion_sync.py` — `sync_commits` now skips bookkeeping
+     commits (`docs(runbook):` / `chore(notion):` prefixes and
+     `[skip ci]` / `[skip docs]` / `[skip runlog]` markers), mirroring
+     the runlog-dispatch filter in
+     `github_workflows_notify.runbook_Version2.yml`. **Rule: keep the
+     two bookkeeping filters in sync.** *(Superseded in part — see the
+     [2026-07-27 22:55] correction below: `[skip docs]` was later
+     removed from the marker list.)*
+  3. `render.yaml` deleted + `docs/railway-to-render-transition-plan.md`
+     marked SUPERSEDED: Phase 07 removed the Express backend entirely,
+     so there is no service to host — a Render blueprint pointing at
+     the deleted `portal/` root fails every push.
+- **Operator action still required (dashboard-side, not repo-side):**
+  delete/disconnect any Railway (or Render) service still connected to
+  this repo, then rotate the `GITHUB_TOKEN` / `SESSION_SECRET` it held.
+  Until that is done, each real merge to `master` still produces one
+  failed-deploy email (the loop multiplier is gone).
+
+## [2026-07-27 22:55] `[skip docs]` removed from the Notion bookkeeping filter — the two feeds must match exactly
+
+- **Correction to the [2026-07-27 22:30] entry:** the `sync_commits`
+  bookkeeping filter in `scripts/notion_sync.py` initially also skipped
+  the `[skip docs]` marker, but the runlog-dispatch filter it mirrors
+  (`github_workflows_notify.runbook_Version2.yml`) does not. A commit
+  carrying only `[skip docs]` was therefore omitted from the Notion
+  changelog while still being dispatched to the Linetec runlog worker —
+  the two automation feeds drifted apart.
+- **Fix:** `BOOKKEEPING_MARKERS` is now `("[skip ci]", "[skip runlog]")`,
+  matching the workflow exactly.
+- **Rule: `[skip docs]` is scoped to the Docusaurus site changelog
+  only** (`generate_runbook_entry.py` bails out on it, per
+  `website/docs/reference/how-this-site-updates.md`). It must NOT be
+  treated as automation bookkeeping — such commits still flow to both
+  the runlog dispatch and the Notion changelog. When editing either
+  bookkeeping filter, update the other in the same PR.

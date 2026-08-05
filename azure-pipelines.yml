@@ -36,8 +36,6 @@ steps:
         exit 0
       fi
       git config --global user.name "Azure Pipelines"
-    env:
-      AZDO_PAT_ENV: $(AZDO_PAT)
       git config --global user.email "buildagent@azuredevops.local"
 
       AZDO_URL="https://dev.azure.com/$(AZDO_ORG)/$(AZDO_PROJECT)/_git/$(AZDO_REPO)"
@@ -50,6 +48,8 @@ steps:
 
       echo "Azure remote set to:"
       printf '%s\n' "$AZDO_URL"
+    env:
+      AZDO_PAT_ENV: $(AZDO_PAT)
     displayName: 'Configure Git identity & Azure DevOps remote'
 
   # 3) Prepare PAT-based HTTP Basic header (safer than embedding PAT in URL)
@@ -60,11 +60,11 @@ steps:
         exit 0
       fi
       BASIC="$(printf ':%s' "$AZDO_PAT_ENV" | base64 -w0 || printf ':%s' "$AZDO_PAT_ENV" | base64)"
-    env:
-      AZDO_PAT_ENV: $(AZDO_PAT)
       echo "AUTHORIZATION: Basic $BASIC" > ~/.azdo_header
       chmod 600 ~/.azdo_header
       echo "Prepared PAT header for Azure DevOps pushes."
+    env:
+      AZDO_PAT_ENV: $(AZDO_PAT)
     displayName: 'Prepare PAT header for Azure DevOps'
 
   # 4) Authoritative sync for default branch using --force-with-lease
@@ -76,8 +76,6 @@ steps:
       fi
 
       # Make sure branch exists locally and is up to date with GitHub
-    env:
-      AZDO_PAT_ENV: $(AZDO_PAT)
       git fetch origin --prune
       # If master isn't present locally yet, create it tracking origin/master
       git checkout master || git checkout -b master origin/master
@@ -95,6 +93,8 @@ steps:
 
       # Safer force push: only forces if remote hasn't changed since our fetch
       git -c http.extraheader="$EXTRA" push --force-with-lease azure master:master
+    env:
+      AZDO_PAT_ENV: $(AZDO_PAT)
     displayName: 'Mirror GitHub → Azure DevOps (default branch, safer force)'
 
   # 5) OPTIONAL: Full mirror (all branches & tags) with --force-with-lease
