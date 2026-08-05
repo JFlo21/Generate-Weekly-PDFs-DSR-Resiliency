@@ -5070,3 +5070,27 @@ exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
   (job- or step-level). Compute a presence boolean in job-level `env`
   and test the env value — same pattern already used for
   `SENTRY_AUTH_TOKEN` in the `core` job.
+
+## [2026-08-05 16:10] Notion runbook pages corrected — `NOTION_ENABLED` is opt-out, not opt-in
+
+- **Symptom:** after the two entries above flipped the gate, the
+  canonical operator runbook under `website/` still documented
+  `NOTION_ENABLED` as an opt-in toggle
+  (`website/docs/runbook/workflows.md` — "when `vars.NOTION_ENABLED ==
+  'true'`"; `website/docs/reference/environment.md` — "the workflow
+  short-circuits when this isn't `true`"). An operator who unset the
+  variable, or set it to anything other than `false`, would believe
+  syncing was paused while it kept running. Caught by Greptile review.
+- **Fix:** both pages now state the real contract — sync is enabled by
+  the presence of the `NOTION_TOKEN` secret (surfaced as the job-level
+  `NOTION_CONFIGURED` env flag), and `NOTION_ENABLED` only pauses it
+  when set to the literal string `false`. Added an admonition on each
+  page plus a gating description under the `notion-sync.yml` section of
+  `workflows.md`, which previously documented no gate at all.
+- **Rule:** when an `if:` gate flips polarity (opt-in ⇄ opt-out), update
+  the operator-facing runbook pages under `website/docs/` in the *same*
+  PR. Grep for the variable name across `website/` before merging —
+  `website/docs/reference/environment.md` and
+  `website/docs/runbook/workflows.md` are the two canonical surfaces for
+  workflow toggles, and stale gating docs are how a "paused" integration
+  keeps writing to production systems.

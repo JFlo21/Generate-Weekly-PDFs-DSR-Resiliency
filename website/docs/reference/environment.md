@@ -800,9 +800,17 @@ ever needed. See the `[2026-04-24]` Living Ledger entry in
 
 | Variable | Purpose |
 | --- | --- |
-| `NOTION_TOKEN` | Notion integration secret. |
+| `NOTION_TOKEN` | Notion integration secret. **Presence of this secret is what enables syncing** — both workflows compute `NOTION_CONFIGURED: ${{ secrets.NOTION_TOKEN != '' }}` in the job env and gate on it (the `secrets` context is not permitted in `if:`). |
 | `NOTION_PIPELINE_DB` | Pipeline runs DB. |
 | `NOTION_CHANGELOG_DB` | Changelog DB. |
 | `NOTION_METRICS_DB` | Metrics DB. |
 | `NOTION_INCIDENTS_DB` | Incidents DB. |
-| `NOTION_ENABLED` | Repository variable toggle — the workflow short-circuits when this isn't `true`. |
+| `NOTION_ENABLED` | Repository variable **opt-out kill-switch**. Sync is enabled by default; set it to exactly `false` to pause. Any other value — including unset — leaves syncing on. |
+
+:::warning NOTION_ENABLED is opt-out, not opt-in
+It used to be an opt-in gate (`vars.NOTION_ENABLED == 'true'`), but the
+variable was never provisioned so every run skipped. Setting it to `true`,
+`1`, or leaving it unset all mean **enabled**; only the literal string
+`false` pauses the sync. To stop syncing entirely, remove the
+`NOTION_TOKEN` secret.
+:::
