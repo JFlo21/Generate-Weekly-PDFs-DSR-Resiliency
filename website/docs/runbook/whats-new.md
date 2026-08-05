@@ -103,6 +103,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 ### 📋 Changelog — August 5, 2026
 
+- ✅ Problem fixed: route and verify Notion runbook updates
 - 📄 Help guides updated: record production and GitHub verification
 - • merge: reconcile remote notification workflow
 - ✅ Problem fixed: stabilize webhook and scheduled runbook sync
@@ -486,4 +487,3 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
-
