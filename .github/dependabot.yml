@@ -1,0 +1,53 @@
+# Dependabot configuration — automated VERSION-update PRs.
+#
+# This file schedules routine version bumps so vulnerable ranges never
+# linger. Security-update PRs are governed separately: enable
+# "Dependabot security updates" under the repository's Settings →
+# Code security. Weekly cadence + small PR limits keep the noise
+# manageable for a single-maintainer repo.
+#
+# NOTE: requirements.txt intentionally pins transport-critical deps
+# exactly (see memory-bank/living-ledger.md, 260608-gwm rule) — review
+# Dependabot PRs against that rule before merging; do NOT auto-merge
+# smartsheet-python-sdk bumps.
+version: 2
+updates:
+  # Python billing engine (production pipeline)
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "python"]
+
+  # GitHub Actions workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "github-actions"]
+
+  # Utility scripts (Notion sync, runbook, manifest tools)
+  - package-ecosystem: "npm"
+    directory: "/scripts"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "javascript"]
+
+  # React + Vite + Supabase frontend
+  - package-ecosystem: "npm"
+    directory: "/portal-v2"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "javascript"]
+
+  # Docusaurus runbook
+  - package-ecosystem: "npm"
+    directory: "/website"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "javascript"]

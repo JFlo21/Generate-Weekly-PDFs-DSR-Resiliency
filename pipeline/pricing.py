@@ -26,6 +26,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import logging
+import math
 import os
 from collections.abc import Sequence
 
@@ -85,6 +86,47 @@ RATE_RECALC_SKIP_ORIGINAL_CONTRACT = os.getenv(
 SUBCONTRACTOR_RATES_CSV = _sanitize_csv_path(
     'SUBCONTRACTOR_RATES_CSV', 'data/subcontractor_rates.csv'
 )
+
+
+def _parse_quantity(qty_raw: "str | float | int | None") -> float:
+    """Parse a canonical ``Quantity`` cell value to a float.
+
+    THE single shared parser for pricing AND the Excel display path
+    (2026-08-05 BKT-IP8-F incident + Copilot review, PR #297):
+
+    1. Direct ``float()`` first — preserves every purely numeric form
+       exactly as the pre-incident code did, including scientific
+       notation, which the decoration-strip would silently corrupt
+       (``str(1e+20)`` regex-strips to ``'120'`` — a WRONG number,
+       not a safe fall-through).
+    2. On failure, strip unit decorations via ``_RE_EXTRACT_NUMBERS``
+       (``'2 EA'`` → ``'2'``) and retry.
+    3. Anything else parses to ``0.0`` — callers treat that as a
+       degenerate quantity.
+
+    Display and pricing MUST both route through this helper so a value
+    can never display as N while pricing as anything other than N.
+    """
+    if qty_raw is None:
+        return 0.0
+    try:
+        qty = float(qty_raw)
+    except (TypeError, ValueError):
+        qty_str = _RE_EXTRACT_NUMBERS.sub('', str(qty_raw))
+        if qty_str in ('', '.', '-', '-.', '.-'):
+            return 0.0
+        try:
+            qty = float(qty_str)
+        except (TypeError, ValueError):
+            return 0.0
+    # Copilot review (PR #297): float() accepts non-finite forms —
+    # float('nan') and float('1e999') (→ inf) — which slip past every
+    # caller's ``qty <= 0`` degenerate gate (NaN compares False to
+    # everything) and would compute a non-finite billing price. The
+    # documented contract is 0.0 for degenerate values; gate BOTH parse
+    # paths (the strip path can also overflow to inf on a long digit
+    # run).
+    return qty if math.isfinite(qty) else 0.0
 
 
 def parse_price(price_str: str | float | int | None) -> float:
@@ -507,11 +549,13 @@ def _subcontractor_rescue_price(row_data: dict) -> float:
         rate = rate_row.get('reduced_transfer_price', 0.0)
     else:
         return 0.0
-    qty_raw = row_data.get('Quantity', 0)
-    try:
-        qty = float(qty_raw) if qty_raw not in (None, '') else 0.0
-    except (TypeError, ValueError):
-        qty = 0.0
+    # 2026-08-05 BKT-IP8-F incident: parse Quantity through the shared
+    # ``_parse_quantity`` helper (float-first, then decoration strip)
+    # so a decorated quantity ('2 EA') cannot silently fail admission
+    # here while displaying a positive quantity downstream. Clean
+    # numeric inputs parse identically to the previous bare-float
+    # implementation.
+    qty = _parse_quantity(row_data.get('Quantity'))
     if rate <= 0 or qty <= 0:
         return 0.0
     return rate * qty
@@ -637,23 +681,30 @@ def _resolve_row_price(row: dict, variant: str, missing_cus) -> float:
         rate = rate_row.get(f'reduced_{wt}_price', 0.0)
 
     # Canonical 'Quantity' ONLY — never 'Units Completed' (checkbox).
-    # Phase 01 gap closure (REVIEW-IN-02): explicit None / empty-string
-    # handling. The previous ``or 0`` short-circuit collapsed
-    # legitimate ``Quantity=0.0`` to int ``0`` (functionally correct
-    # after the subsequent ``float()`` coercion but opaque to readers).
-    # Numeric output is byte-identical for every pre-existing input case
-    # (None, '', 0, 0.0, '1.5', invalid → 0.0 / 0.0 / 0.0 / 0.0 / 1.5
-    # / 0.0 respectively).
-    qty_raw = row.get('Quantity', 0)
-    try:
-        qty = float(qty_raw) if qty_raw not in (None, '') else 0.0
-    except (TypeError, ValueError):
-        qty = 0.0
+    # 2026-08-05 BKT-IP8-F incident: parse Quantity through the shared
+    # ``_parse_quantity`` helper — the SAME parser the Excel display
+    # path uses. The previous bare ``float(qty_raw)`` raised on any
+    # decorated value ('2 EA'), silently falling through to the raw
+    # SmartSheet ``Units Total Price`` — the workbook then displayed
+    # Quantity=2 (lenient display parser) alongside a 1-unit price
+    # (strict pricing parser). Clean numeric inputs (None, '', 0, 0.0,
+    # '1.5', scientific notation, invalid) parse identically to the
+    # pre-incident implementation.
+    qty = _parse_quantity(row.get('Quantity'))
 
     if rate <= 0 or qty <= 0:
         # Degenerate row: SmartSheet pricing as the safety floor,
         # NEVER silently zero out (mirrors the recalc fall-through
-        # pattern in Living Ledger 2026-04-21 22:35).
+        # pattern in Living Ledger 2026-04-21 22:35). WARN so a
+        # known-CU row that falls back is visible in the run log —
+        # the 2026-08-05 incident was invisible precisely because
+        # this path was silent.
+        logging.warning(
+            f"⚠️ Subcontractor price fall-through for CU '{cu}' "
+            f"(variant={variant}): rate={rate}, parsed qty={qty} "
+            f"(raw Quantity={row.get('Quantity')!r}) — keeping "
+            f"SmartSheet Units Total Price"
+        )
         return parse_price(row.get('Units Total Price'))
     return rate * qty
 
@@ -788,15 +839,16 @@ def recalculate_row_price(row_data, cu_to_group, rates_dict, *, out_status=None)
     elif 'tran' in work_type_raw or 'xfr' in work_type_raw:
         wt_key = 'transfer'
 
-    # Parse quantity — if missing or unparseable, keep SmartSheet price
-    qty_str = str(row_data.get('Quantity', '') or '')
-    try:
-        qty = float(_RE_EXTRACT_NUMBERS.sub('', qty_str) or 0)
-    except ValueError:
-        qty = 0.0
+    # Parse quantity — if missing or unparseable, keep SmartSheet price.
+    # Copilot review (PR #297): routed through the shared float-first
+    # ``_parse_quantity`` helper. The old strip-first parse corrupted
+    # scientific notation (str(1e+20) → '120') and this function writes
+    # its result IN-PLACE to 'Units Total Price', so the corrupted
+    # quantity became a wrong recalculated price, not a fall-through.
+    qty = _parse_quantity(row_data.get('Quantity'))
 
     if qty <= 0:
-        logging.debug(f"Rate recalculation: quantity '{qty_str}' is zero/missing for CU '{cu_code}', keeping SmartSheet price")
+        logging.debug(f"Rate recalculation: quantity {row_data.get('Quantity')!r} is zero/missing for CU '{cu_code}', keeping SmartSheet price")
         _set_status('invalid_quantity')
         return price_val
 
@@ -838,11 +890,10 @@ def revert_subcontractor_price(row_data, original_rates):
     elif 'tran' in work_type_raw or 'xfr' in work_type_raw:
         wt_key = 'transfer'
 
-    qty_str = str(row_data.get('Quantity', '') or '0')
-    try:
-        qty = float(_RE_EXTRACT_NUMBERS.sub('', qty_str) or 0)
-    except ValueError:
-        qty = 0.0
+    # Copilot review (PR #297): shared float-first parser — see
+    # ``_parse_quantity`` and the recalc comment above; same in-place
+    # price-write hazard applies here.
+    qty = _parse_quantity(row_data.get('Quantity'))
 
     if cu_code in original_rates:
         exact_original_rate = original_rates[cu_code].get(wt_key, 0.0)

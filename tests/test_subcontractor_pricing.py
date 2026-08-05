@@ -823,6 +823,32 @@ class TestRecalculateRowPrice(unittest.TestCase):
         expected = round(75.94 * 2, 2)  # 151.88
         self.assertAlmostEqual(result, expected)
 
+    def test_recalc_decorated_quantity_uses_rate_times_qty(self):
+        """PR #297: decorated Quantity ('3 EA') recalculates as rate × 3
+        through the shared _parse_quantity helper."""
+        row = {'CU': 'ANC-DHM-10-84-D1', 'Work Type': 'Install', 'Quantity': '3 EA', 'Units Total Price': '$650.00'}
+        result = generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary)
+        self.assertAlmostEqual(result, round(224.06 * 3, 2))
+
+    def test_recalc_scientific_notation_quantity_not_corrupted(self):
+        """PR #297 (Copilot round 3): the old strip-first parse turned
+        str(1e+20) into '120', and recalculate_row_price writes the
+        result IN-PLACE to 'Units Total Price' — a silently WRONG price.
+        The shared float-first parser preserves the true quantity."""
+        row = {'CU': 'ANC-DHM-10-84-D1', 'Work Type': 'Install', 'Quantity': 1e20, 'Units Total Price': '$650.00'}
+        result = generate_weekly_pdfs.recalculate_row_price(row, self.cu_to_group, self.rates_primary)
+        self.assertEqual(result, round(224.06 * 1e20, 2))
+        self.assertNotEqual(result, round(224.06 * 120, 2))
+
+    def test_revert_scientific_notation_quantity_not_corrupted(self):
+        """PR #297 (Copilot round 3): revert_subcontractor_price shares
+        the same in-place price-write hazard; float-first parse keeps
+        the true quantity."""
+        row = {'CU': 'ANC-M', 'Work Type': 'Install', 'Quantity': 1e20, 'Units Total Price': '$100.00'}
+        original_rates = {'ANC-M': {'install': 100.0, 'removal': 0.0, 'transfer': 0.0}}
+        result = generate_weekly_pdfs.revert_subcontractor_price(row, original_rates)
+        self.assertEqual(result, round(100.0 * 1e20, 2))
+
     def test_transfer_work_type(self):
         """Test transfer work type mapping."""
         row = {'CU': 'ARM-10D-60HS', 'Work Type': 'Transfer', 'Quantity': '1', 'Units Total Price': '$150.00'}
@@ -4075,6 +4101,42 @@ class TestResolveRowPriceQuantityCoercion(unittest.TestCase):
                 999.0,
             )
 
+    def test_quantity_scientific_notation_parses_directly(self):
+        # Copilot review (PR #297): the float-first parse preserves
+        # scientific notation exactly as the pre-incident code did.
+        # A strip-first parse corrupts it (str(1e+20) → '120') into a
+        # WRONG number rather than a safe fall-through.
+        with mock.patch.object(
+            generate_weekly_pdfs, '_SUBCONTRACTOR_RATES', self.RATES_STUB,
+        ):
+            self.assertEqual(self._resolve(self._row('2e0')), 200.0)
+            self.assertEqual(self._resolve(self._row(1e20)), 100.0 * 1e20)
+
+    def test_quantity_non_finite_falls_through_to_units_total_price(self):
+        # Copilot review (PR #297): float() accepts 'nan' and '1e999'
+        # (→ inf), and NaN compares False to the callers' qty <= 0
+        # degenerate gate — without the isfinite() gate in
+        # _parse_quantity a non-finite billing price would be written.
+        with mock.patch.object(
+            generate_weekly_pdfs, '_SUBCONTRACTOR_RATES', self.RATES_STUB,
+        ):
+            self.assertEqual(self._resolve(self._row('nan')), 999.0)
+            self.assertEqual(self._resolve(self._row('1e999')), 999.0)
+            self.assertEqual(self._resolve(self._row(float('inf'))), 999.0)
+
+    def test_quantity_decorated_string_uses_rate_times_qty(self):
+        # 2026-08-05 BKT-IP8-F incident: operator-entered unit
+        # decoration ('2 EA') previously raised in the bare float()
+        # parse → qty=0.0 → silent fall-through to the SmartSheet
+        # price, while the Excel display parser (which strips
+        # non-numerics) still showed Quantity=2. The pricing parser
+        # now applies the same _RE_EXTRACT_NUMBERS normalization, so
+        # the row prices as rate × 2.
+        with mock.patch.object(
+            generate_weekly_pdfs, '_SUBCONTRACTOR_RATES', self.RATES_STUB,
+        ):
+            self.assertEqual(self._resolve(self._row('2 EA')), 200.0)
+
     def test_production_source_does_not_carry_or_zero_pattern(self):
         # Source-level guard: the ``or 0`` short-circuit is removed.
         # Phase 09 W2: ``_resolve_row_price`` was relocated to
@@ -4087,11 +4149,17 @@ class TestResolveRowPriceQuantityCoercion(unittest.TestCase):
             "row.get('Quantity') or 0",
             src,
             "IN-02 regression: the ``or 0`` short-circuit pattern has "
-            "been re-introduced. Use explicit ``row.get('Quantity', 0)`` "
-            "+ ``if qty_raw not in (None, '')`` per 01-11-PLAN.md.",
+            "been re-introduced on the Quantity read. Quantity parsing "
+            "must keep the _RE_EXTRACT_NUMBERS normalization "
+            "(2026-08-05 BKT-IP8-F incident) — see 01-11-PLAN.md for "
+            "the original IN-02 rationale.",
         )
-        # Confirm the explicit pattern is present.
-        self.assertIn("qty_raw not in (None, '')", src)
+        # Confirm the SHARED parser is used: pricing MUST route through
+        # _parse_quantity — the same float-first-then-strip helper the
+        # Excel display path uses — so a Quantity value can never price
+        # differently than it displays (2026-08-05 BKT-IP8-F incident;
+        # float-first refinement per Copilot review, PR #297).
+        self.assertIn("_parse_quantity(", src)
 
 
 class TestPhase1FilenameRoundTripCoverage(unittest.TestCase):

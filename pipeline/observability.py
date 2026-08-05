@@ -532,6 +532,12 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     # containment with pre-existing markers (body does not overlap
     # "Subproject B hash-history prune" or "Vac crew hash-history prune").
     "Subproject D hash-history prune",
+    # 2026-08-05 BKT-IP8-F incident (PR #297): the pricing fall-through
+    # WARNING embeds CU code, rate, and the raw Quantity cell value —
+    # row-level billing data per the registry's classification. Marker
+    # covers both the Sentry Logs plane and the breadcrumb plane; the
+    # local GHA log keeps the full diagnostic.
+    "Subcontractor price fall-through",
 )
 
 

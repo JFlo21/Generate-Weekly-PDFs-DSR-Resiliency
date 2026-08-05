@@ -423,6 +423,28 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
     # further down, which would otherwise leave _txn unbound and turn any
     # main() exit through finally into an UnboundLocalError.
     _txn = None
+    # Group-processing counters. Hoisted for the same reason as _txn:
+    # the general except handler and the finally-block cron check-in
+    # reference these unconditionally, but their in-flow initialization
+    # sits AFTER the discovery/fetch phases. An early failure (e.g.
+    # "No valid data rows found" raised in Phase 2 — the 2026-08-05
+    # all-sheets-403 incident) previously turned the real error into
+    # ``UnboundLocalError: _groups_errored`` inside the handler,
+    # masking the root cause in both the log and Sentry. The later
+    # in-flow re-initialization is kept (harmless re-zeroing).
+    _groups_skipped = 0
+    _groups_generated = 0
+    _groups_uploaded = 0
+    _groups_errored = 0
+    _api_calls_count = 0
+    history_updates = 0
+    # Explicit session-failure sentinel for the finally-block cron
+    # check-in (Copilot review, PR #297): _groups_errored == 0 alone
+    # cannot distinguish "clean run" from "died before any group was
+    # processed" — a pre-group exception (e.g. the all-sheets-403
+    # authorization failure) would otherwise check in as OK. Set True
+    # in every except handler below.
+    _session_failed = False
 
     # Sentry cron check-in: signal "in_progress" at session start
     _cron_monitor_slug = os.getenv("SENTRY_CRON_MONITOR_SLUG", "weekly-excel-generation")
@@ -2812,6 +2834,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 _txn = None
 
     except FileNotFoundError as e:
+        _session_failed = True
         error_context = f"Missing required file: {e}"
         logging.error(f"💥 {error_context}")
         sentry_capture_with_context(
@@ -2832,6 +2855,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             _txn = None
             
     except Exception as e:
+        _session_failed = True
         session_duration = datetime.datetime.now() - session_start
         error_context = f"Session failed after {session_duration}"
         logging.error(f"💥 {error_context}: {e}")
@@ -2893,7 +2917,12 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # Sentry cron check-in: signal final status
         if SENTRY_DSN and _cron_checkin_id:
             try:
-                _cron_ok = '_groups_errored' not in dir() or _groups_errored == 0
+                # Session failure dominates: a run that died before (or
+                # during) group processing must check in ERROR even with
+                # zero per-group errors (Copilot review, PR #297). Both
+                # names are hoisted above the try, so no dir() guard is
+                # needed.
+                _cron_ok = (not _session_failed) and _groups_errored == 0
                 capture_checkin(
                     monitor_slug=_cron_monitor_slug,
                     check_in_id=_cron_checkin_id,

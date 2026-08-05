@@ -33,7 +33,7 @@ from pipeline.config import (
     _RE_SANITIZE_HELPER_NAME,
     _RE_SANITIZE_IDENTIFIER,
 )
-from pipeline.pricing import _resolve_row_price, parse_price
+from pipeline.pricing import _parse_quantity, _resolve_row_price, parse_price
 from pipeline.utils import excel_serial_to_date
 
 logger = logging.getLogger(__name__)
@@ -652,14 +652,13 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
             else:
                 price = parse_price(row_data.get('Units Total Price'))
             
-            # Safely parse quantity - extract only numbers
-            qty_str = str(row_data.get('Quantity', '') or 0)
-            # PERFORMANCE: Use pre-compiled regex for quantity normalization
-            qty_str = _RE_EXTRACT_NUMBERS.sub('', qty_str)
-            try:
-                quantity = float(qty_str) if qty_str not in ('', '.', '-', '-.', '.-') else 0.0
-            except Exception:
-                quantity = 0.0
+            # Parse quantity through the SHARED helper — the same
+            # parser pricing uses (2026-08-05 BKT-IP8-F incident +
+            # Copilot review, PR #297). Float-first preserves
+            # scientific notation that the old strip-first path
+            # corrupted; a displayed quantity can never differ from
+            # the quantity pricing computed with.
+            quantity = _parse_quantity(row_data.get('Quantity'))
                 
             total_price_day += price
             
