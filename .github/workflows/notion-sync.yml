@@ -33,8 +33,12 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Only run if Notion is configured
-    if: ${{ vars.NOTION_ENABLED == 'true' }}
+    # Run whenever the Notion token secret is configured. The optional
+    # NOTION_ENABLED repository variable acts as an explicit kill-switch
+    # (set it to 'false' to pause syncing) — previously the job required
+    # NOTION_ENABLED == 'true', so every run was skipped when the
+    # variable was never created.
+    if: ${{ vars.NOTION_ENABLED != 'false' && secrets.NOTION_TOKEN != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4

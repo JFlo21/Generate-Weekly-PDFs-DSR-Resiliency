@@ -5017,3 +5017,32 @@ exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
   treated as automation bookkeeping — such commits still flow to both
   the runlog dispatch and the Notion changelog. When editing either
   bookkeeping filter, update the other in the same PR.
+
+## [2026-08-05 06:45] Notion sync was silently skipping every run — `NOTION_ENABLED` repo variable was never set
+
+- **Symptom:** all 280 runs of `notion-sync.yml` (push, schedule, and
+  even manual `workflow_dispatch`) concluded `skipped`; nothing ever
+  synced to the Notion databases.
+- **Root cause:** the job gate was
+  `if: vars.NOTION_ENABLED == 'true'`, but the `NOTION_ENABLED`
+  repository *variable* (Settings → Secrets and variables → Actions →
+  Variables) was never created. An unset variable evaluates to empty
+  string, so the condition was always false. The same gate existed on
+  the "Sync run to Notion" step in `weekly-excel-generation.yml`.
+- **Fix:** both gates now use
+  `vars.NOTION_ENABLED != 'false' && secrets.NOTION_TOKEN != ''` —
+  sync runs whenever the `NOTION_TOKEN` secret is configured, and
+  `NOTION_ENABLED` is demoted to an explicit opt-out kill-switch
+  (set it to `false` to pause syncing).
+- **Rule:** never gate a workflow on a repo variable equaling `'true'`
+  unless that variable is provisioned in the same change; prefer
+  secret-presence checks with a variable as opt-out kill-switch.
+- **Railway:** the Railway service must be disconnected in the Railway
+  dashboard (repo has no Railway config files — the connection is a
+  GitHub App / dashboard-side integration). See the [2026-07-27 22:30]
+  entry: the build target (`portal/`) was deleted in Phase 07-03, so
+  every push produces a failed Railway build until the service is
+  deleted or its GitHub connection is removed at railway.app →
+  project → service → Settings → Disconnect, plus removing the
+  Railway GitHub App from https://github.com/settings/installations
+  if no other repo uses it.
