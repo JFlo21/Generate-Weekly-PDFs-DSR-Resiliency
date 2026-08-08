@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: August 7, 2026 (updated automatically)_
+_Last updated: August 8, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -18,30 +18,12 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
-## linetec-inspector-manifest-generator
-
-> ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
-
-### 📋 Changelog — August 7, 2026
-
-- • Phase 19: Billing DIF columns + Billers/Inspector sheets — execution + gap-closure rounds 1-2
-- ✅ Problem fixed: numeric WR # cells (synced-formula break) + Phase 18 go-live records + Phase 19 context
-- • Phase 18: Master Schedule watcher + Gen A kickoff + ProMax-change regen (dark)
-- • Phase 17.5: Supabase delivery-lock + hash ledger (threat-secure close)
-- ✅ Problem fixed: cron incident 2026-08-01 — transient-5xx event-publish retry + stage-pack hourly cron backstop
-- ✅ Problem fixed: verify callbacks against multiple comma-separated shared secrets
-- ✅ Problem fixed: stamp Manifest Version on request row after CLI attach
-- ✅ Problem fixed: explicit request timeout -- a dead socket no longer hangs the ProMax pull
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
 ## Weekly Billing Reports (DSR Resiliency)
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — August 7, 2026
+### 📋 Changelog — August 8, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
@@ -54,12 +36,30 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
+<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
+## linetec-inspector-manifest-generator
+
+> ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
+
+### 📋 Changelog — August 8, 2026
+
+- ✅ Problem fixed: As-Built Hrs diagnostics + TOTAL-row per-column summaries + wrong-shape workbook guard
+- ✅ Problem fixed: accept Y/N in Inspector Approved Qty; unreadable G becomes a legible refusal (cron + webapp)
+- • Phase 19: Billing DIF columns + Billers/Inspector sheets — execution + gap-closure rounds 1-2
+- ✅ Problem fixed: numeric WR # cells (synced-formula break) + Phase 18 go-live records + Phase 19 context
+- • Phase 18: Master Schedule watcher + Gen A kickoff + ProMax-change regen (dark)
+- • Phase 17.5: Supabase delivery-lock + hash ledger (threat-secure close)
+- ✅ Problem fixed: As-Built Hrs diagnostics + TOTAL-row per-column summaries + wrong-shape workbook guard ()
+- • Merge pull request from JFlo21/fix/g-column-yn-intake
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/claudeos -->
 ## ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
 
 > ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
 
-### 📋 Changelog — August 7, 2026
+### 📋 Changelog — August 8, 2026
 
 - • Harden primary reconciliation audit and managed Codex install
 - • Use merged main in portable-computer test runbook
@@ -77,7 +77,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
 
-### 📋 Changelog — August 7, 2026
+### 📋 Changelog — August 8, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -88,7 +88,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** A Notion Worker that turns GitHub activity into a professional, living operations runbook. It gives nontechnical readers a concise current-state summary while preserving source links and technical evidence for engineers.
 
-### 📋 Changelog — August 7, 2026
+### 📋 Changelog — August 8, 2026
 
 - 📄 Help guides updated: record fast-uri production verification
 - 📄 Help guides updated: record fast-uri remediation
@@ -111,7 +111,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — August 7, 2026
+### 📋 Changelog — August 8, 2026
 
 - • 📊 Audit: 2026-08-03T07:40:51Z
 
@@ -464,7 +464,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — August 7, 2026
+### 📋 Changelog — August 8, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -475,14 +475,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Private, version-controlled execution infrastructure for Juan's guarded Todoist GTD system.
 
-### 📋 Changelog — August 7, 2026
-
-- ✨ New capability: add owner-tolerant routine canaries
-- ✅ Problem fixed: restore cloud audit API surface
-- ✨ New capability: sync current guarded Todoist controls
-- ✨ New capability: add owner-tolerant routine canaries ()
-- ✅ Problem fixed: restore cloud audit API surface ()
-- ✨ New capability: sync current guarded Todoist controls ()
+_Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
