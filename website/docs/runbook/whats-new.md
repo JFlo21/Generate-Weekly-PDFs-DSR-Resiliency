@@ -5,9 +5,27 @@ title: What's New
 
 # What's New
 
-_Last updated: August 9, 2026 (updated automatically)_
+_Last updated: August 10, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
+
+<!-- runbook-repo: JFlo21/claudeos -->
+## ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
+
+> ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
+
+### 📋 Changelog — August 10, 2026
+
+- • ClaudeOS: GSD Core 1.10.0 routing and dispatch repair
+- • Harden primary reconciliation audit and managed Codex install
+- • Use merged main in portable-computer test runbook
+- ✅ Problem fixed: Fix final ClaudeOS/CodexOS portability and parity gaps
+- • Add portable ClaudeOS/CodexOS parity, managed agents, and device handoff
+- • Merge pull request from JFlo21/codex/gsd-core-fable-routing
+- ✅ Problem fixed: suppress failed statusline output
+- ✅ Problem fixed: accept CRLF in macOS bootstrap assertion
+
+<!-- /runbook-repo -->
 
 <!-- runbook-repo: JFlo21/JFlo21 -->
 ## JFlo21
@@ -18,39 +36,14 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/claudeos -->
-## ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
+<!-- runbook-repo: JFlo21/smartsheet-auditor -->
+## AI powered repository that will look back and check on my smartsheet to analyze for duplications of work requests line items
 
-> ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
+> ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — August 9, 2026
+### 📋 Changelog — August 10, 2026
 
-- • Harden primary reconciliation audit and managed Codex install
-- • Use merged main in portable-computer test runbook
-- ✅ Problem fixed: Fix final ClaudeOS/CodexOS portability and parity gaps
-- • Add portable ClaudeOS/CodexOS parity, managed agents, and device handoff
-- • Merge pull request from JFlo21/agent/reconcile-primary-audit-findings
-- • Complete reviewed audit contract
-- • Harden Windows reviewed object handling
-- ✅ Problem fixed: Fix Windows bootstrap profile fallback
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
-## linetec-inspector-manifest-generator
-
-> ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
-
-### 📋 Changelog — August 9, 2026
-
-- ✅ Problem fixed: map MANIFEST&#95;BILLERS&#95;SHEET&#95;ID into revision-intake worker env
-- ✅ Problem fixed: As-Built Hrs diagnostics + TOTAL-row per-column summaries + wrong-shape workbook guard
-- ✅ Problem fixed: accept Y/N in Inspector Approved Qty; unreadable G becomes a legible refusal (cron + webapp)
-- • Phase 19: Billing DIF columns + Billers/Inspector sheets — execution + gap-closure rounds 1-2
-- ✅ Problem fixed: numeric WR # cells (synced-formula break) + Phase 18 go-live records + Phase 19 context
-- • Phase 18: Master Schedule watcher + Gen A kickoff + ProMax-change regen (dark)
-- • Phase 17.5: Supabase delivery-lock + hash ledger (threat-secure close)
-- ✅ Problem fixed: map MANIFEST&#95;BILLERS&#95;SHEET&#95;ID into the revision-intake worker env ()
+- • 📊 Audit: 2026-08-10T07:00:02Z
 
 <!-- /runbook-repo -->
 
@@ -59,7 +52,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — August 9, 2026
+### 📋 Changelog — August 10, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
@@ -72,12 +65,30 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
+<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
+## linetec-inspector-manifest-generator
+
+> ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
+
+### 📋 Changelog — August 10, 2026
+
+- ✅ Problem fixed: map MANIFEST&#95;BILLERS&#95;SHEET&#95;ID into revision-intake worker env
+- ✅ Problem fixed: As-Built Hrs diagnostics + TOTAL-row per-column summaries + wrong-shape workbook guard
+- ✅ Problem fixed: accept Y/N in Inspector Approved Qty; unreadable G becomes a legible refusal (cron + webapp)
+- • Phase 19: Billing DIF columns + Billers/Inspector sheets — execution + gap-closure rounds 1-2
+- ✅ Problem fixed: numeric WR # cells (synced-formula break) + Phase 18 go-live records + Phase 19 context
+- • Phase 18: Master Schedule watcher + Gen A kickoff + ProMax-change regen (dark)
+- • Phase 17.5: Supabase delivery-lock + hash ledger (threat-secure close)
+- ✅ Problem fixed: map MANIFEST&#95;BILLERS&#95;SHEET&#95;ID into the revision-intake worker env ()
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/smartsheet-bot -->
 ## smartsheet-bot
 
 > ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
 
-### 📋 Changelog — August 9, 2026
+### 📋 Changelog — August 10, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -88,7 +99,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** A Notion Worker that turns GitHub activity into a professional, living operations runbook. It gives nontechnical readers a concise current-state summary while preserving source links and technical evidence for engineers.
 
-### 📋 Changelog — August 9, 2026
+### 📋 Changelog — August 10, 2026
 
 - 📄 Help guides updated: record fast-uri production verification
 - 📄 Help guides updated: record fast-uri remediation
@@ -103,17 +114,6 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 > ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
 
 _Running steadily — no meaningful changes were detected in this period._ ✅
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/smartsheet-auditor -->
-## AI powered repository that will look back and check on my smartsheet to analyze for duplications of work requests line items
-
-> ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
-
-### 📋 Changelog — August 9, 2026
-
-- • 📊 Audit: 2026-08-03T07:40:51Z
 
 <!-- /runbook-repo -->
 
@@ -464,7 +464,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — August 9, 2026
+### 📋 Changelog — August 10, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
