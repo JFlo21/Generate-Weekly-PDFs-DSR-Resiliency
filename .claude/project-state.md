@@ -23,7 +23,41 @@ write-back reminder). Keep it terse; link to history rather than duplicating it.
    "Snapshot Date is blank" write-once condition; fix the template
    sheet so backup copies inherit it. Recommendation delivered to Juan;
    NOT yet applied (his action).
-3. **Quick task 260812-isx (GSD quick) COMPLETE → PR #329 OPEN:**
+3. **SESSION HANDOFF (2026-08-12 ~15:20 CDT) — resume points:**
+   - **PR #329 Greptile fixes DONE + PUSHED:** gsd-code-fixer landed
+     3 atomic commits on `feat/260812-isx-rate-sanity-audit` —
+     `64d7249` (fold total_rate_sanity_mismatches into history/
+     audit-sheet/trend total_issues aggregates + 2 regression tests),
+     `e003124` (website/blog/2026-08-12-rate-sanity-audit-check.md
+     runbook changelog incl. RATE_SANITY_AUDIT_ENABLED=false emergency
+     disable), `8802e98` (test return-type annotations). Suite 1230
+     passed + 130 subtests. Pushed 8802e98 → PR #329 updated. Known
+     latent quirk (out of scope, untouched): risk_trend.json write
+     silently no-ops on a truly fresh generated_docs/ dir because
+     makedirs happens later in _save_audit_state().
+   - **Quick task 260812-jqx APPROVED-TO-EXECUTE, not started:**
+     snapshot-drift audit. Plan/context/research complete + plan-check
+     PASSED (0 blockers, 1 warning: add post-seam Sentry capture for
+     holds). Planning docs are UNTRACKED in
+     `.planning/quick/260812-jqx-snapshot-date-drift-audit-detect-snapsho/`
+     (CONTEXT/RESEARCH/PLAN — commit them). Execution recipe: after
+     PR #329 fixes land, `git switch -c feat/260812-jqx-snapshot-drift-audit`
+     from the isx tip (plan line numbers assume isx code present),
+     spawn gsd-core:gsd-executor (sonnet) on 260812-jqx-PLAN.md, then
+     gsd-verifier + code review + haiku-verifier, docs commit, PR
+     stacked on #329. Locked decisions: hold-prior-week+HIGH for
+     automation self-fires ONLY (SNAPSHOT_DRIFT_HOLD_ENABLED default
+     OFF), never hold manual edits, fail-open gating/fail-closed
+     logging, 40-row capped ~2s-paced cell-history lookups
+     (week-movers only), NEW additive Supabase tables appended to
+     billing_audit/schema.sql (Juan manual-applies DDL), NO new
+     mutating AUDIT_SHEET_ID write in v1.
+   - **Juan's own actions pending:** Smartsheet automation trigger fix
+     in UI per living-ledger [2026-08-12 13:40] (field-scoped trigger
+     + "Snapshot Date is blank" condition, per sheet + template);
+     review/merge PR #329; later: apply jqx DDL, enable hold gate
+     after burn-in.
+4. **Quick task 260812-isx (GSD quick) COMPLETE → PR #329 OPEN:**
    report-only rate-sanity audit check (Units Total Price vs expected
    New-Rates rate × Quantity via `_SUBCONTRACTOR_RATES`, kill-switch
    `RATE_SANITY_AUDIT_ENABLED`). Commits a7f5d77/2cb9897/ad3fa19 +
