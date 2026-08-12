@@ -444,9 +444,13 @@ class TestTask2BudgetGuardSkipsAll(SnapshotDriftClassifierTestBase):
             ],
         )
         # session_start far enough in the past that remaining budget
-        # (TIME_BUDGET_MINUTES - elapsed) is below SNAPSHOT_DRIFT_MAX_MINUTES.
+        # (TIME_BUDGET_MINUTES - elapsed) is comfortably below
+        # SNAPSHOT_DRIFT_MAX_MINUTES (5) -- margin wide enough that
+        # normal test-execution latency cannot flip the outcome
+        # (a boundary-exact 160/165 margin was observed flaky under
+        # the full suite's slower wall-clock scheduling).
         stale_session_start = (
-            datetime.datetime.now() - datetime.timedelta(minutes=160)
+            datetime.datetime.now() - datetime.timedelta(minutes=163)
         )
 
         with mock.patch.dict(
@@ -539,6 +543,345 @@ class TestTask2PacingBetweenCalls(SnapshotDriftClassifierTestBase):
         self.assertEqual(mock_sleep.call_count, 3)
         for call in mock_sleep.call_args_list:
             self.assertAlmostEqual(call.args[0], 2.0)
+
+
+# ── Task 3: hold-prior-week override + audit risk wiring ────────────
+
+def _billable_row(sheet_id=111, row_id=222, wr="90001", cu="ABC-123",
+                   week="2026-08-09", snapshot="2026-08-05",
+                   price="$777.00"):
+    row = _row(sheet_id=sheet_id, row_id=row_id, wr=wr, cu=cu,
+               week=week, snapshot=snapshot)
+    row.update({
+        "Units Total Price": price,
+        "Quantity": "2",
+        "Customer Name": "TestCustomer",
+        "Dept #": "500",
+        "Job #": "J-1",
+        "Work Type": "Install",
+        "Pole #": "P-1",
+        "Foreman": "TestForeman",
+        "__variant": "primary",
+        "__current_foreman": "TestForeman",
+        "__effective_user": "TestForeman",
+        "Units Completed?": True,
+    })
+    return row
+
+
+class TestTask3HoldRewritesBothFields(SnapshotDriftClassifierTestBase):
+    def test_hold_rewrites_both_fields_and_preserves_originals(self) -> None:
+        row, baseline = _drift_row_and_baseline()
+        self.mock_fetch.return_value = (baseline, "success")
+        self._wire_history(
+            snapshot_entries=[
+                _entry("2026-08-12T10:00:00Z",
+                       types.SimpleNamespace(email=AUTOMATION_EMAIL)),
+            ],
+            units_entries=[],
+        )
+
+        with mock.patch.dict(
+            "os.environ", {"SNAPSHOT_DRIFT_HOLD_ENABLED": "true"}
+        ):
+            summary = apply_snapshot_drift_holds(
+                [row], _source_sheets(), self.client, self.session_start
+            )
+
+        self.assertEqual(summary["automation_self_fire_holds"], 1)
+        self.assertEqual(row["Weekly Reference Logged Date"], "2026-08-02")
+        self.assertEqual(row["Snapshot Date"], "2026-07-29")
+        self.assertEqual(
+            row["__drifted_weekly_reference_logged_date"], "2026-08-09"
+        )
+        self.assertEqual(row["__drifted_snapshot_date"], "2026-08-05")
+        self.assertEqual(
+            row["__snapshot_drift_classification"], "automation_self_fire"
+        )
+
+
+class TestTask3HeldRowSurvivesExcelFilter(SnapshotDriftClassifierTestBase):
+    def test_held_row_appears_in_generated_workbook(self) -> None:
+        import tempfile
+
+        import openpyxl
+
+        import generate_weekly_pdfs as _gwp
+        from pipeline.excel import generate_excel
+
+        row = _billable_row()
+        baseline = {
+            (111, 222): _baseline(
+                billed_week="2026-08-02", snapshot_date="2026-07-29"
+            )
+        }
+        self.mock_fetch.return_value = (baseline, "success")
+        self._wire_history(
+            snapshot_entries=[
+                _entry("2026-08-12T10:00:00Z",
+                       types.SimpleNamespace(email=AUTOMATION_EMAIL)),
+            ],
+            units_entries=[],
+        )
+
+        with mock.patch.dict(
+            "os.environ", {"SNAPSHOT_DRIFT_HOLD_ENABLED": "true"}
+        ):
+            summary = apply_snapshot_drift_holds(
+                [row], _source_sheets(), self.client, self.session_start
+            )
+        self.assertEqual(summary["automation_self_fire_holds"], 1)
+
+        # After the hold, grouping.py would compute the row's week from
+        # the (restored) Weekly Reference Logged Date -- reproduce that
+        # here since this test calls generate_excel directly.
+        row["__week_ending_date"] = datetime.datetime(2026, 8, 2)
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        orig_output = _gwp.OUTPUT_FOLDER
+        _gwp.OUTPUT_FOLDER = tmp.name
+        self.addCleanup(lambda: setattr(_gwp, "OUTPUT_FOLDER", orig_output))
+
+        result = generate_excel(
+            "080226_90001", [row], datetime.datetime(2026, 8, 2),
+            data_hash="deadbeefcafe0002",
+        )
+        excel_path = result[0]
+
+        wb = openpyxl.load_workbook(excel_path)
+        ws = wb.active
+        found = any(
+            ws.cell(row=r, column=c).value == 777.0
+            for r in range(1, ws.max_row + 1)
+            for c in range(1, ws.max_column + 1)
+        )
+        self.assertTrue(
+            found,
+            "Held row's price must appear in a day-table -- if it does "
+            "not, the row was silently dropped by the Monday-Sunday "
+            "Snapshot Date filter (RESEARCH pitfall 1)."
+        )
+
+
+class TestTask3PriorWeekHashStability(SnapshotDriftClassifierTestBase):
+    def test_hash_stable_across_drift_and_hold_both_modes(self) -> None:
+        import generate_weekly_pdfs as _gwp
+        from pipeline.change_detection import calculate_data_hash
+
+        orig_extended = _gwp.EXTENDED_CHANGE_DETECTION
+        self.addCleanup(
+            lambda: setattr(_gwp, "EXTENDED_CHANGE_DETECTION", orig_extended)
+        )
+
+        for extended in (False, True):
+            with self.subTest(extended=extended):
+                _gwp.EXTENDED_CHANGE_DETECTION = extended
+                row = _billable_row(snapshot="2026-07-29", week="2026-08-02")
+                hash_before = calculate_data_hash([row])
+
+                # Simulate the automation drift: both fields re-stamped.
+                row["Snapshot Date"] = "2026-08-05"
+                row["Weekly Reference Logged Date"] = "2026-08-09"
+
+                baseline = {
+                    (111, 222): _baseline(
+                        billed_week="2026-08-02", snapshot_date="2026-07-29"
+                    )
+                }
+                self.mock_fetch.return_value = (baseline, "success")
+                self._wire_history(
+                    snapshot_entries=[
+                        _entry("2026-08-12T10:00:00Z",
+                               types.SimpleNamespace(email=AUTOMATION_EMAIL)),
+                    ],
+                    units_entries=[],
+                )
+                with mock.patch.dict(
+                    "os.environ", {"SNAPSHOT_DRIFT_HOLD_ENABLED": "true"}
+                ):
+                    apply_snapshot_drift_holds(
+                        [row], _source_sheets(), self.client,
+                        self.session_start,
+                    )
+
+                hash_after = calculate_data_hash([row])
+                self.assertEqual(hash_before, hash_after)
+
+
+class TestTask3ManualNeverMutated(SnapshotDriftClassifierTestBase):
+    def test_manual_candidate_never_mutated_even_with_hold_enabled(self) -> None:
+        row, baseline = _drift_row_and_baseline()
+        original = dict(row)
+        self.mock_fetch.return_value = (baseline, "success")
+        self._wire_history(
+            snapshot_entries=[
+                _entry("2026-08-12T10:00:00Z",
+                       types.SimpleNamespace(email="human@example.com")),
+            ],
+        )
+
+        with mock.patch.dict(
+            "os.environ", {"SNAPSHOT_DRIFT_HOLD_ENABLED": "true"}
+        ):
+            summary = apply_snapshot_drift_holds(
+                [row], _source_sheets(), self.client, self.session_start
+            )
+
+        self.assertEqual(summary["manual"], 1)
+        self.assertEqual(summary["automation_self_fire_holds"], 0)
+        self.assertEqual(row, original)
+        self.assertNotIn("__drifted_snapshot_date", row)
+
+
+class TestTask3UnclassifiedNeverMutated(SnapshotDriftClassifierTestBase):
+    def test_unclassified_candidate_never_mutated_even_with_hold_enabled(
+        self,
+    ) -> None:
+        row, baseline = _drift_row_and_baseline()
+        original = dict(row)
+        self.mock_fetch.return_value = (baseline, "success")
+        self.client.Cells.get_cell_history.side_effect = Exception("boom")
+
+        with mock.patch.dict(
+            "os.environ", {"SNAPSHOT_DRIFT_HOLD_ENABLED": "true"}
+        ):
+            summary = apply_snapshot_drift_holds(
+                [row], _source_sheets(), self.client, self.session_start
+            )
+
+        self.assertEqual(summary["unclassified"], 1)
+        self.assertEqual(summary["automation_self_fire_holds"], 0)
+        self.assertEqual(row, original)
+
+
+class TestTask3HoldGateDefaultOffDoesNotMutate(SnapshotDriftClassifierTestBase):
+    def test_default_hold_off_flags_but_does_not_mutate(self) -> None:
+        row, baseline = _drift_row_and_baseline()
+        original = dict(row)
+        self.mock_fetch.return_value = (baseline, "success")
+        self._wire_history(
+            snapshot_entries=[
+                _entry("2026-08-12T10:00:00Z",
+                       types.SimpleNamespace(email=AUTOMATION_EMAIL)),
+            ],
+            units_entries=[],
+        )
+
+        summary = apply_snapshot_drift_holds(
+            [row], _source_sheets(), self.client, self.session_start
+        )
+
+        self.assertEqual(summary["automation_self_fire"], 1)
+        self.assertEqual(summary["automation_self_fire_holds"], 0)
+        self.assertFalse(summary["hold_enabled"])
+        self.assertEqual(row, original)
+
+
+class TestTask3RiskEscalation(unittest.TestCase):
+    def _base_summary(self) -> dict:
+        return {
+            "total_anomalies": 0,
+            "total_unauthorized_changes": 0,
+            "total_data_issues": 0,
+            "total_rate_sanity_mismatches": 0,
+            "risk_level": "LOW",
+            "recommendations": [],
+        }
+
+    def test_four_holds_escalate_to_high(self) -> None:
+        from audit_billing_changes import escalate_risk_for_snapshot_drift
+
+        summary = self._base_summary()
+        escalate_risk_for_snapshot_drift(summary, 4)
+
+        self.assertEqual(summary["risk_level"], "HIGH")
+        self.assertEqual(summary["total_snapshot_drift_holds"], 4)
+
+    def test_zero_holds_leaves_risk_level_unchanged(self) -> None:
+        """Manual/unclassified drift never reaches this function as a
+        hold count -- it is recorded via Supabase + the run log only,
+        never folded into risk_level (RESEARCH caveat 5)."""
+        from audit_billing_changes import escalate_risk_for_snapshot_drift
+
+        summary = self._base_summary()
+        escalate_risk_for_snapshot_drift(summary, 0)
+
+        self.assertEqual(summary["risk_level"], "LOW")
+        self.assertEqual(summary["total_snapshot_drift_holds"], 0)
+
+
+class TestTask3DriftEventsRecordEveryCandidate(SnapshotDriftClassifierTestBase):
+    def test_events_carry_classification_and_held_for_all_outcomes(self) -> None:
+        row_self_fire, b1 = _drift_row_and_baseline(row_id=1, wr="90101")
+        row_manual, b2 = _drift_row_and_baseline(row_id=2, wr="90102")
+        row_unclassified, b3 = _drift_row_and_baseline(row_id=3, wr="90103")
+        merged = {**b1, **b2, **b3}
+        self.mock_fetch.return_value = (merged, "success")
+
+        def _side_effect(sheet_id, row_id, column_id, include_all=True):
+            if row_id == 1:
+                if column_id == SNAPSHOT_COL:
+                    return _history([_entry(
+                        "2026-08-12T10:00:00Z",
+                        types.SimpleNamespace(email=AUTOMATION_EMAIL),
+                    )])
+                return _history([])
+            if row_id == 2:
+                if column_id == SNAPSHOT_COL:
+                    return _history([_entry(
+                        "2026-08-12T10:00:00Z",
+                        types.SimpleNamespace(email="human@example.com"),
+                    )])
+                return _history([])
+            if row_id == 3:
+                raise Exception("api error")
+            raise AssertionError(f"unexpected row_id {row_id}")
+
+        self.client.Cells.get_cell_history.side_effect = _side_effect
+
+        with mock.patch.dict(
+            "os.environ", {"SNAPSHOT_DRIFT_HOLD_ENABLED": "true"}
+        ):
+            apply_snapshot_drift_holds(
+                [row_self_fire, row_manual, row_unclassified],
+                _source_sheets(), self.client, self.session_start,
+            )
+
+        self.mock_insert.assert_called_once()
+        events = self.mock_insert.call_args[0][0]
+        by_row = {e["row_id"]: e for e in events}
+
+        self.assertEqual(by_row[1]["classification"], "automation_self_fire")
+        self.assertTrue(by_row[1]["held"])
+        self.assertEqual(by_row[2]["classification"], "manual")
+        self.assertFalse(by_row[2]["held"])
+        self.assertEqual(by_row[3]["classification"], "unclassified")
+        self.assertFalse(by_row[3]["held"])
+
+
+class TestTask3BothSwitchesOffEquivalence(SnapshotDriftClassifierTestBase):
+    def test_both_switches_off_reproduces_baseline(self) -> None:
+        row, baseline = _drift_row_and_baseline()
+        original = dict(row)
+        self.mock_fetch.return_value = (baseline, "success")
+
+        with mock.patch.dict(
+            "os.environ",
+            {
+                "SNAPSHOT_DRIFT_AUDIT_ENABLED": "false",
+                "SNAPSHOT_DRIFT_HOLD_ENABLED": "false",
+            },
+        ):
+            summary = apply_snapshot_drift_holds(
+                [row], _source_sheets(), self.client, self.session_start
+            )
+
+        self.assertFalse(summary["enabled"])
+        self.assertEqual(row, original)
+        self.mock_fetch.assert_not_called()
+        self.mock_upsert.assert_not_called()
+        self.mock_insert.assert_not_called()
 
 
 if __name__ == "__main__":

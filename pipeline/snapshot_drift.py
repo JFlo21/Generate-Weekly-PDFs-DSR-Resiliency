@@ -418,6 +418,62 @@ def _classify_candidates(
     return None
 
 
+# ── hold-prior-week override (Task 3) ────────────────────────────────
+
+def _apply_holds(
+    candidates: "list[dict[str, Any]]", hold_enabled: bool
+) -> int:
+    """Apply the hold-prior-week override to automation self-fire
+    candidates ONLY (D-01) -- manual and unclassified candidates flow
+    through untouched (D-02, D-03), regardless of ``hold_enabled``.
+
+    Rewrites BOTH ``Weekly Reference Logged Date`` (drives the week
+    key in ``pipeline/grouping.py``) AND ``Snapshot Date`` (drives
+    ``generate_excel``'s Monday-Sunday bucket filter AND participates
+    in the content hash / sort key in
+    ``pipeline/change_detection.py``) -- rewriting only one field
+    would silently exclude the row from the workbook body, strictly
+    worse than the drift itself (RESEARCH pitfall 1). The drifted
+    originals are preserved under private double-underscore keys so
+    they survive into logging, the Supabase event row, and any later
+    diagnosis. Returns the number of rows held.
+    """
+    held_count = 0
+    for candidate in candidates:
+        if not hold_enabled:
+            continue
+        if candidate["classification"] != _CLASSIFICATION_AUTOMATION_SELF_FIRE:
+            continue
+
+        row = candidate["row"]
+        row["__drifted_weekly_reference_logged_date"] = row.get(
+            "Weekly Reference Logged Date"
+        )
+        row["__drifted_snapshot_date"] = row.get("Snapshot Date")
+        row["__snapshot_drift_classification"] = candidate["classification"]
+        row["__snapshot_drift_changed_by"] = candidate.get("changed_by")
+        row["__snapshot_drift_prior_week"] = candidate["prior_billed_week"]
+        row["__snapshot_drift_new_week"] = candidate["new_week"]
+
+        row["Weekly Reference Logged Date"] = candidate[
+            "prior_billed_week"
+        ].isoformat()
+        row["Snapshot Date"] = _iso_date_str(candidate["prior_snapshot_date"])
+
+        candidate["held"] = True
+        held_count += 1
+
+        logging.info(
+            "🔒 Snapshot-drift hold: WR %s row %s held at prior week %s "
+            "(drifted to %s, changed_by=%s)",
+            candidate["wr"], candidate["row_id"],
+            candidate["prior_billed_week"].isoformat(),
+            candidate["new_week"].isoformat(),
+            candidate.get("changed_by"),
+        )
+    return held_count
+
+
 def apply_snapshot_drift_holds(
     all_rows: "list[dict]",
     source_sheets: "list[dict]",
@@ -514,6 +570,10 @@ def apply_snapshot_drift_holds(
             client, candidates, source_sheets, session_start
         )
         summary["skip_reason"] = skip_reason
+
+        summary["automation_self_fire_holds"] = _apply_holds(
+            candidates, hold_enabled
+        )
 
         drift_events: "list[dict[str, Any]]" = []
         for candidate in candidates:

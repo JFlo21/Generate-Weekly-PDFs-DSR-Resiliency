@@ -587,6 +587,34 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             _snapshot_drift_summary = apply_snapshot_drift_holds(
                 all_rows, source_sheets, client, session_start,
             )
+            # Only touch audit_results['summary'] when the audit ran
+            # (D-08 off-switch equivalence: with the switch off,
+            # audit_results['summary'] must stay byte-identical to
+            # today's shape).
+            if _snapshot_drift_summary.get('enabled') and isinstance(
+                audit_results.get('summary'), dict
+            ):
+                from audit_billing_changes import (  # noqa: PLC0415
+                    escalate_risk_for_snapshot_drift,
+                )
+                escalate_risk_for_snapshot_drift(
+                    audit_results['summary'],
+                    _snapshot_drift_summary.get(
+                        'automation_self_fire_holds', 0
+                    ),
+                )
+                _snap_holds = _snapshot_drift_summary.get(
+                    'automation_self_fire_holds', 0
+                )
+                if _snap_holds > 0:
+                    sentry_capture_message_with_context(
+                        f"Snapshot-drift hold applied to {_snap_holds} "
+                        "row(s)",
+                        level="warning",
+                        context_name="snapshot_drift",
+                        context_data=_snapshot_drift_summary,
+                        tags={"subsystem": "snapshot_drift"},
+                    )
         except Exception as _snap_exc:
             logging.warning(f"⚠️ Snapshot-drift audit error: {_snap_exc}")
             _snapshot_drift_summary = {'enabled': False}

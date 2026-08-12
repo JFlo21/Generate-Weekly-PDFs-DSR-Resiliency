@@ -494,6 +494,12 @@ class BillingAudit:
                 audit_results.get("rate_sanity_mismatches", [])
             ),
             "rate_sanity_skipped": self._rate_sanity_skipped,
+            # Snapshot-date drift audit (260812-jqx): placeholder,
+            # always present for key-set stability. The drift pass
+            # runs AFTER audit_financial_data (pre-grouping seam in
+            # pipeline/orchestrate.py), so the real count is folded
+            # in post-hoc by escalate_risk_for_snapshot_drift() below.
+            "total_snapshot_drift_holds": 0,
             "risk_level": "LOW",
             "recommendations": []
         }
@@ -689,3 +695,53 @@ class BillingAudit:
                 history_meta["history_available"] = False
             enriched.append(history_meta)
         return enriched
+
+
+# ── Snapshot-date drift audit risk wiring (260812-jqx) ──────────────
+def escalate_risk_for_snapshot_drift(
+    summary: Dict, self_fire_holds: int
+) -> Dict:
+    """Fold automation-self-fire snapshot-drift holds into ``risk_level``.
+
+    Runs POST-HOC: ``pipeline/snapshot_drift.py``'s drift pass executes
+    AFTER ``audit_financial_data`` has already produced ``summary``
+    (the pre-grouping seam sits downstream of the audit block in
+    ``pipeline/orchestrate.py``), so this module-level function
+    re-derives ``total_issues`` from the SAME fields
+    ``_generate_audit_summary`` uses (:502-507) plus
+    ``self_fire_holds``, then re-applies the identical 0 / <=3 / else
+    thresholds (:509-517).
+
+    Only automation self-fire HOLDS feed this -- folding in manual or
+    unclassified drift would drive a routine batch of legitimate edits
+    to HIGH and desensitise the signal (D-01, RESEARCH caveat 5).
+    Manual and unclassified drift is still recorded durably (the
+    ``billing_audit.snapshot_drift`` Supabase shadow layer plus the
+    per-hold run-log line) but never escalates risk here.
+    """
+    self_fire_holds = int(self_fire_holds or 0)
+    summary["total_snapshot_drift_holds"] = self_fire_holds
+    if self_fire_holds <= 0:
+        return summary
+
+    total_issues = (
+        summary.get("total_anomalies", 0)
+        + summary.get("total_unauthorized_changes", 0)
+        + summary.get("total_data_issues", 0)
+        + summary.get("total_rate_sanity_mismatches", 0)
+        + self_fire_holds
+    )
+
+    if total_issues == 0:
+        summary["risk_level"] = "LOW"
+    elif total_issues <= 3:
+        summary["risk_level"] = "MEDIUM"
+    else:
+        summary["risk_level"] = "HIGH"
+
+    summary.setdefault("recommendations", []).append(
+        "Snapshot-drift automation self-fire hold(s) detected: "
+        f"{self_fire_holds} row(s) held at their prior billed week. "
+        "Review billing_audit.snapshot_drift for the affected rows."
+    )
+    return summary

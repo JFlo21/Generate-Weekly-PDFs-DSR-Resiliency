@@ -5332,3 +5332,110 @@ exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
   `audit_billing_changes` at L35, before it imports `pipeline.pricing`
   at L196-210) — the import only executes at call time, well after
   the full facade has loaded.
+
+## [2026-08-12 15:30] Snapshot-date drift audit + hold-prior-week gate added (260812-jqx) — pipeline-side backstop for the automation re-stamp bug
+
+- **Root cause (same incident logged 13:40 above):** the per-sheet
+  "record Snapshot Date" Smartsheet automation fires on ANY row change
+  where `Units Completed?` is checked — same-value saves, bulk API /
+  DataTable touches — not just a genuine completion event. Because
+  `Weekly Reference Logged Date` = `Snapshot Date` snapped to Sunday,
+  every re-stamp silently moves an already-billed unit into the
+  current billing week. Juan is fixing the automation trigger in the
+  Smartsheet UI; this entry documents the pipeline-side defence in
+  depth that ships regardless.
+- **What shipped:** `pipeline/snapshot_drift.py`
+  (`apply_snapshot_drift_holds`) runs at a pre-grouping seam in
+  `pipeline/orchestrate.py` (between the audit `else:` close and
+  `group_source_rows`) — upstream of every `Weekly Reference Logged
+  Date` pre-pass reader in `pipeline/grouping.py`, so **zero**
+  `grouping.py` or `excel.py` edits were needed. It detects rows whose
+  computed billing week differs from a durable per-row baseline in a
+  new additive Supabase table (`billing_audit.snapshot_provenance`,
+  seeded silently on first sight — no history backfill), classifies
+  week-movers ONLY via targeted `Cells.get_cell_history` lookups
+  (Snapshot Date + Units Completed?, capped at 40 rows/run, ~2s
+  self-paced, session-budget-aware), and — only for rows classified as
+  an automation self-fire, only when the hold gate is explicitly
+  enabled — holds the row at its previously-billed week.
+- **HARD RULE — the hold override MUST rewrite BOTH fields.**
+  `pipeline/excel.py`'s `generate_excel` buckets rows by `Snapshot
+  Date` into Monday-Sunday day-tables; `pipeline/change_detection.py`
+  includes `Snapshot Date` in both the sort key and the content hash
+  (legacy and extended modes). Rewriting only `Weekly Reference Logged
+  Date` would put the row in the correct WR/week GROUP but leave its
+  `Snapshot Date` pointing at the drifted (wrong) week — the row would
+  then be silently **excluded from every day-table in the generated
+  workbook**, a worse outcome than the original drift (a silent
+  under-bill instead of a visible one). `_apply_holds()` always
+  rewrites `Weekly Reference Logged Date` AND `Snapshot Date` together
+  and stashes the drifted originals under `__drifted_*` /
+  `__snapshot_drift_*` private keys for logging / Supabase /
+  diagnosis. Any future change that rewrites only one of these two
+  fields on a held row is a regression of this rule, not an
+  optimization.
+- **Fail-open gating, fail-closed logging (D-03).** Any classification
+  failure — a Smartsheet API error, a missing `Snapshot Date` /
+  `Units Completed?` column id on the row's source sheet, the per-run
+  cap exhausted, or the session sub-budget too tight — yields
+  `unclassified`: the row is flagged and NEVER held. Manual edits (any
+  non-automation identity) are likewise NEVER held (D-02). Every
+  candidate, held or not, is still written to the append-only
+  `billing_audit.snapshot_drift` event table with its classification
+  and `held` boolean, so nothing is silently dropped from the audit
+  trail even when gating declines to act.
+- **Six env-var kill-switches**, mirroring the `TIME_BUDGET_MINUTES`
+  family in `pipeline/config.py` and read PER CALL (not at import) in
+  `pipeline/snapshot_drift.py` so tests can toggle them without
+  reloading a module — exactly the `RATE_SANITY_AUDIT_ENABLED` pattern
+  from the 14:05 entry above:
+  - `SNAPSHOT_DRIFT_AUDIT_ENABLED` (default `true`) — detection +
+    Supabase shadow logging.
+  - `SNAPSHOT_DRIFT_HOLD_ENABLED` (default **`false`**) — its OWN
+    switch, separate from detection. Stays off until a live run
+    confirms the classifier against a known-drifted row.
+  - `SNAPSHOT_DRIFT_MAX_ROWS` (default `40`) — per-run classification
+    cap.
+  - `SNAPSHOT_DRIFT_PACE_SEC` (default `2.0`) — mandatory self-pacing
+    sleep between `get_cell_history` calls; the SDK's own retry budget
+    (`max_retry_time=30`) will NOT ride out a sustained cell-history
+    throttle.
+  - `SNAPSHOT_DRIFT_MAX_MINUTES` (default `5`) — session sub-budget AND
+    the pre-flight threshold that skips classification entirely
+    (degrading every candidate to `unclassified`) when remaining
+    session time is tight.
+  - `SNAPSHOT_DRIFT_AUTOMATION_EMAIL` (default
+    `automation@smartsheet.com`) — the classifier's identity signature
+    is operator-correctable via env, without a code change.
+  - With BOTH switches off, `apply_snapshot_drift_holds` is a byte-
+    identical no-op to today's behaviour (D-08); `audit_results['summary']`
+    is only touched when the audit actually ran.
+- **Manual-DDL requirement (unchanged pattern).** Two new tables —
+  `billing_audit.snapshot_provenance` (state, PK `sheet_id,row_id`)
+  and `billing_audit.snapshot_drift` (append-only event log) — were
+  APPENDED to `billing_audit/schema.sql`. The pipeline never runs DDL:
+  Juan must apply both `CREATE TABLE IF NOT EXISTS` blocks by hand in
+  the Supabase SQL Editor, confirm `billing_audit` is still in Project
+  Settings → API → Exposed schemas, and reload the PostgREST schema
+  cache. Until applied, every read degrades exactly like
+  `group_content_hash` already does — a fetch failure, falling back to
+  the no-baseline (seed-only) path, never a false drift flag.
+- **Two live assumptions still to verify before flipping
+  `SNAPSHOT_DRIFT_HOLD_ENABLED=true` in the workflow** (both fail open
+  to `unclassified` if wrong, so this is a safety note, not a
+  blocker): (1) `IndexResult[CellHistory].data` ordering and the exact
+  `modified_by` shape returned by the live API — the classifier sorts
+  by `modified_at` itself and reads the email defensively, so this
+  should be a non-issue, but confirm against ONE known-drifted row's
+  real cell history; (2) whether `automation@smartsheet.com` is the
+  literal `modified_by` email Smartsheet's automation writes as — if
+  not, set `SNAPSHOT_DRIFT_AUTOMATION_EMAIL` to the observed value
+  rather than editing the classifier.
+- **Explicitly NOT shipped in v1:** no new mutating Smartsheet write
+  to `AUDIT_SHEET_ID` — `_log_to_audit_sheet` remains the pre-existing
+  no-op placeholder (builds a dict, discards it). The durable,
+  queryable flag surface for this feature is the Supabase shadow layer
+  (`billing_audit.snapshot_drift`) plus the per-hold run-log line, not
+  a Smartsheet row. A real audit-sheet write is a separate, protected-
+  area task requiring Juan's approval, `SKIP_UPLOAD` gating, and
+  audit-sheet column-id discovery.
