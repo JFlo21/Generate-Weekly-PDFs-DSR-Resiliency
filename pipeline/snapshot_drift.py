@@ -597,12 +597,25 @@ def apply_snapshot_drift_holds(
             )
             drift_events.append(_drift_event_record(candidate, now, run_id))
 
-        try:
-            _store.upsert_snapshot_provenance(provenance_records)
-        except Exception:
-            logger.exception(
-                "⚠️ Snapshot-drift provenance upsert raised unexpectedly "
-                "(non-fatal)."
+        if status in ("success", "no_row"):
+            try:
+                _store.upsert_snapshot_provenance(provenance_records)
+            except Exception:
+                logger.exception(
+                    "⚠️ Snapshot-drift provenance upsert raised "
+                    "unexpectedly (non-fatal)."
+                )
+        else:
+            # CR-01: a transient/failed bulk read (status in
+            # {'fetch_failure', 'unavailable'}) must NEVER upsert --
+            # baseline_map degraded to {} for this run, so every row
+            # fell through the seed path above. Upserting here would
+            # overwrite every EXISTING baseline's billed_week with the
+            # row's current week, silently laundering any in-flight
+            # drift with no candidate, no event, no future detection.
+            logger.warning(
+                "⚠️ Snapshot-drift provenance upsert skipped: bulk read "
+                "status=%s (avoid rebasing existing baselines).", status,
             )
         try:
             _store.insert_snapshot_drift_events(drift_events)

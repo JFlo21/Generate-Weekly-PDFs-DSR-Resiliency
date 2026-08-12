@@ -222,6 +222,31 @@ class TestTask1FetchRaisesDegradesToSeed(SnapshotDriftDetectionTestBase):
         self.assertFalse(summary["available"])
         self.assertEqual(summary["seeded"], 1)
         self.assertEqual(summary["candidates"], 0)
+        # CR-01 regression: a fetch failure must never poison existing
+        # baselines by upserting the degraded (empty-baseline) seed
+        # records.
+        self.mock_upsert.assert_not_called()
+
+
+class TestTask1FetchFailureStatusSkipsUpsert(SnapshotDriftDetectionTestBase):
+    """CR-01 regression: an explicit ``fetch_failure`` status (bulk
+    read's own retry-exhaustion / circuit-breaker path, not a raised
+    exception) must ALSO skip the provenance upsert -- otherwise a
+    transient read failure rebases every existing baseline's
+    ``billed_week`` to the current week and silently launders any
+    in-flight drift."""
+
+    def test_fetch_failure_status_skips_upsert(self) -> None:
+        self.mock_fetch.return_value = ({}, "fetch_failure")
+        row = _row()
+
+        summary = apply_snapshot_drift_holds(
+            [row], [], self.client, self.session_start
+        )
+
+        self.assertFalse(summary["available"])
+        self.assertEqual(summary["seeded"], 1)
+        self.mock_upsert.assert_not_called()
 
 
 class TestTask1BatchedProvenanceUpsert(SnapshotDriftDetectionTestBase):
