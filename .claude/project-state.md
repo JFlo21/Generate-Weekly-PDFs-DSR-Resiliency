@@ -23,15 +23,17 @@ write-back reminder). Keep it terse; link to history rather than duplicating it.
    "Snapshot Date is blank" write-once condition; fix the template
    sheet so backup copies inherit it. Recommendation delivered to Juan;
    NOT yet applied (his action).
-3. **Quick task 260812-isx (GSD quick) IN FLIGHT:** report-only
-   rate-sanity audit check (Units Total Price vs expected New-Rates
-   rate × Quantity via `_SUBCONTRACTOR_RATES`, kill-switch
-   `RATE_SANITY_AUDIT_ENABLED`, diff guard: only
-   `audit_billing_changes.py` + `tests/test_rate_sanity_audit.py` +
-   living ledger). Plan committed to
-   `.planning/quick/260812-isx-.../260812-isx-PLAN.md`; Sonnet executor
-   running in background. Next: verify diff + haiku-verifier pass +
-   STATE.md row + docs commit.
+3. **Quick task 260812-isx (GSD quick) COMPLETE → PR #329 OPEN:**
+   report-only rate-sanity audit check (Units Total Price vs expected
+   New-Rates rate × Quantity via `_SUBCONTRACTOR_RATES`, kill-switch
+   `RATE_SANITY_AUDIT_ENABLED`). Commits a7f5d77/2cb9897/ad3fa19 +
+   docs c61bacb on branch `feat/260812-isx-rate-sanity-audit`
+   (local master reset to origin/master — nothing pushed to main).
+   Full suite 1228 passed + 130 subtests, 0 regressions; independent
+   haiku-verifier PASS 8/8 (report-only, no hunks in pipeline/ or
+   generate_weekly_pdfs.py). Next: Juan reviews/merges PR #329; apply
+   the Snapshot Date automation UI fix per living-ledger
+   `[2026-08-12 13:40]`.
 
 ## Previous work (2026-07-22) — Phase 08 SDK 4.3.0 migration EXECUTED (both plans)
 1. **Phase 08 executed via `/gsd-execute-phase 08`** on branch
