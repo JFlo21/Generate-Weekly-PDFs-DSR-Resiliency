@@ -16,11 +16,11 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — August 12, 2026
 
+- ✨ New capability: rate-sanity audit check (260812-isx)
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - ✅ Problem fixed: qty parse unification, crash-handler hoist, 403 diagnosis, dependency security
-- 📄 Help guides updated: rebrand README, SECURITY, and add wiki.md with LineTec branding
-- ✨ New capability: upgrade runbook to Docusaurus 3.10.2 + Faster, harden Vercel update pipeline
+- ✨ New capability: rate-sanity audit check (260812-isx) ()
 - 📄 Help guides updated: automated plain-language update from Notion Worker
 - 📄 Help guides updated: log d7fa534 &#91;skip ci&#93;
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
@@ -493,4 +493,3 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
-
