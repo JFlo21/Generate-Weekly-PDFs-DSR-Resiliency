@@ -44,7 +44,10 @@ from __future__ import annotations
 import datetime
 import logging
 import os
+import time
 from typing import Any
+
+from dateutil import parser as _dateutil_parser
 
 from pipeline.utils import excel_serial_to_date
 
@@ -212,6 +215,209 @@ def _drift_event_record(
     }
 
 
+# ── cell-history classification (Task 2) ─────────────────────────────
+
+def _parse_history_timestamp(raw: Any) -> "datetime.datetime | None":
+    """Parse a cell-history ``modified_at`` value to a tz-aware
+    ``datetime``. Uses ``dateutil.parser`` directly (NOT
+    ``excel_serial_to_date``, whose ISO fast-path truncates to just
+    the date and would destroy the time-of-day precision the +/-2
+    minute window comparison needs). Never raises."""
+    if raw is None:
+        return None
+    if isinstance(raw, datetime.datetime):
+        dt = raw
+    elif isinstance(raw, str):
+        try:
+            dt = _dateutil_parser.parse(raw)
+        except Exception:
+            return None
+    else:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+    return dt
+
+
+def _entry_modified_at(entry: Any) -> "datetime.datetime | None":
+    raw = getattr(entry, "modified_at", None)
+    if raw is None and isinstance(entry, dict):
+        raw = entry.get("modified_at")
+    return _parse_history_timestamp(raw)
+
+
+def _entry_email(entry: Any) -> "str | None":
+    """Defensively read the identity off a cell-history entry.
+
+    ``modified_by`` shows up as a ``User``-like object with ``.email``,
+    a bare string, or ``None`` (assumption A1) -- never raises."""
+    mb = getattr(entry, "modified_by", None)
+    if mb is None and isinstance(entry, dict):
+        mb = entry.get("modified_by")
+    if mb is None:
+        return None
+    email = getattr(mb, "email", None)
+    if email:
+        return str(email)
+    if isinstance(mb, str) and mb:
+        return mb
+    return str(mb) if mb else None
+
+
+def _sorted_history_entries(history_result: Any) -> "list[Any]":
+    """Return ``history_result.data`` sorted ascending by
+    ``modified_at``. The API's own ordering is NOT trusted (assumption
+    A1) -- entries with an unparseable/missing timestamp sort first."""
+    data = getattr(history_result, "data", None)
+    if data is None and isinstance(history_result, (list, tuple)):
+        data = history_result
+    entries = list(data or [])
+    epoch = datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
+    return sorted(entries, key=lambda e: _entry_modified_at(e) or epoch)
+
+
+def _classify_drift_candidate(
+    fetch_history: Any, candidate: "dict[str, Any]",
+    snapshot_col: int, units_col: int,
+) -> "tuple[str, str | None]":
+    """Classify ONE drift candidate via targeted cell-history reads.
+
+    Returns ``(classification, changed_by)``. NEVER raises -- any
+    exception, timeout, or malformed payload yields 'unclassified'
+    (D-03 fail-open on gating). The newest Snapshot Date write by the
+    automation identity, with NO Units Completed? history entry whose
+    ``modified_at`` falls within +/-2 minutes of it, is an automation
+    self-fire; anything else is manual (D-05).
+    """
+    sheet_id = candidate["sheet_id"]
+    row_id = candidate["row_id"]
+    try:
+        snap_entries = _sorted_history_entries(
+            fetch_history(sheet_id, row_id, snapshot_col)
+        )
+        if not snap_entries:
+            return _CLASSIFICATION_UNCLASSIFIED, None
+
+        newest = snap_entries[-1]
+        newest_email = _entry_email(newest)
+        automation_email = _str_env(
+            "SNAPSHOT_DRIFT_AUTOMATION_EMAIL", "automation@smartsheet.com"
+        ).strip().lower()
+
+        if not newest_email or newest_email.strip().lower() != automation_email:
+            # Snapshot Date history alone already rules out the
+            # automation identity -- skip the second call (action
+            # item 4) and save the quota.
+            return _CLASSIFICATION_MANUAL, newest_email
+
+        units_entries = _sorted_history_entries(
+            fetch_history(sheet_id, row_id, units_col)
+        )
+        newest_ts = _entry_modified_at(newest)
+        window = datetime.timedelta(minutes=2)
+        nearby_units_change = False
+        if newest_ts is not None:
+            for entry in units_entries:
+                entry_ts = _entry_modified_at(entry)
+                if entry_ts is not None and abs(entry_ts - newest_ts) <= window:
+                    nearby_units_change = True
+                    break
+
+        if nearby_units_change:
+            return _CLASSIFICATION_MANUAL, newest_email
+        return _CLASSIFICATION_AUTOMATION_SELF_FIRE, newest_email
+    except Exception:
+        logger.warning(
+            "⚠️ Snapshot-drift classification failed for sheet=%s row=%s; "
+            "marking unclassified.",
+            sheet_id, row_id,
+        )
+        return _CLASSIFICATION_UNCLASSIFIED, None
+
+
+def _classify_candidates(
+    client: Any,
+    candidates: "list[dict[str, Any]]",
+    source_sheets: "list[dict]",
+    session_start: datetime.datetime,
+) -> "str | None":
+    """Classify ``candidates`` in place (mutates 'classification' /
+    'changed_by'), respecting the per-run cap, self-pacing, and the
+    session sub-budget. Returns the skip reason (or ``None``) when the
+    pre-flight budget guard fired."""
+    if not candidates:
+        return None
+
+    max_rows = _int_env("SNAPSHOT_DRIFT_MAX_ROWS", 40)
+    pace_sec = _float_env("SNAPSHOT_DRIFT_PACE_SEC", 2.0)
+    max_minutes = _float_env("SNAPSHOT_DRIFT_MAX_MINUTES", 5.0)
+    time_budget_minutes = _float_env("TIME_BUDGET_MINUTES", 0.0)
+    github_actions_mode = os.getenv("GITHUB_ACTIONS") == "true"
+
+    # Pre-flight budget guard (D-10), copying the shape at
+    # pipeline/orchestrate.py:683-685: when the session budget is
+    # already tight, skip classification for the ENTIRE run rather
+    # than stall it. Every candidate degrades to unclassified.
+    if time_budget_minutes and github_actions_mode:
+        elapsed_min = (
+            datetime.datetime.now() - session_start
+        ).total_seconds() / 60.0
+        remaining_min = time_budget_minutes - elapsed_min
+        if remaining_min < max_minutes:
+            skip_reason = (
+                f"session budget low ({remaining_min:.1f}min remaining, "
+                f"need >= {max_minutes:.1f}min sub-budget)"
+            )
+            for candidate in candidates:
+                candidate["classification"] = _CLASSIFICATION_UNCLASSIFIED
+            logging.info(
+                "⏩ Snapshot-drift classification skipped: %s", skip_reason
+            )
+            return skip_reason
+
+    sheet_by_id = {s.get("id"): s for s in (source_sheets or [])}
+    ordered = sorted(candidates, key=lambda c: (c["sheet_id"], c["row_id"]))
+    deadline = datetime.datetime.now() + datetime.timedelta(minutes=max_minutes)
+
+    called_once = [False]
+
+    def _fetch_history(sheet_id: int, row_id: int, column_id: int) -> Any:
+        # Self-pacing (mandatory, RESEARCH caveat 2): sleep between
+        # calls, never before the first one this run.
+        if called_once[0]:
+            time.sleep(pace_sec)
+        called_once[0] = True
+        return client.Cells.get_cell_history(
+            sheet_id, row_id, column_id, include_all=True
+        )
+
+    for index, candidate in enumerate(ordered):
+        if index >= max_rows:
+            candidate["classification"] = _CLASSIFICATION_UNCLASSIFIED
+            continue
+        if datetime.datetime.now() >= deadline:
+            candidate["classification"] = _CLASSIFICATION_UNCLASSIFIED
+            continue
+
+        source = sheet_by_id.get(candidate["sheet_id"])
+        column_mapping = (source or {}).get("column_mapping") or {}
+        snapshot_col = column_mapping.get("Snapshot Date")
+        units_col = column_mapping.get("Units Completed?")
+        if snapshot_col is None or units_col is None:
+            # Assumption A2: the Snapshot Date mapping is already
+            # known to be optional per sheet -- no API call.
+            candidate["classification"] = _CLASSIFICATION_UNCLASSIFIED
+            continue
+
+        classification, changed_by = _classify_drift_candidate(
+            _fetch_history, candidate, snapshot_col, units_col,
+        )
+        candidate["classification"] = classification
+        candidate["changed_by"] = changed_by
+
+    return None
+
+
 def apply_snapshot_drift_holds(
     all_rows: "list[dict]",
     source_sheets: "list[dict]",
@@ -303,6 +509,11 @@ def apply_snapshot_drift_holds(
                     "first_seen_at": first_seen_at,
                 }
             )
+
+        skip_reason = _classify_candidates(
+            client, candidates, source_sheets, session_start
+        )
+        summary["skip_reason"] = skip_reason
 
         drift_events: "list[dict[str, Any]]" = []
         for candidate in candidates:
