@@ -313,7 +313,21 @@ def _drift_row_and_baseline(sheet_id=111, row_id=222, wr="90001"):
 
 class SnapshotDriftClassifierTestBase(SnapshotDriftDetectionTestBase):
     """Adds a configurable Cells.get_cell_history side_effect keyed by
-    column id, so each test only needs to describe the two histories."""
+    column id, so each test only needs to describe the two histories.
+
+    WR-04: also forces ``SNAPSHOT_DRIFT_PACE_SEC=0`` so classifier/hold
+    tests that drive real cell-history calls don't pay the production
+    2.0s self-pacing sleep. ``TestTask2PacingBetweenCalls`` overrides
+    this back to the real default to exercise actual pacing config.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._pace_patch = mock.patch.dict(
+            "os.environ", {"SNAPSHOT_DRIFT_PACE_SEC": "0"}
+        )
+        self._pace_patch.start()
+        self.addCleanup(self._pace_patch.stop)
 
     def _wire_history(self, snapshot_entries=None, units_entries=None):
         snapshot_entries = snapshot_entries or []
@@ -395,6 +409,91 @@ class TestTask2HumanEmailIsManualNoSecondCall(SnapshotDriftClassifierTestBase):
         # Snapshot Date history alone already rules out automation --
         # skip the Units Completed? call and save the quota.
         self.assertEqual(self.client.Cells.get_cell_history.call_count, 1)
+
+
+class TestTask2UnparseableNewestTimestampIsUnclassified(
+    SnapshotDriftClassifierTestBase
+):
+    """WR-01 regression: an automation-identity Snapshot Date write
+    whose ``modified_at`` cannot be parsed must NOT be granted
+    ``automation_self_fire`` on incomplete evidence -- the conservative
+    (hold-ineligible) outcome is ``unclassified``."""
+
+    def test_unparseable_newest_timestamp_is_unclassified(self) -> None:
+        row, baseline = _drift_row_and_baseline()
+        self.mock_fetch.return_value = (baseline, "success")
+        self._wire_history(
+            snapshot_entries=[
+                _entry("not-a-real-timestamp",
+                       types.SimpleNamespace(email=AUTOMATION_EMAIL)),
+            ],
+            units_entries=[],
+        )
+
+        summary = apply_snapshot_drift_holds(
+            [row], _source_sheets(), self.client, self.session_start
+        )
+
+        self.assertEqual(summary["unclassified"], 1)
+        self.assertEqual(summary["automation_self_fire"], 0)
+        self.assertEqual(summary["manual"], 0)
+
+
+class TestTask2UnitsChangeWindowWidened(SnapshotDriftClassifierTestBase):
+    """WR-04/live-evidence regression: the automation batches writes --
+    live cell-history verification showed legitimate stamps landing
+    3m50s-4m22s after their Units Completed? check. The classification
+    window must default to 15 minutes (not the old hardcoded 2) and
+    must be overridable via ``SNAPSHOT_DRIFT_UNITS_WINDOW_MINUTES``."""
+
+    def test_units_change_4_5_min_before_stamp_is_manual_default_window(
+        self,
+    ) -> None:
+        row, baseline = _drift_row_and_baseline()
+        self.mock_fetch.return_value = (baseline, "success")
+        self._wire_history(
+            snapshot_entries=[
+                _entry("2026-08-12T10:00:00Z",
+                       types.SimpleNamespace(email=AUTOMATION_EMAIL)),
+            ],
+            units_entries=[
+                _entry("2026-08-12T09:55:30Z",
+                       types.SimpleNamespace(email="foreman@example.com")),
+            ],
+        )
+
+        summary = apply_snapshot_drift_holds(
+            [row], _source_sheets(), self.client, self.session_start
+        )
+
+        self.assertEqual(summary["manual"], 1)
+        self.assertEqual(summary["automation_self_fire"], 0)
+
+    def test_env_override_narrows_window_reclassifies_as_self_fire(
+        self,
+    ) -> None:
+        row, baseline = _drift_row_and_baseline()
+        self.mock_fetch.return_value = (baseline, "success")
+        self._wire_history(
+            snapshot_entries=[
+                _entry("2026-08-12T10:00:00Z",
+                       types.SimpleNamespace(email=AUTOMATION_EMAIL)),
+            ],
+            units_entries=[
+                _entry("2026-08-12T09:55:30Z",
+                       types.SimpleNamespace(email="foreman@example.com")),
+            ],
+        )
+
+        with mock.patch.dict(
+            "os.environ", {"SNAPSHOT_DRIFT_UNITS_WINDOW_MINUTES": "2"}
+        ):
+            summary = apply_snapshot_drift_holds(
+                [row], _source_sheets(), self.client, self.session_start
+            )
+
+        self.assertEqual(summary["automation_self_fire"], 1)
+        self.assertEqual(summary["manual"], 0)
 
 
 class TestTask2ApiErrorIsUnclassified(SnapshotDriftClassifierTestBase):
@@ -556,7 +655,12 @@ class TestTask2PacingBetweenCalls(SnapshotDriftClassifierTestBase):
             units_entries=[],
         )
 
-        with mock.patch("pipeline.snapshot_drift.time.sleep") as mock_sleep:
+        # Override the base class's SNAPSHOT_DRIFT_PACE_SEC=0 (WR-04)
+        # back to the real production default -- this is the one test
+        # that must exercise actual pacing config.
+        with mock.patch.dict(
+            "os.environ", {"SNAPSHOT_DRIFT_PACE_SEC": "2.0"}
+        ), mock.patch("pipeline.snapshot_drift.time.sleep") as mock_sleep:
             apply_snapshot_drift_holds(
                 [row1, row2], _source_sheets(), self.client,
                 self.session_start,

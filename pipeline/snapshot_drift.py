@@ -286,8 +286,14 @@ def _classify_drift_candidate(
     exception, timeout, or malformed payload yields 'unclassified'
     (D-03 fail-open on gating). The newest Snapshot Date write by the
     automation identity, with NO Units Completed? history entry whose
-    ``modified_at`` falls within +/-2 minutes of it, is an automation
-    self-fire; anything else is manual (D-05).
+    ``modified_at`` falls within the ``SNAPSHOT_DRIFT_UNITS_WINDOW_MINUTES``
+    window (default 15 minutes -- widened from a hardcoded 2 after
+    live cell-history evidence showed the automation BATCHES writes:
+    legitimate stamps landed 3m50s-4m22s after their Units Completed?
+    check) of it, is an automation self-fire; anything else is manual
+    (D-05). A newest write with no parseable timestamp is
+    'unclassified' (WR-01): the window cannot be evaluated, so the
+    conservative (hold-ineligible) outcome applies.
     """
     sheet_id = candidate["sheet_id"]
     row_id = candidate["row_id"]
@@ -314,14 +320,22 @@ def _classify_drift_candidate(
             fetch_history(sheet_id, row_id, units_col)
         )
         newest_ts = _entry_modified_at(newest)
-        window = datetime.timedelta(minutes=2)
+        if newest_ts is None:
+            # WR-01: the +/- window cannot be evaluated without a
+            # parseable timestamp -- do not grant automation_self_fire
+            # on incomplete evidence.
+            return _CLASSIFICATION_UNCLASSIFIED, newest_email
+
+        window_minutes = _float_env(
+            "SNAPSHOT_DRIFT_UNITS_WINDOW_MINUTES", 15.0
+        )
+        window = datetime.timedelta(minutes=window_minutes)
         nearby_units_change = False
-        if newest_ts is not None:
-            for entry in units_entries:
-                entry_ts = _entry_modified_at(entry)
-                if entry_ts is not None and abs(entry_ts - newest_ts) <= window:
-                    nearby_units_change = True
-                    break
+        for entry in units_entries:
+            entry_ts = _entry_modified_at(entry)
+            if entry_ts is not None and abs(entry_ts - newest_ts) <= window:
+                nearby_units_change = True
+                break
 
         if nearby_units_change:
             return _CLASSIFICATION_MANUAL, newest_email

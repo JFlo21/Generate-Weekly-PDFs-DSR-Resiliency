@@ -169,6 +169,14 @@ SNAPSHOT_DRIFT_MAX_MINUTES = float(
 SNAPSHOT_DRIFT_AUTOMATION_EMAIL = os.getenv(
     'SNAPSHOT_DRIFT_AUTOMATION_EMAIL', 'automation@smartsheet.com'
 )
+# +/- window (minutes) used to correlate a Units Completed? edit with
+# the newest automation-identity Snapshot Date write (D-05). Widened
+# from a hardcoded 2 minutes to 15 after live cell-history evidence
+# (2026-08-12) showed the automation BATCHES writes -- legitimate
+# stamps landed 3m50s-4m22s after their Units Completed? check.
+SNAPSHOT_DRIFT_UNITS_WINDOW_MINUTES = float(
+    os.getenv('SNAPSHOT_DRIFT_UNITS_WINDOW_MINUTES', '15') or 15
+)
 
 
 class _DaemonThreadPoolExecutor(ThreadPoolExecutor):
