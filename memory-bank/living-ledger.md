@@ -5439,3 +5439,44 @@ exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
   a Smartsheet row. A real audit-sheet write is a separate, protected-
   area task requiring Juan's approval, `SKIP_UPLOAD` gating, and
   audit-sheet column-id discovery.
+
+## [2026-08-12 17:05] Live cell-history verification corrects the snapshot-drift signature (automation batching + WRLD is automation-written)
+
+- **A1/A4 VERIFIED LIVE** (read-only probes with Juan's token against
+  "Resiliency Promax Database Backup 86"): cell history returns
+  newest-first (A1); automation writes carry
+  `automation@smartsheet.com` (A4) on both legitimate and erroneous
+  stamps. WINDOWS defect #1 (unrun-verify) closed on this evidence.
+- **Complete Point 27 evidence chain** (WR 91916464, row id
+  4458327346708356): legit stamp 2026-08-06 15:59:07Z (23s after the
+  foreman's `Units Completed?` check); erroneous self-fire 2026-08-12
+  18:11:48Z re-stamping `Snapshot Date` to 08-12 **and** `Weekly
+  Reference Logged Date` to 2026-08-16 at 18:11:54Z, triggered by a
+  same-value Quantity re-save while `Units Completed?` was 6 days
+  unchanged; Juan manually reverted both fields ~58s later. Whole-sheet
+  scan 2026-08-12: zero stamps >= 08-08 remain on Backup 86.
+- **RULE CORRECTIONS (supersede the ±2-minute rule in the
+  [2026-08-12 13:40] entry):**
+  1. The automation **batches** its writes — legitimate stamps were
+     observed 17s to 4m22s after their checkbox check, with two rows
+     stamped the same second (15:26:15Z). Any legit-vs-drift
+     correlation window must be well above 2 minutes; the pipeline
+     classifier now uses `SNAPSHOT_DRIFT_UNITS_WINDOW_MINUTES`
+     (default 15). Repair sweeps must use >= 15 minutes too.
+  2. `Weekly Reference Logged Date` is **automation-written, not
+     derived** — the defect rewrites it directly, so drift repair
+     must audit/revert it alongside `Snapshot Date` (the jqx hold
+     path already rewrites both).
+  3. A third system identity appears in cell history:
+     `cell-link@smartsheet.com` (cell-link propagation) — neither the
+     automation nor a manual edit; never treat it as either.
+- **Review fix round** (commits a56190c / 81da106 / 7a58c62): CR-01
+  provenance upsert now gated on fetch status "success"/"no_row" (a
+  failed Supabase read can no longer rebase every baseline to the
+  current week); CR-02 holds skip candidates whose baseline
+  snapshot_date is null (a hold can never blank `Snapshot Date` and
+  drop a billed row from the workbook); WR-01 unparseable newest
+  history timestamp classifies `unclassified`, never self-fire;
+  window env-tunable per correction 1; test pacing zeroed in the
+  shared base (drift tests 31.7s → 1.35s). Suite 1262 passed + 132
+  subtests.
