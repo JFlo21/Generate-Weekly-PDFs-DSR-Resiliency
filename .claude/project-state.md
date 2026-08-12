@@ -1,10 +1,75 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-07-22 · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-12 · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
-## Latest work (2026-07-22) — Phase 08 SDK 4.3.0 migration EXECUTED (both plans)
+## Latest work (2026-08-12) — SAA-DE-20 overbill root-caused (upstream data, not code) + Snapshot Date automation defect proven + quick task 260812-isx in flight
+1. **Field-reported wrong pricing solved:** WR 91916464 / Point 27 /
+   SAA-DE-20 showed 3 EA @ $341.04 (should be 3 × $56.84 = $170.52).
+   Root cause: stale Smartsheet `Install Quantity` formula cell on
+   "Resiliency Promax Database Backup 86" (Quantity edited 6→3 on
+   2026-08-06, formula never recalculated). Contract rate and Python
+   pipeline both verified CORRECT (primary variant is pass-through by
+   design). Juan re-saved the row → now $170.52; next cron regenerates
+   the WE 080926 file via hash change. Full evidence chain in
+   `memory-bank/living-ledger.md` `[2026-08-12 13:40]`.
+2. **Snapshot Date automation defect proven via cell history:** the
+   per-sheet "record a date" automation uses a row-change trigger with
+   "Units Completed? is checked" as a condition, so ANY edit (even
+   same-value saves and bulk touches) re-stamps Snapshot Date to today
+   → units jump billing weeks → audit errors. Fix is UI-side per sheet:
+   field-scoped trigger ("Units Completed? changes to Checked") +
+   "Snapshot Date is blank" write-once condition; fix the template
+   sheet so backup copies inherit it. Recommendation delivered to Juan;
+   NOT yet applied (his action).
+3. **SESSION HANDOFF (2026-08-12 ~15:20 CDT) — resume points:**
+   - **PR #329 Greptile fixes DONE + PUSHED:** gsd-code-fixer landed
+     3 atomic commits on `feat/260812-isx-rate-sanity-audit` —
+     `64d7249` (fold total_rate_sanity_mismatches into history/
+     audit-sheet/trend total_issues aggregates + 2 regression tests),
+     `e003124` (website/blog/2026-08-12-rate-sanity-audit-check.md
+     runbook changelog incl. RATE_SANITY_AUDIT_ENABLED=false emergency
+     disable), `8802e98` (test return-type annotations). Suite 1230
+     passed + 130 subtests. Pushed 8802e98 → PR #329 updated. Known
+     latent quirk (out of scope, untouched): risk_trend.json write
+     silently no-ops on a truly fresh generated_docs/ dir because
+     makedirs happens later in _save_audit_state().
+   - **Quick task 260812-jqx APPROVED-TO-EXECUTE, not started:**
+     snapshot-drift audit. Plan/context/research complete + plan-check
+     PASSED (0 blockers, 1 warning: add post-seam Sentry capture for
+     holds). Planning docs are UNTRACKED in
+     `.planning/quick/260812-jqx-snapshot-date-drift-audit-detect-snapsho/`
+     (CONTEXT/RESEARCH/PLAN — commit them). Execution recipe: after
+     PR #329 fixes land, `git switch -c feat/260812-jqx-snapshot-drift-audit`
+     from the isx tip (plan line numbers assume isx code present),
+     spawn gsd-core:gsd-executor (sonnet) on 260812-jqx-PLAN.md, then
+     gsd-verifier + code review + haiku-verifier, docs commit, PR
+     stacked on #329. Locked decisions: hold-prior-week+HIGH for
+     automation self-fires ONLY (SNAPSHOT_DRIFT_HOLD_ENABLED default
+     OFF), never hold manual edits, fail-open gating/fail-closed
+     logging, 40-row capped ~2s-paced cell-history lookups
+     (week-movers only), NEW additive Supabase tables appended to
+     billing_audit/schema.sql (Juan manual-applies DDL), NO new
+     mutating AUDIT_SHEET_ID write in v1.
+   - **Juan's own actions pending:** Smartsheet automation trigger fix
+     in UI per living-ledger [2026-08-12 13:40] (field-scoped trigger
+     + "Snapshot Date is blank" condition, per sheet + template);
+     review/merge PR #329; later: apply jqx DDL, enable hold gate
+     after burn-in.
+4. **Quick task 260812-isx (GSD quick) COMPLETE → PR #329 OPEN:**
+   report-only rate-sanity audit check (Units Total Price vs expected
+   New-Rates rate × Quantity via `_SUBCONTRACTOR_RATES`, kill-switch
+   `RATE_SANITY_AUDIT_ENABLED`). Commits a7f5d77/2cb9897/ad3fa19 +
+   docs c61bacb on branch `feat/260812-isx-rate-sanity-audit`
+   (local master reset to origin/master — nothing pushed to main).
+   Full suite 1228 passed + 130 subtests, 0 regressions; independent
+   haiku-verifier PASS 8/8 (report-only, no hunks in pipeline/ or
+   generate_weekly_pdfs.py). Next: Juan reviews/merges PR #329; apply
+   the Snapshot Date automation UI fix per living-ledger
+   `[2026-08-12 13:40]`.
+
+## Previous work (2026-07-22) — Phase 08 SDK 4.3.0 migration EXECUTED (both plans)
 1. **Phase 08 executed via `/gsd-execute-phase 08`** on branch
    `feat/phase-08-sdk-430-migration` (unpushed; no PR yet). Wave 1 (08-01,
    merge `6334531`): SDK 4.3.0 installed (env upgrade 3.9.0→4.3.0), dead

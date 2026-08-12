@@ -5218,3 +5218,117 @@ exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
   ("Subcontractor price fall-through …") embeds CU, rate, and the raw
   Quantity cell, so its prefix is registered in `_PII_LOG_MARKERS`
   (covers both the Sentry Logs plane and the breadcrumb plane).
+
+## [2026-08-12 13:40] SAA-DE-20 overbill: stale Smartsheet formula cell + Snapshot Date automation re-stamp defect (two distinct ProMax-sheet failure modes)
+
+- **Incident 1 (field-reported wrong pricing):** WR 91916464 / Point 27 /
+  SAA-DE-20 Inst showed 3 EA @ $341.04 ($113.68/EA) in
+  `WR_91916464_WeekEnding_080926_User_Isaac_Atkinson.xlsx`; correct is
+  3 x $56.84 = $170.52 (group SAA install rate).
+- **Root cause (DATA, not code):** on "Resiliency Promax Database
+  Backup 86" the row's `Quantity` was loaded as 6 on 2026-07-07, then
+  corrected 6->3 by the foreman on 2026-08-06 — but the `Install
+  Quantity` column-formula cell (`=SUMIFS(Quantity@row, ...)`) never
+  recalculated and stayed 6, so `Install Pricing Totals` = 56.84 x 6
+  = 341.04 flowed into `Units Total Price`. The contract-sheet rate
+  lookup was CORRECT (Resiliency Pricing Contract - Corpus/Laredo/Rio,
+  group SAA new install = 56.84). The Python engine was CORRECT per
+  contract: primary/`_User_` variant passes Smartsheet `Units Total
+  Price` through unchanged (`pipeline/pricing.py::_resolve_row_price`).
+  Verified via Smartsheet cell history + a sheet-wide sweep: exactly
+  one row diverged. Resolution: Juan re-saved the row (recalc fired,
+  now 3 / $170.52); next scheduled run regenerates via hash change.
+- **Rule:** when a generated Excel shows a wrong per-unit rate, first
+  compute price/qty per row on the SOURCE sheet and compare `Quantity`
+  vs `Install/Removal/Transfer Quantity` — a mismatch means a stale
+  Smartsheet formula cell, and the fix is upstream (re-save the row),
+  never in the Python pricing path. The 260812-isx quick task adds a
+  report-only audit check (expected rate x qty vs Units Total Price,
+  rates from `data/subcontractor_rates.csv` New Rates columns) to
+  catch this class automatically.
+- **Incident 2 (Snapshot Date automation re-stamps untouched rows):**
+  the per-sheet "record Snapshot Date" automation is configured as
+  trigger "when rows are changed" + CONDITION "Units Completed? is
+  checked". Conditions filter rows, not fields — so ANY edit to an
+  already-completed row (including a SAME-VALUE save, which leaves no
+  cell history but still counts as a row modification, and bulk
+  API/DataTable touches) re-records TODAY into `Snapshot Date`.
+  Proven 2026-08-12 18:11:48Z: automation re-stamped the Point 27 row
+  to 2026-08-12 seconds after a same-value Quantity re-save while
+  `Units Completed?` had NO change since 2026-08-06. Because
+  `Weekly Reference Logged Date` = Snapshot Date snapped to Sunday,
+  every re-stamp MOVES the unit into the current billing week ->
+  groups shift weeks, files regenerate, audit deltas ("major audit
+  errors"). Backup sheets carry cloned copies of the automation, so
+  the defect exists on multiple sheets.
+- **Fix (Smartsheet UI per sheet; automations are not API-editable):**
+  change the trigger to the field-scoped form "when Units Completed?
+  changes to Checked" AND add condition "Snapshot Date is blank"
+  (write-once). Fix the template/source sheet too so future backup
+  copies inherit the corrected automation.
+- **Drift signature for repair sweeps:** a `Snapshot Date` write by
+  automation@smartsheet.com with NO `Units Completed?` change within
+  +/-2 minutes is an erroneous re-stamp; the correct restore value is
+  the stamp adjacent to the actual checkbox check (cell history,
+  30 req/min limit — pace any sweep script).
+
+## [2026-08-12 14:05] Report-only rate-sanity audit check added (260812-isx) — closes the SAA-DE-20 detection gap
+
+- **Why:** the SAA-DE-20 incident logged above (2026-08-12 13:40) shipped
+  a $170.52 overbill (3 x $56.84 correct vs $341.04 stale-formula
+  actual) because the primary variant is a DELIBERATE pass-through of
+  Smartsheet `Units Total Price` (`pipeline/pricing.py::_resolve_row_price`,
+  D-14/D-15 byte-identical contract) — the pricing path has no rate
+  table to compare against for that variant, so a stale upstream
+  Quantity formula cell was invisible to the engine. This detector
+  closes that blind spot without touching the pricing path itself.
+- **What:** `audit_billing_changes.py` gains
+  `_detect_rate_sanity_mismatches()` on `BillingAudit`, wired into
+  `audit_financial_data()` as a new report-only step (after data-
+  consistency validation, before suspicious-change detection). It
+  computes an expected price from the **New Rates** columns of
+  `data/subcontractor_rates.csv` (`_SUBCONTRACTOR_RATES`, already
+  loaded by `pipeline/pricing.py`) keyed by CU + Work Type, using the
+  SAME shortest-unambiguous-prefix Work-Type matcher as
+  `_resolve_row_price` (`'inst'`/`'rem'`/`'tran'`|`'xfr'` — the
+  2026-05-16 23:45 ledger rule) and the SAME `_parse_quantity` helper
+  the pricing and Excel-display paths use, and flags a row when
+  `Units Total Price` diverges from `rate x Quantity` by more than
+  `max($0.02, 0.5% of expected)`.
+- **Skip classes (never reported as a mismatch, only counted):**
+  missing/unknown CU, unknown Work Type, non-positive/unparseable
+  Quantity, and empty/unparseable `Units Total Price` (a raw cell that
+  `parse_price` coerces to 0.0 from a non-zero-looking string is
+  distinguished from a genuine `$0.00` cell and skipped rather than
+  reported as a false zero-vs-expected mismatch). Skips are aggregated
+  into `self._rate_sanity_skipped` and logged as ONE INFO line per run
+  (checked/skipped/mismatch counts only) — never per-row.
+- **Kill-switch:** `RATE_SANITY_AUDIT_ENABLED` (default `true`), read
+  per-call so it can be toggled without a redeploy; `false` restores
+  the pre-change audit summary shape exactly (empty
+  `rate_sanity_mismatches`, `total_rate_sanity_mismatches` 0).
+- **Summary wiring:** `_generate_audit_summary()` adds
+  `total_rate_sanity_mismatches` and `rate_sanity_skipped`, folds the
+  mismatch count into the existing `total_issues` sum that drives
+  `risk_level` (LOW/MEDIUM/HIGH), and appends a recommendation string
+  when mismatches are present.
+- **HARD RULE — this check is diagnostic only:** it MUST NEVER mutate
+  row price, quantity, grouping, filenames, hashes, or upload
+  behavior. `audit_financial_data()` still returns the same `rows`
+  object it was handed; no writes to `pipeline/pricing.py`,
+  `pipeline/grouping.py`, `pipeline/excel.py`, `pipeline/upload.py`,
+  or `generate_weekly_pdfs.py` were made or should ever be made by
+  this detector. Any future change that has this detector alter a row
+  in place is a regression of this rule, not an enhancement.
+- **Implementation note (facade export gap):** `_parse_quantity` is
+  NOT re-exported by the `generate_weekly_pdfs` facade's static
+  namespace or its 4-name PEP-562 live-proxy (only
+  `_SUBCONTRACTOR_RATES` and `parse_price` are) — verified via
+  `hasattr(generate_weekly_pdfs, '_parse_quantity') is False`. The
+  detector imports it directly from `pipeline.pricing` via the same
+  function-local lazy-import pattern used for `_SUBCONTRACTOR_RATES`
+  (`pipeline/pricing.py` L629-633) to avoid the import-order hazard
+  documented there (`generate_weekly_pdfs.py` imports
+  `audit_billing_changes` at L35, before it imports `pipeline.pricing`
+  at L196-210) — the import only executes at call time, well after
+  the full facade has loaded.

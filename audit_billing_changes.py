@@ -11,6 +11,101 @@ import json
 from typing import Dict, List, Optional, Any
 import sentry_sdk
 
+# ── Report-only rate-sanity audit (260812-isx) ─────────────────────────
+# Tolerance floor for the rate-sanity mismatch check: flag a row only
+# when its Units Total Price diverges from (New Rates rate x Quantity)
+# by more than the larger of a flat $0.02 rounding allowance and 0.5%
+# of the expected price. See the 2026-08-12 SAA-DE-20 stale-formula
+# incident entry in memory-bank/living-ledger.md for the defect class
+# this guards against — a $170.52 overbill that shipped because the
+# primary variant is a deliberate pass-through of Units Total Price.
+RATE_SANITY_ABS_TOLERANCE = 0.02
+RATE_SANITY_PCT_TOLERANCE = 0.005
+
+
+def _rate_sanity_expected_price(row: Dict) -> Optional[float]:
+    """Compute the expected Units Total Price for a row.
+
+    Expected price is ``New Rates rate x Quantity``, keyed by the
+    row's CU and Work Type against ``_SUBCONTRACTOR_RATES``
+    (``data/subcontractor_rates.csv``, loaded once at import time by
+    ``pipeline/pricing.py``).
+
+    Returns ``None`` (never 0.0) when the row cannot be evaluated:
+    empty/unknown CU, a Work Type that matches none of
+    install/remove/transfer, or a non-positive parsed quantity/rate.
+    Callers MUST treat ``None`` as "skip this row" — it is never a
+    legitimate expected price of zero.
+    """
+    # Function-local lazy import (mirrors pipeline/pricing.py
+    # L629-633): generate_weekly_pdfs.py imports this module BEFORE
+    # it imports pipeline.pricing, so a module-level import here would
+    # pull pipeline.pricing's CSV-loading side effect earlier in the
+    # import order. ``_parse_quantity`` is a pure helper not re-
+    # exported by the generate_weekly_pdfs facade (only
+    # ``_SUBCONTRACTOR_RATES`` and ``parse_price`` are), so it is
+    # imported directly from its owning module — also lazily, for the
+    # same import-order reason.
+    import generate_weekly_pdfs as _gwp  # noqa: PLC0415
+    from pipeline.pricing import _parse_quantity  # noqa: PLC0415
+
+    cu = str(row.get('CU') or '').strip().upper()
+    if not cu:
+        return None
+    rate_row = _gwp._SUBCONTRACTOR_RATES.get(cu)
+    if rate_row is None:
+        return None
+
+    # Shortest-unambiguous-prefix matcher — reproduces
+    # pipeline/pricing.py L667-673 exactly (2026-05-16 23:45 ledger
+    # rule): 'install' is NOT contained in the abbreviated 'inst', so
+    # the substring test must run in the `token in work_type` order.
+    work_type_raw = str(row.get('Work Type') or '').strip().lower()
+    if 'inst' in work_type_raw:
+        work_type = 'install'
+    elif 'rem' in work_type_raw:
+        work_type = 'remove'
+    elif 'tran' in work_type_raw or 'xfr' in work_type_raw:
+        work_type = 'transfer'
+    else:
+        return None
+
+    rate = rate_row.get(f'new_{work_type}_price', 0.0)
+    qty = _parse_quantity(row.get('Quantity'))
+    if rate <= 0 or qty <= 0:
+        return None
+    return rate * qty
+
+
+def _rate_sanity_is_mismatch(expected: float, actual: float) -> bool:
+    """Return True when ``actual`` diverges from ``expected`` beyond tolerance.
+
+    Tolerance is ``max(RATE_SANITY_ABS_TOLERANCE,
+    RATE_SANITY_PCT_TOLERANCE * expected)`` — a flat cent-rounding
+    floor for small expected prices, a percentage floor for large
+    ones.
+    """
+    tolerance = max(
+        RATE_SANITY_ABS_TOLERANCE, RATE_SANITY_PCT_TOLERANCE * expected
+    )
+    return abs(actual - expected) > tolerance
+
+
+def _rate_sanity_looks_like_zero(raw_price: Any) -> bool:
+    """Return True when ``raw_price`` is a genuinely zero-valued cell.
+
+    Distinguishes a legitimate ``$0.00`` price from an unparseable
+    string that ``parse_price`` also coerces to 0.0 — only the former
+    is a real actual price; the latter must be skipped rather than
+    reported as a false $0-vs-expected mismatch.
+    """
+    cleaned = str(raw_price).strip().replace('$', '').replace(',', '')
+    try:
+        return float(cleaned) == 0.0
+    except (TypeError, ValueError):
+        return False
+
+
 class BillingAudit:
     """
     Advanced billing audit system that monitors for unauthorized changes
@@ -29,10 +124,15 @@ class BillingAudit:
         self.skip_cell_history = skip_cell_history
         self.audit_sheet_id = os.getenv("AUDIT_SHEET_ID")
         self.logger = logging.getLogger(__name__)
-        
+
         # Initialize audit state storage
         self.audit_state_file = os.path.join("generated_docs", "audit_state.json")
         self.audit_state = self._load_audit_state()
+
+        # Rate-sanity audit (260812-isx): rows skipped by the detector
+        # (missing CU, zero/unparseable quantity or price, unknown work
+        # type) — read by _generate_audit_summary().
+        self._rate_sanity_skipped = 0
         
         self.logger.info("🔍 Billing Audit System initialized")
         if self.skip_cell_history:
@@ -82,18 +182,29 @@ class BillingAudit:
             "anomalies_detected": [],
             "unauthorized_changes": [],
             "data_integrity_issues": [],
+            "rate_sanity_mismatches": [],
             "summary": {}
         }
-        
+
         try:
             # 1. Check for unauthorized price changes
             price_anomalies = self._detect_price_anomalies(current_rows)
             audit_results["anomalies_detected"].extend(price_anomalies)
-            
+
             # 2. Validate data consistency
             consistency_issues = self._validate_data_consistency(current_rows)
             audit_results["data_integrity_issues"].extend(consistency_issues)
-            
+
+            # 2.5 Report-only rate-sanity check (260812-isx): Units Total
+            # Price vs New Rates rate x Quantity. Never mutates rows,
+            # pricing, grouping, filenames, hashes, or upload behavior.
+            rate_sanity_mismatches = self._detect_rate_sanity_mismatches(
+                current_rows
+            )
+            audit_results["rate_sanity_mismatches"].extend(
+                rate_sanity_mismatches
+            )
+
             # 3. Check for suspicious patterns (only if not skipping cell history)
             if not self.skip_cell_history:
                 suspicious_changes = self._detect_suspicious_changes(source_sheets)
@@ -130,7 +241,7 @@ class BillingAudit:
             history_entry = {
                 "timestamp": audit_results["audit_timestamp"],
                 "risk_level": audit_results["summary"].get("risk_level"),
-                "total_issues": audit_results["summary"].get("total_anomalies",0) + audit_results["summary"].get("total_unauthorized_changes",0) + audit_results["summary"].get("total_data_issues",0),
+                "total_issues": audit_results["summary"].get("total_anomalies",0) + audit_results["summary"].get("total_unauthorized_changes",0) + audit_results["summary"].get("total_data_issues",0) + audit_results["summary"].get("total_rate_sanity_mismatches",0),
                 "trend": audit_results.get("trend", {})
             }
             try:
@@ -241,9 +352,91 @@ class BillingAudit:
         
         except Exception as e:
             self.logger.warning(f"Data consistency validation failed: {e}")
-        
+
         return issues
-    
+
+    def _detect_rate_sanity_mismatches(self, rows: List[Dict]) -> List[Dict]:
+        """Flag rows whose Units Total Price disagrees with rate x Quantity.
+
+        REPORT-ONLY (260812-isx): never mutates row price, quantity,
+        grouping, filenames, hashes, or upload behavior — it only
+        appends diagnostic records. Expected price comes from the New
+        Rates columns of ``data/subcontractor_rates.csv``, keyed by CU
+        + Work Type (see ``_rate_sanity_expected_price``). See the
+        2026-08-12 SAA-DE-20 incident in memory-bank/living-ledger.md.
+
+        Disable via ``RATE_SANITY_AUDIT_ENABLED=false``. Skips (missing
+        CU, non-positive quantity, unknown work type, unparseable
+        price) are silent per-row and reported only as an aggregate
+        count via ``self._rate_sanity_skipped``.
+        """
+        mismatches: List[Dict] = []
+        self._rate_sanity_skipped = 0
+
+        if os.getenv("RATE_SANITY_AUDIT_ENABLED", "true").lower() != "true":
+            return mismatches
+
+        try:
+            import generate_weekly_pdfs as _gwp  # noqa: PLC0415
+            from pipeline.pricing import _parse_quantity  # noqa: PLC0415
+
+            checked = 0
+            for row in rows:
+                expected = _rate_sanity_expected_price(row)
+                if expected is None:
+                    self._rate_sanity_skipped += 1
+                    continue
+
+                raw_price = row.get('Units Total Price')
+                if raw_price is None or str(raw_price).strip() == '':
+                    self._rate_sanity_skipped += 1
+                    continue
+
+                actual = _gwp.parse_price(raw_price)
+                if actual == 0.0 and not _rate_sanity_looks_like_zero(
+                    raw_price
+                ):
+                    # parse_price coerced an unparseable, non-zero-
+                    # looking string to 0.0 — a real $0 mismatch would
+                    # be misleading here; skip instead.
+                    self._rate_sanity_skipped += 1
+                    continue
+
+                checked += 1
+                if _rate_sanity_is_mismatch(expected, actual):
+                    wr = str(row.get('Work Request #', 'Unknown'))
+                    cu = str(row.get('CU') or '').strip().upper()
+                    work_type = str(row.get('Work Type') or '').strip()
+                    qty = _parse_quantity(row.get('Quantity'))
+                    mismatches.append({
+                        "type": "rate_sanity_mismatch",
+                        "work_request": wr,
+                        "cu": cu,
+                        "work_type": work_type,
+                        "quantity": qty,
+                        "expected_price": round(expected, 2),
+                        "actual_price": round(actual, 2),
+                        "delta": round(actual - expected, 2),
+                        "severity": "high",
+                        "description": (
+                            "Units Total Price disagrees with expected "
+                            f"rate x Quantity for WR# {wr}"
+                        ),
+                    })
+
+            # Aggregate-only, per T-ISX-01: counts only, never price,
+            # quantity, foreman, or WR-level detail at INFO level.
+            self.logger.info(
+                "Rate-sanity audit: checked=%d skipped=%d mismatches=%d",
+                checked, self._rate_sanity_skipped, len(mismatches),
+            )
+        except Exception as e:
+            self.logger.warning(
+                f"Rate sanity mismatch detection failed: {e}"
+            )
+
+        return mismatches
+
     def _detect_suspicious_changes(self, source_sheets: List[Dict]) -> List[Dict]:
         """Detect potentially unauthorized changes (requires cell history)."""
         suspicious_changes = []
@@ -297,13 +490,22 @@ class BillingAudit:
             "total_anomalies": len(audit_results.get("anomalies_detected", [])),
             "total_unauthorized_changes": len(audit_results.get("unauthorized_changes", [])),
             "total_data_issues": len(audit_results.get("data_integrity_issues", [])),
+            "total_rate_sanity_mismatches": len(
+                audit_results.get("rate_sanity_mismatches", [])
+            ),
+            "rate_sanity_skipped": self._rate_sanity_skipped,
             "risk_level": "LOW",
             "recommendations": []
         }
-        
+
         # Determine risk level
-        total_issues = summary["total_anomalies"] + summary["total_unauthorized_changes"] + summary["total_data_issues"]
-        
+        total_issues = (
+            summary["total_anomalies"]
+            + summary["total_unauthorized_changes"]
+            + summary["total_data_issues"]
+            + summary["total_rate_sanity_mismatches"]
+        )
+
         if total_issues == 0:
             summary["risk_level"] = "LOW"
             summary["recommendations"].append("No issues detected. Continue monitoring.")
@@ -313,14 +515,21 @@ class BillingAudit:
         else:
             summary["risk_level"] = "HIGH"
             summary["recommendations"].append("Multiple issues detected. Immediate review recommended.")
-        
+
         # Add specific recommendations based on findings
         if summary["total_anomalies"] > 0:
             summary["recommendations"].append("Review price anomalies for potential data entry errors.")
-        
+
         if summary["total_data_issues"] > 0:
             summary["recommendations"].append("Address data consistency issues before processing.")
-        
+
+        if summary["total_rate_sanity_mismatches"] > 0:
+            summary["recommendations"].append(
+                "Rate-sanity mismatches detected: Smartsheet Units Total "
+                "Price disagrees with rate x Quantity — check for a "
+                "stale quantity formula cell upstream."
+            )
+
         return summary
     
     def _log_audit_results(self, audit_results: Dict):
@@ -340,6 +549,10 @@ class BillingAudit:
         self.logger.info(f"   • Anomalies: {summary.get('total_anomalies', 0)}")
         self.logger.info(f"   • Unauthorized changes: {summary.get('total_unauthorized_changes', 0)}")
         self.logger.info(f"   • Data issues: {summary.get('total_data_issues', 0)}")
+        self.logger.info(
+            f"   • Rate-sanity mismatches: "
+            f"{summary.get('total_rate_sanity_mismatches', 0)}"
+        )
         if trend:
             self.logger.info(f"   • Risk Trend: {trend.get('risk_direction')} (Δ level {trend.get('risk_level_delta',0)} / Δ issues {trend.get('issues_delta',0)} {trend.get('issues_delta_pct','')})")
 
@@ -383,7 +596,7 @@ class BillingAudit:
             audit_row = {
                 "Audit Timestamp": audit_results["audit_timestamp"],
                 "Risk Level": summary.get("risk_level"),
-                "Total Issues": summary.get("total_anomalies",0) + summary.get("total_unauthorized_changes",0) + summary.get("total_data_issues",0),
+                "Total Issues": summary.get("total_anomalies",0) + summary.get("total_unauthorized_changes",0) + summary.get("total_data_issues",0) + summary.get("total_rate_sanity_mismatches",0),
                 "Sheets Audited": audit_results.get("sheets_audited"),
                 "Rows Audited": audit_results.get("rows_audited"),
                 "Anomalies": summary.get("total_anomalies",0),
@@ -422,8 +635,8 @@ class BillingAudit:
             return {"LOW":1, "MEDIUM":2, "HIGH":3}.get(str(level).upper(), 0)
         cur_level = current_summary.get("risk_level", "UNKNOWN")
         prev_level = previous.get("risk_level", "UNKNOWN")
-        cur_issues = current_summary.get("total_anomalies",0) + current_summary.get("total_unauthorized_changes",0) + current_summary.get("total_data_issues",0)
-        prev_issues = previous.get("total_anomalies",0) + previous.get("total_unauthorized_changes",0) + previous.get("total_data_issues",0)
+        cur_issues = current_summary.get("total_anomalies",0) + current_summary.get("total_unauthorized_changes",0) + current_summary.get("total_data_issues",0) + current_summary.get("total_rate_sanity_mismatches",0)
+        prev_issues = previous.get("total_anomalies",0) + previous.get("total_unauthorized_changes",0) + previous.get("total_data_issues",0) + previous.get("total_rate_sanity_mismatches",0)
         level_delta = _risk_val(cur_level) - _risk_val(prev_level)
         if level_delta > 0:
             direction = "worsening"
