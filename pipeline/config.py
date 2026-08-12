@@ -125,6 +125,51 @@ ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC = int(os.getenv('ATTACHMENT_PREFETCH_FUTU
 # zero-output failure mode this guard is meant to prevent.
 ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN = int(os.getenv('ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN', '2') or 2)
 
+# Snapshot-date drift audit (quick task 260812-jqx) -- defence-in-depth
+# backstop for the Smartsheet "record Snapshot Date" automation firing on
+# ANY completed-row change and silently drifting an already-billed unit
+# into the current billing week (living-ledger [2026-08-12 13:40]).
+# ``pipeline/snapshot_drift.py`` re-reads each of these via ``os.getenv``
+# at call time (not from the frozen constants below) so tests can toggle
+# them per-case without reloading this module -- mirrors the
+# ``RATE_SANITY_AUDIT_ENABLED`` pattern in ``audit_billing_changes.py``.
+# These module-level constants exist for documentation/discoverability,
+# matching the TIME_BUDGET_MINUTES family's convention.
+#
+# Detection + Supabase shadow-logging kill switch. Defaults ON: the
+# audit is report-only and additive (D-08).
+SNAPSHOT_DRIFT_AUDIT_ENABLED = (
+    os.getenv('SNAPSHOT_DRIFT_AUDIT_ENABLED', 'true').lower() == 'true'
+)
+# Hold-prior-week gating kill switch. Its OWN switch, separate from
+# detection, and defaults OFF -- the gate is opt-in until a live run
+# proves the classifier against a known-drifted row (D-08, RESEARCH
+# caveat 3).
+SNAPSHOT_DRIFT_HOLD_ENABLED = (
+    os.getenv('SNAPSHOT_DRIFT_HOLD_ENABLED', 'false').lower() == 'true'
+)
+# Per-run cap on cell-history classification (D-04): only week-movers
+# are ever classified, and only up to this many per run.
+SNAPSHOT_DRIFT_MAX_ROWS = int(os.getenv('SNAPSHOT_DRIFT_MAX_ROWS', '40') or 40)
+# Self-pacing sleep (seconds) between cell-history calls (D-04,
+# RESEARCH caveat 2) -- the SDK's own retry budget will not ride out a
+# sustained cell-history throttle.
+SNAPSHOT_DRIFT_PACE_SEC = float(os.getenv('SNAPSHOT_DRIFT_PACE_SEC', '2.0') or 2.0)
+# Phase sub-budget (minutes) AND the pre-flight threshold: when
+# TIME_BUDGET_MINUTES is set and running in GitHub Actions, remaining
+# session budget below this many minutes skips classification entirely
+# -- every candidate degrades to 'unclassified' (D-10).
+SNAPSHOT_DRIFT_MAX_MINUTES = float(
+    os.getenv('SNAPSHOT_DRIFT_MAX_MINUTES', '5') or 5
+)
+# The literal ``modified_by`` email the classifier treats as the
+# Smartsheet automation identity (D-05). Configurable so assumption A4
+# can be corrected by an operator via environment instead of a code
+# change.
+SNAPSHOT_DRIFT_AUTOMATION_EMAIL = os.getenv(
+    'SNAPSHOT_DRIFT_AUTOMATION_EMAIL', 'automation@smartsheet.com'
+)
+
 
 class _DaemonThreadPoolExecutor(ThreadPoolExecutor):
     """ThreadPoolExecutor whose workers are daemonized so stuck I/O
