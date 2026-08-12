@@ -50,8 +50,12 @@ write-back reminder). Keep it terse; link to history rather than duplicating it.
      15; WR-04 test pacing zeroed). Suite **1262 + 132 subtests**
      (~13s). Deferred to PR follow-ups: WR-02 (bulk .in_ → RPC),
      WR-03 (RLS on new tables — Juan's DDL call), WR-05 (direct
-     snapshot_store tests), info nits. Next: closeout docs commit,
-     push + PR stacked on #329 (base = isx branch).
+     snapshot_store tests), info nits. **SHIPPED: PR #330 → master**
+     (#329 was squash-merged as `647a688` at 20:33Z, isx branch
+     deleted; jqx rebased onto origin/master — new SHAs
+     b115e63..d3333e4 + this ledger commit — suite re-run green
+     post-rebase, force-pushed with lease). Local master is stale;
+     `git switch master && git pull` when convenient.
    - **A1/A4 VERIFIED LIVE (WINDOWS #1 closed):** read-only probes
      with Juan's token proved newest-first history + automation
      identity, captured the full Point 27 drift-and-revert chain, and
