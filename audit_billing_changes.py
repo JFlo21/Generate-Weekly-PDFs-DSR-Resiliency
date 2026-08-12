@@ -241,7 +241,7 @@ class BillingAudit:
             history_entry = {
                 "timestamp": audit_results["audit_timestamp"],
                 "risk_level": audit_results["summary"].get("risk_level"),
-                "total_issues": audit_results["summary"].get("total_anomalies",0) + audit_results["summary"].get("total_unauthorized_changes",0) + audit_results["summary"].get("total_data_issues",0),
+                "total_issues": audit_results["summary"].get("total_anomalies",0) + audit_results["summary"].get("total_unauthorized_changes",0) + audit_results["summary"].get("total_data_issues",0) + audit_results["summary"].get("total_rate_sanity_mismatches",0),
                 "trend": audit_results.get("trend", {})
             }
             try:
@@ -596,7 +596,7 @@ class BillingAudit:
             audit_row = {
                 "Audit Timestamp": audit_results["audit_timestamp"],
                 "Risk Level": summary.get("risk_level"),
-                "Total Issues": summary.get("total_anomalies",0) + summary.get("total_unauthorized_changes",0) + summary.get("total_data_issues",0),
+                "Total Issues": summary.get("total_anomalies",0) + summary.get("total_unauthorized_changes",0) + summary.get("total_data_issues",0) + summary.get("total_rate_sanity_mismatches",0),
                 "Sheets Audited": audit_results.get("sheets_audited"),
                 "Rows Audited": audit_results.get("rows_audited"),
                 "Anomalies": summary.get("total_anomalies",0),
@@ -635,8 +635,8 @@ class BillingAudit:
             return {"LOW":1, "MEDIUM":2, "HIGH":3}.get(str(level).upper(), 0)
         cur_level = current_summary.get("risk_level", "UNKNOWN")
         prev_level = previous.get("risk_level", "UNKNOWN")
-        cur_issues = current_summary.get("total_anomalies",0) + current_summary.get("total_unauthorized_changes",0) + current_summary.get("total_data_issues",0)
-        prev_issues = previous.get("total_anomalies",0) + previous.get("total_unauthorized_changes",0) + previous.get("total_data_issues",0)
+        cur_issues = current_summary.get("total_anomalies",0) + current_summary.get("total_unauthorized_changes",0) + current_summary.get("total_data_issues",0) + current_summary.get("total_rate_sanity_mismatches",0)
+        prev_issues = previous.get("total_anomalies",0) + previous.get("total_unauthorized_changes",0) + previous.get("total_data_issues",0) + previous.get("total_rate_sanity_mismatches",0)
         level_delta = _risk_val(cur_level) - _risk_val(prev_level)
         if level_delta > 0:
             direction = "worsening"

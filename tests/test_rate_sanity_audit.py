@@ -10,6 +10,7 @@ this; this REPORT-ONLY detector flags it via the New Rates table
 (``data/subcontractor_rates.csv``) keyed by CU + Work Type.
 """
 
+import json
 import os
 import tempfile
 import unittest
@@ -273,6 +274,87 @@ class TestRateSanitySummary(RateSanityTestBase):
         self.assertEqual(
             results['summary']['total_rate_sanity_mismatches'], 0
         )
+
+
+class TestRateSanityAggregateInclusion(RateSanityTestBase):
+    """CR-01 regression lock: rate-sanity mismatches must be counted in
+    EVERY total_issues aggregate (persisted history entry, audit-sheet
+    payload, and trend delta) -- not only in the risk-level sum inside
+    ``_generate_audit_summary()``. A mismatch-only run (zero anomalies,
+    zero unauthorized changes, zero data issues) previously recorded
+    ``total_issues == 0`` in ``risk_trend.json`` and produced a zero
+    trend delta, hiding the run from history/trend consumers even
+    though the top-level summary and risk level correctly escalated.
+    """
+
+    def test_mismatch_only_run_records_nonzero_history_total_issues(
+        self,
+    ) -> None:
+        row = {
+            'Work Request #': '91916464',
+            'CU': 'SAA-DE-20',
+            'Work Type': 'Inst',
+            'Quantity': '3',
+            'Units Total Price': '$341.04',
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir, \
+                mock.patch.object(BillingAudit, '_save_audit_state'), \
+                mock.patch.object(BillingAudit, '_log_to_audit_sheet'):
+            original_cwd = os.getcwd()
+            os.chdir(tmp_dir)
+            try:
+                # Mirrors the real pipeline, where generated_docs/
+                # already exists before an audit runs.
+                os.makedirs('generated_docs', exist_ok=True)
+                audit = BillingAudit(client=None, skip_cell_history=True)
+                results = audit.audit_financial_data([], [row])
+                hist_path = os.path.join(
+                    'generated_docs', 'risk_trend.json'
+                )
+                with open(hist_path) as hist_file:
+                    history = json.load(hist_file)
+            finally:
+                os.chdir(original_cwd)
+
+        summary = results['summary']
+        self.assertEqual(summary['total_anomalies'], 0)
+        self.assertEqual(summary['total_unauthorized_changes'], 0)
+        self.assertEqual(summary['total_data_issues'], 0)
+        self.assertEqual(summary['total_rate_sanity_mismatches'], 1)
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0]['total_issues'], 1)
+
+    def test_mismatch_only_run_produces_correct_trend_issue_delta(
+        self,
+    ) -> None:
+        clean_row = {
+            'Work Request #': '91916464',
+            'CU': 'SAA-DE-20',
+            'Work Type': 'Inst',
+            'Quantity': '1',
+            'Units Total Price': '$56.84',
+        }
+        mismatch_row = {
+            'Work Request #': '91916464',
+            'CU': 'SAA-DE-20',
+            'Work Type': 'Inst',
+            'Quantity': '3',
+            'Units Total Price': '$341.04',
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir, \
+                mock.patch.object(BillingAudit, '_log_to_audit_sheet'):
+            original_cwd = os.getcwd()
+            os.chdir(tmp_dir)
+            try:
+                audit = BillingAudit(client=None, skip_cell_history=True)
+                audit.audit_financial_data([], [clean_row])
+                results = audit.audit_financial_data([], [mismatch_row])
+            finally:
+                os.chdir(original_cwd)
+
+        trend = results['trend']
+        self.assertEqual(trend['issues_delta'], 1)
+        self.assertEqual(trend['risk_direction'], 'worsening')
 
 
 if __name__ == '__main__':
