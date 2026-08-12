@@ -445,6 +445,23 @@ def _apply_holds(
         if candidate["classification"] != _CLASSIFICATION_AUTOMATION_SELF_FIRE:
             continue
 
+        # CR-02: a NULL baseline snapshot_date (seeded while the
+        # Snapshot Date cell was blank/unparseable -- an observed VAC
+        # crew failure mode) must never be written into the row. The
+        # Excel Monday-Sunday day-block filter treats a None Snapshot
+        # Date as "outside the week" and silently drops the row from
+        # the workbook -- strictly worse than the drift itself. Skip
+        # the hold for this candidate (classify + log only).
+        prior_snapshot = _coerce_date(candidate["prior_snapshot_date"])
+        if prior_snapshot is None:
+            logging.warning(
+                "⚠️ Snapshot-drift hold skipped for WR %s row %s: no "
+                "prior snapshot date on baseline (row would be dropped "
+                "by the Excel week filter).",
+                candidate["wr"], candidate["row_id"],
+            )
+            continue
+
         row = candidate["row"]
         row["__drifted_weekly_reference_logged_date"] = row.get(
             "Weekly Reference Logged Date"
@@ -458,7 +475,7 @@ def _apply_holds(
         row["Weekly Reference Logged Date"] = candidate[
             "prior_billed_week"
         ].isoformat()
-        row["Snapshot Date"] = _iso_date_str(candidate["prior_snapshot_date"])
+        row["Snapshot Date"] = prior_snapshot.isoformat()
 
         candidate["held"] = True
         held_count += 1

@@ -689,6 +689,44 @@ class TestTask3HeldRowSurvivesExcelFilter(SnapshotDriftClassifierTestBase):
         )
 
 
+class TestTask3HoldSkippedWhenBaselineSnapshotDateIsNull(
+    SnapshotDriftClassifierTestBase
+):
+    """CR-02 regression: a hold whose baseline ``snapshot_date`` is
+    NULL must NOT write ``None`` into ``Snapshot Date`` -- that value
+    is silently dropped by the Excel Monday-Sunday day-block filter,
+    which is strictly worse than the drift itself. The candidate must
+    be skipped (row left untouched, not counted as a hold)."""
+
+    def test_null_prior_snapshot_date_skips_hold(self) -> None:
+        row = _row(week="2026-08-09", snapshot="2026-08-05")
+        original = dict(row)
+        baseline = {
+            (111, 222): _baseline(
+                billed_week="2026-08-02", snapshot_date=None,
+            )
+        }
+        self.mock_fetch.return_value = (baseline, "success")
+        self._wire_history(
+            snapshot_entries=[
+                _entry("2026-08-12T10:00:00Z",
+                       types.SimpleNamespace(email=AUTOMATION_EMAIL)),
+            ],
+            units_entries=[],
+        )
+
+        with mock.patch.dict(
+            "os.environ", {"SNAPSHOT_DRIFT_HOLD_ENABLED": "true"}
+        ):
+            summary = apply_snapshot_drift_holds(
+                [row], _source_sheets(), self.client, self.session_start
+            )
+
+        self.assertEqual(summary["automation_self_fire"], 1)
+        self.assertEqual(summary["automation_self_fire_holds"], 0)
+        self.assertEqual(row, original)
+
+
 class TestTask3PriorWeekHashStability(SnapshotDriftClassifierTestBase):
     def test_hash_stable_across_drift_and_hold_both_modes(self) -> None:
         import generate_weekly_pdfs as _gwp
