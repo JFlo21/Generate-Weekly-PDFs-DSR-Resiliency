@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: smartsheet-python-sdk 4.0.0 Compatibility Migration
 status: ready_to_plan
-last_updated: 2026-07-22T21:30:00.000Z
-last_activity: 2026-07-22 -- Quick task 260722-nst: SKIP_UPLOAD gate extended to claimer remediation (PR #286 review fix)
+last_updated: 2026-08-13T18:00:00.000Z
+last_activity: 2026-08-13 -- Quick task 260813-nhn: closed billing-audit shadow-layer follow-ups (P2 flag parity, snapshot_store characterization, RPC bulk provenance read + chunked select fallback, chunked upsert)
 progress:
   total_phases: 8
   completed_phases: 6
@@ -38,7 +38,7 @@ Status: Ready to plan
   change; all 7 waves independently 6-gate-verified. Next: /gsd-verify-work 09,
   then PR / milestone close. (Phase 08 SDK 4.0.0 migration still outstanding — same
   file, so it could not run concurrently; now unblocked.)
-Last activity: 2026-08-13 - Completed quick task 260813-m5j: hardened rate-sanity scope gate per PR #332 review findings
+Last activity: 2026-08-13 - Completed quick task 260813-nhn: closed billing-audit shadow-layer follow-ups (P2/#333 flag parity, snapshot_store characterization suite, RPC bulk provenance read with chunked select fallback, chunked provenance upsert)
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
@@ -186,6 +186,15 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - Human-gated operator action: flip `SUPABASE_HASH_STORE_AUTHORITATIVE=1`
   only after RPC deploy + production validation (per D-09/D-10/D-11 runbook).
 
+**From quick task 260813-nhn (2026-08-13):**
+
+- Operator: apply the appended `lookup_snapshot_provenance_bulk` RPC
+  block from `billing_audit/schema.sql` to Supabase and reload the
+  PostgREST schema cache. Until applied, `snapshot_store.
+  fetch_snapshot_provenance` detects PGRST202 and transparently uses
+  the chunked select fallback — no billing behavior changes either
+  way (D-05).
+
 **v1.1 Phase 04 research flags (resolve before planning Phase 04):**
 
 - Remember Me client configuration: prototype needed for switching between
@@ -204,6 +213,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 260813-nhn | Closed 3 deferred billing-audit shadow-layer follow-ups: P2/#333 rate-sanity flag parity (`_gwp.RATE_RECALC_WEEKLY_FALLBACK` ANDed at the call site), WR-05 24-test `snapshot_store.py` characterization suite (regression oracle), WR-02 RPC-first bulk provenance read (`lookup_snapshot_provenance_bulk` DDL + chunked select fallback + one-time degrade log), WR-02b chunked provenance upsert (D-02 sibling defect, ~40MB unchunked body at live `all_rows` scale) | 2026-08-13 | 8918dea, e238978, 4292dd4, bcb79c3, e29c5ed | [260813-nhn](./quick/260813-nhn-rpc-bulk-provenance-read-snapshot-store-/) |
 | 260813-m5j | Harden rate-sanity scope gate per PR #332 review findings: exclude subcontractor-basis rows (F2 polarity corrected — incident sheet is NOT subcontractor), fail-closed weekly fallback gated on sheet's Snapshot Date column mapping (F1) | 2026-08-13 | 4245450, a7c27b2, 63c38c7 | [260813-m5j](./quick/260813-m5j-harden-rate-sanity-scope-gate-per-pr-332/) |
 | 260812-isx | Report-only rate-sanity audit check: flag rows where Units Total Price ≠ expected New-Rates rate × Quantity (catches stale Smartsheet formula rows like SAA-DE-20; kill-switch RATE_SANITY_AUDIT_ENABLED) | 2026-08-12 | a7f5d77, 2cb9897, ad3fa19 | [260812-isx](./quick/260812-isx-add-report-only-rate-sanity-audit-check-/) |
 | 260722-nst | Gate claimer remediation on SKIP_UPLOAD (PR #286 review fix — 6th mutating call site) | 2026-07-22 | 458d7e5, 60d0473 | [260722-nst](./quick/260722-nst-gate-claimer-remediation-on-skip-upload-/) |
