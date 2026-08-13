@@ -77,6 +77,33 @@ def _rate_sanity_expected_price(row: Dict) -> Optional[float]:
     return rate * qty
 
 
+def _rate_sanity_in_scope(row: Dict) -> bool:
+    """Return True when the row belongs to the current (New-Rates) cycle.
+
+    The expected price basis (``new_*_price``) only applies to rows
+    billed under the 2026-04-12 subcontractor rate contract, so the
+    detector reuses the production era gate (SUB-01 / D-08, same rule
+    grouping uses for ``_AEPBillable`` emission): ``Snapshot Date >=
+    _AEP_BILLABLE_CUTOFF`` (env-overridable via ``AEP_BILLABLE_CUTOFF``),
+    with the Weekly Reference Logged Date fallback of
+    ``_resolve_rate_recalc_cutoff_date`` rescuing current-week rows
+    whose Snapshot Date automation has not fired yet. Pre-cutoff and
+    undatable rows are OUT of scope: checking them against the
+    New-Rates basis produced the 2026-08-12 live-dry-run noise class
+    (115,272/199,717 rows flagged -> risk_level HIGH every CI run).
+    """
+    # Same lazy-import rationale as _rate_sanity_expected_price above.
+    import generate_weekly_pdfs as _gwp  # noqa: PLC0415
+    from pipeline.utils import (  # noqa: PLC0415
+        _resolve_rate_recalc_cutoff_date,
+    )
+
+    effective_date, _used_fallback = _resolve_rate_recalc_cutoff_date(
+        row, _gwp._AEP_BILLABLE_CUTOFF
+    )
+    return effective_date is not None
+
+
 def _rate_sanity_is_mismatch(expected: float, actual: float) -> bool:
     """Return True when ``actual`` diverges from ``expected`` beyond tolerance.
 
@@ -89,6 +116,21 @@ def _rate_sanity_is_mismatch(expected: float, actual: float) -> bool:
         RATE_SANITY_ABS_TOLERANCE, RATE_SANITY_PCT_TOLERANCE * expected
     )
     return abs(actual - expected) > tolerance
+
+
+def _risk_level_for(total_issues: int) -> str:
+    """Map an issue total onto the audit risk ladder (0 / <=3 / else).
+
+    Single source of truth for BOTH ``_generate_audit_summary`` and
+    ``escalate_risk_for_snapshot_drift`` (IN-07, 260812-jqx review) —
+    the ladder was previously re-derived in each, so a threshold change
+    in one place would silently diverge the other.
+    """
+    if total_issues == 0:
+        return "LOW"
+    if total_issues <= 3:
+        return "MEDIUM"
+    return "HIGH"
 
 
 def _rate_sanity_looks_like_zero(raw_price: Any) -> bool:
@@ -133,6 +175,11 @@ class BillingAudit:
         # (missing CU, zero/unparseable quantity or price, unknown work
         # type) — read by _generate_audit_summary().
         self._rate_sanity_skipped = 0
+        # Rows outside the current New-Rates cycle (pre-cutoff or
+        # undatable — see _rate_sanity_in_scope). Counted separately
+        # from skips so CI logs surface how much history the scoping
+        # excluded (260813 scoping follow-up).
+        self._rate_sanity_out_of_scope = 0
         
         self.logger.info("🔍 Billing Audit System initialized")
         if self.skip_cell_history:
@@ -369,9 +416,16 @@ class BillingAudit:
         CU, non-positive quantity, unknown work type, unparseable
         price) are silent per-row and reported only as an aggregate
         count via ``self._rate_sanity_skipped``.
+
+        SCOPED to current-cycle rows (260813 follow-up): rows failing
+        ``_rate_sanity_in_scope`` (pre-cutoff or undatable — the
+        old-rates history that made 58% of a live run flag falsely)
+        are excluded BEFORE any skip classification and aggregated in
+        ``self._rate_sanity_out_of_scope``.
         """
         mismatches: List[Dict] = []
         self._rate_sanity_skipped = 0
+        self._rate_sanity_out_of_scope = 0
 
         if os.getenv("RATE_SANITY_AUDIT_ENABLED", "true").lower() != "true":
             return mismatches
@@ -382,6 +436,10 @@ class BillingAudit:
 
             checked = 0
             for row in rows:
+                if not _rate_sanity_in_scope(row):
+                    self._rate_sanity_out_of_scope += 1
+                    continue
+
                 expected = _rate_sanity_expected_price(row)
                 if expected is None:
                     self._rate_sanity_skipped += 1
@@ -427,8 +485,10 @@ class BillingAudit:
             # Aggregate-only, per T-ISX-01: counts only, never price,
             # quantity, foreman, or WR-level detail at INFO level.
             self.logger.info(
-                "Rate-sanity audit: checked=%d skipped=%d mismatches=%d",
-                checked, self._rate_sanity_skipped, len(mismatches),
+                "Rate-sanity audit: checked=%d skipped=%d "
+                "out_of_scope=%d mismatches=%d",
+                checked, self._rate_sanity_skipped,
+                self._rate_sanity_out_of_scope, len(mismatches),
             )
         except Exception as e:
             self.logger.warning(
@@ -494,6 +554,7 @@ class BillingAudit:
                 audit_results.get("rate_sanity_mismatches", [])
             ),
             "rate_sanity_skipped": self._rate_sanity_skipped,
+            "rate_sanity_out_of_scope": self._rate_sanity_out_of_scope,
             # Snapshot-date drift audit (260812-jqx): placeholder,
             # always present for key-set stability. The drift pass
             # runs AFTER audit_financial_data (pre-grouping seam in
@@ -512,14 +573,12 @@ class BillingAudit:
             + summary["total_rate_sanity_mismatches"]
         )
 
-        if total_issues == 0:
-            summary["risk_level"] = "LOW"
+        summary["risk_level"] = _risk_level_for(total_issues)
+        if summary["risk_level"] == "LOW":
             summary["recommendations"].append("No issues detected. Continue monitoring.")
-        elif total_issues <= 3:
-            summary["risk_level"] = "MEDIUM"
+        elif summary["risk_level"] == "MEDIUM":
             summary["recommendations"].append("Minor issues detected. Review flagged items.")
         else:
-            summary["risk_level"] = "HIGH"
             summary["recommendations"].append("Multiple issues detected. Immediate review recommended.")
 
         # Add specific recommendations based on findings
@@ -708,9 +767,8 @@ def escalate_risk_for_snapshot_drift(
     (the pre-grouping seam sits downstream of the audit block in
     ``pipeline/orchestrate.py``), so this module-level function
     re-derives ``total_issues`` from the SAME fields
-    ``_generate_audit_summary`` uses (:502-507) plus
-    ``self_fire_holds``, then re-applies the identical 0 / <=3 / else
-    thresholds (:509-517).
+    ``_generate_audit_summary`` uses plus ``self_fire_holds``, then
+    applies the shared ``_risk_level_for`` ladder (IN-07).
 
     Only automation self-fire HOLDS feed this -- folding in manual or
     unclassified drift would drive a routine batch of legitimate edits
@@ -732,12 +790,7 @@ def escalate_risk_for_snapshot_drift(
         + self_fire_holds
     )
 
-    if total_issues == 0:
-        summary["risk_level"] = "LOW"
-    elif total_issues <= 3:
-        summary["risk_level"] = "MEDIUM"
-    else:
-        summary["risk_level"] = "HIGH"
+    summary["risk_level"] = _risk_level_for(total_issues)
 
     summary.setdefault("recommendations", []).append(
         "Snapshot-drift automation self-fire hold(s) detected: "
