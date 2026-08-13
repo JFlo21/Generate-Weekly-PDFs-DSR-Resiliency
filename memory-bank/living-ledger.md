@@ -5704,3 +5704,38 @@ exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
   `billing_audit/schema.sql`, `billing_audit/snapshot_store.py`,
   `tests/test_rate_sanity_audit.py`, `tests/test_snapshot_store.py`
   (plus this ledger entry).
+
+**Addendum [same day, independent safety review fix round]:** three
+follow-up findings closed, same 6 files.
+- **Rule: a zero-row bulk read from a hand-deployed RPC must be
+  corroborated before being treated as genuinely empty.**
+  `pipeline/snapshot_drift.py:659` upserts on BOTH `'success'` and
+  `'no_row'` -- a wrongly-applied-but-successful RPC that always
+  returns `[]` was indistinguishable from real first-sight, so it
+  would have silently re-seeded EVERY baseline, the exact laundering
+  CR-01 already blocks for `'fetch_failure'`. Fix: when the RPC path
+  (not the fallback) reports success with zero rows for more than
+  `_RPC_EMPTY_CORROBORATE_MIN_KEYS` (50) keys, `snapshot_store` now
+  issues ONE bounded existence probe
+  (`.select('sheet_id').limit(1)`) against
+  `billing_audit.snapshot_provenance` -- a genuinely empty table
+  still returns `'no_row'` (first seed after DDL apply keeps
+  working), but any row found demotes the result to
+  `'fetch_failure'` with an ERROR log naming the RPC. Small key sets
+  skip the probe (empty is unremarkable at low volume).
+- **Rule: an all-or-nothing serial-GET fallback needs its own
+  chunk-count ceiling, not just a per-chunk size limit.** The chunked
+  `.in_` fallback is the DEFAULT path until the RPC is deployed;
+  unbounded at live scale (~2x10^5 keys / 200 ids per chunk) it would
+  issue ~999 serial GETs with no partial-result escape hatch. Added
+  `_FALLBACK_MAX_CHUNKS` (50) -- over the cap, the fallback logs one
+  WARNING (key count + chunk math) and returns `'fetch_failure'`
+  WITHOUT issuing any chunk calls, preserving all-or-nothing semantics
+  rather than risking a partial read that could recreate the same
+  laundering the corroboration probe exists to prevent.
+- **Correction:** the one-time RPC-missing degrade log previously
+  claimed the select fallback applied "for the remainder of this
+  run" -- false; every call independently re-attempts the RPC first.
+  Reworded to describe the single call only; the log-emission latch
+  itself (once per process, so the WARNING doesn't spam) is unchanged
+  and was never the thing that was wrong.

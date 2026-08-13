@@ -693,5 +693,120 @@ class TestFetchSnapshotProvenanceRpcFirst(RpcCharacterizationTestBase):
         )
 
 
+def _configure_corroboration_probe(client, *, rows=None, side_effect=None):
+    """Compose the corroboration-probe select chain
+    (``.select('sheet_id').limit(1).execute()``) onto a client built
+    by ``_make_fake_client`` (T2), WITHOUT modifying that fixture --
+    a distinct terminal chain from the fallback's ``.in_().in_()``
+    shape, so both can be configured independently on the same
+    ``table.select.return_value`` mock.
+    """
+    limit_obj = client.schema.return_value.table.return_value.select \
+        .return_value.limit.return_value
+    if side_effect is not None:
+        limit_obj.execute.side_effect = side_effect
+    else:
+        limit_obj.execute.return_value = mock.Mock(
+            data=rows if rows is not None else []
+        )
+    return limit_obj
+
+
+class TestFetchSnapshotProvenanceRpcEmptyCorroboration(
+    RpcCharacterizationTestBase
+):
+    """P2 fix (coordinator fix round, 260813-nhn): a wrongly-applied
+    RPC that always returns ``[]`` must not be silently trusted as
+    genuine first-sight for a large key set -- corroborated by a
+    bounded existence probe against ``snapshot_provenance``.
+    """
+
+    def test_rpc_zero_table_nonempty_is_fetch_failure_with_error_log(
+        self,
+    ) -> None:
+        """(a) RPC returns zero rows (success), the corroboration
+        probe finds the table non-empty -> 'fetch_failure' + an ERROR
+        log naming the RPC function."""
+        client, _table = _make_fake_client()
+        _configure_rpc(client, response_rows=[])
+        _configure_corroboration_probe(
+            client, rows=[{'sheet_id': 1}]
+        )
+        keys = [(1, i) for i in range(100)]
+        with mock.patch(
+            'billing_audit.snapshot_store.get_client', return_value=client
+        ):
+            with self.assertLogs(
+                'billing_audit.snapshot_store', level='ERROR'
+            ) as cm:
+                rows, status = fetch_snapshot_provenance(keys)
+        self.assertEqual(rows, {})
+        self.assertEqual(status, 'fetch_failure')
+        self.assertTrue(
+            any(
+                snapshot_store._PROVENANCE_RPC in r.getMessage()
+                for r in cm.records
+            )
+        )
+
+    def test_rpc_zero_table_empty_is_no_row(self) -> None:
+        """(b) RPC returns zero rows, the corroboration probe finds
+        the table genuinely empty -> 'no_row' (first seed after a
+        fresh DDL apply must keep working)."""
+        client, _table = _make_fake_client()
+        _configure_rpc(client, response_rows=[])
+        _configure_corroboration_probe(client, rows=[])
+        keys = [(1, i) for i in range(100)]
+        with mock.patch(
+            'billing_audit.snapshot_store.get_client', return_value=client
+        ):
+            rows, status = fetch_snapshot_provenance(keys)
+        self.assertEqual(rows, {})
+        self.assertEqual(status, 'no_row')
+
+    def test_small_key_set_skips_the_corroboration_probe(self) -> None:
+        """(c) key count at/under
+        ``_RPC_EMPTY_CORROBORATE_MIN_KEYS`` skips the probe entirely
+        -- the fallback/corroboration select chain is never touched."""
+        client, table = _make_fake_client()
+        _configure_rpc(client, response_rows=[])
+        keys = [(1, i) for i in range(10)]
+        with mock.patch(
+            'billing_audit.snapshot_store.get_client', return_value=client
+        ):
+            rows, status = fetch_snapshot_provenance(keys)
+        self.assertEqual(rows, {})
+        self.assertEqual(status, 'no_row')
+        table.select.assert_not_called()
+
+
+class TestFetchViaInFallbackChunkCap(SnapshotStoreTestBase):
+    """P3 fix (coordinator fix round, 260813-nhn): the all-or-nothing
+    fallback select must refuse to run rather than issue an unbounded
+    number of serial GETs when the RPC is missing.
+    """
+
+    def test_over_cap_chunk_count_returns_fetch_failure_no_calls(
+        self,
+    ) -> None:
+        """Key set implying more chunks than ``_FALLBACK_MAX_CHUNKS``
+        -> 'fetch_failure' with ZERO select calls issued."""
+        from postgrest.exceptions import APIError
+
+        error = APIError({'code': 'PGRST202', 'message': 'missing'})
+        client, table = _make_fake_client(select_response=[])
+        _configure_rpc(client, side_effect=error)
+        # 3 distinct row ids worth of 200-id chunks (600 keys) with
+        # the cap patched to 2 -> 3 > 2, over the cap.
+        keys = [(10, i) for i in range(600)]
+        with mock.patch(
+            'billing_audit.snapshot_store.get_client', return_value=client
+        ), mock.patch.object(snapshot_store, '_FALLBACK_MAX_CHUNKS', 2):
+            rows, status = fetch_snapshot_provenance(keys)
+        self.assertEqual(rows, {})
+        self.assertEqual(status, 'fetch_failure')
+        table.select.assert_not_called()
+
+
 if __name__ == '__main__':
     unittest.main()
