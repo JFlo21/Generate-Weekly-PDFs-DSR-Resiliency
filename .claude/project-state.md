@@ -56,6 +56,17 @@ write-back reminder). Keep it terse; link to history rather than duplicating it.
      b115e63..d3333e4 + this ledger commit — suite re-run green
      post-rebase, force-pushed with lease). Local master is stale;
      `git switch master && git pull` when convenient.
+     **Greptile round (post-open): `4104ca1`** — unclassified drifts
+     no longer rebase the provenance baseline (classification-aware
+     finalization; unclassified rows retry next run). Suite 1263+132.
+     **Live dry run (SKIP_UPLOAD, 53min):** drift audit no-op path
+     verified on 199,815 real rows (CR-01 skip observed live);
+     FINDING: #329 rate-sanity flags 115,272/199,717 rows (58% — old
+     historical rates vs New-Rates basis) → risk_level HIGH every CI
+     run; no Smartsheet writes exist (AUDIT_SHEET_ID never written);
+     Juan to choose kill-switch vs scoping follow-up. Also:
+     WR_FILTER only works with TEST_MODE (grouping.py:1222) — the
+     run-billing-pipeline-locally skill table is wrong on this.
    - **A1/A4 VERIFIED LIVE (WINDOWS #1 closed):** read-only probes
      with Juan's token proved newest-first history + automation
      identity, captured the full Point 27 drift-and-revert chain, and
