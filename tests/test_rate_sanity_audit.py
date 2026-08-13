@@ -417,11 +417,25 @@ class TestRateSanityCurrentCycleScoping(RateSanityTestBase):
         self,
     ) -> None:
         """Weekly-Ref fallback rescues rows the snapshot automation
-        has not stamped yet (the observed VAC crew failure mode)."""
+        has not stamped yet (the observed VAC crew failure mode).
+        F1 (260813-m5j): the fallback is now sheet-gated on the row's
+        own sheet mapping a Snapshot Date column -- supply a matching
+        source_sheets entry so the rescue is exercised deliberately,
+        not via the old default-True behavior."""
         row = self._mismatch_row(
-            **{'Weekly Reference Logged Date': '2026-08-09'}
+            **{
+                'Weekly Reference Logged Date': '2026-08-09',
+                '__source_sheet_id': 555,
+            }
         )
-        mismatches = self.audit._detect_rate_sanity_mismatches([row])
+        source_sheets = [{
+            'id': 555,
+            'name': 'Fallback-Gated Sheet',
+            'column_mapping': {'Snapshot Date': 1},
+        }]
+        mismatches = self.audit._detect_rate_sanity_mismatches(
+            [row], source_sheets=source_sheets
+        )
         self.assertEqual(len(mismatches), 1)
         self.assertEqual(self.audit._rate_sanity_out_of_scope, 0)
 
@@ -448,12 +462,24 @@ class TestRateSanityCurrentCycleScoping(RateSanityTestBase):
         self,
     ) -> None:
         """A parseable pre-cutoff Snapshot Date is authoritative --
-        mirrors ``_resolve_rate_recalc_cutoff_date`` exactly."""
+        mirrors ``_resolve_rate_recalc_cutoff_date`` exactly. The
+        sheet-gated fallback (F1, 260813-m5j) is deliberately ENABLED
+        here (matching source_sheets metadata) so the test proves
+        snapshot precedence over an available fallback, not merely
+        that the fallback happens to be off."""
         row = self._mismatch_row(**{
             'Snapshot Date': '2026-03-01',
             'Weekly Reference Logged Date': '2026-08-09',
+            '__source_sheet_id': 555,
         })
-        mismatches = self.audit._detect_rate_sanity_mismatches([row])
+        source_sheets = [{
+            'id': 555,
+            'name': 'Fallback-Gated Sheet',
+            'column_mapping': {'Snapshot Date': 1},
+        }]
+        mismatches = self.audit._detect_rate_sanity_mismatches(
+            [row], source_sheets=source_sheets
+        )
         self.assertEqual(mismatches, [])
         self.assertEqual(self.audit._rate_sanity_out_of_scope, 1)
 
@@ -490,6 +516,295 @@ class TestRateSanityCurrentCycleScoping(RateSanityTestBase):
         self.assertEqual(summary['total_rate_sanity_mismatches'], 0)
         self.assertEqual(summary['rate_sanity_out_of_scope'], 1)
         self.assertEqual(summary['risk_level'], 'LOW')
+
+
+class TestRateSanityScopeHardening(RateSanityTestBase):
+    """PR #332 review hardening (260813-m5j): corrected F1/F2 scope gate.
+
+    F1 (Codex P1): the Weekly Reference Logged Date fallback must be
+    gated on the row's own sheet actually mapping a Snapshot Date
+    column (mirrors ``pipeline/fetch.py:276``), not defaulted on --
+    unknown sheet / absent metadata falls closed to snapshot-only.
+
+    F2 (Copilot, polarity corrected by research): ``__is_subcontractor``
+    rows are out of scope -- their ``Units Total Price`` sits at the
+    Subcontractor-Rates basis (``reduced_*_price`` / the pre-acceptance
+    rescue overwrite at pipeline/fetch.py:477), not the New-Rates basis
+    this detector compares against. The literal F2 ("restrict scope TO
+    subcontractor rows") is REJECTED -- the SAA-DE-20 incident sheet
+    ("Resiliency Promax Database Backup 86") is a non-subcontractor
+    ProMax sheet and must stay in scope (see R1 below).
+
+    Every case drives the public entry point
+    ``_detect_rate_sanity_mismatches(rows, source_sheets=...)`` so the
+    tests also pin the production wiring, per R10 which instead drives
+    ``audit_financial_data`` to pin the summary counter contract.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.audit = BillingAudit(client=None, skip_cell_history=True)
+
+    def test_r1_incident_row_survives_f2_fix(self) -> None:
+        """Anti-regression (the most important test here): the
+        SAA-DE-20 incident row on the non-subcontractor Backup 86
+        sheet must still be flagged after both fixes ship."""
+        row = {
+            'Work Request #': '91916464',
+            'CU': 'SAA-DE-20',
+            'Work Type': 'Inst',
+            'Quantity': '3',
+            'Units Total Price': '$341.04',
+            'Snapshot Date': '2026-08-09',
+            '__is_subcontractor': False,
+            '__source_sheet_id': 1824542300262276,
+        }
+        source_sheets = [{
+            'id': 1824542300262276,
+            'name': 'Resiliency Promax Database Backup 86',
+            'column_mapping': {'Snapshot Date': 1},
+        }]
+        mismatches = self.audit._detect_rate_sanity_mismatches(
+            [row], source_sheets=source_sheets
+        )
+        self.assertEqual(len(mismatches), 1)
+        self.assertAlmostEqual(mismatches[0]['expected_price'], 170.52)
+
+    def test_r2_subcontractor_row_at_sub_rate_is_out_of_scope(
+        self,
+    ) -> None:
+        """Subcontractor-sheet row priced at the sub-rate basis
+        ($49.66, the correct price for that basis) is excluded with
+        reason ``subcontractor_basis``, not flagged as a mismatch."""
+        row = {
+            'Work Request #': '91916464',
+            'CU': 'SAA-DE-20',
+            'Work Type': 'Inst',
+            'Quantity': '1',
+            'Units Total Price': '$49.66',
+            'Snapshot Date': '2026-08-09',
+            '__is_subcontractor': True,
+        }
+        mismatches = self.audit._detect_rate_sanity_mismatches([row])
+        self.assertEqual(mismatches, [])
+        self.assertEqual(self.audit._rate_sanity_out_of_scope, 1)
+        self.assertEqual(
+            self.audit._rate_sanity_out_of_scope_by_reason.get(
+                'subcontractor_basis'
+            ),
+            1,
+        )
+
+    def test_r3_subcontractor_row_that_would_mismatch_is_excluded(
+        self,
+    ) -> None:
+        """Same numbers as the incident row, but on a subcontractor
+        sheet -- proves the gate excludes it, not the tolerance."""
+        row = {
+            'Work Request #': '91916464',
+            'CU': 'SAA-DE-20',
+            'Work Type': 'Inst',
+            'Quantity': '3',
+            'Units Total Price': '$341.04',
+            'Snapshot Date': '2026-08-09',
+            '__is_subcontractor': True,
+        }
+        mismatches = self.audit._detect_rate_sanity_mismatches([row])
+        self.assertEqual(mismatches, [])
+
+    def test_r4_vac_row_on_non_subcontractor_sheet_stays_in_scope(
+        self,
+    ) -> None:
+        """Q5 decision record: VAC rows are not in the four
+        subcontractor-variant names (pipeline/pricing.py L636-641), so
+        a VAC row on a non-subcontractor sheet takes the same
+        pass-through New-Rates basis as a primary row -- it stays IN
+        scope. Excluding it would lose real detector coverage with no
+        basis mismatch to justify the exclusion."""
+        row = {
+            'Work Request #': '91916464',
+            'CU': 'SAA-DE-20',
+            'Work Type': 'Inst',
+            'Quantity': '3',
+            'Units Total Price': '$341.04',
+            'Snapshot Date': '2026-08-09',
+            '__is_vac_crew': True,
+            '__is_subcontractor': False,
+        }
+        mismatches = self.audit._detect_rate_sanity_mismatches([row])
+        self.assertEqual(len(mismatches), 1)
+
+    def test_r5_vac_row_on_subcontractor_sheet_is_out_of_scope(
+        self,
+    ) -> None:
+        """VAC rows on subcontractor sheets are excluded automatically
+        by the ``__is_subcontractor`` gate -- no separate VAC rule
+        needed."""
+        row = {
+            'Work Request #': '91916464',
+            'CU': 'SAA-DE-20',
+            'Work Type': 'Inst',
+            'Quantity': '3',
+            'Units Total Price': '$341.04',
+            'Snapshot Date': '2026-08-09',
+            '__is_vac_crew': True,
+            '__is_subcontractor': True,
+        }
+        mismatches = self.audit._detect_rate_sanity_mismatches([row])
+        self.assertEqual(mismatches, [])
+
+    def test_r6_fallback_disabled_without_snapshot_column_mapping(
+        self,
+    ) -> None:
+        """F1 core: sheet 777's column_mapping has no Snapshot Date
+        entry -> the weekly fallback never activates, fail closed to
+        out-of-scope even though the weekly date is post-cutoff."""
+        row = {
+            'Work Request #': '91916464',
+            'CU': 'SAA-DE-20',
+            'Work Type': 'Inst',
+            'Quantity': '3',
+            'Units Total Price': '$341.04',
+            'Snapshot Date': '',
+            'Weekly Reference Logged Date': '2026-08-09',
+            '__source_sheet_id': 777,
+        }
+        source_sheets = [{
+            'id': 777,
+            'name': 'Legacy No-Snapshot-Column Sheet',
+            'column_mapping': {'Work Request #': 1},
+        }]
+        mismatches = self.audit._detect_rate_sanity_mismatches(
+            [row], source_sheets=source_sheets
+        )
+        self.assertEqual(mismatches, [])
+        self.assertEqual(self.audit._rate_sanity_out_of_scope, 1)
+        self.assertEqual(
+            self.audit._rate_sanity_out_of_scope_by_reason.get(
+                'pre_cutoff_or_undated'
+            ),
+            1,
+        )
+
+    def test_r7_fallback_enabled_when_sheet_maps_snapshot_column(
+        self,
+    ) -> None:
+        """Same row as R6, but sheet 777's column_mapping now DOES
+        contain 'Snapshot Date' -> the fallback still rescues
+        automation-lag rows."""
+        row = {
+            'Work Request #': '91916464',
+            'CU': 'SAA-DE-20',
+            'Work Type': 'Inst',
+            'Quantity': '3',
+            'Units Total Price': '$341.04',
+            'Snapshot Date': '',
+            'Weekly Reference Logged Date': '2026-08-09',
+            '__source_sheet_id': 777,
+        }
+        source_sheets = [{
+            'id': 777,
+            'name': 'Legacy Sheet With Snapshot Column',
+            'column_mapping': {'Snapshot Date': 1},
+        }]
+        mismatches = self.audit._detect_rate_sanity_mismatches(
+            [row], source_sheets=source_sheets
+        )
+        self.assertEqual(len(mismatches), 1)
+
+    def test_r8_unknown_sheet_fails_closed(self) -> None:
+        """__source_sheet_id absent from the supplied source_sheets ->
+        out of scope (fail closed), even with a post-cutoff weekly
+        date and a blank snapshot."""
+        row = {
+            'Work Request #': '91916464',
+            'CU': 'SAA-DE-20',
+            'Work Type': 'Inst',
+            'Quantity': '3',
+            'Units Total Price': '$341.04',
+            'Snapshot Date': '',
+            'Weekly Reference Logged Date': '2026-08-09',
+            '__source_sheet_id': 999999,
+        }
+        source_sheets = [{
+            'id': 777,
+            'name': 'A Different Sheet',
+            'column_mapping': {'Snapshot Date': 1},
+        }]
+        mismatches = self.audit._detect_rate_sanity_mismatches(
+            [row], source_sheets=source_sheets
+        )
+        self.assertEqual(mismatches, [])
+        self.assertEqual(self.audit._rate_sanity_out_of_scope, 1)
+
+    def test_r9_legacy_call_shape_without_source_sheets(self) -> None:
+        """The snapshot branch needs no index -- omitting
+        source_sheets entirely (the legacy call shape every
+        pre-existing direct-call test in this file uses) must still
+        flag a snapshot-dated post-cutoff mismatch."""
+        row = {
+            'Work Request #': '91916464',
+            'CU': 'SAA-DE-20',
+            'Work Type': 'Inst',
+            'Quantity': '3',
+            'Units Total Price': '$341.04',
+            'Snapshot Date': '2026-08-09',
+        }
+        mismatches = self.audit._detect_rate_sanity_mismatches([row])
+        self.assertEqual(len(mismatches), 1)
+
+    def test_r10_out_of_scope_counter_equals_reason_breakdown_sum(
+        self,
+    ) -> None:
+        """Counter contract: a mixed batch (one subcontractor row, one
+        undatable row, one flagged incident row) run through
+        ``audit_financial_data`` -> summary['rate_sanity_out_of_scope']
+        is present under its original key name and equals the sum of
+        the per-reason breakdown."""
+        subcontractor_row = {
+            'Work Request #': '1',
+            'CU': 'SAA-DE-20',
+            'Work Type': 'Inst',
+            'Quantity': '1',
+            'Units Total Price': '$49.66',
+            'Snapshot Date': '2026-08-09',
+            '__is_subcontractor': True,
+        }
+        undatable_row = {
+            'Work Request #': '2',
+            'CU': 'SAA-DE-20',
+            'Work Type': 'Inst',
+            'Quantity': '3',
+            'Units Total Price': '$341.04',
+        }
+        incident_row = {
+            'Work Request #': '91916464',
+            'CU': 'SAA-DE-20',
+            'Work Type': 'Inst',
+            'Quantity': '3',
+            'Units Total Price': '$341.04',
+            'Snapshot Date': '2026-08-09',
+            '__is_subcontractor': False,
+        }
+        rows = [subcontractor_row, undatable_row, incident_row]
+        with tempfile.TemporaryDirectory() as tmp_dir, \
+                mock.patch.object(BillingAudit, '_save_audit_state'), \
+                mock.patch.object(BillingAudit, '_log_to_audit_sheet'):
+            original_cwd = os.getcwd()
+            os.chdir(tmp_dir)
+            try:
+                audit = BillingAudit(client=None, skip_cell_history=True)
+                results = audit.audit_financial_data([], rows)
+            finally:
+                os.chdir(original_cwd)
+
+        summary = results['summary']
+        self.assertIn('rate_sanity_out_of_scope', summary)
+        self.assertEqual(summary['rate_sanity_out_of_scope'], 2)
+        self.assertEqual(
+            summary['rate_sanity_out_of_scope'],
+            sum(audit._rate_sanity_out_of_scope_by_reason.values()),
+        )
 
 
 if __name__ == '__main__':
