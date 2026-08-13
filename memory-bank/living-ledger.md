@@ -5527,3 +5527,69 @@ exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
   scoped real-fetch recipe is `TEST_MODE=true SKIP_UPLOAD=true
   WR_FILTER=...` (TEST_MODE with a real token still performs real
   reads).
+
+
+## [2026-08-13 16:45] Rate-sanity scope gate hardened per PR #332 review (260813-m5j)
+
+- **Rule: rate-sanity scope excludes subcontractor-sheet rows, and
+  deliberately does NOT restrict scope TO subcontractor membership.**
+  `__is_subcontractor` rows bill at the Subcontractor-Rates basis
+  (`reduced_*_price`, or the pre-acceptance rescue overwrite at
+  `pipeline/fetch.py:477` / `pipeline/pricing.py:545`), not the
+  New-Rates basis `_rate_sanity_expected_price` compares against — a
+  systematic ~12.6% false delta for SAA-DE-20 ($49.66 sub-rate vs
+  $56.84 New Rates). The literal PR #332 Copilot finding ("restrict
+  scope TO subcontractor rows") was REJECTED after research: the
+  SAA-DE-20 incident sheet ("Resiliency Promax Database Backup 86",
+  id 1824542300262276) is one of 110 non-subcontractor ProMax sheets
+  in the 115-sheet discovery cache — only 5 are subcontractor-folder
+  members. Implementing the literal finding would have regressed the
+  detector to zero coverage of the exact defect class it exists for.
+  Do not re-flip this polarity without re-verifying the incident
+  sheet's folder family against `discovery_cache.json`.
+- **Rule: the Weekly-Ref-Date fallback is sheet-gated on Snapshot
+  Date column presence, mirroring the production caller exactly, and
+  fails closed.** `_rate_sanity_in_scope()` now takes an optional
+  `snapshot_column_index: Dict[int, bool]` (built once per call by the
+  new `_rate_sanity_snapshot_column_index()` from the `source_sheets`
+  `column_mapping` metadata already passed to `audit_financial_data`)
+  and only enables `weekly_fallback_enabled` when the row's own
+  `__source_sheet_id` maps a `'Snapshot Date'` column — same rule as
+  `pipeline/fetch.py:276` (`sheet_has_snapshot_date_column`). An
+  unknown sheet id, an absent index, or a sheet with no Snapshot Date
+  mapping all resolve to snapshot-only scoring. This closes a Codex
+  P1 finding (the audit previously omitted the `weekly_fallback_enabled`
+  kwarg entirely, defaulting to `True` regardless of sheet metadata).
+  Live exposure was zero at review time (0/115 cached sheets lack the
+  column) but the fix is cheap and prevents a future legacy sheet from
+  silently mis-scoping.
+- **Rule: VAC-crew rows on non-subcontractor sheets stay IN scope.**
+  VAC is not one of the four subcontractor-variant names
+  (`pipeline/pricing.py:636-641`), so a VAC row on a non-subcontractor
+  sheet takes the same pass-through New-Rates basis as a primary row —
+  excluding it would lose real detector coverage with no basis
+  mismatch to justify the exclusion. Pinned by regression test R4
+  (`tests/test_rate_sanity_audit.py::TestRateSanityScopeHardening`).
+  VAC rows on subcontractor sheets are still excluded, automatically,
+  by the subcontractor-basis rule above.
+- **Rule: `rate_sanity_out_of_scope` is a frozen summary key; the
+  per-reason breakdown is additive, never a replacement.** The
+  running total (`self._rate_sanity_out_of_scope`) and the
+  `"rate_sanity_out_of_scope"` summary key keep their exact original
+  name and semantics. `self._rate_sanity_out_of_scope_by_reason: Dict[str, int]`
+  (`'subcontractor_basis'` | `'pre_cutoff_or_undated'`) was added
+  alongside it and surfaces via the instance attribute and the single
+  aggregate INFO log line (counts only, per the T-ISX-01 PII rule —
+  no WR/price/quantity/foreman detail was added to that log site).
+  Test R10 pins the contract: `summary['rate_sanity_out_of_scope']`
+  equals the sum of the per-reason breakdown.
+- Context: PR #332 shipped the original current-cycle scope gate
+  (260813 15:30 entry above); this entry hardens it against two
+  post-merge review findings (Codex P1 = the F1 fallback-default gap,
+  Copilot = the F2 polarity, corrected during research before
+  implementation). Report-only boundary preserved throughout — no row
+  mutation, no `pipeline/` edits, `RATE_SANITY_AUDIT_ENABLED` kill
+  switch untouched. Full pytest suite green (1284 passed, 132
+  subtests) after the change; `git diff --stat master..HEAD` limited
+  to `audit_billing_changes.py` and `tests/test_rate_sanity_audit.py`
+  (plus this ledger entry).
