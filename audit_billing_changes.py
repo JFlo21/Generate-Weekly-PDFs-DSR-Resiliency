@@ -136,6 +136,17 @@ def _rate_sanity_in_scope(
       389-402). Fail closed: an unknown sheet, an absent
       ``snapshot_column_index``, or a sheet whose ``column_mapping``
       has no Snapshot Date entry all resolve to snapshot-only scoring.
+
+    P2/#333 (260813-nhn): the fallback is gated on BOTH conjuncts,
+    ANDed, mirroring the production call site verbatim
+    (pipeline/fetch.py:276, 389-402) -- (1) the facade constant
+    ``generate_weekly_pdfs.RATE_RECALC_WEEKLY_FALLBACK`` (frozen at
+    import; a per-call environment read could let the audit and
+    production disagree mid-run) AND (2) the sheet's own Snapshot
+    Date column mapping (F1 above). With the flag OFF, production
+    never recalculates a blank-snapshot post-cutoff row, so the audit
+    must not classify it in scope either -- the flag gates only this
+    fallback branch, never the primary snapshot branch.
     """
     # Same lazy-import rationale as _rate_sanity_expected_price above.
     import generate_weekly_pdfs as _gwp  # noqa: PLC0415
@@ -148,7 +159,9 @@ def _rate_sanity_in_scope(
 
     sheet_id = row.get('__source_sheet_id')
     weekly_fallback_enabled = bool(
-        snapshot_column_index and snapshot_column_index.get(sheet_id, False)
+        _gwp.RATE_RECALC_WEEKLY_FALLBACK
+        and snapshot_column_index
+        and snapshot_column_index.get(sheet_id, False)
     )
 
     effective_date, _used_fallback = _resolve_rate_recalc_cutoff_date(

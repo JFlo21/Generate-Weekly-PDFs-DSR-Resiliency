@@ -5593,3 +5593,149 @@ exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
   subtests) after the change; `git diff --stat master..HEAD` limited
   to `audit_billing_changes.py` and `tests/test_rate_sanity_audit.py`
   (plus this ledger entry).
+
+
+## [2026-08-13 18:00] Snapshot-store shadow-layer follow-ups closed: RPC bulk provenance read, chunked upsert, P2 flag parity (260813-nhn)
+
+- **Rule (the scale correction that drives everything): size any bulk
+  Supabase read or write in this pipeline against `all_rows`, never
+  against the ~550-row grouped/filtered figure, and always chunk it.**
+  The snapshot-drift shadow layer (`pipeline/snapshot_drift.py`) was
+  sized against the ~550 grouped rows CLAUDE.md describes, but it
+  actually runs against `all_rows` — **199,717 rows on the 2026-08-12
+  live run** (`memory-bank/living-ledger.md` [2026-08-13 15:30]), an
+  off-by-~360x estimate. At that scale, `snapshot_store.
+  fetch_snapshot_provenance`'s old two-`.in_` GET built a ~3.4–4 MB
+  querystring matching the sheet x row CROSS-PRODUCT server-side —
+  very likely already failing in production as `fetch_failure` →
+  seed-only degrade, meaning the drift audit never established a
+  baseline. This was a repair, not a polish. Any future bulk
+  Supabase call added to this pipeline (`billing_audit/*`) must be
+  designed and load-tested against `all_rows`, and must chunk both
+  the read and the write side — do not assume the ~550-row grouped
+  count applies to anything reading/writing per-row keys.
+- **Fix — WR-02 (RPC bulk read):** appended
+  `billing_audit.lookup_snapshot_provenance_bulk` to
+  `billing_audit/schema.sql` (jsonb_to_recordset JOIN, `RETURNS SETOF
+  snapshot_provenance`, INVOKER, `STABLE`, matching the existing
+  `lookup_attribution_bulk` style exactly). `snapshot_store.
+  fetch_snapshot_provenance` now tries the RPC first (chunked at
+  5000 pairs/POST, ~250 KB body), degrading to a chunked `.in_`
+  select (200 row ids/GET, sheet_id list held whole per chunk) only
+  when the RPC is not yet deployed. A bounded one-shot probe (mirrors
+  the proven pattern at `billing_audit/writer.py:907-931`) recovers
+  the PGRST202 reason code `with_retry` discards.
+- **Fix — WR-02b sibling defect (chunked upsert, D-02):**
+  `upsert_snapshot_provenance` was ALSO sending one unchunked body —
+  `_provenance_record` (`pipeline/snapshot_drift.py:180-201`) is ~200 B
+  x ~2x10^5 records ≈ 40 MB in a single POST. Now batches at 1000
+  records/call; a failing chunk logs and the loop continues (a
+  partial durable write beats none).
+- **Rule: the status-vocabulary boundary is load-bearing — degrade
+  markers stay internal to `snapshot_store`.** `pipeline/
+  snapshot_drift.py:551` computes `available = status not in
+  ('unavailable', 'fetch_failure')`. The RPC-missing / probe-confirmed
+  internal marker (`'rpc_missing'`) NEVER leaves
+  `fetch_snapshot_provenance` — it only ever returns one of the four
+  original strings (`success` / `no_row` / `fetch_failure` /
+  `unavailable`), because a fifth external status would be silently
+  reported as *available* by that consumer. Any future degrade path
+  added to this module must keep the same discipline: translate
+  internal failure modes to the existing vocabulary before returning,
+  never widen it.
+- **Rule: a fallback path must use a DISTINCT circuit-breaker op from
+  its primary (D-13), or the primary's breaker gets burned by the
+  fallback's failures before the fallback ever runs.** The RPC call
+  uses `op='lookup_snapshot_provenance_bulk'`; the `.in_` fallback
+  select keeps the pre-existing `op='fetch_snapshot_provenance'`
+  (`billing_audit/client.py:565-583`). Pinned by test A8
+  (`tests/test_snapshot_store.py`).
+- **Rule (audit/production parity, restated from the [2026-08-13
+  15:30] entry, now closed for P2/#333): the rate-sanity audit reads
+  `generate_weekly_pdfs.RATE_RECALC_WEEKLY_FALLBACK` — the facade
+  constant frozen at import — never a per-call `os.getenv`, in
+  `_rate_sanity_in_scope`.** A per-call environment read would let
+  the audit and production disagree mid-run if the environment
+  changed during execution, re-introducing the same defect class from
+  the other side. With the flag OFF, production does not recalculate
+  a blank-snapshot post-cutoff row on a sheet that DOES map Snapshot
+  Date (`pipeline/fetch.py:389-403`); the audit now classifies that
+  row out of scope (`pre_cutoff_or_undated`) instead of flagging a
+  false mismatch. Pinned by R11 (RED before the fix)/R12/R13.
+- **Methodology suite pattern: characterize BEFORE refactoring, and
+  keep the characterization suite the regression anchor.**
+  `tests/test_snapshot_store.py` was expanded from 2 IN-05 locks to a
+  24-test characterization suite (F1-F13/U1-U4/I1-I4/M1) written
+  against and passing on UNMODIFIED `snapshot_store.py` BEFORE the
+  RPC-first refactor landed; the refactor then had to keep that suite
+  green with zero deleted lines (enforced by a `git diff` gate in the
+  plan). No pre-existing defect surfaced during characterization.
+  Reuse this ordering (oracle before refactor, verified append-only)
+  for any future refactor of a fail-safe/never-raises boundary.
+- **Operator action still open:** apply the appended
+  `lookup_snapshot_provenance_bulk` block from
+  `billing_audit/schema.sql` in the Supabase SQL Editor, then run
+  `NOTIFY pgrst, 'reload schema';` (or Project Settings → API →
+  Reload schema cache). Until applied, the Python reader detects
+  PGRST202 and transparently uses the chunked select fallback — no
+  billing behavior changes either way (D-05).
+- **D-01 note (deliberately NOT done here):** WR-03's `ENABLE ROW
+  LEVEL SECURITY` on `billing_audit.snapshot_provenance` and
+  `billing_audit.snapshot_drift` stays out of `schema.sql` — Juan's
+  separate DDL decision. He may fold it into the same manual-apply
+  pass as the RPC above if he chooses; it was deliberately not
+  written in for him.
+- **Confirmation step still open (from RESEARCH "Open question 1"):**
+  grep a recent weekly GitHub Actions log for
+  `billing_audit[fetch_snapshot_provenance] RPC failed`
+  (`billing_audit/client.py:723-726`) to confirm whether the old
+  two-`.in_` read was already failing in production before this fix —
+  would reframe this change from "optimization" to "confirmed
+  repair" with a concrete incident window.
+- Context: closes the three deferred billing-audit shadow-layer
+  follow-ups (P2/#333, WR-05, WR-02/WR-02b) in the sequence RESEARCH
+  proved load-bearing: P2 flag parity → characterization oracle → SQL
+  → RPC reader gated by that oracle → upsert chunking → docs. Report-
+  only / additive boundary preserved throughout: no `pipeline/` file
+  touched, no grouping/pricing/hashing/filename/upload path modified,
+  no new environment variable, no row-level-security statement in
+  `schema.sql`. Full pytest suite green after every task; `git diff
+  --name-only master..HEAD` limited to `audit_billing_changes.py`,
+  `billing_audit/schema.sql`, `billing_audit/snapshot_store.py`,
+  `tests/test_rate_sanity_audit.py`, `tests/test_snapshot_store.py`
+  (plus this ledger entry).
+
+**Addendum [same day, independent safety review fix round]:** three
+follow-up findings closed, same 6 files.
+- **Rule: a zero-row bulk read from a hand-deployed RPC must be
+  corroborated before being treated as genuinely empty.**
+  `pipeline/snapshot_drift.py:659` upserts on BOTH `'success'` and
+  `'no_row'` -- a wrongly-applied-but-successful RPC that always
+  returns `[]` was indistinguishable from real first-sight, so it
+  would have silently re-seeded EVERY baseline, the exact laundering
+  CR-01 already blocks for `'fetch_failure'`. Fix: when the RPC path
+  (not the fallback) reports success with zero rows for more than
+  `_RPC_EMPTY_CORROBORATE_MIN_KEYS` (50) keys, `snapshot_store` now
+  issues ONE bounded existence probe
+  (`.select('sheet_id').limit(1)`) against
+  `billing_audit.snapshot_provenance` -- a genuinely empty table
+  still returns `'no_row'` (first seed after DDL apply keeps
+  working), but any row found demotes the result to
+  `'fetch_failure'` with an ERROR log naming the RPC. Small key sets
+  skip the probe (empty is unremarkable at low volume).
+- **Rule: an all-or-nothing serial-GET fallback needs its own
+  chunk-count ceiling, not just a per-chunk size limit.** The chunked
+  `.in_` fallback is the DEFAULT path until the RPC is deployed;
+  unbounded at live scale (~2x10^5 keys / 200 ids per chunk) it would
+  issue ~999 serial GETs with no partial-result escape hatch. Added
+  `_FALLBACK_MAX_CHUNKS` (50) -- over the cap, the fallback logs one
+  WARNING (key count + chunk math) and returns `'fetch_failure'`
+  WITHOUT issuing any chunk calls, preserving all-or-nothing semantics
+  rather than risking a partial read that could recreate the same
+  laundering the corroboration probe exists to prevent.
+- **Correction:** the one-time RPC-missing degrade log previously
+  claimed the select fallback applied "for the remainder of this
+  run" -- false; every call independently re-attempts the RPC first.
+  Reworded to describe the single call only; the log-emission latch
+  itself (once per process, so the WARNING doesn't spam) is unchanged
+  and was never the thing that was wrong.

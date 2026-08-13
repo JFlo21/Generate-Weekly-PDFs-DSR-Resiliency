@@ -39,15 +39,269 @@ _PROVENANCE_COLUMNS = (
     "first_seen_at,last_seen_at"
 )
 
+# WR-02 (260813-nhn): RPC-first bulk read. The two-``.in_`` select
+# below matched the sheet x row CROSS-PRODUCT server-side and grew
+# its querystring with the run's row count (~2x10^5 pairs on a live
+# run -- memory-bank/living-ledger.md [2026-08-13 15:30]) -- a
+# multi-MB URL a proxy will reject. ``lookup_snapshot_provenance_bulk``
+# (billing_audit/schema.sql) takes the pairs as a POST body and
+# matches exact tuples. Chunk sizes are conservative: ~50 B/pair at
+# 5000/call -> ~250 KB POST body; ~17 B/id at 200/call -> ~3.4 KB of
+# ids, comfortably under a 4 KB request-line ceiling.
+_PROVENANCE_RPC = "lookup_snapshot_provenance_bulk"
+_RPC_CHUNK_SIZE = 5000
+_FALLBACK_ROW_ID_CHUNK = 200
+
+# P3 fix (coordinator fix round, 260813-nhn): the fallback is the
+# DEFAULT path until Juan applies the RPC, so its all-or-nothing
+# chunk loop needs its own ceiling -- at live scale (~2x10^5 keys /
+# 200/chunk) it would issue ~999 serial GETs with no partial-result
+# escape hatch. 50 chunks (10,000 keys at the default chunk size) is
+# comfortably above any legitimate per-run key set while still
+# bounding worst-case serial round trips.
+_FALLBACK_MAX_CHUNKS = 50
+
+# P2 fix (coordinator fix round, 260813-nhn): corroboration floor for
+# a zero-row RPC success. Below this many keys, an empty result is
+# unremarkable (most runs touch a handful of rows); above it, an
+# empty RPC answer against a real key set is suspicious enough to
+# warrant one extra probe rather than silently re-seeding every key.
+_RPC_EMPTY_CORROBORATE_MIN_KEYS = 50
+
+# D-02 (260813-nhn): sibling defect to WR-02, write side.
+# ``_provenance_record`` (pipeline/snapshot_drift.py:180-201) is 9
+# fields ~200 B JSON; at live ``all_rows`` scale (~2x10^5 records) an
+# unchunked upsert body is roughly 40 MB in one POST.
+_UPSERT_CHUNK = 1000
+
+# One-time-per-process degrade log, mirroring
+# ``billing_audit.client._global_disable_logged``. Flipped by
+# ``_log_rpc_missing_once`` the first time the RPC is detected as not
+# deployed; tests reset it directly (module attribute, no reset API
+# needed -- mirrors ``reset_cache_for_tests`` being the sole reset
+# surface for the client module's own latches).
+_rpc_missing_logged: bool = False
+
+
+def _merge_chunk_data(data: Any) -> "list[dict]":
+    """Normalize one chunk's raw ``resp.data`` into a list of dicts.
+
+    A PostgREST response's ``data`` is ``None`` (no rows), a
+    ``list`` (the common case), or occasionally a bare ``dict``
+    (single-row convenience shape) -- the same normalization the
+    original single-call reader always applied, now run per chunk so
+    multiple chunks can merge into one flat list before the shared
+    tail's coercions run.
+    """
+    if isinstance(data, dict):
+        return [data] if data else []
+    return list(data or [])
+
+
+def _probe_rpc_missing(op_callable: "Any") -> str:
+    """Bounded one-shot re-invoke to recover the reason code
+    ``with_retry`` discards (it returns a bare ``None`` on failure --
+    ``billing_audit/client.py:723-739``). Mirrors the proven probe at
+    ``billing_audit/writer.py:907-931``. Costs exactly one extra call,
+    only on an already-failed path -- it cannot reintroduce a retry
+    storm. Returns the internal-only ``'rpc_missing'`` when the probe
+    confirms PGRST202 ("function not found"), else ``'fetch_failure'``.
+    """
+    try:
+        from postgrest import APIError as _APIError  # noqa: PLC0415
+    except Exception:  # postgrest absent / import shape changed
+        _APIError = ()  # type: ignore[assignment]
+    try:
+        op_callable()
+        # Re-invoke succeeded where with_retry didn't -- treat the
+        # original failure as transient, not a missing function.
+        return "fetch_failure"
+    except Exception as probe_exc:
+        from billing_audit import client as _client_mod  # noqa: PLC0415
+
+        if isinstance(probe_exc, _APIError) and (
+            _client_mod._classify_postgrest_error(probe_exc)[2]
+            == "PGRST202"
+        ):
+            return "rpc_missing"
+        return "fetch_failure"
+
+
+def _log_rpc_missing_once() -> None:
+    """Emit the RPC-not-deployed degrade WARNING exactly once per
+    process (D-05: the fallback is the NORMAL state until Juan applies
+    ``schema.sql``, so this must not spam every call). Aggregate
+    wording only -- no row ids, WR values, or record contents (PII
+    discipline, D-04's sibling constraint on this log line)."""
+    global _rpc_missing_logged
+    if _rpc_missing_logged:
+        return
+    _rpc_missing_logged = True
+    logger.warning(
+        "⚠️ billing_audit.%s is not deployed (or not yet visible to "
+        "PostgREST); this fetch_snapshot_provenance call used the "
+        "chunked select fallback instead (every call re-attempts the "
+        "RPC first -- this is not a per-run latch). Billing "
+        "behaviour is unaffected. Apply billing_audit/schema.sql and "
+        "reload the PostgREST schema cache to enable the bulk RPC "
+        "path.",
+        _PROVENANCE_RPC,
+    )
+
+
+def _corroborate_rpc_empty_result(client: Any, key_count: int) -> str:
+    """Bounded existence probe for a zero-row RPC success (P2 fix,
+    coordinator fix round, 260813-nhn).
+
+    A wrongly-applied-but-successful RPC that always returns ``[]``
+    is otherwise indistinguishable from a genuine first-sight
+    baseline -- ``pipeline/snapshot_drift.py:659`` treats ``'no_row'``
+    the same as ``'success'`` (authorization to upsert), so an empty
+    answer from a misconfigured RPC would silently re-seed EVERY
+    requested key, laundering the baseline exactly as CR-01 already
+    blocks for ``'fetch_failure'``.
+
+    ONE bounded probe (``.select('sheet_id').limit(1)``), NOT a full
+    fallback re-read -- a full cross-check at ~200K keys would be
+    ~999 serial GETs. Returns ``'no_row'`` when
+    ``billing_audit.snapshot_provenance`` is genuinely empty (the
+    first seed after a fresh DDL apply must keep working), else
+    ``'fetch_failure'`` -- the table has rows so the RPC's empty
+    answer is suspect, or the probe itself failed (fail closed
+    either way).
+    """
+    def _op() -> Any:
+        return (
+            client.schema("billing_audit")
+            .table(_PROVENANCE_TABLE)
+            .select("sheet_id")
+            .limit(1)
+            .execute()
+        )
+
+    resp = with_retry(_op, op="fetch_snapshot_provenance")
+    if resp is None:
+        return "fetch_failure"
+    rows = _merge_chunk_data(getattr(resp, "data", None))
+    if not rows:
+        return "no_row"
+    logger.error(
+        "billing_audit.%s returned zero rows for a %d-key request, "
+        "but billing_audit.%s is NOT empty -- treating the RPC "
+        "result as suspect rather than genuine first-sight to avoid "
+        "re-seeding every baseline. Verify the RPC's grants, schema "
+        "resolution, and search_path.",
+        _PROVENANCE_RPC, key_count, _PROVENANCE_TABLE,
+    )
+    return "fetch_failure"
+
+
+def _fetch_via_rpc(
+    client: Any, wanted: "set[tuple[int, int]]"
+) -> "tuple[list[dict], str]":
+    """RPC-first bulk read, chunked at ``_RPC_CHUNK_SIZE`` pairs/call.
+
+    Returns ``(raw_rows, status)``. ``status`` is ``'success'`` (every
+    chunk returned a recognizable PostgREST payload -- ``None``, a
+    ``list``, or a ``dict``), ``'fetch_failure'`` (a probed, confirmed
+    non-PGRST202 permanent failure), or the internal-only
+    ``'rpc_missing'`` -- either a probe confirmed PGRST202, or a
+    chunk's response shape was not recognizable at all (in practice:
+    the RPC is not wired up). Both drive the SAME conservative
+    outcome -- fall back to the proven select path rather than
+    declare an outage the reliable read could have avoided.
+    """
+    pair_list = sorted(wanted)
+    chunks = [
+        pair_list[i:i + _RPC_CHUNK_SIZE]
+        for i in range(0, len(pair_list), _RPC_CHUNK_SIZE)
+    ]
+    merged: "list[dict]" = []
+    for chunk in chunks:
+        payload = [{"sheet_id": s, "row_id": r} for s, r in chunk]
+
+        def _op(_payload: "list[dict]" = payload) -> Any:
+            return (
+                client.schema("billing_audit")
+                .rpc(_PROVENANCE_RPC, {"p_keys": _payload})
+                .execute()
+            )
+
+        resp = with_retry(_op, op=_PROVENANCE_RPC)
+        if resp is None:
+            return [], _probe_rpc_missing(_op)
+        data = getattr(resp, "data", None)
+        if data is not None and not isinstance(data, (list, dict)):
+            # Not a recognizable PostgREST payload shape. Treat the
+            # same as a missing function: degrade to the select path.
+            return [], "rpc_missing"
+        merged.extend(_merge_chunk_data(data))
+    return merged, "success"
+
+
+def _fetch_via_in_(
+    client: Any, wanted: "set[tuple[int, int]]"
+) -> "tuple[list[dict], str]":
+    """Chunked fallback read via two ``.in_()`` filters.
+
+    Chunks on the row_id axis only (``_FALLBACK_ROW_ID_CHUNK``) --
+    the sheet_id set is ~13 values (~250 B) and stays whole on every
+    chunk. An unchunked fallback would simply reproduce the
+    multi-megabyte querystring that motivated the RPC path (D-05).
+
+    All-or-nothing: if the resulting chunk count exceeds
+    ``_FALLBACK_MAX_CHUNKS``, NO chunk call is issued at all -- this
+    is the DEFAULT path until the RPC is deployed, so at live scale
+    (~2x10^5 keys) an unbounded loop would be ~999 serial GETs, and a
+    partial read here would recreate the same baseline-laundering risk
+    the RPC-empty corroboration probe exists to prevent (P3 fix,
+    coordinator fix round, 260813-nhn).
+    """
+    sheet_ids = sorted({key[0] for key in wanted})
+    row_ids = sorted({key[1] for key in wanted})
+    chunks = [
+        row_ids[i:i + _FALLBACK_ROW_ID_CHUNK]
+        for i in range(0, len(row_ids), _FALLBACK_ROW_ID_CHUNK)
+    ]
+    if len(chunks) > _FALLBACK_MAX_CHUNKS:
+        logger.warning(
+            "billing_audit.%s fallback select would need %d chunk(s) "
+            "for %d row id(s) at %d ids/chunk -- over the %d-chunk "
+            "cap. Refusing to run a %d-call all-or-nothing fallback; "
+            "treating as fetch_failure. Apply billing_audit/"
+            "schema.sql's bulk RPC to remove this ceiling.",
+            _PROVENANCE_TABLE, len(chunks), len(row_ids),
+            _FALLBACK_ROW_ID_CHUNK, _FALLBACK_MAX_CHUNKS, len(chunks),
+        )
+        return [], "fetch_failure"
+    merged: "list[dict]" = []
+    for row_id_chunk in chunks:
+        def _op(_rows: "list[int]" = row_id_chunk) -> Any:
+            return (
+                client.schema("billing_audit")
+                .table(_PROVENANCE_TABLE)
+                .select(_PROVENANCE_COLUMNS)
+                .in_("sheet_id", sheet_ids)
+                .in_("row_id", _rows)
+                .execute()
+            )
+
+        resp = with_retry(_op, op="fetch_snapshot_provenance")
+        if resp is None:
+            return [], "fetch_failure"
+        merged.extend(_merge_chunk_data(getattr(resp, "data", None)))
+    return merged, "success"
+
 
 def fetch_snapshot_provenance(
     keys: "list[tuple[int, int]]",
 ) -> "tuple[dict[tuple[int, int], dict], str]":
     """Bulk-read prior billing provenance for a run's row set.
 
-    ONE select for every ``(sheet_id, row_id)`` pair in ``keys`` --
-    per-row reads are forbidden (D-06, RESEARCH caveat 6). Returns
-    ``(rows_by_key, status)`` where ``status`` matches the
+    RPC-first (``_fetch_via_rpc``), degrading to a chunked ``.in_``
+    select (``_fetch_via_in_``) when the RPC is not deployed --
+    per-row reads are forbidden either way (D-06, RESEARCH caveat 6).
+    Returns ``(rows_by_key, status)`` where ``status`` matches the
     ``lookup_group_hash`` vocabulary:
 
     - ``'success'``       : at least one requested key was found.
@@ -60,6 +314,12 @@ def fetch_snapshot_provenance(
     - ``'unavailable'``    : no client (TEST_MODE / missing creds)
                              and NOT an outage. Callers degrade the
                              same way as ``fetch_failure``.
+
+    The internal-only ``'rpc_missing'`` status NEVER leaves this
+    function (D-04): ``pipeline/snapshot_drift.py:551`` computes
+    ``available = status not in ('unavailable', 'fetch_failure')``,
+    so a fifth external status would be silently reported as
+    available.
 
     NEVER raises. An absent table / unapplied migration surfaces as
     ``fetch_failure`` (matches the ``group_content_hash`` degrade
@@ -81,29 +341,29 @@ def fetch_snapshot_provenance(
                 return {}, "fetch_failure"
             return {}, "unavailable"
 
-        sheet_ids = sorted({int(k[0]) for k in keys})
-        row_ids = sorted({int(k[1]) for k in keys})
         wanted = {(int(k[0]), int(k[1])) for k in keys}
 
-        def _op():
-            return (
-                client.schema("billing_audit")
-                .table(_PROVENANCE_TABLE)
-                .select(_PROVENANCE_COLUMNS)
-                .in_("sheet_id", sheet_ids)
-                .in_("row_id", row_ids)
-                .execute()
-            )
-
-        resp = with_retry(_op, op="fetch_snapshot_provenance")
-        if resp is None:
+        rows, status = _fetch_via_rpc(client, wanted)
+        if status == "rpc_missing":
+            _log_rpc_missing_once()
+            rows, status = _fetch_via_in_(client, wanted)
+        elif (
+            status == "success"
+            and not rows
+            and len(wanted) > _RPC_EMPTY_CORROBORATE_MIN_KEYS
+        ):
+            # P2 fix: the RPC path (not the fallback) reported success
+            # with zero rows for a large key set -- corroborate before
+            # trusting it (see _corroborate_rpc_empty_result).
+            status = _corroborate_rpc_empty_result(client, len(wanted))
+        if status == "fetch_failure":
             return {}, "fetch_failure"
-        data = getattr(resp, "data", None)
+
+        data: Any = rows
         if isinstance(data, dict):
             data = [data] if data else []
-        rows = data or []
         result: "dict[tuple[int, int], dict]" = {}
-        for row in rows:
+        for row in data or []:
             if not isinstance(row, dict):
                 continue
             try:
@@ -130,9 +390,16 @@ def fetch_snapshot_provenance(
 def upsert_snapshot_provenance(records: "list[dict[str, Any]]") -> None:
     """Best-effort durable write of snapshot provenance.
 
-    ONE batched upsert on the ``(sheet_id, row_id)`` primary key --
-    never once per row (RESEARCH caveat 6). Fail-safe: catches its
-    own errors and NEVER raises, mirroring ``upsert_group_hash``.
+    Batched at ``_UPSERT_CHUNK`` records/call -- never once per row
+    (RESEARCH caveat 6), and never one unchunked body either (D-02):
+    at live ``all_rows`` scale (~2x10^5 records x ~200 B) a single
+    POST would be roughly 40 MB, the same root cause as WR-02 on the
+    write side. ONE ``get_client()`` call for the whole batch, never
+    per chunk. Fail-safe PER CHUNK: catches its own errors and NEVER
+    raises, mirroring ``upsert_group_hash`` -- a failing chunk is
+    logged and the loop continues, since a partial durable write is
+    strictly better than none (the reader already treats a missing
+    key as first-sight).
     """
     if not records:
         return
@@ -140,21 +407,25 @@ def upsert_snapshot_provenance(records: "list[dict[str, Any]]") -> None:
     if client is None:
         return
 
-    def _op():
-        return (
-            client.schema("billing_audit")
-            .table(_PROVENANCE_TABLE)
-            .upsert(list(records), on_conflict="sheet_id,row_id")
-            .execute()
-        )
+    record_list = list(records)
+    for i in range(0, len(record_list), _UPSERT_CHUNK):
+        chunk = record_list[i:i + _UPSERT_CHUNK]
 
-    try:
-        with_retry(_op, op="upsert_snapshot_provenance")
-    except Exception:
-        logger.exception(
-            "⚠️ Snapshot-provenance upsert failed (non-fatal); "
-            "durable store not updated this run."
-        )
+        def _op(_chunk: "list[dict[str, Any]]" = chunk) -> Any:
+            return (
+                client.schema("billing_audit")
+                .table(_PROVENANCE_TABLE)
+                .upsert(_chunk, on_conflict="sheet_id,row_id")
+                .execute()
+            )
+
+        try:
+            with_retry(_op, op="upsert_snapshot_provenance")
+        except Exception:
+            logger.exception(
+                "⚠️ Snapshot-provenance upsert chunk failed "
+                "(non-fatal); continuing with remaining chunks."
+            )
 
 
 def insert_snapshot_drift_events(events: "list[dict[str, Any]]") -> None:

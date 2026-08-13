@@ -544,6 +544,16 @@ class TestRateSanityScopeHardening(RateSanityTestBase):
     def setUp(self) -> None:
         super().setUp()
         self.audit = BillingAudit(client=None, skip_cell_history=True)
+        # Hermetic against a dev shell exporting RATE_RECALC_WEEKLY_
+        # FALLBACK=0 -- the constant is frozen at import
+        # (pipeline/pricing.py:64-66), so R6-R10 must not depend on
+        # the ambient environment. R11/R12 override this locally with
+        # their own mock.patch.object(..., False).
+        patcher = mock.patch.object(
+            generate_weekly_pdfs, 'RATE_RECALC_WEEKLY_FALLBACK', True
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_r1_incident_row_survives_f2_fix(self) -> None:
         """Anti-regression (the most important test here): the
@@ -804,6 +814,108 @@ class TestRateSanityScopeHardening(RateSanityTestBase):
         self.assertEqual(
             summary['rate_sanity_out_of_scope'],
             sum(audit._rate_sanity_out_of_scope_by_reason.values()),
+        )
+
+    def test_r11_flag_off_blank_snapshot_stays_out_of_scope(self) -> None:
+        """P2/#333 (RED): flag OFF, sheet 777 DOES map a Snapshot Date
+        column, row has a blank Snapshot Date and a post-cutoff Weekly
+        Reference Logged Date -> production's real gate
+        (pipeline/fetch.py:389-403) would NOT recalculate this row, so
+        the audit must not call it in scope either. Same fixture as
+        R7, flag flipped. Fails on pre-fix code (today's gate ignores
+        the flag entirely)."""
+        row = {
+            'Work Request #': '91916464',
+            'CU': 'SAA-DE-20',
+            'Work Type': 'Inst',
+            'Quantity': '3',
+            'Units Total Price': '$341.04',
+            'Snapshot Date': '',
+            'Weekly Reference Logged Date': '2026-08-09',
+            '__source_sheet_id': 777,
+        }
+        source_sheets = [{
+            'id': 777,
+            'name': 'Legacy Sheet With Snapshot Column',
+            'column_mapping': {'Snapshot Date': 1},
+        }]
+        with mock.patch.object(
+            generate_weekly_pdfs, 'RATE_RECALC_WEEKLY_FALLBACK', False
+        ):
+            mismatches = self.audit._detect_rate_sanity_mismatches(
+                [row], source_sheets=source_sheets
+            )
+        self.assertEqual(mismatches, [])
+        self.assertEqual(self.audit._rate_sanity_out_of_scope, 1)
+        self.assertEqual(
+            self.audit._rate_sanity_out_of_scope_by_reason.get(
+                'pre_cutoff_or_undated'
+            ),
+            1,
+        )
+
+    def test_r12_flag_off_snapshot_dated_row_stays_in_scope(self) -> None:
+        """Over-correction guard: flag OFF, row carries a post-cutoff
+        Snapshot Date -> still IN scope, exactly 1 mismatch. The flag
+        gates only the weekly fallback branch;
+        pipeline/utils.py:117-119 returns on the snapshot branch
+        before the fallback branch is ever reached."""
+        row = {
+            'Work Request #': '91916464',
+            'CU': 'SAA-DE-20',
+            'Work Type': 'Inst',
+            'Quantity': '3',
+            'Units Total Price': '$341.04',
+            'Snapshot Date': '2026-08-09',
+            '__source_sheet_id': 777,
+        }
+        source_sheets = [{
+            'id': 777,
+            'name': 'Legacy Sheet With Snapshot Column',
+            'column_mapping': {'Snapshot Date': 1},
+        }]
+        with mock.patch.object(
+            generate_weekly_pdfs, 'RATE_RECALC_WEEKLY_FALLBACK', False
+        ):
+            mismatches = self.audit._detect_rate_sanity_mismatches(
+                [row], source_sheets=source_sheets
+            )
+        self.assertEqual(len(mismatches), 1)
+
+    def test_r13_flag_on_no_snapshot_column_stays_out_of_scope(
+        self,
+    ) -> None:
+        """Conjunction guard: flag ON, sheet maps NO Snapshot Date
+        column -> still out of scope. Pins AND, not OR, between the
+        facade flag and the per-sheet column-mapping check."""
+        row = {
+            'Work Request #': '91916464',
+            'CU': 'SAA-DE-20',
+            'Work Type': 'Inst',
+            'Quantity': '3',
+            'Units Total Price': '$341.04',
+            'Snapshot Date': '',
+            'Weekly Reference Logged Date': '2026-08-09',
+            '__source_sheet_id': 777,
+        }
+        source_sheets = [{
+            'id': 777,
+            'name': 'Legacy No-Snapshot-Column Sheet',
+            'column_mapping': {'Work Request #': 1},
+        }]
+        with mock.patch.object(
+            generate_weekly_pdfs, 'RATE_RECALC_WEEKLY_FALLBACK', True
+        ):
+            mismatches = self.audit._detect_rate_sanity_mismatches(
+                [row], source_sheets=source_sheets
+            )
+        self.assertEqual(mismatches, [])
+        self.assertEqual(self.audit._rate_sanity_out_of_scope, 1)
+        self.assertEqual(
+            self.audit._rate_sanity_out_of_scope_by_reason.get(
+                'pre_cutoff_or_undated'
+            ),
+            1,
         )
 
 
