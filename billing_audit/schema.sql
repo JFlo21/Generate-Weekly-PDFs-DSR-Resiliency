@@ -396,3 +396,47 @@ CREATE INDEX IF NOT EXISTS idx_snapshot_drift_wr_detected_at
 
 GRANT SELECT, INSERT
     ON billing_audit.snapshot_drift TO service_role;
+
+-- ── lookup_snapshot_provenance_bulk (RPC) — WR-02 (260813-nhn) ───────
+-- Bulk read surface for ``snapshot_store.fetch_snapshot_provenance``.
+-- Replaces a two-``.in_`` GET whose querystring grew with the run's
+-- row count (~2x10^5 (sheet_id,row_id) pairs on a live run -- see
+-- memory-bank/living-ledger.md [2026-08-13 15:30], 199,717 rows) and
+-- which matched the sheet x row CROSS-PRODUCT server-side, returning
+-- essentially the whole table for the client to discard. This RPC
+-- takes the pairs as a POST body (no URL limit) and matches the EXACT
+-- tuples, so the response carries only rows the caller asked for.
+--
+-- RETURNS SETOF the table (not an explicit RETURNS TABLE list) on
+-- purpose: the reader wants every column, and a composite-type return
+-- sidesteps the "CREATE OR REPLACE cannot change return columns"
+-- footgun documented at L248-254 (incident 2026-05-27) if a column is
+-- ever added to snapshot_provenance.
+--
+-- SECURITY: INVOKER (no SECURITY DEFINER), matching lookup_attribution
+-- and lookup_attribution_bulk above. service_role already holds SELECT
+-- on the table (see the GRANT under the CREATE TABLE), so DEFINER would
+-- add a privilege-escalation surface for zero benefit.
+--
+-- OPERATOR: apply this CREATE OR REPLACE in the Supabase SQL Editor,
+-- then run `NOTIFY pgrst, 'reload schema';` (or Project Settings ->
+-- API -> Reload schema cache). Until applied, the Python reader detects
+-- PGRST202 ("function not found", HTTP 404) and falls back to the
+-- chunked ``.in_`` select path with a one-time WARNING -- billing
+-- behaviour is unaffected either way (D-07).
+CREATE OR REPLACE FUNCTION billing_audit.lookup_snapshot_provenance_bulk(
+    p_keys jsonb   -- e.g. '[{"sheet_id":1824542300262276,"row_id":42}, ...]'
+)
+RETURNS SETOF billing_audit.snapshot_provenance
+LANGUAGE sql
+STABLE
+AS $$
+    SELECT p.*
+    FROM jsonb_to_recordset(p_keys) AS q(sheet_id BIGINT, row_id BIGINT)
+    JOIN billing_audit.snapshot_provenance AS p
+      ON p.sheet_id = q.sheet_id
+     AND p.row_id   = q.row_id;
+$$;
+
+GRANT EXECUTE ON FUNCTION billing_audit.lookup_snapshot_provenance_bulk(jsonb)
+    TO service_role;
