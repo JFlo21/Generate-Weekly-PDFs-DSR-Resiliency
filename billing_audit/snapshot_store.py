@@ -52,6 +52,12 @@ _PROVENANCE_RPC = "lookup_snapshot_provenance_bulk"
 _RPC_CHUNK_SIZE = 5000
 _FALLBACK_ROW_ID_CHUNK = 200
 
+# D-02 (260813-nhn): sibling defect to WR-02, write side.
+# ``_provenance_record`` (pipeline/snapshot_drift.py:180-201) is 9
+# fields ~200 B JSON; at live ``all_rows`` scale (~2x10^5 records) an
+# unchunked upsert body is roughly 40 MB in one POST.
+_UPSERT_CHUNK = 1000
+
 # One-time-per-process degrade log, mirroring
 # ``billing_audit.client._global_disable_logged``. Flipped by
 # ``_log_rpc_missing_once`` the first time the RPC is detected as not
@@ -292,9 +298,16 @@ def fetch_snapshot_provenance(
 def upsert_snapshot_provenance(records: "list[dict[str, Any]]") -> None:
     """Best-effort durable write of snapshot provenance.
 
-    ONE batched upsert on the ``(sheet_id, row_id)`` primary key --
-    never once per row (RESEARCH caveat 6). Fail-safe: catches its
-    own errors and NEVER raises, mirroring ``upsert_group_hash``.
+    Batched at ``_UPSERT_CHUNK`` records/call -- never once per row
+    (RESEARCH caveat 6), and never one unchunked body either (D-02):
+    at live ``all_rows`` scale (~2x10^5 records x ~200 B) a single
+    POST would be roughly 40 MB, the same root cause as WR-02 on the
+    write side. ONE ``get_client()`` call for the whole batch, never
+    per chunk. Fail-safe PER CHUNK: catches its own errors and NEVER
+    raises, mirroring ``upsert_group_hash`` -- a failing chunk is
+    logged and the loop continues, since a partial durable write is
+    strictly better than none (the reader already treats a missing
+    key as first-sight).
     """
     if not records:
         return
@@ -302,21 +315,25 @@ def upsert_snapshot_provenance(records: "list[dict[str, Any]]") -> None:
     if client is None:
         return
 
-    def _op():
-        return (
-            client.schema("billing_audit")
-            .table(_PROVENANCE_TABLE)
-            .upsert(list(records), on_conflict="sheet_id,row_id")
-            .execute()
-        )
+    record_list = list(records)
+    for i in range(0, len(record_list), _UPSERT_CHUNK):
+        chunk = record_list[i:i + _UPSERT_CHUNK]
 
-    try:
-        with_retry(_op, op="upsert_snapshot_provenance")
-    except Exception:
-        logger.exception(
-            "⚠️ Snapshot-provenance upsert failed (non-fatal); "
-            "durable store not updated this run."
-        )
+        def _op(_chunk: "list[dict[str, Any]]" = chunk) -> Any:
+            return (
+                client.schema("billing_audit")
+                .table(_PROVENANCE_TABLE)
+                .upsert(_chunk, on_conflict="sheet_id,row_id")
+                .execute()
+            )
+
+        try:
+            with_retry(_op, op="upsert_snapshot_provenance")
+        except Exception:
+            logger.exception(
+                "⚠️ Snapshot-provenance upsert chunk failed "
+                "(non-fatal); continuing with remaining chunks."
+            )
 
 
 def insert_snapshot_drift_events(events: "list[dict[str, Any]]") -> None:

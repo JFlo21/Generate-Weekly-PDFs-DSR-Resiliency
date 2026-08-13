@@ -361,6 +361,63 @@ class TestUpsertSnapshotProvenanceCharacterization(SnapshotStoreTestBase):
         self.assertIsNone(result)
 
 
+class TestUpsertSnapshotProvenanceChunking(SnapshotStoreTestBase):
+    """A9 (RESEARCH C.4) + failing-chunk regression (T5, 260813-nhn,
+    D-02): sibling defect to WR-02 on the write side -- an unchunked
+    upsert at live scale (~2x10^5 records x ~200 B) is a ~40 MB POST
+    body. U1-U4 above (T2 oracle) must still pass unmodified.
+    """
+
+    def test_a9_chunks_at_patched_size_preserves_order(self) -> None:
+        """A9: chunk constant patched to 1000, 2500 records -> exactly
+        3 upsert invocations; the concatenation of the three record
+        batches equals the input in order; every call passes the same
+        conflict-target string."""
+        client, table = _make_fake_client()
+        records = [
+            {'sheet_id': 1, 'row_id': i, 'wr': f'WR{i}'}
+            for i in range(2500)
+        ]
+        with mock.patch(
+            'billing_audit.snapshot_store.get_client', return_value=client
+        ), mock.patch.object(snapshot_store, '_UPSERT_CHUNK', 1000):
+            upsert_snapshot_provenance(records)
+        self.assertEqual(table.upsert.call_count, 3)
+        seen: "list[dict]" = []
+        for call in table.upsert.call_args_list:
+            batch = call.args[0]
+            self.assertEqual(
+                call.kwargs.get('on_conflict'), 'sheet_id,row_id'
+            )
+            seen.extend(batch)
+        self.assertEqual(seen, records)
+
+    def test_failing_chunk_does_not_abort_remaining_chunks(
+        self,
+    ) -> None:
+        """Regression: a chunk whose ``execute()`` raises must not
+        raise out of the function and must not abort the remaining
+        chunks -- a partial durable write is strictly better than
+        none."""
+        client, table = _make_fake_client()
+        call_count = {'n': 0}
+
+        def _flaky_execute():
+            call_count['n'] += 1
+            if call_count['n'] == 1:
+                raise RuntimeError('chunk 1 exploded')
+            return mock.Mock(data=[])
+
+        table.upsert.return_value.execute.side_effect = _flaky_execute
+        records = [{'sheet_id': 1, 'row_id': i} for i in range(2500)]
+        with mock.patch(
+            'billing_audit.snapshot_store.get_client', return_value=client
+        ), mock.patch.object(snapshot_store, '_UPSERT_CHUNK', 1000):
+            result = upsert_snapshot_provenance(records)
+        self.assertIsNone(result)
+        self.assertEqual(table.upsert.call_count, 3)
+
+
 class TestInsertSnapshotDriftEventsCharacterization(SnapshotStoreTestBase):
     """I1-I4 (RESEARCH C.3): ``insert_snapshot_drift_events``."""
 
