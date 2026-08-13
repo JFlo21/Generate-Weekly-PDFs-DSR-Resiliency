@@ -135,6 +135,9 @@ ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN = int(os.getenv('ATTACHMENT_PREFETCH
 # ``RATE_SANITY_AUDIT_ENABLED`` pattern in ``audit_billing_changes.py``.
 # These module-level constants exist for documentation/discoverability,
 # matching the TIME_BUDGET_MINUTES family's convention.
+# IN-03 cross-pin: each default below is duplicated at its
+# ``pipeline/snapshot_drift.py`` call site (env-var helpers section) --
+# change BOTH sides together or they silently diverge.
 #
 # Detection + Supabase shadow-logging kill switch. Defaults ON: the
 # audit is report-only and additive (D-08).

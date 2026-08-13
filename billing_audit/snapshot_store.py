@@ -68,29 +68,33 @@ def fetch_snapshot_provenance(
     if not keys:
         return {}, "no_row"
 
-    from billing_audit import client as _client_mod  # noqa: PLC0415
-
-    client = get_client()
-    if client is None:
-        if _client_mod._global_disable_reason is not None:
-            return {}, "fetch_failure"
-        return {}, "unavailable"
-
-    sheet_ids = sorted({int(k[0]) for k in keys})
-    row_ids = sorted({int(k[1]) for k in keys})
-    wanted = {(int(k[0]), int(k[1])) for k in keys}
-
-    def _op():
-        return (
-            client.schema("billing_audit")
-            .table(_PROVENANCE_TABLE)
-            .select(_PROVENANCE_COLUMNS)
-            .in_("sheet_id", sheet_ids)
-            .in_("row_id", row_ids)
-            .execute()
-        )
-
+    # IN-05 (260812-jqx review): client acquisition, the
+    # disable-reason peek, and the key coercions live INSIDE the
+    # try so the NEVER-raises contract holds at this boundary, not
+    # only via the caller-side wrap in pipeline/snapshot_drift.py.
     try:
+        from billing_audit import client as _client_mod  # noqa: PLC0415
+
+        client = get_client()
+        if client is None:
+            if _client_mod._global_disable_reason is not None:
+                return {}, "fetch_failure"
+            return {}, "unavailable"
+
+        sheet_ids = sorted({int(k[0]) for k in keys})
+        row_ids = sorted({int(k[1]) for k in keys})
+        wanted = {(int(k[0]), int(k[1])) for k in keys}
+
+        def _op():
+            return (
+                client.schema("billing_audit")
+                .table(_PROVENANCE_TABLE)
+                .select(_PROVENANCE_COLUMNS)
+                .in_("sheet_id", sheet_ids)
+                .in_("row_id", row_ids)
+                .execute()
+            )
+
         resp = with_retry(_op, op="fetch_snapshot_provenance")
         if resp is None:
             return {}, "fetch_failure"

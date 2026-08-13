@@ -18,11 +18,32 @@ override in later sections of this file.
 from __future__ import annotations
 
 import datetime
+import os
 import types
 import unittest
+import warnings
 from unittest import mock
 
 from pipeline.snapshot_drift import apply_snapshot_drift_holds
+
+
+class TestBuildRunIdNoDeprecationWarning(unittest.TestCase):
+    """IN-01 (260812-jqx review): the local-run branch must not use the
+    deprecated ``datetime.datetime.utcnow()``.
+
+    Only meaningfully RED on Python >= 3.12 (the CI runtime), where
+    ``utcnow()`` emits DeprecationWarning; on 3.11 the pre-fix code
+    passes too — the pin still guards the CI interpreter.
+    """
+
+    def test_local_run_id_emits_no_deprecation_warning(self) -> None:
+        from pipeline.snapshot_drift import _build_run_id
+
+        with mock.patch.dict(os.environ, {"GITHUB_RUN_ID": ""}):
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", DeprecationWarning)
+                run_id = _build_run_id()
+        self.assertTrue(run_id.startswith("local-"))
 
 
 def _row(
