@@ -8,7 +8,7 @@ import os
 import datetime
 import logging
 import json
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 import sentry_sdk
 
 # ── Report-only rate-sanity audit (260812-isx) ─────────────────────────
@@ -77,8 +77,34 @@ def _rate_sanity_expected_price(row: Dict) -> Optional[float]:
     return rate * qty
 
 
-def _rate_sanity_in_scope(row: Dict) -> bool:
-    """Return True when the row belongs to the current (New-Rates) cycle.
+def _rate_sanity_snapshot_column_index(
+    source_sheets: Optional[List[Dict]],
+) -> Dict[int, bool]:
+    """Map sheet id -> whether that sheet maps a 'Snapshot Date' column.
+
+    Mirrors the production recalc caller's
+    ``sheet_has_snapshot_date_column`` (pipeline/fetch.py:276) using
+    the ``column_mapping`` every ``source_sheets`` entry already
+    carries (pipeline/discovery.py:615). Tolerates ``None``, a missing
+    ``column_mapping``, and non-int ids by simply omitting them.
+    """
+    index: Dict[int, bool] = {}
+    for source in source_sheets or []:
+        sheet_id = source.get('id')
+        mapping = source.get('column_mapping') or {}
+        if isinstance(sheet_id, int):
+            index[sheet_id] = 'Snapshot Date' in mapping
+    return index
+
+
+def _rate_sanity_in_scope(
+    row: Dict,
+    snapshot_column_index: Optional[Dict[int, bool]] = None,
+) -> Tuple[bool, str]:
+    """Return (in_scope, out_of_scope_reason) for the current cycle.
+
+    Reason is ``''`` when in scope; otherwise one of
+    ``'subcontractor_basis'`` | ``'pre_cutoff_or_undated'``.
 
     The expected price basis (``new_*_price``) only applies to rows
     billed under the 2026-04-12 subcontractor rate contract, so the
@@ -91,6 +117,25 @@ def _rate_sanity_in_scope(row: Dict) -> bool:
     undatable rows are OUT of scope: checking them against the
     New-Rates basis produced the 2026-08-12 live-dry-run noise class
     (115,272/199,717 rows flagged -> risk_level HIGH every CI run).
+
+    Hardened per PR #332 review (260813-m5j) with two additional
+    rules, both applied BEFORE the era gate:
+
+    - F2 (corrected polarity): subcontractor-sheet rows bill at the
+      Subcontractor-Rates basis (``reduced_*_price``, or the
+      pre-acceptance rescue overwrite at pipeline/fetch.py:477 /
+      pipeline/pricing.py:545), NOT the New-Rates basis this detector
+      compares against -- checking them is a guaranteed false
+      mismatch. This deliberately does NOT restrict scope TO
+      subcontractor sheets: the SAA-DE-20 incident sheet
+      ("Resiliency Promax Database Backup 86") is a non-subcontractor
+      ProMax sheet and MUST stay in scope, or the detector regresses
+      to zero coverage of the exact defect class it exists for.
+    - F1: the Weekly-Ref-Date fallback is only meaningful on sheets
+      that actually map a Snapshot Date column (pipeline/fetch.py:276,
+      389-402). Fail closed: an unknown sheet, an absent
+      ``snapshot_column_index``, or a sheet whose ``column_mapping``
+      has no Snapshot Date entry all resolve to snapshot-only scoring.
     """
     # Same lazy-import rationale as _rate_sanity_expected_price above.
     import generate_weekly_pdfs as _gwp  # noqa: PLC0415
@@ -98,10 +143,22 @@ def _rate_sanity_in_scope(row: Dict) -> bool:
         _resolve_rate_recalc_cutoff_date,
     )
 
-    effective_date, _used_fallback = _resolve_rate_recalc_cutoff_date(
-        row, _gwp._AEP_BILLABLE_CUTOFF
+    if row.get('__is_subcontractor'):
+        return (False, 'subcontractor_basis')
+
+    sheet_id = row.get('__source_sheet_id')
+    weekly_fallback_enabled = bool(
+        snapshot_column_index and snapshot_column_index.get(sheet_id, False)
     )
-    return effective_date is not None
+
+    effective_date, _used_fallback = _resolve_rate_recalc_cutoff_date(
+        row,
+        _gwp._AEP_BILLABLE_CUTOFF,
+        weekly_fallback_enabled=weekly_fallback_enabled,
+    )
+    if effective_date is None:
+        return (False, 'pre_cutoff_or_undated')
+    return (True, '')
 
 
 def _rate_sanity_is_mismatch(expected: float, actual: float) -> bool:
@@ -180,6 +237,11 @@ class BillingAudit:
         # from skips so CI logs surface how much history the scoping
         # excluded (260813 scoping follow-up).
         self._rate_sanity_out_of_scope = 0
+        # Per-reason breakdown of the total above (260813-m5j scope
+        # hardening): 'subcontractor_basis' | 'pre_cutoff_or_undated'.
+        # Additive extension — the running total and its summary key
+        # name are unchanged.
+        self._rate_sanity_out_of_scope_by_reason: Dict[str, int] = {}
         
         self.logger.info("🔍 Billing Audit System initialized")
         if self.skip_cell_history:
@@ -246,7 +308,7 @@ class BillingAudit:
             # Price vs New Rates rate x Quantity. Never mutates rows,
             # pricing, grouping, filenames, hashes, or upload behavior.
             rate_sanity_mismatches = self._detect_rate_sanity_mismatches(
-                current_rows
+                current_rows, source_sheets=source_sheets
             )
             audit_results["rate_sanity_mismatches"].extend(
                 rate_sanity_mismatches
@@ -402,7 +464,11 @@ class BillingAudit:
 
         return issues
 
-    def _detect_rate_sanity_mismatches(self, rows: List[Dict]) -> List[Dict]:
+    def _detect_rate_sanity_mismatches(
+        self,
+        rows: List[Dict],
+        source_sheets: Optional[List[Dict]] = None,
+    ) -> List[Dict]:
         """Flag rows whose Units Total Price disagrees with rate x Quantity.
 
         REPORT-ONLY (260812-isx): never mutates row price, quantity,
@@ -417,15 +483,21 @@ class BillingAudit:
         price) are silent per-row and reported only as an aggregate
         count via ``self._rate_sanity_skipped``.
 
-        SCOPED to current-cycle rows (260813 follow-up): rows failing
-        ``_rate_sanity_in_scope`` (pre-cutoff or undatable — the
-        old-rates history that made 58% of a live run flag falsely)
-        are excluded BEFORE any skip classification and aggregated in
-        ``self._rate_sanity_out_of_scope``.
+        SCOPED to current-cycle rows (260813 follow-up, hardened
+        260813-m5j per PR #332 review): rows failing
+        ``_rate_sanity_in_scope`` (subcontractor-basis, pre-cutoff, or
+        undatable — the old-rates history that made 58% of a live run
+        flag falsely) are excluded BEFORE any skip classification and
+        aggregated in ``self._rate_sanity_out_of_scope`` (running
+        total) and ``self._rate_sanity_out_of_scope_by_reason`` (per-
+        reason breakdown). ``source_sheets`` is optional so existing
+        direct-call sites keep compiling; the production call site in
+        ``audit_financial_data`` supplies it.
         """
         mismatches: List[Dict] = []
         self._rate_sanity_skipped = 0
         self._rate_sanity_out_of_scope = 0
+        self._rate_sanity_out_of_scope_by_reason = {}
 
         if os.getenv("RATE_SANITY_AUDIT_ENABLED", "true").lower() != "true":
             return mismatches
@@ -434,10 +506,24 @@ class BillingAudit:
             import generate_weekly_pdfs as _gwp  # noqa: PLC0415
             from pipeline.pricing import _parse_quantity  # noqa: PLC0415
 
+            # Built once per call (O(sheets)), never per row.
+            snapshot_column_index = _rate_sanity_snapshot_column_index(
+                source_sheets
+            )
+
             checked = 0
             for row in rows:
-                if not _rate_sanity_in_scope(row):
+                in_scope, reason = _rate_sanity_in_scope(
+                    row, snapshot_column_index
+                )
+                if not in_scope:
                     self._rate_sanity_out_of_scope += 1
+                    self._rate_sanity_out_of_scope_by_reason[reason] = (
+                        self._rate_sanity_out_of_scope_by_reason.get(
+                            reason, 0
+                        )
+                        + 1
+                    )
                     continue
 
                 expected = _rate_sanity_expected_price(row)
@@ -486,9 +572,17 @@ class BillingAudit:
             # quantity, foreman, or WR-level detail at INFO level.
             self.logger.info(
                 "Rate-sanity audit: checked=%d skipped=%d "
-                "out_of_scope=%d mismatches=%d",
+                "out_of_scope=%d (subcontractor_basis=%d "
+                "pre_cutoff_or_undated=%d) mismatches=%d",
                 checked, self._rate_sanity_skipped,
-                self._rate_sanity_out_of_scope, len(mismatches),
+                self._rate_sanity_out_of_scope,
+                self._rate_sanity_out_of_scope_by_reason.get(
+                    'subcontractor_basis', 0
+                ),
+                self._rate_sanity_out_of_scope_by_reason.get(
+                    'pre_cutoff_or_undated', 0
+                ),
+                len(mismatches),
             )
         except Exception as e:
             self.logger.warning(
