@@ -67,6 +67,10 @@ _CLASSIFICATION_UNCLASSIFIED = "unclassified"
 # Read PER CALL, not at import (D-08) -- exactly as
 # ``audit_billing_changes.py:376`` does for ``RATE_SANITY_AUDIT_ENABLED``
 # -- so tests can toggle any switch without reloading a module.
+# IN-03 cross-pin: every SNAPSHOT_DRIFT_* default passed at the call
+# sites in this module is duplicated by the documentation constants in
+# ``pipeline/config.py`` (SNAPSHOT_DRIFT family) -- change BOTH sides
+# together or they silently diverge.
 
 def _bool_env(name: str, default: bool) -> bool:
     raw = os.getenv(name)
@@ -117,7 +121,9 @@ def _build_run_id() -> str:
     if ga_run_id:
         attempt = os.getenv("GITHUB_RUN_ATTEMPT", "")
         return f"{ga_run_id}.{attempt}" if attempt else ga_run_id
-    return "local-" + datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%S%fZ")
+    return "local-" + datetime.datetime.now(
+        datetime.timezone.utc
+    ).strftime("%Y%m%dT%H%M%S%fZ")
 
 
 def _coerce_date(value: Any) -> "datetime.date | None":
@@ -384,7 +390,7 @@ def _classify_candidates(
             )
             for candidate in candidates:
                 candidate["classification"] = _CLASSIFICATION_UNCLASSIFIED
-            logging.info(
+            logger.info(
                 "⏩ Snapshot-drift classification skipped: %s", skip_reason
             )
             return skip_reason
@@ -468,7 +474,7 @@ def _apply_holds(
         # the hold for this candidate (classify + log only).
         prior_snapshot = _coerce_date(candidate["prior_snapshot_date"])
         if prior_snapshot is None:
-            logging.warning(
+            logger.warning(
                 "⚠️ Snapshot-drift hold skipped for WR %s row %s: no "
                 "prior snapshot date on baseline (row would be dropped "
                 "by the Excel week filter).",
@@ -494,7 +500,7 @@ def _apply_holds(
         candidate["held"] = True
         held_count += 1
 
-        logging.info(
+        logger.info(
             "🔒 Snapshot-drift hold: WR %s row %s held at prior week %s "
             "(drifted to %s, changed_by=%s)",
             candidate["wr"], candidate["row_id"],
@@ -678,7 +684,7 @@ def apply_snapshot_drift_holds(
                 "(non-fatal)."
             )
 
-        logging.info(
+        logger.info(
             "📌 Snapshot-drift audit: candidates=%d seeded=%d unchanged=%d "
             "automation_self_fire=%d manual=%d unclassified=%d holds=%d",
             summary["candidates"], summary["seeded"], summary["unchanged"],

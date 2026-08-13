@@ -13,7 +13,7 @@ runnable** — use the env-var switches it already exposes.
 |---|---|---|
 | No Smartsheet token, fully synthetic | `TEST_MODE=true python generate_weekly_pdfs.py` | Safest. No API calls. |
 | Real fetch, **no upload** (verify Excel output) | `SKIP_UPLOAD=true python generate_weekly_pdfs.py` | Needs `SMARTSHEET_API_TOKEN`. Writes to `generated_docs/`. |
-| Scope to specific WRs | add `WR_FILTER=WR_12345,WR_67890` | Comma list. Combine with either mode. |
+| Scope to specific WRs | add `WR_FILTER=WR_12345,WR_67890` | Comma list. **TEST_MODE only** — the filter is gated on `WR_FILTER and TEST_MODE` (`pipeline/grouping.py:1222`); with plain `SKIP_UPLOAD=true` it is silently ignored and ALL groups process. |
 | Cap work for a fast loop | add `MAX_GROUPS=10` | |
 | Force regen despite change-detection | add `FORCE_GENERATION=true` | For unchanged-hash groups. |
 
@@ -21,6 +21,9 @@ Examples:
 ```bash
 TEST_MODE=true WR_FILTER=WR_12345 python generate_weekly_pdfs.py
 SKIP_UPLOAD=true MAX_GROUPS=5 python generate_weekly_pdfs.py
+# Real fetch scoped to one WR: combine the modes — WR_FILTER needs TEST_MODE,
+# and TEST_MODE with a real SMARTSHEET_API_TOKEN still performs real reads.
+TEST_MODE=true SKIP_UPLOAD=true WR_FILTER=WR_12345 python generate_weekly_pdfs.py
 ```
 
 ## Always gate before pushing

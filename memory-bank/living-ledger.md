@@ -5480,3 +5480,50 @@ exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
   window env-tunable per correction 1; test pacing zeroed in the
   shared base (drift tests 31.7s → 1.35s). Suite 1262 passed + 132
   subtests.
+
+
+## [2026-08-13 15:30] Rate-sanity audit scoped to the current (New-Rates) cycle + jqx info-nit closure
+
+- **Rule: the rate-sanity check only evaluates New-Rates-era rows.**
+  `_rate_sanity_in_scope()` (`audit_billing_changes.py`) reuses the
+  production era gate (SUB-01 / D-08) via
+  `pipeline/utils._resolve_rate_recalc_cutoff_date`: `Snapshot Date >=
+  _AEP_BILLABLE_CUTOFF` (2026-04-12 contract award; env
+  `AEP_BILLABLE_CUTOFF`), with the Weekly Reference Logged Date
+  fallback rescuing current-week rows the snapshot automation has not
+  stamped yet. Pre-cutoff and undatable rows are counted in
+  `rate_sanity_out_of_scope` (summary field + run-log aggregate) and
+  NEVER checked. Why: the 2026-08-12 live dry run flagged
+  115,272/199,717 rows (58%) — history legitimately priced under OLD
+  contract rates vs the New-Rates expected basis — pinning
+  `risk_level` HIGH on every scheduled run. Do NOT "fix" a noisy
+  rate-sanity run by widening tolerances; scope is the lever. Scope
+  precedence: out-of-scope classification runs BEFORE skip
+  classification (a pre-cutoff row with a bad CU counts out-of-scope,
+  not skipped).
+- **Do not re-point the scope at a new env var.** Coupling to
+  `AEP_BILLABLE_CUTOFF` is deliberate: "which rows bill under New
+  Rates" and "which rows the New-Rates sanity check covers" must move
+  together when the cutoff is rolled for retroactive billing
+  decisions.
+- **jqx review info nits closed (260812-jqx REVIEW.md):** IN-01
+  `utcnow()` -> `now(timezone.utc)` in `_build_run_id`; IN-02 all
+  `pipeline/snapshot_drift.py` logging standardized on the module
+  `logger`; IN-03 cross-pin comments added on BOTH sides of the
+  env-default duplication (`pipeline/config.py` SNAPSHOT_DRIFT family
+  <-> `snapshot_drift.py` call sites); IN-05
+  `fetch_snapshot_provenance` NEVER-raises contract now real (client
+  acquisition + key coercion moved inside the try; locked by new
+  `tests/test_snapshot_store.py`, first direct snapshot_store
+  coverage — chips at WR-05); IN-07 risk ladder extracted to
+  `_risk_level_for()` used by BOTH `_generate_audit_summary` and
+  `escalate_risk_for_snapshot_drift`. Deliberately NOT done: IN-04
+  (changed_by email at INFO — PII-posture call reserved for Juan),
+  WR-02 (RPC bulk read), WR-03 (RLS — Juan's DDL call).
+- **Skill-doc correction:** `WR_FILTER` only filters when
+  `TEST_MODE=true` (`pipeline/grouping.py:1222` gates on `WR_FILTER
+  and TEST_MODE`); with plain `SKIP_UPLOAD=true` it is silently
+  ignored. `run-billing-pipeline-locally` skill table fixed; the
+  scoped real-fetch recipe is `TEST_MODE=true SKIP_UPLOAD=true
+  WR_FILTER=...` (TEST_MODE with a real token still performs real
+  reads).

@@ -60,6 +60,9 @@ class TestRateSanityIncidentRegression(RateSanityTestBase):
             'Work Type': 'Inst',
             'Quantity': '3',
             'Units Total Price': '$341.04',
+            # Post-cutoff: keeps the row inside the current-cycle
+            # scope gate (260813 scoping follow-up).
+            'Snapshot Date': '2026-08-09',
         }
         mismatches = self.audit._detect_rate_sanity_mismatches([row])
         self.assertEqual(len(mismatches), 1)
@@ -78,6 +81,7 @@ class TestRateSanityIncidentRegression(RateSanityTestBase):
             'Work Type': 'Inst',
             'Quantity': '1',
             'Units Total Price': '$56.84',
+            'Snapshot Date': '2026-08-09',
         }
         mismatches = self.audit._detect_rate_sanity_mismatches([row])
         self.assertEqual(mismatches, [])
@@ -93,6 +97,7 @@ class TestRateSanityEndToEndWiring(RateSanityTestBase):
             'Work Type': 'Inst',
             'Quantity': '3',
             'Units Total Price': '$341.04',
+            'Snapshot Date': '2026-08-09',
         }
         with tempfile.TemporaryDirectory() as tmp_dir, \
                 mock.patch.object(BillingAudit, '_save_audit_state'), \
@@ -126,6 +131,9 @@ class TestRateSanitySkipsAndTolerance(RateSanityTestBase):
             'Work Type': 'Inst',
             'Quantity': '3',
             'Units Total Price': '$341.04',
+            # Post-cutoff: skip/tolerance classes are asserted for
+            # IN-SCOPE rows (260813 scoping follow-up).
+            'Snapshot Date': '2026-08-09',
         }
         row.update(overrides)
         return row
@@ -233,6 +241,7 @@ class TestRateSanitySummary(RateSanityTestBase):
             'Work Type': 'Inst',
             'Quantity': '3',
             'Units Total Price': '$341.04',
+            'Snapshot Date': '2026-08-09',
         }
         with tempfile.TemporaryDirectory() as tmp_dir, \
                 mock.patch.object(BillingAudit, '_save_audit_state'), \
@@ -256,6 +265,7 @@ class TestRateSanitySummary(RateSanityTestBase):
             'Work Type': 'Inst',
             'Quantity': '3',
             'Units Total Price': '$341.04',
+            'Snapshot Date': '2026-08-09',
         }
         with tempfile.TemporaryDirectory() as tmp_dir, \
                 mock.patch.object(BillingAudit, '_save_audit_state'), \
@@ -297,6 +307,7 @@ class TestRateSanityAggregateInclusion(RateSanityTestBase):
             'Work Type': 'Inst',
             'Quantity': '3',
             'Units Total Price': '$341.04',
+            'Snapshot Date': '2026-08-09',
         }
         with tempfile.TemporaryDirectory() as tmp_dir, \
                 mock.patch.object(BillingAudit, '_save_audit_state'), \
@@ -334,6 +345,7 @@ class TestRateSanityAggregateInclusion(RateSanityTestBase):
             'Work Type': 'Inst',
             'Quantity': '1',
             'Units Total Price': '$56.84',
+            'Snapshot Date': '2026-08-09',
         }
         mismatch_row = {
             'Work Request #': '91916464',
@@ -341,6 +353,7 @@ class TestRateSanityAggregateInclusion(RateSanityTestBase):
             'Work Type': 'Inst',
             'Quantity': '3',
             'Units Total Price': '$341.04',
+            'Snapshot Date': '2026-08-09',
         }
         with tempfile.TemporaryDirectory() as tmp_dir, \
                 mock.patch.object(BillingAudit, '_log_to_audit_sheet'):
@@ -356,6 +369,127 @@ class TestRateSanityAggregateInclusion(RateSanityTestBase):
         trend = results['trend']
         self.assertEqual(trend['issues_delta'], 1)
         self.assertEqual(trend['risk_direction'], 'worsening')
+
+
+class TestRateSanityCurrentCycleScoping(RateSanityTestBase):
+    """Scoping follow-up (260813): current-cycle rows only.
+
+    The expected price is the New Rates basis, which only applies to
+    rows billed under the 2026-04-12 subcontractor rate contract. The
+    2026-08-12 live dry run showed the unscoped detector flagging
+    115,272/199,717 rows (58% -- old-rates history vs New-Rates
+    expected) and pinning ``risk_level`` HIGH every CI run. The
+    detector now reuses the production era gate (SUB-01 / D-08):
+    ``Snapshot Date >= _AEP_BILLABLE_CUTOFF`` with the Weekly
+    Reference Logged Date fallback of
+    ``_resolve_rate_recalc_cutoff_date``.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.audit = BillingAudit(client=None, skip_cell_history=True)
+
+    def _mismatch_row(self, **overrides: Any) -> Dict[str, Any]:
+        row = {
+            'Work Request #': '91916464',
+            'CU': 'SAA-DE-20',
+            'Work Type': 'Inst',
+            'Quantity': '3',
+            'Units Total Price': '$341.04',
+        }
+        row.update(overrides)
+        return row
+
+    def test_pre_cutoff_snapshot_row_is_out_of_scope(self) -> None:
+        row = self._mismatch_row(**{'Snapshot Date': '2026-03-01'})
+        mismatches = self.audit._detect_rate_sanity_mismatches([row])
+        self.assertEqual(mismatches, [])
+        self.assertEqual(self.audit._rate_sanity_out_of_scope, 1)
+        self.assertEqual(self.audit._rate_sanity_skipped, 0)
+
+    def test_post_cutoff_snapshot_mismatch_still_flagged(self) -> None:
+        row = self._mismatch_row(**{'Snapshot Date': '2026-08-09'})
+        mismatches = self.audit._detect_rate_sanity_mismatches([row])
+        self.assertEqual(len(mismatches), 1)
+        self.assertEqual(self.audit._rate_sanity_out_of_scope, 0)
+
+    def test_blank_snapshot_with_post_cutoff_weekly_is_in_scope(
+        self,
+    ) -> None:
+        """Weekly-Ref fallback rescues rows the snapshot automation
+        has not stamped yet (the observed VAC crew failure mode)."""
+        row = self._mismatch_row(
+            **{'Weekly Reference Logged Date': '2026-08-09'}
+        )
+        mismatches = self.audit._detect_rate_sanity_mismatches([row])
+        self.assertEqual(len(mismatches), 1)
+        self.assertEqual(self.audit._rate_sanity_out_of_scope, 0)
+
+    def test_blank_snapshot_with_pre_cutoff_weekly_is_out_of_scope(
+        self,
+    ) -> None:
+        row = self._mismatch_row(
+            **{'Weekly Reference Logged Date': '2026-03-01'}
+        )
+        mismatches = self.audit._detect_rate_sanity_mismatches([row])
+        self.assertEqual(mismatches, [])
+        self.assertEqual(self.audit._rate_sanity_out_of_scope, 1)
+
+    def test_undated_row_is_out_of_scope(self) -> None:
+        """No Snapshot Date, no Weekly Reference Logged Date -> the
+        row cannot be placed in the New-Rates era -> never checked."""
+        row = self._mismatch_row()
+        mismatches = self.audit._detect_rate_sanity_mismatches([row])
+        self.assertEqual(mismatches, [])
+        self.assertEqual(self.audit._rate_sanity_out_of_scope, 1)
+        self.assertEqual(self.audit._rate_sanity_skipped, 0)
+
+    def test_pre_cutoff_snapshot_does_not_fall_back_to_weekly(
+        self,
+    ) -> None:
+        """A parseable pre-cutoff Snapshot Date is authoritative --
+        mirrors ``_resolve_rate_recalc_cutoff_date`` exactly."""
+        row = self._mismatch_row(**{
+            'Snapshot Date': '2026-03-01',
+            'Weekly Reference Logged Date': '2026-08-09',
+        })
+        mismatches = self.audit._detect_rate_sanity_mismatches([row])
+        self.assertEqual(mismatches, [])
+        self.assertEqual(self.audit._rate_sanity_out_of_scope, 1)
+
+    def test_out_of_scope_precedes_skip_classification(self) -> None:
+        """An out-of-scope row with a bad CU counts as out-of-scope,
+        not as a skip -- scope is evaluated first."""
+        row = self._mismatch_row(**{
+            'CU': 'NOT-IN-TABLE',
+            'Snapshot Date': '2026-03-01',
+        })
+        mismatches = self.audit._detect_rate_sanity_mismatches([row])
+        self.assertEqual(mismatches, [])
+        self.assertEqual(self.audit._rate_sanity_out_of_scope, 1)
+        self.assertEqual(self.audit._rate_sanity_skipped, 0)
+
+    def test_summary_reports_out_of_scope_and_stays_low_risk(
+        self,
+    ) -> None:
+        """A history-only run (all rows pre-cutoff) must report LOW
+        risk with the out-of-scope count surfaced in the summary."""
+        row = self._mismatch_row(**{'Snapshot Date': '2026-03-01'})
+        with tempfile.TemporaryDirectory() as tmp_dir, \
+                mock.patch.object(BillingAudit, '_save_audit_state'), \
+                mock.patch.object(BillingAudit, '_log_to_audit_sheet'):
+            original_cwd = os.getcwd()
+            os.chdir(tmp_dir)
+            try:
+                audit = BillingAudit(client=None, skip_cell_history=True)
+                results = audit.audit_financial_data([], [row])
+            finally:
+                os.chdir(original_cwd)
+
+        summary = results['summary']
+        self.assertEqual(summary['total_rate_sanity_mismatches'], 0)
+        self.assertEqual(summary['rate_sanity_out_of_scope'], 1)
+        self.assertEqual(summary['risk_level'], 'LOW')
 
 
 if __name__ == '__main__':
