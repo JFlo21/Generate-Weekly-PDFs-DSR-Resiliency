@@ -18,8 +18,9 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 - ✨ New capability: snapshot-date drift audit — detect automation re-stamps, optional hold gate
 - ✨ New capability: rate-sanity audit check (260812-isx)
-- ✨ New capability: snapshot-date drift audit — detect automation re-stamps, optional hold gate ()
+- 📄 Help guides updated: log a6e19db &#91;skip ci&#93;
 - 📄 Help guides updated: automated plain-language update from Notion Worker
+- ✨ New capability: snapshot-date drift audit — detect automation re-stamps, optional hold gate ()
 - 📄 Help guides updated: log 647a688 &#91;skip ci&#93;
 - ✨ New capability: rate-sanity audit check (260812-isx) ()
 
@@ -39,16 +40,16 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
 
-### 📋 Changelog — August 12, 2026
+### 📋 Changelog — August 13, 2026
 
+- ✨ New capability: Phase 22 — STORMS column alignment on every variant (COL-01..04)
+- ✨ New capability: Phase 21 — manifest heading enrichment on every variant (HEAD-01..04)
 - ✅ Problem fixed: BUG-005 — persist true source version on routed Output Log rows (Source Version column)
 - ✅ Problem fixed: NotCompleted Week Ending acceptance + /return nav + hourly triggers for the three dispatch-only lifecycle workers
 - • Set up Cursor Cloud dev environment (AGENTS.md + notes)
 - 📄 Help guides updated: session ledger + changelog entries for v1.2 milestone close
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - • sync: Phase 20 stack — billing status dashboard, As-Built hardening, planning state
-- ✅ Problem fixed: map MANIFEST&#95;BILLERS&#95;SHEET&#95;ID into revision-intake worker env
-- ✅ Problem fixed: As-Built Hrs diagnostics + TOTAL-row per-column summaries + wrong-shape workbook guard
 
 <!-- /runbook-repo -->
 
@@ -57,16 +58,14 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
 
-### 📋 Changelog — August 12, 2026
+### 📋 Changelog — August 13, 2026
 
 - • ClaudeOS: GSD Core 1.10.0 routing and dispatch repair
-- • Harden primary reconciliation audit and managed Codex install
 - • Merge pull request from JFlo21/codex/gsd-core-fable-routing
 - ✅ Problem fixed: suppress failed statusline output
 - ✅ Problem fixed: accept CRLF in macOS bootstrap assertion
 - ✅ Problem fixed: keep GSD statusline fail-open
 - ✅ Problem fixed: repair GSD agent dispatch handoff
-- ✨ New capability: consolidate GSD Core routing
 
 <!-- /runbook-repo -->
 
@@ -75,7 +74,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — August 12, 2026
+### 📋 Changelog — August 13, 2026
 
 - • 📊 Audit: 2026-08-10T07:00:02Z
 
@@ -86,9 +85,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
 
-### 📋 Changelog — August 12, 2026
-
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+_Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
@@ -97,9 +94,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** A Notion Worker that turns GitHub activity into a professional, living operations runbook. It gives nontechnical readers a concise current-state summary while preserving source links and technical evidence for engineers.
 
-### 📋 Changelog — August 12, 2026
-
-- 📄 Help guides updated: record fast-uri production verification
+_Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
@@ -459,7 +454,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — August 12, 2026
+### 📋 Changelog — August 13, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -491,3 +486,4 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
+
