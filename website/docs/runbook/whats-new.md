@@ -16,13 +16,14 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — August 13, 2026
 
+- ✨ New capability: scope rate-sanity audit to current cycle ( follow-up)
 - ✨ New capability: snapshot-date drift audit — detect automation re-stamps, optional hold gate
 - ✨ New capability: rate-sanity audit check (260812-isx)
-- 📄 Help guides updated: log a6e19db &#91;skip ci&#93;
+- ✨ New capability: scope rate-sanity audit to current cycle ( follow-up) ()
 - 📄 Help guides updated: automated plain-language update from Notion Worker
+- 📄 Help guides updated: log a6e19db &#91;skip ci&#93;
 - ✨ New capability: snapshot-date drift audit — detect automation re-stamps, optional hold gate ()
 - 📄 Help guides updated: log 647a688 &#91;skip ci&#93;
-- ✨ New capability: rate-sanity audit check (260812-isx) ()
 
 <!-- /runbook-repo -->
 
@@ -486,4 +487,3 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
-
