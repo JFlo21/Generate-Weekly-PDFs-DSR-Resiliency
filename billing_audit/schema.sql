@@ -328,3 +328,71 @@ AS $$
 $$;
 
 GRANT EXECUTE ON FUNCTION billing_audit.lookup_attribution_bulk(jsonb) TO service_role;
+
+-- ── snapshot_provenance / snapshot_drift (quick task 260812-jqx) ────
+-- Defence-in-depth backstop for the Smartsheet "record Snapshot Date"
+-- automation firing on ANY completed-row change (same-value saves,
+-- bulk API/DataTable touches), silently re-stamping Snapshot Date to
+-- today and moving an already-billed unit into the current billing
+-- week (living-ledger [2026-08-12 13:40]). ADDITIVE ONLY -- no
+-- existing billing_audit table, RLS, or policy is touched.
+--
+-- OPERATOR: apply these two CREATE TABLE blocks in the Supabase SQL
+-- Editor, confirm 'billing_audit' is still in Project Settings -> API
+-- -> Exposed schemas, then reload the PostgREST schema cache. Until
+-- applied, the reader degrades exactly like ``group_content_hash``
+-- above -- surfaces as a fetch failure, the pipeline falls back to
+-- "no baseline" (seed-only, never a false drift flag), and billing
+-- behaviour is unaffected (D-07: a missing migration can never break
+-- a run).
+
+-- ── snapshot_provenance (state) ─────────────────────────────────────
+-- One row per (sheet_id, row_id) recording the week/snapshot date the
+-- row was LAST billed under. Seeded silently the first time a row is
+-- seen (D-09 -- no history backfill) and refreshed every run so it
+-- always reflects the week the row was ACTUALLY billed under (the
+-- held week when a hold applied, the new week otherwise).
+CREATE TABLE IF NOT EXISTS billing_audit.snapshot_provenance (
+    sheet_id       BIGINT      NOT NULL,
+    row_id         BIGINT      NOT NULL,
+    wr             TEXT,
+    cu             TEXT,
+    snapshot_date  DATE,
+    billed_week    DATE,
+    run_id         TEXT,
+    first_seen_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_seen_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (sheet_id, row_id)
+);
+
+GRANT SELECT, INSERT, UPDATE
+    ON billing_audit.snapshot_provenance TO service_role;
+
+-- ── snapshot_drift (append-only event log) ──────────────────────────
+-- One row per detected drift candidate PER RUN, regardless of
+-- classification or hold outcome. This is the fail-closed logging
+-- half of D-03 (fail-open on gating, fail-closed on logging): a
+-- manual edit or an unclassified drift is NEVER held, but it is
+-- ALWAYS recorded here so every drift becomes queryable evidence.
+CREATE TABLE IF NOT EXISTS billing_audit.snapshot_drift (
+    sheet_id            BIGINT      NOT NULL,
+    row_id              BIGINT      NOT NULL,
+    detected_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    wr                  TEXT,
+    cu                  TEXT,
+    prior_snapshot_date DATE,
+    new_snapshot_date   DATE,
+    prior_billed_week   DATE,
+    new_week            DATE,
+    changed_by          TEXT,
+    classification      TEXT,
+    held                BOOLEAN     NOT NULL DEFAULT FALSE,
+    run_id              TEXT,
+    PRIMARY KEY (sheet_id, row_id, detected_at)
+);
+
+CREATE INDEX IF NOT EXISTS idx_snapshot_drift_wr_detected_at
+    ON billing_audit.snapshot_drift (wr, detected_at DESC);
+
+GRANT SELECT, INSERT
+    ON billing_audit.snapshot_drift TO service_role;

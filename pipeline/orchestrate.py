@@ -257,6 +257,7 @@ from pipeline.attribution import (  # noqa: E402
     run_claimer_remediation,
     save_billing_audit_row_cache,
 )
+from pipeline.snapshot_drift import apply_snapshot_drift_holds  # noqa: E402
 
 
 def _build_synthetic_rows():
@@ -575,6 +576,48 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 )
         else:
             logging.info("🚀 Audit system disabled for testing")
+
+        # ── Snapshot-date drift audit (260812-jqx) ──────────────────
+        # Pre-grouping seam: runs upstream of every Weekly Reference
+        # Logged Date pre-pass reader in pipeline/grouping.py and of
+        # the single week computation there, so zero grouping.py edits
+        # are needed. Own try/except: a drift-audit failure must never
+        # block the billing run (D-07).
+        try:
+            _snapshot_drift_summary = apply_snapshot_drift_holds(
+                all_rows, source_sheets, client, session_start,
+            )
+            # Only touch audit_results['summary'] when the audit ran
+            # (D-08 off-switch equivalence: with the switch off,
+            # audit_results['summary'] must stay byte-identical to
+            # today's shape).
+            if _snapshot_drift_summary.get('enabled') and isinstance(
+                audit_results.get('summary'), dict
+            ):
+                from audit_billing_changes import (  # noqa: PLC0415
+                    escalate_risk_for_snapshot_drift,
+                )
+                escalate_risk_for_snapshot_drift(
+                    audit_results['summary'],
+                    _snapshot_drift_summary.get(
+                        'automation_self_fire_holds', 0
+                    ),
+                )
+                _snap_holds = _snapshot_drift_summary.get(
+                    'automation_self_fire_holds', 0
+                )
+                if _snap_holds > 0:
+                    sentry_capture_message_with_context(
+                        f"Snapshot-drift hold applied to {_snap_holds} "
+                        "row(s)",
+                        level="warning",
+                        context_name="snapshot_drift",
+                        context_data=_snapshot_drift_summary,
+                        tags={"subsystem": "snapshot_drift"},
+                    )
+        except Exception as _snap_exc:
+            logging.warning(f"⚠️ Snapshot-drift audit error: {_snap_exc}")
+            _snapshot_drift_summary = {'enabled': False}
 
     # Group rows by work request and week ending
         logging.info("📂 Grouping data...")

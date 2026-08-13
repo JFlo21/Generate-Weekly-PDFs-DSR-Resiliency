@@ -23,40 +23,67 @@ write-back reminder). Keep it terse; link to history rather than duplicating it.
    "Snapshot Date is blank" write-once condition; fix the template
    sheet so backup copies inherit it. Recommendation delivered to Juan;
    NOT yet applied (his action).
-3. **SESSION HANDOFF (2026-08-12 ~15:20 CDT) — resume points:**
-   - **PR #329 Greptile fixes DONE + PUSHED:** gsd-code-fixer landed
-     3 atomic commits on `feat/260812-isx-rate-sanity-audit` —
-     `64d7249` (fold total_rate_sanity_mismatches into history/
-     audit-sheet/trend total_issues aggregates + 2 regression tests),
-     `e003124` (website/blog/2026-08-12-rate-sanity-audit-check.md
-     runbook changelog incl. RATE_SANITY_AUDIT_ENABLED=false emergency
-     disable), `8802e98` (test return-type annotations). Suite 1230
-     passed + 130 subtests. Pushed 8802e98 → PR #329 updated. Known
-     latent quirk (out of scope, untouched): risk_trend.json write
-     silently no-ops on a truly fresh generated_docs/ dir because
-     makedirs happens later in _save_audit_state().
-   - **Quick task 260812-jqx APPROVED-TO-EXECUTE, not started:**
-     snapshot-drift audit. Plan/context/research complete + plan-check
-     PASSED (0 blockers, 1 warning: add post-seam Sentry capture for
-     holds). Planning docs are UNTRACKED in
-     `.planning/quick/260812-jqx-snapshot-date-drift-audit-detect-snapsho/`
-     (CONTEXT/RESEARCH/PLAN — commit them). Execution recipe: after
-     PR #329 fixes land, `git switch -c feat/260812-jqx-snapshot-drift-audit`
-     from the isx tip (plan line numbers assume isx code present),
-     spawn gsd-core:gsd-executor (sonnet) on 260812-jqx-PLAN.md, then
-     gsd-verifier + code review + haiku-verifier, docs commit, PR
-     stacked on #329. Locked decisions: hold-prior-week+HIGH for
-     automation self-fires ONLY (SNAPSHOT_DRIFT_HOLD_ENABLED default
-     OFF), never hold manual edits, fail-open gating/fail-closed
-     logging, 40-row capped ~2s-paced cell-history lookups
-     (week-movers only), NEW additive Supabase tables appended to
-     billing_audit/schema.sql (Juan manual-applies DDL), NO new
-     mutating AUDIT_SHEET_ID write in v1.
+3. **SESSION HANDOFF (2026-08-12 ~16:35 CDT) — resume points:**
+   - **PR #329 Greptile fixes DONE + PUSHED** (`64d7249`/`e003124`/
+     `8802e98`, suite 1230+130). Latent quirk untouched:
+     risk_trend.json write no-ops on fresh generated_docs/.
+   - **Quick task 260812-jqx EXECUTED (reviews in flight):** branch
+     `feat/260812-jqx-snapshot-drift-audit` stacked on isx tip
+     `3f7be82`. Commits: `8db2845` (planning docs), `55329a1` (drift
+     detection, zero extra API calls: pipeline/snapshot_drift.py +
+     billing_audit/snapshot_store.py + additive schema.sql + config +
+     orchestrate seam), `c58a9bd` (cell-history classifier, 40-row cap
+     ~2s pacing sub-budget), `0a68aeb` (hold-prior-week override +
+     audit risk wiring + post-seam Sentry capture on holds), `0b5051a`
+     (SUMMARY docs). Full suite **1257 passed + 132 subtests** (27 new
+     tests), zero regressions; grouping/excel zero hunks; orchestrate
+     2 hunks. Deviations: test-only budget-boundary flake fix;
+     plan-check Sentry warning honored. Locked decisions held: hold
+     gate default OFF, never hold manual edits, fail-open gating/
+     fail-closed logging, no AUDIT_SHEET_ID mutation, DDL manual-apply.
+     **Reviews DONE:** gsd-verifier 8/8 zero gaps; haiku rubric 10/10
+     PASS; code review 2 Critical / 5 Warning / 7 Info → fix round
+     `a56190c` (CR-01 upsert gated on fetch status — no baseline
+     rebase on failed read), `81da106` (CR-02 null-prior-date holds
+     skipped), `7a58c62` (WR-01 unparseable ts → unclassified;
+     window env-tunable SNAPSHOT_DRIFT_UNITS_WINDOW_MINUTES default
+     15; WR-04 test pacing zeroed). Suite **1262 + 132 subtests**
+     (~13s). Deferred to PR follow-ups: WR-02 (bulk .in_ → RPC),
+     WR-03 (RLS on new tables — Juan's DDL call), WR-05 (direct
+     snapshot_store tests), info nits. **SHIPPED: PR #330 → master**
+     (#329 was squash-merged as `647a688` at 20:33Z, isx branch
+     deleted; jqx rebased onto origin/master — new SHAs
+     b115e63..d3333e4 + this ledger commit — suite re-run green
+     post-rebase, force-pushed with lease). Local master is stale;
+     `git switch master && git pull` when convenient.
+     **Greptile round (post-open): `4104ca1`** — unclassified drifts
+     no longer rebase the provenance baseline (classification-aware
+     finalization; unclassified rows retry next run). Suite 1263+132.
+     **Live dry run (SKIP_UPLOAD, 53min):** drift audit no-op path
+     verified on 199,815 real rows (CR-01 skip observed live);
+     FINDING: #329 rate-sanity flags 115,272/199,717 rows (58% — old
+     historical rates vs New-Rates basis) → risk_level HIGH every CI
+     run; no Smartsheet writes exist (AUDIT_SHEET_ID never written);
+     Juan to choose kill-switch vs scoping follow-up. Also:
+     WR_FILTER only works with TEST_MODE (grouping.py:1222) — the
+     run-billing-pipeline-locally skill table is wrong on this.
+   - **A1/A4 VERIFIED LIVE (WINDOWS #1 closed):** read-only probes
+     with Juan's token proved newest-first history + automation
+     identity, captured the full Point 27 drift-and-revert chain, and
+     CORRECTED the signature: automation batches stamps (legit writes
+     up to 4m22s after the check → 15-min window), and Weekly
+     Reference Logged Date is automation-WRITTEN (repair must revert
+     it too). Ledger `[2026-08-12 17:05]`. Backup 86 scanned clean
+     (no stamps ≥ 08-08). Note: Juan's `.env` names the token
+     `SMARTSHEET_API_KEY`; the pipeline reads `SMARTSHEET_API_TOKEN`.
    - **Juan's own actions pending:** Smartsheet automation trigger fix
      in UI per living-ledger [2026-08-12 13:40] (field-scoped trigger
-     + "Snapshot Date is blank" condition, per sheet + template);
-     review/merge PR #329; later: apply jqx DDL, enable hold gate
-     after burn-in.
+     + "Snapshot Date is blank" condition, per sheet + template) —
+     REQUIRED before any snapshot-date repair sweep (writes would be
+     re-stamped); run the remediation prompt with a Smartsheet-capable
+     AI; review/merge PR #329; later: apply jqx DDL (2 blocks in
+     billing_audit/schema.sql), verify A1/A4, enable hold gate after
+     burn-in.
 4. **Quick task 260812-isx (GSD quick) COMPLETE → PR #329 OPEN:**
    report-only rate-sanity audit check (Units Total Price vs expected
    New-Rates rate × Quantity via `_SUBCONTRACTOR_RATES`, kill-switch
