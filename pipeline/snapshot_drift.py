@@ -611,14 +611,37 @@ def apply_snapshot_drift_holds(
             classification = candidate["classification"]
             if classification in summary:
                 summary[classification] += 1
-            final_week = (
-                candidate["prior_billed_week"] if candidate["held"]
-                else candidate["new_week"]
-            )
-            final_snapshot = (
-                candidate["prior_snapshot_date"] if candidate["held"]
-                else candidate["new_snapshot_date"]
-            )
+            drift_events.append(_drift_event_record(candidate, now, run_id))
+            if classification == _CLASSIFICATION_AUTOMATION_SELF_FIRE:
+                # Held -> the row bills at its prior week, so the
+                # baseline stays there. Unheld (report-only) -> the
+                # row actually bills at the drifted week; accept it as
+                # the new baseline so each drift alerts exactly once
+                # (the event above is the durable record) instead of
+                # re-consuming the classification cap every run.
+                final_week = (
+                    candidate["prior_billed_week"] if candidate["held"]
+                    else candidate["new_week"]
+                )
+                final_snapshot = (
+                    candidate["prior_snapshot_date"] if candidate["held"]
+                    else candidate["new_snapshot_date"]
+                )
+            elif classification == _CLASSIFICATION_MANUAL:
+                final_week = candidate["new_week"]
+                final_snapshot = candidate["new_snapshot_date"]
+            else:
+                # Unclassified/pending (budget exhausted, history
+                # unreadable, missing column mapping): finalizing here
+                # would rebase the baseline to the drifted week and the
+                # next run would read the row as 'unchanged' -- the
+                # drift laundered with no retry possible. Skip the
+                # provenance record instead: the prior billed_week
+                # stays authoritative and the row re-enters candidacy
+                # next run for another classification attempt (bounded
+                # by the per-run cap; the row still bills fail-open at
+                # its sheet value this run).
+                continue
             provenance_records.append(
                 _provenance_record(
                     candidate["sheet_id"], candidate["row_id"],
@@ -626,7 +649,6 @@ def apply_snapshot_drift_holds(
                     final_week, run_id, candidate["first_seen_at"], now,
                 )
             )
-            drift_events.append(_drift_event_record(candidate, now, run_id))
 
         if status in ("success", "no_row"):
             try:

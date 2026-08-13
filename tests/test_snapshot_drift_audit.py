@@ -276,6 +276,44 @@ class TestTask1BatchedProvenanceUpsert(SnapshotDriftDetectionTestBase):
         self.assertEqual(summary["seeded"] + summary["unchanged"], 3)
 
 
+class TestTask1UnclassifiedDriftKeepsBaseline(SnapshotDriftDetectionTestBase):
+    """Greptile PR#330 regression: an unclassified drift must NOT
+    finalize -- upserting its drifted week would rebase the baseline,
+    so the next run would read the moved row as 'unchanged' and never
+    retry classification (or hold/restore it). The prior billed_week
+    stays authoritative and the row re-enters candidacy next run,
+    while the drift event is still logged this run."""
+
+    def test_unclassified_candidate_absent_from_upsert(self) -> None:
+        self.mock_fetch.return_value = (
+            {(111, 222): _baseline(
+                billed_week="2026-08-02", snapshot_date="2026-07-29"
+            )},
+            "success",
+        )
+        # Empty source_sheets -> no column mapping -> classification
+        # degrades to 'unclassified' without any cell-history call.
+        row = _row(week="2026-08-09", snapshot="2026-08-05")
+
+        summary = apply_snapshot_drift_holds(
+            [row], [], self.client, self.session_start
+        )
+
+        self.assertEqual(summary["candidates"], 1)
+        self.assertEqual(summary["unclassified"], 1)
+        # Fail-closed logging: the sighting is still recorded.
+        events = self.mock_insert.call_args[0][0]
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["classification"], "unclassified")
+        # Baseline preserved: no provenance record for the
+        # unclassified row may reach the upsert.
+        records = (
+            self.mock_upsert.call_args[0][0]
+            if self.mock_upsert.call_args else []
+        )
+        self.assertEqual([r for r in records if r["row_id"] == 222], [])
+
+
 SNAPSHOT_COL = 5001
 UNITS_COL = 5002
 AUTOMATION_EMAIL = "automation@smartsheet.com"
