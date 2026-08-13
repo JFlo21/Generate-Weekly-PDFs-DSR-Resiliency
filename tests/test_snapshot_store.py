@@ -29,6 +29,7 @@ from billing_audit.snapshot_store import (
     sanitized_wr,
     upsert_snapshot_provenance,
 )
+import billing_audit.snapshot_store as snapshot_store
 
 _UNSET = object()
 
@@ -410,6 +411,229 @@ class TestSnapshotStoreModuleContract(unittest.TestCase):
         ``writer._sanitized_wr`` -- same function object, not a
         copy."""
         self.assertIs(sanitized_wr, writer._sanitized_wr)
+
+
+class RpcCharacterizationTestBase(SnapshotStoreTestBase):
+    """Shared reset for the WR-02 RPC-first suite (T4, 260813-nhn).
+
+    Adds the one-time degrade-log latch to the T2 cache-hygiene reset
+    -- that module attribute did not exist when
+    ``SnapshotStoreTestBase`` was written, so it is reset here rather
+    than editing that (committed, oracle) base class.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        snapshot_store._rpc_missing_logged = False
+
+
+def _configure_rpc(client, *, side_effect=None, response_rows=None):
+    """Compose RPC support onto a client built by ``_make_fake_client``
+    (T2) WITHOUT modifying that fixture -- ``.rpc`` is set directly
+    on the already-built ``schema`` mock. Returns ``schema`` so tests
+    can inspect ``schema.rpc.call_args`` / ``call_args_list``.
+    """
+    schema = client.schema.return_value
+    rpc_obj = mock.Mock()
+    if side_effect is not None:
+        rpc_obj.execute.side_effect = side_effect
+    else:
+        rpc_obj.execute.return_value = mock.Mock(
+            data=response_rows if response_rows is not None else []
+        )
+    schema.rpc.return_value = rpc_obj
+    return schema
+
+
+class TestFetchSnapshotProvenanceRpcFirst(RpcCharacterizationTestBase):
+    """A1-A8 (RESEARCH C.4): the WR-02 RPC-first reader. The
+    unmodified T2 suite above stays green throughout -- an
+    unconfigured ``.rpc()`` chain is treated by the module the same
+    way a genuinely-missing function is (falls back to the proven
+    select path), which is exactly what a not-yet-deployed RPC looks
+    like in production too.
+    """
+
+    def test_a1_rpc_available_select_not_called(self) -> None:
+        """A1: RPC available -> ``.rpc(...)`` called; ``.table()
+        .select()`` NOT called."""
+        client, table = _make_fake_client()
+        schema = _configure_rpc(client, response_rows=[])
+        with mock.patch(
+            'billing_audit.snapshot_store.get_client', return_value=client
+        ):
+            rows, status = fetch_snapshot_provenance([(1, 2)])
+        schema.rpc.assert_called_once()
+        table.select.assert_not_called()
+        self.assertEqual(status, 'no_row')
+        self.assertEqual(rows, {})
+
+    def test_a2_rpc_payload_shape(self) -> None:
+        """A2: every element of ``p_keys`` is a dict of exactly
+        ``sheet_id`` and ``row_id``, both ``int``."""
+        client, _table = _make_fake_client()
+        schema = _configure_rpc(
+            client,
+            response_rows=[{'sheet_id': 1, 'row_id': 2}],
+        )
+        with mock.patch(
+            'billing_audit.snapshot_store.get_client', return_value=client
+        ):
+            fetch_snapshot_provenance([(1, 2)])
+        _name, args, _kwargs = schema.rpc.mock_calls[0]
+        payload = args[1]['p_keys']
+        for item in payload:
+            self.assertEqual(set(item.keys()), {'sheet_id', 'row_id'})
+            self.assertIsInstance(item['sheet_id'], int)
+            self.assertIsInstance(item['row_id'], int)
+
+    def test_a3_pgrst202_falls_back_to_select_success(self) -> None:
+        """A3: RPC raises a PGRST202-shaped error -> falls back to
+        the select path and returns ``'success'``; the returned
+        status is one of the original four (never the internal
+        ``'rpc_missing'`` marker, D-04)."""
+        from postgrest.exceptions import APIError
+
+        error = APIError({'code': 'PGRST202', 'message': 'missing'})
+        client, table = _make_fake_client(
+            select_response=[{'sheet_id': 1, 'row_id': 2}]
+        )
+        _configure_rpc(client, side_effect=error)
+        with mock.patch(
+            'billing_audit.snapshot_store.get_client', return_value=client
+        ):
+            rows, status = fetch_snapshot_provenance([(1, 2)])
+        self.assertIn(
+            status, ('success', 'no_row', 'fetch_failure', 'unavailable')
+        )
+        self.assertEqual(status, 'success')
+        self.assertIn((1, 2), rows)
+        table.select.assert_called_once()
+
+    def test_a4_rpc_missing_logs_exactly_once_per_process(self) -> None:
+        """A4: two ``fetch_snapshot_provenance`` calls in one process
+        with the RPC missing -> exactly ONE WARNING record."""
+        from postgrest.exceptions import APIError
+
+        error = APIError({'code': 'PGRST202', 'message': 'missing'})
+        client, _table = _make_fake_client(select_response=[])
+        _configure_rpc(client, side_effect=error)
+        with mock.patch(
+            'billing_audit.snapshot_store.get_client', return_value=client
+        ):
+            with self.assertLogs(
+                'billing_audit.snapshot_store', level='WARNING'
+            ) as cm:
+                fetch_snapshot_provenance([(1, 2)])
+                fetch_snapshot_provenance([(3, 4)])
+        self.assertEqual(len(cm.records), 1)
+
+    def test_a5_transient_exhaustion_is_fetch_failure_no_fallback(
+        self,
+    ) -> None:
+        """A5: RPC raises a transient error until retries exhaust ->
+        ``'fetch_failure'`` and NO select fallback (the table chain
+        is never touched) -- a transient outage must not double the
+        request volume."""
+        client, table = _make_fake_client()
+        _configure_rpc(client, side_effect=ConnectionError('down'))
+        with mock.patch(
+            'billing_audit.snapshot_store.get_client', return_value=client
+        ), mock.patch('billing_audit.client.time.sleep'):
+            rows, status = fetch_snapshot_provenance([(1, 2)])
+        self.assertEqual(rows, {})
+        self.assertEqual(status, 'fetch_failure')
+        table.select.assert_not_called()
+
+    def test_a6_rpc_chunking_merges_all_chunks(self) -> None:
+        """A6: RPC chunking -- ``_RPC_CHUNK_SIZE`` patched to 500,
+        1200 keys -> exactly 3 rpc invocations, results from all
+        three merge into one dict."""
+        client, _table = _make_fake_client()
+        schema = client.schema.return_value
+
+        def _echo(_name, params):
+            call_result = mock.Mock()
+            keys = params.get('p_keys', [])
+            call_result.execute.return_value = mock.Mock(
+                data=[
+                    {'sheet_id': k['sheet_id'], 'row_id': k['row_id']}
+                    for k in keys
+                ]
+            )
+            return call_result
+
+        schema.rpc.side_effect = _echo
+        keys = [(1, i) for i in range(1200)]
+        with mock.patch(
+            'billing_audit.snapshot_store.get_client', return_value=client
+        ), mock.patch.object(snapshot_store, '_RPC_CHUNK_SIZE', 500):
+            rows, status = fetch_snapshot_provenance(keys)
+        self.assertEqual(status, 'success')
+        self.assertEqual(schema.rpc.call_count, 3)
+        self.assertEqual(len(rows), 1200)
+
+    def test_a7_fallback_chunking_whole_sheet_ids_per_chunk(
+        self,
+    ) -> None:
+        """A7: fallback chunking -- RPC missing, 1000 keys,
+        ``_FALLBACK_ROW_ID_CHUNK`` at its module default of 200 ->
+        exactly 5 select invocations, and the ``sheet_id`` list is
+        passed WHOLE on each chunk (only the row axis chunks)."""
+        from postgrest.exceptions import APIError
+
+        error = APIError({'code': 'PGRST202', 'message': 'missing'})
+        client, table = _make_fake_client(select_response=[])
+        _configure_rpc(client, side_effect=error)
+        # 1000 DISTINCT row ids (varying sheet_id among 3 values so
+        # the sheet-id axis stays small) -> ceil(1000/200) = 5 chunks
+        # on the row-id axis.
+        keys = [(10 + (i % 3), i) for i in range(1000)]
+        with mock.patch(
+            'billing_audit.snapshot_store.get_client', return_value=client
+        ):
+            fetch_snapshot_provenance(keys)
+        self.assertEqual(table.select.call_count, 5)
+        sheet_in_calls = table.select.return_value.in_.call_args_list
+        row_in_calls = (
+            table.select.return_value.in_.return_value.in_.call_args_list
+        )
+        self.assertEqual(len(sheet_in_calls), 5)
+        expected_sheet_ids = sorted({s for s, _r in keys})
+        for call in sheet_in_calls:
+            self.assertEqual(call.args[1], expected_sheet_ids)
+        self.assertEqual(len(row_in_calls), 5)
+        for call in row_in_calls[:-1]:
+            self.assertEqual(len(call.args[1]), 200)
+
+    def test_a8_op_isolation_distinct_breaker_counters(self) -> None:
+        """A8: op isolation -- RPC failures raise
+        ``billing_audit.client._consecutive_failures
+        ['lookup_snapshot_provenance_bulk']`` and leave the
+        ``fetch_snapshot_provenance`` entry at 0."""
+        from postgrest.exceptions import APIError
+
+        error = APIError({'code': 'PGRST202', 'message': 'missing'})
+        client, _table = _make_fake_client(
+            select_response=[{'sheet_id': 1, 'row_id': 2}]
+        )
+        _configure_rpc(client, side_effect=error)
+        with mock.patch(
+            'billing_audit.snapshot_store.get_client', return_value=client
+        ):
+            fetch_snapshot_provenance([(1, 2)])
+        self.assertEqual(
+            client_mod._consecutive_failures.get(
+                snapshot_store._PROVENANCE_RPC, 0
+            ),
+            1,
+        )
+        self.assertEqual(
+            client_mod._consecutive_failures.get(
+                'fetch_snapshot_provenance', 0
+            ),
+            0,
+        )
 
 
 if __name__ == '__main__':
