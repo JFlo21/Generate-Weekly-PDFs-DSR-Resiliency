@@ -5739,3 +5739,33 @@ follow-up findings closed, same 6 files.
   Reworded to describe the single call only; the log-emission latch
   itself (once per process, so the WARNING doesn't spam) is unchanged
   and was never the thing that was wrong.
+
+## [2026-08-13 19:05] billing_audit drift DDL + RPC APPLIED to production (Supabase MCP, Juan-approved)
+
+- **All pending billing_audit DDL is now LIVE** on project
+  `poeyztlmsawfoqlanucc` (Smarthsheet-Resiliency-Offloaded-Data — the
+  project hosting the billing_audit schema), applied as three
+  migrations via the Supabase MCP connector at Juan's direction:
+  `billing_audit_snapshot_drift_tables`,
+  `billing_audit_lookup_snapshot_provenance_bulk_rpc`,
+  `pin_search_path_lookup_snapshot_provenance_bulk`.
+- **Deviations from the repo schema.sql text, both mirrored back into
+  the file in the same change:** (1) WR-03 resolved — RLS enabled on
+  both new tables + one `service_role_all` FOR ALL policy each,
+  matching every sibling billing_audit table (service_role bypasses
+  RLS; pipeline unaffected); (2) `SET search_path = ''` pinned on the
+  new RPC (advisor `function_search_path_mutable`; matches
+  lookup_attribution/_bulk; safe — body fully schema-qualified).
+- **Verified live:** tables exist w/ RLS + policies; RPC callable
+  (0 rows on empty table — correct first-sight state) both before and
+  after the search_path pin; `pgrst_ddl_watch` event trigger present,
+  so PostgREST reloaded its schema cache automatically on each DDL
+  (an explicit NOTIFY was unnecessary). Security advisors re-run: the
+  only new finding (search_path) was fixed; every remaining finding
+  pre-dates this change.
+- **Burn-in begins with the next scheduled run:** the drift audit
+  will seed ~200K provenance rows on first pass (chunked upsert,
+  1000/POST) and the RPC-first reader replaces the PGRST202 fallback
+  path. Watch the run log for `Snapshot-drift audit:` and
+  `Rate-sanity audit:` aggregate lines. Hold gate remains OFF
+  (`SNAPSHOT_DRIFT_HOLD_ENABLED` unset) until burn-in is judged.
