@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: August 12, 2026 (updated automatically)_
+_Last updated: August 13, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -14,16 +14,14 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — August 12, 2026
+### 📋 Changelog — August 13, 2026
 
+- ✨ New capability: snapshot-date drift audit — detect automation re-stamps, optional hold gate
 - ✨ New capability: rate-sanity audit check (260812-isx)
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- ✅ Problem fixed: qty parse unification, crash-handler hoist, 403 diagnosis, dependency security
-- ✨ New capability: rate-sanity audit check (260812-isx) ()
+- ✨ New capability: snapshot-date drift audit — detect automation re-stamps, optional hold gate ()
 - 📄 Help guides updated: automated plain-language update from Notion Worker
-- 📄 Help guides updated: log d7fa534 &#91;skip ci&#93;
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- 📄 Help guides updated: log 647a688 &#91;skip ci&#93;
+- ✨ New capability: rate-sanity audit check (260812-isx) ()
 
 <!-- /runbook-repo -->
 
