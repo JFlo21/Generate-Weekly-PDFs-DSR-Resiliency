@@ -5770,6 +5770,179 @@ follow-up findings closed, same 6 files.
   `Rate-sanity audit:` aggregate lines. Hold gate remains OFF
   (`SNAPSHOT_DRIFT_HOLD_ENABLED` unset) until burn-in is judged.
 
+## [2026-08-13 22:00] Burn-in run 1 CLEAN (GH run 31761117011): first seeding + RPC path verified live
+
+- **Snapshot-drift audit: candidates=0 seeded=200,765 unchanged=0
+  holds=0** — perfect first-sight seeding of the entire row universe;
+  no PGRST202/rpc-missing WARNING (RPC-first path active), no
+  fetch_failure, no corroboration ERROR (empty-table probe correctly
+  authorized the first seed). Run: scheduled 01:00 UTC cron,
+  conclusion=success, ~2h.
+- **Rate-sanity scoping validated at production scale:**
+  `checked=85,398 skipped=27 out_of_scope=115,340
+  (subcontractor_basis=810, pre_cutoff_or_undated=114,530)
+  mismatches=2` — from 115,272 false flags (2026-08-12 dry run) down
+  to TWO findings, and the out_of_scope split matches the research
+  prediction almost exactly.
+- **NEW FINDING — the remaining HIGH-risk driver is the LEGACY
+  price-variance detector, not rate-sanity:** audit totals were
+  Anomalies=575 / Unauthorized=0 / Data issues=1 / Rate-sanity=2 →
+  risk_level HIGH. `_detect_price_anomalies` groups Units Total Price
+  by WR across ALL history with no era/scope gate (same noise class
+  rate-sanity had). Candidate follow-up (needs Juan's go): scope or
+  re-baseline the price-variance detector; until then risk_level will
+  stay HIGH on every run for reasons unrelated to drift or rates.
+- **The 2 rate-sanity mismatches are real post-cutoff signal**
+  (SAA-DE-20 defect class) — WR-level detail is not in CI logs by
+  design (T-ISX-01); identify them via a local
+  TEST_MODE+SKIP_UPLOAD run or the audit artifacts when investigating.
+- **Next-run steady-state expectation (burn-in criterion):**
+  seeded≈new-rows-only, unchanged≈200K, candidates = genuine
+  week-movers only. After a few clean days: enable
+  `SNAPSHOT_DRIFT_HOLD_ENABLED` via workflow-env PR.
+
+## [2026-08-13 23:00] The 2 rate-sanity mismatches IDENTIFIED (both underbill-by-one-unit, SAA-DE-20 stale-formula class) + legacy price-variance detector scoping measured — era gate alone is NOT enough
+
+- **Method (read-only local repro, scratchpad driver):** production
+  `discover_source_sheets` → `get_all_source_rows` → ONLY
+  `_detect_rate_sanity_mismatches` (no `audit_financial_data`, so no
+  audit_state write, no Sentry event, no upload). Counters matched
+  burn-in run 31761117011 almost exactly: `checked=85,475
+  skipped=27 out_of_scope=115,340 (810/114,530) mismatches=2`
+  (burn-in: checked=85,398, same out_of_scope split, same 2) —
+  the local repro is a faithful oracle for CI audit behavior.
+- **Mismatch 1: WR 91718610 / CU SAA-DE-20 / Inst / Qty 2** —
+  expected $113.68 (2 × $56.84), actual $56.84 → **underbilled
+  exactly one unit** (actual = rate × (qty−1)). Same CU as the
+  2026-08-12 incident, opposite direction. Source rows live on
+  Resiliency Promax Database Backup 82/83 + Intake Promax 9.
+- **Mismatch 2: WR 91173728 / CU DEC-20AL-C / Inst / Qty 4** —
+  expected $1,179.36 (4 × $294.84), actual $884.52 (3 × $294.84) →
+  **underbilled exactly one unit**, same class. (Smartsheet search
+  didn't surface its ProMax source sheet — index lag; find by WR
+  filter.)
+- **Action (upstream, per the [2026-08-12 13:40] rule):** on each
+  source row compare `Quantity` vs `Install Quantity` (stale SUMIFS
+  cell) and re-save the row to force recalc; next scheduled run
+  regenerates via hash change. NEVER patch the pricing path for this.
+- **Legacy `_detect_price_anomalies` scoping measured at production
+  scale** (200,842 rows; 85,502 in-scope under the rate-sanity gate):
+  current = 575 flagged WRs (matches CI); **era gate alone → 239**
+  (still ≫3 → risk_level stays HIGH); the same >50%-range rule
+  re-based per (WR, CU) era-gated → 6,968 groups (total price) /
+  5,192 (unit price = total/qty; zero-price rows poison it) — the
+  variance rule is statistically unusable at ANY scope on this data.
+  A principled re-baseline (compare to expected rate per CU+era)
+  converges to what rate-sanity already does; residual unique value
+  ≈ CUs absent from `data/subcontractor_rates.csv` (skipped=27 rows
+  only). **Recommendation (needs Juan's decision):** retire/demote
+  the legacy detector — keep report-only but exclude its count from
+  `total_issues`/`_risk_level_for` (or env-flag default-off). Do NOT
+  invest in era-gating it; measurement shows that cannot clear HIGH.
+- **NEW observability gap:** `_log_audit_results` fires
+  `capture_message("AUDIT: Risk …")` on every HIGH run with
+  SENTRY_DSN set in CI, yet Sentry (org linetec-services-llc-hi) has
+  ZERO such events across 7 days, all projects. Suspect the attached
+  `scope.set_context("audit_results", …)` payload (575 anomaly
+  dicts + full lists) is dropped at ingest for size — and it also
+  ships WR+price detail, in tension with the T-ISX-01 aggregate-only
+  posture. Follow-up candidate: slim the Sentry context to
+  summary-only (fixes both delivery and PII posture).
+
+## [2026-08-14 00:50] ROOT CAUSE CONFIRMED via cell history: both rate-sanity mismatches are automation-triggered stale recalcs (2-3s after a human qty edit), with exact row pointers
+
+- **WR 91718610 / SAA-DE-20 / Inst — Resiliency Promax Database
+  Backup 83 (sheet 1751347954143108), row 5538447881863044.**
+  Cell-history timeline (UTC 2026-08-07): 00:15:38 Jose Mendez edits
+  Quantity 1→2 (+ checks Units Completed?); 00:16:01 automation
+  stamps Snapshot Date; 00:30:22 formula chain recalcs CORRECTLY
+  (Install Pricing Totals + Units Total Price → $113.68); **00:30:24
+  a "Smartsheet Automation"-attributed recalc reverts both to $56.84**
+  (rate × stale Install Quantity=1) and the value parks. Quantity/
+  Install Quantity currently agree at 2 — the stale cell is the
+  PRICING-TOTALS formula result, not the quantity SUMIFS. Billed week
+  2026-08-09 → that week's Excel already underbilled $56.84; re-save
+  regenerates via hash change.
+- **WR 91173728 / DEC-20AL-C / Inst — Resiliency Promax Database
+  Backup 73 (sheet 5545068919213956), row 1166598725369732.**
+  Timeline (UTC 2026-08-11): 22:33:31 Patrick Duffy edits Quantity
+  3→4; 22:33:48 price recalcs CORRECTLY to $1,179.36; **22:33:51
+  automation-attributed recalc reverts to $884.52** (3 × $294.84).
+  Quantity/Install Quantity currently agree at 4. **Billed week is
+  2026-08-16 (CURRENT) — bills $294.84 short this week unless the
+  row is re-saved before the next run.** (Do not confuse with Intake
+  Promax 9 row 8998903473897348 — qty 3 @ $884.52, consistent, fine.)
+- **Refined rule for the SAA-DE-20 class:** the defect is an
+  automation-TRIGGERED re-evaluation racing a human edit (recalc
+  reads a stale dependent 2-3s later and last-write-wins), not a
+  formula cell that "never recalculated". Both incidents predate
+  Juan's 2026-08-13 automation reconfiguration — watch rate-sanity
+  counters on future runs to verify the fix killed the race (any new
+  mismatch = race still alive). Locate source rows fast via
+  `billing_audit.snapshot_provenance` (sheet_id,row_id by wr+cu) —
+  used here read-only via Supabase MCP.
+
+## [2026-08-14 10:05] Both underbilled rows REPAIRED via approved API re-save; drift steady state ACHIEVED run 2; rate-sanity 2 -> 1 -> (expect 0)
+
+- **Repair method (Juan-approved live write):** a same-value Quantity
+  rewrite is a NO-OP for Smartsheet's dependency graph — no recalc,
+  no history entry (this is WHY the wrong values had persisted since
+  Aug 7/11: nothing ever invalidated them). Working idiom: two-step
+  type-flip — write Quantity as TEXT ("2", strict=true), then
+  immediately back as NUMBER — each step is a real change and the
+  second recalc lands on correct current inputs. Snapshot Date was
+  NOT re-stamped by automations on either edit.
+- **Row 1 (Backup 83 / 5538447881863044, WR 91718610):** fixed →
+  $113.68, stable through the automation window AND run 31805121266,
+  which REGENERATED Week=080926 (the underbilled 08-09 Excel is
+  corrected + re-uploaded). Caution logged: the session slept mid-
+  flip, leaving the row in text-Quantity state 07:06–08:11 UTC
+  (price $0 transiently); no run fetched in that window.
+- **Row 2 (Backup 73 / 1166598725369732, WR 91173728):** fixed →
+  $1,179.36 at 14:56 UTC (after run 31805121266 fetched), stable.
+  That run generated Week=081626 with the old $884.52 — the NEXT
+  scheduled run picks up the hash change and regenerates the
+  current-week file correctly. No manual regen needed.
+- **Run 31805121266 (13:31 UTC, success): rate-sanity mismatches=1**
+  (row 1 cleared pre-run) — next run expected 0. **Snapshot-drift
+  steady state ACHIEVED on run 2: candidates=0 seeded=155
+  unchanged=200,765 holds=0** (seeded ≈ new rows only) — burn-in
+  criterion met → SNAPSHOT_DRIFT_HOLD_ENABLED workflow-env PR is
+  now unblocked (GitHub Actions change — Juan approves).
+- **Automation-race signal:** neither of my two real edits triggered
+  the 2-3s revert that hit Jose's (Aug 7) and Patrick's (Aug 11)
+  edits — consistent with Juan's 2026-08-13 automation fix working.
+  Definitive proof = future foreman edits; watch rate-sanity
+  mismatch count each run (>0 new = race alive).
+
+## [2026-08-14 11:10] Legacy price-variance detector DEMOTED from risk ladder (Juan-approved) — report-only; PRICE_VARIANCE_IN_RISK restores legacy
+
+- **What:** `_detect_price_anomalies` findings no longer count toward
+  `risk_level` by default. New shared helper
+  `_total_issues_for_risk(summary, extra=0)` is the SINGLE risk-ladder
+  input used by BOTH `_generate_audit_summary` and
+  `escalate_risk_for_snapshot_drift` (extends IN-07: one derivation,
+  never two that can diverge). `PRICE_VARIANCE_IN_RISK=true` restores
+  the legacy escalation. The detector still runs; `total_anomalies`,
+  recommendations, audit-sheet "Total Issues", audit_state history,
+  and trend deltas all still count it (report-only visibility kept).
+- **Why (measured, ledger [2026-08-13 23:00]):** the detector pools
+  Units Total Price per WR across ALL history AND all CUs — multi-CU
+  WRs flag by construction: 575 flags, zero confirmed incidents,
+  risk pinned HIGH every run. Era gate cuts only to 239 (still
+  HIGH); per-(WR,CU) re-base explodes to 5,192–6,968. A principled
+  per-CU expected-rate check IS the rate-sanity audit (which is now
+  clean: mismatches=0 on run 31813915527).
+- **Effect:** `risk_level` becomes meaningful — driven by
+  unauthorized changes, data issues, rate-sanity mismatches, and
+  drift self-fire holds. The "AUDIT ALERT: HIGH" warning and the
+  Sentry send gate now fire only on genuine signal. Sentry AUDIT
+  events were not arriving anyway (open observability gap, entry
+  [2026-08-13 23:00]) — slimming that context is still a follow-up.
+- **Tests:** tests/test_price_variance_risk_demotion.py (13) — default
+  exclusion, report-only preservation, flag restore, drift-escalation
+  mirror, zero-hold no-op.
+
 ## [2026-08-14 11:25] Snapshot-drift HOLD GATE ENABLED (workflow env) + IN-04 resolved: changed_by KEPT on the hold line (automation-only by construction)
 
 - **What:** `SNAPSHOT_DRIFT_HOLD_ENABLED: 'true'` added to the

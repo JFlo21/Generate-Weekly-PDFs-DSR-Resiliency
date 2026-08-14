@@ -98,7 +98,7 @@ on:
         default: ''
         type: string
       advanced_options:
-        description: 'Advanced: max_groups:X,regen_weeks:MMDDYY1;MMDDYY2,reset_wr_list:WR1;WR2,remediate_claimers:1,remediation_dry_run:1,remediation_window_weeks:26'
+        description: 'Advanced: max_groups:X,regen_weeks:MMDDYY1;MMDDYY2,reset_wr_list:WR1;WR2,remediate_claimers:1,remediation_dry_run:1,remediation_window_weeks:26,price_variance_in_risk:true'
         required: false
         default: ''
         type: string
@@ -230,6 +230,7 @@ jobs:
               remediate_claimers) echo "REMEDIATE_CLAIMERS=${value}" >> "$GITHUB_ENV" ;;
               remediation_dry_run) echo "REMEDIATION_DRY_RUN=${value}" >> "$GITHUB_ENV" ;;
               remediation_window_weeks) echo "REMEDIATION_WINDOW_WEEKS=${value}" >> "$GITHUB_ENV" ;;
+              price_variance_in_risk) echo "PRICE_VARIANCE_IN_RISK=${value}" >> "$GITHUB_ENV" ;;
             esac
           done
       - name: Generate reports

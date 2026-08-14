@@ -22,7 +22,7 @@ This page explains what each of our tools does and its recent updates, in everyd
 - ✨ New capability: scope rate-sanity audit to current cycle ( follow-up)
 - ✨ New capability: snapshot-date drift audit — detect automation re-stamps, optional hold gate
 - ✨ New capability: rate-sanity audit check (260812-isx)
-- 📄 Help guides updated: mirror applied billing&#95;audit DDL in schema.sql ()
+- 📄 Help guides updated: log d983dc8 &#91;skip ci&#93;
 - 📄 Help guides updated: automated plain-language update from Notion Worker
 
 <!-- /runbook-repo -->
@@ -41,16 +41,16 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
 
-### 📋 Changelog — August 13, 2026
+### 📋 Changelog — August 14, 2026
 
+- • v1.3 milestone close + WR 90798374 webapp fix (Render worker env parity)
+- • Phase 23: As Designed Audit tab + billers grid additions (AUDIT-01..04)
 - ✨ New capability: Phase 22 — STORMS column alignment on every variant (COL-01..04)
 - ✨ New capability: Phase 21 — manifest heading enrichment on every variant (HEAD-01..04)
 - ✅ Problem fixed: BUG-005 — persist true source version on routed Output Log rows (Source Version column)
 - ✅ Problem fixed: NotCompleted Week Ending acceptance + /return nav + hourly triggers for the three dispatch-only lifecycle workers
 - • Set up Cursor Cloud dev environment (AGENTS.md + notes)
 - 📄 Help guides updated: session ledger + changelog entries for v1.2 milestone close
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- • sync: Phase 20 stack — billing status dashboard, As-Built hardening, planning state
 
 <!-- /runbook-repo -->
 
@@ -59,7 +59,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
 
-### 📋 Changelog — August 13, 2026
+### 📋 Changelog — August 14, 2026
 
 - • ClaudeOS: GSD Core 1.10.0 routing and dispatch repair
 - • Merge pull request from JFlo21/codex/gsd-core-fable-routing
@@ -75,7 +75,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — August 13, 2026
+### 📋 Changelog — August 14, 2026
 
 - • 📊 Audit: 2026-08-10T07:00:02Z
 
@@ -455,7 +455,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — August 13, 2026
+### 📋 Changelog — August 14, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -487,3 +487,4 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
+
