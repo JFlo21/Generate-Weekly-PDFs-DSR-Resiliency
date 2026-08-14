@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: August 13, 2026 (updated automatically)_
+_Last updated: August 14, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -14,15 +14,15 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — August 13, 2026
+### 📋 Changelog — August 14, 2026
 
+- 📄 Help guides updated: mirror applied billing&#95;audit DDL in schema.sql
 - ⚡ The system now runs faster (RPC bulk provenance read + audit follow-ups)
 - ✅ Problem fixed: harden rate-sanity scope gate ( review)
 - ✨ New capability: scope rate-sanity audit to current cycle ( follow-up)
 - ✨ New capability: snapshot-date drift audit — detect automation re-stamps, optional hold gate
 - ✨ New capability: rate-sanity audit check (260812-isx)
-- ⚡ The system now runs faster (RPC bulk provenance read + audit follow-ups ())
-- 📄 Help guides updated: log 2801a52 &#91;skip ci&#93;
+- 📄 Help guides updated: mirror applied billing&#95;audit DDL in schema.sql ()
 - 📄 Help guides updated: automated plain-language update from Notion Worker
 
 <!-- /runbook-repo -->
