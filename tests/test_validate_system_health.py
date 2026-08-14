@@ -171,6 +171,263 @@ class TestConfigSanity(unittest.TestCase):
         )
 
 
+class TestProductionWorkflowConfig(unittest.TestCase):
+    """Grades .github/workflows/weekly-excel-generation.yml directly.
+
+    Each test writes a YAML fixture into a TemporaryDirectory and
+    passes that path explicitly -- no network, no real workflow file.
+    """
+
+    def _fixture(self, tmp: str, text: str) -> str:
+        path = os.path.join(tmp, "weekly-excel-generation.yml")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        return path
+
+    def test_happy_path_mirrors_real_workflow_is_ok(self):
+        text = (
+            "jobs:\n"
+            "  core:\n"
+            "    timeout-minutes: 180\n"
+            "    env:\n"
+            "      PARALLEL_WORKERS: "
+            "${{ github.event.inputs.parallel_workers || '8' }}\n"
+            "      PARALLEL_WORKERS_DISCOVERY: "
+            "${{ github.event.inputs.parallel_workers_discovery"
+            " || '8' }}\n"
+            "      TIME_BUDGET_MINUTES: '165'\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._fixture(tmp, text)
+            ctx = vsh.HealthContext()
+            status, detail = vsh.check_production_workflow_config(
+                ctx, path=path
+            )
+        self.assertEqual(status, vsh.STATUS_OK)
+
+    def test_comment_immunity(self):
+        text = (
+            "# Serialize runs. With timeout-minutes: 500 in prose,\n"
+            "# and an example PARALLEL_WORKERS: 99 for reference.\n"
+            "jobs:\n"
+            "  core:\n"
+            "    env:\n"
+            "      TIME_BUDGET_MINUTES: '165'\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._fixture(tmp, text)
+            ctx = vsh.HealthContext()
+            status, detail = vsh.check_production_workflow_config(
+                ctx, path=path
+            )
+        self.assertEqual(status, vsh.STATUS_OK)
+        self.assertNotIn("99", detail)
+        self.assertFalse(
+            any("99" in note or "500" in note for note in ctx.notes)
+        )
+
+    def test_over_cap_primary_worker_warns(self):
+        text = (
+            "jobs:\n"
+            "  core:\n"
+            "    env:\n"
+            "      PARALLEL_WORKERS: "
+            "${{ github.event.inputs.parallel_workers || '12' }}\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._fixture(tmp, text)
+            ctx = vsh.HealthContext()
+            status, detail = vsh.check_production_workflow_config(
+                ctx, path=path
+            )
+        self.assertEqual(status, vsh.STATUS_WARN)
+        self.assertIn("PARALLEL_WORKERS", detail)
+        self.assertIn("8", detail)
+
+    def test_over_cap_discovery_worker_warns(self):
+        text = (
+            "jobs:\n"
+            "  core:\n"
+            "    env:\n"
+            "      PARALLEL_WORKERS_DISCOVERY: "
+            "${{ github.event.inputs.parallel_workers_discovery"
+            " || '16' }}\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._fixture(tmp, text)
+            ctx = vsh.HealthContext()
+            status, detail = vsh.check_production_workflow_config(
+                ctx, path=path
+            )
+        self.assertEqual(status, vsh.STATUS_WARN)
+        self.assertIn("PARALLEL_WORKERS_DISCOVERY", detail)
+
+    def test_at_cap_boundary_is_not_warn(self):
+        text = (
+            "jobs:\n"
+            "  core:\n"
+            "    env:\n"
+            "      PARALLEL_WORKERS: "
+            "${{ github.event.inputs.parallel_workers || '8' }}\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._fixture(tmp, text)
+            ctx = vsh.HealthContext()
+            status, _ = vsh.check_production_workflow_config(
+                ctx, path=path
+            )
+        self.assertEqual(status, vsh.STATUS_OK)
+
+    def test_non_numeric_budget_warns(self):
+        text = (
+            "jobs:\n"
+            "  core:\n"
+            "    env:\n"
+            "      TIME_BUDGET_MINUTES: 'ninety'\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._fixture(tmp, text)
+            ctx = vsh.HealthContext()
+            status, detail = vsh.check_production_workflow_config(
+                ctx, path=path
+            )
+        self.assertEqual(status, vsh.STATUS_WARN)
+        self.assertIn("TIME_BUDGET_MINUTES", detail)
+
+    def test_budget_not_below_ceiling_warns(self):
+        text = (
+            "jobs:\n"
+            "  core:\n"
+            "    timeout-minutes: 180\n"
+            "    env:\n"
+            "      TIME_BUDGET_MINUTES: '180'\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._fixture(tmp, text)
+            ctx = vsh.HealthContext()
+            status, detail = vsh.check_production_workflow_config(
+                ctx, path=path
+            )
+        self.assertEqual(status, vsh.STATUS_WARN)
+        self.assertIn("TIME_BUDGET_MINUTES", detail)
+
+    def test_budget_below_ceiling_is_not_warn(self):
+        text = (
+            "jobs:\n"
+            "  core:\n"
+            "    timeout-minutes: 180\n"
+            "    env:\n"
+            "      TIME_BUDGET_MINUTES: '165'\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._fixture(tmp, text)
+            ctx = vsh.HealthContext()
+            status, _ = vsh.check_production_workflow_config(
+                ctx, path=path
+            )
+        self.assertEqual(status, vsh.STATUS_OK)
+
+    def test_missing_file_is_critical(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "does-not-exist.yml")
+            ctx = vsh.HealthContext()
+            status, _ = vsh.check_production_workflow_config(
+                ctx, path=path
+            )
+        self.assertEqual(status, vsh.STATUS_CRITICAL)
+
+    def test_unparseable_value_warns_but_grades_others(self):
+        text = (
+            "jobs:\n"
+            "  core:\n"
+            "    timeout-minutes: 180\n"
+            "    env:\n"
+            "      PARALLEL_WORKERS: "
+            "${{ github.event.inputs.parallel_workers }}\n"
+            "      PARALLEL_WORKERS_DISCOVERY: "
+            "${{ github.event.inputs.parallel_workers_discovery"
+            " || '8' }}\n"
+            "      TIME_BUDGET_MINUTES: '165'\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._fixture(tmp, text)
+            ctx = vsh.HealthContext()
+            status, detail = vsh.check_production_workflow_config(
+                ctx, path=path
+            )
+        self.assertEqual(status, vsh.STATUS_WARN)
+        self.assertIn("PARALLEL_WORKERS", detail)
+        self.assertNotIn("PARALLEL_WORKERS_DISCOVERY", detail)
+
+    def test_absent_keys_are_notes_not_problems(self):
+        text = "jobs:\n  core:\n    env: {}\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._fixture(tmp, text)
+            ctx = vsh.HealthContext()
+            status, _ = vsh.check_production_workflow_config(
+                ctx, path=path
+            )
+        self.assertEqual(status, vsh.STATUS_OK)
+        self.assertTrue(
+            any("PARALLEL_WORKERS" in note for note in ctx.notes)
+        )
+        self.assertTrue(
+            any(
+                "TIME_BUDGET_MINUTES" in note or "timeout" in note
+                for note in ctx.notes
+            )
+        )
+
+    def test_detail_hygiene_redacts_and_truncates(self):
+        long_value = "x" * 300
+        text = (
+            "jobs:\n"
+            "  core:\n"
+            "    env:\n"
+            "      PARALLEL_WORKERS: "
+            "${{ secrets.SOME_TOKEN_NEVER_SHOWN }}\n"
+            "      PARALLEL_WORKERS_DISCOVERY: '" + long_value
+            + "'\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._fixture(tmp, text)
+            ctx = vsh.HealthContext()
+            status, detail = vsh.check_production_workflow_config(
+                ctx, path=path
+            )
+        self.assertEqual(status, vsh.STATUS_WARN)
+        self.assertNotIn("SOME_TOKEN_NEVER_SHOWN", detail)
+        self.assertNotIn(long_value, detail)
+        self.assertLess(len(detail), 400)
+
+
+class TestProductionCheckRegistration(unittest.TestCase):
+    """production_workflow_config must be wired into run_checks()."""
+
+    def test_production_check_is_registered(self):
+        recorded_names = []
+
+        def _fake_timed(name, fn):
+            recorded_names.append(name)
+            return _result(name, vsh.STATUS_OK)
+
+        with mock.patch.object(vsh, "_timed", side_effect=_fake_timed):
+            vsh.run_checks(vsh.HealthContext())
+        self.assertIn("production_workflow_config", recorded_names)
+
+
+class TestConfigSanityScopeLabel(unittest.TestCase):
+    """check_config_sanity must state its process-env-only scope."""
+
+    def test_env_check_detail_states_process_scope(self):
+        ctx = vsh.HealthContext()
+        with mock.patch.dict(os.environ, {}, clear=True):
+            status, detail = vsh.check_config_sanity(ctx)
+        self.assertEqual(status, vsh.STATUS_OK)
+        self.assertIn("process", detail.lower())
+        self.assertIn("environment", detail.lower())
+
+
 class TestReport(unittest.TestCase):
     """Report assembly and writing."""
 

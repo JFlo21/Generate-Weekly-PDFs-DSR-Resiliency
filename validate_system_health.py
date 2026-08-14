@@ -26,6 +26,7 @@ import importlib
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -52,6 +53,29 @@ CORE_IMPORTS = ("smartsheet", "openpyxl", "dateutil", "dotenv")
 OPTIONAL_IMPORTS = ("sentry_sdk", "pandas", "supabase", "psutil")
 
 FACADE_IMPORT_TIMEOUT_SEC = 180
+
+# Authoritative source for check_production_workflow_config below.
+# Built from __file__, never the process cwd, mirroring how
+# check_facade_import derives its subprocess `cwd` -- a cwd-relative
+# path would silently re-create the same vacuous-pass class of bug
+# this check exists to close.
+WORKFLOW_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    ".github",
+    "workflows",
+    "weekly-excel-generation.yml",
+)
+MAX_PARALLEL_WORKERS = 8
+WORKFLOW_WORKER_KEYS = ("PARALLEL_WORKERS", "PARALLEL_WORKERS_DISCOVERY")
+
+# Detail-hygiene: any raw workflow value embedded in a problem
+# string or a note is redacted (if it looks like a secrets-context
+# expression) and truncated before it can reach the JSON report.
+_DETAIL_ECHO_LIMIT = 80
+_REDACTED_MARKER = "<redacted>"
+_SECRETS_CONTEXT_MARKER = "secrets."
+
+_EXPRESSION_FALLBACK_RE = re.compile(r"\|\|\s*'([^']*)'")
 
 STATUS_OK = "ok"
 STATUS_WARN = "warn"
@@ -225,18 +249,30 @@ def check_generated_docs_writable() -> "tuple[str, str]":
 
 
 def check_config_sanity(ctx: HealthContext) -> "tuple[str, str]":
-    """WARN on config values that violate documented guardrails."""
+    """WARN on guardrail values present in THIS process's own env.
+
+    Scope: this job's own process environment only.
+    ``system-health-check.yml`` never exports ``PARALLEL_WORKERS`` or
+    ``TIME_BUDGET_MINUTES`` -- only the weekly production workflow
+    does -- so this check can only ever catch drift if the health
+    job itself is one day given those variables. The authoritative
+    production values (parsed straight from
+    ``weekly-excel-generation.yml``) are graded by
+    ``check_production_workflow_config`` instead.
+    """
     problems = []
     raw_workers = os.getenv("PARALLEL_WORKERS")
     if raw_workers:
         try:
             if int(raw_workers) > 8:
                 problems.append(
-                    f"PARALLEL_WORKERS={raw_workers} exceeds cap 8"
+                    "process env: PARALLEL_WORKERS="
+                    f"{raw_workers} exceeds cap 8"
                 )
         except ValueError:
             problems.append(
-                f"PARALLEL_WORKERS={raw_workers!r} not an integer"
+                "process env: PARALLEL_WORKERS="
+                f"{raw_workers!r} not an integer"
             )
     raw_budget = os.getenv("TIME_BUDGET_MINUTES")
     if raw_budget:
@@ -244,7 +280,8 @@ def check_config_sanity(ctx: HealthContext) -> "tuple[str, str]":
             float(raw_budget)
         except ValueError:
             problems.append(
-                f"TIME_BUDGET_MINUTES={raw_budget!r} not numeric"
+                "process env: TIME_BUDGET_MINUTES="
+                f"{raw_budget!r} not numeric"
             )
     if os.getenv("SENTRY_DSN"):
         ctx.notes.append("SENTRY_DSN present")
@@ -252,7 +289,189 @@ def check_config_sanity(ctx: HealthContext) -> "tuple[str, str]":
         ctx.notes.append("SENTRY_DSN not set (non-fatal)")
     if problems:
         return STATUS_WARN, "; ".join(problems)
-    return STATUS_OK, "config within documented guardrails"
+    return (
+        STATUS_OK,
+        "process environment config within documented guardrails",
+    )
+
+
+def _strip_comment(line: str) -> str:
+    """Return ``line`` with any comment portion removed.
+
+    A line whose first non-space character is ``#`` is entirely a
+    comment and becomes an empty string. Otherwise the line is
+    truncated at the first ``" #"`` (space then hash) so a trailing
+    inline comment is discarded while leaving live content intact.
+    """
+    if line.lstrip().startswith("#"):
+        return ""
+    idx = line.find(" #")
+    if idx != -1:
+        return line[:idx]
+    return line
+
+
+def _resolve_value(raw: str) -> Optional[str]:
+    """Resolve a mapping right-hand side to a plain literal.
+
+    A GitHub Actions expression (``${{ ... }}``) resolves to its
+    ``|| 'fallback'`` literal -- that is the value a scheduled,
+    non-dispatch run actually receives. A quoted literal has its
+    matching quotes stripped. Anything else (including an
+    expression with no ``||`` fallback) returns ``None``.
+    """
+    text = raw.strip()
+    if "${{" in text:
+        match = _EXPRESSION_FALLBACK_RE.search(text)
+        return match.group(1) if match else None
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in "'\"":
+        return text[1:-1]
+    return text or None
+
+
+def _find_key_value(lines: List[str], key: str) -> Optional[str]:
+    """Return the raw right-hand side of the first line for ``key``.
+
+    ``lines`` must already be comment-stripped -- a value that only
+    ever appears on a commented line can never be found here.
+    """
+    pattern = re.compile(r"^\s*" + re.escape(key) + r"\s*:\s*(.*)$")
+    for line in lines:
+        match = pattern.match(line)
+        if match:
+            return match.group(1)
+    return None
+
+
+def _find_timeout_minutes(lines: List[str]) -> List[int]:
+    """Return every live ``timeout-minutes: N`` value found, as int.
+
+    ``lines`` must already be comment-stripped, so a commented
+    ``timeout-minutes`` mention can never inflate this list.
+    """
+    pattern = re.compile(r"^\s*timeout-minutes\s*:\s*(\d+)")
+    values = []
+    for line in lines:
+        match = pattern.match(line)
+        if match:
+            values.append(int(match.group(1)))
+    return values
+
+
+def _sanitize_detail_value(value: str) -> str:
+    """Redact secrets-context expressions and cap echo length.
+
+    Applied to any raw workflow value before it can reach a problem
+    string or a note, so a workflow value never lands in the JSON
+    report verbatim.
+    """
+    if _SECRETS_CONTEXT_MARKER in value:
+        return _REDACTED_MARKER
+    if len(value) > _DETAIL_ECHO_LIMIT:
+        return value[:_DETAIL_ECHO_LIMIT] + "..."
+    return value
+
+
+def check_production_workflow_config(
+    ctx: HealthContext, path: Optional[str] = None
+) -> "tuple[str, str]":
+    """WARN on production workflow config drift the env check misses.
+
+    Reads ``.github/workflows/weekly-excel-generation.yml`` directly
+    -- the authoritative source for ``PARALLEL_WORKERS``,
+    ``PARALLEL_WORKERS_DISCOVERY``, and ``TIME_BUDGET_MINUTES`` --
+    because the health job's own process environment never exports
+    them. ``path`` defaults to the module-level ``WORKFLOW_PATH``
+    resolved at call time (the pattern ``write_report`` already
+    uses), so tests can point it at a temp fixture while production
+    callers get the real repo file.
+    """
+    if path is None:
+        path = WORKFLOW_PATH
+    if not os.path.isfile(path):
+        return (
+            STATUS_CRITICAL,
+            "production workflow file not found -- the billing "
+            "schedule itself is missing",
+        )
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        raw_lines = handle.readlines()
+    lines = [_strip_comment(line) for line in raw_lines]
+
+    problems: List[str] = []
+
+    for key in WORKFLOW_WORKER_KEYS:
+        raw_value = _find_key_value(lines, key)
+        if raw_value is None:
+            ctx.notes.append(
+                f"production workflow: {key} not set "
+                "(engine default applies)"
+            )
+            continue
+        resolved = _resolve_value(raw_value)
+        if resolved is None:
+            problems.append(
+                f"{key}="
+                f"{_sanitize_detail_value(raw_value)!r} could not "
+                "be resolved"
+            )
+            continue
+        try:
+            worker_count = int(resolved)
+        except ValueError:
+            problems.append(
+                f"{key}="
+                f"{_sanitize_detail_value(resolved)!r} is not an "
+                "integer"
+            )
+            continue
+        if worker_count > MAX_PARALLEL_WORKERS:
+            problems.append(
+                f"{key}={worker_count} exceeds cap "
+                f"{MAX_PARALLEL_WORKERS}"
+            )
+
+    raw_budget = _find_key_value(lines, "TIME_BUDGET_MINUTES")
+    if raw_budget is None:
+        ctx.notes.append(
+            "production workflow: TIME_BUDGET_MINUTES not set"
+        )
+    else:
+        resolved_budget = _resolve_value(raw_budget)
+        budget: Optional[float] = None
+        if resolved_budget is not None:
+            try:
+                budget = float(resolved_budget)
+            except ValueError:
+                budget = None
+        if budget is None:
+            problems.append(
+                "TIME_BUDGET_MINUTES="
+                f"{_sanitize_detail_value(raw_budget)!r} not "
+                "numeric"
+            )
+        else:
+            timeout_values = _find_timeout_minutes(lines)
+            if timeout_values:
+                ceiling = max(timeout_values)
+                if not budget < ceiling:
+                    problems.append(
+                        f"TIME_BUDGET_MINUTES={budget:g} is not "
+                        "strictly below timeout-minutes ceiling "
+                        f"{ceiling}"
+                    )
+            else:
+                ctx.notes.append(
+                    "production workflow: no live timeout-minutes "
+                    "found to compare TIME_BUDGET_MINUTES against"
+                )
+
+    if problems:
+        return STATUS_WARN, "; ".join(problems)
+    return (
+        STATUS_OK,
+        "production workflow config within documented guardrails",
+    )
 
 
 def overall_status(checks: List[CheckResult]) -> str:
@@ -286,6 +505,10 @@ def run_checks(ctx: Optional[HealthContext] = None) -> List[CheckResult]:
             "generated_docs_writable", check_generated_docs_writable
         ),
         _timed("config_sanity", lambda: check_config_sanity(ctx)),
+        _timed(
+            "production_workflow_config",
+            lambda: check_production_workflow_config(ctx),
+        ),
     ]
 
 
