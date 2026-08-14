@@ -345,6 +345,13 @@ GRANT EXECUTE ON FUNCTION billing_audit.lookup_attribution_bulk(jsonb) TO servic
 -- "no baseline" (seed-only, never a false drift flag), and billing
 -- behaviour is unaffected (D-07: a missing migration can never break
 -- a run).
+--
+-- APPLIED 2026-08-13 (Juan-approved, via Supabase MCP) as migration
+-- ``billing_audit_snapshot_drift_tables`` on project
+-- poeyztlmsawfoqlanucc, WITH the RLS + service_role_all policies
+-- below (added at apply time to match every existing billing_audit
+-- table, per migration ``add_billing_audit_service_role_policies``).
+-- PostgREST cache reloaded automatically via ``pgrst_ddl_watch``.
 
 -- ── snapshot_provenance (state) ─────────────────────────────────────
 -- One row per (sheet_id, row_id) recording the week/snapshot date the
@@ -397,6 +404,27 @@ CREATE INDEX IF NOT EXISTS idx_snapshot_drift_wr_detected_at
 GRANT SELECT, INSERT
     ON billing_audit.snapshot_drift TO service_role;
 
+-- RLS posture (WR-03, resolved at apply time): enabled on both new
+-- tables with the same single service_role_all policy carried by
+-- every sibling billing_audit table. service_role bypasses RLS, so
+-- the pipeline is unaffected; this only closes the anon/authenticated
+-- surface for the exposed schema.
+ALTER TABLE billing_audit.snapshot_provenance ENABLE ROW LEVEL SECURITY;
+ALTER TABLE billing_audit.snapshot_drift ENABLE ROW LEVEL SECURITY;
+
+-- CREATE POLICY has no IF NOT EXISTS, so drop-then-create keeps this
+-- file reapply-safe like every other statement in it (IF NOT EXISTS /
+-- OR REPLACE). The momentary policy-less window is inert: service_role
+-- bypasses RLS and no other role holds grants on these tables.
+DROP POLICY IF EXISTS service_role_all
+    ON billing_audit.snapshot_provenance;
+CREATE POLICY service_role_all ON billing_audit.snapshot_provenance
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS service_role_all
+    ON billing_audit.snapshot_drift;
+CREATE POLICY service_role_all ON billing_audit.snapshot_drift
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
 -- ── lookup_snapshot_provenance_bulk (RPC) — WR-02 (260813-nhn) ───────
 -- Bulk read surface for ``snapshot_store.fetch_snapshot_provenance``.
 -- Replaces a two-``.in_`` GET whose querystring grew with the run's
@@ -424,12 +452,21 @@ GRANT SELECT, INSERT
 -- PGRST202 ("function not found", HTTP 404) and falls back to the
 -- chunked ``.in_`` select path with a one-time WARNING -- billing
 -- behaviour is unaffected either way (D-07).
+--
+-- APPLIED 2026-08-13 (Juan-approved, via Supabase MCP) as migrations
+-- ``billing_audit_lookup_snapshot_provenance_bulk_rpc`` +
+-- ``pin_search_path_lookup_snapshot_provenance_bulk`` on project
+-- poeyztlmsawfoqlanucc. ``SET search_path = ''`` added at apply time
+-- (advisor function_search_path_mutable; matches the pinned
+-- lookup_attribution / lookup_attribution_bulk — safe because every
+-- body reference is schema-qualified).
 CREATE OR REPLACE FUNCTION billing_audit.lookup_snapshot_provenance_bulk(
     p_keys jsonb   -- e.g. '[{"sheet_id":1824542300262276,"row_id":42}, ...]'
 )
 RETURNS SETOF billing_audit.snapshot_provenance
 LANGUAGE sql
 STABLE
+SET search_path = ''
 AS $$
     SELECT p.*
     FROM jsonb_to_recordset(p_keys) AS q(sheet_id BIGINT, row_id BIGINT)
