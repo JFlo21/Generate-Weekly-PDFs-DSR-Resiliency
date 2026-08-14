@@ -38,7 +38,7 @@ Status: Ready to plan
   change; all 7 waves independently 6-gate-verified. Next: /gsd-verify-work 09,
   then PR / milestone close. (Phase 08 SDK 4.0.0 migration still outstanding — same
   file, so it could not run concurrently; now unblocked.)
-Last activity: 2026-08-13 - Completed quick task 260813-nhn: closed billing-audit shadow-layer follow-ups (P2/#333 flag parity, snapshot_store characterization suite, RPC bulk provenance read with chunked select fallback, chunked provenance upsert)
+Last activity: 2026-08-14 - Completed quick task 260814-me8: production-workflow config guardrail check for validate_system_health.py (closes PR #339 Greptile vacuous-pass finding)
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
@@ -213,6 +213,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 260814-me8 | Close PR #339 Greptile vacuous-pass finding: new `check_production_workflow_config` parses weekly-excel-generation.yml directly (comment-stripped, `\|\| 'N'` expression fallbacks resolved) and grades PARALLEL_WORKERS/_DISCOVERY ≤ 8 and TIME_BUDGET_MINUTES strictly < max timeout-minutes; env check relabeled process-env-only scope; values redacted/truncated before report echo | 2026-08-14 | 9690cdd | [260814-me8](./quick/260814-me8-fix-health-check-config-guardrail-vacuou/) |
 | 260813-fast | Make schema.sql policy DDL reapply-safe (PR #335 review fix — DROP POLICY IF EXISTS before each CREATE POLICY) | 2026-08-13 | 350fd99 | — (fast task, inline) |
 | 260813-nhn | Closed 3 deferred billing-audit shadow-layer follow-ups: P2/#333 rate-sanity flag parity (`_gwp.RATE_RECALC_WEEKLY_FALLBACK` ANDed at the call site), WR-05 24-test `snapshot_store.py` characterization suite (regression oracle), WR-02 RPC-first bulk provenance read (`lookup_snapshot_provenance_bulk` DDL + chunked select fallback + one-time degrade log), WR-02b chunked provenance upsert (D-02 sibling defect, ~40MB unchunked body at live `all_rows` scale) | 2026-08-13 | 8918dea, e238978, 4292dd4, bcb79c3, e29c5ed | [260813-nhn](./quick/260813-nhn-rpc-bulk-provenance-read-snapshot-store-/) |
 | 260813-m5j | Harden rate-sanity scope gate per PR #332 review findings: exclude subcontractor-basis rows (F2 polarity corrected — incident sheet is NOT subcontractor), fail-closed weekly fallback gated on sheet's Snapshot Date column mapping (F1) | 2026-08-13 | 4245450, a7c27b2, 63c38c7 | [260813-m5j](./quick/260813-m5j-harden-rate-sanity-scope-gate-per-pr-332/) |
