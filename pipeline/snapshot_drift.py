@@ -500,6 +500,13 @@ def _apply_holds(
         candidate["held"] = True
         held_count += 1
 
+        # IN-04 resolved (260814): changed_by stays in this INFO line.
+        # Only automation_self_fire candidates ever reach a hold
+        # (D-01 gate above), so changed_by here is by construction the
+        # Smartsheet automation identity — a personal email can never
+        # appear on this line. Manual/unclassified drift (where
+        # changed_by CAN be a person) is logged aggregate-only and
+        # recorded durably in billing_audit.snapshot_drift instead.
         logger.info(
             "🔒 Snapshot-drift hold: WR %s row %s held at prior week %s "
             "(drifted to %s, changed_by=%s)",

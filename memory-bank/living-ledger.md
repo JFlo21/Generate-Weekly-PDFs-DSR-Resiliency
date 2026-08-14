@@ -5942,3 +5942,29 @@ follow-up findings closed, same 6 files.
 - **Tests:** tests/test_price_variance_risk_demotion.py (13) — default
   exclusion, report-only preservation, flag restore, drift-escalation
   mirror, zero-hold no-op.
+
+## [2026-08-14 11:25] Snapshot-drift HOLD GATE ENABLED (workflow env) + IN-04 resolved: changed_by KEPT on the hold line (automation-only by construction)
+
+- **What:** `SNAPSHOT_DRIFT_HOLD_ENABLED: 'true'` added to the
+  `Generate reports` env in weekly-excel-generation.yml. Burn-in
+  criterion met first: run 31761117011 (first seed, candidates=0) and
+  run 31805121266 (steady state: candidates=0, seeded=155 new rows,
+  unchanged=200,765, holds=0). Rollback = flip the env to 'false'.
+- **Blast radius (D-01, verified at the
+  `_CLASSIFICATION_AUTOMATION_SELF_FIRE` gate in `_apply_holds()`,
+  `pipeline/snapshot_drift.py`):** holds
+  apply ONLY to `automation_self_fire` candidates; manual and
+  unclassified drift is never held — run 31813915527's 110 legit
+  Thursday-morning candidates (manual=40, unclassified=70,
+  self_fire=0) would all have passed through untouched. With the
+  automation trigger fixed (2026-08-13), expected steady state is
+  holds=0; any nonzero hold = the re-stamp defect recurred and was
+  contained.
+- **IN-04 DECISION — keep `changed_by` in the per-hold INFO line:**
+  the hold path is reachable only for automation_self_fire
+  candidates, so changed_by on that line is by construction the
+  Smartsheet automation identity, never a personal email (verified:
+  the per-hold INFO log in `_apply_holds()` — the "🔒 Snapshot-drift
+  hold" line — is the ONLY log site that formats changed_by; manual
+  drift goes to aggregate counters + the billing_audit.snapshot_drift
+  shadow table). Documented in-code at the hold line.
