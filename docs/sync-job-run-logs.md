@@ -161,10 +161,21 @@ before incorrect invoices go out.
    0.5% of expected price) are ignored. Only meaningful deviations trigger
    a flag.
 
-4. **Risk Classification**: Anomalies are classified:
-   - **LOW**: Minor delta, likely a rounding difference.
-   - **MEDIUM**: Noticeable discrepancy, worth reviewing.
-   - **HIGH**: Large or suspicious change, needs immediate attention.
+4. **Risk Classification**: The audit assigns one risk level to the
+   whole run, derived from the **combined count** of flagged issues
+   (unauthorized changes + data issues + rate-sanity mismatches, plus
+   any snapshot-drift holds folded in afterwards) — it is NOT a
+   per-anomaly rating and does not weigh dollar-delta size
+   (`_risk_level_for` in `audit_billing_changes.py`):
+   - **LOW**: zero issues counted.
+   - **MEDIUM**: one to three issues.
+   - **HIGH**: more than three issues.
+
+   Legacy price-variance anomalies are **report-only by default**
+   (excluded from this count since 2026-08-14; opt back in with
+   `PRICE_VARIANCE_IN_RISK=true`). They still appear in the
+   informational "Total Issues" figures, so a run can show hundreds
+   of anomalies yet report risk LOW.
 
 5. **Attribution Tracking**: The system tracks which foreman or crew is
    responsible for each billing group via frozen attribution snapshots
@@ -374,6 +385,17 @@ graph TD
 
 **Sync Job Name:** `system-health-check.yml` / `validate_system_health.py`
 
+> ⚠️ **KNOWN BROKEN (as of 2026-08-14):** the workflow invokes
+> `python validate_system_health.py`, but that script does **not exist
+> in the repository**. Every scheduled run fails at the "Run system
+> health check" step, no `system_health.json` is produced, and the
+> "Evaluate health status" step then fails with "No health report
+> generated". A red ❌ on this workflow therefore means "entry point
+> missing", not "billing system unhealthy" — do not page anyone off it
+> until the script is added (or the workflow is repointed at a real
+> command; workflow changes need Juan's approval). The rest of this
+> section describes the **intended** design.
+
 ### Primary Purpose
 
 A daily diagnostic that verifies the entire billing system is healthy and
@@ -381,7 +403,7 @@ ready to process data. It checks that the Smartsheet API connection works,
 required secrets are present, and core system components are functional.
 Think of it as a doctor's checkup for the billing infrastructure.
 
-### How It Works (Step-by-Step)
+### How It Works (Step-by-Step, as designed)
 
 1. **Trigger**: Runs daily at 2:00 AM UTC. Can also be triggered manually.
 
@@ -433,8 +455,12 @@ graph TD
 - Artifact available for audit trail.
 
 **Failure Handling:**
-- CRITICAL status causes the workflow to fail, which triggers GitHub
-  notifications to repository maintainers.
+- **Current reality: the run fails every night** because
+  `validate_system_health.py` is missing (see the warning at the top
+  of this section) — the failure notification fires before any
+  diagnostics run.
+- As designed, a CRITICAL status causes the workflow to fail, which
+  triggers GitHub notifications to repository maintainers.
 - Sentry DSN absence is non-fatal (logged as informational).
 - The 10-minute timeout prevents the check from hanging indefinitely.
 
@@ -491,9 +517,16 @@ graph TD
 - Dependencies are monitored in the Snyk dashboard.
 
 **Failure Handling:**
-- Snyk tests use `|| true` so a finding does NOT fail the build — they are
-  reported but do not block merges.
-- Missing `SNYK_TOKEN` causes the entire workflow to be skipped silently.
+- Only the two *test* steps are non-blocking: `snyk code test` and
+  `snyk iac test` carry `|| true`, so findings from those are reported
+  without failing the build.
+- `snyk monitor --all-projects` and the SARIF upload step have **no**
+  such guard — a monitoring error or upload failure fails the whole
+  workflow run.
+- There is **no** `if:` condition skipping the job when `SNYK_TOKEN`
+  is absent. With a missing/invalid token the CLI's auth failures are
+  swallowed on the guarded test steps, but `snyk monitor` fails and
+  the run goes red — the workflow is NOT silently skipped.
 
 ---
 
