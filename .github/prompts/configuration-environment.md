@@ -69,6 +69,15 @@ REGEN_WEEKS=081725,082425        # Force regenerate specific week endings
 RESET_WR_LIST=WR123,WR456        # Only purge these WR numbers (overrides full reset)
 KEEP_HISTORICAL_WEEKS=false      # Preserve attachments for unprocessed weeks
 
+# Billing Audit Risk Controls
+PRICE_VARIANCE_IN_RISK=false     # Count legacy price-variance anomalies toward
+                                 # audit risk_level. Demoted to report-only
+                                 # 2026-08-14 (575 structural false flags pinned
+                                 # risk HIGH; see living-ledger). Set true to
+                                 # restore legacy escalation. Dispatch-time
+                                 # override: advanced_options
+                                 # price_variance_in_risk:true
+
 # Advanced Testing Controls
 SYNTHETIC_WR_COUNT=8             # Number of Work Requests to generate in TEST_MODE
 SYNTHETIC_ROW_VARIANCE=15        # Row count variation per WR in synthetic data
