@@ -16,14 +16,14 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — August 14, 2026
 
+- ✨ New capability: enable snapshot-drift hold gate after clean burn-in
+- ✨ New capability: demote legacy price-variance detector from risk ladder
 - 📄 Help guides updated: mirror applied billing&#95;audit DDL in schema.sql
 - ⚡ The system now runs faster (RPC bulk provenance read + audit follow-ups)
 - ✅ Problem fixed: harden rate-sanity scope gate ( review)
 - ✨ New capability: scope rate-sanity audit to current cycle ( follow-up)
 - ✨ New capability: snapshot-date drift audit — detect automation re-stamps, optional hold gate
 - ✨ New capability: rate-sanity audit check (260812-isx)
-- 📄 Help guides updated: log d983dc8 &#91;skip ci&#93;
-- 📄 Help guides updated: automated plain-language update from Notion Worker
 
 <!-- /runbook-repo -->
 
@@ -487,4 +487,3 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
-
