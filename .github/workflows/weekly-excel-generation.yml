@@ -156,7 +156,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Cache pip
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
@@ -164,7 +164,7 @@ jobs:
             ${{ runner.os }}-pip-
       # Use restore/save split so caches persist even when the job times out or fails
       - name: Restore hash history cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: generated_docs/hash_history.json
           key: hash-history-${{ github.ref_name }}-${{ github.run_id }}
@@ -172,7 +172,7 @@ jobs:
             hash-history-${{ github.ref_name }}-
             hash-history-
       - name: Restore discovery cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: generated_docs/discovery_cache.json
           key: discovery-cache-${{ github.ref_name }}-${{ github.run_id }}
@@ -180,7 +180,7 @@ jobs:
             discovery-cache-${{ github.ref_name }}-
             discovery-cache-
       - name: Restore billing-audit row cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: generated_docs/billing_audit_frozen_rows.json
           key: billing-audit-rows-${{ github.ref_name }}-${{ github.run_id }}
@@ -762,14 +762,14 @@ jobs:
       # ==================== CACHE SAVE (runs even on timeout/failure) ====================
       - name: Save hash history cache
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: generated_docs/hash_history.json
           key: hash-history-${{ github.ref_name }}-${{ github.run_id }}
       
       - name: Save discovery cache
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: generated_docs/discovery_cache.json
           key: discovery-cache-${{ github.ref_name }}-${{ github.run_id }}
@@ -777,7 +777,7 @@ jobs:
       - name: Save billing-audit row cache
         if: always()
         continue-on-error: true
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: generated_docs/billing_audit_frozen_rows.json
           key: billing-audit-rows-${{ github.ref_name }}-${{ github.run_id }}
