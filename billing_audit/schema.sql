@@ -412,8 +412,16 @@ GRANT SELECT, INSERT
 ALTER TABLE billing_audit.snapshot_provenance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE billing_audit.snapshot_drift ENABLE ROW LEVEL SECURITY;
 
+-- CREATE POLICY has no IF NOT EXISTS, so drop-then-create keeps this
+-- file reapply-safe like every other statement in it (IF NOT EXISTS /
+-- OR REPLACE). The momentary policy-less window is inert: service_role
+-- bypasses RLS and no other role holds grants on these tables.
+DROP POLICY IF EXISTS service_role_all
+    ON billing_audit.snapshot_provenance;
 CREATE POLICY service_role_all ON billing_audit.snapshot_provenance
     FOR ALL TO service_role USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS service_role_all
+    ON billing_audit.snapshot_drift;
 CREATE POLICY service_role_all ON billing_audit.snapshot_drift
     FOR ALL TO service_role USING (true) WITH CHECK (true);
 
