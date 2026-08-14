@@ -15,6 +15,7 @@ tests lock in the demotion contract:
 """
 import os
 import unittest
+from typing import Any, Dict, List
 from unittest import mock
 
 from audit_billing_changes import (
@@ -24,7 +25,12 @@ from audit_billing_changes import (
 )
 
 
-def _results(anomalies=0, unauthorized=0, data_issues=0, rate_sanity=0):
+def _results(
+    anomalies: int = 0,
+    unauthorized: int = 0,
+    data_issues: int = 0,
+    rate_sanity: int = 0,
+) -> Dict[str, List[Dict[str, str]]]:
     return {
         "anomalies_detected": [{"type": "price_variance_anomaly"}] * anomalies,
         "unauthorized_changes": [{}] * unauthorized,
@@ -37,7 +43,7 @@ class PriceVarianceDemotionBase(unittest.TestCase):
     def setUp(self) -> None:
         self.audit = BillingAudit(client=None, skip_cell_history=True)
 
-    def _summary(self, **kwargs):
+    def _summary(self, **kwargs: int) -> Dict[str, Any]:
         return self.audit._generate_audit_summary(_results(**kwargs))
 
 
