@@ -203,6 +203,51 @@ def _risk_level_for(total_issues: int) -> str:
     return "HIGH"
 
 
+def _price_variance_in_risk() -> bool:
+    """Whether legacy price-variance anomalies count toward risk_level.
+
+    Default OFF (260814 demotion, Juan-approved): the legacy
+    ``_detect_price_anomalies`` pools Units Total Price per WR across
+    ALL history and ALL CUs, so any WR mixing cheap and expensive
+    line items flags by construction — 575 flags with zero confirmed
+    incidents pinned ``risk_level`` HIGH on every run. Scoping was
+    measured before demoting (2026-08-14 ledger entry): the
+    rate-sanity era gate only cuts 575 -> 239 (still HIGH), and
+    re-basing the same >50%-variance rule per (WR, CU) explodes to
+    5,192-6,968 groups — the rule is statistically unusable at any
+    scope, and a principled per-CU expected-rate check is exactly
+    what the rate-sanity audit already does. The detector still RUNS
+    and REPORTS (``anomalies_detected`` / ``total_anomalies`` /
+    audit-sheet displays / trend deltas all keep counting it) — only
+    the ``_risk_level_for`` input excludes it. Set
+    ``PRICE_VARIANCE_IN_RISK=true`` to restore legacy escalation.
+    """
+    return (
+        os.getenv("PRICE_VARIANCE_IN_RISK", "false").lower() == "true"
+    )
+
+
+def _total_issues_for_risk(summary: Dict, extra: int = 0) -> int:
+    """Single source of truth for the risk-ladder input (IN-07).
+
+    Used by BOTH ``_generate_audit_summary`` and
+    ``escalate_risk_for_snapshot_drift`` so a scope change in one
+    place cannot silently diverge the other. Informational totals
+    (audit-sheet "Total Issues", audit_state history, trend deltas)
+    are intentionally NOT derived here — they keep counting
+    price-variance anomalies for report-only visibility.
+    """
+    total = (
+        summary.get("total_unauthorized_changes", 0)
+        + summary.get("total_data_issues", 0)
+        + summary.get("total_rate_sanity_mismatches", 0)
+        + extra
+    )
+    if _price_variance_in_risk():
+        total += summary.get("total_anomalies", 0)
+    return total
+
+
 def _rate_sanity_looks_like_zero(raw_price: Any) -> bool:
     """Return True when ``raw_price`` is a genuinely zero-valued cell.
 
@@ -672,13 +717,10 @@ class BillingAudit:
             "recommendations": []
         }
 
-        # Determine risk level
-        total_issues = (
-            summary["total_anomalies"]
-            + summary["total_unauthorized_changes"]
-            + summary["total_data_issues"]
-            + summary["total_rate_sanity_mismatches"]
-        )
+        # Determine risk level. Price-variance anomalies are excluded
+        # from this input by default (260814 demotion) but stay in
+        # every informational total — see _total_issues_for_risk.
+        total_issues = _total_issues_for_risk(summary)
 
         summary["risk_level"] = _risk_level_for(total_issues)
         if summary["risk_level"] == "LOW":
@@ -873,9 +915,10 @@ def escalate_risk_for_snapshot_drift(
     AFTER ``audit_financial_data`` has already produced ``summary``
     (the pre-grouping seam sits downstream of the audit block in
     ``pipeline/orchestrate.py``), so this module-level function
-    re-derives ``total_issues`` from the SAME fields
-    ``_generate_audit_summary`` uses plus ``self_fire_holds``, then
-    applies the shared ``_risk_level_for`` ladder (IN-07).
+    re-derives ``total_issues`` via the SHARED
+    ``_total_issues_for_risk`` helper (same input
+    ``_generate_audit_summary`` uses, plus ``self_fire_holds``),
+    then applies the shared ``_risk_level_for`` ladder (IN-07).
 
     Only automation self-fire HOLDS feed this -- folding in manual or
     unclassified drift would drive a routine batch of legitimate edits
@@ -889,13 +932,7 @@ def escalate_risk_for_snapshot_drift(
     if self_fire_holds <= 0:
         return summary
 
-    total_issues = (
-        summary.get("total_anomalies", 0)
-        + summary.get("total_unauthorized_changes", 0)
-        + summary.get("total_data_issues", 0)
-        + summary.get("total_rate_sanity_mismatches", 0)
-        + self_fire_holds
-    )
+    total_issues = _total_issues_for_risk(summary, extra=self_fire_holds)
 
     summary["risk_level"] = _risk_level_for(total_issues)
 
