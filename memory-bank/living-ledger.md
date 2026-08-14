@@ -5968,3 +5968,43 @@ follow-up findings closed, same 6 files.
   hold" line — is the ONLY log site that formats changed_by; manual
   drift goes to aggregate counters + the billing_audit.snapshot_drift
   shadow table). Documented in-code at the hold line.
+
+## [2026-08-14 15:00] Maintained validate_system_health.py added — nightly system-health-check.yml no longer fails on a missing entry point
+
+- **What shipped:** `validate_system_health.py` (new, standalone,
+  read-only) + `tests/test_validate_system_health.py` (21 offline
+  tests). The scheduled `system-health-check.yml` had been failing
+  EVERY night (confirmed: last 3 runs before the fix all `failure`)
+  because it invoked a script that never existed in the repo — a red
+  ❌ that meant "entry point missing", not "billing system unhealthy".
+- **Contract rule (load-bearing, do not change casually):** the
+  script ALWAYS writes `generated_docs/system_health.json` and ALWAYS
+  exits 0 when the report was written — the workflow's
+  `Evaluate health status` step is the single owner of pass/fail
+  (exits 1 on CRITICAL). The script exits 1 only when the report
+  itself could not be written. This is why the workflow file needed
+  ZERO changes (protected area untouched).
+- **Checks (all read-only, ≤2 Smartsheet API calls/run):** python
+  version; core imports (smartsheet/openpyxl/dateutil/dotenv =
+  CRITICAL) vs optional imports (sentry_sdk/pandas/supabase/psutil =
+  WARN); facade import probe; token presence; `get_current_user`
+  auth probe; TARGET_SHEET_ID metadata probe at `page_size=1`
+  (mirrors `pipeline/config.py` default 5723337641643908);
+  generated_docs writability; config guardrails
+  (`PARALLEL_WORKERS≤8`, numeric `TIME_BUDGET_MINUTES`). No secret
+  values or user identity in any output (T-ISX-01 discipline).
+- **Rule: probe production imports in a SUBPROCESS with forced
+  UTF-8.** `import generate_weekly_pdfs` runs as a child process so
+  an import-time crash is a captured CRITICAL finding, not a health-
+  check crash. The facade prints emoji at import; on Windows a child
+  defaults to cp1252 stdout and dies in `UnicodeEncodeError` before
+  proving the import (false CRITICAL that cannot reproduce on the
+  UTF-8 CI runner). Fix pattern pinned by the smoke run: child env
+  `PYTHONUTF8=1` AND parent-side `encoding="utf-8",
+  errors="replace"` (bare `text=True` decodes with the locale codec
+  and raises in reader threads). Any future subprocess probe of an
+  emoji-printing module must do both.
+- **Housekeeping:** `generated_docs/system_health.json` gitignored
+  (local smoke runs must not dirty the tree). Follow-up: the
+  PR #338 run-log doc carries a KNOWN BROKEN callout for this
+  workflow — remove it once BOTH PRs are merged.
