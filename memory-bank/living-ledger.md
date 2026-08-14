@@ -5950,7 +5950,9 @@ follow-up findings closed, same 6 files.
   criterion met first: run 31761117011 (first seed, candidates=0) and
   run 31805121266 (steady state: candidates=0, seeded=155 new rows,
   unchanged=200,765, holds=0). Rollback = flip the env to 'false'.
-- **Blast radius (D-01, verified at snapshot_drift.py:465):** holds
+- **Blast radius (D-01, verified at the
+  `_CLASSIFICATION_AUTOMATION_SELF_FIRE` gate in `_apply_holds()`,
+  `pipeline/snapshot_drift.py`):** holds
   apply ONLY to `automation_self_fire` candidates; manual and
   unclassified drift is never held — run 31813915527's 110 legit
   Thursday-morning candidates (manual=40, unclassified=70,
@@ -5962,6 +5964,7 @@ follow-up findings closed, same 6 files.
   the hold path is reachable only for automation_self_fire
   candidates, so changed_by on that line is by construction the
   Smartsheet automation identity, never a personal email (verified:
-  line 512 is the ONLY log site that formats changed_by; manual
+  the per-hold INFO log in `_apply_holds()` — the "🔒 Snapshot-drift
+  hold" line — is the ONLY log site that formats changed_by; manual
   drift goes to aggregate counters + the billing_audit.snapshot_drift
   shadow table). Documented in-code at the hold line.
