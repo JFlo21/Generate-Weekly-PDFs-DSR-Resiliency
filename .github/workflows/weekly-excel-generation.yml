@@ -250,7 +250,16 @@ jobs:
           # safe to land before the secrets exist at the repo level.
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          
+          # Snapshot-drift hold gate (260814, Juan-approved after
+          # burn-in): holds ONLY automation-self-fire drift candidates
+          # at their prior billed week (D-01 — manual and unclassified
+          # drift is logged, never held). Enabled after two clean
+          # burn-in runs: 31761117011 (first seed, candidates=0) and
+          # 31805121266 (steady state: candidates=0, seeded=155,
+          # unchanged=200,765, holds=0). Flip to 'false' to revert to
+          # log-only behavior instantly.
+          SNAPSHOT_DRIFT_HOLD_ENABLED: 'true'
+
           # Basic Operation Controls
           TEST_MODE: ${{ github.event.inputs.test_mode || 'false' }}
           FORCE_GENERATION: ${{ github.event.inputs.force_generation || 'false' }}
