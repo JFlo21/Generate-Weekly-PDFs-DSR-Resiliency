@@ -80,6 +80,7 @@ generated_docs/audit_state.json
 generated_docs/discovery_cache.json
 generated_docs/risk_trend.json
 generated_docs/run_summary.json
+generated_docs/system_health.json
 !generated_docs/README.md
 
 # Notion integration local config (contains database IDs)
