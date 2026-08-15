@@ -266,9 +266,11 @@ class TestProductionWorkflowConfig(unittest.TestCase):
         text = (
             "jobs:\n"
             "  core:\n"
+            "    timeout-minutes: 180\n"
             "    env:\n"
             "      PARALLEL_WORKERS: "
             "${{ github.event.inputs.parallel_workers || '8' }}\n"
+            "      TIME_BUDGET_MINUTES: '165'\n"
         )
         with tempfile.TemporaryDirectory() as tmp:
             path = self._fixture(tmp, text)
@@ -359,8 +361,11 @@ class TestProductionWorkflowConfig(unittest.TestCase):
         self.assertIn("PARALLEL_WORKERS", detail)
         self.assertNotIn("PARALLEL_WORKERS_DISCOVERY", detail)
 
-    def test_absent_keys_are_notes_not_problems(self):
-        text = "jobs:\n  core:\n    env: {}\n"
+    def test_absent_worker_keys_are_notes_not_problems(self):
+        text = (
+            "jobs:\n  core:\n    timeout-minutes: 180\n    env:\n"
+            "      TIME_BUDGET_MINUTES: '165'\n"
+        )
         with tempfile.TemporaryDirectory() as tmp:
             path = self._fixture(tmp, text)
             ctx = vsh.HealthContext()
@@ -371,12 +376,63 @@ class TestProductionWorkflowConfig(unittest.TestCase):
         self.assertTrue(
             any("PARALLEL_WORKERS" in note for note in ctx.notes)
         )
-        self.assertTrue(
-            any(
-                "TIME_BUDGET_MINUTES" in note or "timeout" in note
-                for note in ctx.notes
+
+    def test_absent_time_budget_is_a_warn(self):
+        """Engine default 0 disables the graceful-stop budget --
+        an absent TIME_BUDGET_MINUTES is drift, not a note."""
+        text = "jobs:\n  core:\n    env: {}\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._fixture(tmp, text)
+            ctx = vsh.HealthContext()
+            status, detail = vsh.check_production_workflow_config(
+                ctx, path=path
             )
+        self.assertEqual(status, vsh.STATUS_WARN)
+        self.assertIn("TIME_BUDGET_MINUTES not set", detail)
+
+    def test_zero_worker_count_is_a_warn(self):
+        text = (
+            "jobs:\n  core:\n    timeout-minutes: 180\n    env:\n"
+            "      PARALLEL_WORKERS: '0'\n"
+            "      TIME_BUDGET_MINUTES: '165'\n"
         )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._fixture(tmp, text)
+            ctx = vsh.HealthContext()
+            status, detail = vsh.check_production_workflow_config(
+                ctx, path=path
+            )
+        self.assertEqual(status, vsh.STATUS_WARN)
+        self.assertIn("not a positive worker count", detail)
+
+    def test_negative_worker_count_is_a_warn(self):
+        text = (
+            "jobs:\n  core:\n    timeout-minutes: 180\n    env:\n"
+            "      PARALLEL_WORKERS: '-3'\n"
+            "      TIME_BUDGET_MINUTES: '165'\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._fixture(tmp, text)
+            ctx = vsh.HealthContext()
+            status, detail = vsh.check_production_workflow_config(
+                ctx, path=path
+            )
+        self.assertEqual(status, vsh.STATUS_WARN)
+        self.assertIn("not a positive worker count", detail)
+
+    def test_single_worker_is_ok(self):
+        text = (
+            "jobs:\n  core:\n    timeout-minutes: 180\n    env:\n"
+            "      PARALLEL_WORKERS: '1'\n"
+            "      TIME_BUDGET_MINUTES: '165'\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._fixture(tmp, text)
+            ctx = vsh.HealthContext()
+            status, _ = vsh.check_production_workflow_config(
+                ctx, path=path
+            )
+        self.assertEqual(status, vsh.STATUS_OK)
 
     def test_detail_hygiene_redacts_and_truncates(self):
         long_value = "x" * 300

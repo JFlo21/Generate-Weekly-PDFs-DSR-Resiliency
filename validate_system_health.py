@@ -430,11 +430,24 @@ def check_production_workflow_config(
                 f"{key}={worker_count} exceeds cap "
                 f"{MAX_PARALLEL_WORKERS}"
             )
+        elif worker_count < 1:
+            problems.append(
+                f"{key}={worker_count} is not a positive "
+                "worker count"
+            )
 
+    # Asymmetry with the worker keys above is deliberate: an absent
+    # worker key falls back to the engine default of 8, which sits AT
+    # the documented cap (safe). An absent TIME_BUDGET_MINUTES falls
+    # back to the engine default of 0 = graceful-stop budget DISABLED,
+    # so the 180-minute runner ceiling would hard-kill the job and
+    # lose cache/attachment-upload progress -- that is drift worth a
+    # WARN, not a note.
     raw_budget = _find_key_value(lines, "TIME_BUDGET_MINUTES")
     if raw_budget is None:
-        ctx.notes.append(
-            "production workflow: TIME_BUDGET_MINUTES not set"
+        problems.append(
+            "TIME_BUDGET_MINUTES not set in production workflow "
+            "(engine default 0 disables the graceful-stop budget)"
         )
     else:
         resolved_budget = _resolve_value(raw_budget)
