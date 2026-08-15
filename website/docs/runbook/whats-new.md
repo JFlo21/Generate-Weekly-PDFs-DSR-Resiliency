@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: August 14, 2026 (updated automatically)_
+_Last updated: August 15, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -14,8 +14,9 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — August 14, 2026
+### 📋 Changelog — August 15, 2026
 
+- ✨ New capability: add system health check entry point ( follow-up)
 - ✨ New capability: enable snapshot-drift hold gate after clean burn-in
 - ✨ New capability: demote legacy price-variance detector from risk ladder
 - 📄 Help guides updated: mirror applied billing&#95;audit DDL in schema.sql
@@ -23,7 +24,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - ✅ Problem fixed: harden rate-sanity scope gate ( review)
 - ✨ New capability: scope rate-sanity audit to current cycle ( follow-up)
 - ✨ New capability: snapshot-date drift audit — detect automation re-stamps, optional hold gate
-- ✨ New capability: rate-sanity audit check (260812-isx)
 
 <!-- /runbook-repo -->
 
