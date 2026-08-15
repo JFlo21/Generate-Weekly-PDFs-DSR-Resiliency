@@ -16,6 +16,7 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — August 15, 2026
 
+- ✅ Problem fixed: harden production workflow guardrail checks ( follow-up)
 - ✨ New capability: add system health check entry point ( follow-up)
 - ✨ New capability: enable snapshot-drift hold gate after clean burn-in
 - ✨ New capability: demote legacy price-variance detector from risk ladder
@@ -23,7 +24,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - ⚡ The system now runs faster (RPC bulk provenance read + audit follow-ups)
 - ✅ Problem fixed: harden rate-sanity scope gate ( review)
 - ✨ New capability: scope rate-sanity audit to current cycle ( follow-up)
-- ✨ New capability: snapshot-date drift audit — detect automation re-stamps, optional hold gate
 
 <!-- /runbook-repo -->
 
