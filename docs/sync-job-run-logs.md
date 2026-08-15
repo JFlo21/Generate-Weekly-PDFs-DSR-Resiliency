@@ -385,16 +385,12 @@ graph TD
 
 **Sync Job Name:** `system-health-check.yml` / `validate_system_health.py`
 
-> ⚠️ **KNOWN BROKEN (as of 2026-08-14):** the workflow invokes
-> `python validate_system_health.py`, but that script does **not exist
-> in the repository**. Every scheduled run fails at the "Run system
-> health check" step, no `system_health.json` is produced, and the
-> "Evaluate health status" step then fails with "No health report
-> generated". A red ❌ on this workflow therefore means "entry point
-> missing", not "billing system unhealthy" — do not page anyone off it
-> until the script is added (or the workflow is repointed at a real
-> command; workflow changes need Juan's approval). The rest of this
-> section describes the **intended** design.
+> ✅ **FIXED 2026-08-15 (#339):** this workflow failed nightly from
+> 2026-08-12 through 2026-08-15 because `validate_system_health.py`
+> did not exist in the repository. The maintained entry point shipped
+> in PR #339 (merged 2026-08-15); the first green end-to-end run is
+> 31860218831 (Overall status: OK). From that date forward, a red ❌
+> on this workflow is a real health signal worth investigating.
 
 ### Primary Purpose
 
@@ -403,19 +399,24 @@ ready to process data. It checks that the Smartsheet API connection works,
 required secrets are present, and core system components are functional.
 Think of it as a doctor's checkup for the billing infrastructure.
 
-### How It Works (Step-by-Step, as designed)
+### How It Works (Step-by-Step)
 
 1. **Trigger**: Runs daily at 2:00 AM UTC. Can also be triggered manually.
 
 2. **Secret Verification**: Confirms that the `SMARTSHEET_API_TOKEN` secret
    is available and properly injected into the environment.
 
-3. **System Validation**: Runs a comprehensive health check script that
-   tests:
-   - Smartsheet API connectivity and authentication.
-   - Required Python dependencies are importable.
-   - Configuration values are valid.
-   - Core functions can be invoked without error.
+3. **System Validation**: `validate_system_health.py` runs read-only
+   checks (at most 2 Smartsheet API calls; no writes; no secret values
+   or user identity in the output):
+   - Core and optional Python dependencies are importable.
+   - `generate_weekly_pdfs` imports cleanly (subprocess probe — an
+     import-time crash becomes a CRITICAL finding, not a job crash).
+   - Smartsheet API authentication and target-sheet reachability.
+   - Production guardrails parsed straight from
+     `weekly-excel-generation.yml`: worker counts within the cap of 8,
+     and `TIME_BUDGET_MINUTES` strictly below `timeout-minutes`.
+   - `generated_docs/` is writable.
 
 4. **Report Generation**: Produces a `system_health.json` report with an
    overall status: OK, WARN, or CRITICAL.
@@ -455,12 +456,12 @@ graph TD
 - Artifact available for audit trail.
 
 **Failure Handling:**
-- **Current reality: the run fails every night** because
-  `validate_system_health.py` is missing (see the warning at the top
-  of this section) — the failure notification fires before any
-  diagnostics run.
-- As designed, a CRITICAL status causes the workflow to fail, which
-  triggers GitHub notifications to repository maintainers.
+- A CRITICAL status causes the workflow to fail, which triggers GitHub
+  notifications to repository maintainers. The script itself always
+  writes the report and exits 0 when it could — the workflow's
+  "Evaluate health status" step is the single owner of pass/fail.
+- WARN passes the job but the report details which guardrail drifted —
+  read the artifact before dismissing it.
 - Sentry DSN absence is non-fatal (logged as informational).
 - The 10-minute timeout prevents the check from hanging indefinitely.
 
