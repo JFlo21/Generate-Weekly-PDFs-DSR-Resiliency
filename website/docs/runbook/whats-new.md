@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: August 15, 2026 (updated automatically)_
+_Last updated: August 16, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -18,30 +18,12 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
-## linetec-inspector-manifest-generator
-
-> ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
-
-### 📋 Changelog — August 15, 2026
-
-- • Set up Cursor Cloud dev environment (AGENTS.md + notes)
-- • sync: Phase 23 + Phase 24 Wave 1 (as-designed audit tab, WR-01 fix, billers heal wiring)
-- • v1.3 milestone close + WR 90798374 webapp fix (Render worker env parity)
-- • Phase 23: As Designed Audit tab + billers grid additions (AUDIT-01..04)
-- ✨ New capability: Phase 22 — STORMS column alignment on every variant (COL-01..04)
-- ✨ New capability: Phase 21 — manifest heading enrichment on every variant (HEAD-01..04)
-- ✅ Problem fixed: BUG-005 — persist true source version on routed Output Log rows (Source Version column)
-- ✅ Problem fixed: NotCompleted Week Ending acceptance + /return nav + hourly triggers for the three dispatch-only lifecycle workers
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
 ## Weekly Billing Reports (DSR Resiliency)
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — August 15, 2026
+### 📋 Changelog — August 16, 2026
 
 - ✅ Problem fixed: harden production workflow guardrail checks ( follow-up)
 - ✨ New capability: add system health check entry point ( follow-up)
@@ -54,19 +36,34 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
+<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
+## linetec-inspector-manifest-generator
+
+> ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
+
+### 📋 Changelog — August 16, 2026
+
+- • Set up Cursor Cloud dev environment (AGENTS.md + notes)
+- • sync: Phase 23 + Phase 24 Wave 1 (as-designed audit tab, WR-01 fix, billers heal wiring)
+- • v1.3 milestone close + WR 90798374 webapp fix (Render worker env parity)
+- • Phase 23: As Designed Audit tab + billers grid additions (AUDIT-01..04)
+- ✨ New capability: Phase 22 — STORMS column alignment on every variant (COL-01..04)
+- ✨ New capability: Phase 21 — manifest heading enrichment on every variant (HEAD-01..04)
+- ✅ Problem fixed: BUG-005 — persist true source version on routed Output Log rows (Source Version column)
+- ✅ Problem fixed: NotCompleted Week Ending acceptance + /return nav + hourly triggers for the three dispatch-only lifecycle workers
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/claudeos -->
 ## ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
 
 > ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
 
-### 📋 Changelog — August 15, 2026
+### 📋 Changelog — August 16, 2026
 
 - • ClaudeOS: GSD Core 1.10.0 routing and dispatch repair
 - • Merge pull request from JFlo21/codex/gsd-core-fable-routing
 - ✅ Problem fixed: suppress failed statusline output
-- ✅ Problem fixed: accept CRLF in macOS bootstrap assertion
-- ✅ Problem fixed: keep GSD statusline fail-open
-- ✅ Problem fixed: repair GSD agent dispatch handoff
 
 <!-- /runbook-repo -->
 
@@ -75,7 +72,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — August 15, 2026
+### 📋 Changelog — August 16, 2026
 
 - • 📊 Audit: 2026-08-10T07:00:02Z
 
@@ -455,7 +452,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — August 15, 2026
+### 📋 Changelog — August 16, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
