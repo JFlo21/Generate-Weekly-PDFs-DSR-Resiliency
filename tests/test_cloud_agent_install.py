@@ -18,7 +18,12 @@ def test_install_script_exists_and_is_executable() -> None:
 def test_install_script_does_not_unconditionally_cd_portal() -> None:
     """Unconditional ``cd portal`` is what failed bld-20260817-c08508ed."""
     text = SCRIPT.read_text(encoding="utf-8")
-    assert "cd portal" not in text
+    code_lines = [
+        line
+        for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    assert all("cd portal" not in line for line in code_lines)
     assert "install_npm_tree portal" in text
     assert "package.json" in text
     assert "requirements.txt" in text
