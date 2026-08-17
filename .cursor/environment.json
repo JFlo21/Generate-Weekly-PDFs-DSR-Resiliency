@@ -1,0 +1,4 @@
+{
+  "name": "Weekly billing automation",
+  "install": "./scripts/cloud-agent-install.sh"
+}
