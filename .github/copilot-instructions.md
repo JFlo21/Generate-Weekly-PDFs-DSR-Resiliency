@@ -6,7 +6,7 @@ Production billing automation: Smartsheet API → row filtering → WR grouping 
 
 Three components:
 - **`generate_weekly_pdfs.py`** — Core Python billing engine (production entry point)
-- **`portal/`** — Legacy Express backend (Node 20+, **CommonJS** per `portal/package.json` `"type": "commonjs"`)
+- **`portal/`** — Removed in 03153c3 (2026-06-02). Do not `cd portal` in install scripts.
 - **`portal-v2/`** — React + TypeScript + Supabase frontend (Vite, Tailwind, **ESM**)
 
 ## Build and Test
@@ -19,9 +19,6 @@ python -m py_compile generate_weekly_pdfs.py  # syntax check
 
 # Portal v2 (React frontend)
 cd portal-v2 && npm install && npm run build
-
-# Portal (Express backend)
-cd portal && npm install && npm run test
 ```
 
 ## Architecture
@@ -35,7 +32,7 @@ cd portal && npm install && npm run test
 ## Conventions
 
 - **Python**: PEP 8, type hints, 4-space indent, max 79 chars. See `.github/instructions/python.instructions.md`
-- **Node.js**: `portal/` is **CommonJS** (`require()`/`module.exports`) — do not introduce `import`/`export` there. `portal-v2/` is **ES2022+ ESM**. Across both: async/await, no callbacks, prefer `undefined` over `null`. See `.github/instructions/nodejs-javascript-vitest.instructions.md`
+- **Node.js**: `portal-v2/` is **ES2022+ ESM**. Use async/await, no callbacks, prefer `undefined` over `null`. See `.github/instructions/nodejs-javascript-vitest.instructions.md`
 - **Config**: All behavior controlled by 30+ env vars via `os.getenv()` with defaults. See `.github/instructions/copilot-setup.instructions.md` for full list
 - **Editing philosophy**: Minimal, surgical changes. Preserve existing structure. See `.github/instructions/taming-copilot.instructions.md`
 - **Subcontractor sheets**: Folder-based discovery is primary. See `.github/instructions/subcontractor-pricing-folder-discovery.instructions.md`

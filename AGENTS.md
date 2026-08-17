@@ -17,9 +17,10 @@ the core destination for the repository's main data pipeline.
 * Primary Language: Python 3.10+
 * Core Production Systems: Smartsheet API, Excel generation
   (`openpyxl`), GitHub Actions, Azure DevOps
-* Additional App Surfaces: `portal/` (legacy Express backend) and
-  `portal-v2/` (React + TypeScript frontend using Supabase)
-* Task Automation: Node.js & npm (for portal apps and utility
+* Additional App Surfaces: `portal-v2/` (React + TypeScript frontend
+  using Supabase). Legacy Express `portal/` was removed in 03153c3
+  (2026-06-02) — never `cd portal` in install scripts.
+* Task Automation: Node.js & npm (for portal-v2 and utility
   scripts)
 * Documentation: Docusaurus (runbook in `website/`)
 * Monitoring: Sentry (Python + Node + React)
@@ -85,8 +86,8 @@ Act as a Senior Software Engineer, Data Analyst, Technical Project Manager (TPM)
 This repo is not a single app — it contains three deployable components that share a contract:
 
 1. **`generate_weekly_pdfs.py`** — Python billing engine (~3100 lines, production entry point). Processes ~550 rows across 13+ Smartsheet source sheets, groups by Work Request + week ending, generates styled Excel, uploads attachments back to Smartsheet. Sibling module `audit_billing_changes.py` (price anomaly / risk-level detection) is imported by the main script.
-2. **`portal/`** — Legacy Express backend (Node 20+, CommonJS). Serves artifact-viewing API (GitHub Actions artifact ZIPs → Excel preview), session auth with CSRF, SSE run-polling. Entry: `portal/server.js`.
-3. **`portal-v2/`** — Modern React 18 + TypeScript + Vite + Tailwind + Supabase frontend. Proxies `/api`, `/auth`, `/csrf-token`, `/health` to the Express backend during dev; deploys to Vercel.
+2. **`portal/` (removed)** — Legacy Express backend deleted in 03153c3 (2026-06-02). Do not assume this directory exists; Cloud Agent install must skip it when `portal/package.json` is absent.
+3. **`portal-v2/`** — Modern React 18 + TypeScript + Vite + Tailwind + Supabase frontend. Deploys to Vercel.
 
 Also present: **`website/`** (Docusaurus living runbook, deploys to Vercel), **`scripts/`** (Notion sync + runbook + manifest utilities), **`tests/`** (pytest suite for the Python engine).
 
@@ -120,12 +121,8 @@ python run_info.py                        # shows available scripts
 
 ### Portal (Express backend, `portal/`)
 
-```bash
-cd portal && npm install
-npm start       # node server.js, port 3000
-npm run dev     # node --watch server.js
-npm test        # vitest run
-```
+Removed in 03153c3 (2026-06-02). Environment install scripts must
+not `cd portal` unconditionally.
 
 ### Portal-v2 (React frontend, `portal-v2/`)
 
@@ -266,7 +263,7 @@ Other workflows: `docs-changelog.yml` (appends runbook changelog on every merge 
 ## Current Stack & Ecosystem Context
 
 - **Frontend:** React 18, Vite, TypeScript, Tailwind CSS, Framer Motion (`portal-v2/`).
-- **Backend/Database:** Node.js 20+ Express (`portal/`), Python 3.12 in CI (3.11+ locally is fine), Supabase (auth + Postgres + RLS for `portal-v2`).
+- **Backend/Database:** Python 3.12 in CI (3.11+ locally is fine), Supabase (auth + Postgres + RLS for `portal-v2`). Legacy Express `portal/` was removed in 03153c3.
 - **Data Analytics & Visualization:** Power BI, Hex, Excel (`openpyxl`), Google Sheets, `pandas` + `pandera`.
 - **CI/CD, Source Control & Error Tracking:** GitHub Actions, Azure DevOps mirror, Sentry (Python + Node + React with source-map upload).
 - **Project Management, Operations & Task Tracking:** Smartsheet, Linear, Notion, Todoist, Microsoft Project, Planner.
@@ -276,7 +273,7 @@ Other workflows: `docs-changelog.yml` (appends runbook changelog on every merge 
 ## Conventions (Language-Specific)
 
 - **Python:** PEP 8, type hints, 4-space indent, ≤79 char lines, PEP 257 docstrings. See `.github/instructions/python.instructions.md`.
-- **Node.js:** Module system differs by component. **`portal/` is CommonJS** (`"type": "commonjs"`, `require()` / `module.exports`) — do **not** introduce `import`/`export` there. **`portal-v2/` is ES2022+ ESM**. Across both: `async`/`await` only (no callbacks), **prefer `undefined` over `null`**, prefer functions over classes, minimize external deps. See `.github/instructions/nodejs-javascript-vitest.instructions.md`.
+- **Node.js:** `portal-v2/` is ES2022+ ESM. Use `async`/`await` only (no callbacks), **prefer `undefined` over `null`**, prefer functions over classes, minimize external deps. See `.github/instructions/nodejs-javascript-vitest.instructions.md`.
 - **Testing (Node):** Vitest. Never change production code to make it testable — write tests around the code as-is.
 - **Subcontractor pricing:** folder-based discovery is the primary path; see `.github/instructions/subcontractor-pricing-folder-discovery.instructions.md`.
 
@@ -308,6 +305,28 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
 - **GitHub Actions 10-input limit** — keep the `advanced_options` `key:value,key:value` parser intact.
 - **Rate limits** — don't raise `PARALLEL_WORKERS` above 8.
 - **Do not break the pipeline** — `generate_weekly_pdfs.py` is production-critical. See `.github/prompts/change-detection-troubleshooting.md` and `.github/prompts/error-handling-resilience.md`.
+- **Cloud Agent install must not `cd portal`** — that directory was removed in 03153c3. Use `scripts/cloud-agent-install.sh`.
+
+## Cursor Cloud specific instructions
+
+Dashboard-managed environment builds clone `master` and run the saved
+`install` command. From 2026-08-16 onward those builds failed at
+`bash: line 2: cd: portal: No such file or directory` after Python
+deps succeeded (`bld-20260817-c08508ed-eab2-417b-a744-6fd42cbdef3a`
+and siblings).
+
+Bootstrap with `scripts/cloud-agent-install.sh` (also the `install`
+field in `.cursor/environment.json`):
+
+- `python3 -m pip install --user -r requirements.txt`
+- `npm ci` only when `portal/package.json` or `portal-v2/package.json`
+  exists
+- put `$HOME/.local/bin` on `PATH` so `pytest` resolves
+
+Do not add an unconditional `cd portal` to environment install.
+`website/` is optional and is not part of the default Cloud Agent
+install. After install, `python3 -m py_compile generate_weekly_pdfs.py`
+and `pytest tests/ -v` are the validation commands.
 
 ## Detailed References
 

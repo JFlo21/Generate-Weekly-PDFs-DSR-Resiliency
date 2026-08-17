@@ -6008,3 +6008,28 @@ follow-up findings closed, same 6 files.
   (local smoke runs must not dirty the tree). Follow-up: the
   PR #338 run-log doc carries a KNOWN BROKEN callout for this
   workflow — remove it once BOTH PRs are merged.
+
+## [2026-08-17 17:40] Cloud Agent install must not `cd portal` — tree removed in 03153c3
+
+- **What failed:** Recurring dashboard environment builds
+  (`bld-20260817-c08508ed-eab2-417b-a744-6fd42cbdef3a` and every
+  sibling since 2026-08-16) exited 1 after a successful
+  `pip install -r requirements.txt` with
+  `bash: line 2: cd: portal: No such file or directory`.
+- **Root cause:** Personal environment
+  `6d93ffe0-94e2-11f1-ba66-0e7d0216e441` still ran a two-line
+  install written when `portal/` existed. `git rm -r portal/`
+  landed in 03153c3 (2026-06-02, feat 07-03). The Python half of
+  install is fine; the unconditional `cd portal` is not.
+- **Rule:** Cloud Agent / environment `install` must treat
+  `portal/` as optional. Authoritative bootstrap is
+  `scripts/cloud-agent-install.sh` (wired from
+  `.cursor/environment.json`). It installs `requirements.txt` into
+  the user site, then `npm ci` only when `portal/package.json` or
+  `portal-v2/package.json` exists. Never write `cd portal` without
+  a presence check. Dashboard-managed installs that still hard-code
+  `cd portal` will keep failing on `master` until that saved
+  command is replaced (inline skip-safe commands or the script
+  after this file is on the default branch).
+- **Regression:** `tests/test_cloud_agent_install.py` asserts the
+  script exists, is executable, and does not contain `cd portal`.
