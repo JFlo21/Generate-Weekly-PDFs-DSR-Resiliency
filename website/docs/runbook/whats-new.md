@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: August 16, 2026 (updated automatically)_
+_Last updated: August 17, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -18,30 +18,12 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
-## Weekly Billing Reports (DSR Resiliency)
-
-> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
-
-### 📋 Changelog — August 16, 2026
-
-- ✅ Problem fixed: harden production workflow guardrail checks ( follow-up)
-- ✨ New capability: add system health check entry point ( follow-up)
-- ✨ New capability: enable snapshot-drift hold gate after clean burn-in
-- ✨ New capability: demote legacy price-variance detector from risk ladder
-- 📄 Help guides updated: mirror applied billing&#95;audit DDL in schema.sql
-- ⚡ The system now runs faster (RPC bulk provenance read + audit follow-ups)
-- ✅ Problem fixed: harden rate-sanity scope gate ( review)
-- ✨ New capability: scope rate-sanity audit to current cycle ( follow-up)
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
 ## linetec-inspector-manifest-generator
 
 > ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
 
-### 📋 Changelog — August 16, 2026
+### 📋 Changelog — August 17, 2026
 
 - • Set up Cursor Cloud dev environment (AGENTS.md + notes)
 - • sync: Phase 23 + Phase 24 Wave 1 (as-designed audit tab, WR-01 fix, billers heal wiring)
@@ -54,27 +36,41 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/claudeos -->
-## ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
-
-> ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
-
-### 📋 Changelog — August 16, 2026
-
-- • ClaudeOS: GSD Core 1.10.0 routing and dispatch repair
-- • Merge pull request from JFlo21/codex/gsd-core-fable-routing
-- ✅ Problem fixed: suppress failed statusline output
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/smartsheet-auditor -->
 ## AI powered repository that will look back and check on my smartsheet to analyze for duplications of work requests line items
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — August 16, 2026
+### 📋 Changelog — August 17, 2026
 
-- • 📊 Audit: 2026-08-10T07:00:02Z
+- • 📊 Audit: 2026-08-17T06:42:23Z
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
+## Weekly Billing Reports (DSR Resiliency)
+
+> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
+
+### 📋 Changelog — August 17, 2026
+
+- ✅ Problem fixed: harden production workflow guardrail checks ( follow-up)
+- ✨ New capability: add system health check entry point ( follow-up)
+- ✨ New capability: enable snapshot-drift hold gate after clean burn-in
+- ✨ New capability: demote legacy price-variance detector from risk ladder
+- 📄 Help guides updated: mirror applied billing&#95;audit DDL in schema.sql
+- ⚡ The system now runs faster (RPC bulk provenance read + audit follow-ups)
+- ✅ Problem fixed: harden rate-sanity scope gate ( review)
+- ✨ New capability: scope rate-sanity audit to current cycle ( follow-up)
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/claudeos -->
+## ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
+
+> ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
+
+_Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
@@ -452,7 +448,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — August 16, 2026
+### 📋 Changelog — August 17, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
