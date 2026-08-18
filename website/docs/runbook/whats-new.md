@@ -43,6 +43,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 ### 📋 Changelog — August 18, 2026
 
+- ✅ Problem fixed: reduce Sentry noise from Smartsheet auth errors
 - ✅ Problem fixed: skip missing portal/ in Cloud Agent install
 - ✅ Problem fixed: harden production workflow guardrail checks ( follow-up)
 - ✨ New capability: add system health check entry point ( follow-up)
@@ -50,7 +51,6 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 - ✨ New capability: demote legacy price-variance detector from risk ladder
 - 📄 Help guides updated: mirror applied billing&#95;audit DDL in schema.sql
 - ⚡ The system now runs faster (RPC bulk provenance read + audit follow-ups)
-- ✅ Problem fixed: harden rate-sanity scope gate ( review)
 
 <!-- /runbook-repo -->
 
@@ -490,4 +490,3 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
-
