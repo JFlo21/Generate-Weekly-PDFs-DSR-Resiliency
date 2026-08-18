@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: August 17, 2026 (updated automatically)_
+_Last updated: August 18, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -23,27 +23,16 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
 
-### 📋 Changelog — August 17, 2026
+### 📋 Changelog — August 18, 2026
 
-- • Set up Cursor Cloud dev environment (AGENTS.md + notes)
+- ✨ New capability: Date of Completion from the Manifest Requests sheet (Master-Schedule-synced + Override); ProMax last resort; regen heals header; Inspector line
+- ✅ Problem fixed: regen fetch is WR-only — never push the manifest Scope ID into v&#95;promax&#95;as&#95;designed (ARM-07 first live regen)
+- ✅ Problem fixed: revised-manifest return — Approved Qty initials suffix ("100 Emc") + webapp surfaces worker gate&#95;off (ARM-03 first live attempt)
+- 📄 Help guides updated: catch up developer docs after Phases 21–24 Wave 1
+- ✨ New capability: ARM-07 — wire as-designed view + ProMax creds into intake worker and Render worker
 - • sync: Phase 23 + Phase 24 Wave 1 (as-designed audit tab, WR-01 fix, billers heal wiring)
 - • v1.3 milestone close + WR 90798374 webapp fix (Render worker env parity)
 - • Phase 23: As Designed Audit tab + billers grid additions (AUDIT-01..04)
-- ✨ New capability: Phase 22 — STORMS column alignment on every variant (COL-01..04)
-- ✨ New capability: Phase 21 — manifest heading enrichment on every variant (HEAD-01..04)
-- ✅ Problem fixed: BUG-005 — persist true source version on routed Output Log rows (Source Version column)
-- ✅ Problem fixed: NotCompleted Week Ending acceptance + /return nav + hourly triggers for the three dispatch-only lifecycle workers
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/smartsheet-auditor -->
-## AI powered repository that will look back and check on my smartsheet to analyze for duplications of work requests line items
-
-> ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
-
-### 📋 Changelog — August 17, 2026
-
-- • 📊 Audit: 2026-08-17T06:42:23Z
 
 <!-- /runbook-repo -->
 
@@ -52,8 +41,9 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — August 17, 2026
+### 📋 Changelog — August 18, 2026
 
+- ✅ Problem fixed: skip missing portal/ in Cloud Agent install
 - ✅ Problem fixed: harden production workflow guardrail checks ( follow-up)
 - ✨ New capability: add system health check entry point ( follow-up)
 - ✨ New capability: enable snapshot-drift hold gate after clean burn-in
@@ -61,7 +51,17 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 - 📄 Help guides updated: mirror applied billing&#95;audit DDL in schema.sql
 - ⚡ The system now runs faster (RPC bulk provenance read + audit follow-ups)
 - ✅ Problem fixed: harden rate-sanity scope gate ( review)
-- ✨ New capability: scope rate-sanity audit to current cycle ( follow-up)
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/smartsheet-auditor -->
+## AI powered repository that will look back and check on my smartsheet to analyze for duplications of work requests line items
+
+> ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
+
+### 📋 Changelog — August 18, 2026
+
+- • 📊 Audit: 2026-08-17T06:42:23Z
 
 <!-- /runbook-repo -->
 
@@ -448,9 +448,16 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — August 17, 2026
+### 📋 Changelog — August 18, 2026
 
+- • &#91;WIP&#93; Implement migration to centralized documentation platform
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- • Merge pull request from Linetec-Services-LLC/copilot/implement-migration-to-docusaurus
+- • Align sha validation regex with project SHA&#95;PATTERN (lowercase-only)
+- • Sanitize merge&#95;sha before embedding in training artifact file names
+- • Emit capture manifest for new-guide requests that require visuals
+- • Add self-documenting reason for feature-driven new-guide classification
+- • Materialize new-guide training work via structured guide requests
 
 <!-- /runbook-repo -->
 
@@ -459,7 +466,10 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Private, version-controlled execution infrastructure for Juan's guarded Todoist GTD system.
 
-_Running steadily — no meaningful changes were detected in this period._ ✅
+### 📋 Changelog — August 18, 2026
+
+- ✨ New capability: prepare Todoist cloud standby safely
+- ✨ New capability: prepare Todoist cloud standby safely ()
 
 <!-- /runbook-repo -->
 
