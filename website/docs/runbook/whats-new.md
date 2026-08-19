@@ -5,9 +5,27 @@ title: What's New
 
 # What's New
 
-_Last updated: August 18, 2026 (updated automatically)_
+_Last updated: August 19, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
+
+<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
+## Weekly Billing Reports (DSR Resiliency)
+
+> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
+
+### 📋 Changelog — August 19, 2026
+
+- ✨ New capability: snapshot-date drift audit — detect automation re-stamps, optional hold gate
+- ✅ Problem fixed: reduce Sentry noise from Smartsheet auth errors
+- ✅ Problem fixed: skip missing portal/ in Cloud Agent install
+- ✅ Problem fixed: harden production workflow guardrail checks ( follow-up)
+- ✨ New capability: add system health check entry point ( follow-up)
+- ✨ New capability: enable snapshot-drift hold gate after clean burn-in
+- ✨ New capability: demote legacy price-variance detector from risk ladder
+- 📄 Help guides updated: mirror applied billing&#95;audit DDL in schema.sql
+
+<!-- /runbook-repo -->
 
 <!-- runbook-repo: JFlo21/JFlo21 -->
 ## JFlo21
@@ -23,34 +41,27 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
 
-### 📋 Changelog — August 18, 2026
+### 📋 Changelog — August 19, 2026
 
+- ✨ New capability: automatic Manifest Version sheet-cell backfill inside decision-sync
+- ✨ New capability: DATA-002(b) prevention — read-time Manifest Version derivation (no Requests write) + reconcile stamp invariant
+- ✅ Problem fixed: register&#95;attach ignores inspector-variant Output Log siblings (DATA-002 root cause)
+- • sync: 24-05 ARM-04 closure — Phase 17 bridge proven live; BUG-008/DATA-002 ledgers; ROADMAP 6/8 (planning + docs only)
+- ✅ Problem fixed: check GitHub dispatch credentials BEFORE consuming a claim&#95;dispatch claim (BUG-008)
+- • sync: Phase 24 Waves 2-3 closeout + PR verification ledgers (planning + docs only)
 - ✨ New capability: Date of Completion from the Manifest Requests sheet (Master-Schedule-synced + Override); ProMax last resort; regen heals header; Inspector line
 - ✅ Problem fixed: regen fetch is WR-only — never push the manifest Scope ID into v&#95;promax&#95;as&#95;designed (ARM-07 first live regen)
-- ✅ Problem fixed: revised-manifest return — Approved Qty initials suffix ("100 Emc") + webapp surfaces worker gate&#95;off (ARM-03 first live attempt)
-- 📄 Help guides updated: catch up developer docs after Phases 21–24 Wave 1
-- ✨ New capability: ARM-07 — wire as-designed view + ProMax creds into intake worker and Render worker
-- • sync: Phase 23 + Phase 24 Wave 1 (as-designed audit tab, WR-01 fix, billers heal wiring)
-- • v1.3 milestone close + WR 90798374 webapp fix (Render worker env parity)
-- • Phase 23: As Designed Audit tab + billers grid additions (AUDIT-01..04)
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
-## Weekly Billing Reports (DSR Resiliency)
+<!-- runbook-repo: JFlo21/smartsheet-bot -->
+## smartsheet-bot
 
-> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
+> ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
 
-### 📋 Changelog — August 18, 2026
+### 📋 Changelog — August 19, 2026
 
-- ✅ Problem fixed: reduce Sentry noise from Smartsheet auth errors
-- ✅ Problem fixed: skip missing portal/ in Cloud Agent install
-- ✅ Problem fixed: harden production workflow guardrail checks ( follow-up)
-- ✨ New capability: add system health check entry point ( follow-up)
-- ✨ New capability: enable snapshot-drift hold gate after clean burn-in
-- ✨ New capability: demote legacy price-variance detector from risk ladder
-- 📄 Help guides updated: mirror applied billing&#95;audit DDL in schema.sql
-- ⚡ The system now runs faster (RPC bulk provenance read + audit follow-ups)
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
 <!-- /runbook-repo -->
 
@@ -59,7 +70,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — August 18, 2026
+### 📋 Changelog — August 19, 2026
 
 - • 📊 Audit: 2026-08-17T06:42:23Z
 
@@ -69,15 +80,6 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 ## ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
 
 > ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
-
-_Running steadily — no meaningful changes were detected in this period._ ✅
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/smartsheet-bot -->
-## smartsheet-bot
-
-> ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
 
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
@@ -448,16 +450,16 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — August 18, 2026
+### 📋 Changelog — August 19, 2026
 
+- • Add Phase 2 shadow-mode Runlog event gateway as isolated gateway/ subproject
 - • &#91;WIP&#93; Implement migration to centralized documentation platform
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- • Merge pull request from Linetec-Services-LLC/copilot/fable5-verify-then-implement-v1
+- • Update migration state machine comment for received → processed&#95;shadow path
+- ✅ Problem fixed: Fix queue ack race: consumer transitions now accept received state
+- • Add Phase 2 shadow-mode Runlog event gateway subproject
 - • Merge pull request from Linetec-Services-LLC/copilot/implement-migration-to-docusaurus
-- • Align sha validation regex with project SHA&#95;PATTERN (lowercase-only)
-- • Sanitize merge&#95;sha before embedding in training artifact file names
-- • Emit capture manifest for new-guide requests that require visuals
-- • Add self-documenting reason for feature-driven new-guide classification
-- • Materialize new-guide training work via structured guide requests
 
 <!-- /runbook-repo -->
 
@@ -466,7 +468,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Private, version-controlled execution infrastructure for Juan's guarded Todoist GTD system.
 
-### 📋 Changelog — August 18, 2026
+### 📋 Changelog — August 19, 2026
 
 - ✨ New capability: prepare Todoist cloud standby safely
 - ✨ New capability: prepare Todoist cloud standby safely ()
@@ -490,3 +492,4 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
+
