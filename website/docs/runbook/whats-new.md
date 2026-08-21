@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: August 20, 2026 (updated automatically)_
+_Last updated: August 21, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -14,16 +14,16 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
 
-### 📋 Changelog — August 20, 2026
+### 📋 Changelog — August 21, 2026
 
+- ✅ Problem fixed: priced queue never retires delivered rows — same 81 WRs regenerated every tick
+- ✨ New capability: print-friendly manifest output — save-time print layout post-pass (POL-01)
+- ✅ Problem fixed: Output Log version ties prefer latest Generated At (billers seed/report classification)
 - ✅ Problem fixed: map the four remaining ARM-08 live gates into their call-site workflows (quick 260819-sl5)
 - ✨ New capability: external-handoff workbook variant + As Designed Qty column on the DIF grid (quick 260819-ln7 + 260819-pkp)
 - ✅ Problem fixed: priced-queue drain capacity — timeout 360 min + second daily priced slot 18:00Z (fence-first)
 - ✅ Problem fixed: wire MANIFEST&#95;INSPECTOR&#95;SHEET&#95;ID + live-write gate into the three heal-call-site workflows (ARM-08 sweep item)
 - ✨ New capability: production-grade failure isolation — pending-fix queue, held-not-Error decision-sync, partial-success exit, readiness visibility (quick 260818-wlc)
-- ✨ New capability: automatic Manifest Version sheet-cell backfill inside decision-sync
-- ✨ New capability: DATA-002(b) prevention — read-time Manifest Version derivation (no Requests write) + reconcile stamp invariant
-- ✅ Problem fixed: register&#95;attach ignores inspector-variant Output Log siblings (DATA-002 root cause)
 
 <!-- /runbook-repo -->
 
@@ -41,7 +41,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — August 20, 2026
+### 📋 Changelog — August 21, 2026
 
 - ✅ Problem fixed: reduce Sentry noise from Smartsheet auth errors
 - ✅ Problem fixed: skip missing portal/ in Cloud Agent install
@@ -49,8 +49,8 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 - ✨ New capability: add system health check entry point ( follow-up)
 - ✨ New capability: enable snapshot-drift hold gate after clean burn-in
 - ✨ New capability: demote legacy price-variance detector from risk ladder
-- 📄 Help guides updated: mirror applied billing&#95;audit DDL in schema.sql
-- ⚡ The system now runs faster (RPC bulk provenance read + audit follow-ups)
+- 📄 Help guides updated: automated plain-language update from Notion Worker
+- 📄 Help guides updated: log 24d5184 &#91;skip ci&#93;
 
 <!-- /runbook-repo -->
 
@@ -59,7 +59,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
 
-### 📋 Changelog — August 20, 2026
+### 📋 Changelog — August 21, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -70,7 +70,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — August 20, 2026
+### 📋 Changelog — August 21, 2026
 
 - • 📊 Audit: 2026-08-17T06:42:23Z
 
@@ -445,26 +445,12 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: Linetec-Services-LLC/Todoist-gtd-ci-automations -->
-## Todoist-gtd-ci-automations
-
-> ℹ️ **What this system does:** Private, version-controlled execution infrastructure for Juan's guarded Todoist GTD system.
-
-### 📋 Changelog — August 20, 2026
-
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- ✨ New capability: prepare Todoist cloud standby safely
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- ✨ New capability: prepare Todoist cloud standby safely ()
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: Linetec-Services-LLC/runlog-linetec -->
 ## Workflow runlog that explains the workflows &amp; coding workflows and changes at a lower level for users to understand
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — August 20, 2026
+### 📋 Changelog — August 21, 2026
 
 - • Add Phase 2 shadow-mode Runlog event gateway as isolated gateway/ subproject
 - • &#91;WIP&#93; Implement migration to centralized documentation platform
@@ -474,6 +460,20 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 - • Update migration state machine comment for received → processed&#95;shadow path
 - ✅ Problem fixed: Fix queue ack race: consumer transitions now accept received state
 - • Add Phase 2 shadow-mode Runlog event gateway subproject
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: Linetec-Services-LLC/Todoist-gtd-ci-automations -->
+## Todoist-gtd-ci-automations
+
+> ℹ️ **What this system does:** Private, version-controlled execution infrastructure for Juan's guarded Todoist GTD system.
+
+### 📋 Changelog — August 21, 2026
+
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- ✨ New capability: prepare Todoist cloud standby safely
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- ✨ New capability: prepare Todoist cloud standby safely ()
 
 <!-- /runbook-repo -->
 
