@@ -24,6 +24,7 @@ from __future__ import annotations
 import collections
 import datetime
 import logging
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import sentry_sdk
@@ -70,19 +71,29 @@ def _is_auth_api_error(exc: Exception) -> bool:
     """Return True when *exc* is a Smartsheet ApiError carrying an HTTP
     401/403 status (revoked/expired API token or removed sheet sharing).
 
-    Prefers the SDK's structured ``exc.error.result.status_code``
-    attribute; falls back to matching the serialized error payload
-    (``'"statusCode": 403'``) so a plain-Exception wrapper is still
-    recognized. Added after the 2026-08-05 incident where every source
-    sheet returned 403 and the run died with the unactionable generic
-    message "No valid data rows found".
+    Checks the SDK's structured result object first, handling both the
+    snake_case ``status_code`` attribute and the camelCase ``statusCode``
+    key/attribute that the SDK may expose depending on version.  Falls back
+    to a regex match against the serialized error payload so a plain-Exception
+    wrapper is still recognized regardless of whitespace around the colon.
+    Added after the 2026-08-05 incident where every source sheet returned 403
+    and the run died with the unactionable generic message "No valid data rows
+    found".
     """
     result = getattr(getattr(exc, 'error', None), 'result', None)
-    status = getattr(result, 'status_code', None) if result is not None else None
-    if status in (401, 403):
-        return True
+    if result is not None:
+        # Try snake_case attribute (some SDK versions)
+        status = getattr(result, 'status_code', None)
+        # Try camelCase attribute (other SDK versions)
+        if status is None:
+            status = getattr(result, 'statusCode', None)
+        # Try dict-style access (SDK may return a plain dict)
+        if status is None and isinstance(result, dict):
+            status = result.get('statusCode') or result.get('status_code')
+        if status in (401, 403):
+            return True
     msg = str(exc)
-    return '"statusCode": 401' in msg or '"statusCode": 403' in msg
+    return bool(re.search(r'"statusCode"\s*:\s*(401|403)', msg))
 
 
 def get_all_source_rows(client, source_sheets):
