@@ -5,27 +5,9 @@ title: What's New
 
 # What's New
 
-_Last updated: August 21, 2026 (updated automatically)_
+_Last updated: August 22, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
-
-<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
-## linetec-inspector-manifest-generator
-
-> ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
-
-### 📋 Changelog — August 21, 2026
-
-- ✅ Problem fixed: priced queue never retires delivered rows — same 81 WRs regenerated every tick
-- ✨ New capability: print-friendly manifest output — save-time print layout post-pass (POL-01)
-- ✅ Problem fixed: Output Log version ties prefer latest Generated At (billers seed/report classification)
-- ✅ Problem fixed: map the four remaining ARM-08 live gates into their call-site workflows (quick 260819-sl5)
-- ✨ New capability: external-handoff workbook variant + As Designed Qty column on the DIF grid (quick 260819-ln7 + 260819-pkp)
-- ✅ Problem fixed: priced-queue drain capacity — timeout 360 min + second daily priced slot 18:00Z (fence-first)
-- ✅ Problem fixed: wire MANIFEST&#95;INSPECTOR&#95;SHEET&#95;ID + live-write gate into the three heal-call-site workflows (ARM-08 sweep item)
-- ✨ New capability: production-grade failure isolation — pending-fix queue, held-not-Error decision-sync, partial-success exit, readiness visibility (quick 260818-wlc)
-
-<!-- /runbook-repo -->
 
 <!-- runbook-repo: JFlo21/JFlo21 -->
 ## JFlo21
@@ -36,21 +18,55 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
+<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
+## linetec-inspector-manifest-generator
+
+> ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
+
+### 📋 Changelog — August 22, 2026
+
+- ✨ New capability: priced-lane identity backfill — stamp blank Manifest ID/Version from latest OK Output Log row
+- ✅ Problem fixed: decision-sync lock-contention carve-out + idempotency short-circuit (T2)
+- ✅ Problem fixed: priced queue never retires delivered rows — same 81 WRs regenerated every tick
+- ✨ New capability: print-friendly manifest output — save-time print layout post-pass (POL-01)
+- ✅ Problem fixed: Output Log version ties prefer latest Generated At (billers seed/report classification)
+- ✅ Problem fixed: map the four remaining ARM-08 live gates into their call-site workflows (quick 260819-sl5)
+- ✨ New capability: external-handoff workbook variant + As Designed Qty column on the DIF grid (quick 260819-ln7 + 260819-pkp)
+- ✅ Problem fixed: priced-queue drain capacity — timeout 360 min + second daily priced slot 18:00Z (fence-first)
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/claudeos -->
+## ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
+
+> ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
+
+### 📋 Changelog — August 22, 2026
+
+- 📄 Help guides updated: close handoff items 1+3 (push done, dormant GSD npm global removed)
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- ✅ Problem fixed: junction guard also heals stale gsd-core .build.lock (upstream acquireLock has no stale reclaim)
+- 📄 Help guides updated: gsd-core update stale build-lock wedges session start (+120s); diagnosis + 4s fix
+- 📄 Help guides updated: record remote-main resolution (archive CodexOS work, force-with-lease to repaired history)
+- 📄 Help guides updated: record repo closeout commits in project-state
+- ✅ Problem fixed: Codex isolation, sole GSD Core controller, auto-update, Graphify
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
 ## Weekly Billing Reports (DSR Resiliency)
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — August 21, 2026
+### 📋 Changelog — August 22, 2026
 
 - ✅ Problem fixed: reduce Sentry noise from Smartsheet auth errors
 - ✅ Problem fixed: skip missing portal/ in Cloud Agent install
-- ✅ Problem fixed: harden production workflow guardrail checks ( follow-up)
-- ✨ New capability: add system health check entry point ( follow-up)
-- ✨ New capability: enable snapshot-drift hold gate after clean burn-in
-- ✨ New capability: demote legacy price-variance detector from risk ladder
 - 📄 Help guides updated: automated plain-language update from Notion Worker
 - 📄 Help guides updated: log 24d5184 &#91;skip ci&#93;
+- ✅ Problem fixed: reduce Sentry noise from Smartsheet auth errors ()
+- 📄 Help guides updated: log a2031ea &#91;skip ci&#93;
+- ✅ Problem fixed: skip missing portal/ in Cloud Agent install ()
 
 <!-- /runbook-repo -->
 
@@ -59,7 +75,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
 
-### 📋 Changelog — August 21, 2026
+### 📋 Changelog — August 22, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -70,18 +86,9 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — August 21, 2026
+### 📋 Changelog — August 22, 2026
 
 - • 📊 Audit: 2026-08-17T06:42:23Z
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/claudeos -->
-## ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
-
-> ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
-
-_Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
@@ -450,7 +457,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — August 21, 2026
+### 📋 Changelog — August 22, 2026
 
 - • Add Phase 2 shadow-mode Runlog event gateway as isolated gateway/ subproject
 - • &#91;WIP&#93; Implement migration to centralized documentation platform
@@ -468,7 +475,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Private, version-controlled execution infrastructure for Juan's guarded Todoist GTD system.
 
-### 📋 Changelog — August 21, 2026
+### 📋 Changelog — August 22, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - ✨ New capability: prepare Todoist cloud standby safely
