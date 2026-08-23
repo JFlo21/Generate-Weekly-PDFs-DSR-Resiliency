@@ -24,6 +24,7 @@ from __future__ import annotations
 import collections
 import datetime
 import logging
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import sentry_sdk
@@ -78,11 +79,15 @@ def _is_auth_api_error(exc: Exception) -> bool:
     message "No valid data rows found".
     """
     result = getattr(getattr(exc, 'error', None), 'result', None)
-    status = getattr(result, 'status_code', None) if result is not None else None
-    if status in (401, 403):
-        return True
+    if result is not None:
+        # The Smartsheet SDK uses camelCase (statusCode); check both spellings
+        # defensively so either attribute naming convention is recognized.
+        for attr in ('statusCode', 'status_code'):
+            status = getattr(result, attr, None)
+            if status in (401, 403):
+                return True
     msg = str(exc)
-    return '"statusCode": 401' in msg or '"statusCode": 403' in msg
+    return bool(re.search(r'"statusCode"\s*:\s*(401|403)', msg))
 
 
 def get_all_source_rows(client, source_sheets):
