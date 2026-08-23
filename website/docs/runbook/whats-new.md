@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: August 22, 2026 (updated automatically)_
+_Last updated: August 23, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -18,12 +18,40 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
+<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
+## Weekly Billing Reports (DSR Resiliency)
+
+> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
+
+### 📋 Changelog — August 23, 2026
+
+- ✅ Problem fixed: reduce Sentry noise from Smartsheet auth errors
+- ✅ Problem fixed: skip missing portal/ in Cloud Agent install
+- 📄 Help guides updated: automated plain-language update from Notion Worker
+- 📄 Help guides updated: log 24d5184 &#91;skip ci&#93;
+- ✅ Problem fixed: reduce Sentry noise from Smartsheet auth errors ()
+- 📄 Help guides updated: log a2031ea &#91;skip ci&#93;
+- ✅ Problem fixed: skip missing portal/ in Cloud Agent install ()
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/smartsheet-bot -->
+## smartsheet-bot
+
+> ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
+
+### 📋 Changelog — August 23, 2026
+
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
 ## linetec-inspector-manifest-generator
 
 > ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
 
-### 📋 Changelog — August 22, 2026
+### 📋 Changelog — August 23, 2026
 
 - ✨ New capability: priced-lane identity backfill — stamp blank Manifest ID/Version from latest OK Output Log row
 - ✅ Problem fixed: decision-sync lock-contention carve-out + idempotency short-circuit (T2)
@@ -41,7 +69,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
 
-### 📋 Changelog — August 22, 2026
+### 📋 Changelog — August 23, 2026
 
 - 📄 Help guides updated: close handoff items 1+3 (push done, dormant GSD npm global removed)
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
@@ -53,40 +81,12 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
-## Weekly Billing Reports (DSR Resiliency)
-
-> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
-
-### 📋 Changelog — August 22, 2026
-
-- ✅ Problem fixed: reduce Sentry noise from Smartsheet auth errors
-- ✅ Problem fixed: skip missing portal/ in Cloud Agent install
-- 📄 Help guides updated: automated plain-language update from Notion Worker
-- 📄 Help guides updated: log 24d5184 &#91;skip ci&#93;
-- ✅ Problem fixed: reduce Sentry noise from Smartsheet auth errors ()
-- 📄 Help guides updated: log a2031ea &#91;skip ci&#93;
-- ✅ Problem fixed: skip missing portal/ in Cloud Agent install ()
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/smartsheet-bot -->
-## smartsheet-bot
-
-> ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
-
-### 📋 Changelog — August 22, 2026
-
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/smartsheet-auditor -->
 ## AI powered repository that will look back and check on my smartsheet to analyze for duplications of work requests line items
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — August 22, 2026
+### 📋 Changelog — August 23, 2026
 
 - • 📊 Audit: 2026-08-17T06:42:23Z
 
@@ -457,7 +457,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — August 22, 2026
+### 📋 Changelog — August 23, 2026
 
 - • Add Phase 2 shadow-mode Runlog event gateway as isolated gateway/ subproject
 - • &#91;WIP&#93; Implement migration to centralized documentation platform
@@ -475,7 +475,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Private, version-controlled execution infrastructure for Juan's guarded Todoist GTD system.
 
-### 📋 Changelog — August 22, 2026
+### 📋 Changelog — August 23, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - ✨ New capability: prepare Todoist cloud standby safely
