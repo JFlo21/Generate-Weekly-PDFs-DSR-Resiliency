@@ -70,19 +70,30 @@ def _is_auth_api_error(exc: Exception) -> bool:
     """Return True when *exc* is a Smartsheet ApiError carrying an HTTP
     401/403 status (revoked/expired API token or removed sheet sharing).
 
-    Prefers the SDK's structured ``exc.error.result.status_code``
-    attribute; falls back to matching the serialized error payload
-    (``'"statusCode": 403'``) so a plain-Exception wrapper is still
-    recognized. Added after the 2026-08-05 incident where every source
-    sheet returned 403 and the run died with the unactionable generic
-    message "No valid data rows found".
+    Prefers the SDK's structured ``exc.error.result.statusCode``
+    attribute (camelCase, as set by the Smartsheet SDK); also checks the
+    snake_case variant for forward-compatibility. Falls back to a
+    regex search over ``repr(exc)`` so that a plain-Exception wrapper
+    carrying the raw JSON payload (e.g. ``{"statusCode": 403}``) is
+    still recognized regardless of whitespace around the colon.
     """
+    import re  # stdlib – safe to import here; cached after first import
+
     result = getattr(getattr(exc, 'error', None), 'result', None)
-    status = getattr(result, 'status_code', None) if result is not None else None
-    if status in (401, 403):
-        return True
-    msg = str(exc)
-    return '"statusCode": 401' in msg or '"statusCode": 403' in msg
+    if result is not None:
+        # SDK stores the HTTP status as 'statusCode' (camelCase).
+        # Check both spellings defensively.
+        status = (
+            getattr(result, 'statusCode', None)
+            or getattr(result, 'status_code', None)
+        )
+        if status in (401, 403):
+            return True
+    # Fallback: search the full repr of the exception (includes the
+    # serialized JSON payload) with a whitespace-tolerant pattern so
+    # spacing variants like '"statusCode":403' are also matched.
+    text = repr(exc)
+    return bool(re.search(r'"statusCode"\s*:\s*(401|403)', text))
 
 
 def get_all_source_rows(client, source_sheets):
