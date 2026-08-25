@@ -19,11 +19,18 @@
   260608-gwm / PR #273) can be lifted, with zero behavior change to the billing
   pipeline.
 
-- 🏗️ **v1.3 Engine Modularization & Hygiene** — Phase 09. Split the 10,476-line
+- ✅ **v1.3 Engine Modularization & Hygiene** — Phase 09 (complete 2026-08-25). Split the 10,476-line
   `generate_weekly_pdfs.py` into a cohesive `pipeline/` package (facade-preserved,
   behavior-neutral) for debuggability and bug isolation. Started while v1.2 is
   paused; localizing SDK touch-points also eases the later v1.2 migration.
   Assessment: [`docs/refactor-assessment-generate-weekly-pdfs.md`](../docs/refactor-assessment-generate-weekly-pdfs.md).
+
+- 📝 **v1.4 Supabase Run Memory — incremental billing pipeline** — Phases 10–13
+  (DRAFT 2026-08-24, awaiting Juan's decisions). Supabase becomes the pipeline's
+  memory: per-row state + history, incremental Smartsheet reads, affected-group
+  regeneration, "last known foreman as of the week" ownership, audit findings that
+  persist until fixed. Spec: `docs/superpowers/specs/2026-08-24-supabase-run-memory-design.md`;
+  requirements: [`milestones/v1.4-REQUIREMENTS.md`](milestones/v1.4-REQUIREMENTS.md).
 
 ## Phases
 
@@ -77,7 +84,8 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 
 ### v1.2 smartsheet-python-sdk 4.0.0 Compatibility Migration
 
-- [x] **Phase 08: smartsheet-python-sdk 4.0.0 Compatibility Migration** — (completed 2026-07-22)
+- [x] **Phase 08: smartsheet-python-sdk 4.0.0 Compatibility Migration** —
+ (completed 2026-07-22)
   reconcile exception-class imports + retry blocks + the `smartsheet.smartsheet`
   re-export workaround with 4.0.0's module layout, verify all in-use SDK call
   sites (`Sheets.get_sheet`, `Attachments.*`, `Folders.get_folder_children`),
@@ -86,13 +94,33 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 
 ### v1.3 Engine Modularization & Hygiene
 
-- [ ] **Phase 09: Engine Modularization (pipeline package split)** — relocate the
+- [x] **Phase 09: Engine Modularization (pipeline package split)** (completed 2026-08-25; PR #280 merged 2026-06-27, gap G-09-MOD-06 closed 2026-08-25) — relocate the
   10,476-line `generate_weekly_pdfs.py` into a `pipeline/` package, one cohesive
   module per PR, leaf-first, keeping the root file as a thin facade that re-exports
   all 106 public names + `__main__`. Behavior-neutral (no logic or billing-guard
   changes; no dead-code removal). `pytest`/`py_compile`/`mypy` green at every step.
   Bakes in the cross-module `global`-rebind `__getattr__` live-proxy mitigation.
   Assessment in `docs/refactor-assessment-generate-weekly-pdfs.md`. (MOD-01..11)
+
+### v1.4 Supabase Run Memory — incremental billing pipeline (DRAFT)
+
+- [ ] **Phase 10: Run-Memory Foundation (shadow writes)** — `pipeline_memory` schema
+  (sheet_registry, row_state, row_event, group_state, run_ledger) + bulk writer, shadow
+  mode only, zero behavior change; fixture proof of `rowsModifiedSince` semantics for
+  formula-only changes. (MEM-01..04)
+
+- [ ] **Phase 11: Incremental Read + Affected-Group Regeneration** — `ifVersionAfter` +
+  `rowsModifiedSince` per sheet, regroup only touched (WR, week) from `row_state`,
+  weekly deep run = full reconciliation, `RUN_MEMORY_INCREMENTAL_ENABLED` kill switch,
+  parity proof, then retire local JSON caches + attachment pre-fetch. (INC-01..05)
+
+- [ ] **Phase 12: Ownership — last known foreman as of the week** — `wr_week_ownership`
+  ladder, sentinel-never-a-name fix in `freeze_row`/`resolve_claimer`, dry-run-first
+  backfill (artifacts filenames, attribution_snapshot, 2025 hash_history) and remediation
+  of the 93 `Unknown Foreman` WRs; amends Foundation A first-write-wins. (OWN-01..04)
+
+- [ ] **Phase 13: Audit Memory** — `audit_finding` lifecycle (open → fixed / resurfaced /
+  acknowledged), incremental audits over affected groups + open findings. (AUD-01..03)
 
 ## Progress
 
@@ -107,7 +135,11 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 06. Realtime and UI Polish | v1.1 | 5/5 | Complete    | 2026-06-02 |
 | 07. Security Hardening and Express Removal | v1.1 | 4/4 | ✅ Complete | 2026-06-03 |
 | 08. smartsheet-python-sdk 4.0.0 Compatibility Migration | v1.2 | 2/2 | Complete    | 2026-07-22 |
-| 09. Engine Modularization (pipeline package split) | v1.3 | 5/7 | In Progress|  |
+| 09. Engine Modularization (pipeline package split) | v1.3 | 9/9 | ✅ Complete | 2026-08-25 |
+| 10. Run-Memory Foundation (shadow writes) | v1.4 | 0/? | Draft — needs Juan decisions |  |
+| 11. Incremental Read + Affected-Group Regeneration | v1.4 | 0/? | Draft |  |
+| 12. Ownership — last known foreman as of the week | v1.4 | 0/? | Draft |  |
+| 13. Audit Memory | v1.4 | 0/? | Draft |  |
 
 ---
 
@@ -351,7 +383,11 @@ MOD-05 no dead-code removal · MOD-06 per-step verification gates green.
 
 **Depends on:** Phase 8 (must NOT run concurrently — same file; D-07)
 
-**Plans:** 4/7 plans executed
+**Plans:** 7 implementation waves executed pre-GSD (PR #280, merge `889ca2e`) +
+2 gap-closure plans. The `09-00`..`09-06` filenames below are the historical wave
+record — those PLAN files were never written to disk, which is why the phase
+needed a retroactive verification pass. Retroactive verification (2026-08-24)
+scored 5/6 must-haves; gap `G-09-MOD-06` is closed by `09-07` and `09-08`.
 
 Plans:
 **Wave 1**
@@ -373,15 +409,21 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 09-05-PLAN.md — Wave 5: cleanup + upload + attribution (separate lifecycle modules)
+- [x] 09-05-PLAN.md — Wave 5: cleanup + upload + attribution (separate lifecycle modules)
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
-- [ ] 09-06-PLAN.md — Wave 6: orchestrate (main) + thin-facade finalization + phase-close human verify
+- [x] 09-06-PLAN.md — Wave 6: orchestrate (main) + thin-facade finalization + phase-close human verify
+
+**Wave 7** *(gap closure for G-09-MOD-06 — MOD-06 only; MOD-01..05 verified)*
+
+- [x] 09-07-PLAN.md — Gate 4 fail-capability: CRLF-immune + fall-through-proof `check_mypy_delta.sh`, hermetic Gate-4 tests in `test_facade_harness.py`, `tests/golden/*.txt` pinned to LF, Living Ledger entry
+- [x] 09-08-PLAN.md — Gate 6 pinned to the synthetic dataset (zero production Smartsheet reads) + per-finding attribution of the real 56→65 mypy delta + Juan's fix-vs-re-baseline decision (autonomous:false)
 
 **Cross-cutting constraints:**
 
 - All 6 gates green; no symbol deleted
+- A gate that cannot fail is not green — every gate needs a fail-capability test (G-09-MOD-06)
 
 ---
 
@@ -484,3 +526,133 @@ Plans:
 **Wave 2** *(blocked on Wave 1 — pin lifted only after the automated proof is green)*
 
 - [x] 08-02-PLAN.md — Lift the exact pin `smartsheet-python-sdk==4.3.0` + Living Ledger entry + [BLOCKING] live read-only Smartsheet probe (D-05) + rollout/rollback runbook (SDK-03/05/06)
+
+### Phase 10: Run-Memory Foundation (shadow writes)
+
+**Milestone:** v1.4
+
+**Goal:** Give the pipeline a durable memory in Supabase without changing what it
+produces. Every run upserts the current state of every accepted row and appends history
+only on change; attachment ids and per-file hashes move into `group_state`. Shadow mode:
+the existing full-read path keeps generating; the memory is written alongside it.
+
+**Requirements:** MEM-01, MEM-02, MEM-03, MEM-04
+
+**Depends on:** Juan's decisions in spec §8 that gate THIS phase — **#2** schema
+placement (`pipeline_memory` in `poeyztlmsawfoqlanucc` vs. extending `billing_audit`),
+**#3** `row_event` retention / partitioning, **#4** the weekly deep run stays the full
+reconciliation (MEM-04's safety net). **#5** (backfill sources) is decided here only so
+far as `row_event` / `group_state` carry a provenance/source column — the backfill itself
+is Phase 12 (OWN-03). §8 **#1** (ownership semantics) and **#6** (audit finding key) are
+NOT Phase 10 gates — deferred to Phases 12 and 13 respectively. Also: Phase 09
+verify/close (same engine files). `/gsd-discuss-phase 10` should lock #2/#3/#4 (+ #5
+provenance) into CONTEXT.md before planning.
+
+**Success criteria:**
+
+1. After one scheduled run, `row_state` holds one row per accepted Smartsheet row
+   (≈208k) and `row_event` holds exactly one `insert` per row; a second run with no
+   Smartsheet edits adds zero `row_event` rows and bumps `last_seen_run` only.
+
+2. Memory outage (Supabase unreachable) → the run completes with today's output set and a
+   WARNING; no exception path reaches Excel generation.
+
+3. A fixture experiment answers MEM-04 (formula-only change visibility under
+   `rowsModifiedSince`), recorded in the Living Ledger with the raw API evidence.
+
+4. `pytest tests/ -v` green; production output byte-identical vs. a control run.
+
+**Plans:** 6 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 10-01-PLAN.md — Tracer: `pipeline_memory` package, fail-open client, complete versioned DDL, `run_ledger` end-to-end (wave 1)
+- [ ] 10-04-PLAN.md — MEM-04 read-only probe CLI, cassette replay harness, passive comparison script (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 10-02-PLAN.md — `row_state` / `row_event` chunked bulk shadow write with its own time sub-budget (wave 2)
+- [ ] 10-05-PLAN.md — MEM-04 experiment run, committed evidence, dated Living Ledger verdict (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 10-03-PLAN.md — `sheet_registry` and `group_state` shadow writes, including attachment ids (wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 10-06-PLAN.md — Control-vs-shadow byte comparison, operator schema apply, real-data rollout proof (wave 4)
+
+### Phase 11: Incremental Read + Affected-Group Regeneration
+
+**Milestone:** v1.4
+
+**Goal:** Frequent runs read only changed rows and rebuild only touched (WR, week)
+files, reading group rows from `row_state`; the weekly deep run reconciles fully.
+
+**Requirements:** INC-01, INC-02, INC-03, INC-04, INC-05
+
+**Depends on:** Phase 10 (memory populated + MEM-04 answer).
+
+**Success criteria:**
+
+1. With `RUN_MEMORY_INCREMENTAL_ENABLED=1` on a scheduled run, unchanged sheets are
+   skipped after a single `ifVersionAfter` call and the run log reports rows_seen ≪ 208k.
+
+2. Parity: for ≥5 consecutive scheduled runs the incremental output set (filenames +
+   content hashes) equals the shadow full-run output set; any divergence is a blocking
+   defect, not a tolerance.
+
+3. Weekly deep run detects a deleted row and a formula-only change and repairs
+   `row_state`/`group_state` (fixture + one live verification).
+
+4. Local JSON caches and the two attachment pre-fetch phases are removed only after (2);
+   frequent-run wall clock measured before/after (baseline 94 min, run 32743959053).
+
+### Phase 12: Ownership — last known foreman as of the week
+
+**Milestone:** v1.4
+
+**Goal:** Each (WR, week) file is named for — and partitioned by — the foreman/helper/VAC
+who owned the job at that time, derived from observed history, never from a sentinel.
+Repairs the 2026-08-24 `_User_Unknown_Foreman` defect and the 93 affected WRs.
+
+**Requirements:** OWN-01, OWN-02, OWN-03, OWN-04
+
+**Depends on:** Phase 10 (row_event history); Juan's approval of the semantics change
+(spec §8 **#1**, protected billing/attribution logic) and of the allowed backfill sources
+(spec §8 **#5**); a known-good validation sample.
+
+**Success criteria:**
+
+1. `resolve_claimer`/`freeze_row` never store or honor `Unknown Foreman` / `#…` as a
+   claimer (TDD in `tests/test_billing_audit_shadow.py`).
+
+2. Dry-run backfill report lists, per affected (WR, week), the proposed owner and its
+   source; Juan approves before the live remediation.
+
+3. WR 89829163 WE 082425/083125/091425/092125 regenerate as `_User_Allen_Harris` from the
+   `backfill_hash_history` source; no `_User__NO_MATCH` / `_User_Unknown_Foreman` churn
+   remains in the scheduled run (today: ~154 regenerations per run).
+
+4. Living Ledger + runbook document the amended Foundation A contract.
+
+### Phase 13: Audit Memory
+
+**Milestone:** v1.4
+
+**Goal:** Audit findings persist across runs like a task list: created once, carried
+while unresolved, closed when the fixing run no longer reproduces them.
+
+**Requirements:** AUD-01, AUD-02, AUD-03
+
+**Depends on:** Phase 11 (affected-group set drives incremental audits); Juan's decision
+on spec §8 **#6** (audit finding key definition and who may `acknowledge`).
+
+**Success criteria:**
+
+1. A seeded finding survives three runs untouched, transitions to `fixed` on the run
+   that no longer reproduces it, and to `resurfaced` if it reappears after acknowledgement.
+
+2. Audit wall clock on frequent runs is proportional to affected groups + open findings.
+3. Audit Excel/portal shows open + resurfaced only; per-WR history is queryable in SQL.

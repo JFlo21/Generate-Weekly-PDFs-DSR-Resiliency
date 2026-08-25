@@ -165,6 +165,74 @@ compatibility so the pin can be lifted.
   `SKIP_UPLOAD=true`) confirms the pipeline produces identical grouping and
   Excel output under 4.0.0 — proving zero behavior change.
 
+## v1.4 Requirements (Supabase Run Memory — incremental billing pipeline)
+
+**Defined:** 2026-08-24 (DRAFT — Phase 10 gates on Juan's spec §8 decisions #2/#3/#4;
+see ROADMAP Phase 10 "Depends on"). **Spec:**
+`docs/superpowers/specs/2026-08-24-supabase-run-memory-design.md`. Archive copy:
+`.planning/milestones/v1.4-REQUIREMENTS.md`.
+
+Core value: every scheduled run reads only what changed on Smartsheet, rebuilds only the
+(WR, week) files whose rows changed, names each week's file after the foreman who owned
+the job at that time, and carries audit findings forward until they are fixed — with
+Supabase, not local JSON caches, as the pipeline's memory. Each requirement maps to
+exactly one roadmap phase. Scope guard: the Smartsheet → Excel → Smartsheet transport,
+CU pricing, rate recalculation, and billing formulas do not change.
+
+### Run-memory foundation (Phase 10)
+
+- [ ] **MEM-01**: A `pipeline_memory` schema (sheet_registry, row_state, row_event,
+  group_state, run_ledger) exists in the production Supabase project with
+  service-role-only RLS and a versioned `schema.sql` mirror in the repo.
+- [ ] **MEM-02**: Every run upserts the current state of every accepted row (one row per
+  Smartsheet `(sheet_id,row_id)`), writes a `row_event` ONLY when the row's content hash
+  changed, and records the personnel values observed at that time (foreman, helper, VAC).
+- [ ] **MEM-03**: Writes are bulk (one RPC per sheet), fail-open (memory outage never
+  blocks Excel generation), and shadow-mode first (zero production behavior change).
+- [ ] **MEM-04**: Fixture-proven answer to "does `rowsModifiedSince` see formula-only
+  changes (archived WR blanking `Foreman`, dept-mapping edits)?" recorded in the Living
+  Ledger.
+
+### Incremental read + affected-group regeneration (Phase 11)
+
+- [ ] **INC-01**: Frequent runs use `ifVersionAfter` + `rowsModifiedSince` per registered
+  sheet; unchanged sheets cost one call and zero rows.
+- [ ] **INC-02**: Only (WR, week) groups touched by changed rows (including the previous
+  week when a row's week moved) are regrouped, regenerated, and uploaded; rows for those
+  groups come from `row_state`, not Smartsheet.
+- [ ] **INC-03**: The weekly deep run performs a full read + reconciliation (deletions,
+  formula-only changes) and refreshes `sheet_registry.column_mapping`.
+- [ ] **INC-04**: Behind `RUN_MEMORY_INCREMENTAL_ENABLED` (default OFF) with parity
+  proof: incremental output set == full-run output set for ≥5 consecutive scheduled
+  runs before the flag defaults ON.
+- [ ] **INC-05**: `hash_history.json`, `discovery_cache.json`,
+  `billing_audit_frozen_rows.json` and the attachment pre-fetch phases are retired only
+  after INC-04; `group_state` holds attachment ids.
+
+### Ownership — last known foreman as of the week (Phase 12)
+
+- [ ] **OWN-01**: `wr_week_ownership` decides each (WR, week, variant, role) owner by the
+  ladder observed_in_week → last_known_before_week → backfill → Unknown; sentinels
+  (`Unknown Foreman`, `#NO MATCH`) are never stored as names.
+- [ ] **OWN-02**: `freeze_row` / `resolve_claimer` treat the sentinel as no-claimer (the
+  2026-08-24 defect) and Subproject B/C/D partition by `wr_week_ownership`.
+- [ ] **OWN-03**: One-time, dry-run-first backfill from `public.artifacts` filenames,
+  non-sentinel `attribution_snapshot`, and the 2025 `hash_history.json` foreman field;
+  the 93 WRs / 5,824 rows frozen as `Unknown Foreman` are remediated and their
+  `_User_Unknown_Foreman` attachments replaced. Validated against a known-good sample
+  (WR 89829163 WE 082425–092125 → Allen Harris).
+- [ ] **OWN-04**: The change to Foundation A's first-write-wins contract is documented in
+  the Living Ledger and the runbook; helper/VAC roles follow the same ladder.
+
+### Audit memory (Phase 13)
+
+- [ ] **AUD-01**: `audit_finding` / `audit_finding_event` persist every finding with a
+  stable key and lifecycle open → fixed | resurfaced | acknowledged | suppressed.
+- [ ] **AUD-02**: Each audit run evaluates only affected groups + open findings; findings
+  not reproduced on a re-audited group transition to `fixed` with the fixing run id.
+- [ ] **AUD-03**: Excel/portal audit surfaces open + resurfaced findings only; history is
+  queryable per WR.
+
 ## v2 / Future Requirements
 
 Deferred to a future milestone. Tracked but not in this roadmap.
@@ -250,11 +318,28 @@ Which phases cover which requirements.
 | SDK-04 | Phase 08 | Complete |
 | SDK-05 | Phase 08 | Complete |
 | SDK-06 | Phase 08 | Complete |
+| MEM-01 | Phase 10 | Pending |
+| MEM-02 | Phase 10 | Pending |
+| MEM-03 | Phase 10 | Pending |
+| MEM-04 | Phase 10 | Pending |
+| INC-01 | Phase 11 | Pending |
+| INC-02 | Phase 11 | Pending |
+| INC-03 | Phase 11 | Pending |
+| INC-04 | Phase 11 | Pending |
+| INC-05 | Phase 11 | Pending |
+| OWN-01 | Phase 12 | Pending |
+| OWN-02 | Phase 12 | Pending |
+| OWN-03 | Phase 12 | Pending |
+| OWN-04 | Phase 12 | Pending |
+| AUD-01 | Phase 13 | Pending |
+| AUD-02 | Phase 13 | Pending |
+| AUD-03 | Phase 13 | Pending |
 
 **Coverage:**
 - v1.1 requirements: 33 total — mapped to phases: 33 (Phase 03: 5, Phase 04: 15, Phase 05: 9, Phase 06: 4, Phase 07: 5); unmapped: 0 ✓
 - v1.2 requirements: 6 total — mapped to phases: 6 (Phase 08: 6); unmapped: 0 ✓
+- v1.4 requirements: 16 total — mapped to phases: 16 (Phase 10: 4, Phase 11: 5, Phase 12: 4, Phase 13: 3); unmapped: 0 ✓ (DRAFT — Phase 10 pending spec §8 decisions)
 
 ---
 *Requirements defined: 2026-05-29*
-*Last updated: 2026-06-08 — appended v1.2 SDK-01..06 (smartsheet-python-sdk 4.0.0 compatibility migration), all mapped to Phase 08*
+*Last updated: 2026-08-24 — appended v1.4 MEM-01..04 / INC-01..05 / OWN-01..04 / AUD-01..03 (Supabase Run Memory), mapped to Phases 10–13; merged from `.planning/milestones/v1.4-REQUIREMENTS.md` so plan-phase's requirements-coverage gate can see them*
