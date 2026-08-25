@@ -382,6 +382,181 @@ def _run_synthetic_test_mode(session_start):
 # --- MAIN EXECUTION ---
 
 
+def _run_memory_write_phase(
+    all_rows: list[dict],
+    mem_run_id: str,
+    session_start: datetime.datetime,
+) -> dict[str, Any]:
+    """Phase 10 (MEM-02/MEM-03): shadow-write every accepted row's current
+    state to ``pipeline_memory.row_state`` / ``row_event``, bucketed by
+    source sheet, ONE bulk RPC per sheet.
+
+    Consumes rows ALREADY fetched this run (``all_rows``, from
+    ``get_all_source_rows``) -- never issues its own Smartsheet call and
+    never spins up a thread pool: this loop is sequential BY DESIGN so the
+    per-iteration sub-budget check below can stop it mid-loop
+    (10-RESEARCH.md Pitfall 6 -- the attachment pre-fetch's single
+    collective ``as_completed(timeout=...)`` is NOT the model here).
+
+    Self-gated on ``RUN_MEMORY_WRITE_ENABLED`` / ``TEST_MODE`` (the same
+    module-level constants ``main()`` already checks at its two run_ledger
+    hook call sites -- defense-in-depth, mirrors that double-gate) so this
+    function is directly callable -- and testable -- with zero writer-
+    module calls when the flag is off, independent of how ``main()``
+    itself is invoked.
+
+    The affected ``(wr, week_ending)`` set is accumulated for
+    OBSERVABILITY ONLY -- nothing in this function, and nothing in its
+    caller, may read it back to decide whether a group is skipped,
+    regenerated, or uploaded. That gate stays entirely on the existing
+    local ``hash_history.json`` / durable group hash path (10-CONTEXT.md,
+    plan success criteria).
+
+    Returns a dict of counts only (no PII, no per-row values):
+    ``sheets_written``, ``sheets_errored``, ``rows_sent``,
+    ``rows_changed``, ``affected`` (the (wr, week_ending) set),
+    ``elapsed_seconds``. NEVER raises -- every per-sheet write already
+    goes through ``pipeline_memory.writer``'s own fail-open contract, and
+    this function additionally isolates one sheet's unexpected exception
+    from the rest of the loop.
+    """
+    result: dict[str, Any] = {
+        "sheets_written": 0,
+        "sheets_errored": 0,
+        "rows_sent": 0,
+        "rows_changed": 0,
+        "affected": set(),
+        "elapsed_seconds": 0.0,
+    }
+
+    if not (RUN_MEMORY_WRITE_ENABLED and not TEST_MODE):
+        return result
+
+    _phase_start = datetime.datetime.now()
+
+    # Pre-flight sub-budget guard -- mirrors the attachment pre-fetch
+    # guard's elapsed -> remaining -> required shape (lines ~766-791
+    # above) verbatim: skip the ENTIRE phase, never a partial start, when
+    # too little session budget remains for it plus generation headroom.
+    if TIME_BUDGET_MINUTES and GITHUB_ACTIONS_MODE:
+        _pre_elapsed_min = (
+            (datetime.datetime.now() - session_start).total_seconds() / 60.0
+        )
+        _remaining_min = TIME_BUDGET_MINUTES - _pre_elapsed_min
+        _required_min = (
+            RUN_MEMORY_WRITE_MAX_MINUTES
+            + RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN
+        )
+        if _remaining_min <= _required_min:
+            logging.warning(
+                f"⏩ Skipping run-memory row writes: {_pre_elapsed_min:.1f}min "
+                f"already elapsed, only {_remaining_min:.1f}min left in "
+                f"session budget (need > {_required_min}min = "
+                f"{RUN_MEMORY_WRITE_MAX_MINUTES}min memory-write budget + "
+                f"{RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN}min generation "
+                "headroom)."
+            )
+            sentry_add_breadcrumb(
+                "pipeline_memory",
+                f"Row-write phase skipped, {_remaining_min:.1f}min remaining",
+                level="warning",
+                data={
+                    "elapsed_min": round(_pre_elapsed_min, 1),
+                    "remaining_min": round(_remaining_min, 1),
+                    "required_remaining_min": _required_min,
+                },
+            )
+            return result
+
+    # Bucket already-fetched rows by source sheet. No re-fetch, no
+    # get_sheet call, no ThreadPoolExecutor -- sequential on purpose.
+    buckets: dict[Any, list[dict]] = {}
+    for row in all_rows:
+        buckets.setdefault(row.get('__source_sheet_id'), []).append(row)
+    sheet_items = list(buckets.items())
+
+    for idx, (sheet_id, bucket_rows) in enumerate(sheet_items, 1):
+        # Resolve week_ending / snapshot_date with the SAME parser
+        # grouping uses (pipeline.utils.excel_serial_to_date), so memory
+        # stores the SAME dates the grouping phase computes. Stashed
+        # under NEW double-underscore keys on each row dict -- invisible
+        # to excel.py's column sampler and to calculate_data_hash() (the
+        # existing group hash reads only explicitly named business
+        # fields), same convention as __row_modified_at. A row whose
+        # week-ending can't be resolved passes through with week_ending
+        # None rather than being dropped -- row_state.week_ending is
+        # nullable and memory records what was observed.
+        for row in bucket_rows:
+            row['__mem_week_ending'] = _utils.excel_serial_to_date(
+                row.get('Weekly Reference Logged Date')
+            )
+            row['__mem_snapshot_date'] = _utils.excel_serial_to_date(
+                row.get('Snapshot Date')
+            )
+
+        try:
+            sheet_affected = _mem_writer.upsert_rows_bulk(
+                sheet_id, mem_run_id, bucket_rows,
+            )
+        except Exception:
+            logging.warning(
+                "⚠️ pipeline_memory upsert_rows_bulk raised unexpectedly "
+                f"for sheet {sheet_id} (non-fatal); treating as errored "
+                "this run."
+            )
+            sheet_affected = set()
+            result["sheets_errored"] += 1
+        else:
+            if sheet_affected:
+                result["sheets_written"] += 1
+
+        result["rows_sent"] += len(bucket_rows)
+        result["rows_changed"] += len(sheet_affected)
+        result["affected"] |= sheet_affected
+
+        # Per-iteration sub-budget check -- AFTER each sheet's call, not
+        # once before the loop (10-RESEARCH.md Pitfall 6): a slow
+        # Supabase response stops memory writes for the REMAINING sheets
+        # instead of consuming the whole session budget. Gated the same
+        # way as the pre-flight guard and the main group loop's own
+        # per-iteration check (pipeline/orchestrate.py lines ~1418-1431).
+        if TIME_BUDGET_MINUTES and GITHUB_ACTIONS_MODE:
+            _loop_elapsed_min = (
+                (datetime.datetime.now() - _phase_start).total_seconds()
+                / 60.0
+            )
+            if _loop_elapsed_min >= RUN_MEMORY_WRITE_MAX_MINUTES:
+                _remaining_sheets = len(sheet_items) - idx
+                logging.warning(
+                    f"⏰ Run-memory sub-budget exhausted "
+                    f"({_loop_elapsed_min:.1f}min >= "
+                    f"{RUN_MEMORY_WRITE_MAX_MINUTES}min). Stopping with "
+                    f"{_remaining_sheets} sheet(s) unwritten this run."
+                )
+                sentry_add_breadcrumb(
+                    "pipeline_memory",
+                    f"Row-write budget exhausted after {idx} sheet(s)",
+                    level="warning",
+                    data={
+                        "elapsed_min": round(_loop_elapsed_min, 1),
+                        "sheets_remaining": _remaining_sheets,
+                    },
+                )
+                break
+
+    result["elapsed_seconds"] = (
+        datetime.datetime.now() - _phase_start
+    ).total_seconds()
+    logging.info(
+        f"⚡ Run-memory row writes: {result['sheets_written']} sheet(s) "
+        f"written, {result['sheets_errored']} errored, "
+        f"{result['rows_sent']} row(s) sent, {result['rows_changed']} "
+        f"changed, {len(result['affected'])} group(s) affected, "
+        f"{result['elapsed_seconds']:.1f}s elapsed."
+    )
+    return result
+
+
 def main():  # pyright: ignore[reportGeneralTypeIssues]
     """Main execution function with all fixes implemented.
 
@@ -448,17 +623,19 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
     _groups_errored = 0
     _api_calls_count = 0
     history_updates = 0
-    # Phase 10 (MEM-01/MEM-03): run-memory counters, hoisted for the same
-    # documented reason as the _groups_* family above -- the run-finish
-    # hook near the bottom of main() references these unconditionally, so
-    # an early Phase-1/2 exception must not turn a real error into an
-    # UnboundLocalError. Populated by the (not-yet-wired) per-sheet
-    # upsert_rows_bulk loop landing in a later plan; this plan's
-    # run_ledger.notes payload carries them at their zero defaults.
+    # Phase 10 (MEM-01/MEM-02/MEM-03): run-memory counters, hoisted for the
+    # same documented reason as the _groups_* family above -- the
+    # run-finish hook near the bottom of main() references these
+    # unconditionally, so an early Phase-1/2 exception must not turn a
+    # real error into an UnboundLocalError. Populated by
+    # _run_memory_write_phase() (called right after Phase 2 completes,
+    # below) -- zero defaults here cover the case where that phase never
+    # runs (flag off, TEST_MODE, or an exception before Phase 2 finishes).
     _mem_sheets_written = 0
     _mem_sheets_errored = 0
     _mem_rows_sent = 0
     _mem_rows_changed = 0
+    _mem_affected = set()
     _mem_run_id = _mem_writer.resolve_run_id()
     # Explicit session-failure sentinel for the finally-block cron
     # check-in (Copilot review, PR #297): _groups_errored == 0 alone
@@ -582,7 +759,34 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             "row_count": len(all_rows),
             "sheet_count": len(source_sheets),
         })
-        
+
+        # Phase 10 (MEM-02/MEM-03): per-sheet row-state shadow write.
+        # _run_memory_write_phase self-gates on RUN_MEMORY_WRITE_ENABLED /
+        # TEST_MODE (mirrors the run_ledger start/finish hooks' defense-
+        # in-depth double gate) and never raises on its own -- this
+        # try/except is a second, outer belt so an unexpected bug in the
+        # phase itself can never reach the audit/grouping/Excel path
+        # below (fail-open holds even if pipeline_memory has a bug, not
+        # just a Supabase outage).
+        try:
+            _mem_result = _run_memory_write_phase(
+                all_rows, _mem_run_id, session_start,
+            )
+        except Exception:
+            logging.warning(
+                "⚠️ pipeline_memory row-write phase failed unexpectedly "
+                "(non-fatal); memory rows not written this run."
+            )
+            _mem_result = {
+                "sheets_written": 0, "sheets_errored": 0,
+                "rows_sent": 0, "rows_changed": 0, "affected": set(),
+            }
+        _mem_sheets_written = _mem_result["sheets_written"]
+        _mem_sheets_errored = _mem_result["sheets_errored"]
+        _mem_rows_sent = _mem_result["rows_sent"]
+        _mem_rows_changed = _mem_result["rows_changed"]
+        _mem_affected = _mem_result.get("affected", set())
+
         # Initialize audit system
         audit_system = None
         audit_results = {}
@@ -2812,6 +3016,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     rows_seen=len(all_rows) if 'all_rows' in dir() else 0,
                     rows_changed=_mem_rows_changed,
                     groups_generated=_groups_generated,
+                    groups_affected=len(_mem_affected),
                     mem_sheets_written=_mem_sheets_written,
                     mem_sheets_errored=_mem_sheets_errored,
                     mem_rows_sent=_mem_rows_sent,

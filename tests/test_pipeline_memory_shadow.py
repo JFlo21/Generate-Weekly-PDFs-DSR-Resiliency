@@ -1121,5 +1121,163 @@ class AffectedSetParsingTests(unittest.TestCase):
         self.assertEqual(result, set())
 
 
+class MemoryWritePhaseTests(unittest.TestCase):
+    """Task 3 (MEM-02/MEM-03): pipeline.orchestrate._run_memory_write_phase
+    -- the budgeted, sequential per-sheet memory-write loop wired into
+    main() immediately after Phase 2 completes. Patches the module-level
+    constants pipeline.orchestrate imports from pipeline.config (the
+    established pattern for overriding a name read at import time --
+    see tests/test_snapshot_drift_audit.py) rather than mutating
+    os.environ, which pipeline.config already resolved before these
+    tests run.
+    """
+
+    def setUp(self):
+        _reset_all()
+        _pop_env()
+
+    def tearDown(self):
+        _reset_all()
+        _pop_env()
+
+    def _rows(self, sheet_id, n, start_id=1):
+        return [
+            {
+                "__row_id": start_id + i,
+                "__source_sheet_id": sheet_id,
+                "Work Request #": f"9{start_id + i:05d}",
+                "Foreman": "Alice",
+                "Weekly Reference Logged Date": "2026-08-30",
+            }
+            for i in range(n)
+        ]
+
+    def test_flag_off_performs_zero_writer_calls(self):
+        import datetime
+
+        import pipeline.orchestrate as orch
+
+        with mock.patch.object(orch, "RUN_MEMORY_WRITE_ENABLED", False), \
+             mock.patch.object(
+                 orch._mem_writer, "upsert_rows_bulk"
+             ) as mock_upsert:
+            result = orch._run_memory_write_phase(
+                self._rows(111, 2), "run-1", datetime.datetime.now(),
+            )
+
+        mock_upsert.assert_not_called()
+        self.assertEqual(result["sheets_written"], 0)
+        self.assertEqual(result["sheets_errored"], 0)
+        self.assertEqual(result["rows_sent"], 0)
+        self.assertEqual(result["rows_changed"], 0)
+
+    def test_flag_on_calls_writer_once_per_sheet_with_bucketed_rows(self):
+        import datetime
+
+        import pipeline.orchestrate as orch
+
+        rows = self._rows(111, 2, start_id=1) + self._rows(222, 1, start_id=3)
+
+        with mock.patch.object(orch, "RUN_MEMORY_WRITE_ENABLED", True), \
+             mock.patch.object(orch, "TEST_MODE", False), \
+             mock.patch.object(
+                 orch._mem_writer, "upsert_rows_bulk", return_value=set(),
+             ) as mock_upsert:
+            result = orch._run_memory_write_phase(
+                rows, "run-1", datetime.datetime.now(),
+            )
+
+        self.assertEqual(mock_upsert.call_count, 2)
+        calls_by_sheet = {
+            call.args[0]: call.args[2]
+            for call in mock_upsert.call_args_list
+        }
+        self.assertEqual(len(calls_by_sheet[111]), 2)
+        self.assertEqual(len(calls_by_sheet[222]), 1)
+        self.assertEqual(result["rows_sent"], 3)
+        self.assertEqual(result["sheets_written"], 0)  # empty affected sets
+
+    def test_writer_failure_on_first_sheet_still_processes_second(self):
+        import datetime
+
+        import pipeline.orchestrate as orch
+
+        rows = self._rows(111, 1, start_id=1) + self._rows(222, 1, start_id=2)
+        call_order: list = []
+
+        def _side_effect(sheet_id, run_id, bucket_rows):
+            call_order.append(sheet_id)
+            if sheet_id == 111:
+                raise RuntimeError("boom")
+            return set()
+
+        with mock.patch.object(orch, "RUN_MEMORY_WRITE_ENABLED", True), \
+             mock.patch.object(orch, "TEST_MODE", False), \
+             mock.patch.object(
+                 orch._mem_writer, "upsert_rows_bulk", side_effect=_side_effect,
+             ):
+            result = orch._run_memory_write_phase(
+                rows, "run-1", datetime.datetime.now(),
+            )
+
+        # Both sheets were attempted, in order -- the first sheet's
+        # exception never propagated and never stopped the second.
+        self.assertEqual(call_order, [111, 222])
+        self.assertEqual(result["sheets_errored"], 1)
+        self.assertEqual(result["rows_sent"], 2)
+
+    def test_preflight_guard_skips_when_subbudget_already_exhausted(self):
+        import datetime
+
+        import pipeline.orchestrate as orch
+
+        stale_session_start = (
+            datetime.datetime.now() - datetime.timedelta(minutes=200)
+        )
+
+        with mock.patch.object(orch, "RUN_MEMORY_WRITE_ENABLED", True), \
+             mock.patch.object(orch, "TEST_MODE", False), \
+             mock.patch.object(orch, "TIME_BUDGET_MINUTES", 165), \
+             mock.patch.object(orch, "GITHUB_ACTIONS_MODE", True), \
+             mock.patch.object(orch, "RUN_MEMORY_WRITE_MAX_MINUTES", 10), \
+             mock.patch.object(
+                 orch, "RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN", 2,
+             ), \
+             mock.patch.object(
+                 orch._mem_writer, "upsert_rows_bulk"
+             ) as mock_upsert:
+            result = orch._run_memory_write_phase(
+                self._rows(111, 2), "run-1", stale_session_start,
+            )
+
+        mock_upsert.assert_not_called()
+        self.assertEqual(result["sheets_written"], 0)
+        self.assertEqual(result["rows_sent"], 0)
+
+    def test_midloop_budget_exhaustion_breaks_before_second_sheet(self):
+        import datetime
+
+        import pipeline.orchestrate as orch
+
+        rows = self._rows(111, 1, start_id=1) + self._rows(222, 1, start_id=2)
+
+        with mock.patch.object(orch, "RUN_MEMORY_WRITE_ENABLED", True), \
+             mock.patch.object(orch, "TEST_MODE", False), \
+             mock.patch.object(orch, "TIME_BUDGET_MINUTES", 165), \
+             mock.patch.object(orch, "GITHUB_ACTIONS_MODE", True), \
+             mock.patch.object(orch, "RUN_MEMORY_WRITE_MAX_MINUTES", 0), \
+             mock.patch.object(
+                 orch._mem_writer, "upsert_rows_bulk", return_value=set(),
+             ) as mock_upsert:
+            result = orch._run_memory_write_phase(
+                rows, "run-1", datetime.datetime.now(),
+            )
+
+        # Sheet 1 gets written; the per-iteration check (0min budget) then
+        # fires immediately after it, breaking BEFORE sheet 2.
+        self.assertEqual(mock_upsert.call_count, 1)
+        self.assertEqual(result["rows_sent"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
