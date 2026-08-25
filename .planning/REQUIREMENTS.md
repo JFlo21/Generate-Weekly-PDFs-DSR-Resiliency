@@ -219,7 +219,7 @@ CU pricing, rate recalculation, and billing formulas do not change.
   group_state, run_ledger) exists in the production Supabase project with
   service-role-only RLS and a versioned `schema.sql` mirror in the repo.
 
-- [ ] **MEM-02**: Every run upserts the current state of every accepted row (one row per
+- [x] **MEM-02**: Every run upserts the current state of every accepted row (one row per
   Smartsheet `(sheet_id,row_id)`), writes a `row_event` ONLY when the row's content hash
   changed, and records the personnel values observed at that time (foreman, helper, VAC).
 
@@ -366,7 +366,7 @@ Which phases cover which requirements.
 | SDK-05 | Phase 08 | Complete |
 | SDK-06 | Phase 08 | Complete |
 | MEM-01 | Phase 10 | Complete |
-| MEM-02 | Phase 10 | Pending |
+| MEM-02 | Phase 10 | Complete |
 | MEM-03 | Phase 10 | Complete |
 | MEM-04 | Phase 10 | Complete |
 | INC-01 | Phase 11 | Pending |

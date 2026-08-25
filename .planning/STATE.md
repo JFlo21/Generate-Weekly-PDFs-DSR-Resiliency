@@ -4,18 +4,18 @@ milestone: v1.3
 milestone_name: Engine Modularization & Hygiene
 current_phase: 10
 current_phase_name: Run-Memory Foundation (shadow writes)
-status: executing
-stopped_at: Completed 10-03-PLAN.md
-last_updated: "2026-08-25T18:34:20.357Z"
+status: verifying
+stopped_at: Completed 10-06-PLAN.md (Task 3 real-data rollout evidence)
+last_updated: "2026-08-25T23:44:11.298Z"
 last_activity: 2026-08-25
 last_activity_desc: Phase 10 execution started
+state_head: e12c6c3454b47ecd73e0644ac148d300b65b0055
 progress:
   total_phases: 1
   completed_phases: 1
   total_plans: 2
   completed_plans: 2
   percent: 100
-state_head: bce27c57fb4a840d81ad89febd59ff7e250d4ba0
 ---
 
 # Project State
@@ -37,7 +37,7 @@ pipeline.
 
 Phase: 10 (Run-Memory Foundation (shadow writes)) — EXECUTING
 Plan: 6 of 6
-Status: Ready to execute
+Status: Phase complete — ready for verification
   Engine 10,476 -> 709-line thin facade; 13-module pipeline/ package; 0 behavior
   change; 7 waves + 2 gap-closure plans (09-07/09-08). G-09-MOD-06 closed: Gate 4
   fail-capable, Gate 6 offline (synthetic), mypy re-baselined 65 with per-finding
@@ -101,6 +101,7 @@ Progress: [██████████] 100% (v1.3 complete — Phase 09 clos
 | Phase 10 P02 | ~40min | 3 tasks | 4 files |
 | Phase 10-run-memory-foundation-shadow-writes P05 | 40min | 3 tasks | 4 files |
 | Phase 10 P03 | ~37min | 3 tasks | 4 files |
+| Phase 10 P06 | ~4h10m (4 real production runs) | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -195,6 +196,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase ?]: [Phase 10-03] sheet_registry kind/version resolvers and the group_state flush computation are standalone module-level functions in pipeline/orchestrate.py (not closures nested inside main()) for direct unit-testability, mirroring 10-02's _run_memory_write_phase pattern
 - [Phase ?]: [Phase 10-03] attachment side-channel key uses task['file_identifier'] not task['identifier'] -- the two diverge for helper-variant groups; group_state's DB key uses identifier, the side channel (matching delete_old_excel_attachments' existing call) uses file_identifier
 - [Phase ?]: [Phase 10-03] group_state's third post-upload flush is wrapped in its own outer try/except (defense-in-depth, T-10-11) even though _build_group_state_flush is a pure function proven not to raise -- both earlier production flushes already complete before this block runs in source order regardless
+- [Phase 10]: 10-06: compare_control_run.py hashes canonicalized xlsx content (excludes docProps/core.xml, normalizes the Report Generated On cell) instead of raw file bytes -- a raw hash can never prove two real pipeline runs are behaviorally identical
+- [Phase 10]: 10-06: run_ledger_finish always resends mode (default full) even though run_ledger_start already set it -- PostgREST upsert validates NOT NULL against only the payload's own columns before conflict resolution
+- [Phase 10]: 10-06: success criterion 4 proven at Excel-CONTENT level (100% match, canonicalized) not at group-selection level -- live ~209K-row production data cannot be held still across a ~50-90min control/shadow gap without a fetch-snapshot capability out of scope
 
 ### Roadmap Evolution
 
@@ -323,8 +327,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-08-25T18:34:20.341Z
-**Stopped at:** Completed 10-03-PLAN.md
+**Last session:** 2026-08-25T23:44:11.126Z
+**Stopped at:** Completed 10-06-PLAN.md (Task 3 real-data rollout evidence)
 **Resume file:** None
 
 ## Session Continuity

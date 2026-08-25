@@ -562,7 +562,7 @@ provenance) into CONTEXT.md before planning.
 
 4. `pytest tests/ -v` green; production output byte-identical vs. a control run.
 
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans executed
 
 Plans:
 **Wave 1**
@@ -581,7 +581,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 10-06-PLAN.md — Control-vs-shadow byte comparison, operator schema apply, real-data rollout proof (wave 4)
+- [x] 10-06-PLAN.md — Control-vs-shadow byte comparison, operator schema apply, real-data rollout proof (wave 4)
 
 ### Phase 11: Incremental Read + Affected-Group Regeneration
 
