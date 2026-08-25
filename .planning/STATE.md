@@ -5,8 +5,8 @@ milestone_name: Engine Modularization & Hygiene
 current_phase: 10
 current_phase_name: Run-Memory Foundation (shadow writes)
 status: executing
-stopped_at: Completed 10-05-PLAN.md
-last_updated: "2026-08-25T17:55:04.615Z"
+stopped_at: Completed 10-03-PLAN.md
+last_updated: "2026-08-25T18:34:20.357Z"
 last_activity: 2026-08-25
 last_activity_desc: Phase 10 execution started
 progress:
@@ -36,7 +36,7 @@ pipeline.
 ## Current Position
 
 Phase: 10 (Run-Memory Foundation (shadow writes)) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Status: Ready to execute
   Engine 10,476 -> 709-line thin facade; 13-module pipeline/ package; 0 behavior
   change; 7 waves + 2 gap-closure plans (09-07/09-08). G-09-MOD-06 closed: Gate 4
@@ -100,6 +100,7 @@ Progress: [██████████] 100% (v1.3 complete — Phase 09 clos
 | Phase 10 P04 | ~45min | 3 tasks | 3 files |
 | Phase 10 P02 | ~40min | 3 tasks | 4 files |
 | Phase 10-run-memory-foundation-shadow-writes P05 | 40min | 3 tasks | 4 files |
+| Phase 10 P03 | ~37min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -191,6 +192,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 10]: [Phase 10-02] week_ending/snapshot_date are resolved by pipeline/orchestrate.py (pipeline.utils.excel_serial_to_date, the same parser grouping uses) and passed into upsert_rows_bulk via new __mem_week_ending/__mem_snapshot_date row keys -- pipeline_memory/writer.py keeps importing nothing from pipeline.* — Package boundary contract (writer independence from the engine import graph) plus MEM-02's requirement that memory store the SAME dates grouping computes
 - [Phase 10]: [Phase 10-02] upsert_rows_bulk chunks at _CHUNK_ROWS=500; a chunk failure bumps rows_upsert_errored by that chunk row count and continues, one aggregate WARNING per call — Largest observed sheet is 6,054 rows; a per-sheet body is an order of magnitude larger per row than the sibling package's 2-field pairs, so an unchunked call risks the ~1MB PostgREST body limit
 - [Phase ?]: MEM-04 verdict: PASS -- rows_modified_since surfaces formula-only recalculation in both D-08 scenarios, with and without SAFETY_WINDOW overlap; D-09 gate OPEN, Phase 11 cleared for incremental reads
+- [Phase ?]: [Phase 10-03] sheet_registry kind/version resolvers and the group_state flush computation are standalone module-level functions in pipeline/orchestrate.py (not closures nested inside main()) for direct unit-testability, mirroring 10-02's _run_memory_write_phase pattern
+- [Phase ?]: [Phase 10-03] attachment side-channel key uses task['file_identifier'] not task['identifier'] -- the two diverge for helper-variant groups; group_state's DB key uses identifier, the side channel (matching delete_old_excel_attachments' existing call) uses file_identifier
+- [Phase ?]: [Phase 10-03] group_state's third post-upload flush is wrapped in its own outer try/except (defense-in-depth, T-10-11) even though _build_group_state_flush is a pure function proven not to raise -- both earlier production flushes already complete before this block runs in source order regardless
 
 ### Roadmap Evolution
 
@@ -319,8 +323,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-08-25T17:55:04.599Z
-**Stopped at:** Completed 10-05-PLAN.md
+**Last session:** 2026-08-25T18:34:20.341Z
+**Stopped at:** Completed 10-03-PLAN.md
 **Resume file:** None
 
 ## Session Continuity

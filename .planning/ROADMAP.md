@@ -562,7 +562,7 @@ provenance) into CONTEXT.md before planning.
 
 4. `pytest tests/ -v` green; production output byte-identical vs. a control run.
 
-**Plans:** 3/6 plans executed
+**Plans:** 5/6 plans executed
 
 Plans:
 **Wave 1**
@@ -577,7 +577,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 10-03-PLAN.md — `sheet_registry` and `group_state` shadow writes, including attachment ids (wave 3)
+- [x] 10-03-PLAN.md — `sheet_registry` and `group_state` shadow writes, including attachment ids (wave 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
