@@ -6008,3 +6008,223 @@ follow-up findings closed, same 6 files.
   (local smoke runs must not dirty the tree). Follow-up: the
   PR #338 run-log doc carries a KNOWN BROKEN callout for this
   workflow — remove it once BOTH PRs are merged.
+
+## [2026-08-24 14:35] `_User_Unknown_Foreman` root cause (WR 89829163) — sentinel frozen as claimer + `Foreman` is a WR-level RA lookup; helper-sheet gaps are data-gated (diagnosis only, no code change)
+
+- **Symptom:** WR 89829163 ships as `WR_89829163_WeekEnding_{082425,083125,091425,092125}_User_Unknown_Foreman.xlsx`
+  although Allen Harris was the foreman (pre-attribution `hash_history.json`, 2025-09-29).
+- **Root cause (3 independent sources):** (a) the source sheets' `Foreman` column is a
+  **column formula** = WR-level INDEX/MATCH into the Resource Analyst sheet; once a WR is
+  archived/removed from RA every row's `Foreman` goes blank (`Foreman Assigned` shows
+  `#NO MATCH`; `Foreman Assigned?` is not mapped) → `pipeline/fetch.py` resolves
+  `effective_user='Unknown Foreman'`. (b) `billing_audit/writer.py::freeze_row` writes
+  `__effective_user` verbatim, so the `'Unknown Foreman'` **sentinel is frozen as a real
+  claimer** (first-write-wins; WR 89829163 rows frozen 2026-04-24 by run 24912872441, after
+  the WR was already archived). `resolve_claimer` only treats blank/`#…` as no-claimer, so
+  Subproject D partitions the primary file as `_USER_Unknown_Foreman` forever. (c) run
+  32743959053 log: `group_content_hash…identifier=eq.Unknown_Foreman` for all 4 weeks.
+- **Blast radius (Supabase, read-only):** 5,824 `attribution_snapshot` rows / 93 WRs frozen
+  as `'Unknown Foreman'` (5,135 on 2026-04-24); 312 rows frozen with helper but no dept;
+  ~154 primary groups regenerate every run "despite unchanged hash" (garbage-claimer churn).
+- **Rule (proposed, needs Juan — protected attribution/billing logic):** never freeze the
+  `'Unknown Foreman'` sentinel (map to NULL in `freeze_row`; treat a frozen sentinel as
+  `no_history` in `resolve_claimer`), then a Juan-approved remediation SQL to NULL the
+  frozen sentinels, then the existing `REMEDIATE_CLAIMERS` sweep. Separately decide a
+  durable "last known foreman" source for archived WRs — the sheets keep no per-row memory.
+- **Helper ("shadow helper") sheets:** scheduled run 32743959053 evaluated ALL 166 helper +
+  3 ReducedSub_Helper + 2 AEPBillable_Helper groups (reconciled: 0 dropped between grouping
+  and generation; helper files exist for current-week claims, e.g. WR 91739125
+  `_Helper_Kevin_Ludlam` 082326). Claims with no helper file are data-gated: `Helper Dept #`
+  blank (a column formula that resolves the helper's dept from the foreman→dept mapping —
+  15 WRs in that run, 91499829 ×71 rows, 90550059 ×69) or `Foreman Helping?` blank (WR-level
+  RA "Assigned Helper" lookup). Eliminated: discovery-cache column mappings, skip gate
+  (variant+identifier aware), KEEP_HISTORICAL cleanup, time budget, MAX_GROUPS. A forced
+  regeneration changes none of these gates — need one concrete (WR, week, helper, run id)
+  where a file appeared only after regen to go further.
+- Session file: `.planning/debug/unknown-foreman-helper-shadow-2026-08-24.md`.
+
+## [2026-08-24 15:30] v1.4 "Supabase Run Memory" milestone PLANNED (GSD draft; no code, schema, or workflow changed)
+
+- **Why:** Juan's direction — Supabase, not local JSON caches, is the pipeline's memory:
+  upsert every accepted row's state each run (history only on change), read only what
+  changed on Smartsheet, regenerate only the (WR, week) files those rows touch, own each
+  week's file by the foreman observed on the job at that time, keep audit findings until a
+  run proves them fixed.
+- **Evidence the plan rests on (run 32743959053, 94 min):** sheet fetch 33 min / 207,844
+  rows across 117 sheets; attachment pre-fetch 20 min (both 10-min budgets hit); group
+  loop 13 min with 12,227 `freeze_attribution` RPCs + 3,091 `group_content_hash` GETs;
+  ~154 garbage-claimer primaries regenerated per run. `Foreman` / `Foreman Helping?` /
+  `Helper Dept #` are column formulas (WR-level lookups) — only a run-time observation
+  record can preserve "who owned it then".
+- **Verified feasibility:** installed smartsheet-python-sdk 4.3.0
+  `Sheets.get_sheet(if_version_after=, rows_modified_since=)`; API `ifVersionAfter` +
+  `rowsModifiedSince` (Context7, 2026-08-24). Open risk: whether formula-only changes bump
+  row `modifiedAt` — Phase 10 must prove it; weekly deep run stays the full reconciliation.
+- **Artifacts:** spec `docs/superpowers/specs/2026-08-24-supabase-run-memory-design.md`
+  (schema draft `pipeline_memory.*`, run algorithm, ownership ladder, audit lifecycle,
+  decisions §8); `.planning/milestones/v1.4-REQUIREMENTS.md` (MEM/INC/OWN/AUD);
+  ROADMAP.md Phases 10–13 + Progress rows.
+- **Rule (proposed, needs Juan):** ownership = "as-of the week, never a sentinel" — this
+  AMENDS Foundation A's frozen first-write-wins contract ([2026-05-20 13:45]) and is
+  billing-visible; do not implement Phase 12 without explicit approval + a known-good
+  validation sample (WR 89829163 WE 082425–092125 → Allen Harris).
+- **Blocked on:** spec §8 decisions (semantics, schema placement, `row_event` retention,
+  deep-run reconciliation, backfill sources, audit finding key). Next: `/gsd:plan-phase 10`
+  after decisions; `/lattice-init` before implementation.
+
+## [2026-08-24 15:58] Phase 10 plan-phase paused at the no-CONTEXT gate; three planning blockers fixed (docs/config only, no code)
+
+- **What happened:** `/gsd-plan-phase 10` (Run-Memory Foundation, MEM-01..04) initialized
+  cleanly — models researcher=sonnet / planner=opus / checker=sonnet, security contribution
+  active (ASVS L1, block on `high` → every PLAN.md needs a `<threat_model>`), UI gate
+  `frontend:false`, drift gate skipped — and stopped at Step 4 because no `10-CONTEXT.md`
+  exists. Juan chose "run discuss-phase first". Only side effect: empty
+  `.planning/phases/10-run-memory-foundation-shadow-writes/`.
+- **Rule — agent-teams OFF for GSD in this repo:** GSD's multi-agent orchestration is not
+  validated under `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` and can stall (a subagent's
+  completion may never route back; open-gsd/gsd-core#1355). The global
+  `~/.claude/settings.json` sets it `"1"`; this repo now overrides it to `"0"` in the
+  gitignored `.claude/settings.local.json` (`gsd-tools query teams-status` treats `"0"` as
+  off). Settings `env` is read at session start — **restart the session before the
+  discuss → plan → execute chain.** If the file is ever lost, recreate it; it is not in git.
+- **Rule — milestone requirements must be merged into `.planning/REQUIREMENTS.md` before
+  `/gsd-plan-phase`:** the planner/checker `required_reading` and the Step 13
+  requirements-coverage gate read that file only. v1.4 MEM/INC/OWN/AUD lived solely in the
+  untracked `.planning/milestones/v1.4-REQUIREMENTS.md`, so MEM-01..04 would have been
+  scored unmapped. Merged (+16 traceability rows, v1.4 coverage line) and committed with the
+  milestone copy as `7e7c818` (master, not pushed). Pre-existing gap noticed, not touched:
+  Phase 09 MOD-01..11 are also absent from REQUIREMENTS.md.
+- **Decision routing (spec §8 → phase):** ROADMAP Phase 10/12/13 "Depends on" and spec §8
+  now tag each Juan decision with the phase it gates. Phase 10 needs **#2** schema placement
+  (`pipeline_memory` in `poeyztlmsawfoqlanucc` vs. extend `billing_audit`), **#3** `row_event`
+  retention/partitioning, **#4** weekly deep run = full reconciliation (MEM-04 safety net);
+  **#5** backfill sources only as a provenance column in `row_event`/`group_state` (the
+  backfill is Phase 12 OWN-03). **#1** ownership semantics → Phase 12; **#6** audit key →
+  Phase 13. `ROADMAP.md` and the spec are still UNCOMMITTED (ROADMAP carries Juan's earlier
+  v1.4 draft diff; the spec is untracked) — commit them with the v1.4 draft when ready.
+- **Next:** new session → `/gsd-discuss-phase 10` (lock #2/#3/#4 + #5-provenance) →
+  `/gsd-plan-phase 10` (research already answered "yes").
+
+## [2026-08-24 17:05] Phase 10 discuss-phase DONE — spec §8 #2/#3/#4 (+#5 provenance) locked in `10-CONTEXT.md` (docs only; no code, schema, or workflow changed)
+
+- **What happened:** `/gsd-discuss-phase 10` ran in advisor mode (3 parallel sonnet
+  research packets). Artifacts: `.planning/phases/10-run-memory-foundation-shadow-writes/
+  10-CONTEXT.md` + `10-DISCUSSION-LOG.md` (commit `11f6c8d`), STATE.md session row
+  (`481a02a`). Ready for `/gsd-plan-phase 10`.
+- **Decisions (Juan, 2026-08-24):** **#2** new schema `pipeline_memory` in
+  `poeyztlmsawfoqlanucc` (NOT `billing_audit`, NOT `public`), service-role-only RLS,
+  DDL as a versioned SQL mirror in the same PR; PostgREST *exposed schemas* + reload-cache
+  is an explicit plan step (PGRST106 runbook). **#5-provenance:** `row_event` and
+  `group_state` get `source text NOT NULL DEFAULT 'live'` CHECK enum (`live`,
+  `backfill_artifacts`, `backfill_hash_history`, `operator`) + nullable `source_ref`.
+  **#3** `row_event` is a SINGLE unpartitioned table (drop the spec's `partition by range`),
+  indexes on `observed_at`, `(sheet_id,row_id)`, `(wr,week_ending)` (so `wr`/`week_ending`
+  are real columns), 24-month retention via a pg_cron sliced DELETE. **#4** weekly deep run
+  `0 5 * * 1` stays the full reconciliation; no schedule change. **MEM-04 proof** = hybrid:
+  Juan hand-builds two disposable sandbox sheets (lookup + dependent cross-sheet
+  INDEX/MATCH), a READ-ONLY script records T0/T2/T3 (`if_version_after`,
+  `rows_modified_since` ± SAFETY_WINDOW) as a replayable pytest cassette, plus a passive
+  comparison over consecutive shadow `row_state` reads — **zero Smartsheet API writes**.
+- **Rule — pg_partman is NOT installable on hosted Supabase** (compiled extension;
+  supabase/postgres#1586). Do not design partition maintenance around it; native
+  partitioning here means a bespoke pg_cron function whose failure mode is a hard INSERT
+  error on the production writer. Revisit partitioning only if Phase 11 measures ≥ ~10×
+  the projected `row_event` volume (~4–5M rows / 24 mo) or tens of GB.
+- **Rule — memory ≠ fixture:** run memory is Supabase-only. Any Smartsheet "test sheet"
+  in v1.4 is a throwaway API-behaviour rig for MEM-04, never a data store.
+- **Gate:** Phase 11 may not enable incremental mode until the MEM-04 Ledger entry carries
+  an explicit PASS/FAIL verdict. Phase 09 verify/close must precede Phase 10 execution.
+- **Next:** `/clear` → `/gsd-plan-phase 10` (models researcher=sonnet / planner=opus /
+  checker=sonnet; every PLAN.md needs a `<threat_model>`). Still uncommitted from earlier
+  today: `ROADMAP.md` v1.4 diff + the untracked spec — commit before planning.
+
+
+## [2026-08-24 18:30] Phase 10 plan-phase in progress — research + validation strategy landed (docs only)
+
+- **What:** `/gsd-core:gsd-plan-phase 10` (Run-Memory Foundation, shadow writes).
+  `10-RESEARCH.md` written by the GSD researcher (commit `2c86ca5`) and the Nyquist
+  `10-VALIDATION.md` draft seeded (`7621e82`). No code, schema, workflow, or Smartsheet
+  change. Planner (opus) + plan-checker (sonnet) still to run.
+- **Why it matters (rules for the planner/executor):**
+  1. `row_state.foreman_observed` MUST capture the RAW `Foreman` column from
+     `pipeline/fetch.py`, never `__effective_user` — the resolved value carries the
+     `'Unknown Foreman'` sentinel that already corrupted 5,824 `billing_audit` rows
+     (`.planning/debug/unknown-foreman-helper-shadow-2026-08-24.md`).
+  2. The `pipeline_memory` writer must keep INDEPENDENT client + PGRST106/301/302
+     kill-switch state; `billing_audit/client.py`'s `_global_disable_reason` is
+     schema-agnostic and would silently disable `freeze_row` / `emit_run_fingerprint`.
+  3. `scripts/run_6_gates.sh` Gate 6 runs `TEST_MODE=true` (synthetic) — success
+     criterion 4 (byte-identical vs. control) additionally needs a real-data
+     `SKIP_UPLOAD` control-run diff script.
+  4. Open (needs Juan): is pg_cron enabled + granted on `poeyztlmsawfoqlanucc`? (D-06
+     retention job). Research recommends a `unittest.mock` JSON fixture over adding
+     `vcrpy` for the D-08 MEM-04 cassette (no new dependency).
+- **Where:** `.planning/phases/10-run-memory-foundation-shadow-writes/`
+  (`10-CONTEXT.md`, `10-RESEARCH.md`, `10-VALIDATION.md`); plans pending.
+
+## [2026-08-24 19:44] Phase 10 PLANNED — 6 plans / 4 waves, checker-verified (docs only; no code/schema/workflow change)
+
+- **What:** `/gsd-core:gsd-plan-phase 10` finished. Artifacts in
+  `.planning/phases/10-run-memory-foundation-shadow-writes/`: `10-01..10-06-PLAN.md`,
+  `COVERAGE.md` (API coverage matrix), filled `10-VALIDATION.md`, `10-PATTERNS.md`,
+  `10-RESEARCH.md` (open questions marked RESOLVED). Commits `4ccb54c`, `cc65b71`,
+  `321f595` (revision), `94b6d80` (final; STATE.md "Ready to execute", ROADMAP wave
+  annotations). STATUS: **planned, not executed** — nothing in `pipeline/`,
+  `billing_audit/`, Supabase, or GitHub Actions changed.
+- **Wave shape:** W1 10-01 tracer (`pipeline_memory/` pkg, independent fail-open
+  client, full DDL, `run_ledger`, flag default OFF) ∥ 10-04 (MEM-04 read-only probe
+  CLI + cassette harness) → W2 10-02 (`row_state`/`row_event` chunked bulk write, own
+  sub-budget) ∥ 10-05 (MEM-04 experiment; **blocking-human**: Juan hand-edits the
+  sandbox rig) → W3 10-03 (`sheet_registry` + `group_state`) → W4 10-06 (control-vs-
+  shadow byte proof; **blocking-human**: apply DDL, expose `pipeline_memory` in
+  PostgREST, reload cache, review retention job).
+- **Rules established by planning (executor must honor):**
+  1. Real-data `SKIP_UPLOAD` dry runs are scoped with `MAX_GROUPS` only — `WR_FILTER`
+     is silently ignored unless `TEST_MODE=true` (`pipeline/grouping.py:1222`). Each
+     such run still performs a full Smartsheet read (~94 min); SC-1 requires it.
+  2. `billing_audit/` must stay untouched this phase — every plan carries
+     `git diff --exit-code -- billing_audit/`.
+  3. `group_state` PK is `(wr, week_ending, variant, identifier, target_sheet_id)`
+     (reduced_sub fan-out uploads to two sheets); `run_summary.json` stays at 21 keys
+     (memory counters go to `run_ledger.notes`); `upsert_rows_bulk` always chunks at
+     500; `sheet_registry.kind` has no `vac_crew` value.
+  4. `row_state.foreman_observed` = RAW `Foreman`, never `__effective_user`;
+     `pipeline_memory/client.py` owns its own kill-switch, never
+     `billing_audit.client`'s global one.
+- **Next:** `/gsd-verify-work 09` (STATE.md still says current_phase 9), then
+  `/gsd-core:gsd-execute-phase 10`. Open for Juan before W4: pg_cron enabled/granted on
+  `poeyztlmsawfoqlanucc`? Flag flip in the workflow remains a separate later PR.
+
+## [2026-08-24 22:12] `/gsd-verify-work 09` — retroactive verification: 5/6 must-haves pass; Gate 4 is a vacuous pass (G-09-MOD-06); gap-closure plans 09-07/09-08 verified
+
+- **What:** Phase 09 (engine modularization, PR #280 `889ca2e`) had never produced GSD artifacts
+  on disk. Created `.planning/phases/09-engine-modularization-pipeline-package-split/`;
+  `gsd-verifier` wrote a **retroactive** `09-VERIFICATION.md` (status `gaps_found`, 5/6):
+  MOD-01..05 verified directly against code (byte-diffed billing guards vs pre-split `a0ba96e`;
+  Gates 1/2 live 177/108; 1375 pytest); **MOD-06 failed**.
+- **Root cause (rule-worthy):** `scripts/check_mypy_delta.sh` cannot fail on a Windows checkout —
+  `tests/golden/mypy_baseline_count.txt` arrives CRLF via `core.autocrlf=true` (`.gitattributes`
+  pins only `*.sh`), `tr -d ' \n'` leaves `\r`, the `-gt` test throws
+  `integer expression expected` inside an `if` (so `set -e` is inert) and falls through to the
+  unconditional PASS. Reproduced live: PASS printed over a real **56 → 65** mypy regression. Present
+  since Phase 09's own merge `5005040`; Gates 1/2/6 have fail-capability tests, Gate 4 never did.
+- **Gate 6 footgun (rule-worthy):** `TEST_MODE` uses the synthetic dataset ONLY when
+  `SMARTSHEET_API_TOKEN` is empty (`pipeline/orchestrate.py:299`). With the `.env` token present,
+  `bash scripts/run_6_gates.sh` Gate 6 performed a full 118-sheet / 208,511-row production READ
+  (~14 min, then silent) — read-only (SKIP_UPLOAD, no Supabase creds locally), killed at 21:38.
+  Re-run with `SMARTSHEET_API_TOKEN=""`: exit 0 in 2 s, `run_summary.json` regenerated, structure
+  PASS (21 keys). **Run the harness with the token blanked locally** until 09-08 pins it. Also:
+  stdout to a cp1252 file trips the emoji banner (`generate_weekly_pdfs.py:37`) — use `PYTHONUTF8=1`.
+  No GitHub workflow invokes the harness (developer-side only).
+- **Plans (opus, `c8986b6`; checker PASSED, 0 issues):** `09-07` (autonomous) — Gate-4
+  fail-capability tests RED→GREEN, harden the script (strip CR/tab, integer guard), pin
+  `tests/golden/*.txt eol=lf` + LF rewrite, ledger rules. `09-08` (autonomous:false, depends on
+  09-07) — pin Gate 6 with `SMARTSHEET_API_TOKEN=` prefix in the harness, attribute the 9 new mypy
+  errors via git blame into `.planning/debug/mypy-delta-56-to-65-2026-08-24.md`, then a
+  **blocking-human** decision: fix-types / rebaseline / split. **Expected: the harness goes RED at
+  Gate 4 after 09-07 until that decision — correct, not a regression.** Latent, unplanned:
+  `tests/golden/mypy_baseline.txt` stores Windows backslash paths (Linux diff noise).
+- **Commits:** `c8986b6` (plans, VERIFICATION gap_id, ROADMAP Wave 7), + verification addendum.
+  ROADMAP now says 09-00..09-06 were executed pre-GSD and never existed on disk.
+- **Next:** `/gsd-core:gsd-execute-phase 09 --gaps-only` → `/gsd-verify-work 09` → Phase 10
+  execution (10-01 Task 1's precondition is this same harness — run it token-blanked).
