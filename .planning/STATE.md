@@ -308,3 +308,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 **Last session:** 2026-08-25T05:39:02Z
 **Stopped at:** Phase 09 complete (v1.3 milestone done), ready to execute Phase 10
 **Resume file:** None
+
+## Session Continuity
+
+Last session: 2026-08-25T15:31:08.771Z
+Stopped at: Session resumed via /gsd-resume-work; proceeding to /gsd-execute-phase 10 (Wave 1: 10-01 then 10-04, sequential)
+Resume file: .planning/phases/10-run-memory-foundation-shadow-writes/.continue-here.md (HANDOFF.json consumed and removed)
