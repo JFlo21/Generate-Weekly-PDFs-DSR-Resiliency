@@ -1,0 +1,1215 @@
+{
+  "disposable_test_rig": true,
+  "sdk_version": "4.3.0",
+  "scenarios": {
+    "blank_lookup": {
+      "sheet_ids": {
+        "lookup": 6295051624730500,
+        "dependent": 4909062725521284
+      },
+      "baseline": {
+        "lookup": {
+          "kwargs": {
+            "level": 2
+          },
+          "captured_at": "2026-08-25T17:36:51.266742+00:00",
+          "version": 3,
+          "sheet_name": "DISPOSABLE TEST RIG \u2014 MEM-04 LOOKUP",
+          "columns": [
+            {
+              "id": 7095303590940548,
+              "title": "Key",
+              "type": "TEXT_NUMBER",
+              "formula": null
+            },
+            {
+              "id": 1465804056727428,
+              "title": "Value",
+              "type": "TEXT_NUMBER",
+              "formula": null
+            }
+          ],
+          "raw_response": {
+            "accessLevel": "OWNER",
+            "columns": [
+              {
+                "id": 7095303590940548,
+                "index": 0,
+                "primary": true,
+                "title": "Key",
+                "type": "TEXT_NUMBER",
+                "validation": false,
+                "version": 0,
+                "width": 150
+              },
+              {
+                "id": 1465804056727428,
+                "index": 1,
+                "title": "Value",
+                "type": "TEXT_NUMBER",
+                "validation": false,
+                "version": 0,
+                "width": 150
+              }
+            ],
+            "createdAt": "2026-08-25T17:26:18+00:00Z",
+            "dependenciesEnabled": false,
+            "effectiveAttachmentOptions": [
+              "BOX_COM",
+              "DROPBOX",
+              "EGNYTE",
+              "EVERNOTE",
+              "FILE",
+              "GOOGLE_DRIVE",
+              "LINK",
+              "ONEDRIVE"
+            ],
+            "ganttEnabled": false,
+            "hasSummaryFields": false,
+            "id": 6295051624730500,
+            "modifiedAt": "2026-08-25T17:36:34+00:00Z",
+            "name": "DISPOSABLE TEST RIG \u2014 MEM-04 LOOKUP",
+            "permalink": "https://app.smartsheet.com/sheets/2v3xwQ5pfW5Qf4g5QGgw8C3xR9P2vmPX7gqQ9X71",
+            "resourceManagementEnabled": false,
+            "rows": [
+              {
+                "cells": [
+                  {
+                    "columnId": 7095303590940548,
+                    "displayValue": "K-001",
+                    "value": "K-001"
+                  },
+                  {
+                    "columnId": 1465804056727428,
+                    "displayValue": "Alpha",
+                    "value": "Alpha"
+                  }
+                ],
+                "createdAt": "2026-08-25T17:35:43+00:00Z",
+                "expanded": true,
+                "id": 8294223826780036,
+                "modifiedAt": "2026-08-25T17:35:43+00:00Z",
+                "rowNumber": 1
+              },
+              {
+                "cells": [
+                  {
+                    "columnId": 7095303590940548,
+                    "displayValue": "K-002",
+                    "value": "K-002"
+                  },
+                  {
+                    "columnId": 1465804056727428,
+                    "displayValue": "Bravo",
+                    "value": "Bravo"
+                  }
+                ],
+                "createdAt": "2026-08-25T17:35:43+00:00Z",
+                "expanded": true,
+                "id": 975874432302980,
+                "modifiedAt": "2026-08-25T17:35:43+00:00Z",
+                "rowNumber": 2,
+                "siblingId": 8294223826780036
+              },
+              {
+                "cells": [
+                  {
+                    "columnId": 7095303590940548,
+                    "displayValue": "K-003",
+                    "value": "K-003"
+                  },
+                  {
+                    "columnId": 1465804056727428,
+                    "displayValue": "Charlie",
+                    "value": "Charlie"
+                  }
+                ],
+                "createdAt": "2026-08-25T17:35:43+00:00Z",
+                "expanded": true,
+                "id": 5479474059673476,
+                "modifiedAt": "2026-08-25T17:35:43+00:00Z",
+                "rowNumber": 3,
+                "siblingId": 975874432302980
+              },
+              {
+                "cells": [
+                  {
+                    "columnId": 7095303590940548,
+                    "displayValue": "K-004",
+                    "value": "K-004"
+                  },
+                  {
+                    "columnId": 1465804056727428,
+                    "displayValue": "Delta",
+                    "value": "Delta"
+                  }
+                ],
+                "createdAt": "2026-08-25T17:35:43+00:00Z",
+                "expanded": true,
+                "id": 3227674245988228,
+                "modifiedAt": "2026-08-25T17:35:43+00:00Z",
+                "rowNumber": 4,
+                "siblingId": 5479474059673476
+              },
+              {
+                "cells": [
+                  {
+                    "columnId": 7095303590940548,
+                    "displayValue": "K-005",
+                    "value": "K-005"
+                  },
+                  {
+                    "columnId": 1465804056727428,
+                    "displayValue": "Echo",
+                    "value": "Echo"
+                  }
+                ],
+                "createdAt": "2026-08-25T17:35:43+00:00Z",
+                "expanded": true,
+                "id": 7731273873358724,
+                "modifiedAt": "2026-08-25T17:35:43+00:00Z",
+                "rowNumber": 5,
+                "siblingId": 3227674245988228
+              }
+            ],
+            "totalRowCount": 5,
+            "userPermissions": {
+              "summaryPermissions": "ADMIN"
+            },
+            "userSettings": {
+              "criticalPathEnabled": false,
+              "displaySummaryTasks": true
+            },
+            "version": 3,
+            "workspace": {
+              "id": 4902858211518340,
+              "name": "Sandbox"
+            }
+          },
+          "row_summary": {
+            "8294223826780036": {
+              "modified_at": "2026-08-25T17:35:43+00:00Z",
+              "version": null,
+              "cells": {
+                "Key": {
+                  "value": "K-001",
+                  "display_value": "K-001",
+                  "formula": null
+                },
+                "Value": {
+                  "value": "Alpha",
+                  "display_value": "Alpha",
+                  "formula": null
+                }
+              }
+            },
+            "975874432302980": {
+              "modified_at": "2026-08-25T17:35:43+00:00Z",
+              "version": null,
+              "cells": {
+                "Key": {
+                  "value": "K-002",
+                  "display_value": "K-002",
+                  "formula": null
+                },
+                "Value": {
+                  "value": "Bravo",
+                  "display_value": "Bravo",
+                  "formula": null
+                }
+              }
+            },
+            "5479474059673476": {
+              "modified_at": "2026-08-25T17:35:43+00:00Z",
+              "version": null,
+              "cells": {
+                "Key": {
+                  "value": "K-003",
+                  "display_value": "K-003",
+                  "formula": null
+                },
+                "Value": {
+                  "value": "Charlie",
+                  "display_value": "Charlie",
+                  "formula": null
+                }
+              }
+            },
+            "3227674245988228": {
+              "modified_at": "2026-08-25T17:35:43+00:00Z",
+              "version": null,
+              "cells": {
+                "Key": {
+                  "value": "K-004",
+                  "display_value": "K-004",
+                  "formula": null
+                },
+                "Value": {
+                  "value": "Delta",
+                  "display_value": "Delta",
+                  "formula": null
+                }
+              }
+            },
+            "7731273873358724": {
+              "modified_at": "2026-08-25T17:35:43+00:00Z",
+              "version": null,
+              "cells": {
+                "Key": {
+                  "value": "K-005",
+                  "display_value": "K-005",
+                  "formula": null
+                },
+                "Value": {
+                  "value": "Echo",
+                  "display_value": "Echo",
+                  "formula": null
+                }
+              }
+            }
+          }
+        },
+        "dependent": {
+          "kwargs": {
+            "level": 2
+          },
+          "captured_at": "2026-08-25T17:36:51.521388+00:00",
+          "version": 6,
+          "sheet_name": "DISPOSABLE TEST RIG \u2014 MEM-04 DEPENDENT",
+          "columns": [
+            {
+              "id": 5958676466405252,
+              "title": "Key",
+              "type": "TEXT_NUMBER",
+              "formula": null
+            },
+            {
+              "id": 3706876652720004,
+              "title": "Resolved Value",
+              "type": "TEXT_NUMBER",
+              "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")"
+            }
+          ],
+          "raw_response": {
+            "accessLevel": "OWNER",
+            "columns": [
+              {
+                "id": 5958676466405252,
+                "index": 0,
+                "primary": true,
+                "title": "Key",
+                "type": "TEXT_NUMBER",
+                "validation": false,
+                "version": 0,
+                "width": 150
+              },
+              {
+                "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")",
+                "id": 3706876652720004,
+                "index": 1,
+                "title": "Resolved Value",
+                "type": "TEXT_NUMBER",
+                "validation": false,
+                "version": 0,
+                "width": 150
+              }
+            ],
+            "createdAt": "2026-08-25T17:26:54+00:00Z",
+            "dependenciesEnabled": false,
+            "effectiveAttachmentOptions": [
+              "BOX_COM",
+              "DROPBOX",
+              "EGNYTE",
+              "EVERNOTE",
+              "FILE",
+              "GOOGLE_DRIVE",
+              "LINK",
+              "ONEDRIVE"
+            ],
+            "ganttEnabled": false,
+            "hasSummaryFields": false,
+            "id": 4909062725521284,
+            "modifiedAt": "2026-08-25T17:36:37+00:00Z",
+            "name": "DISPOSABLE TEST RIG \u2014 MEM-04 DEPENDENT",
+            "permalink": "https://app.smartsheet.com/sheets/GCwjJW3wGHHCQ88MRXcWF6XcxfFgvj5J6jvGCcG1",
+            "resourceManagementEnabled": false,
+            "rows": [
+              {
+                "cells": [
+                  {
+                    "columnId": 5958676466405252,
+                    "displayValue": "K-001",
+                    "value": "K-001"
+                  },
+                  {
+                    "columnId": 3706876652720004,
+                    "displayValue": "Alpha",
+                    "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")",
+                    "value": "Alpha"
+                  }
+                ],
+                "createdAt": "2026-08-25T17:36:00+00:00Z",
+                "expanded": true,
+                "id": 3916015769616260,
+                "modifiedAt": "2026-08-25T17:36:36+00:00Z",
+                "rowNumber": 1
+              },
+              {
+                "cells": [
+                  {
+                    "columnId": 5958676466405252,
+                    "displayValue": "K-002",
+                    "value": "K-002"
+                  },
+                  {
+                    "columnId": 3706876652720004,
+                    "displayValue": "Bravo",
+                    "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")",
+                    "value": "Bravo"
+                  }
+                ],
+                "createdAt": "2026-08-25T17:36:00+00:00Z",
+                "expanded": true,
+                "id": 8419615396986756,
+                "modifiedAt": "2026-08-25T17:36:36+00:00Z",
+                "rowNumber": 2,
+                "siblingId": 3916015769616260
+              },
+              {
+                "cells": [
+                  {
+                    "columnId": 5958676466405252,
+                    "displayValue": "K-003",
+                    "value": "K-003"
+                  },
+                  {
+                    "columnId": 3706876652720004,
+                    "displayValue": "Charlie",
+                    "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")",
+                    "value": "Charlie"
+                  }
+                ],
+                "createdAt": "2026-08-25T17:36:00+00:00Z",
+                "expanded": true,
+                "id": 1101266002509700,
+                "modifiedAt": "2026-08-25T17:36:36+00:00Z",
+                "rowNumber": 3,
+                "siblingId": 8419615396986756
+              },
+              {
+                "cells": [
+                  {
+                    "columnId": 5958676466405252,
+                    "displayValue": "K-004",
+                    "value": "K-004"
+                  },
+                  {
+                    "columnId": 3706876652720004,
+                    "displayValue": "Delta",
+                    "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")",
+                    "value": "Delta"
+                  }
+                ],
+                "createdAt": "2026-08-25T17:36:00+00:00Z",
+                "expanded": true,
+                "id": 5604865629880196,
+                "modifiedAt": "2026-08-25T17:36:36+00:00Z",
+                "rowNumber": 4,
+                "siblingId": 1101266002509700
+              },
+              {
+                "cells": [
+                  {
+                    "columnId": 5958676466405252,
+                    "displayValue": "K-005",
+                    "value": "K-005"
+                  },
+                  {
+                    "columnId": 3706876652720004,
+                    "displayValue": "Echo",
+                    "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")",
+                    "value": "Echo"
+                  }
+                ],
+                "createdAt": "2026-08-25T17:36:00+00:00Z",
+                "expanded": true,
+                "id": 3353065816194948,
+                "modifiedAt": "2026-08-25T17:36:36+00:00Z",
+                "rowNumber": 5,
+                "siblingId": 5604865629880196
+              }
+            ],
+            "totalRowCount": 5,
+            "userPermissions": {
+              "summaryPermissions": "ADMIN"
+            },
+            "userSettings": {
+              "criticalPathEnabled": false,
+              "displaySummaryTasks": true
+            },
+            "version": 6,
+            "workspace": {
+              "id": 4902858211518340,
+              "name": "Sandbox"
+            }
+          },
+          "row_summary": {
+            "3916015769616260": {
+              "modified_at": "2026-08-25T17:36:36+00:00Z",
+              "version": null,
+              "cells": {
+                "Key": {
+                  "value": "K-001",
+                  "display_value": "K-001",
+                  "formula": null
+                },
+                "Resolved Value": {
+                  "value": "Alpha",
+                  "display_value": "Alpha",
+                  "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")"
+                }
+              }
+            },
+            "8419615396986756": {
+              "modified_at": "2026-08-25T17:36:36+00:00Z",
+              "version": null,
+              "cells": {
+                "Key": {
+                  "value": "K-002",
+                  "display_value": "K-002",
+                  "formula": null
+                },
+                "Resolved Value": {
+                  "value": "Bravo",
+                  "display_value": "Bravo",
+                  "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")"
+                }
+              }
+            },
+            "1101266002509700": {
+              "modified_at": "2026-08-25T17:36:36+00:00Z",
+              "version": null,
+              "cells": {
+                "Key": {
+                  "value": "K-003",
+                  "display_value": "K-003",
+                  "formula": null
+                },
+                "Resolved Value": {
+                  "value": "Charlie",
+                  "display_value": "Charlie",
+                  "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")"
+                }
+              }
+            },
+            "5604865629880196": {
+              "modified_at": "2026-08-25T17:36:36+00:00Z",
+              "version": null,
+              "cells": {
+                "Key": {
+                  "value": "K-004",
+                  "display_value": "K-004",
+                  "formula": null
+                },
+                "Resolved Value": {
+                  "value": "Delta",
+                  "display_value": "Delta",
+                  "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")"
+                }
+              }
+            },
+            "3353065816194948": {
+              "modified_at": "2026-08-25T17:36:36+00:00Z",
+              "version": null,
+              "cells": {
+                "Key": {
+                  "value": "K-005",
+                  "display_value": "K-005",
+                  "formula": null
+                },
+                "Resolved Value": {
+                  "value": "Echo",
+                  "display_value": "Echo",
+                  "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")"
+                }
+              }
+            }
+          }
+        }
+      },
+      "probe": {
+        "safety_window_minutes": 15,
+        "poll_attempts_configured": 6,
+        "poll_interval_seconds": 30,
+        "baseline_dependent_version": 6,
+        "baseline_time": "2026-08-25T17:36:51.521388+00:00",
+        "polls": [
+          {
+            "attempt": 1,
+            "elapsed_seconds": 1.16,
+            "t2": {
+              "kwargs": {
+                "if_version_after": 6,
+                "level": 2
+              },
+              "captured_at": "2026-08-25T17:37:26.937067+00:00",
+              "version": 8,
+              "sheet_name": "DISPOSABLE TEST RIG \u2014 MEM-04 DEPENDENT",
+              "columns": [
+                {
+                  "id": 5958676466405252,
+                  "title": "Key",
+                  "type": "TEXT_NUMBER",
+                  "formula": null
+                },
+                {
+                  "id": 3706876652720004,
+                  "title": "Resolved Value",
+                  "type": "TEXT_NUMBER",
+                  "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")"
+                }
+              ],
+              "raw_response": {
+                "accessLevel": "OWNER",
+                "columns": [
+                  {
+                    "id": 5958676466405252,
+                    "index": 0,
+                    "primary": true,
+                    "title": "Key",
+                    "type": "TEXT_NUMBER",
+                    "validation": false,
+                    "version": 0,
+                    "width": 150
+                  },
+                  {
+                    "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")",
+                    "id": 3706876652720004,
+                    "index": 1,
+                    "title": "Resolved Value",
+                    "type": "TEXT_NUMBER",
+                    "validation": false,
+                    "version": 0,
+                    "width": 150
+                  }
+                ],
+                "createdAt": "2026-08-25T17:26:54+00:00Z",
+                "dependenciesEnabled": false,
+                "effectiveAttachmentOptions": [
+                  "BOX_COM",
+                  "DROPBOX",
+                  "EGNYTE",
+                  "EVERNOTE",
+                  "FILE",
+                  "GOOGLE_DRIVE",
+                  "LINK",
+                  "ONEDRIVE"
+                ],
+                "ganttEnabled": false,
+                "hasSummaryFields": false,
+                "id": 4909062725521284,
+                "modifiedAt": "2026-08-25T17:37:12+00:00Z",
+                "name": "DISPOSABLE TEST RIG \u2014 MEM-04 DEPENDENT",
+                "permalink": "https://app.smartsheet.com/sheets/GCwjJW3wGHHCQ88MRXcWF6XcxfFgvj5J6jvGCcG1",
+                "resourceManagementEnabled": false,
+                "rows": [
+                  {
+                    "cells": [
+                      {
+                        "columnId": 5958676466405252,
+                        "displayValue": "K-001",
+                        "value": "K-001"
+                      },
+                      {
+                        "columnId": 3706876652720004,
+                        "displayValue": "Alpha",
+                        "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")",
+                        "value": "Alpha"
+                      }
+                    ],
+                    "createdAt": "2026-08-25T17:36:00+00:00Z",
+                    "expanded": true,
+                    "id": 3916015769616260,
+                    "modifiedAt": "2026-08-25T17:36:36+00:00Z",
+                    "rowNumber": 1
+                  },
+                  {
+                    "cells": [
+                      {
+                        "columnId": 5958676466405252,
+                        "displayValue": "K-002",
+                        "value": "K-002"
+                      },
+                      {
+                        "columnId": 3706876652720004,
+                        "displayValue": "Bravo",
+                        "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")",
+                        "value": "Bravo"
+                      }
+                    ],
+                    "createdAt": "2026-08-25T17:36:00+00:00Z",
+                    "expanded": true,
+                    "id": 8419615396986756,
+                    "modifiedAt": "2026-08-25T17:36:36+00:00Z",
+                    "rowNumber": 2,
+                    "siblingId": 3916015769616260
+                  },
+                  {
+                    "cells": [
+                      {
+                        "columnId": 5958676466405252,
+                        "displayValue": "K-003",
+                        "value": "K-003"
+                      },
+                      {
+                        "columnId": 3706876652720004,
+                        "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")"
+                      }
+                    ],
+                    "createdAt": "2026-08-25T17:36:00+00:00Z",
+                    "expanded": true,
+                    "id": 1101266002509700,
+                    "modifiedAt": "2026-08-25T17:37:11+00:00Z",
+                    "rowNumber": 3,
+                    "siblingId": 8419615396986756
+                  },
+                  {
+                    "cells": [
+                      {
+                        "columnId": 5958676466405252,
+                        "displayValue": "K-004",
+                        "value": "K-004"
+                      },
+                      {
+                        "columnId": 3706876652720004,
+                        "displayValue": "Delta",
+                        "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")",
+                        "value": "Delta"
+                      }
+                    ],
+                    "createdAt": "2026-08-25T17:36:00+00:00Z",
+                    "expanded": true,
+                    "id": 5604865629880196,
+                    "modifiedAt": "2026-08-25T17:36:36+00:00Z",
+                    "rowNumber": 4,
+                    "siblingId": 1101266002509700
+                  },
+                  {
+                    "cells": [
+                      {
+                        "columnId": 5958676466405252,
+                        "displayValue": "K-005",
+                        "value": "K-005"
+                      },
+                      {
+                        "columnId": 3706876652720004,
+                        "displayValue": "Echo",
+                        "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")",
+                        "value": "Echo"
+                      }
+                    ],
+                    "createdAt": "2026-08-25T17:36:00+00:00Z",
+                    "expanded": true,
+                    "id": 3353065816194948,
+                    "modifiedAt": "2026-08-25T17:36:36+00:00Z",
+                    "rowNumber": 5,
+                    "siblingId": 5604865629880196
+                  }
+                ],
+                "totalRowCount": 5,
+                "userPermissions": {
+                  "summaryPermissions": "ADMIN"
+                },
+                "userSettings": {
+                  "criticalPathEnabled": false,
+                  "displaySummaryTasks": true
+                },
+                "version": 8,
+                "workspace": {
+                  "id": 4902858211518340,
+                  "name": "Sandbox"
+                }
+              },
+              "row_summary": {
+                "3916015769616260": {
+                  "modified_at": "2026-08-25T17:36:36+00:00Z",
+                  "version": null,
+                  "cells": {
+                    "Key": {
+                      "value": "K-001",
+                      "display_value": "K-001",
+                      "formula": null
+                    },
+                    "Resolved Value": {
+                      "value": "Alpha",
+                      "display_value": "Alpha",
+                      "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")"
+                    }
+                  }
+                },
+                "8419615396986756": {
+                  "modified_at": "2026-08-25T17:36:36+00:00Z",
+                  "version": null,
+                  "cells": {
+                    "Key": {
+                      "value": "K-002",
+                      "display_value": "K-002",
+                      "formula": null
+                    },
+                    "Resolved Value": {
+                      "value": "Bravo",
+                      "display_value": "Bravo",
+                      "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")"
+                    }
+                  }
+                },
+                "1101266002509700": {
+                  "modified_at": "2026-08-25T17:37:11+00:00Z",
+                  "version": null,
+                  "cells": {
+                    "Key": {
+                      "value": "K-003",
+                      "display_value": "K-003",
+                      "formula": null
+                    },
+                    "Resolved Value": {
+                      "value": null,
+                      "display_value": null,
+                      "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")"
+                    }
+                  }
+                },
+                "5604865629880196": {
+                  "modified_at": "2026-08-25T17:36:36+00:00Z",
+                  "version": null,
+                  "cells": {
+                    "Key": {
+                      "value": "K-004",
+                      "display_value": "K-004",
+                      "formula": null
+                    },
+                    "Resolved Value": {
+                      "value": "Delta",
+                      "display_value": "Delta",
+                      "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")"
+                    }
+                  }
+                },
+                "3353065816194948": {
+                  "modified_at": "2026-08-25T17:36:36+00:00Z",
+                  "version": null,
+                  "cells": {
+                    "Key": {
+                      "value": "K-005",
+                      "display_value": "K-005",
+                      "formula": null
+                    },
+                    "Resolved Value": {
+                      "value": "Echo",
+                      "display_value": "Echo",
+                      "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")"
+                    }
+                  }
+                }
+              },
+              "abbreviated": false
+            },
+            "t3a_overlap": {
+              "kwargs": {
+                "rows_modified_since": "2026-08-25T17:21:51.521388+00:00",
+                "level": 2
+              },
+              "captured_at": "2026-08-25T17:37:27.185873+00:00",
+              "version": 8,
+              "sheet_name": "DISPOSABLE TEST RIG \u2014 MEM-04 DEPENDENT",
+              "columns": [
+                {
+                  "id": 5958676466405252,
+                  "title": "Key",
+                  "type": "TEXT_NUMBER",
+                  "formula": null
+                },
+                {
+                  "id": 3706876652720004,
+                  "title": "Resolved Value",
+                  "type": "TEXT_NUMBER",
+                  "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")"
+                }
+              ],
+              "raw_response": {
+                "accessLevel": "OWNER",
+                "columns": [
+                  {
+                    "id": 5958676466405252,
+                    "index": 0,
+                    "primary": true,
+                    "title": "Key",
+                    "type": "TEXT_NUMBER",
+                    "validation": false,
+                    "version": 0,
+                    "width": 150
+                  },
+                  {
+                    "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")",
+                    "id": 3706876652720004,
+                    "index": 1,
+                    "title": "Resolved Value",
+                    "type": "TEXT_NUMBER",
+                    "validation": false,
+                    "version": 0,
+                    "width": 150
+                  }
+                ],
+                "createdAt": "2026-08-25T17:26:54+00:00Z",
+                "dependenciesEnabled": false,
+                "effectiveAttachmentOptions": [
+                  "BOX_COM",
+                  "DROPBOX",
+                  "EGNYTE",
+                  "EVERNOTE",
+                  "FILE",
+                  "GOOGLE_DRIVE",
+                  "LINK",
+                  "ONEDRIVE"
+                ],
+                "ganttEnabled": false,
+                "hasSummaryFields": false,
+                "id": 4909062725521284,
+                "modifiedAt": "2026-08-25T17:37:12+00:00Z",
+                "name": "DISPOSABLE TEST RIG \u2014 MEM-04 DEPENDENT",
+                "permalink": "https://app.smartsheet.com/sheets/GCwjJW3wGHHCQ88MRXcWF6XcxfFgvj5J6jvGCcG1",
+                "resourceManagementEnabled": false,
+                "rows": [
+                  {
+                    "cells": [
+                      {
+                        "columnId": 5958676466405252,
+                        "displayValue": "K-001",
+                        "value": "K-001"
+                      },
+                      {
+                        "columnId": 3706876652720004,
+                        "displayValue": "Alpha",
+                        "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")",
+                        "value": "Alpha"
+                      }
+                    ],
+                    "createdAt": "2026-08-25T17:36:00+00:00Z",
+                    "expanded": true,
+                    "id": 3916015769616260,
+                    "modifiedAt": "2026-08-25T17:36:36+00:00Z",
+                    "rowNumber": 1
+                  },
+                  {
+                    "cells": [
+                      {
+                        "columnId": 5958676466405252,
+                        "displayValue": "K-002",
+                        "value": "K-002"
+                      },
+                      {
+                        "columnId": 3706876652720004,
+                        "displayValue": "Bravo",
+                        "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")",
+                        "value": "Bravo"
+                      }
+                    ],
+                    "createdAt": "2026-08-25T17:36:00+00:00Z",
+                    "expanded": true,
+                    "id": 8419615396986756,
+                    "modifiedAt": "2026-08-25T17:36:36+00:00Z",
+                    "rowNumber": 2,
+                    "siblingId": 3916015769616260
+                  },
+                  {
+                    "cells": [
+                      {
+                        "columnId": 5958676466405252,
+                        "displayValue": "K-003",
+                        "value": "K-003"
+                      },
+                      {
+                        "columnId": 3706876652720004,
+                        "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")"
+                      }
+                    ],
+                    "createdAt": "2026-08-25T17:36:00+00:00Z",
+                    "expanded": true,
+                    "id": 1101266002509700,
+                    "modifiedAt": "2026-08-25T17:37:11+00:00Z",
+                    "rowNumber": 3,
+                    "siblingId": 8419615396986756
+                  },
+                  {
+                    "cells": [
+                      {
+                        "columnId": 5958676466405252,
+                        "displayValue": "K-004",
+                        "value": "K-004"
+                      },
+                      {
+                        "columnId": 3706876652720004,
+                        "displayValue": "Delta",
+                        "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")",
+                        "value": "Delta"
+                      }
+                    ],
+                    "createdAt": "2026-08-25T17:36:00+00:00Z",
+                    "expanded": true,
+                    "id": 5604865629880196,
+                    "modifiedAt": "2026-08-25T17:36:36+00:00Z",
+                    "rowNumber": 4,
+                    "siblingId": 1101266002509700
+                  },
+                  {
+                    "cells": [
+                      {
+                        "columnId": 5958676466405252,
+                        "displayValue": "K-005",
+                        "value": "K-005"
+                      },
+                      {
+                        "columnId": 3706876652720004,
+                        "displayValue": "Echo",
+                        "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")",
+                        "value": "Echo"
+                      }
+                    ],
+                    "createdAt": "2026-08-25T17:36:00+00:00Z",
+                    "expanded": true,
+                    "id": 3353065816194948,
+                    "modifiedAt": "2026-08-25T17:36:36+00:00Z",
+                    "rowNumber": 5,
+                    "siblingId": 5604865629880196
+                  }
+                ],
+                "totalRowCount": 5,
+                "userPermissions": {
+                  "summaryPermissions": "ADMIN"
+                },
+                "userSettings": {
+                  "criticalPathEnabled": false,
+                  "displaySummaryTasks": true
+                },
+                "version": 8,
+                "workspace": {
+                  "id": 4902858211518340,
+                  "name": "Sandbox"
+                }
+              },
+              "row_summary": {
+                "3916015769616260": {
+                  "modified_at": "2026-08-25T17:36:36+00:00Z",
+                  "version": null,
+                  "cells": {
+                    "Key": {
+                      "value": "K-001",
+                      "display_value": "K-001",
+                      "formula": null
+                    },
+                    "Resolved Value": {
+                      "value": "Alpha",
+                      "display_value": "Alpha",
+                      "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")"
+                    }
+                  }
+                },
+                "8419615396986756": {
+                  "modified_at": "2026-08-25T17:36:36+00:00Z",
+                  "version": null,
+                  "cells": {
+                    "Key": {
+                      "value": "K-002",
+                      "display_value": "K-002",
+                      "formula": null
+                    },
+                    "Resolved Value": {
+                      "value": "Bravo",
+                      "display_value": "Bravo",
+                      "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")"
+                    }
+                  }
+                },
+                "1101266002509700": {
+                  "modified_at": "2026-08-25T17:37:11+00:00Z",
+                  "version": null,
+                  "cells": {
+                    "Key": {
+                      "value": "K-003",
+                      "display_value": "K-003",
+                      "formula": null
+                    },
+                    "Resolved Value": {
+                      "value": null,
+                      "display_value": null,
+                      "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")"
+                    }
+                  }
+                },
+                "5604865629880196": {
+                  "modified_at": "2026-08-25T17:36:36+00:00Z",
+                  "version": null,
+                  "cells": {
+                    "Key": {
+                      "value": "K-004",
+                      "display_value": "K-004",
+                      "formula": null
+                    },
+                    "Resolved Value": {
+                      "value": "Delta",
+                      "display_value": "Delta",
+                      "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")"
+                    }
+                  }
+                },
+                "3353065816194948": {
+                  "modified_at": "2026-08-25T17:36:36+00:00Z",
+                  "version": null,
+                  "cells": {
+                    "Key": {
+                      "value": "K-005",
+                      "display_value": "K-005",
+                      "formula": null
+                    },
+                    "Resolved Value": {
+                      "value": "Echo",
+                      "display_value": "Echo",
+                      "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")"
+                    }
+                  }
+                }
+              }
+            },
+            "t3b_no_overlap": {
+              "kwargs": {
+                "rows_modified_since": "2026-08-25T17:36:51.521388+00:00",
+                "level": 2
+              },
+              "captured_at": "2026-08-25T17:37:27.503727+00:00",
+              "version": 8,
+              "sheet_name": "DISPOSABLE TEST RIG \u2014 MEM-04 DEPENDENT",
+              "columns": [
+                {
+                  "id": 5958676466405252,
+                  "title": "Key",
+                  "type": "TEXT_NUMBER",
+                  "formula": null
+                },
+                {
+                  "id": 3706876652720004,
+                  "title": "Resolved Value",
+                  "type": "TEXT_NUMBER",
+                  "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")"
+                }
+              ],
+              "raw_response": {
+                "accessLevel": "OWNER",
+                "columns": [
+                  {
+                    "id": 5958676466405252,
+                    "index": 0,
+                    "primary": true,
+                    "title": "Key",
+                    "type": "TEXT_NUMBER",
+                    "validation": false,
+                    "version": 0,
+                    "width": 150
+                  },
+                  {
+                    "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")",
+                    "id": 3706876652720004,
+                    "index": 1,
+                    "title": "Resolved Value",
+                    "type": "TEXT_NUMBER",
+                    "validation": false,
+                    "version": 0,
+                    "width": 150
+                  }
+                ],
+                "createdAt": "2026-08-25T17:26:54+00:00Z",
+                "dependenciesEnabled": false,
+                "effectiveAttachmentOptions": [
+                  "BOX_COM",
+                  "DROPBOX",
+                  "EGNYTE",
+                  "EVERNOTE",
+                  "FILE",
+                  "GOOGLE_DRIVE",
+                  "LINK",
+                  "ONEDRIVE"
+                ],
+                "ganttEnabled": false,
+                "hasSummaryFields": false,
+                "id": 4909062725521284,
+                "modifiedAt": "2026-08-25T17:37:12+00:00Z",
+                "name": "DISPOSABLE TEST RIG \u2014 MEM-04 DEPENDENT",
+                "permalink": "https://app.smartsheet.com/sheets/GCwjJW3wGHHCQ88MRXcWF6XcxfFgvj5J6jvGCcG1",
+                "resourceManagementEnabled": false,
+                "rows": [
+                  {
+                    "cells": [
+                      {
+                        "columnId": 5958676466405252,
+                        "displayValue": "K-003",
+                        "value": "K-003"
+                      },
+                      {
+                        "columnId": 3706876652720004,
+                        "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")"
+                      }
+                    ],
+                    "createdAt": "2026-08-25T17:36:00+00:00Z",
+                    "expanded": true,
+                    "id": 1101266002509700,
+                    "modifiedAt": "2026-08-25T17:37:11+00:00Z",
+                    "rowNumber": 3,
+                    "siblingId": 8419615396986756
+                  }
+                ],
+                "totalRowCount": 5,
+                "userPermissions": {
+                  "summaryPermissions": "ADMIN"
+                },
+                "userSettings": {
+                  "criticalPathEnabled": false,
+                  "displaySummaryTasks": true
+                },
+                "version": 8,
+                "workspace": {
+                  "id": 4902858211518340,
+                  "name": "Sandbox"
+                }
+              },
+              "row_summary": {
+                "1101266002509700": {
+                  "modified_at": "2026-08-25T17:37:11+00:00Z",
+                  "version": null,
+                  "cells": {
+                    "Key": {
+                      "value": "K-003",
+                      "display_value": "K-003",
+                      "formula": null
+                    },
+                    "Resolved Value": {
+                      "value": null,
+                      "display_value": null,
+                      "formula": "=IFERROR(INDEX({LOOKUP Value}, MATCH(Key@row, {LOOKUP Key}, 0)), \"\")"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "stopped_early": true,
+        "attempts_used": 1,
+        "elapsed_seconds": 1.16,
+        "affected_row_id": "1101266002509700",
+        "affected_row_modified_at_baseline": "2026-08-25T17:36:36+00:00Z",
+        "affected_row_modified_at_current": "2026-08-25T17:37:11+00:00Z",
+        "row_present_in_rows_modified_since_overlap": true,
+        "row_present_in_rows_modified_since_no_overlap": true
+      }
+    }
+  }
+}

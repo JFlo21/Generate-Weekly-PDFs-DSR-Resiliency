@@ -20,6 +20,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import re
 import sys
 import tempfile
 import types
@@ -60,18 +61,59 @@ def load_mem04_passive_compare() -> types.ModuleType:
     return _load_module_by_path(_MEM04_COMPARE_PATH, "mem04_passive_compare")
 
 
+# smartsheet-python-sdk==4.3.0's own ``smartsheet.util.serialize()``
+# unconditionally appends "Z" to ANY ``datetime.isoformat()`` output
+# -- including a value that is already timezone-aware and whose
+# ``isoformat()`` already emitted a "+00:00" offset -- producing an
+# invalid double-suffixed timestamp such as
+# "2026-08-25T17:36:36+00:00Z". ``smartsheet.types.Timestamp``'s own
+# value setter parses incoming strings with ``dateutil.parser.parse``,
+# which REJECTS that malformed string with a ``ParserError``. This is
+# a real, reproducible quirk of the pinned SDK version, discovered
+# replaying plan 10-05's REAL captured MEM-04 cassette (10-04's
+# hand-authored synthetic fixtures never exercised it -- they used
+# clean "Z"-only strings). ``scripts/mem04_experiment.py`` itself never
+# re-parses a captured ``raw_response`` back into a Sheet object, so
+# production capture never hits this; it only bites reconstruction
+# FROM an already-serialized cassette, which is exactly what replaying
+# a real cassette requires.
+_DOUBLE_TZ_SUFFIX = re.compile(
+    r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2})Z$"
+)
+
+
+def _sanitize_double_tz_suffix(value):
+    """Recursively strip the malformed trailing "Z" the pinned SDK's
+    ``to_dict()`` appends onto an already-offset ISO-8601 timestamp, so
+    :func:`build_sheet_from_dict` can reconstruct a real captured
+    cassette's ``raw_response`` without ``dateutil`` raising.
+    """
+    if isinstance(value, str):
+        return _DOUBLE_TZ_SUFFIX.sub(r"\1", value)
+    if isinstance(value, list):
+        return [_sanitize_double_tz_suffix(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _sanitize_double_tz_suffix(item) for key, item in value.items()}
+    return value
+
+
 def build_sheet_from_dict(raw: dict):
     """Reconstruct a REAL SDK ``Sheet`` model object (with real
     ``Row``/``Column``/``Cell`` children) from a raw camelCase dict --
     the exact shape ``Sheet.to_dict()`` produces and the MEM-04
     cassette stores on disk.
 
+    Sanitizes the double-timezone-suffix SDK quirk (see
+    ``_sanitize_double_tz_suffix``) before construction -- a no-op for
+    the synthetic fixtures below (which never carry the malformed
+    shape), and required for replaying a REAL captured cassette.
+
     Module-level and exported so plan 10-05 can reuse this SAME
     reconstruction helper against the REAL cassette Juan captures.
     """
     from smartsheet.models.sheet import Sheet
 
-    return Sheet(raw)
+    return Sheet(_sanitize_double_tz_suffix(raw))
 
 
 def replay_probe_call_shapes(mem04_module, fixture_responses, args, cassette):
@@ -608,6 +650,231 @@ class PassiveCompareTests(unittest.TestCase):
             ["--run-a", "run-1", "--run-b", "run-2", "--source", "supabase"]
         )
         self.assertEqual(args.source, "supabase")
+
+
+# ── Plan 10-05: replay the REAL committed MEM-04 cassettes ──────────────
+#
+# The two cassettes below are Juan's REAL hand-built-sandbox capture
+# (plan 10-05, Task 1) -- not synthetic fixtures. Each file is a
+# SEPARATE cassette (one ``--out`` per scenario invocation of
+# ``scripts/mem04_experiment.py``), so ``cassette["scenarios"]`` in
+# each file has exactly ONE key. Both D-08 scenarios are only
+# assembled together (evidence item 11's combined PASS/FAIL verdict)
+# by merging the two cassettes' ``scenarios`` dicts -- never by
+# assuming either file alone is complete.
+#
+# Production sheet ids are read the SAME way
+# ``scripts/mem04_experiment.py`` reads them (env var with the exact
+# same defaults) so this guard tracks the production script's own
+# guard rather than duplicating a second hard-coded pair of ids.
+
+_REAL_CASSETTE_PATHS = {
+    "blank_lookup": _REPO_ROOT / "tests" / "fixtures" / "mem04" / "mem04_blank_lookup.json",
+    "edit_mapping": _REPO_ROOT / "tests" / "fixtures" / "mem04" / "mem04_edit_mapping.json",
+}
+
+
+class RealCassetteCompletenessTests(unittest.TestCase):
+    """Each committed real cassette carries every section the plan's
+    acceptance criteria require: SDK version, disposable-test-rig
+    marker, sheet ids, a baseline section, a probe section, and its
+    poll timing (evidence items 1, 7, 8, 12).
+    """
+
+    def setUp(self):
+        self.cassettes = {
+            name: json.loads(path.read_text(encoding="utf-8"))
+            for name, path in _REAL_CASSETTE_PATHS.items()
+        }
+
+    def test_each_cassette_carries_top_level_and_scenario_sections(self):
+        poll_timing_keys = (
+            "safety_window_minutes",
+            "poll_attempts_configured",
+            "poll_interval_seconds",
+            "attempts_used",
+            "elapsed_seconds",
+        )
+        for name, cassette in self.cassettes.items():
+            self.assertIn("sdk_version", cassette)
+            self.assertIn("disposable_test_rig", cassette)
+            self.assertTrue(cassette["disposable_test_rig"])
+            self.assertIn("scenarios", cassette)
+            self.assertIn(name, cassette["scenarios"])
+
+            scenario = cassette["scenarios"][name]
+            for key in ("sheet_ids", "baseline", "probe"):
+                self.assertIn(key, scenario, f"{name} scenario missing {key!r}")
+            for key in poll_timing_keys:
+                self.assertIn(
+                    key, scenario["probe"], f"{name} probe missing poll-timing key {key!r}"
+                )
+
+    def test_neither_cassette_names_a_production_sheet_id(self):
+        """T-10-14: the committed evidence must never carry a production
+        sheet id, mirroring the exact guard
+        ``scripts/mem04_experiment.py`` runs before any capture.
+        """
+        mem04 = load_mem04_experiment()
+        production_ids = {
+            mem04._PRODUCTION_TARGET_SHEET_ID,
+            mem04._PRODUCTION_SUBCONTRACTOR_PPP_SHEET_ID,
+        }
+        for name, cassette in self.cassettes.items():
+            sheet_ids = cassette["scenarios"][name]["sheet_ids"]
+            self.assertNotIn(sheet_ids["lookup"], production_ids)
+            self.assertNotIn(sheet_ids["dependent"], production_ids)
+
+
+class RealCassetteReplayTests(unittest.TestCase):
+    """Binds the plan-10-04 replay helper (``replay_probe_call_shapes`` /
+    ``build_sheet_from_dict``) to the REAL captured cassettes, proving
+    the recorded T2/T3a/T3b keyword-argument shape and the derived
+    probe fields are reproducible from the raw responses on disk --
+    not merely asserted by the capture script that wrote them.
+    """
+
+    def setUp(self):
+        self.mem04 = load_mem04_experiment()
+        self.cassettes = {
+            name: json.loads(path.read_text(encoding="utf-8"))
+            for name, path in _REAL_CASSETTE_PATHS.items()
+        }
+
+    def test_replay_reproduces_recorded_t2_t3a_t3b_kwargs_and_probe_fields(self):
+        for name, cassette in self.cassettes.items():
+            scenario = cassette["scenarios"][name]
+            recorded_probe = scenario["probe"]
+            polls = recorded_probe["polls"]
+
+            replay_cassette = {
+                "scenarios": {
+                    name: {
+                        "sheet_ids": scenario["sheet_ids"],
+                        "baseline": scenario["baseline"],
+                    }
+                }
+            }
+            fixture_responses = []
+            for poll in polls:
+                fixture_responses.append(poll["t2"]["raw_response"])
+                fixture_responses.append(poll["t3a_overlap"]["raw_response"])
+                fixture_responses.append(poll["t3b_no_overlap"]["raw_response"])
+
+            args = _args(
+                scenario=name,
+                lookup_sheet_id=scenario["sheet_ids"]["lookup"],
+                dependent_sheet_id=scenario["sheet_ids"]["dependent"],
+                safety_window_minutes=recorded_probe["safety_window_minutes"],
+                poll_attempts=recorded_probe["poll_attempts_configured"],
+                # Real captures slept the recorded interval between polls;
+                # the replay only needs to reproduce the CALL SHAPE, so
+                # skip the real wait.
+                poll_interval_seconds=0,
+            )
+
+            with mock.patch("mem04_experiment.time.sleep"):
+                calls = replay_probe_call_shapes(
+                    self.mem04, fixture_responses, args, replay_cassette
+                )
+
+            self.assertEqual(len(calls), len(fixture_responses))
+            for i, poll in enumerate(polls):
+                base = i * 3
+                t2_kwargs = calls[base].kwargs
+                t3a_kwargs = calls[base + 1].kwargs
+                t3b_kwargs = calls[base + 2].kwargs
+
+                self.assertEqual(
+                    t2_kwargs.get("if_version_after"),
+                    poll["t2"]["kwargs"].get("if_version_after"),
+                )
+                self.assertEqual(t2_kwargs.get("level"), 2)
+                self.assertEqual(
+                    t3a_kwargs.get("rows_modified_since"),
+                    poll["t3a_overlap"]["kwargs"].get("rows_modified_since"),
+                )
+                self.assertEqual(t3a_kwargs.get("level"), 2)
+                self.assertEqual(
+                    t3b_kwargs.get("rows_modified_since"),
+                    poll["t3b_no_overlap"]["kwargs"].get("rows_modified_since"),
+                )
+                self.assertEqual(t3b_kwargs.get("level"), 2)
+                # T3a carries the SAFETY_WINDOW overlap; T3b carries the
+                # zero-overlap watermark -- they must differ (evidence
+                # item 10).
+                self.assertNotEqual(
+                    t3a_kwargs["rows_modified_since"], t3b_kwargs["rows_modified_since"]
+                )
+
+            # The replayed probe (recomputed from the raw responses) must
+            # reproduce the same verdict-relevant fields the real capture
+            # recorded -- proving those fields are DERIVED from the raw
+            # evidence, not merely printed by the capturing script.
+            recomputed_probe = replay_cassette["scenarios"][name]["probe"]
+            self.assertEqual(
+                recomputed_probe["affected_row_id"], recorded_probe["affected_row_id"]
+            )
+            self.assertEqual(
+                recomputed_probe["row_present_in_rows_modified_since_overlap"],
+                recorded_probe["row_present_in_rows_modified_since_overlap"],
+            )
+            self.assertEqual(
+                recomputed_probe["row_present_in_rows_modified_since_no_overlap"],
+                recorded_probe["row_present_in_rows_modified_since_no_overlap"],
+            )
+            self.assertEqual(
+                recomputed_probe["attempts_used"], recorded_probe["attempts_used"]
+            )
+
+
+class RealCassetteVerdictTests(unittest.TestCase):
+    """The plan-10-04 verdict derivation, run against the MERGED real
+    cassettes (evidence items 9 and 11): both D-08 scenarios recorded
+    separately, reduced to ONE explicit combined verdict sentence.
+    """
+
+    def setUp(self):
+        self.mem04 = load_mem04_experiment()
+        self.cassettes = {
+            name: json.loads(path.read_text(encoding="utf-8"))
+            for name, path in _REAL_CASSETTE_PATHS.items()
+        }
+
+    def _merged_cassette(self) -> dict:
+        merged: dict = {"scenarios": {}}
+        for cassette in self.cassettes.values():
+            merged["scenarios"].update(cassette["scenarios"])
+        return merged
+
+    def test_each_real_cassette_alone_is_undetermined_missing_the_other_scenario(self):
+        """Pins the documented per-invocation behavior Juan observed
+        live: a single-scenario cassette can never yield PASS/FAIL on
+        its own -- only the merged pair can.
+        """
+        blank_only = self.cassettes["blank_lookup"]
+        verdict = self.mem04.derive_verdict(blank_only)
+        self.assertIn("undetermined", verdict)
+        self.assertIn("edit_mapping", verdict)
+
+        edit_only = self.cassettes["edit_mapping"]
+        verdict = self.mem04.derive_verdict(edit_only)
+        self.assertIn("undetermined", verdict)
+        self.assertIn("blank_lookup", verdict)
+
+    def test_combined_verdict_across_both_real_cassettes_is_deterministic_pass(self):
+        verdict = self.mem04.derive_verdict(self._merged_cassette())
+        self.assertEqual(
+            verdict,
+            "verdict: PASS — rows_modified_since surfaced the formula-only "
+            "change in both scenarios",
+        )
+
+    def test_safety_window_sensitivity_is_both_present_for_each_real_scenario(self):
+        for name, cassette in self.cassettes.items():
+            probe = cassette["scenarios"][name]["probe"]
+            note = self.mem04.safety_window_sensitivity_note(probe)
+            self.assertIn("BOTH the overlap and zero-overlap probes", note)
 
 
 if __name__ == "__main__":
