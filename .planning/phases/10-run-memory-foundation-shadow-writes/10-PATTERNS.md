@@ -17,14 +17,15 @@ All analog paths below were verified with `git ls-files` as tracked repo source
 | `pipeline_memory/__init__.py` (NEW) | config (package init) | — | `billing_audit/__init__.py` | exact |
 | `pipeline/config.py` (MODIFIED — add flags) | config | — | itself (existing flag families) | exact (self-analog) |
 | `pipeline/orchestrate.py` (MODIFIED — 4 integration points) | controller/orchestrator | batch | itself (existing phase/sub-budget/closeout code) | exact (self-analog) |
-| `pipeline/discovery.py` (MODIFIED — sheet_registry call site, planner's call vs. orchestrate.py) | service | batch | itself (`discover_source_sheets`) | exact (self-analog) |
+| `pipeline/fetch.py` (MODIFIED — additive only: `__row_modified_at` in 10-02 Task 1, `_LAST_SHEET_VERSIONS` in 10-03 Task 1; hash-neutral, ≤12 added lines) | service (fetch/normalize) | batch | itself (accept block ~504-627) | exact (self-analog) |
+| `pipeline/discovery.py` (NOT modified — 10-03 Task 1 reads its module attributes at call time from `orchestrate.py`; no call-site edit) | service | batch | itself (`discover_source_sheets`) | exact (self-analog, read-only) |
 | `tests/test_pipeline_memory_shadow.py` (NEW) | test | — | `tests/test_billing_audit_shadow.py` | exact |
 | `scripts/compare_control_run.py` (NEW) | utility (diff/verification script) | batch | `scripts/check_api_equality.py` (diff logic) + `scripts/run_6_gates.sh` (invocation harness) | role-match |
 | `scripts/mem04_experiment.py` (NEW) | utility (read-only diagnostic CLI) | request-response (external API) | `scripts/backfill_attribution_snapshot.py` | partial — see "No Analog Found" |
 
 **Not modified (read-only reference sources only — do not touch):**
-`pipeline/fetch.py` (row accept/normalize rules; the memory writer consumes
-already-fetched `row_data` dicts, never re-fetches), `pipeline/upload.py`
+`pipeline/discovery.py` (module attributes read at call time from `orchestrate.py`),
+`pipeline/upload.py`
 (group_state upsert happens in `orchestrate.py`'s group loop, not here),
 `pipeline/change_detection.py` (existing `group_content_hash` logic —
 `row_state.content_hash` is a NEW, separate hash; do not modify
