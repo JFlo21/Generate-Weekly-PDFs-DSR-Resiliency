@@ -573,7 +573,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 10-02-PLAN.md — `row_state` / `row_event` chunked bulk shadow write with its own time sub-budget (wave 2)
-- [ ] 10-05-PLAN.md — MEM-04 experiment run, committed evidence, dated Living Ledger verdict (wave 2)
+- [x] 10-05-PLAN.md — MEM-04 experiment run, committed evidence, dated Living Ledger verdict (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 

@@ -226,7 +226,7 @@ CU pricing, rate recalculation, and billing formulas do not change.
 - [x] **MEM-03**: Writes are bulk (one RPC per sheet), fail-open (memory outage never
   blocks Excel generation), and shadow-mode first (zero production behavior change).
 
-- [ ] **MEM-04**: Fixture-proven answer to "does `rowsModifiedSince` see formula-only
+- [x] **MEM-04**: Fixture-proven answer to "does `rowsModifiedSince` see formula-only
   changes (archived WR blanking `Foreman`, dept-mapping edits)?" recorded in the Living
   Ledger.
 
@@ -368,7 +368,7 @@ Which phases cover which requirements.
 | MEM-01 | Phase 10 | Complete |
 | MEM-02 | Phase 10 | Pending |
 | MEM-03 | Phase 10 | Complete |
-| MEM-04 | Phase 10 | Pending |
+| MEM-04 | Phase 10 | Complete |
 | INC-01 | Phase 11 | Pending |
 | INC-02 | Phase 11 | Pending |
 | INC-03 | Phase 11 | Pending |
