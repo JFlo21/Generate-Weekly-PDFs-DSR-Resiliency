@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Control-vs-shadow Excel byte comparison and run_summary field diff.
+"""Control-vs-shadow Excel content comparison and run_summary field diff.
 
 Proves -- or disproves -- Phase 10 success criterion 4: a real-data
 control run (memory flag OFF) and a shadow run (memory flag ON) must
-produce byte-identical generated Excel files and identical
-billing-relevant ``run_summary.json`` fields.
+produce content-identical generated Excel files (billing data and
+formatting) and identical billing-relevant ``run_summary.json`` fields.
 
 The embedded generation timestamp in each Excel filename
 (``WR_{wr}_WeekEnding_{week}_{timestamp}{variant_suffix}_{hash}.xlsx``,
@@ -15,6 +15,15 @@ each file's STABLE identity (work request, week ending, variant suffix,
 and the embedded 16-character change-detection hash from
 ``pipeline/change_detection.py::calculate_data_hash``) -- never by
 filename equality.
+
+The content hash is CANONICALIZED, not a raw file-byte hash: two other
+``datetime.datetime.now()`` calls inside ``pipeline/excel.py`` embed a
+wall-clock value into every save regardless of row content --
+openpyxl's own ``docProps/core.xml`` created/modified timestamps and a
+"Report Generated On: <timestamp>" footer cell in the worksheet XML.
+Neither is billing-relevant; both are excluded/normalized before
+hashing so two genuinely identical runs compare equal (see
+``_canonical_hash_of_xlsx`` for the confirmed live evidence).
 
 Mirrors the compare/diff/exit-code shape of ``scripts/check_api_equality.py``:
 compute set A, compute set B, diff, print one ``FAIL:`` line per problem
@@ -41,6 +50,7 @@ import json
 import pathlib
 import re
 import sys
+import zipfile
 
 # Glob mirrors the workflow's own artifact organizer
 # (.github/workflows/weekly-excel-generation.yml globs WR_*_WeekEnding_*).
@@ -121,8 +131,59 @@ def _format_identity(identity: Identity) -> str:
     return label
 
 
-def _sha256_of_file(path: pathlib.Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+# ``pipeline/excel.py`` embeds ``datetime.datetime.now()`` TWICE per
+# generated workbook, neither billing-relevant, both differing on EVERY
+# save regardless of row content:
+#   1. openpyxl's own docProps/core.xml <dcterms:created>/<dcterms:modified>
+#      (auto-populated at wb.save() time) -- excluded entirely.
+#   2. A "Report Generated On: <timestamp>" footer cell written directly
+#      into the worksheet XML (pipeline/excel.py, ~line 477) -- normalized
+#      to a fixed placeholder.
+# Discovered live during plan 10-06 Task 3 (2026-08-25): a raw SHA-256 of
+# file bytes reported "content hash mismatch" for every single control/
+# shadow identity, including ones with zero row-level differences. A
+# docProps/core.xml + worksheet-XML byte diff on one such identity showed
+# ONLY these two wall-clock artifacts differing -- zero billing-content
+# bytes differed. Hashing raw bytes would make ANY two real (non-frozen-
+# clock) runs -- even two control-only runs -- always compare unequal,
+# defeating this script's entire purpose.
+_EXCLUDED_ZIP_MEMBERS = frozenset({"docProps/core.xml"})
+_REPORT_TIMESTAMP_RE = re.compile(
+    r"Report Generated On: \d{2}/\d{2}/\d{4} \d{2}:\d{2} [AP]M"
+)
+_REPORT_TIMESTAMP_PLACEHOLDER = "Report Generated On: <normalized>"
+
+
+def _canonical_hash_of_xlsx(path: pathlib.Path) -> str:
+    """SHA-256 over an xlsx's content, canonicalized against the two
+    known non-billing wall-clock artifacts documented above. Any other
+    difference (a real data/formatting change) still changes the hash.
+
+    A file that is not a valid zip archive (e.g. a plain-bytes test
+    fixture, or a genuinely corrupt xlsx) falls back to a raw byte hash
+    -- canonicalization only applies to real xlsx content; anything else
+    is compared exactly, which is strictly MORE conservative (more
+    likely to FAIL, never less).
+    """
+    try:
+        zf = zipfile.ZipFile(path)
+    except zipfile.BadZipFile:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    hasher = hashlib.sha256()
+    with zf:
+        for name in sorted(zf.namelist()):
+            if name in _EXCLUDED_ZIP_MEMBERS:
+                continue
+            data = zf.read(name)
+            if name.startswith("xl/worksheets/") and name.endswith(".xml"):
+                text = _REPORT_TIMESTAMP_RE.sub(
+                    _REPORT_TIMESTAMP_PLACEHOLDER, data.decode("utf-8")
+                )
+                data = text.encode("utf-8")
+            hasher.update(name.encode("utf-8"))
+            hasher.update(data)
+    return hasher.hexdigest()
 
 
 def _iter_excel_files(directory: pathlib.Path) -> list[pathlib.Path]:
@@ -150,7 +211,12 @@ def build_identity_hash_map(
                 f"unparseable filename {path.name!r}: {exc}"
             )
             continue
-        identity_to_hash[identity] = _sha256_of_file(path)
+        try:
+            identity_to_hash[identity] = _canonical_hash_of_xlsx(path)
+        except (zipfile.BadZipFile, KeyError, UnicodeDecodeError) as exc:
+            parse_errors.append(
+                f"could not read xlsx content {path.name!r}: {exc}"
+            )
     return identity_to_hash, parse_errors
 
 

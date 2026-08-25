@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import zipfile
 
 import pytest
 
@@ -31,6 +32,42 @@ _HASH = "aabbccddeeff0011"
 def _write_xlsx(directory: pathlib.Path, filename: str, content: bytes) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     (directory / filename).write_bytes(content)
+
+
+def _write_real_xlsx_zip(
+    directory: pathlib.Path,
+    filename: str,
+    *,
+    created: str,
+    report_generated_on: str,
+    row_value: str = "1234.56",
+) -> None:
+    """Write a MINIMAL but real xlsx-shaped zip archive, mirroring the
+    two exact members ``_canonical_hash_of_xlsx`` special-cases:
+    ``docProps/core.xml`` (openpyxl's save-time created/modified) and a
+    worksheet XML containing a "Report Generated On: <timestamp>" cell
+    (``pipeline/excel.py`` ~line 477), plus one billing-relevant cell
+    value that must still be compared exactly.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    core_xml = (
+        '<cp:coreProperties '
+        'xmlns:cp="http://schemas.openxmlformats.org/package/2006/'
+        'metadata/core-properties" '
+        'xmlns:dcterms="http://purl.org/dc/terms/">'
+        f'<dcterms:created xsi:type="dcterms:W3CDTF">{created}</dcterms:created>'
+        f'<dcterms:modified xsi:type="dcterms:W3CDTF">{created}</dcterms:modified>'
+        '</cp:coreProperties>'
+    )
+    sheet_xml = (
+        '<worksheet><sheetData>'
+        f'<row><c t="str"><v>Total Billed: {row_value}</v></c></row>'
+        f'<row><c t="str"><v>Report Generated On: {report_generated_on}</v></c></row>'
+        '</sheetData></worksheet>'
+    )
+    with zipfile.ZipFile(directory / filename, "w") as zf:
+        zf.writestr("docProps/core.xml", core_xml)
+        zf.writestr("xl/worksheets/sheet1.xml", sheet_xml)
 
 
 class TestIdenticalContentDifferentTimestampsPasses:
@@ -84,6 +121,65 @@ class TestIdenticalContentDifferentTimestampsPasses:
 
         assert errors == []
         assert compared == 2
+
+
+class TestRealXlsxWallClockCanonicalization:
+    """Regression coverage for plan 10-06 Task 3's live-discovered bug:
+    a raw file-byte SHA-256 always reported "content hash mismatch" for
+    real xlsx output because openpyxl's docProps/core.xml timestamps and
+    pipeline/excel.py's "Report Generated On" cell embed
+    ``datetime.datetime.now()`` on every save. Confirmed live against
+    project poeyztlmsawfoqlanucc (2026-08-25): a byte diff of an
+    overlapping control/shadow identity showed ONLY these two artifacts
+    differing, zero billing-content bytes differed.
+    """
+
+    def test_pass_when_only_docprops_and_report_timestamp_differ(
+        self, tmp_path
+    ):
+        control_dir = tmp_path / "control"
+        shadow_dir = tmp_path / "shadow"
+        _write_real_xlsx_zip(
+            control_dir,
+            f"WR_90001_WeekEnding_041926_120000_{_HASH}.xlsx",
+            created="2026-08-25T15:47:04Z",
+            report_generated_on="08/25/2026 03:47 PM",
+        )
+        _write_real_xlsx_zip(
+            shadow_dir,
+            f"WR_90001_WeekEnding_041926_164229_{_HASH}.xlsx",
+            created="2026-08-25T16:42:29Z",
+            report_generated_on="08/25/2026 04:42 PM",
+        )
+
+        errors, compared = ccr.compare_excel_sets(control_dir, shadow_dir)
+
+        assert errors == []
+        assert compared == 1
+
+    def test_fail_when_a_billing_cell_actually_differs(self, tmp_path):
+        control_dir = tmp_path / "control"
+        shadow_dir = tmp_path / "shadow"
+        _write_real_xlsx_zip(
+            control_dir,
+            f"WR_90001_WeekEnding_041926_120000_{_HASH}.xlsx",
+            created="2026-08-25T15:47:04Z",
+            report_generated_on="08/25/2026 03:47 PM",
+            row_value="1234.56",
+        )
+        _write_real_xlsx_zip(
+            shadow_dir,
+            f"WR_90001_WeekEnding_041926_164229_{_HASH}.xlsx",
+            created="2026-08-25T16:42:29Z",
+            report_generated_on="08/25/2026 04:42 PM",
+            row_value="9999.99",  # genuine billing-content difference
+        )
+
+        errors, compared = ccr.compare_excel_sets(control_dir, shadow_dir)
+
+        assert compared == 1
+        assert len(errors) == 1
+        assert "content hash mismatch" in errors[0]
 
 
 class TestSingleByteDifferenceFails:
