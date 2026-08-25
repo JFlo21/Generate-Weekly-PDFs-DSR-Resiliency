@@ -6263,3 +6263,37 @@ follow-up findings closed, same 6 files.
 - **Not resolved here:** the real 56 -> 65 mypy delta is attributed and decided
   (fix-types / rebaseline / split) in plan `09-08` — this entry closes only the
   measurement gap, not the underlying type errors.
+
+## [2026-08-25 00:02] G-09-MOD-06 resolved: mypy Gate 4 re-baselined 56 -> 65 (Juan: `rebaseline`) — every accepted finding attributed
+
+- **Decision:** Juan chose `rebaseline` (option B of plan `09-08` Task 3) after the
+  attribution report `.planning/debug/mypy-delta-56-to-65-2026-08-24.md` showed the delta is
+  1 class-A / 2 class-B / 7 class-C / 0 class-D and that **none of it traces to Phase 09** — all
+  blame commits post-date the Phase 09 merge `5005040`. The re-baseline is this separate commit
+  (touches only `tests/golden/mypy_baseline.txt` + `tests/golden/mypy_baseline_count.txt` + this
+  entry + one tracked todo); no `pipeline/*`, `billing_audit/*`, or facade line changed.
+- **Regenerated with the gate's own invocation** (`python -m mypy generate_weekly_pdfs.py
+  audit_billing_changes.py billing_audit pipeline`, LF bytes): 65 lines, summary
+  `Found 28 errors in 7 files (checked 24 source files)`. `bash scripts/check_mypy_delta.sh` ->
+  `PASS: mypy delta neutral or improved (65 -> 65)`, exit 0. **65 is the new ceiling.**
+- **Accepted findings (10 new lines, permanent unless fixed):**
+  | # | file:line | code | class | blame | origin |
+  |---|-----------|------|-------|-------|--------|
+  | 1-2 | `billing_audit/snapshot_store.py:113` (error + note) | `misc` Cannot assign to a type | C | `3b2f7b0` 2026-08-13 | quick task 260813-nhn (#334) |
+  | 3 | `billing_audit/snapshot_store.py:370` | `arg-type` `int(Any \| None)` | **A** | `a6e19db` 2026-08-12 | quick task 260812-jqx (#330) |
+  | 4 | `pipeline/snapshot_drift.py:50` | `import-untyped` dateutil stubs | C | `a6e19db` 2026-08-12 | quick task 260812-jqx (#330) |
+  | 5 | `audit_billing_changes.py:164` | `arg-type` dict.get(Any \| None) | C | `3b2f7b0` 2026-08-13 | quick task 260813-nhn (#334) |
+  | 6-8 | `audit_billing_changes.py:371/740/741` | `attr-defined` extend/append, `operator` < | C | `647a688` 2026-08-12 | quick task 260812-isx (#329) |
+  | 9-10 | `pipeline/orchestrate.py:2287-2288` | `annotation-unchecked` notes | B | `de43b79` 2026-07-06 | WR 90968595 debug (#283) |
+- **Tracked debt:** the single class-A item (#3, runtime-guarded by the `except (TypeError,
+  ValueError): continue` directly below it, so no correctness impact today) is
+  `.planning/todos/pending/` "fix snapshot_store int(row.get()) arg-type" — a one-line fix in
+  protected billing code, needs its own plan + test.
+- **Rule (re-baseline hygiene):** a Gate-4 re-baseline is only acceptable as a dedicated
+  commit whose ledger entry names every accepted finding with blame/class — never regenerate
+  the golden file inside a feature commit. Open cross-platform hazard carried forward:
+  `tests/golden/mypy_baseline.txt` stores Windows `\` paths, so the FAIL-branch `diff` is
+  noise on Linux CI (the count compare is unaffected); decide a separator convention before
+  the harness is wired into CI.
+- Gap `G-09-MOD-06` closed end-to-end: plans `09-07` (`c4fb38a`..`dd3a9fb`) + `09-08`
+  (`4441b52`..`a1499d6`) + this commit.
