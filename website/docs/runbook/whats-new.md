@@ -5,27 +5,9 @@ title: What's New
 
 # What's New
 
-_Last updated: August 15, 2026 (updated automatically)_
+_Last updated: August 24, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
-
-<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
-## Weekly Billing Reports (DSR Resiliency)
-
-> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
-
-### 📋 Changelog — August 15, 2026
-
-- ✅ Problem fixed: harden production workflow guardrail checks ( follow-up)
-- ✨ New capability: add system health check entry point ( follow-up)
-- ✨ New capability: enable snapshot-drift hold gate after clean burn-in
-- ✨ New capability: demote legacy price-variance detector from risk ladder
-- 📄 Help guides updated: mirror applied billing&#95;audit DDL in schema.sql
-- ⚡ The system now runs faster (RPC bulk provenance read + audit follow-ups)
-- ✅ Problem fixed: harden rate-sanity scope gate ( review)
-- ✨ New capability: scope rate-sanity audit to current cycle ( follow-up)
-
-<!-- /runbook-repo -->
 
 <!-- runbook-repo: JFlo21/JFlo21 -->
 ## JFlo21
@@ -41,32 +23,33 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
 
-### 📋 Changelog — August 14, 2026
+### 📋 Changelog — August 24, 2026
 
-- • v1.3 milestone close + WR 90798374 webapp fix (Render worker env parity)
-- • Phase 23: As Designed Audit tab + billers grid additions (AUDIT-01..04)
-- ✨ New capability: Phase 22 — STORMS column alignment on every variant (COL-01..04)
-- ✨ New capability: Phase 21 — manifest heading enrichment on every variant (HEAD-01..04)
-- ✅ Problem fixed: BUG-005 — persist true source version on routed Output Log rows (Source Version column)
-- ✅ Problem fixed: NotCompleted Week Ending acceptance + /return nav + hourly triggers for the three dispatch-only lifecycle workers
-- • Set up Cursor Cloud dev environment (AGENTS.md + notes)
-- 📄 Help guides updated: session ledger + changelog entries for v1.2 milestone close
+- ✅ Problem fixed: map MANIFEST&#95;GF&#95;VARIANT&#95;ENABLED into both Gen A render lanes
+- 📄 Help guides updated: docs+test: session ledgers 08-21..08-23, env hermeticity scrub, runbook fence
+- ✅ Problem fixed: tie-break duplicate priced Output Log rows by latest Generated At
+- ✨ New capability: priced-lane identity backfill — stamp blank Manifest ID/Version from latest OK Output Log row
+- ✅ Problem fixed: decision-sync lock-contention carve-out + idempotency short-circuit (T2)
+- ✅ Problem fixed: priced queue never retires delivered rows — same 81 WRs regenerated every tick
+- ✨ New capability: print-friendly manifest output — save-time print layout post-pass (POL-01)
+- ✅ Problem fixed: Output Log version ties prefer latest Generated At (billers seed/report classification)
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/claudeos -->
-## ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
+<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
+## Weekly Billing Reports (DSR Resiliency)
 
-> ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
+> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — August 14, 2026
+### 📋 Changelog — August 24, 2026
 
-- • ClaudeOS: GSD Core 1.10.0 routing and dispatch repair
-- • Merge pull request from JFlo21/codex/gsd-core-fable-routing
-- ✅ Problem fixed: suppress failed statusline output
-- ✅ Problem fixed: accept CRLF in macOS bootstrap assertion
-- ✅ Problem fixed: keep GSD statusline fail-open
-- ✅ Problem fixed: repair GSD agent dispatch handoff
+- ✅ Problem fixed: reduce Sentry noise from Smartsheet auth errors
+- ✅ Problem fixed: skip missing portal/ in Cloud Agent install
+- 📄 Help guides updated: automated plain-language update from Notion Worker
+- 📄 Help guides updated: log 24d5184 &#91;skip ci&#93;
+- ✅ Problem fixed: reduce Sentry noise from Smartsheet auth errors ()
+- 📄 Help guides updated: log a2031ea &#91;skip ci&#93;
+- ✅ Problem fixed: skip missing portal/ in Cloud Agent install ()
 
 <!-- /runbook-repo -->
 
@@ -75,9 +58,38 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — August 14, 2026
+### 📋 Changelog — August 24, 2026
 
-- • 📊 Audit: 2026-08-10T07:00:02Z
+- • 📊 Audit: 2026-08-24T06:44:27Z
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/claudeos -->
+## ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
+
+> ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
+
+### 📋 Changelog — August 24, 2026
+
+- 📄 Help guides updated: claude-mem installer EPERM inside live session; deps restored, worker back
+- 📄 Help guides updated: record memory-swap commit 8d292c2 + archive push in project-state
+- ✨ New capability: switch ClaudeOS continuity layer from .remember to claude-mem
+- 📄 Help guides updated: reconcile fable5 effort policy to owner-saved xhigh; record 08-23 gsd VERSION fix; plugin autoUpdate churn
+- ✅ Problem fixed: junction guard mirrors plugin-cache version into gsd-core/VERSION
+- 📄 Help guides updated: close handoff items 1+3 (push done, dormant GSD npm global removed)
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- ✅ Problem fixed: junction guard also heals stale gsd-core .build.lock (upstream acquireLock has no stale reclaim)
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/remember-continuity -->
+## ClaudeOS .remember continuity store (session handoffs; no secrets by policy)
+
+> ℹ️ **What this system does:** ClaudeOS .remember continuity store (session handoffs; no secrets by policy)
+
+### 📋 Changelog — August 24, 2026
+
+- • sync: continuity from JFLODESKTOP
 
 <!-- /runbook-repo -->
 
@@ -86,7 +98,9 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
 
-_Running steadily — no meaningful changes were detected in this period._ ✅
+### 📋 Changelog — August 24, 2026
+
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
 <!-- /runbook-repo -->
 
@@ -184,15 +198,6 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 ## Morpheus — LLM-maintained wiki second brain (shared across Hermes local+cloud and Claude Code)
 
 > ℹ️ **What this system does:** Morpheus — LLM-maintained wiki second brain (shared across Hermes local+cloud and Claude Code)
-
-_Running steadily — no meaningful changes were detected in this period._ ✅
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/remember-continuity -->
-## ClaudeOS .remember continuity store (session handoffs; no secrets by policy)
-
-> ℹ️ **What this system does:** ClaudeOS .remember continuity store (session handoffs; no secrets by policy)
 
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
@@ -455,9 +460,16 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — August 14, 2026
+### 📋 Changelog — August 24, 2026
 
+- • Phase 3: canary publisher — allowlisted repository&#95;dispatch to Runlog
+- ✅ Problem fixed: Fix Greptile issue on PR 30: contender must not release an active publish claim
+- • Add Phase 2 shadow-mode Runlog event gateway as isolated gateway/ subproject
+- • &#91;WIP&#93; Implement migration to centralized documentation platform
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- • Merge pull request from Linetec-Services-LLC/copilot/pr-30-fix-greptile-issue
+- 📄 Help guides updated: clarify contention fallthrough and redelivery test intent
+- ✅ Problem fixed: never roll back publish claim after dispatch is accepted
 
 <!-- /runbook-repo -->
 
@@ -466,7 +478,12 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Private, version-controlled execution infrastructure for Juan's guarded Todoist GTD system.
 
-_Running steadily — no meaningful changes were detected in this period._ ✅
+### 📋 Changelog — August 24, 2026
+
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- ✨ New capability: prepare Todoist cloud standby safely
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- ✨ New capability: prepare Todoist cloud standby safely ()
 
 <!-- /runbook-repo -->
 
@@ -487,3 +504,4 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
+

@@ -822,37 +822,41 @@ def get_all_source_rows(client, source_sheets):
             except Exception as e:
                 if _is_auth_api_error(e):
                     auth_error_sheet_ids.append(source.get('id'))
-                logging.error(f"Error processing sheet {source['id']}: {e}")
-                sentry_capture_with_context(
-                    exception=e,
-                    context_name="sheet_processing_error",
-                    context_data={
-                        "sheet_id": source['id'],
-                        "sheet_name": source.get('name', 'Unknown'),
-                        "rows_processed": sheet_row_counter,
-                        "error_type": type(e).__name__,
-                        "error_message": _redact_exception_message(e),
-                    },
-                    tags={"error_location": "sheet_row_processing", "sheet_id": source['id']},
-                    fingerprint=["sheet-processing", str(source['id']), type(e).__name__]
-                )
+                    logging.warning(f"Error processing sheet {source['id']}: {e}")
+                else:
+                    logging.error(f"Error processing sheet {source['id']}: {e}")
+                    sentry_capture_with_context(
+                        exception=e,
+                        context_name="sheet_processing_error",
+                        context_data={
+                            "sheet_id": source['id'],
+                            "sheet_name": source.get('name', 'Unknown'),
+                            "rows_processed": sheet_row_counter,
+                            "error_type": type(e).__name__,
+                            "error_message": _redact_exception_message(e),
+                        },
+                        tags={"error_location": "sheet_row_processing", "sheet_id": source['id']},
+                        fingerprint=["sheet-processing", str(source['id']), type(e).__name__]
+                    )
             
         except Exception as e:
             if _is_auth_api_error(e):
                 auth_error_sheet_ids.append(source.get('id'))
-            logging.error(f"Could not process Sheet ID {source.get('id', 'N/A')}: {e}")
-            sentry_capture_with_context(
-                exception=e,
-                context_name="sheet_access_error",
-                context_data={
-                    "sheet_id": source.get('id', 'N/A'),
-                    "sheet_name": source.get('name', 'Unknown'),
-                    "error_type": type(e).__name__,
-                    "error_message": _redact_exception_message(e),
-                },
-                tags={"error_location": "sheet_access", "sheet_id": str(source.get('id', 'N/A'))},
-                fingerprint=["sheet-access", str(source.get('id', 'N/A')), type(e).__name__]
-            )
+                logging.warning(f"Could not process Sheet ID {source.get('id', 'N/A')}: {e}")
+            else:
+                logging.error(f"Could not process Sheet ID {source.get('id', 'N/A')}: {e}")
+                sentry_capture_with_context(
+                    exception=e,
+                    context_name="sheet_access_error",
+                    context_data={
+                        "sheet_id": source.get('id', 'N/A'),
+                        "sheet_name": source.get('name', 'Unknown'),
+                        "error_type": type(e).__name__,
+                        "error_message": _redact_exception_message(e),
+                    },
+                    tags={"error_location": "sheet_access", "sheet_id": str(source.get('id', 'N/A'))},
+                    fingerprint=["sheet-access", str(source.get('id', 'N/A')), type(e).__name__]
+                )
 
         return (sheet_rows, sheet_exclusion_counts, sheet_foreman_counts, sheet_wr_exclusion_reasons, sheet_row_counter)
 
