@@ -329,6 +329,16 @@ def get_all_source_rows(client, source_sheets):
                         # reader exists.
                         row_data['__source_sheet_id'] = source['id']
                         row_data['__row_id'] = row.id
+                        # Phase 10 (MEM-02): raw Smartsheet row-modified
+                        # timestamp -- the only place it's reachable, used
+                        # by MEM-04's passive script. getattr()-defensive;
+                        # ISO-serialise a datetime. Leading "__" -> skipped
+                        # by excel.py's column sampler and invisible to
+                        # calculate_data_hash() (named-field .get() only).
+                        _rma = getattr(row, 'modified_at', None)
+                        if isinstance(_rma, datetime.datetime):
+                            _rma = _rma.isoformat()
+                        row_data['__row_modified_at'] = _rma
 
                     # Essential field summary for earliest rows (gated to reduce I/O)
                     _should_log_essentials = sheet_row_counter < DEBUG_ESSENTIAL_ROWS
