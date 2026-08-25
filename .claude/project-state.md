@@ -1,14 +1,52 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-24 22:00 CDT · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-25 01:10 CDT · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
-_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-24 21:5x]` (Phase 09
-retroactive verification: Gate 4 vacuous pass = gap G-09-MOD-06; plans 09-07/09-08
-checker-verified `c8986b6`/`8af3dfb`; Phase 10 PLANNED `94b6d80`). Next
-`/gsd-core:gsd-execute-phase 09 --gaps-only` → `/gsd-verify-work 09` → `/gsd-core:gsd-execute-phase 10`._
-Git: `master` ahead 3 / behind 15 of `origin/master` — pull/rebase before pushing._
+_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-25 00:02]` (mypy Gate 4
+re-baselined 56 → 65 by Juan's `rebaseline` decision, every accepted finding attributed;
+commit `da7d73c`). **Phase 09 CLOSED 2026-08-25** — verifier 6/6 (`410235e`), v1.3 milestone
+complete. Next: `/gsd-core:gsd-execute-phase 10` (Run-Memory Foundation; pauses at the
+10-05/10-06 human checkpoints). Optional first: `/gsd-core:gsd-complete-milestone` to archive v1.3.
+Git: `master` ahead ~25 / behind 15 of `origin/master` — pull/rebase before pushing; open PR for
+the gap-closure commits (`7633432`..HEAD) — nothing pushed yet._
+
+## Latest work (2026-08-25 01:10 CDT) — `/gsd-execute-phase 09 --gaps-only` COMPLETE: G-09-MOD-06 closed, `rebaseline` executed, tail gates green, phase closed
+000000000000000000000000. **Wave 2 resumed:** Juan replied `rebaseline` → continuation
+   executor recorded it (`6c6ca41`/`a1499d6`); orchestrator regenerated the golden
+   baseline with the gate's own invocation (65 lines, LF) and committed it with the
+   attributed ledger entry + a todo for the single class-A finding (`da7d73c`).
+   `bash scripts/run_6_gates.sh` → **ALL 6 GATES PASSED in 32 s** (Gate 4 `65 -> 65`;
+   Gate 6 synthetic, 0 API calls, hash_history sha unchanged). **Tail gates:** Nyquist
+   +8 pin tests (`d4e6911`, harness file 21 tests) + `09-VALIDATION.md` (`178148b`);
+   `09-SECURITY.md` threats_open 0 (`c631a43`); regression gate 726 passed on prior-phase
+   files; `09-REVIEW.md` 0 critical / 3 warning / 1 info — Gate 4 follow-ups tracked
+   as a todo (`b9e1643`); ui-review skipped (no frontend surface); **gsd-verifier
+   passed 6/6** → `phase.complete` (`410235e`). Suite: **1386 passed + 132 subtests**.
+   ROADMAP/STATE/PROJECT evolved by hand (this ROADMAP layout isn't parsed by
+   `roadmap.analyze`). Vault: project page §"Phase 09 gap closure executed", dashboard
+   row, log `[2026-08-25a]`. Not pushed. `generated_docs/hash_history.json` still
+   carries the pre-existing local prune-marker diff (untouched, leave or discard).
+
+## Previous (2026-08-24 23:30 CDT) — `/gsd-execute-phase 09 --gaps-only` Wave 1 DONE, Wave 2 at checkpoint (7 commits `7633432`..`76011aa`)
+0000000000000000000000. Sequential mode (base-check auto-degrade: HEAD ≠ origin/HEAD).
+   Pre-dispatch hygiene commit `7633432` (ledger/state/config from earlier
+   sessions). **09-07 complete** (`c4fb38a` RED → `6a5d321` GREEN → `1bd0bee`
+   LF pin → `a925453` ledger → `dd3a9fb` SUMMARY): Gate 4 now hard-fails on
+   non-integer operands (`_assert_count`) and strips CR/tab; 5 fail/pass-
+   capability tests run the real script bytes; `tests/golden/*.txt text eol=lf`.
+   Post-wave gate: py_compile OK, **1380 passed + 132 subtests**. Measured
+   handoff: `FAIL: mypy error lines increased (56 -> 65)` exit 1. **09-08
+   Tasks 1–2 complete** (`4441b52` Gate 6 pinned `SMARTSHEET_API_TOKEN=` →
+   synthetic path, PASS 21 keys in 2 s, mode=synthetic/sheets=0/api_calls=0,
+   hash_history sha256 unchanged; `76011aa` attribution report
+   `.planning/debug/mypy-delta-56-to-65-2026-08-24.md`: 10 new findings =
+   1 A (`billing_audit/snapshot_store.py:370`, runtime-guarded) / 2 B / 7 C /
+   0 D, none from Phase 09 — all from post-09 quick tasks). **Task 3 checkpoint
+   open** (see header). `run_6_gates.sh` intentionally still red at Gate 4
+   until the decision is implemented. Observation to carry: baseline stores
+   Windows `\` paths → Gate 4 FAIL-diff would be noise on Linux CI.
 
 ## Previous (2026-08-24 14:35 CDT) — DIAGNOSIS ONLY: `_User_Unknown_Foreman` (WR 89829163) root-caused; helper-sheet gaps traced to data gates
 0000000000000000. GSD debug session

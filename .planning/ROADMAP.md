@@ -19,7 +19,7 @@
   260608-gwm / PR #273) can be lifted, with zero behavior change to the billing
   pipeline.
 
-- 🏗️ **v1.3 Engine Modularization & Hygiene** — Phase 09. Split the 10,476-line
+- ✅ **v1.3 Engine Modularization & Hygiene** — Phase 09 (complete 2026-08-25). Split the 10,476-line
   `generate_weekly_pdfs.py` into a cohesive `pipeline/` package (facade-preserved,
   behavior-neutral) for debuggability and bug isolation. Started while v1.2 is
   paused; localizing SDK touch-points also eases the later v1.2 migration.
@@ -94,7 +94,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 
 ### v1.3 Engine Modularization & Hygiene
 
-- [ ] **Phase 09: Engine Modularization (pipeline package split)** — relocate the
+- [x] **Phase 09: Engine Modularization (pipeline package split)** (completed 2026-08-25; PR #280 merged 2026-06-27, gap G-09-MOD-06 closed 2026-08-25) — relocate the
   10,476-line `generate_weekly_pdfs.py` into a `pipeline/` package, one cohesive
   module per PR, leaf-first, keeping the root file as a thin facade that re-exports
   all 106 public names + `__main__`. Behavior-neutral (no logic or billing-guard
@@ -135,7 +135,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 06. Realtime and UI Polish | v1.1 | 5/5 | Complete    | 2026-06-02 |
 | 07. Security Hardening and Express Removal | v1.1 | 4/4 | ✅ Complete | 2026-06-03 |
 | 08. smartsheet-python-sdk 4.0.0 Compatibility Migration | v1.2 | 2/2 | Complete    | 2026-07-22 |
-| 09. Engine Modularization (pipeline package split) | v1.3 | 5/7 | In Progress|  |
+| 09. Engine Modularization (pipeline package split) | v1.3 | 9/9 | ✅ Complete | 2026-08-25 |
 | 10. Run-Memory Foundation (shadow writes) | v1.4 | 0/? | Draft — needs Juan decisions |  |
 | 11. Incremental Read + Affected-Group Regeneration | v1.4 | 0/? | Draft |  |
 | 12. Ownership — last known foreman as of the week | v1.4 | 0/? | Draft |  |
@@ -409,11 +409,11 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 09-05-PLAN.md — Wave 5: cleanup + upload + attribution (separate lifecycle modules)
+- [x] 09-05-PLAN.md — Wave 5: cleanup + upload + attribution (separate lifecycle modules)
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
-- [ ] 09-06-PLAN.md — Wave 6: orchestrate (main) + thin-facade finalization + phase-close human verify
+- [x] 09-06-PLAN.md — Wave 6: orchestrate (main) + thin-facade finalization + phase-close human verify
 
 **Wave 7** *(gap closure for G-09-MOD-06 — MOD-06 only; MOD-01..05 verified)*
 

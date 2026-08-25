@@ -441,6 +441,8 @@ extracted from `CLAUDE.md` Living Ledger (see
 | (SPEC) Artifact cache `max:50` TTL 15 min + search index `max:200` TTL 60 min, in-memory on Render; no external search infra v1 | 200 × ~2 MB ≈ 400 MB stays inside Starter 512 MB; caches are advisory, no correctness impact on restart | ✓ Good — locked (same SPEC §7.6) |
 | (SPEC) Artifact Explorer v1 download surface = original `.xlsx` passthrough only (CSV/zip/PDF/parsed-JSON deferred to v2+) | Split-button structure makes future format addition a one-line change; ship narrow | ✓ Good — locked (same SPEC §7.4) |
 | (SPEC) Railway stays warm 48 h post-cutover; rollback is a Vercel `VITE_API_BASE_URL` env-var flip, not a redeploy | Each rollback row in §6 has explicit trigger / action / max recovery time | ✓ Good — locked (same SPEC §5-6) |
+| [2026-08-25 00:02] mypy Gate 4 re-baselined 56 → 65 by explicit human decision (`rebaseline`), as a dedicated commit whose ledger entry names every accepted finding with blame commit and class; the one class-A finding is tracked as a todo | A re-baseline inside a feature commit, or without attribution, is how the 56→65 regression signal was lost the first time (G-09-MOD-06) | ✓ Good — locked (`da7d73c`)
+| [2026-08-25 00:00] A verification harness must never consume production data: Gate 6 of `run_6_gates.sh` runs with `SMARTSHEET_API_TOKEN=` (synthetic path), and every gate needs a fail-capability test in `tests/test_facade_harness.py` | Gate 4 was structurally unable to fail (CRLF + `set -e` fall-through) and Gate 6 silently read 118 production sheets when a `.env` token was present | ✓ Good — locked (`6a5d321`, `4441b52`, `d4e6911`)
 
 </decisions>
 
@@ -462,7 +464,7 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-22 — Phase 08 executed: SDK migrated to the exact
+*Last updated: 2026-08-25 — Phase 09 closed after gap closure (G-09-MOD-06: Gate 4 fail-capable, Gate 6 offline, mypy re-baselined 65 with attribution; verifier 6/6; v1.3 milestone complete). Previous: 2026-07-22 — Phase 08 executed: SDK migrated to the exact
 `==4.3.0` pin with behavior-neutrality proven (six gates + full suite) and
 the live probe approved. Milestone **v1.2 smartsheet-python-sdk 4.0.0
 Compatibility Migration** started 2026-06-08 (Phase 08). Compat-only migration to SDK
