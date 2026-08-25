@@ -1,3 +1,8 @@
 # Keep shell scripts LF-only so they run under bash on Windows checkouts
 # (CRLF in a .sh breaks the shebang / emits $'\r' errors).
 *.sh text eol=lf
+
+# Frozen Gate-4 baselines are read byte-for-byte (the count) and
+# line-for-line (the FAIL-branch diff). CRLF on a core.autocrlf=true
+# checkout silently disabled the gate (G-09-MOD-06) — pin these LF.
+tests/golden/*.txt text eol=lf
