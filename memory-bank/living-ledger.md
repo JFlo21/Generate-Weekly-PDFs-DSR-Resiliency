@@ -6228,3 +6228,38 @@ follow-up findings closed, same 6 files.
   ROADMAP now says 09-00..09-06 were executed pre-GSD and never existed on disk.
 - **Next:** `/gsd-core:gsd-execute-phase 09 --gaps-only` → `/gsd-verify-work 09` → Phase 10
   execution (10-01 Task 1's precondition is this same harness — run it token-blanked).
+
+## [2026-08-25 04:05] Gap G-09-MOD-06 closed (09-07): Gate 4 can now actually fail — 3 standing rules
+
+- **What:** `09-07-PLAN.md` executed. `scripts/check_mypy_delta.sh` and
+  `tests/test_facade_harness.py` hardened; `.gitattributes` and
+  `tests/golden/mypy_baseline.txt` / `mypy_baseline_count.txt` normalized to LF.
+- **Root cause:** the Gate-4 baseline (`tests/golden/mypy_baseline_count.txt`) checked
+  out as `56\r\n` under `core.autocrlf=true` (the committed git blob was already LF —
+  only the checkout was buggy, since `.gitattributes` did not pin `tests/golden/*.txt`).
+  The count read stripped space and LF but not CR, leaving `56<CR>`; the resulting
+  `[ "$new_count" -gt "$baseline_count" ]` inside an `if` raised a bash test-syntax
+  error (exit status 2), which `set -e` does NOT abort on because the failure occurs
+  inside a condition, not a plain statement; execution fell through to the
+  unconditional `PASS` at the bottom of the file. Live evidence: the gate printed
+  `PASS: mypy delta neutral or improved (56 -> 65)` while the real mypy error-line
+  count had actually gone 56 -> 65 (2026-08-24 retroactive verification of Phase 09).
+- **Standing rule 1 (verification):** a gate that cannot fail is not green. Every gate
+  in `scripts/run_6_gates.sh` must have a fail-capability test in
+  `tests/test_facade_harness.py` that executes the real gate bytes against a
+  deliberately-broken input and asserts a non-zero exit. Gates 1, 2, and 6 already had
+  one; Gate 4 did not, which is why the defect survived from its introducing commit
+  `5005040` until 2026-08-24. Gate 4 now has three (fail-on-regression-with-CRLF,
+  pass-on-neutral-with-clean-render, refuse-to-pass-on-malformed-baseline x3 params).
+- **Standing rule 2 (shell):** in a `set -e` script, a comparison inside an `if`
+  condition does NOT abort on a syntax error — it evaluates false and execution
+  continues past the `if` block. Any numeric comparison against file-sourced data must
+  validate the operands first (`_assert_count` in `scripts/check_mypy_delta.sh`) and
+  hard-fail on an unparseable value, rather than relying on `set -e` to catch it.
+- **Standing rule 3 (repo):** frozen baselines that are compared byte-for-byte must be
+  pinned in `.gitattributes` (`tests/golden/*.txt text eol=lf`). Line-ending-tolerant
+  baselines (`tests/golden/*.json`, read via `json.load`) are intentionally left
+  unpinned — normalizing them would widen the diff for zero verification benefit.
+- **Not resolved here:** the real 56 -> 65 mypy delta is attributed and decided
+  (fix-types / rebaseline / split) in plan `09-08` — this entry closes only the
+  measurement gap, not the underlying type errors.
