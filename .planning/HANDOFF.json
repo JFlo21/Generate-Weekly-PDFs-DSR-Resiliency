@@ -1,51 +1,33 @@
 {
   "version": "1.0",
-  "timestamp": "2026-06-08T21:12:17.437Z",
-  "context": "multi-strand",
-  "phase": "08",
-  "phase_name": "smartsheet-python-sdk 4.0.0 Compatibility Migration",
-  "phase_dir": ".planning/phases/08-smartsheet-python-sdk-4-0-0-compatibility-migration",
-  "milestone": "v1.2",
-  "plan": 0,
+  "timestamp": "2026-08-25T06:34:34.236Z",
+  "phase": "10",
+  "phase_name": "Run-Memory Foundation (shadow writes)",
+  "phase_dir": ".planning/phases/10-run-memory-foundation-shadow-writes",
+  "plan": 1,
   "task": 0,
-  "total_tasks": 0,
+  "total_tasks": 18,
   "status": "paused",
-  "completed_tasks": [
-    {"id": 1, "name": "Hotfix 260608-gwm: pin smartsheet-python-sdk <4.0.0", "status": "done", "commit": "a5c3fc8", "notes": "PR #273 squash-merged to origin/master; production recovered (Run2271 green)."},
-    {"id": 2, "name": "Create v1.2 milestone scaffold (PROJECT/REQUIREMENTS/ROADMAP/STATE; SDK-01..06; Phase 08)", "status": "done", "commit": "0014680", "notes": "pushed to origin/master."},
-    {"id": 3, "name": "Reconcile local master with origin (squash-redundancy) + push v1.2 docs", "status": "done", "commit": "0014680", "notes": "reset to origin + cherry-picked 8 unique doc commits; clean fast-forward push."},
-    {"id": 4, "name": "Phase 08 research (08-RESEARCH.md)", "status": "done", "commit": "86413d8", "notes": "LOCAL-ONLY, unpushed. KEY FINDING: 4.0.0 crash is a broken WHEEL (ships only version.py), NOT an API removal."},
-    {"id": 5, "name": "PDF print POC: per-day-composition print-ready PDFs from real WRs", "status": "in_progress", "progress": "Approach validated on real spilling data; deliverables in poc/out/ (untracked). Awaiting boss sign-off before GSD productionization."}
-  ],
+  "completed_tasks": [],
   "remaining_tasks": [
-    {"id": 6, "name": "Phase 08 DECISION: migrate now via `--no-binary` sdist vs wait for upstream 4.0.1 fixed wheel", "status": "not_started"},
-    {"id": 7, "name": "Phase 08 plan + execute (only AFTER decision; planner NOT yet spawned)", "status": "not_started"},
-    {"id": 8, "name": "PDF feature: on boss approval, brainstorm->spec->plan productionization (likely new phase: additive PDF-per-Excel, flag-gated, LibreOffice on CI)", "status": "not_started"},
-    {"id": 9, "name": "Push local commits to origin (86413d8 research + this handoff)", "status": "not_started"}
+    {"id": "10-01", "name": "Wave 1 — pipeline_memory package + run_ledger end-to-end + versioned DDL (3 tasks)", "status": "not_started"},
+    {"id": "10-04", "name": "Wave 1 — MEM-04 read-only probe CLI, cassette replay harness, passive compare (3 tasks)", "status": "not_started"},
+    {"id": "10-02", "name": "Wave 2 — per-row current state + change history shadow writes (3 tasks)", "status": "not_started"},
+    {"id": "10-05", "name": "Wave 2 — CHECKPOINT: Juan runs MEM-04 experiment on sandbox rig; verdict to Living Ledger (3 tasks, autonomous:false)", "status": "not_started"},
+    {"id": "10-03", "name": "Wave 3 — sheet_registry + remaining MEM-01 tables shadow-written (3 tasks)", "status": "not_started"},
+    {"id": "10-06", "name": "Wave 4 — CHECKPOINT: behaviour-neutral control run on real data + compare_control_run.py (3 tasks, autonomous:false)", "status": "not_started"}
   ],
-  "blockers": [
-    {"description": "smartsheet-python-sdk 4.0.0 WHEEL is broken upstream (ships only version.py); the module/API are intact in the sdist. Migration is a decision, not a code problem: use `--no-binary smartsheet-python-sdk` (sdist) now, OR stay pinned <4.0.0 and wait for Smartsheet 4.0.1.", "type": "external", "workaround": "Stay pinned <4.0.0 (current state) — production green on 3.9.0."},
-    {"description": "PDF productionization gated on stakeholder (boss) sign-off of POC PDFs.", "type": "human_action", "workaround": "POC deliverables ready in poc/out/ to show boss."}
-  ],
+  "blockers": [],
+  "async_jobs": [],
   "human_actions_pending": [
-    {"action": "Boss reviews POC PDFs in poc/out/ and approves the print-PDF feature", "context": "Decides whether to productionize via GSD", "blocking": true},
-    {"action": "Decide Phase 08 path: migrate now via --no-binary sdist, or wait for upstream 4.0.1", "context": "4.0.0 wheel is broken; both options valid", "blocking": true},
-    {"action": "Push local master (86413d8 + handoff) to origin", "context": "local ahead of origin/master 0014680", "blocking": false}
+    {"action": "Triage Seer PRs #343 / #346 / #347 / #348 (all edit _is_auth_api_error Smartsheet 401/403 detection; #341 already shipped the accepted fix) and Dependabot #344 / #345", "context": "Juan's stated order: execute Phase 10 first, triage after", "blocking": false}
   ],
   "decisions": [
-    {"decision": "Hotfix = pin smartsheet-python-sdk>=3.1.0,<4.0.0", "rationale": "Correct regardless of root cause (avoids broken 4.0.0 wheel); reversible; zero billing-logic change", "phase": "quick-260608-gwm"},
-    {"decision": "v1.2 = COMPAT-ONLY SDK migration (chosen over comprehensive rework)", "rationale": "Preserve pipeline per CLAUDE.md; additive only", "phase": "v1.2"},
-    {"decision": "PDF: per-day composition (each day = own section; repeating print-title = [report header + that day's date + column header]); stitch to one PDF per WR", "rationale": "Excel print-titles are fixed top rows and cannot vary per day; per-day composition is the only way to repeat the correct date+columns on every spill page", "phase": "PDF-POC"},
-    {"decision": "PDF engine: Excel COM locally / LibreOffice headless on CI", "rationale": "Local Windows has Excel (no LibreOffice); CI ubuntu has no Excel; both honor the same openpyxl print settings", "phase": "PDF-POC"},
-    {"decision": "Buddy Mavin = Abraham Hernandez's 06/07 WRs (relabeled demo name)", "rationale": "No real foreman named Buddy Mavin exists", "phase": "PDF-POC"}
+    {"decision": "Phase 10 executes on branch feat/phase-10-run-memory cut from origin/master (22ab153), not on local master", "rationale": "PR #349 squash-merge left local master ahead 29/behind 17 because the branch was cut from unpushed local commits; cutting from origin/master prevents a repeat", "phase": "10"},
+    {"decision": "Accept sequential (ISOLATION=none) execution for Phase 10", "rationale": "worktree.base-check auto-degrades because HEAD 75a4f31 != origin/HEAD 22ab153 (feature branch always diverges); sequential is also safer for production-adjacent pipeline/ edits", "phase": "10"},
+    {"decision": "Executor prompts tell the executor to Read execute-plan.md / summary.md / checkpoints.md / tdd.md from disk instead of inlining ~2,266 lines verbatim six times", "rationale": "Global CLAUDE.md prompt-caching + token rules (compact task deltas, never re-paste instruction stacks) override the skill's inline-verbatim note; the #3324 concern is only that @-includes do not expand, which explicit absolute-path Read instructions avoid", "phase": "10"}
   ],
-  "uncommitted_files": [
-    ".github/prompts/architecture-analysis.md (pre-existing working-tree edit)",
-    ".github/prompts/configuration-environment.md (pre-existing)",
-    ".github/prompts/memory-integration-codebase-context.md (pre-existing)",
-    ".github/prompts/testing-and-validation.md (pre-existing)",
-    "poc/ (UNTRACKED - do NOT commit: poc/_tools is 30MB pymupdf; poc/out has binary PDFs with real billing data)"
-  ],
-  "next_action": "Pick a strand: (A) on boss approval of poc/out PDFs -> brainstorm->spec->plan PDF productionization; (B) decide Phase 08 migrate-now vs wait-for-4.0.1 then /gsd-plan-phase 08; or (C) push local commits to origin.",
-  "context_notes": "Multi-strand session. PRODUCTION IS SAFE: hotfix merged (a5c3fc8); weekly pipeline recovered (Run2271 green on 3.9.0). Phase 08 research found the 4.0.0 crash is a broken WHEEL (packaging bug), NOT an API break -> migration is tiny and arguably should wait for upstream 4.0.1. Most of the session became a PDF print POC: validated per-day composition fixing (1) sloppy mid-day spills (each spill page now repeats day+date+column header, reads as continuation) and (2) clipped date headers (day/date row merged full-width, never clips). Deliverables = one PDF per WR (mirrors Excel generation) in poc/out/. Reusable builder: poc/build_wr_pdf.py (uses poc/_tools/pymupdf for stitch+render; Excel COM for convert). PDF work is PRE-SPEC POC validation; productionize (new phase) only after boss sign-off."
+  "uncommitted_files": ["generated_docs/hash_history.json (pre-existing local prune-marker diff; leave or discard)"],
+  "next_action": "Run /gsd:resume-work, then /gsd-core:gsd-execute-phase 10. Wave 1 dispatches 10-01 first (sequential, subagent_type=gsd-executor, model=sonnet), then 10-04. No plan has been dispatched; no commits exist for any 10-0x plan.",
+  "context_notes": "Orchestrator completed the entire execute-phase pre-flight: init (6 plans / 4 waves, executor_model=sonnet, parallelization=true, branching=none, context_window=200000, code-review hook active at execute:post, MVP=false, TDD=false, auto-mode=false), safe-resume gate clean, isolation resolved and degraded to none, STATE.md begin-phase applied (status: executing, Plan 1 of 6). Wave 1 files do not overlap (10-01: pipeline_memory/*, pipeline/config.py, pipeline/orchestrate.py, tests/test_pipeline_memory_shadow.py; 10-04: scripts/mem04_*.py, tests/test_mem04_formula_change.py). Paused by Juan (/gsd-pause-work) immediately before the first Agent() dispatch."
 }
