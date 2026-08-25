@@ -324,5 +324,5 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 ## Session Continuity
 
 Last session: 2026-08-25T15:31:08.771Z
-Stopped at: Session resumed via /gsd-resume-work; proceeding to /gsd-execute-phase 10 (Wave 1: 10-01 then 10-04, sequential)
+Stopped at: Phase 10 Wave 2 — 10-02 complete (358d5cf); 10-05 Task 1 is a blocking-human checkpoint (Juan builds the MEM-04 sandbox rig + two triggering edits, runs scripts/mem04_experiment.py a-f). Continuation agent for 10-05 spawns on Juan's reply. 10-03 (Wave 3, depends_on 10-02 only) is runnable meanwhile; 10-06 waits.
 Resume file: .planning/phases/10-run-memory-foundation-shadow-writes/.continue-here.md (HANDOFF.json consumed and removed)
