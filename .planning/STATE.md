@@ -5,17 +5,17 @@ milestone_name: Engine Modularization & Hygiene
 current_phase: 10
 current_phase_name: Run-Memory Foundation (shadow writes)
 status: executing
-stopped_at: Completed 10-01-PLAN.md
-last_updated: "2026-08-25T16:01:21.081Z"
+stopped_at: Completed 10-04-PLAN.md
+last_updated: "2026-08-25T16:25:53.102Z"
 last_activity: 2026-08-25
 last_activity_desc: Phase 10 execution started
+state_head: 67a830e87eeeb54fce5a5f724a2b7e262d64d957
 progress:
   total_phases: 1
   completed_phases: 1
   total_plans: 2
   completed_plans: 2
   percent: 100
-state_head: 75a4f31decbd5d02a635b576909b2116728fa74f
 ---
 
 # Project State
@@ -36,7 +36,7 @@ pipeline.
 ## Current Position
 
 Phase: 10 (Run-Memory Foundation (shadow writes)) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
   Engine 10,476 -> 709-line thin facade; 13-module pipeline/ package; 0 behavior
   change; 7 waves + 2 gap-closure plans (09-07/09-08). G-09-MOD-06 closed: Gate 4
@@ -97,6 +97,7 @@ Progress: [██████████] 100% (v1.3 complete — Phase 09 clos
 | Phase 09-engine-modularization-pipeline-package-split P07 | 32min | 3 tasks | 6 files |
 | Phase 09 P08 | 8min | 3 tasks | 3 files |
 | Phase 10 P01 | ~50min | 3 tasks | 7 files |
+| Phase 10 P04 | ~45min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -181,6 +182,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase ?]: pipeline_memory/client.py imports nothing from billing_audit -- independent kill switch prevents a pipeline_memory misconfiguration from disabling the shipped attribution/hash-store writer
 - [Phase ?]: row_state.foreman_observed (HASH_FIELDS contract) reads the RAW Foreman column, never __effective_user -- avoids repeating the sentinel-freezing defect that corrupted 93 WRs / 5,824 rows in billing_audit.attribution_snapshot
 - [Phase ?]: group_state PRIMARY KEY promoted to include target_sheet_id so a reduced_sub two-sheet fan-out gets one row per leg instead of the second overwriting the first's attachment_id
+- [Phase 10]: [Phase 10-04] mem04_experiment.py aliases parser.add_argument to a bound name to avoid a false-positive collision with the Task 1 AST read-only guard's add_/update_/delete_/create_ prefix ban -- the guard's intent (no Smartsheet write call) is unaffected
+- [Phase 10]: [Phase 10-04] MEM-04 verdict derivation is undetermined-unless-fully-evidenced: a missing scenario, baseline, probe, or T3 observation always yields undetermined naming the gap; PASS/FAIL only when both D-08 scenarios have complete evidence
+- [Phase 10]: [Phase 10-04] mem04_passive_compare.py --source supabase reuses pipeline_memory.client's independent get_client()/with_retry() kill-switch instance (from 10-01) rather than a second Supabase client wrapper for the read-only analyst path
 
 ### Roadmap Evolution
 
@@ -309,8 +313,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-08-25T16:01:21.067Z
-**Stopped at:** Completed 10-01-PLAN.md
+**Last session:** 2026-08-25T16:25:52.765Z
+**Stopped at:** Completed 10-04-PLAN.md
 **Resume file:** None
 
 ## Session Continuity
