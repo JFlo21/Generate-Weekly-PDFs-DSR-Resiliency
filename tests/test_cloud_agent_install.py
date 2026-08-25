@@ -2,13 +2,21 @@
 
 from pathlib import Path
 import json
+import os
 import stat
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "scripts" / "cloud-agent-install.sh"
 ENV_JSON = REPO_ROOT / ".cursor" / "environment.json"
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="NTFS has no POSIX exec bit (st_mode 0o666); the 100755 git mode "
+    "is enforced on Linux CI",
+)
 def test_install_script_exists_and_is_executable() -> None:
     """The bootstrap script must be present and executable."""
     assert SCRIPT.is_file()
