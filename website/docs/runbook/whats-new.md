@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: August 24, 2026 (updated automatically)_
+_Last updated: August 25, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -18,12 +18,29 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
+<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
+## Weekly Billing Reports (DSR Resiliency)
+
+> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
+
+### 📋 Changelog — August 25, 2026
+
+- ✅ Problem fixed: close Phase 09 gap G-09-MOD-06 (Gate 4 fail-capable, Gate 6 offline)
+- ✅ Problem fixed: reduce Sentry noise from Smartsheet auth errors
+- 📄 Help guides updated: log c409c32 &#91;skip ci&#93;
+- ✅ Problem fixed: close Phase 09 gap G-09-MOD-06 (Gate 4 fail-capable, Gate 6 offline) ()
+- 📄 Help guides updated: automated plain-language update from Notion Worker
+- 📄 Help guides updated: log 24d5184 &#91;skip ci&#93;
+- ✅ Problem fixed: reduce Sentry noise from Smartsheet auth errors ()
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
 ## linetec-inspector-manifest-generator
 
 > ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
 
-### 📋 Changelog — August 24, 2026
+### 📋 Changelog — August 25, 2026
 
 - ✅ Problem fixed: map MANIFEST&#95;GF&#95;VARIANT&#95;ENABLED into both Gen A render lanes
 - 📄 Help guides updated: docs+test: session ledgers 08-21..08-23, env hermeticity scrub, runbook fence
@@ -36,29 +53,12 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
-## Weekly Billing Reports (DSR Resiliency)
-
-> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
-
-### 📋 Changelog — August 24, 2026
-
-- ✅ Problem fixed: reduce Sentry noise from Smartsheet auth errors
-- ✅ Problem fixed: skip missing portal/ in Cloud Agent install
-- 📄 Help guides updated: automated plain-language update from Notion Worker
-- 📄 Help guides updated: log 24d5184 &#91;skip ci&#93;
-- ✅ Problem fixed: reduce Sentry noise from Smartsheet auth errors ()
-- 📄 Help guides updated: log a2031ea &#91;skip ci&#93;
-- ✅ Problem fixed: skip missing portal/ in Cloud Agent install ()
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/smartsheet-auditor -->
 ## AI powered repository that will look back and check on my smartsheet to analyze for duplications of work requests line items
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — August 24, 2026
+### 📋 Changelog — August 25, 2026
 
 - • 📊 Audit: 2026-08-24T06:44:27Z
 
@@ -69,7 +69,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
 
-### 📋 Changelog — August 24, 2026
+### 📋 Changelog — August 25, 2026
 
 - 📄 Help guides updated: claude-mem installer EPERM inside live session; deps restored, worker back
 - 📄 Help guides updated: record memory-swap commit 8d292c2 + archive push in project-state
@@ -87,7 +87,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** ClaudeOS .remember continuity store (session handoffs; no secrets by policy)
 
-### 📋 Changelog — August 24, 2026
+### 📋 Changelog — August 25, 2026
 
 - • sync: continuity from JFLODESKTOP
 
@@ -98,7 +98,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
 
-### 📋 Changelog — August 24, 2026
+### 📋 Changelog — August 25, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -460,16 +460,16 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — August 24, 2026
+### 📋 Changelog — August 25, 2026
 
 - • Phase 3: canary publisher — allowlisted repository&#95;dispatch to Runlog
 - ✅ Problem fixed: Fix Greptile issue on PR 30: contender must not release an active publish claim
 - • Add Phase 2 shadow-mode Runlog event gateway as isolated gateway/ subproject
-- • &#91;WIP&#93; Implement migration to centralized documentation platform
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - • Merge pull request from Linetec-Services-LLC/copilot/pr-30-fix-greptile-issue
 - 📄 Help guides updated: clarify contention fallthrough and redelivery test intent
 - ✅ Problem fixed: never roll back publish claim after dispatch is accepted
+- ✅ Problem fixed: contender never mutates another consumer's publish claim
 
 <!-- /runbook-repo -->
 
@@ -478,12 +478,10 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Private, version-controlled execution infrastructure for Juan's guarded Todoist GTD system.
 
-### 📋 Changelog — August 24, 2026
+### 📋 Changelog — August 25, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- ✨ New capability: prepare Todoist cloud standby safely
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- ✨ New capability: prepare Todoist cloud standby safely ()
 
 <!-- /runbook-repo -->
 
