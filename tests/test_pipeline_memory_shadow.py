@@ -1467,5 +1467,232 @@ class SheetRegistryWriterTests(unittest.TestCase):
         )
 
 
+class GroupStateWriterTests(unittest.TestCase):
+    """Task 2: pipeline_memory.writer.upsert_group_state /
+    bump_group_state_withheld."""
+
+    def setUp(self):
+        _reset_all()
+        _pop_env()
+
+    def tearDown(self):
+        _reset_all()
+        _pop_env()
+
+    def _base_record(self, **overrides):
+        rec = {
+            "wr": "90001", "week_ending": "2026-08-30",
+            "variant": "reduced_sub", "identifier": "",
+            "target_sheet_id": 111,
+            "content_hash": "abc123", "row_count": 5,
+        }
+        rec.update(overrides)
+        return rec
+
+    def test_empty_input_zero_calls(self):
+        from pipeline_memory import writer as mem_writer
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+        client = _make_fake_pipeline_memory_client()
+
+        with mock.patch("pipeline_memory.writer.get_client", return_value=client):
+            mem_writer.upsert_group_state([], "run-1")
+
+        client.schema.assert_not_called()
+
+    def test_one_upsert_with_on_conflict_and_core_columns(self):
+        from pipeline_memory import writer as mem_writer
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+        upsert_capture: list = []
+        client = _make_fake_pipeline_memory_client(upsert_capture=upsert_capture)
+
+        with mock.patch("pipeline_memory.writer.get_client", return_value=client):
+            mem_writer.upsert_group_state([self._base_record()], "run-42")
+
+        self.assertEqual(len(upsert_capture), 1)
+        call = upsert_capture[0]
+        self.assertEqual(
+            call.kwargs.get("on_conflict"),
+            "wr,week_ending,variant,identifier,target_sheet_id",
+        )
+        row = call.args[0][0]
+        self.assertEqual(row["content_hash"], "abc123")
+        self.assertEqual(row["row_count"], 5)
+        self.assertEqual(row["source"], "live")
+        self.assertEqual(row["last_generated_run"], "run-42")
+        self.assertEqual(row["last_verified_run"], "run-42")
+
+    def test_attachment_present_includes_both_keys(self):
+        from pipeline_memory import writer as mem_writer
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+        upsert_capture: list = []
+        client = _make_fake_pipeline_memory_client(upsert_capture=upsert_capture)
+        rec = self._base_record(attachment_id=555, attachment_name="a.xlsx")
+
+        with mock.patch("pipeline_memory.writer.get_client", return_value=client):
+            mem_writer.upsert_group_state([rec], "run-1")
+
+        row = upsert_capture[0].args[0][0]
+        self.assertEqual(row["attachment_id"], 555)
+        self.assertEqual(row["attachment_name"], "a.xlsx")
+
+    def test_attachment_absent_omits_both_keys_entirely(self):
+        from pipeline_memory import writer as mem_writer
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+        upsert_capture: list = []
+        client = _make_fake_pipeline_memory_client(upsert_capture=upsert_capture)
+
+        with mock.patch("pipeline_memory.writer.get_client", return_value=client):
+            mem_writer.upsert_group_state([self._base_record()], "run-1")
+
+        row = upsert_capture[0].args[0][0]
+        self.assertNotIn("attachment_id", row)
+        self.assertNotIn("attachment_name", row)
+
+    def test_fan_out_two_target_sheet_ids_produce_two_distinct_rows(self):
+        from pipeline_memory import writer as mem_writer
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+        upsert_capture: list = []
+        client = _make_fake_pipeline_memory_client(upsert_capture=upsert_capture)
+        records = [
+            self._base_record(target_sheet_id=111, attachment_id=1, attachment_name="a.xlsx"),
+            self._base_record(target_sheet_id=222, attachment_id=2, attachment_name="b.xlsx"),
+        ]
+
+        with mock.patch("pipeline_memory.writer.get_client", return_value=client):
+            mem_writer.upsert_group_state(records, "run-1")
+
+        payload = upsert_capture[0].args[0]
+        self.assertEqual(len(payload), 2)
+        by_sheet = {r["target_sheet_id"]: r for r in payload}
+        self.assertEqual(by_sheet[111]["attachment_id"], 1)
+        self.assertEqual(by_sheet[222]["attachment_id"], 2)
+        self.assertNotEqual(by_sheet[111], by_sheet[222])
+
+    def test_fail_open_bumps_errored_counter_by_row_count(self):
+        from pipeline_memory import writer as mem_writer
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+        client = _make_fake_pipeline_memory_client()
+        client.schema.return_value.table.return_value.upsert.return_value.execute.side_effect = (
+            RuntimeError("boom")
+        )
+        records = [
+            self._base_record(target_sheet_id=111),
+            self._base_record(target_sheet_id=222),
+        ]
+
+        with mock.patch("pipeline_memory.writer.get_client", return_value=client):
+            mem_writer.upsert_group_state(records, "run-1")
+
+        self.assertEqual(mem_writer.get_counters()["group_state_errored"], 2)
+
+    def test_bump_group_state_withheld(self):
+        from pipeline_memory import writer as mem_writer
+
+        mem_writer.bump_group_state_withheld(3)
+        self.assertEqual(mem_writer.get_counters()["group_state_withheld"], 3)
+
+
+class AttachmentSideChannelTests(unittest.TestCase):
+    """Task 2: pipeline.orchestrate._extract_attachment_id_name (pure,
+    directly unit-tested) plus _upload_one's STRUCTURAL contract, proven
+    via source inspection -- _upload_one is a closure nested inside
+    main() (exactly like the delete-then-upload ordering already proven
+    this way in tests/test_skip_upload_delete_gating.py), not directly
+    invocable without running the whole session.
+    """
+
+    def test_extract_success_case(self):
+        import pipeline.orchestrate as orch
+
+        attach = mock.Mock()
+        # NOTE: Mock(name=...) sets the mock's OWN repr name, not a
+        # `.name` attribute -- must be set post-construction.
+        attach.data = mock.Mock(id=999)
+        attach.data.name = "foo.xlsx"
+        self.assertEqual(
+            orch._extract_attachment_id_name(attach), (999, "foo.xlsx"),
+        )
+
+    def test_extract_missing_data_attribute_returns_none_without_raising(self):
+        import pipeline.orchestrate as orch
+
+        attach = mock.Mock(spec=[])  # no .data attribute at all
+        self.assertEqual(
+            orch._extract_attachment_id_name(attach), (None, None),
+        )
+
+    def test_extract_none_result_returns_none_without_raising(self):
+        import pipeline.orchestrate as orch
+
+        self.assertEqual(
+            orch._extract_attachment_id_name(None), (None, None),
+        )
+
+    def test_upload_one_source_delete_precedes_attach(self):
+        import inspect
+
+        import pipeline.orchestrate as orch
+
+        src = inspect.getsource(orch)
+        fn_start = src.index("def _upload_one")
+        delete_idx = src.index("delete_old_excel_attachments(", fn_start)
+        attach_idx = src.index("attach_file_to_row(", fn_start)
+        self.assertLess(delete_idx, attach_idx)
+
+    def test_upload_one_source_returns_only_four_known_strings(self):
+        import inspect
+
+        import pipeline.orchestrate as orch
+
+        src = inspect.getsource(orch)
+        fn_start = src.index("def _upload_one")
+        fn_end = src.index("upload_results = list(executor.map", fn_start)
+        body = src[fn_start:fn_end]
+        returned = set(re.findall(r"return '([a-z_]+)'", body))
+        self.assertEqual(
+            returned, {'uploaded', 'skipped', 'skip_upload', 'error'},
+        )
+
+    def test_attachment_capture_wrapped_in_its_own_try_except(self):
+        import inspect
+
+        import pipeline.orchestrate as orch
+
+        src = inspect.getsource(orch)
+        fn_start = src.index("def _upload_one")
+        # Find the CALL site (not the def), which is inside _upload_one.
+        capture_idx = src.index("_extract_attachment_id_name(", fn_start + 1)
+        surrounding = src[max(0, capture_idx - 150):capture_idx + 900]
+        self.assertIn("try:", surrounding)
+        self.assertIn("except Exception:", surrounding)
+
+    def test_side_channel_keyed_by_four_part_tuple(self):
+        """Structural proof of the key shape -- (group_key, variant,
+        file_identifier, target_sheet_id), read from task[...] -- so a
+        reduced_sub fan-out's two legs (same group_key/variant, distinct
+        target_sheet_id) never collide."""
+        import inspect
+
+        import pipeline.orchestrate as orch
+
+        src = inspect.getsource(orch)
+        fn_start = src.index("def _upload_one")
+        fn_end = src.index("upload_results = list(executor.map", fn_start)
+        body = src[fn_start:fn_end]
+        key_idx = body.index("_mem_key = (")
+        key_src = body[key_idx:key_idx + 200]
+        for token in (
+            "task['group_key']", "task['variant']",
+            "task['file_identifier']", "task['target_sheet_id']",
+        ):
+            self.assertIn(token, key_src)
+
+
 if __name__ == "__main__":
     unittest.main()
