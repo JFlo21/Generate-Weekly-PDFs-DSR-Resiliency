@@ -4,12 +4,12 @@ milestone: v1.2
 milestone_name: smartsheet-python-sdk 4.0.0 Compatibility Migration
 current_phase: 09
 current_phase_name: Engine Modularization (pipeline package split)
-status: executing
-stopped_at: Completed 09-07-PLAN.md (G-09-MOD-06 gap closure)
-last_updated: "2026-08-25T04:12:09.873Z"
+status: verifying
+stopped_at: Completed 09-08-PLAN.md (Gate 6 synthetic pin + mypy delta attribution + rebaseline decision)
+last_updated: "2026-08-25T04:58:48.526Z"
 last_activity: 2026-08-24
 last_activity_desc: Phase 09 execution started
-state_head: a92545309e0a44952b120c52e7a2432fedce132d
+state_head: 6c6ca41477e556dd6b95889d4ce8ae25454a6736
 progress:
   total_phases: 1
   completed_phases: 1
@@ -37,7 +37,7 @@ pipeline.
 
 Phase: 09 (Engine Modularization (pipeline package split)) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
   Engine 10,476 -> 709-line thin facade; 13-module pipeline/ package; 0 behavior
   change; all 7 waves independently 6-gate-verified. Next: /gsd-verify-work 09,
   then PR / milestone close. (Phase 08 SDK 4.0.0 migration still outstanding — same
@@ -94,6 +94,7 @@ Progress: [██████████] 100% (Phase 09 / v1.3 engine modulari
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 09-engine-modularization-pipeline-package-split P07 | 32min | 3 tasks | 6 files |
+| Phase 09 P08 | 8min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -172,6 +173,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase ?]: [Phase 09-05]: cleanup + upload + attribution relocated byte-for-byte as THREE separate modules (D-02 distinct lifecycles) — pipeline/cleanup.py (5 fns, 631 ln), pipeline/upload.py (3 fns, 347 ln), pipeline/attribution.py (17 symbols: 3 wr-scope builders + 4 hash-prune runners + run_claimer_remediation + 2 row-cache I/O + 4 *_HASH_PRUNE_VERSION constants + 2 row-cache constants + _SUBCONTRACTOR_SCOPE_VARIANTS, 819 ln). delete-old-then-upload ORDER (MOD-04) stays in the facade _upload_one worker (delete L2484 -> attach L2499); @cell=0/0/0; PARALLEL_WORKERS≤8 unchanged; PII aggregate-only + REMEDIATE_CLAIMERS-OFF/DRY_RUN-ON defaults byte-for-byte. Per-module EMPIRICAL facade-read prelude sets: cleanup 3 (KEEP_HISTORICAL_WEEKS/SUPABASE_HASH_STORE_AUTHORITATIVE/OUTPUT_FOLDER), upload 2 (TARGET_SHEET_ID + facade-resident SUBCONTRACTOR_PPP_SHEET_ID), attribution 5 (incl. BILLING_AUDIT_ROW_CACHE_MAX_ENTRIES). cleanup needed NO discovery live-proxy (AST: zero SUBCONTRACTOR_SHEET_IDS refs). Adversarial verify: silent-failure PASS, PII PASS, billing-invariant CONCERN dispositioned (prelude + deferred circular import = locked W2-W4 pattern, behaviour-neutral; no code change). All 6 gates green (independent re-run, exit 0, 1101 pytest); facade 4745 -> 3190 lines. Commits 8992725/7f960d3/8a81de9.
 - [Phase ?]: [Phase 09-06] PHASE COMPLETE: main() (~2380 ln, un-decomposed D-05) + 2 testmode helpers -> pipeline/orchestrate.py (2748 ln); generate_weekly_pdfs.py reduced to FINAL 709-ln thin facade (import-time side-effects D-04 + 183-name re-exports + PEP-562 __getattr__/__dir__ live-proxy + __main__ -> pipeline.orchestrate.main). D-06 seam CLOSED: _resolve_unchanged_for_skip(..., billing_audit_writer=getattr(_gwp,'_billing_audit_writer',None)) at orchestrate.py:1493 (live facade read, authoritative Supabase hash lookup NOT silently disabled). 6 gates green (independent, exit 0, 1101 pytest); 3 adversarial lenses architecture/billing-invariant/silent-failure ALL PASS. Facade 709 ln (>~300 target) JUSTIFIED — 0 dead imports (183 re-export surface + D-04 side-effects + proxy docs). Workflow's final StructuredOutput serialization failed but both commits (0fe0d83/e5061ed) landed; recovered via ground-truth git + re-run gates + direct verify-agent dispatch (lesson: keep workflow schemas lean). Phase 09 = 13-module pipeline/ package, engine 10,476 -> 709-ln facade, 0 behavior change across 7 waves. Durable invariants: no module-level facade back-import; 4 live-proxy globals out of static re-exports (D-01); the 2 API gates (177/105) are the contract.
 - [Phase 09]: G-09-MOD-06 gap closed (09-07): Gate 4 hardened with CR/tab-tolerant count parsing + _assert_count hard-fail guard; tests/golden/*.txt pinned eol=lf; 5 new fail/pass-capability tests pin the behavior — A gate that cannot fail is not green — Gate 4 was silently passing over a real 56->65 mypy regression due to a set -e/if-condition blind spot combined with a CRLF-tainted baseline
+- [Phase 09]: Phase 09-08: Juan decided rebaseline (option B) for the real 56->65 mypy delta; per-finding attribution recorded in .planning/debug/mypy-delta-56-to-65-2026-08-24.md; re-baseline commit + Living Ledger entry authorized as orchestrator follow-up, not part of this plan
 
 ### Roadmap Evolution
 
@@ -294,6 +296,6 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-08-25T04:12:09.682Z
-**Stopped at:** Completed 09-07-PLAN.md (G-09-MOD-06 gap closure)
+**Last session:** 2026-08-25T04:58:48.393Z
+**Stopped at:** Completed 09-08-PLAN.md (Gate 6 synthetic pin + mypy delta attribution + rebaseline decision)
 **Resume file:** None

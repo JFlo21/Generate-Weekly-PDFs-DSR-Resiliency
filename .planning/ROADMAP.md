@@ -418,7 +418,7 @@ Plans:
 **Wave 7** *(gap closure for G-09-MOD-06 — MOD-06 only; MOD-01..05 verified)*
 
 - [x] 09-07-PLAN.md — Gate 4 fail-capability: CRLF-immune + fall-through-proof `check_mypy_delta.sh`, hermetic Gate-4 tests in `test_facade_harness.py`, `tests/golden/*.txt` pinned to LF, Living Ledger entry
-- [ ] 09-08-PLAN.md — Gate 6 pinned to the synthetic dataset (zero production Smartsheet reads) + per-finding attribution of the real 56→65 mypy delta + Juan's fix-vs-re-baseline decision (autonomous:false)
+- [x] 09-08-PLAN.md — Gate 6 pinned to the synthetic dataset (zero production Smartsheet reads) + per-finding attribution of the real 56→65 mypy delta + Juan's fix-vs-re-baseline decision (autonomous:false)
 
 **Cross-cutting constraints:**
 
