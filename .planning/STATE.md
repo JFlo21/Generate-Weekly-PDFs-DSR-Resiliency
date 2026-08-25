@@ -5,11 +5,11 @@ milestone_name: Engine Modularization & Hygiene
 current_phase: 10
 current_phase_name: Run-Memory Foundation (shadow writes)
 status: executing
-stopped_at: Completed 10-04-PLAN.md
-last_updated: "2026-08-25T16:25:53.102Z"
+stopped_at: Completed 10-02-PLAN.md
+last_updated: "2026-08-25T17:07:26.024Z"
 last_activity: 2026-08-25
 last_activity_desc: Phase 10 execution started
-state_head: 67a830e87eeeb54fce5a5f724a2b7e262d64d957
+state_head: bce27c57fb4a840d81ad89febd59ff7e250d4ba0
 progress:
   total_phases: 1
   completed_phases: 1
@@ -36,7 +36,7 @@ pipeline.
 ## Current Position
 
 Phase: 10 (Run-Memory Foundation (shadow writes)) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Ready to execute
   Engine 10,476 -> 709-line thin facade; 13-module pipeline/ package; 0 behavior
   change; 7 waves + 2 gap-closure plans (09-07/09-08). G-09-MOD-06 closed: Gate 4
@@ -98,6 +98,7 @@ Progress: [██████████] 100% (v1.3 complete — Phase 09 clos
 | Phase 09 P08 | 8min | 3 tasks | 3 files |
 | Phase 10 P01 | ~50min | 3 tasks | 7 files |
 | Phase 10 P04 | ~45min | 3 tasks | 3 files |
+| Phase 10 P02 | ~40min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -185,6 +186,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 10]: [Phase 10-04] mem04_experiment.py aliases parser.add_argument to a bound name to avoid a false-positive collision with the Task 1 AST read-only guard's add_/update_/delete_/create_ prefix ban -- the guard's intent (no Smartsheet write call) is unaffected
 - [Phase 10]: [Phase 10-04] MEM-04 verdict derivation is undetermined-unless-fully-evidenced: a missing scenario, baseline, probe, or T3 observation always yields undetermined naming the gap; PASS/FAIL only when both D-08 scenarios have complete evidence
 - [Phase 10]: [Phase 10-04] mem04_passive_compare.py --source supabase reuses pipeline_memory.client's independent get_client()/with_retry() kill-switch instance (from 10-01) rather than a second Supabase client wrapper for the read-only analyst path
+- [Phase 10]: [Phase 10-02] pipeline_memory.writer._row_to_payload reads RAW mapped columns (Foreman Helping?, VAC Crew Helping?) for helper_observed/vac_crew_observed, never the completion-gated __helper_foreman/__vac_crew_name derivatives -- those are absent whenever the completion checkbox is unchecked, which would silently drop a real observed name — Memory must record what was literally on the row, not the pipeline's Excel-generation business decision
+- [Phase 10]: [Phase 10-02] week_ending/snapshot_date are resolved by pipeline/orchestrate.py (pipeline.utils.excel_serial_to_date, the same parser grouping uses) and passed into upsert_rows_bulk via new __mem_week_ending/__mem_snapshot_date row keys -- pipeline_memory/writer.py keeps importing nothing from pipeline.* — Package boundary contract (writer independence from the engine import graph) plus MEM-02's requirement that memory store the SAME dates grouping computes
+- [Phase 10]: [Phase 10-02] upsert_rows_bulk chunks at _CHUNK_ROWS=500; a chunk failure bumps rows_upsert_errored by that chunk row count and continues, one aggregate WARNING per call — Largest observed sheet is 6,054 rows; a per-sheet body is an order of magnitude larger per row than the sibling package's 2-field pairs, so an unchunked call risks the ~1MB PostgREST body limit
 
 ### Roadmap Evolution
 
@@ -313,8 +317,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-08-25T16:25:52.765Z
-**Stopped at:** Completed 10-04-PLAN.md
+**Last session:** 2026-08-25T17:07:25.868Z
+**Stopped at:** Completed 10-02-PLAN.md
 **Resume file:** None
 
 ## Session Continuity

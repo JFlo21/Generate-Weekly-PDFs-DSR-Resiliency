@@ -562,7 +562,7 @@ provenance) into CONTEXT.md before planning.
 
 4. `pytest tests/ -v` green; production output byte-identical vs. a control run.
 
-**Plans:** 2/6 plans executed
+**Plans:** 3/6 plans executed
 
 Plans:
 **Wave 1**
@@ -572,7 +572,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 10-02-PLAN.md — `row_state` / `row_event` chunked bulk shadow write with its own time sub-budget (wave 2)
+- [x] 10-02-PLAN.md — `row_state` / `row_event` chunked bulk shadow write with its own time sub-budget (wave 2)
 - [ ] 10-05-PLAN.md — MEM-04 experiment run, committed evidence, dated Living Ledger verdict (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
