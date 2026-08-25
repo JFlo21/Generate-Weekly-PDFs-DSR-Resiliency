@@ -2853,30 +2853,47 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 # Pitfall 5). Reuses _group_upload_ok built above -- never
                 # re-derives it.
                 if RUN_MEMORY_WRITE_ENABLED and _deferred_group_state:
-                    _mem_group_records, _mem_group_withheld = (
-                        _build_group_state_flush(
-                            _deferred_group_state, _group_upload_ok,
-                            _upload_tasks, _mem_attachment_side_channel,
-                        )
-                    )
-                    if _mem_group_withheld:
-                        _mem_writer.bump_group_state_withheld(
-                            _mem_group_withheld
-                        )
+                    # Outer try/except (belt-and-suspenders, mirrors the
+                    # sheet_registry / run_ledger hooks elsewhere in
+                    # main()): _build_group_state_flush is a pure function
+                    # proven not to raise given this call site's own
+                    # consistent _deferred_group_state dict shape, but an
+                    # unexpected future change here must still be unable
+                    # to prevent the two EARLIER, production-critical
+                    # flushes above from having already completed (T-10-11
+                    # -- they execute strictly before this block in source
+                    # order, so they are unaffected either way).
                     try:
-                        _mem_writer.upsert_group_state(
-                            _mem_group_records, _mem_run_id,
+                        _mem_group_records, _mem_group_withheld = (
+                            _build_group_state_flush(
+                                _deferred_group_state, _group_upload_ok,
+                                _upload_tasks, _mem_attachment_side_channel,
+                            )
+                        )
+                        if _mem_group_withheld:
+                            _mem_writer.bump_group_state_withheld(
+                                _mem_group_withheld
+                            )
+                        try:
+                            _mem_writer.upsert_group_state(
+                                _mem_group_records, _mem_run_id,
+                            )
+                        except Exception:
+                            logging.warning(
+                                "⚠️ pipeline_memory group_state flush "
+                                "failed unexpectedly (non-fatal); "
+                                "group_state not written this run."
+                            )
+                        logging.info(
+                            f"🧾 group_state: {len(_mem_group_records)} "
+                            f"flushed, {_mem_group_withheld} withheld"
                         )
                     except Exception:
                         logging.warning(
-                            "⚠️ pipeline_memory group_state flush failed "
-                            "unexpectedly (non-fatal); group_state not "
-                            "written this run."
+                            "⚠️ pipeline_memory group_state flush "
+                            "computation failed unexpectedly (non-fatal); "
+                            "group_state not written this run."
                         )
-                    logging.info(
-                        f"🧾 group_state: {len(_mem_group_records)} "
-                        f"flushed, {_mem_group_withheld} withheld"
-                    )
 
         # Validation summary
         summaries = validate_group_totals(groups)
