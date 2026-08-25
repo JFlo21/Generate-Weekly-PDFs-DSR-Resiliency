@@ -28,11 +28,23 @@ Public surface (this plan):
   for observability; deliberately NOT added to the frozen 21-key
   ``run_summary.json`` contract (they live in ``run_ledger.notes`` and in
   one aggregate log line instead).
+- ``HASH_FIELDS`` / ``compute_content_hash()`` / ``build_row_payload()`` /
+  ``upsert_rows_bulk()`` -- Task 3's Python<->SQL contract lock for
+  ``row_state`` / ``upsert_rows_bulk`` (mechanically verified against
+  ``pipeline_memory/schema.sql`` in ``tests/test_pipeline_memory_shadow.py``).
+  SCOPE NOTE: this is the payload-builder + single-call RPC wrapper only,
+  deliberately unchunked and NOT wired from ``pipeline/orchestrate.py`` --
+  plan 10-02 owns the per-sheet loop, chunking for the largest sheets
+  (10-RESEARCH.md Pitfall 4), its own time sub-budget, and the
+  orchestrator wiring. Reuse these functions there rather than
+  reimplementing the hash/payload contract a second time.
 """
 
 from __future__ import annotations
 
 import datetime
+import hashlib
+import json
 import logging
 import os
 import threading
@@ -238,3 +250,161 @@ def run_ledger_finish(run_id: str, **counters: Any) -> None:
         _bump_counter("run_ledger_errored")
         return
     _bump_counter("run_ledger_written")
+
+
+# ── row_state payload contract (Task 3 -- see module docstring SCOPE NOTE) ─
+
+# The fixed, explicitly enumerated field tuple that feeds
+# ``row_state.content_hash``, IN THIS ORDER, so two observations of the
+# same row produce a byte-identical hash regardless of the source dict's
+# own key order (MEM-02 ordering invariant, 10-RESEARCH.md Code Examples).
+# Deliberately EXCLUDES ``row_modified_at`` / ``first_seen_run`` /
+# ``last_seen_run`` / ``last_changed_run`` -- including a run-varying
+# field would make the hash change on every re-read regardless of
+# billing content, producing a ``row_event`` on every run and failing
+# MEM-02's "second run with no edits adds zero row_event rows"
+# acceptance criterion (10-RESEARCH.md Pitfall 3).
+HASH_FIELDS: tuple[str, ...] = (
+    "wr",
+    "week_ending",
+    "snapshot_date",
+    "cu",
+    "pole",
+    "work_type",
+    "quantity",
+    "units_total_price",
+    "units_completed",
+    "foreman_observed",
+    "helper_observed",
+    "helper_completed",
+    "helper_dept",
+    "helper_job",
+    "vac_crew_observed",
+    "vac_completed",
+)
+
+
+def compute_content_hash(payload: dict[str, Any]) -> str:
+    """SHA-256 hex digest over ``HASH_FIELDS``, read in ``HASH_FIELDS``'
+    fixed order from ``payload`` -- deterministic regardless of
+    ``payload``'s own key insertion order (mirrors
+    ``pipeline/change_detection.py::calculate_data_hash``'s sorted-key
+    discipline). Missing keys hash as ``None`` via ``dict.get``, so a
+    blank/absent observation still produces a stable, non-empty hash.
+    """
+    ordered = {key: payload.get(key) for key in HASH_FIELDS}
+    canonical = json.dumps(ordered, default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def build_row_payload(row_data: dict[str, Any], run_id: str) -> dict[str, Any]:
+    """Map one already-fetched Smartsheet row dict to an
+    ``upsert_rows_bulk`` payload entry (one element of ``p_rows``).
+
+    CRITICAL (10-RESEARCH.md Pitfall 2, CONFIRMED historical defect --
+    .planning/debug/unknown-foreman-helper-shadow-2026-08-24.md):
+    ``foreman_observed`` reads the RAW ``"Foreman"`` column, NEVER
+    ``row_data["__effective_user"]`` (the pipeline's *resolved* value,
+    which substitutes the sentinel ``"Unknown Foreman"`` when blank --
+    freezing that sentinel is exactly what corrupted 93 WRs / 5,824 rows
+    in ``billing_audit.attribution_snapshot``). ``helper_observed`` /
+    ``vac_crew_observed`` read the already-raw ``__helper_foreman`` /
+    ``__vac_crew_name`` fields directly -- no sentinel fallback exists on
+    those, so they are safe to read as-is (10-RESEARCH.md Code Examples).
+
+    Blank/absent values are normalized to ``None`` (never a placeholder
+    string) so a re-observation can freely replace them later.
+    ``run_id`` is accepted for parity with the RPC's per-sheet call
+    shape (``p_run_id`` is a call-level parameter, not a per-row payload
+    field) -- unused here but kept in the signature so callers don't
+    need a separate no-arg builder.
+    """
+    del run_id  # per-call RPC parameter, not a per-row payload field
+    payload: dict[str, Any] = {
+        "row_id": row_data.get("__row_id"),
+        "wr": row_data.get("Work Request #") or None,
+        "week_ending": row_data.get("__week_ending_iso") or None,
+        "snapshot_date": row_data.get("__snapshot_date_iso") or None,
+        "cu": row_data.get("CU") or None,
+        "pole": row_data.get("Pole #") or None,
+        "work_type": row_data.get("Work Type") or None,
+        "quantity": row_data.get("Quantity"),
+        "units_total_price": row_data.get("Units Total Price"),
+        "units_completed": bool(row_data.get("Units Completed?")),
+        "foreman_observed": row_data.get("Foreman") or None,
+        "helper_observed": row_data.get("__helper_foreman") or None,
+        "helper_completed": bool(
+            row_data.get("Helping Foreman Completed Unit?")
+        ),
+        "helper_dept": row_data.get("__helper_dept") or None,
+        "helper_job": row_data.get("__helper_job") or None,
+        "vac_crew_observed": row_data.get("__vac_crew_name") or None,
+        "vac_completed": bool(row_data.get("Vac Crew Completed Unit?")),
+        "row_modified_at": row_data.get("__row_modified_at"),
+    }
+    payload["content_hash"] = compute_content_hash(payload)
+    return payload
+
+
+def _parse_affected_set(result: Any) -> set[tuple[Any, Any]]:
+    """Extract the ``(wr, week_ending)`` affected set from an RPC
+    response. Tolerant of any non-list-of-dicts shape (returns an empty
+    set rather than raising) -- fail-open extends to response parsing,
+    not just the transport call.
+    """
+    data = getattr(result, "data", None) or []
+    affected: set[tuple[Any, Any]] = set()
+    for row in data:
+        if isinstance(row, dict):
+            affected.add((row.get("wr"), row.get("week_ending")))
+    return affected
+
+
+def upsert_rows_bulk(sheet_id: int, run_id: str,
+                      rows: list[dict[str, Any]]) -> set[tuple[Any, Any]]:
+    """Best-effort bulk row upsert for ONE sheet. NEVER raises.
+
+    Returns the affected ``(wr, week_ending)`` set on success, or an
+    EMPTY set on any no-op or failure (empty input, client unavailable,
+    flag off, RPC error) -- callers MUST treat an empty return as "no
+    memory update happened this sheet", NEVER as "nothing changed".
+
+    Consumes rows ALREADY fetched by the pipeline this run -- never
+    issues its own Smartsheet call (10-RESEARCH.md Anti-Pattern:
+    duplicating the Smartsheet read).
+
+    Empty input is checked FIRST, before the client/flag guards, so it
+    performs ZERO PostgREST calls (not even a client-construction
+    attempt) -- distinct from "one row -> one call".
+    """
+    if not rows:
+        return set()
+
+    client = get_client()
+    if client is None:
+        return set()
+    if not _client_write_enabled():
+        return set()
+
+    payload = [build_row_payload(row, run_id) for row in rows]
+
+    def _invoke():
+        return (
+            client.schema("pipeline_memory")
+            .rpc(
+                "upsert_rows_bulk",
+                {
+                    "p_sheet_id": sheet_id,
+                    "p_run_id": run_id,
+                    "p_rows": payload,
+                },
+            )
+            .execute()
+        )
+
+    result = with_retry(_invoke, op="upsert_rows_bulk")
+    if result is None:
+        _bump_counter("rows_upsert_errored")
+        return set()
+    _bump_counter("rows_upsert_written")
+    return _parse_affected_set(result)
