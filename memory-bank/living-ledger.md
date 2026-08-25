@@ -6322,3 +6322,31 @@ follow-up findings closed, same 6 files.
   the harness is wired into CI.
 - Gap `G-09-MOD-06` closed end-to-end: plans `09-07` (`c4fb38a`..`dd3a9fb`) + `09-08`
   (`4441b52`..`a1499d6`) + this commit.
+
+## [2026-08-25 01:40] PR #349 merged (Phase 09 gap closure) — local `master` re-synced after squash divergence; post-merge gate green
+
+- **Merge:** https://github.com/JFlo21/Generate-Weekly-PDFs-DSR-Resiliency/pull/349 squash-merged
+  2026-08-25 01:15 CDT as `c409c32` (32 commits `7e7c818`..`bb1a064`); `docs-changelog.yml`
+  appended stub `22ab153`. Master now also carries #341 (Sentry noise from Smartsheet auth
+  errors, `pipeline/fetch.py`) and #342 (cloud-agent install skips missing `portal/`).
+- **Divergence + fix:** local `master` showed ahead 29 / behind 17 because the PR branch was
+  cut from 29 *unpushed* local commits that GitHub then squashed into one. `git pull --rebase`
+  would replay all 29 against a single squash commit and conflict (no per-commit patch-id
+  match). Verified `git merge-base --is-ancestor HEAD bb1a064` = yes and
+  `git diff bb1a064 c409c32` = empty (tree-identical), then moved the pointer with
+  `git reset --keep origin/master` — `--keep` preserved the uncommitted
+  `generated_docs/hash_history.json` prune-marker diff because that file is identical in
+  both commits. Local + remote `feat/phase-09-gap-closure` deleted.
+- **Rule (post-squash sync):** when a merged PR branch shares commits with local `master`,
+  sync by pointer move (`reset --keep origin/master`) after proving the squash tree matches
+  the branch tip — never rebase/merge, and never `reset --hard` while `generated_docs/`
+  carries a local edit. Cutting the next branch from `origin/master` avoids the problem.
+- **Gate on merged tree:** `pytest tests/ -q` → 1388 passed, 1 skipped
+  (`test_cloud_agent_install` exec-bit check, Windows-only skip from `1071fef`), 132 subtests,
+  25 s.
+- **Open-PR triage carried forward:** Seer PRs #343 / #346 / #347 / #348 all touch
+  `_is_auth_api_error` Smartsheet 401/403 detection and partly revert each other; #341 already
+  shipped the accepted fix, so these are close-or-supersede candidates, not merges.
+  Dependabot #344 (`tsx`) / #345 (`@supabase/supabase-js`) in `scripts/` are routine.
+- **Next:** `/gsd-core:gsd-execute-phase 10` (Run-Memory Foundation) from a clean `master`;
+  optional `/gsd-core:gsd-complete-milestone` to archive v1.3 first.

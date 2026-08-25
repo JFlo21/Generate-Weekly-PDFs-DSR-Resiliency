@@ -1,18 +1,31 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-25 01:10 CDT · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-25 01:40 CDT · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
-_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-25 00:02]` (mypy Gate 4
-re-baselined 56 → 65 by Juan's `rebaseline` decision, every accepted finding attributed;
-commit `da7d73c`). **Phase 09 CLOSED 2026-08-25** — verifier 6/6 (`410235e`), v1.3 milestone
+_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-25 01:40]` (PR #349 merged;
+local `master` re-synced via `reset --keep`; post-merge gate 1388 passed). **Phase 09 CLOSED 2026-08-25** — verifier 6/6 (`410235e`), v1.3 milestone
 complete. Next: `/gsd-core:gsd-execute-phase 10` (Run-Memory Foundation; pauses at the
 10-05/10-06 human checkpoints). Optional first: `/gsd-core:gsd-complete-milestone` to archive v1.3.
-Git: `master` ahead ~25 / behind 15 of `origin/master` — pull/rebase before pushing; **PR open:** https://github.com/JFlo21/Generate-Weekly-PDFs-DSR-Resiliency/pull/349
-(branch `feat/phase-09-gap-closure`, merged with origin/master; after merge: `git checkout master && git reset --hard origin/master`)._
+Git: `master` = `origin/master` @ `22ab153` (clean; only the pre-existing local
+`generated_docs/hash_history.json` prune-marker diff remains). **PR #349 MERGED** 2026-08-25 01:15 CDT
+as squash `c409c32`; feature branch deleted local + remote._
 
-## Latest work (2026-08-25 01:10 CDT) — `/gsd-execute-phase 09 --gaps-only` COMPLETE: G-09-MOD-06 closed, `rebaseline` executed, tail gates green, phase closed
+## Latest work (2026-08-25 01:40 CDT) — PR #349 merged; local `master` re-synced; post-merge gate green
+0. **Merge:** https://github.com/JFlo21/Generate-Weekly-PDFs-DSR-Resiliency/pull/349 squash-merged as
+   `c409c32` (32 commits `7e7c818`..`bb1a064`); `docs-changelog.yml` stub `22ab153` on top. Local `master`
+   had diverged (ahead 29 / behind 17) because the branch was cut from unpushed local commits —
+   verified `git diff bb1a064 c409c32` empty, then `git reset --keep origin/master` (kept the
+   uncommitted `hash_history.json` edit). `feat/phase-09-gap-closure` deleted (remote auto-deleted).
+   **Gate on merged tree:** `pytest tests/ -q` → 1388 passed, 1 skipped (Windows exec-bit, `1071fef`),
+   132 subtests, 25 s. Also on master now: #341 (Sentry auth-noise, `pipeline/fetch.py`), #342
+   (cloud-agent install). **Open PRs to triage:** Seer #343/#346/#347/#348 all touch Smartsheet
+   auth-error detection and partly contradict each other (#341 already landed) — likely close, not
+   merge; Dependabot #344/#345 (`scripts/` tsx, supabase-js) routine. Next unchanged:
+   `/gsd-core:gsd-execute-phase 10` (optional `/gsd-core:gsd-complete-milestone` first).
+
+## Previous (2026-08-25 01:10 CDT) — `/gsd-execute-phase 09 --gaps-only` COMPLETE: G-09-MOD-06 closed, `rebaseline` executed, tail gates green, phase closed
 000000000000000000000000. **Wave 2 resumed:** Juan replied `rebaseline` → continuation
    executor recorded it (`6c6ca41`/`a1499d6`); orchestrator regenerated the golden
    baseline with the gate's own invocation (65 lines, LF) and committed it with the
