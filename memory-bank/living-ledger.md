@@ -6361,3 +6361,127 @@ follow-up findings closed, same 6 files.
   only that `@`-includes do not expand).
 - **Next:** `/gsd:resume-work` → Wave 1 dispatches `10-01` then `10-04` (sequential, Sonnet
   executor); Seer PR triage after Phase 10 per Juan.
+
+## [2026-08-25 12:50] MEM-04 answered — PASS, `rows_modified_since` DOES surface a formula-only recalculation; D-09 gate OPEN for Phase 11
+
+- **Question answered:** does Smartsheet's `rows_modified_since` (and `ifVersionAfter`) surface
+  a row whose ONLY change is a cross-sheet formula recalculation, or does it silently miss that
+  change class? This entry is the D-09 gate Phase 11 (incremental reads) depends on. **Throwaway
+  test rig only — memory is Supabase-only.** The sandbox sheets below are a disposable diagnostic
+  fixture, never pipeline memory, and are never read by `generate_weekly_pdfs.py` / `pipeline/` /
+  `pipeline_memory/`.
+- **Evidence item 1 — rig identity, structure, disposition:** Smartsheet workspace `"Sandbox"`
+  (id `4902858211518340`, outside every production Resiliency workspace). LOOKUP sheet
+  `"DISPOSABLE TEST RIG — MEM-04 LOOKUP"` (id `6295051624730500`; columns `Key` primary id
+  `7095303590940548`, `Value` id `1465804056727428`; 5 rows K-001..K-005 = Alpha/Bravo/Charlie/
+  Delta/Echo, created `2026-08-25T17:35:43Z`). DEPENDENT sheet `"DISPOSABLE TEST RIG — MEM-04
+  DEPENDENT"` (id `4909062725521284`; columns `Key` primary id `5958676466405252`, `Resolved
+  Value` id `3706876652720004` with COLUMN FORMULA `=IFERROR(INDEX({LOOKUP Value}, MATCH([Key]@row,
+  {LOOKUP Key}, 0)), "")` via cross-sheet refs `"LOOKUP Key"` id `6979934838122372` / `"LOOKUP
+  Value"` id `5854034931279748` — the same cross-sheet INDEX/MATCH shape the real `Foreman` /
+  `Helper Dept #` lookups use; 5 rows created `2026-08-25T17:36:00Z`, verified resolving Alpha..Echo
+  before the experiment at sheet version 5). Invented data only (no real WR numbers, no real
+  personnel names). Both sheets are left in place, disposable, and were never edited directly by
+  anyone outside this experiment.
+- **Edit method (recorded honestly):** Juan authorized Claude to act as the operator for this
+  plan's Task 1 (`"you run this for me"`). The rig was built with the Smartsheet MCP tools plus a
+  one-off SDK snippet run from the shell — **not** from any repo script, so D-08's "zero
+  Smartsheet API writes IN THE PLAN's tooling" holds; `scripts/mem04_experiment.py` itself made
+  zero write calls (AST-scan-verified in plan 10-04). The two "hand edits" below were therefore
+  **API cell updates Claude made through the Smartsheet MCP on Juan's explicit instruction**, not
+  literal Smartsheet-UI clicks — recorded plainly rather than described as UI edits they were not.
+- **Evidence item 2 — timestamped T0/T1/T2/T3 sequence, both scenarios:**
+  - **(a) `blank_lookup`:** T0 baseline captured before any edit ->
+    `tests/fixtures/mem04/mem04_blank_lookup.json`. T1 hand-equivalent edit: LOOKUP row K-003
+    (row id `5479474059673476`), column `Value`: old `"Charlie"` -> new **BLANK**; API
+    `modifiedAt = 2026-08-25T17:37:03Z` (12:37:03 CDT); LOOKUP sheet version after edit: 4. T2/T3
+    probe ran after, default `--safety-window-minutes 15`, `--poll-attempts 6`,
+    `--poll-interval-seconds 30`.
+  - **(b) `edit_mapping`:** T0 baseline captured before any edit ->
+    `tests/fixtures/mem04/mem04_edit_mapping.json`. T1 hand-equivalent edit: LOOKUP row K-005
+    (row id `7731273873358724`), column `Value`: old `"Echo"` -> new `"Foxtrot"`; API
+    `modifiedAt = 2026-08-25T17:37:50Z` (12:37:50 CDT); LOOKUP sheet version after edit: 5. Same
+    default probe settings as (a).
+- **Evidence item 3 — raw cassettes (pointer, not pasted):** the full T0/T2/T3a/T3b raw
+  request/response JSON for both scenarios is committed at
+  `tests/fixtures/mem04/mem04_blank_lookup.json` (45,788 bytes) and
+  `tests/fixtures/mem04/mem04_edit_mapping.json` (60,232 bytes), commit `aa103f6`. Each is a
+  SEPARATE cassette (one `--out` per scenario) — `cassette["scenarios"]` in each file has exactly
+  one key; the combined verdict below is derived by merging both files' `scenarios` dicts, never
+  from either file alone.
+- **Evidence item 4 — DEPENDENT sheet `Sheet.version` after only the LOOKUP sheet was edited:**
+  **incremented in both scenarios.** (a) baseline dependent version 6 -> version 8 by the time the
+  probe's first poll ran. (b) baseline dependent version 8 -> version 10 by the time the probe's
+  second poll ran. The dependent sheet's version number moves purely from the lookup-sheet edit —
+  no direct write ever touched the dependent sheet.
+- **Evidence item 5 — per-row `modifiedAt` diff for the affected row:** (a) DEPENDENT row K-003
+  (id `1101266002509700`): `modifiedAt` moved `2026-08-25T17:36:36Z` -> `2026-08-25T17:37:11Z`
+  (recorded by the SDK with a malformed double timezone suffix, see evidence item 8) — an ~8s
+  gap after the `17:37:03Z` edit. (b) DEPENDENT row K-005 (id `3353065816194948`): `modifiedAt`
+  moved `2026-08-25T17:36:36Z` -> `2026-08-25T17:38:13Z` — an ~23s gap after the `17:37:50Z` edit.
+  Both affected rows' `modifiedAt` genuinely advanced from a change that originated entirely on
+  the OTHER sheet.
+- **Evidence item 6 — presence in `rows_modified_since`, value freshness:** in BOTH scenarios the
+  affected row appeared in the `rows_modified_since` result set with the recalculated (fresh)
+  `Resolved Value` — (a) resolved to blank after K-003's lookup value was blanked, (b) resolved to
+  `"Foxtrot"` after K-005's lookup value was edited. Neither probe returned a stale cached value.
+- **Evidence item 7 — poll timing distinguishing "never updates" from "recalculation lag":** (a)
+  `blank_lookup` needed only `attempts_used=1/6`, `elapsed=1.16s` — the recalculation had already
+  landed by the time the probe's first poll fired (probe was issued well after the ~8s
+  server-side lag). (b) `edit_mapping` needed `attempts_used=2/6`, `elapsed=31.78s` — the FIRST
+  poll (fired immediately) did NOT yet see the change; the SECOND poll, after the default 30s
+  `--poll-interval-seconds`, did. This is a genuine measured recalculation lag (consistent with
+  the ~23s `modifiedAt` gap in evidence item 5), not a "never updates" case — a poll budget of 1
+  attempt with no interval would have falsely reported no change for scenario (b).
+- **Evidence item 8 — exact SDK call signatures, pinned versions, discovered SDK quirk:** every
+  probe call is `Sheets.get_sheet(sheet_id, if_version_after=..., level=2)` (T2) and
+  `Sheets.get_sheet(sheet_id, rows_modified_since=..., level=2)` (T3a/T3b), wrapped in
+  `pipeline/retry.py`'s shared retry helper. `sdk_version` in both cassettes:
+  `smartsheet-python-sdk==4.3.0` (the Phase 08 D-01 pin). **Discovered binding the plan-10-04
+  replay helper to these REAL cassettes:** `smartsheet.util.serialize()` in this SDK version
+  unconditionally appends `"Z"` onto ANY `datetime.isoformat()` output, even an
+  already-tz-aware datetime whose `isoformat()` already carries `"+00:00"` — producing an
+  invalid double-suffixed timestamp (e.g. `"2026-08-25T17:36:36+00:00Z"`) that
+  `dateutil.parser.parse` (`smartsheet.types.Timestamp`'s value setter) rejects on
+  reconstruction. Never bites `scripts/mem04_experiment.py` itself (it only calls `.to_dict()`
+  once per capture, never re-parses a response) — it only broke replay of the saved cassette,
+  fixed in `build_sheet_from_dict` (commit `aa103f6`) with a sanitizer before reconstructing the
+  `Sheet` object. Worth knowing for any future tooling re-parsing a `to_dict()` response captured
+  with this exact pinned SDK version.
+- **Evidence item 9 — both scenarios recorded separately:** (a) `blank_lookup` (a value archived
+  to blank on the LOOKUP sheet, mirroring an archived Work Request blanking `Foreman`) and (b)
+  `edit_mapping` (a mapping value edited in place, mirroring a Foreman/Helper-Dept mapping edit)
+  are two fully independent capture runs, each with its own T0/T2/T3, never averaged together.
+- **Evidence item 10 — SAFETY_WINDOW sensitivity, with and without overlap:** BOTH scenarios show
+  `row_present_in_rows_modified_since_overlap=True` AND `..._no_overlap=True` — detected
+  **regardless of whether the 15-minute SAFETY_WINDOW overlap was applied**.
+  `safety_window_sensitivity_note()` -> "row detected in BOTH the overlap and zero-overlap
+  probes" for both scenarios, matching what Juan saw live per invocation; pinned by
+  `RealCassetteVerdictTests::test_safety_window_sensitivity_is_both_present_for_each_real_scenario`.
+- **Evidence item 11 — ONE explicit verdict sentence:** each cassette ALONE reports
+  `verdict: undetermined` naming the other scenario as missing (exactly what Juan saw live:
+  `"missing scenario(s): edit_mapping"` / `"missing scenario(s): blank_lookup"`, since each file
+  holds one scenario). Merging BOTH cassettes' `scenarios` dicts through the unmodified
+  plan-10-04 `derive_verdict()`:
+
+  > **verdict: PASS — rows_modified_since surfaced the formula-only change in both scenarios**
+
+  Pinned by `RealCassetteVerdictTests::test_combined_verdict_across_both_real_cassettes_is_deterministic_pass`.
+- **Evidence item 12 — rerunnability:** cassette paths `tests/fixtures/mem04/mem04_blank_lookup.json`
+  and `tests/fixtures/mem04/mem04_edit_mapping.json` (commit `aa103f6`); sandbox sheet ids
+  `6295051624730500` (LOOKUP) and `4909062725521284` (DEPENDENT), workspace `4902858211518340`.
+  Both sheets remain in place for a future rerun if the SDK version pin ever changes.
+- **D-09 gate: OPEN.** Phase 11 IS cleared to enable incremental reads (`rows_modified_since`) for
+  this formula-only recalculation change class — the fixture half of D-08's hybrid proof method
+  returned a clean, deterministic PASS across both required scenarios, with and without the
+  SAFETY_WINDOW overlap. The weekly deep run (`0 5 * * 1`) stays the full-reconciliation safety
+  net regardless (D-07, unchanged by this result). **Not yet run:** D-08's PASSIVE corroboration
+  half (`scripts/mem04_passive_compare.py` against two consecutive production shadow-run
+  `row_state` observations) — that script exists and is tested (plan 10-04) but has no production
+  data to compare yet, since shadow writes have not accumulated two runs. That corroboration is a
+  non-blocking follow-up once Phase 10's shadow writer has run in production at least twice; it
+  does not gate D-09, which required only this fixture-proven PASS/FAIL verdict.
+- **Cassette replay + verdict regression tests:** `RealCassetteCompletenessTests`,
+  `RealCassetteReplayTests`, `RealCassetteVerdictTests` in `tests/test_mem04_formula_change.py`
+  (commit `aa103f6`) — 32 tests total in that file (26 from plan 10-04 + 6 new), full suite 1459
+  passed / 1 skipped / 132 subtests.
