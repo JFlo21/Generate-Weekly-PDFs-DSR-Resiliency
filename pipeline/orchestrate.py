@@ -59,6 +59,11 @@ from pipeline import cleanup as _cleanup
 from pipeline import upload as _upload
 from pipeline import attribution as _attr
 from pipeline.retry import smartsheet_call_with_retry
+# Phase 10 (MEM-01/MEM-03): independent run-memory shadow-write package --
+# NOT a ``pipeline`` submodule (deliberately outside the D-04 import-cycle
+# rule's scope; see pipeline_memory/__init__.py). Off by default via
+# RUN_MEMORY_WRITE_ENABLED; every call site below is fail-open.
+from pipeline_memory import writer as _mem_writer
 
 # Named re-export imports (byte-exact from the facade) so every bare sibling
 # reference inside main()/testmode resolves identically (W1-W5 pattern). The
@@ -108,6 +113,10 @@ from pipeline.config import (  # noqa: E402
     RESET_HASH_HISTORY,
     RESET_WR_LIST,
     RES_GROUPING_MODE,
+    RUN_MEMORY_WRITE_ENABLED,
+    RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN,
+    RUN_MEMORY_WRITE_MAX_MINUTES,
+    RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC,
     SKIP_CELL_HISTORY,
     SKIP_UPLOAD,
     SUBCONTRACTOR_FOLDER_IDS,
@@ -439,6 +448,18 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
     _groups_errored = 0
     _api_calls_count = 0
     history_updates = 0
+    # Phase 10 (MEM-01/MEM-03): run-memory counters, hoisted for the same
+    # documented reason as the _groups_* family above -- the run-finish
+    # hook near the bottom of main() references these unconditionally, so
+    # an early Phase-1/2 exception must not turn a real error into an
+    # UnboundLocalError. Populated by the (not-yet-wired) per-sheet
+    # upsert_rows_bulk loop landing in a later plan; this plan's
+    # run_ledger.notes payload carries them at their zero defaults.
+    _mem_sheets_written = 0
+    _mem_sheets_errored = 0
+    _mem_rows_sent = 0
+    _mem_rows_changed = 0
+    _mem_run_id = _mem_writer.resolve_run_id()
     # Explicit session-failure sentinel for the finally-block cron
     # check-in (Copilot review, PR #297): _groups_errored == 0 alone
     # cannot distinguish "clean run" from "died before any group was
@@ -505,6 +526,25 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             test_mode=TEST_MODE,
             github_actions=GITHUB_ACTIONS_MODE,
         )
+
+        # Phase 10 (MEM-01/MEM-03): run_ledger 'start' row. Guarded by the
+        # flag AND TEST_MODE (10-RESEARCH.md Pitfall 7 -- the synthetic
+        # TEST_MODE path must never attempt a live Supabase call) and
+        # wrapped in its own try/except so a broken writer module can
+        # never break Excel generation (fail-open holds even if
+        # pipeline_memory itself has a bug, not just a Supabase outage).
+        if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
+            try:
+                _mem_writer.run_ledger_start(
+                    _mem_run_id,
+                    mode="full",
+                    release=os.getenv('SENTRY_RELEASE', '') or '',
+                )
+            except Exception:
+                logging.warning(
+                    "⚠️ pipeline_memory run_ledger_start failed "
+                    "(non-fatal); memory not written this run."
+                )
 
         # ── Source sheet discovery (includes folder discovery on cache miss) ──
         _phase_start = datetime.datetime.now()
@@ -2756,6 +2796,31 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 BILLING_AUDIT_ROW_CACHE_PATH,
                 billing_audit_row_cache,
             )
+
+        # Phase 10 (MEM-01/MEM-03): run_ledger 'finish' row. Same guard
+        # shape as the start hook. Reuses already-computed counters --
+        # recomputes nothing. Memory counters live in run_ledger.notes,
+        # NOT in the frozen 21-key run_summary.json below (interfaces
+        # block: adding a key there means editing 3 places plus the
+        # golden baseline, and pollutes the plan-10-05 control-run diff).
+        if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
+            try:
+                _mem_writer.run_ledger_finish(
+                    _mem_run_id,
+                    status="success",
+                    sheets_checked=len(source_sheets) if 'source_sheets' in dir() else 0,
+                    rows_seen=len(all_rows) if 'all_rows' in dir() else 0,
+                    rows_changed=_mem_rows_changed,
+                    groups_generated=_groups_generated,
+                    mem_sheets_written=_mem_sheets_written,
+                    mem_sheets_errored=_mem_sheets_errored,
+                    mem_rows_sent=_mem_rows_sent,
+                )
+            except Exception:
+                logging.warning(
+                    "⚠️ pipeline_memory run_ledger_finish failed "
+                    "(non-fatal); memory not written this run."
+                )
 
         # Write run summary JSON for downstream consumers (Notion sync, dashboards)
         _run_summary = {

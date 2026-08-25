@@ -452,6 +452,43 @@ SUPABASE_HASH_STORE_AUTHORITATIVE = os.getenv(
     'SUPABASE_HASH_STORE_AUTHORITATIVE', '0'
 ).strip().lower() in ('1', 'true', 'yes', 'on')
 
+# Phase 10 (MEM-01/MEM-03): run-memory shadow-write flag family for the new
+# ``pipeline_memory`` Supabase schema (sheet_registry / row_state / row_event /
+# group_state / run_ledger). Independent of every ``billing_audit`` /
+# ``SUPABASE_HASH_STORE_*`` flag above -- a different Supabase schema, a
+# different Python client, a different kill switch (10-RESEARCH.md Pitfall 5).
+#
+# WRITE_ENABLED (default OFF -- ship dormant): the production workflow flips
+# this to '1' in a SEPARATE later PR only after a SKIP_UPLOAD real-data dry
+# run proves the writer is fail-open and stays inside TIME_BUDGET_MINUTES.
+# This is the one-line master revert for the whole run-memory integration:
+# with this unset, ``pipeline_memory.client._write_enabled()`` also reads it
+# live (defence in depth -- both this constant AND that live re-read must be
+# true for a write to happen, so no direct writer call can bypass the flag).
+RUN_MEMORY_WRITE_ENABLED = os.getenv(
+    'RUN_MEMORY_WRITE_ENABLED', '0'
+).strip().lower() in ('1', 'true', 'yes', 'on')
+# Phase-local sub-budget (minutes), the direct analog of
+# ATTACHMENT_PREFETCH_MAX_MINUTES: bounds how long the per-sheet
+# upsert_rows_bulk loop may run so a slow Supabase response can never push
+# the ~94-minute production run past TIME_BUDGET_MINUTES=165.
+RUN_MEMORY_WRITE_MAX_MINUTES = int(
+    os.getenv('RUN_MEMORY_WRITE_MAX_MINUTES', '10') or 10
+)
+# Per-RPC ceiling (seconds) so one stuck upsert_rows_bulk call cannot itself
+# consume the whole RUN_MEMORY_WRITE_MAX_MINUTES sub-budget.
+RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC = int(
+    os.getenv('RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC', '45') or 45
+)
+# Pre-flight reserve (minutes), the direct analog of
+# ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN: the memory-write phase is
+# skipped entirely (one WARNING, no partial writes) when the remaining
+# session budget would leave less than this much headroom for the group/
+# Excel-generation phases that still have to run after it.
+RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN = int(
+    os.getenv('RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN', '2') or 2
+)
+
 # Phase 2 Plan 05 gap-closure (CR-01): when the bulk lookup_attribution_bulk
 # RPC is not yet deployed (PGRST202 -> prefetch status 'rpc_missing'), degrade
 # to the already-deployed per-row lookup_attribution path instead of HOLDing
