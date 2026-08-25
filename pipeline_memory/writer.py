@@ -341,6 +341,93 @@ def upsert_sheet_registry(
     _bump_counter_by("sheets_registry_written", len(payload))
 
 
+# ── group_state payload contract (plan 10-03 Task 2) ────────────────────────
+
+def bump_group_state_withheld(n: int) -> None:
+    """Record ``n`` ``group_state`` records withheld by the caller's
+    crash-consistency gate (a group whose upload did not fully complete
+    this run). A tiny public counter-only entry point -- the withhold
+    DECISION stays in ``pipeline/orchestrate.py`` (which already owns
+    the per-group upload-ok/had-error maps from the existing durable-
+    hash flush), while the counter itself lives alongside every other
+    ``pipeline_memory`` counter in this module's ``get_counters()``.
+    """
+    _bump_counter_by("group_state_withheld", n)
+
+
+def upsert_group_state(records: list[dict[str, Any]], run_id: str) -> None:
+    """Best-effort bulk upsert of ``group_state``. NEVER raises.
+
+    Each ``records`` entry: ``wr``, ``week_ending`` (an ISO date string,
+    already resolved by the caller), ``variant``, ``identifier``,
+    ``target_sheet_id``, ``content_hash``, ``row_count``, and
+    OPTIONALLY ``attachment_id`` / ``attachment_name``.
+
+    Attachment keys are included in a payload row ONLY when a non-None
+    ``attachment_id`` was supplied -- an omitted key relies on
+    PostgREST building its ``ON CONFLICT DO UPDATE SET`` list from the
+    payload's own keys, so a prior run's attachment id/name is never
+    clobbered by a run whose leg reported ``'skipped'`` (nothing
+    attached this run). Confirmed empirically at plan 10-05's live
+    smoke; if this assumption does not hold in practice, the fix is a
+    small COALESCE-based RPC, not a null write.
+
+    Empty input performs ZERO calls, checked before the client/flag
+    guards, same as ``upsert_rows_bulk`` / ``upsert_sheet_registry``.
+    Issues exactly ONE table upsert with
+    ``on_conflict="wr,week_ending,variant,identifier,target_sheet_id"``
+    -- the five-part key promoted (over the design draft's four-part
+    key) so a ``reduced_sub`` fan-out's two legs each get their own row
+    instead of the second overwriting the first's ``attachment_id``
+    (plan 10-01's assumption_delta_decision).
+    """
+    if not records:
+        return
+
+    client = get_client()
+    if client is None:
+        return
+    if not _client_write_enabled():
+        return
+
+    payload: list[dict[str, Any]] = []
+    for rec in records:
+        row: dict[str, Any] = {
+            "wr": rec.get("wr"),
+            "week_ending": rec.get("week_ending"),
+            "variant": rec.get("variant"),
+            "identifier": rec.get("identifier") or "",
+            "target_sheet_id": rec.get("target_sheet_id"),
+            "content_hash": rec.get("content_hash"),
+            "row_count": rec.get("row_count"),
+            "source": "live",
+            "last_generated_run": run_id,
+            "last_verified_run": run_id,
+        }
+        attachment_id = rec.get("attachment_id")
+        if attachment_id is not None:
+            row["attachment_id"] = attachment_id
+            row["attachment_name"] = rec.get("attachment_name")
+        payload.append(row)
+
+    def _invoke():
+        return (
+            client.schema("pipeline_memory")
+            .table("group_state")
+            .upsert(
+                payload,
+                on_conflict="wr,week_ending,variant,identifier,target_sheet_id",
+            )
+            .execute()
+        )
+
+    result = with_retry(_invoke, op="group_state_upsert")
+    if result is None:
+        _bump_counter_by("group_state_errored", len(payload))
+        return
+    _bump_counter_by("group_state_written", len(payload))
+
+
 # ── row_state payload contract (Task 3 -- see module docstring SCOPE NOTE) ─
 
 # The fixed, explicitly enumerated field tuple that feeds

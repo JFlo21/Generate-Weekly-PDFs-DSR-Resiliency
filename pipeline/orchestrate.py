@@ -594,6 +594,24 @@ def _resolve_mem_sheet_kind(sheet_id: Any) -> str:
     return "primary"
 
 
+def _extract_attachment_id_name(attach_result: Any) -> tuple[Any, Any]:
+    """Defensively extract ``(id, name)`` from a Smartsheet SDK
+    attach-call result. NEVER raises -- returns ``(None, None)`` on any
+    unexpected shape.
+
+    The SDK's successful ``Attachments.attach_file_to_row(...)`` call
+    returns a ``Result`` whose ``.data`` is the created ``Attachment``
+    carrying ``.id`` and ``.name`` (10-03-PLAN.md <interfaces>). PURE /
+    stateless (no I/O, no module state) so it's directly unit-testable
+    without invoking the nested ``_upload_one`` upload worker.
+    """
+    try:
+        data = getattr(attach_result, 'data', None)
+        return getattr(data, 'id', None), getattr(data, 'name', None)
+    except Exception:
+        return None, None
+
+
 def main():  # pyright: ignore[reportGeneralTypeIssues]
     """Main execution function with all fixes implemented.
 
@@ -1467,6 +1485,20 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         _groups_errored = 0
         _api_calls_count = 0
         _upload_tasks = []  # Collect upload tasks for parallel processing
+        # Phase 10 (MEM-01/MEM-03): group_state deferred records + the
+        # attachment side channel. Hoisted here (not with the other _mem_*
+        # counters at the top of main()) because both are upload-phase-
+        # scoped state, not run-scoped counters -- mirrors _upload_tasks /
+        # _deferred_hash_upserts, the two closest existing analogs.
+        _deferred_group_state = []
+        # Keyed by (group_key, variant, file_identifier, target_sheet_id)
+        # -- the same 4-part key a reduced_sub fan-out's two upload tasks
+        # differ on ONLY in target_sheet_id, so this key never collapses
+        # the two legs' attachment ids into one entry. threading.Lock-
+        # guarded: up to PARALLEL_WORKERS (<=8) worker threads write
+        # concurrently inside _upload_one below.
+        _mem_attachment_side_channel = {}
+        _mem_attachment_side_channel_lock = threading.Lock()
         # Sub-project E crash-consistency (2026-07-06): per-group durable
         # hash upserts are DEFERRED until after this group's attachment
         # upload actually succeeds. Records are appended in the emission
@@ -2420,7 +2452,31 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         'identifier': identifier or '',
                         'data_hash': data_hash,
                     })
-                
+
+                # Phase 10 (MEM-01/MEM-03): group_state deferred record,
+                # mirroring the durable-hash deferred append immediately
+                # above -- SAME crash-consistency shape (write only after
+                # upload succeeds), but gated INDEPENDENTLY on
+                # RUN_MEMORY_WRITE_ENABLED, never on the audit package's
+                # flags (10-RESEARCH.md Pitfall 5 isolation requirement --
+                # a billing_audit misconfiguration must not silently
+                # disable memory, and vice versa).
+                if (
+                    RUN_MEMORY_WRITE_ENABLED
+                    and not TEST_MODE
+                    and week_iso
+                ):
+                    _deferred_group_state.append({
+                        'group_key': group_key,
+                        'wr_num': wr_num,
+                        'week_iso': week_iso,
+                        'variant': variant,
+                        'identifier': identifier or '',
+                        'file_identifier': file_identifier or '',
+                        'data_hash': data_hash,
+                        'row_count': len(group_rows),
+                    })
+
             except Exception as e:
                 _groups_errored += 1
                 logging.error(f"❌ Failed to process group {group_key}: {e}")
@@ -2540,11 +2596,35 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
 
                     if not SKIP_UPLOAD:
                         with open(task['excel_path'], 'rb') as file:
-                            client.Attachments.attach_file_to_row(
+                            _attach_result = client.Attachments.attach_file_to_row(
                                 task['target_sheet_id'],
                                 target_row.id,
                                 (task['filename'], file, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
                             )
+                        # Phase 10 (MEM-01/MEM-03): capture the created
+                        # attachment's id/name into the side channel for
+                        # group_state's post-upload flush. A read-only
+                        # extraction of the SDK's OWN return value -- does
+                        # NOT change the delete-then-upload order, the
+                        # retry wrapper, or this function's return
+                        # contract. Wrapped in its own swallow-everything
+                        # try/except so a side-channel bug can never turn
+                        # a successful upload into an error (T-10-10).
+                        try:
+                            _attach_id, _attach_name = (
+                                _extract_attachment_id_name(_attach_result)
+                            )
+                            _mem_key = (
+                                task['group_key'], task['variant'],
+                                task['file_identifier'], task['target_sheet_id'],
+                            )
+                            with _mem_attachment_side_channel_lock:
+                                _mem_attachment_side_channel[_mem_key] = {
+                                    'attachment_id': _attach_id,
+                                    'attachment_name': _attach_name,
+                                }
+                        except Exception:
+                            pass
                         logging.info(
                             f"✅ Uploaded: {task['filename']} → sheet "
                             f"{task['target_sheet_id']}"
