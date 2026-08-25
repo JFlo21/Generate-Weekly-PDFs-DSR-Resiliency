@@ -1,91 +1,32 @@
 ---
 phase: 09-engine-modularization-pipeline-package-split
-verified: 2026-08-24T21:35:00-05:00
-status: gaps_found
-score: 5/6 must-haves verified
+verified: 2026-08-25T00:35:00-05:00
+status: passed
+score: 6/6 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
 retroactive: true
 retroactive_note: >
-  Phase 09 was executed and merged before GSD planning artifacts existed for it
-  (PR #280, merge commit 889ca2e, 2026-06-27). No 09-SPEC.md, 09-*-PLAN.md, or
-  09-*-SUMMARY.md files exist in this phase directory to cross-reference — it
-  was created empty for this verification. All must-haves below are derived
-  goal-backward from the ROADMAP.md Phase 9 goal text and its stated MOD-01..06
-  requirements, then checked directly against the current codebase and a live
-  execution of the 6-gate harness. No plan/summary claims were available to
-  trust or distrust; every finding below is code- or run-evidence-based.
-gaps:
-  - gap_id: "G-09-MOD-06"
-    closure_plans: ["09-07", "09-08"]
-    truth: "MOD-06: the 6-gate verification harness is green AND every gate is actually capable of failing (a gate that cannot fail is not green)"
-    status: failed
-    reason: >
-      Gate 4 (scripts/check_mypy_delta.sh) has a reproducible bug that makes it
-      structurally incapable of failing. The frozen baseline file
-      tests/golden/mypy_baseline_count.txt was committed with a CRLF line
-      ending ("56\r\n"). The script's `baseline_count="$(tr -d ' \n' < ...)"`
-      strips spaces and LF but not CR, so baseline_count resolves to "56<CR>".
-      The subsequent `if [ "$new_count" -gt "$baseline_count" ]` then throws
-      `[: 56: integer expression expected` (a bash test-syntax error, exit
-      status 2) instead of performing the comparison. Because this `[ ... ]`
-      sits inside an `if` condition, `set -e` does not abort the script on
-      that non-zero exit — execution falls through to the unconditional
-      `echo "PASS: ..."` / `exit 0` at the end of the file. The gate therefore
-      ALWAYS prints PASS regardless of the actual mypy delta.
-      Reproduced live today: `bash scripts/run_6_gates.sh` printed
-      `scripts/check_mypy_delta.sh: line 47: [: 56: integer expression
-      expected` immediately followed by `PASS: mypy delta neutral or improved
-      (56 -> 65)` — a 9-error mypy regression (56 baseline -> 65 current) that
-      the gate did not, and structurally cannot, catch.
-      Root cause confirmed via `cat -A` / `xxd` on the baseline file (CRLF
-      present) plus `git config core.autocrlf` = `true` on this checkout —
-      Windows autocrlf silently converts the checked-in LF baseline .txt to
-      CRLF on checkout; `.gitattributes` only pins `*.sh` to `eol=lf`, it does
-      not cover `tests/golden/*.txt`. This vulnerability has existed since the
-      file was committed in Phase 09's own merge commit 5005040 (2026-06-27),
-      so it is a defect in a Phase 09 deliverable, not a later-phase
-      regression. Corroborating evidence: `tests/test_facade_harness.py`
-      contains dedicated pinned-behavior unit tests asserting Gates 1, 2, and
-      6 correctly FAIL on a broken input — there is no equivalent test for
-      Gate 4, so this gate's ability to fail was never actually verified by
-      the Phase 09 test suite either.
-      Separately, Gate 6 ("golden run_summary", `TEST_MODE=true SKIP_UPLOAD=true
-      python generate_weekly_pdfs.py`) could not be confirmed PASS or FAIL on
-      the current tree within this verification's time budget. TEST_MODE does
-      not scope discovery/fetch to a small dataset — it fetched all 118 real
-      production Smartsheet source sheets (208,511 real rows, ~14 minutes) and
-      then stalled: the log produced zero further output for 13+ minutes after
-      the "Rate-sanity audit" line (last log write timestamped 21:20:45,
-      verification abandoned the wait at 21:33 with no forward progress). This
-      is not a code-inspection finding — it is a directly observed run that
-      did not reach the Gate 6 structural check, so MOD-06 ("gates green at
-      every step") cannot be affirmatively confirmed for Gate 6 today, only
-      left unresolved.
-    artifacts:
-      - path: "scripts/check_mypy_delta.sh"
-        issue: "Line ~47 `-gt` comparison silently no-ops on CRLF-tainted baseline_count; vacuous PASS."
-      - path: "tests/golden/mypy_baseline_count.txt"
-        issue: "Committed/checked-out with CRLF; not covered by .gitattributes eol pinning."
-      - path: "tests/test_facade_harness.py"
-        issue: "Pins FAIL-capability for Gates 1/2/6 but has no equivalent test for Gate 4."
-    missing:
-      - "Fix scripts/check_mypy_delta.sh to strip \\r (e.g. tr -d ' \\r\\n') so a genuine mypy regression can fail the gate."
-      - "Add `*.txt eol=lf` (or scope tests/golden/** eol=lf) to .gitattributes so the baseline stays LF on Windows checkouts."
-      - "Add a Gate-4 unit test to tests/test_facade_harness.py mirroring the existing Gate 1/2/6 fail-capability tests."
-      - "Investigate/resolve the current 56 -> 65 mypy delta once Gate 4 is fixed (attribution unclear -- likely introduced by post-Phase-09 work, e.g. pipeline/retry.py or pipeline/snapshot_drift.py, not Phase 09 itself; needs the fixed gate to confirm)."
-      - "Confirm Gate 6 completes and passes on the current tree once the stalled run is investigated (it may simply need a bounded/synthetic dataset (WR_FILTER/MAX_GROUPS) instead of pulling all 118 production sheets on every harness run)."
-human_verification:
-  - test: "Re-run `bash scripts/run_6_gates.sh` to completion (or `TEST_MODE=true SKIP_UPLOAD=true MAX_GROUPS=5 python generate_weekly_pdfs.py` for a bounded smoke run) and confirm Gate 6's `python scripts/check_run_summary_structure.py` prints PASS."
-    expected: "Gate 6 prints `PASS: run_summary.json structure matches baseline (N keys)` and the harness prints `=== ALL 6 GATES PASSED ===`."
-    why_human: >
-      The run observed during this verification fetched full real production
-      data (208,511 rows across 118 Smartsheet source sheets) and stalled for
-      13+ minutes with no further log output after the rate-sanity audit step
-      — it could not be confirmed complete within this verification's bounded
-      window. Whether it is a genuine hang (needs debugging) or just slow on
-      this environment/network needs a human with the ability to let it run
-      to completion (or attach a debugger) to resolve.
+  Phase 09 proper was implemented and merged via PR #280 (merge commit
+  889ca2e, 2026-06-27) before this repository's GSD planning discipline
+  existed for it — MOD-01..05 have no *-PLAN.md/*-SUMMARY.md to cross-
+  reference and were re-derived goal-backward from ROADMAP.md and checked
+  directly against the current codebase (byte-diffed billing guards,
+  live Gate 1/2 runs, direct file reads). MOD-06 failed the first
+  (2026-08-24) retroactive verification (5/6, gap G-09-MOD-06: Gate 4 was
+  structurally incapable of failing due to a CRLF/`tr` bug, and Gate 6 was
+  unconfirmed after stalling on a 208,511-row production fetch). This
+  report is the RE-VERIFICATION after gap-closure plans 09-07 and 09-08
+  and the authorized re-baseline commit `da7d73c` closed G-09-MOD-06.
+  MOD-01..05 were re-spot-checked directly against the codebase in this
+  pass rather than carried forward from the prior report's findings.
+re_verification:
+  previous_status: gaps_found
+  previous_score: 5/6
+  gaps_closed:
+    - "MOD-06: the 6-gate verification harness is green AND every gate is actually capable of failing (a gate that cannot fail is not green)"
+  gaps_remaining: []
+  regressions: []
 ---
 
 # Phase 9: Engine Modularization (pipeline package split) Verification Report
@@ -96,21 +37,10 @@ thin PEP-562 facade that re-exports all public names + `__main__` and live-proxi
 the 4 runtime-rebound globals — with ZERO behavior change and the full `pytest`
 suite + 6-gate harness green at every step.
 
-**Verified:** 2026-08-24
-**Status:** gaps_found
-**Re-verification:** No — initial verification (retroactive; see frontmatter `retroactive_note`)
-
-## Retroactive Verification Notice
-
-Phase 09 was implemented and merged via PR #280 (merge commit `889ca2e`,
-2026-06-27) before this repository's GSD planning discipline was applied to it.
-No `09-SPEC.md` or `09-*-PLAN.md`/`09-*-SUMMARY.md` files exist — the phase
-directory was empty prior to this report. All must-haves below were derived
-goal-backward from the ROADMAP.md Phase 9 section and its MOD-01..06
-requirement list (also stated only in ROADMAP.md, not REQUIREMENTS.md — their
-absence there is expected and is not flagged as a gap). `memory-bank/living-ledger.md`
-entries `[2026-06-25 20:55]`, `[2026-06-26 15:45]`, and `[2026-06-26 19:10]`
-were read and treated strictly as claims to check, never as evidence.
+**Verified:** 2026-08-25
+**Status:** passed
+**Re-verification:** Yes — after gap-closure plans 09-07/09-08 and the authorized
+re-baseline commit `da7d73c` closed gap `G-09-MOD-06`.
 
 ## Goal Achievement
 
@@ -118,149 +48,155 @@ were read and treated strictly as claims to check, never as evidence.
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | MOD-01: `generate_weekly_pdfs.py` is relocated into a cohesive `pipeline/` package, one responsibility per module | VERIFIED | `pipeline/` contains `types.py`(23), `config.py`(552), `utils.py`(153), `pricing.py`(903), `observability.py`(927), `discovery.py`(684), `fetch.py`(951), `change_detection.py`(762), `grouping.py`(1357), `excel.py`(785), `cleanup.py`(646), `upload.py`(347), `attribution.py`(819), `orchestrate.py`(2984) — every file opens with a one-line responsibility docstring (e.g. `excel.py`: "openpyxl Excel file generation (W4)"; `pricing.py`: "Pure calculator module"). `pipeline/__init__.py` is intentionally empty ("no re-exports... prevents implicit coupling, keeps wave imports acyclic"). `generate_weekly_pdfs.py` itself is 703 lines. `retry.py`(248) and `snapshot_drift.py`(710) are present but post-date Phase 09 (confirmed: not referenced by the 09-close ledger entry; noted, not penalized). |
-| 2 | MOD-02: the facade re-exports the full public API surface | VERIFIED | Gate 1 (`scripts/check_api_equality.py`, AST name-union vs `tests/golden/baseline_names.json`) ran live today: **PASS — all 177 baseline names present**. Gate 2 (`scripts/check_facade_completeness.py`, `getattr(gwp, name)` vs `tests/golden/facade_allowlist.json`) ran live today: **PASS — all 108 allowlist names resolve**. (Ledger claimed 105 at Phase 09 close; `git log` shows the allowlist file was legitimately grown to 108 by later commit `8c51a3c`, a post-Phase-09 PR — not a regression.) |
-| 3 | MOD-03: the 4 runtime-rebound globals are served only via PEP-562 `__getattr__` live-proxy, never a static import | VERIFIED | Read `generate_weekly_pdfs.py` directly: `_LIVE_PROXY` dict maps `SUBCONTRACTOR_SHEET_IDS`, `_FOLDER_DISCOVERED_SUB_IDS`, `_FOLDER_DISCOVERED_ORIG_IDS` → `pipeline.discovery`, `_RATES_FINGERPRINT` → `pipeline.fetch`; `__getattr__`/`__dir__` implement the proxy correctly (lines 652-687). None of the 4 names appear in any `from pipeline.X import (...)` block in the facade (visually confirmed against every import block). This is a state-rebind (behavior-dependent) truth — it is proven, not merely present, by 6 dedicated behavioral tests in `tests/test_live_proxy_globals.py` (`test_subcontractor_sheet_ids_reflects_rebind`, `test_rates_fingerprint_reflects_rebind`, in-place mutation tests, `__dir__`/AttributeError tests), collected and passing as part of today's full pytest run (Gate 3, 1375 passed). |
-| 4 | MOD-04: behavior neutrality — billing guards preserved byte-for-byte | VERIFIED | Diffed against the pre-Phase-09 monolith commit `a0ba96e` (parent of the Phase 09 merge `5005040`): the change-detection key `f"{wr_num}|{week_raw}|{variant}|{identifier}"` is byte-identical (old: line 9244; new: `pipeline/orchestrate.py:1504`). `safe_merge_cells()` in `pipeline/excel.py` is a byte-for-byte copy of the old monolith's function. `PARALLEL_WORKERS = int(os.getenv('PARALLEL_WORKERS', '8') or 8)` is byte-identical (old: line 205; new: `pipeline/config.py:98`). `@cell` occurs 0 times in both the old monolith and the current tree. Delete-before-upload order confirmed in `pipeline/orchestrate.py` `_upload_one`/`_do_upload_attempt`: `delete_old_excel_attachments(...)` (line 2206) runs before `client.Attachments.attach_file_to_row(...)` (line 2222). Helper dual-checkbox exclusion (`__helper_foreman`/`__helper_dept`) present in `pipeline/grouping.py`. `ws.merge_cells(` occurs exactly once repo-wide, inside `safe_merge_cells` itself — no unguarded direct merge call exists. |
-| 5 | MOD-05: no dead-code removal | VERIFIED | Same Gate 1 result as truth #2: the union of top-level names across `pipeline/*.py` + the facade still contains all 177 frozen baseline names — nothing from the pre-refactor monolith's public surface was dropped. |
-| 6 | MOD-06: the 6-gate verification harness is green, and every gate is actually capable of failing | **FAILED** | See `gaps` in frontmatter. Gate 4 (`scripts/check_mypy_delta.sh`) has a reproducible CRLF/`tr` bug that makes it structurally unable to report FAIL — it always prints PASS regardless of the real mypy delta, which today is a **56 → 65 regression** it silently swallowed. Gate 6 (golden `run_summary` structural check) could not be confirmed complete: the live run stalled for 13+ minutes after fetching 208,511 real production rows, with no forward log progress observed before this verification's time budget was exhausted. Gates 1, 2, 3, 5 all passed cleanly today with direct evidence (see rows above and Gate table below). |
+| 1 | MOD-01: `generate_weekly_pdfs.py` is relocated into a cohesive `pipeline/` package, one responsibility per module | ✓ VERIFIED | Re-checked directly: `ls pipeline/*.py` shows 16 files — the 14 modules from the original phase (`types.py`, `config.py`, `utils.py`, `pricing.py`, `observability.py`, `discovery.py`, `fetch.py`, `change_detection.py`, `grouping.py`, `excel.py`, `cleanup.py`, `upload.py`, `attribution.py`, `orchestrate.py`) plus `retry.py` and `snapshot_drift.py` (confirmed post-Phase-09 additions via `git blame`/ledger — not penalized, not claimed as Phase 09 deliverables). `generate_weekly_pdfs.py` is 703 lines (facade). |
+| 2 | MOD-02: the facade re-exports the full public API surface | ✓ VERIFIED | Ran live today: Gate 1 (`python scripts/check_api_equality.py`) → `PASS: all 177 baseline names present`. Gate 2 (`python scripts/check_facade_completeness.py`) → `PASS: all 108 allowlist names resolve`. Both re-confirmed as part of `bash scripts/run_6_gates.sh` (run twice this session, identical result). |
+| 3 | MOD-03: the 4 runtime-rebound globals are served only via PEP-562 `__getattr__` live-proxy, never a static import | ✓ VERIFIED | Re-read `generate_weekly_pdfs.py` directly: `_LIVE_PROXY` dict (line 661) maps `SUBCONTRACTOR_SHEET_IDS`, `_FOLDER_DISCOVERED_SUB_IDS`, `_FOLDER_DISCOVERED_ORIG_IDS` → `pipeline.discovery`, `_RATES_FINGERPRINT` → `pipeline.fetch`; `__getattr__`/`__dir__` (lines 669–686) implement the proxy. This is a state-rebind (behavior-dependent) truth — proven, not merely present: `tests/test_live_proxy_globals.py` (6 dedicated behavioral tests) re-run standalone today, `6 passed in 1.34s`, and is part of the full 1386-test Gate-3 run. |
+| 4 | MOD-04: behavior neutrality — billing guards preserved byte-for-byte | ✓ VERIFIED | Re-spot-checked directly against the current tree: change-detection key `f"{wr_num}\|{week_raw}\|{variant}\|{identifier}"` present at `pipeline/orchestrate.py:1504`; `safe_merge_cells()` present at `pipeline/excel.py:43`; `PARALLEL_WORKERS = int(os.getenv('PARALLEL_WORKERS', '8') or 8)` present at `pipeline/config.py:98`; `grep -rn "@cell" pipeline/*.py generate_weekly_pdfs.py` → 0 matches. Consistent with the prior verification's byte-for-byte diff against the pre-split monolith commit `a0ba96e`. |
+| 5 | MOD-05: no dead-code removal | ✓ VERIFIED | Same Gate 1 result as truth #2 (live today): the union of top-level names across `pipeline/*.py` + the facade still contains all 177 frozen baseline names. |
+| 6 | MOD-06: the 6-gate verification harness is green, and every gate is actually capable of failing | ✓ VERIFIED | **Gap G-09-MOD-06 closed.** Gate 4 hardened (`scripts/check_mypy_delta.sh` now has `_assert_count`, a hard-fail guard on non-integer/CR-tainted operands — confirmed present at lines 51–70) and pinned by 5 fail/pass-capability tests executing the real script bytes (`test_gate4_fails_on_regression_with_crlf_baseline`, `test_gate4_passes_when_neutral_and_baseline_renders_clean`, `test_gate4_refuses_to_pass_on_malformed_baseline` ×3 params) — 09-07-SUMMARY.md's RED-run evidence shows these tests genuinely failed (exit 0/PASS) against the un-hardened script, then passed after the fix. `tests/golden/*.txt` pinned to LF (`.gitattributes` + `git check-attr eol` both confirm `eol: lf`; `python` CRLF-scan of `tests/golden/*.txt` returns `[]`, re-run today). Gate 6 pinned to the synthetic dataset (`scripts/run_6_gates.sh` prefixes the engine invocation with `SMARTSHEET_API_TOKEN=`, confirmed present) and covered by 3 more tests (`test_gate6_invocation_pinned_to_synthetic_dataset`, `test_gate6_checker_rejects_unpinned_invocation_line` ×2 params). The real 56→65 mypy delta was attributed line-by-line (`.planning/debug/mypy-delta-56-to-65-2026-08-24.md`: 1 class-A / 2 class-B / 7 class-C / 0 class-D, none tracing to Phase 09) and Juan decided `rebaseline`, executed as the authorized, scope-limited commit `da7d73c` (touches only `tests/golden/mypy_baseline.txt`, `tests/golden/mypy_baseline_count.txt`, `memory-bank/living-ledger.md`, and one tracked-debt todo — no `pipeline/*`/`billing_audit/*`/`generate_weekly_pdfs.py` line changed, confirmed via `git show da7d73c --stat`). I independently ran `PYTHONUTF8=1 PYTHONIOENCODING=utf-8 bash scripts/run_6_gates.sh` twice in this verification session (not trusting the orchestrator's claim) — both runs printed `=== ALL 6 GATES PASSED ===` in ~30s, with Gate 4 → `PASS: mypy delta neutral or improved (65 -> 65)`, Gate 6 → `PASS: run_summary.json structure matches baseline (21 keys)` with `mode: "synthetic"` / `sheets_discovered: 0` / `api_calls: 0` in the regenerated `generated_docs/run_summary.json`, and `generated_docs/hash_history.json` unaffected by the Gate-6 run (its pre-existing uncommitted local diff, present since session start, was untouched by my runs). |
 
-**Score:** 5/6 truths verified (1 failed: MOD-06)
+**Score:** 6/6 truths verified (0 failed, 0 behavior-unverified)
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `pipeline/` package (14 modules) | One-responsibility modules per the goal's list | VERIFIED | All 14 modules present, each with a scoping docstring; `__init__.py` intentionally empty |
-| `generate_weekly_pdfs.py` (facade) | Thin PEP-562 facade re-exporting public API + `__main__` | VERIFIED | 703 lines; `__getattr__`/`__dir__` live-proxy; `if __name__ == "__main__": main()` with double-import guard (Greptile P1 fix, commit `071a71d`) |
-| `scripts/check_api_equality.py` (Gate 1) | AST name-union vs frozen baseline | VERIFIED | Ran live: PASS, 177/177 |
-| `scripts/check_facade_completeness.py` (Gate 2) | `getattr` resolution vs allowlist | VERIFIED | Ran live: PASS, 108/108 |
-| `scripts/check_mypy_delta.sh` (Gate 4) | Fails on mypy regression | **STUB-LIKE DEFECT** | Present, executes, but the `-gt` comparison is unreachable-correct due to a CRLF bug — see gaps |
-| `scripts/check_run_summary_structure.py` (Gate 6) | Structural diff of `run_summary.json` | PRESENT, logic sound (unit-tested in `test_facade_harness.py`) but **could not confirm PASS today** — upstream golden run stalled before reaching this script |
-| `tests/golden/{baseline_names,facade_allowlist,mypy_baseline,mypy_baseline_count,run_summary_baseline}` | Frozen baselines | VERIFIED (present) | `mypy_baseline_count.txt` specifically flagged for its CRLF line ending |
+| `pipeline/` package (14 Phase-09 modules + 2 later additions) | One-responsibility modules | ✓ VERIFIED | Directly listed; all present with scoping docstrings |
+| `generate_weekly_pdfs.py` (facade) | Thin PEP-562 facade | ✓ VERIFIED | 703 lines; `__getattr__`/`__dir__` live-proxy confirmed at lines 661–686 |
+| `scripts/check_api_equality.py` (Gate 1) | AST name-union vs frozen baseline | ✓ VERIFIED | Live today: PASS, 177/177 |
+| `scripts/check_facade_completeness.py` (Gate 2) | `getattr` resolution vs allowlist | ✓ VERIFIED | Live today: PASS, 108/108 |
+| `scripts/check_mypy_delta.sh` (Gate 4) | Fails on mypy regression | ✓ VERIFIED (hardened) | `_assert_count` guard present; 5 pinned fail/pass-capability tests all pass; live run today → `PASS (65 -> 65)`, correctly evaluated (not vacuous) |
+| `scripts/run_6_gates.sh` (Gate 6 pin) | Synthetic dataset only | ✓ VERIFIED | `SMARTSHEET_API_TOKEN=` prefix confirmed present; live run today confirms `mode: synthetic`, `sheets_discovered: 0`, `api_calls: 0` |
+| `scripts/check_run_summary_structure.py` (Gate 6 check) | Structural diff of `run_summary.json` | ✓ VERIFIED | Live today: `PASS: run_summary.json structure matches baseline (21 keys)` |
+| `tests/golden/{baseline_names,facade_allowlist,mypy_baseline,mypy_baseline_count,run_summary_baseline}` | Frozen baselines | ✓ VERIFIED | `mypy_baseline_count.txt` now reads `65` (re-baselined `da7d73c`); LF confirmed via `git check-attr eol` (both `.txt` files) and a live CRLF byte-scan (0 found) |
+| `.gitattributes` | `tests/golden/*.txt text eol=lf` pin | ✓ VERIFIED | Present, read directly, correctly scoped to `.txt` only |
+| `tests/test_facade_harness.py` | Fail-capability tests for Gates 1/2/4/6 | ✓ VERIFIED | 21 tests collected and passing (re-run today); includes the 5 Gate-4 and 3 Gate-6 tests added in this gap-closure cycle |
+| `memory-bank/living-ledger.md` | Dated entries recording root cause, standing rules, and re-baseline attribution | ✓ VERIFIED | Three entries confirmed present: `[2026-08-24 22:12]` (gap identification), `[2026-08-25 04:05]` (Gate 4 hardening + 3 standing rules), `[2026-08-25 00:02]` (re-baseline attribution table, all 10 findings named with blame/class) |
+| `.planning/todos/pending/2026-08-25-fix-snapshot-store-int-arg-type.md` | Tracked debt for the single class-A mypy finding | ✓ VERIFIED | Present; correctly scoped (one-line fix in protected billing code, not applied here per MOD-04) |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |------|-----|-----|--------|---------|
-| `generate_weekly_pdfs.py` | `pipeline.discovery` / `pipeline.fetch` | `_LIVE_PROXY` + `__getattr__` | WIRED | Confirmed by direct read + passing behavioral tests |
-| `pipeline/orchestrate.py` (`_resolve_unchanged_for_skip` call site) | facade `_billing_audit_writer` | `import generate_weekly_pdfs as _gwp` (in-function, late) + `billing_audit_writer=getattr(_gwp, "_billing_audit_writer", None)` | WIRED | Confirmed verbatim at `pipeline/orchestrate.py:1543`, exactly matching the D-06 seam rule claimed in the living ledger |
-| `pipeline/*.py` modules | facade (`generate_weekly_pdfs`) | `import generate_weekly_pdfs as _gwp` | WIRED, module-level-clean | Every occurrence (`attribution.py`, `change_detection.py`, `cleanup.py`, `discovery.py`, `excel.py`, `fetch.py`, `grouping.py`, `orchestrate.py`, `pricing.py`, `upload.py`) is inside a function body (late import, several tagged `# noqa: PLC0415`, a ruff rule for imports-outside-toplevel) — zero module-level back-imports found, confirming no import cycle was reintroduced |
-| `pipeline/orchestrate.py` `_upload_one` | Smartsheet `Attachments.attach_file_to_row` | delete-then-upload sequencing | WIRED | `delete_old_excel_attachments` (2206) precedes `attach_file_to_row` (2222) |
-| `scripts/run_6_gates.sh` | Gates 1-6 | sequential `bash`/`python` invocations | WIRED but Gate 4 vacuous, Gate 6 unresolved today | See gaps |
+| `generate_weekly_pdfs.py` | `pipeline.discovery` / `pipeline.fetch` | `_LIVE_PROXY` + `__getattr__` | WIRED | Confirmed by direct read + 6 passing behavioral tests |
+| `scripts/run_6_gates.sh` Gate 6 command | `pipeline/orchestrate.py` synthetic branch | `SMARTSHEET_API_TOKEN=` prefix → falsy-token `_run_synthetic_test_mode` | WIRED | Live run today confirms `mode: synthetic`, `sheets_discovered: 0`, `api_calls: 0` |
+| `scripts/check_mypy_delta.sh` | `tests/golden/mypy_baseline_count.txt` | byte-sensitive integer read via `_assert_count` | WIRED, hard-fail-capable | 5 tests pin exactly this behavior against the real script bytes |
+| `scripts/run_6_gates.sh` | Gates 1–6 | sequential `bash`/`python` invocations under `set -euo pipefail` | WIRED, all 6 green | Confirmed by two independent live end-to-end runs this session |
+| `pipeline/orchestrate.py` `_upload_one` | Smartsheet `Attachments.attach_file_to_row` | delete-then-upload sequencing | WIRED | Unchanged from prior verification (not modified by 09-07/09-08) |
 
-### Behavioral Spot-Checks / Gate Execution (today, live)
+### Behavioral Spot-Checks / Gate Execution (this verification, live, run twice)
 
 | Gate | Command | Result | Status |
 |------|---------|--------|--------|
 | 1 — AST import equality | `python scripts/check_api_equality.py` | `PASS: all 177 baseline names present` | ✓ PASS |
 | 2 — Facade completeness | `python scripts/check_facade_completeness.py` | `PASS: all 108 allowlist names resolve` | ✓ PASS |
-| 3 — pytest | `python -m pytest tests/ -q` | `1375 passed, 132 subtests passed` | ✓ PASS |
-| 4 — mypy delta | `bash scripts/check_mypy_delta.sh` | `line 47: [: 56: integer expression expected` then `PASS: mypy delta neutral or improved (56 -> 65)` | ✗ **FAIL (vacuous pass — comparison errored, not evaluated; real count is 56→65, a regression)** |
-| 5 — py_compile | `python -m py_compile generate_weekly_pdfs.py` | `PASS: py_compile clean` | ✓ PASS |
-| 6 — golden run_summary | `TEST_MODE=true SKIP_UPLOAD=true python generate_weekly_pdfs.py && python scripts/check_run_summary_structure.py` | Fetched 208,511 real rows from 118 sheets (819s), then stalled 13+ min after "Rate-sanity audit" with no further output; verification window exhausted before reaching the structural check | ? INCOMPLETE — routed to human verification |
-| Live-proxy behavior (supports truth #3) | `pytest --collect-only tests/test_live_proxy_globals.py` (existence) + inclusion in the Gate-3 full run (behavior) | 6 tests collected, part of the 1375-passed run | ✓ PASS |
-| MOD-04 byte-identity spot check | `git show a0ba96e:generate_weekly_pdfs.py \| grep 'wr_num}\|{week_raw}...'` / `PARALLEL_WORKERS = ...` / `@cell` count / `safe_merge_cells` body diff | All four byte-identical / count-identical pre- vs post-Phase-09 | ✓ PASS |
+| 3 — pytest | `python -m pytest tests/ -q` | `1386 passed, 132 subtests passed` (run 3 times, identical each time — note: this differs from the orchestrator-reported "1388"; my own independent count is 1386 with 0 failures/skips, which is the authoritative figure for this report) | ✓ PASS |
+| 4 — mypy delta | `bash scripts/check_mypy_delta.sh` | `PASS: mypy delta neutral or improved (65 -> 65)` — correctly evaluated, not vacuous | ✓ PASS |
+| 5 — py_compile | `python -m py_compile generate_weekly_pdfs.py` | clean (via full harness run) | ✓ PASS |
+| 6 — golden run_summary | `bash scripts/run_6_gates.sh` Gate 6 step | `PASS: run_summary.json structure matches baseline (21 keys)`; `mode: synthetic`, `sheets_discovered: 0`, `api_calls: 0`; ~2s | ✓ PASS |
+| End-to-end harness | `PYTHONUTF8=1 PYTHONIOENCODING=utf-8 bash scripts/run_6_gates.sh` | `=== ALL 6 GATES PASSED ===` (run twice, ~23–30s each) | ✓ PASS |
+| Gate-4 fail-capability | `python -m pytest tests/test_facade_harness.py -q` | `21 passed` (includes 5 Gate-4 + 3 Gate-6 pinning tests) | ✓ PASS |
+| Live-proxy behavior (MOD-03) | `python -m pytest tests/test_live_proxy_globals.py -q` | `6 passed in 1.34s` | ✓ PASS |
+| `hash_history.json` untouched by Gate 6 | pre-existing `git status --porcelain` diff unchanged before/after harness runs | unchanged (same pre-existing local modification noted in the task brief; not caused by Gate 6) | ✓ PASS |
+| `tests/golden/*.txt` CRLF-free | `python -c "...glob('*.txt') if b'\r\n' in ..."` | `[]` | ✓ PASS |
 
 ### Requirements Coverage
 
-MOD-01..MOD-06 are derived in ROADMAP.md itself ("no IDs in ROADMAP" beyond
-this derivation) and do not appear in `.planning/REQUIREMENTS.md` — confirmed
-via grep (`Phase 9`/`Phase 09`/`MOD-0` all return no matches in
-REQUIREMENTS.md). This is expected per the phase's own framing and is not
-treated as an orphaned-requirement gap.
+MOD-01..MOD-06 are derived in `ROADMAP.md` itself and confirmed absent from
+`.planning/REQUIREMENTS.md` (`grep -n "MOD-0\|Phase 9\|Phase 09" .planning/REQUIREMENTS.md`
+returns no matches, re-checked this pass). This is expected per the phase's own framing —
+not an orphaned-requirement gap. `09-07-PLAN.md` and `09-08-PLAN.md` both declare
+`requirements: [MOD-06]` in frontmatter, matching the single requirement their gap-closure
+scope addresses.
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| MOD-01 pipeline/ decomposition | SATISFIED | See truth #1 |
-| MOD-02 facade public-API preservation | SATISFIED | See truth #2 |
-| MOD-03 live-proxy globals | SATISFIED | See truth #3 |
-| MOD-04 behavior neutrality | SATISFIED | See truth #4 |
-| MOD-05 no dead-code removal | SATISFIED | See truth #5 |
-| MOD-06 per-step verification gates green | **BLOCKED** | See truth #6 / gaps |
+| MOD-01 pipeline/ decomposition | ✓ SATISFIED | Truth #1 |
+| MOD-02 facade public-API preservation | ✓ SATISFIED | Truth #2 |
+| MOD-03 live-proxy globals | ✓ SATISFIED | Truth #3 |
+| MOD-04 behavior neutrality | ✓ SATISFIED | Truth #4 |
+| MOD-05 no dead-code removal | ✓ SATISFIED | Truth #5 |
+| MOD-06 per-step verification gates green | ✓ SATISFIED (was BLOCKED, now closed) | Truth #6 |
 
 ### Anti-Patterns Found
 
-`grep -rn -E "TBD|FIXME|XXX|TODO|HACK|PLACEHOLDER"` across `pipeline/*.py`,
-`generate_weekly_pdfs.py`, and `scripts/check_*.py`/`run_6_gates.sh` returned
-**zero matches**. No debt markers, no stub/placeholder patterns found in the
-Phase 09 deliverables.
+`grep -n -E "TBD|FIXME|XXX|TODO|HACK|PLACEHOLDER"` across the files modified in this
+gap-closure cycle (`scripts/check_mypy_delta.sh`, `scripts/run_6_gates.sh`,
+`tests/test_facade_harness.py`, `.gitattributes`) returned **zero matches**. No debt
+markers, no stub/placeholder patterns.
 
-The Gate 4 defect (see gaps) is not a debt-marker/stub pattern — it is a
-logic bug in a shell comparison, caught only by actually executing the gate
-and inspecting the baseline file's bytes.
+### Code Review Findings (09-REVIEW.md, this cycle) — non-blocking
 
-### Housekeeping note (not a code gap)
+`09-REVIEW.md` (status `issues_found`, 0 critical / 3 warning / 1 info) flagged three
+residual robustness gaps in the hardened Gate-4/Gate-6 shell code, none of which cause a
+false PASS/FAIL in the shipped files and none of which are BLOCKER severity:
 
-`ROADMAP.md`'s v1.3 section still shows Phase 9 as `[ ]` (not checked off) and
-lists "Plans: 4/7 plans executed", with `09-05-PLAN.md` and `09-06-PLAN.md`
-shown as `[ ]` unchecked — but the actual code (Wave 5's `cleanup.py`/
-`upload.py`/`attribution.py` and Wave 6's `orchestrate.py` + finalized facade)
-is fully present and merged (PR #280, all 7 waves per the living ledger). This
-is a stale ROADMAP checklist, not a missing deliverable — flagged for a human
-to reconcile ROADMAP.md's checkboxes/plan-count with the actual shipped state,
-consistent with why this phase needed a retroactive verification pass at all.
+- **WR-01** — the re-baselined `tests/golden/mypy_baseline.txt` stores Windows
+  backslash paths, making Gate 4's FAIL-branch `diff` output misleading (not
+  incorrect) if the harness is ever run on Linux CI. Already flagged as an open
+  hazard in the living-ledger `[2026-08-25 00:02]` entry.
+- **WR-02** — `_assert_count`'s all-digit check could theoretically be fooled by a
+  baseline file accidentally split across multiple numeric lines (an edge case not
+  covered by the 3 existing malformed-baseline tests).
+- **WR-03** — Gate 4 does not distinguish "mypy crashed" (exit 2) from "mypy found
+  type errors" (exit 1); both are currently swallowed by `|| true`.
+- **IN-01** — no git-attribute-level test asserts `*.sh text eol=lf` the way
+  `test_golden_txt_baselines_are_pinned_lf_via_gitattributes` does for the `.txt` pin.
+
+**Disposition:** these are hardening suggestions for shell-script robustness beyond
+what gap `G-09-MOD-06` and the MOD-01..06 must-haves require — they do not affect
+whether the harness correctly measures the current codebase today (all four are
+about hypothetical future inputs: a Linux CI run, a corrupted baseline file, or a
+mypy crash, none of which are the observed failure mode). Confirmed non-blocking per
+`threats_open: 0` in `09-SECURITY.md` and 0 critical findings in `09-REVIEW.md`. A
+tracked-debt todo exists for the one class-A mypy finding
+(`.planning/todos/pending/2026-08-25-fix-snapshot-store-int-arg-type.md`); WR-01..03/IN-01
+do not yet have individual todo files as of this verification — flagged below as a
+minor housekeeping gap, not a phase-blocking one (see Gaps Summary).
+
+### Housekeeping Notes (not code gaps)
+
+1. `ROADMAP.md`'s v1.3 section still shows Phase 9 as `[ ]` unchecked with
+   "Plans: 5/7" in the Progress table (line 138) and Wave 7 (`09-05`/`09-06`
+   historical wave labels aside — `09-07`/`09-08` are both now `[x]` in the phase
+   detail section) — the top-level Progress table row was not updated after the
+   gap-closure plans completed. Not a code gap; flagged for a human to sync the
+   checklist/count with the now-fully-passed state confirmed by this report.
+2. `09-REVIEW.md`'s WR-01/WR-02/WR-03/IN-01 findings do not yet have individual
+   `.planning/todos/pending/` entries (only the class-A mypy finding does). Low-risk
+   (0 critical, threats_open: 0) — recommend filing them as todos in a follow-up
+   pass so they are not lost, but this does not block Phase 09 from being
+   considered complete.
 
 ### Human Verification Required
 
-1. **Gate 6 completion / possible hang investigation**
-   **Test:** Re-run `bash scripts/run_6_gates.sh` to completion, or a bounded
-   variant (`TEST_MODE=true SKIP_UPLOAD=true MAX_GROUPS=5 python generate_weekly_pdfs.py`
-   followed by `python scripts/check_run_summary_structure.py`).
-   **Expected:** Gate 6 prints `PASS: run_summary.json structure matches baseline (N keys)`.
-   **Why human:** The observed live run pulled all 118 real production Smartsheet
-   sheets (208,511 rows) and then produced no further log output for 13+
-   minutes after the rate-sanity audit step — it did not reach the Gate 6
-   check within this verification's bounded window. A human with the ability
-   to let the run finish (or attach a debugger / check for a genuine hang)
-   is needed to resolve whether Gate 6 currently passes.
+N/A — Infrastructure/foundation phase (engine modularization, no user-facing
+elements). All acceptance criteria (MOD-01..06) are verifiable programmatically and
+were verified directly against the codebase and via two independent live
+end-to-end harness runs in this session. No truth was left
+⚠️ PRESENT_BEHAVIOR_UNVERIFIED — the two behavior-dependent truths (MOD-03 live-proxy
+globals, MOD-06 gate fail-capability) both have passing dedicated behavioral tests
+that exercise the actual state transitions, not just presence/wiring.
 
 ## Gaps Summary
 
-One must-have (MOD-06, "6-gate harness green at every step") is not
-currently true as a going concern: Gate 4 (`scripts/check_mypy_delta.sh`) has
-a CRLF-vs-`tr` bug that makes it print PASS unconditionally, so it silently
-swallowed a real 56→65 mypy-error regression today. This is a defect in a
-Phase 09 deliverable (the file was committed by Phase 09's own merge commit
-and the bug is reproducible on any Windows checkout with `core.autocrlf=true`),
-not a later-phase regression — though the mypy count increase itself may well
-be attributable to later phases' code (`pipeline/retry.py`, `pipeline/snapshot_drift.py`),
-which the broken gate has never had the chance to actually assess. Separately,
-Gate 6 could not be confirmed to pass on the current tree within this
-verification's window — the golden run stalled on real production-scale data.
-All other must-haves (MOD-01 through MOD-05) are directly, concretely
-verified against the codebase — including byte-for-byte diffs against the
-pre-Phase-09 monolith for the billing-critical guards (change-detection key,
-`safe_merge_cells`, `PARALLEL_WORKERS`, `@cell` absence) and a passing
-dedicated behavioral test suite for the live-proxy globals.
+None. Gap `G-09-MOD-06` (the only gap from the prior 2026-08-24 verification) is
+closed end-to-end: Gate 4 (`scripts/check_mypy_delta.sh`) is now genuinely
+fail-capable (hardened + 5 pinned tests, RED-then-GREEN evidence captured in
+`09-07-SUMMARY.md`), Gate 6 (`scripts/run_6_gates.sh`) is pinned to the
+deterministic synthetic dataset and no longer touches production Smartsheet data
+(3 pinned tests + a live-verified `mode: synthetic` run), the real 56→65 mypy
+delta was attributed line-by-line and resolved by Juan's explicit `rebaseline`
+decision (executed as the scope-limited, attributed commit `da7d73c`), and the
+single accepted class-A finding is tracked as follow-up debt rather than silently
+absorbed. I independently re-ran the full end-to-end harness twice in this
+verification session (not trusting the orchestrator's reported gate output) and
+both runs reached `=== ALL 6 GATES PASSED ===`. MOD-01 through MOD-05 were
+re-spot-checked directly against the current codebase in this pass (not merely
+carried forward from the prior report) and remain verified. All 6 must-haves are
+now VERIFIED; phase goal achieved.
 
 ---
 
-_Verified: 2026-08-24T21:35:00-05:00_
+_Verified: 2026-08-25T00:35:00-05:00_
 _Verifier: Claude (gsd-verifier)_
-
-## Orchestrator addendum — Gate 6 confirmed on the intended synthetic path (2026-08-24 21:41 CDT)
-
-The `human_verification` item above (Gate 6 could not be confirmed) was resolved by the
-orchestrating session the same evening, without waiting for a human run:
-
-- Root cause of the 14-minute production-scale fetch: `pipeline/orchestrate.py` selects the
-  synthetic in-memory dataset only when `SMARTSHEET_API_TOKEN` is absent/empty (line ~299,
-  "TEST_MODE without SMARTSHEET_API_TOKEN: using synthetic in-memory dataset"); this checkout's
-  `.env` supplies a token, so `TEST_MODE=true SKIP_UPLOAD=true` performed a full real read of
-  118 sheets / 208,511 rows (read-only: `SKIP_UPLOAD=true`; no Supabase URL/key in `.env`, so
-  hash-store and billing_audit writers had no client). That stalled run was killed at ~21:38.
-- Re-run exactly as the harness invokes it but with the token blanked:
-  `PYTHONUTF8=1 SMARTSHEET_API_TOKEN="" TEST_MODE=true SKIP_UPLOAD=true python generate_weekly_pdfs.py >/dev/null`
-  → exit 0 in 2 s; `generated_docs/run_summary.json` regenerated (mtime 21:41:41);
-  `python scripts/check_run_summary_structure.py` → `PASS: run_summary.json structure matches baseline (21 keys)`.
-- Incidental finding (not a Phase 09 gap): with stdout redirected to a file on a cp1252 Windows
-  console, the facade's emoji banner at `generate_weekly_pdfs.py:37` raises `UnicodeEncodeError`;
-  the harness avoids it by discarding stdout. `PYTHONUTF8=1` is a safe local workaround.
-- `.github/workflows/` contains no invocation of `run_6_gates.sh` — the harness is developer-side
-  only, so both Gate 4 (CRLF via `core.autocrlf=true`) and Gate 6 (token in `.env`) are local-checkout
-  footguns; 09-08 Task 1 pins Gate 6 to the synthetic path permanently.
-
-Net status of today's live gates on the current tree: G1 PASS (177) · G2 PASS (108) · G3 PASS
-(1375 passed + 132 subtests) · **G4 vacuous** (the open gap) · G5 PASS · G6 PASS (synthetic path).
-`status: gaps_found` stands solely on Gate 4 (`G-09-MOD-06`, closure plans 09-07 / 09-08).
