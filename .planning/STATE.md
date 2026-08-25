@@ -330,5 +330,5 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 ## Session Continuity
 
 Last session: 2026-08-25T15:31:08.771Z
-Stopped at: Phase 10 Wave 2 — 10-02 complete (358d5cf); 10-05 Task 1 is a blocking-human checkpoint (Juan builds the MEM-04 sandbox rig + two triggering edits, runs scripts/mem04_experiment.py a-f). Continuation agent for 10-05 spawns on Juan's reply. 10-03 (Wave 3, depends_on 10-02 only) is runnable meanwhile; 10-06 waits.
+Stopped at: Phase 10 Wave 4 — 10-06 Task 1 done (a13e47a/9aa220d); Task 2 is a blocking-human checkpoint: apply pipeline_memory/schema.sql to Supabase project poeyztlmsawfoqlanucc, expose schema to PostgREST, reload cache (approval-gated, protected area). Task 3 (real-data control/shadow/idempotence/fail-open runs) follows via continuation agent.
 Resume file: .planning/phases/10-run-memory-foundation-shadow-writes/.continue-here.md (HANDOFF.json consumed and removed)
