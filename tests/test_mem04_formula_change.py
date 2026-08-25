@@ -1,25 +1,27 @@
-"""Cassette replay harness and discipline regression tests for
-``scripts/mem04_experiment.py`` (Phase 10 Plan 04, Task 1/Task 2).
+"""Cassette replay harness and discipline regression tests for the
+MEM-04 tooling (Phase 10 Plan 04): ``scripts/mem04_experiment.py``
+(Task 1/Task 2) and ``scripts/mem04_passive_compare.py`` (Task 3).
 
 Self-contained, matching this repo's existing shadow-test conventions
 (``tests/test_billing_audit_shadow.py``, ``tests/test_smartsheet_retry.py``):
 ``unittest.mock`` only, no new dependency, no shared ``tests/conftest.py``
 (none exists in this repo). Every test here runs with NO
-``SMARTSHEET_API_TOKEN`` in the environment and NO network access --
-every Smartsheet call is mocked.
+``SMARTSHEET_API_TOKEN``/``SUPABASE_URL`` in the environment and NO
+network access -- every Smartsheet/Supabase call is mocked.
 
-The script is imported BY FILE PATH (``importlib``, not as a package)
-so ``scripts/`` does not need to become an importable package, per the
-plan's <action>.
-
-Task 3 (``scripts/mem04_passive_compare.py``) adds its own tests to
-this file separately.
+Both scripts are imported BY FILE PATH (``importlib``, not as a
+package) so ``scripts/`` does not need to become an importable
+package, per the plan's <action>.
 """
 from __future__ import annotations
 
 import argparse
+import contextlib
 import importlib.util
+import io
+import json
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -30,6 +32,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 _MEM04_EXPERIMENT_PATH = _REPO_ROOT / "scripts" / "mem04_experiment.py"
+_MEM04_COMPARE_PATH = _REPO_ROOT / "scripts" / "mem04_passive_compare.py"
 
 
 def _load_module_by_path(path: Path, name: str) -> types.ModuleType:
@@ -50,6 +53,11 @@ def load_mem04_experiment() -> types.ModuleType:
     is a single obvious import point for every test in this file.
     """
     return _load_module_by_path(_MEM04_EXPERIMENT_PATH, "mem04_experiment")
+
+
+def load_mem04_passive_compare() -> types.ModuleType:
+    """Load ``scripts/mem04_passive_compare.py`` fresh (Task 3)."""
+    return _load_module_by_path(_MEM04_COMPARE_PATH, "mem04_passive_compare")
 
 
 def build_sheet_from_dict(raw: dict):
@@ -452,6 +460,154 @@ class SafetyWindowSensitivityTests(unittest.TestCase):
         note = self.mem04.safety_window_sensitivity_note(probe)
         self.assertIn("undetermined", note)
 
+
+# ── Task 3: mem04_passive_compare.py tests ──────────────────────────────
+
+class PassiveCompareTests(unittest.TestCase):
+    def setUp(self):
+        self.compare = load_mem04_passive_compare()
+
+    def _row(self, row_id: str, **overrides) -> dict:
+        base = {
+            "row_id": row_id,
+            "wr": "91467680",
+            "week_ending": "2026-08-24",
+            "snapshot_date": "2026-08-24",
+            "cu": "CU1",
+            "pole": "P1",
+            "work_type": "Install",
+            "quantity": 1,
+            "units_total_price": 100.0,
+            "units_completed": True,
+            "foreman_observed": "Alice Primary",
+            "helper_observed": None,
+            "helper_completed": False,
+            "helper_dept": None,
+            "helper_job": None,
+            "vac_crew_observed": None,
+            "vac_completed": False,
+            "row_modified_at": "2026-08-24T00:00:00Z",
+            "content_hash": "hashA",
+        }
+        base.update(overrides)
+        return base
+
+    def test_formula_only_change_with_advanced_timestamp(self):
+        rows_a = {"10": self._row("10", content_hash="h1",
+                                   row_modified_at="2026-08-24T00:00:00Z")}
+        rows_b = {"10": self._row("10", foreman_observed="Bob Secondary",
+                                   content_hash="h2",
+                                   row_modified_at="2026-08-24T01:00:00Z")}
+        report = self.compare.compare_runs(rows_a, rows_b)
+        self.assertEqual(report["formula_only_changed"], 1)
+        self.assertEqual(report["formula_only_advanced"], 1)
+        self.assertEqual(report["formula_only_unchanged_timestamp"], 0)
+        self.assertNotEqual(report["corroboration"], "insufficient data")
+        self.assertEqual(report["per_column_breakdown"]["foreman_observed"], 1)
+
+    def test_formula_only_change_with_unchanged_timestamp_is_the_unsafe_case(self):
+        rows_a = {"10": self._row("10", content_hash="h1",
+                                   row_modified_at="2026-08-24T00:00:00Z")}
+        rows_b = {"10": self._row("10", foreman_observed="Bob Secondary",
+                                   content_hash="h2",
+                                   row_modified_at="2026-08-24T00:00:00Z")}
+        report = self.compare.compare_runs(rows_a, rows_b)
+        self.assertEqual(report["formula_only_changed"], 1)
+        self.assertEqual(report["formula_only_advanced"], 0)
+        self.assertEqual(report["formula_only_unchanged_timestamp"], 1)
+        self.assertNotEqual(report["corroboration"], "insufficient data")
+
+    def test_non_personnel_change_excludes_row_from_formula_only_population(self):
+        rows_a = {"10": self._row("10", quantity=1, content_hash="h1")}
+        rows_b = {"10": self._row("10", quantity=2, foreman_observed="Bob Secondary",
+                                   content_hash="h2")}
+        report = self.compare.compare_runs(rows_a, rows_b)
+        self.assertEqual(report["content_hash_changed"], 1)
+        self.assertEqual(report["formula_only_changed"], 0)
+        self.assertEqual(report["corroboration"], "insufficient data")
+
+    def test_empty_formula_only_population_reports_insufficient_data(self):
+        rows_a = {"10": self._row("10", content_hash="h1")}
+        rows_b = {"10": self._row("10", content_hash="h1")}  # nothing changed
+        report = self.compare.compare_runs(rows_a, rows_b)
+        self.assertEqual(report["content_hash_changed"], 0)
+        self.assertEqual(report["corroboration"], "insufficient data")
+
+    def test_report_never_contains_any_personnel_value_from_input(self):
+        rows_a = {"10": self._row(
+            "10", foreman_observed="Alice Primary", helper_observed="Bob Helper",
+            content_hash="h1",
+        )}
+        rows_b = {"10": self._row(
+            "10", foreman_observed="Carol Secondary", helper_observed="Dave Helper2",
+            content_hash="h2",
+        )}
+        report = self.compare.compare_runs(rows_a, rows_b)
+        text = self.compare.format_report(report)
+        for value in (
+            "Alice Primary", "Bob Helper", "Carol Secondary", "Dave Helper2",
+            "91467680",
+        ):
+            self.assertNotIn(value, text)
+
+    def test_help_documents_run_a_run_b_and_source(self):
+        help_text = self.compare._build_parser().format_help()
+        for flag in ("--run-a", "--run-b", "--source"):
+            self.assertIn(flag, help_text)
+
+    def test_json_source_is_default(self):
+        args = self.compare._parse_args(["--run-a", "a.json", "--run-b", "b.json"])
+        self.assertEqual(args.source, "json")
+
+    def test_load_json_observation_file_supports_wrapped_and_bare_shapes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wrapped_path = Path(tmp) / "a.json"
+            wrapped_path.write_text(
+                json.dumps({"rows": [self._row("1"), self._row("2")]}),
+                encoding="utf-8",
+            )
+            bare_path = Path(tmp) / "b.json"
+            bare_path.write_text(json.dumps([self._row("1")]), encoding="utf-8")
+
+            loaded_wrapped = self.compare._load_json_observation_file(str(wrapped_path))
+            loaded_bare = self.compare._load_json_observation_file(str(bare_path))
+
+        self.assertEqual(set(loaded_wrapped.keys()), {"1", "2"})
+        self.assertEqual(set(loaded_bare.keys()), {"1"})
+
+    def test_main_end_to_end_json_source_smoke_never_leaks_personnel_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a_path = Path(tmp) / "run_a.json"
+            b_path = Path(tmp) / "run_b.json"
+            a_path.write_text(
+                json.dumps({"rows": [self._row("1", foreman_observed="Alice",
+                                                 content_hash="h1")]}),
+                encoding="utf-8",
+            )
+            b_path.write_text(
+                json.dumps({"rows": [self._row("1", foreman_observed="Bob",
+                                                 content_hash="h2")]}),
+                encoding="utf-8",
+            )
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                exit_code = self.compare.main(
+                    ["--run-a", str(a_path), "--run-b", str(b_path)]
+                )
+        self.assertEqual(exit_code, 0)
+        output = buf.getvalue()
+        self.assertNotIn("Alice", output)
+        self.assertNotIn("Bob", output)
+
+    def test_supabase_source_requires_no_import_time_credentials(self):
+        """Importing/loading the module and building its arg parser must
+        never require SUPABASE_URL -- the supabase-backed path is only
+        touched when --source supabase is actually selected.
+        """
+        args = self.compare._parse_args(
+            ["--run-a", "run-1", "--run-b", "run-2", "--source", "supabase"]
+        )
+        self.assertEqual(args.source, "supabase")
 
 
 if __name__ == "__main__":
