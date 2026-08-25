@@ -1279,5 +1279,193 @@ class MemoryWritePhaseTests(unittest.TestCase):
         self.assertEqual(result["rows_sent"], 1)
 
 
+# ============================================================================
+# Plan 10-03: sheet_registry + group_state (the remaining two MEM-01 tables)
+# ============================================================================
+
+
+class SheetVersionWatermarkTests(unittest.TestCase):
+    """Task 1: pipeline.fetch._LAST_SHEET_VERSIONS / get_last_sheet_versions.
+
+    The actual capture line (inside _fetch_and_process_sheet, deep in a
+    ThreadPoolExecutor-driven closure) is proven correct the same way
+    10-02's __row_modified_at capture was (see that plan's SUMMARY.md
+    Issues Encountered): live SDK introspection + the full test suite +
+    bash scripts/run_6_gates.sh, not a full mocked Sheet/Row fixture
+    (none exists in this file's precedent). These tests prove the
+    CONTRACT the capture line depends on: the module-level store's
+    accessor returns a defensive copy, and getattr(obj, 'version', None)
+    -- the exact idiom the capture line uses -- never raises when the
+    attribute is absent.
+    """
+
+    def setUp(self):
+        import pipeline.fetch as pf
+        with pf._LAST_SHEET_VERSIONS_LOCK:
+            pf._LAST_SHEET_VERSIONS.clear()
+
+    def tearDown(self):
+        import pipeline.fetch as pf
+        with pf._LAST_SHEET_VERSIONS_LOCK:
+            pf._LAST_SHEET_VERSIONS.clear()
+
+    def test_empty_by_default(self):
+        import pipeline.fetch as pf
+
+        self.assertEqual(pf.get_last_sheet_versions(), {})
+
+    def test_returns_defensive_copy(self):
+        import pipeline.fetch as pf
+
+        with pf._LAST_SHEET_VERSIONS_LOCK:
+            pf._LAST_SHEET_VERSIONS[111] = 42
+        snapshot = pf.get_last_sheet_versions()
+        self.assertEqual(snapshot, {111: 42})
+
+        snapshot[222] = 99  # mutating the returned copy...
+        self.assertEqual(pf.get_last_sheet_versions(), {111: 42})  # ...must not leak back
+
+    def test_missing_version_attribute_yields_none_without_raising(self):
+        class _NoVersionSheet:
+            pass
+
+        self.assertIsNone(getattr(_NoVersionSheet(), 'version', None))
+
+
+class SheetKindClassificationTests(unittest.TestCase):
+    """Task 1: pipeline.orchestrate._resolve_mem_sheet_kind."""
+
+    def test_subcontractor_static_set(self):
+        import pipeline.discovery as disc
+        import pipeline.orchestrate as orch
+
+        with mock.patch.object(disc, "SUBCONTRACTOR_SHEET_IDS", {111}), \
+             mock.patch.object(disc, "_FOLDER_DISCOVERED_SUB_IDS", set()), \
+             mock.patch.object(disc, "_FOLDER_DISCOVERED_ORIG_IDS", set()):
+            self.assertEqual(orch._resolve_mem_sheet_kind(111), "subcontractor")
+
+    def test_subcontractor_folder_discovered_set(self):
+        import pipeline.discovery as disc
+        import pipeline.orchestrate as orch
+
+        with mock.patch.object(disc, "SUBCONTRACTOR_SHEET_IDS", set()), \
+             mock.patch.object(disc, "_FOLDER_DISCOVERED_SUB_IDS", {222}), \
+             mock.patch.object(disc, "_FOLDER_DISCOVERED_ORIG_IDS", set()):
+            self.assertEqual(orch._resolve_mem_sheet_kind(222), "subcontractor")
+
+    def test_original_contract_set(self):
+        import pipeline.discovery as disc
+        import pipeline.orchestrate as orch
+
+        with mock.patch.object(disc, "SUBCONTRACTOR_SHEET_IDS", set()), \
+             mock.patch.object(disc, "_FOLDER_DISCOVERED_SUB_IDS", set()), \
+             mock.patch.object(disc, "_FOLDER_DISCOVERED_ORIG_IDS", {333}):
+            self.assertEqual(orch._resolve_mem_sheet_kind(333), "original_contract")
+
+    def test_default_primary(self):
+        import pipeline.discovery as disc
+        import pipeline.orchestrate as orch
+
+        with mock.patch.object(disc, "SUBCONTRACTOR_SHEET_IDS", set()), \
+             mock.patch.object(disc, "_FOLDER_DISCOVERED_SUB_IDS", set()), \
+             mock.patch.object(disc, "_FOLDER_DISCOVERED_ORIG_IDS", set()):
+            self.assertEqual(orch._resolve_mem_sheet_kind(444), "primary")
+
+    def test_return_value_always_in_ddl_check_set(self):
+        """No sheet is ever classified with a value the DDL's CHECK
+        constraint rejects -- 'vac_crew' must never be returned."""
+        import pipeline.discovery as disc
+        import pipeline.orchestrate as orch
+
+        allowed = {"primary", "subcontractor", "original_contract"}
+        with mock.patch.object(disc, "SUBCONTRACTOR_SHEET_IDS", {1}), \
+             mock.patch.object(disc, "_FOLDER_DISCOVERED_SUB_IDS", {2}), \
+             mock.patch.object(disc, "_FOLDER_DISCOVERED_ORIG_IDS", {3}):
+            for sid in (1, 2, 3, 4):
+                self.assertIn(orch._resolve_mem_sheet_kind(sid), allowed)
+
+
+class SheetRegistryWriterTests(unittest.TestCase):
+    """Task 1: pipeline_memory.writer.upsert_sheet_registry."""
+
+    def setUp(self):
+        _reset_all()
+        _pop_env()
+
+    def tearDown(self):
+        _reset_all()
+        _pop_env()
+
+    def _sheets(self):
+        return [
+            {"id": 111, "name": "Sheet A", "column_mapping": {"Foreman": 1}},
+            {"id": 222, "name": "Sheet B", "column_mapping": {"Foreman": 2}},
+        ]
+
+    def test_empty_input_zero_calls(self):
+        from pipeline_memory import writer as mem_writer
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+        client = _make_fake_pipeline_memory_client()
+
+        with mock.patch("pipeline_memory.writer.get_client", return_value=client):
+            mem_writer.upsert_sheet_registry([], "run-1", lambda sid: "primary", {})
+
+        client.schema.assert_not_called()
+
+    def test_non_empty_issues_one_upsert_with_on_conflict_sheet_id(self):
+        from pipeline_memory import writer as mem_writer
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+        upsert_capture: list = []
+        client = _make_fake_pipeline_memory_client(upsert_capture=upsert_capture)
+
+        def _kind(sid):
+            return "subcontractor" if sid == 111 else "primary"
+
+        with mock.patch("pipeline_memory.writer.get_client", return_value=client):
+            mem_writer.upsert_sheet_registry(
+                self._sheets(), "run-1", _kind, {111: 42},
+            )
+
+        self.assertEqual(len(upsert_capture), 1)
+        call = upsert_capture[0]
+        self.assertEqual(call.kwargs.get("on_conflict"), "sheet_id")
+        payload = call.args[0]
+        self.assertEqual(len(payload), 2)
+
+        row_a = next(r for r in payload if r["sheet_id"] == 111)
+        self.assertEqual(row_a["kind"], "subcontractor")
+        self.assertEqual(row_a["last_sheet_version"], 42)
+        self.assertNotIn("folder_id", row_a)
+        self.assertTrue(row_a["active"])
+
+        row_b = next(r for r in payload if r["sheet_id"] == 222)
+        self.assertEqual(row_b["kind"], "primary")
+        self.assertIsNone(row_b["last_sheet_version"])
+        self.assertNotIn("folder_id", row_b)
+
+    def test_fail_open_bumps_errored_counter(self):
+        from pipeline_memory import writer as mem_writer
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+        client = _make_fake_pipeline_memory_client()
+        client.schema.return_value.table.return_value.upsert.return_value.execute.side_effect = (
+            RuntimeError("boom")
+        )
+
+        with mock.patch("pipeline_memory.writer.get_client", return_value=client):
+            mem_writer.upsert_sheet_registry(
+                self._sheets(), "run-1", lambda sid: "primary", {},
+            )
+
+        self.assertEqual(
+            mem_writer.get_counters()["sheets_registry_errored"], 2,
+        )
+        self.assertEqual(
+            mem_writer.get_counters().get("sheets_registry_written", 0), 0,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
