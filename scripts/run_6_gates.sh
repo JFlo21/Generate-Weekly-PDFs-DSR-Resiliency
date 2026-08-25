@@ -36,7 +36,17 @@ python -m py_compile generate_weekly_pdfs.py
 echo "PASS: py_compile clean"
 
 echo "=== Gate 6: golden run_summary ==="
-TEST_MODE=true SKIP_UPLOAD=true python generate_weekly_pdfs.py >/dev/null
+# G-09-MOD-06: Gate 6 is a STRUCTURAL oracle over run_summary.json keys and
+# value types. It measures the shape of the artifact, not the correctness of
+# the data, so real production rows add zero verification signal. TEST_MODE
+# alone does not bound the dataset -- it only selects the synthetic in-memory
+# rows when SMARTSHEET_API_TOKEN is falsy; with a .env-supplied token this
+# same command fetched all 118 production source sheets and 208,511 rows
+# during the 2026-08-24 retroactive verification and never reached this gate.
+# The command-prefix assignment below is scoped to this single process only
+# and does not alter the caller's environment; load_dotenv(override=False)
+# will not repopulate it from .env.
+SMARTSHEET_API_TOKEN= TEST_MODE=true SKIP_UPLOAD=true python generate_weekly_pdfs.py >/dev/null
 python scripts/check_run_summary_structure.py
 
 echo "=== ALL 6 GATES PASSED ==="
