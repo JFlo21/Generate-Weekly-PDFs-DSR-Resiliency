@@ -24,6 +24,7 @@ from __future__ import annotations
 import collections
 import datetime
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import sentry_sdk
@@ -64,6 +65,29 @@ logger = logging.getLogger(__name__)
 # ── Live-proxy global (D-01) — served to the facade via __getattr__ ──────────
 # GUARD: do NOT statically re-export this from the facade (see module docstring).
 _RATES_FINGERPRINT: str = ''   # rebound inside get_all_source_rows via `global`
+
+# Phase 10 (MEM-01): per-sheet Sheet.version watermark, captured inside the
+# fetch loop below (the only place a Sheet object is in scope this run).
+# THREAD-SAFE: _fetch_and_process_sheet runs under a ThreadPoolExecutor
+# (PARALLEL_WORKERS <= 8), so writes to this dict are lock-guarded. This is
+# a per-sheet OBSERVATION consumed by pipeline.orchestrate's sheet_registry
+# shadow-write hook (Phase 11 INC-01's ifVersionAfter input) -- it must
+# NEVER be written onto any row dict, so it cannot influence
+# calculate_data_hash() or excel.py's column sampler.
+_LAST_SHEET_VERSIONS: dict[int, int] = {}
+_LAST_SHEET_VERSIONS_LOCK = threading.Lock()
+
+
+def get_last_sheet_versions() -> dict[int, int]:
+    """Return a defensive copy of the per-sheet ``Sheet.version`` watermark
+    captured during the most recent ``get_all_source_rows()`` call.
+
+    Empty before the first call this run (the sheet_registry hook's first
+    pass, which runs before Phase 2 fetches anything -- see
+    ``pipeline/orchestrate.py``'s two-pass registry-write comment).
+    """
+    with _LAST_SHEET_VERSIONS_LOCK:
+        return dict(_LAST_SHEET_VERSIONS)
 
 
 def _is_auth_api_error(exc: Exception) -> bool:
@@ -230,6 +254,17 @@ def get_all_source_rows(client, source_sheets):
                     api_span.set_data("sheet_name", source['name'])
                     api_span.set_data("row_count", len(sheet.rows) if sheet.rows else 0)
                     api_span.set_data("column_count", len(required_column_ids))
+
+                # Phase 10 (MEM-01): capture this sheet's own Sheet.version
+                # watermark -- getattr-defensive, None on absence. See the
+                # module-level _LAST_SHEET_VERSIONS docstring: this is a
+                # per-sheet OBSERVATION only and is NEVER written onto any
+                # row dict, so it cannot influence calculate_data_hash() or
+                # excel.py's column sampler.
+                with _LAST_SHEET_VERSIONS_LOCK:
+                    _LAST_SHEET_VERSIONS[source['id']] = getattr(
+                        sheet, 'version', None
+                    )
 
                 logging.info(f"📋 Available mapped columns in {source['name']}: {list(column_mapping.keys())}")
                 

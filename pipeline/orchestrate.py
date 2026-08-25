@@ -557,6 +557,43 @@ def _run_memory_write_phase(
     return result
 
 
+def _resolve_mem_sheet_kind(sheet_id: Any) -> str:
+    """Classify a discovered sheet's ``sheet_registry.kind`` (MEM-01).
+
+    Reads ``pipeline.discovery``'s live-proxy globals AT CALL TIME via
+    the ``_discovery`` module alias -- never a module-level from-import,
+    which would snapshot the pre-discovery (empty) sets (Phase 09 D-01
+    live-proxy contract; 10-03-PLAN.md <interfaces>).
+
+    Order: ``SUBCONTRACTOR_SHEET_IDS`` or ``_FOLDER_DISCOVERED_SUB_IDS``
+    -> ``'subcontractor'``; ``_FOLDER_DISCOVERED_ORIG_IDS`` ->
+    ``'original_contract'``; otherwise ``'primary'``. Every returned
+    value is one of the three the DDL's ``sheet_registry.kind`` CHECK
+    constraint accepts (``pipeline_memory/schema.sql``) -- ``'vac_crew'``
+    is deliberately never returned (10-RESEARCH.md Assumption A4: VAC
+    Crew capability is column-presence-driven on primary/subcontractor
+    sheets, not a discovered sheet-id bucket).
+
+    Standalone module-level function (not a closure nested inside
+    ``main()``) so it is directly unit-testable via
+    ``mock.patch.object(pipeline.discovery, ...)`` without invoking any
+    of ``main()``'s Smartsheet/Excel/Sentry machinery -- same
+    testability rationale as ``_run_memory_write_phase`` (10-02 key-
+    decision). The "read at call time" property this exists for is
+    identical either way: a module-level function reading
+    ``_discovery.NAME`` is just as live as a nested closure doing the
+    same read.
+    """
+    if sheet_id in (
+        _discovery.SUBCONTRACTOR_SHEET_IDS
+        | _discovery._FOLDER_DISCOVERED_SUB_IDS
+    ):
+        return "subcontractor"
+    if sheet_id in _discovery._FOLDER_DISCOVERED_ORIG_IDS:
+        return "original_contract"
+    return "primary"
+
+
 def main():  # pyright: ignore[reportGeneralTypeIssues]
     """Main execution function with all fixes implemented.
 
@@ -739,7 +776,30 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         _phase_elapsed = (datetime.datetime.now() - _phase_start).total_seconds()
         logging.info(f"⚡ Phase 1 complete: {len(source_sheets)} sheets discovered in {_phase_elapsed:.1f}s")
         sentry_add_breadcrumb("discovery", f"Discovered {len(source_sheets)} source sheets", data={"count": len(source_sheets)})
-        
+
+        # Phase 10 (MEM-01): sheet_registry shadow write, PASS 1 (pre-fetch).
+        # Called TWICE this run -- here, right after discovery, and again
+        # right after the row-write phase below (PASS 2) once
+        # pipeline.fetch's version-watermark map is populated (this pass
+        # runs BEFORE Phase 2 fetches anything, so last_sheet_version is
+        # still empty on pass 1). Both calls are idempotent upserts on the
+        # same key (sheet_id) -- documented two-pass ordering, not
+        # accidental duplication. Guarded the same way as the run_ledger
+        # hooks (flag AND TEST_MODE) and wrapped in its own try/except so a
+        # broken writer module can never break Excel generation.
+        if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
+            try:
+                _mem_writer.upsert_sheet_registry(
+                    source_sheets, _mem_run_id, _resolve_mem_sheet_kind,
+                    _fetch.get_last_sheet_versions(),
+                )
+            except Exception:
+                logging.warning(
+                    "⚠️ pipeline_memory sheet_registry upsert (pass 1) "
+                    "failed unexpectedly (non-fatal); registry not "
+                    "written this pass."
+                )
+
         # Get all source rows
         _phase_start = datetime.datetime.now()
         logging.info(f"\n{'='*60}")
@@ -786,6 +846,23 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         _mem_rows_sent = _mem_result["rows_sent"]
         _mem_rows_changed = _mem_result["rows_changed"]
         _mem_affected = _mem_result.get("affected", set())
+
+        # Phase 10 (MEM-01): sheet_registry shadow write, PASS 2. Now that
+        # Phase 2 has fetched every sheet, pipeline.fetch's version-
+        # watermark map is populated -- same guard, same fail-open
+        # contract, same idempotent upsert key as pass 1 above.
+        if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
+            try:
+                _mem_writer.upsert_sheet_registry(
+                    source_sheets, _mem_run_id, _resolve_mem_sheet_kind,
+                    _fetch.get_last_sheet_versions(),
+                )
+            except Exception:
+                logging.warning(
+                    "⚠️ pipeline_memory sheet_registry upsert (pass 2) "
+                    "failed unexpectedly (non-fatal); registry version "
+                    "watermark not updated this run."
+                )
 
         # Initialize audit system
         audit_system = None

@@ -53,7 +53,7 @@ import logging
 import os
 import re
 import threading
-from typing import Any
+from typing import Any, Callable
 
 from pipeline_memory.client import get_client, with_retry
 from pipeline_memory.client import _write_enabled as _client_write_enabled
@@ -263,6 +263,82 @@ def run_ledger_finish(run_id: str, **counters: Any) -> None:
         _bump_counter("run_ledger_errored")
         return
     _bump_counter("run_ledger_written")
+
+
+# ── sheet_registry payload contract (plan 10-03 Task 1) ────────────────────
+
+def upsert_sheet_registry(
+    sheets: list[dict[str, Any]],
+    run_id: str,
+    kind_resolver: Callable[[Any], str],
+    sheet_versions: dict[Any, int] | None,
+) -> None:
+    """Best-effort bulk upsert of ``sheet_registry``. NEVER raises.
+
+    ``sheets`` is ``discover_source_sheets()``'s return list verbatim
+    (each dict: ``{'id', 'name', 'column_mapping'}`` -- Phase-09-frozen
+    contract). ``kind_resolver`` and ``sheet_versions`` are supplied by
+    the CALLER (``pipeline/orchestrate.py``) so this package keeps
+    importing nothing from ``pipeline.*`` (the writer-boundary contract):
+    the resolver reads ``pipeline.discovery``'s live-proxy globals
+    (``SUBCONTRACTOR_SHEET_IDS`` / ``_FOLDER_DISCOVERED_SUB_IDS`` /
+    ``_FOLDER_DISCOVERED_ORIG_IDS``) at call time, and ``sheet_versions``
+    is ``pipeline.fetch.get_last_sheet_versions()``'s snapshot.
+
+    ``folder_id`` is deliberately OMITTED from the payload -- it is not
+    on the discovery return dict and stays a reserved, NULL column this
+    phase (10-03-PLAN.md flagged assumption).
+
+    Empty input performs ZERO calls, checked before the client/flag
+    guards, same as ``upsert_rows_bulk``. Issues exactly ONE table
+    upsert with ``on_conflict="sheet_id"`` -- so a single row's write
+    failure fails the whole call; that's acceptable here (the whole
+    registry is small, one call per run) unlike the row-level bulk path.
+    ``run_id`` is accepted for call-site symmetry with the other writer
+    entry points but is not a ``sheet_registry`` column (no ``run_id``
+    column on this table).
+    """
+    del run_id
+
+    if not sheets:
+        return
+
+    client = get_client()
+    if client is None:
+        return
+    if not _client_write_enabled():
+        return
+
+    versions = sheet_versions or {}
+    now = _utcnow_iso()
+    payload: list[dict[str, Any]] = []
+    for sheet in sheets:
+        sheet_id = sheet.get("id")
+        payload.append({
+            "sheet_id": sheet_id,
+            "name": sheet.get("name"),
+            "kind": kind_resolver(sheet_id),
+            "column_mapping": sheet.get("column_mapping") or {},
+            "last_sheet_version": versions.get(sheet_id),
+            "last_read_at": now,
+            "last_full_read_at": now,
+            "active": True,
+            "updated_at": now,
+        })
+
+    def _invoke():
+        return (
+            client.schema("pipeline_memory")
+            .table("sheet_registry")
+            .upsert(payload, on_conflict="sheet_id")
+            .execute()
+        )
+
+    result = with_retry(_invoke, op="sheet_registry_upsert")
+    if result is None:
+        _bump_counter_by("sheets_registry_errored", len(payload))
+        return
+    _bump_counter_by("sheets_registry_written", len(payload))
 
 
 # ── row_state payload contract (Task 3 -- see module docstring SCOPE NOTE) ─
