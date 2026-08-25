@@ -6485,3 +6485,156 @@ follow-up findings closed, same 6 files.
   `RealCassetteReplayTests`, `RealCassetteVerdictTests` in `tests/test_mem04_formula_change.py`
   (commit `aa103f6`) — 32 tests total in that file (26 from plan 10-04 + 6 new), full suite 1459
   passed / 1 skipped / 132 subtests.
+
+## [2026-08-25 18:37] Plan 10-06 Task 3 — real-data rollout evidence: `pipeline_memory` proven behaviour-neutral and fail-open on live production data; two real bugs found and fixed; two open assumptions honestly resolved/left open; write path stays OFF in production
+
+- **Scale correction (read this first):** the live production Smartsheet surface today is
+  **120 sheets / ~209,400 rows** (folder-based discovery: 5 subcontractor + 115 original-contract
+  sheets), not the "~550 rows / 13+ sheets" figure in `CLAUDE.md`'s Project Summary — that
+  description predates the folder-discovery expansion. Each of the four Task 3 runs below took
+  ~49–56 minutes wall-clock (Phase 2 fetch ~15–17 min + the existing `billing_audit` rate-sanity
+  audit ~30–33 min; `MAX_GROUPS` bounds ONLY the Excel-generation loop, not the fetch or audit).
+  `CLAUDE.md`'s row-count line should be corrected in a future docs pass; not changed here
+  (docs-only, out of this plan's file list).
+- **The four runs (all `SKIP_UPLOAD=true` — zero attachment uploads, zero Smartsheet writes; no
+  `WR_FILTER` on any run; `generated_docs/discovery_cache.json` reused throughout):**
+  | # | Purpose | Flag | `MAX_GROUPS` | Started (CDT) | Duration | `rows_fetched` | Memory-phase elapsed |
+  |---|---|---|---|---|---|---|---|
+  | 1 | CONTROL | OFF | 30 | 09:40 | 56.44 min | 209,237 | n/a (flag off) |
+  | 2 | SHADOW A | ON | 30 | 10:48 | 54.50 min | 209,287 | 217.4s (113 sheets written, 5,244 `(wr,week)` pairs affected) |
+  | 3 | SHADOW B (idempotence) | ON | 30 | 11:50 | 53.20 min | 209,463 | 199.5s (8 sheets written, 10 `(wr,week)` pairs affected) |
+  | 4 | FAIL-OPEN | ON, `SUPABASE_URL` pointed at a `.invalid` host | 5 | 12:46 | 48.83 min | 209,465 | 29.5s (0 written — Supabase fully unreachable) |
+  `generated_docs/hash_history.json` verified byte-identical (SHA-256
+  `8ef7fd95d6d6de60e6d04f615e86ece14112121b1ebb5f73b0bd47d07c5fb1c2`) before run 1 and after every
+  subsequent run — the SKIP_UPLOAD withhold contract held across all four real runs.
+- **GRANT gap found and fixed at the Task 2 checkpoint (not Task 3, but the load-bearing
+  precondition for everything below):** the original `pipeline_memory/schema.sql` granted
+  `service_role` only `EXECUTE` on the RPCs — no `USAGE` on the schema, no `SELECT`/`INSERT`/
+  `UPDATE` on any of the five tables. Every shadow write would have failed `42501` silently under
+  the fail-open contract, and nothing in Task 1's tests could catch it (they mock the PostgREST
+  client). Fixed in commit `2df3b25` (new `GRANT` block after `GRANT EXECUTE`: schema `USAGE`,
+  table `SELECT`/`INSERT`/`UPDATE`, sequence `USAGE`, `ALTER DEFAULT PRIVILEGES` for both — `DELETE`
+  deliberately withheld). Juan applied the identical block live on `poeyztlmsawfoqlanucc`;
+  re-verified via PostgREST probe (all 5 tables 200 `[]`, no `PGRST106`/`42501`) before Task 3's
+  precondition was declared satisfied.
+- **Bug 1 (Rule 1) — `run_ledger_finish` upsert failed `400`/`23502` on every real call.**
+  `schema.sql`'s `run_ledger.mode` column is `NOT NULL` with no `DEFAULT`. PostgREST's
+  merge-duplicates upsert builds a single `INSERT ... ON CONFLICT (run_id) DO UPDATE` scoped to
+  only the payload's own columns, and Postgres validates the proposed row against `NOT NULL`
+  BEFORE conflict resolution — so omitting `mode` from the finish payload raised a real
+  `not_null_violation` even though the actual write is an UPDATE of an already-existing row, not
+  an INSERT. Confirmed live against `poeyztlmsawfoqlanucc` with a direct reproduction
+  (`{'message': 'null value in column "mode" ... violates not-null constraint', 'code': '23502', ...}`),
+  then confirmed fixed the same way. Every shadow run before this fix left its `run_ledger` row
+  permanently stuck at `status='running'`, `finished_at=NULL` — visible today as run 2's row
+  (`local-20260825T204825044699Z`). Fixed in `pipeline_memory/writer.py::run_ledger_finish`
+  (defaults `mode="full"`, always includes it in the payload; commit `514589a`), with a regression
+  assertion locking `finish_payload["mode"] == "full"`.
+- **Bug 2 (Rule 1) — `compare_control_run.py`'s raw file-byte SHA-256 could never pass against
+  real output.** `pipeline/excel.py` embeds `datetime.datetime.now()` TWICE per saved workbook,
+  neither billing-relevant: openpyxl's own `docProps/core.xml` created/modified timestamps, and a
+  "Report Generated On: `<timestamp>`" footer cell (~line 477). Both differ on every save
+  regardless of row content. The FIRST real control-vs-shadow comparison reported "content hash
+  mismatch" for all 17 overlapping identities; a forensic zip-member diff of one such pair showed
+  the byte differences confined to EXACTLY those two members, zero billing-content bytes
+  differing. Fixed via `_canonical_hash_of_xlsx()` (excludes `docProps/core.xml`, normalizes the
+  "Report Generated On" cell to a fixed placeholder before hashing; falls back to a raw byte hash
+  for anything that isn't a valid zip — strictly more conservative, never less likely to FAIL;
+  commit `cf3568b`) plus two new regression tests using a minimal real xlsx-shaped zip fixture.
+- **Success criterion 4 (control vs. shadow, real data) — Excel CONTENT proven neutral; group
+  SELECTION and `run_summary` numeric fields show honest, explained scope drift, not a
+  regression.** After the canonicalization fix, `scripts/compare_control_run.py` over runs 1 & 2
+  reported **zero** `content hash mismatch` errors across the 17 identities present in BOTH runs
+  (100% byte-identical after canonicalization) — direct proof the shadow-write path changes
+  nothing about Excel generation. The comparator still exits non-zero because 13 identities
+  present only in control and 13 only in shadow (the order-stable `MAX_GROUPS=30` truncation
+  selecting a different first-30 slice) and three `run_summary` fields differ
+  (`rows_fetched` 209,237→209,287; `fingerprint_changes_detected` 12→4;
+  `snapshots_already_frozen` 1,878→725) — all mechanically explained by `rows_fetched` genuinely
+  growing by 50 rows during the ~68-minute control→shadow gap on a LIVE, continuously-edited
+  120-sheet/209K-row production dataset. `scripts/run_6_gates.sh`'s own Gate 6 cannot exercise
+  this (its `TEST_MODE` path never touches Smartsheet, 10-RESEARCH.md Pitfall 8) — this is the
+  first real exercise of that exact scenario, and it surfaced a genuine limitation the original
+  plan's "~550 rows" assumption did not anticipate: with each full run costing ~50–56 minutes
+  dominated by the fetch + the PRE-EXISTING `billing_audit` rate-sanity audit (neither reducible
+  by `MAX_GROUPS`), a live production dataset this size cannot be held perfectly still across a
+  control/shadow pair. A byte-for-byte zero-drift comparison would need either a maintenance
+  window with zero concurrent Smartsheet edits, or a (not-yet-built, out of this plan's scope)
+  fetch-snapshot/replay capability so both legs of the comparison read the identical row set.
+  Recorded honestly rather than forced to a fabricated PASS, per this plan's own explicit
+  instruction not to paper over a non-neutral diff.
+- **Success criterion 1 (idempotence) — mechanism proven correct; literal "zero new events" not
+  achieved on live data, and that gap is itself the evidence.** `row_event` totalled 209,287 rows
+  after run 2 (the FIRST-ever write to an empty schema — every row is new, matching `rows_sent`
+  exactly) and gained exactly **178** more after run 3 (idempotence), for a total of 209,465 — NOT
+  zero, because ~48 minutes of real Smartsheet activity happened between the two runs (confirmed:
+  `rows_fetched` grew 209,287→209,463, and a sampled `row_state` slice with
+  `last_changed_run = run 3` shows `first_seen_run` ALSO = run 3, i.e. these are new rows, not
+  edits of old ones). Direct query evidence for a row genuinely unchanged since run 2
+  (`sheet_id=2873734244290436, row_id=323644828618628`): `first_seen_run` = run 2,
+  `last_seen_run` = run 3 (advanced), `last_changed_run` = run 2 (did NOT advance) — exactly the
+  "second run advances `last_seen_run` only" contract, for 209,286 of the 209,464 `row_state` rows
+  (99.9%). `sheet_registry` = 120 rows, matching `sheets_discovered` exactly. `group_state` = 0
+  rows across all four runs (see open assumption (a) below — expected, not a bug).
+- **Success criterion 2 (fail-open) — clean pass.** Run 4 pointed `SUPABASE_URL` at
+  `https://unreachable-pipeline-memory-test.invalid` (RFC 2606 never-resolving TLD) with the
+  memory flag ON. `pipeline_memory`'s `run_ledger_upsert` op retried 4/4 attempts
+  (`ConnectError`, backoff 1.5s/2.5s/4.5s) then logged one WARNING and moved on; the
+  `upsert_rows_bulk` op's circuit breaker opened after 3 consecutive exhausted retries
+  ("`remaining 'upsert_rows_bulk' RPC calls this run will fast-fail`"), so the memory-write phase
+  finished in 29.5s instead of retrying all 120 sheets. The run completed with `success: true`,
+  `files_generated: 5` (matching its `MAX_GROUPS=5` scope), `groups_errored: 0`, and NO
+  `Traceback`/`Fatal`/`CRITICAL` anywhere in the log. `run_ledger` gained **zero** rows from run 4
+  (both start and finish failed cleanly — not even a partial row), confirming fail-open held for
+  the whole run, not just individual calls. Note: `SUPABASE_URL` is also read by the pre-existing
+  `billing_audit` system, so this run incidentally also exercised (and confirmed) `billing_audit`'s
+  own independent per-op circuit breakers (`feature_flag`, `pipeline_run_select`,
+  `pipeline_run_upsert`) — a bonus data point, not a Phase 10 claim.
+- **Open assumption (a) — group_state's attachment-preservation COALESCE behaviour: UNRESOLVED,
+  and cannot be resolved by any `SKIP_UPLOAD` run.** `pipeline/orchestrate.py`'s
+  `_group_upload_ok` check treats a `SKIP_UPLOAD` dry-run's per-task result (`'skip_upload'`) as
+  NOT ok (`_ok = _res in ('uploaded', 'skipped')`), so `_build_group_state_flush` withholds
+  EVERY group on EVERY dry run — the exact same crash-consistency contract that protects
+  `hash_history.json` also means `group_state` legitimately stayed at 0 rows across all four Task
+  3 runs. Verifying that a `group_state` upsert which omits the attachment keys leaves a
+  previously-stored attachment id intact requires either a real (non-`SKIP_UPLOAD`) production run
+  with `RUN_MEMORY_WRITE_ENABLED=true` — i.e. the flag-flip PR itself — or a targeted mock-based
+  integration test as a cheaper pre-flip follow-up. Flagging honestly rather than asserting an
+  unearned "confirmed."
+- **Open assumption (b) — anon/authenticated cannot read any of the five tables: CONFIRMED, at
+  the Task 2 checkpoint, not independently re-tested in Task 3.** The checkpoint's live
+  verification (immediately after the GRANT fix) showed schema `USAGE=false` and `SELECT=false`
+  for both `anon` and `authenticated` on all five tables. No `SUPABASE_ANON_KEY` is configured in
+  this local `.env`, so Task 3 did not re-probe with an anon-scoped client; citing the checkpoint's
+  evidence rather than fabricating a second test.
+- **Timing headroom (all local runs, `TIME_BUDGET_MINUTES`/`GITHUB_ACTIONS_MODE` gate inactive
+  outside CI so the sub-budget guards never fired):** total run duration 48.83–56.44 min, well
+  under production's `TIME_BUDGET_MINUTES=165`; memory-phase elapsed 29.5s–217.4s, well under
+  `RUN_MEMORY_WRITE_MAX_MINUTES=10` (600s) in every run including the fail-open one. Bytes-per-row
+  of the largest sheet's chunk payload was NOT independently re-measured this session (the writer
+  logs counts only, never payload bytes, by PII-safety design) — citing plan 10-02's documented
+  measurement (~497 bytes/row for a 6,054-row sheet, well under PostgREST's 1 MB body limit at
+  `_CHUNK_ROWS=500`) rather than re-deriving it.
+- **Housekeeping:** two diagnostic `run_ledger` rows from this session's live root-cause
+  reproduction remain in the production table — `diag-test-mode-omit` (never inserted; the
+  `23502` reproduction failed atomically, confirmed via a follow-up `SELECT` returning zero rows)
+  and `diag-test-mode-fix` (DID insert, since it included `mode`). Neither could be deleted:
+  `service_role` has no `DELETE` grant on `run_ledger` by design (T-10-07's deliberate
+  withholding). Harmless (no PII, `mode='full'`, `status='success'`), but Juan may want to
+  manually delete `diag-test-mode-fix` via the SQL editor at his convenience — not required.
+- **Production workflow: still provably unchanged.** `RUN_MEMORY_WRITE_ENABLED` does not appear
+  in any non-comment line of `.github/workflows/weekly-excel-generation.yml`; `git diff
+  --exit-code -- .github/workflows/ generate_weekly_pdfs.py requirements.txt
+  tests/golden/run_summary_baseline.json generated_docs/hash_history.json billing_audit/` is
+  clean; `bash scripts/run_6_gates.sh` passes all 6 gates; `python -m pytest tests/ -q` → 1509
+  passed, 1 skipped, 132 subtests (up from 1507 at Wave-4 dispatch).
+- **Flag-flip PR (separate, later, reviewed — NOT bundled with this phase) should satisfy, before
+  merge:** (1) resolve open assumption (a) above — either a mock-based `group_state` COALESCE
+  integration test, or explicit acceptance that it will be proven on the flip PR's own first real
+  run; (2) re-run this plan's control-vs-shadow comparison during a lower-activity window (or with
+  a fetch-snapshot/replay capability) to get a byte-for-byte zero-drift pass, OR explicitly accept
+  the canonicalized-content-only proof standard established here; (3) confirm the two bugs fixed
+  in this entry (`514589a`, `cf3568b`) are on the branch the flip PR is cut from; (4) a short
+  monitoring window after flip (watch `run_ledger.status`, `sheets_errored`,
+  `RUN_MEMORY_WRITE_MAX_MINUTES` headroom on the first few real production runs) before treating
+  the write path as unattended-stable.
