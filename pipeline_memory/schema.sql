@@ -479,6 +479,26 @@ $$;
 GRANT EXECUTE ON FUNCTION pipeline_memory.upsert_rows_bulk(BIGINT, TEXT, JSONB)
     TO service_role;
 
+-- ── Privileges -- service_role, the pipeline's only writer ───────
+-- Supabase's service_role BYPASSES RLS but is NOT a superuser: on a
+-- schema outside ``public`` it holds no USAGE and no table privileges
+-- until granted. Verified live on 2026-08-25 (plan 10-06 Task 2): after
+-- the first apply every table reported SELECT/INSERT/UPDATE = false for
+-- service_role, so every shadow write would have failed with 42501
+-- (fail-open, so silently). Mirrors billing_audit's explicit per-table
+-- GRANTs; the ALTER DEFAULT PRIVILEGES lines cover tables and identity
+-- sequences added to this schema later. DELETE is deliberately NOT
+-- granted -- Phase 10 never deletes from Python, and retention runs
+-- under pg_cron as the table owner.
+GRANT USAGE ON SCHEMA pipeline_memory TO service_role;
+GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA pipeline_memory
+    TO service_role;
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA pipeline_memory TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA pipeline_memory
+    GRANT SELECT, INSERT, UPDATE ON TABLES TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA pipeline_memory
+    GRANT USAGE ON SEQUENCES TO service_role;
+
 -- ── RLS -- service-role only (D-01, T-10-02) ─────────────────
 -- Every table gets RLS enabled with a single service_role_all policy,
 -- mirroring every existing billing_audit table. service_role bypasses
