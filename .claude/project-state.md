@@ -9,8 +9,8 @@ re-baselined 56 → 65 by Juan's `rebaseline` decision, every accepted finding a
 commit `da7d73c`). **Phase 09 CLOSED 2026-08-25** — verifier 6/6 (`410235e`), v1.3 milestone
 complete. Next: `/gsd-core:gsd-execute-phase 10` (Run-Memory Foundation; pauses at the
 10-05/10-06 human checkpoints). Optional first: `/gsd-core:gsd-complete-milestone` to archive v1.3.
-Git: `master` ahead ~25 / behind 15 of `origin/master` — pull/rebase before pushing; open PR for
-the gap-closure commits (`7633432`..HEAD) — nothing pushed yet._
+Git: `master` ahead ~25 / behind 15 of `origin/master` — pull/rebase before pushing; **PR open:** https://github.com/JFlo21/Generate-Weekly-PDFs-DSR-Resiliency/pull/349
+(branch `feat/phase-09-gap-closure`, merged with origin/master; after merge: `git checkout master && git reset --hard origin/master`)._
 
 ## Latest work (2026-08-25 01:10 CDT) — `/gsd-execute-phase 09 --gaps-only` COMPLETE: G-09-MOD-06 closed, `rebaseline` executed, tail gates green, phase closed
 000000000000000000000000. **Wave 2 resumed:** Juan replied `rebaseline` → continuation
@@ -26,7 +26,7 @@ the gap-closure commits (`7633432`..HEAD) — nothing pushed yet._
    passed 6/6** → `phase.complete` (`410235e`). Suite: **1386 passed + 132 subtests**.
    ROADMAP/STATE/PROJECT evolved by hand (this ROADMAP layout isn't parsed by
    `roadmap.analyze`). Vault: project page §"Phase 09 gap closure executed", dashboard
-   row, log `[2026-08-25a]`. Not pushed. `generated_docs/hash_history.json` still
+   row, log `[2026-08-25a]`. Pushed as https://github.com/JFlo21/Generate-Weekly-PDFs-DSR-Resiliency/pull/349. `generated_docs/hash_history.json` still
    carries the pre-existing local prune-marker diff (untouched, leave or discard).
 
 ## Previous (2026-08-24 23:30 CDT) — `/gsd-execute-phase 09 --gaps-only` Wave 1 DONE, Wave 2 at checkpoint (7 commits `7633432`..`76011aa`)
