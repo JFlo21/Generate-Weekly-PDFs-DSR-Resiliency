@@ -699,7 +699,15 @@ def upsert_rows_bulk(sheet_id: int, run_id: str, rows: list[dict]) -> set[tuple]
 
 ## Open Questions
 
-1. **Is `pg_cron` actually enabled (with grants) on `poeyztlmsawfoqlanucc` today?**
+1. **(RESOLVED — see 10-01 Task 2 + 10-06 Task 2)** **Is `pg_cron` actually enabled
+   (with grants) on `poeyztlmsawfoqlanucc` today?**
+   - Resolution: closed exactly as recommended. 10-01 Task 2 ships
+     `CREATE EXTENSION IF NOT EXISTS pg_cron` inside the reapply-safe retention block
+     of `pipeline_memory/schema.sql`, and 10-06 Task 2 (blocking human-action
+     checkpoint) makes the operator confirm the extension in Database → Extensions and
+     the scheduled job in the Cron view, with an explicit instruction to REPORT a
+     privilege failure rather than assume success. Retention is not billing-critical,
+     so a delayed enable is safe — but it is verified, not assumed.
    - What we know: pg_cron ships pre-installed (but not auto-enabled) on all hosted
      Supabase plans as of 2026 [CITED: supabase.com/docs/guides/cron]; enabling it is a
      one-line `CREATE EXTENSION IF NOT EXISTS pg_cron;` plus a `GRANT USAGE ON SCHEMA
@@ -711,7 +719,16 @@ def upsert_rows_bulk(sheet_id: int, run_id: str, rows: list[dict]) -> set[tuple]
      retention job's versioned SQL file, and a `checkpoint:human-verify` task asking Juan
      to confirm via Supabase Dashboard → Database → Extensions before the DDL is applied.
 
-2. **Does `upsert_rows_bulk`'s per-sheet JSON payload need internal chunking?**
+2. **(RESOLVED — see 10-02 Task 2)** **Does `upsert_rows_bulk`'s per-sheet JSON
+   payload need internal chunking?**
+   - Resolution: closed by DECIDING rather than measuring. 10-02 Task 2 makes chunking
+     UNCONDITIONAL at a module constant `_CHUNK_ROWS = 500` (mirroring
+     `billing_audit/writer.py`'s `_CHUNK_SIZE = 500`), so the 6,054-row worst case
+     yields 13 bounded RPC invocations and the ~1MB PostgREST body limit is never
+     approached. The byte-size spot-check survives as a regression TEST, not a
+     planning-time estimate: the payload-size test asserts a full 500-row chunk
+     serialises under 1,048,576 bytes and prints the measured bytes-per-row, which
+     10-06 Task 3 then records against real data.
    - What we know: the largest single sheet observed in production is 6,054 rows (run
      32743959053 evidence, design spec §2); `row_state` carries ~16 columns per row.
    - What's unclear: the exact serialized byte size for a 6,054-row payload, and whether
@@ -720,8 +737,16 @@ def upsert_rows_bulk(sheet_id: int, run_id: str, rows: list[dict]) -> set[tuple]
      `len(json.dumps(payload))` against a synthetic 6,054-row sample) as a planning-time
      spot-check before finalizing the RPC contract; add internal chunking only if needed.
 
-3. **Does `SDK.get_sheet(rows_modified_since=...)` return full row objects or an
+3. **(RESOLVED — see 10-04 Task 1, deliberately left open as an EMPIRICAL question)**
+   **Does `SDK.get_sheet(rows_modified_since=...)` return full row objects or an
    abbreviated shape for matched rows?**
+   - Resolution: closed as a question about the PLAN, not about the API. The answer is
+     deliberately NOT asserted anywhere: 10-04 Task 1's read-only probe CLI records the
+     observed shape empirically at T3a/T3b and captures it in a committed cassette, and
+     10-04 states outright that the shape "is genuinely unknown" rather than inheriting
+     `ifVersionAfter`'s abbreviated-response behaviour. This stays out of scope for
+     Phase 10's production write path, which remains a full read per D-07; it is in
+     scope only for the MEM-04 experiment's own design.
    - What we know: `ifVersionAfter`'s "no change" response is confirmed abbreviated
      (only the `version` property) [CITED: developers.smartsheet.com/api/smartsheet/
      openapi/sheets/getsheet]. The SDK's installed docstring for `rows_modified_since`
