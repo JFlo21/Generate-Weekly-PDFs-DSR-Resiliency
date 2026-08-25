@@ -136,7 +136,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 07. Security Hardening and Express Removal | v1.1 | 4/4 | ✅ Complete | 2026-06-03 |
 | 08. smartsheet-python-sdk 4.0.0 Compatibility Migration | v1.2 | 2/2 | Complete    | 2026-07-22 |
 | 09. Engine Modularization (pipeline package split) | v1.3 | 9/9 | ✅ Complete | 2026-08-25 |
-| 10. Run-Memory Foundation (shadow writes) | v1.4 | 0/? | Draft — needs Juan decisions |  |
+| 10. Run-Memory Foundation (shadow writes) | v1.4 | 0/? | In Progress|  |
 | 11. Incremental Read + Affected-Group Regeneration | v1.4 | 0/? | Draft |  |
 | 12. Ownership — last known foreman as of the week | v1.4 | 0/? | Draft |  |
 | 13. Audit Memory | v1.4 | 0/? | Draft |  |
@@ -562,12 +562,12 @@ provenance) into CONTEXT.md before planning.
 
 4. `pytest tests/ -v` green; production output byte-identical vs. a control run.
 
-**Plans:** 6 plans
+**Plans:** 1/6 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 10-01-PLAN.md — Tracer: `pipeline_memory` package, fail-open client, complete versioned DDL, `run_ledger` end-to-end (wave 1)
+- [x] 10-01-PLAN.md — Tracer: `pipeline_memory` package, fail-open client, complete versioned DDL, `run_ledger` end-to-end (wave 1)
 - [ ] 10-04-PLAN.md — MEM-04 read-only probe CLI, cassette replay harness, passive comparison script (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*

@@ -5,17 +5,17 @@ milestone_name: Engine Modularization & Hygiene
 current_phase: 10
 current_phase_name: Run-Memory Foundation (shadow writes)
 status: executing
-stopped_at: Phase 09 complete — v1.3 milestone done; Phase 10 (v1.4 Run-Memory Foundation) planned, ready to execute
-last_updated: "2026-08-25T06:32:47.792Z"
+stopped_at: Completed 10-01-PLAN.md
+last_updated: "2026-08-25T16:01:21.081Z"
 last_activity: 2026-08-25
 last_activity_desc: Phase 10 execution started
-state_head: 75a4f31decbd5d02a635b576909b2116728fa74f
 progress:
   total_phases: 1
   completed_phases: 1
   total_plans: 2
   completed_plans: 2
   percent: 100
+state_head: 75a4f31decbd5d02a635b576909b2116728fa74f
 ---
 
 # Project State
@@ -36,8 +36,8 @@ pipeline.
 ## Current Position
 
 Phase: 10 (Run-Memory Foundation (shadow writes)) — EXECUTING
-Plan: 1 of 6
-Status: Executing Phase 10
+Plan: 2 of 6
+Status: Ready to execute
   Engine 10,476 -> 709-line thin facade; 13-module pipeline/ package; 0 behavior
   change; 7 waves + 2 gap-closure plans (09-07/09-08). G-09-MOD-06 closed: Gate 4
   fail-capable, Gate 6 offline (synthetic), mypy re-baselined 65 with per-finding
@@ -96,6 +96,7 @@ Progress: [██████████] 100% (v1.3 complete — Phase 09 clos
 |------|----------|-------|-------|
 | Phase 09-engine-modularization-pipeline-package-split P07 | 32min | 3 tasks | 6 files |
 | Phase 09 P08 | 8min | 3 tasks | 3 files |
+| Phase 10 P01 | ~50min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -177,6 +178,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 09]: Phase 09-08: Juan decided rebaseline (option B) for the real 56->65 mypy delta; per-finding attribution recorded in .planning/debug/mypy-delta-56-to-65-2026-08-24.md; re-baseline commit + Living Ledger entry authorized as orchestrator follow-up, not part of this plan
 - [Phase 09]: Re-baseline hygiene rule locked — a Gate-4 re-baseline is only acceptable as a dedicated commit whose ledger entry names every accepted finding (blame + class); `da7d73c`.
 - [Phase 09]: A verification harness must never consume production data — Gate 6 runs token-blanked on the synthetic path; every gate has a fail-capability test (`4441b52`, `d4e6911`).
+- [Phase ?]: pipeline_memory/client.py imports nothing from billing_audit -- independent kill switch prevents a pipeline_memory misconfiguration from disabling the shipped attribution/hash-store writer
+- [Phase ?]: row_state.foreman_observed (HASH_FIELDS contract) reads the RAW Foreman column, never __effective_user -- avoids repeating the sentinel-freezing defect that corrupted 93 WRs / 5,824 rows in billing_audit.attribution_snapshot
+- [Phase ?]: group_state PRIMARY KEY promoted to include target_sheet_id so a reduced_sub two-sheet fan-out gets one row per leg instead of the second overwriting the first's attachment_id
 
 ### Roadmap Evolution
 
@@ -305,8 +309,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-08-25T05:39:02Z
-**Stopped at:** Phase 09 complete (v1.3 milestone done), ready to execute Phase 10
+**Last session:** 2026-08-25T16:01:21.067Z
+**Stopped at:** Completed 10-01-PLAN.md
 **Resume file:** None
 
 ## Session Continuity
