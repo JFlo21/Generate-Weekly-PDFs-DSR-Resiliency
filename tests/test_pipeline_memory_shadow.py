@@ -421,13 +421,17 @@ class RowModifiedAtHashNeutralityTests(unittest.TestCase):
             "Work Request #": "90001",
             "__row_modified_at": "2026-08-24T10:15:00+00:00",
         }
-        payload_with = mem_writer.build_row_payload(row_with, "run-1")
+        payload_with = mem_writer._row_to_payload(
+            row_with, "run-1", None, None,
+        )
         self.assertEqual(
             payload_with["row_modified_at"], "2026-08-24T10:15:00+00:00",
         )
 
         row_without = {"__row_id": 2, "Work Request #": "90001"}
-        payload_without = mem_writer.build_row_payload(row_without, "run-1")
+        payload_without = mem_writer._row_to_payload(
+            row_without, "run-1", None, None,
+        )
         self.assertIsNone(payload_without["row_modified_at"])
 
 
@@ -535,11 +539,12 @@ class SchemaColumnContractTests(unittest.TestCase):
 
 
 class BulkPayloadContractTests(unittest.TestCase):
-    """Task 3 edge invariants for ``upsert_rows_bulk`` / ``build_row_payload``
-    / ``compute_content_hash`` -- the MEM-02 contract plan 10-02's
-    per-sheet loop (chunking, sub-budget, orchestrator wiring) is built
-    on top of. Asserts payload SHAPE, never database state (no live
-    Supabase / Postgres in this suite).
+    """Task 3 (10-01) + Task 2 (10-02) edge invariants for
+    ``upsert_rows_bulk`` / ``_row_to_payload`` / ``compute_content_hash``
+    -- the MEM-02 contract plan 10-02's per-sheet loop (chunking,
+    sub-budget, orchestrator wiring) is built on top of. Asserts payload
+    SHAPE, never database state (no live Supabase / Postgres in this
+    suite).
     """
 
     def setUp(self):
@@ -582,6 +587,12 @@ class BulkPayloadContractTests(unittest.TestCase):
         self.assertIsNotNone(result)
 
     def test_blank_or_absent_foreman_never_becomes_placeholder(self):
+        """10-RESEARCH.md Pitfall 2 (CRITICAL): foreman_observed reads the
+        RAW 'Foreman' column, never the resolved __effective_user (which
+        substitutes the literal 'Unknown Foreman' sentinel when blank --
+        the exact defect that corrupted 93 WRs / 5,824 rows in
+        billing_audit.attribution_snapshot).
+        """
         from pipeline_memory import writer as mem_writer
 
         blank_row = {
@@ -590,7 +601,7 @@ class BulkPayloadContractTests(unittest.TestCase):
             "Foreman": "",
             "__effective_user": "Unknown Foreman",
         }
-        payload = mem_writer.build_row_payload(blank_row, "run-1")
+        payload = mem_writer._row_to_payload(blank_row, "run-1", None, None)
         self.assertIn(payload["foreman_observed"], (None, ""))
         self.assertNotEqual(payload["foreman_observed"], "Unknown Foreman")
         self.assertTrue(payload["content_hash"])
@@ -598,9 +609,112 @@ class BulkPayloadContractTests(unittest.TestCase):
 
         absent_row = dict(blank_row)
         del absent_row["Foreman"]
-        payload2 = mem_writer.build_row_payload(absent_row, "run-1")
+        payload2 = mem_writer._row_to_payload(absent_row, "run-1", None, None)
         self.assertIn(payload2["foreman_observed"], (None, ""))
         self.assertTrue(payload2["content_hash"])
+
+    def test_foreman_observed_is_raw_column_not_resolved_assignee(self):
+        """The positive half of the raw-not-resolved regression: a row
+        with a real 'Foreman' value AND a DIFFERENT resolved assignee
+        (from 'Foreman Assigned?', per pipeline/fetch.py's fallback
+        chain) must still produce foreman_observed == the raw 'Foreman'
+        text, never the resolved value.
+        """
+        from pipeline_memory import writer as mem_writer
+
+        row = {
+            "__row_id": 1,
+            "Work Request #": "90001",
+            "Foreman": "Alice Primary",
+            "Foreman Assigned?": "someone.else@example.com",
+            "__effective_user": "someone.else@example.com",
+        }
+        payload = mem_writer._row_to_payload(row, "run-1", None, None)
+        self.assertEqual(payload["foreman_observed"], "Alice Primary")
+
+    def test_helper_and_vac_observed_are_raw_not_the_gated_derivative(self):
+        """10-RESEARCH.md Task 2 behavior: helper_observed / vac_crew_
+        observed read the RAW mapped columns ('Foreman Helping?' /
+        'VAC Crew Helping?'), independent of the pipeline's gated
+        __helper_foreman / __vac_crew_name keys -- which are ABSENT
+        whenever the row's completion checkbox is unchecked. A row that
+        plainly shows a helper/VAC name but hasn't been marked complete
+        yet must still be observed, not silently dropped.
+        """
+        from pipeline_memory import writer as mem_writer
+
+        row = {
+            "__row_id": 1,
+            "Work Request #": "90001",
+            "Foreman Helping?": "Bob Helper",
+            "Helping Foreman Completed Unit?": False,
+            "VAC Crew Helping?": "Carl Vac",
+            "Vac Crew Completed Unit?": False,
+            # The pipeline's gated keys are deliberately ABSENT here --
+            # fetch.py only sets them when the completion checkbox is
+            # checked (lines ~537-624), exactly the case under test.
+        }
+        payload = mem_writer._row_to_payload(row, "run-1", None, None)
+        self.assertEqual(payload["helper_observed"], "Bob Helper")
+        self.assertFalse(payload["helper_completed"])
+        self.assertEqual(payload["vac_crew_observed"], "Carl Vac")
+        self.assertFalse(payload["vac_completed"])
+
+    def test_missing_or_non_int_row_id_returns_none(self):
+        """Mirrors billing_audit/writer.py::freeze_row's identical guard
+        -- _row_to_payload never fabricates a row_id.
+        """
+        from pipeline_memory import writer as mem_writer
+
+        self.assertIsNone(
+            mem_writer._row_to_payload(
+                {"Work Request #": "90001"}, "run-1", None, None,
+            )
+        )
+        self.assertIsNone(
+            mem_writer._row_to_payload(
+                {"__row_id": "not-an-int", "Work Request #": "90001"},
+                "run-1", None, None,
+            )
+        )
+
+    def test_cu_and_pole_fall_back_through_synonyms(self):
+        from pipeline_memory import writer as mem_writer
+
+        row_cu_fallback = {
+            "__row_id": 1, "Work Request #": "90001",
+            "Billable Unit Code": "ANC-M",
+            "Point #": "P-2",
+        }
+        payload = mem_writer._row_to_payload(
+            row_cu_fallback, "run-1", None, None,
+        )
+        self.assertEqual(payload["cu"], "ANC-M")
+        self.assertEqual(payload["pole"], "P-2")
+
+    def test_week_ending_and_snapshot_date_use_caller_resolved_values(self):
+        """_coerce_date accepts an ALREADY-RESOLVED date/datetime (never a
+        raw string) -- mirrors billing_audit/writer.py::_coerce_week_ending.
+        """
+        import datetime as _dt
+
+        from pipeline_memory import writer as mem_writer
+
+        row = {"__row_id": 1, "Work Request #": "90001"}
+        payload = mem_writer._row_to_payload(
+            row, "run-1",
+            _dt.datetime(2026, 8, 30),
+            _dt.date(2026, 8, 1),
+        )
+        self.assertEqual(payload["week_ending"], "2026-08-30")
+        self.assertEqual(payload["snapshot_date"], "2026-08-01")
+
+        # A raw string is explicitly REFUSED, not parsed -- the caller
+        # must resolve it first (10-RESEARCH.md interfaces contract).
+        payload_raw_str = mem_writer._row_to_payload(
+            row, "run-1", "2026-08-30", None,
+        )
+        self.assertIsNone(payload_raw_str["week_ending"])
 
     def test_hash_order_stability(self):
         from pipeline_memory import writer as mem_writer
@@ -633,6 +747,36 @@ class BulkPayloadContractTests(unittest.TestCase):
             mem_writer.compute_content_hash(reversed_order),
         )
 
+    def test_hash_excludes_row_modified_at_and_run_scoped_fields(self):
+        """Two payloads built from rows differing ONLY in the row-modified
+        timestamp (or, equivalently, any run-scoped field never fed into
+        HASH_FIELDS) have equal content_hash; changing any single member
+        of HASH_FIELDS changes it (10-RESEARCH.md Pitfall 3 -- a second
+        run with no Smartsheet edits must add zero row_event rows).
+        """
+        from pipeline_memory import writer as mem_writer
+
+        base_row = {
+            "__row_id": 1, "Work Request #": "90001",
+            "Foreman": "Alice", "CU": "ANC-M", "Quantity": "3",
+        }
+        row_t1 = dict(base_row, __row_modified_at="2026-08-24T10:00:00Z")
+        row_t2 = dict(base_row, __row_modified_at="2026-08-25T11:30:00Z")
+        payload_t1 = mem_writer._row_to_payload(row_t1, "run-1", None, None)
+        payload_t2 = mem_writer._row_to_payload(row_t2, "run-2", None, None)
+        self.assertNotEqual(payload_t1["row_modified_at"], payload_t2["row_modified_at"])
+        self.assertEqual(payload_t1["content_hash"], payload_t2["content_hash"])
+
+        # Changing a REAL HASH_FIELDS member (Foreman -> foreman_observed)
+        # must change the hash.
+        row_changed = dict(base_row, Foreman="Bob")
+        payload_changed = mem_writer._row_to_payload(
+            row_changed, "run-1", None, None,
+        )
+        self.assertNotEqual(
+            payload_t1["content_hash"], payload_changed["content_hash"],
+        )
+
     def test_adjacency_distinct_row_ids_both_present(self):
         from pipeline_memory import writer as mem_writer
 
@@ -644,8 +788,8 @@ class BulkPayloadContractTests(unittest.TestCase):
             "__row_id": 2, "Work Request #": "90001",
             "Foreman": "Alice", "CU": "ANC-M",
         }
-        payload_a = mem_writer.build_row_payload(row_a, "run-1")
-        payload_b = mem_writer.build_row_payload(row_b, "run-1")
+        payload_a = mem_writer._row_to_payload(row_a, "run-1", None, None)
+        payload_b = mem_writer._row_to_payload(row_b, "run-1", None, None)
         self.assertNotEqual(payload_a["row_id"], payload_b["row_id"])
         # Same business content -> same hash (builder never de-dupes by
         # content; that would be an (sheet_id, row_id) collision, not a
@@ -691,7 +835,13 @@ class CounterAndPiiDisciplineTests(unittest.TestCase):
         for value in counters.values():
             self.assertIsInstance(value, int)
 
-    def test_forced_rpc_failure_bumps_only_the_errored_counter(self):
+    def test_forced_rpc_failure_bumps_errored_and_sent_but_not_changed(self):
+        """A single-chunk RPC failure still counts the row as SENT
+        (attempted) and ERRORED, but never CHANGED -- 'sent' tracks every
+        row handed to the bulk upsert (MEM-02: "every accepted row ... is
+        sent to the bulk upsert exactly once per run"), regardless of
+        whether the RPC round-trip itself succeeded.
+        """
         from pipeline_memory import writer as mem_writer
 
         os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
@@ -711,8 +861,12 @@ class CounterAndPiiDisciplineTests(unittest.TestCase):
             before.get("rows_upsert_errored", 0) + 1,
         )
         self.assertEqual(
-            after.get("rows_upsert_written", 0),
-            before.get("rows_upsert_written", 0),
+            after.get("rows_upsert_sent", 0),
+            before.get("rows_upsert_sent", 0) + 1,
+        )
+        self.assertEqual(
+            after.get("rows_upsert_changed", 0),
+            before.get("rows_upsert_changed", 0),
         )
         # An unrelated counter family (run_ledger) must be untouched by
         # a rows_upsert-only failure.
@@ -723,6 +877,26 @@ class CounterAndPiiDisciplineTests(unittest.TestCase):
         self.assertEqual(
             after.get("run_ledger_written", 0),
             before.get("run_ledger_written", 0),
+        )
+
+    def test_bad_row_id_bumps_skipped_counter(self):
+        from pipeline_memory import writer as mem_writer
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+        client = _make_fake_pipeline_memory_client()
+        before = mem_writer.get_counters()
+
+        with mock.patch("pipeline_memory.writer.get_client", return_value=client):
+            result = mem_writer.upsert_rows_bulk(
+                1, "run-1", [{"Work Request #": "90001"}],
+            )
+        after = mem_writer.get_counters()
+
+        self.assertEqual(result, set())
+        client.schema.assert_not_called()
+        self.assertEqual(
+            after.get("rows_skipped_bad_row_id", 0),
+            before.get("rows_skipped_bad_row_id", 0) + 1,
         )
 
     def test_no_writer_log_record_contains_a_personnel_value(self):
@@ -737,8 +911,8 @@ class CounterAndPiiDisciplineTests(unittest.TestCase):
             "__row_id": 1,
             "Work Request #": "90001",
             "Foreman": "Alice VerySecretName",
-            "__helper_foreman": "Bob VerySecretHelper",
-            "__vac_crew_name": "Carl VerySecretVac",
+            "Foreman Helping?": "Bob VerySecretHelper",
+            "VAC Crew Helping?": "Carl VerySecretVac",
         }
 
         # The forced PGRST106 failure guarantees at least one WARNING
@@ -755,6 +929,196 @@ class CounterAndPiiDisciplineTests(unittest.TestCase):
             "Carl VerySecretVac",
         ):
             self.assertNotIn(secret, combined)
+
+
+class ChunkingAndPayloadSizeTests(unittest.TestCase):
+    """Task 2 (10-RESEARCH.md Pitfall 4): 'one RPC per sheet' means 'not
+    one RPC per row' -- the largest observed source sheet (6,054 rows,
+    design spec section 2, run 32743959053) must be safely chunked, and a
+    full chunk's serialised JSON body must stay well under PostgREST's
+    ~1MB request-body limit.
+    """
+
+    def setUp(self):
+        _reset_all()
+        _pop_env()
+
+    def tearDown(self):
+        _reset_all()
+        _pop_env()
+
+    def _rows(self, n, *, sheet_id=1):
+        return [
+            {
+                "__row_id": i,
+                "Work Request #": f"9{i:05d}",
+                "Foreman": f"Foreman {i}",
+                "CU": "ANC-M",
+                "Pole #": f"P-{i}",
+                "Work Type": "Maintenance",
+                "Quantity": "3",
+                "Units Total Price": "150.00",
+                "Units Completed?": True,
+            }
+            for i in range(n)
+        ]
+
+    def test_6054_row_input_yields_13_chunked_rpc_invocations(self):
+        import math
+
+        from pipeline_memory import writer as mem_writer
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+        client = _make_fake_pipeline_memory_client()
+        rows = self._rows(6054)
+
+        with mock.patch("pipeline_memory.writer.get_client", return_value=client):
+            mem_writer.upsert_rows_bulk(1, "run-1", rows)
+
+        expected_chunks = math.ceil(6054 / mem_writer._CHUNK_ROWS)
+        self.assertEqual(expected_chunks, 13)
+        self.assertEqual(
+            client.schema.return_value.rpc.call_count, expected_chunks,
+        )
+        seen_row_ids: set = set()
+        for call in client.schema.return_value.rpc.call_args_list:
+            _, params = call.args
+            self.assertLessEqual(len(params["p_rows"]), mem_writer._CHUNK_ROWS)
+            self.assertEqual(params["p_sheet_id"], 1)
+            self.assertEqual(params["p_run_id"], "run-1")
+            seen_row_ids.update(r["row_id"] for r in params["p_rows"])
+        self.assertEqual(len(seen_row_ids), 6054)
+
+    def test_full_chunk_payload_stays_under_postgrest_body_limit(self):
+        """Asserts the measured size AND prints bytes/row for the SUMMARY
+        (10-RESEARCH.md Pitfall 4 acceptance criterion).
+        """
+        import json
+
+        from pipeline_memory import writer as mem_writer
+
+        rows = self._rows(mem_writer._CHUNK_ROWS)
+        payloads = [
+            mem_writer._row_to_payload(r, "run-1", None, None) for r in rows
+        ]
+        self.assertEqual(len(payloads), mem_writer._CHUNK_ROWS)
+        body = json.dumps(payloads, default=str).encode("utf-8")
+        bytes_per_row = len(body) / len(payloads)
+        print(
+            f"[pipeline_memory] measured {len(body)} bytes for a full "
+            f"{mem_writer._CHUNK_ROWS}-row chunk "
+            f"({bytes_per_row:.1f} bytes/row)"
+        )
+        self.assertLess(len(body), 1_048_576)
+
+
+@unittest.skipIf(
+    _POSTGREST_API_ERROR_CLS is None,
+    "postgrest not installed — skipping chunk fail-open tests that force "
+    "an RPC failure.",
+)
+class ChunkFailOpenTests(unittest.TestCase):
+    """Task 2: a middle chunk's failure must not lose the successful
+    chunks' affected set, must bump the errored counter, must log exactly
+    ONE aggregate WARNING for the whole call (not one per chunk), and must
+    never raise.
+    """
+
+    def setUp(self):
+        _reset_all()
+        _pop_env()
+
+    def tearDown(self):
+        _reset_all()
+        _pop_env()
+
+    def test_middle_chunk_failure_keeps_other_chunks_affected_set(self):
+        from pipeline_memory import writer as mem_writer
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+        chunk_rows = mem_writer._CHUNK_ROWS
+        rows = [
+            {
+                "__row_id": i,
+                "Work Request #": f"9{i:05d}",
+                "Foreman": "Alice",
+            }
+            for i in range(chunk_rows + 5)  # 2 chunks: 500 + 5
+        ]
+
+        call_count = {"n": 0}
+
+        def _side_effect(*_a, **_kw):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return mock.Mock(
+                    data=[{"wr": "900001", "week_ending": "2026-08-30"}],
+                )
+            raise _POSTGREST_API_ERROR_CLS({
+                "code": "PGRST106", "message": "x", "hint": "", "details": "",
+            })
+
+        client = _make_fake_pipeline_memory_client()
+        client.schema.return_value.rpc.return_value.execute.side_effect = (
+            _side_effect
+        )
+
+        with self.assertLogs(level="WARNING") as cm, mock.patch(
+            "pipeline_memory.writer.get_client", return_value=client,
+        ):
+            # Reset the independent kill switch between the two chunk
+            # calls would normally short-circuit call #2 -- but PGRST106
+            # trips the run-global kill switch on the FIRST failing
+            # chunk, so with_retry's own global-kill guard would skip
+            # any FURTHER chunk after that one. This test therefore
+            # asserts the documented behavior: chunk 1 succeeds BEFORE
+            # the kill trips, chunk 2 fails and trips it, and the
+            # returned set reflects exactly the chunks that completed
+            # before the trip -- never raises, never loses chunk 1's
+            # affected set.
+            result = mem_writer.upsert_rows_bulk(1, "run-1", rows)
+
+        self.assertEqual(result, {("900001", "2026-08-30")})
+        aggregate_warnings = [
+            line for line in cm.output
+            if "pipeline_memory upsert_rows_bulk:" in line
+        ]
+        self.assertEqual(len(aggregate_warnings), 1)
+        self.assertGreaterEqual(
+            mem_writer.get_counters()["rows_upsert_errored"], 1,
+        )
+
+
+class AffectedSetParsingTests(unittest.TestCase):
+    def test_none_response_data_yields_empty_set_never_none(self):
+        from pipeline_memory.writer import _parse_affected_set
+
+        self.assertEqual(_parse_affected_set(mock.Mock(data=None)), set())
+
+    def test_malformed_response_rows_are_skipped_not_raised(self):
+        from pipeline_memory.writer import _parse_affected_set
+
+        result = _parse_affected_set(mock.Mock(data=[
+            "not-a-dict", 42, None,
+            {"wr": "90001", "week_ending": "2026-08-30"},
+        ]))
+        self.assertEqual(result, {("90001", "2026-08-30")})
+
+    def test_upsert_rows_bulk_never_returns_none(self):
+        from pipeline_memory import writer as mem_writer
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+        client = _make_fake_pipeline_memory_client()
+        client.schema.return_value.rpc.return_value.execute.return_value = (
+            mock.Mock(data=None)
+        )
+        row = {"__row_id": 1, "Work Request #": "90001"}
+
+        with mock.patch("pipeline_memory.writer.get_client", return_value=client):
+            result = mem_writer.upsert_rows_bulk(1, "run-1", [row])
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result, set())
 
 
 if __name__ == "__main__":
