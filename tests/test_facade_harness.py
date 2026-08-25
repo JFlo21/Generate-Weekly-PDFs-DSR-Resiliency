@@ -20,6 +20,15 @@ Behaviours pinned (from 09-00-PLAN.md ``<behavior>``):
      ending, refuses to ever PASS on an unparseable (empty or non-integer)
      baseline value, and still PASSES on a neutral/improved delta with a
      clean byte-for-byte rendered comparison line (gap G-09-MOD-06).
+  5. The REAL ``tests/golden/*.txt`` baselines never regress to CRLF and
+     stay ``.gitattributes``-pinned to ``eol=lf``, so Gate 4's byte-for-byte
+     count read and line-for-line diff always see clean bytes on this
+     ``core.autocrlf=true`` checkout (gap G-09-MOD-06).
+  6. The REAL ``scripts/run_6_gates.sh`` Gate-6 engine invocation stays
+     pinned to the deterministic synthetic dataset (an empty
+     ``SMARTSHEET_API_TOKEN=`` prefix plus ``TEST_MODE=true`` and
+     ``SKIP_UPLOAD=true``), so Gate 6 never silently reverts to reading
+     production Smartsheet sheets (gap G-09-MOD-06).
 """
 from __future__ import annotations
 
@@ -315,3 +324,99 @@ def test_gate4_refuses_to_pass_on_malformed_baseline(gate4_tmp_repo, baseline_by
 
     assert result.returncode != 0, result.stdout
     assert b"FAIL:" in result.stdout
+
+
+# ── Golden LF pin ─────────────────────────────────────────────────────────
+#
+# Pins the OTHER G-09-MOD-06 standing rule onto the REAL repo state: the
+# frozen tests/golden/*.txt baselines must never regress to CRLF and stay
+# .gitattributes-pinned to eol=lf.
+
+_GOLDEN_DIR = pathlib.Path(__file__).resolve().parent / "golden"
+_GIT = shutil.which("git")
+
+
+def _files_with_crlf(paths):
+    """Return the subset of ``paths`` whose bytes contain a CRLF pair."""
+    return [p for p in paths if b"\r\n" in p.read_bytes()]
+
+
+def test_golden_txt_baselines_contain_no_crlf():
+    golden_txt = sorted(_GOLDEN_DIR.glob("*.txt"))
+    assert golden_txt, "expected at least one tests/golden/*.txt baseline"
+
+    assert _files_with_crlf(golden_txt) == []
+
+
+@pytest.mark.skipif(_GIT is None, reason="git not available on PATH")
+def test_golden_txt_baselines_are_pinned_lf_via_gitattributes():
+    golden_txt = sorted(_GOLDEN_DIR.glob("*.txt"))
+    repo_root = _GOLDEN_DIR.parent.parent
+
+    result = subprocess.run(
+        [_GIT, "check-attr", "eol", "--"] + [str(p) for p in golden_txt],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    assert len(lines) == len(golden_txt)
+    assert all(line.endswith("eol: lf") for line in lines)
+
+
+def test_crlf_scan_helper_detects_crlf_in_tmp_file(tmp_path):
+    """Fail-capability check: the scanner must actually flag a CRLF file."""
+    tainted = tmp_path / "tainted.txt"
+    tainted.write_bytes(b"65\r\n")
+    clean = tmp_path / "clean.txt"
+    clean.write_bytes(b"65\n")
+
+    assert _files_with_crlf([tainted, clean]) == [tainted]
+
+
+# ── Gate 6: synthetic pin ────────────────────────────────────────────────
+#
+# Pins gap G-09-MOD-06's Gate-6 fix onto the REAL scripts/run_6_gates.sh
+# bytes: the engine-invocation line must actually be scoped to the
+# synthetic dataset, not merely documented as such in a comment.
+
+_RUN_6_GATES_SH = _SCRIPTS_DIR / "run_6_gates.sh"
+
+
+def _is_synthetic_pinned_gate6_line(line: str) -> bool:
+    """True if a Gate-6 invocation line is pinned to the synthetic dataset:
+    a leading empty ``SMARTSHEET_API_TOKEN=`` assignment plus
+    ``TEST_MODE=true`` and ``SKIP_UPLOAD=true`` on the same line.
+    """
+    if "python generate_weekly_pdfs.py" not in line:
+        return False
+    return (
+        line.startswith("SMARTSHEET_API_TOKEN= ")
+        and "TEST_MODE=true" in line
+        and "SKIP_UPLOAD=true" in line
+    )
+
+
+def test_gate6_invocation_pinned_to_synthetic_dataset():
+    lines = _RUN_6_GATES_SH.read_text(encoding="utf-8").splitlines()
+    invocation_lines = [
+        line for line in lines if "python generate_weekly_pdfs.py" in line
+    ]
+
+    assert len(invocation_lines) == 1, invocation_lines
+    assert _is_synthetic_pinned_gate6_line(invocation_lines[0])
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "TEST_MODE=true SKIP_UPLOAD=true python generate_weekly_pdfs.py",
+        "SMARTSHEET_API_TOKEN=abc123 TEST_MODE=true SKIP_UPLOAD=true"
+        " python generate_weekly_pdfs.py",
+    ],
+    ids=["missing-token-prefix", "token-not-empty"],
+)
+def test_gate6_checker_rejects_unpinned_invocation_line(line):
+    assert not _is_synthetic_pinned_gate6_line(line)
