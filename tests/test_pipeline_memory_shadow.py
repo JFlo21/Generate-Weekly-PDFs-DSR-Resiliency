@@ -169,6 +169,14 @@ class RunLedgerTracerTests(unittest.TestCase):
         finish_payload = finish_call.args[0]
         self.assertEqual(finish_call.kwargs.get("on_conflict"), "run_id")
         self.assertEqual(finish_payload["run_id"], "run-1")
+        # Regression (plan 10-06 Task 3, live-verified 2026-08-25 against
+        # poeyztlmsawfoqlanucc): schema.sql's mode column is NOT NULL with
+        # no DEFAULT, and PostgREST's merge-duplicates upsert validates the
+        # proposed row against NOT NULL constraints before conflict
+        # resolution -- omitting mode here raises a real 23502
+        # not_null_violation on every finish upsert, even though the write
+        # is an UPDATE of an existing row, not an INSERT.
+        self.assertEqual(finish_payload["mode"], "full")
         self.assertIn("finished_at", finish_payload)
         self.assertEqual(finish_payload["status"], "success")
         self.assertEqual(finish_payload["sheets_checked"], 3)

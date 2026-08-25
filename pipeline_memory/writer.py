@@ -212,11 +212,26 @@ def run_ledger_finish(run_id: str, **counters: Any) -> None:
     """Upsert the ``run_ledger`` 'finish' row. NEVER raises.
 
     ``counters`` may carry any of ``_RUN_LEDGER_FINISH_COLUMNS`` (missing
-    ones default to 0) plus a ``status`` override (default ``"success"``).
+    ones default to 0), a ``mode`` override (default ``"full"`` -- Phase
+    10 is always a full read, matching ``run_ledger_start``'s hard-coded
+    call-site value), plus a ``status`` override (default ``"success"``).
     Everything else left in ``counters`` is folded into the JSON ``notes``
     column alongside the run's execution type -- so this phase adds NO
     new key to the frozen 21-key ``run_summary.json`` contract; memory
     counters live in ``run_ledger.notes`` instead.
+
+    ``mode`` MUST be present in this upsert's payload even though the
+    'start' row already set it: ``schema.sql``'s ``mode`` column is
+    ``NOT NULL`` with no ``DEFAULT``, and PostgREST's merge-duplicates
+    upsert builds a single ``INSERT ... ON CONFLICT (run_id) DO UPDATE``
+    statement scoped to only the payload's own columns -- Postgres
+    validates the proposed row against NOT NULL constraints before
+    conflict resolution, so omitting ``mode`` here raises a real 23502
+    (not_null_violation) even though the actual write is an UPDATE of an
+    existing row, not an INSERT. Confirmed live against project
+    poeyztlmsawfoqlanucc during plan 10-06 Task 3 (2026-08-25): every
+    'finish' upsert failed 400/23502 until this fix, so no shadow run
+    before this commit ever persisted its finish row.
 
     ``notes.execution_type`` reads the ``EXECUTION_TYPE`` env var (the
     same variable ``scripts/notion_sync.py`` already consumes, computed
@@ -234,6 +249,7 @@ def run_ledger_finish(run_id: str, **counters: Any) -> None:
 
     counters = dict(counters)  # local copy -- caller's dict is untouched
     status = counters.pop("status", "success")
+    mode = counters.pop("mode", "full")
     row_columns = {
         key: counters.pop(key, 0) for key in _RUN_LEDGER_FINISH_COLUMNS
     }
@@ -244,6 +260,7 @@ def run_ledger_finish(run_id: str, **counters: Any) -> None:
 
     payload: dict[str, Any] = {
         "run_id": run_id,
+        "mode": mode,
         "finished_at": _utcnow_iso(),
         "status": status,
         "notes": notes,
