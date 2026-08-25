@@ -355,6 +355,82 @@ class ResolveRunIdTests(unittest.TestCase):
         )
 
 
+class RowModifiedAtHashNeutralityTests(unittest.TestCase):
+    """Task 1 (MEM-02): ``__row_modified_at`` (pipeline/fetch.py) must be
+    hash-neutral for ``pipeline.change_detection.calculate_data_hash`` (the
+    EXISTING group-level hash -- unrelated to pipeline_memory's own
+    ``content_hash``) and must map cleanly through the writer's row-payload
+    builder, including tolerating its absence.
+
+    Both properties predate this task by construction --
+    ``calculate_data_hash`` reads only explicitly named fields via
+    ``.get()`` (pipeline/change_detection.py) so an unnamed double-
+    underscore key is invisible to it regardless of pipeline/fetch.py's
+    state, and the payload builder's ``row_data.get("__row_modified_at")``
+    already tolerates a missing key. These tests pin BOTH invariants so a
+    future change to either function's field list can't silently break the
+    contract this task's fetch.py capture line depends on. The new
+    fetch.py capture line itself (``getattr(row, 'modified_at', None)`` ->
+    ISO-serialise -> ``row_data['__row_modified_at']``) is proven by the
+    bounded ``git diff --numstat`` gate, the full suite, and
+    ``bash scripts/run_6_gates.sh`` -- unit-testing the Smartsheet SDK Row
+    object itself is out of this test file's scope (no existing fixture
+    mocks a full ``Sheet``/``Row`` success path in ``pipeline.fetch``).
+    """
+
+    def _group_row(self, **overrides):
+        row = {
+            'Work Request #': '90001',
+            'Snapshot Date': '2026-08-01',
+            'CU': 'ANC-M',
+            'Pole #': 'P-1',
+            'Quantity': '3',
+        }
+        row.update(overrides)
+        return row
+
+    def test_calculate_data_hash_is_neutral_to_row_modified_at(self):
+        import generate_weekly_pdfs
+
+        saved_ext = generate_weekly_pdfs.EXTENDED_CHANGE_DETECTION
+        saved_cutoff = generate_weekly_pdfs.RATE_CUTOFF_DATE
+        saved_fp = generate_weekly_pdfs._RATES_FINGERPRINT
+        try:
+            generate_weekly_pdfs.EXTENDED_CHANGE_DETECTION = True
+            generate_weekly_pdfs.RATE_CUTOFF_DATE = None
+            generate_weekly_pdfs._RATES_FINGERPRINT = ''
+
+            without_key = [self._group_row()]
+            with_key = [self._group_row(
+                __row_modified_at='2026-08-24T10:15:00+00:00',
+            )]
+            self.assertEqual(
+                generate_weekly_pdfs.calculate_data_hash(without_key),
+                generate_weekly_pdfs.calculate_data_hash(with_key),
+            )
+        finally:
+            generate_weekly_pdfs.EXTENDED_CHANGE_DETECTION = saved_ext
+            generate_weekly_pdfs.RATE_CUTOFF_DATE = saved_cutoff
+            generate_weekly_pdfs._RATES_FINGERPRINT = saved_fp
+
+    def test_payload_builder_maps_row_modified_at_and_tolerates_absence(self):
+        from pipeline_memory import writer as mem_writer
+
+        row_with = {
+            "__row_id": 1,
+            "Work Request #": "90001",
+            "__row_modified_at": "2026-08-24T10:15:00+00:00",
+        }
+        payload_with = mem_writer.build_row_payload(row_with, "run-1")
+        self.assertEqual(
+            payload_with["row_modified_at"], "2026-08-24T10:15:00+00:00",
+        )
+
+        row_without = {"__row_id": 2, "Work Request #": "90001"}
+        payload_without = mem_writer.build_row_payload(row_without, "run-1")
+        self.assertIsNone(payload_without["row_modified_at"])
+
+
 _SCHEMA_SQL_PATH = _REPO_ROOT / "pipeline_memory" / "schema.sql"
 
 
