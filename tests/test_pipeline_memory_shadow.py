@@ -1694,5 +1694,126 @@ class AttachmentSideChannelTests(unittest.TestCase):
             self.assertIn(token, key_src)
 
 
+class GroupStateFlushComputationTests(unittest.TestCase):
+    """Task 3: pipeline.orchestrate._build_group_state_flush -- the PURE
+    post-upload flush computation (withhold-on-not-ok, reduced_sub
+    two-row expansion, attachment lookup by the 4-part side-channel
+    key). Extracted as a standalone function (mirrors
+    _run_memory_write_phase's testability pattern, 10-02 key-decision)
+    specifically so these scenarios are directly unit-testable without
+    invoking main()'s full Smartsheet/Excel/Sentry machinery.
+    """
+
+    def test_reduced_sub_two_leg_produces_two_distinct_records(self):
+        import pipeline.orchestrate as orch
+
+        deferred = [{
+            'group_key': 'gk1', 'wr_num': '90001', 'week_iso': '2026-08-30',
+            'variant': 'reduced_sub', 'identifier': '', 'file_identifier': '',
+            'data_hash': 'hash1', 'row_count': 7,
+        }]
+        upload_ok = {'gk1': True}
+        upload_tasks = [
+            {'group_key': 'gk1', 'target_sheet_id': 111},
+            {'group_key': 'gk1', 'target_sheet_id': 222},
+        ]
+        side_channel = {
+            ('gk1', 'reduced_sub', '', 111): {'attachment_id': 1, 'attachment_name': 'a.xlsx'},
+            ('gk1', 'reduced_sub', '', 222): {'attachment_id': 2, 'attachment_name': 'b.xlsx'},
+        }
+
+        records, withheld = orch._build_group_state_flush(
+            deferred, upload_ok, upload_tasks, side_channel,
+        )
+
+        self.assertEqual(withheld, 0)
+        self.assertEqual(len(records), 2)
+        by_sheet = {r['target_sheet_id']: r for r in records}
+        self.assertEqual(by_sheet[111]['attachment_id'], 1)
+        self.assertEqual(by_sheet[222]['attachment_id'], 2)
+
+    def test_group_with_error_leg_is_withheld_entirely(self):
+        import pipeline.orchestrate as orch
+
+        deferred = [{
+            'group_key': 'gk2', 'wr_num': '90002', 'week_iso': '2026-08-30',
+            'variant': 'primary', 'identifier': '', 'file_identifier': '',
+            'data_hash': 'hash2', 'row_count': 3,
+        }]
+        upload_ok = {'gk2': False}  # a leg errored -> group not ok
+        upload_tasks = [{'group_key': 'gk2', 'target_sheet_id': 111}]
+
+        records, withheld = orch._build_group_state_flush(
+            deferred, upload_ok, upload_tasks, {},
+        )
+
+        self.assertEqual(records, [])
+        self.assertEqual(withheld, 1)
+
+    def test_skip_upload_scenario_no_row_advances(self):
+        """SKIP_UPLOAD makes every leg report 'skip_upload', which the
+        caller's zip loop (mirrored here) marks _ok = False (not in
+        ('uploaded', 'skipped')) -- upload_ok is False for every group,
+        so no group_state record is produced."""
+        import pipeline.orchestrate as orch
+
+        deferred = [{
+            'group_key': 'gk3', 'wr_num': '90003', 'week_iso': '2026-08-30',
+            'variant': 'primary', 'identifier': '', 'file_identifier': '',
+            'data_hash': 'hash3', 'row_count': 4,
+        }]
+        upload_ok = {'gk3': False}  # skip_upload -> not ('uploaded', 'skipped')
+        upload_tasks = [{'group_key': 'gk3', 'target_sheet_id': 111}]
+
+        records, withheld = orch._build_group_state_flush(
+            deferred, upload_ok, upload_tasks, {},
+        )
+
+        self.assertEqual(records, [])
+        self.assertEqual(withheld, 1)
+
+    def test_flush_positioned_after_both_existing_flushes_and_writer_call_guarded(self):
+        """The group_state flush computation/call happens strictly AFTER
+        both the local hash-history flush and the durable hash-store
+        flush in source order, and the writer call is wrapped in its
+        own try/except -- so a raising writer cannot prevent (or ever
+        run before) the two earlier, production-critical flushes."""
+        import inspect
+
+        import pipeline.orchestrate as orch
+
+        src = inspect.getsource(orch)
+        json_flush_idx = src.index("Local hash-history entry withheld")
+        durable_hash_idx = src.index("🧾 Durable hash store:")
+        group_state_call_idx = src.index("_build_group_state_flush(")
+        # The def-site is the FIRST occurrence; find the CALL site (the
+        # SECOND occurrence, inside main()'s flush block) explicitly.
+        group_state_call_idx = src.index(
+            "_build_group_state_flush(", group_state_call_idx + 1,
+        )
+        self.assertLess(json_flush_idx, durable_hash_idx)
+        self.assertLess(durable_hash_idx, group_state_call_idx)
+
+        writer_call_idx = src.index("_mem_writer.upsert_group_state(")
+        preceding = src[max(0, writer_call_idx - 200):writer_call_idx]
+        self.assertIn("try:", preceding)
+
+    def test_zero_deferred_records_never_calls_writer(self):
+        import inspect
+
+        import pipeline.orchestrate as orch
+
+        records, withheld = orch._build_group_state_flush([], {}, [], {})
+        self.assertEqual(records, [])
+        self.assertEqual(withheld, 0)
+
+        src = inspect.getsource(orch)
+        guard_idx = src.index(
+            "if RUN_MEMORY_WRITE_ENABLED and _deferred_group_state:"
+        )
+        call_idx = src.index("_mem_writer.upsert_group_state(")
+        self.assertLess(guard_idx, call_idx)
+
+
 if __name__ == "__main__":
     unittest.main()

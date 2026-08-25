@@ -612,6 +612,69 @@ def _extract_attachment_id_name(attach_result: Any) -> tuple[Any, Any]:
         return None, None
 
 
+def _build_group_state_flush(
+    deferred_records: list[dict[str, Any]],
+    group_upload_ok: dict[Any, bool],
+    upload_tasks: list[dict[str, Any]],
+    attachment_side_channel: dict[Any, dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    """Compute the ``group_state`` records to write and the withheld
+    count from the post-upload flush's already-built state. PURE (no
+    I/O, no module-level state, never raises internally) so it's
+    directly unit-testable without invoking ``main()`` -- mirrors
+    ``_run_memory_write_phase``'s standalone-function testability
+    pattern (10-02 key-decision).
+
+    For each deferred record (one per group, appended in the group
+    loop -- see the ``_deferred_group_state.append`` call site):
+      - upload NOT ok for the group (``group_upload_ok`` false/absent)
+        -> WITHHOLD: counted, no record produced. Unlike the durable
+        hash store, ``group_state`` is not read by anything in Phase
+        10, so there is no sentinel to write and nothing to actively
+        invalidate -- a withheld group simply has no memory row until
+        a run whose upload completes.
+      - upload ok -> expand into ONE row per matching upload-task
+        ``target_sheet_id`` (a ``reduced_sub`` group contributes ONE
+        deferred record but produced up to TWO upload tasks -- this
+        expansion is driven from the ACTUAL upload-task list, never a
+        hard-coded sheet-id pair, so a future third leg needs no
+        change here), looking up the attachment id/name from the side
+        channel by the 4-part ``(group_key, variant, file_identifier,
+        target_sheet_id)`` key. A leg with no side-channel entry (e.g.
+        it reported ``'skipped'`` -- nothing was attached this run)
+        contributes ``None`` for both attachment fields, which
+        ``upsert_group_state`` then omits from the payload entirely.
+    """
+    records: list[dict[str, Any]] = []
+    withheld = 0
+    for rec in deferred_records:
+        if not group_upload_ok.get(rec['group_key']):
+            withheld += 1
+            continue
+        matching_sheet_ids = {
+            t['target_sheet_id'] for t in upload_tasks
+            if t.get('group_key') == rec['group_key']
+        }
+        for target_sheet_id in matching_sheet_ids:
+            side_key = (
+                rec['group_key'], rec['variant'],
+                rec.get('file_identifier') or '', target_sheet_id,
+            )
+            attach = attachment_side_channel.get(side_key, {})
+            records.append({
+                'wr': rec['wr_num'],
+                'week_ending': rec['week_iso'],
+                'variant': rec['variant'],
+                'identifier': rec.get('identifier') or '',
+                'target_sheet_id': target_sheet_id,
+                'content_hash': rec['data_hash'],
+                'row_count': rec['row_count'],
+                'attachment_id': attach.get('attachment_id'),
+                'attachment_name': attach.get('attachment_name'),
+            })
+    return records, withheld
+
+
 def main():  # pyright: ignore[reportGeneralTypeIssues]
     """Main execution function with all fixes implemented.
 
@@ -2684,6 +2747,9 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             if _deferred_history_updates or (
                 SUPABASE_HASH_STORE_WRITE_ENABLED
                 and _deferred_hash_upserts
+            ) or (
+                RUN_MEMORY_WRITE_ENABLED
+                and _deferred_group_state
             ):
                 _group_upload_ok: dict = {}
                 _group_had_error: dict = {}
@@ -2776,6 +2842,40 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     logging.info(
                         f"🧾 Durable hash store: {_hashes_flushed} flushed, "
                         f"{_hashes_withheld} withheld"
+                    )
+
+                # Phase 10 (MEM-01/MEM-03): group_state flush -- THIRD and
+                # LAST, placed after both existing flushes so it can never
+                # affect either. Gated independently on
+                # RUN_MEMORY_WRITE_ENABLED only (never on
+                # SUPABASE_HASH_STORE_WRITE_ENABLED / BILLING_AUDIT_AVAILABLE
+                # -- the isolation requirement from 10-RESEARCH.md
+                # Pitfall 5). Reuses _group_upload_ok built above -- never
+                # re-derives it.
+                if RUN_MEMORY_WRITE_ENABLED and _deferred_group_state:
+                    _mem_group_records, _mem_group_withheld = (
+                        _build_group_state_flush(
+                            _deferred_group_state, _group_upload_ok,
+                            _upload_tasks, _mem_attachment_side_channel,
+                        )
+                    )
+                    if _mem_group_withheld:
+                        _mem_writer.bump_group_state_withheld(
+                            _mem_group_withheld
+                        )
+                    try:
+                        _mem_writer.upsert_group_state(
+                            _mem_group_records, _mem_run_id,
+                        )
+                    except Exception:
+                        logging.warning(
+                            "⚠️ pipeline_memory group_state flush failed "
+                            "unexpectedly (non-fatal); group_state not "
+                            "written this run."
+                        )
+                    logging.info(
+                        f"🧾 group_state: {len(_mem_group_records)} "
+                        f"flushed, {_mem_group_withheld} withheld"
                     )
 
         # Validation summary
