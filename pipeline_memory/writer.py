@@ -28,16 +28,20 @@ Public surface (this plan):
   for observability; deliberately NOT added to the frozen 21-key
   ``run_summary.json`` contract (they live in ``run_ledger.notes`` and in
   one aggregate log line instead).
-- ``HASH_FIELDS`` / ``compute_content_hash()`` / ``build_row_payload()`` /
-  ``upsert_rows_bulk()`` -- Task 3's Python<->SQL contract lock for
-  ``row_state`` / ``upsert_rows_bulk`` (mechanically verified against
-  ``pipeline_memory/schema.sql`` in ``tests/test_pipeline_memory_shadow.py``).
-  SCOPE NOTE: this is the payload-builder + single-call RPC wrapper only,
-  deliberately unchunked and NOT wired from ``pipeline/orchestrate.py`` --
-  plan 10-02 owns the per-sheet loop, chunking for the largest sheets
-  (10-RESEARCH.md Pitfall 4), its own time sub-budget, and the
-  orchestrator wiring. Reuse these functions there rather than
-  reimplementing the hash/payload contract a second time.
+- ``HASH_FIELDS`` / ``compute_content_hash()`` / ``_row_to_payload()`` /
+  ``upsert_rows_bulk()`` -- the Python<->SQL contract for ``row_state`` /
+  ``upsert_rows_bulk``, mechanically verified against
+  ``pipeline_memory/schema.sql`` in ``tests/test_pipeline_memory_shadow.py``.
+  Plan 10-01 (Task 3) shipped a minimal, unchunked version of this
+  contract; plan 10-02 (Task 2) is the authoritative version: RAW mapped
+  columns for ``foreman_observed`` / ``helper_observed`` /
+  ``vac_crew_observed`` (never the pipeline's resolved/gated derivatives),
+  WR sanitization, caller-resolved ``week_ending`` / ``snapshot_date``,
+  and ``_CHUNK_ROWS``-bounded chunking (10-RESEARCH.md Pitfall 4).
+  ``upsert_rows_bulk()`` is wired from ``pipeline/orchestrate.py`` in
+  plan 10-02 (Task 3) via a per-sheet loop with its own time sub-budget --
+  this module still issues zero Smartsheet calls and owns none of that
+  loop's control flow.
 """
 
 from __future__ import annotations
@@ -47,6 +51,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import threading
 from typing import Any
 
@@ -69,6 +74,14 @@ def _bump_counter(key: str) -> None:
     """Atomically increment ``_counters[key]`` by 1, creating it if new."""
     with _counters_lock:
         _counters[key] = _counters.get(key, 0) + 1
+
+
+def _bump_counter_by(key: str, n: int) -> None:
+    """Atomically increment ``_counters[key]`` by ``n`` (no-op if n<=0)."""
+    if n <= 0:
+        return
+    with _counters_lock:
+        _counters[key] = _counters.get(key, 0) + n
 
 
 def get_counters() -> dict[str, int]:
@@ -297,49 +310,147 @@ def compute_content_hash(payload: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def build_row_payload(row_data: dict[str, Any], run_id: str) -> dict[str, Any]:
-    """Map one already-fetched Smartsheet row dict to an
-    ``upsert_rows_bulk`` payload entry (one element of ``p_rows``).
+_CHUNK_ROWS = 500  # mirrors billing_audit/writer.py::prefetch_attribution's
+# _CHUNK_SIZE precedent -- "one RPC per sheet" (MEM-03) means "not one RPC
+# per row", not "unbounded". Largest observed source sheet is 6,054 rows
+# (10-RESEARCH.md Pitfall 4); a row_state payload carries far more bytes
+# per row than the sibling package's 2-field (wr, week_ending) pairs, so
+# betting on the ~1MB PostgREST body limit for an unchunked per-sheet call
+# is the failure mode Pitfall 4 describes.
+
+# Mirrors billing_audit/writer.py::_WR_SANITIZE exactly, so row_state.wr
+# joins with group_state.wr and with the history_key entries the pipeline
+# already writes.
+_WR_SANITIZE = re.compile(r"[^\w\-]")
+
+
+def _sanitized_wr(row_data: dict[str, Any]) -> str:
+    """Apply the pipeline's WR sanitizer to ``row_data['Work Request #']``.
+
+    Mirrors ``billing_audit/writer.py::_sanitized_wr`` exactly (raw ->
+    ``str(raw).split(".")[0]`` -> sanitize -> ``[:50]``). Returns ``""``
+    when the field is missing -- never ``None`` -- because
+    ``row_state.wr`` is NOT NULL and an empty string is a valid (if
+    unhelpful) value, matching the sibling writer's own contract.
+    """
+    raw = row_data.get("Work Request #")
+    if raw is None:
+        return ""
+    s = str(raw).split(".")[0]
+    return _WR_SANITIZE.sub("_", s)[:50]
+
+
+def _is_checked(value: Any) -> bool:
+    """Inline clone of ``pipeline.utils.is_checked``.
+
+    This package imports NOTHING from ``pipeline.*`` (the writer-boundary
+    contract, mechanically verified in
+    tests/test_pipeline_memory_shadow.py). Mirrors
+    ``billing_audit/writer.py::_is_checked``, which exists for the
+    identical reason -- keeping ``pipeline_memory`` independent of the
+    facade/engine import graph.
+    """
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value == 1
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "checked", "yes", "1", "on")
+    return False
+
+
+def _coerce_date(value: Any) -> str | None:
+    """Return an ISO-8601 date string, or ``None``.
+
+    Mirrors ``billing_audit/writer.py::_coerce_week_ending``: accepts an
+    ALREADY-RESOLVED ``datetime.date`` or ``datetime.datetime`` only, and
+    explicitly REFUSES to parse a raw string -- the caller
+    (``pipeline/orchestrate.py``) resolves ``'Weekly Reference Logged
+    Date'`` / ``'Snapshot Date'`` with the same
+    ``pipeline.utils.excel_serial_to_date`` parser ``group_source_rows``
+    uses, and passes the already-resolved value through to
+    ``upsert_rows_bulk`` / ``_row_to_payload``. Keeps this package
+    importing nothing from ``pipeline.*``.
+    """
+    if isinstance(value, datetime.datetime):
+        return value.date().isoformat()
+    if isinstance(value, datetime.date):
+        return value.isoformat()
+    return None
+
+
+def _row_to_payload(
+    row_data: dict[str, Any],
+    run_id: str,
+    week_ending: Any,
+    snapshot_date: Any,
+) -> dict[str, Any] | None:
+    """Map one already-fetched Smartsheet row dict + its caller-resolved
+    dates to an ``upsert_rows_bulk`` payload entry (one element of
+    ``p_rows``).
+
+    Returns ``None`` (never raises, never fabricates a value) when
+    ``row_data['__row_id']`` is missing or not an ``int`` -- mirroring
+    ``billing_audit/writer.py::freeze_row``'s identical guard. The caller
+    (``upsert_rows_bulk``) is responsible for skipping a ``None`` and
+    bumping ``rows_skipped_bad_row_id``; this function stays a pure
+    mapper with no counter side effects, so it's directly testable.
 
     CRITICAL (10-RESEARCH.md Pitfall 2, CONFIRMED historical defect --
     .planning/debug/unknown-foreman-helper-shadow-2026-08-24.md):
-    ``foreman_observed`` reads the RAW ``"Foreman"`` column, NEVER
-    ``row_data["__effective_user"]`` (the pipeline's *resolved* value,
-    which substitutes the sentinel ``"Unknown Foreman"`` when blank --
-    freezing that sentinel is exactly what corrupted 93 WRs / 5,824 rows
-    in ``billing_audit.attribution_snapshot``). ``helper_observed`` /
-    ``vac_crew_observed`` read the already-raw ``__helper_foreman`` /
-    ``__vac_crew_name`` fields directly -- no sentinel fallback exists on
-    those, so they are safe to read as-is (10-RESEARCH.md Code Examples).
+    ``foreman_observed`` / ``helper_observed`` / ``vac_crew_observed``
+    read the RAW mapped Smartsheet columns (``"Foreman"``,
+    ``"Foreman Helping?"``, ``"VAC Crew Helping?"``) -- NEVER the
+    pipeline's resolved/gated derivatives. ``__effective_user``
+    substitutes the literal sentinel ``"Unknown Foreman"`` when the
+    ``Foreman`` lookup is blank, and freezing that sentinel as a real
+    person is exactly the defect that corrupted 93 WRs / 5,824 rows in
+    ``billing_audit.attribution_snapshot``. ``__helper_foreman`` /
+    ``__vac_crew_name`` are ABSENT on any row whose completion checkbox
+    is unchecked (fetch.py's gating, lines ~537-624), which would
+    silently drop a real observed name even though the row plainly shows
+    who was helping. Memory records what was literally on the row, not
+    the pipeline's Excel-generation business decision.
 
-    Blank/absent values are normalized to ``None`` (never a placeholder
-    string) so a re-observation can freely replace them later.
-    ``run_id`` is accepted for parity with the RPC's per-sheet call
-    shape (``p_run_id`` is a call-level parameter, not a per-row payload
-    field) -- unused here but kept in the signature so callers don't
-    need a separate no-arg builder.
+    Blank/absent values normalize to ``None`` (never a placeholder
+    string) so a later re-observation can freely replace them.
     """
     del run_id  # per-call RPC parameter, not a per-row payload field
+
+    row_id = row_data.get("__row_id")
+    if not isinstance(row_id, int):
+        return None
+
+    cu = row_data.get("CU") or row_data.get("Billable Unit Code") or None
+    pole = (
+        row_data.get("Pole #")
+        or row_data.get("Point #")
+        or row_data.get("Point Number")
+        or None
+    )
+
     payload: dict[str, Any] = {
-        "row_id": row_data.get("__row_id"),
-        "wr": row_data.get("Work Request #") or None,
-        "week_ending": row_data.get("__week_ending_iso") or None,
-        "snapshot_date": row_data.get("__snapshot_date_iso") or None,
-        "cu": row_data.get("CU") or None,
-        "pole": row_data.get("Pole #") or None,
+        "row_id": row_id,
+        "wr": _sanitized_wr(row_data),
+        "week_ending": _coerce_date(week_ending),
+        "snapshot_date": _coerce_date(snapshot_date),
+        "cu": cu,
+        "pole": pole,
         "work_type": row_data.get("Work Type") or None,
         "quantity": row_data.get("Quantity"),
         "units_total_price": row_data.get("Units Total Price"),
-        "units_completed": bool(row_data.get("Units Completed?")),
+        "units_completed": _is_checked(row_data.get("Units Completed?")),
         "foreman_observed": row_data.get("Foreman") or None,
-        "helper_observed": row_data.get("__helper_foreman") or None,
-        "helper_completed": bool(
+        "helper_observed": row_data.get("Foreman Helping?") or None,
+        "helper_completed": _is_checked(
             row_data.get("Helping Foreman Completed Unit?")
         ),
-        "helper_dept": row_data.get("__helper_dept") or None,
-        "helper_job": row_data.get("__helper_job") or None,
-        "vac_crew_observed": row_data.get("__vac_crew_name") or None,
-        "vac_completed": bool(row_data.get("Vac Crew Completed Unit?")),
+        "helper_dept": row_data.get("Helper Dept #") or None,
+        "helper_job": row_data.get("Helper Job #") or None,
+        "vac_crew_observed": row_data.get("VAC Crew Helping?") or None,
+        "vac_completed": _is_checked(row_data.get("Vac Crew Completed Unit?")),
         "row_modified_at": row_data.get("__row_modified_at"),
     }
     payload["content_hash"] = compute_content_hash(payload)
@@ -364,18 +475,29 @@ def upsert_rows_bulk(sheet_id: int, run_id: str,
                       rows: list[dict[str, Any]]) -> set[tuple[Any, Any]]:
     """Best-effort bulk row upsert for ONE sheet. NEVER raises.
 
-    Returns the affected ``(wr, week_ending)`` set on success, or an
-    EMPTY set on any no-op or failure (empty input, client unavailable,
-    flag off, RPC error) -- callers MUST treat an empty return as "no
-    memory update happened this sheet", NEVER as "nothing changed".
+    Returns the affected ``(wr, week_ending)`` set from every SUCCESSFUL
+    chunk (an empty set on total failure or a total no-op) -- callers
+    MUST treat an empty return as "no memory update happened this
+    sheet", NEVER as "nothing changed".
 
     Consumes rows ALREADY fetched by the pipeline this run -- never
     issues its own Smartsheet call (10-RESEARCH.md Anti-Pattern:
-    duplicating the Smartsheet read).
+    duplicating the Smartsheet read). Each row's ``week_ending`` /
+    ``snapshot_date`` are read from ``__mem_week_ending`` /
+    ``__mem_snapshot_date`` -- the ALREADY-RESOLVED (datetime/date/None)
+    values the caller (``pipeline/orchestrate.py``) sets onto each row
+    dict using the SAME parser ``group_source_rows`` uses, before calling
+    this function.
 
     Empty input is checked FIRST, before the client/flag guards, so it
     performs ZERO PostgREST calls (not even a client-construction
-    attempt) -- distinct from "one row -> one call".
+    attempt) -- distinct from "one row -> one call". A row with a
+    missing/non-integer ``__row_id`` is skipped (counted, never sent).
+
+    Chunked at ``_CHUNK_ROWS`` rows per RPC call (10-RESEARCH.md
+    Pitfall 4): a chunk failure bumps ``rows_upsert_errored`` by that
+    chunk's row count and moves on to the remaining chunks -- one
+    aggregate WARNING covers the whole call, never one per chunk.
     """
     if not rows:
         return set()
@@ -386,25 +508,57 @@ def upsert_rows_bulk(sheet_id: int, run_id: str,
     if not _client_write_enabled():
         return set()
 
-    payload = [build_row_payload(row, run_id) for row in rows]
-
-    def _invoke():
-        return (
-            client.schema("pipeline_memory")
-            .rpc(
-                "upsert_rows_bulk",
-                {
-                    "p_sheet_id": sheet_id,
-                    "p_run_id": run_id,
-                    "p_rows": payload,
-                },
-            )
-            .execute()
+    payloads: list[dict[str, Any]] = []
+    for row in rows:
+        payload = _row_to_payload(
+            row,
+            run_id,
+            row.get("__mem_week_ending"),
+            row.get("__mem_snapshot_date"),
         )
+        if payload is None:
+            _bump_counter("rows_skipped_bad_row_id")
+            continue
+        payloads.append(payload)
 
-    result = with_retry(_invoke, op="upsert_rows_bulk")
-    if result is None:
-        _bump_counter("rows_upsert_errored")
+    if not payloads:
         return set()
-    _bump_counter("rows_upsert_written")
-    return _parse_affected_set(result)
+
+    chunks = [
+        payloads[i:i + _CHUNK_ROWS]
+        for i in range(0, len(payloads), _CHUNK_ROWS)
+    ]
+
+    affected: set[tuple[Any, Any]] = set()
+    errored_rows = 0
+    for chunk in chunks:
+        def _invoke(_p=chunk):
+            return (
+                client.schema("pipeline_memory")
+                .rpc(
+                    "upsert_rows_bulk",
+                    {
+                        "p_sheet_id": sheet_id,
+                        "p_run_id": run_id,
+                        "p_rows": _p,
+                    },
+                )
+                .execute()
+            )
+
+        result = with_retry(_invoke, op="upsert_rows_bulk")
+        if result is None:
+            errored_rows += len(chunk)
+            continue
+        affected |= _parse_affected_set(result)
+
+    _bump_counter_by("rows_upsert_sent", len(payloads))
+    _bump_counter_by("rows_upsert_changed", len(affected))
+    if errored_rows:
+        _bump_counter_by("rows_upsert_errored", errored_rows)
+        logging.warning(
+            f"⚠️ pipeline_memory upsert_rows_bulk: {errored_rows}/"
+            f"{len(payloads)} row(s) failed to upsert for sheet "
+            f"{sheet_id} (across {len(chunks)} chunk(s))."
+        )
+    return affected
