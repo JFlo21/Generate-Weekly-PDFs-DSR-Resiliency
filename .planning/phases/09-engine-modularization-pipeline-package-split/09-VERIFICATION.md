@@ -238,3 +238,29 @@ dedicated behavioral test suite for the live-proxy globals.
 
 _Verified: 2026-08-24T21:35:00-05:00_
 _Verifier: Claude (gsd-verifier)_
+
+## Orchestrator addendum — Gate 6 confirmed on the intended synthetic path (2026-08-24 21:41 CDT)
+
+The `human_verification` item above (Gate 6 could not be confirmed) was resolved by the
+orchestrating session the same evening, without waiting for a human run:
+
+- Root cause of the 14-minute production-scale fetch: `pipeline/orchestrate.py` selects the
+  synthetic in-memory dataset only when `SMARTSHEET_API_TOKEN` is absent/empty (line ~299,
+  "TEST_MODE without SMARTSHEET_API_TOKEN: using synthetic in-memory dataset"); this checkout's
+  `.env` supplies a token, so `TEST_MODE=true SKIP_UPLOAD=true` performed a full real read of
+  118 sheets / 208,511 rows (read-only: `SKIP_UPLOAD=true`; no Supabase URL/key in `.env`, so
+  hash-store and billing_audit writers had no client). That stalled run was killed at ~21:38.
+- Re-run exactly as the harness invokes it but with the token blanked:
+  `PYTHONUTF8=1 SMARTSHEET_API_TOKEN="" TEST_MODE=true SKIP_UPLOAD=true python generate_weekly_pdfs.py >/dev/null`
+  → exit 0 in 2 s; `generated_docs/run_summary.json` regenerated (mtime 21:41:41);
+  `python scripts/check_run_summary_structure.py` → `PASS: run_summary.json structure matches baseline (21 keys)`.
+- Incidental finding (not a Phase 09 gap): with stdout redirected to a file on a cp1252 Windows
+  console, the facade's emoji banner at `generate_weekly_pdfs.py:37` raises `UnicodeEncodeError`;
+  the harness avoids it by discarding stdout. `PYTHONUTF8=1` is a safe local workaround.
+- `.github/workflows/` contains no invocation of `run_6_gates.sh` — the harness is developer-side
+  only, so both Gate 4 (CRLF via `core.autocrlf=true`) and Gate 6 (token in `.env`) are local-checkout
+  footguns; 09-08 Task 1 pins Gate 6 to the synthetic path permanently.
+
+Net status of today's live gates on the current tree: G1 PASS (177) · G2 PASS (108) · G3 PASS
+(1375 passed + 132 subtests) · **G4 vacuous** (the open gap) · G5 PASS · G6 PASS (synthetic path).
+`status: gaps_found` stands solely on Gate 4 (`G-09-MOD-06`, closure plans 09-07 / 09-08).
