@@ -383,7 +383,11 @@ MOD-05 no dead-code removal · MOD-06 per-step verification gates green.
 
 **Depends on:** Phase 8 (must NOT run concurrently — same file; D-07)
 
-**Plans:** 4/7 plans executed
+**Plans:** 7 implementation waves executed pre-GSD (PR #280, merge `889ca2e`) +
+2 gap-closure plans. The `09-00`..`09-06` filenames below are the historical wave
+record — those PLAN files were never written to disk, which is why the phase
+needed a retroactive verification pass. Retroactive verification (2026-08-24)
+scored 5/6 must-haves; gap `G-09-MOD-06` is closed by `09-07` and `09-08`.
 
 Plans:
 **Wave 1**
@@ -411,9 +415,15 @@ Plans:
 
 - [ ] 09-06-PLAN.md — Wave 6: orchestrate (main) + thin-facade finalization + phase-close human verify
 
+**Wave 7** *(gap closure for G-09-MOD-06 — MOD-06 only; MOD-01..05 verified)*
+
+- [ ] 09-07-PLAN.md — Gate 4 fail-capability: CRLF-immune + fall-through-proof `check_mypy_delta.sh`, hermetic Gate-4 tests in `test_facade_harness.py`, `tests/golden/*.txt` pinned to LF, Living Ledger entry
+- [ ] 09-08-PLAN.md — Gate 6 pinned to the synthetic dataset (zero production Smartsheet reads) + per-finding attribution of the real 56→65 mypy delta + Juan's fix-vs-re-baseline decision (autonomous:false)
+
 **Cross-cutting constraints:**
 
 - All 6 gates green; no symbol deleted
+- A gate that cannot fail is not green — every gate needs a fail-capability test (G-09-MOD-06)
 
 ---
 
