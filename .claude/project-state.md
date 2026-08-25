@@ -11,7 +11,7 @@ complete. Next: `/gsd-core:gsd-execute-phase 10` (Run-Memory Foundation; pauses 
 Git: `master` = `origin/master` @ `22ab153`; work branch `feat/phase-10-run-memory` (cut from origin/master).
 **PR #349 MERGED** 2026-08-25 01:15 CDT as squash `c409c32`. **Phase 10 execution PAUSED 01:35 CDT before
 any dispatch** — handoff: `.planning/phases/10-run-memory-foundation-shadow-writes/.continue-here.md` +
-`.planning/HANDOFF.json`; resume with `/gsd:resume-work`. Only `generated_docs/hash_history.json` stays dirty._
+`.planning/HANDOFF.json` (WIP commit `0b85e53`); resume with `/gsd:resume-work`. Only `generated_docs/hash_history.json` stays dirty._
 
 ## Latest work (2026-08-25 01:40 CDT) — PR #349 merged; local `master` re-synced; post-merge gate green
 0. **Merge:** https://github.com/JFlo21/Generate-Weekly-PDFs-DSR-Resiliency/pull/349 squash-merged as

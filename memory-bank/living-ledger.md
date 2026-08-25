@@ -6348,5 +6348,16 @@ follow-up findings closed, same 6 files.
   `_is_auth_api_error` Smartsheet 401/403 detection and partly revert each other; #341 already
   shipped the accepted fix, so these are close-or-supersede candidates, not merges.
   Dependabot #344 (`tsx`) / #345 (`@supabase/supabase-js`) in `scripts/` are routine.
-- **Next:** `/gsd-core:gsd-execute-phase 10` (Run-Memory Foundation) from a clean `master`;
-  optional `/gsd-core:gsd-complete-milestone` to archive v1.3 first.
+- **Phase 10 pre-flight + pause (01:35 CDT, WIP `0b85e53`):** `/gsd-execute-phase 10` ran the
+  full orchestrator pre-flight on `feat/phase-10-run-memory` (cut from `origin/master`) and was
+  paused by Juan before the first executor dispatch — 0/18 tasks, no `10-0x` commits. Handoff:
+  `.planning/phases/10-run-memory-foundation-shadow-writes/.continue-here.md` + `.planning/HANDOFF.json`.
+  Two durable findings: (1) `worktree.base-check` compares HEAD to `origin/HEAD`, so **any
+  feature branch auto-degrades GSD to sequential** (`ISOLATION=none`) — expected, and the safer
+  mode for `pipeline/` edits; plan wall-clock accordingly. (2) Executor dispatch prompts in this
+  repo tell the executor to **Read** `execute-plan.md` / `summary.md` / `checkpoints.md` / `tdd.md`
+  from disk by absolute path instead of inlining ~2,266 lines six times — the global
+  prompt-caching/token rules win over the skill's inline-verbatim note (the #3324 concern is
+  only that `@`-includes do not expand).
+- **Next:** `/gsd:resume-work` → Wave 1 dispatches `10-01` then `10-04` (sequential, Sonnet
+  executor); Seer PR triage after Phase 10 per Juan.
