@@ -3562,9 +3562,15 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # Persist hash history if updated
         if history_updates:
             # Prune stale hash_history entries for groups no longer in source data.
-            # Only prune on FULL runs (not time-budget-truncated runs) to avoid
-            # deleting entries for groups that simply weren't reached this run.
-            if not _time_budget_exceeded:
+            # Only prune on FULL runs (not time-budget-truncated runs, and --
+            # Phase 11 Plan 03, CONTEXT.md D-06 -- not incremental runs) to
+            # avoid deleting entries for groups that simply weren't reached
+            # this run. Incremental mode is the same class of "did not reach
+            # every group" as a time-budget-truncated run: `groups` is a
+            # strict subset of the live groups, so `current_keys` below would
+            # be too, and pruning against it would delete hash-history entries
+            # for every untouched WR.
+            if not _time_budget_exceeded and _resolved_mode == 'full':
                 current_keys = set()
                 for key, group_rows in groups.items():
                     if '_' in key:
@@ -3654,6 +3660,16 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     for sk in stale_keys:
                         del hash_history[sk]
                     logging.info(f"🧹 Pruned {len(stale_keys)} stale hash history entries (groups no longer in source data)")
+            elif _resolved_mode != 'full':
+                # Phase 11 Plan 03 (D-06): suppressed because this run was
+                # incremental, not because nothing was stale -- log the
+                # distinction and the count of keys the skip preserved so
+                # an operator reading the run log can tell the two apart.
+                logging.info(
+                    f"⏭️ Hash-history stale-key prune skipped (incremental "
+                    f"run, D-06): preserved {len(hash_history)} key(s) not "
+                    f"processed this run."
+                )
             save_hash_history(HASH_HISTORY_PATH, hash_history)
         elif _hash_history_migration_dirty:
             # Codex P2: no group updates this run, but a one-time migration
