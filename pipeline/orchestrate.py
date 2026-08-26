@@ -67,6 +67,10 @@ from pipeline_memory import writer as _mem_writer
 # Phase 11 Plan 02 (INC-01): the package's first READ surface, used by
 # resolve_run_mode() below. Same independence rationale as _mem_writer.
 from pipeline_memory import reader as _mem_reader
+# Phase 11 Plan 05 (INC-04, D-07/D-08): the shadow-incremental parity
+# proof -- computes and compares only, never acts. See pipeline/parity.py
+# module docstring for the full contract.
+from pipeline import parity as _parity
 
 # Named re-export imports (byte-exact from the facade) so every bare sibling
 # reference inside main()/testmode resolves identically (W1-W5 pattern). The
@@ -117,6 +121,9 @@ from pipeline.config import (  # noqa: E402
     RESET_WR_LIST,
     RES_GROUPING_MODE,
     RUN_MEMORY_INCREMENTAL_ENABLED,
+    RUN_MEMORY_SHADOW_GENERATION_HEADROOM_MIN,
+    RUN_MEMORY_SHADOW_MAX_MINUTES,
+    RUN_MEMORY_SHADOW_RPC_TIMEOUT_SEC,
     RUN_MEMORY_WRITE_ENABLED,
     RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN,
     RUN_MEMORY_WRITE_MAX_MINUTES,
@@ -1314,6 +1321,18 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
     _incremental_delta_sheets_changed = 0
     _incremental_mapped_sheet_count = 0
     _incremental_empty_affected_run = False
+    # Phase 11 Plan 05 (INC-04, D-07/D-08): shadow parity verdict, hoisted
+    # for the same documented reason as the _mem_* / _resolved_mode
+    # defaults above -- both run_ledger_finish call sites reference these
+    # unconditionally. None/empty is the CORRECT value whenever the
+    # shadow hook (below, after the group loop) never runs: TEST_MODE,
+    # RUN_MEMORY_WRITE_ENABLED off, RUN_MEMORY_INCREMENTAL_ENABLED on,
+    # an incremental-mode run, or an early exception before the group
+    # loop starts. The finish call sites only add parity_verdict/
+    # parity_details to notes when _parity_verdict is not None, so a
+    # None default here means "no key added", never a fabricated verdict.
+    _parity_verdict = None
+    _parity_details = {}
     # Explicit session-failure sentinel for the finally-block cron
     # check-in (Copilot review, PR #297): _groups_errored == 0 alone
     # cannot distinguish "clean run" from "died before any group was
@@ -2299,6 +2318,13 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # scoped state, not run-scoped counters -- mirrors _upload_tasks /
         # _deferred_hash_upserts, the two closest existing analogs.
         _deferred_group_state = []
+        # Phase 11 Plan 05 (INC-04, D-07): every processed group's
+        # calculate_data_hash() value, captured unconditionally (a single
+        # dict assignment per group, negligible cost) so the shadow-parity
+        # candidate side -- which spans groups that may have been SKIPPED
+        # as unchanged, not just the ones _deferred_group_state records --
+        # can be compared without a second calculate_data_hash() call.
+        _shadow_group_hashes = {}
         # Keyed by (group_key, variant, file_identifier, target_sheet_id)
         # -- the same 4-part key a reduced_sub fan-out's two upload tasks
         # differ on ONLY in target_sheet_id, so this key never collapses
@@ -2553,6 +2579,12 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             try:
                 # Calculate data hash for change detection
                 data_hash = calculate_data_hash(group_rows)
+                # Phase 11 Plan 05 (D-07): capture EVERY processed group's
+                # hash for the shadow-parity candidate side (see
+                # _shadow_group_hashes docstring above) -- never a second
+                # calculate_data_hash() call, just recording the value
+                # already computed on the line above.
+                _shadow_group_hashes[group_key] = data_hash
                 wr_num_raw = group_rows[0].get('Work Request #')
                 wr_num = str(wr_num_raw).split('.')[0] if wr_num_raw else ''
                 # Apply the same filesystem-safety sanitizer used inside
@@ -3314,6 +3346,165 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         _phase_group_elapsed = (datetime.datetime.now() - _phase_group_start).total_seconds()
         logging.info(f"⚡ Group processing phase: {_groups_generated} generated, {_groups_skipped} skipped in {_phase_group_elapsed:.1f}s"
                      + (f" (stopped early — time budget exceeded)" if _time_budget_exceeded else ""))
+
+        # Phase 11 Plan 05 (INC-04, CONTEXT.md D-07/D-08): shadow-
+        # incremental parity proof. Runs ONLY while
+        # RUN_MEMORY_INCREMENTAL_ENABLED is OFF and RUN_MEMORY_WRITE_
+        # ENABLED is ON (D-07) -- the full read this run already produced
+        # is compared against what the incremental path WOULD have
+        # regenerated from this run's own affected set. pipeline/
+        # parity.py computes and compares only; it never alters what this
+        # run generates, uploads, or deletes. Sub-budgeted exactly like
+        # _run_memory_write_phase's own pre-flight guard so it can never
+        # threaten TIME_BUDGET_MINUTES; a comparison that could not fully
+        # execute is 'skipped' with a reason -- never a vacuous 'pass'.
+        # Wrapped in its own outer try/except (belt-and-suspenders,
+        # mirrors every other pipeline_memory hook in main()) so an
+        # unexpected bug here can never affect Excel generation, upload,
+        # or cleanup, which have ALL already completed processing their
+        # decisions for this run's groups by this point in source order.
+        if (
+            _resolved_mode == 'full'
+            and RUN_MEMORY_WRITE_ENABLED
+            and not RUN_MEMORY_INCREMENTAL_ENABLED
+            and not TEST_MODE
+        ):
+            try:
+                _shadow_elapsed_min = (
+                    (datetime.datetime.now() - session_start).total_seconds()
+                    / 60.0
+                )
+                _shadow_remaining_min = (
+                    TIME_BUDGET_MINUTES - _shadow_elapsed_min
+                )
+                _shadow_required_min = (
+                    RUN_MEMORY_SHADOW_MAX_MINUTES
+                    + RUN_MEMORY_SHADOW_GENERATION_HEADROOM_MIN
+                )
+                if (
+                    TIME_BUDGET_MINUTES
+                    and GITHUB_ACTIONS_MODE
+                    and _shadow_remaining_min <= _shadow_required_min
+                ):
+                    logging.warning(
+                        f"⏩ Skipping shadow parity check: "
+                        f"{_shadow_elapsed_min:.1f}min already elapsed, "
+                        f"only {_shadow_remaining_min:.1f}min left in "
+                        f"session budget (need > {_shadow_required_min}min "
+                        f"= {RUN_MEMORY_SHADOW_MAX_MINUTES}min shadow "
+                        f"budget + "
+                        f"{RUN_MEMORY_SHADOW_GENERATION_HEADROOM_MIN}min "
+                        "generation headroom)."
+                    )
+                    sentry_add_breadcrumb(
+                        "pipeline_memory",
+                        "Shadow parity check skipped, "
+                        f"{_shadow_remaining_min:.1f}min remaining",
+                        level="warning",
+                        data={
+                            "elapsed_min": round(_shadow_elapsed_min, 1),
+                            "remaining_min": round(_shadow_remaining_min, 1),
+                            "required_remaining_min": _shadow_required_min,
+                        },
+                    )
+                    _parity_verdict = "skipped"
+                    _parity_details = {
+                        "reason": "insufficient_session_budget",
+                    }
+                else:
+                    _shadow_candidate_groups = _filter_groups_to_affected(
+                        groups, _mem_affected,
+                    )
+                    _shadow_candidate_hashes = {
+                        gk: _shadow_group_hashes.get(gk)
+                        for gk in _shadow_candidate_groups
+                    }
+                    _shadow_actual_hashes = {
+                        rec['group_key']: rec['data_hash']
+                        for rec in _deferred_group_state
+                    }
+                    _shadow_group_result = _parity.compare_shadow_parity(
+                        _shadow_candidate_hashes, _shadow_actual_hashes,
+                    )
+                    _shadow_changed_row_ids = (
+                        _parity.get_changed_row_ids_by_sheet(_mem_run_id)
+                    )
+                    _shadow_read_result = _parity.run_shadow_delta_reads(
+                        client=client,
+                        source_sheets=source_sheets,
+                        watermarks=_watermarks,
+                        changed_row_ids_by_sheet=_shadow_changed_row_ids,
+                        session_start=session_start,
+                        fetch_sheet_delta_fn=_fetch.fetch_sheet_delta,
+                        compute_rows_modified_since_fn=(
+                            _fetch.compute_rows_modified_since
+                        ),
+                        safety_window_minutes=SAFETY_WINDOW_MINUTES,
+                        max_minutes=RUN_MEMORY_SHADOW_MAX_MINUTES,
+                        rpc_timeout_sec=RUN_MEMORY_SHADOW_RPC_TIMEOUT_SEC,
+                        generation_headroom_min=(
+                            RUN_MEMORY_SHADOW_GENERATION_HEADROOM_MIN
+                        ),
+                        time_budget_minutes=TIME_BUDGET_MINUTES,
+                        github_actions_mode=GITHUB_ACTIONS_MODE,
+                        parallel_workers=PARALLEL_WORKERS,
+                    )
+                    _parity_verdict = _parity.combine_verdicts(
+                        _shadow_group_result["verdict"],
+                        _shadow_read_result["read_verdict"],
+                    )
+                    _parity_details = {
+                        "group": _shadow_group_result,
+                        "read": _shadow_read_result,
+                    }
+                    if _parity_verdict == "fail":
+                        logging.error(
+                            "🚨 Shadow parity FAIL — incremental candidate "
+                            "set diverges from the full run's actual "
+                            "output (groups_compared="
+                            f"{_shadow_group_result.get('groups_compared')}, "
+                            f"run_id={_mem_run_id})."
+                        )
+                        sentry_capture_message_with_context(
+                            "Shadow-incremental parity FAIL",
+                            level="error",
+                            context_name="parity_shadow",
+                            context_data={
+                                "run_id": _mem_run_id,
+                                "group_verdict": (
+                                    _shadow_group_result.get("verdict")
+                                ),
+                                "read_verdict": (
+                                    _shadow_read_result.get("read_verdict")
+                                ),
+                                "groups_compared": (
+                                    _shadow_group_result.get(
+                                        "groups_compared",
+                                    )
+                                ),
+                                "candidate_count": (
+                                    _shadow_group_result.get(
+                                        "candidate_count",
+                                    )
+                                ),
+                                "actual_count": (
+                                    _shadow_group_result.get("actual_count")
+                                ),
+                            },
+                            tags={"parity_verdict": "fail"},
+                        )
+            except Exception as _parity_exc:
+                logging.warning(
+                    "⚠️ Shadow parity check failed unexpectedly "
+                    f"(non-fatal): {type(_parity_exc).__name__}"
+                )
+                _parity_verdict = "skipped"
+                _parity_details = {
+                    "reason": (
+                        f"unexpected_exception: "
+                        f"{type(_parity_exc).__name__}"
+                    ),
+                }
 
         # Phase 01 Plan 03 Task 2 Change 3 (D-17): emit exactly ONE
         # WARNING per source sheet whose subcontractor variant
@@ -4108,6 +4299,13 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 )
                 if _resolved_fallback_reason:
                     _finish_kwargs["fallback_reason"] = _resolved_fallback_reason
+                # Phase 11 Plan 05 (INC-04, D-07/D-08): only present when
+                # the shadow parity block actually ran this run (None
+                # default means "never a fabricated verdict" -- see the
+                # _parity_verdict hoist comment near the top of main()).
+                if _parity_verdict is not None:
+                    _finish_kwargs["parity_verdict"] = _parity_verdict
+                    _finish_kwargs["parity_details"] = _parity_details
                 _mem_writer.run_ledger_finish(_mem_run_id, **_finish_kwargs)
             except Exception:
                 logging.warning(
@@ -4351,6 +4549,13 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 )
                 if _resolved_fallback_reason:
                     _finish_kwargs["fallback_reason"] = _resolved_fallback_reason
+                # Phase 11 Plan 05 (INC-04, D-07/D-08): only present when
+                # the shadow parity block actually ran this run (None
+                # default means "never a fabricated verdict" -- see the
+                # _parity_verdict hoist comment near the top of main()).
+                if _parity_verdict is not None:
+                    _finish_kwargs["parity_verdict"] = _parity_verdict
+                    _finish_kwargs["parity_details"] = _parity_details
                 _mem_writer.run_ledger_finish(_mem_run_id, **_finish_kwargs)
             except Exception as _mem_exc:
                 logging.warning(

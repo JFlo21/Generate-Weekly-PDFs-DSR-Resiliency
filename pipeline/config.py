@@ -509,6 +509,32 @@ RUN_MEMORY_INCREMENTAL_ENABLED = os.getenv(
 # safety). Not self-scaling -- the run cadence is locked by 10-CONTEXT D-07.
 SAFETY_WINDOW_MINUTES = int(os.getenv('SAFETY_WINDOW_MINUTES', '15') or 15)
 
+# Phase 11 Plan 05 (INC-04, CONTEXT.md D-07/D-08): sub-budget for the
+# shadow-incremental parity block (pipeline/parity.py) -- the direct
+# analog of RUN_MEMORY_WRITE_MAX_MINUTES / ATTACHMENT_PREFETCH_MAX_MINUTES.
+# Bounds the D-08 per-sheet delta-probe loop so a slow Supabase/Smartsheet
+# response can never push the run past TIME_BUDGET_MINUTES=165. Runs only
+# while RUN_MEMORY_WRITE_ENABLED is on and RUN_MEMORY_INCREMENTAL_ENABLED
+# is off (D-07) -- the shadow computes and compares, never acts.
+RUN_MEMORY_SHADOW_MAX_MINUTES = int(
+    os.getenv('RUN_MEMORY_SHADOW_MAX_MINUTES', '10') or 10
+)
+# Per-call ceiling (seconds) so one stuck delta-probe call cannot itself
+# consume the whole RUN_MEMORY_SHADOW_MAX_MINUTES sub-budget -- mirrors
+# RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC / ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC.
+RUN_MEMORY_SHADOW_RPC_TIMEOUT_SEC = int(
+    os.getenv('RUN_MEMORY_SHADOW_RPC_TIMEOUT_SEC', '45') or 45
+)
+# Pre-flight reserve (minutes) -- the shadow parity block is skipped
+# entirely (never a partial start) when the remaining session budget
+# would leave less than this much headroom for the group/Excel-generation
+# phases still to run after it. Mirrors
+# RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN / ATTACHMENT_PREFETCH_
+# GENERATION_HEADROOM_MIN.
+RUN_MEMORY_SHADOW_GENERATION_HEADROOM_MIN = int(
+    os.getenv('RUN_MEMORY_SHADOW_GENERATION_HEADROOM_MIN', '2') or 2
+)
+
 # Phase 2 Plan 05 gap-closure (CR-01): when the bulk lookup_attribution_bulk
 # RPC is not yet deployed (PGRST202 -> prefetch status 'rpc_missing'), degrade
 # to the already-deployed per-row lookup_attribution path instead of HOLDing
