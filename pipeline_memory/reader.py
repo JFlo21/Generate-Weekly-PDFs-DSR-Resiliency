@@ -46,6 +46,17 @@ _MAPPING_CHUNK_SIZE = 500
 # unbounded single call.
 _ROW_STATE_PAGE_SIZE = 1000
 
+# Bounded recent-row window for get_parity_streak (Phase 11 Plan 07,
+# CONTEXT.md D-09). Comfortably larger than the five-run gate target so a
+# handful of interleaved ``skipped`` rows never starve the scan before it
+# can prove (or disprove) five consecutive ``production_frequent`` passes.
+_PARITY_STREAK_DEFAULT_LIMIT = 50
+
+# The D-09 gate: five consecutive ``pass`` verdicts on ``production_
+# frequent`` runs is the evidence 11-07-PLAN.md Task 2's blocking-human
+# checkpoint requires before authorising the INC-05 retirement.
+_PARITY_STREAK_TARGET = 5
+
 
 def get_sheet_watermarks(sheet_ids: list) -> dict:
     """Return ``sheet_registry`` rows for *sheet_ids*, keyed by sheet id.
@@ -362,3 +373,123 @@ def get_row_state_row_ids(sheet_id: Any) -> set:
         offset += _ROW_STATE_PAGE_SIZE
 
     return row_ids
+
+
+def get_parity_streak(limit: int = _PARITY_STREAK_DEFAULT_LIMIT) -> dict | None:
+    """Derive the D-09 consecutive-pass parity streak from ``run_ledger``.
+
+    Scans the newest ``limit`` ``run_ledger`` rows (``run_id, started_at,
+    status, notes``, ordered by ``started_at`` descending) newest-first.
+    Rows whose ``notes.execution_type`` is not ``production_frequent`` are
+    ignored entirely -- not counted, not scanned as a candidate. Among the
+    remaining rows, ``notes.parity_verdict`` drives the walk: a ``pass``
+    increments the running count; a ``fail`` resets the count to zero and
+    stops the scan immediately (a fail anywhere before the target is
+    reached invalidates the streak claim -- this is a costly, one-way
+    authorisation gate, not a rolling average); a ``skipped`` verdict, or
+    a row with no ``parity_verdict`` key at all, is excluded from the
+    sequence -- it neither increments nor resets the count, and the scan
+    continues past it. The scan also stops early once the count reaches
+    ``_PARITY_STREAK_TARGET`` (five) -- once the gate is provably
+    satisfied, examining older rows adds nothing.
+
+    Uses its own ``op="run_ledger_parity_streak"`` string, independent of
+    every other ``pipeline_memory`` breaker.
+
+    Returns ``None`` on any failure (a ``None`` client, a transport/
+    breaker failure, or a ``None``/missing response payload) -- the
+    caller MUST read ``None`` as "cannot confirm the streak", NEVER as "a
+    streak of zero" or "the gate is satisfied". This is the SAME
+    fail-open discipline every other function in this module documents:
+    a falsely satisfied streak would authorise removing the INC-05
+    rollback path on evidence that was never actually confirmed
+    (T-11-36).
+
+    On success, returns a dict rather than a bare integer so a claim of
+    five is auditable, not a number to trust blindly:
+      - ``streak``: the derived consecutive-pass count (an int, never
+        ``None`` on a successful read -- zero rows or zero matching rows
+        both yield ``streak: 0``, a real and auditable answer, not a
+        failure).
+      - ``rows_examined``: how many of the returned rows the scan
+        actually walked before stopping (fail, target reached, or the
+        window was exhausted).
+      - ``contributing_run_ids``: the ``run_id`` values of the rows that
+        incremented the current count (cleared back to an empty list if
+        a ``fail`` reset the count).
+      - ``stopped_run_id`` / ``stopped_verdict``: the ``run_id`` and
+        verdict of the row that stopped the scan via a ``fail``, or
+        ``None`` for both when the scan stopped for any other reason
+        (target reached, or the window was exhausted with no fail seen).
+
+    Never adds a schema column and never caches its result anywhere --
+    deriving the streak fresh from ``run_ledger`` on every call is the
+    whole point: it cannot drift from the evidence (CONTEXT.md D-09).
+    """
+    client = get_client()
+    if client is None:
+        return None
+
+    def _invoke():
+        return (
+            client.schema("pipeline_memory")
+            .table("run_ledger")
+            .select("run_id,started_at,status,notes")
+            .order("started_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+
+    result = with_retry(_invoke, op="run_ledger_parity_streak")
+    if result is None:
+        return None
+
+    rows = getattr(result, "data", None)
+    if rows is None:
+        return None
+
+    streak = 0
+    contributing_run_ids: list[Any] = []
+    rows_examined = 0
+    stopped_run_id: Any = None
+    stopped_verdict: str | None = None
+
+    for row in rows:
+        rows_examined += 1
+        if not isinstance(row, dict):
+            continue
+
+        notes = row.get("notes")
+        if not isinstance(notes, dict):
+            continue
+        if notes.get("execution_type") != "production_frequent":
+            continue
+
+        verdict = notes.get("parity_verdict")
+        if verdict == "pass":
+            streak += 1
+            contributing_run_ids.append(row.get("run_id"))
+            if streak >= _PARITY_STREAK_TARGET:
+                break
+            continue
+
+        if verdict == "fail":
+            streak = 0
+            contributing_run_ids = []
+            stopped_run_id = row.get("run_id")
+            stopped_verdict = "fail"
+            break
+
+        # A "skipped" verdict, or a row with no parity_verdict at all,
+        # is excluded from the sequence entirely -- it neither
+        # increments nor resets the count, and the scan continues past
+        # it (CONTEXT.md D-09).
+        continue
+
+    return {
+        "streak": streak,
+        "rows_examined": rows_examined,
+        "contributing_run_ids": contributing_run_ids,
+        "stopped_run_id": stopped_run_id,
+        "stopped_verdict": stopped_verdict,
+    }
