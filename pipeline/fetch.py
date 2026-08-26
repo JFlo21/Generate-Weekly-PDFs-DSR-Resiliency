@@ -75,11 +75,19 @@ _RATES_FINGERPRINT: str = ''   # rebound inside get_all_source_rows via `global`
 # shadow-write hook (Phase 11 INC-01's ifVersionAfter input) -- it must
 # NEVER be written onto any row dict, so it cannot influence
 # calculate_data_hash() or excel.py's column sampler.
-_LAST_SHEET_VERSIONS: dict[int, int] = {}
+#
+# Value type is `int | None`, not a bare `int` (Phase 11 Plan 02 mypy
+# Gate 4 fix): `getattr(sheet, 'version', None)` legitimately stores
+# `None` when the SDK response carries no usable `.version` attribute --
+# `_fetch_and_process_sheet` (an untyped nested closure, so mypy never
+# checked its body) already did this; `fetch_sheet_delta` is a properly
+# type-annotated top-level function, so mypy correctly caught the same
+# real behavior the loose annotation had been hiding.
+_LAST_SHEET_VERSIONS: dict[int, int | None] = {}
 _LAST_SHEET_VERSIONS_LOCK = threading.Lock()
 
 
-def get_last_sheet_versions() -> dict[int, int]:
+def get_last_sheet_versions() -> dict[int, int | None]:
     """Return a defensive copy of the per-sheet ``Sheet.version`` watermark
     captured during the most recent ``get_all_source_rows()`` call.
 

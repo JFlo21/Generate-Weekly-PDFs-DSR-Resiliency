@@ -1142,7 +1142,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # today's single get_all_source_rows() full fetch, regardless of
         # the mode resolved here -- plan 04 restructures PHASE 2 against
         # this contract once it has proven itself in shadow (D-08).
-        _mem_trigger3_sheet_ids: set = set()
+        _mem_trigger3_sheet_ids = set()
         _registry_capture_time = datetime.datetime.now(
             datetime.timezone.utc
         ).isoformat()
@@ -3665,7 +3665,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 # -- present+non-empty on a full-mode resolution, ABSENT
                 # entirely -- never a null placeholder -- when mode is
                 # 'incremental').
-                _finish_kwargs: dict[str, Any] = dict(
+                _finish_kwargs = dict(
                     status="success",
                     mode=_resolved_mode,
                     sheets_checked=len(source_sheets) if 'source_sheets' in dir() else 0,

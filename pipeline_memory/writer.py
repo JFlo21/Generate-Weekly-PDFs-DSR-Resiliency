@@ -288,7 +288,7 @@ def upsert_sheet_registry(
     sheets: list[dict[str, Any]],
     run_id: str,
     kind_resolver: Callable[[Any], str],
-    sheet_versions: dict[Any, int] | None,
+    sheet_versions: dict[Any, int | None] | None,
     capture_times: dict[Any, str] | None = None,
     full_read_sheets: set | None = None,
 ) -> None:
