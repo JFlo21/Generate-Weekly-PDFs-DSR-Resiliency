@@ -28,6 +28,14 @@ decided by Juan, verification passed, transition run). `pipeline_memory` schema 
    root-cause if it recurs. **PR #350 CI:** re-triggered on `d9b1779`; the Azure mirror check
    (`JFlo21.Generate-Weekly-PDFs-DSR-Resiliency`) failed at 15 s on the first push and is
    re-running — check before merge. Dependabot #344/#345 routine.
+2. **PR #350 Greptile findings fixed (23:25 CDT, ledger `[2026-08-25 23:25]`):** all three valid.
+   (1) = WR-03 CLOSED — `main()` `finally` writes `run_ledger_finish(status="failed")` on
+   `_session_failed` (guarded, fail-open; `RunLedgerFailurePathTests`). (2) `mem04_passive_compare`
+   compares `row_modified_at` as parsed UTC instants (`_parse_timestamp`; handles `Z`/`+00:00`/
+   `+00:00Z`/fractional/naive). (3) `compare_control_run` reports `duplicate identity` in a
+   directory instead of silently keeping the last file. TDD RED 8 → GREEN; suite 1525 passed /
+   135 subtests; 6 gates ALL PASSED; haiku-verifier PASS. Todo: WR-02/WR-03 struck; WR-01/WR-04/
+   IN-01 remain flag-flip-PR preconditions.
 
 ## Previous (2026-08-25 20:30 CDT) — `/gsd-execute-phase 10` COMPLETE (6/6 plans, 4 waves, sequential); tail gates done; verification human_needed
 0. **Execution:** 10-01 → 10-04 → 10-02 → 10-05 (Juan: "you run this for me" → Claude built the

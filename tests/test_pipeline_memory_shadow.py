@@ -1889,3 +1889,56 @@ class RpcTimeoutWiringTests(unittest.TestCase):
             client, captured = self._build_with_env({})
         self.assertIsNotNone(client)
         self.assertIsNone(captured["options"])
+
+
+class RunLedgerFailurePathTests(unittest.TestCase):
+    """WR-03 / PR #350 review issue 1: a session that dies inside
+    ``main()``'s ``try`` never reaches the success-path
+    ``run_ledger_finish`` call, so its ``run_ledger`` row would stay
+    ``status='running'`` / ``finished_at=NULL`` forever -- indistinguishable
+    from a run still in progress. The ``finally`` block must finalize
+    the row as ``'failed'`` (same flag/TEST_MODE guards, fail-open).
+
+    ``_set_sentry_session_tags`` is the first call inside ``main()``'s
+    ``try`` (before the Smartsheet client is built), so forcing it to
+    raise is the cheapest way to reach the real ``except``/``finally``
+    handlers with no network and no facade rebinding beyond the flags.
+    """
+
+    def _run_main_to_failure(self, *, test_mode=False, finish_side_effect=None):
+        import generate_weekly_pdfs as gwp
+        import pipeline.orchestrate as orch
+
+        writer_mock = mock.Mock()
+        writer_mock.resolve_run_id.return_value = "run-failed-1"
+        if finish_side_effect is not None:
+            writer_mock.run_ledger_finish.side_effect = finish_side_effect
+        with mock.patch.object(orch, "_mem_writer", writer_mock), \
+                mock.patch.object(orch, "RUN_MEMORY_WRITE_ENABLED", True), \
+                mock.patch.object(gwp, "TEST_MODE", test_mode), \
+                mock.patch.object(gwp, "SENTRY_DSN", None), \
+                mock.patch.object(orch, "_set_sentry_session_tags",
+                                  side_effect=RuntimeError("boom")), \
+                mock.patch.object(orch, "sentry_capture_with_context"), \
+                mock.patch.object(orch, "_sentry_cron_checkin_start",
+                                  return_value=None):
+            orch.main()  # main() swallows the exception; must not raise
+        return writer_mock
+
+    def test_session_failure_finalizes_run_ledger_as_failed(self):
+        writer_mock = self._run_main_to_failure()
+        writer_mock.run_ledger_finish.assert_called_once()
+        args, kwargs = writer_mock.run_ledger_finish.call_args
+        self.assertEqual(args[0], "run-failed-1")
+        self.assertEqual(kwargs.get("status"), "failed")
+
+    def test_failure_path_finish_is_fail_open(self):
+        # A Supabase outage during the failure-path finish must never
+        # turn a swallowed session error into a new exception out of main().
+        writer_mock = self._run_main_to_failure(
+            finish_side_effect=RuntimeError("supabase down"))
+        writer_mock.run_ledger_finish.assert_called_once()
+
+    def test_failure_path_finish_respects_test_mode_guard(self):
+        writer_mock = self._run_main_to_failure(test_mode=True)
+        writer_mock.run_ledger_finish.assert_not_called()

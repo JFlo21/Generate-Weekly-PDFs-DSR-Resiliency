@@ -517,3 +517,61 @@ def test_help_documents_all_four_arguments(capsys):
     assert "--shadow-dir" in out
     assert "--control-summary" in out
     assert "--shadow-summary" in out
+
+
+class TestDuplicateIdentityInOneDirectoryFails:
+    """PR #350 review issue 3: two workbooks in the SAME directory that
+    parse to the same stable identity (e.g. two generation timestamps
+    for one WR/week/variant/hash) must be reported, never silently
+    collapsed to whichever file globbed last -- otherwise a materially
+    different artifact can drop out of the comparison and yield a false
+    parity PASS.
+    """
+
+    def test_duplicate_identity_in_control_dir_is_reported(self, tmp_path):
+        control_dir = tmp_path / "control"
+        shadow_dir = tmp_path / "shadow"
+        first = f"WR_90001_WeekEnding_041926_120000_{_HASH}.xlsx"
+        second = f"WR_90001_WeekEnding_041926_130000_{_HASH}.xlsx"
+        _write_xlsx(control_dir, first, b"first bytes")
+        _write_xlsx(control_dir, second, b"materially different bytes")
+        # Shadow matches the LAST-globbed control file: the old code's
+        # overwrite made this pair look like a clean parity PASS.
+        _write_xlsx(
+            shadow_dir,
+            f"WR_90001_WeekEnding_041926_140000_{_HASH}.xlsx",
+            b"materially different bytes",
+        )
+
+        errors, _compared = ccr.compare_excel_sets(control_dir, shadow_dir)
+
+        joined = "\n".join(errors)
+        assert "duplicate identity" in joined
+        assert first in joined and second in joined
+        assert f"WR_90001_WeekEnding_041926_{_HASH}" in joined
+
+    def test_duplicate_identity_in_shadow_dir_is_reported_too(self, tmp_path):
+        control_dir = tmp_path / "control"
+        shadow_dir = tmp_path / "shadow"
+        _write_xlsx(
+            control_dir,
+            f"WR_90001_WeekEnding_041926_120000_{_HASH}.xlsx",
+            b"same bytes",
+        )
+        _write_xlsx(shadow_dir, f"WR_90001_WeekEnding_041926_120000_{_HASH}.xlsx", b"same bytes")
+        _write_xlsx(shadow_dir, f"WR_90001_WeekEnding_041926_130000_{_HASH}.xlsx", b"same bytes")
+
+        errors, _compared = ccr.compare_excel_sets(control_dir, shadow_dir)
+
+        assert any("duplicate identity" in e for e in errors)
+
+    def test_build_identity_hash_map_keeps_first_file_and_flags_duplicate(self, tmp_path):
+        first = f"WR_90001_WeekEnding_041926_120000_{_HASH}.xlsx"
+        second = f"WR_90001_WeekEnding_041926_130000_{_HASH}.xlsx"
+        _write_xlsx(tmp_path, first, b"first bytes")
+        _write_xlsx(tmp_path, second, b"second bytes")
+
+        identity_to_hash, parse_errors = ccr.build_identity_hash_map(tmp_path)
+
+        assert len(identity_to_hash) == 1
+        assert len(parse_errors) == 1 and "duplicate identity" in parse_errors[0]

@@ -25,12 +25,18 @@ flag-flip PR** and must be fixed before Phase 11 turns the write path on.
   (`"$1,234.50"`, `"12 ea"`) fails the Postgres cast and, under fail-open, drops
   the whole 500-row chunk silently. Real-data runs in 10-06 succeeded because the
   sampled sheets carried clean numerics — not a guarantee.
-- **WR-02** `RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC` is defined, documented and imported
+- ~~**WR-02** `RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC` is defined, documented and imported
   but never applied to any HTTP call (unlike the
-  `ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC` pattern it claims to mirror).
-- **WR-03** `run_ledger_finish` runs only on the success path; an exception that
+  `ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC` pattern it claims to mirror).~~
+  **CLOSED 2026-08-25** (`b48efd7`, secure-phase T-10-04): timeout wired into every
+  PostgREST call via `ClientOptions(postgrest_client_timeout=…)`.
+- ~~**WR-03** `run_ledger_finish` runs only on the success path; an exception that
   reaches `main()`'s handlers leaves the run's `run_ledger` row stuck at
-  `status='running'` forever.
+  `status='running'` forever.~~
+  **CLOSED 2026-08-25** (PR #350 Greptile issue 1): `main()`'s `finally` now
+  writes `run_ledger_finish(status="failed")` when `_session_failed` (same
+  flag/TEST_MODE guards, fail-open); pinned by
+  `tests/test_pipeline_memory_shadow.py::RunLedgerFailurePathTests`.
 - **WR-04** `run_ledger.sheets_changed` (a real column) is never populated; the
   count lands in `notes` JSONB under a different key.
 - **IN-01** `upsert_group_state`'s attachment-preservation COALESCE is unverified

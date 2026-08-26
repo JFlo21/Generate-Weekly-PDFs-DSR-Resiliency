@@ -6719,3 +6719,35 @@ follow-up findings closed, same 6 files.
   symptom `ApiError: 0: Unknown error` is a status-0 error result (not 401/403) — separate
   root-cause if it recurs. PR #350 CI re-triggered on `d9b1779`; the Azure mirror check failed at
   15 s on the first push (pre-test) and is re-running — verify before merge.
+
+## [2026-08-25 23:25] PR #350 Greptile findings — all three valid, fixed test-first (WR-03 closed)
+
+- **Issue 1 (`pipeline/orchestrate.py` finally block) = REVIEW WR-03, now CLOSED.** A session
+  exception never reached the success-tail `run_ledger_finish`, so the run's `run_ledger` row
+  stayed `status='running'` / `finished_at=NULL` forever. `main()`'s `finally` now writes
+  `run_ledger_finish(status="failed", …)` when `_session_failed` (same
+  `RUN_MEMORY_WRITE_ENABLED and not TEST_MODE` guards; own try/except so a Supabase outage can
+  never mask the real failure or the cron check-in). All referenced names are hoisted above the
+  `try` (verified by line number) — no UnboundLocalError on early failures. Pinned by
+  `RunLedgerFailurePathTests` (3 tests: failed row written, fail-open, TEST_MODE guard); the
+  test forces `_set_sentry_session_tags` to raise — the first call inside the `try` — so it
+  reaches the real handlers with no network.
+- **Issue 2 (`scripts/mem04_passive_compare.py`):** `row_modified_at` was compared as strings.
+  Supabase emits `+00:00`, exports/fixtures use `Z`, and the pinned SDK emits the `+00:00Z`
+  double suffix — lexical order misclassified same-instant pairs as "advanced" and
+  cross-offset pairs backwards. New `_parse_timestamp` → aware UTC datetimes (handles all of
+  those, fractional seconds, naive→UTC, datetime objects; garbage → None → counted as NOT
+  advanced, the conservative direction). 5 tests. Analyst script only; never on the pipeline path.
+- **Issue 3 (`scripts/compare_control_run.py`):** two workbooks in one directory resolving to
+  the same stable identity were silently collapsed to the last-globbed file — a materially
+  different artifact could vanish from the comparison and yield a false parity PASS.
+  `build_identity_hash_map` now reports `duplicate identity …` naming both files, keeps the
+  first, and the error propagates to the non-zero exit. 3 tests.
+- **Evidence:** RED 8 failed → GREEN; suite **1525 passed / 1 skipped / 135 subtests**;
+  `run_6_gates.sh` ALL PASSED (mypy 65→65); haiku-verifier PASS 5/5. Excel generation, exit
+  behavior, the 21-key `run_summary.json` contract and protected files untouched. Todo
+  `2026-08-25-run-memory-review-followups.md`: WR-02 + WR-03 struck through; WR-01 / WR-04 /
+  IN-01 remain flag-flip-PR preconditions.
+- **Rule:** a review finding that matches an already-tracked follow-up (here WR-03) is
+  evidence the follow-up should not wait for the next phase — fix it in the same PR when the
+  fix is local and test-pinnable.

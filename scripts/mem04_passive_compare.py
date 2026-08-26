@@ -47,7 +47,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import datetime as _dt
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -55,6 +57,45 @@ from typing import Any
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
+
+# An explicit UTC offset at the very end of an ISO-8601 string
+# (``+00:00``, ``-05:00``, ``+0000``). Used only to recognise the
+# smartsheet-python-sdk 4.3.0 double-suffix quirk (``...+00:00Z``, see
+# 10-05-SUMMARY.md) so the stray trailing ``Z`` can be dropped.
+_TRAILING_OFFSET_RE = re.compile(r"[+-]\d{2}:?\d{2}$")
+
+
+def _parse_timestamp(value: Any) -> _dt.datetime | None:
+    """Parse a ``row_modified_at`` value into an aware UTC datetime.
+
+    ``row_modified_at`` reaches this script in several textual shapes
+    that denote the same instant: Supabase/PostgREST emits ``+00:00``
+    offsets (with fractional seconds only when non-zero), JSON exports
+    and fixtures use ``Z``, and the pinned SDK's serializer emits the
+    double-suffixed ``+00:00Z``. Comparing those as strings orders them
+    lexically, not chronologically, so the advanced / unchanged counts
+    came out wrong whenever two representations were mixed (PR #350
+    review). Returns ``None`` for anything unparseable; a naive value
+    is taken as UTC (Smartsheet timestamps are UTC).
+    """
+    if isinstance(value, _dt.datetime):
+        parsed = value
+    else:
+        if not isinstance(value, str):
+            return None
+        text = value.strip()
+        if text.endswith(("Z", "z")):
+            body = text[:-1]
+            # "+00:00Z" -> the offset already says it; "…T00:00:00Z" ->
+            # bare Zulu, spell it out for fromisoformat on 3.10.
+            text = body if _TRAILING_OFFSET_RE.search(body) else body + "+00:00"
+        try:
+            parsed = _dt.datetime.fromisoformat(text)
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=_dt.timezone.utc)
+    return parsed.astimezone(_dt.timezone.utc)
 
 # Formula-derived personnel columns (10-CONTEXT.md discretion note /
 # pipeline_memory/writer.py HASH_FIELDS) -- the columns whose values
@@ -133,8 +174,12 @@ def compare_runs(
         for col in changed_personnel_cols:
             per_column_breakdown[col] += 1
 
-        modified_a = row_a.get("row_modified_at")
-        modified_b = row_b.get("row_modified_at")
+        # Compare as instants, never as strings (PR #350 review): an
+        # unparseable or missing timestamp is conservatively counted as
+        # "did NOT advance" -- the unsafe direction for the incremental
+        # read this script exists to vet, so it can never hide a case.
+        modified_a = _parse_timestamp(row_a.get("row_modified_at"))
+        modified_b = _parse_timestamp(row_b.get("row_modified_at"))
         if modified_a is not None and modified_b is not None and modified_b > modified_a:
             formula_only_advanced += 1
         else:

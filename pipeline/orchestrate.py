@@ -3501,6 +3501,33 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             _txn = None
     
     finally:
+        # Phase 10 (MEM-01/MEM-03) failure-path finalization (10-REVIEW.md
+        # WR-03 / PR #350 review): the success-path run_ledger_finish above
+        # is never reached when an exception lands in the except handlers,
+        # which left that run's row at status='running' / finished_at=NULL
+        # forever -- indistinguishable from a run still in progress.
+        # Same flag + TEST_MODE guards as the start/finish hooks, wrapped so
+        # a Supabase outage here can never mask the real session failure or
+        # the cron check-in below. _session_failed / _mem_run_id / the
+        # counters are all hoisted above the try, so no dir() guard.
+        if _session_failed and RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
+            try:
+                _mem_writer.run_ledger_finish(
+                    _mem_run_id,
+                    status="failed",
+                    groups_generated=_groups_generated,
+                    groups_affected=len(_mem_affected),
+                    groups_errored=_groups_errored,
+                    mem_sheets_written=_mem_sheets_written,
+                    mem_sheets_errored=_mem_sheets_errored,
+                    mem_rows_sent=_mem_rows_sent,
+                )
+            except Exception as _mem_exc:
+                logging.warning(
+                    "⚠️ pipeline_memory run_ledger_finish (failure path) "
+                    f"failed (non-fatal): {type(_mem_exc).__name__}"
+                )
+
         # Sentry cron check-in: signal final status
         if SENTRY_DSN and _cron_checkin_id:
             try:

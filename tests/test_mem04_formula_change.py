@@ -879,3 +879,47 @@ class RealCassetteVerdictTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PassiveCompareTimestampOrderingTests(unittest.TestCase):
+    """PR #350 review issue 2: ``row_modified_at`` must be compared as
+    instants, not as strings. Supabase returns ``+00:00`` offsets, JSON
+    exports and fixtures use ``Z``, and smartsheet-python-sdk 4.3.0's
+    serializer emits the double-suffixed ``+00:00Z`` (10-05 quirk) --
+    lexical ordering misclassifies every one of these mixes.
+    """
+
+    def setUp(self):
+        self.compare = load_mem04_passive_compare()
+        self.base = PassiveCompareTests("setUp")._row  # reuse the row factory
+
+    def _pair(self, ts_a, ts_b):
+        rows_a = {"10": self.base("10", content_hash="h1", row_modified_at=ts_a)}
+        rows_b = {"10": self.base("10", foreman_observed="Bob Secondary",
+                                  content_hash="h2", row_modified_at=ts_b)}
+        return self.compare.compare_runs(rows_a, rows_b)
+
+    def test_same_instant_in_z_and_offset_forms_is_not_advanced(self):
+        # Lexically "…Z" > "…+00:00" -> the old code called this "advanced".
+        report = self._pair("2026-08-24T00:00:00+00:00", "2026-08-24T00:00:00Z")
+        self.assertEqual(report["formula_only_advanced"], 0)
+        self.assertEqual(report["formula_only_unchanged_timestamp"], 1)
+
+    def test_chronological_order_wins_over_lexical_order_across_offsets(self):
+        # a = 05:00Z, b = 03:00Z: b is EARLIER even though it sorts later.
+        report = self._pair("2026-08-24T00:00:00-05:00", "2026-08-24T03:00:00+00:00")
+        self.assertEqual(report["formula_only_advanced"], 0)
+        self.assertEqual(report["formula_only_unchanged_timestamp"], 1)
+
+    def test_genuinely_later_instant_still_counts_as_advanced(self):
+        report = self._pair("2026-08-24T00:00:00Z", "2026-08-24T00:00:00.250+00:00")
+        self.assertEqual(report["formula_only_advanced"], 1)
+
+    def test_sdk_double_suffixed_timestamp_is_parsed_not_rejected(self):
+        report = self._pair("2026-08-24T00:00:00+00:00Z", "2026-08-24T00:00:01+00:00Z")
+        self.assertEqual(report["formula_only_advanced"], 1)
+
+    def test_unparseable_timestamp_counts_as_not_advanced(self):
+        report = self._pair("not-a-timestamp", "2026-08-24T00:00:01Z")
+        self.assertEqual(report["formula_only_advanced"], 0)
+        self.assertEqual(report["formula_only_unchanged_timestamp"], 1)

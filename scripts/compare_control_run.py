@@ -199,9 +199,16 @@ def build_identity_hash_map(
 
     Returns ``(identity_to_hash, parse_errors)``. A filename that fails
     to parse is reported in ``parse_errors`` rather than raised or
-    silently dropped.
+    silently dropped. Two files in the same directory that resolve to
+    the SAME stable identity (typically two generation timestamps of one
+    WR/week/variant left behind by consecutive runs into one folder) are
+    likewise reported and the FIRST file's hash is kept -- silently
+    letting the last-globbed file win could drop a materially different
+    artifact from the comparison and produce a false parity PASS
+    (PR #350 review).
     """
     identity_to_hash: dict[Identity, str] = {}
+    first_file_for_identity: dict[Identity, str] = {}
     parse_errors: list[str] = []
     for path in _iter_excel_files(directory):
         try:
@@ -211,6 +218,15 @@ def build_identity_hash_map(
                 f"unparseable filename {path.name!r}: {exc}"
             )
             continue
+        if identity in first_file_for_identity:
+            parse_errors.append(
+                f"duplicate identity {_format_identity(identity)} in "
+                f"{directory}: {first_file_for_identity[identity]!r} and "
+                f"{path.name!r} both resolve to it (kept the first; clear "
+                "stale artifacts and rerun)"
+            )
+            continue
+        first_file_for_identity[identity] = path.name
         try:
             identity_to_hash[identity] = _canonical_hash_of_xlsx(path)
         except (zipfile.BadZipFile, KeyError, UnicodeDecodeError) as exc:
