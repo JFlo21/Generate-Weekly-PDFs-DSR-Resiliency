@@ -609,7 +609,7 @@ files, reading group rows from `row_state`; the weekly deep run reconciles fully
 4. Local JSON caches and the two attachment pre-fetch phases are removed only after (2);
    frequent-run wall clock measured before/after (baseline 94 min, run 32743959053).
 
-**Plans:** 2/8 plans executed
+**Plans:** 3/8 plans executed
 
 Plans:
 **Wave 1**
@@ -622,7 +622,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 11-03-PLAN.md — D-06 preservation gates: `keep_historical` on attachment cleanup, hash-history prune gated on full mode, off-contract gates pinned (wave 3)
+- [x] 11-03-PLAN.md — D-06 preservation gates: `keep_historical` on attachment cleanup, hash-history prune gated on full mode, off-contract gates pinned (wave 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 

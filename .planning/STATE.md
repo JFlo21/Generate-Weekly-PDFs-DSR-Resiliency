@@ -5,17 +5,17 @@ milestone_name: Engine Modularization & Hygiene
 current_phase: 11
 current_phase_name: Incremental Read + Affected-Group Regeneration
 status: executing
-stopped_at: Completed 11-02-PLAN.md
-last_updated: "2026-08-26T18:51:26.688Z"
+stopped_at: Completed 11-03-PLAN.md
+last_updated: "2026-08-26T19:21:15.227Z"
 last_activity: 2026-08-26
 last_activity_desc: Phase 11 execution resumed (wave continue)
-state_head: 4a5ddd2ca855545c3fd2ff1dd0c9ec3fe21ec421
 progress:
   total_phases: 1
   completed_phases: 1
   total_plans: 2
   completed_plans: 2
   percent: 100
+state_head: 4a5ddd2ca855545c3fd2ff1dd0c9ec3fe21ec421
 ---
 
 # Project State
@@ -36,7 +36,7 @@ pipeline.
 ## Current Position
 
 Phase: 11 (Incremental Read + Affected-Group Regeneration) — EXECUTING
-Plan: 3 of 8
+Plan: 4 of 8
 Status: Ready to execute
   Engine 10,476 -> 709-line thin facade; 13-module pipeline/ package; 0 behavior
   change; 7 waves + 2 gap-closure plans (09-07/09-08). G-09-MOD-06 closed: Gate 4
@@ -104,6 +104,7 @@ Progress: [██████████] 100% (v1.3 complete; v1.4 Phase 10 cl
 | Phase 10 P06 | ~4h10m (4 real production runs) | 3 tasks | 6 files |
 | Phase 11 P01 | 48min | 3 tasks | 6 files |
 | Phase 11 P02 | 21min | 3 tasks | 9 files |
+| Phase 11 P03 | 28min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -209,6 +210,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 11]: [Phase 11-02] run_ledger_start's call site moved to after PHASE 1 discovery (was before it) so it can carry the same resolved mode the finish calls carry, instead of a hard-coded full
 - [Phase 11]: [Phase 11-02] sheet_registry capture_time is captured ONCE before PASS 1 and reused verbatim for PASS 2 -- last_read_at must be the instant before the read, never a fresh now recomputed after the read completed
 - [Phase 11]: [Phase 11-02] widened pipeline.fetch._LAST_SHEET_VERSIONS to dict[int, int | None] rather than suppressing a new mypy finding -- the loose annotation was always inaccurate; the untyped nested closure that also wrote it had simply never been checked
+- [Phase ?]: Phase 11-03: keep_historical is the trailing kwarg after dry_run (not immediately after primary_wr_scope) to preserve the existing signature-pin test's convention
+- [Phase ?]: Phase 11-03: hash-history stale-key prune's suppressed-path log fires only for incremental mode, never for the pre-existing time-budget-exceeded-in-full-mode silent skip
+- [Phase ?]: Phase 11-03: seven off-contract/legacy-migration cleanup gates left unmodified and pinned by ScopeDerivationTests rather than re-gated (RESEARCH.md Pitfall 2)
 
 ### Roadmap Evolution
 
@@ -342,8 +346,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-08-26T18:51:26.508Z
-**Stopped at:** Completed 11-02-PLAN.md
+**Last session:** 2026-08-26T19:21:15.213Z
+**Stopped at:** Completed 11-03-PLAN.md
 **Resume file:** None
 
 ## Session Continuity
