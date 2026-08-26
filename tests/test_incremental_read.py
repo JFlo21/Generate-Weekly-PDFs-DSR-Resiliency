@@ -1160,5 +1160,156 @@ class HashHistoryPruneTests(unittest.TestCase):
         self.assertIn("len(hash_history)", block)
 
 
+# ── 11-03 Task 3 (D-06 off-contract gates): pin the already-safe
+# legacy-migration scope builders and prove zero off-contract
+# deletions for a WR absent from `groups` ───────────────────────────────
+
+class ScopeDerivationTests(unittest.TestCase):
+    """RESEARCH.md Pitfall 2 / Assumption A3: the seven off-contract /
+    legacy-migration gates inside cleanup_untracked_sheet_attachments
+    are already safe by construction because every scope set
+    (sub_wr_scope, vac_legacy_wr_scope, primary_wr_scope) is built from
+    this run's `groups`. This class PINS that safety argument with a
+    regression test instead of re-gating the seven gates individually
+    (Pitfall 2: re-gating them is risk-adding scope creep on
+    billing-critical code the seven gates are already proven safe on).
+    """
+
+    IN_SCOPE_WR = "90001"
+    ABSENT_WR = "90002"
+    WEEK = "041926"
+    SHEET_ID = 5723337641643908
+
+    def _groups_with_only_in_scope_wr(self):
+        # One subcontractor-variant group (feeds sub_wr_scope), one
+        # vac_crew-variant group (feeds vac_legacy_wr_scope), one
+        # primary-variant group (feeds primary_wr_scope) -- all keyed
+        # to IN_SCOPE_WR. ABSENT_WR has NO entry in `groups` at all,
+        # simulating "this run did not process it" (incremental mode).
+        return {
+            f"{self.WEEK}_sub": [{
+                'Work Request #': self.IN_SCOPE_WR,
+                '__variant': 'reduced_sub',
+            }],
+            f"{self.WEEK}_vac": [{
+                'Work Request #': self.IN_SCOPE_WR,
+                '__variant': 'vac_crew',
+            }],
+            # _build_primary_wr_scope additionally requires the group
+            # KEY to carry the Subproject D `_USER_` partition token
+            # (distinguishing a partitioned primary from a bare one).
+            f"{self.WEEK}_USER_primary": [{
+                'Work Request #': self.IN_SCOPE_WR,
+                '__variant': 'primary',
+            }],
+        }
+
+    @staticmethod
+    def _att(name, att_id):
+        att = mock.MagicMock()
+        att.name = name
+        att.id = att_id
+        return att
+
+    def test_absent_wr_excluded_from_all_three_scope_sets(self):
+        from pipeline.attribution import (
+            _build_primary_wr_scope,
+            _build_subcontractor_wr_scope,
+            _build_vac_crew_wr_scope,
+        )
+
+        groups = self._groups_with_only_in_scope_wr()
+        sub_scope = _build_subcontractor_wr_scope(groups)
+        vac_scope = _build_vac_crew_wr_scope(groups)
+        primary_scope = _build_primary_wr_scope(groups)
+
+        self.assertIn(self.IN_SCOPE_WR, sub_scope)
+        self.assertIn(self.IN_SCOPE_WR, vac_scope)
+        self.assertIn(self.IN_SCOPE_WR, primary_scope)
+        self.assertNotIn(self.ABSENT_WR, sub_scope)
+        self.assertNotIn(self.ABSENT_WR, vac_scope)
+        self.assertNotIn(self.ABSENT_WR, primary_scope)
+
+    def test_zero_offcontract_deletions_for_wr_absent_from_groups(self):
+        from pipeline.attribution import (
+            _build_primary_wr_scope,
+            _build_subcontractor_wr_scope,
+            _build_vac_crew_wr_scope,
+        )
+        from pipeline.cleanup import cleanup_untracked_sheet_attachments
+
+        groups = self._groups_with_only_in_scope_wr()
+        sub_scope = _build_subcontractor_wr_scope(groups)
+        vac_scope = _build_vac_crew_wr_scope(groups)
+        primary_scope = _build_primary_wr_scope(groups)
+
+        # Legacy-shaped bare attachments for the ABSENT WR -- each
+        # would be off-contract IF ABSENT_WR were in scope. Because
+        # it's absent from every scope set above, none of the three
+        # scope-gated off-contract branches can fire for it.
+        atts = [
+            self._att(
+                f"WR_{self.ABSENT_WR}_WeekEnding_{self.WEEK}_120000_ReducedSub_aabbcc.xlsx",
+                10,
+            ),
+            self._att(
+                f"WR_{self.ABSENT_WR}_WeekEnding_{self.WEEK}_120001_VacCrew_ddeeff.xlsx",
+                11,
+            ),
+            self._att(
+                f"WR_{self.ABSENT_WR}_WeekEnding_{self.WEEK}_120002_ffgghh.xlsx",
+                12,
+            ),
+        ]
+        sheet = mock.MagicMock()
+        row = mock.MagicMock()
+        row.id = 111
+        sheet.rows = [row]
+        cache = {111: atts}
+
+        deleted_ids: list[int] = []
+        client = mock.MagicMock()
+
+        def _delete(sheet_id, att_id):
+            deleted_ids.append(att_id)
+            return mock.MagicMock()
+
+        client.Attachments.delete_attachment.side_effect = _delete
+
+        cleanup_untracked_sheet_attachments(
+            client=client,
+            target_sheet_id=self.SHEET_ID,
+            valid_wr_weeks=set(),
+            test_mode=False,
+            attachment_cache=cache,
+            target_sheet=sheet,
+            sub_wr_scope=sub_scope,
+            sub_offcontract_variants={'helper', 'primary'},
+            sub_legacy_primary_variants={'reduced_sub', 'aep_billable'},
+            vac_legacy_wr_scope=vac_scope,
+            primary_wr_scope=primary_scope,
+            # keep_historical=True isolates the off-contract gates: with
+            # the base identity-loop gate forced to preserve, any
+            # delete_attachment call observed here can ONLY have come
+            # from one of the (unconditional, KEEP_HISTORICAL_WEEKS-
+            # independent) off-contract branches.
+            keep_historical=True,
+        )
+
+        self.assertEqual(deleted_ids, [])
+
+    def test_pipeline_cleanup_offcontract_gates_diff_is_untouched(self):
+        # RESEARCH.md Pitfall 2: no incremental-mode conditional was
+        # added inside the seven off-contract / legacy-migration gates
+        # themselves -- the safety argument is pinned by the two tests
+        # above, not by touching this region.
+        import inspect
+        import pipeline.cleanup as cleanup_mod
+
+        src = inspect.getsource(cleanup_mod.cleanup_untracked_sheet_attachments)
+        self.assertNotIn("_resolved_mode", src)
+        self.assertNotIn("mode == 'incremental'", src)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -3702,6 +3702,14 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 # -- present+non-empty on a full-mode resolution, ABSENT
                 # entirely -- never a null placeholder -- when mode is
                 # 'incremental').
+                # Phase 11 Plan 03 (D-11): groups_generated/groups_affected/
+                # rows_seen below are scoped to whatever this run actually
+                # covered -- on an incremental run that is a strict subset
+                # of the live groups by design, so a small number here is
+                # expected, not a regression. These counters are only
+                # interpretable next to run_ledger.mode (set above); the
+                # frozen run_summary.json 21-key contract is NOT overloaded
+                # with a second meaning for this.
                 _finish_kwargs = dict(
                     status="success",
                     mode=_resolved_mode,
