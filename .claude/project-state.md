@@ -19,6 +19,15 @@ decided by Juan, verification passed, transition run). `pipeline_memory` schema 
    **Next:** PR #350 opened (https://github.com/JFlo21/Generate-Weekly-PDFs-DSR-Resiliency/pull/350) → Seer PR triage (#343/#346/#347/#348) →
    `/gsd-plan-phase 11`. Flag-flip-PR preconditions: WR-01 (todo `8b844a6`), comparator rerun in a
    low-activity window, `group_state` attachment-id proof on first real upload.
+1. **Seer PR triage (22:15 CDT, read-only — nothing closed yet):** #343/#347/#348 all assume the
+   SDK exposes `statusCode` (camelCase); verified FALSE on installed `smartsheet-python-sdk 4.3.0`
+   (`ErrorResult.status_code` only, `hasattr(ErrorResult, "statusCode")` → False) and master's
+   `pipeline/fetch.py::_is_auth_api_error` + `tests/test_fetch_auth_errors.py` already cover both
+   paths → **close, don't merge**. #346 (Seer's own revert) has an empty diff → close as no-op. The
+   Sentry symptom `ApiError: 0: Unknown error` is a status-0 result, not a 401/403 — separate
+   root-cause if it recurs. **PR #350 CI:** re-triggered on `d9b1779`; the Azure mirror check
+   (`JFlo21.Generate-Weekly-PDFs-DSR-Resiliency`) failed at 15 s on the first push and is
+   re-running — check before merge. Dependabot #344/#345 routine.
 
 ## Previous (2026-08-25 20:30 CDT) — `/gsd-execute-phase 10` COMPLETE (6/6 plans, 4 waves, sequential); tail gates done; verification human_needed
 0. **Execution:** 10-01 → 10-04 → 10-02 → 10-05 (Juan: "you run this for me" → Claude built the

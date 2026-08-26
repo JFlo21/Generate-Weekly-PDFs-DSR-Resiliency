@@ -6709,3 +6709,13 @@ follow-up findings closed, same 6 files.
   pushed + PR #350 opened 22:05 CDT (https://github.com/JFlo21/Generate-Weekly-PDFs-DSR-Resiliency/pull/350) → Seer PR triage
   (#343/#346/#347/#348) → `/gsd-plan-phase 11`. Housekeeping unchanged: two diagnostic
   `run_ledger` rows in prod (operator delete), `Sandbox` rig sheets disposable.
+- **Seer PR triage (22:15 CDT, read-only; nothing closed):** #343/#347/#348 rewrite
+  `_is_auth_api_error` on the premise that the SDK exposes `statusCode` (camelCase). Verified
+  FALSE on installed `smartsheet-python-sdk 4.3.0`: `ErrorResult` has `status_code` only
+  (`hasattr(ErrorResult, "statusCode")` → False) — master's `pipeline/fetch.py` structured +
+  serialized paths are correct and pinned by `tests/test_fetch_auth_errors.py`. #346 (Seer's own
+  revert) is an empty diff. **Rule:** close all four; a Seer PR that asserts an SDK attribute name
+  is verified against the installed package before it is even reviewed. The residual Sentry
+  symptom `ApiError: 0: Unknown error` is a status-0 error result (not 401/403) — separate
+  root-cause if it recurs. PR #350 CI re-triggered on `d9b1779`; the Azure mirror check failed at
+  15 s on the first push (pre-test) and is re-running — verify before merge.
