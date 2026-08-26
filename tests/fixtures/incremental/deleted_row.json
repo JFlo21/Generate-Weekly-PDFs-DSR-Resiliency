@@ -1,0 +1,26 @@
+{
+  "provenance": "Synthetic scenario (not a live Smartsheet capture) exercising INC-03's deletion-diff for the weekly deep run: a sheet whose full read no longer contains a row that pipeline_memory.row_state holds from a prior run. Modeled on the sheet/row-id shapes used across tests/fixtures/mem04/*.json and tests/fixtures/incremental/abbreviated_sheet_response.json, but deliberately NOT a raw Smartsheet SDK response capture -- this fixture drives pipeline_memory.reader.get_row_state_row_ids / pipeline_memory.writer.mark_rows_deleted's diff logic directly (stored row-id set vs. this run's live row-id set), which needs no Smartsheet API shape at all.",
+  "sheet_id": 4909062725521284,
+  "stored_row_state_row_ids": [
+    1101266002509700,
+    1101266002509701,
+    1101266002509702
+  ],
+  "live_full_read_row_ids": [
+    1101266002509701,
+    1101266002509702
+  ],
+  "expected_deleted_row_ids": [
+    1101266002509700
+  ],
+  "affected_pair": {
+    "wr": "90001",
+    "week_ending": "2026-08-30"
+  },
+  "zero_row_sheet_scenario": {
+    "description": "A sibling sheet whose full read returned zero rows this run -- MUST be skipped with a warning, never treated as 'every row deleted' (T-11-30).",
+    "sheet_id": 6295051624730500,
+    "stored_row_state_row_ids": [9001, 9002],
+    "live_full_read_row_ids": []
+  }
+}
