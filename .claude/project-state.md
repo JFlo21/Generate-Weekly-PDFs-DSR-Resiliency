@@ -1,14 +1,31 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-25 21:50 CDT · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-25 23:55 CDT · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
-_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-25 21:50]` (Phase 10 CLOSED — UAT 2/2
-decided by Juan, verification passed, transition run). `pipeline_memory` schema is LIVE on Supabase
-`poeyztlmsawfoqlanucc` (service_role-only; write path OFF in production). PR https://github.com/JFlo21/Generate-Weekly-PDFs-DSR-Resiliency/pull/350 open (pushed 2026-08-25 22:05 CDT)._
+_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-25 23:55]` (PR #350 MERGED →
+`99dc25d`; local master synced `81d3b46`; Phase 10 fully landed). `pipeline_memory` schema is LIVE on
+Supabase `poeyztlmsawfoqlanucc` (service_role-only; write path OFF in production — the flag flip is a
+separate later PR). Next: `/gsd-plan-phase 11`._
 
-## Latest work (2026-08-25 21:50 CDT) — Phase 10 CLOSED: `/gsd-verify-work 10` 2/2 decided, verification passed, transition to Phase 11
+## Latest work (2026-08-25 23:55 CDT) — PR #350 MERGED (Phase 10 on master); local master re-synced; post-merge gate green
+0. **Merge:** https://github.com/JFlo21/Generate-Weekly-PDFs-DSR-Resiliency/pull/350 squash-merged as
+   `99dc25d` (2026-08-26 04:47Z; 55 branch commits incl. the Greptile fixes `6965f95`); `docs-changelog.yml`
+   stub + Notion-worker runbook update (`e203e3c`, `81d3b46`) landed on top. Local `master` was 0 ahead /
+   4 behind → `git merge --ff-only origin/master` (no divergence this time — the branch was cut from a
+   pushed master); `feat/phase-10-run-memory` deleted (remote auto-deleted; squash-merge "not merged to
+   HEAD" warning expected, content equivalence verified: branch tip vs master differed only by the two
+   post-merge docs commits). **Gate on merged tree:** `pytest tests/ -q` → **1525 passed, 1 skipped,
+   135 subtests, 23 s**. Working tree carries only the pre-existing local `generated_docs/hash_history.json`
+   prune-marker diff (untouched, leave or discard). Stray local branch `cursor/sync-job-run-logs-803d`
+   (Cursor bot) left alone. **Open PRs:** Seer #343/#346/#347/#348 — triage verdict in `[22:15]`
+   below: close all four (false SDK premise / empty revert); Dependabot #344/#345 routine; Cursor
+   sync-log docs PRs #328/#331/#338. **Next:** `/gsd-plan-phase 11` (Incremental Read + Affected-Group
+   Regeneration, INC-01..05) on a fresh `feat/phase-11-*` branch; flag-flip-PR preconditions unchanged
+   (WR-01, WR-04, IN-01, low-activity comparator rerun, `group_state` attachment-id proof).
+
+## Previous (2026-08-25 21:50 CDT) — Phase 10 CLOSED: `/gsd-verify-work 10` 2/2 decided, verification passed, transition to Phase 11
 0. **UAT:** `verify:pre` api-coverage gate blocked on `COVERAGE.md` cell lengths → trimmed (`8486113`).
    Test 1 (SC4 byte-identical) — Juan accepted the canonicalized-content proof; low-activity rerun →
    flag-flip-PR precondition. Test 2 (`group_state` attachment id) — Juan: defer → recorded as pass

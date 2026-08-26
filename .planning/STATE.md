@@ -4,7 +4,7 @@ milestone: v1.3
 milestone_name: Engine Modularization & Hygiene
 current_phase: 10
 status: completed
-stopped_at: Phase 10 complete (UAT 2/2 decided, verification passed 2026-08-25) — next /gsd-plan-phase 11
+stopped_at: Phase 10 complete and MERGED to master (PR #350 → 99dc25d, 2026-08-26 04:47Z; local master synced 81d3b46, post-merge gate 1525 passed) — next /gsd-plan-phase 11
 last_updated: "2026-08-26T02:51:37.802Z"
 last_activity: 2026-08-25
 last_activity_desc: Phase 10 complete
@@ -338,5 +338,5 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 ## Session Continuity
 
 Last session: 2026-08-26T02:50:00.000Z
-Stopped at: Phase 10 CLOSED (2026-08-25 21:50 CDT): UAT 2/2 (1679829), 10-VERIFICATION.md status passed, COVERAGE.md gate fix (8486113), phase.complete run. Pushed; PR #350 open. Next: Seer PR triage (#343/#346/#347/#348), then /gsd-plan-phase 11.
+Stopped at: Phase 10 MERGED (2026-08-25 23:55 CDT): PR #350 squash-merged as 99dc25d (55 commits incl. the three Greptile fixes 6965f95); local master fast-forwarded to 81d3b46 (docs-changelog + Notion runbook stubs on top); feat/phase-10-run-memory deleted local+remote; post-merge gate 1525 passed / 135 subtests. Next: close Seer #343/#346/#347/#348 (Juan's word), then /gsd-plan-phase 11 on a fresh feat/phase-11-* branch.
 Resume file: None

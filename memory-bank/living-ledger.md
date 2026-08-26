@@ -6751,3 +6751,19 @@ follow-up findings closed, same 6 files.
 - **Rule:** a review finding that matches an already-tracked follow-up (here WR-03) is
   evidence the follow-up should not wait for the next phase — fix it in the same PR when the
   fix is local and test-pinnable.
+
+## [2026-08-25 23:55] PR #350 MERGED — Phase 10 (run-memory foundation, shadow writes) is on master
+
+- **Merge:** squash `99dc25d` (2026-08-26 04:47Z), 55 branch commits including the Greptile
+  fixes `6965f95`; `docs-changelog.yml` stub + Notion-worker runbook update (`e203e3c`,
+  `81d3b46`) followed automatically. **Local sync:** master was 0 ahead / 4 behind →
+  `git merge --ff-only origin/master`; no divergence this time because the branch was cut from
+  an already-pushed master (contrast the #349 `reset --keep` repair). Branch deleted local +
+  remote after confirming the tip vs master differed only by the two post-merge docs commits.
+- **Gate on the merged tree:** `pytest tests/ -q` → 1525 passed / 1 skipped / 135 subtests.
+- **Production posture unchanged:** `RUN_MEMORY_WRITE_ENABLED` OFF in
+  `weekly-excel-generation.yml`; the schema is live but the pipeline writes nothing to it until
+  the flag-flip PR (preconditions: WR-01 decorated numerics, WR-04 `sheets_changed`, IN-01
+  `group_state` attachment proof on first real upload, low-activity comparator rerun).
+- **Next:** close Seer #343/#346/#347/#348 (verdict `[22:15]`), then `/gsd-plan-phase 11` on
+  `feat/phase-11-*`. Post-merge ledger/state commits go on that branch — never directly to master.
