@@ -84,6 +84,31 @@ SYNTHETIC_ROW_VARIANCE=15        # Row count variation per WR in synthetic data
 ENABLE_AUDIT_ANOMALIES=true      # Include known pricing anomalies in synthetic data
 ```
 
+RUN-MEMORY INCREMENTAL READ VARIABLES (Phase 11, INC-01):
+```bash
+# Frequent-run delta-read gate -- default OFF, ship dormant (mirrors the
+# RUN_MEMORY_WRITE_* flag-family pattern). Even when set, incremental mode
+# is only reachable when EXECUTION_TYPE=production_frequent -- weekend /
+# weekly-deep / manual dispatches stay a full read regardless of this flag.
+RUN_MEMORY_INCREMENTAL_ENABLED=false
+
+# Fixed overlap (minutes) applied ONLY when building the delta-read
+# rows_modified_since query filter (last_read_at - SAFETY_WINDOW_MINUTES).
+# NEVER subtracted at persist time -- sheet_registry.last_read_at always
+# stores the capture-time instant taken immediately before the read is
+# issued.
+SAFETY_WINDOW_MINUTES=15
+```
+
+NOTE -- two different "mode" values, do not confuse them: `run_summary.json`'s
+`mode` key reports `TEST` vs `PRODUCTION` (unrelated to this feature, and
+frozen -- Gate 6). `pipeline_memory.run_ledger.mode` (a Supabase column, not
+a `run_summary.json` key) reports `incremental` vs `full` -- whether THIS
+run's frequent read was a delta read or a full read, plus
+`notes.fallback_reason` when it fell back to full. Operators and dashboards
+tracking incremental-read health must read the Supabase column, never the
+JSON key.
+
 GITHUB ACTIONS CONSOLIDATION PATTERN:
 Due to GitHub's 10-input limit, complex configurations use the advanced_options pattern:
 ```yaml

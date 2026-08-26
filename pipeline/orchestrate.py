@@ -64,6 +64,9 @@ from pipeline.retry import smartsheet_call_with_retry
 # rule's scope; see pipeline_memory/__init__.py). Off by default via
 # RUN_MEMORY_WRITE_ENABLED; every call site below is fail-open.
 from pipeline_memory import writer as _mem_writer
+# Phase 11 Plan 02 (INC-01): the package's first READ surface, used by
+# resolve_run_mode() below. Same independence rationale as _mem_writer.
+from pipeline_memory import reader as _mem_reader
 
 # Named re-export imports (byte-exact from the facade) so every bare sibling
 # reference inside main()/testmode resolves identically (W1-W5 pattern). The
@@ -113,6 +116,7 @@ from pipeline.config import (  # noqa: E402
     RESET_HASH_HISTORY,
     RESET_WR_LIST,
     RES_GROUPING_MODE,
+    RUN_MEMORY_INCREMENTAL_ENABLED,
     RUN_MEMORY_WRITE_ENABLED,
     RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN,
     RUN_MEMORY_WRITE_MAX_MINUTES,
@@ -797,6 +801,39 @@ def resolve_run_mode(
         )
 
 
+def _build_registry_write_plan(
+    source_sheets: list[dict[str, Any]],
+    trigger3_sheet_ids: set,
+    capture_time: str,
+) -> tuple[list[dict[str, Any]], dict[Any, str], set]:
+    """Compute the ``(sheets, capture_times, full_read_sheet_ids)`` triple
+    both ``sheet_registry`` upsert passes need (Phase 11 Plan 02,
+    D-01/D-02 trigger 3).
+
+    PURE (no I/O, never raises internally) so it's directly
+    unit-testable without invoking ``main()`` -- mirrors
+    ``_build_group_state_flush``'s standalone-function testability
+    pattern (10-03 key-decision).
+
+    A sheet id present in ``trigger3_sheet_ids`` is EXCLUDED entirely
+    from the returned sheets list -- neither ``last_read_at`` nor
+    ``last_sheet_version`` is refreshed for it this run (D-02 trigger 3:
+    isolate, don't touch the watermark, let trigger 1 force a full read
+    once access returns). PHASE 2 this plan still performs a full fetch
+    of every remaining sheet regardless of the resolved run mode, so
+    every sheet this function returns IS marked full_read=True in the
+    returned ``full_read_sheet_ids`` set, and every sheet gets the SAME
+    ``capture_time`` (captured once by the caller, immediately before
+    PHASE 2 issues its reads).
+    """
+    registry_sheets = [
+        s for s in source_sheets if s.get('id') not in trigger3_sheet_ids
+    ]
+    capture_times = {s.get('id'): capture_time for s in registry_sheets}
+    full_read_ids = {s.get('id') for s in registry_sheets}
+    return registry_sheets, capture_times, full_read_ids
+
+
 def _resolve_mem_sheet_kind(sheet_id: Any) -> str:
     """Classify a discovered sheet's ``sheet_registry.kind`` (MEM-01).
 
@@ -995,6 +1032,16 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
     _mem_rows_changed = 0
     _mem_affected = set()
     _mem_run_id = _mem_writer.resolve_run_id()
+    # Phase 11 Plan 02 (INC-01/D-11): resolved run mode + its fallback
+    # reason, hoisted for the same documented reason as the _mem_*
+    # counters above -- the run_ledger_finish hooks reference these
+    # unconditionally. 'full' / None is also the CORRECT value when the
+    # resolve_run_mode block below never runs (RUN_MEMORY_WRITE_ENABLED
+    # off, or TEST_MODE): run_ledger_start/finish already self-gate on the
+    # identical condition, so these values are never actually written to
+    # Supabase in that case.
+    _resolved_mode = "full"
+    _resolved_fallback_reason = None
     # Explicit session-failure sentinel for the finally-block cron
     # check-in (Copilot review, PR #297): _groups_errored == 0 alone
     # cannot distinguish "clean run" from "died before any group was
@@ -1062,25 +1109,6 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             github_actions=GITHUB_ACTIONS_MODE,
         )
 
-        # Phase 10 (MEM-01/MEM-03): run_ledger 'start' row. Guarded by the
-        # flag AND TEST_MODE (10-RESEARCH.md Pitfall 7 -- the synthetic
-        # TEST_MODE path must never attempt a live Supabase call) and
-        # wrapped in its own try/except so a broken writer module can
-        # never break Excel generation (fail-open holds even if
-        # pipeline_memory itself has a bug, not just a Supabase outage).
-        if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
-            try:
-                _mem_writer.run_ledger_start(
-                    _mem_run_id,
-                    mode="full",
-                    release=os.getenv('SENTRY_RELEASE', '') or '',
-                )
-            except Exception:
-                logging.warning(
-                    "⚠️ pipeline_memory run_ledger_start failed "
-                    "(non-fatal); memory not written this run."
-                )
-
         # ── Source sheet discovery (includes folder discovery on cache miss) ──
         _phase_start = datetime.datetime.now()
         logging.info(f"\n{'='*60}")
@@ -1090,13 +1118,96 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         with sentry_sdk.start_span(op="smartsheet.discovery", name="Discover and validate source sheets") as span:
             source_sheets = discover_source_sheets(client)
             span.set_data("sheets_discovered", len(source_sheets) if source_sheets else 0)
-        
+
         if not source_sheets:
             raise Exception("No valid source sheets found")
-        
+
         _phase_elapsed = (datetime.datetime.now() - _phase_start).total_seconds()
         logging.info(f"⚡ Phase 1 complete: {len(source_sheets)} sheets discovered in {_phase_elapsed:.1f}s")
         sentry_add_breadcrumb("discovery", f"Discovered {len(source_sheets)} source sheets", data={"count": len(source_sheets)})
+
+        # Phase 11 Plan 02 (INC-01/D-02/D-11): resolve this run's mode.
+        # Needs source_sheets from PHASE 1 discovery above, which is why
+        # this (and the run_ledger 'start' upsert right after it) moved
+        # AFTER discovery -- the "weekly run started" Sentry log event
+        # earlier in main() is unaffected; only the run_ledger 'start'
+        # upsert's POSITION moved so it can carry the resolved mode
+        # instead of a hard-coded "full". Guarded identically to every
+        # other pipeline_memory hook (flag AND TEST_MODE) and wrapped so a
+        # broken reader/resolver can never break Excel generation --
+        # fail-open holds even if pipeline_memory has a bug, not just a
+        # Supabase outage.
+        #
+        # PHASE 2 below is UNCHANGED this plan: all_rows still comes from
+        # today's single get_all_source_rows() full fetch, regardless of
+        # the mode resolved here -- plan 04 restructures PHASE 2 against
+        # this contract once it has proven itself in shadow (D-08).
+        _mem_trigger3_sheet_ids: set = set()
+        _registry_capture_time = datetime.datetime.now(
+            datetime.timezone.utc
+        ).isoformat()
+        if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
+            try:
+                _sheet_ids_for_watermarks = [
+                    s.get('id') for s in source_sheets
+                ]
+                _watermarks = _mem_reader.get_sheet_watermarks(
+                    _sheet_ids_for_watermarks
+                )
+                _last_run_status = _mem_reader.get_last_run_ledger_status()
+                _resolved_mode, _resolved_fallback_reason, _per_sheet_reasons = (
+                    resolve_run_mode(
+                        source_sheets,
+                        _watermarks,
+                        _last_run_status,
+                        incremental_enabled=RUN_MEMORY_INCREMENTAL_ENABLED,
+                        execution_type=os.getenv('EXECUTION_TYPE', 'manual'),
+                        reset_hash_history=RESET_HASH_HISTORY,
+                        regen_weeks=REGEN_WEEKS,
+                        reset_wr_list=RESET_WR_LIST,
+                        force_generation=FORCE_GENERATION,
+                    )
+                )
+                _mem_trigger3_sheet_ids = {
+                    sid for sid, reason in _per_sheet_reasons.items()
+                    if reason.startswith('trigger3_auth_error')
+                }
+                logging.info(
+                    f"🧭 Run-memory mode resolved: {_resolved_mode}"
+                    + (
+                        f" (fallback_reason={_resolved_fallback_reason!r})"
+                        if _resolved_fallback_reason else ""
+                    )
+                )
+            except Exception:
+                logging.warning(
+                    "⚠️ pipeline_memory resolve_run_mode failed "
+                    "unexpectedly (non-fatal); defaulting to mode='full' "
+                    "this run."
+                )
+                _resolved_mode = "full"
+                _resolved_fallback_reason = "trigger_resolve_exception"
+
+        # Phase 10 (MEM-01/MEM-03): run_ledger 'start' row. Guarded by the
+        # flag AND TEST_MODE (10-RESEARCH.md Pitfall 7 -- the synthetic
+        # TEST_MODE path must never attempt a live Supabase call) and
+        # wrapped in its own try/except so a broken writer module can
+        # never break Excel generation (fail-open holds even if
+        # pipeline_memory itself has a bug, not just a Supabase outage).
+        # Phase 11 Plan 02: carries the resolved mode (Phase 10 hard-coded
+        # "full" here -- every run WAS a full read).
+        if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
+            try:
+                _mem_writer.run_ledger_start(
+                    _mem_run_id,
+                    mode=_resolved_mode,
+                    release=os.getenv('SENTRY_RELEASE', '') or '',
+                )
+            except Exception:
+                logging.warning(
+                    "⚠️ pipeline_memory run_ledger_start failed "
+                    "(non-fatal); memory not written this run."
+                )
 
         # Phase 10 (MEM-01): sheet_registry shadow write, PASS 1 (pre-fetch).
         # Called TWICE this run -- here, right after discovery, and again
@@ -1108,11 +1219,29 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # accidental duplication. Guarded the same way as the run_ledger
         # hooks (flag AND TEST_MODE) and wrapped in its own try/except so a
         # broken writer module can never break Excel generation.
+        #
+        # Phase 11 Plan 02 (D-01): every sheet not isolated by trigger 3
+        # gets the SAME _registry_capture_time (captured once, immediately
+        # above -- i.e. immediately before PHASE 2 below issues its reads)
+        # for last_read_at, and is marked full_read=True: PHASE 2 still
+        # performs today's full fetch of every sheet regardless of the
+        # resolved mode, so every registry write this plan genuinely IS a
+        # full read. A sheet isolated by trigger 3 is excluded from BOTH
+        # registry passes entirely (neither last_read_at nor
+        # last_sheet_version refreshed -- D-02 trigger 1 then forces a
+        # full read of that sheet once access returns).
+        _registry_sheets, _registry_capture_times, _registry_full_read_ids = (
+            _build_registry_write_plan(
+                source_sheets, _mem_trigger3_sheet_ids, _registry_capture_time,
+            )
+        )
         if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
             try:
                 _mem_writer.upsert_sheet_registry(
-                    source_sheets, _mem_run_id, _resolve_mem_sheet_kind,
+                    _registry_sheets, _mem_run_id, _resolve_mem_sheet_kind,
                     _fetch.get_last_sheet_versions(),
+                    capture_times=_registry_capture_times,
+                    full_read_sheets=_registry_full_read_ids,
                 )
             except Exception:
                 logging.warning(
@@ -1172,11 +1301,19 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # Phase 2 has fetched every sheet, pipeline.fetch's version-
         # watermark map is populated -- same guard, same fail-open
         # contract, same idempotent upsert key as pass 1 above.
+        #
+        # Phase 11 Plan 02 (D-01): reuses the SAME _registry_sheets /
+        # _registry_capture_times / _registry_full_read_ids computed at
+        # pass 1 above -- last_read_at must stay the capture-time instant
+        # taken BEFORE the read was issued, never a fresh "now" recomputed
+        # here after the read has already completed.
         if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
             try:
                 _mem_writer.upsert_sheet_registry(
-                    source_sheets, _mem_run_id, _resolve_mem_sheet_kind,
+                    _registry_sheets, _mem_run_id, _resolve_mem_sheet_kind,
                     _fetch.get_last_sheet_versions(),
+                    capture_times=_registry_capture_times,
+                    full_read_sheets=_registry_full_read_ids,
                 )
             except Exception:
                 logging.warning(
@@ -3523,9 +3660,14 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # golden baseline, and pollutes the plan-10-05 control-run diff).
         if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
             try:
-                _mem_writer.run_ledger_finish(
-                    _mem_run_id,
+                # Phase 11 Plan 02: carries the resolved mode; notes.
+                # fallback_reason is included ONLY when non-empty (T-11-11
+                # -- present+non-empty on a full-mode resolution, ABSENT
+                # entirely -- never a null placeholder -- when mode is
+                # 'incremental').
+                _finish_kwargs: dict[str, Any] = dict(
                     status="success",
+                    mode=_resolved_mode,
                     sheets_checked=len(source_sheets) if 'source_sheets' in dir() else 0,
                     rows_seen=len(all_rows) if 'all_rows' in dir() else 0,
                     rows_changed=_mem_rows_changed,
@@ -3541,6 +3683,9 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     mem_sheets_errored=_mem_sheets_errored,
                     mem_rows_sent=_mem_rows_sent,
                 )
+                if _resolved_fallback_reason:
+                    _finish_kwargs["fallback_reason"] = _resolved_fallback_reason
+                _mem_writer.run_ledger_finish(_mem_run_id, **_finish_kwargs)
             except Exception:
                 logging.warning(
                     "⚠️ pipeline_memory run_ledger_finish failed "
@@ -3758,9 +3903,12 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # counters are all hoisted above the try, so no dir() guard.
         if _session_failed and RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
             try:
-                _mem_writer.run_ledger_finish(
-                    _mem_run_id,
+                # Phase 11 Plan 02: carries the resolved mode; see the
+                # success-path call site above for the fallback_reason
+                # presence/absence rationale.
+                _finish_kwargs = dict(
                     status="failed",
+                    mode=_resolved_mode,
                     groups_generated=_groups_generated,
                     groups_affected=len(_mem_affected),
                     groups_errored=_groups_errored,
@@ -3773,6 +3921,9 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     mem_sheets_errored=_mem_sheets_errored,
                     mem_rows_sent=_mem_rows_sent,
                 )
+                if _resolved_fallback_reason:
+                    _finish_kwargs["fallback_reason"] = _resolved_fallback_reason
+                _mem_writer.run_ledger_finish(_mem_run_id, **_finish_kwargs)
             except Exception as _mem_exc:
                 logging.warning(
                     "⚠️ pipeline_memory run_ledger_finish (failure path) "

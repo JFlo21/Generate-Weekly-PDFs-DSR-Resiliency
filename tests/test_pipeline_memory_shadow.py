@@ -2115,16 +2115,39 @@ class RunLedgerSheetsChangedCallSiteTests(unittest.TestCase):
         import pipeline.orchestrate as orch
 
         src = inspect.getsource(orch)
+        # Phase 11 Plan 02 restructured both call sites to build a
+        # `_finish_kwargs` dict first (so `mode=`/optional
+        # `fallback_reason=` can be added -- 11-02-PLAN.md Task 3) and
+        # then call `run_ledger_finish(_mem_run_id, **_finish_kwargs)`.
+        # `sheets_changed=_mem_sheets_written` now lives in that dict
+        # construction, not directly inside the call parentheses -- this
+        # regex/anchor pair is updated to match, same WR-04 invariant.
         call_sites = [
             m.start()
-            for m in re.finditer(r"_mem_writer\.run_ledger_finish\(", src)
+            for m in re.finditer(
+                r"_mem_writer\.run_ledger_finish\("
+                r"_mem_run_id, \*\*_finish_kwargs\)",
+                src,
+            )
         ]
         self.assertEqual(
             len(call_sites), 2,
             "expected exactly one success-path and one failure-path "
             "run_ledger_finish call site in pipeline.orchestrate",
         )
-        for idx in call_sites:
+        kwargs_blocks = [
+            m.start()
+            for m in re.finditer(
+                r"_finish_kwargs(?::\s*dict\[str,\s*Any\])?\s*=\s*dict\(",
+                src,
+            )
+        ]
+        self.assertEqual(
+            len(kwargs_blocks), 2,
+            "expected exactly one success-path and one failure-path "
+            "_finish_kwargs construction in pipeline.orchestrate",
+        )
+        for idx in kwargs_blocks:
             end = src.index(")\n", idx)
             block = src[idx:end]
             self.assertIn("sheets_changed=_mem_sheets_written", block)

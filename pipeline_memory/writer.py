@@ -289,6 +289,8 @@ def upsert_sheet_registry(
     run_id: str,
     kind_resolver: Callable[[Any], str],
     sheet_versions: dict[Any, int] | None,
+    capture_times: dict[Any, str] | None = None,
+    full_read_sheets: set | None = None,
 ) -> None:
     """Best-effort bulk upsert of ``sheet_registry``. NEVER raises.
 
@@ -305,6 +307,32 @@ def upsert_sheet_registry(
     ``folder_id`` is deliberately OMITTED from the payload -- it is not
     on the discovery return dict and stays a reserved, NULL column this
     phase (10-03-PLAN.md flagged assumption).
+
+    Phase 11 Plan 02 (D-01) -- ``capture_times`` / ``full_read_sheets``:
+    ``last_read_at`` is a CAPTURE-TIME value owned by the CALLER, never
+    computed inside this function when supplied. The
+    ``SAFETY_WINDOW_MINUTES`` subtraction belongs ONLY to the delta-read
+    query filter (``pipeline.fetch.compute_rows_modified_since``) --
+    NEVER to what gets persisted here (11-CONTEXT.md D-01 supersedes
+    ``docs/superpowers/specs/2026-08-24-supabase-run-memory-design.md``
+    section 4's persist-time subtraction, which would compound the
+    overlap every run with no added safety). ``capture_times`` maps
+    sheet id -> the ISO-8601 instant that sheet's caller captured
+    immediately before its read was issued; a sheet absent from the dict
+    falls back to this call's own ``now`` (back-compat: Phase 10's two
+    existing call sites pass neither kwarg, so every sheet gets the SAME
+    freshly-computed ``now``, byte-identical to pre-Plan-02 behavior).
+    ``full_read_sheets`` is the set of sheet ids whose completed read
+    THIS run was a full read; when a sheet id is NOT in that set (a delta
+    read), ``last_full_read_at`` is OMITTED from that sheet's payload
+    entirely -- PostgREST's upsert only touches the columns present in
+    the payload, so the stored value is left exactly as-is, never moved
+    by a delta read. Passing ``full_read_sheets=None`` (the default,
+    matching every existing call site) treats EVERY sheet as a full read,
+    preserving Phase 10's behavior byte-for-byte. ``last_sheet_version``
+    is refreshed from ``sheet_versions`` unconditionally either way -- a
+    delta read's abbreviated OR non-abbreviated response both carry a
+    real ``.version`` value (``pipeline.fetch.fetch_sheet_delta``).
 
     Empty input performs ZERO calls, checked before the client/flag
     guards, same as ``upsert_rows_bulk``. Issues exactly ONE table
@@ -331,17 +359,25 @@ def upsert_sheet_registry(
     payload: list[dict[str, Any]] = []
     for sheet in sheets:
         sheet_id = sheet.get("id")
-        payload.append({
+        capture_time = (
+            capture_times.get(sheet_id, now) if capture_times else now
+        )
+        is_full_read = (
+            True if full_read_sheets is None else sheet_id in full_read_sheets
+        )
+        row: dict[str, Any] = {
             "sheet_id": sheet_id,
             "name": sheet.get("name"),
             "kind": kind_resolver(sheet_id),
             "column_mapping": sheet.get("column_mapping") or {},
             "last_sheet_version": versions.get(sheet_id),
-            "last_read_at": now,
-            "last_full_read_at": now,
+            "last_read_at": capture_time,
             "active": True,
             "updated_at": now,
-        })
+        }
+        if is_full_read:
+            row["last_full_read_at"] = capture_time
+        payload.append(row)
 
     def _invoke():
         return (
