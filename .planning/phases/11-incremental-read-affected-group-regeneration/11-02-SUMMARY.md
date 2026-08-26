@@ -210,3 +210,9 @@ None — no external service configuration required. `RUN_MEMORY_INCREMENTAL_ENA
 ---
 *Phase: 11-incremental-read-affected-group-regeneration*
 *Completed: 2026-08-26*
+
+## Self-Check: PASSED
+
+All 9 created/modified files confirmed present on disk; all 8 commits
+(`6e34ede`, `e51a652`, `4f078f0`, `5dad014`, `b62a8dd`, `918cf5d`,
+`ab75dfa`, `b3ee807`) confirmed present in `git log --oneline --all`.
