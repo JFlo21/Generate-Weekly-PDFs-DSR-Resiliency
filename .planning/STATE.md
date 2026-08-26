@@ -5,17 +5,17 @@ milestone_name: Engine Modularization & Hygiene
 current_phase: 11
 current_phase_name: Incremental Read + Affected-Group Regeneration
 status: executing
-stopped_at: Completed 11-06-PLAN.md
-last_updated: "2026-08-26T22:16:54.046Z"
+stopped_at: Completed 11-07-PLAN.md (Task 2 DEFERRED by owner decision; INC-05 open; plan 11-08 not executed)
+last_updated: "2026-08-26T22:40:16.560Z"
 last_activity: 2026-08-26
 last_activity_desc: Phase 11 execution started
-state_head: db7592a89ea1d93597a8287c461537626377c5d3
 progress:
   total_phases: 1
   completed_phases: 1
   total_plans: 2
   completed_plans: 2
   percent: 100
+state_head: db7592a89ea1d93597a8287c461537626377c5d3
 ---
 
 # Project State
@@ -36,16 +36,17 @@ pipeline.
 ## Current Position
 
 Phase: 11 (Incremental Read + Affected-Group Regeneration) — EXECUTING
-Plan: 7 of 8 (11-06 complete; corrects a stale "Plan: 2/3 of 8" counter left
-  by prior plans' `state.advance-plan` runs -- 6 of 8 Phase 11 plans have a
-  SUMMARY.md on disk; next up is 11-07)
-Status: Ready to execute
-  Engine 10,476 -> 709-line thin facade; 13-module pipeline/ package; 0 behavior
-  change; 7 waves + 2 gap-closure plans (09-07/09-08). G-09-MOD-06 closed: Gate 4
-  fail-capable, Gate 6 offline (synthetic), mypy re-baselined 65 with per-finding
-  attribution (Juan: `rebaseline`, `da7d73c`); `run_6_gates.sh` ALL 6 GATES PASSED
-  in 32 s; suite 1386 + 132 subtests. Next: `/gsd-core:gsd-execute-phase 10`.
-Last activity: 2026-08-26 — Phase 11 execution started
+Plan: 7 of 8 complete (11-07 DONE; the `state.advance-plan` counter reads
+  8/8 because it advances mechanically past the last-declared plan number,
+  but plan 11-08 (INC-05 retirement) is DEFERRED BY OWNER DECISION, not
+  executed -- see 11-07-SUMMARY.md "Checkpoint / Decisions"). 7 of 8 Phase 11
+  plans have a SUMMARY.md on disk. INC-05 stays open; the re-authorisation
+  path (flip PR merge + 5 consecutive scheduled `pass` verdicts) is recorded
+  in 11-07-SUMMARY.md.
+Status: 11-07 complete; 11-08 deferred (no further Phase 11 execution planned
+  until the owner re-opens the Task 2 decision per 11-07-SUMMARY.md).
+Last activity: 2026-08-26 — 11-07 complete (get_parity_streak shipped; INC-05
+  retirement deferred by Juan)
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
@@ -110,6 +111,7 @@ Progress: [██████████] 100% (v1.3 complete; v1.4 Phase 10 cl
 | Phase 11 P04 | ~28min | 3 tasks | 5 files |
 | Phase 11 P05 | 9min | 2 tasks | 5 files |
 | Phase 11 P06 | ~50min | 3 tasks | 7 files |
+| Phase 11 P07 | ~15min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -224,6 +226,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 11]: [Phase 11-05] Shadow parity D-08 read-side changed-row-id source is a new pipeline_memory.row_event read inside pipeline/parity.py (no schema.sql change, no pipeline_memory/reader.py addition); Tasks 2+3 production code landed in one commit since both share the orchestrate.py hook and combine_verdicts() call
 - [Phase 11]: [Phase 11] [Phase 11-06] Deep-run deletion detection collapses the plan's two guards (zero-row full read, sheet not read in full) into one code path -- pipeline/fetch.py exposes no per-sheet read-success signal outside this plan's declared files_modified, so both are treated as skip+warn (the safe superset)
 - [Phase 11]: [Phase 11] [Phase 11-06] group_state repair for a deletion is observability over the existing post-upload flush, not a second write -- a (wr, week_ending) pair whose last row is deleted produces no repair at all (documented limitation, WINDOWS.md id 2), since group_source_rows never assigns it to a group for the flush to see
+- [Phase ?]: [Phase 11] Task 1 precondition unmet (no real parity_verdict row exists yet); Juan approved code+unit-test work on the same basis already ruled for plans 11-05/11-06 (2026-08-26)
+- [Phase ?]: [Phase 11] 11-07 Task 2 GATE: Juan selected DEFER for the INC-05 retirement -- streak reading was 0/5 (no production_frequent parity_verdict rows exist; RUN_MEMORY_WRITE_ENABLED flip PR unmerged). Plan 11-08 does not execute this phase; INC-05 stays open pending flip PR merge + 5 consecutive scheduled pass verdicts.
 
 ### Roadmap Evolution
 
@@ -357,8 +361,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-08-26T22:16:53.863Z
-**Stopped at:** Completed 11-06-PLAN.md
+**Last session:** 2026-08-26T22:40:16.545Z
+**Stopped at:** Completed 11-07-PLAN.md (Task 2 DEFERRED by owner decision; INC-05 open; plan 11-08 not executed)
 **Resume file:** None
 
 ## Session Continuity

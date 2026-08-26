@@ -609,7 +609,7 @@ files, reading group rows from `row_state`; the weekly deep run reconciles fully
 4. Local JSON caches and the two attachment pre-fetch phases are removed only after (2);
    frequent-run wall clock measured before/after (baseline 94 min, run 32743959053).
 
-**Plans:** 6/8 plans executed
+**Plans:** 7/8 plans executed
 
 Plans:
 **Wave 1**
@@ -638,7 +638,7 @@ Plans:
 
 **Wave 7** *(blocked on Wave 6 completion, and on the ≥5-run parity streak)*
 
-- [ ] 11-07-PLAN.md — INC-04 D-09 parity streak scan over `run_ledger` + the blocking decision gate that authorises the INC-05 retirement (wave 7, autonomous:false)
+- [x] 11-07-PLAN.md — INC-04 D-09 parity streak scan over `run_ledger` + the blocking decision gate that authorises the INC-05 retirement (wave 7, autonomous:false)
 
 **Wave 8** *(blocked on Wave 7's approved decision; its own PR, never bundled)*
 
