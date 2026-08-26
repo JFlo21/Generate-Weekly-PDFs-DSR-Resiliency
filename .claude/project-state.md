@@ -1,15 +1,125 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-26 09:15 CDT · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-26 17:42 CDT · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
-_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-26 07:30]` (Phase 11 discuss-phase
-complete — D-01..D-12 locked in `11-CONTEXT.md`). `pipeline_memory` schema is LIVE on Supabase
+_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-26 18:10]` (Phase 11 plan 11-01 —
+WR-01 decorated-numeric caller-parses contract on the `pipeline_memory` write path). `pipeline_memory` schema is LIVE on Supabase
 `poeyztlmsawfoqlanucc` (service_role-only; write path OFF in production — the flag flip is a
-separate operator-gated PR cut from Phase 11 plan 01). Next: `/gsd-execute-phase 11`._
+separate operator-gated PR cut from Phase 11 plan 01). Phase 11 EXECUTING — **7/8 plans done** (waves 1–7, HEAD `1eab3db`); **11-08 INC-05 retirement DEFERRED by owner** at the 11-07 Task 2 gate (streak 0/5 — no scheduled run has written a `parity_verdict`). **PRs OPEN, NOT merged (Juan merges): #351** `feat/phase-11-incremental-read` → master (plans 01–07, flags OFF) and **#352** `ops/run-memory-write-flip` stacked on #351 (one env line `RUN_MEMORY_WRITE_ENABLED: '1'` on the `Generate reports` step + checklist corrections). Merge order: #351 → retarget/merge #352 after checklist items 2–4 → ≥5 scheduled `pass` verdicts → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-08-26 09:15 CDT) — `/gsd-plan-phase 11` COMPLETE: research → 8 plans / 8 waves → checker PASSED (iteration 2), all gates green
+## Latest work (2026-08-26 18:50 CDT) — Greptile P1 on #351 FIXED: unconfirmed memory write can no longer masquerade as "nothing changed"
+- **Defect (Greptile P1, `pipeline/orchestrate.py` PHASE 2a):** `upsert_rows_bulk` returned an empty
+  set for six reasons (empty input, no client, writes disabled, all row-ids bad, every chunk failed,
+  genuinely nothing changed) and a *partial* chunk failure returned a silent subset; the incremental
+  path read any of those as a legitimate no-change run → zero groups regenerated → stale billing
+  Excel/attachments. Dormant today (both flags OFF) but a must-fix before `RUN_MEMORY_INCREMENTAL_ENABLED`.
+- **Fix (additive, fail-closed):** `pipeline_memory.writer.upsert_rows_bulk_result()` reports
+  `status ∈ ok|noop|unavailable|disabled|partial|failed` next to the set (`upsert_rows_bulk` is now a
+  thin wrapper, contract unchanged); `_run_memory_write_phase` folds every sheet's status, writer
+  exceptions, the pre-flight skip and the mid-loop budget break into `memory_confirmed` +
+  `unconfirmed_reason` (+ `sheets_unconfirmed` / `sheets_unwritten`); `_run_phase2_incremental`
+  returns `ok=False` with `trigger_memory_write_unconfirmed` BEFORE reading `affected` (legacy dict
+  without the flag = unconfirmed); the 11-05 shadow comparator reports `skipped` /
+  `memory_write_unconfirmed` instead of a spurious parity `fail`; both `run_ledger_finish` sites
+  persist notes `mem_confirmed`. Full-mode generate/upload/cleanup untouched.
+- **Evidence:** new `MemoryResultAmbiguityTests` (20 tests: writer vocabulary, phase flag, PHASE 2a
+  escalation, `main()` wiring by source inspection) + 6 existing mocks moved to the new contract;
+  suite **1725 passed / 1 skipped / 141 subtests**; `run_6_gates.sh` ALL PASSED (mypy 65→65);
+  `schema.sql` / `.github/workflows/` / golden baseline untouched. Committed to
+  `feat/phase-11-incremental-read` (PR #351); #352 stacks on it unchanged.
+
+## Previous (2026-08-26 17:42 CDT) — `/gsd-execute-phase 11` waves 5–7 DONE (7/8 plans); 11-08 DEFERRED by owner decision
+0. **Resume:** Juan answered "approve" to the 11-05 Task 1 `blocking-human` write-flip gate with the
+   gate evidence explicitly NOT met (flip PR unmerged; `pipeline_memory` populated only by Phase 10's
+   manual rollout — `row_state` 209,464, `sheet_registry` 120/120 watermarked, `run_ledger` 1 real
+   manual success with `sheets_changed: 0`, `group_state` 0). That approval was carried forward to the
+   same-class `<precondition>`s in 11-06/11-07 Task 1 (recorded verbatim in each SUMMARY). Dispatch
+   unchanged: `gsd-core:gsd-executor` on sonnet, sequential on the main tree (`worktree.base-check`
+   degrade, HEAD ≠ `origin/HEAD`), `AUTO_MODE=false`; 11 new commits on `feat/phase-11-incremental-read`.
+1. **Plans landed:** 11-05 `62b2364` (`pipeline/parity.py`: `compare_shadow_parity`,
+   `run_shadow_delta_reads`, `combine_verdicts`; sub-budgeted shadow hook after the group loop gated
+   full-mode + write-flag-on + incremental-off + not TEST_MODE; `RUN_MEMORY_SHADOW_{MAX_MINUTES,
+   RPC_TIMEOUT_SEC,GENERATION_HEADROOM_MIN}`; `parity_verdict`/`parity_details` folded into
+   `run_ledger.notes`, never `run_summary.json`; D-08 changed-row source = existing
+   `pipeline_memory.row_event`; 30 tests) · 11-06 `4341511` (`get_row_state_row_ids`,
+   `mark_rows_deleted`, `weekly_comprehensive`-gated `_reconcile_deep_run_deletions` +
+   `_repair_group_state_for_affected_pairs` + `column_mapping` refresh with drift breadcrumb; zero
+   schema change; 44 tests; **`.planning/WINDOWS.md` id 2 OPEN** — a group whose *last* row is deleted
+   gets no `group_state` repair) · 11-07 `1eab3db` (`get_parity_streak` D-09: pass counts / fail resets
+   / skipped excluded, auditable dict or `None`; 11 tests; Task 2 decision **`defer`** recorded with the
+   live streak table + re-authorisation path for 11-08's opening gate).
+2. **Gates:** orchestrator `py_compile` + `pytest -x` after each wave 1650 → 1694 → **1705 passed /
+   1 skipped / 141 subtests**; each executor `scripts/run_6_gates.sh` ALL PASSED (mypy 65→65);
+   `pipeline_memory/schema.sql`, `.github/workflows/`, `tests/golden/run_summary_baseline.json`
+   untouched; every commit staged by explicit path (this file, `hash_history.json`, the ledger never
+   swept in). Post-wave test gates green at each of the 3 waves.
+3. **11-08 (INC-05 retirement) NOT executed** — owner chose `defer`: D-12's five-consecutive-`pass`
+   condition is structurally unsatisfiable until the flip PR merges and the 11-05 shadow runs on
+   schedule, and retiring on this branch would bundle the removals with the incremental-read work
+   (forbidden by 11-07's own prohibition). Phase 11 stays EXECUTING at 7/8; INC-05 open; no
+   VERIFICATION.md (phase gates run only once no incomplete plan remains). **Next:** (a) owner flip PR
+   (`RUN_MEMORY_WRITE_ENABLED='1'` in both `env:` blocks, per `docs/run-memory-write-flip-checklist.md`)
+   → (b) ship this branch so the shadow hook runs on scheduled `production_frequent` runs → (c) ≥5
+   consecutive `pass` verdicts via `get_parity_streak()`, the `group_state` attachment-id proof, and the
+   "before" wall clock vs the 94-min baseline (run `32743959053`) → (d) re-open the 11-07 Task 2 decision
+   in `11-07-SUMMARY.md` (option id + real streak output) → (e) `/gsd-execute-phase 11` resumes at 11-08
+   as its **own PR, never bundled**. 11-08 also owns the Phase 11 Living Ledger entry; an interim entry
+   `[2026-08-26 17:42]` covers waves 5–7. Uncommitted, untouched by design: this file,
+   `generated_docs/hash_history.json`, `memory-bank/living-ledger.md` (pre-existing edits + the interim entry).
+
+## Previous (2026-08-26 14:56 CDT) — `/gsd-execute-phase 11` waves 1–4 DONE (4/8 plans); PAUSED at 11-05 Task 1 `blocking-human` write-flip gate
+0. **Resume:** Juan's "continue" taken as `approved` for the 11-01 tracer gate → continuation executor ran
+   Tasks 2–3. Dispatch unchanged: `gsd-core:gsd-executor` on sonnet, sequential on the main tree
+   (`worktree.base-check` degrade, HEAD ≠ `origin/HEAD`), `AUTO_MODE=false`, all commits on
+   `feat/phase-11-incremental-read` (now HEAD `20f0dac`, 26 commits ahead of the plan-set base `b4c0f88`).
+1. **Plans landed:** 11-01 `f4a5baf` (WR-04 `run_ledger.sheets_changed` on both finish paths `7ffa57a`;
+   IN-01 `docs/run-memory-write-flip-checklist.md` `a67cb39`; ledger entry; review-followups todo closed) ·
+   11-02 `3505158` (`pipeline_memory/reader.py`, `pipeline.fetch.fetch_sheet_delta`, `resolve_run_mode`
+   with the 7 D-02 triggers, capture-time watermarks, `run_ledger.mode`/`notes.fallback_reason`;
+   `RUN_MEMORY_INCREMENTAL_ENABLED` default OFF; mypy Gate-4 fix `ab75dfa`) · 11-03 `de44662` (D-06:
+   `keep_historical` threaded to both `cleanup_untracked_sheet_attachments` call sites, hash-history
+   prune gated on `_resolved_mode == 'full'`) · 11-04 `20f0dac` (PHASE 2a/2b split,
+   `map_affected_to_sheets`, `_filter_groups_to_affected`, scoped counters; **D-05 approved partial**
+   recorded under INC-02 in REQUIREMENTS.md — checkbox intentionally unticked).
+2. **Gates (orchestrator-run after each wave):** `py_compile` clean; `pytest -x` 1531 → 1574 → 1592 →
+   **1620 passed / 1 skipped / 141 subtests**; schema-drift / codebase-drift / ui-safety all `block=false`;
+   each executor also ran `scripts/run_6_gates.sh` ALL PASSED (mypy 65→65). Protected files untouched
+   waves 2–4: `pipeline/{grouping,excel,pricing,attribution}.py`, `.github/workflows/`,
+   `pipeline_memory/schema.sql`. Note: the 11-02/03/04 `type="tracer"` tasks were self-verified by the
+   executor without a human pause (only 11-01's surfaced) — flag if you want tracers to gate again.
+3. **Paused — `blocking-human` (never auto-approved):** 11-05 Task 1 needs the owner-approved
+   `RUN_MEMORY_WRITE_ENABLED='1'` flip PR against `weekly-excel-generation.yml` (protected area, not part
+   of any Phase 11 plan) merged, one real `production_frequent` run populating `run_ledger` /
+   `row_state` / `sheet_registry` in `poeyztlmsawfoqlanucc`, and checklist items 2–3 (upload-enabled
+   control run, `group_state` attachment-id proof). Waves 6–8 chain on 11-05. **Next:** work the
+   checklist → re-run `/gsd-execute-phase 11` → answer "approved". Uncommitted, untouched by design:
+   this file and `generated_docs/hash_history.json`.
+
+## Previous (2026-08-26 12:35 CDT) — `/gsd-execute-phase 11` STARTED: wave 1/8 plan 11-01 at tracer checkpoint (1/3 tasks)
+0. **Dispatch settings (evidence from this run):** executor `sonnet` (project config), branching `none` —
+   all commits stay on `feat/phase-11-incremental-read`; isolation auto-degraded to **sequential on the
+   main tree** (`worktree.base-check`: HEAD `b4c0f88` ≠ `origin/HEAD` `3183687`, #683/#3659) — no
+   worktrees, no merges; `AUTO_MODE=false` so every `autonomous:false` / tracer checkpoint surfaces to
+   Juan; code-review hook active at `execute:post`. Executor prompts pass reference paths (not inlined
+   ~100 KB) per the prompt-caching overlay — the `gsd-executor` definition already embeds its protocol.
+1. **11-01 Task 1 (WR-01) DONE — `4323cec` `fix(11-01): parse decorated Quantity/Units Total Price on
+   memory write path`.** `pipeline/orchestrate.py` `_run_memory_write_phase` stashes `__mem_quantity`
+   (`pipeline.pricing._parse_quantity`) + `__mem_units_total_price` (`parse_price`) per row (empty →
+   `None`, not pricing's 0.0 default); `pipeline_memory/writer.py` `_row_to_payload` reads only those
+   keys (no raw-cell fallback, import boundary intact); 4 regression tests in
+   `tests/test_pipeline_memory_shadow.py` (RED verified via stash, then GREEN). Orchestrator spot-check:
+   `81 passed, 3 subtests`, writer boundary `WRITER_BOUNDARY_OK`, `py_compile` exit 0. No live
+   Smartsheet/Supabase call; `RUN_MEMORY_WRITE_ENABLED` stays OFF.
+2. **Paused:** plan 11-01 `type="tracer"` human-verify gate (blocking) — awaiting Juan's "approved" to run
+   Task 2 (WR-04 `run_ledger.sheets_changed` on both finish paths) and Task 3 (flip checklist doc,
+   IN-01 COALESCE verification, Living Ledger entry, resolve
+   `.planning/todos/pending/2026-08-25-run-memory-review-followups.md`). `.planning/STATE.md` carries
+   the executor's uncommitted position update. Remaining: waves 2-4 autonomous → wave 5 human-verify
+   (flip PR merged + one real run) → 07/08 `checkpoint:decision`.
+
+## Previous (2026-08-26 09:15 CDT) — `/gsd-plan-phase 11` COMPLETE: research → 8 plans / 8 waves → checker PASSED (iteration 2), all gates green
 0. **Research:** `gsd-phase-researcher` (Sonnet) wrote `11-RESEARCH.md` (617 lines, HIGH confidence) —
    no new deps; inventoried every `all_rows` consumer after PHASE 2; the one new risk: three end-of-run
    maintenance blocks in `orchestrate.py` (`valid_wr_weeks`, both `cleanup_untracked_sheet_attachments`
@@ -211,7 +321,7 @@ separate operator-gated PR cut from Phase 11 plan 01). Next: `/gsd-execute-phase
    updated. Manual run 32748717671 (Juan, 16:04 UTC) was still
    in_progress at last check.
 
-## Latest work (2026-08-24 22:00 CDT) — `/gsd-verify-work 09` DONE: retroactive verification → gaps_found (Gate 4 vacuous); gap-closure plans 09-07/09-08 **checker PASSED** (`c8986b6`, addendum `8af3dfb`)
+## Previous (2026-08-24 22:00 CDT) — `/gsd-verify-work 09` DONE: retroactive verification → gaps_found (Gate 4 vacuous); gap-closure plans 09-07/09-08 **checker PASSED** (`c8986b6`, addendum `8af3dfb`)
 000000000000000000000. Phase 09 had NO GSD artifacts on disk (never committed;
    PR #280 `889ca2e` merged 2026-06-27; ROADMAP still `[ ]`). Created
    `.planning/phases/09-engine-modularization-pipeline-package-split/`;

@@ -6876,3 +6876,143 @@ follow-up findings closed, same 6 files.
   the success and failure finish paths) and IN-01 (the `upsert_group_state`
   attachment-preservation COALESCE, deferred to a checklist item since it is
   untestable under `SKIP_UPLOAD` — see `docs/run-memory-write-flip-checklist.md`).
+
+## [2026-08-26 14:57] Phase 11 waves 1–4 landed (plans 11-01..11-04); run paused at the 11-05 `blocking-human` write-flip gate
+
+- **What landed** (all on `feat/phase-11-incremental-read`, HEAD `20f0dac`; production
+  behavior unchanged because both `RUN_MEMORY_WRITE_ENABLED` and the new
+  `RUN_MEMORY_INCREMENTAL_ENABLED` default OFF): 11-01 `f4a5baf` (WR-01/WR-04/IN-01
+  flip preconditions) · 11-02 `3505158` (`pipeline_memory/reader.py`,
+  `pipeline.fetch.fetch_sheet_delta`, `pipeline.orchestrate.resolve_run_mode` with the
+  seven D-02 full-read escalation triggers, capture-time watermarks, `run_ledger.mode`
+  + `notes.fallback_reason`) · 11-03 `de44662` (D-06 preservation gates) · 11-04
+  `20f0dac` (PHASE 2a/2b split, `map_affected_to_sheets`, `_filter_groups_to_affected`,
+  scoped counters). Suite 1531 → 1620 passed; `run_6_gates.sh` ALL PASSED each plan;
+  `pipeline/{grouping,excel,pricing,attribution}.py`, `.github/workflows/`, and
+  `pipeline_memory/schema.sql` untouched.
+- **RULE — D-06 gates precede any scoped `groups` producer and must never be removed:**
+  the three end-of-run maintenance blocks in `pipeline/orchestrate.py` (the
+  `valid_wr_weeks` builder feeding both `cleanup_untracked_sheet_attachments` call
+  sites, and the hash-history stale-key prune) delete everything absent from
+  `groups`. Under incremental mode `groups` is scoped to affected (WR, week) pairs, so
+  without `keep_historical=True` at both cleanup call sites and the prune gated on
+  `_resolved_mode == 'full'`, the first incremental run would silently delete live
+  billing attachments and hash entries for every untouched Work Request. Full mode
+  keeps today's byte-identical cleanup decisions (`keep_historical=None`).
+- **RULE — D-05 approved partial (no `row_state`-sourced content path):** `row_state`
+  decides group *membership*; a scoped full Smartsheet re-fetch supplies *content*;
+  `grouping.py` / `excel.py` are unmodified. `row_state` carries only the 16
+  hash-relevant fields while grouping/excel read dozens more (derived attribution and
+  pricing the Phase 10 schema forbids storing resolved) — a `row_state` content path
+  is the option most likely to silently change billing output for a group whose
+  Smartsheet data did not change. INC-02 is claimed on its "only touched groups are
+  regrouped, regenerated and uploaded, including the moved-week prior pair" clause
+  only; its REQUIREMENTS.md checkbox is intentionally unticked.
+- **Rollout order is fixed:** `RUN_MEMORY_WRITE_ENABLED` flip PR (owner-approved,
+  protected workflow, `docs/run-memory-write-flip-checklist.md`) → one real run
+  populates `run_ledger` / `row_state` / `sheet_registry` → 11-05 shadow parity
+  comparator (in-process, same snapshot; alternating odd/even runs are never
+  byte-identical on live data — Phase 10-06 lesson) → 11-07 five-run parity streak
+  gate → only then `RUN_MEMORY_INCREMENTAL_ENABLED`. Any parity divergence is a
+  blocking defect, not a tolerance.
+- **GSD orchestration notes (this harness):** the executor must be dispatched as
+  `gsd-core:gsd-executor` (bare `gsd-executor` is not a registered agent type here);
+  isolation auto-degrades to sequential-on-main-tree while HEAD ≠ `origin/HEAD`
+  (#683/#3659), so waves serialize; the `type="tracer"` tasks in 11-02/03/04 were
+  self-verified by the executor without surfacing a human checkpoint even though
+  the orchestrator saw `AUTO_MODE=false` (only 11-01's tracer paused) — if tracers
+  should gate on Juan, say so explicitly in the dispatch prompt.
+
+## [2026-08-26 17:42] Phase 11 waves 5–7 landed (plans 11-05..11-07); 11-08 INC-05 retirement DEFERRED by owner at the 11-07 decision gate
+
+- **What landed** (all on `feat/phase-11-incremental-read`, HEAD `1eab3db`; production
+  behavior unchanged — every new phase is gated on `RUN_MEMORY_WRITE_ENABLED`, which is
+  still OFF in production): 11-05 `62b2364` (`pipeline/parity.py`: `compare_shadow_parity`,
+  `run_shadow_delta_reads`, `combine_verdicts`; sub-budgeted shadow hook after the group
+  loop; `RUN_MEMORY_SHADOW_{MAX_MINUTES,RPC_TIMEOUT_SEC,GENERATION_HEADROOM_MIN}`;
+  `parity_verdict` / `parity_details` into `run_ledger.notes`) · 11-06 `4341511`
+  (`get_row_state_row_ids`, `mark_rows_deleted`, `weekly_comprehensive`-gated deep-run
+  reconciliation + `group_state` repair + `column_mapping` refresh; zero schema change)
+  · 11-07 `1eab3db` (`get_parity_streak`, D-09). Suite 1620 → 1705 passed / 1 skipped /
+  141 subtests; `run_6_gates.sh` ALL PASSED each plan (mypy 65→65); `schema.sql`,
+  `.github/workflows/`, `tests/golden/run_summary_baseline.json` untouched.
+- **RULE — a parity verdict is never vacuous (D-07/D-08):** `compare_shadow_parity` returns
+  `pass` only when `groups_compared > 0` and both sides were fully populated; zero groups,
+  a timed-out sheet, an insufficient budget, or any internal failure returns `skipped`
+  with a reason — never `pass`. The comparator consumes the group loop's already-computed
+  `calculate_data_hash` value and must never recompute a second hash (two hashing
+  primitives can drift and report the drift as divergence). A `fail` is loud (Sentry
+  error with counts + first divergences + run id) and inert (the run's generate / upload /
+  cleanup call sequences are pinned identical with the shadow on and off).
+- **RULE — deletions are reconciled only by the Monday deep run (D-03):**
+  `rowsModifiedSince` never surfaces a deleted row, so `row_state.deleted_at` is written
+  only on `EXECUTION_TYPE == weekly_comprehensive` after a *successful full read* of that
+  sheet. A zero-row full read is skipped with a warning + Sentry breadcrumb (an upstream
+  failure looks identical to a mass deletion); a partially-read sheet is skipped entirely.
+  `sheet_registry.column_mapping` is refreshed only by the deep run; a frequent run that
+  sees drift escalates that sheet to a full read (D-02 trigger 2) and never adopts the
+  new mapping silently. Open gap: `.planning/WINDOWS.md` id 2 — a `(wr, week_ending)`
+  group whose *last* row is deleted receives no `group_state` repair (needs a stored
+  `target_sheet_id` reader).
+- **RULE — the parity streak is derived, never stored (D-09):** `get_parity_streak` scans
+  `run_ledger` newest-first over `notes.execution_type == production_frequent`: `pass`
+  counts, `fail` resets and stops, `skipped` / absent verdict is excluded (neither counts
+  nor resets). It returns an auditable dict (count, rows examined, contributing run ids,
+  stopping row) or `None` = "cannot confirm" — never a bare integer, never a counter
+  column. Live reading at the decision: **0 of 5** (3 rows examined, 0 qualifying) — an
+  *empty* streak, not a failed one.
+- **DECISION — INC-05 retirement deferred (11-07 Task 2, option id `defer`):** the local
+  JSON caches, the two attachment pre-fetch phases and the six workflow cache steps stay.
+  Rationale: D-12's five-consecutive-`pass` condition is unsatisfiable until the owner
+  flip PR merges and the 11-05 shadow runs on schedule; retiring on this branch would
+  bundle the removals with the incremental-read work, which 11-07 forbids. Re-authorisation
+  path recorded in `11-07-SUMMARY.md`; 11-08 executes later as its own PR and owns the
+  Phase 11 closing ledger entry. Phase 11 stays 7/8, INC-05 open, no VERIFICATION.md yet.
+- **Owner-override precedent:** Juan approved the 11-05 `blocking-human` write-flip gate
+  with the evidence explicitly *not* met (flip PR unmerged; memory populated only by the
+  Phase 10 manual rollout), scoping the approval to code + unit-test work; the same-class
+  `<precondition>`s in 11-06/11-07 Task 1 were carried forward on that ruling and each
+  SUMMARY records it verbatim. Live evidence gates (the parity streak, the deep-run live
+  verification, the `group_state` attachment-id proof) remain open post-merge items.
+- **PRs cut 17:55 CDT (not merged — Juan merges):** **#351** `feat/phase-11-incremental-read` →
+  `master` (plans 11-01..11-07, 48 commits, every new path behind
+  `RUN_MEMORY_WRITE_ENABLED` / `RUN_MEMORY_INCREMENTAL_ENABLED` default `'0'`) and **#352**
+  `ops/run-memory-write-flip` (`435958a`, stacked on #351): the D-10 flip is ONE env line
+  `RUN_MEMORY_WRITE_ENABLED: '1'` on the `Generate reports` step — the checklist's "both
+  `env:` blocks" was wrong; the ~line 606 `SUPABASE_URL` pair is `Publish artifacts to
+  Supabase`, whose script never reads the flag. Also corrected: WR-02 `b48efd7` / WR-03
+  `6965f95` reached `master` inside the Phase 10 squash-merge `99dc25d` (#350); their SHAs
+  exist only on `origin/feat/phase-10-run-memory`. Checklist items 2–4 (upload-enabled
+  control run, `group_state` attachment-id proof, low-activity comparator rerun) remain
+  owner pre-merge items for #352; item 6 + the deep-run live verification are post-merge.
+
+## [2026-08-26 18:50] RULE — an unconfirmed run-memory write must never be read as "nothing changed" (Greptile P1, PR #351)
+
+- **Root cause:** `pipeline_memory.writer.upsert_rows_bulk` returned an empty `set` for six
+  different reasons — empty input, no Supabase client, writes disabled, every row lacking a
+  usable `__row_id`, every chunk failing, and *genuinely nothing changed* — and a partial
+  chunk failure returned a silent subset. `_run_memory_write_phase` counted an error only on
+  an *exception*, so `_run_phase2_incremental` (PHASE 2a) read any of those as a legitimate
+  zero-change run: zero groups regenerated, changed billing Excel + Smartsheet attachments
+  left stale, run reported success. Dormant while `RUN_MEMORY_INCREMENTAL_ENABLED` is OFF;
+  a blocking defect the moment it flips.
+- **RULE:** regeneration scope may be narrowed on a memory-derived affected set ONLY when the
+  write that produced it is *confirmed*. `upsert_rows_bulk_result()` reports `status`
+  (`ok` / `noop` = confirmed; `unavailable` / `disabled` / `failed` / `partial` = cannot
+  confirm; `UPSERT_CONFIRMED_STATUSES`). `_run_memory_write_phase` reports
+  `memory_confirmed` = every sheet confirmed AND no writer exception AND no pre-flight skip
+  AND no mid-loop budget break leaving sheets unwritten, with `unconfirmed_reason`.
+  `_run_phase2_incremental` escalates to full mode (`trigger_memory_write_unconfirmed`)
+  BEFORE it reads `affected`; a legacy result dict with no flag is unconfirmed
+  (fail-closed). T-11-18 holds: scope can only ever be too WIDE, never too narrow.
+- **Corollaries:** the 11-05 shadow comparator's candidate side IS that affected set, so an
+  unconfirmed write now yields verdict `skipped` / `memory_write_unconfirmed` — never a
+  spurious parity `fail` about a transport outage (D-07 never-false verdicts). Both
+  `run_ledger_finish` sites persist notes `mem_confirmed` for the dashboards.
+  `upsert_rows_bulk` (set-returning) is an unchanged thin wrapper; every existing caller and
+  test contract holds. Pinned by `tests/test_incremental_read.py::MemoryResultAmbiguityTests`.
+- **Design choice recorded:** the fallback is *full mode*, not "use the delta-read rows'
+  pairs as a superset affected set". The superset would be cheaper and still correct for
+  scope, but every existing PHASE 2a failure already resolves to full with a named
+  `fallback_reason`, and one consistent fail-closed path is easier to audit than two.
+  Revisit only if unconfirmed writes turn out to be frequent enough to matter for wall clock.
