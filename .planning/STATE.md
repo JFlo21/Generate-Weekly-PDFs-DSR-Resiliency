@@ -4,11 +4,11 @@ milestone: v1.3
 milestone_name: Engine Modularization & Hygiene
 current_phase: 10
 status: completed
-stopped_at: Phase 10 complete and MERGED to master (PR #350 → 99dc25d, 2026-08-26 04:47Z; local master synced 81d3b46, post-merge gate 1525 passed) — next /gsd-plan-phase 11
-last_updated: "2026-08-26T02:51:37.802Z"
+stopped_at: Phase 11 context gathered (discuss-phase complete, D-01..D-12 locked)
+last_updated: "2026-08-26T12:28:01.466Z"
 last_activity: 2026-08-25
 last_activity_desc: Phase 10 complete
-state_head: 1679829c487f2aefdf7da385e4ddeee935272cd4
+state_head: 72ab95831db2c915689fad1ce994cd738c2e0650
 progress:
   total_phases: 1
   completed_phases: 1
@@ -331,9 +331,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-08-25T23:44:11.126Z
-**Stopped at:** Phase 10 closed via /gsd-verify-work 10 (test 1: SC4 canonicalized-content proof accepted; test 2: group_state attachment-id proof deferred to flag-flip PR). Next: /gsd-plan-phase 11.
-**Resume file:** None
+**Last session:** 2026-08-26T12:28:01.203Z
+**Stopped at:** Phase 11 context gathered (discuss-phase complete, D-01..D-12 locked)
+**Resume file:** .planning/phases/11-incremental-read-affected-group-regeneration/11-CONTEXT.md
 
 ## Session Continuity
 
