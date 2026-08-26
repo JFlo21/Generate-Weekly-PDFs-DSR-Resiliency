@@ -6827,3 +6827,52 @@ follow-up findings closed, same 6 files.
 - **Next:** `/gsd-plan-phase 11`. Researcher inventories every `all_rows` consumer after
   `orchestrate.py` PHASE 2 for D-06 scoping; planner adds a human-verify before the first plan that
   needs populated memory and a `checkpoint:decision` before any workflow edit.
+
+## [2026-08-26 18:10] WR-01 — decorated numerics silently dropped 500-row chunks; caller-parses contract on the pipeline_memory write path
+
+- **Where:** Phase 11 plan 01, Task 1 (`4323cec`), landing the first of the three
+  `RUN_MEMORY_WRITE_ENABLED` flip preconditions from `10-REVIEW.md`
+  (`.planning/todos/pending/2026-08-25-run-memory-review-followups.md`).
+- **The defect class (silent data loss, not a visible failure):** a decorated
+  Smartsheet cell value (`"$1,234.50"`, `"12 ea"`) sent straight into a NUMERIC
+  `upsert_rows_bulk` parameter fails the Postgres cast. Under `pipeline_memory`'s
+  fail-open contract, that cast failure was swallowed and the **entire 500-row
+  chunk** was dropped with no error surfaced anywhere — not in logs, not in
+  `run_ledger`, not in Sentry. Real-data Phase 10 runs never hit this because the
+  sampled sheets happened to carry clean numerics, not because the path was safe.
+  This is exactly why a fail-open boundary needs a typed gate in front of it, not
+  just a try/except around the RPC call.
+- **The standing contract going forward: `pipeline_memory` parses nothing.**
+  `pipeline/orchestrate.py`'s `_run_memory_write_phase` (the caller) pre-parses
+  `Quantity` / `Units Total Price` with the billing engine's own
+  `pipeline.pricing._parse_quantity` / `parse_price` and stashes the result on
+  `__mem_quantity` / `__mem_units_total_price` row-dict keys. `writer._row_to_payload`
+  reads ONLY those two keys — it never falls back to the raw cell value when a
+  `__mem_*` key is absent, because an absent key correctly yields `None` (a clean
+  nullable NUMERIC that upserts fine) while a raw decorated string is exactly the
+  value that fails the cast and drops a chunk. Any future write-path field sourced
+  from a decorated Smartsheet cell must follow this same caller-parses-then-passes
+  pattern — never parse inside `pipeline_memory`.
+- **Why the boundary matters:** `pipeline_memory` imports nothing from
+  `pipeline.*` (enforced by an AST-based test) — that package boundary is what
+  keeps the memory package unit-testable in isolation from the ~3,100-line
+  production engine. Reusing `pipeline.pricing`'s parsers from the caller side,
+  not importing them into `pipeline_memory`, is what keeps that boundary intact
+  while still fixing the defect.
+- **`HASH_FIELDS` side effect:** `quantity` and `units_total_price` are members of
+  `pipeline_memory.writer.HASH_FIELDS`, so this fix changes `row_state.content_hash`
+  for any row whose cell carried decoration. Harmless today only because
+  `RUN_MEMORY_WRITE_ENABLED` is OFF and no rows are stored yet in production — this
+  had to land BEFORE the flip, never after (a hash-contract change after real rows
+  exist would silently reclassify every decorated row as "changed" on the next run).
+- **Forward-flagged for plan 11-02:** the capture-time watermark rule. `last_read_at`
+  must be captured immediately before the `rows_modified_since` call and stored
+  as-is; `SAFETY_WINDOW_MINUTES` is subtracted only when BUILDING the query, never
+  at persist time. Persist-time subtraction double-subtracts every run and adds no
+  real safety margin — already locked as a Phase 11 discuss-phase rule above
+  (`[2026-08-26 07:30]` entry), repeated here so the plan-02 executor sees it from
+  the WR-01 fix context too.
+- **Also landed same plan:** WR-04 (`run_ledger.sheets_changed` populated on both
+  the success and failure finish paths) and IN-01 (the `upsert_group_state`
+  attachment-preservation COALESCE, deferred to a checklist item since it is
+  untestable under `SKIP_UPLOAD` — see `docs/run-memory-write-flip-checklist.md`).
