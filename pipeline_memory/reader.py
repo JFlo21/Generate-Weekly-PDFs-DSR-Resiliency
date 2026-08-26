@@ -38,6 +38,14 @@ from pipeline_memory.client import get_client, with_retry
 # existing threshold rather than inventing a new one).
 _MAPPING_CHUNK_SIZE = 500
 
+# Page size for get_row_state_row_ids' pagination (Phase 11 Plan 06,
+# Task 1). Matches PostgREST's own default page/max-rows size -- a
+# sheet's row_state row count (largest observed sheet: 6,054 rows,
+# 10-RESEARCH.md Pitfall 4) can exceed a single PostgREST response, so
+# this function pages through with .range() rather than betting on an
+# unbounded single call.
+_ROW_STATE_PAGE_SIZE = 1000
+
 
 def get_sheet_watermarks(sheet_ids: list) -> dict:
     """Return ``sheet_registry`` rows for *sheet_ids*, keyed by sheet id.
@@ -267,3 +275,90 @@ def map_affected_to_sheets(
                     mapped.add(sheet_id)
 
     return mapped
+
+
+def get_row_state_row_ids(sheet_id: Any) -> set:
+    """Return the stored ``row_state`` row-id set for *sheet_id* --
+    the left side of the weekly deep run's deletion diff (Phase 11
+    Plan 06, INC-03, CONTEXT.md D-03).
+
+    Selects ``row_id`` from ``pipeline_memory.row_state`` filtered to
+    *sheet_id* and to rows whose ``deleted_at`` IS NULL (an
+    already-deleted row is not re-diffed every week), paginated with
+    ``.range()`` at ``_ROW_STATE_PAGE_SIZE`` rows per page so a large
+    sheet (largest observed: 6,054 rows) never exceeds a single
+    PostgREST response. Uses its own ``op="row_state_row_ids"`` string,
+    independent of every other ``pipeline_memory`` breaker.
+
+    Returns an EMPTY set on: a ``None``/falsy *sheet_id* (zero calls,
+    mirrors ``get_sheet_watermarks``'s empty-input convention), a
+    ``None`` client, ANY page's transport/breaker failure (the
+    already-collected partial page union is discarded -- a partial
+    result is worse than no result here, same reasoning as
+    ``map_affected_to_sheets``' mid-chunk discard), or a genuinely empty
+    stored set.
+
+    CALLER CONTRACT: an empty return means "cannot confirm this sheet's
+    stored row-id set" -- it must NEVER be read as "every row on this
+    sheet was already deleted" or "this sheet has no history". In
+    practice this is a documentation-only distinction for THIS
+    function's caller (the deep-run reconciliation phase): whether the
+    stored set is genuinely empty or unconfirmable, the resulting diff
+    against this run's live row-id set is empty either way, so no false
+    deletion can result from either outcome.
+    """
+    if not sheet_id:
+        return set()
+
+    client = get_client()
+    if client is None:
+        return set()
+
+    row_ids: set[Any] = set()
+    offset = 0
+    while True:
+        def _invoke(_offset=offset):
+            return (
+                client.schema("pipeline_memory")
+                .table("row_state")
+                .select("row_id")
+                .eq("sheet_id", sheet_id)
+                .is_("deleted_at", "null")
+                .range(_offset, _offset + _ROW_STATE_PAGE_SIZE - 1)
+                .execute()
+            )
+
+        result = with_retry(_invoke, op="row_state_row_ids")
+        if result is None:
+            logging.warning(
+                "get_row_state_row_ids: sheet %s page at offset %d "
+                "failed (transport or circuit-breaker failure) -- "
+                "discarding whatever was already collected and "
+                'returning empty; caller must treat this as "cannot '
+                'confirm", never as "sheet has zero stored rows"',
+                sheet_id, offset,
+            )
+            return set()
+
+        rows = getattr(result, "data", None)
+        if rows is None:
+            logging.warning(
+                "get_row_state_row_ids: sheet %s page at offset %d "
+                "returned a None response payload (anomalous, distinct "
+                "from a transport failure) -- discarding and returning "
+                "empty",
+                sheet_id, offset,
+            )
+            return set()
+
+        for row in rows:
+            if isinstance(row, dict):
+                rid = row.get("row_id")
+                if rid is not None:
+                    row_ids.add(rid)
+
+        if len(rows) < _ROW_STATE_PAGE_SIZE:
+            break
+        offset += _ROW_STATE_PAGE_SIZE
+
+    return row_ids

@@ -1218,6 +1218,254 @@ def _run_phase2_incremental(
         }
 
 
+def _reconcile_deep_run_deletions(
+    source_sheets: list[dict[str, Any]],
+    live_row_ids_by_sheet: dict[Any, set],
+    run_id: str,
+    get_row_state_row_ids_fn=None,
+    mark_rows_deleted_fn=None,
+) -> dict[str, Any]:
+    """Phase 11 Plan 06 (INC-03, CONTEXT.md D-03): the weekly deep run's
+    deletion-reconciliation half.
+
+    For each sheet in *source_sheets*, diffs the stored ``row_state``
+    row-id set (``pipeline_memory.reader.get_row_state_row_ids``)
+    against *live_row_ids_by_sheet* -- the row ids THIS run's own full
+    read actually returned for that sheet (derived by the caller from
+    ``all_rows``' ``__source_sheet_id`` / ``__row_id`` keys, never
+    re-fetched here). A row id present in the stored set and absent
+    from the live set is marked deleted via
+    ``pipeline_memory.writer.mark_rows_deleted``.
+
+    T-11-30 (critical, mitigated): a sheet ABSENT from
+    *live_row_ids_by_sheet*, or present with an EMPTY set, is skipped
+    entirely (warning + Sentry breadcrumb, counted in
+    ``sheets_skipped_zero_row``) -- ``pipeline/fetch.py``'s
+    ``get_all_source_rows`` does not expose a per-sheet read-success
+    signal to this caller (``pipeline/fetch.py`` is outside this
+    plan's declared ``files_modified``), so a zero-row observation and
+    a failed/partial read of that sheet are indistinguishable from
+    here. Treating both identically as "cannot confirm this sheet's
+    live state, do not touch its row_state" is the safe superset of
+    both plan-stated behaviors (a zero-row full read is never read as
+    "every row deleted"; a sheet not successfully read in full is
+    never touched) rather than risking a false mass-deletion.
+
+    An EMPTY return from ``get_row_state_row_ids`` (genuinely zero rows
+    stored, or a Supabase read failure -- the function's own fail-open
+    contract makes the two indistinguishable) also skips that sheet's
+    diff: it would be empty either way, so this is a documentation-only
+    distinction, never a behavior difference.
+
+    NEVER raises -- the caller (``main()``) wraps this call in its own
+    outer try/except (mirrors every other ``pipeline_memory`` hook), and
+    every per-sheet failure inside this function is itself absorbed by
+    ``get_row_state_row_ids``/``mark_rows_deleted``'s own fail-open
+    contracts, so one bad sheet cannot abort the loop for its siblings.
+
+    Returns a dict: ``sheets_checked`` (sheets with a usable, non-empty
+    live read this run), ``sheets_skipped_zero_row`` (sheets skipped per
+    the guard above), ``rows_marked_deleted`` (total row count actually
+    confirmed deleted this call, across every sheet), ``affected_pairs``
+    (the union of every ``(wr, week_ending)`` pair ``mark_rows_deleted``
+    returned).
+    """
+    get_row_state_row_ids_fn = (
+        get_row_state_row_ids_fn or _mem_reader.get_row_state_row_ids
+    )
+    mark_rows_deleted_fn = (
+        mark_rows_deleted_fn or _mem_writer.mark_rows_deleted
+    )
+
+    result: dict[str, Any] = {
+        "sheets_checked": 0,
+        "sheets_skipped_zero_row": 0,
+        "rows_marked_deleted": 0,
+        "affected_pairs": set(),
+    }
+
+    for sheet in source_sheets:
+        sheet_id = sheet.get("id")
+        live_ids = live_row_ids_by_sheet.get(sheet_id) or set()
+        if not live_ids:
+            result["sheets_skipped_zero_row"] += 1
+            logging.warning(
+                f"⚠️ Deep-run reconciliation: sheet {sheet_id} full "
+                "read returned zero rows (or was not successfully read "
+                "in full) -- skipping deletion detection for this "
+                "sheet this run (T-11-30: a zero/partial read is far "
+                "more likely an upstream failure than a mass "
+                "deletion)."
+            )
+            sentry_add_breadcrumb(
+                "pipeline_memory",
+                f"Deep-run reconciliation skipped sheet {sheet_id}: "
+                "zero-row (or unread) full read",
+                level="warning",
+                data={"sheet_id": sheet_id},
+            )
+            continue
+
+        result["sheets_checked"] += 1
+
+        stored_ids = get_row_state_row_ids_fn(sheet_id)
+        if not stored_ids:
+            # Genuinely no stored rows for this sheet, or "cannot
+            # confirm" -- either way the diff below is empty, so there
+            # is nothing to mark deleted for this sheet this run.
+            continue
+
+        deleted_ids = stored_ids - live_ids
+        if not deleted_ids:
+            continue
+
+        mark_result = mark_rows_deleted_fn(sheet_id, deleted_ids, run_id)
+        count = mark_result.get("count", 0) if mark_result else 0
+        pairs = mark_result.get("affected_pairs") if mark_result else None
+        if count:
+            result["rows_marked_deleted"] += count
+        if pairs:
+            result["affected_pairs"] |= pairs
+
+    return result
+
+
+def _repair_group_state_for_affected_pairs(
+    affected_pairs: set,
+    deferred_group_state: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Phase 11 Plan 06 (INC-03): the weekly deep run's ``group_state``
+    repair for a deletion -- OBSERVABILITY only, never a second write.
+
+    ``deferred_group_state`` (populated in the group loop -- see the
+    ``_deferred_group_state.append`` call site) already carries every
+    CURRENTLY-EXISTING group's freshly computed
+    ``calculate_data_hash()`` value for THIS run, over ``all_rows``
+    AFTER the deletion (a deleted row is simply absent from
+    ``all_rows``, so ``group_source_rows()`` never assigned it to a
+    group this run). The ordinary post-upload ``group_state`` flush
+    (``_build_group_state_flush`` / ``upsert_group_state``) ALREADY
+    upserts every one of those entries unconditionally each full run,
+    with ``upsert_group_state``'s existing COALESCE-by-omission
+    preserving whatever attachment id is already stored (records built
+    from ``_deferred_group_state`` never carry ``attachment_id`` /
+    ``attachment_name`` keys at all). This function's job is narrower:
+    identify which of those entries belong to an affected
+    (deletion-touched) pair, purely so the deep run can log/count
+    exactly what got repaired.
+
+    Returns the SUBSET of *deferred_group_state* whose
+    ``(wr_num, week_iso)`` is in *affected_pairs* -- an empty list for
+    an empty *affected_pairs* input (a deep run with zero deletions
+    repairs nothing). PURE (no I/O, never raises) -- directly
+    unit-testable.
+
+    KNOWN LIMITATION (documented, not exercised by this plan's tests):
+    a ``(wr, week_ending)`` pair whose LAST remaining row was deleted
+    this run produces NO entry in *deferred_group_state* at all (the
+    group no longer exists for ``group_source_rows()`` to build) -- its
+    ``group_state`` row(s) are left stale (last-known content_hash /
+    row_count) rather than actively cleared. Clearing a fully-emptied
+    group's ``group_state`` row needs its stored ``target_sheet_id``(s),
+    which this plan does not add a reader for; deferred to a future
+    ``group_state`` hygiene pass.
+    """
+    if not affected_pairs:
+        return []
+    return [
+        rec for rec in deferred_group_state
+        if (rec.get("wr_num"), rec.get("week_iso")) in affected_pairs
+    ]
+
+
+def _compute_registry_mapping_sheets(
+    is_deep_run: bool,
+    source_sheets: list[dict[str, Any]],
+    watermarks: dict[Any, dict[str, Any]],
+) -> set | None:
+    """Phase 11 Plan 06 (D-03): compute the value passed as
+    ``upsert_sheet_registry``'s new ``column_mapping_sheets`` kwarg.
+
+    ``is_deep_run`` True (``EXECUTION_TYPE == 'weekly_comprehensive'``,
+    the Monday deep run by cron identity) -> ``None`` (every sheet's
+    mapping is refreshed -- the deep run reads every sheet in full
+    anyway, so there is no per-sheet "was it actually read" distinction
+    left to make). ``is_deep_run`` False (a frequent run, or any other
+    execution type) -> exactly the sheet ids ABSENT from *watermarks*
+    (no existing ``sheet_registry`` row yet) -- those sheets get their
+    FIRST-EVER ``column_mapping`` written on this run's INSERT (the
+    column is ``NOT NULL`` with no default, so omitting it there would
+    fail the whole upsert); every ALREADY-REGISTERED sheet's stored
+    mapping is left untouched, so a frequent run can never silently
+    adopt a drifted mapping (D-02 trigger 2 is what escalates that
+    sheet to a full read instead).
+
+    PURE (no I/O, never raises) -- directly unit-testable.
+    """
+    if is_deep_run:
+        return None
+    return {
+        s.get("id") for s in source_sheets if s.get("id") not in watermarks
+    }
+
+
+def _log_column_mapping_drift(
+    sheets: list[dict[str, Any]],
+    watermarks: dict[Any, dict[str, Any]],
+) -> list[Any]:
+    """Phase 11 Plan 06 (INC-03/D-03): log + Sentry-breadcrumb the sheet
+    ids whose freshly-discovered ``column_mapping`` differs from the
+    STORED ``sheet_registry`` value, at the moment the weekly deep run
+    is about to refresh it.
+
+    Uses ``_normalize_column_mapping`` -- the SAME standalone helper
+    ``resolve_run_mode``'s trigger 2 already uses for its own drift
+    comparison (Phase 11 Plan 02) -- on BOTH sides, so the value
+    compared here is byte-for-byte the same normalised shape trigger 2
+    compares, never a second, potentially-drifting normalisation
+    (11-RESEARCH.md Pitfall 6's closing half; plan 02 shipped the
+    read-and-compare side, this plan adds the authoritative write).
+
+    A sheet absent from *watermarks* entirely (no prior registry row --
+    stored mapping normalises to ``{}``) is treated as drift when its
+    fresh mapping is non-empty, which is correct: there is nothing
+    stored yet for a brand-new sheet, so writing its first mapping is
+    unconditionally logged as a "change" from nothing.
+
+    Returns the list of sheet ids whose mapping differed (empty = no
+    drift observed this run) -- directly assertable by a test without
+    parsing log output. PURE aside from logging/Sentry side effects;
+    never raises.
+    """
+    changed: list[Any] = []
+    for sheet in sheets:
+        sheet_id = sheet.get("id")
+        fresh = _normalize_column_mapping(sheet.get("column_mapping") or {})
+        stored_row = watermarks.get(sheet_id) or {}
+        stored = _normalize_column_mapping(
+            stored_row.get("column_mapping") or {}
+        )
+        if fresh != stored:
+            changed.append(sheet_id)
+            logging.warning(
+                f"🗂️ Deep-run column_mapping refresh: sheet {sheet_id} "
+                f"mapping changed. Before keys: {sorted(stored.keys())}. "
+                f"After keys: {sorted(fresh.keys())}."
+            )
+            sentry_add_breadcrumb(
+                "pipeline_memory",
+                "sheet_registry.column_mapping refreshed for sheet "
+                f"{sheet_id}",
+                level="warning",
+                data={
+                    "sheet_id": sheet_id,
+                    "before_keys": sorted(stored.keys()),
+                    "after_keys": sorted(fresh.keys()),
+                },
+            )
+    return changed
+
+
 def main():  # pyright: ignore[reportGeneralTypeIssues]
     """Main execution function with all fixes implemented.
 
@@ -1333,6 +1581,18 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
     # None default here means "no key added", never a fabricated verdict.
     _parity_verdict = None
     _parity_details = {}
+    # Phase 11 Plan 06 (INC-03): hoisted defaults for the weekly deep
+    # run's deletion-reconciliation phase, for the SAME documented
+    # reason as the _parity_verdict / _resolved_mode defaults above --
+    # both run_ledger_finish call sites may reference these
+    # unconditionally, and the reconciliation phase itself (below,
+    # placed after the full read and the memory write) never runs on
+    # any execution type other than 'weekly_comprehensive', or when
+    # RUN_MEMORY_WRITE_ENABLED / TEST_MODE close the gate. False/0/an
+    # empty set are the CORRECT values whenever the phase never runs.
+    _reconcile_ran = False
+    _reconcile_rows_marked_deleted = 0
+    _reconcile_affected_pairs = set()
     # Explicit session-failure sentinel for the finally-block cron
     # check-in (Copilot review, PR #297): _groups_errored == 0 alone
     # cannot distinguish "clean run" from "died before any group was
@@ -1536,6 +1796,21 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 source_sheets, _mem_trigger3_sheet_ids, _registry_capture_time,
             )
         )
+        # Phase 11 Plan 06 (INC-03/D-03): column_mapping is refreshed on
+        # BOTH sheet_registry passes ONLY on the weekly deep run
+        # ('weekly_comprehensive' by cron identity, per CLAUDE.md's
+        # cron-identity-not-wall-clock rule) -- a frequent run must
+        # NEVER silently adopt a drifted mapping; D-02 trigger 2 already
+        # escalates that sheet to a full read instead. NOT NULL safety
+        # (see _compute_registry_mapping_sheets docstring): a sheet with
+        # NO existing registry row still gets its first-ever mapping
+        # written regardless of execution type.
+        _is_deep_run = (
+            os.getenv('EXECUTION_TYPE', 'manual') == 'weekly_comprehensive'
+        )
+        _registry_mapping_sheets = _compute_registry_mapping_sheets(
+            _is_deep_run, source_sheets, _watermarks,
+        )
         if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
             try:
                 _mem_writer.upsert_sheet_registry(
@@ -1543,6 +1818,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     _fetch.get_last_sheet_versions(),
                     capture_times=_registry_capture_times,
                     full_read_sheets=_registry_full_read_ids,
+                    column_mapping_sheets=_registry_mapping_sheets,
                 )
             except Exception:
                 logging.warning(
@@ -1673,17 +1949,70 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # here after the read has already completed.
         if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
             try:
+                if _is_deep_run:
+                    _log_column_mapping_drift(_registry_sheets, _watermarks)
                 _mem_writer.upsert_sheet_registry(
                     _registry_sheets, _mem_run_id, _resolve_mem_sheet_kind,
                     _fetch.get_last_sheet_versions(),
                     capture_times=_registry_capture_times,
                     full_read_sheets=_registry_full_read_ids,
+                    column_mapping_sheets=_registry_mapping_sheets,
                 )
             except Exception:
                 logging.warning(
                     "⚠️ pipeline_memory sheet_registry upsert (pass 2) "
                     "failed unexpectedly (non-fatal); registry version "
                     "watermark not updated this run."
+                )
+
+        # Phase 11 Plan 06 (INC-03, CONTEXT.md D-03): the weekly deep
+        # run's deletion-reconciliation phase -- placed after BOTH the
+        # full read (all_rows, above) and the memory write
+        # (_run_memory_write_phase, above) complete, so a failed read
+        # or a failed memory write can never cause a false deletion.
+        # Gated on _is_deep_run (EXECUTION_TYPE == 'weekly_comprehensive'
+        # by cron identity, NOT wall clock) PLUS the same
+        # RUN_MEMORY_WRITE_ENABLED / TEST_MODE double gate every other
+        # pipeline_memory hook in main() uses. Wrapped in its own outer
+        # try/except (mirrors every other hook here) so an unexpected
+        # bug can never affect Excel generation, upload, or cleanup
+        # below.
+        if _is_deep_run and RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
+            try:
+                _reconcile_live_ids_by_sheet = {}
+                for _rr in all_rows:
+                    _rsid = _rr.get('__source_sheet_id')
+                    _rrid = _rr.get('__row_id')
+                    if _rsid is not None and isinstance(_rrid, int):
+                        _reconcile_live_ids_by_sheet.setdefault(
+                            _rsid, set()
+                        ).add(_rrid)
+
+                _reconcile_result = _reconcile_deep_run_deletions(
+                    source_sheets, _reconcile_live_ids_by_sheet, _mem_run_id,
+                )
+                _reconcile_ran = True
+                _reconcile_affected_pairs = _reconcile_result[
+                    'affected_pairs'
+                ]
+                _reconcile_rows_marked_deleted = _reconcile_result[
+                    'rows_marked_deleted'
+                ]
+                if _reconcile_rows_marked_deleted:
+                    logging.info(
+                        f"🗑️ Deep-run reconciliation: "
+                        f"{_reconcile_rows_marked_deleted} row(s) marked "
+                        "deleted across "
+                        f"{_reconcile_result['sheets_checked']} sheet(s) "
+                        "checked "
+                        f"({_reconcile_result['sheets_skipped_zero_row']} "
+                        "sheet(s) skipped: zero-row/unread full read)."
+                    )
+            except Exception:
+                logging.warning(
+                    "⚠️ pipeline_memory deep-run deletion reconciliation "
+                    "failed unexpectedly (non-fatal); "
+                    "row_state.deleted_at not written this run."
                 )
 
         # Initialize audit system
@@ -3506,6 +3835,53 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     ),
                 }
 
+        # Phase 11 Plan 06 (INC-03): the weekly deep run's group_state
+        # repair confirmation -- OBSERVABILITY only (see
+        # _repair_group_state_for_affected_pairs docstring: the
+        # ordinary post-upload group_state flush below already upserts
+        # every surviving group's freshly-computed content_hash this
+        # run, attachment ids preserved by upsert_group_state's
+        # existing COALESCE-by-omission). Runs only when the
+        # deletion-reconciliation phase above actually marked something
+        # deleted this run. Wrapped in its own outer try/except, mirrors
+        # every other pipeline_memory hook in main().
+        if _reconcile_affected_pairs:
+            try:
+                _reconcile_repaired = (
+                    _repair_group_state_for_affected_pairs(
+                        _reconcile_affected_pairs, _deferred_group_state,
+                    )
+                )
+                _reconcile_repaired_pairs = {
+                    (rec.get('wr_num'), rec.get('week_iso'))
+                    for rec in _reconcile_repaired
+                }
+                _reconcile_orphaned_pairs = (
+                    _reconcile_affected_pairs - _reconcile_repaired_pairs
+                )
+                logging.info(
+                    "🧾 Deep-run deletion reconciliation: "
+                    f"{len(_reconcile_repaired)} group(s) confirmed "
+                    "still live (content hash already refreshed by the "
+                    "ordinary group-state flush this run), "
+                    f"{len(_reconcile_orphaned_pairs)} affected pair(s) "
+                    "now fully empty (group_state row left as-is; "
+                    "cross-group cleanup deferred)."
+                )
+                if _reconcile_orphaned_pairs:
+                    sentry_add_breadcrumb(
+                        "pipeline_memory",
+                        "Deep-run reconciliation: affected pair(s) "
+                        "fully emptied",
+                        level="warning",
+                        data={"count": len(_reconcile_orphaned_pairs)},
+                    )
+            except Exception:
+                logging.warning(
+                    "⚠️ pipeline_memory deep-run group_state repair "
+                    "confirmation failed unexpectedly (non-fatal)."
+                )
+
         # Phase 01 Plan 03 Task 2 Change 3 (D-17): emit exactly ONE
         # WARNING per source sheet whose subcontractor variant
         # generation fell through to SmartSheet pricing on missing
@@ -4306,6 +4682,14 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 if _parity_verdict is not None:
                     _finish_kwargs["parity_verdict"] = _parity_verdict
                     _finish_kwargs["parity_details"] = _parity_details
+                # Phase 11 Plan 06 (INC-03): only present when the
+                # deep-run reconciliation phase actually ran this run
+                # (mirrors the _parity_verdict None-default contract
+                # above -- never a fabricated 0 on a non-deep-run).
+                if _reconcile_ran:
+                    _finish_kwargs["mem_deep_run_rows_deleted"] = (
+                        _reconcile_rows_marked_deleted
+                    )
                 _mem_writer.run_ledger_finish(_mem_run_id, **_finish_kwargs)
             except Exception:
                 logging.warning(
@@ -4556,6 +4940,14 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 if _parity_verdict is not None:
                     _finish_kwargs["parity_verdict"] = _parity_verdict
                     _finish_kwargs["parity_details"] = _parity_details
+                # Phase 11 Plan 06 (INC-03): only present when the
+                # deep-run reconciliation phase actually ran this run
+                # (mirrors the _parity_verdict None-default contract
+                # above -- never a fabricated 0 on a non-deep-run).
+                if _reconcile_ran:
+                    _finish_kwargs["mem_deep_run_rows_deleted"] = (
+                        _reconcile_rows_marked_deleted
+                    )
                 _mem_writer.run_ledger_finish(_mem_run_id, **_finish_kwargs)
             except Exception as _mem_exc:
                 logging.warning(

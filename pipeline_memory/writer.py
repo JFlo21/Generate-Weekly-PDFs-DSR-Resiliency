@@ -291,6 +291,7 @@ def upsert_sheet_registry(
     sheet_versions: dict[Any, int | None] | None,
     capture_times: dict[Any, str] | None = None,
     full_read_sheets: set | None = None,
+    column_mapping_sheets: set | None = None,
 ) -> None:
     """Best-effort bulk upsert of ``sheet_registry``. NEVER raises.
 
@@ -334,6 +335,28 @@ def upsert_sheet_registry(
     delta read's abbreviated OR non-abbreviated response both carry a
     real ``.version`` value (``pipeline.fetch.fetch_sheet_delta``).
 
+    Phase 11 Plan 06 (D-03) -- ``column_mapping_sheets``: sheet ids
+    whose ``column_mapping`` key should be INCLUDED in this call's
+    payload. ``None`` (the default -- EVERY call site before this plan,
+    byte-for-byte unchanged) includes it for every sheet. When a set is
+    supplied, a sheet id NOT in it has its ``column_mapping`` key
+    OMITTED from the payload entirely -- the same "upsert only touches
+    payload columns" mechanism ``full_read_sheets`` already relies on
+    for ``last_full_read_at``, so that sheet's stored mapping is left
+    untouched (never silently adopted). The weekly deep run
+    (``'weekly_comprehensive'``) is the only caller that refreshes every
+    sheet's mapping (passes ``None``); a frequent run passes the set of
+    sheet ids with NO existing registry row yet, because
+    ``column_mapping`` is ``NOT NULL`` with no default -- a genuinely
+    NEW sheet's first-ever registry row MUST carry a mapping regardless
+    of execution type, or its INSERT half of the upsert fails the whole
+    call with a 23502 (not_null_violation), the same failure class
+    ``run_ledger_finish``'s ``mode`` column already taught this codebase
+    to guard against. An ALREADY-REGISTERED sheet on a frequent run
+    never has its stored mapping touched -- a drifted mapping there is
+    D-02 trigger 2's job to ESCALATE (force a full read of that sheet),
+    never to silently adopt.
+
     Empty input performs ZERO calls, checked before the client/flag
     guards, same as ``upsert_rows_bulk``. Issues exactly ONE table
     upsert with ``on_conflict="sheet_id"`` -- so a single row's write
@@ -369,12 +392,13 @@ def upsert_sheet_registry(
             "sheet_id": sheet_id,
             "name": sheet.get("name"),
             "kind": kind_resolver(sheet_id),
-            "column_mapping": sheet.get("column_mapping") or {},
             "last_sheet_version": versions.get(sheet_id),
             "last_read_at": capture_time,
             "active": True,
             "updated_at": now,
         }
+        if column_mapping_sheets is None or sheet_id in column_mapping_sheets:
+            row["column_mapping"] = sheet.get("column_mapping") or {}
         if is_full_read:
             row["last_full_read_at"] = capture_time
         payload.append(row)
@@ -795,3 +819,102 @@ def upsert_rows_bulk(sheet_id: int, run_id: str,
             f"{sheet_id} (across {len(chunks)} chunk(s))."
         )
     return affected
+
+
+# ── row_state deletion reconciliation (Phase 11 Plan 06, INC-03) ───────────
+
+def mark_rows_deleted(
+    sheet_id: Any, row_ids: Any, run_id: str,
+) -> dict[str, Any]:
+    """Mark *row_ids* on *sheet_id* deleted (``row_state.deleted_at``).
+    NEVER raises. The weekly deep run's writer half of the deletion
+    diff (Phase 11 Plan 06, INC-03, CONTEXT.md D-03) -- lifts the
+    Phase 10 ``COVERAGE.md`` line-33 OPT-OUT on this column.
+
+    ``row_ids`` is the set of row ids the caller has already determined
+    are present in stored ``row_state`` (``get_row_state_row_ids``) and
+    absent from THIS run's own full read -- this function does no
+    diffing of its own, it only writes.
+
+    UPDATEs ``row_state`` setting ``deleted_at`` to this call's own
+    timestamp, filtered to *sheet_id*, the given *row_ids* (bound via
+    the client's typed ``.in_()`` builder, never string interpolation),
+    AND ``deleted_at IS NULL`` -- a row already carrying a
+    ``deleted_at`` is never rewritten (idempotent across deep runs; the
+    original deletion timestamp is preserved). Chunked at
+    ``_CHUNK_ROWS`` with the SAME discipline ``upsert_rows_bulk``
+    applies to its bulk payload. ``run_id`` is accepted for call-site
+    symmetry with the other writer entry points (mirrors
+    ``upsert_sheet_registry``'s ``run_id`` parameter) but is not
+    persisted -- ``row_state`` has no "deleted by run" column.
+
+    Returns ``{"count": int, "affected_pairs": set[tuple[Any, Any]]}``:
+    ``count`` is the number of rows THIS call actually confirmed
+    deleted (0 on any failure or a genuinely empty/falsy input --
+    "returns a zero count" so the caller's next deep run retries the
+    same rows); ``affected_pairs`` is the ``(wr, week_ending)`` union of
+    every row this call marked, read back from the UPDATE's own
+    response rows (PostgREST returns full row representation for an
+    ``.update()`` by default) -- the caller uses this to scope its
+    ``group_state`` repair without a second read. A chunk that fails
+    contributes NOTHING to either the count or the pairs -- a partial
+    per-chunk failure never fabricates a pair for a row that was not
+    actually confirmed deleted.
+    """
+    empty_result: dict[str, Any] = {"count": 0, "affected_pairs": set()}
+    if not row_ids:
+        return empty_result
+
+    ids = sorted({rid for rid in row_ids if rid is not None}, key=str)
+    if not ids:
+        return empty_result
+
+    client = get_client()
+    if client is None:
+        return empty_result
+    if not _client_write_enabled():
+        return empty_result
+
+    ts = _utcnow_iso()
+    chunks = [
+        ids[i:i + _CHUNK_ROWS] for i in range(0, len(ids), _CHUNK_ROWS)
+    ]
+
+    total_count = 0
+    affected_pairs: set[tuple[Any, Any]] = set()
+    any_chunk_failed = False
+    for chunk in chunks:
+        def _invoke(_chunk=chunk):
+            return (
+                client.schema("pipeline_memory")
+                .table("row_state")
+                .update({"deleted_at": ts})
+                .eq("sheet_id", sheet_id)
+                .in_("row_id", list(_chunk))
+                .is_("deleted_at", "null")
+                .execute()
+            )
+
+        result = with_retry(_invoke, op="row_state_mark_deleted")
+        if result is None:
+            any_chunk_failed = True
+            continue
+
+        rows = getattr(result, "data", None) or []
+        for row in rows:
+            if isinstance(row, dict):
+                total_count += 1
+                affected_pairs.add((row.get("wr"), row.get("week_ending")))
+
+    if total_count:
+        _bump_counter_by("rows_marked_deleted", total_count)
+    if any_chunk_failed:
+        _bump_counter("rows_mark_deleted_errored")
+        logging.warning(
+            f"⚠️ pipeline_memory mark_rows_deleted: one or more chunks "
+            f"failed for sheet {sheet_id}; {total_count} row(s) "
+            "confirmed deleted this call -- remaining rows left "
+            "unmarked for the next deep run to retry."
+        )
+
+    return {"count": total_count, "affected_pairs": affected_pairs}
