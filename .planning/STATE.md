@@ -334,5 +334,5 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 ## Session Continuity
 
 Last session: 2026-08-25T15:31:08.771Z
-Stopped at: Phase 10 Wave 4 — 10-06 Task 1 done (a13e47a/9aa220d); Task 2 is a blocking-human checkpoint: apply pipeline_memory/schema.sql to Supabase project poeyztlmsawfoqlanucc, expose schema to PostgREST, reload cache (approval-gated, protected area). Task 3 (real-data control/shadow/idempotence/fail-open runs) follows via continuation agent.
-Resume file: .planning/phases/10-run-memory-foundation-shadow-writes/.continue-here.md (HANDOFF.json consumed and removed)
+Stopped at: Phase 10 executed 6/6 (ecb1bd5); tail gates done — code review 0C/4W/1I (7e86f46, follow-ups todo 8b844a6), regression 978 passed, Nyquist validated (c292d5d), security 21/21 closed after T-10-04 fix b48efd7, gsd-verifier human_needed 11/13 → 10-UAT.md (bf9f919). Phase NOT advanced. Next: /gsd-verify-work 10 (2 Juan decisions: SC4 byte-identical standard; group_state attachment id deferred to flag-flip PR).
+Resume file: .planning/phases/10-run-memory-foundation-shadow-writes/10-UAT.md (pending human verification)
