@@ -34,6 +34,14 @@ separate later PR). Next: `/gsd-plan-phase 11`._
    44 open PRs remain** — ~24 Dependabot (majors: pandas 3, mypy 2, React 19, TS 7, actions v7 bumps),
    Seer #321/#322 (likely superseded by merged #341), #287/#290/#291 (column_ids serialization),
    Copilot #75–#275, and Juan's own #91/#137/#138/#139/#149/#166/#282. Needs its own triage pass.
+2. **PAUSED mid `/gsd-discuss-phase 11` (2026-08-26 00:40 CDT, `/gsd-pause-work`):** `/gsd-plan-phase 11`
+   found no CONTEXT.md → Juan chose discuss first. Advisor mode (calibration `full_maturity`): todo
+   `run-memory-review-followups` FOLDED; all four gray areas selected (read watermark & safety window;
+   affected-group regen & row source; parity proof harness; rollout/kill switch/retirement order);
+   all four `gsd-advisor-researcher` tables returned and are persisted as
+   `.planning/phases/11-*/11-ADVISOR-*.md`. **No decision locked, no CONTEXT.md yet.** Handoff:
+   `.planning/HANDOFF.json` + `.planning/phases/11-*/.continue-here.md` + `11-DISCUSS-CHECKPOINT.json`.
+   **Resume:** `/gsd-resume-work` or `/gsd-discuss-phase 11` → Resume → present tables (no re-dispatch).
 
 ## Previous (2026-08-25 21:50 CDT) — Phase 10 CLOSED: `/gsd-verify-work 10` 2/2 decided, verification passed, transition to Phase 11
 0. **UAT:** `verify:pre` api-coverage gate blocked on `COVERAGE.md` cell lengths → trimmed (`8486113`).

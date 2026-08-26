@@ -1,0 +1,85 @@
+{
+  "phase": "11",
+  "phase_name": "Incremental Read + Affected-Group Regeneration",
+  "timestamp": "2026-08-26T05:38:08Z",
+  "mode": "advisor",
+  "calibration_tier": "full_maturity",
+  "non_technical_owner": false,
+  "advisor_model": "sonnet",
+  "areas_completed": [],
+  "areas_remaining": [
+    "Read watermark & safety window",
+    "Affected-group regen & row source",
+    "Parity proof harness (INC-04)",
+    "Rollout, kill switch & retirement order"
+  ],
+  "advisor_research_persisted": {
+    "Read watermark & safety window": "11-ADVISOR-read-watermark-safety-window.md",
+    "Affected-group regen & row source": "11-ADVISOR-affected-group-regen-row-source.md",
+    "Parity proof harness (INC-04)": "11-ADVISOR-parity-proof-harness.md",
+    "Rollout, kill switch & retirement order": "11-ADVISOR-rollout-kill-switch-retirement.md"
+  },
+  "resume_instruction": "All four advisor comparison tables are already on disk (files above). On resume do NOT re-dispatch gsd-advisor-researcher; go straight to the advisor table-first discuss_areas flow: present each table + rationale, AskUserQuestion with the table's Option column, record the pick, ask at most 1-2 follow-ups, then 'Ready to create context?'.",
+  "decisions": {},
+  "folded_todos": [
+    {
+      "file": ".planning/todos/pending/2026-08-25-run-memory-review-followups.md",
+      "title": "Run-memory shadow-write follow-ups from the Phase 10 REVIEW.md (WR-01..WR-04, IN-01)",
+      "note": "WR-02 and WR-03 already CLOSED (b48efd7, 6965f95); WR-01 / WR-04 / IN-01 remain and are preconditions for the RUN_MEMORY_WRITE_ENABLED flag-flip PR that Phase 11 depends on"
+    }
+  ],
+  "reviewed_todos_not_folded": [
+    {
+      "file": ".planning/todos/pending/2026-08-25-fix-snapshot-store-int-arg-type.md",
+      "reason": "billing_audit/snapshot_store.py mypy class-A finding; unrelated to incremental reads (keyword match only)"
+    }
+  ],
+  "prior_decisions_carried_forward": [
+    "D-07 (10-CONTEXT): weekly deep run 0 5 * * 1 stays the full reconciliation; no cron/schedule/timeout change in Phase 11",
+    "D-09 (10-CONTEXT): gate OPEN — MEM-04 combined verdict PASS (rows_modified_since surfaced formula-only changes in both scenarios); Phase 11 cleared to enable incremental reads",
+    "D-01..D-05 (10-CONTEXT): pipeline_memory schema in poeyztlmsawfoqlanucc, PostgREST exposure explicit, DDL versioned in repo, provenance column reserved, row_event single unpartitioned table",
+    "Supabase writes are fail-open (Phase 02 contract); memory may never make the run skip work silently — outage falls back to full mode",
+    "smartsheet-python-sdk==4.3.0 exact pin (Phase 08 D-01); if_version_after / rows_modified_since verified present",
+    "RUN_MEMORY_WRITE_ENABLED is OFF in production; its flag-flip PR (preconditions WR-01, WR-04, IN-01, low-activity comparator rerun) precedes any incremental read",
+    "Phase 10 UAT: SC4 satisfied by canonicalized-content standard; group_state attachment-id proof deferred to the flag-flip PR",
+    "Change-detection key WR, week, variant, foreman, dept, job must never be shortened; run_summary.json 21-key contract is frozen (Gate 6)"
+  ],
+  "deferred_ideas": [],
+  "canonical_refs": [
+    ".planning/ROADMAP.md (Phase 11 section: goal, INC-01..05, success criteria 1-4)",
+    ".planning/REQUIREMENTS.md lines 235-252 (INC-01..INC-05)",
+    ".planning/phases/10-run-memory-foundation-shadow-writes/10-CONTEXT.md (D-01..D-09)",
+    "docs/superpowers/specs/2026-08-24-supabase-run-memory-design.md §4 run algorithm, §8 decisions, §9 expected effect (UNTRACKED file — keep)",
+    ".planning/phases/10-run-memory-foundation-shadow-writes/10-05-SUMMARY.md (MEM-04 PASS verdict, SAFETY_WINDOW probes)",
+    ".planning/phases/10-run-memory-foundation-shadow-writes/10-06-SUMMARY.md (four real runs; comparator lessons)",
+    ".planning/phases/10-run-memory-foundation-shadow-writes/COVERAGE.md (row_state.deleted_at OPT-OUT, line 33)",
+    "pipeline_memory/schema.sql (sheet_registry, row_state, group_state, run_ledger, upsert_rows_bulk RPC)",
+    "pipeline_memory/writer.py (HASH_FIELDS, upsert_rows_bulk, _parse_affected_set, run_ledger_start/finish)",
+    "scripts/compare_control_run.py (canonicalized xlsx comparator)",
+    "scripts/mem04_experiment.py (T2/T3a/T3b if_version_after / rows_modified_since probes)",
+    ".planning/todos/pending/2026-08-25-run-memory-review-followups.md (folded)",
+    ".github/workflows/weekly-excel-generation.yml (execution-type step, cache steps, env block)",
+    "memory-bank/living-ledger.md entries [2026-08-25 18:37], [21:50], [23:25], [23:55], [2026-08-26 00:25]"
+  ],
+  "code_context": {
+    "reusable_assets": [
+      "pipeline_memory.writer.upsert_rows_bulk -> returns affected (wr, week_ending) set incl. moved-week prior pair (server-side UNION); currently observability-only by Phase 10 decree",
+      "pipeline_memory.sheet_registry.last_sheet_version / last_read_at / last_full_read_at / column_mapping — the watermark columns already exist",
+      "pipeline_memory.group_state.content_hash == calculate_data_hash() value (orchestrate.py ~670); attachment_id/attachment_name populated in shadow",
+      "pipeline_memory.run_ledger.mode CHECK (incremental|full|targeted) + notes JSONB — visibility channel that does not touch the frozen run_summary.json",
+      "scripts/compare_control_run.py canonicalized comparator; scripts/mem04_experiment.py get_sheet probe helpers",
+      "pipeline/fetch.py get_all_source_rows -> _fetch_and_process_sheet -> client.Sheets.get_sheet via the retry wrapper, ThreadPoolExecutor PARALLEL_WORKERS<=8"
+    ],
+    "established_patterns": [
+      "Flag-family pattern: env flag default OFF in code, workflow sets it, one-line master revert (SUPABASE_HASH_STORE_AUTHORITATIVE, SNAPSHOT_DRIFT_HOLD_ENABLED, RUN_MEMORY_WRITE_ENABLED)",
+      "Sub-budgeted optional phases (ATTACHMENT_PREFETCH_MAX_MINUTES / _FUTURE_TIMEOUT_SEC) that can never threaten TIME_BUDGET_MINUTES=165",
+      "Shadow-first: compute alongside, compare, never act on divergence, fail open (Phase 10)",
+      "EXECUTION_TYPE computed by the workflow (manual / production_frequent / weekend_maintenance / weekly_comprehensive) — cron identity, not wall clock"
+    ],
+    "integration_points": [
+      "pipeline/orchestrate.py PHASE 1 discovery (line ~847) and PHASE 2 fetch (~887); _run_memory_write_phase (385); group_source_rows(all_rows) call (~1027); attachment pre-fetch block (~1119-1160)",
+      "pipeline/discovery.py discover_source_sheets + discovery_cache.json TTL logic (~192-290, 673)",
+      ".github/workflows/weekly-excel-generation.yml env block + execution-type step + actions/cache save steps (protected area — owner approval)"
+    ]
+  }
+}
