@@ -489,6 +489,26 @@ RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN = int(
     os.getenv('RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN', '2') or 2
 )
 
+# Phase 11 Plan 02 (INC-01): the frequent run's per-sheet delta-read gate.
+# Default OFF -- ship dormant, the direct analog of RUN_MEMORY_WRITE_ENABLED
+# (11-CONTEXT.md D-11). Even when this is on, resolve_run_mode()
+# (pipeline/orchestrate.py) only resolves to 'incremental' when
+# EXECUTION_TYPE == 'production_frequent' -- weekend/weekly-deep/manual
+# dispatches stay 'full' regardless of this flag, acting as a standing
+# full-mode safety net during the parity burn-in window.
+RUN_MEMORY_INCREMENTAL_ENABLED = os.getenv(
+    'RUN_MEMORY_INCREMENTAL_ENABLED', '0'
+).strip().lower() in ('1', 'true', 'yes', 'on')
+# Fixed overlap (minutes), applied ONLY when building the delta-read
+# `rows_modified_since` query filter (last_read_at - SAFETY_WINDOW_MINUTES).
+# NEVER subtracted at persist time: sheet_registry.last_read_at always
+# stores the capture-time instant taken immediately before the read is
+# issued (11-CONTEXT.md D-01 supersedes docs/superpowers/specs/
+# 2026-08-24-supabase-run-memory-design.md section 4's persist-time
+# subtraction, which would compound the overlap every run with no added
+# safety). Not self-scaling -- the run cadence is locked by 10-CONTEXT D-07.
+SAFETY_WINDOW_MINUTES = int(os.getenv('SAFETY_WINDOW_MINUTES', '15') or 15)
+
 # Phase 2 Plan 05 gap-closure (CR-01): when the bulk lookup_attribution_bulk
 # RPC is not yet deployed (PGRST202 -> prefetch status 'rpc_missing'), degrade
 # to the already-deployed per-row lookup_attribution path instead of HOLDing
