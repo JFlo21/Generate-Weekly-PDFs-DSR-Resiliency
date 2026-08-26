@@ -150,3 +150,9 @@ None - no external service configuration required. `docs/run-memory-write-flip-c
 ---
 *Phase: 11-incremental-read-affected-group-regeneration*
 *Completed: 2026-08-26*
+
+## Self-Check: PASSED
+
+All 6 created/modified files confirmed present on disk; all 5 commits
+(`4323cec`, `0d63073`, `7ffa57a`, `a67cb39`, `f2ce4a4`) confirmed present
+in `git log --oneline --all`.
