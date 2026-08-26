@@ -18,14 +18,14 @@ Two external surfaces are in scope this phase:
 
 | capability | decision | reason |
 |---|---|---|
-| `rpc:upsert_rows_bulk` (bulk row upsert + server-side hash diff + `row_event` append) | INTEGRATE | |
+| `rpc:upsert_rows_bulk` (bulk upsert + server hash diff + `row_event` append) | INTEGRATE | |
 | `table:run_ledger` upsert (run start / run finish) | INTEGRATE | |
 | `table:sheet_registry` upsert (per discovered source sheet) | INTEGRATE | |
 | `table:group_state` upsert (per generated file, post-upload) | INTEGRATE | |
 | `pg_cron` retention schedule for `row_event` | INTEGRATE | D-06: 24-month sliced DELETE ships in the same versioned SQL file |
 | RLS policies + role GRANT/REVOKE on all five tables | INTEGRATE | D-01: service-role-only |
 | PostgREST schema exposure + schema-cache reload | INTEGRATE | D-02: explicit, verifiable operator step (PGRST106 footgun) |
-| `table:row_state` / `row_event` SELECT from a standalone analyst script (`scripts/mem04_passive_compare.py`) | INTEGRATE | D-08's passive half needs to compare consecutive shadow-run observations. This is an operator-run diagnostic with a credential-free default source; it is never imported by, scheduled by, or reachable from the pipeline. |
+| `table:row_state`/`row_event` SELECT from `scripts/mem04_passive_compare.py` | INTEGRATE | D-08 passive half compares consecutive shadow-run observations. Operator-run diagnostic with a credential-free default source; never imported, scheduled, or reachable from the pipeline. |
 | `table:row_state` SELECT **into the pipeline** (read memory back to drive a run) | OPT-OUT | Phase 10 is write-only shadow mode (MEM-03). Readers are Phase 11 INC-02; reading in Phase 10 would make memory an input to a billing decision, which MEM-03 forbids. |
 | `table:row_event` SELECT **into the pipeline** | OPT-OUT | Same — Phase 12 ownership-history lookups (OWN-*) are the first in-pipeline reader. |
 | `table:group_state` SELECT (skip-gate lookup) | OPT-OUT | The Phase-10 skip gate stays on `hash_history.json` + `billing_audit.group_content_hash` (spec §7 parity gate). Retiring those is explicitly Deferred to Phase 11+. |
@@ -43,7 +43,7 @@ Two external surfaces are in scope this phase:
 |---|---|---|
 | `Sheets.get_sheet(sheet_id, level=2)` — T0/T1 baseline full read | INTEGRATE | |
 | `Sheets.get_sheet(..., if_version_after=<T0 version>)` — T2 probe | INTEGRATE | |
-| `Sheets.get_sheet(..., rows_modified_since=<watermark>, level=2)` — T3 probe, with and without SAFETY_WINDOW | INTEGRATE | |
+| `Sheets.get_sheet(rows_modified_since, level=2)` — T3 probe ± SAFETY_WINDOW | INTEGRATE | |
 | Raw request/response capture to a replayable JSON cassette | INTEGRATE | D-08 evidence items 3 and 12 |
 | `Sheets.create_sheet` / `Sheets.copy_sheet` / `Folders.create_folder` | OPT-OUT | D-08: ZERO Smartsheet API writes. Juan hand-creates the sandbox lookup + dependent sheets. |
 | `Rows.add_rows` / `Rows.update_rows` / `Cells` writes | OPT-OUT | D-08: the triggering edits (blank the lookup value; edit a mapping value in place) are made BY HAND by Juan, never by the script. |

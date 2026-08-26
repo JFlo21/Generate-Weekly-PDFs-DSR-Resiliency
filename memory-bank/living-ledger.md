@@ -6322,3 +6322,432 @@ follow-up findings closed, same 6 files.
   the harness is wired into CI.
 - Gap `G-09-MOD-06` closed end-to-end: plans `09-07` (`c4fb38a`..`dd3a9fb`) + `09-08`
   (`4441b52`..`a1499d6`) + this commit.
+
+## [2026-08-25 01:40] PR #349 merged (Phase 09 gap closure) — local `master` re-synced after squash divergence; post-merge gate green
+
+- **Merge:** https://github.com/JFlo21/Generate-Weekly-PDFs-DSR-Resiliency/pull/349 squash-merged
+  2026-08-25 01:15 CDT as `c409c32` (32 commits `7e7c818`..`bb1a064`); `docs-changelog.yml`
+  appended stub `22ab153`. Master now also carries #341 (Sentry noise from Smartsheet auth
+  errors, `pipeline/fetch.py`) and #342 (cloud-agent install skips missing `portal/`).
+- **Divergence + fix:** local `master` showed ahead 29 / behind 17 because the PR branch was
+  cut from 29 *unpushed* local commits that GitHub then squashed into one. `git pull --rebase`
+  would replay all 29 against a single squash commit and conflict (no per-commit patch-id
+  match). Verified `git merge-base --is-ancestor HEAD bb1a064` = yes and
+  `git diff bb1a064 c409c32` = empty (tree-identical), then moved the pointer with
+  `git reset --keep origin/master` — `--keep` preserved the uncommitted
+  `generated_docs/hash_history.json` prune-marker diff because that file is identical in
+  both commits. Local + remote `feat/phase-09-gap-closure` deleted.
+- **Rule (post-squash sync):** when a merged PR branch shares commits with local `master`,
+  sync by pointer move (`reset --keep origin/master`) after proving the squash tree matches
+  the branch tip — never rebase/merge, and never `reset --hard` while `generated_docs/`
+  carries a local edit. Cutting the next branch from `origin/master` avoids the problem.
+- **Gate on merged tree:** `pytest tests/ -q` → 1388 passed, 1 skipped
+  (`test_cloud_agent_install` exec-bit check, Windows-only skip from `1071fef`), 132 subtests,
+  25 s.
+- **Open-PR triage carried forward:** Seer PRs #343 / #346 / #347 / #348 all touch
+  `_is_auth_api_error` Smartsheet 401/403 detection and partly revert each other; #341 already
+  shipped the accepted fix, so these are close-or-supersede candidates, not merges.
+  Dependabot #344 (`tsx`) / #345 (`@supabase/supabase-js`) in `scripts/` are routine.
+- **Phase 10 pre-flight + pause (01:35 CDT, WIP `0b85e53`):** `/gsd-execute-phase 10` ran the
+  full orchestrator pre-flight on `feat/phase-10-run-memory` (cut from `origin/master`) and was
+  paused by Juan before the first executor dispatch — 0/18 tasks, no `10-0x` commits. Handoff:
+  `.planning/phases/10-run-memory-foundation-shadow-writes/.continue-here.md` + `.planning/HANDOFF.json`.
+  Two durable findings: (1) `worktree.base-check` compares HEAD to `origin/HEAD`, so **any
+  feature branch auto-degrades GSD to sequential** (`ISOLATION=none`) — expected, and the safer
+  mode for `pipeline/` edits; plan wall-clock accordingly. (2) Executor dispatch prompts in this
+  repo tell the executor to **Read** `execute-plan.md` / `summary.md` / `checkpoints.md` / `tdd.md`
+  from disk by absolute path instead of inlining ~2,266 lines six times — the global
+  prompt-caching/token rules win over the skill's inline-verbatim note (the #3324 concern is
+  only that `@`-includes do not expand).
+- **Next:** `/gsd:resume-work` → Wave 1 dispatches `10-01` then `10-04` (sequential, Sonnet
+  executor); Seer PR triage after Phase 10 per Juan.
+
+## [2026-08-25 12:50] MEM-04 answered — PASS, `rows_modified_since` DOES surface a formula-only recalculation; D-09 gate OPEN for Phase 11
+
+- **Question answered:** does Smartsheet's `rows_modified_since` (and `ifVersionAfter`) surface
+  a row whose ONLY change is a cross-sheet formula recalculation, or does it silently miss that
+  change class? This entry is the D-09 gate Phase 11 (incremental reads) depends on. **Throwaway
+  test rig only — memory is Supabase-only.** The sandbox sheets below are a disposable diagnostic
+  fixture, never pipeline memory, and are never read by `generate_weekly_pdfs.py` / `pipeline/` /
+  `pipeline_memory/`.
+- **Evidence item 1 — rig identity, structure, disposition:** Smartsheet workspace `"Sandbox"`
+  (id `4902858211518340`, outside every production Resiliency workspace). LOOKUP sheet
+  `"DISPOSABLE TEST RIG — MEM-04 LOOKUP"` (id `6295051624730500`; columns `Key` primary id
+  `7095303590940548`, `Value` id `1465804056727428`; 5 rows K-001..K-005 = Alpha/Bravo/Charlie/
+  Delta/Echo, created `2026-08-25T17:35:43Z`). DEPENDENT sheet `"DISPOSABLE TEST RIG — MEM-04
+  DEPENDENT"` (id `4909062725521284`; columns `Key` primary id `5958676466405252`, `Resolved
+  Value` id `3706876652720004` with COLUMN FORMULA `=IFERROR(INDEX({LOOKUP Value}, MATCH([Key]@row,
+  {LOOKUP Key}, 0)), "")` via cross-sheet refs `"LOOKUP Key"` id `6979934838122372` / `"LOOKUP
+  Value"` id `5854034931279748` — the same cross-sheet INDEX/MATCH shape the real `Foreman` /
+  `Helper Dept #` lookups use; 5 rows created `2026-08-25T17:36:00Z`, verified resolving Alpha..Echo
+  before the experiment at sheet version 5). Invented data only (no real WR numbers, no real
+  personnel names). Both sheets are left in place, disposable, and were never edited directly by
+  anyone outside this experiment.
+- **Edit method (recorded honestly):** Juan authorized Claude to act as the operator for this
+  plan's Task 1 (`"you run this for me"`). The rig was built with the Smartsheet MCP tools plus a
+  one-off SDK snippet run from the shell — **not** from any repo script, so D-08's "zero
+  Smartsheet API writes IN THE PLAN's tooling" holds; `scripts/mem04_experiment.py` itself made
+  zero write calls (AST-scan-verified in plan 10-04). The two "hand edits" below were therefore
+  **API cell updates Claude made through the Smartsheet MCP on Juan's explicit instruction**, not
+  literal Smartsheet-UI clicks — recorded plainly rather than described as UI edits they were not.
+- **Evidence item 2 — timestamped T0/T1/T2/T3 sequence, both scenarios:**
+  - **(a) `blank_lookup`:** T0 baseline captured before any edit ->
+    `tests/fixtures/mem04/mem04_blank_lookup.json`. T1 hand-equivalent edit: LOOKUP row K-003
+    (row id `5479474059673476`), column `Value`: old `"Charlie"` -> new **BLANK**; API
+    `modifiedAt = 2026-08-25T17:37:03Z` (12:37:03 CDT); LOOKUP sheet version after edit: 4. T2/T3
+    probe ran after, default `--safety-window-minutes 15`, `--poll-attempts 6`,
+    `--poll-interval-seconds 30`.
+  - **(b) `edit_mapping`:** T0 baseline captured before any edit ->
+    `tests/fixtures/mem04/mem04_edit_mapping.json`. T1 hand-equivalent edit: LOOKUP row K-005
+    (row id `7731273873358724`), column `Value`: old `"Echo"` -> new `"Foxtrot"`; API
+    `modifiedAt = 2026-08-25T17:37:50Z` (12:37:50 CDT); LOOKUP sheet version after edit: 5. Same
+    default probe settings as (a).
+- **Evidence item 3 — raw cassettes (pointer, not pasted):** the full T0/T2/T3a/T3b raw
+  request/response JSON for both scenarios is committed at
+  `tests/fixtures/mem04/mem04_blank_lookup.json` (45,788 bytes) and
+  `tests/fixtures/mem04/mem04_edit_mapping.json` (60,232 bytes), commit `aa103f6`. Each is a
+  SEPARATE cassette (one `--out` per scenario) — `cassette["scenarios"]` in each file has exactly
+  one key; the combined verdict below is derived by merging both files' `scenarios` dicts, never
+  from either file alone.
+- **Evidence item 4 — DEPENDENT sheet `Sheet.version` after only the LOOKUP sheet was edited:**
+  **incremented in both scenarios.** (a) baseline dependent version 6 -> version 8 by the time the
+  probe's first poll ran. (b) baseline dependent version 8 -> version 10 by the time the probe's
+  second poll ran. The dependent sheet's version number moves purely from the lookup-sheet edit —
+  no direct write ever touched the dependent sheet.
+- **Evidence item 5 — per-row `modifiedAt` diff for the affected row:** (a) DEPENDENT row K-003
+  (id `1101266002509700`): `modifiedAt` moved `2026-08-25T17:36:36Z` -> `2026-08-25T17:37:11Z`
+  (recorded by the SDK with a malformed double timezone suffix, see evidence item 8) — an ~8s
+  gap after the `17:37:03Z` edit. (b) DEPENDENT row K-005 (id `3353065816194948`): `modifiedAt`
+  moved `2026-08-25T17:36:36Z` -> `2026-08-25T17:38:13Z` — an ~23s gap after the `17:37:50Z` edit.
+  Both affected rows' `modifiedAt` genuinely advanced from a change that originated entirely on
+  the OTHER sheet.
+- **Evidence item 6 — presence in `rows_modified_since`, value freshness:** in BOTH scenarios the
+  affected row appeared in the `rows_modified_since` result set with the recalculated (fresh)
+  `Resolved Value` — (a) resolved to blank after K-003's lookup value was blanked, (b) resolved to
+  `"Foxtrot"` after K-005's lookup value was edited. Neither probe returned a stale cached value.
+- **Evidence item 7 — poll timing distinguishing "never updates" from "recalculation lag":** (a)
+  `blank_lookup` needed only `attempts_used=1/6`, `elapsed=1.16s` — the recalculation had already
+  landed by the time the probe's first poll fired (probe was issued well after the ~8s
+  server-side lag). (b) `edit_mapping` needed `attempts_used=2/6`, `elapsed=31.78s` — the FIRST
+  poll (fired immediately) did NOT yet see the change; the SECOND poll, after the default 30s
+  `--poll-interval-seconds`, did. This is a genuine measured recalculation lag (consistent with
+  the ~23s `modifiedAt` gap in evidence item 5), not a "never updates" case — a poll budget of 1
+  attempt with no interval would have falsely reported no change for scenario (b).
+- **Evidence item 8 — exact SDK call signatures, pinned versions, discovered SDK quirk:** every
+  probe call is `Sheets.get_sheet(sheet_id, if_version_after=..., level=2)` (T2) and
+  `Sheets.get_sheet(sheet_id, rows_modified_since=..., level=2)` (T3a/T3b), wrapped in
+  `pipeline/retry.py`'s shared retry helper. `sdk_version` in both cassettes:
+  `smartsheet-python-sdk==4.3.0` (the Phase 08 D-01 pin). **Discovered binding the plan-10-04
+  replay helper to these REAL cassettes:** `smartsheet.util.serialize()` in this SDK version
+  unconditionally appends `"Z"` onto ANY `datetime.isoformat()` output, even an
+  already-tz-aware datetime whose `isoformat()` already carries `"+00:00"` — producing an
+  invalid double-suffixed timestamp (e.g. `"2026-08-25T17:36:36+00:00Z"`) that
+  `dateutil.parser.parse` (`smartsheet.types.Timestamp`'s value setter) rejects on
+  reconstruction. Never bites `scripts/mem04_experiment.py` itself (it only calls `.to_dict()`
+  once per capture, never re-parses a response) — it only broke replay of the saved cassette,
+  fixed in `build_sheet_from_dict` (commit `aa103f6`) with a sanitizer before reconstructing the
+  `Sheet` object. Worth knowing for any future tooling re-parsing a `to_dict()` response captured
+  with this exact pinned SDK version.
+- **Evidence item 9 — both scenarios recorded separately:** (a) `blank_lookup` (a value archived
+  to blank on the LOOKUP sheet, mirroring an archived Work Request blanking `Foreman`) and (b)
+  `edit_mapping` (a mapping value edited in place, mirroring a Foreman/Helper-Dept mapping edit)
+  are two fully independent capture runs, each with its own T0/T2/T3, never averaged together.
+- **Evidence item 10 — SAFETY_WINDOW sensitivity, with and without overlap:** BOTH scenarios show
+  `row_present_in_rows_modified_since_overlap=True` AND `..._no_overlap=True` — detected
+  **regardless of whether the 15-minute SAFETY_WINDOW overlap was applied**.
+  `safety_window_sensitivity_note()` -> "row detected in BOTH the overlap and zero-overlap
+  probes" for both scenarios, matching what Juan saw live per invocation; pinned by
+  `RealCassetteVerdictTests::test_safety_window_sensitivity_is_both_present_for_each_real_scenario`.
+- **Evidence item 11 — ONE explicit verdict sentence:** each cassette ALONE reports
+  `verdict: undetermined` naming the other scenario as missing (exactly what Juan saw live:
+  `"missing scenario(s): edit_mapping"` / `"missing scenario(s): blank_lookup"`, since each file
+  holds one scenario). Merging BOTH cassettes' `scenarios` dicts through the unmodified
+  plan-10-04 `derive_verdict()`:
+
+  > **verdict: PASS — rows_modified_since surfaced the formula-only change in both scenarios**
+
+  Pinned by `RealCassetteVerdictTests::test_combined_verdict_across_both_real_cassettes_is_deterministic_pass`.
+- **Evidence item 12 — rerunnability:** cassette paths `tests/fixtures/mem04/mem04_blank_lookup.json`
+  and `tests/fixtures/mem04/mem04_edit_mapping.json` (commit `aa103f6`); sandbox sheet ids
+  `6295051624730500` (LOOKUP) and `4909062725521284` (DEPENDENT), workspace `4902858211518340`.
+  Both sheets remain in place for a future rerun if the SDK version pin ever changes.
+- **D-09 gate: OPEN.** Phase 11 IS cleared to enable incremental reads (`rows_modified_since`) for
+  this formula-only recalculation change class — the fixture half of D-08's hybrid proof method
+  returned a clean, deterministic PASS across both required scenarios, with and without the
+  SAFETY_WINDOW overlap. The weekly deep run (`0 5 * * 1`) stays the full-reconciliation safety
+  net regardless (D-07, unchanged by this result). **Not yet run:** D-08's PASSIVE corroboration
+  half (`scripts/mem04_passive_compare.py` against two consecutive production shadow-run
+  `row_state` observations) — that script exists and is tested (plan 10-04) but has no production
+  data to compare yet, since shadow writes have not accumulated two runs. That corroboration is a
+  non-blocking follow-up once Phase 10's shadow writer has run in production at least twice; it
+  does not gate D-09, which required only this fixture-proven PASS/FAIL verdict.
+- **Cassette replay + verdict regression tests:** `RealCassetteCompletenessTests`,
+  `RealCassetteReplayTests`, `RealCassetteVerdictTests` in `tests/test_mem04_formula_change.py`
+  (commit `aa103f6`) — 32 tests total in that file (26 from plan 10-04 + 6 new), full suite 1459
+  passed / 1 skipped / 132 subtests.
+
+## [2026-08-25 18:37] Plan 10-06 Task 3 — real-data rollout evidence: `pipeline_memory` proven behaviour-neutral and fail-open on live production data; two real bugs found and fixed; two open assumptions honestly resolved/left open; write path stays OFF in production
+
+- **Scale correction (read this first):** the live production Smartsheet surface today is
+  **120 sheets / ~209,400 rows** (folder-based discovery: 5 subcontractor + 115 original-contract
+  sheets), not the "~550 rows / 13+ sheets" figure in `CLAUDE.md`'s Project Summary — that
+  description predates the folder-discovery expansion. Each of the four Task 3 runs below took
+  ~49–56 minutes wall-clock (Phase 2 fetch ~15–17 min + the existing `billing_audit` rate-sanity
+  audit ~30–33 min; `MAX_GROUPS` bounds ONLY the Excel-generation loop, not the fetch or audit).
+  `CLAUDE.md`'s row-count line should be corrected in a future docs pass; not changed here
+  (docs-only, out of this plan's file list).
+- **The four runs (all `SKIP_UPLOAD=true` — zero attachment uploads, zero Smartsheet writes; no
+  `WR_FILTER` on any run; `generated_docs/discovery_cache.json` reused throughout):**
+  | # | Purpose | Flag | `MAX_GROUPS` | Started (CDT) | Duration | `rows_fetched` | Memory-phase elapsed |
+  |---|---|---|---|---|---|---|---|
+  | 1 | CONTROL | OFF | 30 | 09:40 | 56.44 min | 209,237 | n/a (flag off) |
+  | 2 | SHADOW A | ON | 30 | 10:48 | 54.50 min | 209,287 | 217.4s (113 sheets written, 5,244 `(wr,week)` pairs affected) |
+  | 3 | SHADOW B (idempotence) | ON | 30 | 11:50 | 53.20 min | 209,463 | 199.5s (8 sheets written, 10 `(wr,week)` pairs affected) |
+  | 4 | FAIL-OPEN | ON, `SUPABASE_URL` pointed at a `.invalid` host | 5 | 12:46 | 48.83 min | 209,465 | 29.5s (0 written — Supabase fully unreachable) |
+  `generated_docs/hash_history.json` verified byte-identical (SHA-256
+  `8ef7fd95d6d6de60e6d04f615e86ece14112121b1ebb5f73b0bd47d07c5fb1c2`) before run 1 and after every
+  subsequent run — the SKIP_UPLOAD withhold contract held across all four real runs.
+- **GRANT gap found and fixed at the Task 2 checkpoint (not Task 3, but the load-bearing
+  precondition for everything below):** the original `pipeline_memory/schema.sql` granted
+  `service_role` only `EXECUTE` on the RPCs — no `USAGE` on the schema, no `SELECT`/`INSERT`/
+  `UPDATE` on any of the five tables. Every shadow write would have failed `42501` silently under
+  the fail-open contract, and nothing in Task 1's tests could catch it (they mock the PostgREST
+  client). Fixed in commit `2df3b25` (new `GRANT` block after `GRANT EXECUTE`: schema `USAGE`,
+  table `SELECT`/`INSERT`/`UPDATE`, sequence `USAGE`, `ALTER DEFAULT PRIVILEGES` for both — `DELETE`
+  deliberately withheld). Juan applied the identical block live on `poeyztlmsawfoqlanucc`;
+  re-verified via PostgREST probe (all 5 tables 200 `[]`, no `PGRST106`/`42501`) before Task 3's
+  precondition was declared satisfied.
+- **Bug 1 (Rule 1) — `run_ledger_finish` upsert failed `400`/`23502` on every real call.**
+  `schema.sql`'s `run_ledger.mode` column is `NOT NULL` with no `DEFAULT`. PostgREST's
+  merge-duplicates upsert builds a single `INSERT ... ON CONFLICT (run_id) DO UPDATE` scoped to
+  only the payload's own columns, and Postgres validates the proposed row against `NOT NULL`
+  BEFORE conflict resolution — so omitting `mode` from the finish payload raised a real
+  `not_null_violation` even though the actual write is an UPDATE of an already-existing row, not
+  an INSERT. Confirmed live against `poeyztlmsawfoqlanucc` with a direct reproduction
+  (`{'message': 'null value in column "mode" ... violates not-null constraint', 'code': '23502', ...}`),
+  then confirmed fixed the same way. Every shadow run before this fix left its `run_ledger` row
+  permanently stuck at `status='running'`, `finished_at=NULL` — visible today as run 2's row
+  (`local-20260825T204825044699Z`). Fixed in `pipeline_memory/writer.py::run_ledger_finish`
+  (defaults `mode="full"`, always includes it in the payload; commit `514589a`), with a regression
+  assertion locking `finish_payload["mode"] == "full"`.
+- **Bug 2 (Rule 1) — `compare_control_run.py`'s raw file-byte SHA-256 could never pass against
+  real output.** `pipeline/excel.py` embeds `datetime.datetime.now()` TWICE per saved workbook,
+  neither billing-relevant: openpyxl's own `docProps/core.xml` created/modified timestamps, and a
+  "Report Generated On: `<timestamp>`" footer cell (~line 477). Both differ on every save
+  regardless of row content. The FIRST real control-vs-shadow comparison reported "content hash
+  mismatch" for all 17 overlapping identities; a forensic zip-member diff of one such pair showed
+  the byte differences confined to EXACTLY those two members, zero billing-content bytes
+  differing. Fixed via `_canonical_hash_of_xlsx()` (excludes `docProps/core.xml`, normalizes the
+  "Report Generated On" cell to a fixed placeholder before hashing; falls back to a raw byte hash
+  for anything that isn't a valid zip — strictly more conservative, never less likely to FAIL;
+  commit `cf3568b`) plus two new regression tests using a minimal real xlsx-shaped zip fixture.
+- **Success criterion 4 (control vs. shadow, real data) — Excel CONTENT proven neutral; group
+  SELECTION and `run_summary` numeric fields show honest, explained scope drift, not a
+  regression.** After the canonicalization fix, `scripts/compare_control_run.py` over runs 1 & 2
+  reported **zero** `content hash mismatch` errors across the 17 identities present in BOTH runs
+  (100% byte-identical after canonicalization) — direct proof the shadow-write path changes
+  nothing about Excel generation. The comparator still exits non-zero because 13 identities
+  present only in control and 13 only in shadow (the order-stable `MAX_GROUPS=30` truncation
+  selecting a different first-30 slice) and three `run_summary` fields differ
+  (`rows_fetched` 209,237→209,287; `fingerprint_changes_detected` 12→4;
+  `snapshots_already_frozen` 1,878→725) — all mechanically explained by `rows_fetched` genuinely
+  growing by 50 rows during the ~68-minute control→shadow gap on a LIVE, continuously-edited
+  120-sheet/209K-row production dataset. `scripts/run_6_gates.sh`'s own Gate 6 cannot exercise
+  this (its `TEST_MODE` path never touches Smartsheet, 10-RESEARCH.md Pitfall 8) — this is the
+  first real exercise of that exact scenario, and it surfaced a genuine limitation the original
+  plan's "~550 rows" assumption did not anticipate: with each full run costing ~50–56 minutes
+  dominated by the fetch + the PRE-EXISTING `billing_audit` rate-sanity audit (neither reducible
+  by `MAX_GROUPS`), a live production dataset this size cannot be held perfectly still across a
+  control/shadow pair. A byte-for-byte zero-drift comparison would need either a maintenance
+  window with zero concurrent Smartsheet edits, or a (not-yet-built, out of this plan's scope)
+  fetch-snapshot/replay capability so both legs of the comparison read the identical row set.
+  Recorded honestly rather than forced to a fabricated PASS, per this plan's own explicit
+  instruction not to paper over a non-neutral diff.
+- **Success criterion 1 (idempotence) — mechanism proven correct; literal "zero new events" not
+  achieved on live data, and that gap is itself the evidence.** `row_event` totalled 209,287 rows
+  after run 2 (the FIRST-ever write to an empty schema — every row is new, matching `rows_sent`
+  exactly) and gained exactly **178** more after run 3 (idempotence), for a total of 209,465 — NOT
+  zero, because ~48 minutes of real Smartsheet activity happened between the two runs (confirmed:
+  `rows_fetched` grew 209,287→209,463, and a sampled `row_state` slice with
+  `last_changed_run = run 3` shows `first_seen_run` ALSO = run 3, i.e. these are new rows, not
+  edits of old ones). Direct query evidence for a row genuinely unchanged since run 2
+  (`sheet_id=2873734244290436, row_id=323644828618628`): `first_seen_run` = run 2,
+  `last_seen_run` = run 3 (advanced), `last_changed_run` = run 2 (did NOT advance) — exactly the
+  "second run advances `last_seen_run` only" contract, for 209,286 of the 209,464 `row_state` rows
+  (99.9%). `sheet_registry` = 120 rows, matching `sheets_discovered` exactly. `group_state` = 0
+  rows across all four runs (see open assumption (a) below — expected, not a bug).
+- **Success criterion 2 (fail-open) — clean pass.** Run 4 pointed `SUPABASE_URL` at
+  `https://unreachable-pipeline-memory-test.invalid` (RFC 2606 never-resolving TLD) with the
+  memory flag ON. `pipeline_memory`'s `run_ledger_upsert` op retried 4/4 attempts
+  (`ConnectError`, backoff 1.5s/2.5s/4.5s) then logged one WARNING and moved on; the
+  `upsert_rows_bulk` op's circuit breaker opened after 3 consecutive exhausted retries
+  ("`remaining 'upsert_rows_bulk' RPC calls this run will fast-fail`"), so the memory-write phase
+  finished in 29.5s instead of retrying all 120 sheets. The run completed with `success: true`,
+  `files_generated: 5` (matching its `MAX_GROUPS=5` scope), `groups_errored: 0`, and NO
+  `Traceback`/`Fatal`/`CRITICAL` anywhere in the log. `run_ledger` gained **zero** rows from run 4
+  (both start and finish failed cleanly — not even a partial row), confirming fail-open held for
+  the whole run, not just individual calls. Note: `SUPABASE_URL` is also read by the pre-existing
+  `billing_audit` system, so this run incidentally also exercised (and confirmed) `billing_audit`'s
+  own independent per-op circuit breakers (`feature_flag`, `pipeline_run_select`,
+  `pipeline_run_upsert`) — a bonus data point, not a Phase 10 claim.
+- **Open assumption (a) — group_state's attachment-preservation COALESCE behaviour: UNRESOLVED,
+  and cannot be resolved by any `SKIP_UPLOAD` run.** `pipeline/orchestrate.py`'s
+  `_group_upload_ok` check treats a `SKIP_UPLOAD` dry-run's per-task result (`'skip_upload'`) as
+  NOT ok (`_ok = _res in ('uploaded', 'skipped')`), so `_build_group_state_flush` withholds
+  EVERY group on EVERY dry run — the exact same crash-consistency contract that protects
+  `hash_history.json` also means `group_state` legitimately stayed at 0 rows across all four Task
+  3 runs. Verifying that a `group_state` upsert which omits the attachment keys leaves a
+  previously-stored attachment id intact requires either a real (non-`SKIP_UPLOAD`) production run
+  with `RUN_MEMORY_WRITE_ENABLED=true` — i.e. the flag-flip PR itself — or a targeted mock-based
+  integration test as a cheaper pre-flip follow-up. Flagging honestly rather than asserting an
+  unearned "confirmed."
+- **Open assumption (b) — anon/authenticated cannot read any of the five tables: CONFIRMED, at
+  the Task 2 checkpoint, not independently re-tested in Task 3.** The checkpoint's live
+  verification (immediately after the GRANT fix) showed schema `USAGE=false` and `SELECT=false`
+  for both `anon` and `authenticated` on all five tables. No `SUPABASE_ANON_KEY` is configured in
+  this local `.env`, so Task 3 did not re-probe with an anon-scoped client; citing the checkpoint's
+  evidence rather than fabricating a second test.
+- **Timing headroom (all local runs, `TIME_BUDGET_MINUTES`/`GITHUB_ACTIONS_MODE` gate inactive
+  outside CI so the sub-budget guards never fired):** total run duration 48.83–56.44 min, well
+  under production's `TIME_BUDGET_MINUTES=165`; memory-phase elapsed 29.5s–217.4s, well under
+  `RUN_MEMORY_WRITE_MAX_MINUTES=10` (600s) in every run including the fail-open one. Bytes-per-row
+  of the largest sheet's chunk payload was NOT independently re-measured this session (the writer
+  logs counts only, never payload bytes, by PII-safety design) — citing plan 10-02's documented
+  measurement (~497 bytes/row for a 6,054-row sheet, well under PostgREST's 1 MB body limit at
+  `_CHUNK_ROWS=500`) rather than re-deriving it.
+- **Housekeeping:** two diagnostic `run_ledger` rows from this session's live root-cause
+  reproduction remain in the production table — `diag-test-mode-omit` (never inserted; the
+  `23502` reproduction failed atomically, confirmed via a follow-up `SELECT` returning zero rows)
+  and `diag-test-mode-fix` (DID insert, since it included `mode`). Neither could be deleted:
+  `service_role` has no `DELETE` grant on `run_ledger` by design (T-10-07's deliberate
+  withholding). Harmless (no PII, `mode='full'`, `status='success'`), but Juan may want to
+  manually delete `diag-test-mode-fix` via the SQL editor at his convenience — not required.
+- **Production workflow: still provably unchanged.** `RUN_MEMORY_WRITE_ENABLED` does not appear
+  in any non-comment line of `.github/workflows/weekly-excel-generation.yml`; `git diff
+  --exit-code -- .github/workflows/ generate_weekly_pdfs.py requirements.txt
+  tests/golden/run_summary_baseline.json generated_docs/hash_history.json billing_audit/` is
+  clean; `bash scripts/run_6_gates.sh` passes all 6 gates; `python -m pytest tests/ -q` → 1509
+  passed, 1 skipped, 132 subtests (up from 1507 at Wave-4 dispatch).
+- **Flag-flip PR (separate, later, reviewed — NOT bundled with this phase) should satisfy, before
+  merge:** (1) resolve open assumption (a) above — either a mock-based `group_state` COALESCE
+  integration test, or explicit acceptance that it will be proven on the flip PR's own first real
+  run; (2) re-run this plan's control-vs-shadow comparison during a lower-activity window (or with
+  a fetch-snapshot/replay capability) to get a byte-for-byte zero-drift pass, OR explicitly accept
+  the canonicalized-content-only proof standard established here; (3) confirm the two bugs fixed
+  in this entry (`514589a`, `cf3568b`) are on the branch the flip PR is cut from; (4) a short
+  monitoring window after flip (watch `run_ledger.status`, `sheets_errored`,
+  `RUN_MEMORY_WRITE_MAX_MINUTES` headroom on the first few real production runs) before treating
+  the write path as unattended-stable.
+
+## [2026-08-25 20:30] Phase 10 executed end-to-end (6/6 plans, sequential) + all tail gates; verifier `human_needed` 11/13 — three durable lessons
+
+- **Run shape:** `/gsd-execute-phase 10` on `feat/phase-10-run-memory` ran sequentially
+  (`ISOLATION=none` — any feature branch fails `worktree.base-check`, expected). Waves:
+  10-01 → 10-04 → 10-02 → 10-05 (checkpoint) → 10-03 → 10-06 (checkpoint). Every wave's
+  post-merge build+test gate and all three `wave:post` gates passed. Final: suite **1514
+  passed / 1 skipped / 135 subtests**, `run_6_gates.sh` ALL PASSED (mypy 65→65), regression gate
+  978 passed over 17 prior-phase files, protected files byte-unchanged vs `fcd734c`.
+- **Human checkpoints, honestly recorded:** 10-05's rig was built by Claude through the
+  Smartsheet MCP + a one-off SDK snippet on Juan's instruction ("you run this for me"), not by
+  repo code — D-08 holds; both edits and probe timings are in `[2026-08-25 12:50]`. 10-06's DDL
+  apply was Juan's (the auto-mode classifier blocks `apply_migration` on the production
+  project — correct, not routed around); the orchestrator verified via catalog SQL + a
+  PostgREST probe (`42501` before grants, `200 []` after).
+- **Lesson 1 — Supabase `service_role` is not a superuser on a new schema.** `schema.sql` had
+  RLS + REVOKEs but no `GRANT USAGE ON SCHEMA` / table / sequence grants for `service_role`,
+  so every shadow write would have failed `42501` silently under fail-open. Fixed `2df3b25`
+  (mirrors `billing_audit`; DELETE withheld; `ALTER DEFAULT PRIVILEGES` for future tables).
+  **Rule:** any new schema's DDL ships schema USAGE + explicit table/sequence GRANTs for the
+  writer role, and the apply checklist includes `has_table_privilege('service_role', …)`.
+- **Lesson 2 — a threat-model "mitigation" that no task builds is an open threat.** 10-02's
+  register claimed a per-RPC timeout; `RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC` existed but was
+  never applied (REVIEW WR-02 + secure-phase T-10-04, high). Closed `b48efd7`:
+  `ClientOptions(postgrest_client_timeout=…)` with SDK-drift fallback + 5 tests. **Rule:** the
+  planner's mitigation column must map to a task `<action>`/acceptance criterion, or be
+  dispositioned `accept`.
+- **Lesson 3 — live runs find what mocks cannot.** 10-06's four real `SKIP_UPLOAD` runs
+  surfaced `run_ledger_finish` omitting NOT-NULL `mode` (`23502`) and the comparator's
+  raw-byte false positive on openpyxl wall-clock bytes (`514589a`, `cf3568b`); the SDK 4.3.0
+  `+00:00Z` timestamp quirk hit 10-05's replay. Keep a real-data control run in every
+  Supabase-writer phase's tail.
+- **Tail artifacts:** `10-REVIEW.md` 0C/4W/1I (`7e86f46`; follow-ups → Phase 11 todo
+  `8b844a6`: WR-01 decorated numerics vs NUMERIC RPC params is a flag-flip precondition),
+  `10-VALIDATION.md` validated/no gaps (`c292d5d`), `10-SECURITY.md` 21/21 closed
+  (`eda4110`), `10-VERIFICATION.md` 11/13 + `10-UAT.md` (`bf9f919`).
+- **Open for Juan (`/gsd-verify-work 10`):** (1) SC4 "byte-identical" — accept the
+  canonicalized-content proof (residual comparator diff = ~50 live Smartsheet rows during
+  the 68-min gap) or require a low-activity/snapshot-replay rerun; (2) `group_state`
+  attachment-id proof is structurally impossible under `SKIP_UPLOAD` — carry to the flag-flip
+  PR. Housekeeping: two diagnostic `run_ledger` rows in prod (operator-only delete); rig
+  sheets in `Sandbox` are disposable. Branch not pushed; no PR yet.
+- **Harness note:** the harness-boundary hook false-positives on any Bash command containing
+  both `review` and `--all` (e.g. `git log --all` while scoping a code review) and on
+  `gsd-tools … commit "… review …"`; use `git log` without `--all` and plain `git commit` for
+  those docs commits.
+
+## [2026-08-25 21:50] Phase 10 CLOSED — UAT 2/2 decided, verification passed, transition to Phase 11
+
+- **UAT (`/gsd-verify-work 10`, `60e66fc`/`1679829`):** Test 1 — Juan accepted option (a):
+  SC4 "byte-identical vs. control" is satisfied by the canonicalized-Excel-content proof; a
+  low-activity / snapshot-replay comparator rerun moves to the flag-flip-PR precondition list.
+  Test 2 — Juan chose DEFER: `group_state` attachment_id/attachment_name proof (+ reduced_sub
+  two-row fan-out) is carried to the flag-flip PR's first real upload (recorded under
+  `10-UAT.md` → Deferred Follow-Ups). `10-VERIFICATION.md` canonicalized `human_needed → passed`;
+  `phase uat-passed 10 --require-verification` → passed, 0 blockers.
+- **Gate fix (`8486113`):** the `verify:pre` `api-coverage` gate blocked on `COVERAGE.md`
+  cell lengths (capability ≤ 80 chars, reason ≤ 200 chars) — three cells trimmed, decisions
+  unchanged (30 capabilities, 12 INTEGRATE / 18 OPT-OUT).
+- **Transition:** `phase.complete 10` updated STATE.md but (as with Phase 09) not this
+  ROADMAP layout, and reported `is_last_phase: true` because Phases 11–13 are invisible to
+  `roadmap.analyze` — ROADMAP/PROJECT/STATE evolved by hand; `.continue-here.md` removed.
+- **Lesson — GSD tooling gaps to remember:** (1) `phase uat-passed` treats ANY `result: skipped`
+  as a blocker, even the workflow's own "Deferred follow-up" skip — a decision-type UAT test
+  whose decision was made must be recorded `pass` + a Deferred Follow-Ups entry, never
+  `skipped`; (2) `api-coverage` enforces 80/200-char cell limits on `COVERAGE.md` that
+  plan-time authoring does not check — keep capability cells terse.
+- **Now:** branch `feat/phase-10-run-memory` unpushed (docs commits only since `7cbbfd0`);
+  pushed + PR #350 opened 22:05 CDT (https://github.com/JFlo21/Generate-Weekly-PDFs-DSR-Resiliency/pull/350) → Seer PR triage
+  (#343/#346/#347/#348) → `/gsd-plan-phase 11`. Housekeeping unchanged: two diagnostic
+  `run_ledger` rows in prod (operator delete), `Sandbox` rig sheets disposable.
+- **Seer PR triage (22:15 CDT, read-only; nothing closed):** #343/#347/#348 rewrite
+  `_is_auth_api_error` on the premise that the SDK exposes `statusCode` (camelCase). Verified
+  FALSE on installed `smartsheet-python-sdk 4.3.0`: `ErrorResult` has `status_code` only
+  (`hasattr(ErrorResult, "statusCode")` → False) — master's `pipeline/fetch.py` structured +
+  serialized paths are correct and pinned by `tests/test_fetch_auth_errors.py`. #346 (Seer's own
+  revert) is an empty diff. **Rule:** close all four; a Seer PR that asserts an SDK attribute name
+  is verified against the installed package before it is even reviewed. The residual Sentry
+  symptom `ApiError: 0: Unknown error` is a status-0 error result (not 401/403) — separate
+  root-cause if it recurs. PR #350 CI re-triggered on `d9b1779`; the Azure mirror check failed at
+  15 s on the first push (pre-test) and is re-running — verify before merge.
+
+## [2026-08-25 23:25] PR #350 Greptile findings — all three valid, fixed test-first (WR-03 closed)
+
+- **Issue 1 (`pipeline/orchestrate.py` finally block) = REVIEW WR-03, now CLOSED.** A session
+  exception never reached the success-tail `run_ledger_finish`, so the run's `run_ledger` row
+  stayed `status='running'` / `finished_at=NULL` forever. `main()`'s `finally` now writes
+  `run_ledger_finish(status="failed", …)` when `_session_failed` (same
+  `RUN_MEMORY_WRITE_ENABLED and not TEST_MODE` guards; own try/except so a Supabase outage can
+  never mask the real failure or the cron check-in). All referenced names are hoisted above the
+  `try` (verified by line number) — no UnboundLocalError on early failures. Pinned by
+  `RunLedgerFailurePathTests` (3 tests: failed row written, fail-open, TEST_MODE guard); the
+  test forces `_set_sentry_session_tags` to raise — the first call inside the `try` — so it
+  reaches the real handlers with no network.
+- **Issue 2 (`scripts/mem04_passive_compare.py`):** `row_modified_at` was compared as strings.
+  Supabase emits `+00:00`, exports/fixtures use `Z`, and the pinned SDK emits the `+00:00Z`
+  double suffix — lexical order misclassified same-instant pairs as "advanced" and
+  cross-offset pairs backwards. New `_parse_timestamp` → aware UTC datetimes (handles all of
+  those, fractional seconds, naive→UTC, datetime objects; garbage → None → counted as NOT
+  advanced, the conservative direction). 5 tests. Analyst script only; never on the pipeline path.
+- **Issue 3 (`scripts/compare_control_run.py`):** two workbooks in one directory resolving to
+  the same stable identity were silently collapsed to the last-globbed file — a materially
+  different artifact could vanish from the comparison and yield a false parity PASS.
+  `build_identity_hash_map` now reports `duplicate identity …` naming both files, keeps the
+  first, and the error propagates to the non-zero exit. 3 tests.
+- **Evidence:** RED 8 failed → GREEN; suite **1525 passed / 1 skipped / 135 subtests**;
+  `run_6_gates.sh` ALL PASSED (mypy 65→65); haiku-verifier PASS 5/5. Excel generation, exit
+  behavior, the 21-key `run_summary.json` contract and protected files untouched. Todo
+  `2026-08-25-run-memory-review-followups.md`: WR-02 + WR-03 struck through; WR-01 / WR-04 /
+  IN-01 remain flag-flip-PR preconditions.
+- **Rule:** a review finding that matches an already-tracked follow-up (here WR-03) is
+  evidence the follow-up should not wait for the next phase — fix it in the same PR when the
+  fix is local and test-pinnable.

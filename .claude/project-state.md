@@ -1,18 +1,73 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-25 01:10 CDT · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-25 21:50 CDT · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
-_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-25 00:02]` (mypy Gate 4
-re-baselined 56 → 65 by Juan's `rebaseline` decision, every accepted finding attributed;
-commit `da7d73c`). **Phase 09 CLOSED 2026-08-25** — verifier 6/6 (`410235e`), v1.3 milestone
-complete. Next: `/gsd-core:gsd-execute-phase 10` (Run-Memory Foundation; pauses at the
-10-05/10-06 human checkpoints). Optional first: `/gsd-core:gsd-complete-milestone` to archive v1.3.
-Git: `master` ahead ~25 / behind 15 of `origin/master` — pull/rebase before pushing; **PR open:** https://github.com/JFlo21/Generate-Weekly-PDFs-DSR-Resiliency/pull/349
-(branch `feat/phase-09-gap-closure`, merged with origin/master; after merge: `git checkout master && git reset --hard origin/master`)._
+_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-25 21:50]` (Phase 10 CLOSED — UAT 2/2
+decided by Juan, verification passed, transition run). `pipeline_memory` schema is LIVE on Supabase
+`poeyztlmsawfoqlanucc` (service_role-only; write path OFF in production). PR https://github.com/JFlo21/Generate-Weekly-PDFs-DSR-Resiliency/pull/350 open (pushed 2026-08-25 22:05 CDT)._
 
-## Latest work (2026-08-25 01:10 CDT) — `/gsd-execute-phase 09 --gaps-only` COMPLETE: G-09-MOD-06 closed, `rebaseline` executed, tail gates green, phase closed
+## Latest work (2026-08-25 21:50 CDT) — Phase 10 CLOSED: `/gsd-verify-work 10` 2/2 decided, verification passed, transition to Phase 11
+0. **UAT:** `verify:pre` api-coverage gate blocked on `COVERAGE.md` cell lengths → trimmed (`8486113`).
+   Test 1 (SC4 byte-identical) — Juan accepted the canonicalized-content proof; low-activity rerun →
+   flag-flip-PR precondition. Test 2 (`group_state` attachment id) — Juan: defer → recorded as pass
+   (decision test) + Deferred Follow-Ups (`60e66fc`, `1679829`); `phase uat-passed` treats any
+   `skipped` as a blocker (GSD gap, ledger lesson). `10-VERIFICATION.md` → `passed`; predicate 0 blockers.
+   **Transition:** `phase.complete 10` (STATE only; ROADMAP/PROJECT hand-evolved; handoff removed);
+   ROADMAP row 10 = 6/6 ✅ 2026-08-25; PROJECT.md Current State + 2 decision rows; ledger `[21:50]`.
+   **Next:** PR #350 opened (https://github.com/JFlo21/Generate-Weekly-PDFs-DSR-Resiliency/pull/350) → Seer PR triage (#343/#346/#347/#348) →
+   `/gsd-plan-phase 11`. Flag-flip-PR preconditions: WR-01 (todo `8b844a6`), comparator rerun in a
+   low-activity window, `group_state` attachment-id proof on first real upload.
+1. **Seer PR triage (22:15 CDT, read-only — nothing closed yet):** #343/#347/#348 all assume the
+   SDK exposes `statusCode` (camelCase); verified FALSE on installed `smartsheet-python-sdk 4.3.0`
+   (`ErrorResult.status_code` only, `hasattr(ErrorResult, "statusCode")` → False) and master's
+   `pipeline/fetch.py::_is_auth_api_error` + `tests/test_fetch_auth_errors.py` already cover both
+   paths → **close, don't merge**. #346 (Seer's own revert) has an empty diff → close as no-op. The
+   Sentry symptom `ApiError: 0: Unknown error` is a status-0 result, not a 401/403 — separate
+   root-cause if it recurs. **PR #350 CI:** re-triggered on `d9b1779`; the Azure mirror check
+   (`JFlo21.Generate-Weekly-PDFs-DSR-Resiliency`) failed at 15 s on the first push and is
+   re-running — check before merge. Dependabot #344/#345 routine.
+2. **PR #350 Greptile findings fixed (23:25 CDT, ledger `[2026-08-25 23:25]`):** all three valid.
+   (1) = WR-03 CLOSED — `main()` `finally` writes `run_ledger_finish(status="failed")` on
+   `_session_failed` (guarded, fail-open; `RunLedgerFailurePathTests`). (2) `mem04_passive_compare`
+   compares `row_modified_at` as parsed UTC instants (`_parse_timestamp`; handles `Z`/`+00:00`/
+   `+00:00Z`/fractional/naive). (3) `compare_control_run` reports `duplicate identity` in a
+   directory instead of silently keeping the last file. TDD RED 8 → GREEN; suite 1525 passed /
+   135 subtests; 6 gates ALL PASSED; haiku-verifier PASS. Todo: WR-02/WR-03 struck; WR-01/WR-04/
+   IN-01 remain flag-flip-PR preconditions.
+
+## Previous (2026-08-25 20:30 CDT) — `/gsd-execute-phase 10` COMPLETE (6/6 plans, 4 waves, sequential); tail gates done; verification human_needed
+0. **Execution:** 10-01 → 10-04 → 10-02 → 10-05 (Juan: "you run this for me" → Claude built the
+   MEM-04 sandbox rig via Smartsheet MCP + SDK, ran probes a–f; verdict **PASS**, D-09 OPEN) →
+   10-03 → 10-06 (Juan applied `schema.sql` + exposed the schema; Claude found and fixed the
+   missing service_role GRANTs `2df3b25`, Juan applied them; four real `SKIP_UPLOAD` runs proved
+   neutrality/idempotence/fail-open; two live-only bugs fixed `514589a`, `cf3568b`).
+   **Tail gates:** post-merge gates green every wave; code review 0C/4W/1I (`7e86f46`, follow-ups
+   todo `8b844a6`); regression 978 passed / 17 files; Nyquist validated, 0 gaps (`c292d5d`);
+   security 21/21 closed after T-10-04 per-RPC timeout wired (`b48efd7`, haiku-verifier PASS)
+   → `10-SECURITY.md` (`eda4110`); gsd-verifier **human_needed 11/13** → `10-UAT.md` (`bf9f919`).
+   Suite **1514 passed / 1 skipped / 135 subtests**; 6 gates ALL PASSED; mypy 65→65; protected
+   files untouched. **Next:** `/gsd-verify-work 10` — (1) accept canonicalized-content proof for
+   SC4 "byte-identical" or require a low-activity rerun; (2) carry `group_state` attachment-id
+   proof to the flag-flip PR. Then push branch → PR → Seer PR triage (#343/#346/#347/#348).
+   Operational notes: two diagnostic `run_ledger` rows remain in prod (no DELETE grant by design);
+   rig sheets `6295051624730500` / `4909062725521284` left in the `Sandbox` workspace (disposable).
+
+## Previous (2026-08-25 01:40 CDT) — PR #349 merged; local `master` re-synced; post-merge gate green
+0. **Merge:** https://github.com/JFlo21/Generate-Weekly-PDFs-DSR-Resiliency/pull/349 squash-merged as
+   `c409c32` (32 commits `7e7c818`..`bb1a064`); `docs-changelog.yml` stub `22ab153` on top. Local `master`
+   had diverged (ahead 29 / behind 17) because the branch was cut from unpushed local commits —
+   verified `git diff bb1a064 c409c32` empty, then `git reset --keep origin/master` (kept the
+   uncommitted `hash_history.json` edit). `feat/phase-09-gap-closure` deleted (remote auto-deleted).
+   **Gate on merged tree:** `pytest tests/ -q` → 1388 passed, 1 skipped (Windows exec-bit, `1071fef`),
+   132 subtests, 25 s. Also on master now: #341 (Sentry auth-noise, `pipeline/fetch.py`), #342
+   (cloud-agent install). **Open PRs to triage:** Seer #343/#346/#347/#348 all touch Smartsheet
+   auth-error detection and partly contradict each other (#341 already landed) — likely close, not
+   merge; Dependabot #344/#345 (`scripts/` tsx, supabase-js) routine. Next unchanged:
+   `/gsd-core:gsd-execute-phase 10` (optional `/gsd-core:gsd-complete-milestone` first).
+
+## Previous (2026-08-25 01:10 CDT) — `/gsd-execute-phase 09 --gaps-only` COMPLETE: G-09-MOD-06 closed, `rebaseline` executed, tail gates green, phase closed
 000000000000000000000000. **Wave 2 resumed:** Juan replied `rebaseline` → continuation
    executor recorded it (`6c6ca41`/`a1499d6`); orchestrator regenerated the golden
    baseline with the gate's own invocation (65 lines, LF) and committed it with the

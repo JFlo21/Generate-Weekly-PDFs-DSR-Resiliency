@@ -59,6 +59,11 @@ from pipeline import cleanup as _cleanup
 from pipeline import upload as _upload
 from pipeline import attribution as _attr
 from pipeline.retry import smartsheet_call_with_retry
+# Phase 10 (MEM-01/MEM-03): independent run-memory shadow-write package --
+# NOT a ``pipeline`` submodule (deliberately outside the D-04 import-cycle
+# rule's scope; see pipeline_memory/__init__.py). Off by default via
+# RUN_MEMORY_WRITE_ENABLED; every call site below is fail-open.
+from pipeline_memory import writer as _mem_writer
 
 # Named re-export imports (byte-exact from the facade) so every bare sibling
 # reference inside main()/testmode resolves identically (W1-W5 pattern). The
@@ -108,6 +113,10 @@ from pipeline.config import (  # noqa: E402
     RESET_HASH_HISTORY,
     RESET_WR_LIST,
     RES_GROUPING_MODE,
+    RUN_MEMORY_WRITE_ENABLED,
+    RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN,
+    RUN_MEMORY_WRITE_MAX_MINUTES,
+    RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC,
     SKIP_CELL_HISTORY,
     SKIP_UPLOAD,
     SUBCONTRACTOR_FOLDER_IDS,
@@ -373,6 +382,299 @@ def _run_synthetic_test_mode(session_start):
 # --- MAIN EXECUTION ---
 
 
+def _run_memory_write_phase(
+    all_rows: list[dict],
+    mem_run_id: str,
+    session_start: datetime.datetime,
+) -> dict[str, Any]:
+    """Phase 10 (MEM-02/MEM-03): shadow-write every accepted row's current
+    state to ``pipeline_memory.row_state`` / ``row_event``, bucketed by
+    source sheet, ONE bulk RPC per sheet.
+
+    Consumes rows ALREADY fetched this run (``all_rows``, from
+    ``get_all_source_rows``) -- never issues its own Smartsheet call and
+    never spins up a thread pool: this loop is sequential BY DESIGN so the
+    per-iteration sub-budget check below can stop it mid-loop
+    (10-RESEARCH.md Pitfall 6 -- the attachment pre-fetch's single
+    collective ``as_completed(timeout=...)`` is NOT the model here).
+
+    Self-gated on ``RUN_MEMORY_WRITE_ENABLED`` / ``TEST_MODE`` (the same
+    module-level constants ``main()`` already checks at its two run_ledger
+    hook call sites -- defense-in-depth, mirrors that double-gate) so this
+    function is directly callable -- and testable -- with zero writer-
+    module calls when the flag is off, independent of how ``main()``
+    itself is invoked.
+
+    The affected ``(wr, week_ending)`` set is accumulated for
+    OBSERVABILITY ONLY -- nothing in this function, and nothing in its
+    caller, may read it back to decide whether a group is skipped,
+    regenerated, or uploaded. That gate stays entirely on the existing
+    local ``hash_history.json`` / durable group hash path (10-CONTEXT.md,
+    plan success criteria).
+
+    Returns a dict of counts only (no PII, no per-row values):
+    ``sheets_written``, ``sheets_errored``, ``rows_sent``,
+    ``rows_changed``, ``affected`` (the (wr, week_ending) set),
+    ``elapsed_seconds``. NEVER raises -- every per-sheet write already
+    goes through ``pipeline_memory.writer``'s own fail-open contract, and
+    this function additionally isolates one sheet's unexpected exception
+    from the rest of the loop.
+    """
+    result: dict[str, Any] = {
+        "sheets_written": 0,
+        "sheets_errored": 0,
+        "rows_sent": 0,
+        "rows_changed": 0,
+        "affected": set(),
+        "elapsed_seconds": 0.0,
+    }
+
+    if not (RUN_MEMORY_WRITE_ENABLED and not TEST_MODE):
+        return result
+
+    _phase_start = datetime.datetime.now()
+
+    # Pre-flight sub-budget guard -- mirrors the attachment pre-fetch
+    # guard's elapsed -> remaining -> required shape (lines ~766-791
+    # above) verbatim: skip the ENTIRE phase, never a partial start, when
+    # too little session budget remains for it plus generation headroom.
+    if TIME_BUDGET_MINUTES and GITHUB_ACTIONS_MODE:
+        _pre_elapsed_min = (
+            (datetime.datetime.now() - session_start).total_seconds() / 60.0
+        )
+        _remaining_min = TIME_BUDGET_MINUTES - _pre_elapsed_min
+        _required_min = (
+            RUN_MEMORY_WRITE_MAX_MINUTES
+            + RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN
+        )
+        if _remaining_min <= _required_min:
+            logging.warning(
+                f"⏩ Skipping run-memory row writes: {_pre_elapsed_min:.1f}min "
+                f"already elapsed, only {_remaining_min:.1f}min left in "
+                f"session budget (need > {_required_min}min = "
+                f"{RUN_MEMORY_WRITE_MAX_MINUTES}min memory-write budget + "
+                f"{RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN}min generation "
+                "headroom)."
+            )
+            sentry_add_breadcrumb(
+                "pipeline_memory",
+                f"Row-write phase skipped, {_remaining_min:.1f}min remaining",
+                level="warning",
+                data={
+                    "elapsed_min": round(_pre_elapsed_min, 1),
+                    "remaining_min": round(_remaining_min, 1),
+                    "required_remaining_min": _required_min,
+                },
+            )
+            return result
+
+    # Bucket already-fetched rows by source sheet. No re-fetch, no
+    # get_sheet call, no ThreadPoolExecutor -- sequential on purpose.
+    buckets: dict[Any, list[dict]] = {}
+    for row in all_rows:
+        buckets.setdefault(row.get('__source_sheet_id'), []).append(row)
+    sheet_items = list(buckets.items())
+
+    for idx, (sheet_id, bucket_rows) in enumerate(sheet_items, 1):
+        # Resolve week_ending / snapshot_date with the SAME parser
+        # grouping uses (pipeline.utils.excel_serial_to_date), so memory
+        # stores the SAME dates the grouping phase computes. Stashed
+        # under NEW double-underscore keys on each row dict -- invisible
+        # to excel.py's column sampler and to calculate_data_hash() (the
+        # existing group hash reads only explicitly named business
+        # fields), same convention as __row_modified_at. A row whose
+        # week-ending can't be resolved passes through with week_ending
+        # None rather than being dropped -- row_state.week_ending is
+        # nullable and memory records what was observed.
+        for row in bucket_rows:
+            row['__mem_week_ending'] = _utils.excel_serial_to_date(
+                row.get('Weekly Reference Logged Date')
+            )
+            row['__mem_snapshot_date'] = _utils.excel_serial_to_date(
+                row.get('Snapshot Date')
+            )
+
+        try:
+            sheet_affected = _mem_writer.upsert_rows_bulk(
+                sheet_id, mem_run_id, bucket_rows,
+            )
+        except Exception:
+            logging.warning(
+                "⚠️ pipeline_memory upsert_rows_bulk raised unexpectedly "
+                f"for sheet {sheet_id} (non-fatal); treating as errored "
+                "this run."
+            )
+            sheet_affected = set()
+            result["sheets_errored"] += 1
+        else:
+            if sheet_affected:
+                result["sheets_written"] += 1
+
+        result["rows_sent"] += len(bucket_rows)
+        result["rows_changed"] += len(sheet_affected)
+        result["affected"] |= sheet_affected
+
+        # Per-iteration sub-budget check -- AFTER each sheet's call, not
+        # once before the loop (10-RESEARCH.md Pitfall 6): a slow
+        # Supabase response stops memory writes for the REMAINING sheets
+        # instead of consuming the whole session budget. Gated the same
+        # way as the pre-flight guard and the main group loop's own
+        # per-iteration check (pipeline/orchestrate.py lines ~1418-1431).
+        if TIME_BUDGET_MINUTES and GITHUB_ACTIONS_MODE:
+            _loop_elapsed_min = (
+                (datetime.datetime.now() - _phase_start).total_seconds()
+                / 60.0
+            )
+            if _loop_elapsed_min >= RUN_MEMORY_WRITE_MAX_MINUTES:
+                _remaining_sheets = len(sheet_items) - idx
+                logging.warning(
+                    f"⏰ Run-memory sub-budget exhausted "
+                    f"({_loop_elapsed_min:.1f}min >= "
+                    f"{RUN_MEMORY_WRITE_MAX_MINUTES}min). Stopping with "
+                    f"{_remaining_sheets} sheet(s) unwritten this run."
+                )
+                sentry_add_breadcrumb(
+                    "pipeline_memory",
+                    f"Row-write budget exhausted after {idx} sheet(s)",
+                    level="warning",
+                    data={
+                        "elapsed_min": round(_loop_elapsed_min, 1),
+                        "sheets_remaining": _remaining_sheets,
+                    },
+                )
+                break
+
+    result["elapsed_seconds"] = (
+        datetime.datetime.now() - _phase_start
+    ).total_seconds()
+    logging.info(
+        f"⚡ Run-memory row writes: {result['sheets_written']} sheet(s) "
+        f"written, {result['sheets_errored']} errored, "
+        f"{result['rows_sent']} row(s) sent, {result['rows_changed']} "
+        f"changed, {len(result['affected'])} group(s) affected, "
+        f"{result['elapsed_seconds']:.1f}s elapsed."
+    )
+    return result
+
+
+def _resolve_mem_sheet_kind(sheet_id: Any) -> str:
+    """Classify a discovered sheet's ``sheet_registry.kind`` (MEM-01).
+
+    Reads ``pipeline.discovery``'s live-proxy globals AT CALL TIME via
+    the ``_discovery`` module alias -- never a module-level from-import,
+    which would snapshot the pre-discovery (empty) sets (Phase 09 D-01
+    live-proxy contract; 10-03-PLAN.md <interfaces>).
+
+    Order: ``SUBCONTRACTOR_SHEET_IDS`` or ``_FOLDER_DISCOVERED_SUB_IDS``
+    -> ``'subcontractor'``; ``_FOLDER_DISCOVERED_ORIG_IDS`` ->
+    ``'original_contract'``; otherwise ``'primary'``. Every returned
+    value is one of the three the DDL's ``sheet_registry.kind`` CHECK
+    constraint accepts (``pipeline_memory/schema.sql``) -- ``'vac_crew'``
+    is deliberately never returned (10-RESEARCH.md Assumption A4: VAC
+    Crew capability is column-presence-driven on primary/subcontractor
+    sheets, not a discovered sheet-id bucket).
+
+    Standalone module-level function (not a closure nested inside
+    ``main()``) so it is directly unit-testable via
+    ``mock.patch.object(pipeline.discovery, ...)`` without invoking any
+    of ``main()``'s Smartsheet/Excel/Sentry machinery -- same
+    testability rationale as ``_run_memory_write_phase`` (10-02 key-
+    decision). The "read at call time" property this exists for is
+    identical either way: a module-level function reading
+    ``_discovery.NAME`` is just as live as a nested closure doing the
+    same read.
+    """
+    if sheet_id in (
+        _discovery.SUBCONTRACTOR_SHEET_IDS
+        | _discovery._FOLDER_DISCOVERED_SUB_IDS
+    ):
+        return "subcontractor"
+    if sheet_id in _discovery._FOLDER_DISCOVERED_ORIG_IDS:
+        return "original_contract"
+    return "primary"
+
+
+def _extract_attachment_id_name(attach_result: Any) -> tuple[Any, Any]:
+    """Defensively extract ``(id, name)`` from a Smartsheet SDK
+    attach-call result. NEVER raises -- returns ``(None, None)`` on any
+    unexpected shape.
+
+    The SDK's successful ``Attachments.attach_file_to_row(...)`` call
+    returns a ``Result`` whose ``.data`` is the created ``Attachment``
+    carrying ``.id`` and ``.name`` (10-03-PLAN.md <interfaces>). PURE /
+    stateless (no I/O, no module state) so it's directly unit-testable
+    without invoking the nested ``_upload_one`` upload worker.
+    """
+    try:
+        data = getattr(attach_result, 'data', None)
+        return getattr(data, 'id', None), getattr(data, 'name', None)
+    except Exception:
+        return None, None
+
+
+def _build_group_state_flush(
+    deferred_records: list[dict[str, Any]],
+    group_upload_ok: dict[Any, bool],
+    upload_tasks: list[dict[str, Any]],
+    attachment_side_channel: dict[Any, dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    """Compute the ``group_state`` records to write and the withheld
+    count from the post-upload flush's already-built state. PURE (no
+    I/O, no module-level state, never raises internally) so it's
+    directly unit-testable without invoking ``main()`` -- mirrors
+    ``_run_memory_write_phase``'s standalone-function testability
+    pattern (10-02 key-decision).
+
+    For each deferred record (one per group, appended in the group
+    loop -- see the ``_deferred_group_state.append`` call site):
+      - upload NOT ok for the group (``group_upload_ok`` false/absent)
+        -> WITHHOLD: counted, no record produced. Unlike the durable
+        hash store, ``group_state`` is not read by anything in Phase
+        10, so there is no sentinel to write and nothing to actively
+        invalidate -- a withheld group simply has no memory row until
+        a run whose upload completes.
+      - upload ok -> expand into ONE row per matching upload-task
+        ``target_sheet_id`` (a ``reduced_sub`` group contributes ONE
+        deferred record but produced up to TWO upload tasks -- this
+        expansion is driven from the ACTUAL upload-task list, never a
+        hard-coded sheet-id pair, so a future third leg needs no
+        change here), looking up the attachment id/name from the side
+        channel by the 4-part ``(group_key, variant, file_identifier,
+        target_sheet_id)`` key. A leg with no side-channel entry (e.g.
+        it reported ``'skipped'`` -- nothing was attached this run)
+        contributes ``None`` for both attachment fields, which
+        ``upsert_group_state`` then omits from the payload entirely.
+    """
+    records: list[dict[str, Any]] = []
+    withheld = 0
+    for rec in deferred_records:
+        if not group_upload_ok.get(rec['group_key']):
+            withheld += 1
+            continue
+        matching_sheet_ids = {
+            t['target_sheet_id'] for t in upload_tasks
+            if t.get('group_key') == rec['group_key']
+        }
+        for target_sheet_id in matching_sheet_ids:
+            side_key = (
+                rec['group_key'], rec['variant'],
+                rec.get('file_identifier') or '', target_sheet_id,
+            )
+            attach = attachment_side_channel.get(side_key, {})
+            records.append({
+                'wr': rec['wr_num'],
+                'week_ending': rec['week_iso'],
+                'variant': rec['variant'],
+                'identifier': rec.get('identifier') or '',
+                'target_sheet_id': target_sheet_id,
+                'content_hash': rec['data_hash'],
+                'row_count': rec['row_count'],
+                'attachment_id': attach.get('attachment_id'),
+                'attachment_name': attach.get('attachment_name'),
+            })
+    return records, withheld
+
+
 def main():  # pyright: ignore[reportGeneralTypeIssues]
     """Main execution function with all fixes implemented.
 
@@ -439,6 +741,20 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
     _groups_errored = 0
     _api_calls_count = 0
     history_updates = 0
+    # Phase 10 (MEM-01/MEM-02/MEM-03): run-memory counters, hoisted for the
+    # same documented reason as the _groups_* family above -- the
+    # run-finish hook near the bottom of main() references these
+    # unconditionally, so an early Phase-1/2 exception must not turn a
+    # real error into an UnboundLocalError. Populated by
+    # _run_memory_write_phase() (called right after Phase 2 completes,
+    # below) -- zero defaults here cover the case where that phase never
+    # runs (flag off, TEST_MODE, or an exception before Phase 2 finishes).
+    _mem_sheets_written = 0
+    _mem_sheets_errored = 0
+    _mem_rows_sent = 0
+    _mem_rows_changed = 0
+    _mem_affected = set()
+    _mem_run_id = _mem_writer.resolve_run_id()
     # Explicit session-failure sentinel for the finally-block cron
     # check-in (Copilot review, PR #297): _groups_errored == 0 alone
     # cannot distinguish "clean run" from "died before any group was
@@ -506,6 +822,25 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             github_actions=GITHUB_ACTIONS_MODE,
         )
 
+        # Phase 10 (MEM-01/MEM-03): run_ledger 'start' row. Guarded by the
+        # flag AND TEST_MODE (10-RESEARCH.md Pitfall 7 -- the synthetic
+        # TEST_MODE path must never attempt a live Supabase call) and
+        # wrapped in its own try/except so a broken writer module can
+        # never break Excel generation (fail-open holds even if
+        # pipeline_memory itself has a bug, not just a Supabase outage).
+        if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
+            try:
+                _mem_writer.run_ledger_start(
+                    _mem_run_id,
+                    mode="full",
+                    release=os.getenv('SENTRY_RELEASE', '') or '',
+                )
+            except Exception:
+                logging.warning(
+                    "⚠️ pipeline_memory run_ledger_start failed "
+                    "(non-fatal); memory not written this run."
+                )
+
         # ── Source sheet discovery (includes folder discovery on cache miss) ──
         _phase_start = datetime.datetime.now()
         logging.info(f"\n{'='*60}")
@@ -522,7 +857,30 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         _phase_elapsed = (datetime.datetime.now() - _phase_start).total_seconds()
         logging.info(f"⚡ Phase 1 complete: {len(source_sheets)} sheets discovered in {_phase_elapsed:.1f}s")
         sentry_add_breadcrumb("discovery", f"Discovered {len(source_sheets)} source sheets", data={"count": len(source_sheets)})
-        
+
+        # Phase 10 (MEM-01): sheet_registry shadow write, PASS 1 (pre-fetch).
+        # Called TWICE this run -- here, right after discovery, and again
+        # right after the row-write phase below (PASS 2) once
+        # pipeline.fetch's version-watermark map is populated (this pass
+        # runs BEFORE Phase 2 fetches anything, so last_sheet_version is
+        # still empty on pass 1). Both calls are idempotent upserts on the
+        # same key (sheet_id) -- documented two-pass ordering, not
+        # accidental duplication. Guarded the same way as the run_ledger
+        # hooks (flag AND TEST_MODE) and wrapped in its own try/except so a
+        # broken writer module can never break Excel generation.
+        if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
+            try:
+                _mem_writer.upsert_sheet_registry(
+                    source_sheets, _mem_run_id, _resolve_mem_sheet_kind,
+                    _fetch.get_last_sheet_versions(),
+                )
+            except Exception:
+                logging.warning(
+                    "⚠️ pipeline_memory sheet_registry upsert (pass 1) "
+                    "failed unexpectedly (non-fatal); registry not "
+                    "written this pass."
+                )
+
         # Get all source rows
         _phase_start = datetime.datetime.now()
         logging.info(f"\n{'='*60}")
@@ -542,7 +900,51 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             "row_count": len(all_rows),
             "sheet_count": len(source_sheets),
         })
-        
+
+        # Phase 10 (MEM-02/MEM-03): per-sheet row-state shadow write.
+        # _run_memory_write_phase self-gates on RUN_MEMORY_WRITE_ENABLED /
+        # TEST_MODE (mirrors the run_ledger start/finish hooks' defense-
+        # in-depth double gate) and never raises on its own -- this
+        # try/except is a second, outer belt so an unexpected bug in the
+        # phase itself can never reach the audit/grouping/Excel path
+        # below (fail-open holds even if pipeline_memory has a bug, not
+        # just a Supabase outage).
+        try:
+            _mem_result = _run_memory_write_phase(
+                all_rows, _mem_run_id, session_start,
+            )
+        except Exception:
+            logging.warning(
+                "⚠️ pipeline_memory row-write phase failed unexpectedly "
+                "(non-fatal); memory rows not written this run."
+            )
+            _mem_result = {
+                "sheets_written": 0, "sheets_errored": 0,
+                "rows_sent": 0, "rows_changed": 0, "affected": set(),
+            }
+        _mem_sheets_written = _mem_result["sheets_written"]
+        _mem_sheets_errored = _mem_result["sheets_errored"]
+        _mem_rows_sent = _mem_result["rows_sent"]
+        _mem_rows_changed = _mem_result["rows_changed"]
+        _mem_affected = _mem_result.get("affected", set())
+
+        # Phase 10 (MEM-01): sheet_registry shadow write, PASS 2. Now that
+        # Phase 2 has fetched every sheet, pipeline.fetch's version-
+        # watermark map is populated -- same guard, same fail-open
+        # contract, same idempotent upsert key as pass 1 above.
+        if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
+            try:
+                _mem_writer.upsert_sheet_registry(
+                    source_sheets, _mem_run_id, _resolve_mem_sheet_kind,
+                    _fetch.get_last_sheet_versions(),
+                )
+            except Exception:
+                logging.warning(
+                    "⚠️ pipeline_memory sheet_registry upsert (pass 2) "
+                    "failed unexpectedly (non-fatal); registry version "
+                    "watermark not updated this run."
+                )
+
         # Initialize audit system
         audit_system = None
         audit_results = {}
@@ -1146,6 +1548,20 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         _groups_errored = 0
         _api_calls_count = 0
         _upload_tasks = []  # Collect upload tasks for parallel processing
+        # Phase 10 (MEM-01/MEM-03): group_state deferred records + the
+        # attachment side channel. Hoisted here (not with the other _mem_*
+        # counters at the top of main()) because both are upload-phase-
+        # scoped state, not run-scoped counters -- mirrors _upload_tasks /
+        # _deferred_hash_upserts, the two closest existing analogs.
+        _deferred_group_state = []
+        # Keyed by (group_key, variant, file_identifier, target_sheet_id)
+        # -- the same 4-part key a reduced_sub fan-out's two upload tasks
+        # differ on ONLY in target_sheet_id, so this key never collapses
+        # the two legs' attachment ids into one entry. threading.Lock-
+        # guarded: up to PARALLEL_WORKERS (<=8) worker threads write
+        # concurrently inside _upload_one below.
+        _mem_attachment_side_channel = {}
+        _mem_attachment_side_channel_lock = threading.Lock()
         # Sub-project E crash-consistency (2026-07-06): per-group durable
         # hash upserts are DEFERRED until after this group's attachment
         # upload actually succeeds. Records are appended in the emission
@@ -2099,7 +2515,31 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         'identifier': identifier or '',
                         'data_hash': data_hash,
                     })
-                
+
+                # Phase 10 (MEM-01/MEM-03): group_state deferred record,
+                # mirroring the durable-hash deferred append immediately
+                # above -- SAME crash-consistency shape (write only after
+                # upload succeeds), but gated INDEPENDENTLY on
+                # RUN_MEMORY_WRITE_ENABLED, never on the audit package's
+                # flags (10-RESEARCH.md Pitfall 5 isolation requirement --
+                # a billing_audit misconfiguration must not silently
+                # disable memory, and vice versa).
+                if (
+                    RUN_MEMORY_WRITE_ENABLED
+                    and not TEST_MODE
+                    and week_iso
+                ):
+                    _deferred_group_state.append({
+                        'group_key': group_key,
+                        'wr_num': wr_num,
+                        'week_iso': week_iso,
+                        'variant': variant,
+                        'identifier': identifier or '',
+                        'file_identifier': file_identifier or '',
+                        'data_hash': data_hash,
+                        'row_count': len(group_rows),
+                    })
+
             except Exception as e:
                 _groups_errored += 1
                 logging.error(f"❌ Failed to process group {group_key}: {e}")
@@ -2219,11 +2659,35 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
 
                     if not SKIP_UPLOAD:
                         with open(task['excel_path'], 'rb') as file:
-                            client.Attachments.attach_file_to_row(
+                            _attach_result = client.Attachments.attach_file_to_row(
                                 task['target_sheet_id'],
                                 target_row.id,
                                 (task['filename'], file, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
                             )
+                        # Phase 10 (MEM-01/MEM-03): capture the created
+                        # attachment's id/name into the side channel for
+                        # group_state's post-upload flush. A read-only
+                        # extraction of the SDK's OWN return value -- does
+                        # NOT change the delete-then-upload order, the
+                        # retry wrapper, or this function's return
+                        # contract. Wrapped in its own swallow-everything
+                        # try/except so a side-channel bug can never turn
+                        # a successful upload into an error (T-10-10).
+                        try:
+                            _attach_id, _attach_name = (
+                                _extract_attachment_id_name(_attach_result)
+                            )
+                            _mem_key = (
+                                task['group_key'], task['variant'],
+                                task['file_identifier'], task['target_sheet_id'],
+                            )
+                            with _mem_attachment_side_channel_lock:
+                                _mem_attachment_side_channel[_mem_key] = {
+                                    'attachment_id': _attach_id,
+                                    'attachment_name': _attach_name,
+                                }
+                        except Exception:
+                            pass
                         logging.info(
                             f"✅ Uploaded: {task['filename']} → sheet "
                             f"{task['target_sheet_id']}"
@@ -2283,6 +2747,9 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             if _deferred_history_updates or (
                 SUPABASE_HASH_STORE_WRITE_ENABLED
                 and _deferred_hash_upserts
+            ) or (
+                RUN_MEMORY_WRITE_ENABLED
+                and _deferred_group_state
             ):
                 _group_upload_ok: dict = {}
                 _group_had_error: dict = {}
@@ -2376,6 +2843,57 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         f"🧾 Durable hash store: {_hashes_flushed} flushed, "
                         f"{_hashes_withheld} withheld"
                     )
+
+                # Phase 10 (MEM-01/MEM-03): group_state flush -- THIRD and
+                # LAST, placed after both existing flushes so it can never
+                # affect either. Gated independently on
+                # RUN_MEMORY_WRITE_ENABLED only (never on
+                # SUPABASE_HASH_STORE_WRITE_ENABLED / BILLING_AUDIT_AVAILABLE
+                # -- the isolation requirement from 10-RESEARCH.md
+                # Pitfall 5). Reuses _group_upload_ok built above -- never
+                # re-derives it.
+                if RUN_MEMORY_WRITE_ENABLED and _deferred_group_state:
+                    # Outer try/except (belt-and-suspenders, mirrors the
+                    # sheet_registry / run_ledger hooks elsewhere in
+                    # main()): _build_group_state_flush is a pure function
+                    # proven not to raise given this call site's own
+                    # consistent _deferred_group_state dict shape, but an
+                    # unexpected future change here must still be unable
+                    # to prevent the two EARLIER, production-critical
+                    # flushes above from having already completed (T-10-11
+                    # -- they execute strictly before this block in source
+                    # order, so they are unaffected either way).
+                    try:
+                        _mem_group_records, _mem_group_withheld = (
+                            _build_group_state_flush(
+                                _deferred_group_state, _group_upload_ok,
+                                _upload_tasks, _mem_attachment_side_channel,
+                            )
+                        )
+                        if _mem_group_withheld:
+                            _mem_writer.bump_group_state_withheld(
+                                _mem_group_withheld
+                            )
+                        try:
+                            _mem_writer.upsert_group_state(
+                                _mem_group_records, _mem_run_id,
+                            )
+                        except Exception:
+                            logging.warning(
+                                "⚠️ pipeline_memory group_state flush "
+                                "failed unexpectedly (non-fatal); "
+                                "group_state not written this run."
+                            )
+                        logging.info(
+                            f"🧾 group_state: {len(_mem_group_records)} "
+                            f"flushed, {_mem_group_withheld} withheld"
+                        )
+                    except Exception:
+                        logging.warning(
+                            "⚠️ pipeline_memory group_state flush "
+                            "computation failed unexpectedly (non-fatal); "
+                            "group_state not written this run."
+                        )
 
         # Validation summary
         summaries = validate_group_totals(groups)
@@ -2757,6 +3275,32 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 billing_audit_row_cache,
             )
 
+        # Phase 10 (MEM-01/MEM-03): run_ledger 'finish' row. Same guard
+        # shape as the start hook. Reuses already-computed counters --
+        # recomputes nothing. Memory counters live in run_ledger.notes,
+        # NOT in the frozen 21-key run_summary.json below (interfaces
+        # block: adding a key there means editing 3 places plus the
+        # golden baseline, and pollutes the plan-10-05 control-run diff).
+        if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
+            try:
+                _mem_writer.run_ledger_finish(
+                    _mem_run_id,
+                    status="success",
+                    sheets_checked=len(source_sheets) if 'source_sheets' in dir() else 0,
+                    rows_seen=len(all_rows) if 'all_rows' in dir() else 0,
+                    rows_changed=_mem_rows_changed,
+                    groups_generated=_groups_generated,
+                    groups_affected=len(_mem_affected),
+                    mem_sheets_written=_mem_sheets_written,
+                    mem_sheets_errored=_mem_sheets_errored,
+                    mem_rows_sent=_mem_rows_sent,
+                )
+            except Exception:
+                logging.warning(
+                    "⚠️ pipeline_memory run_ledger_finish failed "
+                    "(non-fatal); memory not written this run."
+                )
+
         # Write run summary JSON for downstream consumers (Notion sync, dashboards)
         _run_summary = {
             "success": True,
@@ -2957,6 +3501,33 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             _txn = None
     
     finally:
+        # Phase 10 (MEM-01/MEM-03) failure-path finalization (10-REVIEW.md
+        # WR-03 / PR #350 review): the success-path run_ledger_finish above
+        # is never reached when an exception lands in the except handlers,
+        # which left that run's row at status='running' / finished_at=NULL
+        # forever -- indistinguishable from a run still in progress.
+        # Same flag + TEST_MODE guards as the start/finish hooks, wrapped so
+        # a Supabase outage here can never mask the real session failure or
+        # the cron check-in below. _session_failed / _mem_run_id / the
+        # counters are all hoisted above the try, so no dir() guard.
+        if _session_failed and RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
+            try:
+                _mem_writer.run_ledger_finish(
+                    _mem_run_id,
+                    status="failed",
+                    groups_generated=_groups_generated,
+                    groups_affected=len(_mem_affected),
+                    groups_errored=_groups_errored,
+                    mem_sheets_written=_mem_sheets_written,
+                    mem_sheets_errored=_mem_sheets_errored,
+                    mem_rows_sent=_mem_rows_sent,
+                )
+            except Exception as _mem_exc:
+                logging.warning(
+                    "⚠️ pipeline_memory run_ledger_finish (failure path) "
+                    f"failed (non-fatal): {type(_mem_exc).__name__}"
+                )
+
         # Sentry cron check-in: signal final status
         if SENTRY_DSN and _cron_checkin_id:
             try:

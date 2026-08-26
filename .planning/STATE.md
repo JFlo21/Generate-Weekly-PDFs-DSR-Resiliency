@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Engine Modularization & Hygiene
-current_phase: 09
+current_phase: 10
 status: completed
-stopped_at: Phase 09 complete — v1.3 milestone done; Phase 10 (v1.4 Run-Memory Foundation) planned, ready to execute
-last_updated: "2026-08-25T05:34:45.655Z"
+stopped_at: Phase 10 complete (UAT 2/2 decided, verification passed 2026-08-25) — next /gsd-plan-phase 11
+last_updated: "2026-08-26T02:51:37.802Z"
 last_activity: 2026-08-25
-last_activity_desc: Phase 09 complete
-state_head: c631a433b92bb0406ead0a07395976ace14ff1a1
+last_activity_desc: Phase 10 complete
+state_head: 1679829c487f2aefdf7da385e4ddeee935272cd4
 progress:
   total_phases: 1
   completed_phases: 1
@@ -30,19 +30,19 @@ right generated Excel billing artifact fast, from a secure, auth-gated,
 beautiful web portal — with zero change to the production Python billing
 pipeline.
 
-**Current focus:** Phase 10 — Run-Memory Foundation (shadow writes) — planned 6 plans / 4 waves, checker-verified `94b6d80`
+**Current focus:** Phase 10 — Run-Memory Foundation (shadow writes)
 
 ## Current Position
 
-Phase: 09
+Phase: 10
 Plan: Not started
-Status: Phase 09 closed 2026-08-25 (verifier 6/6, `410235e`); Phase 10 ready to execute
+Status: Phase 10 complete — Phase 11 (Incremental Read + Affected-Group Regeneration) ready to plan
   Engine 10,476 -> 709-line thin facade; 13-module pipeline/ package; 0 behavior
   change; 7 waves + 2 gap-closure plans (09-07/09-08). G-09-MOD-06 closed: Gate 4
   fail-capable, Gate 6 offline (synthetic), mypy re-baselined 65 with per-finding
   attribution (Juan: `rebaseline`, `da7d73c`); `run_6_gates.sh` ALL 6 GATES PASSED
   in 32 s; suite 1386 + 132 subtests. Next: `/gsd-core:gsd-execute-phase 10`.
-Last activity: 2026-08-25 — Phase 09 complete
+Last activity: 2026-08-25 — Phase 10 complete
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
@@ -53,7 +53,7 @@ Last activity: 2026-08-25 — Phase 09 complete
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [██████████] 100% (v1.3 complete — Phase 09 closed 2026-08-25; v1.4 Phase 10 planned, 0/6 plans)
+Progress: [██████████] 100% (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 next)
 ```
 
 ## Performance Metrics
@@ -95,6 +95,12 @@ Progress: [██████████] 100% (v1.3 complete — Phase 09 clos
 |------|----------|-------|-------|
 | Phase 09-engine-modularization-pipeline-package-split P07 | 32min | 3 tasks | 6 files |
 | Phase 09 P08 | 8min | 3 tasks | 3 files |
+| Phase 10 P01 | ~50min | 3 tasks | 7 files |
+| Phase 10 P04 | ~45min | 3 tasks | 3 files |
+| Phase 10 P02 | ~40min | 3 tasks | 4 files |
+| Phase 10-run-memory-foundation-shadow-writes P05 | 40min | 3 tasks | 4 files |
+| Phase 10 P03 | ~37min | 3 tasks | 4 files |
+| Phase 10 P06 | ~4h10m (4 real production runs) | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -176,8 +182,29 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 09]: Phase 09-08: Juan decided rebaseline (option B) for the real 56->65 mypy delta; per-finding attribution recorded in .planning/debug/mypy-delta-56-to-65-2026-08-24.md; re-baseline commit + Living Ledger entry authorized as orchestrator follow-up, not part of this plan
 - [Phase 09]: Re-baseline hygiene rule locked — a Gate-4 re-baseline is only acceptable as a dedicated commit whose ledger entry names every accepted finding (blame + class); `da7d73c`.
 - [Phase 09]: A verification harness must never consume production data — Gate 6 runs token-blanked on the synthetic path; every gate has a fail-capability test (`4441b52`, `d4e6911`).
+- [Phase ?]: pipeline_memory/client.py imports nothing from billing_audit -- independent kill switch prevents a pipeline_memory misconfiguration from disabling the shipped attribution/hash-store writer
+- [Phase ?]: row_state.foreman_observed (HASH_FIELDS contract) reads the RAW Foreman column, never __effective_user -- avoids repeating the sentinel-freezing defect that corrupted 93 WRs / 5,824 rows in billing_audit.attribution_snapshot
+- [Phase ?]: group_state PRIMARY KEY promoted to include target_sheet_id so a reduced_sub two-sheet fan-out gets one row per leg instead of the second overwriting the first's attachment_id
+- [Phase 10]: [Phase 10-04] mem04_experiment.py aliases parser.add_argument to a bound name to avoid a false-positive collision with the Task 1 AST read-only guard's add_/update_/delete_/create_ prefix ban -- the guard's intent (no Smartsheet write call) is unaffected
+- [Phase 10]: [Phase 10-04] MEM-04 verdict derivation is undetermined-unless-fully-evidenced: a missing scenario, baseline, probe, or T3 observation always yields undetermined naming the gap; PASS/FAIL only when both D-08 scenarios have complete evidence
+- [Phase 10]: [Phase 10-04] mem04_passive_compare.py --source supabase reuses pipeline_memory.client's independent get_client()/with_retry() kill-switch instance (from 10-01) rather than a second Supabase client wrapper for the read-only analyst path
+- [Phase 10]: [Phase 10-02] pipeline_memory.writer._row_to_payload reads RAW mapped columns (Foreman Helping?, VAC Crew Helping?) for helper_observed/vac_crew_observed, never the completion-gated __helper_foreman/__vac_crew_name derivatives -- those are absent whenever the completion checkbox is unchecked, which would silently drop a real observed name — Memory must record what was literally on the row, not the pipeline's Excel-generation business decision
+- [Phase 10]: [Phase 10-02] week_ending/snapshot_date are resolved by pipeline/orchestrate.py (pipeline.utils.excel_serial_to_date, the same parser grouping uses) and passed into upsert_rows_bulk via new __mem_week_ending/__mem_snapshot_date row keys -- pipeline_memory/writer.py keeps importing nothing from pipeline.* — Package boundary contract (writer independence from the engine import graph) plus MEM-02's requirement that memory store the SAME dates grouping computes
+- [Phase 10]: [Phase 10-02] upsert_rows_bulk chunks at _CHUNK_ROWS=500; a chunk failure bumps rows_upsert_errored by that chunk row count and continues, one aggregate WARNING per call — Largest observed sheet is 6,054 rows; a per-sheet body is an order of magnitude larger per row than the sibling package's 2-field pairs, so an unchunked call risks the ~1MB PostgREST body limit
+- [Phase ?]: MEM-04 verdict: PASS -- rows_modified_since surfaces formula-only recalculation in both D-08 scenarios, with and without SAFETY_WINDOW overlap; D-09 gate OPEN, Phase 11 cleared for incremental reads
+- [Phase ?]: [Phase 10-03] sheet_registry kind/version resolvers and the group_state flush computation are standalone module-level functions in pipeline/orchestrate.py (not closures nested inside main()) for direct unit-testability, mirroring 10-02's _run_memory_write_phase pattern
+- [Phase ?]: [Phase 10-03] attachment side-channel key uses task['file_identifier'] not task['identifier'] -- the two diverge for helper-variant groups; group_state's DB key uses identifier, the side channel (matching delete_old_excel_attachments' existing call) uses file_identifier
+- [Phase ?]: [Phase 10-03] group_state's third post-upload flush is wrapped in its own outer try/except (defense-in-depth, T-10-11) even though _build_group_state_flush is a pure function proven not to raise -- both earlier production flushes already complete before this block runs in source order regardless
+- [Phase 10]: 10-06: compare_control_run.py hashes canonicalized xlsx content (excludes docProps/core.xml, normalizes the Report Generated On cell) instead of raw file bytes -- a raw hash can never prove two real pipeline runs are behaviorally identical
+- [Phase 10]: 10-06: run_ledger_finish always resends mode (default full) even though run_ledger_start already set it -- PostgREST upsert validates NOT NULL against only the payload's own columns before conflict resolution
+- [Phase 10]: 10-06: success criterion 4 proven at Excel-CONTENT level (100% match, canonicalized) not at group-selection level -- live ~209K-row production data cannot be held still across a ~50-90min control/shadow gap without a fetch-snapshot capability out of scope
 
 ### Roadmap Evolution
+
+- Phase 10 completed (2026-08-25): Run-Memory Foundation (shadow writes). 6/6 plans;
+  MEM-01..04 complete; `pipeline_memory` live on Supabase (write path OFF in prod).
+  Two UAT decisions by Juan: SC4 satisfied by canonicalized-content proof; `group_state`
+  attachment-id proof carried to the flag-flip PR (Phase 11).
 
 - v1.1 roadmap created (2026-05-29): Phases 03–07 continuing from Phase 02.
   Supersedes the prior v1.1 Railway → Render migration scope (moved to Out of
@@ -304,6 +331,12 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-08-25T05:39:02Z
-**Stopped at:** Phase 09 complete (v1.3 milestone done), ready to execute Phase 10
+**Last session:** 2026-08-25T23:44:11.126Z
+**Stopped at:** Phase 10 closed via /gsd-verify-work 10 (test 1: SC4 canonicalized-content proof accepted; test 2: group_state attachment-id proof deferred to flag-flip PR). Next: /gsd-plan-phase 11.
 **Resume file:** None
+
+## Session Continuity
+
+Last session: 2026-08-26T02:50:00.000Z
+Stopped at: Phase 10 CLOSED (2026-08-25 21:50 CDT): UAT 2/2 (1679829), 10-VERIFICATION.md status passed, COVERAGE.md gate fix (8486113), phase.complete run. Pushed; PR #350 open. Next: Seer PR triage (#343/#346/#347/#348), then /gsd-plan-phase 11.
+Resume file: None

@@ -13,20 +13,25 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 
 - [ ] **DATA-01**: Every generated Excel artifact is stored in a **private**
   Supabase Storage bucket (no public read).
+
 - [x] **DATA-02**: A `public.artifacts` Postgres table stores per-artifact
   metadata — `work_request`, `week_ending` (DATE + display text), `variant`,
   `filename`, `storage_path`, `size_bytes`, `sha256`, `run_id`, `created_at` —
   with a UNIQUE constraint on `sha256` for idempotent upsert and indexes on
   `work_request` and `week_ending DESC`.
+
 - [x] **DATA-03**: An **additive** step in `weekly-excel-generation.yml`
   publishes each generated Excel to Storage and upserts its `artifacts` row
   using the `service_role` key, isolated with `continue-on-error: true` so a
   Supabase outage never fails the billing run, cache save, or `hash_history`
   persistence.
+
 - [ ] **DATA-04**: `portal-v2` reads artifact metadata DIRECTLY via
   `supabase-js` (no Express backend in the path).
+
 - [ ] **DATA-05**: Artifact downloads use short-lived (5-minute) signed Storage
   URLs generated client-side from the authenticated session.
+
 - [x] **DATA-06**: Supabase Realtime delivers new-artifact INSERT events to the
   portal (replacing the Express SSE poller), with the `artifacts` table added to
   the `supabase_realtime` publication.
@@ -36,14 +41,18 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 - [x] **TABLE-01**: User sees a table of available artifacts with columns
   Work Request #, week-ending date, variant, file size, created date, and a
   download action.
+
 - [x] **TABLE-02**: The table renders REAL Supabase data; the silent
   mock-data fallback is removed and genuine fetch failures surface a real
   error state (not fake rows).
+
 - [x] **TABLE-03**: The table is row-virtualized and fetches via server-side
   filtering + pagination so rendering stays fast and low-memory regardless of
   how much artifact history accumulates.
+
 - [x] **TABLE-04**: User can download an artifact via its signed URL, with a
   visible in-progress/download state.
+
 - [x] **TABLE-05**: The table shows distinct, explicit loading, empty, and
   error states.
 
@@ -51,10 +60,13 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 
 - [x] **SEARCH-01**: A debounced search bar filters the table by Work
   Request # or week-ending date.
+
 - [x] **SEARCH-02**: User can filter by variant via a multi-select control
   with clearable filter chips.
+
 - [x] **SEARCH-03**: User can sort columns (WR #, week-ending, size, created)
   with clear ascending/descending indicators.
+
 - [x] **SEARCH-04**: Search and filters are dynamic (reflect the actual data
   present) and combine (results satisfy search AND active filters).
 
@@ -62,9 +74,11 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 
 - [x] **UI-01**: The portal is responsive across desktop, tablet, and mobile
   widths.
+
 - [x] **UI-02**: Tasteful Framer Motion animations (row entrance, view
   transitions, toasts) enhance the experience without degrading table
   performance.
+
 - [x] **UI-03**: A consistent, modern, accessible visual design (keyboard
   navigable, sufficient contrast) built on the existing UI primitives
   (GlassCard, Badge, Skeleton, Toast).
@@ -74,14 +88,18 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 - [x] **AUTH-01**: User can sign in with email and password.
 - [x] **AUTH-02**: The login form is protected by **hCaptcha** (token passed to
   Supabase `signInWithPassword`).
+
 - [x] **AUTH-03**: A "Remember me" option controls session persistence
   (persistent storage when checked, session-only when unchecked).
+
 - [x] **AUTH-04**: User can request a password reset ("Forgot password?" →
   `resetPasswordForEmail`) and set a new password on a dedicated reset page
   (`updateUser`).
+
 - [x] **AUTH-05**: User can self-sign-up with email and password (hCaptcha-
   protected); signup creates the account and a `profiles` row defaulted to the
   `pending` role with NO access to billing artifacts.
+
 - [x] **AUTH-06**: Unauthenticated users are redirected to the login page
   before any portal content loads (link-out access model; `frame-ancestors
   'none'` — no iframe embedding).
@@ -90,14 +108,18 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 
 - [x] **RBAC-01**: Each user has a role stored in a `profiles` table
   (`admin`, `billing`, `pending`; the model is extensible for future roles).
+
 - [x] **RBAC-02**: Row-Level Security gates artifact + Storage read access to
   roles that grant it (`admin`, `billing`); `pending` users can see no billing
   data.
+
 - [x] **RBAC-03**: An admin-only Admin page lists users and lets an admin
   assign/change a user's role.
+
 - [x] **RBAC-04**: The Admin page and all role mutations are restricted to the
   `admin` role (UI guard + RLS), with a guard preventing the last admin from
   demoting/locking themselves out.
+
 - [x] **RBAC-05**: Role gating is implemented reusably so future portal
   features can be restricted by role without re-plumbing auth.
 
@@ -106,11 +128,14 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 - [ ] **DEPLOY-01**: The portal is correctly connected to the existing Vercel
   project (Root Directory = `portal-v2`, correct build command + output dir)
   and produces a successful production deployment.
+
 - [ ] **DEPLOY-02**: A SPA rewrite is configured so deep links and page
   refreshes do not 404.
+
 - [ ] **DEPLOY-03**: Required public env vars (`VITE_SUPABASE_URL`,
   `VITE_SUPABASE_ANON_KEY`, `VITE_HCAPTCHA_SITEKEY`) are set on Vercel for both
   Preview and Production; the `service_role` key is NEVER set on Vercel.
+
 - [ ] **DEPLOY-04**: The current "portal not connecting to Vercel" issue is
   diagnosed and fixed; the deployed URL serves the working portal.
 
@@ -118,13 +143,17 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 
 - [ ] **SEC-01**: The Storage bucket is private and role-aware RLS is verified —
   no path exposes billing data publicly or to `pending` users.
+
 - [ ] **SEC-02**: Security headers / CSP are configured (`frame-ancestors
   'none'`, `X-Content-Type-Options`, HSTS, sane `connect-src` for Supabase).
+
 - [ ] **SEC-03**: Secret handling is correct — `service_role` only in CI /
   Supabase; the public anon key's exposure is acceptable because RLS is the
   data guard.
+
 - [ ] **SEC-04**: A `/security-review` pass is run against the portal and its
   Supabase policies; HIGH/critical findings are resolved before milestone close.
+
 - [ ] **SEC-05**: Signed download URLs are short-lived (5 min) and scoped to a
   single object.
 
@@ -145,22 +174,27 @@ compatibility so the pin can be lifted.
   `import smartsheet.exceptions` at `generate_weekly_pdfs.py:28` and the retry
   `except` blocks (~8389/8397/8603/8620-8622/9835/9843) work without
   `ModuleNotFoundError` / `AttributeError`.
+
 - [x] **SDK-02**: The `smartsheet.smartsheet` retry-exception re-export
   workaround (`generate_weekly_pdfs.py:30-54`) is reconciled with 4.0.0 — kept,
   updated, or removed if 4.0.0 makes it obsolete — and the SDK's internal
   retryable-exception lookup still succeeds (no silently-swallowed retries).
+
 - [x] **SDK-03**: Every in-use SDK call site is verified compatible with 4.0.0
   signatures and return shapes: `Sheets.get_sheet(sheet_id, include=…,
   row_numbers=…)`, `Attachments.list_row_attachments / delete_attachment /
   attach_file_to_row`, and `Folders.get_folder_children(..., last_key=…)`
   token-based pagination.
+
 - [x] **SDK-04**: The full `pytest tests/` suite passes against SDK 4.0.0; test
   mocks/fixtures are updated for any relocated symbols (notably
   `tests/test_billing_audit_shadow.py:64` and the `last_key` pagination tests in
   `test_subcontractor_pricing.py` / `test_vac_crew.py`).
+
 - [x] **SDK-05**: The `requirements.txt` upper-bound pin is lifted to allow
   4.0.0 (e.g. `smartsheet-python-sdk>=4.0.0`) **only after** SDK-01..04 pass,
   and the corresponding Living Ledger / CLAUDE.md pin notes are updated.
+
 - [x] **SDK-06**: A non-upload validation run (`TEST_MODE=true` and/or
   `SKIP_UPLOAD=true`) confirms the pipeline produces identical grouping and
   Excel output under 4.0.0 — proving zero behavior change.
@@ -181,15 +215,18 @@ CU pricing, rate recalculation, and billing formulas do not change.
 
 ### Run-memory foundation (Phase 10)
 
-- [ ] **MEM-01**: A `pipeline_memory` schema (sheet_registry, row_state, row_event,
+- [x] **MEM-01**: A `pipeline_memory` schema (sheet_registry, row_state, row_event,
   group_state, run_ledger) exists in the production Supabase project with
   service-role-only RLS and a versioned `schema.sql` mirror in the repo.
-- [ ] **MEM-02**: Every run upserts the current state of every accepted row (one row per
+
+- [x] **MEM-02**: Every run upserts the current state of every accepted row (one row per
   Smartsheet `(sheet_id,row_id)`), writes a `row_event` ONLY when the row's content hash
   changed, and records the personnel values observed at that time (foreman, helper, VAC).
-- [ ] **MEM-03**: Writes are bulk (one RPC per sheet), fail-open (memory outage never
+
+- [x] **MEM-03**: Writes are bulk (one RPC per sheet), fail-open (memory outage never
   blocks Excel generation), and shadow-mode first (zero production behavior change).
-- [ ] **MEM-04**: Fixture-proven answer to "does `rowsModifiedSince` see formula-only
+
+- [x] **MEM-04**: Fixture-proven answer to "does `rowsModifiedSince` see formula-only
   changes (archived WR blanking `Foreman`, dept-mapping edits)?" recorded in the Living
   Ledger.
 
@@ -197,14 +234,18 @@ CU pricing, rate recalculation, and billing formulas do not change.
 
 - [ ] **INC-01**: Frequent runs use `ifVersionAfter` + `rowsModifiedSince` per registered
   sheet; unchanged sheets cost one call and zero rows.
+
 - [ ] **INC-02**: Only (WR, week) groups touched by changed rows (including the previous
   week when a row's week moved) are regrouped, regenerated, and uploaded; rows for those
   groups come from `row_state`, not Smartsheet.
+
 - [ ] **INC-03**: The weekly deep run performs a full read + reconciliation (deletions,
   formula-only changes) and refreshes `sheet_registry.column_mapping`.
+
 - [ ] **INC-04**: Behind `RUN_MEMORY_INCREMENTAL_ENABLED` (default OFF) with parity
   proof: incremental output set == full-run output set for ≥5 consecutive scheduled
   runs before the flag defaults ON.
+
 - [ ] **INC-05**: `hash_history.json`, `discovery_cache.json`,
   `billing_audit_frozen_rows.json` and the attachment pre-fetch phases are retired only
   after INC-04; `group_state` holds attachment ids.
@@ -214,13 +255,16 @@ CU pricing, rate recalculation, and billing formulas do not change.
 - [ ] **OWN-01**: `wr_week_ownership` decides each (WR, week, variant, role) owner by the
   ladder observed_in_week → last_known_before_week → backfill → Unknown; sentinels
   (`Unknown Foreman`, `#NO MATCH`) are never stored as names.
+
 - [ ] **OWN-02**: `freeze_row` / `resolve_claimer` treat the sentinel as no-claimer (the
   2026-08-24 defect) and Subproject B/C/D partition by `wr_week_ownership`.
+
 - [ ] **OWN-03**: One-time, dry-run-first backfill from `public.artifacts` filenames,
   non-sentinel `attribution_snapshot`, and the 2025 `hash_history.json` foreman field;
   the 93 WRs / 5,824 rows frozen as `Unknown Foreman` are remediated and their
   `_User_Unknown_Foreman` attachments replaced. Validated against a known-good sample
   (WR 89829163 WE 082425–092125 → Allen Harris).
+
 - [ ] **OWN-04**: The change to Foundation A's first-write-wins contract is documented in
   the Living Ledger and the runbook; helper/VAC roles follow the same ladder.
 
@@ -228,8 +272,10 @@ CU pricing, rate recalculation, and billing formulas do not change.
 
 - [ ] **AUD-01**: `audit_finding` / `audit_finding_event` persist every finding with a
   stable key and lifecycle open → fixed | resurfaced | acknowledged | suppressed.
+
 - [ ] **AUD-02**: Each audit run evaluates only affected groups + open findings; findings
   not reproduced on a re-audited group transition to `fixed` with the fixing run id.
+
 - [ ] **AUD-03**: Excel/portal audit surfaces open + resurfaced findings only; history is
   queryable per WR.
 
@@ -246,6 +292,7 @@ Deferred to a future milestone. Tracked but not in this roadmap.
 
 - **BULK-01**: Bulk / multi-select download as a ZIP (requires a Supabase Edge
   Function to assemble) — deferred.
+
 - **EXPORT-01**: CSV / parsed-JSON export of artifact data — deferred.
 
 ### Discoverability
@@ -318,10 +365,10 @@ Which phases cover which requirements.
 | SDK-04 | Phase 08 | Complete |
 | SDK-05 | Phase 08 | Complete |
 | SDK-06 | Phase 08 | Complete |
-| MEM-01 | Phase 10 | Pending |
-| MEM-02 | Phase 10 | Pending |
-| MEM-03 | Phase 10 | Pending |
-| MEM-04 | Phase 10 | Pending |
+| MEM-01 | Phase 10 | Complete |
+| MEM-02 | Phase 10 | Complete |
+| MEM-03 | Phase 10 | Complete |
+| MEM-04 | Phase 10 | Complete |
 | INC-01 | Phase 11 | Pending |
 | INC-02 | Phase 11 | Pending |
 | INC-03 | Phase 11 | Pending |
@@ -336,6 +383,7 @@ Which phases cover which requirements.
 | AUD-03 | Phase 13 | Pending |
 
 **Coverage:**
+
 - v1.1 requirements: 33 total — mapped to phases: 33 (Phase 03: 5, Phase 04: 15, Phase 05: 9, Phase 06: 4, Phase 07: 5); unmapped: 0 ✓
 - v1.2 requirements: 6 total — mapped to phases: 6 (Phase 08: 6); unmapped: 0 ✓
 - v1.4 requirements: 16 total — mapped to phases: 16 (Phase 10: 4, Phase 11: 5, Phase 12: 4, Phase 13: 3); unmapped: 0 ✓ (DRAFT — Phase 10 pending spec §8 decisions)
