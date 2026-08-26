@@ -2,7 +2,7 @@
 
 > Full coverage by default. Opt-outs are explicit, reasoned decisions.
 > Produced at plan time per the API Coverage Decision Checkpoint
-> (`api-coverage.cjs` over the seven PLAN.md bodies returned `detected: true`).
+> (`api-coverage.cjs` over the eight PLAN.md bodies returned `detected: true`).
 
 Two external surfaces are in scope this phase. Both start from the same full-coverage
 baseline as Phase 10 did — Phase 10's opt-outs are **re-decided here**, not carried over
@@ -29,8 +29,8 @@ silently, which is why several of them flip to INTEGRATE.
 | `table:row_state` SELECT — affected `(wr, week)` pairs to sheet ids | INTEGRATE | INC-02 / D-04. Uses the existing `idx_row_state_wr_week` index |
 | `table:row_state` SELECT — stored row-id set per sheet | INTEGRATE | INC-03: the left side of the deep run's deletion diff |
 | `table:run_ledger` SELECT — previous run status / `finished_at` | INTEGRATE | D-02 trigger 6: a crashed run's partial watermarks are not a clean baseline |
-| `table:run_ledger` SELECT — parity streak scan over `notes` | INTEGRATE | D-09: the streak is derived on demand, with no counter column |
-| `table:group_state` SELECT — content-hash skip gate | INTEGRATE | INC-05 / D-12: becomes the sole skip gate once `hash_history.json` retires (plan 07) |
+| `table:run_ledger` SELECT — parity streak scan over `notes` | INTEGRATE | D-09: the streak is derived on demand, with no counter column (plan 07) |
+| `table:group_state` SELECT — content-hash skip gate | INTEGRATE | INC-05 / D-12: becomes the sole skip gate once `hash_history.json` retires (plan 08) |
 | `table:row_state` SELECT as the row CONTENT source for regeneration | OPT-OUT | D-05 approved partial: `row_state` stays membership-only. Deferred to a later slice, gated on D-04 running clean for 5 runs |
 | `table:row_event` SELECT into the pipeline | OPT-OUT | Phase 12 ownership-history lookups (OWN-*) are the first in-pipeline consumer |
 | Schema / DDL change — new column, index, RPC, or table | OPT-OUT | D-04 mandates zero schema change this phase; `pipeline_memory/schema.sql` is a protected area |
@@ -52,7 +52,7 @@ silently, which is why several of them flip to INTEGRATE.
 | 401 / 403 classification for per-sheet isolation | INTEGRATE | D-02 trigger 3: isolate the sheet, do not retry-as-full in a loop |
 | `Attachments` upload / delete on the target sheet | INTEGRATE | Existing upload path, now scoped by D-06 so nothing outside the affected scope is deleted |
 | `Cells.get_cell_history` — selective audit enrichment | INTEGRATE | Existing behaviour behind `SKIP_CELL_HISTORY`; unchanged this phase |
-| Folder-based sheet discovery (`Folders` / `Sheets` listing) | INTEGRATE | Existing discovery; its local cache retires to `sheet_registry` in plan 07 (INC-05) |
+| Folder-based sheet discovery (`Folders` / `Sheets` listing) | INTEGRATE | Existing discovery; its local cache retires to `sheet_registry` in plan 08 (INC-05) |
 | Deleted-row detection via `rowsModifiedSince` | OPT-OUT | Structurally impossible — verified against SDK 4.3.0 and Smartsheet docs (D-03). The deep run's full-read diff covers it |
 | Smartsheet webhooks / `Events` stream for push-based change notice | OPT-OUT | Would need a publicly reachable endpoint and a schedule change; 10-CONTEXT D-07 locks cron-driven polling |
 | A separate sheet-version call before the delta read | OPT-OUT | `if_version_after` already returns the version on the abbreviated response; a second call doubles the request count |

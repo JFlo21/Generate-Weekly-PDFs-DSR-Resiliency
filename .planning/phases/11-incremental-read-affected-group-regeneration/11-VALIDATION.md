@@ -37,6 +37,10 @@ Also gate every plan with `python -m py_compile generate_weekly_pdfs.py` and, be
 - **After every plan wave:** Run `python -m pytest tests/ -q`
 - **Before `/gsd:verify-work`:** Full suite must be green
 - **Max feedback latency:** 30 seconds
+- **`bash scripts/run_6_gates.sh` is a PLAN-level gate, never a per-task `<automated>` verify.**
+  It runs the full pytest suite, the mypy delta and a `TEST_MODE` run, which exceeds the
+  30-second per-task latency above. Every plan runs it once before being declared complete;
+  it lives in each PLAN.md's `<verification>` block, not in a `<task><verify>`.
 
 ---
 
@@ -56,7 +60,7 @@ Also gate every plan with `python -m py_compile generate_weekly_pdfs.py` and, be
 ## Wave 0 Requirements
 
 - [ ] `tests/test_pipeline_memory_shadow.py` — extend for WR-01 decorated-numeric payloads and WR-04 `sheets_changed` (plan 01)
-- [ ] `tests/test_incremental_read.py` — NEW: delta read, mode resolution, watermark persistence, D-06 preservation, incremental scope, affected-set mapping, scoped counters, parity streak (plans 02, 03, 04, 07)
+- [ ] `tests/test_incremental_read.py` — NEW: delta read, mode resolution, watermark persistence, D-06 preservation, incremental scope, affected-set mapping, scoped counters, parity streak, operator-escalation-flag regressions (plans 02, 03, 04, 07, 08)
 - [ ] `tests/fixtures/incremental/abbreviated_sheet_response.json` — NEW cassette pinning the abbreviated `Sheet` response shape (plan 02, closes RESEARCH Open Question 1 / Assumption A1)
 - [ ] `tests/test_parity_shadow.py` — NEW: shadow comparator verdicts and shadow delta reads (plan 05)
 - [ ] `tests/test_deep_run_reconciliation.py` — NEW: deletion detection, `column_mapping` refresh, formula-only reconciliation (plan 06)
@@ -72,9 +76,9 @@ Also gate every plan with `python -m py_compile generate_weekly_pdfs.py` and, be
 | Behavior | Requirement | Why Manual | Test Instructions |
 |----------|-------------|------------|-------------------|
 | `RUN_MEMORY_WRITE_ENABLED` flip merged and one real run populated `pipeline_memory` | INC-04 (D-10 precondition) | Protected GitHub Actions workflow edit + live production run | Juan approves/merges the flip PR; confirm a `run_ledger` row with `status='success'` and non-zero `row_state` count |
-| Parity streak ≥5 consecutive `production_frequent` runs with `parity_verdict='pass'` | INC-04 | Requires real scheduled runs over ~1 business day | Query newest `run_ledger` rows (`notes.execution_type='production_frequent'`) backward to first non-pass |
+| Parity streak ≥5 consecutive `production_frequent` runs with `parity_verdict='pass'` | INC-04 | Requires real scheduled runs over ~1 business day | Query newest `run_ledger` rows (`notes.execution_type='production_frequent'`) backward to first non-pass. Read at plan 07's decision checkpoint and re-confirmed at plan 08's opening gate |
 | Weekly deep run detects a deleted row + formula-only change on live data | INC-03 (SC3) | One live verification alongside the fixture | Delete one row / edit one formula on the Sandbox rig before the Monday run; confirm `row_state.deleted_at` + `group_state` repair |
-| Frequent-run wall clock before/after INC-05 retirement | INC-05 (SC4) | Measured on real runs (baseline 94 min, run 32743959053) | Compare run durations in the Actions log before and after the retirement PR |
+| Frequent-run wall clock before/after INC-05 retirement | INC-05 (SC4) | Measured on real runs (baseline 94 min, run 32743959053) | Compare run durations in the Actions log before and after the retirement PR (plan 08, its own PR) |
 
 ---
 

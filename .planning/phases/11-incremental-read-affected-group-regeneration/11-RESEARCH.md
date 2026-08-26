@@ -483,16 +483,19 @@ WHERE (wr, week_ending) IN (
    - What we know: `scripts/mem04_experiment.py` confirms abbreviated detection works against a serialized dict (`"rows" not in raw_response`).
    - What's unclear: the live SDK object's attribute behavior in the abbreviated case — never exercised by production code.
    - Recommendation: add a Task 0/fixture step that captures one real abbreviated `Sheet` object's `dir()`/`hasattr` shape (reusing the existing MEM-04 sandbox rig) before writing the production detection helper.
+   - **RESOLVED — plan 11-02 Task 1.** `tests/fixtures/incremental/abbreviated_sheet_response.json` pins the real abbreviated `Sheet` shape as a cassette (Wave 0 item), and `pipeline.fetch._is_abbreviated_response` uses a defensive falsy check rather than assuming `rows=None` — so the helper is correct whether the live SDK returns `None`, an empty list, or omits the attribute entirely. The cassette is the regression that keeps it correct if the SDK shape changes.
 
 2. **Should the shadow comparator (D-07/D-08) live as a new top-level `pipeline/parity.py` module or a new `pipeline_memory/reader.py`-adjacent module?**
    - What we know: CONTEXT.md explicitly defers this to Claude's Discretion; `pipeline_memory` has a documented "imports nothing from pipeline.*" boundary that a comparator (which needs `calculate_data_hash` from `pipeline.change_detection`) would violate if placed inside `pipeline_memory/`.
    - What's unclear: whether the planner prefers a single `pipeline/parity.py` or a `pipeline/parity/` sub-package (this research recommends the latter only if the comparator plus its shadow-delta-read logic exceeds ~300-400 lines; otherwise a single module is simpler).
    - Recommendation: default to a single `pipeline/parity.py` module; split only if it grows large, following the same "hooks in orchestrate.py, logic elsewhere" pattern the writer-phase functions already establish.
+   - **RESOLVED — plan 11-05 Task 2.** A single top-level `pipeline/parity.py` module holding `compare_shadow_parity` and `run_shadow_delta_reads`, with the hooks in `orchestrate.py`. This keeps the `pipeline_memory` "imports nothing from `pipeline.*`" boundary intact, since the comparator needs `calculate_data_hash` from `pipeline.change_detection`. No sub-package this phase.
 
 3. **Exact wording/threshold for D-02 trigger 6 ("previous run status != 'success' or finished_at IS NULL")** — does this require a new `pipeline_memory/reader.py` query against `run_ledger` before every incremental run, and what happens if THAT read itself fails (memory outage during mode-resolution, not during the run itself)?
    - What we know: D-02 lists this as one of 7 triggers; `run_ledger` has `status`/`finished_at` columns already.
    - What's unclear: the fail-open behavior for the mode-resolution query itself (presumably: read failure ⇒ treat as "cannot confirm previous run succeeded" ⇒ fall back to full mode, consistent with the general fail-open contract, but not explicitly stated in D-02).
    - Recommendation: treat a mode-resolution-query failure as equivalent to trigger 4 (memory outage → full mode) since it is the same underlying failure class.
+   - **RESOLVED — plan 11-02 Task 2.** `get_last_run_ledger_status` returns `None` on any read failure, and `resolve_run_mode` reads `None` as "cannot confirm the previous run succeeded" and fires trigger 6, escalating to a full read. The fail-open contract therefore covers the mode-resolution query itself, not just the run: a memory outage during mode resolution and a memory outage during the run both land in full mode.
 
 ## Environment Availability
 

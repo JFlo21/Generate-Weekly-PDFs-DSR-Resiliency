@@ -137,7 +137,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 08. smartsheet-python-sdk 4.0.0 Compatibility Migration | v1.2 | 2/2 | Complete    | 2026-07-22 |
 | 09. Engine Modularization (pipeline package split) | v1.3 | 9/9 | ✅ Complete | 2026-08-25 |
 | 10. Run-Memory Foundation (shadow writes) | v1.4 | 6/6 | ✅ Complete | 2026-08-25 |
-| 11. Incremental Read + Affected-Group Regeneration | v1.4 | 0/7 | Planned |  |
+| 11. Incremental Read + Affected-Group Regeneration | v1.4 | 0/8 | Planned |  |
 | 12. Ownership — last known foreman as of the week | v1.4 | 0/? | Draft |  |
 | 13. Audit Memory | v1.4 | 0/? | Draft |  |
 
@@ -609,7 +609,7 @@ files, reading group rows from `row_state`; the weekly deep run reconciles fully
 4. Local JSON caches and the two attachment pre-fetch phases are removed only after (2);
    frequent-run wall clock measured before/after (baseline 94 min, run 32743959053).
 
-**Plans:** 7 plans
+**Plans:** 8 plans
 
 Plans:
 **Wave 1**
@@ -638,7 +638,11 @@ Plans:
 
 **Wave 7** *(blocked on Wave 6 completion, and on the ≥5-run parity streak)*
 
-- [ ] 11-07-PLAN.md — INC-05 retirement: D-09 streak scan, local JSON caches, attachment pre-fetch, six workflow cache steps — its own PR, never bundled (wave 7, autonomous:false)
+- [ ] 11-07-PLAN.md — INC-04 D-09 parity streak scan over `run_ledger` + the blocking decision gate that authorises the INC-05 retirement (wave 7, autonomous:false)
+
+**Wave 8** *(blocked on Wave 7's approved decision; its own PR, never bundled)*
+
+- [ ] 11-08-PLAN.md — INC-05 retirement: local JSON caches, attachment pre-fetch, six workflow cache steps, before/after wall clock, Phase 11 Living Ledger entry (wave 8, autonomous:false)
 
 ### Phase 12: Ownership — last known foreman as of the week
 
