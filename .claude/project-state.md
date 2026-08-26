@@ -1,19 +1,34 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-25 01:40 CDT · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-25 20:30 CDT · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
-_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-25 01:40]` (PR #349 merged;
-local `master` re-synced via `reset --keep`; post-merge gate 1388 passed). **Phase 09 CLOSED 2026-08-25** — verifier 6/6 (`410235e`), v1.3 milestone
-complete. Next: `/gsd-core:gsd-execute-phase 10` (Run-Memory Foundation; pauses at the
-10-05/10-06 human checkpoints). Optional first: `/gsd-core:gsd-complete-milestone` to archive v1.3.
-Git: `master` = `origin/master` @ `22ab153`; work branch `feat/phase-10-run-memory` (cut from origin/master).
-**PR #349 MERGED** 2026-08-25 01:15 CDT as squash `c409c32`. **Phase 10 execution PAUSED 01:35 CDT before
-any dispatch** — handoff: `.planning/phases/10-run-memory-foundation-shadow-writes/.continue-here.md` +
-`.planning/HANDOFF.json` (WIP commit `0b85e53`); resume with `/gsd:resume-work`. Only `generated_docs/hash_history.json` stays dirty._
+_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-25 20:30]` (Phase 10 executed 6/6 +
+all tail gates; verifier `human_needed` 11/13). **Phase 10 EXECUTED, NOT CLOSED** — awaiting
+`/gsd-verify-work 10` (two Juan decisions in `10-UAT.md`). `pipeline_memory` schema is LIVE on
+Supabase `poeyztlmsawfoqlanucc` (service_role-only; write path OFF in production).
+Git: `master` = `origin/master` @ `22ab153`; work branch `feat/phase-10-run-memory` @ `acf7dad`
+(~60 commits ahead, all Phase 10; NOT pushed, no PR yet). Only `generated_docs/hash_history.json` stays dirty (pre-existing)._
 
-## Latest work (2026-08-25 01:40 CDT) — PR #349 merged; local `master` re-synced; post-merge gate green
+## Latest work (2026-08-25 20:30 CDT) — `/gsd-execute-phase 10` COMPLETE (6/6 plans, 4 waves, sequential); tail gates done; verification human_needed
+0. **Execution:** 10-01 → 10-04 → 10-02 → 10-05 (Juan: "you run this for me" → Claude built the
+   MEM-04 sandbox rig via Smartsheet MCP + SDK, ran probes a–f; verdict **PASS**, D-09 OPEN) →
+   10-03 → 10-06 (Juan applied `schema.sql` + exposed the schema; Claude found and fixed the
+   missing service_role GRANTs `2df3b25`, Juan applied them; four real `SKIP_UPLOAD` runs proved
+   neutrality/idempotence/fail-open; two live-only bugs fixed `514589a`, `cf3568b`).
+   **Tail gates:** post-merge gates green every wave; code review 0C/4W/1I (`7e86f46`, follow-ups
+   todo `8b844a6`); regression 978 passed / 17 files; Nyquist validated, 0 gaps (`c292d5d`);
+   security 21/21 closed after T-10-04 per-RPC timeout wired (`b48efd7`, haiku-verifier PASS)
+   → `10-SECURITY.md` (`eda4110`); gsd-verifier **human_needed 11/13** → `10-UAT.md` (`bf9f919`).
+   Suite **1514 passed / 1 skipped / 135 subtests**; 6 gates ALL PASSED; mypy 65→65; protected
+   files untouched. **Next:** `/gsd-verify-work 10` — (1) accept canonicalized-content proof for
+   SC4 "byte-identical" or require a low-activity rerun; (2) carry `group_state` attachment-id
+   proof to the flag-flip PR. Then push branch → PR → Seer PR triage (#343/#346/#347/#348).
+   Operational notes: two diagnostic `run_ledger` rows remain in prod (no DELETE grant by design);
+   rig sheets `6295051624730500` / `4909062725521284` left in the `Sandbox` workspace (disposable).
+
+## Previous (2026-08-25 01:40 CDT) — PR #349 merged; local `master` re-synced; post-merge gate green
 0. **Merge:** https://github.com/JFlo21/Generate-Weekly-PDFs-DSR-Resiliency/pull/349 squash-merged as
    `c409c32` (32 commits `7e7c818`..`bb1a064`); `docs-changelog.yml` stub `22ab153` on top. Local `master`
    had diverged (ahead 29 / behind 17) because the branch was cut from unpushed local commits —

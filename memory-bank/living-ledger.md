@@ -6638,3 +6638,49 @@ follow-up findings closed, same 6 files.
   monitoring window after flip (watch `run_ledger.status`, `sheets_errored`,
   `RUN_MEMORY_WRITE_MAX_MINUTES` headroom on the first few real production runs) before treating
   the write path as unattended-stable.
+
+## [2026-08-25 20:30] Phase 10 executed end-to-end (6/6 plans, sequential) + all tail gates; verifier `human_needed` 11/13 — three durable lessons
+
+- **Run shape:** `/gsd-execute-phase 10` on `feat/phase-10-run-memory` ran sequentially
+  (`ISOLATION=none` — any feature branch fails `worktree.base-check`, expected). Waves:
+  10-01 → 10-04 → 10-02 → 10-05 (checkpoint) → 10-03 → 10-06 (checkpoint). Every wave's
+  post-merge build+test gate and all three `wave:post` gates passed. Final: suite **1514
+  passed / 1 skipped / 135 subtests**, `run_6_gates.sh` ALL PASSED (mypy 65→65), regression gate
+  978 passed over 17 prior-phase files, protected files byte-unchanged vs `fcd734c`.
+- **Human checkpoints, honestly recorded:** 10-05's rig was built by Claude through the
+  Smartsheet MCP + a one-off SDK snippet on Juan's instruction ("you run this for me"), not by
+  repo code — D-08 holds; both edits and probe timings are in `[2026-08-25 12:50]`. 10-06's DDL
+  apply was Juan's (the auto-mode classifier blocks `apply_migration` on the production
+  project — correct, not routed around); the orchestrator verified via catalog SQL + a
+  PostgREST probe (`42501` before grants, `200 []` after).
+- **Lesson 1 — Supabase `service_role` is not a superuser on a new schema.** `schema.sql` had
+  RLS + REVOKEs but no `GRANT USAGE ON SCHEMA` / table / sequence grants for `service_role`,
+  so every shadow write would have failed `42501` silently under fail-open. Fixed `2df3b25`
+  (mirrors `billing_audit`; DELETE withheld; `ALTER DEFAULT PRIVILEGES` for future tables).
+  **Rule:** any new schema's DDL ships schema USAGE + explicit table/sequence GRANTs for the
+  writer role, and the apply checklist includes `has_table_privilege('service_role', …)`.
+- **Lesson 2 — a threat-model "mitigation" that no task builds is an open threat.** 10-02's
+  register claimed a per-RPC timeout; `RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC` existed but was
+  never applied (REVIEW WR-02 + secure-phase T-10-04, high). Closed `b48efd7`:
+  `ClientOptions(postgrest_client_timeout=…)` with SDK-drift fallback + 5 tests. **Rule:** the
+  planner's mitigation column must map to a task `<action>`/acceptance criterion, or be
+  dispositioned `accept`.
+- **Lesson 3 — live runs find what mocks cannot.** 10-06's four real `SKIP_UPLOAD` runs
+  surfaced `run_ledger_finish` omitting NOT-NULL `mode` (`23502`) and the comparator's
+  raw-byte false positive on openpyxl wall-clock bytes (`514589a`, `cf3568b`); the SDK 4.3.0
+  `+00:00Z` timestamp quirk hit 10-05's replay. Keep a real-data control run in every
+  Supabase-writer phase's tail.
+- **Tail artifacts:** `10-REVIEW.md` 0C/4W/1I (`7e86f46`; follow-ups → Phase 11 todo
+  `8b844a6`: WR-01 decorated numerics vs NUMERIC RPC params is a flag-flip precondition),
+  `10-VALIDATION.md` validated/no gaps (`c292d5d`), `10-SECURITY.md` 21/21 closed
+  (`eda4110`), `10-VERIFICATION.md` 11/13 + `10-UAT.md` (`bf9f919`).
+- **Open for Juan (`/gsd-verify-work 10`):** (1) SC4 "byte-identical" — accept the
+  canonicalized-content proof (residual comparator diff = ~50 live Smartsheet rows during
+  the 68-min gap) or require a low-activity/snapshot-replay rerun; (2) `group_state`
+  attachment-id proof is structurally impossible under `SKIP_UPLOAD` — carry to the flag-flip
+  PR. Housekeeping: two diagnostic `run_ledger` rows in prod (operator-only delete); rig
+  sheets in `Sandbox` are disposable. Branch not pushed; no PR yet.
+- **Harness note:** the harness-boundary hook false-positives on any Bash command containing
+  both `review` and `--all` (e.g. `git log --all` while scoping a code review) and on
+  `gsd-tools … commit "… review …"`; use `git log` without `--all` and plain `git commit` for
+  those docs commits.
