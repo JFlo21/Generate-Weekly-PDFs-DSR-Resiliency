@@ -2911,25 +2911,37 @@ class TestPppCleanupUntrackedAttachments(unittest.TestCase):
         # the SKIP_UPLOAD dry-run so validation runs never delete
         # attachments. Reviewed against D-09: default False preserves
         # byte-identical legacy behavior.
+        # Phase 11 Plan 03 (CONTEXT.md D-06, 2026-08-26) appends one
+        # more trailing kwarg: keep_historical (bool | None, default
+        # None) — the call-boundary override for the identity-loop's
+        # KEEP_HISTORICAL_WEEKS gate, used ONLY by incremental-mode
+        # callers. None preserves byte-identical legacy behavior for
+        # every existing call site.
         # IN-PLACE UPDATE per [2026-05-20 00:26] rule 2 — the assertion
-        # follows the v6 signature contract.
+        # follows the v7 signature contract.
         self.assertEqual(
             params,
             ['client', 'target_sheet_id', 'valid_wr_weeks',
              'test_mode', 'attachment_cache', 'target_sheet',
              'variant_whitelist', 'sub_wr_scope', 'sub_offcontract_variants',
              'sub_legacy_primary_variants', 'vac_legacy_wr_scope',
-             'primary_wr_scope', 'dry_run'],
-            "Phase 08 T-08-03 appends a trailing kwarg after "
-            "'primary_wr_scope': 'dry_run'. "
+             'primary_wr_scope', 'dry_run', 'keep_historical'],
+            "Phase 11 Plan 03 appends a trailing kwarg after "
+            "'dry_run': 'keep_historical'. "
             "Any further drift must be reviewed against D-09 (TARGET "
-            "legacy behavior). "
+            "legacy behavior) and D-06 (incremental preservation). "
             f"Got: {params}"
         )
         self.assertIs(
             sig.parameters['dry_run'].default, False,
             'dry_run must default to False (Phase 08 T-08-03) so all '
             'existing call sites keep mutating behavior unchanged.'
+        )
+        self.assertIs(
+            sig.parameters['keep_historical'].default, None,
+            'keep_historical must default to None (D-06) so every '
+            'existing call site falls back to KEEP_HISTORICAL_WEEKS '
+            'unchanged.'
         )
         # All trailing kwargs must default to None (D-09) so
         # existing call sites without the new kwargs are unaffected.

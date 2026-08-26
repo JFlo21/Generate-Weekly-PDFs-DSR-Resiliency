@@ -3440,6 +3440,19 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     sub_legacy_primary_variants=_target_legacy_primary,
                     vac_legacy_wr_scope=_vac_scope,
                     primary_wr_scope=_primary_scope,
+                    # Phase 11 Plan 03 (CONTEXT.md D-06 — highest-severity
+                    # finding of the phase): in incremental mode `groups`
+                    # is a strict subset of the live groups, so
+                    # `valid_wr_weeks` (built from `groups` above) is too
+                    # — an identity absent from it means "not processed
+                    # this run", never "no longer valid". Force the
+                    # identity-loop's preservation gate on at this call
+                    # boundary only: the global env-driven
+                    # KEEP_HISTORICAL_WEEKS constant (and its facade
+                    # rebind in pipeline/cleanup.py) is never flipped, so
+                    # a full-mode run's cleanup decisions are
+                    # byte-for-byte unchanged.
+                    keep_historical=True if _resolved_mode == 'incremental' else None,
                     dry_run=SKIP_UPLOAD,
                 )
 
@@ -3519,6 +3532,14 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                             if _sub_scope and SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED
                             else None
                         ),
+                        # Phase 11 Plan 03 (CONTEXT.md D-06): same
+                        # incremental-mode override as the TARGET call
+                        # site above — `valid_wr_weeks` is a strict
+                        # subset in incremental mode, so an identity
+                        # absent from it means "not processed this run",
+                        # not "no longer valid". Call-boundary override
+                        # only; KEEP_HISTORICAL_WEEKS itself is untouched.
+                        keep_historical=True if _resolved_mode == 'incremental' else None,
                         dry_run=SKIP_UPLOAD,
                     )
 

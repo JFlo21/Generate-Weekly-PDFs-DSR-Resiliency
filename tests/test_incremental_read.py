@@ -833,5 +833,211 @@ class WatermarkPersistenceTests(unittest.TestCase):
         )
 
 
+# ── 11-03 Task 1 (D-06 attachment preservation): keep_historical
+# call-boundary override on cleanup_untracked_sheet_attachments ────────
+
+class CleanupPreservationTests(unittest.TestCase):
+    """CONTEXT.md D-06's attachment half: ``keep_historical`` threaded
+    from the incremental-mode call site to the existing
+    ``KEEP_HISTORICAL_WEEKS`` identity-loop gate in
+    ``pipeline.cleanup.cleanup_untracked_sheet_attachments``. Mirrors
+    the mocking convention already established in
+    ``tests/test_orphaned_primary_attachment.py``.
+    """
+
+    SHEET_ID = 5723337641643908
+    WEEK = "041926"
+
+    def setUp(self):
+        import generate_weekly_pdfs as gwp
+        self._gwp = gwp
+        self._saved_keep_historical = gwp.KEEP_HISTORICAL_WEEKS
+
+    def tearDown(self):
+        self._gwp.KEEP_HISTORICAL_WEEKS = self._saved_keep_historical
+
+    @staticmethod
+    def _attachment(name, att_id):
+        att = mock.MagicMock()
+        att.name = name
+        att.id = att_id
+        return att
+
+    @staticmethod
+    def _sheet_and_cache(attachments):
+        sheet = mock.MagicMock()
+        row = mock.MagicMock()
+        row.id = 111
+        sheet.rows = [row]
+        return sheet, {111: attachments}
+
+    @staticmethod
+    def _client(deleted_ids):
+        client = mock.MagicMock()
+
+        def _delete(sheet_id, att_id):
+            deleted_ids.append(att_id)
+            return mock.MagicMock()
+
+        client.Attachments.delete_attachment.side_effect = _delete
+        return client
+
+    def _run(self, attachments, valid_wr_weeks, keep_historical, module_constant):
+        from pipeline.cleanup import cleanup_untracked_sheet_attachments
+
+        self._gwp.KEEP_HISTORICAL_WEEKS = module_constant
+        sheet, cache = self._sheet_and_cache(attachments)
+        deleted_ids: list[int] = []
+        client = self._client(deleted_ids)
+        cleanup_untracked_sheet_attachments(
+            client=client,
+            target_sheet_id=self.SHEET_ID,
+            valid_wr_weeks=valid_wr_weeks,
+            test_mode=False,
+            attachment_cache=cache,
+            target_sheet=sheet,
+            keep_historical=keep_historical,
+        )
+        return deleted_ids
+
+    def _name(self, wr, identifier, ts="120000"):
+        return (
+            f"WR_{wr}_WeekEnding_{self.WEEK}_{ts}_User_{identifier}_aabbcc.xlsx"
+        )
+
+    def _dup_pair(self, wr, identifier, newer_id, older_id):
+        # cleanup_untracked_sheet_attachments' identity-loop only ever
+        # deletes DUPLICATE attachments beyond the single newest one
+        # per (wr, week, variant, identifier) -- a lone attachment is
+        # never deleted through this loop regardless of any gate. So
+        # every delete/preserve assertion here needs 2+ attachments
+        # sharing one identity (`_ts()` sorts on the 6-digit token
+        # right after WeekEnding_{week}_).
+        newer = self._attachment(self._name(wr, identifier, ts="120001"), newer_id)
+        older = self._attachment(self._name(wr, identifier, ts="120000"), older_id)
+        return newer, older
+
+    def test_keep_historical_none_matches_constant_off(self):
+        # keep_historical=None must fall back to the module constant --
+        # constant OFF prunes the older duplicate exactly as it does
+        # today (no callers changed this path).
+        newer, older = self._dup_pair("90001", "Bob", newer_id=20, older_id=10)
+        deleted = self._run(
+            [newer, older], valid_wr_weeks=set(), keep_historical=None,
+            module_constant=False,
+        )
+        self.assertEqual(deleted, [older.id])
+
+    def test_keep_historical_none_matches_constant_on(self):
+        # Same fallback, constant ON preserves the older duplicate
+        # exactly as it does today.
+        newer, older = self._dup_pair("90001", "Bob", newer_id=20, older_id=10)
+        deleted = self._run(
+            [newer, older], valid_wr_weeks=set(), keep_historical=None,
+            module_constant=True,
+        )
+        self.assertEqual(deleted, [])
+
+    def test_keep_historical_true_skips_regardless_of_constant_off(self):
+        newer, older = self._dup_pair("90001", "Bob", newer_id=20, older_id=10)
+        deleted = self._run(
+            [newer, older], valid_wr_weeks=set(), keep_historical=True,
+            module_constant=False,
+        )
+        self.assertEqual(deleted, [])
+
+    def test_keep_historical_false_deletes_regardless_of_constant_on(self):
+        newer, older = self._dup_pair("90001", "Bob", newer_id=20, older_id=10)
+        deleted = self._run(
+            [newer, older], valid_wr_weeks=set(), keep_historical=False,
+            module_constant=True,
+        )
+        self.assertEqual(deleted, [older.id])
+
+    def test_strict_subset_groups_issues_zero_deletes_for_untouched_identities(self):
+        # The load-bearing case: the sheet carries several identities;
+        # this run's valid_wr_weeks (built from a strict-subset
+        # `groups`, as an incremental run would produce) covers only
+        # one of them (a single, non-duplicated attachment -- never
+        # touched regardless of any gate). The two untouched identities
+        # each carry a duplicate pair that keep_historical=True must
+        # preserve in full.
+        live = self._attachment(self._name("90001", "Bob"), 10)
+        untouched_a_new, untouched_a_old = self._dup_pair(
+            "90002", "Carol", newer_id=21, older_id=11,
+        )
+        untouched_b_new, untouched_b_old = self._dup_pair(
+            "90003", "Dan", newer_id=22, older_id=12,
+        )
+        valid_wr_weeks = {("90001", self.WEEK, "primary", "Bob")}
+        deleted = self._run(
+            [live, untouched_a_new, untouched_a_old, untouched_b_new, untouched_b_old],
+            valid_wr_weeks=valid_wr_weeks,
+            keep_historical=True,
+            module_constant=False,
+        )
+        self.assertEqual(deleted, [])
+
+    def test_omitting_keep_historical_kwarg_matches_default_full_mode(self):
+        # Regression: every pre-existing call site (and every existing
+        # test) omits keep_historical entirely -- this must behave
+        # byte-identically to explicitly passing None.
+        from pipeline.cleanup import cleanup_untracked_sheet_attachments
+
+        newer, older = self._dup_pair("90001", "Bob", newer_id=20, older_id=10)
+        self._gwp.KEEP_HISTORICAL_WEEKS = False
+        sheet, cache = self._sheet_and_cache([newer, older])
+        deleted_ids: list[int] = []
+        client = self._client(deleted_ids)
+        cleanup_untracked_sheet_attachments(
+            client=client,
+            target_sheet_id=self.SHEET_ID,
+            valid_wr_weeks=set(),
+            test_mode=False,
+            attachment_cache=cache,
+            target_sheet=sheet,
+            # keep_historical intentionally omitted.
+        )
+        self.assertEqual(deleted_ids, [older.id])
+
+
+class OrchestrateKeepHistoricalWiringTests(unittest.TestCase):
+    """Source-inspection guard: both cleanup_untracked_sheet_attachments
+    call sites in pipeline.orchestrate pass keep_historical=True only
+    when the resolved run mode is incremental, pass None otherwise, and
+    never flip the global KEEP_HISTORICAL_WEEKS constant to achieve it.
+    """
+
+    def test_two_call_sites_pass_keep_historical_true_conditionally(self):
+        import inspect
+        import pipeline.orchestrate as orch
+
+        src = inspect.getsource(orch)
+        self.assertEqual(
+            src.count(
+                "keep_historical=True if _resolved_mode == 'incremental' else None"
+            ),
+            2,
+        )
+
+    def test_global_constant_never_reassigned_in_orchestrate(self):
+        import inspect
+        import pipeline.orchestrate as orch
+
+        src = inspect.getsource(orch)
+        # The one pre-existing facade-read prelude line (main()'s
+        # test-mutable-constant binding, predates this plan) is the
+        # ONLY assignment to this name -- no incremental-mode logic
+        # added by this plan reassigns the global constant to achieve
+        # the call-boundary override.
+        self.assertEqual(
+            src.count("KEEP_HISTORICAL_WEEKS = _gwp.KEEP_HISTORICAL_WEEKS"), 1,
+        )
+        self.assertNotIn("KEEP_HISTORICAL_WEEKS = True", src)
+        self.assertNotIn("KEEP_HISTORICAL_WEEKS = False", src)
+        self.assertNotIn('os.environ["KEEP_HISTORICAL_WEEKS"]', src)
+        self.assertNotIn("os.environ['KEEP_HISTORICAL_WEEKS']", src)
+
+
 if __name__ == "__main__":
     unittest.main()
