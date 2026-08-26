@@ -2157,5 +2157,229 @@ class ScopedCounterTests(unittest.TestCase):
         self.assertEqual(len(data), 21)
 
 
+# ── Plan 07 Task 1: pipeline_memory.reader.get_parity_streak (D-09) ─────
+
+def _streak_row(run_id, verdict=None, execution_type="production_frequent"):
+    """Build a synthetic ``run_ledger`` row for the streak scan.
+
+    ``verdict is None`` means the row's ``notes`` carries no
+    ``parity_verdict`` key at all -- the "absent verdict" case, which the
+    scan treats identically to an explicit ``skipped``.
+    """
+    notes = {"execution_type": execution_type}
+    if verdict is not None:
+        notes["parity_verdict"] = verdict
+    return {
+        "run_id": run_id,
+        "started_at": "2026-08-26T00:00:00+00:00",
+        "status": "success",
+        "notes": notes,
+    }
+
+
+class ParityStreakTests(unittest.TestCase):
+    """Phase 11 Plan 07, Task 1 (D-09): ``get_parity_streak`` scans
+    ``run_ledger`` newest-first for consecutive ``production_frequent``
+    ``pass`` verdicts -- pass counts, fail resets and stops, skipped (and
+    an absent verdict) is excluded from the sequence entirely.
+    """
+
+    def setUp(self):
+        _reset_pipeline_memory()
+        _pop_env()
+
+    def tearDown(self):
+        _reset_pipeline_memory()
+        _pop_env()
+
+    def _mock_rows(self, rows):
+        client = mock.Mock()
+        query = (
+            client.schema.return_value.table.return_value
+            .select.return_value.order.return_value.limit.return_value
+        )
+        query.execute.return_value = SimpleNamespace(data=rows)
+        return client
+
+    def test_five_consecutive_pass_yields_streak_of_five(self):
+        from pipeline_memory import reader as mem_reader
+
+        rows = [_streak_row(f"r{i}", "pass") for i in range(5)]
+        client = self._mock_rows(rows)
+
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=client
+        ):
+            result = mem_reader.get_parity_streak(limit=10)
+
+        self.assertEqual(result["streak"], 5)
+        self.assertEqual(len(result["contributing_run_ids"]), 5)
+
+    def test_skipped_between_two_pass_rows_yields_streak_of_two(self):
+        """Load-bearing: a skipped row sandwiched between two passes must
+        neither count nor reset -- the streak is two, not one and not a
+        reset to zero."""
+        from pipeline_memory import reader as mem_reader
+
+        rows = [
+            _streak_row("r-newest", "pass"),
+            _streak_row("r-middle", "skipped"),
+            _streak_row("r-oldest", "pass"),
+        ]
+        client = self._mock_rows(rows)
+
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=client
+        ):
+            result = mem_reader.get_parity_streak(limit=10)
+
+        self.assertEqual(result["streak"], 2)
+        self.assertIn("r-newest", result["contributing_run_ids"])
+        self.assertIn("r-oldest", result["contributing_run_ids"])
+        self.assertNotIn("r-middle", result["contributing_run_ids"])
+
+    def test_fail_row_yields_streak_of_zero(self):
+        """Load-bearing: a lone fail row yields a streak of zero."""
+        from pipeline_memory import reader as mem_reader
+
+        rows = [_streak_row("r1", "fail")]
+        client = self._mock_rows(rows)
+
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=client
+        ):
+            result = mem_reader.get_parity_streak(limit=10)
+
+        self.assertEqual(result["streak"], 0)
+        self.assertEqual(result["stopped_run_id"], "r1")
+        self.assertEqual(result["stopped_verdict"], "fail")
+
+    def test_fail_resets_prior_passes_and_stops_scan(self):
+        from pipeline_memory import reader as mem_reader
+
+        rows = [
+            _streak_row("r-new", "pass"),
+            _streak_row("r-fail", "fail"),
+            _streak_row("r-old", "pass"),  # never reached -- scan stopped
+        ]
+        client = self._mock_rows(rows)
+
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=client
+        ):
+            result = mem_reader.get_parity_streak(limit=10)
+
+        self.assertEqual(result["streak"], 0)
+        self.assertEqual(result["contributing_run_ids"], [])
+        self.assertEqual(result["rows_examined"], 2)
+
+    def test_absent_verdict_treated_like_skipped(self):
+        from pipeline_memory import reader as mem_reader
+
+        rows = [
+            _streak_row("r-newest", "pass"),
+            _streak_row("r-no-verdict"),  # no parity_verdict key at all
+            _streak_row("r-oldest", "pass"),
+        ]
+        client = self._mock_rows(rows)
+
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=client
+        ):
+            result = mem_reader.get_parity_streak(limit=10)
+
+        self.assertEqual(result["streak"], 2)
+
+    def test_non_production_frequent_rows_are_ignored(self):
+        from pipeline_memory import reader as mem_reader
+
+        rows = [
+            _streak_row(
+                "r-weekly", "fail", execution_type="weekly_comprehensive",
+            ),
+            _streak_row("r1", "pass"),
+            _streak_row("r2", "pass"),
+        ]
+        client = self._mock_rows(rows)
+
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=client
+        ):
+            result = mem_reader.get_parity_streak(limit=10)
+
+        # The weekly-run "fail" must not reset/stop a production_frequent
+        # streak -- it is ignored entirely, not scanned as a candidate.
+        self.assertEqual(result["streak"], 2)
+
+    def test_streak_stops_scanning_once_target_reached(self):
+        from pipeline_memory import reader as mem_reader
+
+        rows = [_streak_row(f"r{i}", "pass") for i in range(10)]
+        client = self._mock_rows(rows)
+
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=client
+        ):
+            result = mem_reader.get_parity_streak(limit=10)
+
+        self.assertEqual(result["streak"], 5)
+        self.assertEqual(result["rows_examined"], 5)
+
+    def test_supabase_failure_returns_none(self):
+        from pipeline_memory import reader as mem_reader
+
+        client = mock.Mock()
+        (
+            client.schema.return_value.table.return_value
+            .select.return_value.order.return_value.limit.return_value
+            .execute.side_effect
+        ) = Exception("boom")
+
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=client
+        ):
+            result = mem_reader.get_parity_streak(limit=10)
+
+        self.assertIsNone(result)
+
+    def test_client_unavailable_returns_none(self):
+        from pipeline_memory import reader as mem_reader
+
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=None
+        ):
+            result = mem_reader.get_parity_streak(limit=10)
+
+        self.assertIsNone(result)
+
+    def test_no_rows_yields_zero_streak_not_none(self):
+        from pipeline_memory import reader as mem_reader
+
+        client = self._mock_rows([])
+
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=client
+        ):
+            result = mem_reader.get_parity_streak(limit=10)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["streak"], 0)
+
+    def test_reports_op_name_for_independent_breaker(self):
+        from pipeline_memory import reader as mem_reader
+
+        client = mock.Mock()
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=client
+        ), mock.patch(
+            "pipeline_memory.reader.with_retry",
+            return_value=SimpleNamespace(data=[]),
+        ) as mocked_retry:
+            mem_reader.get_parity_streak(limit=10)
+
+        _, kwargs = mocked_retry.call_args
+        self.assertEqual(kwargs.get("op"), "run_ledger_parity_streak")
+
+
 if __name__ == "__main__":
     unittest.main()
