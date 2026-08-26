@@ -251,6 +251,17 @@ jobs:
           # safe to land before the secrets exist at the repo level.
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Phase 11 D-10 (2026-08-26, owner-approved flip): turn ON the
+          # pipeline_memory shadow-WRITE path (run_ledger / sheet_registry /
+          # row_state / group_state) for every scheduled run, plus the
+          # 11-05 in-process shadow-parity comparator and the Monday
+          # deep-run reconciliation, which both self-gate on this flag.
+          # The incremental READ path stays OFF (RUN_MEMORY_INCREMENTAL_ENABLED
+          # defaults '0') until the five-run parity streak authorises it.
+          # Fail-open: every call site also gates on TEST_MODE. Rollback:
+          # delete this line or set '0'; no other change needed.
+          # Checklist: docs/run-memory-write-flip-checklist.md.
+          RUN_MEMORY_WRITE_ENABLED: '1'
           # Snapshot-drift hold gate (260814, Juan-approved after
           # burn-in): holds ONLY automation-self-fire drift candidates
           # at their prior billed week (D-01 — manual and unclassified

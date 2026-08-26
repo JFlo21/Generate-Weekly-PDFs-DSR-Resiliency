@@ -33,9 +33,16 @@ edits it without explicit approval.
      **CLOSED** (`b48efd7`, secure-phase T-10-04).
    - [ ] WR-03 (failure-path `run_ledger_finish(status="failed")`) —
      already **CLOSED** (`6965f95` / PR #350).
-   - [ ] All four commits are present on the branch this flip PR is cut
-     from — `git log --oneline | grep -E '4323cec|b48efd7|6965f95'`
-     (plus WR-04's commit) must show all four.
+   - [x] All four fixes are present on the branch this flip PR is cut
+     from (`ops/run-memory-write-flip`, stacked on
+     `feat/phase-11-incremental-read`, PR #351) —
+     `git log --oneline | grep -E '4323cec|7ffa57a|99dc25d'` shows WR-01,
+     WR-04 and the Phase 10 squash-merge `99dc25d` (PR #350). WR-02
+     `b48efd7` and WR-03 `6965f95` only exist as SHAs on
+     `origin/feat/phase-10-run-memory`; on `master` they arrived inside
+     `99dc25d` — verified by content (`pipeline_memory/client.py`
+     `_rpc_timeout_sec` / `RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC`;
+     `pipeline/orchestrate.py` failure-path `status="failed"`).
 
 2. **IN-01 — upload-enabled control run.** `upsert_group_state`'s
    attachment-preservation COALESCE (`pipeline_memory/writer.py`) has
@@ -88,19 +95,22 @@ edits it without explicit approval.
    currently **absent** from
    `.github/workflows/weekly-excel-generation.yml` — the code default is
    `'0'` (`pipeline/config.py`), so this is an **add**, not a flip of an
-   existing value. Add one line to each of the two `Generate reports`
-   `env:` blocks (currently at the `SUPABASE_URL` /
-   `SUPABASE_SERVICE_ROLE_KEY` pair, ~line 252 and ~line 606), matching
-   the existing style:
+   existing value. Add one line to the **single** `Generate reports`
+   step's `env:` block (the `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY`
+   pair at ~line 252) — that is the only step that runs
+   `generate_weekly_pdfs.py`. The second `SUPABASE_URL` pair (~line 606)
+   belongs to `Publish artifacts to Supabase`, which runs
+   `scripts/publish_artifacts_to_supabase.py` and never reads this flag,
+   so it must NOT be added there. Match the existing style:
 
    ```yaml
    RUN_MEMORY_WRITE_ENABLED: '1'
    ```
 
-   - [ ] Added to both `env:` blocks that already carry
-     `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` (the pipeline_memory
-     writer reads the same Supabase secrets `billing_audit` already
-     uses).
+   - [x] Added to the `Generate reports` `env:` block, directly after
+     `SUPABASE_SERVICE_ROLE_KEY` (the pipeline_memory writer reads the
+     same Supabase secrets `billing_audit` already uses) — done on
+     `ops/run-memory-write-flip`.
    - **Rollback:** revert that one line (delete it, or set it to `'0'`)
      in both blocks. No other code change is required to disable the
      write path — every call site is fail-open and self-gates on this
