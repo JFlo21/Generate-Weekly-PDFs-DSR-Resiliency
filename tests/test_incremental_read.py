@@ -1311,5 +1311,851 @@ class ScopeDerivationTests(unittest.TestCase):
         self.assertNotIn("mode == 'incremental'", src)
 
 
+# ── 11-04 Task 1 (D-04 Option C): PHASE 2a delta read -> memory write ->
+# affected-set mapping -> PHASE 2b scoped re-fetch, plus the post-
+# grouping affected-pair restriction ────────────────────────────────────
+
+def _delta_source(sheet_id=111222, name="Test Sheet"):
+    return {
+        "id": sheet_id,
+        "name": name,
+        "column_mapping": {
+            "Work Request #": 10,
+            "Weekly Reference Logged Date": 20,
+            "Foreman": 30,
+        },
+    }
+
+
+def _delta_cell(column_id, value):
+    return SimpleNamespace(column_id=column_id, value=value, display_value=None)
+
+
+def _delta_sheet(rows, version=9):
+    return SimpleNamespace(version=version, rows=rows)
+
+
+def _delta_row(row_id, wr, week_iso, foreman="Bob"):
+    return SimpleNamespace(
+        id=row_id,
+        modified_at=None,
+        cells=[
+            _delta_cell(10, wr),
+            _delta_cell(20, week_iso),
+            _delta_cell(30, foreman),
+        ],
+    )
+
+
+class IncrementalScopeTests(unittest.TestCase):
+    """Plan 04 Task 1: ``_run_phase2_incremental`` (PHASE 2a delta read
+    -> the unmodified ``_run_memory_write_phase`` -> affected-set ->
+    sheet mapping -> PHASE 2b scoped re-fetch), ``_filter_groups_to_
+    affected`` (the post-grouping affected-pair restriction), and
+    ``pipeline.fetch.map_delta_sheet_rows`` (the delta-probe row
+    mapper). Mocked Smartsheet client + Supabase reader/writer
+    throughout -- no live calls.
+    """
+
+    def setUp(self):
+        _reset_pipeline_memory()
+        _pop_env()
+
+    def tearDown(self):
+        _reset_pipeline_memory()
+        _pop_env()
+
+    def test_full_mode_never_calls_delta_probe_or_mapping_query(self):
+        # Structural: the ONLY call site touching fetch_sheet_delta /
+        # map_affected_to_sheets (transitively, via
+        # _run_phase2_incremental) sits strictly between the
+        # incremental-mode guard and the full-mode guard in main() --
+        # mirrors this file's established source-inspection convention
+        # for logic too deep inside main() to invoke directly.
+        import inspect
+        import pipeline.orchestrate as orch
+
+        src = inspect.getsource(orch.main)
+        self.assertEqual(src.count("_run_phase2_incremental("), 1)
+        incr_idx = src.index("if _resolved_mode == 'incremental':")
+        call_idx = src.index("_run_phase2_incremental(")
+        full_idx = src.index("if _resolved_mode == 'full':")
+        self.assertLess(incr_idx, call_idx)
+        self.assertLess(call_idx, full_idx)
+
+    def test_one_changed_row_delta_reads_and_writes_only_delta_rows(self):
+        import pipeline.orchestrate as orch
+
+        source = _delta_source(sheet_id=111222)
+        sheet = _delta_sheet([_delta_row(1, "90001", "2026-08-30")])
+        captured: dict = {}
+
+        def _fake_write(all_rows, run_id, session_start):
+            captured["rows"] = all_rows
+            return {
+                "sheets_written": 1, "sheets_errored": 0,
+                "rows_sent": len(all_rows), "rows_changed": 1,
+                "affected": {("90001", "2026-08-30")},
+            }
+
+        with mock.patch.object(
+            orch._fetch, "fetch_sheet_delta",
+            return_value={
+                "escalate": False, "sheet": sheet, "version": 9, "calls": 2,
+            },
+        ) as mock_probe, mock.patch.object(
+            orch, "_run_memory_write_phase", side_effect=_fake_write,
+        ), mock.patch.object(
+            orch._mem_reader, "map_affected_to_sheets",
+            return_value={111222},
+        ) as mock_map, mock.patch.object(
+            orch, "get_all_source_rows",
+            return_value=[{"Work Request #": "90001"}],
+        ) as mock_full:
+            result = orch._run_phase2_incremental(
+                client=mock.Mock(),
+                source_sheets=[source],
+                watermarks={
+                    111222: {
+                        "last_sheet_version": 8,
+                        "last_read_at": "2026-08-26T18:00:00+00:00",
+                    },
+                },
+                per_sheet_reasons={},
+                mem_run_id="run-1",
+                session_start=datetime.datetime.now(),
+            )
+
+        self.assertTrue(result["ok"])
+        mock_probe.assert_called_once()
+        self.assertEqual(len(captured["rows"]), 1)
+        self.assertEqual(captured["rows"][0]["Work Request #"], "90001")
+        self.assertEqual(result["affected"], {("90001", "2026-08-30")})
+        mock_map.assert_called_once_with({("90001", "2026-08-30")})
+        mock_full.assert_called_once()
+
+    def test_mapping_includes_sheet_with_no_changed_rows_this_run(self):
+        import pipeline.orchestrate as orch
+
+        source_a = _delta_source(sheet_id=111222, name="Sheet A")
+        source_b = _delta_source(sheet_id=333444, name="Sheet B")
+        sheet_a = _delta_sheet([_delta_row(1, "90001", "2026-08-30")])
+
+        def _probe(client, source, last_version, rows_modified_since):
+            if source["id"] == 111222:
+                return {
+                    "escalate": False, "sheet": sheet_a, "version": 9,
+                    "calls": 2,
+                }
+            return {
+                "escalate": False, "sheet": None, "version": 9, "calls": 1,
+            }
+
+        with mock.patch.object(
+            orch._fetch, "fetch_sheet_delta", side_effect=_probe,
+        ), mock.patch.object(
+            orch, "_run_memory_write_phase",
+            return_value={
+                "sheets_written": 1, "sheets_errored": 0,
+                "rows_sent": 1, "rows_changed": 1,
+                "affected": {("90001", "2026-08-30")},
+            },
+        ), mock.patch.object(
+            orch._mem_reader, "map_affected_to_sheets",
+            return_value={111222, 333444},
+        ), mock.patch.object(
+            orch, "get_all_source_rows", return_value=[],
+        ) as mock_full:
+            result = orch._run_phase2_incremental(
+                client=mock.Mock(),
+                source_sheets=[source_a, source_b],
+                watermarks={
+                    111222: {
+                        "last_sheet_version": 8,
+                        "last_read_at": "2026-08-26T18:00:00+00:00",
+                    },
+                    333444: {
+                        "last_sheet_version": 8,
+                        "last_read_at": "2026-08-26T18:00:00+00:00",
+                    },
+                },
+                per_sheet_reasons={},
+                mem_run_id="run-1",
+                session_start=datetime.datetime.now(),
+            )
+
+        self.assertTrue(result["ok"])
+        narrowed_call_sheets = mock_full.call_args[0][1]
+        self.assertEqual(
+            {s["id"] for s in narrowed_call_sheets}, {111222, 333444},
+        )
+
+    def test_filter_groups_restricts_to_affected_pairs(self):
+        import pipeline.orchestrate as orch
+
+        groups = {
+            "key_a": [{
+                "Work Request #": "90001",
+                "Weekly Reference Logged Date": "2026-08-30",
+            }],
+            "key_b": [{
+                "Work Request #": "90002",
+                "Weekly Reference Logged Date": "2026-08-30",
+            }],
+        }
+        affected = {("90001", "2026-08-30")}
+
+        filtered = orch._filter_groups_to_affected(groups, affected)
+
+        self.assertEqual(set(filtered), {"key_a"})
+
+    def test_filter_groups_empty_groups_is_noop(self):
+        import pipeline.orchestrate as orch
+
+        self.assertEqual(
+            orch._filter_groups_to_affected({}, {("90001", "2026-08-30")}),
+            {},
+        )
+
+    def test_moved_week_keeps_both_new_and_prior_pair_groups(self):
+        import pipeline.orchestrate as orch
+
+        groups = {
+            "new_week_key": [{
+                "Work Request #": "90001",
+                "Weekly Reference Logged Date": "2026-08-30",
+            }],
+            "prior_week_key": [{
+                "Work Request #": "90001",
+                "Weekly Reference Logged Date": "2026-08-23",
+            }],
+            "unrelated_key": [{
+                "Work Request #": "90002",
+                "Weekly Reference Logged Date": "2026-08-30",
+            }],
+        }
+        # upsert_rows_bulk's own server-side UNION already includes both
+        # the new pair and the prior pair when week_ending moved.
+        affected = {("90001", "2026-08-30"), ("90001", "2026-08-23")}
+
+        filtered = orch._filter_groups_to_affected(groups, affected)
+
+        self.assertEqual(set(filtered), {"new_week_key", "prior_week_key"})
+
+    def test_empty_affected_set_yields_empty_groups_successful_run(self):
+        import pipeline.orchestrate as orch
+
+        with mock.patch.object(
+            orch._fetch, "fetch_sheet_delta",
+            return_value={
+                "escalate": False, "sheet": None, "version": 9, "calls": 1,
+            },
+        ), mock.patch.object(
+            orch, "_run_memory_write_phase",
+            return_value={
+                "sheets_written": 0, "sheets_errored": 0,
+                "rows_sent": 0, "rows_changed": 0, "affected": set(),
+            },
+        ), mock.patch.object(
+            orch._mem_reader, "map_affected_to_sheets",
+        ) as mock_map, mock.patch.object(
+            orch, "get_all_source_rows", return_value=[],
+        ) as mock_full:
+            result = orch._run_phase2_incremental(
+                client=mock.Mock(),
+                source_sheets=[_delta_source()],
+                watermarks={
+                    111222: {
+                        "last_sheet_version": 8,
+                        "last_read_at": "2026-08-26T18:00:00+00:00",
+                    },
+                },
+                per_sheet_reasons={},
+                mem_run_id="run-1",
+                session_start=datetime.datetime.now(),
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["affected"], set())
+        self.assertEqual(result["all_rows"], [])
+        # An empty affected set never even queries the mapping table --
+        # this is "nothing changed", not a failure.
+        mock_map.assert_not_called()
+        mock_full.assert_not_called()
+
+        groups = orch._filter_groups_to_affected({}, result["affected"])
+        self.assertEqual(groups, {})
+
+    def test_delta_probe_escalation_falls_back_to_full_mode(self):
+        import pipeline.orchestrate as orch
+
+        with mock.patch.object(
+            orch._fetch, "fetch_sheet_delta",
+            return_value={"escalate": True, "reason": "boom"},
+        ):
+            result = orch._run_phase2_incremental(
+                client=mock.Mock(),
+                source_sheets=[_delta_source()],
+                watermarks={},
+                per_sheet_reasons={},
+                mem_run_id="run-1",
+                session_start=datetime.datetime.now(),
+            )
+
+        self.assertFalse(result["ok"])
+        self.assertIn(
+            "trigger_delta_probe_escalation", result["fallback_reason"],
+        )
+
+    def test_memory_write_exception_falls_back_to_full_mode(self):
+        import pipeline.orchestrate as orch
+
+        with mock.patch.object(
+            orch._fetch, "fetch_sheet_delta",
+            return_value={
+                "escalate": False, "sheet": None, "version": 9, "calls": 1,
+            },
+        ), mock.patch.object(
+            orch, "_run_memory_write_phase",
+            side_effect=RuntimeError("boom"),
+        ):
+            result = orch._run_phase2_incremental(
+                client=mock.Mock(),
+                source_sheets=[_delta_source()],
+                watermarks={},
+                per_sheet_reasons={},
+                mem_run_id="run-1",
+                session_start=datetime.datetime.now(),
+            )
+
+        self.assertFalse(result["ok"])
+        self.assertIn(
+            "trigger_memory_write_exception", result["fallback_reason"],
+        )
+
+    def test_empty_mapping_for_nonempty_affected_set_falls_back(self):
+        import pipeline.orchestrate as orch
+
+        with mock.patch.object(
+            orch._fetch, "fetch_sheet_delta",
+            return_value={
+                "escalate": False, "sheet": None, "version": 9, "calls": 1,
+            },
+        ), mock.patch.object(
+            orch, "_run_memory_write_phase",
+            return_value={
+                "sheets_written": 1, "sheets_errored": 0,
+                "rows_sent": 1, "rows_changed": 1,
+                "affected": {("90001", "2026-08-30")},
+            },
+        ), mock.patch.object(
+            orch._mem_reader, "map_affected_to_sheets", return_value=set(),
+        ):
+            result = orch._run_phase2_incremental(
+                client=mock.Mock(),
+                source_sheets=[_delta_source()],
+                watermarks={},
+                per_sheet_reasons={},
+                mem_run_id="run-1",
+                session_start=datetime.datetime.now(),
+            )
+
+        self.assertFalse(result["ok"])
+        self.assertIn(
+            "trigger_affected_set_mapping_empty", result["fallback_reason"],
+        )
+
+    def test_trigger1_flagged_sheet_gets_full_read_not_delta_probe(self):
+        import pipeline.orchestrate as orch
+
+        source_full = _delta_source(sheet_id=555, name="New Sheet")
+        source_delta = _delta_source(sheet_id=666, name="Known Sheet")
+
+        with mock.patch.object(
+            orch._fetch, "fetch_sheet_delta",
+            return_value={
+                "escalate": False, "sheet": None, "version": 9, "calls": 1,
+            },
+        ) as mock_probe, mock.patch.object(
+            orch, "get_all_source_rows",
+            return_value=[
+                {"Work Request #": "90001", "__source_sheet_id": 555},
+            ],
+        ) as mock_full, mock.patch.object(
+            orch, "_run_memory_write_phase",
+            return_value={
+                "sheets_written": 0, "sheets_errored": 0,
+                "rows_sent": 0, "rows_changed": 0, "affected": set(),
+            },
+        ):
+            orch._run_phase2_incremental(
+                client=mock.Mock(),
+                source_sheets=[source_full, source_delta],
+                watermarks={
+                    666: {
+                        "last_sheet_version": 8,
+                        "last_read_at": "2026-08-26T18:00:00+00:00",
+                    },
+                },
+                per_sheet_reasons={555: "trigger1_no_watermark: ..."},
+                mem_run_id="run-1",
+                session_start=datetime.datetime.now(),
+            )
+
+        probed_sheet_ids = {
+            call.args[1]["id"] for call in mock_probe.call_args_list
+        }
+        self.assertEqual(probed_sheet_ids, {666})
+        first_call_sheets = mock_full.call_args_list[0].args[1]
+        self.assertEqual({s["id"] for s in first_call_sheets}, {555})
+
+    def test_trigger3_flagged_sheet_is_skipped_entirely(self):
+        import pipeline.orchestrate as orch
+
+        source_isolated = _delta_source(sheet_id=777, name="Isolated Sheet")
+
+        with mock.patch.object(
+            orch._fetch, "fetch_sheet_delta",
+        ) as mock_probe, mock.patch.object(
+            orch, "_run_memory_write_phase",
+            return_value={
+                "sheets_written": 0, "sheets_errored": 0,
+                "rows_sent": 0, "rows_changed": 0, "affected": set(),
+            },
+        ):
+            result = orch._run_phase2_incremental(
+                client=mock.Mock(),
+                source_sheets=[source_isolated],
+                watermarks={},
+                per_sheet_reasons={
+                    777: "trigger3_auth_error: sheet isolated (401/403)",
+                },
+                mem_run_id="run-1",
+                session_start=datetime.datetime.now(),
+            )
+
+        mock_probe.assert_not_called()
+        self.assertTrue(result["ok"])
+
+    def test_map_delta_sheet_rows_maps_columns_and_provenance(self):
+        from pipeline.fetch import map_delta_sheet_rows
+
+        source = _delta_source(sheet_id=111222)
+        sheet = _delta_sheet(
+            [_delta_row(42, "90001", "2026-08-30", foreman="Alice")]
+        )
+
+        rows = map_delta_sheet_rows(sheet, source)
+
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["Work Request #"], "90001")
+        self.assertEqual(row["Weekly Reference Logged Date"], "2026-08-30")
+        self.assertEqual(row["Foreman"], "Alice")
+        self.assertEqual(row["__source_sheet_id"], 111222)
+        self.assertEqual(row["__row_id"], 42)
+
+    def test_map_delta_sheet_rows_drops_rows_missing_essential_fields(self):
+        from pipeline.fetch import map_delta_sheet_rows
+
+        source = _delta_source(sheet_id=111222)
+        incomplete_row = SimpleNamespace(
+            id=1, modified_at=None,
+            cells=[_delta_cell(10, "90001")],  # no week-ending cell
+        )
+        sheet = _delta_sheet([incomplete_row])
+
+        rows = map_delta_sheet_rows(sheet, source)
+
+        self.assertEqual(rows, [])
+
+
+# ── 11-04 Task 2: map_affected_to_sheets hardening -- parameterisation,
+# batching, fail-open ────────────────────────────────────────────────────
+
+class AffectedSetMappingTests(unittest.TestCase):
+    """Plan 04 Task 2: ``map_affected_to_sheets`` bound parameterisation
+    (never string interpolation), chunking at ``_MAPPING_CHUNK_SIZE``,
+    all-or-nothing on a mid-chunk failure, and the three distinguishable
+    empty outcomes (genuinely-empty match / None response / transport
+    failure).
+    """
+
+    def setUp(self):
+        _reset_pipeline_memory()
+        _pop_env()
+
+    def tearDown(self):
+        _reset_pipeline_memory()
+        _pop_env()
+
+    def test_empty_input_performs_zero_calls(self):
+        from pipeline_memory import reader as mem_reader
+
+        client = mock.Mock()
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=client
+        ):
+            result = mem_reader.map_affected_to_sheets(set())
+
+        self.assertEqual(result, set())
+        client.schema.assert_not_called()
+
+    def test_client_unavailable_returns_empty_set(self):
+        from pipeline_memory import reader as mem_reader
+
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=None
+        ):
+            result = mem_reader.map_affected_to_sheets(
+                {("90001", "2026-08-30")}
+            )
+
+        self.assertEqual(result, set())
+
+    def test_returns_matching_sheet_ids_for_exact_pair_membership(self):
+        from pipeline_memory import reader as mem_reader
+
+        client = mock.Mock()
+        query = (
+            client.schema.return_value.table.return_value
+            .select.return_value.in_.return_value.in_.return_value
+        )
+        query.execute.return_value = SimpleNamespace(data=[
+            {"sheet_id": 111, "wr": "90001", "week_ending": "2026-08-30"},
+            # A different pair sharing the same WR must NOT contribute a
+            # false match through a wr x week cross-product artifact.
+            {"sheet_id": 222, "wr": "90001", "week_ending": "2026-01-01"},
+        ])
+
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=client
+        ):
+            result = mem_reader.map_affected_to_sheets(
+                {("90001", "2026-08-30")}
+            )
+
+        self.assertEqual(result, {111})
+
+    def test_wr_metacharacters_carried_as_bound_value_not_interpolated(self):
+        from pipeline_memory import reader as mem_reader
+
+        malicious_wr = "90001'; DROP TABLE row_state; --"
+        client = mock.Mock()
+        query = (
+            client.schema.return_value.table.return_value
+            .select.return_value.in_.return_value.in_.return_value
+        )
+        query.execute.return_value = SimpleNamespace(data=[])
+
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=client
+        ):
+            mem_reader.map_affected_to_sheets({(malicious_wr, "2026-08-30")})
+
+        in_call = (
+            client.schema.return_value.table.return_value
+            .select.return_value.in_
+        )
+        self.assertEqual(in_call.call_args[0][0], "wr")
+        self.assertIn(malicious_wr, in_call.call_args[0][1])
+
+    def test_affected_set_larger_than_chunk_threshold_issues_multiple_requests(self):
+        from pipeline_memory import reader as mem_reader
+
+        pairs = {
+            (f"WR{i}", "2026-08-30")
+            for i in range(mem_reader._MAPPING_CHUNK_SIZE + 5)
+        }
+        client = mock.Mock()
+        call_count = {"n": 0}
+
+        def _execute():
+            call_count["n"] += 1
+            sid = 100 + call_count["n"]
+            return SimpleNamespace(data=[
+                {"sheet_id": sid, "wr": "WR0", "week_ending": "2026-08-30"},
+            ])
+
+        (
+            client.schema.return_value.table.return_value
+            .select.return_value.in_.return_value.in_.return_value
+            .execute.side_effect
+        ) = _execute
+
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=client
+        ):
+            result = mem_reader.map_affected_to_sheets(pairs)
+
+        self.assertEqual(call_count["n"], 2)
+        self.assertEqual(result, {101, 102})
+
+    def test_mid_chunk_failure_discards_partial_union_returns_empty(self):
+        from pipeline_memory import reader as mem_reader
+
+        pairs = {
+            (f"WR{i}", "2026-08-30")
+            for i in range(mem_reader._MAPPING_CHUNK_SIZE + 5)
+        }
+        client = mock.Mock()
+        call_count = {"n": 0}
+
+        def _execute():
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return SimpleNamespace(data=[
+                    {
+                        "sheet_id": 101, "wr": "WR0",
+                        "week_ending": "2026-08-30",
+                    },
+                ])
+            raise Exception("transport boom")
+
+        (
+            client.schema.return_value.table.return_value
+            .select.return_value.in_.return_value.in_.return_value
+            .execute.side_effect
+        ) = _execute
+
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=client
+        ):
+            result = mem_reader.map_affected_to_sheets(pairs)
+
+        # A partial union (from the successful first chunk) must NEVER
+        # be returned once a later chunk fails -- that would silently
+        # narrow the regeneration scope while looking successful.
+        self.assertEqual(result, set())
+
+    def test_none_response_payload_returns_empty_distinct_from_transport_failure(self):
+        from pipeline_memory import reader as mem_reader
+
+        client = mock.Mock()
+        query = (
+            client.schema.return_value.table.return_value
+            .select.return_value.in_.return_value.in_.return_value
+        )
+        query.execute.return_value = SimpleNamespace(data=None)
+
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=client
+        ):
+            with self.assertLogs(level="WARNING") as log_ctx:
+                result = mem_reader.map_affected_to_sheets(
+                    {("90001", "2026-08-30")}
+                )
+
+        self.assertEqual(result, set())
+        self.assertTrue(
+            any("None response payload" in m for m in log_ctx.output)
+        )
+
+    def test_transport_failure_returns_empty_and_is_logged_distinctly(self):
+        from pipeline_memory import reader as mem_reader
+
+        client = mock.Mock()
+        (
+            client.schema.return_value.table.return_value
+            .select.return_value.in_.return_value.in_.return_value
+            .execute.side_effect
+        ) = Exception("boom")
+
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=client
+        ):
+            with self.assertLogs(level="WARNING") as log_ctx:
+                result = mem_reader.map_affected_to_sheets(
+                    {("90001", "2026-08-30")}
+                )
+
+        self.assertEqual(result, set())
+        self.assertTrue(
+            any("transport or circuit-breaker" in m for m in log_ctx.output)
+        )
+
+    def test_genuinely_empty_match_returns_empty_set(self):
+        from pipeline_memory import reader as mem_reader
+
+        client = mock.Mock()
+        query = (
+            client.schema.return_value.table.return_value
+            .select.return_value.in_.return_value.in_.return_value
+        )
+        query.execute.return_value = SimpleNamespace(data=[])
+
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=client
+        ):
+            result = mem_reader.map_affected_to_sheets(
+                {("90001", "2026-08-30")}
+            )
+
+        self.assertEqual(result, set())
+
+    def test_caller_falls_back_to_full_mode_on_empty_mapping(self):
+        # Task 2's own acceptance criterion names this exact assertion;
+        # kept here (in addition to IncrementalScopeTests) so this class
+        # is self-contained for a reader auditing Task 2 alone.
+        import pipeline.orchestrate as orch
+
+        with mock.patch.object(
+            orch._fetch, "fetch_sheet_delta",
+            return_value={
+                "escalate": False, "sheet": None, "version": 9, "calls": 1,
+            },
+        ), mock.patch.object(
+            orch, "_run_memory_write_phase",
+            return_value={
+                "sheets_written": 1, "sheets_errored": 0,
+                "rows_sent": 1, "rows_changed": 1,
+                "affected": {("90001", "2026-08-30")},
+            },
+        ), mock.patch.object(
+            orch._mem_reader, "map_affected_to_sheets", return_value=set(),
+        ):
+            result = orch._run_phase2_incremental(
+                client=mock.Mock(),
+                source_sheets=[_delta_source()],
+                watermarks={},
+                per_sheet_reasons={},
+                mem_run_id="run-1",
+                session_start=datetime.datetime.now(),
+            )
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["fallback_reason"])
+
+
+# ── 11-04 Task 3: D-05 REQUIREMENTS.md note + scoped run_ledger
+# counters ────────────────────────────────────────────────────────────
+
+class ScopedCounterTests(unittest.TestCase):
+    """Plan 04 Task 3: ``sheets_changed`` / ``rows_seen`` /
+    ``groups_affected`` / ``groups_generated`` stay mode-aware and
+    distinguishable at both ``run_ledger_finish`` call sites;
+    ``run_summary.json``'s frozen 21-key contract is untouched.
+    """
+
+    def test_sheets_written_reflects_delta_change_not_phase2b_refetch_count(self):
+        import pipeline.orchestrate as orch
+
+        source_a = _delta_source(sheet_id=111222, name="Changed Sheet")
+        source_b = _delta_source(sheet_id=333444, name="Unchanged Sheet")
+        sheet_a = _delta_sheet([_delta_row(1, "90001", "2026-08-30")])
+
+        def _probe(client, source, last_version, rows_modified_since):
+            if source["id"] == 111222:
+                return {
+                    "escalate": False, "sheet": sheet_a, "version": 9,
+                    "calls": 2,
+                }
+            return {
+                "escalate": False, "sheet": None, "version": 9, "calls": 1,
+            }
+
+        with mock.patch.object(
+            orch._fetch, "fetch_sheet_delta", side_effect=_probe,
+        ), mock.patch.object(
+            orch, "_run_memory_write_phase",
+            return_value={
+                # ONLY the sheet whose delta read produced a changed row.
+                "sheets_written": 1,
+                "sheets_errored": 0, "rows_sent": 1, "rows_changed": 1,
+                "affected": {("90001", "2026-08-30")},
+            },
+        ), mock.patch.object(
+            orch._mem_reader, "map_affected_to_sheets",
+            # PHASE 2b re-fetches BOTH sheets (the mapping widened to
+            # every sheet holding a row for the affected pair).
+            return_value={111222, 333444},
+        ), mock.patch.object(
+            orch, "get_all_source_rows", return_value=[],
+        ):
+            result = orch._run_phase2_incremental(
+                client=mock.Mock(),
+                source_sheets=[source_a, source_b],
+                watermarks={
+                    111222: {
+                        "last_sheet_version": 8,
+                        "last_read_at": "2026-08-26T18:00:00+00:00",
+                    },
+                    333444: {
+                        "last_sheet_version": 8,
+                        "last_read_at": "2026-08-26T18:00:00+00:00",
+                    },
+                },
+                per_sheet_reasons={},
+                mem_run_id="run-1",
+                session_start=datetime.datetime.now(),
+            )
+
+        self.assertEqual(result["mem_result"]["sheets_written"], 1)
+        self.assertEqual(result["mapped_sheet_count"], 2)
+        self.assertNotEqual(
+            result["mem_result"]["sheets_written"],
+            result["mapped_sheet_count"],
+        )
+
+    def test_run_ledger_finish_call_sites_report_phase2a_and_phase2b_counters_separately(self):
+        import inspect
+        import pipeline.orchestrate as orch
+        from pipeline_memory.writer import _RUN_LEDGER_FINISH_COLUMNS
+
+        src = inspect.getsource(orch.main)
+        self.assertEqual(
+            src.count(
+                "mem_phase2a_delta_rows=_incremental_delta_rows_count"
+            ),
+            2,
+        )
+        self.assertEqual(
+            src.count(
+                "mem_phase2b_sheets_refetched="
+                "_incremental_mapped_sheet_count"
+            ),
+            2,
+        )
+        # Both new counters land in notes (run_ledger_finish folds any
+        # kwarg not in _RUN_LEDGER_FINISH_COLUMNS into notes
+        # automatically) -- no new SQL column, no new run_summary.json
+        # key.
+        self.assertNotIn(
+            "mem_phase2a_delta_rows", _RUN_LEDGER_FINISH_COLUMNS,
+        )
+        self.assertNotIn(
+            "mem_phase2b_sheets_refetched", _RUN_LEDGER_FINISH_COLUMNS,
+        )
+
+    def test_rows_seen_and_groups_affected_source_from_correct_variables(self):
+        import inspect
+        import pipeline.orchestrate as orch
+
+        src = inspect.getsource(orch.main)
+        # rows_seen reads all_rows -- the PHASE 2b re-fetch result on an
+        # incremental run, the single full fetch on a full run -- never
+        # a separate PHASE-2a-only count.
+        self.assertIn(
+            "rows_seen=len(all_rows) if 'all_rows' in dir() else 0", src,
+        )
+        # groups_affected reads _mem_affected -- the exact affected set
+        # _run_phase2_incremental returned (or the full-mode
+        # _run_memory_write_phase's own affected set) -- so a divergence
+        # from groups_generated (the count that actually regenerated) is
+        # directly visible.
+        self.assertEqual(src.count("groups_affected=len(_mem_affected)"), 2)
+        self.assertGreaterEqual(
+            src.count("groups_generated=_groups_generated"), 2,
+        )
+        self.assertIn(
+            "comparable only against another incremental run", src,
+        )
+
+    def test_run_summary_still_21_keys_and_unmodified(self):
+        golden = _REPO_ROOT / "tests" / "golden" / "run_summary_baseline.json"
+        data = json.loads(golden.read_text(encoding="utf-8"))
+        self.assertEqual(len(data), 21)
+
+
 if __name__ == "__main__":
     unittest.main()
