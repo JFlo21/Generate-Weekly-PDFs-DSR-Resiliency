@@ -25,9 +25,18 @@ and error codes only, never a per-row value.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from pipeline_memory.client import get_client, with_retry
+
+# Chunk threshold for the affected-set -> sheet mapping query (Phase 11
+# Plan 04, Task 2). Mirrors -- does NOT import, to keep this module's
+# import surface minimal -- the ``_CHUNK_ROWS = 500`` discipline
+# ``pipeline_memory/writer.py::upsert_rows_bulk`` already applies to its
+# bulk payload, per 11-RESEARCH.md's Don't-Hand-Roll guidance (reuse an
+# existing threshold rather than inventing a new one).
+_MAPPING_CHUNK_SIZE = 500
 
 
 def get_sheet_watermarks(sheet_ids: list) -> dict:
@@ -133,3 +142,128 @@ def get_last_run_ledger_status() -> dict | None:
     if not isinstance(row, dict):
         return None
     return row
+
+
+def map_affected_to_sheets(
+    affected_pairs: 'set[tuple[Any, Any]] | list[tuple[Any, Any]]',
+) -> set:
+    """Map an affected ``(wr, week_ending)`` set to the ``sheet_id`` values
+    of every ``row_state`` row matching any of those pairs (Phase 11 Plan
+    04, D-04 Option C).
+
+    Grouping is cross-sheet (``group_source_rows`` keys on WR/week/
+    variant/foreman/dept/job regardless of source sheet), so a scoped
+    re-fetch of only the sheets that changed would starve a group of its
+    other sheets' rows. This function is the "widen" step: it returns
+    every sheet id holding ANY ``row_state`` row for an affected pair --
+    including a sheet that had no changed rows this run -- so PHASE 2b
+    can re-fetch that sheet in full and the group is complete.
+
+    Queries ``pipeline_memory.row_state`` via the Supabase client's typed
+    ``.in_()`` query builder over BOTH the distinct WR values and the
+    distinct week values, then filters the returned rows down to EXACT
+    pair membership in Python (a ``wr X week`` cross-product is a
+    superset of the real pair set, since ``.in_()`` cannot express a
+    tuple-membership predicate directly) -- every value reaches the
+    client as a bound parameter through the query builder; this function
+    NEVER builds a ``WHERE ... IN`` string by interpolation. The affected
+    set is derived from Smartsheet cell content (a Work Request # value)
+    and MUST be treated as untrusted for query construction (11-RESEARCH.md
+    Security Domain, V5 Input Validation / SQL-injection threat rows).
+
+    Chunked at ``_MAPPING_CHUNK_SIZE`` distinct WR values per query --
+    mirrors (does not import) ``upsert_rows_bulk``'s own 500-row chunking
+    discipline, so no single request carries an unbounded ``IN`` list. A
+    mid-chunk failure (transport error, breaker trip, or an anomalous
+    ``None`` response payload) discards the ALREADY-COLLECTED partial
+    union and returns an empty set immediately -- a partial mapping is
+    worse than no mapping, because it would silently narrow the
+    regeneration scope while looking successful (T-11-18).
+
+    Returns an empty set on:
+      - empty/falsy input (zero calls, matching
+        ``get_sheet_watermarks``'s empty-input convention -- NOT an
+        error; the caller's own affected set was legitimately empty),
+      - a ``None`` client,
+      - any chunk's transport/breaker failure (logged as such),
+      - any chunk's ``None`` response payload (logged as such, distinct
+        from a transport failure -- an anomalous PostgREST response
+        shape, not a network/breaker issue),
+      - a successful query that genuinely matched nothing (the benign
+        case -- no distinguishing WARNING is logged for this one).
+
+    The caller MUST distinguish "my own affected-pairs input was empty"
+    (a legitimate, successful "nothing changed" outcome -- this function
+    is not even called, or is called with an empty set and returns one)
+    from "I passed a NON-EMPTY affected set and got an empty set back"
+    (this function could not confirm the mapping -- read as "cannot
+    confirm" and fall back to full mode, NEVER as "no sheets need
+    fetching").
+    """
+    if not affected_pairs:
+        return set()
+
+    pairs = {
+        (p[0], p[1]) for p in affected_pairs
+        if p and p[0] is not None and p[1] is not None
+    }
+    if not pairs:
+        return set()
+
+    client = get_client()
+    if client is None:
+        return set()
+
+    wrs = sorted({p[0] for p in pairs}, key=str)
+    weeks = sorted({p[1] for p in pairs}, key=str)
+
+    wr_chunks = [
+        wrs[i:i + _MAPPING_CHUNK_SIZE]
+        for i in range(0, len(wrs), _MAPPING_CHUNK_SIZE)
+    ]
+
+    mapped: set[Any] = set()
+    for chunk_idx, wr_chunk in enumerate(wr_chunks):
+        def _invoke(_wrs=wr_chunk):
+            return (
+                client.schema("pipeline_memory")
+                .table("row_state")
+                .select("sheet_id,wr,week_ending")
+                .in_("wr", list(_wrs))
+                .in_("week_ending", list(weeks))
+                .execute()
+            )
+
+        result = with_retry(_invoke, op="affected_set_sheet_mapping")
+        if result is None:
+            logging.warning(
+                "map_affected_to_sheets: chunk %d/%d failed (transport "
+                "or circuit-breaker failure) -- discarding the partial "
+                "union and returning empty; caller must treat this as "
+                '"cannot confirm" and fall back to full mode',
+                chunk_idx + 1, len(wr_chunks),
+            )
+            return set()
+
+        rows = getattr(result, "data", None)
+        if rows is None:
+            logging.warning(
+                "map_affected_to_sheets: chunk %d/%d returned a None "
+                "response payload (anomalous, distinct from a transport "
+                "failure) -- discarding the partial union and returning "
+                'empty; caller must treat this as "cannot confirm" and '
+                "fall back to full mode",
+                chunk_idx + 1, len(wr_chunks),
+            )
+            return set()
+
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            pair = (row.get("wr"), row.get("week_ending"))
+            if pair in pairs:
+                sheet_id = row.get("sheet_id")
+                if sheet_id is not None:
+                    mapped.add(sheet_id)
+
+    return mapped

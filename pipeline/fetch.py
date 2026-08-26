@@ -269,6 +269,76 @@ def fetch_sheet_delta(
         }
 
 
+def map_delta_sheet_rows(sheet: Any, source: dict) -> list[dict[str, Any]]:
+    """Map one ``fetch_sheet_delta``-returned ``Sheet``'s raw rows to the
+    same ``{mapped_name: value}`` + provenance-key shape
+    ``get_all_source_rows`` produces (Phase 11 Plan 04, D-04 Option C) --
+    WITHOUT that function's business acceptance gate (``Units
+    Completed?`` / non-zero price / CU-no-match / helper-VAC derived
+    fields). ``pipeline_memory._run_memory_write_phase`` /
+    ``_row_to_payload`` read only RAW mapped columns plus
+    ``__source_sheet_id`` / ``__row_id`` / ``__row_modified_at``
+    (``pipeline_memory/writer.py::_row_to_payload`` docstring), so none
+    of that business logic is needed to feed the shadow write.
+
+    Minimal essential-fields gate ONLY: a row is included when it has
+    ANY mapped column AND both ``Work Request #`` and ``Weekly Reference
+    Logged Date`` are present -- the SAME two fields
+    ``group_source_rows`` itself requires before it will emit a group
+    (``pipeline/grouping.py``: "REQUIRE: Work Request # AND ... Weekly
+    Reference Logged Date"). This is a STRICT SUPERSET of the full
+    acceptance gate (which additionally requires ``Units Completed?``
+    and a non-zero price) -- a row PHASE 2b's grouping phase would
+    accept is NEVER excluded here, so the affected set this feeds can
+    only be too WIDE relative to the real pipeline, never too narrow
+    (T-11-18).
+
+    Mirrors the cell-mapping block inside ``get_all_source_rows``'s
+    ``_fetch_and_process_sheet`` closure (reverse column map,
+    ``__sheet_id`` / ``__source_sheet_id`` / ``__row_id`` /
+    ``__row_modified_at`` provenance keys) -- deliberately NOT calling
+    into that closure (it is private, and carries the rate-recalc /
+    helper / VAC-crew business logic this function intentionally skips).
+
+    NEVER raises: an empty/absent ``sheet.rows`` returns ``[]``.
+    """
+    if not getattr(sheet, 'rows', None):
+        return []
+
+    column_mapping = source.get('column_mapping') or {}
+    reverse_column_map = {cid: name for name, cid in column_mapping.items()}
+
+    rows_out: list[dict[str, Any]] = []
+    for row in sheet.rows:
+        row_data: dict[str, Any] = {}
+        for cell in row.cells:
+            mapped_name = reverse_column_map.get(cell.column_id)
+            if mapped_name:
+                raw_val = getattr(cell, 'value', None)
+                if raw_val is None:
+                    raw_val = getattr(cell, 'display_value', None)
+                row_data[mapped_name] = raw_val
+
+        if not row_data:
+            continue
+        if not row_data.get('Work Request #'):
+            continue
+        if not row_data.get('Weekly Reference Logged Date'):
+            continue
+
+        row_data['__sheet_id'] = source['id']
+        row_data['__source_sheet_id'] = source['id']
+        row_data['__row_id'] = row.id
+        _rma = getattr(row, 'modified_at', None)
+        if isinstance(_rma, datetime.datetime):
+            _rma = _rma.isoformat()
+        row_data['__row_modified_at'] = _rma
+
+        rows_out.append(row_data)
+
+    return rows_out
+
+
 def get_all_source_rows(client, source_sheets):
     """Fetch rows from all source sheets with filtering.
     
