@@ -1219,7 +1219,7 @@ class MemoryWritePhaseTests(unittest.TestCase):
 
         with mock.patch.object(orch, "RUN_MEMORY_WRITE_ENABLED", False), \
              mock.patch.object(
-                 orch._mem_writer, "upsert_rows_bulk"
+                 orch._mem_writer, "upsert_rows_bulk_result"
              ) as mock_upsert:
             result = orch._run_memory_write_phase(
                 self._rows(111, 2), "run-1", datetime.datetime.now(),
@@ -1241,7 +1241,11 @@ class MemoryWritePhaseTests(unittest.TestCase):
         with mock.patch.object(orch, "RUN_MEMORY_WRITE_ENABLED", True), \
              mock.patch.object(orch, "TEST_MODE", False), \
              mock.patch.object(
-                 orch._mem_writer, "upsert_rows_bulk", return_value=set(),
+                 orch._mem_writer, "upsert_rows_bulk_result",
+                 return_value={
+                     "affected": set(), "status": "ok", "rows_sent": 0,
+                     "rows_errored": 0, "rows_skipped": 0,
+                 },
              ) as mock_upsert:
             result = orch._run_memory_write_phase(
                 rows, "run-1", datetime.datetime.now(),
@@ -1269,12 +1273,16 @@ class MemoryWritePhaseTests(unittest.TestCase):
             call_order.append(sheet_id)
             if sheet_id == 111:
                 raise RuntimeError("boom")
-            return set()
+            return {
+                "affected": set(), "status": "ok", "rows_sent": 1,
+                "rows_errored": 0, "rows_skipped": 0,
+            }
 
         with mock.patch.object(orch, "RUN_MEMORY_WRITE_ENABLED", True), \
              mock.patch.object(orch, "TEST_MODE", False), \
              mock.patch.object(
-                 orch._mem_writer, "upsert_rows_bulk", side_effect=_side_effect,
+                 orch._mem_writer, "upsert_rows_bulk_result",
+                 side_effect=_side_effect,
              ):
             result = orch._run_memory_write_phase(
                 rows, "run-1", datetime.datetime.now(),
@@ -1304,7 +1312,7 @@ class MemoryWritePhaseTests(unittest.TestCase):
                  orch, "RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN", 2,
              ), \
              mock.patch.object(
-                 orch._mem_writer, "upsert_rows_bulk"
+                 orch._mem_writer, "upsert_rows_bulk_result"
              ) as mock_upsert:
             result = orch._run_memory_write_phase(
                 self._rows(111, 2), "run-1", stale_session_start,
@@ -1327,7 +1335,11 @@ class MemoryWritePhaseTests(unittest.TestCase):
              mock.patch.object(orch, "GITHUB_ACTIONS_MODE", True), \
              mock.patch.object(orch, "RUN_MEMORY_WRITE_MAX_MINUTES", 0), \
              mock.patch.object(
-                 orch._mem_writer, "upsert_rows_bulk", return_value=set(),
+                 orch._mem_writer, "upsert_rows_bulk_result",
+                 return_value={
+                     "affected": set(), "status": "ok", "rows_sent": 0,
+                     "rows_errored": 0, "rows_skipped": 0,
+                 },
              ) as mock_upsert:
             result = orch._run_memory_write_phase(
                 rows, "run-1", datetime.datetime.now(),
@@ -1409,7 +1421,11 @@ class MemoryWritePhaseTests(unittest.TestCase):
         with mock.patch.object(orch, "RUN_MEMORY_WRITE_ENABLED", True), \
                 mock.patch.object(orch, "TEST_MODE", False), \
                 mock.patch.object(
-                    orch._mem_writer, "upsert_rows_bulk", return_value=set(),
+                    orch._mem_writer, "upsert_rows_bulk_result",
+                 return_value={
+                     "affected": set(), "status": "ok", "rows_sent": 0,
+                     "rows_errored": 0, "rows_skipped": 0,
+                 },
                 ) as mock_upsert:
             orch._run_memory_write_phase(
                 rows, "run-1", datetime.datetime.now(),

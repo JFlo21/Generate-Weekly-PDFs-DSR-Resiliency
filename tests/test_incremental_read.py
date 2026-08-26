@@ -1396,6 +1396,7 @@ class IncrementalScopeTests(unittest.TestCase):
                 "sheets_written": 1, "sheets_errored": 0,
                 "rows_sent": len(all_rows), "rows_changed": 1,
                 "affected": {("90001", "2026-08-30")},
+                "memory_confirmed": True,
             }
 
         with mock.patch.object(
@@ -1459,6 +1460,7 @@ class IncrementalScopeTests(unittest.TestCase):
                 "sheets_written": 1, "sheets_errored": 0,
                 "rows_sent": 1, "rows_changed": 1,
                 "affected": {("90001", "2026-08-30")},
+                "memory_confirmed": True,
             },
         ), mock.patch.object(
             orch._mem_reader, "map_affected_to_sheets",
@@ -1555,6 +1557,7 @@ class IncrementalScopeTests(unittest.TestCase):
             return_value={
                 "sheets_written": 0, "sheets_errored": 0,
                 "rows_sent": 0, "rows_changed": 0, "affected": set(),
+                "memory_confirmed": True,
             },
         ), mock.patch.object(
             orch._mem_reader, "map_affected_to_sheets",
@@ -1647,6 +1650,7 @@ class IncrementalScopeTests(unittest.TestCase):
                 "sheets_written": 1, "sheets_errored": 0,
                 "rows_sent": 1, "rows_changed": 1,
                 "affected": {("90001", "2026-08-30")},
+                "memory_confirmed": True,
             },
         ), mock.patch.object(
             orch._mem_reader, "map_affected_to_sheets", return_value=set(),
@@ -1686,6 +1690,7 @@ class IncrementalScopeTests(unittest.TestCase):
             return_value={
                 "sheets_written": 0, "sheets_errored": 0,
                 "rows_sent": 0, "rows_changed": 0, "affected": set(),
+                "memory_confirmed": True,
             },
         ):
             orch._run_phase2_incremental(
@@ -1721,6 +1726,7 @@ class IncrementalScopeTests(unittest.TestCase):
             return_value={
                 "sheets_written": 0, "sheets_errored": 0,
                 "rows_sent": 0, "rows_changed": 0, "affected": set(),
+                "memory_confirmed": True,
             },
         ):
             result = orch._run_phase2_incremental(
@@ -2010,6 +2016,7 @@ class AffectedSetMappingTests(unittest.TestCase):
                 "sheets_written": 1, "sheets_errored": 0,
                 "rows_sent": 1, "rows_changed": 1,
                 "affected": {("90001", "2026-08-30")},
+                "memory_confirmed": True,
             },
         ), mock.patch.object(
             orch._mem_reader, "map_affected_to_sheets", return_value=set(),
@@ -2063,6 +2070,7 @@ class ScopedCounterTests(unittest.TestCase):
                 "sheets_written": 1,
                 "sheets_errored": 0, "rows_sent": 1, "rows_changed": 1,
                 "affected": {("90001", "2026-08-30")},
+                "memory_confirmed": True,
             },
         ), mock.patch.object(
             orch._mem_reader, "map_affected_to_sheets",
@@ -2379,6 +2387,481 @@ class ParityStreakTests(unittest.TestCase):
 
         _, kwargs = mocked_retry.call_args
         self.assertEqual(kwargs.get("op"), "run_ledger_parity_streak")
+
+
+# ── Greptile P1 on PR #351: fail-open memory result ambiguity ─────────
+
+class MemoryResultAmbiguityTests(unittest.TestCase):
+    """A failed, unavailable, disabled or PARTIAL ``upsert_rows_bulk``
+    must never be read as "nothing changed" by the incremental path
+    (Greptile P1, PR #351, ``pipeline/orchestrate.py`` PHASE 2a).
+
+    Three layers, each pinned here:
+      1. ``pipeline_memory.writer.upsert_rows_bulk_result`` reports a
+         ``status`` next to the affected set (``ok`` / ``noop`` /
+         ``unavailable`` / ``disabled`` / ``partial`` / ``failed``); the
+         legacy ``upsert_rows_bulk`` set-returning wrapper is unchanged.
+      2. ``_run_memory_write_phase`` folds every sheet's status, the
+         pre-flight skip and the mid-loop budget break into one
+         ``memory_confirmed`` flag (True ONLY when every delta sheet was
+         confirmed ``ok`` or ``noop``).
+      3. ``_run_phase2_incremental`` escalates to full mode with
+         ``trigger_memory_write_unconfirmed`` BEFORE it reads
+         ``affected`` -- an unconfirmed empty or partial affected set can
+         only ever WIDEN the regeneration scope, never narrow it
+         (T-11-18). A legacy result dict with no ``memory_confirmed``
+         key is treated as unconfirmed (fail-closed).
+    """
+
+    def setUp(self):
+        _reset_pipeline_memory()
+        _pop_env()
+        os.environ.pop("RUN_MEMORY_WRITE_ENABLED", None)
+
+    def tearDown(self):
+        _reset_pipeline_memory()
+        _pop_env()
+        os.environ.pop("RUN_MEMORY_WRITE_ENABLED", None)
+
+    # ── helpers ──────────────────────────────────────────────────────
+
+    @staticmethod
+    def _writer_rows(n, start_id=1):
+        return [
+            {
+                "__row_id": start_id + i,
+                "Work Request #": f"9{start_id + i:05d}",
+                "Foreman": "Alice",
+            }
+            for i in range(n)
+        ]
+
+    @staticmethod
+    def _fake_client(affected_rows=None):
+        client = mock.Mock()
+        client.schema.return_value.rpc.return_value.execute.return_value = (
+            mock.Mock(data=list(affected_rows or []))
+        )
+        return client
+
+    @staticmethod
+    def _phase_rows(sheet_id, n, start_id=1):
+        return [
+            {
+                "__row_id": start_id + i,
+                "__source_sheet_id": sheet_id,
+                "Work Request #": f"9{start_id + i:05d}",
+                "Weekly Reference Logged Date": "2026-08-30",
+            }
+            for i in range(n)
+        ]
+
+    @staticmethod
+    def _writer_result(status, affected=None, rows_errored=0,
+                       rows_skipped=0):
+        return {
+            "affected": set(affected or ()),
+            "status": status,
+            "rows_sent": 1,
+            "rows_errored": rows_errored,
+            "rows_skipped": rows_skipped,
+        }
+
+    def _run_phase(self, rows, writer_side_effect, **const_overrides):
+        import contextlib
+
+        import pipeline.orchestrate as orch
+
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(
+                mock.patch.object(orch, "RUN_MEMORY_WRITE_ENABLED", True)
+            )
+            stack.enter_context(mock.patch.object(orch, "TEST_MODE", False))
+            for name, value in const_overrides.items():
+                stack.enter_context(mock.patch.object(orch, name, value))
+            mock_upsert = stack.enter_context(mock.patch.object(
+                orch._mem_writer, "upsert_rows_bulk_result",
+                side_effect=writer_side_effect,
+            ))
+            result = orch._run_memory_write_phase(
+                rows, "run-1", datetime.datetime.now(),
+            )
+        return result, mock_upsert
+
+    def _phase2(self, mem_result, map_return=None):
+        import pipeline.orchestrate as orch
+
+        with mock.patch.object(
+            orch._fetch, "fetch_sheet_delta",
+            return_value={
+                "escalate": False, "sheet": None, "version": 9, "calls": 1,
+            },
+        ), mock.patch.object(
+            orch, "_run_memory_write_phase", return_value=mem_result,
+        ), mock.patch.object(
+            orch._mem_reader, "map_affected_to_sheets",
+            return_value=set(map_return or ()),
+        ) as mock_map, mock.patch.object(
+            orch, "get_all_source_rows", return_value=[],
+        ) as mock_full:
+            result = orch._run_phase2_incremental(
+                client=mock.Mock(),
+                source_sheets=[_delta_source()],
+                watermarks={
+                    111222: {
+                        "last_sheet_version": 8,
+                        "last_read_at": "2026-08-26T18:00:00+00:00",
+                    },
+                },
+                per_sheet_reasons={},
+                mem_run_id="run-1",
+                session_start=datetime.datetime.now(),
+            )
+        return result, mock_map, mock_full
+
+    # ── 1. writer status vocabulary ──────────────────────────────────
+
+    def test_writer_empty_input_is_noop_with_zero_calls(self):
+        from pipeline_memory import writer as mem_writer
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+        client = self._fake_client()
+        with mock.patch(
+            "pipeline_memory.writer.get_client", return_value=client,
+        ):
+            result = mem_writer.upsert_rows_bulk_result(1, "run-1", [])
+
+        self.assertEqual(result["status"], "noop")
+        self.assertEqual(result["affected"], set())
+        client.schema.assert_not_called()
+
+    def test_writer_client_unavailable_is_unavailable_not_no_change(self):
+        from pipeline_memory import writer as mem_writer
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+        with mock.patch(
+            "pipeline_memory.writer.get_client", return_value=None,
+        ):
+            result = mem_writer.upsert_rows_bulk_result(
+                1, "run-1", self._writer_rows(2),
+            )
+
+        self.assertEqual(result["status"], "unavailable")
+        self.assertEqual(result["affected"], set())
+
+    def test_writer_write_disabled_is_disabled_not_no_change(self):
+        from pipeline_memory import writer as mem_writer
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "0"
+        client = self._fake_client()
+        with mock.patch(
+            "pipeline_memory.writer.get_client", return_value=client,
+        ):
+            result = mem_writer.upsert_rows_bulk_result(
+                1, "run-1", self._writer_rows(2),
+            )
+
+        self.assertEqual(result["status"], "disabled")
+        client.schema.assert_not_called()
+
+    def test_writer_every_chunk_failing_is_failed(self):
+        from pipeline_memory import writer as mem_writer
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+        client = self._fake_client()
+        with mock.patch(
+            "pipeline_memory.writer.get_client", return_value=client,
+        ), mock.patch(
+            "pipeline_memory.writer.with_retry", return_value=None,
+        ):
+            result = mem_writer.upsert_rows_bulk_result(
+                1, "run-1", self._writer_rows(3),
+            )
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["affected"], set())
+        self.assertEqual(result["rows_errored"], 3)
+
+    def test_writer_one_failed_chunk_is_partial_and_keeps_good_chunk(self):
+        from pipeline_memory import writer as mem_writer
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+        client = self._fake_client()
+        rows = self._writer_rows(mem_writer._CHUNK_ROWS + 5)
+        calls = {"n": 0}
+
+        def _retry(fn, **_kw):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return mock.Mock(
+                    data=[{"wr": "900001", "week_ending": "2026-08-30"}],
+                )
+            return None
+
+        with mock.patch(
+            "pipeline_memory.writer.get_client", return_value=client,
+        ), mock.patch(
+            "pipeline_memory.writer.with_retry", side_effect=_retry,
+        ):
+            result = mem_writer.upsert_rows_bulk_result(1, "run-1", rows)
+
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual(result["affected"], {("900001", "2026-08-30")})
+        self.assertEqual(result["rows_errored"], 5)
+
+    def test_writer_all_chunks_ok_is_ok_even_when_nothing_changed(self):
+        from pipeline_memory import writer as mem_writer
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+        client = self._fake_client(affected_rows=[])
+        with mock.patch(
+            "pipeline_memory.writer.get_client", return_value=client,
+        ):
+            result = mem_writer.upsert_rows_bulk_result(
+                1, "run-1", self._writer_rows(2),
+            )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["affected"], set())
+        self.assertEqual(result["rows_errored"], 0)
+        self.assertEqual(result["rows_sent"], 2)
+
+    def test_writer_skipped_bad_row_ids_are_never_silently_ok(self):
+        from pipeline_memory import writer as mem_writer
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+        client = self._fake_client()
+        rows = [{"__row_id": "not-an-int", "Work Request #": "90001"}]
+        with mock.patch(
+            "pipeline_memory.writer.get_client", return_value=client,
+        ):
+            result = mem_writer.upsert_rows_bulk_result(1, "run-1", rows)
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["rows_skipped"], 1)
+        client.schema.assert_not_called()
+
+    def test_writer_set_wrapper_returns_exactly_the_affected_set(self):
+        from pipeline_memory import writer as mem_writer
+
+        with mock.patch.object(
+            mem_writer, "upsert_rows_bulk_result",
+            return_value=self._writer_result(
+                "partial", affected={("90001", "2026-08-30")},
+                rows_errored=1,
+            ),
+        ):
+            result = mem_writer.upsert_rows_bulk(
+                1, "run-1", self._writer_rows(2),
+            )
+
+        self.assertEqual(result, {("90001", "2026-08-30")})
+
+    # ── 2. _run_memory_write_phase: memory_confirmed ─────────────────
+
+    def test_phase_every_sheet_ok_or_noop_is_confirmed(self):
+        rows = self._phase_rows(111, 1) + self._phase_rows(222, 1, start_id=2)
+
+        def _writer(sheet_id, run_id, bucket_rows):
+            if sheet_id == 111:
+                return self._writer_result(
+                    "ok", affected={("900001", "2026-08-30")},
+                )
+            return self._writer_result("noop")
+
+        result, _ = self._run_phase(rows, _writer)
+
+        self.assertTrue(result["memory_confirmed"])
+        self.assertEqual(result["sheets_errored"], 0)
+        self.assertEqual(result["sheets_unconfirmed"], 0)
+        self.assertIsNone(result["unconfirmed_reason"])
+        self.assertEqual(result["affected"], {("900001", "2026-08-30")})
+
+    def test_phase_unavailable_sheet_is_unconfirmed_and_counted_errored(self):
+        rows = self._phase_rows(111, 1) + self._phase_rows(222, 1, start_id=2)
+
+        def _writer(sheet_id, run_id, bucket_rows):
+            if sheet_id == 111:
+                return self._writer_result("unavailable")
+            return self._writer_result("ok")
+
+        result, mock_upsert = self._run_phase(rows, _writer)
+
+        self.assertEqual(mock_upsert.call_count, 2)  # never stops early
+        self.assertFalse(result["memory_confirmed"])
+        self.assertEqual(result["sheets_errored"], 1)
+        self.assertEqual(result["sheets_unconfirmed"], 1)
+        self.assertIn("111", result["unconfirmed_reason"])
+        self.assertIn("unavailable", result["unconfirmed_reason"])
+
+    def test_phase_partial_sheet_is_unconfirmed_but_keeps_partial_set(self):
+        rows = self._phase_rows(111, 2)
+
+        result, _ = self._run_phase(
+            rows,
+            lambda *_a: self._writer_result(
+                "partial", affected={("900001", "2026-08-30")},
+                rows_errored=1,
+            ),
+        )
+
+        self.assertFalse(result["memory_confirmed"])
+        self.assertEqual(result["sheets_errored"], 1)
+        # Observability keeps what WAS confirmed; the caller must not
+        # narrow scope on it -- pinned by the PHASE 2a tests below.
+        self.assertEqual(result["affected"], {("900001", "2026-08-30")})
+        self.assertEqual(result["rows_changed"], 1)
+
+    def test_phase_writer_exception_is_unconfirmed(self):
+        rows = self._phase_rows(111, 1)
+
+        def _writer(*_a):
+            raise RuntimeError("boom")
+
+        result, _ = self._run_phase(rows, _writer)
+
+        self.assertFalse(result["memory_confirmed"])
+        self.assertEqual(result["sheets_errored"], 1)
+        self.assertIn("exception", result["unconfirmed_reason"])
+
+    def test_phase_budget_break_leaving_sheets_unwritten_is_unconfirmed(self):
+        rows = self._phase_rows(111, 1) + self._phase_rows(222, 1, start_id=2)
+
+        result, mock_upsert = self._run_phase(
+            rows,
+            lambda *_a: self._writer_result("ok"),
+            TIME_BUDGET_MINUTES=165,
+            GITHUB_ACTIONS_MODE=True,
+            RUN_MEMORY_WRITE_MAX_MINUTES=0,
+        )
+
+        self.assertEqual(mock_upsert.call_count, 1)
+        self.assertFalse(result["memory_confirmed"])
+        self.assertEqual(result["sheets_unwritten"], 1)
+        self.assertIn("budget", result["unconfirmed_reason"])
+
+    def test_phase_preflight_skip_is_unconfirmed(self):
+        stale_start = (
+            datetime.datetime.now() - datetime.timedelta(minutes=200)
+        )
+        import pipeline.orchestrate as orch
+
+        with mock.patch.object(orch, "RUN_MEMORY_WRITE_ENABLED", True), \
+                mock.patch.object(orch, "TEST_MODE", False), \
+                mock.patch.object(orch, "TIME_BUDGET_MINUTES", 165), \
+                mock.patch.object(orch, "GITHUB_ACTIONS_MODE", True), \
+                mock.patch.object(orch, "RUN_MEMORY_WRITE_MAX_MINUTES", 10), \
+                mock.patch.object(
+                    orch, "RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN", 2,
+                ), \
+                mock.patch.object(
+                    orch._mem_writer, "upsert_rows_bulk_result",
+                ) as mock_upsert:
+            result = orch._run_memory_write_phase(
+                self._phase_rows(111, 1), "run-1", stale_start,
+            )
+
+        mock_upsert.assert_not_called()
+        self.assertFalse(result["memory_confirmed"])
+        self.assertIn("budget", result["unconfirmed_reason"])
+
+    def test_phase_flag_off_is_unconfirmed(self):
+        import pipeline.orchestrate as orch
+
+        with mock.patch.object(orch, "RUN_MEMORY_WRITE_ENABLED", False), \
+                mock.patch.object(
+                    orch._mem_writer, "upsert_rows_bulk_result",
+                ) as mock_upsert:
+            result = orch._run_memory_write_phase(
+                self._phase_rows(111, 1), "run-1", datetime.datetime.now(),
+            )
+
+        mock_upsert.assert_not_called()
+        self.assertFalse(result["memory_confirmed"])
+
+    # ── 3. _run_phase2_incremental: escalate before reading affected ──
+
+    def test_phase2_unconfirmed_empty_affected_falls_back_to_full(self):
+        mem_result = {
+            "sheets_written": 0, "sheets_errored": 1,
+            "rows_sent": 1, "rows_changed": 0, "affected": set(),
+            "memory_confirmed": False,
+            "unconfirmed_reason": "sheet 111222: unavailable",
+        }
+
+        result, mock_map, mock_full = self._phase2(mem_result)
+
+        self.assertFalse(result["ok"])
+        self.assertIn(
+            "trigger_memory_write_unconfirmed", result["fallback_reason"],
+        )
+        self.assertIn("sheet 111222: unavailable", result["fallback_reason"])
+        mock_map.assert_not_called()
+        mock_full.assert_not_called()
+
+    def test_phase2_unconfirmed_partial_affected_never_narrows_scope(self):
+        mem_result = {
+            "sheets_written": 1, "sheets_errored": 1,
+            "rows_sent": 2, "rows_changed": 1,
+            "affected": {("90001", "2026-08-30")},
+            "memory_confirmed": False,
+            "unconfirmed_reason": "sheet 111222: partial (1 row errored)",
+        }
+
+        result, mock_map, mock_full = self._phase2(
+            mem_result, map_return={111222},
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertIn(
+            "trigger_memory_write_unconfirmed", result["fallback_reason"],
+        )
+        mock_map.assert_not_called()
+        mock_full.assert_not_called()
+
+    def test_phase2_confirmed_empty_affected_is_a_legitimate_no_change_run(self):
+        mem_result = {
+            "sheets_written": 0, "sheets_errored": 0,
+            "rows_sent": 0, "rows_changed": 0, "affected": set(),
+            "memory_confirmed": True, "unconfirmed_reason": None,
+        }
+
+        result, mock_map, _ = self._phase2(mem_result)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["affected"], set())
+        mock_map.assert_not_called()
+
+    def test_phase2_legacy_result_without_flag_is_treated_as_unconfirmed(self):
+        mem_result = {
+            "sheets_written": 0, "sheets_errored": 0,
+            "rows_sent": 0, "rows_changed": 0, "affected": set(),
+        }
+
+        result, mock_map, _ = self._phase2(mem_result)
+
+        self.assertFalse(result["ok"])
+        self.assertIn(
+            "trigger_memory_write_unconfirmed", result["fallback_reason"],
+        )
+        mock_map.assert_not_called()
+
+    # ── 4. main() wiring: shadow gate + run_ledger notes ─────────────
+
+    def test_main_gates_shadow_parity_and_ledger_notes_on_memory_confirmed(self):
+        import inspect
+
+        import pipeline.orchestrate as orch
+
+        src = inspect.getsource(orch.main)
+        # Both run_ledger_finish call sites persist the flag as a note.
+        self.assertEqual(src.count("mem_confirmed=_mem_memory_confirmed"), 2)
+        # The shadow comparator is gated on the flag BEFORE it compares:
+        # a write failure must report 'skipped', never masquerade as a
+        # parity 'fail' (11-05 D-07: never-vacuous, never-false verdicts).
+        gate_idx = src.index('"reason": "memory_write_unconfirmed"')
+        compare_idx = src.index("_parity.compare_shadow_parity(")
+        self.assertLess(gate_idx, compare_idx)
 
 
 if __name__ == "__main__":
