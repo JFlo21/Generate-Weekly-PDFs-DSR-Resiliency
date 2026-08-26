@@ -274,5 +274,323 @@ class SheetWatermarksReadTests(unittest.TestCase):
         client.schema.assert_not_called()
 
 
+# ── Task 1: pipeline_memory.reader.get_last_run_ledger_status ───────────
+
+class LastRunLedgerStatusReadTests(unittest.TestCase):
+    def setUp(self):
+        _reset_pipeline_memory()
+        _pop_env()
+
+    def tearDown(self):
+        _reset_pipeline_memory()
+        _pop_env()
+
+    def test_returns_newest_row_status_and_finished_at(self):
+        from pipeline_memory import reader as mem_reader
+
+        client = mock.Mock()
+        query = (
+            client.schema.return_value.table.return_value
+            .select.return_value.order.return_value.limit.return_value
+        )
+        query.execute.return_value = SimpleNamespace(data=[
+            {"status": "success", "finished_at": "2026-08-26T18:00:00+00:00"},
+        ])
+
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=client
+        ):
+            result = mem_reader.get_last_run_ledger_status()
+
+        self.assertEqual(result["status"], "success")
+
+    def test_failure_returns_none(self):
+        from pipeline_memory import reader as mem_reader
+
+        client = mock.Mock()
+        (
+            client.schema.return_value.table.return_value
+            .select.return_value.order.return_value.limit.return_value
+            .execute.side_effect
+        ) = Exception("boom")
+
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=client
+        ):
+            result = mem_reader.get_last_run_ledger_status()
+
+        self.assertIsNone(result)
+
+    def test_no_prior_run_returns_none(self):
+        from pipeline_memory import reader as mem_reader
+
+        client = mock.Mock()
+        query = (
+            client.schema.return_value.table.return_value
+            .select.return_value.order.return_value.limit.return_value
+        )
+        query.execute.return_value = SimpleNamespace(data=[])
+
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=client
+        ):
+            result = mem_reader.get_last_run_ledger_status()
+
+        self.assertIsNone(result)
+
+
+# ── Task 2: resolve_run_mode -- the seven D-02 full-read escalation
+#    triggers ────────────────────────────────────────────────────────────
+
+def _healthy_kwargs(**overrides):
+    """Baseline resolve_run_mode() kwargs for a clean, all-healthy run."""
+    kwargs = dict(
+        incremental_enabled=True,
+        execution_type="production_frequent",
+        auth_error_sheet_ids=set(),
+        reset_hash_history=False,
+        regen_weeks=set(),
+        reset_wr_list=set(),
+        force_generation=False,
+    )
+    kwargs.update(overrides)
+    return kwargs
+
+
+def _healthy_watermark(sheet_id, mapping):
+    return {
+        sheet_id: {
+            "sheet_id": sheet_id,
+            "last_sheet_version": 8,
+            "last_read_at": "2026-08-26T18:00:00+00:00",
+            "last_full_read_at": "2026-08-20T18:00:00+00:00",
+            "column_mapping": mapping,
+        }
+    }
+
+
+class ModeResolutionTests(unittest.TestCase):
+    def _clean_last_run(self):
+        return {"status": "success", "finished_at": "2026-08-26T17:00:00+00:00"}
+
+    def test_happy_path_resolves_incremental_with_none_reason(self):
+        from pipeline.orchestrate import resolve_run_mode
+
+        source = _make_source()
+        watermarks = _healthy_watermark(source["id"], source["column_mapping"])
+
+        mode, reason, per_sheet = resolve_run_mode(
+            [source], watermarks, self._clean_last_run(),
+            **_healthy_kwargs(),
+        )
+
+        self.assertEqual(mode, "incremental")
+        self.assertIsNone(reason)
+        self.assertEqual(per_sheet, {})
+
+    def test_flag_off_resolves_full_even_when_everything_else_healthy(self):
+        from pipeline.orchestrate import resolve_run_mode
+
+        source = _make_source()
+        watermarks = _healthy_watermark(source["id"], source["column_mapping"])
+
+        mode, reason, _ = resolve_run_mode(
+            [source], watermarks, self._clean_last_run(),
+            **_healthy_kwargs(incremental_enabled=False),
+        )
+
+        self.assertEqual(mode, "full")
+        self.assertTrue(reason)
+
+    def test_trigger1_no_watermark_row_marks_sheet_full(self):
+        from pipeline.orchestrate import resolve_run_mode
+
+        source = _make_source()
+        # Watermark map healthy for a DIFFERENT sheet so trigger 4 (empty
+        # map) does not also fire -- isolates trigger 1.
+        watermarks = _healthy_watermark(999999, {"X": 1})
+
+        mode, reason, per_sheet = resolve_run_mode(
+            [source], watermarks, self._clean_last_run(),
+            **_healthy_kwargs(),
+        )
+
+        self.assertIn(source["id"], per_sheet)
+        self.assertIn("trigger1", per_sheet[source["id"]])
+        # Whole-run mode still resolves per the other (healthy) triggers.
+        self.assertEqual(mode, "incremental")
+        self.assertIsNone(reason)
+
+    def test_trigger1_null_last_sheet_version_marks_sheet_full(self):
+        from pipeline.orchestrate import resolve_run_mode
+
+        source = _make_source()
+        watermarks = _healthy_watermark(source["id"], source["column_mapping"])
+        watermarks[source["id"]]["last_sheet_version"] = None
+
+        mode, reason, per_sheet = resolve_run_mode(
+            [source], watermarks, self._clean_last_run(),
+            **_healthy_kwargs(),
+        )
+
+        self.assertIn("trigger1", per_sheet[source["id"]])
+        self.assertEqual(mode, "incremental")
+
+    def test_trigger2_column_mapping_drift_marks_sheet_full(self):
+        from pipeline.orchestrate import resolve_run_mode
+
+        source = _make_source()
+        watermarks = _healthy_watermark(
+            source["id"], {"Work Request #": 1, "Foreman": 999}
+        )
+
+        mode, reason, per_sheet = resolve_run_mode(
+            [source], watermarks, self._clean_last_run(),
+            **_healthy_kwargs(),
+        )
+
+        self.assertIn("trigger2", per_sheet[source["id"]])
+        self.assertEqual(mode, "incremental")
+
+    def test_trigger2_json_roundtrip_mapping_is_not_a_false_drift(self):
+        from pipeline.orchestrate import resolve_run_mode
+
+        source = _make_source()
+        # Stored mapping round-tripped through JSON: string keys/values
+        # instead of the freshly-discovered dict's native int values.
+        watermarks = _healthy_watermark(
+            source["id"], {"Work Request #": "1", "Foreman": "2"}
+        )
+
+        mode, reason, per_sheet = resolve_run_mode(
+            [source], watermarks, self._clean_last_run(),
+            **_healthy_kwargs(),
+        )
+
+        self.assertNotIn(source["id"], per_sheet)
+        self.assertEqual(mode, "incremental")
+
+    def test_trigger3_auth_error_isolated_and_watermark_never_touched(self):
+        from pipeline.orchestrate import resolve_run_mode
+
+        source = _make_source()
+        watermarks = _healthy_watermark(source["id"], source["column_mapping"])
+
+        mode, reason, per_sheet = resolve_run_mode(
+            [source], watermarks, self._clean_last_run(),
+            **_healthy_kwargs(auth_error_sheet_ids={source["id"]}),
+        )
+
+        self.assertIn("trigger3", per_sheet[source["id"]])
+        self.assertEqual(mode, "incremental")
+
+    def test_trigger4_empty_watermark_map_forces_full(self):
+        from pipeline.orchestrate import resolve_run_mode
+
+        source = _make_source()
+
+        mode, reason, _ = resolve_run_mode(
+            [source], {}, self._clean_last_run(),
+            **_healthy_kwargs(),
+        )
+
+        self.assertEqual(mode, "full")
+        self.assertIn("trigger4", reason)
+
+    def test_trigger5_operator_flags_force_full(self):
+        from pipeline.orchestrate import resolve_run_mode
+
+        source = _make_source()
+        watermarks = _healthy_watermark(source["id"], source["column_mapping"])
+
+        for flag_kwargs in (
+            {"reset_hash_history": True},
+            {"regen_weeks": {"081725"}},
+            {"reset_wr_list": {"WR123"}},
+            {"force_generation": True},
+        ):
+            with self.subTest(flag_kwargs=flag_kwargs):
+                mode, reason, _ = resolve_run_mode(
+                    [source], watermarks, self._clean_last_run(),
+                    **_healthy_kwargs(**flag_kwargs),
+                )
+                self.assertEqual(mode, "full")
+                self.assertIn("trigger5", reason)
+
+    def test_trigger6_previous_run_not_success_forces_full(self):
+        from pipeline.orchestrate import resolve_run_mode
+
+        source = _make_source()
+        watermarks = _healthy_watermark(source["id"], source["column_mapping"])
+
+        mode, reason, _ = resolve_run_mode(
+            [source], watermarks,
+            {"status": "failed", "finished_at": "2026-08-26T17:00:00+00:00"},
+            **_healthy_kwargs(),
+        )
+
+        self.assertEqual(mode, "full")
+        self.assertIn("trigger6", reason)
+
+    def test_trigger6_previous_run_missing_finished_at_forces_full(self):
+        from pipeline.orchestrate import resolve_run_mode
+
+        source = _make_source()
+        watermarks = _healthy_watermark(source["id"], source["column_mapping"])
+
+        mode, reason, _ = resolve_run_mode(
+            [source], watermarks,
+            {"status": "running", "finished_at": None},
+            **_healthy_kwargs(),
+        )
+
+        self.assertEqual(mode, "full")
+        self.assertIn("trigger6", reason)
+
+    def test_trigger6_last_run_status_none_forces_full(self):
+        from pipeline.orchestrate import resolve_run_mode
+
+        source = _make_source()
+        watermarks = _healthy_watermark(source["id"], source["column_mapping"])
+
+        mode, reason, _ = resolve_run_mode(
+            [source], watermarks, None,
+            **_healthy_kwargs(),
+        )
+
+        self.assertEqual(mode, "full")
+        self.assertIn("trigger6", reason)
+
+    def test_trigger7_execution_type_not_production_frequent_forces_full(self):
+        from pipeline.orchestrate import resolve_run_mode
+
+        source = _make_source()
+        watermarks = _healthy_watermark(source["id"], source["column_mapping"])
+
+        mode, reason, _ = resolve_run_mode(
+            [source], watermarks, self._clean_last_run(),
+            **_healthy_kwargs(execution_type="weekly_comprehensive"),
+        )
+
+        self.assertEqual(mode, "full")
+        self.assertIn("trigger7", reason)
+
+    def test_never_raises_on_unexpected_exception(self):
+        from pipeline.orchestrate import resolve_run_mode
+
+        # A non-dict watermark value simulates a corrupt/unexpected shape;
+        # resolve_run_mode must fail open, never propagate the exception.
+        source = _make_source()
+        watermarks = {source["id"]: "not-a-dict"}
+
+        mode, reason, _ = resolve_run_mode(
+            [source], watermarks, self._clean_last_run(),
+            **_healthy_kwargs(),
+        )
+
+        self.assertEqual(mode, "full")
+        self.assertTrue(reason)
+
+
 if __name__ == "__main__":
     unittest.main()
