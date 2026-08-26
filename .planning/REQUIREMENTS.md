@@ -232,7 +232,7 @@ CU pricing, rate recalculation, and billing formulas do not change.
 
 ### Incremental read + affected-group regeneration (Phase 11)
 
-- [ ] **INC-01**: Frequent runs use `ifVersionAfter` + `rowsModifiedSince` per registered
+- [x] **INC-01**: Frequent runs use `ifVersionAfter` + `rowsModifiedSince` per registered
   sheet; unchanged sheets cost one call and zero rows.
 
 - [ ] **INC-02**: Only (WR, week) groups touched by changed rows (including the previous
@@ -369,7 +369,7 @@ Which phases cover which requirements.
 | MEM-02 | Phase 10 | Complete |
 | MEM-03 | Phase 10 | Complete |
 | MEM-04 | Phase 10 | Complete |
-| INC-01 | Phase 11 | Pending |
+| INC-01 | Phase 11 | Complete |
 | INC-02 | Phase 11 | Pending |
 | INC-03 | Phase 11 | Pending |
 | INC-04 | Phase 11 | Complete |

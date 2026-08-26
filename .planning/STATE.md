@@ -5,17 +5,17 @@ milestone_name: Engine Modularization & Hygiene
 current_phase: 11
 current_phase_name: Incremental Read + Affected-Group Regeneration
 status: executing
-stopped_at: Completed 11-01-PLAN.md
-last_updated: "2026-08-26T18:16:11.138Z"
+stopped_at: Completed 11-02-PLAN.md
+last_updated: "2026-08-26T18:51:26.688Z"
 last_activity: 2026-08-26
 last_activity_desc: Phase 11 execution resumed (wave continue)
+state_head: 4a5ddd2ca855545c3fd2ff1dd0c9ec3fe21ec421
 progress:
   total_phases: 1
   completed_phases: 1
   total_plans: 2
   completed_plans: 2
   percent: 100
-state_head: 4323cec8df91356b42f2ae278d850024bbb5cf77
 ---
 
 # Project State
@@ -36,7 +36,7 @@ pipeline.
 ## Current Position
 
 Phase: 11 (Incremental Read + Affected-Group Regeneration) — EXECUTING
-Plan: 2 of 8
+Plan: 3 of 8
 Status: Ready to execute
   Engine 10,476 -> 709-line thin facade; 13-module pipeline/ package; 0 behavior
   change; 7 waves + 2 gap-closure plans (09-07/09-08). G-09-MOD-06 closed: Gate 4
@@ -103,6 +103,7 @@ Progress: [██████████] 100% (v1.3 complete; v1.4 Phase 10 cl
 | Phase 10 P03 | ~37min | 3 tasks | 4 files |
 | Phase 10 P06 | ~4h10m (4 real production runs) | 3 tasks | 6 files |
 | Phase 11 P01 | 48min | 3 tasks | 6 files |
+| Phase 11 P02 | 21min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -203,6 +204,11 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase ?]: Caller-parses-then-passes: pipeline/orchestrate.py pre-parses decorated Quantity/Units Total Price and passes via __mem_* row keys; pipeline_memory never re-parses or falls back to the raw cell
 - [Phase ?]: run_ledger.sheets_changed populated on both success and failure finish paths as a real column, separate from the mem_sheets_written notes counter
 - [Phase ?]: RUN_MEMORY_WRITE_ENABLED flip checklist documents an ADD (env var currently absent from workflow), not a 0->1 toggle; IN-01 deferred to a checklist gate since it's untestable under SKIP_UPLOAD
+- [Phase 11]: [Phase 11-02] auth_error_sheet_ids (D-02 trigger 3) is a real, directly-testable resolve_run_mode parameter with no live producer yet -- PHASE 2 still performs today's single-call full fetch this plan; plan 04's per-sheet delta wiring populates it for real
+- [Phase 11]: [Phase 11-02] RUN_MEMORY_INCREMENTAL_ENABLED is checked FIRST in resolve_run_mode, before D-02 triggers 4-7, so the flag dominates regardless of every other input (D-11)
+- [Phase 11]: [Phase 11-02] run_ledger_start's call site moved to after PHASE 1 discovery (was before it) so it can carry the same resolved mode the finish calls carry, instead of a hard-coded full
+- [Phase 11]: [Phase 11-02] sheet_registry capture_time is captured ONCE before PASS 1 and reused verbatim for PASS 2 -- last_read_at must be the instant before the read, never a fresh now recomputed after the read completed
+- [Phase 11]: [Phase 11-02] widened pipeline.fetch._LAST_SHEET_VERSIONS to dict[int, int | None] rather than suppressing a new mypy finding -- the loose annotation was always inaccurate; the untyped nested closure that also wrote it had simply never been checked
 
 ### Roadmap Evolution
 
@@ -336,8 +342,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-08-26T18:16:11.123Z
-**Stopped at:** Completed 11-01-PLAN.md
+**Last session:** 2026-08-26T18:51:26.508Z
+**Stopped at:** Completed 11-02-PLAN.md
 **Resume file:** None
 
 ## Session Continuity
