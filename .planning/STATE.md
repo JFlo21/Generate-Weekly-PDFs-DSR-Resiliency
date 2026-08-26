@@ -5,11 +5,11 @@ milestone_name: Engine Modularization & Hygiene
 current_phase: 11
 current_phase_name: Incremental Read + Affected-Group Regeneration
 status: executing
-stopped_at: Completed 11-05-PLAN.md
-last_updated: "2026-08-26T21:40:21.613Z"
+stopped_at: Completed 11-06-PLAN.md
+last_updated: "2026-08-26T22:16:54.046Z"
 last_activity: 2026-08-26
 last_activity_desc: Phase 11 execution started
-state_head: 2734cd73776cafff19efc5479926b97ecd339511
+state_head: db7592a89ea1d93597a8287c461537626377c5d3
 progress:
   total_phases: 1
   completed_phases: 1
@@ -36,7 +36,9 @@ pipeline.
 ## Current Position
 
 Phase: 11 (Incremental Read + Affected-Group Regeneration) — EXECUTING
-Plan: 2 of 8
+Plan: 7 of 8 (11-06 complete; corrects a stale "Plan: 2/3 of 8" counter left
+  by prior plans' `state.advance-plan` runs -- 6 of 8 Phase 11 plans have a
+  SUMMARY.md on disk; next up is 11-07)
 Status: Ready to execute
   Engine 10,476 -> 709-line thin facade; 13-module pipeline/ package; 0 behavior
   change; 7 waves + 2 gap-closure plans (09-07/09-08). G-09-MOD-06 closed: Gate 4
@@ -107,6 +109,7 @@ Progress: [██████████] 100% (v1.3 complete; v1.4 Phase 10 cl
 | Phase 11 P03 | 28min | 3 tasks | 4 files |
 | Phase 11 P04 | ~28min | 3 tasks | 5 files |
 | Phase 11 P05 | 9min | 2 tasks | 5 files |
+| Phase 11 P06 | ~50min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -219,6 +222,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase ?]: [Phase 11-04] Every PHASE 2a/2b failure (delta-probe escalation, memory-write exception, empty mapping for a non-empty affected set) falls back to full mode with a non-empty fallback_reason -- scope can only widen, never narrow (T-11-18)
 - [Phase ?]: [Phase 11-04] D-05 approved partial recorded against INC-02: row_state stays membership-only this phase, deferred pending D-04 running clean for >=5 consecutive runs
 - [Phase 11]: [Phase 11-05] Shadow parity D-08 read-side changed-row-id source is a new pipeline_memory.row_event read inside pipeline/parity.py (no schema.sql change, no pipeline_memory/reader.py addition); Tasks 2+3 production code landed in one commit since both share the orchestrate.py hook and combine_verdicts() call
+- [Phase 11]: [Phase 11] [Phase 11-06] Deep-run deletion detection collapses the plan's two guards (zero-row full read, sheet not read in full) into one code path -- pipeline/fetch.py exposes no per-sheet read-success signal outside this plan's declared files_modified, so both are treated as skip+warn (the safe superset)
+- [Phase 11]: [Phase 11] [Phase 11-06] group_state repair for a deletion is observability over the existing post-upload flush, not a second write -- a (wr, week_ending) pair whose last row is deleted produces no repair at all (documented limitation, WINDOWS.md id 2), since group_source_rows never assigns it to a group for the flush to see
 
 ### Roadmap Evolution
 
@@ -352,8 +357,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-08-26T21:40:08.843Z
-**Stopped at:** Completed 11-05-PLAN.md
+**Last session:** 2026-08-26T22:16:53.863Z
+**Stopped at:** Completed 11-06-PLAN.md
 **Resume file:** None
 
 ## Session Continuity

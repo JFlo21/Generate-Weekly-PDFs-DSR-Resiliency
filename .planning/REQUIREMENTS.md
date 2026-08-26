@@ -256,7 +256,7 @@ CU pricing, rate recalculation, and billing formulas do not change.
   > gated on this hybrid running clean for ≥5 consecutive `production_frequent` runs
   > (CONTEXT.md D-05).
 
-- [ ] **INC-03**: The weekly deep run performs a full read + reconciliation (deletions,
+- [x] **INC-03**: The weekly deep run performs a full read + reconciliation (deletions,
   formula-only changes) and refreshes `sheet_registry.column_mapping`.
 
 - [x] **INC-04**: Behind `RUN_MEMORY_INCREMENTAL_ENABLED` (default OFF) with parity
@@ -388,7 +388,7 @@ Which phases cover which requirements.
 | MEM-04 | Phase 10 | Complete |
 | INC-01 | Phase 11 | Complete |
 | INC-02 | Phase 11 | Pending |
-| INC-03 | Phase 11 | Pending |
+| INC-03 | Phase 11 | Complete |
 | INC-04 | Phase 11 | Complete |
 | INC-05 | Phase 11 | Pending |
 | OWN-01 | Phase 12 | Pending |

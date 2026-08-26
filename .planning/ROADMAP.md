@@ -609,7 +609,7 @@ files, reading group rows from `row_state`; the weekly deep run reconciles fully
 4. Local JSON caches and the two attachment pre-fetch phases are removed only after (2);
    frequent-run wall clock measured before/after (baseline 94 min, run 32743959053).
 
-**Plans:** 5/8 plans executed
+**Plans:** 6/8 plans executed
 
 Plans:
 **Wave 1**
@@ -634,7 +634,7 @@ Plans:
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
-- [ ] 11-06-PLAN.md — INC-03 weekly deep-run reconciliation: deletions, `column_mapping` refresh, formula-only, `group_state` repair (wave 6)
+- [x] 11-06-PLAN.md — INC-03 weekly deep-run reconciliation: deletions, `column_mapping` refresh, formula-only, `group_state` repair (wave 6)
 
 **Wave 7** *(blocked on Wave 6 completion, and on the ≥5-run parity streak)*
 
