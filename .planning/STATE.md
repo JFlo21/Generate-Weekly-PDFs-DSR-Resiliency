@@ -5,17 +5,17 @@ milestone_name: Engine Modularization & Hygiene
 current_phase: 11
 current_phase_name: Incremental Read + Affected-Group Regeneration
 status: executing
-stopped_at: Phase 11 context gathered (discuss-phase complete, D-01..D-12 locked)
-last_updated: "2026-08-26T16:48:38.780Z"
-last_activity: 2026-08-25
-last_activity_desc: Phase 10 complete
-state_head: 41e03fb0b12f3a11444e6066af1bf8d35ad413cd
+stopped_at: Completed 11-01-PLAN.md
+last_updated: "2026-08-26T18:16:11.138Z"
+last_activity: 2026-08-26
+last_activity_desc: Phase 11 execution resumed (wave continue)
 progress:
   total_phases: 1
   completed_phases: 1
   total_plans: 2
   completed_plans: 2
   percent: 100
+state_head: 4323cec8df91356b42f2ae278d850024bbb5cf77
 ---
 
 # Project State
@@ -31,19 +31,19 @@ right generated Excel billing artifact fast, from a secure, auth-gated,
 beautiful web portal — with zero change to the production Python billing
 pipeline.
 
-**Current focus:** Phase 10 — Run-Memory Foundation (shadow writes)
+**Current focus:** Phase 11 — Incremental Read + Affected-Group Regeneration
 
 ## Current Position
 
-Phase: 11 (Incremental Read + Affected-Group Regeneration) — READY TO EXECUTE
-Plan: Not started
+Phase: 11 (Incremental Read + Affected-Group Regeneration) — EXECUTING
+Plan: 2 of 8
 Status: Ready to execute
   Engine 10,476 -> 709-line thin facade; 13-module pipeline/ package; 0 behavior
   change; 7 waves + 2 gap-closure plans (09-07/09-08). G-09-MOD-06 closed: Gate 4
   fail-capable, Gate 6 offline (synthetic), mypy re-baselined 65 with per-finding
   attribution (Juan: `rebaseline`, `da7d73c`); `run_6_gates.sh` ALL 6 GATES PASSED
   in 32 s; suite 1386 + 132 subtests. Next: `/gsd-core:gsd-execute-phase 10`.
-Last activity: 2026-08-25 — Phase 10 complete
+Last activity: 2026-08-26 — Phase 11 execution resumed (wave continue)
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
@@ -102,6 +102,7 @@ Progress: [██████████] 100% (v1.3 complete; v1.4 Phase 10 cl
 | Phase 10-run-memory-foundation-shadow-writes P05 | 40min | 3 tasks | 4 files |
 | Phase 10 P03 | ~37min | 3 tasks | 4 files |
 | Phase 10 P06 | ~4h10m (4 real production runs) | 3 tasks | 6 files |
+| Phase 11 P01 | 48min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -199,6 +200,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 10]: 10-06: compare_control_run.py hashes canonicalized xlsx content (excludes docProps/core.xml, normalizes the Report Generated On cell) instead of raw file bytes -- a raw hash can never prove two real pipeline runs are behaviorally identical
 - [Phase 10]: 10-06: run_ledger_finish always resends mode (default full) even though run_ledger_start already set it -- PostgREST upsert validates NOT NULL against only the payload's own columns before conflict resolution
 - [Phase 10]: 10-06: success criterion 4 proven at Excel-CONTENT level (100% match, canonicalized) not at group-selection level -- live ~209K-row production data cannot be held still across a ~50-90min control/shadow gap without a fetch-snapshot capability out of scope
+- [Phase ?]: Caller-parses-then-passes: pipeline/orchestrate.py pre-parses decorated Quantity/Units Total Price and passes via __mem_* row keys; pipeline_memory never re-parses or falls back to the raw cell
+- [Phase ?]: run_ledger.sheets_changed populated on both success and failure finish paths as a real column, separate from the mem_sheets_written notes counter
+- [Phase ?]: RUN_MEMORY_WRITE_ENABLED flip checklist documents an ADD (env var currently absent from workflow), not a 0->1 toggle; IN-01 deferred to a checklist gate since it's untestable under SKIP_UPLOAD
 
 ### Roadmap Evolution
 
@@ -332,9 +336,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-08-26T12:28:01.203Z
-**Stopped at:** Phase 11 context gathered (discuss-phase complete, D-01..D-12 locked)
-**Resume file:** .planning/phases/11-incremental-read-affected-group-regeneration/11-CONTEXT.md
+**Last session:** 2026-08-26T18:16:11.123Z
+**Stopped at:** Completed 11-01-PLAN.md
+**Resume file:** None
 
 ## Session Continuity
 

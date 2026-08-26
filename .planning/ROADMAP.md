@@ -137,7 +137,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 08. smartsheet-python-sdk 4.0.0 Compatibility Migration | v1.2 | 2/2 | Complete    | 2026-07-22 |
 | 09. Engine Modularization (pipeline package split) | v1.3 | 9/9 | ✅ Complete | 2026-08-25 |
 | 10. Run-Memory Foundation (shadow writes) | v1.4 | 6/6 | ✅ Complete | 2026-08-25 |
-| 11. Incremental Read + Affected-Group Regeneration | v1.4 | 0/8 | Planned |  |
+| 11. Incremental Read + Affected-Group Regeneration | v1.4 | 0/8 | In Progress|  |
 | 12. Ownership — last known foreman as of the week | v1.4 | 0/? | Draft |  |
 | 13. Audit Memory | v1.4 | 0/? | Draft |  |
 
@@ -609,12 +609,12 @@ files, reading group rows from `row_state`; the weekly deep run reconciles fully
 4. Local JSON caches and the two attachment pre-fetch phases are removed only after (2);
    frequent-run wall clock measured before/after (baseline 94 min, run 32743959053).
 
-**Plans:** 8 plans
+**Plans:** 1/8 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 11-01-PLAN.md — Write-flip preconditions: WR-01 decorated-numeric parse, WR-04 `run_ledger.sheets_changed`, IN-01 flip checklist (wave 1)
+- [x] 11-01-PLAN.md — Write-flip preconditions: WR-01 decorated-numeric parse, WR-04 `run_ledger.sheets_changed`, IN-01 flip checklist (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 

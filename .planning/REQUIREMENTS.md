@@ -242,7 +242,7 @@ CU pricing, rate recalculation, and billing formulas do not change.
 - [ ] **INC-03**: The weekly deep run performs a full read + reconciliation (deletions,
   formula-only changes) and refreshes `sheet_registry.column_mapping`.
 
-- [ ] **INC-04**: Behind `RUN_MEMORY_INCREMENTAL_ENABLED` (default OFF) with parity
+- [x] **INC-04**: Behind `RUN_MEMORY_INCREMENTAL_ENABLED` (default OFF) with parity
   proof: incremental output set == full-run output set for ≥5 consecutive scheduled
   runs before the flag defaults ON.
 
@@ -372,7 +372,7 @@ Which phases cover which requirements.
 | INC-01 | Phase 11 | Pending |
 | INC-02 | Phase 11 | Pending |
 | INC-03 | Phase 11 | Pending |
-| INC-04 | Phase 11 | Pending |
+| INC-04 | Phase 11 | Complete |
 | INC-05 | Phase 11 | Pending |
 | OWN-01 | Phase 12 | Pending |
 | OWN-02 | Phase 12 | Pending |
