@@ -25,12 +25,14 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 ### 📋 Changelog — August 26, 2026
 
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - ✨ New capability: Phase 10 — Supabase run-memory foundation (shadow writes, flag OFF)
 - ✅ Problem fixed: close Phase 09 gap G-09-MOD-06 (Gate 4 fail-capable, Gate 6 offline)
-- ✨ New capability: Phase 10 — Supabase run-memory foundation (shadow writes, flag OFF) ()
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- 📄 Help guides updated: log 99dc25d &#91;skip ci&#93;
 - 📄 Help guides updated: automated plain-language update from Notion Worker
+- ✨ New capability: Phase 10 — Supabase run-memory foundation (shadow writes, flag OFF) ()
 - 📄 Help guides updated: log c409c32 &#91;skip ci&#93;
-- ✅ Problem fixed: close Phase 09 gap G-09-MOD-06 (Gate 4 fail-capable, Gate 6 offline) ()
 
 <!-- /runbook-repo -->
 
