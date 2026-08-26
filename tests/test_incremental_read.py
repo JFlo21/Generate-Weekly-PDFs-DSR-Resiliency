@@ -592,5 +592,246 @@ class ModeResolutionTests(unittest.TestCase):
         self.assertTrue(reason)
 
 
+# ── Task 3: capture-time watermark persistence + mode visibility ────────
+
+class WatermarkPersistenceTests(unittest.TestCase):
+    """upsert_sheet_registry's new capture_times / full_read_sheets
+    contract (writer-side, behavioral) and the main()-side wiring
+    (structural, mirroring RunLedgerSheetsChangedCallSiteTests in
+    tests/test_pipeline_memory_shadow.py -- both are deep inside main()
+    and not directly invocable without a whole session).
+    """
+
+    def setUp(self):
+        _reset_pipeline_memory()
+        _pop_env()
+
+    def tearDown(self):
+        _reset_pipeline_memory()
+        _pop_env()
+
+    def test_persists_caller_supplied_capture_time_verbatim(self):
+        from pipeline_memory import writer as mem_writer
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+        upsert_capture: list = []
+        client = mock.Mock()
+        table = client.schema.return_value.table.return_value
+
+        def _execute():
+            upsert_capture.append(table.upsert.call_args)
+            return SimpleNamespace(data=[])
+
+        table.upsert.return_value.execute.side_effect = _execute
+
+        captured = "2026-08-26T18:00:00.123456+00:00"
+        with mock.patch("pipeline_memory.writer.get_client", return_value=client):
+            mem_writer.upsert_sheet_registry(
+                [{"id": 111222, "name": "Test Sheet", "column_mapping": {}}],
+                "run-1",
+                lambda _sid: "primary",
+                {111222: 8},
+                capture_times={111222: captured},
+                full_read_sheets={111222},
+            )
+
+        self.assertEqual(len(upsert_capture), 1)
+        payload = upsert_capture[0].args[0]
+        self.assertEqual(payload[0]["last_read_at"], captured)
+
+    def test_delta_read_omits_last_full_read_at(self):
+        from pipeline_memory import writer as mem_writer
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+        upsert_capture: list = []
+        client = mock.Mock()
+        table = client.schema.return_value.table.return_value
+
+        def _execute():
+            upsert_capture.append(table.upsert.call_args)
+            return SimpleNamespace(data=[])
+
+        table.upsert.return_value.execute.side_effect = _execute
+
+        with mock.patch("pipeline_memory.writer.get_client", return_value=client):
+            mem_writer.upsert_sheet_registry(
+                [{"id": 111222, "name": "Test Sheet", "column_mapping": {}}],
+                "run-1",
+                lambda _sid: "primary",
+                {111222: 9},
+                capture_times={111222: "2026-08-26T18:00:00+00:00"},
+                full_read_sheets=set(),  # empty -- 111222 is a DELTA read
+            )
+
+        payload = upsert_capture[0].args[0]
+        self.assertNotIn("last_full_read_at", payload[0])
+        self.assertEqual(payload[0]["last_sheet_version"], 9)
+
+    def test_full_read_writes_last_full_read_at_equal_to_capture_time(self):
+        from pipeline_memory import writer as mem_writer
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+        upsert_capture: list = []
+        client = mock.Mock()
+        table = client.schema.return_value.table.return_value
+
+        def _execute():
+            upsert_capture.append(table.upsert.call_args)
+            return SimpleNamespace(data=[])
+
+        table.upsert.return_value.execute.side_effect = _execute
+
+        captured = "2026-08-26T18:00:00+00:00"
+        with mock.patch("pipeline_memory.writer.get_client", return_value=client):
+            mem_writer.upsert_sheet_registry(
+                [{"id": 111222, "name": "Test Sheet", "column_mapping": {}}],
+                "run-1",
+                lambda _sid: "primary",
+                {111222: 9},
+                capture_times={111222: captured},
+                full_read_sheets={111222},
+            )
+
+        payload = upsert_capture[0].args[0]
+        self.assertEqual(payload[0]["last_full_read_at"], captured)
+
+    def test_default_kwargs_preserve_phase10_backward_compatible_behavior(self):
+        """No capture_times/full_read_sheets supplied (Phase 10's two
+        existing call sites) -> every sheet gets the SAME freshly-computed
+        `now` for both last_read_at and last_full_read_at, byte-identical
+        to pre-Plan-02 behavior.
+        """
+        from pipeline_memory import writer as mem_writer
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+        upsert_capture: list = []
+        client = mock.Mock()
+        table = client.schema.return_value.table.return_value
+
+        def _execute():
+            upsert_capture.append(table.upsert.call_args)
+            return SimpleNamespace(data=[])
+
+        table.upsert.return_value.execute.side_effect = _execute
+
+        with mock.patch("pipeline_memory.writer.get_client", return_value=client):
+            mem_writer.upsert_sheet_registry(
+                [{"id": 111222, "name": "Test Sheet", "column_mapping": {}}],
+                "run-1",
+                lambda _sid: "primary",
+                {111222: 9},
+            )
+
+        payload = upsert_capture[0].args[0]
+        self.assertIn("last_read_at", payload[0])
+        self.assertIn("last_full_read_at", payload[0])
+        self.assertEqual(payload[0]["last_read_at"], payload[0]["last_full_read_at"])
+
+    def test_build_registry_write_plan_excludes_trigger3_sheets(self):
+        from pipeline.orchestrate import _build_registry_write_plan
+
+        sheets = [
+            {"id": 1, "name": "A"},
+            {"id": 2, "name": "B"},
+        ]
+        capture_time = "2026-08-26T18:00:00+00:00"
+
+        registry_sheets, capture_times, full_read_ids = (
+            _build_registry_write_plan(sheets, {2}, capture_time)
+        )
+
+        self.assertEqual([s["id"] for s in registry_sheets], [1])
+        self.assertEqual(capture_times, {1: capture_time})
+        self.assertEqual(full_read_ids, {1})
+
+    def test_build_registry_write_plan_empty_trigger3_keeps_all_sheets(self):
+        from pipeline.orchestrate import _build_registry_write_plan
+
+        sheets = [{"id": 1, "name": "A"}, {"id": 2, "name": "B"}]
+        capture_time = "2026-08-26T18:00:00+00:00"
+
+        registry_sheets, capture_times, full_read_ids = (
+            _build_registry_write_plan(sheets, set(), capture_time)
+        )
+
+        self.assertEqual({s["id"] for s in registry_sheets}, {1, 2})
+        self.assertEqual(capture_times, {1: capture_time, 2: capture_time})
+        self.assertEqual(full_read_ids, {1, 2})
+
+    def test_resolve_run_mode_called_between_phase1_and_run_ledger_start(self):
+        """Structural: resolve_run_mode() sits after PHASE 1 discovery and
+        before run_ledger_start's call site -- mirrors
+        RunLedgerSheetsChangedCallSiteTests' inspect.getsource pattern
+        (both are deep inside main(), not directly invocable).
+        """
+        import inspect
+        import pipeline.orchestrate as orch
+
+        src = inspect.getsource(orch.main)
+        phase1_idx = src.index("PHASE 1: Discovering source sheets")
+        resolve_idx = src.index("resolve_run_mode(")
+        start_idx = src.index("_mem_writer.run_ledger_start(")
+        phase2_idx = src.index("PHASE 2: Fetching source data")
+
+        self.assertLess(phase1_idx, resolve_idx)
+        self.assertLess(resolve_idx, start_idx)
+        self.assertLess(start_idx, phase2_idx)
+
+    def test_run_ledger_start_carries_resolved_mode(self):
+        import inspect
+        import pipeline.orchestrate as orch
+
+        src = inspect.getsource(orch.main)
+        idx = src.index("_mem_writer.run_ledger_start(")
+        end = src.index(")\n", idx)
+        block = src[idx:end]
+        self.assertIn("mode=_resolved_mode", block)
+
+    def test_both_run_ledger_finish_sites_carry_resolved_mode_and_optional_reason(self):
+        import inspect
+        import pipeline.orchestrate as orch
+
+        src = inspect.getsource(orch.main)
+        kwargs_blocks = [
+            m.start()
+            for m in __import__("re").finditer(
+                r"_finish_kwargs(?::\s*dict\[str,\s*Any\])?\s*=\s*dict\(",
+                src,
+            )
+        ]
+        self.assertEqual(len(kwargs_blocks), 2)
+        for idx in kwargs_blocks:
+            end = src.index(")\n", idx)
+            block = src[idx:end]
+            self.assertIn("mode=_resolved_mode", block)
+        self.assertEqual(
+            src.count('_finish_kwargs["fallback_reason"] = _resolved_fallback_reason'),
+            2,
+        )
+
+    def test_run_summary_still_21_keys(self):
+        """run_summary.json's frozen contract is untouched by this plan."""
+        golden = _REPO_ROOT / "tests" / "golden" / "run_summary_baseline.json"
+        data = json.loads(golden.read_text(encoding="utf-8"))
+        self.assertEqual(len(data), 21)
+
+    def test_workflow_and_schema_untouched(self):
+        """git diff --exit-code equivalent for the two protected paths."""
+        import subprocess
+
+        result = subprocess.run(
+            [
+                "git", "diff", "--exit-code", "--",
+                ".github/workflows/", "pipeline_memory/schema.sql",
+            ],
+            cwd=str(_REPO_ROOT),
+            capture_output=True,
+        )
+        self.assertEqual(
+            result.returncode, 0,
+            f"protected paths were modified:\n{result.stdout.decode()}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
