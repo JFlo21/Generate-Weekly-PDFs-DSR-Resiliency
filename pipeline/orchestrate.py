@@ -493,6 +493,34 @@ def _run_memory_write_phase(
             row['__mem_snapshot_date'] = _utils.excel_serial_to_date(
                 row.get('Snapshot Date')
             )
+            # WR-01 (10-REVIEW.md): pre-parse the two NUMERIC-bound
+            # cells with the engine's own parsers (pipeline.pricing) so
+            # a decorated value ("$1,234.50", "12 ea") never reaches
+            # upsert_rows_bulk as a raw string -- that fails the
+            # Postgres NUMERIC cast and, under the fail-open contract,
+            # silently drops the WHOLE 500-row chunk with no error
+            # surfaced. An empty/absent cell stays None (a clean
+            # nullable NUMERIC) rather than pricing's own 0.0-for-
+            # missing business default, which would fabricate an
+            # observed zero quantity that was never actually on the
+            # row. Stashed under the SAME double-underscore convention
+            # as the two date keys above -- invisible to excel.py's
+            # column sampler and to calculate_data_hash() -- but NOTE
+            # quantity/units_total_price ARE HASH_FIELDS members on the
+            # pipeline_memory side (row_state.content_hash), so this
+            # changes that hash for any row whose cell carried
+            # decoration; harmless today only because the write path is
+            # OFF and no rows are stored yet.
+            _raw_qty = row.get('Quantity')
+            row['__mem_quantity'] = (
+                None if _raw_qty in (None, '')
+                else _pricing._parse_quantity(_raw_qty)
+            )
+            _raw_utp = row.get('Units Total Price')
+            row['__mem_units_total_price'] = (
+                None if _raw_utp in (None, '')
+                else _pricing.parse_price(_raw_utp)
+            )
 
         try:
             sheet_affected = _mem_writer.upsert_rows_bulk(

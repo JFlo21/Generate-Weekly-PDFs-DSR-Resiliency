@@ -596,6 +596,23 @@ def _row_to_payload(
 
     Blank/absent values normalize to ``None`` (never a placeholder
     string) so a later re-observation can freely replace them.
+
+    WR-01 (10-REVIEW.md, CONFIRMED historical-class defect prevention):
+    ``quantity`` / ``units_total_price`` read ONLY the caller-parsed
+    ``__mem_quantity`` / ``__mem_units_total_price`` row keys -- NEVER
+    the raw ``"Quantity"`` / ``"Units Total Price"`` cell. This module
+    parses nothing (package-boundary contract below); the caller in
+    ``pipeline/orchestrate.py`` pre-parses with the engine's own
+    ``pipeline.pricing._parse_quantity`` / ``parse_price`` and passes
+    the result on these two keys. When a key is absent (e.g. a caller
+    that never pre-parsed), ``.get()`` yields ``None`` -- a clean
+    nullable NUMERIC -- and this function deliberately does NOT fall
+    back to the raw cell: a raw decorated string (``"$1,234.50"``,
+    ``"12 ea"``) is exactly the value that fails the Postgres NUMERIC
+    cast and, under the fail-open contract, silently drops the whole
+    500-row chunk with no error surfaced. Both fields are members of
+    ``HASH_FIELDS`` below, so this contract is also part of
+    ``row_state.content_hash``.
     """
     del run_id  # per-call RPC parameter, not a per-row payload field
 
@@ -619,8 +636,8 @@ def _row_to_payload(
         "cu": cu,
         "pole": pole,
         "work_type": row_data.get("Work Type") or None,
-        "quantity": row_data.get("Quantity"),
-        "units_total_price": row_data.get("Units Total Price"),
+        "quantity": row_data.get("__mem_quantity"),
+        "units_total_price": row_data.get("__mem_units_total_price"),
         "units_completed": _is_checked(row_data.get("Units Completed?")),
         "foreman_observed": row_data.get("Foreman") or None,
         "helper_observed": row_data.get("Foreman Helping?") or None,
