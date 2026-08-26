@@ -2076,3 +2076,55 @@ class RunLedgerFailurePathTests(unittest.TestCase):
     def test_failure_path_finish_respects_test_mode_guard(self):
         writer_mock = self._run_main_to_failure(test_mode=True)
         writer_mock.run_ledger_finish.assert_not_called()
+
+    def test_failure_path_finish_includes_sheets_changed(self):
+        """WR-04 (CONTEXT.md D-10): the failure-path finish upsert must
+        carry ``sheets_changed`` too, not just the success path -- a run
+        that dies mid-session must not silently understate how much it
+        saw before failing.
+        """
+        writer_mock = self._run_main_to_failure()
+        writer_mock.run_ledger_finish.assert_called_once()
+        _, kwargs = writer_mock.run_ledger_finish.call_args
+        # No sheet was ever processed before the forced early failure
+        # (`_set_sentry_session_tags` raises before Phase 2), so
+        # `_mem_sheets_written` is still its hoisted-at-top-of-main 0.
+        self.assertEqual(kwargs.get("sheets_changed"), 0)
+
+
+class RunLedgerSheetsChangedCallSiteTests(unittest.TestCase):
+    """WR-04 (CONTEXT.md D-10): both ``run_ledger_finish`` call sites in
+    ``pipeline.orchestrate`` (the success path near the normal end of
+    ``main()``, the failure path in the bottom ``finally`` block) must
+    pass ``sheets_changed=_mem_sheets_written`` -- the writer already
+    accepts the column (``_RUN_LEDGER_FINISH_COLUMNS`` in
+    pipeline_memory/writer.py), so this is purely a caller-side gap.
+
+    The success-path call site sits deep inside ``main()`` after full
+    pipeline execution and is not directly invocable without running a
+    whole session (same rationale documented on ``AttachmentSideChannelTests``
+    in this file for ``_upload_one``) -- proven via source inspection
+    instead, mirroring that established pattern. The failure path IS
+    behaviorally covered above via ``RunLedgerFailurePathTests``, which
+    runs the real ``finally`` block through ``orch.main()``.
+    """
+
+    def test_both_finish_call_sites_pass_sheets_changed(self):
+        import inspect
+
+        import pipeline.orchestrate as orch
+
+        src = inspect.getsource(orch)
+        call_sites = [
+            m.start()
+            for m in re.finditer(r"_mem_writer\.run_ledger_finish\(", src)
+        ]
+        self.assertEqual(
+            len(call_sites), 2,
+            "expected exactly one success-path and one failure-path "
+            "run_ledger_finish call site in pipeline.orchestrate",
+        )
+        for idx in call_sites:
+            end = src.index(")\n", idx)
+            block = src[idx:end]
+            self.assertIn("sheets_changed=_mem_sheets_written", block)
