@@ -609,7 +609,7 @@ files, reading group rows from `row_state`; the weekly deep run reconciles fully
 4. Local JSON caches and the two attachment pre-fetch phases are removed only after (2);
    frequent-run wall clock measured before/after (baseline 94 min, run 32743959053).
 
-**Plans:** 3/8 plans executed
+**Plans:** 4/8 plans executed
 
 Plans:
 **Wave 1**
@@ -626,7 +626,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 11-04-PLAN.md — INC-02 PHASE 2a/2b split, affected-set → sheet mapping, scoped regeneration; D-05 approved partial recorded (wave 4)
+- [x] 11-04-PLAN.md — INC-02 PHASE 2a/2b split, affected-set → sheet mapping, scoped regeneration; D-05 approved partial recorded (wave 4)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 

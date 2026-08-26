@@ -5,8 +5,8 @@ milestone_name: Engine Modularization & Hygiene
 current_phase: 11
 current_phase_name: Incremental Read + Affected-Group Regeneration
 status: executing
-stopped_at: Completed 11-03-PLAN.md
-last_updated: "2026-08-26T19:21:15.227Z"
+stopped_at: Completed 11-04-PLAN.md
+last_updated: "2026-08-26T19:51:32.426Z"
 last_activity: 2026-08-26
 last_activity_desc: Phase 11 execution resumed (wave continue)
 progress:
@@ -36,7 +36,7 @@ pipeline.
 ## Current Position
 
 Phase: 11 (Incremental Read + Affected-Group Regeneration) — EXECUTING
-Plan: 4 of 8
+Plan: 5 of 8
 Status: Ready to execute
   Engine 10,476 -> 709-line thin facade; 13-module pipeline/ package; 0 behavior
   change; 7 waves + 2 gap-closure plans (09-07/09-08). G-09-MOD-06 closed: Gate 4
@@ -105,6 +105,7 @@ Progress: [██████████] 100% (v1.3 complete; v1.4 Phase 10 cl
 | Phase 11 P01 | 48min | 3 tasks | 6 files |
 | Phase 11 P02 | 21min | 3 tasks | 9 files |
 | Phase 11 P03 | 28min | 3 tasks | 4 files |
+| Phase 11 P04 | ~28min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -213,6 +214,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase ?]: Phase 11-03: keep_historical is the trailing kwarg after dry_run (not immediately after primary_wr_scope) to preserve the existing signature-pin test's convention
 - [Phase ?]: Phase 11-03: hash-history stale-key prune's suppressed-path log fires only for incremental mode, never for the pre-existing time-budget-exceeded-in-full-mode silent skip
 - [Phase ?]: Phase 11-03: seven off-contract/legacy-migration cleanup gates left unmodified and pinned by ScopeDerivationTests rather than re-gated (RESEARCH.md Pitfall 2)
+- [Phase ?]: [Phase 11-04] D-04 Option C shipped: row_state decides regeneration membership via map_affected_to_sheets, a scoped full re-fetch supplies content, group_source_rows/pricing/attribution/excel remain byte-for-byte unmodified
+- [Phase ?]: [Phase 11-04] Every PHASE 2a/2b failure (delta-probe escalation, memory-write exception, empty mapping for a non-empty affected set) falls back to full mode with a non-empty fallback_reason -- scope can only widen, never narrow (T-11-18)
+- [Phase ?]: [Phase 11-04] D-05 approved partial recorded against INC-02: row_state stays membership-only this phase, deferred pending D-04 running clean for >=5 consecutive runs
 
 ### Roadmap Evolution
 
@@ -346,8 +350,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-08-26T19:21:15.213Z
-**Stopped at:** Completed 11-03-PLAN.md
+**Last session:** 2026-08-26T19:51:32.410Z
+**Stopped at:** Completed 11-04-PLAN.md
 **Resume file:** None
 
 ## Session Continuity
