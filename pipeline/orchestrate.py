@@ -3319,6 +3319,12 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     rows_changed=_mem_rows_changed,
                     groups_generated=_groups_generated,
                     groups_affected=len(_mem_affected),
+                    # WR-04 (CONTEXT.md D-10): sheets_changed is a real
+                    # run_ledger column (_RUN_LEDGER_FINISH_COLUMNS in
+                    # pipeline_memory/writer.py); mem_sheets_written below
+                    # is a separate notes-JSON counter Phase 10 dashboards
+                    # already read -- the two are not duplicates.
+                    sheets_changed=_mem_sheets_written,
                     mem_sheets_written=_mem_sheets_written,
                     mem_sheets_errored=_mem_sheets_errored,
                     mem_rows_sent=_mem_rows_sent,
@@ -3546,6 +3552,11 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     groups_generated=_groups_generated,
                     groups_affected=len(_mem_affected),
                     groups_errored=_groups_errored,
+                    # WR-04 (CONTEXT.md D-10): sheets_changed is a real
+                    # run_ledger column; mem_sheets_written below is a
+                    # separate notes-JSON counter -- see the success-path
+                    # call site above for the full rationale.
+                    sheets_changed=_mem_sheets_written,
                     mem_sheets_written=_mem_sheets_written,
                     mem_sheets_errored=_mem_sheets_errored,
                     mem_rows_sent=_mem_rows_sent,
