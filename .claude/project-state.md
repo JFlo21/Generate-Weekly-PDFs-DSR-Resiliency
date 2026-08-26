@@ -1,15 +1,43 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-26 07:30 CDT · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-26 09:15 CDT · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
 _Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-26 07:30]` (Phase 11 discuss-phase
 complete — D-01..D-12 locked in `11-CONTEXT.md`). `pipeline_memory` schema is LIVE on Supabase
 `poeyztlmsawfoqlanucc` (service_role-only; write path OFF in production — the flag flip is a
-separate operator-gated PR cut from Phase 11 plan 01). Next: `/gsd-plan-phase 11`._
+separate operator-gated PR cut from Phase 11 plan 01). Next: `/gsd-execute-phase 11`._
 
-## Latest work (2026-08-26 07:30 CDT) — `/gsd-discuss-phase 11` COMPLETE: 4/4 areas decided, `11-CONTEXT.md` written, pause artifacts cleared
+## Latest work (2026-08-26 09:15 CDT) — `/gsd-plan-phase 11` COMPLETE: research → 8 plans / 8 waves → checker PASSED (iteration 2), all gates green
+0. **Research:** `gsd-phase-researcher` (Sonnet) wrote `11-RESEARCH.md` (617 lines, HIGH confidence) —
+   no new deps; inventoried every `all_rows` consumer after PHASE 2; the one new risk: three end-of-run
+   maintenance blocks in `orchestrate.py` (`valid_wr_weeks`, both `cleanup_untracked_sheet_attachments`
+   sites, hash-history prune ~3164-3259) iterate all groups unconditionally and would delete live
+   attachments/history for untouched groups in incremental mode unless gated (fix reuses
+   `KEEP_HISTORICAL_WEEKS` + `_time_budget_exceeded`); `pipeline_memory` has no reader → new `reader.py`.
+   Nyquist `11-VALIDATION.md` seeded; `11-PATTERNS.md` (12/14 analogs). Spec-less edge probe: 7 rows
+   (INC-01/02/03 unclassified → flagged assumptions; INC-04 ×3 + INC-05 ×1 authored into must_haves).
+1. **Plans (Opus planner, `afbde00` → revised `41e03fb` → `f6f941b`):** strictly linear 8 waves —
+   01 WR-01/WR-04/IN-01 + flip checklist doc + ledger entry · 02 delta read + 7 D-02 triggers +
+   capture-time watermark + `run_ledger.mode` (`pipeline_memory/reader.py` NEW) · 03 D-06 preservation
+   gates (dominant risk, test-first) · 04 PHASE 2a/2b split + affected-set→sheet mapping + scoped regen
+   (INC-02 partial recorded in REQUIREMENTS.md) · 05 **human-verify gate** (write flip merged + one real
+   run) then `pipeline/parity.py` shadow comparator + D-08 shadow delta reads · 06 deep-run
+   reconciliation (deletions / `column_mapping` refresh / formula-only) · 07 D-09 streak scan +
+   **checkpoint:decision** · 08 INC-05 retirement (own PR, re-checks the streak at execution time) +
+   closing ledger entry. `autonomous: false` on 05/07/08. Checker iteration 1: 0 blockers / 4 warnings
+   (split 07→07/08, `run_6_gates.sh` moved from task-level verifies to plan-level gates, RESEARCH open
+   questions marked RESOLVED, Living Ledger tasks added) → iteration 2 **VERIFICATION PASSED**.
+   Gates: requirements 5/5, decisions 12/12, gap-analysis 17/17, path probe 75/75 none.
+   `COVERAGE.md` written (36 capabilities / 16 reasoned opt-outs). STATE "Ready to execute" (8 plans).
+   **Next:** `/clear` → `/gsd-execute-phase 11` — waves 1-4 autonomous; execution halts at wave 5 until
+   Juan merges the `RUN_MEMORY_WRITE_ENABLED` flip PR (cut from plan 01) and one real run populates
+   `pipeline_memory`. Protected-area edits (workflow env block) remain behind `checkpoint:decision`.
+   Open advisory: RESEARCH Assumption A4 (no second `hash_history` prune site) rests on a grep sweep —
+   plan 03's tests must prove it; plan 08 sits at the scope-warning threshold by D-12 design.
+
+## Previous (2026-08-26 07:30 CDT) — `/gsd-discuss-phase 11` COMPLETE: 4/4 areas decided, `11-CONTEXT.md` written, pause artifacts cleared
 0. **Resumed** from `11-DISCUSS-CHECKPOINT.json` (no advisor re-dispatch; the four `11-ADVISOR-*.md`
    tables were presented in one pass). Juan took the advisor recommendation in all four areas plus
    three follow-ups → **D-01..D-12** in
