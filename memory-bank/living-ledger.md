@@ -6791,3 +6791,39 @@ follow-up findings closed, same 6 files.
   `portal-v2`/`website`), Seer #321/#322 (probably superseded by merged #341), #287/#290/#291
   (`column_ids` serialization — check against the SDK 4.3.0 pin), Copilot #75/#80/#87/#133/#134/
   #198/#275, Vercel #86, and Juan's own #91/#137/#138/#139/#149/#166/#282. Separate triage pass.
+
+## [2026-08-26 07:30] Phase 11 discuss-phase complete — D-01..D-12 locked (incremental read design)
+
+- **Where:** `.planning/phases/11-incremental-read-affected-group-regeneration/11-CONTEXT.md`
+  (`72ab958`); alternatives in `11-DISCUSSION-LOG.md`; advisor research in `11-ADVISOR-*.md`.
+  Resumed from the pause checkpoint without re-dispatching research; Juan accepted the
+  `full_maturity` advisor recommendation in all four areas.
+- **Rules that now bind implementation (do not re-litigate in plan/execute):**
+  - **Watermark persistence is capture-time.** `last_read_at` is captured immediately before the
+    `rows_modified_since` call and stored as-is; `SAFETY_WINDOW_MINUTES` (default 15) is subtracted
+    only when building the query. The design spec §4's persist-time `now − SAFETY_WINDOW` is
+    superseded — it double-subtracts every run and adds no safety.
+  - **Frequent runs never detect deletions.** `rowsModifiedSince` cannot surface an absence
+    (SDK 4.3.0 verified). Deletion / formula-only reconciliation and `column_mapping` refresh belong
+    to the weekly deep run, which becomes the first writer of `row_state.deleted_at`.
+  - **Seven FULL-read escalation triggers ship with the watermark** (new sheet, mapping drift,
+    401/403 isolate, memory outage, `RESET_*`/`REGEN_*`/`FORCE_GENERATION`, prior run not
+    `success`, non-`production_frequent` execution type) — the window alone never self-heals gaps.
+  - **Regeneration is hybrid (Option C):** the `upsert_rows_bulk` affected `(wr, week)` set selects
+    sheets → scoped full re-fetch → the **unmodified** grouping/attribution/excel path. A group is
+    fully regenerated or fully skipped; `row_state` is membership-only this phase. INC-02's
+    "rows from `row_state`" clause is an approved partial (Option B deferred) because a
+    `row_state`-sourced path would freeze derived attribution/pricing values the schema forbids.
+  - **Parity is proven in-process (shadow-incremental)** on one snapshot per run: group-key set +
+    `calculate_data_hash()` equality, verdict in `run_ledger.notes` (never `run_summary.json`);
+    the shadow also issues the real delta reads with a read-side assertion; sub-budgeted, fail-open,
+    never a vacuous `pass`; streak counts consecutive evaluated `production_frequent` runs.
+    Alternating-run parity is ruled out (Phase 10 10-06 lesson).
+  - **Rollout order:** plan 01 = WR-01 / WR-04 / IN-01; the `RUN_MEMORY_WRITE_ENABLED` workflow
+    flip is a separate owner-gated PR cut from it; `RUN_MEMORY_INCREMENTAL_ENABLED` default OFF and
+    `production_frequent`-only (weekend/Monday runs stay full — D-07 unchanged); fallbacks visible
+    via `run_ledger.mode`; INC-05 cache/pre-fetch retirement is its own PR strictly after the
+    ≥5-run streak (the `if: always()` cache saves are the rollback path until then).
+- **Next:** `/gsd-plan-phase 11`. Researcher inventories every `all_rows` consumer after
+  `orchestrate.py` PHASE 2 for D-06 scoping; planner adds a human-verify before the first plan that
+  needs populated memory and a `checkpoint:decision` before any workflow edit.

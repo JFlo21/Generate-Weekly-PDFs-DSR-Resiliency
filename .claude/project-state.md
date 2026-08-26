@@ -1,15 +1,39 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-25 23:55 CDT · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-26 07:30 CDT · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
-_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-25 23:55]` (PR #350 MERGED →
-`99dc25d`; local master synced `81d3b46`; Phase 10 fully landed). `pipeline_memory` schema is LIVE on
-Supabase `poeyztlmsawfoqlanucc` (service_role-only; write path OFF in production — the flag flip is a
-separate later PR). Next: `/gsd-plan-phase 11`._
+_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-26 07:30]` (Phase 11 discuss-phase
+complete — D-01..D-12 locked in `11-CONTEXT.md`). `pipeline_memory` schema is LIVE on Supabase
+`poeyztlmsawfoqlanucc` (service_role-only; write path OFF in production — the flag flip is a
+separate operator-gated PR cut from Phase 11 plan 01). Next: `/gsd-plan-phase 11`._
 
-## Latest work (2026-08-25 23:55 CDT) — PR #350 MERGED (Phase 10 on master); local master re-synced; post-merge gate green
+## Latest work (2026-08-26 07:30 CDT) — `/gsd-discuss-phase 11` COMPLETE: 4/4 areas decided, `11-CONTEXT.md` written, pause artifacts cleared
+0. **Resumed** from `11-DISCUSS-CHECKPOINT.json` (no advisor re-dispatch; the four `11-ADVISOR-*.md`
+   tables were presented in one pass). Juan took the advisor recommendation in all four areas plus
+   three follow-ups → **D-01..D-12** in
+   `.planning/phases/11-incremental-read-affected-group-regeneration/11-CONTEXT.md` (`72ab958`);
+   alternatives preserved in `11-DISCUSSION-LOG.md`. Locks in one line each:
+   **watermark** = fixed `SAFETY_WINDOW_MINUTES=15`, `last_read_at` captured before the read and
+   persisted as-is (spec §4's persist-time `now − window` is superseded), seven FULL-read escalation
+   triggers in the same change, deletions never on the frequent path (deep run writes
+   `row_state.deleted_at`); **regen** = Option C hybrid (affected `(wr, week)` set from
+   `upsert_rows_bulk` selects sheets → scoped full re-fetch → unmodified grouping/excel path; zero
+   schema change; Option B `row_state`-exclusive deferred; INC-02's "rows from row_state" clause is an
+   approved partial); **parity** = shadow-incremental in-process on the same snapshot (group-key set +
+   `calculate_data_hash()` equality, verdict in `run_ledger.notes`, never `run_summary.json`; shadow
+   also issues the real delta reads with a read-side assertion; sub-budgeted, never a vacuous pass;
+   streak = consecutive `production_frequent` evaluated runs, `skipped` excluded); **rollout** = plan 01
+   fixes WR-01/WR-04/IN-01 and the `RUN_MEMORY_WRITE_ENABLED` workflow flip is a separate owner-gated
+   PR cut from it; `RUN_MEMORY_INCREMENTAL_ENABLED` default OFF, `production_frequent`-only, fallbacks
+   visible via `run_ledger.mode`; INC-05 retirement is its own PR strictly after the ≥5-run streak.
+   `.planning/HANDOFF.json`, `.continue-here.md`, checkpoint removed; STATE session recorded (`b9f50d1`).
+   **Next:** `/gsd-plan-phase 11` (researcher must inventory `orchestrate.py` `all_rows` consumers for
+   D-06 scoping; planner inserts a human-verify before the first plan that needs populated memory).
+   Protected-area edits (workflow env block / execution-type step) still pause for Juan.
+
+## Previous (2026-08-25 23:55 CDT) — PR #350 MERGED (Phase 10 on master); local master re-synced; post-merge gate green
 0. **Merge:** https://github.com/JFlo21/Generate-Weekly-PDFs-DSR-Resiliency/pull/350 squash-merged as
    `99dc25d` (2026-08-26 04:47Z; 55 branch commits incl. the Greptile fixes `6965f95`); `docs-changelog.yml`
    stub + Notion-worker runbook update (`e203e3c`, `81d3b46`) landed on top. Local `master` was 0 ahead /
