@@ -728,14 +728,48 @@ def _parse_affected_set(result: Any) -> set[tuple[Any, Any]]:
     return affected
 
 
-def upsert_rows_bulk(sheet_id: int, run_id: str,
-                      rows: list[dict[str, Any]]) -> set[tuple[Any, Any]]:
-    """Best-effort bulk row upsert for ONE sheet. NEVER raises.
+#: ``upsert_rows_bulk_result`` status vocabulary. ``ok`` / ``noop`` are the
+#: ONLY two statuses under which the returned affected set is the whole
+#: truth about what changed on that sheet this run.
+UPSERT_CONFIRMED_STATUSES: frozenset[str] = frozenset({"ok", "noop"})
 
-    Returns the affected ``(wr, week_ending)`` set from every SUCCESSFUL
-    chunk (an empty set on total failure or a total no-op) -- callers
-    MUST treat an empty return as "no memory update happened this
-    sheet", NEVER as "nothing changed".
+
+def upsert_rows_bulk_result(sheet_id: int, run_id: str,
+                             rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Best-effort bulk row upsert for ONE sheet, reporting WHY the
+    affected set is what it is. NEVER raises.
+
+    Returns a dict::
+
+        {"affected": set[(wr, week_ending)], "status": str,
+         "rows_sent": int, "rows_errored": int, "rows_skipped": int}
+
+    ``status`` is the disambiguator Greptile P1 (PR #351) asked for: an
+    empty ``affected`` set is NOT one thing --
+
+      - ``noop``        -- empty input; nothing to write, nothing changed.
+                           CONFIRMED.
+      - ``ok``          -- every chunk was accepted by the RPC; the
+                           affected set is exactly what changed (an empty
+                           set here genuinely means "nothing changed").
+                           CONFIRMED.
+      - ``unavailable`` -- no Supabase client (secrets absent, kill
+                           switch, construction failure). NOT confirmed.
+      - ``disabled``    -- ``RUN_MEMORY_WRITE_ENABLED`` off at the client
+                           layer. NOT confirmed.
+      - ``failed``      -- rows were present but NONE were recorded
+                           (every chunk failed, or every row lacked a
+                           usable ``__row_id``). NOT confirmed.
+      - ``partial``     -- some chunks were accepted and some failed, or
+                           some rows were skipped for a bad ``__row_id``;
+                           ``affected`` covers ONLY the accepted chunks.
+                           NOT confirmed -- the missing rows' changes are
+                           unknown.
+
+    A caller deciding regeneration scope (``pipeline.orchestrate``'s
+    incremental path) MUST treat every status outside
+    ``UPSERT_CONFIRMED_STATUSES`` as "cannot confirm what changed" and
+    WIDEN scope -- never read the returned set as the whole truth.
 
     Consumes rows ALREADY fetched by the pipeline this run -- never
     issues its own Smartsheet call (10-RESEARCH.md Anti-Pattern:
@@ -756,16 +790,26 @@ def upsert_rows_bulk(sheet_id: int, run_id: str,
     chunk's row count and moves on to the remaining chunks -- one
     aggregate WARNING covers the whole call, never one per chunk.
     """
+    result: dict[str, Any] = {
+        "affected": set(),
+        "status": "noop",
+        "rows_sent": 0,
+        "rows_errored": 0,
+        "rows_skipped": 0,
+    }
     if not rows:
-        return set()
+        return result
 
     client = get_client()
     if client is None:
-        return set()
+        result["status"] = "unavailable"
+        return result
     if not _client_write_enabled():
-        return set()
+        result["status"] = "disabled"
+        return result
 
     payloads: list[dict[str, Any]] = []
+    skipped_rows = 0
     for row in rows:
         payload = _row_to_payload(
             row,
@@ -775,11 +819,16 @@ def upsert_rows_bulk(sheet_id: int, run_id: str,
         )
         if payload is None:
             _bump_counter("rows_skipped_bad_row_id")
+            skipped_rows += 1
             continue
         payloads.append(payload)
+    result["rows_skipped"] = skipped_rows
 
     if not payloads:
-        return set()
+        # Rows were present but not one could be recorded -- that is a
+        # failure to confirm, not "nothing changed".
+        result["status"] = "failed"
+        return result
 
     chunks = [
         payloads[i:i + _CHUNK_ROWS]
@@ -788,6 +837,7 @@ def upsert_rows_bulk(sheet_id: int, run_id: str,
 
     affected: set[tuple[Any, Any]] = set()
     errored_rows = 0
+    failed_chunks = 0
     for chunk in chunks:
         def _invoke(_p=chunk):
             return (
@@ -803,11 +853,12 @@ def upsert_rows_bulk(sheet_id: int, run_id: str,
                 .execute()
             )
 
-        result = with_retry(_invoke, op="upsert_rows_bulk")
-        if result is None:
+        rpc_result = with_retry(_invoke, op="upsert_rows_bulk")
+        if rpc_result is None:
             errored_rows += len(chunk)
+            failed_chunks += 1
             continue
-        affected |= _parse_affected_set(result)
+        affected |= _parse_affected_set(rpc_result)
 
     _bump_counter_by("rows_upsert_sent", len(payloads))
     _bump_counter_by("rows_upsert_changed", len(affected))
@@ -818,7 +869,31 @@ def upsert_rows_bulk(sheet_id: int, run_id: str,
             f"{len(payloads)} row(s) failed to upsert for sheet "
             f"{sheet_id} (across {len(chunks)} chunk(s))."
         )
-    return affected
+
+    result["affected"] = affected
+    result["rows_sent"] = len(payloads)
+    result["rows_errored"] = errored_rows
+    if failed_chunks == len(chunks):
+        result["status"] = "failed"
+    elif failed_chunks or skipped_rows:
+        result["status"] = "partial"
+    else:
+        result["status"] = "ok"
+    return result
+
+
+def upsert_rows_bulk(sheet_id: int, run_id: str,
+                      rows: list[dict[str, Any]]) -> set[tuple[Any, Any]]:
+    """Set-returning wrapper over ``upsert_rows_bulk_result``. NEVER raises.
+
+    Returns the affected ``(wr, week_ending)`` set from every SUCCESSFUL
+    chunk (an empty set on total failure or a total no-op) -- callers
+    MUST treat an empty return as "no memory update happened this
+    sheet", NEVER as "nothing changed". A caller that needs to tell the
+    two apart (anything that scopes regeneration) MUST call
+    ``upsert_rows_bulk_result`` and check ``status`` instead.
+    """
+    return upsert_rows_bulk_result(sheet_id, run_id, rows)["affected"]
 
 
 # ── row_state deletion reconciliation (Phase 11 Plan 06, INC-03) ───────────

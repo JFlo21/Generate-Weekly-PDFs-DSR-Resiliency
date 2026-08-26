@@ -417,20 +417,36 @@ def _run_memory_write_phase(
     module calls when the flag is off, independent of how ``main()``
     itself is invoked.
 
-    The affected ``(wr, week_ending)`` set is accumulated for
-    OBSERVABILITY ONLY -- nothing in this function, and nothing in its
-    caller, may read it back to decide whether a group is skipped,
-    regenerated, or uploaded. That gate stays entirely on the existing
-    local ``hash_history.json`` / durable group hash path (10-CONTEXT.md,
-    plan success criteria).
+    The affected ``(wr, week_ending)`` set was observability-only in
+    Phase 10. Since Phase 11 Plan 04 the incremental path (PHASE 2a,
+    ``_run_phase2_incremental``) reads it to scope regeneration -- and
+    it may do so ONLY when ``memory_confirmed`` below is True. The
+    per-group skip/regenerate/upload gate itself still lives entirely
+    on the existing local ``hash_history.json`` / durable group hash
+    path (10-CONTEXT.md, plan success criteria).
 
     Returns a dict of counts only (no PII, no per-row values):
     ``sheets_written``, ``sheets_errored``, ``rows_sent``,
     ``rows_changed``, ``affected`` (the (wr, week_ending) set),
-    ``elapsed_seconds``. NEVER raises -- every per-sheet write already
-    goes through ``pipeline_memory.writer``'s own fail-open contract, and
-    this function additionally isolates one sheet's unexpected exception
-    from the rest of the loop.
+    ``elapsed_seconds``, plus the Greptile P1 (PR #351) confirmation
+    contract:
+
+      - ``memory_confirmed``: True ONLY when every sheet's write reported
+        a confirmed status (``ok`` / ``noop`` per
+        ``pipeline_memory.writer.UPSERT_CONFIRMED_STATUSES``), no writer
+        call raised, the pre-flight guard did not skip the phase, and the
+        mid-loop budget break left no sheet unwritten. Under every other
+        outcome an empty or partial ``affected`` set is indistinguishable
+        from a genuine no-change run, so a caller scoping regeneration
+        MUST widen to a full read instead of trusting it (T-11-18).
+      - ``sheets_unconfirmed``: sheets whose status was not confirmed.
+      - ``sheets_unwritten``: sheets never attempted (budget break).
+      - ``unconfirmed_reason``: the FIRST reason, for ``fallback_reason``.
+
+    NEVER raises -- every per-sheet write already goes through
+    ``pipeline_memory.writer``'s own fail-open contract, and this
+    function additionally isolates one sheet's unexpected exception from
+    the rest of the loop.
     """
     result: dict[str, Any] = {
         "sheets_written": 0,
@@ -439,9 +455,17 @@ def _run_memory_write_phase(
         "rows_changed": 0,
         "affected": set(),
         "elapsed_seconds": 0.0,
+        "memory_confirmed": False,
+        "sheets_unconfirmed": 0,
+        "sheets_unwritten": 0,
+        "unconfirmed_reason": None,
     }
 
     if not (RUN_MEMORY_WRITE_ENABLED and not TEST_MODE):
+        result["unconfirmed_reason"] = (
+            "run-memory write disabled (RUN_MEMORY_WRITE_ENABLED off or "
+            "TEST_MODE)"
+        )
         return result
 
     _phase_start = datetime.datetime.now()
@@ -477,6 +501,11 @@ def _run_memory_write_phase(
                     "remaining_min": round(_remaining_min, 1),
                     "required_remaining_min": _required_min,
                 },
+            )
+            result["unconfirmed_reason"] = (
+                f"pre-flight budget guard skipped the phase "
+                f"({_remaining_min:.1f}min remaining, need > "
+                f"{_required_min}min)"
             )
             return result
 
@@ -535,20 +564,44 @@ def _run_memory_write_phase(
             )
 
         try:
-            sheet_affected = _mem_writer.upsert_rows_bulk(
+            _write = _mem_writer.upsert_rows_bulk_result(
                 sheet_id, mem_run_id, bucket_rows,
             )
-        except Exception:
+        except Exception as exc:
             logging.warning(
                 "⚠️ pipeline_memory upsert_rows_bulk raised unexpectedly "
                 f"for sheet {sheet_id} (non-fatal); treating as errored "
                 "this run."
             )
-            sheet_affected = set()
-            result["sheets_errored"] += 1
-        else:
+            _write = {
+                "affected": set(),
+                "status": f"exception ({type(exc).__name__})",
+                "rows_errored": len(bucket_rows),
+            }
+
+        sheet_affected = set(_write.get("affected") or ())
+        _status = str(_write.get("status") or "unknown")
+        # Greptile P1 (PR #351): only a CONFIRMED status lets an empty
+        # affected set mean "nothing changed". Everything else -- no
+        # client, writes disabled, every chunk failed, a PARTIAL chunk
+        # failure, an exception -- is "cannot confirm what changed"; the
+        # partial set (if any) is kept for observability but the caller
+        # must never narrow regeneration scope on it (memory_confirmed
+        # below stays False).
+        if _status in _mem_writer.UPSERT_CONFIRMED_STATUSES:
             if sheet_affected:
                 result["sheets_written"] += 1
+        else:
+            result["sheets_errored"] += 1
+            result["sheets_unconfirmed"] += 1
+            if sheet_affected:
+                result["sheets_written"] += 1  # partial: some rows landed
+            if result["unconfirmed_reason"] is None:
+                _errored = _write.get("rows_errored") or 0
+                result["unconfirmed_reason"] = (
+                    f"sheet {sheet_id}: {_status}"
+                    + (f" ({_errored} row(s) errored)" if _errored else "")
+                )
 
         result["rows_sent"] += len(bucket_rows)
         result["rows_changed"] += len(sheet_affected)
@@ -582,8 +635,19 @@ def _run_memory_write_phase(
                         "sheets_remaining": _remaining_sheets,
                     },
                 )
+                result["sheets_unwritten"] = _remaining_sheets
+                if result["unconfirmed_reason"] is None:
+                    result["unconfirmed_reason"] = (
+                        f"run-memory sub-budget exhausted with "
+                        f"{_remaining_sheets} sheet(s) unwritten"
+                    )
                 break
 
+    result["memory_confirmed"] = (
+        result["sheets_unconfirmed"] == 0
+        and result["sheets_unwritten"] == 0
+        and result["unconfirmed_reason"] is None
+    )
     result["elapsed_seconds"] = (
         datetime.datetime.now() - _phase_start
     ).total_seconds()
@@ -592,6 +656,7 @@ def _run_memory_write_phase(
         f"written, {result['sheets_errored']} errored, "
         f"{result['rows_sent']} row(s) sent, {result['rows_changed']} "
         f"changed, {len(result['affected'])} group(s) affected, "
+        f"confirmed={result['memory_confirmed']}, "
         f"{result['elapsed_seconds']:.1f}s elapsed."
     )
     return result
@@ -1077,9 +1142,13 @@ def _run_phase2_incremental(
       all_rows: list[dict] -- PHASE 2b's rows (grouping input); present
           only when ok is True.
       affected: set[tuple] -- the (wr, week_ending) pairs
-          ``_run_memory_write_phase`` reported (empty is a legitimate
-          "nothing changed" outcome, not a failure); present only when
-          ok is True.
+          ``_run_memory_write_phase`` reported. Empty is a legitimate
+          "nothing changed" outcome ONLY because ``memory_confirmed``
+          was True -- an unconfirmed write (no client, writes disabled,
+          a failed or PARTIAL upsert, an exception, a budget skip) has
+          already resolved to ``ok=False`` with
+          ``trigger_memory_write_unconfirmed`` before this point
+          (Greptile P1, PR #351). Present only when ok is True.
       mem_result: dict -- ``_run_memory_write_phase``'s own result dict,
           so the caller's existing ``_mem_*`` counter wiring is
           unaffected; present only when ok is True.
@@ -1166,6 +1235,33 @@ def _run_phase2_incremental(
                 "fallback_reason": (
                     "trigger_memory_write_exception: "
                     "_run_memory_write_phase raised during PHASE 2a"
+                ),
+            }
+
+        # Greptile P1 (PR #351): a failed / unavailable / disabled /
+        # PARTIAL memory write returns an affected set that is
+        # indistinguishable from a genuine no-change run (empty) or that
+        # silently under-covers what changed (partial). Refuse to narrow
+        # regeneration scope on it -- widen to today's full read instead
+        # (T-11-18: too wide, never too narrow). Fail-closed on a legacy
+        # result dict that carries no flag at all.
+        if not mem_result.get("memory_confirmed", False):
+            _unconfirmed = (
+                mem_result.get("unconfirmed_reason")
+                or "run-memory write did not confirm every delta sheet"
+            )
+            logging.warning(
+                "⚠️ PHASE 2a: run-memory write unconfirmed "
+                f"({_unconfirmed}); the affected set cannot be trusted "
+                "to scope regeneration -- resolving this run to full mode."
+            )
+            return {
+                "ok": False,
+                "fallback_reason": (
+                    f"trigger_memory_write_unconfirmed: {_unconfirmed} "
+                    "(an unconfirmed empty or partial affected set is "
+                    "indistinguishable from a no-change run; resolving "
+                    "this run to full mode)"
                 ),
             }
 
@@ -1545,6 +1641,11 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
     _mem_rows_sent = 0
     _mem_rows_changed = 0
     _mem_affected = set()
+    # Greptile P1 (PR #351): False until _run_memory_write_phase confirms
+    # every sheet this run -- gates the 11-05 shadow comparator and is
+    # persisted as run_ledger.notes.mem_confirmed at both finish sites.
+    _mem_memory_confirmed = False
+    _mem_memory_unconfirmed_reason = None
     _mem_run_id = _mem_writer.resolve_run_id()
     # Phase 11 Plan 02 (INC-01/D-11): resolved run mode + its fallback
     # reason, hoisted for the same documented reason as the _mem_*
@@ -1870,6 +1971,12 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 _mem_sheets_errored = _mem_result["sheets_errored"]
                 _mem_rows_sent = _mem_result["rows_sent"]
                 _mem_rows_changed = _mem_result["rows_changed"]
+                _mem_memory_confirmed = bool(
+                    _mem_result.get("memory_confirmed", False)
+                )
+                _mem_memory_unconfirmed_reason = _mem_result.get(
+                    "unconfirmed_reason"
+                )
                 logging.info(
                     f"🧭 PHASE 2a/2b complete: "
                     f"{_incremental_delta_rows_count} delta row(s) "
@@ -1936,6 +2043,12 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             _mem_rows_sent = _mem_result["rows_sent"]
             _mem_rows_changed = _mem_result["rows_changed"]
             _mem_affected = _mem_result.get("affected", set())
+            _mem_memory_confirmed = bool(
+                _mem_result.get("memory_confirmed", False)
+            )
+            _mem_memory_unconfirmed_reason = _mem_result.get(
+                "unconfirmed_reason"
+            )
 
         # Phase 10 (MEM-01): sheet_registry shadow write, PASS 2. Now that
         # Phase 2 has fetched every sheet, pipeline.fetch's version-
@@ -3740,6 +3853,36 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     _parity_details = {
                         "reason": "insufficient_session_budget",
                     }
+                elif not _mem_memory_confirmed:
+                    # Greptile P1 (PR #351): the candidate side of the
+                    # comparison IS this run's memory-write affected set.
+                    # If that write was not confirmed, the candidate is
+                    # empty or partial for a transport reason, and a
+                    # comparison against it would report a spurious
+                    # parity 'fail' (or a vacuous 'pass' on a quiet run)
+                    # about a write outage, not about the selector.
+                    # D-07: a comparison that could not execute reports
+                    # 'skipped' with a reason -- never a false verdict.
+                    logging.warning(
+                        "⏩ Skipping shadow parity check: run-memory write "
+                        "unconfirmed this run "
+                        f"({_mem_memory_unconfirmed_reason})."
+                    )
+                    sentry_add_breadcrumb(
+                        "pipeline_memory",
+                        "Shadow parity check skipped, memory write "
+                        "unconfirmed",
+                        level="warning",
+                        data={
+                            "reason": _mem_memory_unconfirmed_reason,
+                            "mem_sheets_errored": _mem_sheets_errored,
+                        },
+                    )
+                    _parity_verdict = "skipped"
+                    _parity_details = {
+                        "reason": "memory_write_unconfirmed",
+                        "detail": _mem_memory_unconfirmed_reason,
+                    }
                 else:
                     _shadow_candidate_groups = _filter_groups_to_affected(
                         groups, _mem_affected,
@@ -4661,6 +4804,11 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     sheets_changed=_mem_sheets_written,
                     mem_sheets_written=_mem_sheets_written,
                     mem_sheets_errored=_mem_sheets_errored,
+                    # Greptile P1 (PR #351): notes-only flag -- did the
+                    # memory write confirm every sheet this run? An
+                    # unconfirmed incremental run has already fallen back
+                    # to full mode (fallback_reason names it).
+                    mem_confirmed=_mem_memory_confirmed,
                     mem_rows_sent=_mem_rows_sent,
                     # Phase 11 Plan 04 (D-06/T-11-20): notes-only counters
                     # distinguishing PHASE 2a's delta-read scope from
@@ -4924,6 +5072,11 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     sheets_changed=_mem_sheets_written,
                     mem_sheets_written=_mem_sheets_written,
                     mem_sheets_errored=_mem_sheets_errored,
+                    # Greptile P1 (PR #351): notes-only flag -- did the
+                    # memory write confirm every sheet this run? An
+                    # unconfirmed incremental run has already fallen back
+                    # to full mode (fallback_reason names it).
+                    mem_confirmed=_mem_memory_confirmed,
                     mem_rows_sent=_mem_rows_sent,
                     # Phase 11 Plan 04 (D-06/T-11-20): see the success-path
                     # call site above for the full rationale -- same two
