@@ -19,11 +19,21 @@ separate later PR). Next: `/gsd-plan-phase 11`._
    post-merge docs commits). **Gate on merged tree:** `pytest tests/ -q` → **1525 passed, 1 skipped,
    135 subtests, 23 s**. Working tree carries only the pre-existing local `generated_docs/hash_history.json`
    prune-marker diff (untouched, leave or discard). Stray local branch `cursor/sync-job-run-logs-803d`
-   (Cursor bot) left alone. **Open PRs:** Seer #343/#346/#347/#348 — triage verdict in `[22:15]`
-   below: close all four (false SDK premise / empty revert); Dependabot #344/#345 routine; Cursor
-   sync-log docs PRs #328/#331/#338. **Next:** `/gsd-plan-phase 11` (Incremental Read + Affected-Group
-   Regeneration, INC-01..05) on a fresh `feat/phase-11-*` branch; flag-flip-PR preconditions unchanged
+   (Cursor bot) — deleted below. **Next:** `/gsd-plan-phase 11` (Incremental Read + Affected-Group
+   Regeneration, INC-01..05) on `feat/phase-11-incremental-read`; flag-flip-PR preconditions unchanged
    (WR-01, WR-04, IN-01, low-activity comparator rerun, `group_state` attachment-id proof).
+1. **PR triage resolved (2026-08-26 00:25 CDT, Juan: "let's resolve this"):** Seer #343/#347/#348
+   CLOSED (false `statusCode` premise, verified on SDK 4.3.0; master already correct + test-pinned) and
+   #346 CLOSED (empty revert). Dependabot #344 (tsx 4.22.4→4.23.12) + #345 (supabase-js 2.107→2.112.3)
+   MERGED — `scripts/`-only (sole consumer `security-probe.ts`), CI green; their `code/snyk` ERROR and
+   Azure-mirror FAILURE are systemic on Dependabot branches (no secrets; the same Azure check also
+   failed at 13 s on the merged #350). Cursor #328/#331/#338 CLOSED — three competing versions of a new
+   bot-generated `docs/sync-job-run-logs.md` that already documents the removed Express portal; the
+   runbook is maintained by the Notion worker. Local `master` → `fb11109`; `feat/phase-11-incremental-read`
+   rebased (`7982b0f`) and pushed; stray `cursor/sync-job-run-logs-803d` deleted. **Backlog NOT touched:
+   44 open PRs remain** — ~24 Dependabot (majors: pandas 3, mypy 2, React 19, TS 7, actions v7 bumps),
+   Seer #321/#322 (likely superseded by merged #341), #287/#290/#291 (column_ids serialization),
+   Copilot #75–#275, and Juan's own #91/#137/#138/#139/#149/#166/#282. Needs its own triage pass.
 
 ## Previous (2026-08-25 21:50 CDT) — Phase 10 CLOSED: `/gsd-verify-work 10` 2/2 decided, verification passed, transition to Phase 11
 0. **UAT:** `verify:pre` api-coverage gate blocked on `COVERAGE.md` cell lengths → trimmed (`8486113`).

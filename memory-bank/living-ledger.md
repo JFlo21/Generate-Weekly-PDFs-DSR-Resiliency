@@ -6767,3 +6767,27 @@ follow-up findings closed, same 6 files.
   `group_state` attachment proof on first real upload, low-activity comparator rerun).
 - **Next:** close Seer #343/#346/#347/#348 (verdict `[22:15]`), then `/gsd-plan-phase 11` on
   `feat/phase-11-*`. Post-merge ledger/state commits go on that branch — never directly to master.
+
+## [2026-08-26 00:25] PR triage resolved — Seer ×4 closed, Dependabot #344/#345 merged, Cursor docs ×3 closed
+
+- **Seer #343/#347/#348 closed:** all three rewrite `_is_auth_api_error` on the claim that the SDK
+  exposes `statusCode`; `smartsheet-python-sdk==4.3.0` `ErrorResult` exposes `status_code` only,
+  master already handles structured + serialized 401/403, `tests/test_fetch_auth_errors.py` pins
+  it. **#346 closed** (empty revert). Rationale posted on each.
+- **Dependabot #344 (tsx dev-dep 4.22.4→4.23.12) + #345 (supabase-js 2.107.0→2.112.3) merged**
+  (squash, branches deleted). Scope: `scripts/package.json` + lockfile only; the package's sole
+  consumer is `scripts/security-probe.ts` (manual SEC-01/SEC-05 harness), no workflow runs it.
+  **Lesson:** on Dependabot branches `code/snyk` reports ERROR and the Azure DevOps mirror check
+  FAILS within ~15 s — no repo secrets on bot branches; the same Azure check also failed at 13 s
+  on the merged #350. Judge Dependabot PRs on "Compile and test" / lint / coverage, not on those
+  two; the Azure mirror check itself deserves a look (it fails pre-test on every PR).
+- **Cursor #328/#331/#338 closed:** competing versions of one new bot-written
+  `docs/sync-job-run-logs.md` (generated 08-12→14) that still describes the Express portal removed
+  2026-06-02. Operator docs live in the Docusaurus runbook the Notion worker updates automatically.
+  Stray local `cursor/sync-job-run-logs-803d` deleted.
+- **Repo state:** master `fb11109`; `feat/phase-11-incremental-read` rebased → `7982b0f`, pushed.
+- **Backlog left untouched (44 open PRs):** ~24 Dependabot (majors: pandas 3.0, mypy 2.3, React 19,
+  TypeScript 7, actions v7 — each needs the dependency-auditor pass, several are breaking for
+  `portal-v2`/`website`), Seer #321/#322 (probably superseded by merged #341), #287/#290/#291
+  (`column_ids` serialization — check against the SDK 4.3.0 pin), Copilot #75/#80/#87/#133/#134/
+  #198/#275, Vercel #86, and Juan's own #91/#137/#138/#139/#149/#166/#282. Separate triage pass.
