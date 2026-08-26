@@ -585,6 +585,218 @@ def _run_memory_write_phase(
     return result
 
 
+def _normalize_column_mapping(mapping: dict[str, Any]) -> dict[str, int]:
+    """Normalize a ``column_mapping`` dict to ``{str(name): int(id)}``.
+
+    A stored ``sheet_registry.column_mapping`` value has been through a
+    JSONB round-trip (Supabase may return string-typed values for what
+    Python wrote as ints); the freshly-discovered mapping from
+    ``discover_source_sheets()`` has native int column ids. Comparing the
+    two dicts directly would report a "drift" on every run purely from
+    type representation, never from a real mapping change -- normalizing
+    both sides before comparison (``resolve_run_mode`` trigger 2) avoids
+    that false positive. An entry whose value cannot coerce to ``int`` is
+    dropped rather than raising (defensive -- a malformed stored value
+    should not crash mode resolution; it will simply compare unequal).
+    """
+    normalized: dict[str, int] = {}
+    for key, value in mapping.items():
+        try:
+            normalized[str(key)] = int(value)
+        except (TypeError, ValueError):
+            continue
+    return normalized
+
+
+def resolve_run_mode(
+    source_sheets: list[dict[str, Any]],
+    watermarks: dict[Any, dict[str, Any]],
+    last_run_status: dict[str, Any] | None,
+    *,
+    incremental_enabled: bool,
+    execution_type: str,
+    auth_error_sheet_ids: set | None = None,
+    reset_hash_history: bool = False,
+    regen_weeks: set | None = None,
+    reset_wr_list: set | None = None,
+    force_generation: bool = False,
+) -> tuple[str, str | None, dict[Any, str]]:
+    """Resolve this run's mode: ``'full'`` or ``'incremental'`` (D-02).
+
+    Implements all seven CONTEXT.md D-02 full-read escalation triggers
+    plus the ``RUN_MEMORY_INCREMENTAL_ENABLED`` flag gate. Triggers 1-3
+    are per-sheet and populate ``per_sheet_reasons`` WITHOUT by
+    themselves forcing the whole run to full -- a later plan restructures
+    PHASE 2 to read that map and force a per-sheet full read for those
+    entries even when the whole-run mode is ``'incremental'``. Triggers
+    4-7 (and the flag gate) force the WHOLE run to ``'full'``, checked in
+    order, short-circuiting on the first one that fires.
+
+    NOT wired into PHASE 2 by this plan -- ``all_rows`` still comes from
+    today's single ``get_all_source_rows()`` full fetch (11-02-PLAN.md
+    <objective>; plan 04 restructures PHASE 2 against this contract).
+    ``auth_error_sheet_ids`` (trigger 3) has no live producer yet at this
+    plan's call site either -- it is a real, directly-testable parameter
+    ready for the per-sheet delta read plan 04 wires in.
+
+    NEVER raises: any unexpected exception resolves to ``'full'`` with a
+    ``fallback_reason`` naming the failure, mirroring
+    ``_run_memory_write_phase``'s never-raise contract. Every full-mode
+    resolution returns a non-empty ``fallback_reason`` (T-11-11 -- a
+    silent fallback is prohibited).
+
+    Returns ``(mode, fallback_reason, per_sheet_reasons)``:
+      - ``mode``: ``'full'`` or ``'incremental'`` (the two
+        ``run_ledger.mode`` CHECK values this phase uses; ``'targeted'``
+        is reserved for a later phase).
+      - ``fallback_reason``: a non-empty string naming the trigger when
+        ``mode == 'full'``; ``None`` when ``mode == 'incremental'``.
+      - ``per_sheet_reasons``: sheet id -> reason string for every sheet
+        trigger 1/2/3 flagged, regardless of the whole-run mode.
+    """
+    try:
+        auth_error_sheet_ids = auth_error_sheet_ids or set()
+        regen_weeks = regen_weeks or set()
+        reset_wr_list = reset_wr_list or set()
+        per_sheet_reasons: dict[Any, str] = {}
+
+        # Triggers 1-3 (per-sheet) -- always computed so the map is
+        # complete for a caller even when the whole run is already forced
+        # to full below.
+        for source in source_sheets:
+            sheet_id = source.get('id')
+
+            if sheet_id in auth_error_sheet_ids:
+                # Trigger 3: isolate, do NOT retry-as-full in a loop, do
+                # NOT touch the watermark -- trigger 1 forces a full read
+                # of this sheet once access returns (the watermark stays
+                # stale/absent in the meantime).
+                per_sheet_reasons[sheet_id] = (
+                    "trigger3_auth_error: sheet isolated (401/403); "
+                    "watermark left unrefreshed"
+                )
+                logging.warning(
+                    f"🔐 resolve_run_mode: sheet {sheet_id} isolated "
+                    "(401/403 auth error) -- not retried as full in a loop"
+                )
+                sentry_add_breadcrumb(
+                    "resolve_run_mode",
+                    f"Sheet {sheet_id} isolated (401/403 auth error)",
+                    level="warning",
+                    data={"sheet_id": sheet_id},
+                )
+                continue
+
+            watermark = watermarks.get(sheet_id)
+            if watermark is None or watermark.get('last_sheet_version') is None:
+                # Trigger 1: new sheet, or a row with no version watermark
+                # yet -> full read of THIS sheet.
+                per_sheet_reasons[sheet_id] = (
+                    "trigger1_no_watermark: no sheet_registry row, or "
+                    "last_sheet_version is None"
+                )
+                continue
+
+            fresh_mapping = _normalize_column_mapping(
+                source.get('column_mapping') or {}
+            )
+            stored_mapping = _normalize_column_mapping(
+                watermark.get('column_mapping') or {}
+            )
+            if fresh_mapping != stored_mapping:
+                # Trigger 2: column_mapping drift -> full read of THIS
+                # sheet + mapping refresh (never continue against a stale
+                # mapping -- misgrouping is a billing-integrity risk).
+                per_sheet_reasons[sheet_id] = (
+                    "trigger2_column_mapping_drift: freshly-discovered "
+                    "column_mapping differs from the stored "
+                    "sheet_registry.column_mapping"
+                )
+
+        # Flag gate: RUN_MEMORY_INCREMENTAL_ENABLED unset resolves to
+        # full REGARDLESS of every other input -- checked first so no
+        # other trigger's reason can shadow it.
+        if not incremental_enabled:
+            return (
+                "full",
+                "flag_off: RUN_MEMORY_INCREMENTAL_ENABLED is not set",
+                per_sheet_reasons,
+            )
+
+        # Trigger 4: empty watermark map (Supabase outage or missing
+        # sheet_registry) resolves the WHOLE run to full -- the one place
+        # "fail-open toward Supabase" means doing MORE work.
+        if not watermarks:
+            return (
+                "full",
+                "trigger4_empty_watermark_map: Supabase outage or missing "
+                "sheet_registry (cannot confirm any sheet is unchanged)",
+                per_sheet_reasons,
+            )
+
+        # Trigger 5: any operator reset/force flag -> ignore the
+        # watermark; the simplest safe scope this plan is the WHOLE run.
+        if reset_hash_history or regen_weeks or reset_wr_list or force_generation:
+            fired = []
+            if reset_hash_history:
+                fired.append("RESET_HASH_HISTORY")
+            if regen_weeks:
+                fired.append("REGEN_WEEKS")
+            if reset_wr_list:
+                fired.append("RESET_WR_LIST")
+            if force_generation:
+                fired.append("FORCE_GENERATION")
+            return (
+                "full",
+                f"trigger5_operator_flag: {'/'.join(fired)} set",
+                per_sheet_reasons,
+            )
+
+        # Trigger 6: the previous run_ledger row has status != 'success'
+        # or finished_at IS NULL -- a crashed run's partial watermark
+        # updates are not a clean baseline. A read failure that resolves
+        # last_run_status to None is the SAME failure class (11-RESEARCH.md
+        # Open Question 3) and is handled identically here.
+        if (
+            last_run_status is None
+            or last_run_status.get('status') != 'success'
+            or last_run_status.get('finished_at') is None
+        ):
+            return (
+                "full",
+                "trigger6_previous_run_not_clean: previous run_ledger row "
+                "missing, errored, unfinished, or unreadable",
+                per_sheet_reasons,
+            )
+
+        # Trigger 7: only production_frequent may go incremental (D-11) --
+        # weekend/weekly-deep/manual dispatches stay full.
+        if execution_type != "production_frequent":
+            return (
+                "full",
+                "trigger7_execution_type: EXECUTION_TYPE="
+                f"{execution_type!r} is not 'production_frequent'",
+                per_sheet_reasons,
+            )
+
+        return ("incremental", None, per_sheet_reasons)
+    except Exception as exc:
+        logging.warning(
+            f"⚠️ resolve_run_mode raised unexpectedly ({type(exc).__name__}); "
+            "resolving to full (fail-open)."
+        )
+        sentry_add_breadcrumb(
+            "resolve_run_mode",
+            f"Unexpected exception: {type(exc).__name__}",
+            level="warning",
+        )
+        return (
+            "full",
+            f"trigger_unexpected_exception: {type(exc).__name__}: {exc}",
+            {},
+        )
+
+
 def _resolve_mem_sheet_kind(sheet_id: Any) -> str:
     """Classify a discovered sheet's ``sheet_registry.kind`` (MEM-01).
 

@@ -89,5 +89,47 @@ def get_sheet_watermarks(sheet_ids: list) -> dict:
     return watermarks
 
 
-# NOTE: get_last_run_ledger_status() is added in Task 2 (D-02 trigger 6 --
-# resolve_run_mode's "was the previous run clean?" read).
+def get_last_run_ledger_status() -> dict | None:
+    """Return the newest ``run_ledger`` row's ``status`` / ``finished_at``.
+
+    Selects ``status, finished_at`` ordered by ``started_at`` descending,
+    limited to 1 row -- the most recent run started before this one (this
+    run's own ``run_ledger_start`` upsert has not happened yet at the
+    ``resolve_run_mode`` call site, so it never sees itself). Uses its own
+    ``op="run_ledger_last_status"`` string, independent of
+    ``run_ledger_upsert``'s breaker.
+
+    Returns ``None`` on any failure, a ``None`` client, a ``None``/missing
+    response, or an empty result set (no prior run exists). The caller
+    (``pipeline.orchestrate.resolve_run_mode``) treats ``None`` as "cannot
+    confirm the previous run was clean" -- the SAME failure class as an
+    empty watermark map (11-RESEARCH.md Open Question 3), which is D-02
+    trigger 6 (or, when the watermark map is also empty, trigger 4).
+    NEVER treated as "the previous run succeeded".
+    """
+    client = get_client()
+    if client is None:
+        return None
+
+    def _invoke():
+        return (
+            client.schema("pipeline_memory")
+            .table("run_ledger")
+            .select("status,finished_at")
+            .order("started_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+
+    result = with_retry(_invoke, op="run_ledger_last_status")
+    if result is None:
+        return None
+
+    rows = getattr(result, "data", None)
+    if not rows:
+        return None
+
+    row = rows[0]
+    if not isinstance(row, dict):
+        return None
+    return row
