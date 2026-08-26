@@ -157,6 +157,39 @@ def _sentry_breadcrumb(category: str, message: str, level: str = "info",
         pass
 
 
+# Default per-RPC ceiling (seconds). Mirrors pipeline/config.py's
+# RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC default; read from the environment here
+# so this module keeps importing nothing from ``pipeline`` (Pitfall 5 client
+# isolation). One stuck upsert_rows_bulk / run_ledger call is bounded by
+# this instead of postgrest-py's 120 s library default (T-10-04).
+_DEFAULT_RPC_TIMEOUT_SEC = 45
+
+
+def _rpc_timeout_sec() -> int:
+    """Return the per-RPC PostgREST timeout in seconds (>= 1)."""
+    raw = (os.getenv("RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC") or "").strip()
+    try:
+        value = int(raw) if raw else _DEFAULT_RPC_TIMEOUT_SEC
+    except ValueError:
+        value = _DEFAULT_RPC_TIMEOUT_SEC
+    return value if value >= 1 else _DEFAULT_RPC_TIMEOUT_SEC
+
+
+def _client_options(timeout_sec: int) -> Any:
+    """Build ClientOptions carrying the PostgREST timeout, or None.
+
+    Returns None when the installed ``supabase`` package predates
+    ``ClientOptions.postgrest_client_timeout`` -- the caller then falls
+    back to ``create_client(url, key)`` so an SDK drift can never turn the
+    fail-open shadow path into an import-time failure.
+    """
+    try:
+        from supabase.lib.client_options import ClientOptions  # type: ignore
+        return ClientOptions(postgrest_client_timeout=timeout_sec)
+    except Exception:
+        return None
+
+
 def get_client() -> Any:
     """Return a cached Supabase client, or None if unavailable.
 
@@ -210,7 +243,12 @@ def get_client() -> Any:
         return None
 
     try:
-        _client_cache = create_client(url, key)
+        timeout_sec = _rpc_timeout_sec()
+        options = _client_options(timeout_sec)
+        if options is not None:
+            _client_cache = create_client(url, key, options=options)
+        else:
+            _client_cache = create_client(url, key)
     except Exception as exc:
         logging.warning(
             "⚠️ Supabase client init failed; pipeline_memory writes "

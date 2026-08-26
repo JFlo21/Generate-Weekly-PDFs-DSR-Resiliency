@@ -1825,3 +1825,67 @@ class GroupStateFlushComputationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RpcTimeoutWiringTests(unittest.TestCase):
+    """T-10-04 / REVIEW WR-02: RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC must bound
+    every PostgREST call, not merely exist in config."""
+
+    def setUp(self):
+        import pipeline_memory.client as mem_client
+        mem_client.reset_cache_for_tests()
+        self.mem_client = mem_client
+
+    def tearDown(self):
+        self.mem_client.reset_cache_for_tests()
+
+    def _build_with_env(self, extra_env):
+        env = {"SUPABASE_URL": "https://example.invalid",
+               "SUPABASE_SERVICE_ROLE_KEY": "not-a-real-key",
+               "TEST_MODE": ""}
+        env.update(extra_env)
+        captured = {}
+
+        def fake_create_client(url, key, options=None):
+            captured["options"] = options
+            return object()
+
+        with mock.patch.dict(os.environ, env, clear=False),                 mock.patch("supabase.create_client", fake_create_client):
+            client = self.mem_client.get_client()
+        return client, captured
+
+    def test_default_timeout_is_passed_to_postgrest_client(self):
+        client, captured = self._build_with_env(
+            {"RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC": ""})
+        self.assertIsNotNone(client)
+        self.assertIsNotNone(captured["options"])
+        self.assertEqual(captured["options"].postgrest_client_timeout, 45)
+
+    def test_env_override_is_honoured(self):
+        client, captured = self._build_with_env(
+            {"RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC": "7"})
+        self.assertIsNotNone(client)
+        self.assertEqual(captured["options"].postgrest_client_timeout, 7)
+
+    def test_garbage_or_zero_falls_back_to_default(self):
+        for bad in ("abc", "0", "-3"):
+            with self.subTest(value=bad):
+                self.mem_client.reset_cache_for_tests()
+                _, captured = self._build_with_env(
+                    {"RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC": bad})
+                self.assertEqual(
+                    captured["options"].postgrest_client_timeout, 45)
+
+    def test_default_matches_pipeline_config_constant(self):
+        from pipeline.config import RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC
+        with mock.patch.dict(os.environ,
+                             {"RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC": ""}):
+            self.assertEqual(self.mem_client._rpc_timeout_sec(),
+                             RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC)
+
+    def test_missing_client_options_falls_back_to_plain_create_client(self):
+        with mock.patch.object(self.mem_client, "_client_options",
+                               return_value=None):
+            client, captured = self._build_with_env({})
+        self.assertIsNotNone(client)
+        self.assertIsNone(captured["options"])
