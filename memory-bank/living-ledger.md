@@ -6684,3 +6684,28 @@ follow-up findings closed, same 6 files.
   both `review` and `--all` (e.g. `git log --all` while scoping a code review) and on
   `gsd-tools … commit "… review …"`; use `git log` without `--all` and plain `git commit` for
   those docs commits.
+
+## [2026-08-25 21:50] Phase 10 CLOSED — UAT 2/2 decided, verification passed, transition to Phase 11
+
+- **UAT (`/gsd-verify-work 10`, `60e66fc`/`1679829`):** Test 1 — Juan accepted option (a):
+  SC4 "byte-identical vs. control" is satisfied by the canonicalized-Excel-content proof; a
+  low-activity / snapshot-replay comparator rerun moves to the flag-flip-PR precondition list.
+  Test 2 — Juan chose DEFER: `group_state` attachment_id/attachment_name proof (+ reduced_sub
+  two-row fan-out) is carried to the flag-flip PR's first real upload (recorded under
+  `10-UAT.md` → Deferred Follow-Ups). `10-VERIFICATION.md` canonicalized `human_needed → passed`;
+  `phase uat-passed 10 --require-verification` → passed, 0 blockers.
+- **Gate fix (`8486113`):** the `verify:pre` `api-coverage` gate blocked on `COVERAGE.md`
+  cell lengths (capability ≤ 80 chars, reason ≤ 200 chars) — three cells trimmed, decisions
+  unchanged (30 capabilities, 12 INTEGRATE / 18 OPT-OUT).
+- **Transition:** `phase.complete 10` updated STATE.md but (as with Phase 09) not this
+  ROADMAP layout, and reported `is_last_phase: true` because Phases 11–13 are invisible to
+  `roadmap.analyze` — ROADMAP/PROJECT/STATE evolved by hand; `.continue-here.md` removed.
+- **Lesson — GSD tooling gaps to remember:** (1) `phase uat-passed` treats ANY `result: skipped`
+  as a blocker, even the workflow's own "Deferred follow-up" skip — a decision-type UAT test
+  whose decision was made must be recorded `pass` + a Deferred Follow-Ups entry, never
+  `skipped`; (2) `api-coverage` enforces 80/200-char cell limits on `COVERAGE.md` that
+  plan-time authoring does not check — keep capability cells terse.
+- **Now:** branch `feat/phase-10-run-memory` unpushed (docs commits only since `7cbbfd0`);
+  next = push → PR (Objective / Changes / Production Safety Check) → Seer PR triage
+  (#343/#346/#347/#348) → `/gsd-plan-phase 11`. Housekeeping unchanged: two diagnostic
+  `run_ledger` rows in prod (operator delete), `Sandbox` rig sheets disposable.

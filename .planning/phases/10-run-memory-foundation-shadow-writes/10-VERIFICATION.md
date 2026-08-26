@@ -1,15 +1,17 @@
 ---
 phase: 10-run-memory-foundation-shadow-writes
 verified: 2026-08-25T19:15:00-05:00
-status: human_needed
+status: passed
 score: 11/13 must-haves verified
 behavior_unverified: 2
 overrides_applied: 0
 behavior_unverified_items:
+
   - truth: "Success criterion 4 (partial): production output is byte-identical vs. a control run"
     test: "Run scripts/compare_control_run.py over a real SKIP_UPLOAD=true control (flag OFF) and shadow (flag ON) pair captured during a low-Smartsheet-activity window (or with a fetch-snapshot/replay capability that freezes the row set between the two runs)."
     expected: "The comparator exits 0 with zero content-hash mismatches AND zero group-selection/run_summary drift, proving the output set is identical at the byte level, not only at the canonicalized-content level."
     why_human: "The only real-data run performed (10-06 Task 3, runs 1+2) proved 100% canonicalized-content equality across all 17 overlapping identities, but the comparator itself still exits non-zero because 13 identities differ between control's and shadow's first-30 MAX_GROUPS slice and 3 run_summary fields drifted -- both mechanically explained by ~50 real Smartsheet rows added during the ~68-minute gap between the two runs on a live, continuously-edited 209K-row dataset. Whether the canonicalized-content-only proof standard satisfies the ROADMAP's literal 'byte-identical' wording, or whether a maintenance-window/snapshot-replay rerun is required before this phase is considered fully closed, is a product/scope decision only Juan can make -- it cannot be resolved by more automated evidence within Phase 10's shipped tooling."
+
   - truth: "MEM-01 (partial): after an upload completes, group_state carries the resulting Smartsheet attachment id and name"
     test: "Run the pipeline once with RUN_MEMORY_WRITE_ENABLED=1 and SKIP_UPLOAD unset/false (a real, non-dry-run production or near-production execution), then query pipeline_memory.group_state for a row with a non-null attachment_id."
     expected: "group_state gains rows whose attachment_id/attachment_name match the Smartsheet attachment actually created for that group, and a reduced_sub fan-out group produces two distinct rows (one per target sheet) each with its own attachment id."

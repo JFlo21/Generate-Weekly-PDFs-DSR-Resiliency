@@ -104,7 +104,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 
 ### v1.4 Supabase Run Memory — incremental billing pipeline (DRAFT)
 
-- [ ] **Phase 10: Run-Memory Foundation (shadow writes)** — `pipeline_memory` schema
+- [x] **Phase 10: Run-Memory Foundation (shadow writes)** — `pipeline_memory` schema
   (sheet_registry, row_state, row_event, group_state, run_ledger) + bulk writer, shadow
   mode only, zero behavior change; fixture proof of `rowsModifiedSince` semantics for
   formula-only changes. (MEM-01..04)
@@ -136,7 +136,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 07. Security Hardening and Express Removal | v1.1 | 4/4 | ✅ Complete | 2026-06-03 |
 | 08. smartsheet-python-sdk 4.0.0 Compatibility Migration | v1.2 | 2/2 | Complete    | 2026-07-22 |
 | 09. Engine Modularization (pipeline package split) | v1.3 | 9/9 | ✅ Complete | 2026-08-25 |
-| 10. Run-Memory Foundation (shadow writes) | v1.4 | 0/? | In Progress|  |
+| 10. Run-Memory Foundation (shadow writes) | v1.4 | 6/6 | ✅ Complete | 2026-08-25 |
 | 11. Incremental Read + Affected-Group Regeneration | v1.4 | 0/? | Draft |  |
 | 12. Ownership — last known foreman as of the week | v1.4 | 0/? | Draft |  |
 | 13. Audit Memory | v1.4 | 0/? | Draft |  |

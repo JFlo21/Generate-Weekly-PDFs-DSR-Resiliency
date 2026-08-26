@@ -1,17 +1,26 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-25 20:30 CDT · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-25 21:50 CDT · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
-_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-25 20:30]` (Phase 10 executed 6/6 +
-all tail gates; verifier `human_needed` 11/13). **Phase 10 EXECUTED, NOT CLOSED** — awaiting
-`/gsd-verify-work 10` (two Juan decisions in `10-UAT.md`). `pipeline_memory` schema is LIVE on
-Supabase `poeyztlmsawfoqlanucc` (service_role-only; write path OFF in production).
-Git: `master` = `origin/master` @ `22ab153`; work branch `feat/phase-10-run-memory` @ `acf7dad`
-(~60 commits ahead, all Phase 10; NOT pushed, no PR yet). Only `generated_docs/hash_history.json` stays dirty (pre-existing)._
+_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-25 21:50]` (Phase 10 CLOSED — UAT 2/2
+decided by Juan, verification passed, transition run). `pipeline_memory` schema is LIVE on Supabase
+`poeyztlmsawfoqlanucc` (service_role-only; write path OFF in production). Branch NOT pushed; no PR yet._
 
-## Latest work (2026-08-25 20:30 CDT) — `/gsd-execute-phase 10` COMPLETE (6/6 plans, 4 waves, sequential); tail gates done; verification human_needed
+## Latest work (2026-08-25 21:50 CDT) — Phase 10 CLOSED: `/gsd-verify-work 10` 2/2 decided, verification passed, transition to Phase 11
+0. **UAT:** `verify:pre` api-coverage gate blocked on `COVERAGE.md` cell lengths → trimmed (`8486113`).
+   Test 1 (SC4 byte-identical) — Juan accepted the canonicalized-content proof; low-activity rerun →
+   flag-flip-PR precondition. Test 2 (`group_state` attachment id) — Juan: defer → recorded as pass
+   (decision test) + Deferred Follow-Ups (`60e66fc`, `1679829`); `phase uat-passed` treats any
+   `skipped` as a blocker (GSD gap, ledger lesson). `10-VERIFICATION.md` → `passed`; predicate 0 blockers.
+   **Transition:** `phase.complete 10` (STATE only; ROADMAP/PROJECT hand-evolved; handoff removed);
+   ROADMAP row 10 = 6/6 ✅ 2026-08-25; PROJECT.md Current State + 2 decision rows; ledger `[21:50]`.
+   **Next:** push `feat/phase-10-run-memory` → PR → Seer PR triage (#343/#346/#347/#348) →
+   `/gsd-plan-phase 11`. Flag-flip-PR preconditions: WR-01 (todo `8b844a6`), comparator rerun in a
+   low-activity window, `group_state` attachment-id proof on first real upload.
+
+## Previous (2026-08-25 20:30 CDT) — `/gsd-execute-phase 10` COMPLETE (6/6 plans, 4 waves, sequential); tail gates done; verification human_needed
 0. **Execution:** 10-01 → 10-04 → 10-02 → 10-05 (Juan: "you run this for me" → Claude built the
    MEM-04 sandbox rig via Smartsheet MCP + SDK, ran probes a–f; verdict **PASS**, D-09 OPEN) →
    10-03 → 10-06 (Juan applied `schema.sql` + exposed the schema; Claude found and fixed the

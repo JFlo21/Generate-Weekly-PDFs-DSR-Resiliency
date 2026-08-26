@@ -3,13 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Engine Modularization & Hygiene
 current_phase: 10
-current_phase_name: Run-Memory Foundation (shadow writes)
-status: verifying
-stopped_at: Phase 10 executed 6/6 + tail gates; verifier human_needed 11/13 — awaiting /gsd-verify-work 10 (10-UAT.md)
-last_updated: "2026-08-25T23:44:11.298Z"
+status: completed
+stopped_at: Phase 10 complete (UAT 2/2 decided, verification passed 2026-08-25) — next /gsd-plan-phase 11
+last_updated: "2026-08-26T02:51:37.802Z"
 last_activity: 2026-08-25
-last_activity_desc: Phase 10 execution started
-state_head: e12c6c3454b47ecd73e0644ac148d300b65b0055
+last_activity_desc: Phase 10 complete
+state_head: 1679829c487f2aefdf7da385e4ddeee935272cd4
 progress:
   total_phases: 1
   completed_phases: 1
@@ -35,15 +34,15 @@ pipeline.
 
 ## Current Position
 
-Phase: 10 (Run-Memory Foundation (shadow writes)) — EXECUTING
-Plan: 6 of 6
-Status: Phase complete — ready for verification
+Phase: 10
+Plan: Not started
+Status: Phase 10 complete — Phase 11 (Incremental Read + Affected-Group Regeneration) ready to plan
   Engine 10,476 -> 709-line thin facade; 13-module pipeline/ package; 0 behavior
   change; 7 waves + 2 gap-closure plans (09-07/09-08). G-09-MOD-06 closed: Gate 4
   fail-capable, Gate 6 offline (synthetic), mypy re-baselined 65 with per-finding
   attribution (Juan: `rebaseline`, `da7d73c`); `run_6_gates.sh` ALL 6 GATES PASSED
   in 32 s; suite 1386 + 132 subtests. Next: `/gsd-core:gsd-execute-phase 10`.
-Last activity: 2026-08-25 — Phase 10 execution started
+Last activity: 2026-08-25 — Phase 10 complete
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
@@ -54,7 +53,7 @@ Last activity: 2026-08-25 — Phase 10 execution started
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [██████████] 100% (v1.3 complete — Phase 09 closed 2026-08-25; v1.4 Phase 10 planned, 0/6 plans)
+Progress: [██████████] 100% (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 next)
 ```
 
 ## Performance Metrics
@@ -202,6 +201,11 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ### Roadmap Evolution
 
+- Phase 10 completed (2026-08-25): Run-Memory Foundation (shadow writes). 6/6 plans;
+  MEM-01..04 complete; `pipeline_memory` live on Supabase (write path OFF in prod).
+  Two UAT decisions by Juan: SC4 satisfied by canonicalized-content proof; `group_state`
+  attachment-id proof carried to the flag-flip PR (Phase 11).
+
 - v1.1 roadmap created (2026-05-29): Phases 03–07 continuing from Phase 02.
   Supersedes the prior v1.1 Railway → Render migration scope (moved to Out of
   Scope in PROJECT.md and REQUIREMENTS.md). The Railway → Render deferred bullets
@@ -328,11 +332,11 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 ## Session
 
 **Last session:** 2026-08-25T23:44:11.126Z
-**Stopped at:** Completed 10-06-PLAN.md (Task 3 real-data rollout evidence)
+**Stopped at:** Phase 10 closed via /gsd-verify-work 10 (test 1: SC4 canonicalized-content proof accepted; test 2: group_state attachment-id proof deferred to flag-flip PR). Next: /gsd-plan-phase 11.
 **Resume file:** None
 
 ## Session Continuity
 
-Last session: 2026-08-25T15:31:08.771Z
-Stopped at: Phase 10 executed 6/6 (ecb1bd5); tail gates done — code review 0C/4W/1I (7e86f46, follow-ups todo 8b844a6), regression 978 passed, Nyquist validated (c292d5d), security 21/21 closed after T-10-04 fix b48efd7, gsd-verifier human_needed 11/13 → 10-UAT.md (bf9f919). Phase NOT advanced. Next: /gsd-verify-work 10 (2 Juan decisions: SC4 byte-identical standard; group_state attachment id deferred to flag-flip PR).
-Resume file: .planning/phases/10-run-memory-foundation-shadow-writes/10-UAT.md (pending human verification)
+Last session: 2026-08-26T02:50:00.000Z
+Stopped at: Phase 10 CLOSED (2026-08-25 21:50 CDT): UAT 2/2 (1679829), 10-VERIFICATION.md status passed, COVERAGE.md gate fix (8486113), phase.complete run. Branch feat/phase-10-run-memory NOT pushed; no PR yet. Next: push → PR → Seer PR triage (#343/#346/#347/#348), then /gsd-plan-phase 11.
+Resume file: None

@@ -98,6 +98,16 @@ migrate; it is removed. See Out of Scope.
 
 ## Current State
 
+**Phase 10 complete (2026-08-25): Run-Memory Foundation shipped in shadow mode.**
+Six plans on `feat/phase-10-run-memory` (unpushed, PR pending): `pipeline_memory` schema
+(sheet_registry, row_state, row_event, group_state, run_ledger) live on Supabase
+`poeyztlmsawfoqlanucc` (service_role-only, no DELETE grant), bulk fail-open writer with
+per-RPC timeout + circuit breaker, MEM-04 sandbox experiment PASS, four real `SKIP_UPLOAD`
+runs proving neutrality / idempotence / fail-open, `scripts/compare_control_run.py`.
+`RUN_MEMORY_WRITE_ENABLED` stays OFF in production. Flag-flip-PR preconditions: WR-01
+(decorated numerics vs NUMERIC RPC params), low-activity comparator rerun, `group_state`
+attachment-id proof on the first real upload. Next: Phase 11 (incremental read).
+
 **Phase 08 complete (2026-07-22): SDK 4.3.0 migration executed.** Both plans
 shipped on `feat/phase-08-sdk-430-migration` (unpushed, PR pending per D-06
 weekday merge window): exact pin `smartsheet-python-sdk==4.3.0`, dead 3.x
@@ -443,6 +453,8 @@ extracted from `CLAUDE.md` Living Ledger (see
 | (SPEC) Railway stays warm 48 h post-cutover; rollback is a Vercel `VITE_API_BASE_URL` env-var flip, not a redeploy | Each rollback row in §6 has explicit trigger / action / max recovery time | ✓ Good — locked (same SPEC §5-6) |
 | [2026-08-25 00:02] mypy Gate 4 re-baselined 56 → 65 by explicit human decision (`rebaseline`), as a dedicated commit whose ledger entry names every accepted finding with blame commit and class; the one class-A finding is tracked as a todo | A re-baseline inside a feature commit, or without attribution, is how the 56→65 regression signal was lost the first time (G-09-MOD-06) | ✓ Good — locked (`da7d73c`)
 | [2026-08-25 00:00] A verification harness must never consume production data: Gate 6 of `run_6_gates.sh` runs with `SMARTSHEET_API_TOKEN=` (synthetic path), and every gate needs a fail-capability test in `tests/test_facade_harness.py` | Gate 4 was structurally unable to fail (CRLF + `set -e` fall-through) and Gate 6 silently read 118 production sheets when a `.env` token was present | ✓ Good — locked (`6a5d321`, `4441b52`, `d4e6911`)
+| [2026-08-25 21:35] Phase 10 SC4 "production output byte-identical vs. a control run" is satisfied by the canonicalized-Excel-content standard (100% match across all 17 overlapping identities; residual comparator diff mechanically explained by ~50 live Smartsheet row additions during the 68-min control→shadow gap). A low-activity / snapshot-replay comparator rerun is a flag-flip-PR precondition, not a Phase 10 gate | A live 209K-row dataset cannot be held still between two real runs without a fetch-snapshot capability Phase 10 does not build; forcing a comparator PASS would have meant fabricating evidence | ✓ Good — locked (Juan, `/gsd-verify-work 10` test 1, `1679829`) |
+| [2026-08-25 21:35] `group_state` attachment_id/attachment_name proof (and the reduced_sub two-row fan-out) is deferred to the flag-flip PR's first real non-dry-run upload, or a mock-based integration test — recorded under `10-UAT.md` Deferred Follow-Ups, not as a gap | Structurally untestable under `SKIP_UPLOAD`; a real upload is exactly the action Phase 10's shadow-only scope excludes | ✓ Good — locked (Juan, `/gsd-verify-work 10` test 2, `1679829`) |
 
 </decisions>
 
@@ -464,7 +476,7 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-25 — Phase 09 closed after gap closure (G-09-MOD-06: Gate 4 fail-capable, Gate 6 offline, mypy re-baselined 65 with attribution; verifier 6/6; v1.3 milestone complete). Previous: 2026-07-22 — Phase 08 executed: SDK migrated to the exact
+*Last updated: 2026-08-25 — Phase 10 closed (Run-Memory Foundation, shadow writes): 6/6 plans, MEM-01..04 complete, `pipeline_memory` live on Supabase with the production write path OFF; UAT 2/2 decided by Juan (SC4 = canonicalized-content standard; `group_state` attachment-id proof → flag-flip PR). Previous: 2026-08-25 — Phase 09 closed after gap closure (G-09-MOD-06: Gate 4 fail-capable, Gate 6 offline, mypy re-baselined 65 with attribution; verifier 6/6; v1.3 milestone complete). Previous: 2026-07-22 — Phase 08 executed: SDK migrated to the exact
 `==4.3.0` pin with behavior-neutrality proven (six gates + full suite) and
 the live probe approved. Milestone **v1.2 smartsheet-python-sdk 4.0.0
 Compatibility Migration** started 2026-06-08 (Phase 08). Compat-only migration to SDK
