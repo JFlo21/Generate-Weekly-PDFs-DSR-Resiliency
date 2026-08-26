@@ -609,7 +609,7 @@ files, reading group rows from `row_state`; the weekly deep run reconciles fully
 4. Local JSON caches and the two attachment pre-fetch phases are removed only after (2);
    frequent-run wall clock measured before/after (baseline 94 min, run 32743959053).
 
-**Plans:** 4/8 plans executed
+**Plans:** 5/8 plans executed
 
 Plans:
 **Wave 1**
@@ -630,7 +630,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 11-05-PLAN.md — INC-04 shadow parity comparator + D-08 shadow delta reads; opens with the `RUN_MEMORY_WRITE_ENABLED` flip gate (wave 5, autonomous:false)
+- [x] 11-05-PLAN.md — INC-04 shadow parity comparator + D-08 shadow delta reads; opens with the `RUN_MEMORY_WRITE_ENABLED` flip gate (wave 5, autonomous:false)
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
