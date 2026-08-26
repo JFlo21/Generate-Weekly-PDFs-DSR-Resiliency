@@ -55,8 +55,12 @@ Also gate every plan with `python -m py_compile generate_weekly_pdfs.py` and, be
 
 ## Wave 0 Requirements
 
-- [ ] `tests/test_pipeline_memory_incremental.py` — stubs for INC-01..INC-04 (delta read, watermark, FULL-read triggers, affected-set → sheet mapping, shadow parity verdict)
-- [ ] `tests/test_pipeline_memory_shadow.py` — extend for WR-01 decorated-numeric payloads and WR-04 `sheets_changed`
+- [ ] `tests/test_pipeline_memory_shadow.py` — extend for WR-01 decorated-numeric payloads and WR-04 `sheets_changed` (plan 01)
+- [ ] `tests/test_incremental_read.py` — NEW: delta read, mode resolution, watermark persistence, D-06 preservation, incremental scope, affected-set mapping, scoped counters, parity streak (plans 02, 03, 04, 07)
+- [ ] `tests/fixtures/incremental/abbreviated_sheet_response.json` — NEW cassette pinning the abbreviated `Sheet` response shape (plan 02, closes RESEARCH Open Question 1 / Assumption A1)
+- [ ] `tests/test_parity_shadow.py` — NEW: shadow comparator verdicts and shadow delta reads (plan 05)
+- [ ] `tests/test_deep_run_reconciliation.py` — NEW: deletion detection, `column_mapping` refresh, formula-only reconciliation (plan 06)
+- [ ] `tests/fixtures/incremental/deleted_row.json`, `tests/fixtures/incremental/formula_only_change.json` — NEW cassettes (plan 06)
 - [ ] `tests/conftest.py` — shared fixtures (already present)
 
 *Existing infrastructure covers the framework; new test modules above are created by the plans that need them.*
