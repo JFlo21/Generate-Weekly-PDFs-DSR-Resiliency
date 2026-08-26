@@ -118,6 +118,43 @@ edits it without explicit approval.
      design, so a partial failure here should not have failed the whole
      run).
 
+## Deep-run live verification (INC-03 / success criterion 3)
+
+Phase 11 plan 06 ships the weekly deep run's deletion-reconciliation,
+`column_mapping` refresh, and formula-only reconciliation entirely as
+fixture-covered unit tests (mocked Smartsheet/Supabase clients, zero live
+calls). ROADMAP.md's Phase 11 success criterion 3 additionally requires
+**one live verification** — this section is that item. It runs AFTER this
+checklist's flip merges and is scoped to a Monday `weekly_comprehensive`
+run (the deep run, identified by cron identity — `0 5 * * 1` UTC — never
+by wall clock, per CLAUDE.md's schedule section) against the disposable
+MEM-04 sandbox rig, never production Work Requests.
+
+- [ ] **Before a Monday run:** on the sandbox rig, delete one row on a
+  registered sheet AND make one formula-only edit on a different row
+  (reuse the MEM-04 rig's cross-sheet lookup formula — blank an archived
+  Work Request's dependent Foreman cell, or edit a dept-mapping lookup
+  value in place — the SAME triggering edits D-08's MEM-04 probe already
+  used; do not invent a new edit shape).
+- [ ] **After that Monday's `weekly_comprehensive` run completes:**
+  - [ ] Query `pipeline_memory.row_state` for the deleted row and confirm
+    `deleted_at` is now set (non-NULL), stamped with that run's
+    timestamp.
+  - [ ] Query `pipeline_memory.group_state` for the deleted row's
+    `(wr, week_ending)` pair and confirm its `content_hash` moved to a
+    new value reflecting the row's absence, with `attachment_id`
+    unchanged (the existing COALESCE preserves it — no new upload was
+    forced by this reconciliation).
+  - [ ] Confirm the formula-edited row's `content_hash` in `row_state`
+    also moved (the ordinary content-hash path, not a special case).
+  - [ ] Confirm `sheet_registry.column_mapping` for every sheet this run
+    read in full was refreshed with this run's `updated_at` timestamp
+    (the deep run is the only writer of this column per D-03; a
+    `production_frequent` run in between must NOT have moved it).
+- [ ] **Record** the run id (`run_ledger.run_id`), the deleted row's id,
+  and both `updated_at` timestamps in this PR's description so the phase
+  SUMMARY can cite them as the success-criterion-3 evidence.
+
 ## References
 
 - CONTEXT.md D-10 (`.planning/phases/11-incremental-read-affected-group-regeneration/11-CONTEXT.md`)
