@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-27 16:20 CDT · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-27 17:45 CDT · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
@@ -17,7 +17,24 @@ PreCompact hook). Phase 11 EXECUTING — **7/8 plans done**; **11-08 INC-05 reti
 `production_frequent` run after #356). Then: checklist item 6 SQL + items 2–3 → ≥5 `pass` verdicts →
 re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-08-27 16:20 CDT) — three PRs queued: #355 (docs, rebased/mergeable) → #358 (parity actual = uploaded set + shadow 25) → #359 (hash sort tiebreaker, owner-approved)
+## Latest work (2026-08-27 17:45 CDT) — #358 MERGED; #357 closed; #355 + #359 rebased & MERGEABLE; hook hardened to v1.1.4; docs Learn section on PR #360
+- **Merged:** #358 (`239a14a`) — parity actual = uploaded set, candidate-only informational (D-07
+  refinement #2 from run #2802), `RUN_MEMORY_SHADOW_MAX_MINUTES: '25'`. #357 closed (content rode in).
+- **Open, MERGEABLE (Azure mirror aside):** #355 `0cea6d1` (docs + PreCompact hook v1.1.4: unique `wx`
+  packets, packet written before the vault step, owner-token log lock with PID-liveness/60 s orphan
+  reclaim via atomic rename, collision-proof `-unlocked-<pid>` fallback, `--install`); #359 `0fb52c9`
+  (hash sort tiebreaker, owner-approved; one-time bounded regeneration bump expected); **#360**
+  `docs/learning-guides` (Learn section: for-operators + for-engineers, overview rewrite, intro,
+  sidebar/navbar, changelog post; typecheck + build green).
+- **Run #2802** (first scheduled run with working memory): 8 sheets written / 0 errored / confirmed;
+  attachment ids preserved on skipped groups; churn group skipped this run.
+- **claude-mem:** worker was down 09:19–15:58 CDT (13.16.1 update); day reconstructed via
+  `POST /api/import` (1 session + 1 summary + 6 `[backfill]` observations); live capture resumed 21:01Z.
+- **Next:** merge #355, #359, #360 (rebase remaining after each — watcher armed) → first
+  `production_frequent` run after #359 → `parity_verdict=pass` → streak clock → ≥5 passes → re-open
+  11-07 → resume Phase 11 at 11-08. Watch the first post-#359 run's regeneration count.
+
+## Previous Latest work (2026-08-27 16:20 CDT) — three PRs queued: #355 (docs, rebased/mergeable) → #358 (parity actual = uploaded set + shadow 25) → #359 (hash sort tiebreaker, owner-approved)
 - **#359** `fix/data-hash-sort-tiebreaker`: `_extended_row_fields()` extracted; EXTENDED sort key +
   hashed-field string + foreman as tiebreaker; legacy untouched. Full suite green; new
   `tests/test_change_detection_tiebreak.py` pins order-independence for ties AND byte-identity for
