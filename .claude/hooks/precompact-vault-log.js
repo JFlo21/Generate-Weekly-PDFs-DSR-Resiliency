@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// project-hook: precompact-vault-log v1.1.3  (Generate-Weekly-PDFs-DSR-Resiliency)
+// project-hook: precompact-vault-log v1.1.4  (Generate-Weekly-PDFs-DSR-Resiliency)
 // Event: PreCompact (auto + manual — no matcher).
 // Installation: INTENTIONALLY LOCAL-ONLY. This hook writes to Juan's personal
 //          second brain (OneDrive `my-wiki`), so it is wired from the gitignored
@@ -254,10 +254,9 @@ function main(data) {
   // (Greptile, PR #355). Such ids never advance the letter sequence.
   const { id, unlocked } = withLogLock(logPath, (locked, stillOwned) => {
     const logText = fs.readFileSync(logPath, 'utf8');
-    // Re-verify ownership immediately before the append: if a waiter
-    // reclaimed our lock as an orphan (this holder stuck longer than
-    // LOG_LOCK_STALE_MS), the letter id derived under it may duplicate the
-    // reclaimer's, so append a collision-proof id instead (Greptile, PR #355).
+    // Belt and braces: a live holder's lock is never reclaimed (see
+    // withLogLock), so this cannot flip for a running hook; it only guards
+    // the theoretical case of a lock that outlived the hook timeout.
     const owned = locked && stillOwned();
     const made = makeEntry(logText, owned ? '' : `-unlocked-${process.pid}`);
     fs.appendFileSync(logPath, made.entry, 'utf8');
@@ -268,38 +267,54 @@ function main(data) {
   return out;
 }
 
-// Budget: the hook runs under a 30 s timeout; HANDOFF_WAIT_MS (8 s) + this
-// wait + I/O stays inside it. A holder's critical section is milliseconds,
-// so any lock older than LOG_LOCK_STALE_MS is treated as an orphan.
+// Budget: the hook runs under Claude Code's 30 s hook timeout; HANDOFF_WAIT_MS
+// (8 s) + this wait + I/O stays inside it.
 const LOG_LOCK_WAIT_MS = 15000;
-const LOG_LOCK_STALE_MS = 10000;
-// Ownership model (Greptile, PR #355 -- "stale reclaim breaks ownership"):
-//  * the lock file CONTAINS the owner's token; only the token holder may
-//    delete it (the finally block re-checks), so a reclaimer can never
-//    remove a lock somebody else just created;
-//  * orphan reclaim is ATOMIC and single-winner: the stale file is
-//    rename()d to a unique graveyard name (only one renamer succeeds; the
-//    losers see ENOENT and simply retry the wx create), then deleted --
-//    no stat->unlink window in which a fresh lock could be destroyed;
-//  * a holder that was itself reclaimed (stuck past the stale threshold)
-//    discovers it via stillOwned() right before its append and falls back
-//    to a collision-proof id, so duplicate letter ids cannot arise.
+// Ownership model (Greptile rounds on PR #355). The invariant that makes the
+// check-then-write sequence safe is: A LIVE HOLDER'S LOCK IS NEVER RECLAIMED.
+//  * A lock is an orphan only when its recorded owner PID is provably dead
+//    (process.kill(pid, 0) -> ESRCH) or when it is older than
+//    LOG_LOCK_STALE_MS, which exceeds the 30 s hook timeout -- Claude Code
+//    kills the hook process at 30 s, so no live holder can own a lock that
+//    old. Age alone below that bound never justifies a reclaim.
+//  * Reclaim is ATOMIC and single-winner: the orphan is rename()d to a
+//    unique graveyard name (exactly one renamer succeeds; losers retry the
+//    wx create), then deleted -- no stat->unlink window.
+//  * The lock file carries {pid, token}; the finally block deletes it only
+//    if the token is still ours (belt and braces -- with the rule above a
+//    live holder cannot lose ownership, so this check cannot race).
+//  * If the lock cannot be owned within LOG_LOCK_WAIT_MS (a holder that
+//    died less than LOG_LOCK_STALE_MS ago whose PID was reused, or a
+//    misbehaving filesystem), fn runs with held=false and the caller uses
+//    a collision-proof id -- never a possibly-duplicate letter id.
+const LOG_LOCK_STALE_MS = 60000;
+function _pidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try { process.kill(pid, 0); return true; }
+  catch (e) { return !(e && e.code === 'ESRCH'); } // EPERM => exists
+}
 // Calls fn(held, stillOwned): held === true means this invocation acquired
 // the lock; stillOwned() re-reads the token at call time.
 function withLogLock(logPath, fn) {
   const lockPath = logPath + '.precompact.lock';
   const token = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const record = JSON.stringify({ pid: process.pid, token, created: new Date().toISOString() });
   const start = Date.now();
   let held = false;
   while (!held && Date.now() - start < LOG_LOCK_WAIT_MS) {
     try {
       const fd = fs.openSync(lockPath, 'wx');
-      try { fs.writeSync(fd, token); } finally { fs.closeSync(fd); }
+      try { fs.writeSync(fd, record); } finally { fs.closeSync(fd); }
       held = true;
     } catch (e) {
       if (!e || e.code !== 'EEXIST') break; // unexpected FS error: proceed unlocked
       try {
-        if (Date.now() - fs.statSync(lockPath).mtimeMs > LOG_LOCK_STALE_MS) {
+        const st = fs.statSync(lockPath);
+        let ownerPid = null;
+        try { ownerPid = JSON.parse(fs.readFileSync(lockPath, 'utf8')).pid; } catch { /* legacy/partial content */ }
+        const provablyDead = ownerPid !== null && !_pidAlive(ownerPid);
+        const beyondHookLifetime = Date.now() - st.mtimeMs > LOG_LOCK_STALE_MS;
+        if (provablyDead || beyondHookLifetime) {
           const graveyard = `${lockPath}.stale-${process.pid}-${Date.now()}`;
           fs.renameSync(lockPath, graveyard); // atomic: exactly one reclaimer wins
           try { fs.unlinkSync(graveyard); } catch { /* ignore */ }
@@ -309,7 +324,9 @@ function withLogLock(logPath, fn) {
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
     }
   }
-  const stillOwned = () => { try { return fs.readFileSync(lockPath, 'utf8') === token; } catch { return false; } };
+  const stillOwned = () => {
+    try { return JSON.parse(fs.readFileSync(lockPath, 'utf8')).token === token; } catch { return false; }
+  };
   try { return fn(held, stillOwned); }
   finally { if (held && stillOwned()) { try { fs.unlinkSync(lockPath); } catch { /* ignore */ } } }
 }
