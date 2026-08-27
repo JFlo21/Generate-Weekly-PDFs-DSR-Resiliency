@@ -139,10 +139,15 @@ edits it without explicit approval.
      sheet.
    - [ ] That `run_ledger` row's `sheets_changed` column is populated
      (WR-04's fix) — not just present in `notes.mem_sheets_written`.
-   - [ ] `sheets_errored` is `0` (or, if non-zero, the errored sheet(s)
-     are understood and non-blocking — the write path is fail-open by
-     design, so a partial failure here should not have failed the whole
-     run).
+   - [ ] `notes->>'mem_sheets_errored'` is `0` and
+     `notes->>'mem_confirmed'` is `true` (there is no `sheets_errored`
+     column on `run_ledger`; the per-run error count lives in `notes`).
+     If non-zero, the errored sheet(s) are understood and non-blocking —
+     the write path is fail-open by design, so a partial failure here
+     should not have failed the whole run — but that run's
+     `parity_verdict` will be `skipped`.
+   - [ ] `notes->>'parity_verdict'` is present (`pass`, `fail` or
+     `skipped`) — the 11-05 shadow comparator ran.
 
 ## Deep-run live verification (INC-03 / success criterion 3)
 
