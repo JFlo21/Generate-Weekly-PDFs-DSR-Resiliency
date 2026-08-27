@@ -41,6 +41,58 @@ from pipeline.utils import is_checked
 logger = logging.getLogger(__name__)
 
 
+def _extended_row_fields(row: dict, group_variant: str) -> list[str]:
+    """The per-row fields hashed in EXTENDED change detection, in order.
+
+    Extracted verbatim from the ``calculate_data_hash`` row loop (byte-
+    identical output) so the same string can serve as the sort-key
+    tiebreaker: rows that tie on the business sort key are ordered by
+    their own hashed content, making the group hash independent of the
+    parallel fetch's arrival order.
+    """
+    # CRITICAL: Use parse_price() for normalization to avoid format-based false changes
+    normalized_price = f"{parse_price(row.get('Units Total Price', 0)):.2f}"
+
+    row_fields = [
+        str(row.get('Work Request #', '')),
+        str(row.get('Snapshot Date', '') or ''),
+        str(row.get('CU', '') or ''),
+        str(row.get('Quantity', '') or ''),
+        normalized_price,
+        str(row.get('Pole #') or row.get('Point #') or row.get('Point Number') or ''),
+        str(row.get('Work Type', '') or ''),
+        str(row.get('Dept #', '') or ''),
+        str(row.get('Scope #') or row.get('Scope ID', '') or ''),
+        str(is_checked(row.get('Units Completed?'))),  # CRITICAL: Include completion status
+        # Additional fields to catch changes previously missed
+        str(row.get('Customer Name', '') or ''),
+        str(row.get('Job #') or row.get('Job Number', '') or ''),
+        str(row.get('Work Order #') or row.get('Work Order Number', '') or ''),
+        str(row.get('CU Description', '') or ''),
+        str(row.get('Unit of Measure', '') or ''),
+        str(row.get('Area', '') or ''),
+    ]
+    # VAC crew groups use a single `_VACCREW` key with no foreman suffix,
+    # so one group can hold multiple crew members. Including per-row VAC
+    # crew fields here lets each row contribute its own name/dept/job to
+    # the hash independently. This avoids two pitfalls of aggregating
+    # values into `meta_parts` as a set:
+    #   1. Set dedup — e.g. depts {500, 500, 600}: editing one row's dept
+    #      from 500→600 leaves {500, 600} unchanged, silently skipping
+    #      regeneration.
+    #   2. Delimiter collision — ','.join on free-text names cannot
+    #      distinguish ['A,B', 'C'] from ['A', 'B,C'].
+    # Scoped to vac_crew so hash stability for primary/helper rows is
+    # preserved (non-vac_crew row_str structure is unchanged).
+    if group_variant == 'vac_crew':
+        row_fields.extend([
+            str(row.get('__vac_crew_name') or ''),
+            str(row.get('__vac_crew_dept') or ''),
+            str(row.get('__vac_crew_job') or ''),
+        ])
+    return row_fields
+
+
 def calculate_data_hash(group_rows: list[dict]) -> str:
     """Calculate a hash of the group data to detect changes.
 
@@ -118,12 +170,42 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
         str(x.get('Quantity', '')),
     )
     if EXTENDED_CHANGE_DETECTION:
+        _sort_extended = lambda x: _sort_base(x) + (
+            str(x.get('__vac_crew_name') or ''),
+            str(x.get('__vac_crew_dept') or ''),
+            str(x.get('__vac_crew_job') or ''),
+        )
+        # Total-order tiebreaker (2026-08-27, run #2801 / PR #359).
+        #
+        # The VAC-crew tiebreaker above only closed the tie for crew
+        # fields. Two PRIMARY/helper rows that share the whole
+        # (WR, Snapshot, CU, Pole, Qty) key but differ in a hashed field
+        # (price, Work Type, Dept #, Scope, Job #, ...) still kept the
+        # parallel-fetch `as_completed` arrival order under Python's
+        # stable sort, so their group's hash flipped with thread timing:
+        # `billing_audit.pipeline_run` showed WR 91057431 / week 080226
+        # alternating between two hashes for 12 consecutive runs with a
+        # constant assignment fingerprint -- regenerated and re-uploaded
+        # every run, and a permanent shadow-parity divergence (Phase 11
+        # D-07) because the row-hash-driven incremental path would never
+        # regenerate it.
+        #
+        # The tiebreaker is the row's own hashed-field string plus its
+        # foreman (the FOREMAN= meta token below is taken from the first
+        # row that has one). It only reorders rows that tie on the full
+        # key above, so any group without such ties hashes byte-identically
+        # to before; a group whose tied rows differ in hashed content gets
+        # one deterministic hash from now on (one final regeneration).
+        # Variant is group-level (every row in a group shares `__variant`,
+        # see the note below the sort), so the first row is authoritative.
+        _variant_for_key = (
+            group_rows[0].get('__variant', 'primary') if group_rows else 'primary'
+        )
         sorted_rows = sorted(
             group_rows,
-            key=lambda x: _sort_base(x) + (
-                str(x.get('__vac_crew_name') or ''),
-                str(x.get('__vac_crew_dept') or ''),
-                str(x.get('__vac_crew_job') or ''),
+            key=lambda x: _sort_extended(x) + (
+                "|".join(_extended_row_fields(x, _variant_for_key)),
+                str(x.get('__current_foreman') or x.get('Foreman') or ''),
             ),
         )
     else:
@@ -161,48 +243,10 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
         foreman = row.get('__current_foreman') or row.get('Foreman') or ''
         if group_foreman is None and foreman:
             group_foreman = foreman
-        # CRITICAL: Use parse_price() for normalization to avoid format-based false changes
-        normalized_price = f"{parse_price(row.get('Units Total Price', 0)):.2f}"
-
-        row_fields = [
-            str(row.get('Work Request #', '')),
-            str(row.get('Snapshot Date', '') or ''),
-            str(row.get('CU', '') or ''),
-            str(row.get('Quantity', '') or ''),
-            normalized_price,
-            str(row.get('Pole #') or row.get('Point #') or row.get('Point Number') or ''),
-            str(row.get('Work Type', '') or ''),
-            str(row.get('Dept #', '') or ''),
-            str(row.get('Scope #') or row.get('Scope ID', '') or ''),
-            str(is_checked(row.get('Units Completed?'))),  # CRITICAL: Include completion status
-            # Additional fields to catch changes previously missed
-            str(row.get('Customer Name', '') or ''),
-            str(row.get('Job #') or row.get('Job Number', '') or ''),
-            str(row.get('Work Order #') or row.get('Work Order Number', '') or ''),
-            str(row.get('CU Description', '') or ''),
-            str(row.get('Unit of Measure', '') or ''),
-            str(row.get('Area', '') or ''),
-        ]
-        # VAC crew groups use a single `_VACCREW` key with no foreman suffix,
-        # so one group can hold multiple crew members. Including per-row VAC
-        # crew fields here lets each row contribute its own name/dept/job to
-        # the hash independently. This avoids two pitfalls of aggregating
-        # values into `meta_parts` as a set:
-        #   1. Set dedup — e.g. depts {500, 500, 600}: editing one row's dept
-        #      from 500→600 leaves {500, 600} unchanged, silently skipping
-        #      regeneration.
-        #   2. Delimiter collision — ','.join on free-text names cannot
-        #      distinguish ['A,B', 'C'] from ['A', 'B,C'].
-        # Scoped to vac_crew so hash stability for primary/helper rows is
-        # preserved (non-vac_crew row_str structure is unchanged).
-        if group_variant == 'vac_crew':
-            row_fields.extend([
-                str(row.get('__vac_crew_name') or ''),
-                str(row.get('__vac_crew_dept') or ''),
-                str(row.get('__vac_crew_job') or ''),
-            ])
-
-        row_str = "|".join(row_fields)
+        # Per-row hashed fields live in _extended_row_fields() so the sort
+        # tiebreaker above and the hash below are guaranteed to see the
+        # exact same string.
+        row_str = "|".join(_extended_row_fields(row, group_variant))
         # Update hash incrementally with newline separator
         hasher.update(row_str.encode('utf-8'))
         hasher.update(b"\n")

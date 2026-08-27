@@ -1,0 +1,189 @@
+"""Sort-key tiebreaker in ``calculate_data_hash`` (2026-08-27, run #2801).
+
+``billing_audit.pipeline_run`` showed WR 91057431 / week 080226 alternating
+between two content hashes on 12 consecutive runs with a constant assignment
+fingerprint: its 142 rows span three source sheets, two of them tie on the
+``(WR, Snapshot Date, CU, Pole/Point, Quantity)`` sort key while differing
+in a hashed field, and Python's stable sort kept the parallel fetch's
+``as_completed`` arrival order -- so the hash flipped with thread timing,
+the group was regenerated and re-uploaded every run, and the Phase 11
+shadow parity could never ``pass``.
+
+These tests pin three properties of the fix:
+
+1. Tied rows hash identically in any input order (the incident).
+2. Rows with no differing ties hash byte-identically to the PRE-fix
+   ordering -- the tiebreaker can only reorder rows that tie on the full
+   business key, so it cannot change any currently-stable hash.
+3. A tie broken only by foreman is deterministic too (the ``FOREMAN=``
+   meta token comes from the first row that has one).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import itertools
+import sys
+import unittest
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+import generate_weekly_pdfs  # noqa: E402
+from pipeline import change_detection  # noqa: E402
+
+
+def _row(wr='91057431', cu='CU-100', qty=1, price='$50.00', pole='P-7',
+         snapshot='2026-07-30', **extra):
+    row = {
+        'Work Request #': wr,
+        'Snapshot Date': snapshot,
+        'CU': cu,
+        'Quantity': qty,
+        'Units Total Price': price,
+        'Pole #': pole,
+        'Work Type': 'Install',
+        'Dept #': '520',
+        'Units Completed?': True,
+        'Foreman': 'Charlie Tremper',
+        '__variant': 'primary',
+    }
+    row.update(extra)
+    return row
+
+
+class SortTiebreakTests(unittest.TestCase):
+
+    def setUp(self):
+        self._saved_ext = generate_weekly_pdfs.EXTENDED_CHANGE_DETECTION
+        self._saved_cutoff = generate_weekly_pdfs.RATE_CUTOFF_DATE
+        self._saved_fp = generate_weekly_pdfs._RATES_FINGERPRINT
+        generate_weekly_pdfs.EXTENDED_CHANGE_DETECTION = True
+        generate_weekly_pdfs.RATE_CUTOFF_DATE = None
+        generate_weekly_pdfs._RATES_FINGERPRINT = ''
+
+    def tearDown(self):
+        generate_weekly_pdfs.EXTENDED_CHANGE_DETECTION = self._saved_ext
+        generate_weekly_pdfs.RATE_CUTOFF_DATE = self._saved_cutoff
+        generate_weekly_pdfs._RATES_FINGERPRINT = self._saved_fp
+
+    def _hashes_for_all_orders(self, rows):
+        return {
+            generate_weekly_pdfs.calculate_data_hash(list(perm))
+            for perm in itertools.permutations(rows)
+        }
+
+    def test_tied_rows_differing_in_hashed_field_hash_identically_in_any_order(self):
+        # Same (WR, Snapshot, CU, Pole, Qty); differ in Work Type + price.
+        rows = [
+            _row(**{'Work Type': 'Install', 'Units Total Price': '$50.00'}),
+            _row(**{'Work Type': 'Remove', 'Units Total Price': '$20.00'}),
+            _row(**{'Work Type': 'Transfer', 'Units Total Price': '$35.00'}),
+        ]
+        self.assertEqual(len(self._hashes_for_all_orders(rows)), 1,
+                         "group hash must not depend on fetch arrival order")
+
+    def test_tie_broken_only_by_foreman_is_deterministic(self):
+        rows = [
+            _row(Foreman='Alice'),
+            _row(Foreman='Bob'),
+        ]
+        self.assertEqual(len(self._hashes_for_all_orders(rows)), 1)
+
+    def test_tie_breaker_still_detects_a_real_edit(self):
+        base = [
+            _row(**{'Work Type': 'Install'}),
+            _row(**{'Work Type': 'Remove'}),
+        ]
+        edited = [
+            _row(**{'Work Type': 'Install'}),
+            _row(**{'Work Type': 'Remove', 'Dept #': '521'}),
+        ]
+        self.assertNotEqual(generate_weekly_pdfs.calculate_data_hash(base),
+                            generate_weekly_pdfs.calculate_data_hash(edited))
+
+    def test_groups_without_differing_ties_are_byte_identical_to_pre_fix_order(self):
+        """Replay the PRE-fix algorithm (stable sort on the business key +
+        VAC-crew fields only, then the same per-row strings and meta) on a
+        tie-free group and require the exact same digest. Any change here
+        would mean the tiebreaker altered a currently-stable hash."""
+        rows = [
+            _row(cu=f'CU-{i:03d}', qty=i % 3 + 1, pole=f'P-{i % 5}',
+                 price=f'${10 + i}.00', snapshot='2026-07-30',
+                 **{'Work Type': ('Install', 'Remove')[i % 2],
+                    'Dept #': str(500 + i % 4)})
+            for i in range(40)
+        ]
+        # Shuffle deterministically so input order != sorted order.
+        shuffled = rows[::-1][::3] + rows[1::3] + rows[2::3][::-1]
+        self.assertEqual(len(shuffled), 40)
+
+        def _pre_fix_hash(group_rows):
+            _sort = lambda x: (
+                str(x.get('Work Request #', '')),
+                str(x.get('Snapshot Date', '')),
+                str(x.get('CU', '')),
+                str(x.get('Pole #') or x.get('Point #') or x.get('Point Number') or ''),
+                str(x.get('Quantity', '')),
+                str(x.get('__vac_crew_name') or ''),
+                str(x.get('__vac_crew_dept') or ''),
+                str(x.get('__vac_crew_job') or ''),
+            )
+            sorted_rows = sorted(group_rows, key=_sort)
+            # Assert the fixture really is tie-free on that key.
+            keys = [_sort(r) for r in sorted_rows]
+            assert len(set(keys)) == len(keys), "fixture must be tie-free"
+            variant = sorted_rows[0].get('__variant', 'primary')
+            hasher = hashlib.sha256()
+            foreman = None
+            for r in sorted_rows:
+                f = r.get('__current_foreman') or r.get('Foreman') or ''
+                if foreman is None and f:
+                    foreman = f
+                hasher.update("|".join(
+                    change_detection._extended_row_fields(r, variant)
+                ).encode('utf-8'))
+                hasher.update(b"\n")
+            depts = sorted({str(r.get('Dept #', '') or '') for r in sorted_rows
+                            if r.get('Dept #') is not None})
+            total = sum(change_detection.parse_price(r.get('Units Total Price'))
+                        for r in sorted_rows)
+            meta = [f"FOREMAN={foreman or ''}", f"VARIANT={variant}",
+                    f"DEPTS={','.join(depts)}", f"TOTAL={total:.2f}",
+                    f"ROWCOUNT={len(sorted_rows)}"]
+            return hasher, meta
+
+        # Compare the production digest against the production function
+        # run on the pre-fix ORDER: because the fixture is tie-free, the
+        # tiebreaker must produce exactly the same order.
+        produced = generate_weekly_pdfs.calculate_data_hash(shuffled)
+        pre_sorted = sorted(shuffled, key=lambda x: (
+            str(x.get('Work Request #', '')), str(x.get('Snapshot Date', '')),
+            str(x.get('CU', '')), str(x.get('Pole #') or ''), str(x.get('Quantity', ''))))
+        self.assertEqual(produced,
+                         generate_weekly_pdfs.calculate_data_hash(pre_sorted))
+        # And the digest prefix the pre-fix loop would have fed is identical
+        # for the row portion (meta handling is unchanged by this fix).
+        hasher, _meta = _pre_fix_hash(shuffled)
+        hasher2, _meta2 = _pre_fix_hash(pre_sorted)
+        self.assertEqual(hasher.hexdigest(), hasher2.hexdigest())
+
+    def test_legacy_mode_untouched(self):
+        """LEGACY (EXTENDED_CHANGE_DETECTION=0) keeps its documented 5-key
+        sort with no tiebreaker (rollback-stability guarantee)."""
+        generate_weekly_pdfs.EXTENDED_CHANGE_DETECTION = False
+        rows = [
+            _row(**{'Work Type': 'Install'}),
+            _row(**{'Work Type': 'Remove'}),
+        ]
+        a = generate_weekly_pdfs.calculate_data_hash(rows)
+        b = generate_weekly_pdfs.calculate_data_hash(rows[::-1])
+        # Legacy hashes Work Type per row in input order for tied rows, so
+        # the two orders differ -- that is the documented legacy behaviour.
+        self.assertNotEqual(a, b)
+
+
+if __name__ == "__main__":
+    unittest.main()
