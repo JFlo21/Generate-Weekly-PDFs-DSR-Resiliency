@@ -7091,3 +7091,48 @@ follow-up findings closed, same 6 files.
   deprecated. Please configure it in the http client instead` — a future SDK bump must move
   the bound to `SyncClientOptions(httpx_client=httpx.Client(timeout=…))`; the same test will
   catch it. The D-09 streak clock restarts with the first scheduled run that carries this fix.
+
+## [2026-08-27 14:35] First run with working run-memory (#2801, 33102956870.1): writes confirmed, IN-01 attachment-id proof, and why the shadow parity verdict is `fail` on every run as wired
+
+- **Fix confirmed in production (#356).** Manual dispatch #2801 on `master` `5a9bbf3`: `⚡ Run-memory
+  row writes: 26 sheet(s) written, 0 errored, 211178 row(s) sent, 75 changed, 37 group(s) affected,
+  confirmed=True`; `run_ledger` row `33102956870.1` `status=success`, `sheets_checked=121`,
+  `sheets_changed=26`, `mem_confirmed=true`, `mem_sheets_errored=0`. First CI run ever to write memory.
+- **IN-01 / checklist items 2–3 (first half) PROVEN.** `pipeline_memory.group_state` holds the 4 uploaded
+  groups with non-NULL `attachment_id`; Smartsheet `get_attachment` on the target sheet confirms
+  `309695391633284` → `WR_91057431_WeekEnding_080226_User_Charlie_Tremper.xlsx` and
+  `6345226370060164` → `WR_90925512_WeekEnding_083026_User_John_Bishop.xlsx` (created 19:08Z, this run).
+  The COALESCE-preserves-on-skip half needs the next run in which those groups are skipped.
+- **`parity_verdict = fail` — and it will be `fail`/`skipped` on EVERY run until two comparator issues are
+  fixed. Neither is a selector defect:**
+  1. **Group side counts withheld groups as "actual".** `_shadow_actual_hashes` is built from
+     `_deferred_group_state` = every generated group (158). 154 of them are the quarantined
+     garbage-name groups (123 `_User__NO_MATCH` + 31 `_User_Unknown_Foreman`) that regenerate on every
+     run via `🔁 Regenerating … despite unchanged hash (attachment missing)` because their upload is
+     withheld (`Durable hash withheld for 154 group(s)`), so they never gain an attachment. The incremental
+     candidate (rows-changed-derived) can never contain them → `group_key_set_mismatch` forever
+     (`actual_count=158, candidate_count=43, groups_compared=3`). "Actual" must mean the groups whose
+     upload completed (`group_upload_ok`) — the same set `_build_group_state_flush` flushes — or the
+     comparison must exclude withheld groups. D-07 said "what the full path actually regenerated"; the
+     never-uploaded quarantine set was not anticipated.
+  2. **Read side cannot finish 121 sheets in `RUN_MEMORY_SHADOW_MAX_MINUTES=10`.** 56 probed, 65
+     abandoned in 607 s (~11 s/sheet incl. Smartsheet HTTP 500 retries) → `changed_sheet_not_probed` →
+     `read_verdict=skipped`; `combine_verdicts` makes any `skipped` side an overall `skipped`, so a
+     `pass` is impossible at this budget. ~25 min is needed (the run took 53 min against a 165-min budget).
+- **`only_in_candidate` (40 current-week groups) was the expected baseline gap**, not a defect: memory's
+  `row_state` was last written 08-25 (every CI run since failed to write) while `hash_history`/the durable
+  store were current through #2800 — e.g. `90787223/083026` was uploaded by #2799 at 15:57Z. Self-heals from
+  the next run now that `row_state` is current.
+- **Open (secondary): one genuine churn group.** `91057431/080226 primary Charlie_Tremper` is regenerated
+  and re-uploaded on #2799, #2800, #2801 (not on the four runs before) via the "hash changed" branch, yet
+  `billing_audit.group_content_hash` (authoritative, lookup 200 OK) holds the same hash `10e61b2f25575738`
+  that this run's `group_state` recorded, with `updated_at=2026-07-27`. Harmless (one delete+upload per
+  run) but unexplained — investigate `_resolve_unchanged_for_skip` inputs for that group before INC-05
+  retirement leans on `group_state.attachment_id`.
+- **RULE — parity "actual" is the uploaded set.** A group the full path generates but withholds from upload
+  is not observable output; comparing against it makes the evidence gate unpassable by construction.
+- **RULE — size shadow budgets from measured per-sheet cost, not the pre-fetch default.** Sub-budgets copied
+  from `ATTACHMENT_PREFETCH_MAX_MINUTES` must be re-derived for a phase that touches every sheet.
+- **Scheduler:** 17:00Z and 19:00Z crons both absent as of 19:16Z; one late 15:00Z slot fired at 16:45Z.
+  githubstatus shows Actions "operational" with only a Billing incident open — escalate to GitHub Support
+  with the run list if the 21:00Z slot is also missed.

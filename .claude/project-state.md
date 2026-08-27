@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-27 11:58 CDT · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-27 14:35 CDT · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
@@ -17,7 +17,24 @@ PreCompact hook). Phase 11 EXECUTING — **7/8 plans done**; **11-08 INC-05 reti
 `production_frequent` run after #356). Then: checklist item 6 SQL + items 2–3 → ≥5 `pass` verdicts →
 re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-08-27 11:58 CDT) — post-flip run wrote NO run memory (supabase-py AttributeError); fix on PR #356, awaiting merge
+## Latest work (2026-08-27 14:35 CDT) — #356 MERGED; first real memory run #2801 confirmed writes + IN-01 proof; parity `fail` is a comparator/budget problem, not a selector defect
+- **#356 merged** (`8904008`; master `5a9bbf3`). Manual dispatch #2801 (33102956870, `success`, 53 min):
+  `26 sheet(s) written, 0 errored … confirmed=True`; `run_ledger` `33102956870.1` `sheets_changed=26`,
+  `mem_confirmed=true`. `group_state` holds 4 uploaded groups with `attachment_id`s verified against
+  Smartsheet (checklist items 2–3 first half done; COALESCE-preserve half = next run).
+- **`parity_verdict=fail`, structural:** (1) `_shadow_actual_hashes` includes the 154 withheld
+  quarantine groups (`_NO_MATCH`/`Unknown_Foreman`, regenerated every run, never uploaded) →
+  `group_key_set_mismatch` on every run; "actual" must be the uploaded set. (2) read side abandons
+  65/121 sheets inside `RUN_MEMORY_SHADOW_MAX_MINUTES=10` → `skipped` → overall can never be `pass`;
+  ~25 min needed. The 40 `only_in_candidate` groups were the 08-25→today baseline gap (self-heals).
+  **Owner decisions needed:** comparator "actual" definition (D-07 refinement) and the shadow budget
+  (workflow env — protected). Ledger `[2026-08-27 14:35]` has the full evidence.
+- **Open:** churn group `91057431/080226` re-uploaded every run since 15:57Z despite an unchanged
+  authoritative hash — investigate before 11-08. Scheduler: 17:00Z + 19:00Z crons missed; watcher armed.
+- **Next:** Juan decides the two comparator changes → small PR (parity.py/orchestrate.py + tests +
+  env) → streak clock restarts on the first `production_frequent` run after it. #355 still open.
+
+## Previous (2026-08-27 11:58 CDT) — post-flip run wrote NO run memory (supabase-py AttributeError); fix on PR #356, awaiting merge
 - **Merged since last entry:** #354 (`46b64ac`, review fixes), #353 (`673f7b2`, the flip —
   `RUN_MEMORY_WRITE_ENABLED: '1'` on the `Generate reports` step only). #355 (docs: `sheets_errored`
   column fix, handoff, PreCompact hook script) still OPEN.
