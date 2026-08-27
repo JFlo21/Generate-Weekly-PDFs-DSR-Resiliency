@@ -53,3 +53,29 @@ control-run item to the flag-flip checklist for IN-01.
 ## Source
 
 `.planning/phases/10-run-memory-foundation-shadow-writes/10-REVIEW.md` (7e86f46)
+
+## Resolution
+
+**2026-08-26:** WR-01 and WR-04 landed in Phase 11 plan 01 (this todo's
+`resolves_phase: 11`):
+
+- **WR-01** — `pipeline/orchestrate.py` (`_run_memory_write_phase`) now
+  pre-parses `Quantity` / `Units Total Price` with `pipeline.pricing`'s
+  own `_parse_quantity` / `parse_price` and passes the result via
+  `__mem_quantity` / `__mem_units_total_price` row keys; `writer._row_to_payload`
+  reads only those keys and never falls back to the raw cell. Commit
+  `4323cec`; dated Living Ledger entry at `[2026-08-26 18:10]`.
+- **WR-04** — both `run_ledger_finish` call sites in
+  `pipeline/orchestrate.py` (success path and the `finally`-block
+  failure path) now pass `sheets_changed=_mem_sheets_written`. Landed
+  the same plan, immediately following WR-01.
+- **IN-01** — became checklist item 2 ("IN-01 — upload-enabled control
+  run") of `docs/run-memory-write-flip-checklist.md`, the operator
+  checklist gating the separate, owner-approved `RUN_MEMORY_WRITE_ENABLED`
+  flip PR. It remains genuinely untestable under `SKIP_UPLOAD`, so it is
+  a checklist gate rather than a unit test.
+
+WR-02 and WR-03 were already CLOSED per the strikethrough entries above.
+All five findings from `10-REVIEW.md` are now resolved or checklist-gated;
+this todo can be archived once the flip PR itself completes checklist item 6
+(post-flip confirmation).

@@ -100,6 +100,7 @@ def cleanup_untracked_sheet_attachments(
     vac_legacy_wr_scope: set[str] | None = None,
     primary_wr_scope: set[str] | None = None,
     dry_run: bool = False,
+    keep_historical: bool | None = None,
 ):
     """Prune only older variants for identities processed this run (VARIANT-AWARE).
 
@@ -182,6 +183,20 @@ def cleanup_untracked_sheet_attachments(
         files route to TARGET_SHEET_ID only — the PPP call site must NOT
         receive this parameter.
 
+    keep_historical: Phase 11 Plan 03 (CONTEXT.md D-06) call-boundary
+        override for the identity-loop's ``KEEP_HISTORICAL_WEEKS`` gate
+        below. When None (default), the gate falls back to the
+        module-level ``KEEP_HISTORICAL_WEEKS`` constant — every existing
+        caller and every existing test behaves identically. When True,
+        an identity absent from ``valid_wr_weeks`` is skipped (no delete
+        issued) regardless of the constant's value. When False, an
+        identity absent from ``valid_wr_weeks`` is processed exactly as
+        it is today when the constant is off, regardless of its actual
+        value. Callers pass True only for an incremental-mode run, where
+        ``valid_wr_weeks`` is a strict subset of the live groups and an
+        absent identity means "not processed this run", not "no longer
+        valid" — never flips the global env-driven constant itself.
+
     CRITICAL: Identity includes variant dimension to prevent primary/helper cross-deletion.
               Each (wr, week, variant, identifier) is treated as independent.
     """
@@ -192,6 +207,13 @@ def cleanup_untracked_sheet_attachments(
     # identical -- the facade re-exports pipeline.config).
     import generate_weekly_pdfs as _gwp  # noqa: PLC0415
     KEEP_HISTORICAL_WEEKS = _gwp.KEEP_HISTORICAL_WEEKS
+    # Phase 11 Plan 03 (D-06): resolve the effective preservation flag
+    # ONCE, before either loop below, rather than re-checking it inside
+    # the per-identity loop. keep_historical=None (every existing
+    # caller) falls back to the module constant unchanged.
+    _effective_keep_historical = (
+        keep_historical if keep_historical is not None else KEEP_HISTORICAL_WEEKS
+    )
     if test_mode:
         logging.info("🧪 Test mode – skipping sheet attachment pruning")
         return
@@ -425,8 +447,12 @@ def cleanup_untracked_sheet_attachments(
                     f"{att.name}: {e}"
                 )
         for ident, atts in identity_groups.items():
-            # Skip identities not processed if preserving historical weeks
-            if ident not in valid_wr_weeks and KEEP_HISTORICAL_WEEKS:
+            # Skip identities not processed if preserving historical weeks.
+            # Phase 11 Plan 03 (D-06): _effective_keep_historical resolves
+            # the keep_historical call-boundary override against
+            # KEEP_HISTORICAL_WEEKS once above; every caller that omits
+            # keep_historical sees byte-identical behaviour here.
+            if ident not in valid_wr_weeks and _effective_keep_historical:
                 continue
             # Sort attachments newest first based on timestamp token
             def _ts(a):

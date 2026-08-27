@@ -815,6 +815,58 @@ class BulkPayloadContractTests(unittest.TestCase):
             {r["row_id"] for r in params["p_rows"]}, {1, 2},
         )
 
+    def test_row_to_payload_reads_preparsed_numeric_keys_not_raw_cells(self):
+        """_row_to_payload maps quantity/units_total_price from the
+        caller-parsed __mem_quantity / __mem_units_total_price keys,
+        never falling back to the raw 'Quantity' / 'Units Total Price'
+        cell -- proven by giving the row a raw decorated cell that
+        would fail the Postgres NUMERIC cast if it ever reached the
+        payload, alongside the clean pre-parsed value that must win.
+        """
+        from pipeline_memory import writer as mem_writer
+
+        row = {
+            "__row_id": 1, "Work Request #": "90001",
+            "Quantity": "12 ea", "Units Total Price": "$1,234.50",
+            "__mem_quantity": 12.0, "__mem_units_total_price": 1234.5,
+        }
+        payload = mem_writer._row_to_payload(row, "run-1", None, None)
+        self.assertEqual(payload["quantity"], 12.0)
+        self.assertIsInstance(payload["quantity"], float)
+        self.assertEqual(payload["units_total_price"], 1234.5)
+        self.assertIsInstance(payload["units_total_price"], float)
+
+    def test_absent_preparse_keys_yield_none_and_chunk_still_upserts(self):
+        """WR-01: a row dict handed straight to _row_to_payload WITHOUT
+        the caller's __mem_quantity / __mem_units_total_price pre-parse
+        step yields None on both fields -- never the raw decorated
+        'Quantity' / 'Units Total Price' cell value, which is exactly
+        the value that fails the Postgres NUMERIC cast and drops the
+        whole chunk under fail-open. The chunk still upserts; nothing
+        is dropped.
+        """
+        from pipeline_memory import writer as mem_writer
+
+        row = {
+            "__row_id": 1, "Work Request #": "90001",
+            "Quantity": "12 ea", "Units Total Price": "$1,234.50",
+            # No __mem_quantity / __mem_units_total_price key at all --
+            # the caller's pre-parse step never ran.
+        }
+        payload = mem_writer._row_to_payload(row, "run-1", None, None)
+        self.assertIsNone(payload["quantity"])
+        self.assertIsNone(payload["units_total_price"])
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+        client = _make_fake_pipeline_memory_client()
+        with mock.patch("pipeline_memory.writer.get_client", return_value=client):
+            result = mem_writer.upsert_rows_bulk(1, "run-1", [row])
+
+        self.assertIsNotNone(result)
+        self.assertEqual(client.schema.return_value.rpc.call_count, 1)
+        _, params = client.schema.return_value.rpc.call_args.args
+        self.assertEqual(len(params["p_rows"]), 1)
+
 
 @unittest.skipIf(
     _POSTGREST_API_ERROR_CLS is None,
@@ -1167,7 +1219,7 @@ class MemoryWritePhaseTests(unittest.TestCase):
 
         with mock.patch.object(orch, "RUN_MEMORY_WRITE_ENABLED", False), \
              mock.patch.object(
-                 orch._mem_writer, "upsert_rows_bulk"
+                 orch._mem_writer, "upsert_rows_bulk_result"
              ) as mock_upsert:
             result = orch._run_memory_write_phase(
                 self._rows(111, 2), "run-1", datetime.datetime.now(),
@@ -1189,7 +1241,11 @@ class MemoryWritePhaseTests(unittest.TestCase):
         with mock.patch.object(orch, "RUN_MEMORY_WRITE_ENABLED", True), \
              mock.patch.object(orch, "TEST_MODE", False), \
              mock.patch.object(
-                 orch._mem_writer, "upsert_rows_bulk", return_value=set(),
+                 orch._mem_writer, "upsert_rows_bulk_result",
+                 return_value={
+                     "affected": set(), "status": "ok", "rows_sent": 0,
+                     "rows_errored": 0, "rows_skipped": 0,
+                 },
              ) as mock_upsert:
             result = orch._run_memory_write_phase(
                 rows, "run-1", datetime.datetime.now(),
@@ -1217,12 +1273,16 @@ class MemoryWritePhaseTests(unittest.TestCase):
             call_order.append(sheet_id)
             if sheet_id == 111:
                 raise RuntimeError("boom")
-            return set()
+            return {
+                "affected": set(), "status": "ok", "rows_sent": 1,
+                "rows_errored": 0, "rows_skipped": 0,
+            }
 
         with mock.patch.object(orch, "RUN_MEMORY_WRITE_ENABLED", True), \
              mock.patch.object(orch, "TEST_MODE", False), \
              mock.patch.object(
-                 orch._mem_writer, "upsert_rows_bulk", side_effect=_side_effect,
+                 orch._mem_writer, "upsert_rows_bulk_result",
+                 side_effect=_side_effect,
              ):
             result = orch._run_memory_write_phase(
                 rows, "run-1", datetime.datetime.now(),
@@ -1252,7 +1312,7 @@ class MemoryWritePhaseTests(unittest.TestCase):
                  orch, "RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN", 2,
              ), \
              mock.patch.object(
-                 orch._mem_writer, "upsert_rows_bulk"
+                 orch._mem_writer, "upsert_rows_bulk_result"
              ) as mock_upsert:
             result = orch._run_memory_write_phase(
                 self._rows(111, 2), "run-1", stale_session_start,
@@ -1275,7 +1335,11 @@ class MemoryWritePhaseTests(unittest.TestCase):
              mock.patch.object(orch, "GITHUB_ACTIONS_MODE", True), \
              mock.patch.object(orch, "RUN_MEMORY_WRITE_MAX_MINUTES", 0), \
              mock.patch.object(
-                 orch._mem_writer, "upsert_rows_bulk", return_value=set(),
+                 orch._mem_writer, "upsert_rows_bulk_result",
+                 return_value={
+                     "affected": set(), "status": "ok", "rows_sent": 0,
+                     "rows_errored": 0, "rows_skipped": 0,
+                 },
              ) as mock_upsert:
             result = orch._run_memory_write_phase(
                 rows, "run-1", datetime.datetime.now(),
@@ -1285,6 +1349,92 @@ class MemoryWritePhaseTests(unittest.TestCase):
         # fires immediately after it, breaking BEFORE sheet 2.
         self.assertEqual(mock_upsert.call_count, 1)
         self.assertEqual(result["rows_sent"], 1)
+
+    def test_end_to_end_decorated_numeric_reaches_rpc_payload_as_float(self):
+        """Task 1 (WR-01) tracer: a decorated 'Quantity' / 'Units Total
+        Price' cell travels from the orchestrate caller's pre-parse,
+        through the __mem_quantity / __mem_units_total_price row keys,
+        into the REAL upsert_rows_bulk -> _row_to_payload RPC payload
+        as a float -- never a raw decorated string that fails the
+        Postgres NUMERIC cast and drops the whole 500-row chunk under
+        fail-open. Only the transport (Supabase client) is faked; the
+        writer stack runs for real end to end.
+        """
+        import datetime
+
+        import pipeline.orchestrate as orch
+
+        rows = [{
+            "__row_id": 1,
+            "__source_sheet_id": 111,
+            "Work Request #": "90001",
+            "Foreman": "Alice",
+            "Quantity": "12 ea",
+            "Units Total Price": "$1,234.50",
+        }]
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+        client = _make_fake_pipeline_memory_client()
+
+        with mock.patch.object(orch, "RUN_MEMORY_WRITE_ENABLED", True), \
+                mock.patch.object(orch, "TEST_MODE", False), \
+                mock.patch(
+                    "pipeline_memory.writer.get_client", return_value=client,
+                ):
+            orch._run_memory_write_phase(
+                rows, "run-1", datetime.datetime.now(),
+            )
+
+        _, params = client.schema.return_value.rpc.call_args.args
+        self.assertEqual(len(params["p_rows"]), 1)
+        payload = params["p_rows"][0]
+        self.assertEqual(payload["quantity"], 12.0)
+        self.assertIsInstance(payload["quantity"], float)
+        self.assertEqual(payload["units_total_price"], 1234.5)
+        self.assertIsInstance(payload["units_total_price"], float)
+
+    def test_quantity_preparse_is_idempotent_and_none_for_empty(self):
+        """Caller-side pre-parse (orchestrate.py) stashes
+        __mem_quantity / __mem_units_total_price on each row dict
+        before calling upsert_rows_bulk: a clean float is unchanged
+        (idempotent, no-op parse), and an empty/absent cell stays None
+        -- never the pricing module's own 0.0-for-missing business
+        default, which would fabricate an observed zero quantity that
+        was never actually on the row.
+        """
+        import datetime
+
+        import pipeline.orchestrate as orch
+
+        rows = [
+            {
+                "__row_id": 1, "__source_sheet_id": 111,
+                "Work Request #": "90001", "Quantity": 3.0,
+            },
+            {
+                "__row_id": 2, "__source_sheet_id": 111,
+                "Work Request #": "90002", "Quantity": None,
+                "Units Total Price": "",
+            },
+        ]
+
+        with mock.patch.object(orch, "RUN_MEMORY_WRITE_ENABLED", True), \
+                mock.patch.object(orch, "TEST_MODE", False), \
+                mock.patch.object(
+                    orch._mem_writer, "upsert_rows_bulk_result",
+                 return_value={
+                     "affected": set(), "status": "ok", "rows_sent": 0,
+                     "rows_errored": 0, "rows_skipped": 0,
+                 },
+                ) as mock_upsert:
+            orch._run_memory_write_phase(
+                rows, "run-1", datetime.datetime.now(),
+            )
+
+        bucket_rows = mock_upsert.call_args.args[2]
+        self.assertEqual(bucket_rows[0]["__mem_quantity"], 3.0)
+        self.assertIsNone(bucket_rows[1]["__mem_quantity"])
+        self.assertIsNone(bucket_rows[1]["__mem_units_total_price"])
 
 
 # ============================================================================
@@ -1942,3 +2092,78 @@ class RunLedgerFailurePathTests(unittest.TestCase):
     def test_failure_path_finish_respects_test_mode_guard(self):
         writer_mock = self._run_main_to_failure(test_mode=True)
         writer_mock.run_ledger_finish.assert_not_called()
+
+    def test_failure_path_finish_includes_sheets_changed(self):
+        """WR-04 (CONTEXT.md D-10): the failure-path finish upsert must
+        carry ``sheets_changed`` too, not just the success path -- a run
+        that dies mid-session must not silently understate how much it
+        saw before failing.
+        """
+        writer_mock = self._run_main_to_failure()
+        writer_mock.run_ledger_finish.assert_called_once()
+        _, kwargs = writer_mock.run_ledger_finish.call_args
+        # No sheet was ever processed before the forced early failure
+        # (`_set_sentry_session_tags` raises before Phase 2), so
+        # `_mem_sheets_written` is still its hoisted-at-top-of-main 0.
+        self.assertEqual(kwargs.get("sheets_changed"), 0)
+
+
+class RunLedgerSheetsChangedCallSiteTests(unittest.TestCase):
+    """WR-04 (CONTEXT.md D-10): both ``run_ledger_finish`` call sites in
+    ``pipeline.orchestrate`` (the success path near the normal end of
+    ``main()``, the failure path in the bottom ``finally`` block) must
+    pass ``sheets_changed=_mem_sheets_written`` -- the writer already
+    accepts the column (``_RUN_LEDGER_FINISH_COLUMNS`` in
+    pipeline_memory/writer.py), so this is purely a caller-side gap.
+
+    The success-path call site sits deep inside ``main()`` after full
+    pipeline execution and is not directly invocable without running a
+    whole session (same rationale documented on ``AttachmentSideChannelTests``
+    in this file for ``_upload_one``) -- proven via source inspection
+    instead, mirroring that established pattern. The failure path IS
+    behaviorally covered above via ``RunLedgerFailurePathTests``, which
+    runs the real ``finally`` block through ``orch.main()``.
+    """
+
+    def test_both_finish_call_sites_pass_sheets_changed(self):
+        import inspect
+
+        import pipeline.orchestrate as orch
+
+        src = inspect.getsource(orch)
+        # Phase 11 Plan 02 restructured both call sites to build a
+        # `_finish_kwargs` dict first (so `mode=`/optional
+        # `fallback_reason=` can be added -- 11-02-PLAN.md Task 3) and
+        # then call `run_ledger_finish(_mem_run_id, **_finish_kwargs)`.
+        # `sheets_changed=_mem_sheets_written` now lives in that dict
+        # construction, not directly inside the call parentheses -- this
+        # regex/anchor pair is updated to match, same WR-04 invariant.
+        call_sites = [
+            m.start()
+            for m in re.finditer(
+                r"_mem_writer\.run_ledger_finish\("
+                r"_mem_run_id, \*\*_finish_kwargs\)",
+                src,
+            )
+        ]
+        self.assertEqual(
+            len(call_sites), 2,
+            "expected exactly one success-path and one failure-path "
+            "run_ledger_finish call site in pipeline.orchestrate",
+        )
+        kwargs_blocks = [
+            m.start()
+            for m in re.finditer(
+                r"_finish_kwargs(?::\s*dict\[str,\s*Any\])?\s*=\s*dict\(",
+                src,
+            )
+        ]
+        self.assertEqual(
+            len(kwargs_blocks), 2,
+            "expected exactly one success-path and one failure-path "
+            "_finish_kwargs construction in pipeline.orchestrate",
+        )
+        for idx in kwargs_blocks:
+            end = src.index(")\n", idx)
+            block = src[idx:end]
+            self.assertIn("sheets_changed=_mem_sheets_written", block)

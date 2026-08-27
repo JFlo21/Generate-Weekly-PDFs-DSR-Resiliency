@@ -1,0 +1,49 @@
+{
+  "provenance": "Derived from tests/fixtures/mem04/mem04_blank_lookup.json (scenario 'blank_lookup': an archived Work Request's cross-sheet lookup formula blanks its dependent Foreman cell) and tests/fixtures/mem04/mem04_edit_mapping.json (scenario 'edit_mapping': a dept-mapping lookup value edited in place) -- Phase 10's MEM-04 PASS verdict (10-05-SUMMARY.md) already proves rowsModifiedSince surfaces both formula-only changes at the Smartsheet API level. This fixture does NOT re-probe the Smartsheet API; it derives the BEFORE/AFTER raw-mapped-column row shape pipeline_memory.writer._row_to_payload consumes, for testing INC-03's ordinary content-hash reconciliation path (no new code path -- a formula-only change to a HASH_FIELDS column is just an ordinary compute_content_hash() diff).",
+  "hash_field_change": {
+    "description": "Foreman blanked by an archived-WR lookup formula (mem04_blank_lookup scenario) -- 'foreman_observed' is a HASH_FIELDS member, so this MUST produce a different content_hash and drive a group_state repair for its (wr, week_ending) group.",
+    "sheet_id": 4909062725521284,
+    "before": {
+      "__row_id": 1101266002509700,
+      "Work Request #": "90001",
+      "Weekly Reference Logged Date": "2026-08-30",
+      "Foreman": "Jane Doe",
+      "Units Completed?": true,
+      "__mem_quantity": 12,
+      "__mem_units_total_price": 480.0
+    },
+    "after": {
+      "__row_id": 1101266002509700,
+      "Work Request #": "90001",
+      "Weekly Reference Logged Date": "2026-08-30",
+      "Foreman": null,
+      "Units Completed?": true,
+      "__mem_quantity": 12,
+      "__mem_units_total_price": 480.0
+    }
+  },
+  "non_hash_field_change": {
+    "description": "A formula-only edit to a column pipeline_memory never maps into HASH_FIELDS (e.g. a display-only 'Customer Name' lookup, mem04_edit_mapping scenario's sibling case) -- MUST produce the SAME content_hash and NO group_state repair. This is correct, not a miss: only billing-relevant columns participate in the hash.",
+    "sheet_id": 4909062725521284,
+    "before": {
+      "__row_id": 1101266002509701,
+      "Work Request #": "90001",
+      "Weekly Reference Logged Date": "2026-08-30",
+      "Foreman": "Jane Doe",
+      "Units Completed?": true,
+      "__mem_quantity": 12,
+      "__mem_units_total_price": 480.0,
+      "Customer Name": "AEP Ohio"
+    },
+    "after": {
+      "__row_id": 1101266002509701,
+      "Work Request #": "90001",
+      "Weekly Reference Logged Date": "2026-08-30",
+      "Foreman": "Jane Doe",
+      "Units Completed?": true,
+      "__mem_quantity": 12,
+      "__mem_units_total_price": 480.0,
+      "Customer Name": "American Electric Power - Ohio"
+    }
+  }
+}

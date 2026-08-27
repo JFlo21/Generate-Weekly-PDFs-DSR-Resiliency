@@ -64,6 +64,13 @@ from pipeline.retry import smartsheet_call_with_retry
 # rule's scope; see pipeline_memory/__init__.py). Off by default via
 # RUN_MEMORY_WRITE_ENABLED; every call site below is fail-open.
 from pipeline_memory import writer as _mem_writer
+# Phase 11 Plan 02 (INC-01): the package's first READ surface, used by
+# resolve_run_mode() below. Same independence rationale as _mem_writer.
+from pipeline_memory import reader as _mem_reader
+# Phase 11 Plan 05 (INC-04, D-07/D-08): the shadow-incremental parity
+# proof -- computes and compares only, never acts. See pipeline/parity.py
+# module docstring for the full contract.
+from pipeline import parity as _parity
 
 # Named re-export imports (byte-exact from the facade) so every bare sibling
 # reference inside main()/testmode resolves identically (W1-W5 pattern). The
@@ -113,10 +120,15 @@ from pipeline.config import (  # noqa: E402
     RESET_HASH_HISTORY,
     RESET_WR_LIST,
     RES_GROUPING_MODE,
+    RUN_MEMORY_INCREMENTAL_ENABLED,
+    RUN_MEMORY_SHADOW_GENERATION_HEADROOM_MIN,
+    RUN_MEMORY_SHADOW_MAX_MINUTES,
+    RUN_MEMORY_SHADOW_RPC_TIMEOUT_SEC,
     RUN_MEMORY_WRITE_ENABLED,
     RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN,
     RUN_MEMORY_WRITE_MAX_MINUTES,
     RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC,
+    SAFETY_WINDOW_MINUTES,
     SKIP_CELL_HISTORY,
     SKIP_UPLOAD,
     SUBCONTRACTOR_FOLDER_IDS,
@@ -405,20 +417,36 @@ def _run_memory_write_phase(
     module calls when the flag is off, independent of how ``main()``
     itself is invoked.
 
-    The affected ``(wr, week_ending)`` set is accumulated for
-    OBSERVABILITY ONLY -- nothing in this function, and nothing in its
-    caller, may read it back to decide whether a group is skipped,
-    regenerated, or uploaded. That gate stays entirely on the existing
-    local ``hash_history.json`` / durable group hash path (10-CONTEXT.md,
-    plan success criteria).
+    The affected ``(wr, week_ending)`` set was observability-only in
+    Phase 10. Since Phase 11 Plan 04 the incremental path (PHASE 2a,
+    ``_run_phase2_incremental``) reads it to scope regeneration -- and
+    it may do so ONLY when ``memory_confirmed`` below is True. The
+    per-group skip/regenerate/upload gate itself still lives entirely
+    on the existing local ``hash_history.json`` / durable group hash
+    path (10-CONTEXT.md, plan success criteria).
 
     Returns a dict of counts only (no PII, no per-row values):
     ``sheets_written``, ``sheets_errored``, ``rows_sent``,
     ``rows_changed``, ``affected`` (the (wr, week_ending) set),
-    ``elapsed_seconds``. NEVER raises -- every per-sheet write already
-    goes through ``pipeline_memory.writer``'s own fail-open contract, and
-    this function additionally isolates one sheet's unexpected exception
-    from the rest of the loop.
+    ``elapsed_seconds``, plus the Greptile P1 (PR #351) confirmation
+    contract:
+
+      - ``memory_confirmed``: True ONLY when every sheet's write reported
+        a confirmed status (``ok`` / ``noop`` per
+        ``pipeline_memory.writer.UPSERT_CONFIRMED_STATUSES``), no writer
+        call raised, the pre-flight guard did not skip the phase, and the
+        mid-loop budget break left no sheet unwritten. Under every other
+        outcome an empty or partial ``affected`` set is indistinguishable
+        from a genuine no-change run, so a caller scoping regeneration
+        MUST widen to a full read instead of trusting it (T-11-18).
+      - ``sheets_unconfirmed``: sheets whose status was not confirmed.
+      - ``sheets_unwritten``: sheets never attempted (budget break).
+      - ``unconfirmed_reason``: the FIRST reason, for ``fallback_reason``.
+
+    NEVER raises -- every per-sheet write already goes through
+    ``pipeline_memory.writer``'s own fail-open contract, and this
+    function additionally isolates one sheet's unexpected exception from
+    the rest of the loop.
     """
     result: dict[str, Any] = {
         "sheets_written": 0,
@@ -427,9 +455,17 @@ def _run_memory_write_phase(
         "rows_changed": 0,
         "affected": set(),
         "elapsed_seconds": 0.0,
+        "memory_confirmed": False,
+        "sheets_unconfirmed": 0,
+        "sheets_unwritten": 0,
+        "unconfirmed_reason": None,
     }
 
     if not (RUN_MEMORY_WRITE_ENABLED and not TEST_MODE):
+        result["unconfirmed_reason"] = (
+            "run-memory write disabled (RUN_MEMORY_WRITE_ENABLED off or "
+            "TEST_MODE)"
+        )
         return result
 
     _phase_start = datetime.datetime.now()
@@ -466,6 +502,11 @@ def _run_memory_write_phase(
                     "required_remaining_min": _required_min,
                 },
             )
+            result["unconfirmed_reason"] = (
+                f"pre-flight budget guard skipped the phase "
+                f"({_remaining_min:.1f}min remaining, need > "
+                f"{_required_min}min)"
+            )
             return result
 
     # Bucket already-fetched rows by source sheet. No re-fetch, no
@@ -493,22 +534,74 @@ def _run_memory_write_phase(
             row['__mem_snapshot_date'] = _utils.excel_serial_to_date(
                 row.get('Snapshot Date')
             )
+            # WR-01 (10-REVIEW.md): pre-parse the two NUMERIC-bound
+            # cells with the engine's own parsers (pipeline.pricing) so
+            # a decorated value ("$1,234.50", "12 ea") never reaches
+            # upsert_rows_bulk as a raw string -- that fails the
+            # Postgres NUMERIC cast and, under the fail-open contract,
+            # silently drops the WHOLE 500-row chunk with no error
+            # surfaced. An empty/absent cell stays None (a clean
+            # nullable NUMERIC) rather than pricing's own 0.0-for-
+            # missing business default, which would fabricate an
+            # observed zero quantity that was never actually on the
+            # row. Stashed under the SAME double-underscore convention
+            # as the two date keys above -- invisible to excel.py's
+            # column sampler and to calculate_data_hash() -- but NOTE
+            # quantity/units_total_price ARE HASH_FIELDS members on the
+            # pipeline_memory side (row_state.content_hash), so this
+            # changes that hash for any row whose cell carried
+            # decoration; harmless today only because the write path is
+            # OFF and no rows are stored yet.
+            _raw_qty = row.get('Quantity')
+            row['__mem_quantity'] = (
+                None if _raw_qty in (None, '')
+                else _pricing._parse_quantity(_raw_qty)
+            )
+            _raw_utp = row.get('Units Total Price')
+            row['__mem_units_total_price'] = (
+                None if _raw_utp in (None, '')
+                else _pricing.parse_price(_raw_utp)
+            )
 
         try:
-            sheet_affected = _mem_writer.upsert_rows_bulk(
+            _write = _mem_writer.upsert_rows_bulk_result(
                 sheet_id, mem_run_id, bucket_rows,
             )
-        except Exception:
+        except Exception as exc:
             logging.warning(
                 "⚠️ pipeline_memory upsert_rows_bulk raised unexpectedly "
                 f"for sheet {sheet_id} (non-fatal); treating as errored "
                 "this run."
             )
-            sheet_affected = set()
-            result["sheets_errored"] += 1
-        else:
+            _write = {
+                "affected": set(),
+                "status": f"exception ({type(exc).__name__})",
+                "rows_errored": len(bucket_rows),
+            }
+
+        sheet_affected = set(_write.get("affected") or ())
+        _status = str(_write.get("status") or "unknown")
+        # Greptile P1 (PR #351): only a CONFIRMED status lets an empty
+        # affected set mean "nothing changed". Everything else -- no
+        # client, writes disabled, every chunk failed, a PARTIAL chunk
+        # failure, an exception -- is "cannot confirm what changed"; the
+        # partial set (if any) is kept for observability but the caller
+        # must never narrow regeneration scope on it (memory_confirmed
+        # below stays False).
+        if _status in _mem_writer.UPSERT_CONFIRMED_STATUSES:
             if sheet_affected:
                 result["sheets_written"] += 1
+        else:
+            result["sheets_errored"] += 1
+            result["sheets_unconfirmed"] += 1
+            if sheet_affected:
+                result["sheets_written"] += 1  # partial: some rows landed
+            if result["unconfirmed_reason"] is None:
+                _errored = _write.get("rows_errored") or 0
+                result["unconfirmed_reason"] = (
+                    f"sheet {sheet_id}: {_status}"
+                    + (f" ({_errored} row(s) errored)" if _errored else "")
+                )
 
         result["rows_sent"] += len(bucket_rows)
         result["rows_changed"] += len(sheet_affected)
@@ -542,8 +635,19 @@ def _run_memory_write_phase(
                         "sheets_remaining": _remaining_sheets,
                     },
                 )
+                result["sheets_unwritten"] = _remaining_sheets
+                if result["unconfirmed_reason"] is None:
+                    result["unconfirmed_reason"] = (
+                        f"run-memory sub-budget exhausted with "
+                        f"{_remaining_sheets} sheet(s) unwritten"
+                    )
                 break
 
+    result["memory_confirmed"] = (
+        result["sheets_unconfirmed"] == 0
+        and result["sheets_unwritten"] == 0
+        and result["unconfirmed_reason"] is None
+    )
     result["elapsed_seconds"] = (
         datetime.datetime.now() - _phase_start
     ).total_seconds()
@@ -552,9 +656,255 @@ def _run_memory_write_phase(
         f"written, {result['sheets_errored']} errored, "
         f"{result['rows_sent']} row(s) sent, {result['rows_changed']} "
         f"changed, {len(result['affected'])} group(s) affected, "
+        f"confirmed={result['memory_confirmed']}, "
         f"{result['elapsed_seconds']:.1f}s elapsed."
     )
     return result
+
+
+def _normalize_column_mapping(mapping: dict[str, Any]) -> dict[str, int]:
+    """Normalize a ``column_mapping`` dict to ``{str(name): int(id)}``.
+
+    A stored ``sheet_registry.column_mapping`` value has been through a
+    JSONB round-trip (Supabase may return string-typed values for what
+    Python wrote as ints); the freshly-discovered mapping from
+    ``discover_source_sheets()`` has native int column ids. Comparing the
+    two dicts directly would report a "drift" on every run purely from
+    type representation, never from a real mapping change -- normalizing
+    both sides before comparison (``resolve_run_mode`` trigger 2) avoids
+    that false positive. An entry whose value cannot coerce to ``int`` is
+    dropped rather than raising (defensive -- a malformed stored value
+    should not crash mode resolution; it will simply compare unequal).
+    """
+    normalized: dict[str, int] = {}
+    for key, value in mapping.items():
+        try:
+            normalized[str(key)] = int(value)
+        except (TypeError, ValueError):
+            continue
+    return normalized
+
+
+def resolve_run_mode(
+    source_sheets: list[dict[str, Any]],
+    watermarks: dict[Any, dict[str, Any]],
+    last_run_status: dict[str, Any] | None,
+    *,
+    incremental_enabled: bool,
+    execution_type: str,
+    auth_error_sheet_ids: set | None = None,
+    reset_hash_history: bool = False,
+    regen_weeks: set | None = None,
+    reset_wr_list: set | None = None,
+    force_generation: bool = False,
+) -> tuple[str, str | None, dict[Any, str]]:
+    """Resolve this run's mode: ``'full'`` or ``'incremental'`` (D-02).
+
+    Implements all seven CONTEXT.md D-02 full-read escalation triggers
+    plus the ``RUN_MEMORY_INCREMENTAL_ENABLED`` flag gate. Triggers 1-3
+    are per-sheet and populate ``per_sheet_reasons`` WITHOUT by
+    themselves forcing the whole run to full -- a later plan restructures
+    PHASE 2 to read that map and force a per-sheet full read for those
+    entries even when the whole-run mode is ``'incremental'``. Triggers
+    4-7 (and the flag gate) force the WHOLE run to ``'full'``, checked in
+    order, short-circuiting on the first one that fires.
+
+    NOT wired into PHASE 2 by this plan -- ``all_rows`` still comes from
+    today's single ``get_all_source_rows()`` full fetch (11-02-PLAN.md
+    <objective>; plan 04 restructures PHASE 2 against this contract).
+    ``auth_error_sheet_ids`` (trigger 3) has no live producer yet at this
+    plan's call site either -- it is a real, directly-testable parameter
+    ready for the per-sheet delta read plan 04 wires in.
+
+    NEVER raises: any unexpected exception resolves to ``'full'`` with a
+    ``fallback_reason`` naming the failure, mirroring
+    ``_run_memory_write_phase``'s never-raise contract. Every full-mode
+    resolution returns a non-empty ``fallback_reason`` (T-11-11 -- a
+    silent fallback is prohibited).
+
+    Returns ``(mode, fallback_reason, per_sheet_reasons)``:
+      - ``mode``: ``'full'`` or ``'incremental'`` (the two
+        ``run_ledger.mode`` CHECK values this phase uses; ``'targeted'``
+        is reserved for a later phase).
+      - ``fallback_reason``: a non-empty string naming the trigger when
+        ``mode == 'full'``; ``None`` when ``mode == 'incremental'``.
+      - ``per_sheet_reasons``: sheet id -> reason string for every sheet
+        trigger 1/2/3 flagged, regardless of the whole-run mode.
+    """
+    try:
+        auth_error_sheet_ids = auth_error_sheet_ids or set()
+        regen_weeks = regen_weeks or set()
+        reset_wr_list = reset_wr_list or set()
+        per_sheet_reasons: dict[Any, str] = {}
+
+        # Triggers 1-3 (per-sheet) -- always computed so the map is
+        # complete for a caller even when the whole run is already forced
+        # to full below.
+        for source in source_sheets:
+            sheet_id = source.get('id')
+
+            if sheet_id in auth_error_sheet_ids:
+                # Trigger 3: isolate, do NOT retry-as-full in a loop, do
+                # NOT touch the watermark -- trigger 1 forces a full read
+                # of this sheet once access returns (the watermark stays
+                # stale/absent in the meantime).
+                per_sheet_reasons[sheet_id] = (
+                    "trigger3_auth_error: sheet isolated (401/403); "
+                    "watermark left unrefreshed"
+                )
+                logging.warning(
+                    f"🔐 resolve_run_mode: sheet {sheet_id} isolated "
+                    "(401/403 auth error) -- not retried as full in a loop"
+                )
+                sentry_add_breadcrumb(
+                    "resolve_run_mode",
+                    f"Sheet {sheet_id} isolated (401/403 auth error)",
+                    level="warning",
+                    data={"sheet_id": sheet_id},
+                )
+                continue
+
+            watermark = watermarks.get(sheet_id)
+            if watermark is None or watermark.get('last_sheet_version') is None:
+                # Trigger 1: new sheet, or a row with no version watermark
+                # yet -> full read of THIS sheet.
+                per_sheet_reasons[sheet_id] = (
+                    "trigger1_no_watermark: no sheet_registry row, or "
+                    "last_sheet_version is None"
+                )
+                continue
+
+            fresh_mapping = _normalize_column_mapping(
+                source.get('column_mapping') or {}
+            )
+            stored_mapping = _normalize_column_mapping(
+                watermark.get('column_mapping') or {}
+            )
+            if fresh_mapping != stored_mapping:
+                # Trigger 2: column_mapping drift -> full read of THIS
+                # sheet + mapping refresh (never continue against a stale
+                # mapping -- misgrouping is a billing-integrity risk).
+                per_sheet_reasons[sheet_id] = (
+                    "trigger2_column_mapping_drift: freshly-discovered "
+                    "column_mapping differs from the stored "
+                    "sheet_registry.column_mapping"
+                )
+
+        # Flag gate: RUN_MEMORY_INCREMENTAL_ENABLED unset resolves to
+        # full REGARDLESS of every other input -- checked first so no
+        # other trigger's reason can shadow it.
+        if not incremental_enabled:
+            return (
+                "full",
+                "flag_off: RUN_MEMORY_INCREMENTAL_ENABLED is not set",
+                per_sheet_reasons,
+            )
+
+        # Trigger 4: empty watermark map (Supabase outage or missing
+        # sheet_registry) resolves the WHOLE run to full -- the one place
+        # "fail-open toward Supabase" means doing MORE work.
+        if not watermarks:
+            return (
+                "full",
+                "trigger4_empty_watermark_map: Supabase outage or missing "
+                "sheet_registry (cannot confirm any sheet is unchanged)",
+                per_sheet_reasons,
+            )
+
+        # Trigger 5: any operator reset/force flag -> ignore the
+        # watermark; the simplest safe scope this plan is the WHOLE run.
+        if reset_hash_history or regen_weeks or reset_wr_list or force_generation:
+            fired = []
+            if reset_hash_history:
+                fired.append("RESET_HASH_HISTORY")
+            if regen_weeks:
+                fired.append("REGEN_WEEKS")
+            if reset_wr_list:
+                fired.append("RESET_WR_LIST")
+            if force_generation:
+                fired.append("FORCE_GENERATION")
+            return (
+                "full",
+                f"trigger5_operator_flag: {'/'.join(fired)} set",
+                per_sheet_reasons,
+            )
+
+        # Trigger 6: the previous run_ledger row has status != 'success'
+        # or finished_at IS NULL -- a crashed run's partial watermark
+        # updates are not a clean baseline. A read failure that resolves
+        # last_run_status to None is the SAME failure class (11-RESEARCH.md
+        # Open Question 3) and is handled identically here.
+        if (
+            last_run_status is None
+            or last_run_status.get('status') != 'success'
+            or last_run_status.get('finished_at') is None
+        ):
+            return (
+                "full",
+                "trigger6_previous_run_not_clean: previous run_ledger row "
+                "missing, errored, unfinished, or unreadable",
+                per_sheet_reasons,
+            )
+
+        # Trigger 7: only production_frequent may go incremental (D-11) --
+        # weekend/weekly-deep/manual dispatches stay full.
+        if execution_type != "production_frequent":
+            return (
+                "full",
+                "trigger7_execution_type: EXECUTION_TYPE="
+                f"{execution_type!r} is not 'production_frequent'",
+                per_sheet_reasons,
+            )
+
+        return ("incremental", None, per_sheet_reasons)
+    except Exception as exc:
+        logging.warning(
+            f"⚠️ resolve_run_mode raised unexpectedly ({type(exc).__name__}); "
+            "resolving to full (fail-open)."
+        )
+        sentry_add_breadcrumb(
+            "resolve_run_mode",
+            f"Unexpected exception: {type(exc).__name__}",
+            level="warning",
+        )
+        return (
+            "full",
+            f"trigger_unexpected_exception: {type(exc).__name__}: {exc}",
+            {},
+        )
+
+
+def _build_registry_write_plan(
+    source_sheets: list[dict[str, Any]],
+    trigger3_sheet_ids: set,
+    capture_time: str,
+) -> tuple[list[dict[str, Any]], dict[Any, str], set]:
+    """Compute the ``(sheets, capture_times, full_read_sheet_ids)`` triple
+    both ``sheet_registry`` upsert passes need (Phase 11 Plan 02,
+    D-01/D-02 trigger 3).
+
+    PURE (no I/O, never raises internally) so it's directly
+    unit-testable without invoking ``main()`` -- mirrors
+    ``_build_group_state_flush``'s standalone-function testability
+    pattern (10-03 key-decision).
+
+    A sheet id present in ``trigger3_sheet_ids`` is EXCLUDED entirely
+    from the returned sheets list -- neither ``last_read_at`` nor
+    ``last_sheet_version`` is refreshed for it this run (D-02 trigger 3:
+    isolate, don't touch the watermark, let trigger 1 force a full read
+    once access returns). PHASE 2 this plan still performs a full fetch
+    of every remaining sheet regardless of the resolved run mode, so
+    every sheet this function returns IS marked full_read=True in the
+    returned ``full_read_sheet_ids`` set, and every sheet gets the SAME
+    ``capture_time`` (captured once by the caller, immediately before
+    PHASE 2 issues its reads).
+    """
+    registry_sheets = [
+        s for s in source_sheets if s.get('id') not in trigger3_sheet_ids
+    ]
+    capture_times = {s.get('id'): capture_time for s in registry_sheets}
+    full_read_ids = {s.get('id') for s in registry_sheets}
+    return registry_sheets, capture_times, full_read_ids
 
 
 def _resolve_mem_sheet_kind(sheet_id: Any) -> str:
@@ -675,6 +1025,543 @@ def _build_group_state_flush(
     return records, withheld
 
 
+def _resolve_row_wr_week(row: dict[str, Any]) -> tuple[str, str | None]:
+    """Resolve one source row's (WR, week-ending ISO string) using the
+    SAME resolution ``group_source_rows`` uses for its own WR/week keys
+    (Phase 11 Plan 04, D-04) -- never by re-parsing a group key string.
+
+    WR: ``str(row['Work Request #']).split('.')[0]`` -- byte-identical to
+    ``pipeline/grouping.py``'s ``wr_key`` derivation. Week: the SAME
+    ``pipeline.utils.excel_serial_to_date`` parser ``_run_memory_write_
+    phase`` uses for ``__mem_week_ending``, stringified through
+    ``pipeline_memory.writer._coerce_date`` -- the SAME function the
+    write path uses to turn that value into the ISO string that ends up
+    in ``upsert_rows_bulk``'s returned affected set. Using the identical
+    stringifier on both sides is what makes the two sets directly
+    comparable by equality.
+
+    PURE (no I/O, never raises internally) -- directly unit-testable
+    without invoking ``main()``, mirroring ``_build_group_state_flush``'s
+    standalone-function testability pattern.
+    """
+    wr_raw = row.get('Work Request #')
+    wr_key = str(wr_raw).split('.')[0] if wr_raw else ''
+    week_value = _utils.excel_serial_to_date(
+        row.get('Weekly Reference Logged Date')
+    )
+    week_iso = _mem_writer._coerce_date(week_value)
+    return wr_key, week_iso
+
+
+def _filter_groups_to_affected(
+    groups: dict[Any, list[dict[str, Any]]],
+    affected_pairs: set[tuple[Any, Any]],
+) -> dict[Any, list[dict[str, Any]]]:
+    """Restrict *groups* to keys whose (WR, week-ending) resolves into
+    *affected_pairs* -- Phase 11 Plan 04 (D-04): the affected-pair
+    restriction applied AFTER the unmodified ``group_source_rows()`` call
+    so cross-sheet groups stay intact (PHASE 2b already re-fetched every
+    sheet holding a row for an affected pair) and no group is partially
+    reconstructed -- a group key either survives here in full (every row
+    ``group_source_rows`` assigned to it) or it doesn't survive at all.
+
+    An empty *groups* input returns ``{}`` immediately (no-op, mirrors
+    the empty-affected-set "successful run with zero groups" outcome).
+    A group whose first row resolves to a pair NOT in *affected_pairs* is
+    dropped entirely -- one row is representative because every row in a
+    ``group_source_rows`` bucket shares the same (WR, week) by
+    construction (that's what makes it one group).
+
+    PURE (no I/O, never raises internally) -- directly unit-testable with
+    synthetic ``groups`` dicts, no Smartsheet/Supabase mocking required.
+    """
+    if not groups:
+        return {}
+    filtered: dict[Any, list[dict[str, Any]]] = {}
+    for key, rows in groups.items():
+        if not rows:
+            continue
+        pair = _resolve_row_wr_week(rows[0])
+        if pair in affected_pairs:
+            filtered[key] = rows
+    return filtered
+
+
+def _run_phase2_incremental(
+    client: Any,
+    source_sheets: list[dict[str, Any]],
+    watermarks: dict[Any, dict[str, Any]],
+    per_sheet_reasons: dict[Any, str],
+    mem_run_id: str,
+    session_start: datetime.datetime,
+) -> dict[str, Any]:
+    """Phase 11 Plan 04 (D-04 Option C): PHASE 2a delta read -> the
+    UNMODIFIED ``_run_memory_write_phase`` -> affected-set -> sheet
+    mapping -> PHASE 2b scoped full re-fetch via the UNMODIFIED
+    ``get_all_source_rows``.
+
+    NEVER raises: any exception anywhere in this function -- a delta
+    probe escalation, an unexpected ``_run_memory_write_phase`` failure,
+    an empty (cannot-confirm) sheet mapping for a non-empty affected set,
+    or any other unhandled exception -- resolves to ``ok=False`` with a
+    non-empty ``fallback_reason``. The caller MUST then run today's
+    single full ``get_all_source_rows`` call over EVERY source sheet:
+    the regeneration scope can only ever be too WIDE, never too narrow
+    (T-11-18).
+
+    Per-sheet dispatch (``per_sheet_reasons`` from ``resolve_run_mode``):
+      - a sheet flagged ``trigger3_auth_error`` is SKIPPED entirely this
+        pass (D-02: isolate, do not touch the watermark, do not retry as
+        full in a loop -- trigger 1 forces a full read once access
+        returns).
+      - a sheet flagged ``trigger1``/``trigger2`` (no watermark, or a
+        stale ``column_mapping``) is fetched in FULL this pass via the
+        unmodified ``get_all_source_rows`` -- planned incremental-mode
+        behavior, not a failure.
+      - every remaining sheet is delta-probed via
+        ``pipeline.fetch.fetch_sheet_delta``. A probe that escalates
+        (abbreviated response with no usable version, or any exception)
+        aborts this WHOLE function -- a single bad probe on one sheet is
+        never silently dropped from an otherwise-incremental run; the
+        entire run falls back to full instead.
+
+    The rows handed to ``_run_memory_write_phase`` carry only RAW mapped
+    Smartsheet columns plus the ``__source_sheet_id``/``__row_id``/
+    ``__row_modified_at`` provenance keys (``pipeline.fetch.
+    map_delta_sheet_rows``) -- no business acceptance gate beyond "has a
+    Work Request # and a Weekly Reference Logged Date" (the same minimum
+    ``group_source_rows`` itself requires). That minimum gate is a
+    STRICT SUPERSET of the full acceptance gate PHASE 2b's grouping
+    phase applies (which additionally requires ``Units Completed?`` and a
+    non-zero price), so PHASE 2a can only WIDEN the affected set relative
+    to what PHASE 2b would actually group -- never narrow it.
+
+    Returns a dict:
+      ok: bool -- True when PHASE 2b's rows are ready to group.
+      fallback_reason: str | None -- non-empty exactly when ok is False.
+      all_rows: list[dict] -- PHASE 2b's rows (grouping input); present
+          only when ok is True.
+      affected: set[tuple] -- the (wr, week_ending) pairs
+          ``_run_memory_write_phase`` reported. Empty is a legitimate
+          "nothing changed" outcome ONLY because ``memory_confirmed``
+          was True -- an unconfirmed write (no client, writes disabled,
+          a failed or PARTIAL upsert, an exception, a budget skip) has
+          already resolved to ``ok=False`` with
+          ``trigger_memory_write_unconfirmed`` before this point
+          (Greptile P1, PR #351). Present only when ok is True.
+      mem_result: dict -- ``_run_memory_write_phase``'s own result dict,
+          so the caller's existing ``_mem_*`` counter wiring is
+          unaffected; present only when ok is True.
+      delta_rows_count / delta_sheets_changed / mapped_sheet_count: int
+          -- PHASE 2a/2b observability counters (notes-only, never a new
+          ``run_summary.json`` key); present only when ok is True.
+    """
+    try:
+        skip_ids = {
+            sid for sid, reason in per_sheet_reasons.items()
+            if reason.startswith('trigger3_auth_error')
+        }
+        full_read_ids = {
+            sid for sid, reason in per_sheet_reasons.items()
+            if sid not in skip_ids
+        }
+        delta_sources = [
+            s for s in source_sheets
+            if s.get('id') not in full_read_ids
+            and s.get('id') not in skip_ids
+        ]
+        full_read_sources = [
+            s for s in source_sheets if s.get('id') in full_read_ids
+        ]
+
+        delta_rows: list[dict[str, Any]] = []
+        delta_sheets_changed = 0
+        escalations: list[str] = []
+
+        def _probe(source):
+            watermark = watermarks.get(source.get('id')) or {}
+            last_version = watermark.get('last_sheet_version')
+            last_read_at = watermark.get('last_read_at')
+            rows_modified_since = (
+                _fetch.compute_rows_modified_since(
+                    last_read_at, SAFETY_WINDOW_MINUTES,
+                )
+                if last_read_at else None
+            )
+            return source, _fetch.fetch_sheet_delta(
+                client, source, last_version, rows_modified_since,
+            )
+
+        with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
+            futures = [executor.submit(_probe, s) for s in delta_sources]
+            for future in as_completed(futures):
+                source, probe_result = future.result()
+                if probe_result.get("escalate"):
+                    escalations.append(
+                        f"sheet {source.get('id')}: "
+                        f"{probe_result.get('reason')}"
+                    )
+                    continue
+                sheet = probe_result.get("sheet")
+                if sheet is None:
+                    continue  # unchanged -- zero rows, nothing to add
+                delta_sheets_changed += 1
+                delta_rows.extend(_fetch.map_delta_sheet_rows(sheet, source))
+
+        if escalations:
+            return {
+                "ok": False,
+                "fallback_reason": (
+                    "trigger_delta_probe_escalation: "
+                    + "; ".join(escalations)
+                ),
+            }
+
+        if full_read_sources:
+            delta_rows.extend(get_all_source_rows(client, full_read_sources))
+
+        try:
+            mem_result = _run_memory_write_phase(
+                delta_rows, mem_run_id, session_start,
+            )
+        except Exception:
+            logging.warning(
+                "⚠️ pipeline_memory row-write phase failed unexpectedly "
+                "during PHASE 2a (non-fatal to Excel generation; "
+                "resolving this run to full mode)."
+            )
+            return {
+                "ok": False,
+                "fallback_reason": (
+                    "trigger_memory_write_exception: "
+                    "_run_memory_write_phase raised during PHASE 2a"
+                ),
+            }
+
+        # Greptile P1 (PR #351): a failed / unavailable / disabled /
+        # PARTIAL memory write returns an affected set that is
+        # indistinguishable from a genuine no-change run (empty) or that
+        # silently under-covers what changed (partial). Refuse to narrow
+        # regeneration scope on it -- widen to today's full read instead
+        # (T-11-18: too wide, never too narrow). Fail-closed on a legacy
+        # result dict that carries no flag at all.
+        if not mem_result.get("memory_confirmed", False):
+            _unconfirmed = (
+                mem_result.get("unconfirmed_reason")
+                or "run-memory write did not confirm every delta sheet"
+            )
+            logging.warning(
+                "⚠️ PHASE 2a: run-memory write unconfirmed "
+                f"({_unconfirmed}); the affected set cannot be trusted "
+                "to scope regeneration -- resolving this run to full mode."
+            )
+            return {
+                "ok": False,
+                "fallback_reason": (
+                    f"trigger_memory_write_unconfirmed: {_unconfirmed} "
+                    "(an unconfirmed empty or partial affected set is "
+                    "indistinguishable from a no-change run; resolving "
+                    "this run to full mode)"
+                ),
+            }
+
+        affected = mem_result.get("affected", set())
+
+        if affected:
+            mapped_sheet_ids = _mem_reader.map_affected_to_sheets(affected)
+            if not mapped_sheet_ids:
+                return {
+                    "ok": False,
+                    "fallback_reason": (
+                        "trigger_affected_set_mapping_empty: "
+                        "map_affected_to_sheets returned no sheets for a "
+                        "non-empty affected set (cannot confirm; "
+                        "resolving this run to full mode)"
+                    ),
+                }
+        else:
+            mapped_sheet_ids = set()
+
+        narrowed_sheets = [
+            s for s in source_sheets if s.get('id') in mapped_sheet_ids
+        ]
+        all_rows = (
+            get_all_source_rows(client, narrowed_sheets)
+            if narrowed_sheets else []
+        )
+
+        return {
+            "ok": True,
+            "fallback_reason": None,
+            "all_rows": all_rows,
+            "affected": affected,
+            "mem_result": mem_result,
+            "delta_rows_count": len(delta_rows),
+            "delta_sheets_changed": delta_sheets_changed,
+            "mapped_sheet_count": len(narrowed_sheets),
+        }
+    except Exception as exc:
+        logging.warning(
+            "⚠️ PHASE 2a incremental read failed unexpectedly "
+            f"({type(exc).__name__}); resolving this run to full mode."
+        )
+        return {
+            "ok": False,
+            "fallback_reason": (
+                f"trigger_phase2a_unexpected_exception: "
+                f"{type(exc).__name__}: {exc}"
+            ),
+        }
+
+
+def _reconcile_deep_run_deletions(
+    source_sheets: list[dict[str, Any]],
+    live_row_ids_by_sheet: dict[Any, set],
+    run_id: str,
+    get_row_state_row_ids_fn=None,
+    mark_rows_deleted_fn=None,
+) -> dict[str, Any]:
+    """Phase 11 Plan 06 (INC-03, CONTEXT.md D-03): the weekly deep run's
+    deletion-reconciliation half.
+
+    For each sheet in *source_sheets*, diffs the stored ``row_state``
+    row-id set (``pipeline_memory.reader.get_row_state_row_ids``)
+    against *live_row_ids_by_sheet* -- the row ids THIS run's own full
+    read actually returned for that sheet (derived by the caller from
+    ``all_rows``' ``__source_sheet_id`` / ``__row_id`` keys, never
+    re-fetched here). A row id present in the stored set and absent
+    from the live set is marked deleted via
+    ``pipeline_memory.writer.mark_rows_deleted``.
+
+    T-11-30 (critical, mitigated): a sheet ABSENT from
+    *live_row_ids_by_sheet*, or present with an EMPTY set, is skipped
+    entirely (warning + Sentry breadcrumb, counted in
+    ``sheets_skipped_zero_row``) -- ``pipeline/fetch.py``'s
+    ``get_all_source_rows`` does not expose a per-sheet read-success
+    signal to this caller (``pipeline/fetch.py`` is outside this
+    plan's declared ``files_modified``), so a zero-row observation and
+    a failed/partial read of that sheet are indistinguishable from
+    here. Treating both identically as "cannot confirm this sheet's
+    live state, do not touch its row_state" is the safe superset of
+    both plan-stated behaviors (a zero-row full read is never read as
+    "every row deleted"; a sheet not successfully read in full is
+    never touched) rather than risking a false mass-deletion.
+
+    An EMPTY return from ``get_row_state_row_ids`` (genuinely zero rows
+    stored, or a Supabase read failure -- the function's own fail-open
+    contract makes the two indistinguishable) also skips that sheet's
+    diff: it would be empty either way, so this is a documentation-only
+    distinction, never a behavior difference.
+
+    NEVER raises -- the caller (``main()``) wraps this call in its own
+    outer try/except (mirrors every other ``pipeline_memory`` hook), and
+    every per-sheet failure inside this function is itself absorbed by
+    ``get_row_state_row_ids``/``mark_rows_deleted``'s own fail-open
+    contracts, so one bad sheet cannot abort the loop for its siblings.
+
+    Returns a dict: ``sheets_checked`` (sheets with a usable, non-empty
+    live read this run), ``sheets_skipped_zero_row`` (sheets skipped per
+    the guard above), ``rows_marked_deleted`` (total row count actually
+    confirmed deleted this call, across every sheet), ``affected_pairs``
+    (the union of every ``(wr, week_ending)`` pair ``mark_rows_deleted``
+    returned).
+    """
+    get_row_state_row_ids_fn = (
+        get_row_state_row_ids_fn or _mem_reader.get_row_state_row_ids
+    )
+    mark_rows_deleted_fn = (
+        mark_rows_deleted_fn or _mem_writer.mark_rows_deleted
+    )
+
+    result: dict[str, Any] = {
+        "sheets_checked": 0,
+        "sheets_skipped_zero_row": 0,
+        "rows_marked_deleted": 0,
+        "affected_pairs": set(),
+    }
+
+    for sheet in source_sheets:
+        sheet_id = sheet.get("id")
+        live_ids = live_row_ids_by_sheet.get(sheet_id) or set()
+        if not live_ids:
+            result["sheets_skipped_zero_row"] += 1
+            logging.warning(
+                f"⚠️ Deep-run reconciliation: sheet {sheet_id} full "
+                "read returned zero rows (or was not successfully read "
+                "in full) -- skipping deletion detection for this "
+                "sheet this run (T-11-30: a zero/partial read is far "
+                "more likely an upstream failure than a mass "
+                "deletion)."
+            )
+            sentry_add_breadcrumb(
+                "pipeline_memory",
+                f"Deep-run reconciliation skipped sheet {sheet_id}: "
+                "zero-row (or unread) full read",
+                level="warning",
+                data={"sheet_id": sheet_id},
+            )
+            continue
+
+        result["sheets_checked"] += 1
+
+        stored_ids = get_row_state_row_ids_fn(sheet_id)
+        if not stored_ids:
+            # Genuinely no stored rows for this sheet, or "cannot
+            # confirm" -- either way the diff below is empty, so there
+            # is nothing to mark deleted for this sheet this run.
+            continue
+
+        deleted_ids = stored_ids - live_ids
+        if not deleted_ids:
+            continue
+
+        mark_result = mark_rows_deleted_fn(sheet_id, deleted_ids, run_id)
+        count = mark_result.get("count", 0) if mark_result else 0
+        pairs = mark_result.get("affected_pairs") if mark_result else None
+        if count:
+            result["rows_marked_deleted"] += count
+        if pairs:
+            result["affected_pairs"] |= pairs
+
+    return result
+
+
+def _repair_group_state_for_affected_pairs(
+    affected_pairs: set,
+    deferred_group_state: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Phase 11 Plan 06 (INC-03): the weekly deep run's ``group_state``
+    repair for a deletion -- OBSERVABILITY only, never a second write.
+
+    ``deferred_group_state`` (populated in the group loop -- see the
+    ``_deferred_group_state.append`` call site) already carries every
+    CURRENTLY-EXISTING group's freshly computed
+    ``calculate_data_hash()`` value for THIS run, over ``all_rows``
+    AFTER the deletion (a deleted row is simply absent from
+    ``all_rows``, so ``group_source_rows()`` never assigned it to a
+    group this run). The ordinary post-upload ``group_state`` flush
+    (``_build_group_state_flush`` / ``upsert_group_state``) ALREADY
+    upserts every one of those entries unconditionally each full run,
+    with ``upsert_group_state``'s existing COALESCE-by-omission
+    preserving whatever attachment id is already stored (records built
+    from ``_deferred_group_state`` never carry ``attachment_id`` /
+    ``attachment_name`` keys at all). This function's job is narrower:
+    identify which of those entries belong to an affected
+    (deletion-touched) pair, purely so the deep run can log/count
+    exactly what got repaired.
+
+    Returns the SUBSET of *deferred_group_state* whose
+    ``(wr_num, week_iso)`` is in *affected_pairs* -- an empty list for
+    an empty *affected_pairs* input (a deep run with zero deletions
+    repairs nothing). PURE (no I/O, never raises) -- directly
+    unit-testable.
+
+    KNOWN LIMITATION (documented, not exercised by this plan's tests):
+    a ``(wr, week_ending)`` pair whose LAST remaining row was deleted
+    this run produces NO entry in *deferred_group_state* at all (the
+    group no longer exists for ``group_source_rows()`` to build) -- its
+    ``group_state`` row(s) are left stale (last-known content_hash /
+    row_count) rather than actively cleared. Clearing a fully-emptied
+    group's ``group_state`` row needs its stored ``target_sheet_id``(s),
+    which this plan does not add a reader for; deferred to a future
+    ``group_state`` hygiene pass.
+    """
+    if not affected_pairs:
+        return []
+    return [
+        rec for rec in deferred_group_state
+        if (rec.get("wr_num"), rec.get("week_iso")) in affected_pairs
+    ]
+
+
+def _compute_registry_mapping_sheets(
+    is_deep_run: bool,
+    source_sheets: list[dict[str, Any]],
+    watermarks: dict[Any, dict[str, Any]],
+) -> set | None:
+    """Phase 11 Plan 06 (D-03): compute the value passed as
+    ``upsert_sheet_registry``'s new ``column_mapping_sheets`` kwarg.
+
+    ``is_deep_run`` True (``EXECUTION_TYPE == 'weekly_comprehensive'``,
+    the Monday deep run by cron identity) -> ``None`` (every sheet's
+    mapping is refreshed -- the deep run reads every sheet in full
+    anyway, so there is no per-sheet "was it actually read" distinction
+    left to make). ``is_deep_run`` False (a frequent run, or any other
+    execution type) -> exactly the sheet ids ABSENT from *watermarks*
+    (no existing ``sheet_registry`` row yet) -- those sheets get their
+    FIRST-EVER ``column_mapping`` written on this run's INSERT (the
+    column is ``NOT NULL`` with no default, so omitting it there would
+    fail the whole upsert); every ALREADY-REGISTERED sheet's stored
+    mapping is left untouched, so a frequent run can never silently
+    adopt a drifted mapping (D-02 trigger 2 is what escalates that
+    sheet to a full read instead).
+
+    PURE (no I/O, never raises) -- directly unit-testable.
+    """
+    if is_deep_run:
+        return None
+    return {
+        s.get("id") for s in source_sheets if s.get("id") not in watermarks
+    }
+
+
+def _log_column_mapping_drift(
+    sheets: list[dict[str, Any]],
+    watermarks: dict[Any, dict[str, Any]],
+) -> list[Any]:
+    """Phase 11 Plan 06 (INC-03/D-03): log + Sentry-breadcrumb the sheet
+    ids whose freshly-discovered ``column_mapping`` differs from the
+    STORED ``sheet_registry`` value, at the moment the weekly deep run
+    is about to refresh it.
+
+    Uses ``_normalize_column_mapping`` -- the SAME standalone helper
+    ``resolve_run_mode``'s trigger 2 already uses for its own drift
+    comparison (Phase 11 Plan 02) -- on BOTH sides, so the value
+    compared here is byte-for-byte the same normalised shape trigger 2
+    compares, never a second, potentially-drifting normalisation
+    (11-RESEARCH.md Pitfall 6's closing half; plan 02 shipped the
+    read-and-compare side, this plan adds the authoritative write).
+
+    A sheet absent from *watermarks* entirely (no prior registry row --
+    stored mapping normalises to ``{}``) is treated as drift when its
+    fresh mapping is non-empty, which is correct: there is nothing
+    stored yet for a brand-new sheet, so writing its first mapping is
+    unconditionally logged as a "change" from nothing.
+
+    Returns the list of sheet ids whose mapping differed (empty = no
+    drift observed this run) -- directly assertable by a test without
+    parsing log output. PURE aside from logging/Sentry side effects;
+    never raises.
+    """
+    changed: list[Any] = []
+    for sheet in sheets:
+        sheet_id = sheet.get("id")
+        fresh = _normalize_column_mapping(sheet.get("column_mapping") or {})
+        stored_row = watermarks.get(sheet_id) or {}
+        stored = _normalize_column_mapping(
+            stored_row.get("column_mapping") or {}
+        )
+        if fresh != stored:
+            changed.append(sheet_id)
+            logging.warning(
+                f"🗂️ Deep-run column_mapping refresh: sheet {sheet_id} "
+                f"mapping changed. Before keys: {sorted(stored.keys())}. "
+                f"After keys: {sorted(fresh.keys())}."
+            )
+            sentry_add_breadcrumb(
+                "pipeline_memory",
+                "sheet_registry.column_mapping refreshed for sheet "
+                f"{sheet_id}",
+                level="warning",
+                data={
+                    "sheet_id": sheet_id,
+                    "before_keys": sorted(stored.keys()),
+                    "after_keys": sorted(fresh.keys()),
+                },
+            )
+    return changed
+
+
 def main():  # pyright: ignore[reportGeneralTypeIssues]
     """Main execution function with all fixes implemented.
 
@@ -754,7 +1641,59 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
     _mem_rows_sent = 0
     _mem_rows_changed = 0
     _mem_affected = set()
+    # Greptile P1 (PR #351): False until _run_memory_write_phase confirms
+    # every sheet this run -- gates the 11-05 shadow comparator and is
+    # persisted as run_ledger.notes.mem_confirmed at both finish sites.
+    _mem_memory_confirmed = False
+    _mem_memory_unconfirmed_reason = None
     _mem_run_id = _mem_writer.resolve_run_id()
+    # Phase 11 Plan 02 (INC-01/D-11): resolved run mode + its fallback
+    # reason, hoisted for the same documented reason as the _mem_*
+    # counters above -- the run_ledger_finish hooks reference these
+    # unconditionally. 'full' / None is also the CORRECT value when the
+    # resolve_run_mode block below never runs (RUN_MEMORY_WRITE_ENABLED
+    # off, or TEST_MODE): run_ledger_start/finish already self-gate on the
+    # identical condition, so these values are never actually written to
+    # Supabase in that case.
+    _resolved_mode = "full"
+    _resolved_fallback_reason = None
+    # Phase 11 Plan 04 (D-04/D-06/T-11-20): PHASE 2a/2b observability
+    # counters + the "legitimately empty incremental run" sentinel,
+    # hoisted for the same documented reason as the _mem_* counters
+    # above -- the run_ledger_finish hooks and the post-PHASE-2
+    # empty-data guards reference these unconditionally. Correct
+    # defaults when PHASE 2a/2b never runs (full mode, or an early
+    # exception before it): zero counters, sentinel False (an early
+    # exception in full mode must still raise "No valid data rows
+    # found" exactly as it does today).
+    _incremental_delta_rows_count = 0
+    _incremental_delta_sheets_changed = 0
+    _incremental_mapped_sheet_count = 0
+    _incremental_empty_affected_run = False
+    # Phase 11 Plan 05 (INC-04, D-07/D-08): shadow parity verdict, hoisted
+    # for the same documented reason as the _mem_* / _resolved_mode
+    # defaults above -- both run_ledger_finish call sites reference these
+    # unconditionally. None/empty is the CORRECT value whenever the
+    # shadow hook (below, after the group loop) never runs: TEST_MODE,
+    # RUN_MEMORY_WRITE_ENABLED off, RUN_MEMORY_INCREMENTAL_ENABLED on,
+    # an incremental-mode run, or an early exception before the group
+    # loop starts. The finish call sites only add parity_verdict/
+    # parity_details to notes when _parity_verdict is not None, so a
+    # None default here means "no key added", never a fabricated verdict.
+    _parity_verdict = None
+    _parity_details = {}
+    # Phase 11 Plan 06 (INC-03): hoisted defaults for the weekly deep
+    # run's deletion-reconciliation phase, for the SAME documented
+    # reason as the _parity_verdict / _resolved_mode defaults above --
+    # both run_ledger_finish call sites may reference these
+    # unconditionally, and the reconciliation phase itself (below,
+    # placed after the full read and the memory write) never runs on
+    # any execution type other than 'weekly_comprehensive', or when
+    # RUN_MEMORY_WRITE_ENABLED / TEST_MODE close the gate. False/0/an
+    # empty set are the CORRECT values whenever the phase never runs.
+    _reconcile_ran = False
+    _reconcile_rows_marked_deleted = 0
+    _reconcile_affected_pairs = set()
     # Explicit session-failure sentinel for the finally-block cron
     # check-in (Copilot review, PR #297): _groups_errored == 0 alone
     # cannot distinguish "clean run" from "died before any group was
@@ -822,25 +1761,6 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             github_actions=GITHUB_ACTIONS_MODE,
         )
 
-        # Phase 10 (MEM-01/MEM-03): run_ledger 'start' row. Guarded by the
-        # flag AND TEST_MODE (10-RESEARCH.md Pitfall 7 -- the synthetic
-        # TEST_MODE path must never attempt a live Supabase call) and
-        # wrapped in its own try/except so a broken writer module can
-        # never break Excel generation (fail-open holds even if
-        # pipeline_memory itself has a bug, not just a Supabase outage).
-        if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
-            try:
-                _mem_writer.run_ledger_start(
-                    _mem_run_id,
-                    mode="full",
-                    release=os.getenv('SENTRY_RELEASE', '') or '',
-                )
-            except Exception:
-                logging.warning(
-                    "⚠️ pipeline_memory run_ledger_start failed "
-                    "(non-fatal); memory not written this run."
-                )
-
         # ── Source sheet discovery (includes folder discovery on cache miss) ──
         _phase_start = datetime.datetime.now()
         logging.info(f"\n{'='*60}")
@@ -850,13 +1770,106 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         with sentry_sdk.start_span(op="smartsheet.discovery", name="Discover and validate source sheets") as span:
             source_sheets = discover_source_sheets(client)
             span.set_data("sheets_discovered", len(source_sheets) if source_sheets else 0)
-        
+
         if not source_sheets:
             raise Exception("No valid source sheets found")
-        
+
         _phase_elapsed = (datetime.datetime.now() - _phase_start).total_seconds()
         logging.info(f"⚡ Phase 1 complete: {len(source_sheets)} sheets discovered in {_phase_elapsed:.1f}s")
         sentry_add_breadcrumb("discovery", f"Discovered {len(source_sheets)} source sheets", data={"count": len(source_sheets)})
+
+        # Phase 11 Plan 02 (INC-01/D-02/D-11): resolve this run's mode.
+        # Needs source_sheets from PHASE 1 discovery above, which is why
+        # this (and the run_ledger 'start' upsert right after it) moved
+        # AFTER discovery -- the "weekly run started" Sentry log event
+        # earlier in main() is unaffected; only the run_ledger 'start'
+        # upsert's POSITION moved so it can carry the resolved mode
+        # instead of a hard-coded "full". Guarded identically to every
+        # other pipeline_memory hook (flag AND TEST_MODE) and wrapped so a
+        # broken reader/resolver can never break Excel generation --
+        # fail-open holds even if pipeline_memory has a bug, not just a
+        # Supabase outage.
+        #
+        # PHASE 2 below is UNCHANGED this plan: all_rows still comes from
+        # today's single get_all_source_rows() full fetch, regardless of
+        # the mode resolved here -- plan 04 restructures PHASE 2 against
+        # this contract once it has proven itself in shadow (D-08).
+        _mem_trigger3_sheet_ids = set()
+        # Phase 11 Plan 04: hoisted defaults so _run_phase2_incremental's
+        # call site below can reference these unconditionally -- they are
+        # only ever READ when _resolved_mode == 'incremental', which can
+        # only happen after the try block below has already assigned real
+        # values to both (resolve_run_mode's own incremental_enabled gate
+        # is nested inside it); the except handler below always forces
+        # _resolved_mode back to 'full' before these defaults could be
+        # read unassigned.
+        _watermarks = {}
+        _per_sheet_reasons = {}
+        _registry_capture_time = datetime.datetime.now(
+            datetime.timezone.utc
+        ).isoformat()
+        if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
+            try:
+                _sheet_ids_for_watermarks = [
+                    s.get('id') for s in source_sheets
+                ]
+                _watermarks = _mem_reader.get_sheet_watermarks(
+                    _sheet_ids_for_watermarks
+                )
+                _last_run_status = _mem_reader.get_last_run_ledger_status()
+                _resolved_mode, _resolved_fallback_reason, _per_sheet_reasons = (
+                    resolve_run_mode(
+                        source_sheets,
+                        _watermarks,
+                        _last_run_status,
+                        incremental_enabled=RUN_MEMORY_INCREMENTAL_ENABLED,
+                        execution_type=os.getenv('EXECUTION_TYPE', 'manual'),
+                        reset_hash_history=RESET_HASH_HISTORY,
+                        regen_weeks=REGEN_WEEKS,
+                        reset_wr_list=RESET_WR_LIST,
+                        force_generation=FORCE_GENERATION,
+                    )
+                )
+                _mem_trigger3_sheet_ids = {
+                    sid for sid, reason in _per_sheet_reasons.items()
+                    if reason.startswith('trigger3_auth_error')
+                }
+                logging.info(
+                    f"🧭 Run-memory mode resolved: {_resolved_mode}"
+                    + (
+                        f" (fallback_reason={_resolved_fallback_reason!r})"
+                        if _resolved_fallback_reason else ""
+                    )
+                )
+            except Exception:
+                logging.warning(
+                    "⚠️ pipeline_memory resolve_run_mode failed "
+                    "unexpectedly (non-fatal); defaulting to mode='full' "
+                    "this run."
+                )
+                _resolved_mode = "full"
+                _resolved_fallback_reason = "trigger_resolve_exception"
+
+        # Phase 10 (MEM-01/MEM-03): run_ledger 'start' row. Guarded by the
+        # flag AND TEST_MODE (10-RESEARCH.md Pitfall 7 -- the synthetic
+        # TEST_MODE path must never attempt a live Supabase call) and
+        # wrapped in its own try/except so a broken writer module can
+        # never break Excel generation (fail-open holds even if
+        # pipeline_memory itself has a bug, not just a Supabase outage).
+        # Phase 11 Plan 02: carries the resolved mode (Phase 10 hard-coded
+        # "full" here -- every run WAS a full read).
+        if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
+            try:
+                _mem_writer.run_ledger_start(
+                    _mem_run_id,
+                    mode=_resolved_mode,
+                    release=os.getenv('SENTRY_RELEASE', '') or '',
+                )
+            except Exception:
+                logging.warning(
+                    "⚠️ pipeline_memory run_ledger_start failed "
+                    "(non-fatal); memory not written this run."
+                )
 
         # Phase 10 (MEM-01): sheet_registry shadow write, PASS 1 (pre-fetch).
         # Called TWICE this run -- here, right after discovery, and again
@@ -868,11 +1881,45 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # accidental duplication. Guarded the same way as the run_ledger
         # hooks (flag AND TEST_MODE) and wrapped in its own try/except so a
         # broken writer module can never break Excel generation.
+        #
+        # Phase 11 Plan 02 (D-01): every sheet not isolated by trigger 3
+        # gets the SAME _registry_capture_time (captured once, immediately
+        # above -- i.e. immediately before PHASE 2 below issues its reads)
+        # for last_read_at, and is marked full_read=True: PHASE 2 still
+        # performs today's full fetch of every sheet regardless of the
+        # resolved mode, so every registry write this plan genuinely IS a
+        # full read. A sheet isolated by trigger 3 is excluded from BOTH
+        # registry passes entirely (neither last_read_at nor
+        # last_sheet_version refreshed -- D-02 trigger 1 then forces a
+        # full read of that sheet once access returns).
+        _registry_sheets, _registry_capture_times, _registry_full_read_ids = (
+            _build_registry_write_plan(
+                source_sheets, _mem_trigger3_sheet_ids, _registry_capture_time,
+            )
+        )
+        # Phase 11 Plan 06 (INC-03/D-03): column_mapping is refreshed on
+        # BOTH sheet_registry passes ONLY on the weekly deep run
+        # ('weekly_comprehensive' by cron identity, per CLAUDE.md's
+        # cron-identity-not-wall-clock rule) -- a frequent run must
+        # NEVER silently adopt a drifted mapping; D-02 trigger 2 already
+        # escalates that sheet to a full read instead. NOT NULL safety
+        # (see _compute_registry_mapping_sheets docstring): a sheet with
+        # NO existing registry row still gets its first-ever mapping
+        # written regardless of execution type.
+        _is_deep_run = (
+            os.getenv('EXECUTION_TYPE', 'manual') == 'weekly_comprehensive'
+        )
+        _registry_mapping_sheets = _compute_registry_mapping_sheets(
+            _is_deep_run, source_sheets, _watermarks,
+        )
         if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
             try:
                 _mem_writer.upsert_sheet_registry(
-                    source_sheets, _mem_run_id, _resolve_mem_sheet_kind,
+                    _registry_sheets, _mem_run_id, _resolve_mem_sheet_kind,
                     _fetch.get_last_sheet_versions(),
+                    capture_times=_registry_capture_times,
+                    full_read_sheets=_registry_full_read_ids,
+                    column_mapping_sheets=_registry_mapping_sheets,
                 )
             except Exception:
                 logging.warning(
@@ -881,17 +1928,80 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     "written this pass."
                 )
 
-        # Get all source rows
+        # Get all source rows.
+        #
+        # Phase 11 Plan 04 (D-04 Option C): incremental mode splits this
+        # into a delta read (PHASE 2a) + a scoped full re-fetch (PHASE
+        # 2b) via the standalone _run_phase2_incremental helper below.
+        # Full mode is BYTE-FOR-BYTE the pre-Plan-04 single-call path --
+        # same Sentry span name, same log banner, same
+        # get_all_source_rows call -- and is also where an incremental
+        # run lands after ANY PHASE 2a/2b failure (fail-open: the scope
+        # can only widen, never narrow -- T-11-18).
         _phase_start = datetime.datetime.now()
         logging.info(f"\n{'='*60}")
         logging.info("📋 PHASE 2: Fetching source data...")
         logging.info(f"{'='*60}")
-        with sentry_sdk.start_span(op="smartsheet.fetch_rows", name="Fetch all source rows from Smartsheet") as span:
-            all_rows = get_all_source_rows(client, source_sheets)
-            span.set_data("source_sheets_count", len(source_sheets))
-            span.set_data("rows_fetched", len(all_rows) if all_rows else 0)
+
+        if _resolved_mode == 'incremental':
+            with sentry_sdk.start_span(
+                op="smartsheet.fetch_rows_incremental",
+                name="PHASE 2a/2b: incremental delta read + scoped re-fetch",
+            ) as span:
+                _phase2_result = _run_phase2_incremental(
+                    client, source_sheets, _watermarks, _per_sheet_reasons,
+                    _mem_run_id, session_start,
+                )
+                span.set_data("ok", _phase2_result.get("ok", False))
+            if _phase2_result.get("ok"):
+                all_rows = _phase2_result["all_rows"]
+                _mem_result = _phase2_result["mem_result"]
+                _mem_affected = _mem_result.get("affected", set())
+                _incremental_delta_rows_count = (
+                    _phase2_result["delta_rows_count"]
+                )
+                _incremental_delta_sheets_changed = (
+                    _phase2_result["delta_sheets_changed"]
+                )
+                _incremental_mapped_sheet_count = (
+                    _phase2_result["mapped_sheet_count"]
+                )
+                _incremental_empty_affected_run = not _mem_affected
+                _mem_sheets_written = _mem_result["sheets_written"]
+                _mem_sheets_errored = _mem_result["sheets_errored"]
+                _mem_rows_sent = _mem_result["rows_sent"]
+                _mem_rows_changed = _mem_result["rows_changed"]
+                _mem_memory_confirmed = bool(
+                    _mem_result.get("memory_confirmed", False)
+                )
+                _mem_memory_unconfirmed_reason = _mem_result.get(
+                    "unconfirmed_reason"
+                )
+                logging.info(
+                    f"🧭 PHASE 2a/2b complete: "
+                    f"{_incremental_delta_rows_count} delta row(s) "
+                    f"across {_incremental_delta_sheets_changed} changed "
+                    f"sheet(s); PHASE 2b re-fetched "
+                    f"{_incremental_mapped_sheet_count} sheet(s), "
+                    f"{len(all_rows)} row(s)."
+                )
+            else:
+                _resolved_mode = 'full'
+                _resolved_fallback_reason = _phase2_result.get(
+                    "fallback_reason"
+                )
+                logging.warning(
+                    "⚠️ PHASE 2a/2b incremental read fell back to full "
+                    f"mode: {_resolved_fallback_reason}"
+                )
+
+        if _resolved_mode == 'full':
+            with sentry_sdk.start_span(op="smartsheet.fetch_rows", name="Fetch all source rows from Smartsheet") as span:
+                all_rows = get_all_source_rows(client, source_sheets)
+                span.set_data("source_sheets_count", len(source_sheets))
+                span.set_data("rows_fetched", len(all_rows) if all_rows else 0)
         
-        if not all_rows:
+        if not all_rows and not _incremental_empty_affected_run:
             raise Exception("No valid data rows found")
         
         _phase_elapsed = (datetime.datetime.now() - _phase_start).total_seconds()
@@ -902,47 +2012,120 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         })
 
         # Phase 10 (MEM-02/MEM-03): per-sheet row-state shadow write.
-        # _run_memory_write_phase self-gates on RUN_MEMORY_WRITE_ENABLED /
-        # TEST_MODE (mirrors the run_ledger start/finish hooks' defense-
-        # in-depth double gate) and never raises on its own -- this
-        # try/except is a second, outer belt so an unexpected bug in the
-        # phase itself can never reach the audit/grouping/Excel path
-        # below (fail-open holds even if pipeline_memory has a bug, not
-        # just a Supabase outage).
-        try:
-            _mem_result = _run_memory_write_phase(
-                all_rows, _mem_run_id, session_start,
+        # Full mode ONLY (Phase 11 Plan 04) -- in incremental mode this
+        # already happened inside _run_phase2_incremental (PHASE 2a fed
+        # it the delta rows, not all_rows); a PHASE 2a/2b failure above
+        # already reset _resolved_mode to 'full', so that fallback case
+        # runs this block exactly like today. _run_memory_write_phase
+        # self-gates on RUN_MEMORY_WRITE_ENABLED / TEST_MODE (mirrors the
+        # run_ledger start/finish hooks' defense-in-depth double gate)
+        # and never raises on its own -- this try/except is a second,
+        # outer belt so an unexpected bug in the phase itself can never
+        # reach the audit/grouping/Excel path below (fail-open holds
+        # even if pipeline_memory has a bug, not just a Supabase
+        # outage).
+        if _resolved_mode == 'full':
+            try:
+                _mem_result = _run_memory_write_phase(
+                    all_rows, _mem_run_id, session_start,
+                )
+            except Exception:
+                logging.warning(
+                    "⚠️ pipeline_memory row-write phase failed unexpectedly "
+                    "(non-fatal); memory rows not written this run."
+                )
+                _mem_result = {
+                    "sheets_written": 0, "sheets_errored": 0,
+                    "rows_sent": 0, "rows_changed": 0, "affected": set(),
+                }
+            _mem_sheets_written = _mem_result["sheets_written"]
+            _mem_sheets_errored = _mem_result["sheets_errored"]
+            _mem_rows_sent = _mem_result["rows_sent"]
+            _mem_rows_changed = _mem_result["rows_changed"]
+            _mem_affected = _mem_result.get("affected", set())
+            _mem_memory_confirmed = bool(
+                _mem_result.get("memory_confirmed", False)
             )
-        except Exception:
-            logging.warning(
-                "⚠️ pipeline_memory row-write phase failed unexpectedly "
-                "(non-fatal); memory rows not written this run."
+            _mem_memory_unconfirmed_reason = _mem_result.get(
+                "unconfirmed_reason"
             )
-            _mem_result = {
-                "sheets_written": 0, "sheets_errored": 0,
-                "rows_sent": 0, "rows_changed": 0, "affected": set(),
-            }
-        _mem_sheets_written = _mem_result["sheets_written"]
-        _mem_sheets_errored = _mem_result["sheets_errored"]
-        _mem_rows_sent = _mem_result["rows_sent"]
-        _mem_rows_changed = _mem_result["rows_changed"]
-        _mem_affected = _mem_result.get("affected", set())
 
         # Phase 10 (MEM-01): sheet_registry shadow write, PASS 2. Now that
         # Phase 2 has fetched every sheet, pipeline.fetch's version-
         # watermark map is populated -- same guard, same fail-open
         # contract, same idempotent upsert key as pass 1 above.
+        #
+        # Phase 11 Plan 02 (D-01): reuses the SAME _registry_sheets /
+        # _registry_capture_times / _registry_full_read_ids computed at
+        # pass 1 above -- last_read_at must stay the capture-time instant
+        # taken BEFORE the read was issued, never a fresh "now" recomputed
+        # here after the read has already completed.
         if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
             try:
+                if _is_deep_run:
+                    _log_column_mapping_drift(_registry_sheets, _watermarks)
                 _mem_writer.upsert_sheet_registry(
-                    source_sheets, _mem_run_id, _resolve_mem_sheet_kind,
+                    _registry_sheets, _mem_run_id, _resolve_mem_sheet_kind,
                     _fetch.get_last_sheet_versions(),
+                    capture_times=_registry_capture_times,
+                    full_read_sheets=_registry_full_read_ids,
+                    column_mapping_sheets=_registry_mapping_sheets,
                 )
             except Exception:
                 logging.warning(
                     "⚠️ pipeline_memory sheet_registry upsert (pass 2) "
                     "failed unexpectedly (non-fatal); registry version "
                     "watermark not updated this run."
+                )
+
+        # Phase 11 Plan 06 (INC-03, CONTEXT.md D-03): the weekly deep
+        # run's deletion-reconciliation phase -- placed after BOTH the
+        # full read (all_rows, above) and the memory write
+        # (_run_memory_write_phase, above) complete, so a failed read
+        # or a failed memory write can never cause a false deletion.
+        # Gated on _is_deep_run (EXECUTION_TYPE == 'weekly_comprehensive'
+        # by cron identity, NOT wall clock) PLUS the same
+        # RUN_MEMORY_WRITE_ENABLED / TEST_MODE double gate every other
+        # pipeline_memory hook in main() uses. Wrapped in its own outer
+        # try/except (mirrors every other hook here) so an unexpected
+        # bug can never affect Excel generation, upload, or cleanup
+        # below.
+        if _is_deep_run and RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
+            try:
+                _reconcile_live_ids_by_sheet = {}
+                for _rr in all_rows:
+                    _rsid = _rr.get('__source_sheet_id')
+                    _rrid = _rr.get('__row_id')
+                    if _rsid is not None and isinstance(_rrid, int):
+                        _reconcile_live_ids_by_sheet.setdefault(
+                            _rsid, set()
+                        ).add(_rrid)
+
+                _reconcile_result = _reconcile_deep_run_deletions(
+                    source_sheets, _reconcile_live_ids_by_sheet, _mem_run_id,
+                )
+                _reconcile_ran = True
+                _reconcile_affected_pairs = _reconcile_result[
+                    'affected_pairs'
+                ]
+                _reconcile_rows_marked_deleted = _reconcile_result[
+                    'rows_marked_deleted'
+                ]
+                if _reconcile_rows_marked_deleted:
+                    logging.info(
+                        f"🗑️ Deep-run reconciliation: "
+                        f"{_reconcile_rows_marked_deleted} row(s) marked "
+                        "deleted across "
+                        f"{_reconcile_result['sheets_checked']} sheet(s) "
+                        "checked "
+                        f"({_reconcile_result['sheets_skipped_zero_row']} "
+                        "sheet(s) skipped: zero-row/unread full read)."
+                    )
+            except Exception:
+                logging.warning(
+                    "⚠️ pipeline_memory deep-run deletion reconciliation "
+                    "failed unexpectedly (non-fatal); "
+                    "row_state.deleted_at not written this run."
                 )
 
         # Initialize audit system
@@ -1027,6 +2210,29 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             groups = group_source_rows(all_rows)
             span.set_data("input_rows", len(all_rows))
             span.set_data("groups_created", len(groups) if groups else 0)
+            # Phase 11 Plan 04 (D-04): incremental-mode-only restriction to
+            # the affected (WR, week) pairs, applied AFTER the unmodified
+            # group_source_rows() call -- group_source_rows(),
+            # pricing.py, attribution.py and excel.py are never modified;
+            # only their input (here, which KEYS survive) is scoped. A
+            # group either survives in full or is dropped entirely -- no
+            # second grouping/Excel codepath (D-04's central promise).
+            if _resolved_mode == 'incremental':
+                _pre_filter_group_count = len(groups) if groups else 0
+                groups = _filter_groups_to_affected(groups, _mem_affected)
+                _post_filter_group_count = len(groups) if groups else 0
+                span.set_data(
+                    "pre_filter_group_count", _pre_filter_group_count
+                )
+                span.set_data(
+                    "post_filter_group_count", _post_filter_group_count
+                )
+                logging.info(
+                    f"🧭 Incremental group filter: "
+                    f"{_pre_filter_group_count} -> "
+                    f"{_post_filter_group_count} group(s) "
+                    "(affected-set restricted)"
+                )
 
         # Optional full/partial hash reset purge BEFORE processing groups if requested
         if RESET_HASH_HISTORY or RESET_WR_LIST:
@@ -1042,7 +2248,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     purge_existing_hashed_outputs(client, TARGET_SHEET_ID, None, TEST_MODE, dry_run=SKIP_UPLOAD)
             # After purge, any regenerated files get new timestamp+hash filenames and re-upload
         
-        if not groups:
+        if not groups and not _incremental_empty_affected_run:
             raise Exception("No valid groups created")
         
         logging.info(f"📈 Found {len(groups)} work request groups to process")
@@ -1554,6 +2760,13 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # scoped state, not run-scoped counters -- mirrors _upload_tasks /
         # _deferred_hash_upserts, the two closest existing analogs.
         _deferred_group_state = []
+        # Phase 11 Plan 05 (INC-04, D-07): every processed group's
+        # calculate_data_hash() value, captured unconditionally (a single
+        # dict assignment per group, negligible cost) so the shadow-parity
+        # candidate side -- which spans groups that may have been SKIPPED
+        # as unchanged, not just the ones _deferred_group_state records --
+        # can be compared without a second calculate_data_hash() call.
+        _shadow_group_hashes = {}
         # Keyed by (group_key, variant, file_identifier, target_sheet_id)
         # -- the same 4-part key a reduced_sub fan-out's two upload tasks
         # differ on ONLY in target_sheet_id, so this key never collapses
@@ -1808,6 +3021,12 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             try:
                 # Calculate data hash for change detection
                 data_hash = calculate_data_hash(group_rows)
+                # Phase 11 Plan 05 (D-07): capture EVERY processed group's
+                # hash for the shadow-parity candidate side (see
+                # _shadow_group_hashes docstring above) -- never a second
+                # calculate_data_hash() call, just recording the value
+                # already computed on the line above.
+                _shadow_group_hashes[group_key] = data_hash
                 wr_num_raw = group_rows[0].get('Work Request #')
                 wr_num = str(wr_num_raw).split('.')[0] if wr_num_raw else ''
                 # Apply the same filesystem-safety sanitizer used inside
@@ -2570,6 +3789,242 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         logging.info(f"⚡ Group processing phase: {_groups_generated} generated, {_groups_skipped} skipped in {_phase_group_elapsed:.1f}s"
                      + (f" (stopped early — time budget exceeded)" if _time_budget_exceeded else ""))
 
+        # Phase 11 Plan 05 (INC-04, CONTEXT.md D-07/D-08): shadow-
+        # incremental parity proof. Runs ONLY while
+        # RUN_MEMORY_INCREMENTAL_ENABLED is OFF and RUN_MEMORY_WRITE_
+        # ENABLED is ON (D-07) -- the full read this run already produced
+        # is compared against what the incremental path WOULD have
+        # regenerated from this run's own affected set. pipeline/
+        # parity.py computes and compares only; it never alters what this
+        # run generates, uploads, or deletes. Sub-budgeted exactly like
+        # _run_memory_write_phase's own pre-flight guard so it can never
+        # threaten TIME_BUDGET_MINUTES; a comparison that could not fully
+        # execute is 'skipped' with a reason -- never a vacuous 'pass'.
+        # Wrapped in its own outer try/except (belt-and-suspenders,
+        # mirrors every other pipeline_memory hook in main()) so an
+        # unexpected bug here can never affect Excel generation, upload,
+        # or cleanup, which have ALL already completed processing their
+        # decisions for this run's groups by this point in source order.
+        if (
+            _resolved_mode == 'full'
+            and RUN_MEMORY_WRITE_ENABLED
+            and not RUN_MEMORY_INCREMENTAL_ENABLED
+            and not TEST_MODE
+        ):
+            try:
+                _shadow_elapsed_min = (
+                    (datetime.datetime.now() - session_start).total_seconds()
+                    / 60.0
+                )
+                _shadow_remaining_min = (
+                    TIME_BUDGET_MINUTES - _shadow_elapsed_min
+                )
+                _shadow_required_min = (
+                    RUN_MEMORY_SHADOW_MAX_MINUTES
+                    + RUN_MEMORY_SHADOW_GENERATION_HEADROOM_MIN
+                )
+                if (
+                    TIME_BUDGET_MINUTES
+                    and GITHUB_ACTIONS_MODE
+                    and _shadow_remaining_min <= _shadow_required_min
+                ):
+                    logging.warning(
+                        f"⏩ Skipping shadow parity check: "
+                        f"{_shadow_elapsed_min:.1f}min already elapsed, "
+                        f"only {_shadow_remaining_min:.1f}min left in "
+                        f"session budget (need > {_shadow_required_min}min "
+                        f"= {RUN_MEMORY_SHADOW_MAX_MINUTES}min shadow "
+                        f"budget + "
+                        f"{RUN_MEMORY_SHADOW_GENERATION_HEADROOM_MIN}min "
+                        "generation headroom)."
+                    )
+                    sentry_add_breadcrumb(
+                        "pipeline_memory",
+                        "Shadow parity check skipped, "
+                        f"{_shadow_remaining_min:.1f}min remaining",
+                        level="warning",
+                        data={
+                            "elapsed_min": round(_shadow_elapsed_min, 1),
+                            "remaining_min": round(_shadow_remaining_min, 1),
+                            "required_remaining_min": _shadow_required_min,
+                        },
+                    )
+                    _parity_verdict = "skipped"
+                    _parity_details = {
+                        "reason": "insufficient_session_budget",
+                    }
+                elif not _mem_memory_confirmed:
+                    # Greptile P1 (PR #351): the candidate side of the
+                    # comparison IS this run's memory-write affected set.
+                    # If that write was not confirmed, the candidate is
+                    # empty or partial for a transport reason, and a
+                    # comparison against it would report a spurious
+                    # parity 'fail' (or a vacuous 'pass' on a quiet run)
+                    # about a write outage, not about the selector.
+                    # D-07: a comparison that could not execute reports
+                    # 'skipped' with a reason -- never a false verdict.
+                    logging.warning(
+                        "⏩ Skipping shadow parity check: run-memory write "
+                        "unconfirmed this run "
+                        f"({_mem_memory_unconfirmed_reason})."
+                    )
+                    sentry_add_breadcrumb(
+                        "pipeline_memory",
+                        "Shadow parity check skipped, memory write "
+                        "unconfirmed",
+                        level="warning",
+                        data={
+                            "reason": _mem_memory_unconfirmed_reason,
+                            "mem_sheets_errored": _mem_sheets_errored,
+                        },
+                    )
+                    _parity_verdict = "skipped"
+                    _parity_details = {
+                        "reason": "memory_write_unconfirmed",
+                        "detail": _mem_memory_unconfirmed_reason,
+                    }
+                else:
+                    _shadow_candidate_groups = _filter_groups_to_affected(
+                        groups, _mem_affected,
+                    )
+                    _shadow_candidate_hashes = {
+                        gk: _shadow_group_hashes.get(gk)
+                        for gk in _shadow_candidate_groups
+                    }
+                    _shadow_actual_hashes = {
+                        rec['group_key']: rec['data_hash']
+                        for rec in _deferred_group_state
+                    }
+                    _shadow_group_result = _parity.compare_shadow_parity(
+                        _shadow_candidate_hashes, _shadow_actual_hashes,
+                    )
+                    _shadow_changed_row_ids = (
+                        _parity.get_changed_row_ids_by_sheet(_mem_run_id)
+                    )
+                    _shadow_read_result = _parity.run_shadow_delta_reads(
+                        client=client,
+                        source_sheets=source_sheets,
+                        watermarks=_watermarks,
+                        changed_row_ids_by_sheet=_shadow_changed_row_ids,
+                        session_start=session_start,
+                        fetch_sheet_delta_fn=_fetch.fetch_sheet_delta,
+                        compute_rows_modified_since_fn=(
+                            _fetch.compute_rows_modified_since
+                        ),
+                        safety_window_minutes=SAFETY_WINDOW_MINUTES,
+                        max_minutes=RUN_MEMORY_SHADOW_MAX_MINUTES,
+                        rpc_timeout_sec=RUN_MEMORY_SHADOW_RPC_TIMEOUT_SEC,
+                        generation_headroom_min=(
+                            RUN_MEMORY_SHADOW_GENERATION_HEADROOM_MIN
+                        ),
+                        time_budget_minutes=TIME_BUDGET_MINUTES,
+                        github_actions_mode=GITHUB_ACTIONS_MODE,
+                        parallel_workers=PARALLEL_WORKERS,
+                    )
+                    _parity_verdict = _parity.combine_verdicts(
+                        _shadow_group_result["verdict"],
+                        _shadow_read_result["read_verdict"],
+                    )
+                    _parity_details = {
+                        "group": _shadow_group_result,
+                        "read": _shadow_read_result,
+                    }
+                    if _parity_verdict == "fail":
+                        logging.error(
+                            "🚨 Shadow parity FAIL — incremental candidate "
+                            "set diverges from the full run's actual "
+                            "output (groups_compared="
+                            f"{_shadow_group_result.get('groups_compared')}, "
+                            f"run_id={_mem_run_id})."
+                        )
+                        sentry_capture_message_with_context(
+                            "Shadow-incremental parity FAIL",
+                            level="error",
+                            context_name="parity_shadow",
+                            context_data={
+                                "run_id": _mem_run_id,
+                                "group_verdict": (
+                                    _shadow_group_result.get("verdict")
+                                ),
+                                "read_verdict": (
+                                    _shadow_read_result.get("read_verdict")
+                                ),
+                                "groups_compared": (
+                                    _shadow_group_result.get(
+                                        "groups_compared",
+                                    )
+                                ),
+                                "candidate_count": (
+                                    _shadow_group_result.get(
+                                        "candidate_count",
+                                    )
+                                ),
+                                "actual_count": (
+                                    _shadow_group_result.get("actual_count")
+                                ),
+                            },
+                            tags={"parity_verdict": "fail"},
+                        )
+            except Exception as _parity_exc:
+                logging.warning(
+                    "⚠️ Shadow parity check failed unexpectedly "
+                    f"(non-fatal): {type(_parity_exc).__name__}"
+                )
+                _parity_verdict = "skipped"
+                _parity_details = {
+                    "reason": (
+                        f"unexpected_exception: "
+                        f"{type(_parity_exc).__name__}"
+                    ),
+                }
+
+        # Phase 11 Plan 06 (INC-03): the weekly deep run's group_state
+        # repair confirmation -- OBSERVABILITY only (see
+        # _repair_group_state_for_affected_pairs docstring: the
+        # ordinary post-upload group_state flush below already upserts
+        # every surviving group's freshly-computed content_hash this
+        # run, attachment ids preserved by upsert_group_state's
+        # existing COALESCE-by-omission). Runs only when the
+        # deletion-reconciliation phase above actually marked something
+        # deleted this run. Wrapped in its own outer try/except, mirrors
+        # every other pipeline_memory hook in main().
+        if _reconcile_affected_pairs:
+            try:
+                _reconcile_repaired = (
+                    _repair_group_state_for_affected_pairs(
+                        _reconcile_affected_pairs, _deferred_group_state,
+                    )
+                )
+                _reconcile_repaired_pairs = {
+                    (rec.get('wr_num'), rec.get('week_iso'))
+                    for rec in _reconcile_repaired
+                }
+                _reconcile_orphaned_pairs = (
+                    _reconcile_affected_pairs - _reconcile_repaired_pairs
+                )
+                logging.info(
+                    "🧾 Deep-run deletion reconciliation: "
+                    f"{len(_reconcile_repaired)} group(s) confirmed "
+                    "still live (content hash already refreshed by the "
+                    "ordinary group-state flush this run), "
+                    f"{len(_reconcile_orphaned_pairs)} affected pair(s) "
+                    "now fully empty (group_state row left as-is; "
+                    "cross-group cleanup deferred)."
+                )
+                if _reconcile_orphaned_pairs:
+                    sentry_add_breadcrumb(
+                        "pipeline_memory",
+                        "Deep-run reconciliation: affected pair(s) "
+                        "fully emptied",
+                        level="warning",
+                        data={"count": len(_reconcile_orphaned_pairs)},
+                    )
+            except Exception:
+                logging.warning(
+                    "⚠️ pipeline_memory deep-run group_state repair "
+                    "confirmation failed unexpectedly (non-fatal)."
+                )
+
         # Phase 01 Plan 03 Task 2 Change 3 (D-17): emit exactly ONE
         # WARNING per source sheet whose subcontractor variant
         # generation fell through to SmartSheet pricing on missing
@@ -3063,6 +4518,19 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     sub_legacy_primary_variants=_target_legacy_primary,
                     vac_legacy_wr_scope=_vac_scope,
                     primary_wr_scope=_primary_scope,
+                    # Phase 11 Plan 03 (CONTEXT.md D-06 — highest-severity
+                    # finding of the phase): in incremental mode `groups`
+                    # is a strict subset of the live groups, so
+                    # `valid_wr_weeks` (built from `groups` above) is too
+                    # — an identity absent from it means "not processed
+                    # this run", never "no longer valid". Force the
+                    # identity-loop's preservation gate on at this call
+                    # boundary only: the global env-driven
+                    # KEEP_HISTORICAL_WEEKS constant (and its facade
+                    # rebind in pipeline/cleanup.py) is never flipped, so
+                    # a full-mode run's cleanup decisions are
+                    # byte-for-byte unchanged.
+                    keep_historical=True if _resolved_mode == 'incremental' else None,
                     dry_run=SKIP_UPLOAD,
                 )
 
@@ -3142,6 +4610,14 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                             if _sub_scope and SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED
                             else None
                         ),
+                        # Phase 11 Plan 03 (CONTEXT.md D-06): same
+                        # incremental-mode override as the TARGET call
+                        # site above — `valid_wr_weeks` is a strict
+                        # subset in incremental mode, so an identity
+                        # absent from it means "not processed this run",
+                        # not "no longer valid". Call-boundary override
+                        # only; KEEP_HISTORICAL_WEEKS itself is untouched.
+                        keep_historical=True if _resolved_mode == 'incremental' else None,
                         dry_run=SKIP_UPLOAD,
                     )
 
@@ -3164,9 +4640,15 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # Persist hash history if updated
         if history_updates:
             # Prune stale hash_history entries for groups no longer in source data.
-            # Only prune on FULL runs (not time-budget-truncated runs) to avoid
-            # deleting entries for groups that simply weren't reached this run.
-            if not _time_budget_exceeded:
+            # Only prune on FULL runs (not time-budget-truncated runs, and --
+            # Phase 11 Plan 03, CONTEXT.md D-06 -- not incremental runs) to
+            # avoid deleting entries for groups that simply weren't reached
+            # this run. Incremental mode is the same class of "did not reach
+            # every group" as a time-budget-truncated run: `groups` is a
+            # strict subset of the live groups, so `current_keys` below would
+            # be too, and pruning against it would delete hash-history entries
+            # for every untouched WR.
+            if not _time_budget_exceeded and _resolved_mode == 'full':
                 current_keys = set()
                 for key, group_rows in groups.items():
                     if '_' in key:
@@ -3256,6 +4738,16 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     for sk in stale_keys:
                         del hash_history[sk]
                     logging.info(f"🧹 Pruned {len(stale_keys)} stale hash history entries (groups no longer in source data)")
+            elif _resolved_mode != 'full':
+                # Phase 11 Plan 03 (D-06): suppressed because this run was
+                # incremental, not because nothing was stale -- log the
+                # distinction and the count of keys the skip preserved so
+                # an operator reading the run log can tell the two apart.
+                logging.info(
+                    f"⏭️ Hash-history stale-key prune skipped (incremental "
+                    f"run, D-06): preserved {len(hash_history)} key(s) not "
+                    f"processed this run."
+                )
             save_hash_history(HASH_HISTORY_PATH, hash_history)
         elif _hash_history_migration_dirty:
             # Codex P2: no group updates this run, but a one-time migration
@@ -3283,18 +4775,70 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # golden baseline, and pollutes the plan-10-05 control-run diff).
         if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
             try:
-                _mem_writer.run_ledger_finish(
-                    _mem_run_id,
+                # Phase 11 Plan 02: carries the resolved mode; notes.
+                # fallback_reason is included ONLY when non-empty (T-11-11
+                # -- present+non-empty on a full-mode resolution, ABSENT
+                # entirely -- never a null placeholder -- when mode is
+                # 'incremental').
+                # Phase 11 Plan 03 (D-11): groups_generated/groups_affected/
+                # rows_seen below are scoped to whatever this run actually
+                # covered -- on an incremental run that is a strict subset
+                # of the live groups by design, so a small number here is
+                # expected, not a regression. These counters are only
+                # interpretable next to run_ledger.mode (set above); the
+                # frozen run_summary.json 21-key contract is NOT overloaded
+                # with a second meaning for this.
+                _finish_kwargs = dict(
                     status="success",
+                    mode=_resolved_mode,
                     sheets_checked=len(source_sheets) if 'source_sheets' in dir() else 0,
                     rows_seen=len(all_rows) if 'all_rows' in dir() else 0,
                     rows_changed=_mem_rows_changed,
                     groups_generated=_groups_generated,
                     groups_affected=len(_mem_affected),
+                    # WR-04 (CONTEXT.md D-10): sheets_changed is a real
+                    # run_ledger column (_RUN_LEDGER_FINISH_COLUMNS in
+                    # pipeline_memory/writer.py); mem_sheets_written below
+                    # is a separate notes-JSON counter Phase 10 dashboards
+                    # already read -- the two are not duplicates.
+                    sheets_changed=_mem_sheets_written,
                     mem_sheets_written=_mem_sheets_written,
                     mem_sheets_errored=_mem_sheets_errored,
+                    # Greptile P1 (PR #351): notes-only flag -- did the
+                    # memory write confirm every sheet this run? An
+                    # unconfirmed incremental run has already fallen back
+                    # to full mode (fallback_reason names it).
+                    mem_confirmed=_mem_memory_confirmed,
                     mem_rows_sent=_mem_rows_sent,
+                    # Phase 11 Plan 04 (D-06/T-11-20): notes-only counters
+                    # distinguishing PHASE 2a's delta-read scope from
+                    # PHASE 2b's re-fetch scope so neither is misread as
+                    # the other; both are 0 on a full-mode run (PHASE 2a
+                    # never executes this run). rows_seen above is the
+                    # SCOPED PHASE 2b count on an incremental run --
+                    # comparable only against another incremental run,
+                    # never against a full run's rows_seen (D-11).
+                    mem_phase2a_delta_rows=_incremental_delta_rows_count,
+                    mem_phase2b_sheets_refetched=_incremental_mapped_sheet_count,
                 )
+                if _resolved_fallback_reason:
+                    _finish_kwargs["fallback_reason"] = _resolved_fallback_reason
+                # Phase 11 Plan 05 (INC-04, D-07/D-08): only present when
+                # the shadow parity block actually ran this run (None
+                # default means "never a fabricated verdict" -- see the
+                # _parity_verdict hoist comment near the top of main()).
+                if _parity_verdict is not None:
+                    _finish_kwargs["parity_verdict"] = _parity_verdict
+                    _finish_kwargs["parity_details"] = _parity_details
+                # Phase 11 Plan 06 (INC-03): only present when the
+                # deep-run reconciliation phase actually ran this run
+                # (mirrors the _parity_verdict None-default contract
+                # above -- never a fabricated 0 on a non-deep-run).
+                if _reconcile_ran:
+                    _finish_kwargs["mem_deep_run_rows_deleted"] = (
+                        _reconcile_rows_marked_deleted
+                    )
+                _mem_writer.run_ledger_finish(_mem_run_id, **_finish_kwargs)
             except Exception:
                 logging.warning(
                     "⚠️ pipeline_memory run_ledger_finish failed "
@@ -3512,16 +5056,52 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # counters are all hoisted above the try, so no dir() guard.
         if _session_failed and RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
             try:
-                _mem_writer.run_ledger_finish(
-                    _mem_run_id,
+                # Phase 11 Plan 02: carries the resolved mode; see the
+                # success-path call site above for the fallback_reason
+                # presence/absence rationale.
+                _finish_kwargs = dict(
                     status="failed",
+                    mode=_resolved_mode,
                     groups_generated=_groups_generated,
                     groups_affected=len(_mem_affected),
                     groups_errored=_groups_errored,
+                    # WR-04 (CONTEXT.md D-10): sheets_changed is a real
+                    # run_ledger column; mem_sheets_written below is a
+                    # separate notes-JSON counter -- see the success-path
+                    # call site above for the full rationale.
+                    sheets_changed=_mem_sheets_written,
                     mem_sheets_written=_mem_sheets_written,
                     mem_sheets_errored=_mem_sheets_errored,
+                    # Greptile P1 (PR #351): notes-only flag -- did the
+                    # memory write confirm every sheet this run? An
+                    # unconfirmed incremental run has already fallen back
+                    # to full mode (fallback_reason names it).
+                    mem_confirmed=_mem_memory_confirmed,
                     mem_rows_sent=_mem_rows_sent,
+                    # Phase 11 Plan 04 (D-06/T-11-20): see the success-path
+                    # call site above for the full rationale -- same two
+                    # notes-only counters, same D-11 comparability rule.
+                    mem_phase2a_delta_rows=_incremental_delta_rows_count,
+                    mem_phase2b_sheets_refetched=_incremental_mapped_sheet_count,
                 )
+                if _resolved_fallback_reason:
+                    _finish_kwargs["fallback_reason"] = _resolved_fallback_reason
+                # Phase 11 Plan 05 (INC-04, D-07/D-08): only present when
+                # the shadow parity block actually ran this run (None
+                # default means "never a fabricated verdict" -- see the
+                # _parity_verdict hoist comment near the top of main()).
+                if _parity_verdict is not None:
+                    _finish_kwargs["parity_verdict"] = _parity_verdict
+                    _finish_kwargs["parity_details"] = _parity_details
+                # Phase 11 Plan 06 (INC-03): only present when the
+                # deep-run reconciliation phase actually ran this run
+                # (mirrors the _parity_verdict None-default contract
+                # above -- never a fabricated 0 on a non-deep-run).
+                if _reconcile_ran:
+                    _finish_kwargs["mem_deep_run_rows_deleted"] = (
+                        _reconcile_rows_marked_deleted
+                    )
+                _mem_writer.run_ledger_finish(_mem_run_id, **_finish_kwargs)
             except Exception as _mem_exc:
                 logging.warning(
                     "⚠️ pipeline_memory run_ledger_finish (failure path) "

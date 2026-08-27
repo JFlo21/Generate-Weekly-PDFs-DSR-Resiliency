@@ -2,19 +2,20 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Engine Modularization & Hygiene
-current_phase: 10
-status: completed
-stopped_at: Phase 10 complete (UAT 2/2 decided, verification passed 2026-08-25) — next /gsd-plan-phase 11
-last_updated: "2026-08-26T02:51:37.802Z"
-last_activity: 2026-08-25
-last_activity_desc: Phase 10 complete
-state_head: 1679829c487f2aefdf7da385e4ddeee935272cd4
+current_phase: 11
+current_phase_name: Incremental Read + Affected-Group Regeneration
+status: executing
+stopped_at: Completed 11-07-PLAN.md (Task 2 DEFERRED by owner decision; INC-05 open; plan 11-08 not executed)
+last_updated: "2026-08-26T22:40:16.560Z"
+last_activity: 2026-08-26
+last_activity_desc: Phase 11 execution started
 progress:
   total_phases: 1
   completed_phases: 1
   total_plans: 2
   completed_plans: 2
   percent: 100
+state_head: db7592a89ea1d93597a8287c461537626377c5d3
 ---
 
 # Project State
@@ -30,19 +31,22 @@ right generated Excel billing artifact fast, from a secure, auth-gated,
 beautiful web portal — with zero change to the production Python billing
 pipeline.
 
-**Current focus:** Phase 10 — Run-Memory Foundation (shadow writes)
+**Current focus:** Phase 11 — Incremental Read + Affected-Group Regeneration
 
 ## Current Position
 
-Phase: 10
-Plan: Not started
-Status: Phase 10 complete — Phase 11 (Incremental Read + Affected-Group Regeneration) ready to plan
-  Engine 10,476 -> 709-line thin facade; 13-module pipeline/ package; 0 behavior
-  change; 7 waves + 2 gap-closure plans (09-07/09-08). G-09-MOD-06 closed: Gate 4
-  fail-capable, Gate 6 offline (synthetic), mypy re-baselined 65 with per-finding
-  attribution (Juan: `rebaseline`, `da7d73c`); `run_6_gates.sh` ALL 6 GATES PASSED
-  in 32 s; suite 1386 + 132 subtests. Next: `/gsd-core:gsd-execute-phase 10`.
-Last activity: 2026-08-25 — Phase 10 complete
+Phase: 11 (Incremental Read + Affected-Group Regeneration) — EXECUTING
+Plan: 7 of 8 complete (11-07 DONE; the `state.advance-plan` counter reads
+  8/8 because it advances mechanically past the last-declared plan number,
+  but plan 11-08 (INC-05 retirement) is DEFERRED BY OWNER DECISION, not
+  executed -- see 11-07-SUMMARY.md "Checkpoint / Decisions"). 7 of 8 Phase 11
+  plans have a SUMMARY.md on disk. INC-05 stays open; the re-authorisation
+  path (flip PR merge + 5 consecutive scheduled `pass` verdicts) is recorded
+  in 11-07-SUMMARY.md.
+Status: 11-07 complete; 11-08 deferred (no further Phase 11 execution planned
+  until the owner re-opens the Task 2 decision per 11-07-SUMMARY.md).
+Last activity: 2026-08-26 — 11-07 complete (get_parity_streak shipped; INC-05
+  retirement deferred by Juan)
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
@@ -101,6 +105,13 @@ Progress: [██████████] 100% (v1.3 complete; v1.4 Phase 10 cl
 | Phase 10-run-memory-foundation-shadow-writes P05 | 40min | 3 tasks | 4 files |
 | Phase 10 P03 | ~37min | 3 tasks | 4 files |
 | Phase 10 P06 | ~4h10m (4 real production runs) | 3 tasks | 6 files |
+| Phase 11 P01 | 48min | 3 tasks | 6 files |
+| Phase 11 P02 | 21min | 3 tasks | 9 files |
+| Phase 11 P03 | 28min | 3 tasks | 4 files |
+| Phase 11 P04 | ~28min | 3 tasks | 5 files |
+| Phase 11 P05 | 9min | 2 tasks | 5 files |
+| Phase 11 P06 | ~50min | 3 tasks | 7 files |
+| Phase 11 P07 | ~15min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -198,6 +209,25 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 10]: 10-06: compare_control_run.py hashes canonicalized xlsx content (excludes docProps/core.xml, normalizes the Report Generated On cell) instead of raw file bytes -- a raw hash can never prove two real pipeline runs are behaviorally identical
 - [Phase 10]: 10-06: run_ledger_finish always resends mode (default full) even though run_ledger_start already set it -- PostgREST upsert validates NOT NULL against only the payload's own columns before conflict resolution
 - [Phase 10]: 10-06: success criterion 4 proven at Excel-CONTENT level (100% match, canonicalized) not at group-selection level -- live ~209K-row production data cannot be held still across a ~50-90min control/shadow gap without a fetch-snapshot capability out of scope
+- [Phase ?]: Caller-parses-then-passes: pipeline/orchestrate.py pre-parses decorated Quantity/Units Total Price and passes via __mem_* row keys; pipeline_memory never re-parses or falls back to the raw cell
+- [Phase ?]: run_ledger.sheets_changed populated on both success and failure finish paths as a real column, separate from the mem_sheets_written notes counter
+- [Phase ?]: RUN_MEMORY_WRITE_ENABLED flip checklist documents an ADD (env var currently absent from workflow), not a 0->1 toggle; IN-01 deferred to a checklist gate since it's untestable under SKIP_UPLOAD
+- [Phase 11]: [Phase 11-02] auth_error_sheet_ids (D-02 trigger 3) is a real, directly-testable resolve_run_mode parameter with no live producer yet -- PHASE 2 still performs today's single-call full fetch this plan; plan 04's per-sheet delta wiring populates it for real
+- [Phase 11]: [Phase 11-02] RUN_MEMORY_INCREMENTAL_ENABLED is checked FIRST in resolve_run_mode, before D-02 triggers 4-7, so the flag dominates regardless of every other input (D-11)
+- [Phase 11]: [Phase 11-02] run_ledger_start's call site moved to after PHASE 1 discovery (was before it) so it can carry the same resolved mode the finish calls carry, instead of a hard-coded full
+- [Phase 11]: [Phase 11-02] sheet_registry capture_time is captured ONCE before PASS 1 and reused verbatim for PASS 2 -- last_read_at must be the instant before the read, never a fresh now recomputed after the read completed
+- [Phase 11]: [Phase 11-02] widened pipeline.fetch._LAST_SHEET_VERSIONS to dict[int, int | None] rather than suppressing a new mypy finding -- the loose annotation was always inaccurate; the untyped nested closure that also wrote it had simply never been checked
+- [Phase ?]: Phase 11-03: keep_historical is the trailing kwarg after dry_run (not immediately after primary_wr_scope) to preserve the existing signature-pin test's convention
+- [Phase ?]: Phase 11-03: hash-history stale-key prune's suppressed-path log fires only for incremental mode, never for the pre-existing time-budget-exceeded-in-full-mode silent skip
+- [Phase ?]: Phase 11-03: seven off-contract/legacy-migration cleanup gates left unmodified and pinned by ScopeDerivationTests rather than re-gated (RESEARCH.md Pitfall 2)
+- [Phase ?]: [Phase 11-04] D-04 Option C shipped: row_state decides regeneration membership via map_affected_to_sheets, a scoped full re-fetch supplies content, group_source_rows/pricing/attribution/excel remain byte-for-byte unmodified
+- [Phase ?]: [Phase 11-04] Every PHASE 2a/2b failure (delta-probe escalation, memory-write exception, empty mapping for a non-empty affected set) falls back to full mode with a non-empty fallback_reason -- scope can only widen, never narrow (T-11-18)
+- [Phase ?]: [Phase 11-04] D-05 approved partial recorded against INC-02: row_state stays membership-only this phase, deferred pending D-04 running clean for >=5 consecutive runs
+- [Phase 11]: [Phase 11-05] Shadow parity D-08 read-side changed-row-id source is a new pipeline_memory.row_event read inside pipeline/parity.py (no schema.sql change, no pipeline_memory/reader.py addition); Tasks 2+3 production code landed in one commit since both share the orchestrate.py hook and combine_verdicts() call
+- [Phase 11]: [Phase 11] [Phase 11-06] Deep-run deletion detection collapses the plan's two guards (zero-row full read, sheet not read in full) into one code path -- pipeline/fetch.py exposes no per-sheet read-success signal outside this plan's declared files_modified, so both are treated as skip+warn (the safe superset)
+- [Phase 11]: [Phase 11] [Phase 11-06] group_state repair for a deletion is observability over the existing post-upload flush, not a second write -- a (wr, week_ending) pair whose last row is deleted produces no repair at all (documented limitation, WINDOWS.md id 2), since group_source_rows never assigns it to a group for the flush to see
+- [Phase ?]: [Phase 11] Task 1 precondition unmet (no real parity_verdict row exists yet); Juan approved code+unit-test work on the same basis already ruled for plans 11-05/11-06 (2026-08-26)
+- [Phase ?]: [Phase 11] 11-07 Task 2 GATE: Juan selected DEFER for the INC-05 retirement -- streak reading was 0/5 (no production_frequent parity_verdict rows exist; RUN_MEMORY_WRITE_ENABLED flip PR unmerged). Plan 11-08 does not execute this phase; INC-05 stays open pending flip PR merge + 5 consecutive scheduled pass verdicts.
 
 ### Roadmap Evolution
 
@@ -331,12 +361,12 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-08-25T23:44:11.126Z
-**Stopped at:** Phase 10 closed via /gsd-verify-work 10 (test 1: SC4 canonicalized-content proof accepted; test 2: group_state attachment-id proof deferred to flag-flip PR). Next: /gsd-plan-phase 11.
+**Last session:** 2026-08-26T22:40:16.545Z
+**Stopped at:** Completed 11-07-PLAN.md (Task 2 DEFERRED by owner decision; INC-05 open; plan 11-08 not executed)
 **Resume file:** None
 
 ## Session Continuity
 
 Last session: 2026-08-26T02:50:00.000Z
-Stopped at: Phase 10 CLOSED (2026-08-25 21:50 CDT): UAT 2/2 (1679829), 10-VERIFICATION.md status passed, COVERAGE.md gate fix (8486113), phase.complete run. Pushed; PR #350 open. Next: Seer PR triage (#343/#346/#347/#348), then /gsd-plan-phase 11.
+Stopped at: Phase 10 MERGED (2026-08-25 23:55 CDT): PR #350 squash-merged as 99dc25d (55 commits incl. the three Greptile fixes 6965f95); local master fast-forwarded to 81d3b46 (docs-changelog + Notion runbook stubs on top); feat/phase-10-run-memory deleted local+remote; post-merge gate 1525 passed / 135 subtests. PR triage resolved 2026-08-26 00:25 CDT: Seer #343/#346/#347/#348 closed, Dependabot #344/#345 merged, Cursor #328/#331/#338 closed; master fb11109; branch feat/phase-11-incremental-read rebased 7982b0f. 44-PR backlog left for a separate triage. Next: /gsd-plan-phase 11.
 Resume file: None

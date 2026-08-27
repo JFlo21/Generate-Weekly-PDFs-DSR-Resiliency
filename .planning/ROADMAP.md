@@ -137,7 +137,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 08. smartsheet-python-sdk 4.0.0 Compatibility Migration | v1.2 | 2/2 | Complete    | 2026-07-22 |
 | 09. Engine Modularization (pipeline package split) | v1.3 | 9/9 | ✅ Complete | 2026-08-25 |
 | 10. Run-Memory Foundation (shadow writes) | v1.4 | 6/6 | ✅ Complete | 2026-08-25 |
-| 11. Incremental Read + Affected-Group Regeneration | v1.4 | 0/? | Draft |  |
+| 11. Incremental Read + Affected-Group Regeneration | v1.4 | 0/8 | In Progress|  |
 | 12. Ownership — last known foreman as of the week | v1.4 | 0/? | Draft |  |
 | 13. Audit Memory | v1.4 | 0/? | Draft |  |
 
@@ -608,6 +608,41 @@ files, reading group rows from `row_state`; the weekly deep run reconciles fully
 
 4. Local JSON caches and the two attachment pre-fetch phases are removed only after (2);
    frequent-run wall clock measured before/after (baseline 94 min, run 32743959053).
+
+**Plans:** 7/8 plans executed
+
+Plans:
+**Wave 1**
+
+- [x] 11-01-PLAN.md — Write-flip preconditions: WR-01 decorated-numeric parse, WR-04 `run_ledger.sheets_changed`, IN-01 flip checklist (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 11-02-PLAN.md — INC-01 delta read (`ifVersionAfter` / `rowsModifiedSince`), the seven D-02 escalation triggers, capture-time watermarks, `run_ledger.mode` visibility (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 11-03-PLAN.md — D-06 preservation gates: `keep_historical` on attachment cleanup, hash-history prune gated on full mode, off-contract gates pinned (wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [x] 11-04-PLAN.md — INC-02 PHASE 2a/2b split, affected-set → sheet mapping, scoped regeneration; D-05 approved partial recorded (wave 4)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [x] 11-05-PLAN.md — INC-04 shadow parity comparator + D-08 shadow delta reads; opens with the `RUN_MEMORY_WRITE_ENABLED` flip gate (wave 5, autonomous:false)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [x] 11-06-PLAN.md — INC-03 weekly deep-run reconciliation: deletions, `column_mapping` refresh, formula-only, `group_state` repair (wave 6)
+
+**Wave 7** *(blocked on Wave 6 completion, and on the ≥5-run parity streak)*
+
+- [x] 11-07-PLAN.md — INC-04 D-09 parity streak scan over `run_ledger` + the blocking decision gate that authorises the INC-05 retirement (wave 7, autonomous:false)
+
+**Wave 8** *(blocked on Wave 7's approved decision; its own PR, never bundled)*
+
+- [ ] 11-08-PLAN.md — INC-05 retirement: local JSON caches, attachment pre-fetch, six workflow cache steps, before/after wall clock, Phase 11 Living Ledger entry (wave 8, autonomous:false)
 
 ### Phase 12: Ownership — last known foreman as of the week
 

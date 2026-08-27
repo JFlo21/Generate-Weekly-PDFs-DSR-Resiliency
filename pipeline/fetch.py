@@ -26,6 +26,7 @@ import datetime
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any
 
 import sentry_sdk
 
@@ -74,11 +75,19 @@ _RATES_FINGERPRINT: str = ''   # rebound inside get_all_source_rows via `global`
 # shadow-write hook (Phase 11 INC-01's ifVersionAfter input) -- it must
 # NEVER be written onto any row dict, so it cannot influence
 # calculate_data_hash() or excel.py's column sampler.
-_LAST_SHEET_VERSIONS: dict[int, int] = {}
+#
+# Value type is `int | None`, not a bare `int` (Phase 11 Plan 02 mypy
+# Gate 4 fix): `getattr(sheet, 'version', None)` legitimately stores
+# `None` when the SDK response carries no usable `.version` attribute --
+# `_fetch_and_process_sheet` (an untyped nested closure, so mypy never
+# checked its body) already did this; `fetch_sheet_delta` is a properly
+# type-annotated top-level function, so mypy correctly caught the same
+# real behavior the loose annotation had been hiding.
+_LAST_SHEET_VERSIONS: dict[int, int | None] = {}
 _LAST_SHEET_VERSIONS_LOCK = threading.Lock()
 
 
-def get_last_sheet_versions() -> dict[int, int]:
+def get_last_sheet_versions() -> dict[int, int | None]:
     """Return a defensive copy of the per-sheet ``Sheet.version`` watermark
     captured during the most recent ``get_all_source_rows()`` call.
 
@@ -107,6 +116,227 @@ def _is_auth_api_error(exc: Exception) -> bool:
         return True
     msg = str(exc)
     return '"statusCode": 401' in msg or '"statusCode": 403' in msg
+
+
+# ── Phase 11 Plan 02 (INC-01): per-sheet delta read primitive ────────────
+# NOT wired into get_all_source_rows()/PHASE 2 by this plan -- PHASE 2 still
+# performs today's full fetch (11-02-PLAN.md <objective>). This is the
+# standalone, directly-testable primitive plan 04 restructures PHASE 2
+# against once resolve_run_mode() has proven itself in shadow (D-08).
+
+def _is_abbreviated_response(sheet: Any) -> bool:
+    """Return True when *sheet* exposes no usable rows.
+
+    Falsy-based (``getattr(..., None)`` truthiness), not an ``is None``
+    check: the abbreviated-response shape was proven only against a
+    serialized dict in ``scripts/mem04_experiment.py``
+    (``"rows" not in raw_response``), never against a live SDK object
+    (11-RESEARCH.md Assumption A1). An absent ``rows`` attribute, a
+    ``None`` value, and an empty list all mean the same thing at this call
+    site -- nothing to process -- so all three are treated identically.
+    """
+    return not getattr(sheet, 'rows', None)
+
+
+def compute_rows_modified_since(
+    last_read_at: 'datetime.datetime | str',
+    safety_window_minutes: int,
+) -> str:
+    """Return the delta-read ``rows_modified_since`` filter value.
+
+    11-CONTEXT.md D-01: the ``SAFETY_WINDOW_MINUTES`` overlap is applied
+    ONLY when building this query filter. ``sheet_registry.last_read_at``
+    itself is always persisted as the capture-time instant with NO
+    subtraction (``pipeline_memory/writer.py::upsert_sheet_registry`` --
+    the design-spec draft's persist-time subtraction is superseded; it
+    would compound the overlap every run with no added safety).
+
+    Accepts either an aware ``datetime.datetime`` (the value the caller
+    just captured this run) or an ISO-8601 string (the value read back
+    from ``sheet_registry.last_read_at`` via
+    ``pipeline_memory.reader.get_sheet_watermarks``) -- always returns an
+    ISO-8601 string.
+    """
+    if isinstance(last_read_at, str):
+        parsed = datetime.datetime.fromisoformat(
+            last_read_at.replace('Z', '+00:00')
+        )
+    else:
+        parsed = last_read_at
+    return (
+        parsed - datetime.timedelta(minutes=safety_window_minutes)
+    ).isoformat()
+
+
+def fetch_sheet_delta(
+    client: Any,
+    source: dict,
+    last_sheet_version: int | None,
+    rows_modified_since: str | None,
+) -> dict:
+    """One sheet's INC-01 delta read: a cheap ``if_version_after`` probe,
+    followed by a ``rows_modified_since`` fetch ONLY when the probe shows
+    the sheet changed. NEVER raises -- returns a small, never-raise,
+    counts-only dict (the same shape discipline as
+    ``pipeline.orchestrate._run_memory_write_phase``'s return value) so a
+    caller can branch without exception handling:
+
+    - ``{"escalate": False, "sheet": None, "version": V, "calls": 1}`` --
+      unchanged: the probe response was abbreviated and carried a usable
+      ``.version``. Zero rows, one API call.
+    - ``{"escalate": False, "sheet": <Sheet>, "version": V, "calls": 2}``
+      -- changed: the probe was NOT abbreviated (something changed), so a
+      second call was issued with ``rows_modified_since``; ``sheet`` is
+      that second call's response (the narrower, actually-useful row
+      set -- the probe response's rows are discarded).
+    - ``{"escalate": True, "reason": "..."}`` -- the probe response was
+      abbreviated but carried no ``.version`` (anomalous, cannot confirm
+      "unchanged"), or the probe/fetch call raised. NEVER "unchanged" for
+      either case (T-11-07 -- a read failure must never be misread as
+      "sheet unchanged"; that would silently drop billing rows).
+    """
+    try:
+        column_mapping = source['column_mapping']
+        required_column_ids = list(column_mapping.values())
+        column_ids_param = ",".join(str(c) for c in required_column_ids)
+
+        with sentry_sdk.start_span(
+            op="smartsheet.api",
+            name=f"Delta-probe sheet {source['name']}",
+        ) as api_span:
+            probe = smartsheet_call_with_retry(
+                client.Sheets.get_sheet,
+                source['id'],
+                if_version_after=last_sheet_version,
+                column_ids=column_ids_param,
+                label=f"delta-probe sheet {source['name']}",
+            )
+            api_span.set_data("sheet_id", source['id'])
+            api_span.set_data("sheet_name", source['name'])
+
+        if _is_abbreviated_response(probe):
+            version = getattr(probe, 'version', None)
+            if version is None:
+                return {
+                    "escalate": True,
+                    "reason": (
+                        "abbreviated response carried no version "
+                        "attribute -- cannot confirm sheet is unchanged"
+                    ),
+                }
+            with _LAST_SHEET_VERSIONS_LOCK:
+                _LAST_SHEET_VERSIONS[source['id']] = version
+            return {
+                "escalate": False,
+                "sheet": None,
+                "version": version,
+                "calls": 1,
+            }
+
+        # Probe was NOT abbreviated -- the sheet changed. The probe's own
+        # rows are discarded; the narrower rows_modified_since fetch is
+        # the actually-useful response.
+        with sentry_sdk.start_span(
+            op="smartsheet.api",
+            name=f"Delta-fetch sheet {source['name']}",
+        ) as api_span:
+            sheet = smartsheet_call_with_retry(
+                client.Sheets.get_sheet,
+                source['id'],
+                rows_modified_since=rows_modified_since,
+                column_ids=column_ids_param,
+                label=f"delta-fetch sheet {source['name']}",
+            )
+            api_span.set_data("sheet_id", source['id'])
+            api_span.set_data("sheet_name", source['name'])
+            api_span.set_data(
+                "row_count", len(sheet.rows) if sheet.rows else 0
+            )
+
+        version = getattr(sheet, 'version', None)
+        with _LAST_SHEET_VERSIONS_LOCK:
+            _LAST_SHEET_VERSIONS[source['id']] = version
+        return {
+            "escalate": False,
+            "sheet": sheet,
+            "version": version,
+            "calls": 2,
+        }
+    except Exception as exc:
+        return {
+            "escalate": True,
+            "reason": f"delta-read probe raised {type(exc).__name__}: {exc}",
+        }
+
+
+def map_delta_sheet_rows(sheet: Any, source: dict) -> list[dict[str, Any]]:
+    """Map one ``fetch_sheet_delta``-returned ``Sheet``'s raw rows to the
+    same ``{mapped_name: value}`` + provenance-key shape
+    ``get_all_source_rows`` produces (Phase 11 Plan 04, D-04 Option C) --
+    WITHOUT that function's business acceptance gate (``Units
+    Completed?`` / non-zero price / CU-no-match / helper-VAC derived
+    fields). ``pipeline_memory._run_memory_write_phase`` /
+    ``_row_to_payload`` read only RAW mapped columns plus
+    ``__source_sheet_id`` / ``__row_id`` / ``__row_modified_at``
+    (``pipeline_memory/writer.py::_row_to_payload`` docstring), so none
+    of that business logic is needed to feed the shadow write.
+
+    Minimal essential-fields gate ONLY: a row is included when it has
+    ANY mapped column AND both ``Work Request #`` and ``Weekly Reference
+    Logged Date`` are present -- the SAME two fields
+    ``group_source_rows`` itself requires before it will emit a group
+    (``pipeline/grouping.py``: "REQUIRE: Work Request # AND ... Weekly
+    Reference Logged Date"). This is a STRICT SUPERSET of the full
+    acceptance gate (which additionally requires ``Units Completed?``
+    and a non-zero price) -- a row PHASE 2b's grouping phase would
+    accept is NEVER excluded here, so the affected set this feeds can
+    only be too WIDE relative to the real pipeline, never too narrow
+    (T-11-18).
+
+    Mirrors the cell-mapping block inside ``get_all_source_rows``'s
+    ``_fetch_and_process_sheet`` closure (reverse column map,
+    ``__sheet_id`` / ``__source_sheet_id`` / ``__row_id`` /
+    ``__row_modified_at`` provenance keys) -- deliberately NOT calling
+    into that closure (it is private, and carries the rate-recalc /
+    helper / VAC-crew business logic this function intentionally skips).
+
+    NEVER raises: an empty/absent ``sheet.rows`` returns ``[]``.
+    """
+    if not getattr(sheet, 'rows', None):
+        return []
+
+    column_mapping = source.get('column_mapping') or {}
+    reverse_column_map = {cid: name for name, cid in column_mapping.items()}
+
+    rows_out: list[dict[str, Any]] = []
+    for row in sheet.rows:
+        row_data: dict[str, Any] = {}
+        for cell in row.cells:
+            mapped_name = reverse_column_map.get(cell.column_id)
+            if mapped_name:
+                raw_val = getattr(cell, 'value', None)
+                if raw_val is None:
+                    raw_val = getattr(cell, 'display_value', None)
+                row_data[mapped_name] = raw_val
+
+        if not row_data:
+            continue
+        if not row_data.get('Work Request #'):
+            continue
+        if not row_data.get('Weekly Reference Logged Date'):
+            continue
+
+        row_data['__sheet_id'] = source['id']
+        row_data['__source_sheet_id'] = source['id']
+        row_data['__row_id'] = row.id
+        _rma = getattr(row, 'modified_at', None)
+        if isinstance(_rma, datetime.datetime):
+            _rma = _rma.isoformat()
+        row_data['__row_modified_at'] = _rma
+
+        rows_out.append(row_data)
+
+    return rows_out
 
 
 def get_all_source_rows(client, source_sheets):

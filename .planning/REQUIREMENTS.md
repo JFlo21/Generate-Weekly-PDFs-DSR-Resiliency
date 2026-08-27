@@ -232,17 +232,34 @@ CU pricing, rate recalculation, and billing formulas do not change.
 
 ### Incremental read + affected-group regeneration (Phase 11)
 
-- [ ] **INC-01**: Frequent runs use `ifVersionAfter` + `rowsModifiedSince` per registered
+- [x] **INC-01**: Frequent runs use `ifVersionAfter` + `rowsModifiedSince` per registered
   sheet; unchanged sheets cost one call and zero rows.
 
 - [ ] **INC-02**: Only (WR, week) groups touched by changed rows (including the previous
   week when a row's week moved) are regrouped, regenerated, and uploaded; rows for those
   groups come from `row_state`, not Smartsheet.
+  > **[2026-08-26] D-05 approved partial (Phase 11 Plan 04):** the `row_state`-sourcing
+  > clause above is deliberately NOT satisfied this phase — `row_state` stays
+  > membership-only. Rationale: `row_state` carries the 16 hash-relevant fields while
+  > `grouping.py` / `excel.py` read dozens more, including derived attribution/pricing
+  > values (`__current_foreman`, `__resolved_price`, `__variant`, `__effective_user`)
+  > the Phase 10 schema deliberately forbids storing resolved; a `row_state`-sourced
+  > content path is the option most likely to silently change billing output for a
+  > group whose Smartsheet data did not change. Instead, Plan 04 ships CONTEXT.md D-04
+  > Option C: `row_state` decides regeneration MEMBERSHIP (the affected `(wr,
+  > week_ending)` set), a scoped FULL Smartsheet re-fetch supplies CONTENT, and
+  > `group_source_rows` / `attribution.py` / `pricing.py` / `excel.py` run unmodified
+  > over that re-fetched content. INC-02 is claimed as satisfied on its "only touched
+  > groups are regrouped, regenerated, uploaded (incl. the moved-week prior pair)"
+  > clause only — the checkbox above stays unticked until phase close. The deferred
+  > alternative (Option B: raw-column schema extension + read-time enrichment) is
+  > gated on this hybrid running clean for ≥5 consecutive `production_frequent` runs
+  > (CONTEXT.md D-05).
 
-- [ ] **INC-03**: The weekly deep run performs a full read + reconciliation (deletions,
+- [x] **INC-03**: The weekly deep run performs a full read + reconciliation (deletions,
   formula-only changes) and refreshes `sheet_registry.column_mapping`.
 
-- [ ] **INC-04**: Behind `RUN_MEMORY_INCREMENTAL_ENABLED` (default OFF) with parity
+- [x] **INC-04**: Behind `RUN_MEMORY_INCREMENTAL_ENABLED` (default OFF) with parity
   proof: incremental output set == full-run output set for ≥5 consecutive scheduled
   runs before the flag defaults ON.
 
@@ -369,10 +386,10 @@ Which phases cover which requirements.
 | MEM-02 | Phase 10 | Complete |
 | MEM-03 | Phase 10 | Complete |
 | MEM-04 | Phase 10 | Complete |
-| INC-01 | Phase 11 | Pending |
+| INC-01 | Phase 11 | Complete |
 | INC-02 | Phase 11 | Pending |
-| INC-03 | Phase 11 | Pending |
-| INC-04 | Phase 11 | Pending |
+| INC-03 | Phase 11 | Complete |
+| INC-04 | Phase 11 | Complete |
 | INC-05 | Phase 11 | Pending |
 | OWN-01 | Phase 12 | Pending |
 | OWN-02 | Phase 12 | Pending |

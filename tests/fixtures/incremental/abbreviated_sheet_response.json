@@ -1,0 +1,7 @@
+{
+  "provenance": "REAL Smartsheet Sheets.get_sheet(if_version_after=..., level=2) response, captured live 2026-08-25T17:38:09.271757+00:00 against the disposable MEM-04 dependent test sheet when its version had not advanced past the baseline. Extracted verbatim from tests/fixtures/mem04/mem04_edit_mapping.json -> scenarios.edit_mapping.probe.polls[0].t2.raw_response (scripts/mem04_experiment.py's T2 probe). Not fabricated -- 11-02-PLAN.md Task 1 requires real provenance when a live capture is available in this environment (11-RESEARCH.md Assumption A1).",
+  "sdk_version": "4.3.0",
+  "raw_response": {
+    "version": 8
+  }
+}

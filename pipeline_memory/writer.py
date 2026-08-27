@@ -288,7 +288,10 @@ def upsert_sheet_registry(
     sheets: list[dict[str, Any]],
     run_id: str,
     kind_resolver: Callable[[Any], str],
-    sheet_versions: dict[Any, int] | None,
+    sheet_versions: dict[Any, int | None] | None,
+    capture_times: dict[Any, str] | None = None,
+    full_read_sheets: set | None = None,
+    column_mapping_sheets: set | None = None,
 ) -> None:
     """Best-effort bulk upsert of ``sheet_registry``. NEVER raises.
 
@@ -305,6 +308,54 @@ def upsert_sheet_registry(
     ``folder_id`` is deliberately OMITTED from the payload -- it is not
     on the discovery return dict and stays a reserved, NULL column this
     phase (10-03-PLAN.md flagged assumption).
+
+    Phase 11 Plan 02 (D-01) -- ``capture_times`` / ``full_read_sheets``:
+    ``last_read_at`` is a CAPTURE-TIME value owned by the CALLER, never
+    computed inside this function when supplied. The
+    ``SAFETY_WINDOW_MINUTES`` subtraction belongs ONLY to the delta-read
+    query filter (``pipeline.fetch.compute_rows_modified_since``) --
+    NEVER to what gets persisted here (11-CONTEXT.md D-01 supersedes
+    ``docs/superpowers/specs/2026-08-24-supabase-run-memory-design.md``
+    section 4's persist-time subtraction, which would compound the
+    overlap every run with no added safety). ``capture_times`` maps
+    sheet id -> the ISO-8601 instant that sheet's caller captured
+    immediately before its read was issued; a sheet absent from the dict
+    falls back to this call's own ``now`` (back-compat: Phase 10's two
+    existing call sites pass neither kwarg, so every sheet gets the SAME
+    freshly-computed ``now``, byte-identical to pre-Plan-02 behavior).
+    ``full_read_sheets`` is the set of sheet ids whose completed read
+    THIS run was a full read; when a sheet id is NOT in that set (a delta
+    read), ``last_full_read_at`` is OMITTED from that sheet's payload
+    entirely -- PostgREST's upsert only touches the columns present in
+    the payload, so the stored value is left exactly as-is, never moved
+    by a delta read. Passing ``full_read_sheets=None`` (the default,
+    matching every existing call site) treats EVERY sheet as a full read,
+    preserving Phase 10's behavior byte-for-byte. ``last_sheet_version``
+    is refreshed from ``sheet_versions`` unconditionally either way -- a
+    delta read's abbreviated OR non-abbreviated response both carry a
+    real ``.version`` value (``pipeline.fetch.fetch_sheet_delta``).
+
+    Phase 11 Plan 06 (D-03) -- ``column_mapping_sheets``: sheet ids
+    whose ``column_mapping`` key should be INCLUDED in this call's
+    payload. ``None`` (the default -- EVERY call site before this plan,
+    byte-for-byte unchanged) includes it for every sheet. When a set is
+    supplied, a sheet id NOT in it has its ``column_mapping`` key
+    OMITTED from the payload entirely -- the same "upsert only touches
+    payload columns" mechanism ``full_read_sheets`` already relies on
+    for ``last_full_read_at``, so that sheet's stored mapping is left
+    untouched (never silently adopted). The weekly deep run
+    (``'weekly_comprehensive'``) is the only caller that refreshes every
+    sheet's mapping (passes ``None``); a frequent run passes the set of
+    sheet ids with NO existing registry row yet, because
+    ``column_mapping`` is ``NOT NULL`` with no default -- a genuinely
+    NEW sheet's first-ever registry row MUST carry a mapping regardless
+    of execution type, or its INSERT half of the upsert fails the whole
+    call with a 23502 (not_null_violation), the same failure class
+    ``run_ledger_finish``'s ``mode`` column already taught this codebase
+    to guard against. An ALREADY-REGISTERED sheet on a frequent run
+    never has its stored mapping touched -- a drifted mapping there is
+    D-02 trigger 2's job to ESCALATE (force a full read of that sheet),
+    never to silently adopt.
 
     Empty input performs ZERO calls, checked before the client/flag
     guards, same as ``upsert_rows_bulk``. Issues exactly ONE table
@@ -331,17 +382,26 @@ def upsert_sheet_registry(
     payload: list[dict[str, Any]] = []
     for sheet in sheets:
         sheet_id = sheet.get("id")
-        payload.append({
+        capture_time = (
+            capture_times.get(sheet_id, now) if capture_times else now
+        )
+        is_full_read = (
+            True if full_read_sheets is None else sheet_id in full_read_sheets
+        )
+        row: dict[str, Any] = {
             "sheet_id": sheet_id,
             "name": sheet.get("name"),
             "kind": kind_resolver(sheet_id),
-            "column_mapping": sheet.get("column_mapping") or {},
             "last_sheet_version": versions.get(sheet_id),
-            "last_read_at": now,
-            "last_full_read_at": now,
+            "last_read_at": capture_time,
             "active": True,
             "updated_at": now,
-        })
+        }
+        if column_mapping_sheets is None or sheet_id in column_mapping_sheets:
+            row["column_mapping"] = sheet.get("column_mapping") or {}
+        if is_full_read:
+            row["last_full_read_at"] = capture_time
+        payload.append(row)
 
     def _invoke():
         return (
@@ -596,6 +656,23 @@ def _row_to_payload(
 
     Blank/absent values normalize to ``None`` (never a placeholder
     string) so a later re-observation can freely replace them.
+
+    WR-01 (10-REVIEW.md, CONFIRMED historical-class defect prevention):
+    ``quantity`` / ``units_total_price`` read ONLY the caller-parsed
+    ``__mem_quantity`` / ``__mem_units_total_price`` row keys -- NEVER
+    the raw ``"Quantity"`` / ``"Units Total Price"`` cell. This module
+    parses nothing (package-boundary contract below); the caller in
+    ``pipeline/orchestrate.py`` pre-parses with the engine's own
+    ``pipeline.pricing._parse_quantity`` / ``parse_price`` and passes
+    the result on these two keys. When a key is absent (e.g. a caller
+    that never pre-parsed), ``.get()`` yields ``None`` -- a clean
+    nullable NUMERIC -- and this function deliberately does NOT fall
+    back to the raw cell: a raw decorated string (``"$1,234.50"``,
+    ``"12 ea"``) is exactly the value that fails the Postgres NUMERIC
+    cast and, under the fail-open contract, silently drops the whole
+    500-row chunk with no error surfaced. Both fields are members of
+    ``HASH_FIELDS`` below, so this contract is also part of
+    ``row_state.content_hash``.
     """
     del run_id  # per-call RPC parameter, not a per-row payload field
 
@@ -619,8 +696,8 @@ def _row_to_payload(
         "cu": cu,
         "pole": pole,
         "work_type": row_data.get("Work Type") or None,
-        "quantity": row_data.get("Quantity"),
-        "units_total_price": row_data.get("Units Total Price"),
+        "quantity": row_data.get("__mem_quantity"),
+        "units_total_price": row_data.get("__mem_units_total_price"),
         "units_completed": _is_checked(row_data.get("Units Completed?")),
         "foreman_observed": row_data.get("Foreman") or None,
         "helper_observed": row_data.get("Foreman Helping?") or None,
@@ -651,14 +728,48 @@ def _parse_affected_set(result: Any) -> set[tuple[Any, Any]]:
     return affected
 
 
-def upsert_rows_bulk(sheet_id: int, run_id: str,
-                      rows: list[dict[str, Any]]) -> set[tuple[Any, Any]]:
-    """Best-effort bulk row upsert for ONE sheet. NEVER raises.
+#: ``upsert_rows_bulk_result`` status vocabulary. ``ok`` / ``noop`` are the
+#: ONLY two statuses under which the returned affected set is the whole
+#: truth about what changed on that sheet this run.
+UPSERT_CONFIRMED_STATUSES: frozenset[str] = frozenset({"ok", "noop"})
 
-    Returns the affected ``(wr, week_ending)`` set from every SUCCESSFUL
-    chunk (an empty set on total failure or a total no-op) -- callers
-    MUST treat an empty return as "no memory update happened this
-    sheet", NEVER as "nothing changed".
+
+def upsert_rows_bulk_result(sheet_id: int, run_id: str,
+                             rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Best-effort bulk row upsert for ONE sheet, reporting WHY the
+    affected set is what it is. NEVER raises.
+
+    Returns a dict::
+
+        {"affected": set[(wr, week_ending)], "status": str,
+         "rows_sent": int, "rows_errored": int, "rows_skipped": int}
+
+    ``status`` is the disambiguator Greptile P1 (PR #351) asked for: an
+    empty ``affected`` set is NOT one thing --
+
+      - ``noop``        -- empty input; nothing to write, nothing changed.
+                           CONFIRMED.
+      - ``ok``          -- every chunk was accepted by the RPC; the
+                           affected set is exactly what changed (an empty
+                           set here genuinely means "nothing changed").
+                           CONFIRMED.
+      - ``unavailable`` -- no Supabase client (secrets absent, kill
+                           switch, construction failure). NOT confirmed.
+      - ``disabled``    -- ``RUN_MEMORY_WRITE_ENABLED`` off at the client
+                           layer. NOT confirmed.
+      - ``failed``      -- rows were present but NONE were recorded
+                           (every chunk failed, or every row lacked a
+                           usable ``__row_id``). NOT confirmed.
+      - ``partial``     -- some chunks were accepted and some failed, or
+                           some rows were skipped for a bad ``__row_id``;
+                           ``affected`` covers ONLY the accepted chunks.
+                           NOT confirmed -- the missing rows' changes are
+                           unknown.
+
+    A caller deciding regeneration scope (``pipeline.orchestrate``'s
+    incremental path) MUST treat every status outside
+    ``UPSERT_CONFIRMED_STATUSES`` as "cannot confirm what changed" and
+    WIDEN scope -- never read the returned set as the whole truth.
 
     Consumes rows ALREADY fetched by the pipeline this run -- never
     issues its own Smartsheet call (10-RESEARCH.md Anti-Pattern:
@@ -679,16 +790,26 @@ def upsert_rows_bulk(sheet_id: int, run_id: str,
     chunk's row count and moves on to the remaining chunks -- one
     aggregate WARNING covers the whole call, never one per chunk.
     """
+    result: dict[str, Any] = {
+        "affected": set(),
+        "status": "noop",
+        "rows_sent": 0,
+        "rows_errored": 0,
+        "rows_skipped": 0,
+    }
     if not rows:
-        return set()
+        return result
 
     client = get_client()
     if client is None:
-        return set()
+        result["status"] = "unavailable"
+        return result
     if not _client_write_enabled():
-        return set()
+        result["status"] = "disabled"
+        return result
 
     payloads: list[dict[str, Any]] = []
+    skipped_rows = 0
     for row in rows:
         payload = _row_to_payload(
             row,
@@ -698,11 +819,16 @@ def upsert_rows_bulk(sheet_id: int, run_id: str,
         )
         if payload is None:
             _bump_counter("rows_skipped_bad_row_id")
+            skipped_rows += 1
             continue
         payloads.append(payload)
+    result["rows_skipped"] = skipped_rows
 
     if not payloads:
-        return set()
+        # Rows were present but not one could be recorded -- that is a
+        # failure to confirm, not "nothing changed".
+        result["status"] = "failed"
+        return result
 
     chunks = [
         payloads[i:i + _CHUNK_ROWS]
@@ -711,6 +837,7 @@ def upsert_rows_bulk(sheet_id: int, run_id: str,
 
     affected: set[tuple[Any, Any]] = set()
     errored_rows = 0
+    failed_chunks = 0
     for chunk in chunks:
         def _invoke(_p=chunk):
             return (
@@ -726,11 +853,12 @@ def upsert_rows_bulk(sheet_id: int, run_id: str,
                 .execute()
             )
 
-        result = with_retry(_invoke, op="upsert_rows_bulk")
-        if result is None:
+        rpc_result = with_retry(_invoke, op="upsert_rows_bulk")
+        if rpc_result is None:
             errored_rows += len(chunk)
+            failed_chunks += 1
             continue
-        affected |= _parse_affected_set(result)
+        affected |= _parse_affected_set(rpc_result)
 
     _bump_counter_by("rows_upsert_sent", len(payloads))
     _bump_counter_by("rows_upsert_changed", len(affected))
@@ -741,4 +869,127 @@ def upsert_rows_bulk(sheet_id: int, run_id: str,
             f"{len(payloads)} row(s) failed to upsert for sheet "
             f"{sheet_id} (across {len(chunks)} chunk(s))."
         )
-    return affected
+
+    result["affected"] = affected
+    result["rows_sent"] = len(payloads)
+    result["rows_errored"] = errored_rows
+    if failed_chunks == len(chunks):
+        result["status"] = "failed"
+    elif failed_chunks or skipped_rows:
+        result["status"] = "partial"
+    else:
+        result["status"] = "ok"
+    return result
+
+
+def upsert_rows_bulk(sheet_id: int, run_id: str,
+                      rows: list[dict[str, Any]]) -> set[tuple[Any, Any]]:
+    """Set-returning wrapper over ``upsert_rows_bulk_result``. NEVER raises.
+
+    Returns the affected ``(wr, week_ending)`` set from every SUCCESSFUL
+    chunk (an empty set on total failure or a total no-op) -- callers
+    MUST treat an empty return as "no memory update happened this
+    sheet", NEVER as "nothing changed". A caller that needs to tell the
+    two apart (anything that scopes regeneration) MUST call
+    ``upsert_rows_bulk_result`` and check ``status`` instead.
+    """
+    return upsert_rows_bulk_result(sheet_id, run_id, rows)["affected"]
+
+
+# ── row_state deletion reconciliation (Phase 11 Plan 06, INC-03) ───────────
+
+def mark_rows_deleted(
+    sheet_id: Any, row_ids: Any, run_id: str,
+) -> dict[str, Any]:
+    """Mark *row_ids* on *sheet_id* deleted (``row_state.deleted_at``).
+    NEVER raises. The weekly deep run's writer half of the deletion
+    diff (Phase 11 Plan 06, INC-03, CONTEXT.md D-03) -- lifts the
+    Phase 10 ``COVERAGE.md`` line-33 OPT-OUT on this column.
+
+    ``row_ids`` is the set of row ids the caller has already determined
+    are present in stored ``row_state`` (``get_row_state_row_ids``) and
+    absent from THIS run's own full read -- this function does no
+    diffing of its own, it only writes.
+
+    UPDATEs ``row_state`` setting ``deleted_at`` to this call's own
+    timestamp, filtered to *sheet_id*, the given *row_ids* (bound via
+    the client's typed ``.in_()`` builder, never string interpolation),
+    AND ``deleted_at IS NULL`` -- a row already carrying a
+    ``deleted_at`` is never rewritten (idempotent across deep runs; the
+    original deletion timestamp is preserved). Chunked at
+    ``_CHUNK_ROWS`` with the SAME discipline ``upsert_rows_bulk``
+    applies to its bulk payload. ``run_id`` is accepted for call-site
+    symmetry with the other writer entry points (mirrors
+    ``upsert_sheet_registry``'s ``run_id`` parameter) but is not
+    persisted -- ``row_state`` has no "deleted by run" column.
+
+    Returns ``{"count": int, "affected_pairs": set[tuple[Any, Any]]}``:
+    ``count`` is the number of rows THIS call actually confirmed
+    deleted (0 on any failure or a genuinely empty/falsy input --
+    "returns a zero count" so the caller's next deep run retries the
+    same rows); ``affected_pairs`` is the ``(wr, week_ending)`` union of
+    every row this call marked, read back from the UPDATE's own
+    response rows (PostgREST returns full row representation for an
+    ``.update()`` by default) -- the caller uses this to scope its
+    ``group_state`` repair without a second read. A chunk that fails
+    contributes NOTHING to either the count or the pairs -- a partial
+    per-chunk failure never fabricates a pair for a row that was not
+    actually confirmed deleted.
+    """
+    empty_result: dict[str, Any] = {"count": 0, "affected_pairs": set()}
+    if not row_ids:
+        return empty_result
+
+    ids = sorted({rid for rid in row_ids if rid is not None}, key=str)
+    if not ids:
+        return empty_result
+
+    client = get_client()
+    if client is None:
+        return empty_result
+    if not _client_write_enabled():
+        return empty_result
+
+    ts = _utcnow_iso()
+    chunks = [
+        ids[i:i + _CHUNK_ROWS] for i in range(0, len(ids), _CHUNK_ROWS)
+    ]
+
+    total_count = 0
+    affected_pairs: set[tuple[Any, Any]] = set()
+    any_chunk_failed = False
+    for chunk in chunks:
+        def _invoke(_chunk=chunk):
+            return (
+                client.schema("pipeline_memory")
+                .table("row_state")
+                .update({"deleted_at": ts})
+                .eq("sheet_id", sheet_id)
+                .in_("row_id", list(_chunk))
+                .is_("deleted_at", "null")
+                .execute()
+            )
+
+        result = with_retry(_invoke, op="row_state_mark_deleted")
+        if result is None:
+            any_chunk_failed = True
+            continue
+
+        rows = getattr(result, "data", None) or []
+        for row in rows:
+            if isinstance(row, dict):
+                total_count += 1
+                affected_pairs.add((row.get("wr"), row.get("week_ending")))
+
+    if total_count:
+        _bump_counter_by("rows_marked_deleted", total_count)
+    if any_chunk_failed:
+        _bump_counter("rows_mark_deleted_errored")
+        logging.warning(
+            f"⚠️ pipeline_memory mark_rows_deleted: one or more chunks "
+            f"failed for sheet {sheet_id}; {total_count} row(s) "
+            "confirmed deleted this call -- remaining rows left "
+            "unmarked for the next deep run to retry."
+        )
+
+    return {"count": total_count, "affected_pairs": affected_pairs}
