@@ -16,6 +16,7 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — August 27, 2026
 
+- ✅ Problem fixed: compare against the uploaded set; RUN&#95;MEMORY&#95;SHADOW&#95;MAX&#95;MINUTES 10 -&gt; 25
 - ✅ Problem fixed: build pipeline&#95;memory client with SyncClientOptions (post-flip AttributeError)
 - • ops: enable RUN&#95;MEMORY&#95;WRITE&#95;ENABLED in weekly run
 - ✅ Problem fixed: guard deletions, parity evidence, lost-identity rows ( review)
@@ -23,7 +24,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - ✨ New capability: Phase 10 — Supabase run-memory foundation (shadow writes, flag OFF)
-- ✅ Problem fixed: close Phase 09 gap G-09-MOD-06 (Gate 4 fail-capable, Gate 6 offline)
 
 <!-- /runbook-repo -->
 
