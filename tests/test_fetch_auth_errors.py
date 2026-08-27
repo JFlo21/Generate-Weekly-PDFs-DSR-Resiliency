@@ -142,5 +142,90 @@ class TestGetAllSourceRowsAuthFailure(unittest.TestCase):
         )
 
 
+class _RowsThatRaiseMidway:
+    """Iterable standing in for ``Sheet.rows``: yields one row, then
+    raises -- the shape of a mid-sheet processing failure that leaves
+    ``_fetch_and_process_sheet`` with a PARTIAL ``sheet_rows`` list."""
+
+    def __init__(self, first_row):
+        self._first_row = first_row
+
+    def __len__(self):
+        return 2
+
+    def __iter__(self):
+        yield self._first_row
+        raise RuntimeError("row processing exploded midway")
+
+
+class TestGetAllSourceRowsFailedSheetSignal(unittest.TestCase):
+    """Greptile P1 on PR #353: a sheet whose full read did not complete
+    cleanly must be reported via ``get_last_full_read_failed_sheet_ids``
+    so the weekly deep run's deletion reconciliation never treats a
+    partial live row-id set as a complete read."""
+
+    SOURCES = [
+        {'id': 111, 'name': 'Sheet A', 'column_mapping': {'Work Request #': 1}},
+        {'id': 222, 'name': 'Sheet B', 'column_mapping': {'Work Request #': 1}},
+    ]
+
+    def test_mid_sheet_exception_records_failed_sheet_id(self):
+        def _per_sheet(_fn, sheet_id, **_kwargs):
+            sheet = mock.Mock()
+            sheet.version = 7
+            if sheet_id == 111:
+                first_row = mock.Mock(id=1, modified_at=None, cells=[])
+                sheet.rows = _RowsThatRaiseMidway(first_row)
+            else:
+                sheet.rows = []
+            return sheet
+
+        with mock.patch.object(
+            fetch, 'smartsheet_call_with_retry', side_effect=_per_sheet,
+        ):
+            fetch.get_all_source_rows(mock.Mock(), self.SOURCES)
+
+        self.assertEqual(fetch.get_last_full_read_failed_sheet_ids(), {111})
+
+    def test_sheet_access_exception_records_failed_sheet_id(self):
+        def _per_sheet(_fn, sheet_id, **_kwargs):
+            if sheet_id == 222:
+                raise Exception("server exploded")
+            sheet = mock.Mock()
+            sheet.version = 7
+            sheet.rows = []
+            return sheet
+
+        with mock.patch.object(
+            fetch, 'smartsheet_call_with_retry', side_effect=_per_sheet,
+        ):
+            fetch.get_all_source_rows(mock.Mock(), self.SOURCES)
+
+        self.assertEqual(fetch.get_last_full_read_failed_sheet_ids(), {222})
+
+    def test_clean_read_resets_failed_sheet_ids_between_calls(self):
+        def _boom(_fn, sheet_id, **_kwargs):
+            raise Exception("server exploded")
+
+        def _clean(_fn, sheet_id, **_kwargs):
+            sheet = mock.Mock()
+            sheet.version = 7
+            sheet.rows = []
+            return sheet
+
+        with mock.patch.object(
+            fetch, 'smartsheet_call_with_retry', side_effect=_boom,
+        ):
+            fetch.get_all_source_rows(mock.Mock(), self.SOURCES)
+        self.assertEqual(
+            fetch.get_last_full_read_failed_sheet_ids(), {111, 222},
+        )
+        with mock.patch.object(
+            fetch, 'smartsheet_call_with_retry', side_effect=_clean,
+        ):
+            fetch.get_all_source_rows(mock.Mock(), self.SOURCES)
+        self.assertEqual(fetch.get_last_full_read_failed_sheet_ids(), set())
+
+
 if __name__ == '__main__':
     unittest.main()
