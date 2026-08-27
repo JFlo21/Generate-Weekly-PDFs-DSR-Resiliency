@@ -5,6 +5,12 @@ const sidebars: SidebarsConfig = {
     'intro',
     {
       type: 'category',
+      label: 'Learn',
+      collapsed: false,
+      items: ['learn/for-operators', 'learn/for-engineers'],
+    },
+    {
+      type: 'category',
       label: 'Runbook',
       collapsed: false,
       items: [
