@@ -1,15 +1,48 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-26 17:42 CDT · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-26 23:40 CDT · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
 _Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-26 18:10]` (Phase 11 plan 11-01 —
 WR-01 decorated-numeric caller-parses contract on the `pipeline_memory` write path). `pipeline_memory` schema is LIVE on Supabase
 `poeyztlmsawfoqlanucc` (service_role-only; write path OFF in production — the flag flip is a
-separate operator-gated PR cut from Phase 11 plan 01). Phase 11 EXECUTING — **7/8 plans done** (waves 1–7, HEAD `1eab3db`); **11-08 INC-05 retirement DEFERRED by owner** at the 11-07 Task 2 gate (streak 0/5 — no scheduled run has written a `parity_verdict`). **PRs OPEN, NOT merged (Juan merges): #351** `feat/phase-11-incremental-read` → master (plans 01–07, flags OFF) and **#352** `ops/run-memory-write-flip` stacked on #351 (one env line `RUN_MEMORY_WRITE_ENABLED: '1'` on the `Generate reports` step + checklist corrections). Merge order: #351 → retarget/merge #352 after checklist items 2–4 → ≥5 scheduled `pass` verdicts → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
+separate operator-gated PR cut from Phase 11 plan 01). Phase 11 EXECUTING — **7/8 plans done** (waves 1–7, HEAD `1eab3db`); **11-08 INC-05 retirement DEFERRED by owner** at the 11-07 Task 2 gate (streak 0/5 — no scheduled run has written a `parity_verdict`). **#351 MERGED** (squash `82ce830`; plans 01–07 + the Greptile P1 fix, flags OFF — production unchanged). **Two PRs OPEN (Juan merges, in this order): #354** `fix/deep-run-partial-reads-parity-evidence` (the #353 review fixes: partial reads never trigger deletions, empty evidence never passes parity, identity-lost delta rows regenerate their prior group; 47 tests; suite 1752) → **#353** `ops/run-memory-write-flip` `379ca5a` (the D-10 flip: one env line on `Generate reports` + checklist + runbook entry/sections). #352 auto-closed (superseded). No new secrets needed. Then: first scheduled run → checklist item 6 SQL + items 2–3 (owner's choice: pre-merge dispatch or two scheduled runs) → ≥5 `pass` verdicts → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-08-26 18:50 CDT) — Greptile P1 on #351 FIXED: unconfirmed memory write can no longer masquerade as "nothing changed"
+## Latest work (2026-08-26 23:40 CDT) — #353 review findings resolved: code fixes in #354, docs on #353; both PRs mergeable, nothing merged
+- **Findings (all valid):** Greptile P1 ×3 (partial reads → false deletions in the deep-run
+  reconciliation; empty `row_event` evidence → vacuous parity `pass`; missing runbook changelog),
+  Codex P1 ×2 (memory-write ambiguity — already fixed in `66ce083`; delta rows that LOSE their
+  WR/date dropped before the upsert → prior group never regenerates), Copilot ×3 (stale
+  stacked-branch wording, "both blocks" rollback, unmet pre-merge gate). Cursor's Medium-High
+  was against the pre-rebase 49-file diff. Azure DevOps mirror check fails on `master` too —
+  pre-existing.
+- **#354 (code, TDD, verified):** `fetch.get_last_full_read_failed_sheet_ids()` + reconciliation
+  skip (`sheets_skipped_failed_read`) + `_resolved_mode == 'full'` gate; `get_changed_row_ids_by_sheet`
+  → `None` on failure, `run_shadow_delta_reads` `skipped` for none/empty/unprobed evidence,
+  `pass` needs `rows_asserted > 0`; `map_delta_sheet_rows(dropped_row_ids=)` +
+  `reader.get_row_state_pairs_for_rows` + PHASE 2a union / `trigger_prior_identity_lookup_failed`.
+  RED→GREEN; suite **1752 passed / 1 skipped / 141 subtests**; `run_6_gates.sh` ALL PASSED; haiku-verifier
+  PASS 6/6; boundary + protected paths clean.
+- **#353 (docs, `379ca5a`):** blog post `website/blog/2026-08-27-run-memory-write-flip.md`,
+  Operations runbook section + rollback row, Environment reference Phase 11 section, checklist
+  corrections (requires #354 first). `npm ci && npm run typecheck && npm run build` green. All
+  review threads answered (disposition comment + 4 thread replies).
+- **Local:** on `fix/deep-run-partial-reads-parity-evidence`; `website/node_modules` + `build/`
+  now present (ignored). Uncommitted, untouched by design: `generated_docs/hash_history.json`.
+
+## Previous (2026-08-26 21:30 CDT) — #351 MERGED; flip PR rebased as #353 (2 files, mergeable); local on `master`
+- #351 squash-merged as `82ce830` and its branch deleted → GitHub auto-closed the stacked #352
+  (`CONFLICTING`). Parked `generated_docs/hash_history.json`, rebased the single flip commit
+  `435958a` → `2675aa5` onto `origin/master` (`7b4239c`), force-pushed with lease, opened **#353**
+  (`master` base, diff = workflow + checklist only, flag resolves to `'1'` on `Generate reports`
+  only, YAML validated). Local checkout switched to `master` (= origin); stale local branches
+  `feat/phase-11-incremental-read` / `ops/run-memory-write-flip` left for Juan to prune.
+- Verified on `master`: `RUN_MEMORY_WRITE_ENABLED` absent from the workflow (code default `'0'`),
+  `upsert_rows_bulk_result` + `trigger_memory_write_unconfirmed` present. Repo secrets present:
+  `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SMARTSHEET_API_TOKEN`, `SENTRY_DSN` — nothing to add.
+
+## Previous (2026-08-26 18:50 CDT) — Greptile P1 on #351 FIXED: unconfirmed memory write can no longer masquerade as "nothing changed"
 - **Defect (Greptile P1, `pipeline/orchestrate.py` PHASE 2a):** `upsert_rows_bulk` returned an empty
   set for six reasons (empty input, no client, writes disabled, all row-ids bad, every chunk failed,
   genuinely nothing changed) and a *partial* chunk failure returned a silent subset; the incremental

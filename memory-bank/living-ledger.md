@@ -7016,3 +7016,46 @@ follow-up findings closed, same 6 files.
   scope, but every existing PHASE 2a failure already resolves to full with a named
   `fallback_reason`, and one consistent fail-closed path is easier to audit than two.
   Revisit only if unconfirmed writes turn out to be frequent enough to matter for wall clock.
+
+## [2026-08-26 23:40] PR #353 review findings fixed in #354 — partial reads, parity evidence, identity-lost rows; flip PR carries the runbook entry
+
+- **Context:** #351 squash-merged (`82ce830`), which deleted its branch and auto-closed the
+  stacked flip PR #352; the single flip commit was rebased onto `master` as **#353**
+  (`2675aa5` → docs `379ca5a`). Reviewers on #353 raised three code defects in the
+  flag-gated Phase 11 paths; they are fixed in **#354** (`904d115` tests, `fc06575` fix),
+  kept out of the flip so `RUN_MEMORY_WRITE_ENABLED` stays a one-line revert. Merge order:
+  #354 → #353.
+- **RULE — a non-empty live row set is not proof of a complete read (Greptile P1):**
+  `pipeline.fetch.get_all_source_rows` returns whatever rows a sheet yielded before a
+  mid-sheet exception, so the deep-run deletion diff must never trust presence alone.
+  `fetch.get_last_full_read_failed_sheet_ids()` (reset per call; mid-sheet, sheet-access
+  and worker failures) is passed to `_reconcile_deep_run_deletions`, which skips those
+  sheets (`sheets_skipped_failed_read`); the call is also gated on
+  `_resolved_mode == 'full'` because PHASE 2b's narrowed rows would look like a mass
+  deletion.
+- **RULE — a parity `pass` needs evidence (Greptile P1):** `get_changed_row_ids_by_sheet`
+  returns `None` when the `row_event` lookup cannot confirm (distinct from `{}` = zero
+  changed rows). `run_shadow_delta_reads` reports `skipped` for `None` (no probes), for zero
+  rows to assert (probes still exercised so the watermark path is proven), and for a changed
+  sheet the probe never reached; `pass` requires `rows_asserted > 0`. Every outcome carries
+  `rows_asserted` / `changed_sheets_unprobed`. Consequence: a quiet run is `skipped`, which
+  neither counts toward nor resets the D-09 streak.
+- **RULE — a modified row that LOST its identity still regenerates its prior group (Codex
+  P1):** `map_delta_sheet_rows(..., dropped_row_ids=)` reports rows with a blank WR # /
+  week date / all cells cleared; `pipeline_memory.reader.get_row_state_pairs_for_rows`
+  resolves their stored `(wr, week_ending)` (bound `.in_()`, chunked, `deleted_at is
+  null`, `None` = cannot confirm); PHASE 2a unions the pairs into the affected set or
+  falls back to full (`trigger_prior_identity_lookup_failed`). Residual: a sheet routed to
+  a *full* read inside incremental mode still drops such rows via the acceptance gate —
+  the Monday reconciliation repairs those groups within the week.
+- **Docs (Greptile P1 runbook, Copilot ×3) on #353:** synthesized changelog post
+  `website/blog/2026-08-27-run-memory-write-flip.md`; Operations runbook section (flag
+  table, symptom→action, confirmation SQL, rollback); Environment reference Phase 11 section
+  (all `RUN_MEMORY_*` + `SAFETY_WINDOW_MINUTES` defaults); checklist item 1 corrected
+  (rebased, requires #354), rollback names the single block, items 2–3 record the owner's
+  pre-merge-dispatch vs post-merge-observation choice. `npm run build` green.
+- **Noted, not this PR:** the Azure DevOps mirror check fails on `master` HEAD too
+  (build #20260827.2) — pre-existing. Incremental mode stores delta rows under the wider
+  WR+date gate while the deep run's live set uses the full acceptance gate, so
+  non-accepted rows will be marked deleted weekly and re-added — churn, not a billing
+  defect; worth tightening before the incremental flip.
