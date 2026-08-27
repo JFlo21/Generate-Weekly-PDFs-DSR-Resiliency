@@ -1,15 +1,49 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-26 23:40 CDT · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-27 11:58 CDT · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
-_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-26 18:10]` (Phase 11 plan 11-01 —
-WR-01 decorated-numeric caller-parses contract on the `pipeline_memory` write path). `pipeline_memory` schema is LIVE on Supabase
-`poeyztlmsawfoqlanucc` (service_role-only; write path OFF in production — the flag flip is a
-separate operator-gated PR cut from Phase 11 plan 01). Phase 11 EXECUTING — **7/8 plans done** (waves 1–7, HEAD `1eab3db`); **11-08 INC-05 retirement DEFERRED by owner** at the 11-07 Task 2 gate (streak 0/5 — no scheduled run has written a `parity_verdict`). **#351 MERGED** (squash `82ce830`; plans 01–07 + the Greptile P1 fix, flags OFF — production unchanged). **Two PRs OPEN (Juan merges, in this order): #354** `fix/deep-run-partial-reads-parity-evidence` (the #353 review fixes: partial reads never trigger deletions, empty evidence never passes parity, identity-lost delta rows regenerate their prior group; 47 tests; suite 1752) → **#353** `ops/run-memory-write-flip` `379ca5a` (the D-10 flip: one env line on `Generate reports` + checklist + runbook entry/sections). #352 auto-closed (superseded). No new secrets needed. Then: first scheduled run → checklist item 6 SQL + items 2–3 (owner's choice: pre-merge dispatch or two scheduled runs) → ≥5 `pass` verdicts → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
+_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-27 11:51]` (first post-flip run wrote NO run
+memory — `pipeline_memory` client init raised AttributeError on supabase-py sync options; fix on PR #356).
+`pipeline_memory` schema is LIVE on Supabase `poeyztlmsawfoqlanucc` (service_role-only). **Write path ON in
+production** since #353 (`673f7b2`, `RUN_MEMORY_WRITE_ENABLED: '1'` on the `Generate reports` step only);
+`RUN_MEMORY_INCREMENTAL_ENABLED` stays OFF. **Merged:** #351 (`82ce830`, plans 01–07), #354 (`46b64ac`,
+review fixes), #353 (the flip). **OPEN (Juan merges): #356** `fix/pipeline-memory-sync-client-options`
+(SyncClientOptions + bare-client fallback + real-SDK test + changelog post — until it merges every run
+logs `client init failed` and writes nothing) and **#355** (docs: `sheets_errored` column fix, handoff,
+PreCompact hook). Phase 11 EXECUTING — **7/8 plans done**; **11-08 INC-05 retirement DEFERRED by owner**
+(streak 0/5 — no scheduled run has yet written a `parity_verdict`; the clock starts with the first
+`production_frequent` run after #356). Then: checklist item 6 SQL + items 2–3 → ≥5 `pass` verdicts →
+re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-08-26 23:40 CDT) — #353 review findings resolved: code fixes in #354, docs on #353; both PRs mergeable, nothing merged
+## Latest work (2026-08-27 11:58 CDT) — post-flip run wrote NO run memory (supabase-py AttributeError); fix on PR #356, awaiting merge
+- **Merged since last entry:** #354 (`46b64ac`, review fixes), #353 (`673f7b2`, the flip —
+  `RUN_MEMORY_WRITE_ENABLED: '1'` on the `Generate reports` step only). #355 (docs: `sheets_errored`
+  column fix, handoff, PreCompact hook script) still OPEN.
+- **Incident:** first run carrying the flip (manual dispatch 33090659647, success on billing) logged
+  `⚠️ Supabase client init failed … (AttributeError)` → 0 sheets written / 113 errored /
+  `confirmed=False` / parity skipped / no `run_ledger` row. `billing_audit`'s own client worked.
+  Root cause reproduced locally on `supabase==2.31.0`: WR-02 passed the base `ClientOptions` to the
+  sync `create_client`, which needs `SyncClientOptions` (`.storage`). Mocked tests never ran the
+  real constructor.
+- **Fix — PR #356** (`fix/pipeline-memory-sync-client-options`, `1c23980`): `SyncClientOptions`
+  first with fallbacks; bare-client retry if the SDK rejects options; warnings carry `Type: message`;
+  real-SDK construction regression test + fallback test; runbook symptom row; ledger
+  `[2026-08-27 11:51]`. Greptile P2 (missing changelog) fixed in `f37c0ee`: synthesized post
+  `website/blog/2026-08-27-pipeline-memory-client-init-fix.md`; all repo checks green, only the
+  pre-existing Azure mirror check red. Suite **1754 passed / 1 skipped / 141 subtests**; `npm run build` green.
+- **Scheduler:** cron recovered on its own — scheduled run 33094866957 queued 16:45Z (GitHub-side
+  outage this morning, not the repo). It runs unfixed `master`, so expect the same warning once more.
+- **Session config:** `.claude/settings.local.json` `autoCompactWindow: 500000` + PreCompact
+  `precompact-vault-log.js` (vault `[2026-08-27e]` proves it fires). Local checkout is on the #356
+  branch; `generated_docs/hash_history.json` is the owner's dirty file — never sweep it.
+- **Next:** Juan merges #356 → first scheduled `production_frequent` run must show `0 errored …
+  confirmed=True` + a `run_ledger` row (item-6 SQL in `docs/run-memory-write-flip-checklist.md`) →
+  five `pass` verdicts → re-open the 11-07 decision → resume Phase 11 at 11-08. Residual: supabase-py
+  deprecates `timeout`; next SDK bump moves it to `httpx_client`.
+
+## Previous (2026-08-26 23:40 CDT) — #353 review findings resolved: code fixes in #354, docs on #353; both PRs mergeable, nothing merged
 - **Findings (all valid):** Greptile P1 ×3 (partial reads → false deletions in the deep-run
   reconciliation; empty `row_event` evidence → vacuous parity `pass`; missing runbook changelog),
   Codex P1 ×2 (memory-write ambiguity — already fixed in `66ce083`; delta rows that LOSE their

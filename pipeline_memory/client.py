@@ -176,13 +176,27 @@ def _rpc_timeout_sec() -> int:
 
 
 def _client_options(timeout_sec: int) -> Any:
-    """Build ClientOptions carrying the PostgREST timeout, or None.
+    """Build the sync client options carrying the PostgREST timeout.
 
-    Returns None when the installed ``supabase`` package predates
-    ``ClientOptions.postgrest_client_timeout`` -- the caller then falls
-    back to ``create_client(url, key)`` so an SDK drift can never turn the
-    fail-open shadow path into an import-time failure.
+    Prefers ``SyncClientOptions``: since supabase-py 2.x the sync
+    ``create_client`` reads ``options.storage`` / ``options.httpx_client``,
+    which only the sync/async subclasses define -- passing the base
+    ``ClientOptions`` raises ``AttributeError: 'ClientOptions' object has
+    no attribute 'storage'`` inside the SDK (first production run after
+    the ``RUN_MEMORY_WRITE_ENABLED`` flip, 2026-08-27, run 33090659647:
+    0 sheets written, 113 errored, parity skipped). Falls back to the
+    base class for older SDKs that predate the split, and returns None
+    when neither exists -- the caller then uses ``create_client(url, key)``
+    so an SDK drift can never turn the fail-open shadow path into an
+    import-time failure.
     """
+    try:
+        from supabase.lib.client_options import (  # type: ignore
+            SyncClientOptions,
+        )
+        return SyncClientOptions(postgrest_client_timeout=timeout_sec)
+    except Exception:
+        pass
     try:
         from supabase.lib.client_options import ClientOptions  # type: ignore
         return ClientOptions(postgrest_client_timeout=timeout_sec)
@@ -242,23 +256,44 @@ def get_client() -> Any:
         _client_cache = None
         return None
 
-    try:
-        timeout_sec = _rpc_timeout_sec()
-        options = _client_options(timeout_sec)
-        if options is not None:
+    timeout_sec = _rpc_timeout_sec()
+    options = _client_options(timeout_sec)
+    if options is not None:
+        try:
             _client_cache = create_client(url, key, options=options)
-        else:
-            _client_cache = create_client(url, key)
+            return _client_cache
+        except Exception as exc:
+            # The options object is the only thing we control here; if
+            # the SDK rejects it, degrade to an unbounded-timeout client
+            # rather than losing the whole run's memory (fail-open, but
+            # loudly -- the message names the exception so the next
+            # operator can diagnose it from the job log alone).
+            logging.warning(
+                "⚠️ Supabase client init with options failed "
+                f"({type(exc).__name__}: {exc}); retrying without the "
+                f"{timeout_sec}s PostgREST timeout"
+            )
+            _sentry_breadcrumb(
+                "pipeline_memory",
+                "Supabase client init with options failed; retrying bare",
+                level="warning",
+                data={"error_type": type(exc).__name__,
+                      "error": str(exc)[:200]},
+            )
+
+    try:
+        _client_cache = create_client(url, key)
     except Exception as exc:
         logging.warning(
             "⚠️ Supabase client init failed; pipeline_memory writes "
-            f"disabled ({type(exc).__name__})"
+            f"disabled ({type(exc).__name__}: {exc})"
         )
         _sentry_breadcrumb(
             "pipeline_memory",
             "Supabase client init failed",
             level="warning",
-            data={"error_type": type(exc).__name__},
+            data={"error_type": type(exc).__name__,
+                  "error": str(exc)[:200]},
         )
         _client_cache = None
 
