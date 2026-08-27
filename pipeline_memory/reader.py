@@ -493,3 +493,87 @@ def get_parity_streak(limit: int = _PARITY_STREAK_DEFAULT_LIMIT) -> dict | None:
         "stopped_run_id": stopped_run_id,
         "stopped_verdict": stopped_verdict,
     }
+
+
+# ── row_state prior-identity lookup (Codex P1, PR #353) ─────────────────
+
+def get_row_state_pairs_for_rows(sheet_id: Any, row_ids: Any) -> set | None:
+    """Return the stored, non-deleted ``(wr, week_ending)`` pairs for
+    *row_ids* on *sheet_id* -- the PRIOR identity of delta-read rows that
+    no longer carry a ``Work Request #`` / ``Weekly Reference Logged
+    Date`` and therefore could not be upserted this run.
+
+    ``pipeline.orchestrate._run_phase2_incremental`` unions the result
+    into the affected set so the old group (and its attachment)
+    regenerates in the same run the row lost its identity, instead of
+    waiting for the Monday deep run's deletion reconciliation.
+
+    Bound ``.in_()`` parameterisation over the row-id list, chunked at
+    ``_MAPPING_CHUNK_SIZE`` ids per query (same discipline as
+    ``map_affected_to_sheets``); ``op="row_state_pairs_for_rows"``.
+
+    Returns:
+      - ``set()`` on empty input (zero calls);
+      - a set of ``(wr, week_ending_iso_or_None)`` tuples on success
+        (``week_ending`` is the DATE column as PostgREST serialises it,
+        matching ``pipeline_memory.writer._parse_affected_set``'s shape);
+      - ``None`` on a ``None`` client, ANY chunk's transport/breaker
+        failure, or a ``None`` response payload -- "cannot confirm".
+        A partial union is discarded (same reasoning as
+        ``map_affected_to_sheets``' mid-chunk discard).
+
+    CALLER CONTRACT: ``None`` means "cannot confirm the prior identity";
+    the incremental path must widen to a full read, never treat it as
+    "no prior group". An empty set from a successful query is a genuine
+    "these rows were never stored" answer.
+    """
+    ids = [rid for rid in (row_ids or ()) if rid is not None]
+    if not ids:
+        return set()
+
+    client = get_client()
+    if client is None:
+        return None
+
+    pairs: set = set()
+    chunks = [
+        ids[i:i + _MAPPING_CHUNK_SIZE]
+        for i in range(0, len(ids), _MAPPING_CHUNK_SIZE)
+    ]
+    for chunk in chunks:
+        def _invoke(_ids=chunk):
+            return (
+                client.schema("pipeline_memory")
+                .table("row_state")
+                .select("wr,week_ending")
+                .eq("sheet_id", sheet_id)
+                .in_("row_id", list(_ids))
+                .is_("deleted_at", "null")
+                .execute()
+            )
+
+        result = with_retry(_invoke, op="row_state_pairs_for_rows")
+        if result is None:
+            logging.warning(
+                "get_row_state_pairs_for_rows: sheet %s chunk failed "
+                "(transport or circuit-breaker failure) -- discarding the "
+                'partial union and returning None; caller must treat this '
+                'as "cannot confirm", never as "no prior group"',
+                sheet_id,
+            )
+            return None
+        rows = getattr(result, "data", None)
+        if rows is None:
+            logging.warning(
+                "get_row_state_pairs_for_rows: sheet %s chunk returned a "
+                "None response payload -- returning None", sheet_id,
+            )
+            return None
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            wr = row.get("wr")
+            if wr is None:
+                continue
+            pairs.add((wr, row.get("week_ending")))
+    return pairs

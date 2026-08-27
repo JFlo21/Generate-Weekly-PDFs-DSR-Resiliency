@@ -231,6 +231,8 @@ def _skipped_read_result(start: datetime.datetime, reason: str) -> dict[str, Any
         "sheets_probed": 0,
         "sheets_abandoned": 0,
         "rows_seen": 0,
+        "rows_asserted": 0,
+        "changed_sheets_unprobed": 0,
         "read_mismatches": [],
         "elapsed_seconds": _elapsed(start),
     }
@@ -281,20 +283,40 @@ def run_shadow_delta_reads(
     ``read_mismatches`` (first 10 ``{"sheet_id", "row_id"}`` entries for a
     changed row absent from the delta read), ``elapsed_seconds``.
 
-    ``pass`` requires ``sheets_probed > 0`` -- zero sheets successfully
-    probed (every sheet escalated, timed out, or raised) is ``skipped``,
-    never ``pass``. A sheet that was never probed (abandoned, escalated,
-    or raised) contributes NOTHING to ``read_mismatches`` for its changed
-    rows -- absence of proof is not proof of absence; that sheet is
-    reported as not compared, not as compared-and-clean.
+    ``pass`` requires EVIDENCE (Greptile P1, PR #353): at least one
+    changed row was asserted (``rows_asserted > 0``) against a sheet
+    that was actually probed, every sheet carrying changed rows was
+    probed, and no changed row was missing from its delta read.
+      - ``changed_row_ids_by_sheet is None`` -- the ``row_event`` lookup
+        could not confirm what changed (transport failure, no client,
+        ``None`` payload): ``skipped`` (``row_event_lookup_failed``),
+        ZERO probes issued.
+      - an empty evidence set (nothing to assert): the probes still run
+        so the watermark / escalation path is exercised, but the verdict
+        is ``skipped`` (``zero_changed_rows_to_assert``), never ``pass``.
+      - a sheet carrying changed rows that was never probed (abandoned,
+        escalated, raised): ``skipped`` (``changed_sheet_not_probed``)
+        unless a probed sheet already produced a mismatch (``fail``
+        dominates). Absence of proof is not proof of absence.
+      - zero sheets successfully probed: ``skipped`` (``zero_sheets_
+        probed``).
+    ``rows_asserted`` / ``changed_sheets_unprobed`` are reported on
+    every outcome so a ``pass`` is auditable.
     """
     start = datetime.datetime.now()
-    changed_row_ids_by_sheet = changed_row_ids_by_sheet or {}
     watermarks = watermarks or {}
 
     try:
         if not source_sheets:
             return _skipped_read_result(start, "no_source_sheets")
+
+        if changed_row_ids_by_sheet is None:
+            return _skipped_read_result(
+                start,
+                "row_event_lookup_failed: the changed-row evidence could "
+                "not be read (cannot confirm what changed this run); no "
+                "probe issued",
+            )
 
         if time_budget_minutes and github_actions_mode:
             elapsed_min = (
@@ -378,53 +400,83 @@ def run_shadow_delta_reads(
         finally:
             executor.shutdown(wait=False, cancel_futures=True)
 
+        # Evidence accounting (Greptile P1, PR #353): count what was
+        # actually asserted, and which changed sheets the probes never
+        # reached, so the verdict below can never be a vacuous 'pass'.
+        read_mismatches: list[dict[str, Any]] = []
+        rows_asserted = 0
+        changed_sheets_unprobed = 0
+        changed_total = 0
+        for sid, changed_ids in changed_row_ids_by_sheet.items():
+            changed_ids = set(changed_ids or ())
+            if not changed_ids:
+                continue
+            changed_total += len(changed_ids)
+            if sid not in seen_row_ids_by_sheet:
+                # Never probed / abandoned / escalated this pass -- we
+                # cannot assert anything about it. Counted, never read
+                # as clean.
+                changed_sheets_unprobed += 1
+                continue
+            rows_asserted += len(changed_ids)
+            missing = changed_ids - seen_row_ids_by_sheet[sid]
+            for row_id in sorted(missing, key=str):
+                if len(read_mismatches) >= 10:
+                    break
+                read_mismatches.append({"sheet_id": sid, "row_id": row_id})
+
+        base = {
+            "sheets_probed": sheets_probed,
+            "sheets_abandoned": sheets_abandoned,
+            "rows_seen": rows_seen,
+            "rows_asserted": rows_asserted,
+            "changed_sheets_unprobed": changed_sheets_unprobed,
+            "read_mismatches": read_mismatches,
+            "elapsed_seconds": _elapsed(start),
+        }
+
         if sheets_probed == 0:
             return {
+                **base,
                 "read_verdict": "skipped",
                 "reason": (
                     "zero_sheets_probed: every sheet was abandoned or "
                     "escalated"
                 ),
-                "sheets_probed": 0,
-                "sheets_abandoned": sheets_abandoned,
-                "rows_seen": 0,
-                "read_mismatches": [],
-                "elapsed_seconds": _elapsed(start),
             }
-
-        read_mismatches: list[dict[str, Any]] = []
-        for sid, changed_ids in changed_row_ids_by_sheet.items():
-            if sid not in seen_row_ids_by_sheet:
-                # Never probed / abandoned / escalated this pass -- we
-                # cannot assert anything about it. Skip rather than
-                # fabricate either a mismatch or a clean bill.
-                continue
-            missing = (changed_ids or set()) - seen_row_ids_by_sheet[sid]
-            for row_id in sorted(missing, key=str):
-                read_mismatches.append({"sheet_id": sid, "row_id": row_id})
-                if len(read_mismatches) >= 10:
-                    break
-
-        elapsed = _elapsed(start)
         if read_mismatches:
             return {
+                **base,
                 "read_verdict": "fail",
                 "reason": "changed_row_absent_from_delta_read",
-                "sheets_probed": sheets_probed,
-                "sheets_abandoned": sheets_abandoned,
-                "rows_seen": rows_seen,
-                "read_mismatches": read_mismatches,
-                "elapsed_seconds": elapsed,
             }
-        return {
-            "read_verdict": "pass",
-            "reason": None,
-            "sheets_probed": sheets_probed,
-            "sheets_abandoned": sheets_abandoned,
-            "rows_seen": rows_seen,
-            "read_mismatches": [],
-            "elapsed_seconds": elapsed,
-        }
+        if changed_total == 0:
+            return {
+                **base,
+                "read_verdict": "skipped",
+                "reason": (
+                    "zero_changed_rows_to_assert: this run recorded no "
+                    "changed rows, so the delta read had nothing to prove"
+                ),
+            }
+        if changed_sheets_unprobed:
+            return {
+                **base,
+                "read_verdict": "skipped",
+                "reason": (
+                    f"changed_sheet_not_probed: {changed_sheets_unprobed} "
+                    "sheet(s) carrying changed rows were abandoned or "
+                    "escalated this pass (absence of proof is not proof of "
+                    "absence)"
+                ),
+            }
+        if rows_asserted == 0:  # defensive: unreachable given the above
+            return {
+                **base,
+                "read_verdict": "skipped",
+                "reason": "zero_changed_rows_to_assert: no row was asserted",
+            }
+        return {**base, "read_verdict": "pass", "reason": None}
     except Exception as exc:
         logger.warning(
             "run_shadow_delta_reads failed unexpectedly (non-fatal): %s",
@@ -435,7 +487,7 @@ def run_shadow_delta_reads(
         )
 
 
-def get_changed_row_ids_by_sheet(run_id: str) -> dict[Any, set[Any]]:
+def get_changed_row_ids_by_sheet(run_id: str) -> dict[Any, set[Any]] | None:
     """Best-effort, fail-open read of ``pipeline_memory.row_event`` for
     *run_id*, grouped by ``sheet_id``.
 
@@ -443,17 +495,21 @@ def get_changed_row_ids_by_sheet(run_id: str) -> dict[Any, set[Any]]:
     every row this run's ``upsert_rows_bulk`` recorded a change for
     (``row_event.run_id == run_id``, one row per changed row this run --
     schema.sql's ``upsert_rows_bulk`` RPC inserts a ``row_event`` row on
-    every insert/update it performs). NEVER raises. Returns ``{}`` on a
-    ``None`` client, any transport/breaker failure, or a missing/empty
-    response -- the SAME "cannot confirm" contract every other
-    ``pipeline_memory`` read follows (``pipeline_memory/reader.py``
-    module docstring). The caller (the shadow hook in
-    ``pipeline.orchestrate``) MUST treat an empty return as "nothing to
-    assert" rather than "nothing changed" -- an empty ``changed_row_ids_
-    by_sheet`` simply means ``run_shadow_delta_reads`` finds zero
-    mismatches by construction, which is why the group-side verdict
-    (``compare_shadow_parity``) is never itself gated on this read
-    succeeding.
+    every insert/update it performs). NEVER raises.
+
+    Two DISTINCT empty outcomes (Greptile P1, PR #353 -- they used to
+    collapse into one ``{}`` and let the read side report a vacuous
+    ``pass``):
+      - ``None`` -- cannot confirm what changed: ``None`` client, any
+        transport/breaker failure, a ``None`` response payload, or an
+        unexpected exception. ``run_shadow_delta_reads`` reports
+        ``skipped`` (``row_event_lookup_failed``) and issues no probe.
+      - ``{}`` -- the query succeeded and found ZERO changed rows for
+        this run. ``run_shadow_delta_reads`` still exercises the probes
+        but reports ``skipped`` (``zero_changed_rows_to_assert``) --
+        nothing asserted is not a ``pass``.
+    The group-side verdict (``compare_shadow_parity``) is never itself
+    gated on this read succeeding.
 
     Reuses ``pipeline_memory.client``'s ``get_client()`` / ``with_retry()``
     -- the SAME independent circuit breaker / kill-switch instance every
@@ -465,7 +521,7 @@ def get_changed_row_ids_by_sheet(run_id: str) -> dict[Any, set[Any]]:
 
         client = _mem_client.get_client()
         if client is None:
-            return {}
+            return None
 
         def _invoke():
             return (
@@ -480,9 +536,11 @@ def get_changed_row_ids_by_sheet(run_id: str) -> dict[Any, set[Any]]:
             _invoke, op="parity_shadow_row_event_read",
         )
         if result is None:
-            return {}
+            return None
 
         rows = getattr(result, "data", None)
+        if rows is None:
+            return None
         if not rows:
             return {}
 
@@ -502,4 +560,4 @@ def get_changed_row_ids_by_sheet(run_id: str) -> dict[Any, set[Any]]:
             "%s",
             type(exc).__name__,
         )
-        return {}
+        return None

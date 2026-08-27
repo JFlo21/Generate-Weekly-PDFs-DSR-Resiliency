@@ -99,6 +99,31 @@ def get_last_sheet_versions() -> dict[int, int | None]:
         return dict(_LAST_SHEET_VERSIONS)
 
 
+# Greptile P1 (PR #353): sheet ids whose full read did NOT complete cleanly
+# during the most recent ``get_all_source_rows()`` call -- a sheet-access
+# failure, a mid-sheet row-processing exception (which leaves a PARTIAL
+# ``sheet_rows`` list that is still merged), or a worker failure. The
+# weekly deep run's deletion reconciliation reads this so a partial live
+# row-id set is never mistaken for a complete read.
+_LAST_FULL_READ_FAILED_SHEET_IDS: set = set()
+_LAST_FULL_READ_FAILED_LOCK = threading.Lock()
+
+
+def get_last_full_read_failed_sheet_ids() -> set:
+    """Return a defensive copy of the sheet ids whose read failed or was
+    only partially processed during the most recent
+    ``get_all_source_rows()`` call.
+
+    Empty before the first call this run and reset at the start of every
+    call. CALLER CONTRACT: a sheet in this set may still have contributed
+    rows to that call's return value (rows processed before the
+    exception), so its presence in the merged rows is NOT evidence of a
+    complete read.
+    """
+    with _LAST_FULL_READ_FAILED_LOCK:
+        return set(_LAST_FULL_READ_FAILED_SHEET_IDS)
+
+
 def _is_auth_api_error(exc: Exception) -> bool:
     """Return True when *exc* is a Smartsheet ApiError carrying an HTTP
     401/403 status (revoked/expired API token or removed sheet sharing).
@@ -269,7 +294,9 @@ def fetch_sheet_delta(
         }
 
 
-def map_delta_sheet_rows(sheet: Any, source: dict) -> list[dict[str, Any]]:
+def map_delta_sheet_rows(
+    sheet: Any, source: dict, dropped_row_ids: set | None = None,
+) -> list[dict[str, Any]]:
     """Map one ``fetch_sheet_delta``-returned ``Sheet``'s raw rows to the
     same ``{mapped_name: value}`` + provenance-key shape
     ``get_all_source_rows`` produces (Phase 11 Plan 04, D-04 Option C) --
@@ -319,11 +346,20 @@ def map_delta_sheet_rows(sheet: Any, source: dict) -> list[dict[str, Any]]:
                     raw_val = getattr(cell, 'display_value', None)
                 row_data[mapped_name] = raw_val
 
-        if not row_data:
-            continue
-        if not row_data.get('Work Request #'):
-            continue
-        if not row_data.get('Weekly Reference Logged Date'):
+        # Codex P1 (PR #353): a MODIFIED row that no longer carries its
+        # identity (blank Work Request # / Weekly Reference Logged Date,
+        # or every mapped cell cleared) is still a change the delta read
+        # surfaced -- its PRIOR (wr, week_ending) group must regenerate.
+        # It cannot be upserted (row_state.wr is NOT NULL), so report its
+        # row id to the caller, which looks the stored identity up in
+        # row_state and widens the affected set with it.
+        if (
+            not row_data
+            or not row_data.get('Work Request #')
+            or not row_data.get('Weekly Reference Logged Date')
+        ):
+            if dropped_row_ids is not None:
+                dropped_row_ids.add(row.id)
             continue
 
         row_data['__sheet_id'] = source['id']
@@ -384,6 +420,12 @@ def get_all_source_rows(client, source_sheets):
     # atomic under the GIL, so the worker threads below can share this
     # accumulator without extra locking.
     auth_error_sheet_ids = []
+    # Greptile P1 (PR #353): every sheet whose read did not complete
+    # cleanly (auth or not, whole-sheet or mid-sheet). Same GIL-atomic
+    # list.append sharing as auth_error_sheet_ids above.
+    failed_sheet_ids = []
+    with _LAST_FULL_READ_FAILED_LOCK:
+        _LAST_FULL_READ_FAILED_SHEET_IDS.clear()
     global_row_counter = 0
     original_rates = load_contract_rates(OLD_RATES_CSV)
     # Load new rate versions if rate cutoff is configured
@@ -1095,6 +1137,11 @@ def get_all_source_rows(client, source_sheets):
                         )
 
             except Exception as e:
+                # Mid-sheet failure: sheet_rows may hold a PARTIAL set of
+                # rows processed before this point -- they are still
+                # returned/merged (legacy contract), so record the sheet
+                # as not-fully-read for the deep-run reconciliation.
+                failed_sheet_ids.append(source.get('id'))
                 if _is_auth_api_error(e):
                     auth_error_sheet_ids.append(source.get('id'))
                     logging.warning(f"Error processing sheet {source['id']}: {e}")
@@ -1115,6 +1162,7 @@ def get_all_source_rows(client, source_sheets):
                     )
             
         except Exception as e:
+            failed_sheet_ids.append(source.get('id'))
             if _is_auth_api_error(e):
                 auth_error_sheet_ids.append(source.get('id'))
                 logging.warning(f"Could not process Sheet ID {source.get('id', 'N/A')}: {e}")
@@ -1158,7 +1206,22 @@ def get_all_source_rows(client, source_sheets):
                 global_row_counter += sheet_rc
                 logging.info(f"   📋 [{i}/{len(futures)}] Fetched {sheet_exc['accepted']} rows from {source.get('name', 'unknown')} ({sheet_rc} total processed)")
             except Exception as e:
+                failed_sheet_ids.append(source.get('id'))
                 logging.error(f"   ⚠️ [{i}/{len(futures)}] Sheet worker failed for {source.get('name', 'unknown')}: {e}")
+    # Greptile P1 (PR #353): publish the not-fully-read sheet set for this
+    # call (consumed by the deep-run deletion reconciliation via
+    # get_last_full_read_failed_sheet_ids()).
+    with _LAST_FULL_READ_FAILED_LOCK:
+        _LAST_FULL_READ_FAILED_SHEET_IDS.clear()
+        _LAST_FULL_READ_FAILED_SHEET_IDS.update(
+            sid for sid in failed_sheet_ids if sid is not None
+        )
+    if failed_sheet_ids:
+        logging.warning(
+            f"⚠️ {len(set(failed_sheet_ids))} source sheet(s) did not read "
+            "cleanly this call (partial or failed) -- excluded from any "
+            "deletion reconciliation this run."
+        )
     _fetch_elapsed = (datetime.datetime.now() - _fetch_start).total_seconds()
     logging.info(f"⚡ Data fetch complete: {len(merged_rows)} valid rows in {_fetch_elapsed:.1f}s (parallel w/{PARALLEL_WORKERS} workers)")
     
