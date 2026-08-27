@@ -4,10 +4,18 @@ _Last updated: 2026-08-27 11:58 CDT · **overwrite-in-place each session** (this
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
-_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-27 11:51]` (Phase 11 plan 11-01 —
-WR-01 decorated-numeric caller-parses contract on the `pipeline_memory` write path). `pipeline_memory` schema is LIVE on Supabase
-`poeyztlmsawfoqlanucc` (service_role-only; write path OFF in production — the flag flip is a
-separate operator-gated PR cut from Phase 11 plan 01). Phase 11 EXECUTING — **7/8 plans done** (waves 1–7, HEAD `1eab3db`); **11-08 INC-05 retirement DEFERRED by owner** at the 11-07 Task 2 gate (streak 0/5 — no scheduled run has written a `parity_verdict`). **#351 MERGED** (squash `82ce830`; plans 01–07 + the Greptile P1 fix, flags OFF — production unchanged). **Two PRs OPEN (Juan merges, in this order): #354** `fix/deep-run-partial-reads-parity-evidence` (the #353 review fixes: partial reads never trigger deletions, empty evidence never passes parity, identity-lost delta rows regenerate their prior group; 47 tests; suite 1752) → **#353** `ops/run-memory-write-flip` `379ca5a` (the D-10 flip: one env line on `Generate reports` + checklist + runbook entry/sections). #352 auto-closed (superseded). No new secrets needed. Then: first scheduled run → checklist item 6 SQL + items 2–3 (owner's choice: pre-merge dispatch or two scheduled runs) → ≥5 `pass` verdicts → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
+_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-27 11:51]` (first post-flip run wrote NO run
+memory — `pipeline_memory` client init raised AttributeError on supabase-py sync options; fix on PR #356).
+`pipeline_memory` schema is LIVE on Supabase `poeyztlmsawfoqlanucc` (service_role-only). **Write path ON in
+production** since #353 (`673f7b2`, `RUN_MEMORY_WRITE_ENABLED: '1'` on the `Generate reports` step only);
+`RUN_MEMORY_INCREMENTAL_ENABLED` stays OFF. **Merged:** #351 (`82ce830`, plans 01–07), #354 (`46b64ac`,
+review fixes), #353 (the flip). **OPEN (Juan merges): #356** `fix/pipeline-memory-sync-client-options`
+(SyncClientOptions + bare-client fallback + real-SDK test + changelog post — until it merges every run
+logs `client init failed` and writes nothing) and **#355** (docs: `sheets_errored` column fix, handoff,
+PreCompact hook). Phase 11 EXECUTING — **7/8 plans done**; **11-08 INC-05 retirement DEFERRED by owner**
+(streak 0/5 — no scheduled run has yet written a `parity_verdict`; the clock starts with the first
+`production_frequent` run after #356). Then: checklist item 6 SQL + items 2–3 → ≥5 `pass` verdicts →
+re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
 ## Latest work (2026-08-27 11:58 CDT) — post-flip run wrote NO run memory (supabase-py AttributeError); fix on PR #356, awaiting merge
 - **Merged since last entry:** #354 (`46b64ac`, review fixes), #353 (`673f7b2`, the flip —

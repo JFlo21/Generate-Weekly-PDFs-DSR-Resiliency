@@ -2048,10 +2048,14 @@ class RpcTimeoutWiringTests(unittest.TestCase):
         the real SDK to build a client from our options with fake
         credentials (construction makes no network call)."""
         try:
-            from supabase import create_client
-            from supabase.lib.client_options import SyncClientOptions
-        except Exception as exc:  # pragma: no cover - SDK absent locally
-            self.skipTest(f"supabase SDK not importable: {exc}")
+            import supabase  # noqa: F401
+        except ImportError as exc:  # pragma: no cover - SDK absent locally
+            self.skipTest(f"supabase SDK not installed: {exc}")
+        # Deliberately OUTSIDE the skip guard: if a future SDK removes or
+        # relocates SyncClientOptions / create_client, that is the drift
+        # this test exists to catch -- it must fail, not skip.
+        from supabase import create_client
+        from supabase.lib.client_options import SyncClientOptions
         options = self.mem_client._client_options(45)
         self.assertIsInstance(options, SyncClientOptions)
         self.assertEqual(options.postgrest_client_timeout, 45)
