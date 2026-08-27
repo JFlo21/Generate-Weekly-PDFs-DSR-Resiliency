@@ -33,16 +33,20 @@ edits it without explicit approval.
      **CLOSED** (`b48efd7`, secure-phase T-10-04).
    - [ ] WR-03 (failure-path `run_ledger_finish(status="failed")`) —
      already **CLOSED** (`6965f95` / PR #350).
-   - [x] All four fixes are present on the branch this flip PR is cut
-     from (`ops/run-memory-write-flip`, stacked on
-     `feat/phase-11-incremental-read`, PR #351) —
-     `git log --oneline | grep -E '4323cec|7ffa57a|99dc25d'` shows WR-01,
-     WR-04 and the Phase 10 squash-merge `99dc25d` (PR #350). WR-02
-     `b48efd7` and WR-03 `6965f95` only exist as SHAs on
-     `origin/feat/phase-10-run-memory`; on `master` they arrived inside
-     `99dc25d` — verified by content (`pipeline_memory/client.py`
-     `_rpc_timeout_sec` / `RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC`;
-     `pipeline/orchestrate.py` failure-path `status="failed"`).
+   - [x] All four fixes are on `master`, which this flip PR
+     (`ops/run-memory-write-flip`, PR #353) is cut from: #351 squash-
+     merged as `82ce830` (carries WR-01 `4323cec` and WR-04 `7ffa57a`),
+     and the Phase 10 squash-merge `99dc25d` (PR #350) carries WR-02
+     `b48efd7` and WR-03 `6965f95` — those two SHAs only exist on
+     `origin/feat/phase-10-run-memory`; on `master` verify by content
+     (`pipeline_memory/client.py` `_rpc_timeout_sec` /
+     `RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC`; `pipeline/orchestrate.py`
+     failure-path `status="failed"`).
+   - [ ] The #353 review fixes are merged (PR #354: partial reads never
+     trigger deletions, empty evidence never passes parity, identity-
+     lost delta rows still regenerate their prior group). Merge #354
+     BEFORE this flip PR — the deep-run reconciliation and the parity
+     evidence this flip turns on depend on them.
 
 2. **IN-01 — upload-enabled control run.** `upsert_group_state`'s
    attachment-preservation COALESCE (`pipeline_memory/writer.py`) has
@@ -51,6 +55,15 @@ edits it without explicit approval.
    branch that preserves a previously-stored `attachment_id` instead of
    nulling it has no live proof. This is why it is a checklist item and
    not a unit test: it is genuinely untestable under `SKIP_UPLOAD`.
+
+   **Owner's choice — pre-merge dispatch or post-merge observation.**
+   Any upload-enabled run exercises the COALESCE, and nothing in
+   production reads `group_state.attachment_id` until the INC-05
+   retirement (plan 11-08, deferred). So items 2 and 3 may instead be
+   read off the first two scheduled `production_frequent` runs after
+   this PR merges (run N uploads and stores the ids; run N+1 skips the
+   unchanged groups and must preserve them). If the proof fails, the
+   rollback is the single env line. Record which path was taken.
    - [ ] Run the pipeline locally or via `workflow_dispatch` with
      `SKIP_UPLOAD` **unset** (uploads enabled) against a low-activity
      window (weekend or late evening), scoped with `WR_FILTER` /
@@ -112,9 +125,12 @@ edits it without explicit approval.
      same Supabase secrets `billing_audit` already uses) — done on
      `ops/run-memory-write-flip`.
    - **Rollback:** revert that one line (delete it, or set it to `'0'`)
-     in both blocks. No other code change is required to disable the
-     write path — every call site is fail-open and self-gates on this
-     flag plus `TEST_MODE`.
+     in the `Generate reports` block — there is no second block to
+     touch. No other code change is required to disable the write path
+     — every call site is fail-open and self-gates on this flag plus
+     `TEST_MODE`. Rows already written to `pipeline_memory` stay and are
+     harmless (nothing in production reads them until the incremental
+     flag flips).
 
 6. **Post-flip confirmation.** After the PR merges and the next
    scheduled `production_frequent` run completes:

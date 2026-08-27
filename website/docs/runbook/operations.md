@@ -174,3 +174,68 @@ than ~26 weeks self-heals on the next natural edit; no action needed.
 | Revert E activation | Set `SUPABASE_HASH_STORE_AUTHORITATIVE: '0'` in the workflow (mirrors the `46cd05d` mitigation). Token-named filenames resume; the `group_content_hash` store continues shadow-writing. |
 | Disable remediation | Leave `REMEDIATE_CLAIMERS: '0'` (workflow default). No garbage attachments are deleted. |
 | Revert bulk-prefetch wiring | Set `BILLING_AUDIT_AVAILABLE=false` to disable all attribution; pipeline falls back to current-foreman for all variants. |
+| Turn off run-memory writes (Phase 11) | Delete the `RUN_MEMORY_WRITE_ENABLED: '1'` line from the `Generate reports` step (or set it to `'0'`). No code change; rows already in `pipeline_memory` are harmless. See the section below. |
+
+## Run-memory writes and the incremental-read rollout (Phase 11)
+
+**Owned by:** Python billing pipeline (`generate_weekly_pdfs.py` →
+`pipeline/orchestrate.py`, on the GitHub Actions weekly workflow). The
+Supabase project is the same one `billing_audit` uses; the `portal-v2`
+web app is not involved.
+
+Phase 11 teaches the pipeline to remember what it read. Every scheduled
+run writes a Supabase `pipeline_memory` ledger — one `run_ledger` row per
+run, a per-sheet `sheet_registry` watermark, and the observed `row_state`
+/ `group_state` for every accepted billing row and generated group — so a
+future run can read only the rows that changed. That future behaviour is
+rolled out in two separately gated steps:
+
+| Flag | Where | State | What it turns on |
+|---|---|---|---|
+| `RUN_MEMORY_WRITE_ENABLED` | `Generate reports` step env | **`'1'` since PR #353** | The memory writes above, the in-process shadow-parity comparator (`parity_verdict` in `run_ledger.notes`), and the Monday deep run's deletion reconciliation. Excel generation, uploads and cleanup are unchanged. |
+| `RUN_MEMORY_INCREMENTAL_ENABLED` | not set (code default `'0'`) | **OFF** | The incremental read itself (delta reads + regenerating only affected groups). Do not set it until the five-run parity streak is recorded and the 11-07 decision is re-opened (`docs/run-memory-write-flip-checklist.md`). |
+
+### What you will see on a normal run
+
+- A `🧭 Run-memory mode resolved: full` line, then `⚡ Run-memory row
+  writes: N sheet(s) written, 0 errored … confirmed=True`.
+- A shadow-parity line and a `parity_verdict` of `pass`, `fail` or
+  `skipped` in that run's `run_ledger.notes`. `skipped` on a quiet run
+  (nothing changed, nothing to compare) is normal and does not count
+  toward or against the streak.
+- On Monday's `weekly_comprehensive` run only: a `🗑️ Deep-run
+  reconciliation` line when rows deleted in Smartsheet were marked
+  `deleted_at`.
+
+### What needs attention
+
+| Symptom | Meaning | Action |
+|---|---|---|
+| `mem_sheets_errored > 0` / `mem_confirmed=false` in `run_ledger.notes`, or `⚠️ pipeline_memory …` warnings | Supabase was unreachable or a write was partial. The run still completes — the path is fail-open — but that run's memory is incomplete and its parity verdict is `skipped`. | Check Supabase status / the service-role secret. No billing impact; the next run rewrites. |
+| Sentry error `parity fail` (message carries counts, group keys and the run id) | The incremental selector would have regenerated a different set of groups than the full run did. **Blocking defect for the rollout, inert for the run** — nothing was generated differently. | Do not flip `RUN_MEMORY_INCREMENTAL_ENABLED`. Read `parity_details` in `run_ledger.notes` and open an issue. |
+| `⏩ Skipping run-memory row writes` / `Skipping shadow parity check` | The session budget guard fired (`RUN_MEMORY_WRITE_MAX_MINUTES` / `RUN_MEMORY_SHADOW_MAX_MINUTES` + headroom). | Expected on a slow run; investigate only if it repeats. |
+| `Deep-run reconciliation skipped sheet …: failed/partial full read` | A sheet did not read cleanly, so its stored rows were left untouched rather than risk a false deletion. | Nothing; the next Monday run retries. |
+
+### Confirming the flip (first scheduled run after #353)
+
+```sql
+select run_id, status, finished_at, sheets_changed, sheets_errored,
+       notes->>'execution_type' as exec, notes->>'parity_verdict' as parity,
+       notes->>'mem_confirmed' as confirmed
+from pipeline_memory.run_ledger order by started_at desc limit 3;
+```
+
+Pass = `status='success'`, `sheets_changed` populated, `sheets_errored=0`,
+`confirmed=true`, a `parity` value present. The streak that authorises the
+incremental read is derived on demand by
+`pipeline_memory.reader.get_parity_streak()` — five consecutive `pass`
+verdicts on `production_frequent` runs with no intervening `fail`.
+
+### Rollback
+
+Delete the `RUN_MEMORY_WRITE_ENABLED: '1'` line from the `Generate
+reports` step (or set it to `'0'`). Every call site is fail-open and
+self-gates on this flag plus `TEST_MODE`, so no code change is needed.
+Data already written to `pipeline_memory` stays and is harmless. Full
+operator checklist: `docs/run-memory-write-flip-checklist.md` in the
+repository.

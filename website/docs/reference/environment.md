@@ -730,6 +730,67 @@ suppresses `_AEPBillable` generation entirely.
 it must NOT be re-used as the AEP-billable cutoff. `AEP_BILLABLE_CUTOFF` is the
 Phase 1 successor with explicit subcontractor-variant scope.
 
+## Phase 11 — Supabase run memory and the incremental read
+
+*(Added 2026-08-27 — Phase 10 shadow-write foundation + Phase 11 incremental
+read. Write path enabled in production by PR #353; read path still OFF.)*
+
+The pipeline records what it read in a Supabase `pipeline_memory` schema
+(`run_ledger`, `sheet_registry`, `row_state`, `row_event`, `group_state`) so
+a later run can read only the rows that changed and regenerate only the
+touched Work Request / week groups. Two flags gate the rollout
+independently; every call site is fail-open (a Supabase outage never fails
+a run) and self-gates on `TEST_MODE`. Truthy values everywhere: `1`,
+`true`, `yes`, `on`. Operator procedure and symptom table:
+[Operations → Run-memory writes](../runbook/operations.md).
+
+### `RUN_MEMORY_WRITE_ENABLED`
+
+**Default:** `0`. **Pinned to `1`** in the `Generate reports` step by PR #353.
+
+Turns on the memory writes, the in-process shadow-parity comparator
+(`parity_verdict` / `parity_details` / `mem_confirmed` in
+`run_ledger.notes`), and the Monday `weekly_comprehensive` run's deletion
+reconciliation + `column_mapping` refresh. Does **not** change what is
+generated, uploaded or cleaned. Rollback: delete the line or set `0` — no
+code change; rows already written are harmless.
+
+### `RUN_MEMORY_INCREMENTAL_ENABLED`
+
+**Default:** `0` (OFF). **Not set in the workflow.**
+
+Turns on the incremental read (per-sheet `ifVersionAfter` /
+`rowsModifiedSince` delta reads, then a scoped re-fetch and regeneration of
+only the affected groups). Requires `RUN_MEMORY_WRITE_ENABLED`. Do not set
+it until five consecutive scheduled runs record `parity_verdict = pass`
+(`pipeline_memory.reader.get_parity_streak()`) and the Phase 11 plan 07
+decision is re-opened — see `docs/run-memory-write-flip-checklist.md`. Any
+run whose memory write cannot be confirmed, whose delta probe escalates, or
+whose stored identities cannot be resolved falls back to today's full read
+(`run_ledger.notes.fallback_reason` names why).
+
+### `SAFETY_WINDOW_MINUTES`
+
+**Default:** `15`. Overlap subtracted from `sheet_registry.last_read_at`
+when building the `rowsModifiedSince` delta filter, so a row edited during
+the previous read is never missed. Applied only to the query, never to the
+stored watermark.
+
+### Sub-budgets
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `RUN_MEMORY_WRITE_MAX_MINUTES` | `10` | Phase sub-budget for the per-sheet memory writes; the loop stops early rather than consuming the session budget. |
+| `RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC` | `45` | Per-call PostgREST timeout for every `pipeline_memory` write/read. |
+| `RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN` | `2` | Headroom the pre-flight guard requires beyond the write sub-budget before the phase starts. |
+| `RUN_MEMORY_SHADOW_MAX_MINUTES` | `10` | Phase sub-budget for the shadow-parity delta probes. |
+| `RUN_MEMORY_SHADOW_RPC_TIMEOUT_SEC` | `45` | Per-probe wait inside the shadow block; a stuck probe marks its sheet "not compared", never "clean". |
+| `RUN_MEMORY_SHADOW_GENERATION_HEADROOM_MIN` | `2` | Headroom the shadow pre-flight guard requires. |
+
+All sub-budgets sit inside `TIME_BUDGET_MINUTES` (165) under the runner's
+180-minute ceiling; a guard that fires logs `⏩ Skipping …` and records
+`skipped` — it never fails the run.
+
 ## Execution controls
 
 | Variable | Default | Purpose |
