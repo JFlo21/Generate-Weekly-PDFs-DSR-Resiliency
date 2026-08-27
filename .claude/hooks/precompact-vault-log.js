@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// project-hook: precompact-vault-log v1.1.1  (Generate-Weekly-PDFs-DSR-Resiliency)
+// project-hook: precompact-vault-log v1.1.2  (Generate-Weekly-PDFs-DSR-Resiliency)
 // Event: PreCompact (auto + manual — no matcher).
 // Installation: INTENTIONALLY LOCAL-ONLY. This hook writes to Juan's personal
 //          second brain (OneDrive `my-wiki`), so it is wired from the gitignored
@@ -39,6 +39,7 @@ const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const DRY = process.env.PRECOMPACT_VAULT_DRY_RUN === '1';
 const MAX_FILES = 25;
 const HANDOFF_WAIT_MS = 8000; // global precompact-handoff.js runs in parallel; give it a moment
+let LAST_PACKET_PATH = null; // set once a packet is reserved (and, right after, written)
 
 function resolveVault() {
   if (process.env.MORPHEUS_VAULT) return process.env.MORPHEUS_VAULT;
@@ -175,6 +176,7 @@ function main(data) {
   const packetBase = `precompact-${dateOnly(now).replace(/-/g, '')}-${timeStamp(now)}-${sessionId.slice(0, 8)}-${process.pid}`;
   const packetPath = DRY ? path.join(packetDir, `${packetBase}.md`) : reservePacket(packetDir, packetBase);
   const packetName = path.basename(packetPath);
+  LAST_PACKET_PATH = DRY ? null : packetPath;
 
   const fileList = files.slice(0, MAX_FILES).map((f) => `  - \`${f}\``).join('\n') || '  - (none recorded)';
   const more = files.length > MAX_FILES ? `\n  - … +${files.length - MAX_FILES} more` : '';
@@ -210,12 +212,21 @@ function main(data) {
     ``,
   ].join('\n');
 
+  // Write the packet content NOW, before anything that can still fail on
+  // the vault side: the reservation above is a zero-byte file, and the
+  // fail-open handler must never leave an empty pending checkpoint that the
+  // post-compaction session cannot apply (Greptile, PR #355). If even this
+  // write fails, release the reservation so no empty packet survives.
+  if (!DRY) {
+    try { fs.writeFileSync(packetPath, packet, 'utf8'); }
+    catch (e) { try { fs.unlinkSync(packetPath); } catch { /* ignore */ } throw e; }
+  }
+
   const out = { systemMessage: '' };
 
   if (!vault) {
     out.systemMessage = 'precompact-vault-log: vault not found — wrote write-back packet only.';
-    if (!DRY) fs.writeFileSync(packetPath, packet, 'utf8'); // path reserved exclusively above
-    else process.stderr.write(`[dry-run] packet -> ${packetPath}\n${packet}\n`);
+    if (DRY) process.stderr.write(`[dry-run] packet -> ${packetPath}\n${packet}\n`);
     return out;
   }
 
@@ -246,7 +257,6 @@ function main(data) {
     fs.appendFileSync(logPath, made.entry, 'utf8');
     return { ...made, unlocked: !locked };
   });
-  fs.writeFileSync(packetPath, packet, 'utf8'); // path reserved exclusively above
   out.systemMessage = `Second brain checkpoint [${id}] appended to wiki/log.md; write-back packet ${packetName} parked for after compaction.`
     + (unlocked ? ' (log lock could not be owned — id made collision-proof)' : '');
   return out;
@@ -295,7 +305,14 @@ process.stdin.on('end', () => { clearTimeout(stdinTimeout); let d = {}; try { d 
 
 function finish(data) {
   let out = { systemMessage: 'precompact-vault-log: skipped (error)' };
-  try { out = main(data) || out; } catch (e) { out.systemMessage = `precompact-vault-log: skipped (${(e && e.message) || 'error'})`; }
+  try { out = main(data) || out; }
+  catch (e) {
+    // The packet (if reserved) is already fully written by this point --
+    // only the vault-side step can have failed. Say so, so the post-
+    // compaction session still knows a packet is waiting.
+    out.systemMessage = `precompact-vault-log: vault step skipped (${(e && e.message) || 'error'})` +
+      (LAST_PACKET_PATH ? `; write-back packet ${path.basename(LAST_PACKET_PATH)} was still parked` : '');
+  }
   try { process.stdout.write(JSON.stringify(out)); } catch { /* ignore */ }
   process.exit(0);
 }
