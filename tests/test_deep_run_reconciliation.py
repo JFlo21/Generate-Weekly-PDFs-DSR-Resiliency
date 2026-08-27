@@ -901,3 +901,82 @@ class FormulaOnlyReconciliationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ── Greptile P1 on PR #353: partial reads must never trigger deletions ───
+
+class PartialReadGuardTests(unittest.TestCase):
+    """``_reconcile_deep_run_deletions`` must skip any sheet whose full
+    read did not complete cleanly, EVEN IF that sheet contributed a
+    non-empty (partial) live row-id set. ``pipeline.fetch.
+    get_all_source_rows`` returns whatever rows were processed before a
+    mid-sheet exception, so a non-empty live set is not proof of a
+    complete read; the caller passes ``pipeline.fetch.
+    get_last_full_read_failed_sheet_ids()`` as ``failed_sheet_ids``.
+    """
+
+    def test_failed_read_sheet_is_skipped_even_with_nonempty_live_rows(self):
+        from pipeline.orchestrate import _reconcile_deep_run_deletions
+
+        mark_fn = mock.Mock()
+        result = _reconcile_deep_run_deletions(
+            [{"id": 111}],
+            {111: {1, 2}},  # partial: rows 1-2 read, then the sheet raised
+            "run-1",
+            get_row_state_row_ids_fn=mock.Mock(return_value={1, 2, 3}),
+            mark_rows_deleted_fn=mark_fn,
+            failed_sheet_ids={111},
+        )
+
+        mark_fn.assert_not_called()
+        self.assertEqual(result["rows_marked_deleted"], 0)
+        self.assertEqual(result["sheets_skipped_failed_read"], 1)
+        self.assertEqual(result["sheets_checked"], 0)
+
+    def test_failed_read_sheet_does_not_block_sibling_sheets(self):
+        from pipeline.orchestrate import _reconcile_deep_run_deletions
+
+        stored = {111: {1, 2, 3}, 222: {5, 6}}
+        mark_fn = mock.Mock(return_value={"count": 1, "affected_pairs": set()})
+        result = _reconcile_deep_run_deletions(
+            [{"id": 111}, {"id": 222}],
+            {111: {1, 2}, 222: {5}},
+            "run-1",
+            get_row_state_row_ids_fn=lambda sid: stored[sid],
+            mark_rows_deleted_fn=mark_fn,
+            failed_sheet_ids={111},
+        )
+
+        mark_fn.assert_called_once_with(222, {6}, "run-1")
+        self.assertEqual(result["sheets_skipped_failed_read"], 1)
+        self.assertEqual(result["sheets_checked"], 1)
+
+    def test_no_failed_sheets_is_the_unchanged_path(self):
+        from pipeline.orchestrate import _reconcile_deep_run_deletions
+
+        mark_fn = mock.Mock(return_value={"count": 1, "affected_pairs": set()})
+        result = _reconcile_deep_run_deletions(
+            [{"id": 111}],
+            {111: {1, 2}},
+            "run-1",
+            get_row_state_row_ids_fn=mock.Mock(return_value={1, 2, 3}),
+            mark_rows_deleted_fn=mark_fn,
+        )
+
+        mark_fn.assert_called_once_with(111, {3}, "run-1")
+        self.assertEqual(result["sheets_skipped_failed_read"], 0)
+
+    def test_main_passes_fetch_failed_sheet_ids_and_gates_on_full_mode(self):
+        import pipeline.orchestrate as orch
+
+        source = inspect.getsource(orch.main)
+        call_index = source.index("_reconcile_deep_run_deletions(")
+        call_text = source[call_index:call_index + 600]
+        self.assertIn(
+            "failed_sheet_ids=_fetch.get_last_full_read_failed_sheet_ids()",
+            call_text,
+        )
+        # The live set is only a full-read set in full mode; the
+        # reconciliation must never run against PHASE 2b's narrowed rows.
+        preceding = source[max(0, call_index - 1200):call_index]
+        self.assertIn("_resolved_mode == 'full'", preceding)

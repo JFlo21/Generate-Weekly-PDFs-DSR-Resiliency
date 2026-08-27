@@ -472,14 +472,27 @@ class ShadowDeltaReadTests(unittest.TestCase):
 class GetChangedRowIdsBySheetTests(unittest.TestCase):
     """`get_changed_row_ids_by_sheet` -- best-effort `row_event` read that
     supplies the read-side assertion's "what changed this run" input.
-    Fail-open like every other `pipeline_memory` read (never raises,
-    empty dict on any failure -- "cannot confirm", never "nothing
-    changed").
+    Never raises. Greptile P1 (PR #353): a failed lookup returns ``None``
+    ("cannot confirm") and is DISTINCT from a successful lookup that
+    found zero changed rows (``{}``) -- the two used to collapse into
+    the same empty dict and let the read side report a vacuous ``pass``.
     """
 
-    def test_no_client_returns_empty_dict(self):
+    def test_no_client_returns_none_not_empty_dict(self):
         with mock.patch(
             "pipeline_memory.client.get_client", return_value=None,
+        ):
+            result = parity.get_changed_row_ids_by_sheet("run-1")
+        self.assertIsNone(result)
+
+    def test_successful_empty_payload_returns_empty_dict(self):
+        fake_client = mock.Mock()
+        fake_result = mock.Mock()
+        fake_result.data = []
+        with mock.patch(
+            "pipeline_memory.client.get_client", return_value=fake_client,
+        ), mock.patch(
+            "pipeline_memory.client.with_retry", return_value=fake_result,
         ):
             result = parity.get_changed_row_ids_by_sheet("run-1")
         self.assertEqual(result, {})
@@ -500,7 +513,7 @@ class GetChangedRowIdsBySheetTests(unittest.TestCase):
             result = parity.get_changed_row_ids_by_sheet("run-1")
         self.assertEqual(result, {1: {100, 101}, 2: {200}})
 
-    def test_none_result_returns_empty_dict(self):
+    def test_none_result_returns_none_not_empty_dict(self):
         fake_client = mock.Mock()
         with mock.patch(
             "pipeline_memory.client.get_client", return_value=fake_client,
@@ -508,9 +521,21 @@ class GetChangedRowIdsBySheetTests(unittest.TestCase):
             "pipeline_memory.client.with_retry", return_value=None,
         ):
             result = parity.get_changed_row_ids_by_sheet("run-1")
-        self.assertEqual(result, {})
+        self.assertIsNone(result)
 
-    def test_failure_returns_empty_dict_never_raises(self):
+    def test_none_payload_returns_none_not_empty_dict(self):
+        fake_client = mock.Mock()
+        fake_result = mock.Mock()
+        fake_result.data = None
+        with mock.patch(
+            "pipeline_memory.client.get_client", return_value=fake_client,
+        ), mock.patch(
+            "pipeline_memory.client.with_retry", return_value=fake_result,
+        ):
+            result = parity.get_changed_row_ids_by_sheet("run-1")
+        self.assertIsNone(result)
+
+    def test_failure_returns_none_never_raises(self):
         with mock.patch(
             "pipeline_memory.client.get_client",
             side_effect=RuntimeError("boom"),
@@ -519,7 +544,133 @@ class GetChangedRowIdsBySheetTests(unittest.TestCase):
                 result = parity.get_changed_row_ids_by_sheet("run-1")
             except Exception as exc:  # pragma: no cover - defensive
                 self.fail(f"get_changed_row_ids_by_sheet raised: {exc!r}")
-        self.assertEqual(result, {})
+        self.assertIsNone(result)
+
+
+class ReadSideEvidenceTests(unittest.TestCase):
+    """Greptile P1 on PR #353 (``pipeline/parity.py`` read verdict): a
+    read-side ``pass`` must be backed by evidence. Empty evidence -- a
+    failed ``row_event`` lookup (``None``), a lookup that found nothing
+    to assert (``{}``), or a changed sheet the probe never reached --
+    can never count toward the five-run streak as ``pass``.
+    """
+
+    _KW = dict(
+        session_start=None,
+        compute_rows_modified_since_fn=lambda *a, **k: "x",
+        safety_window_minutes=15, max_minutes=10, rpc_timeout_sec=45,
+        generation_headroom_min=2, time_budget_minutes=0,
+        github_actions_mode=False, parallel_workers=2,
+    )
+
+    def _run(self, changed, fetch_fn, sources, watermarks=None):
+        kw = dict(self._KW)
+        kw["session_start"] = datetime.datetime.now()
+        return parity.run_shadow_delta_reads(
+            client=object(), source_sheets=sources,
+            watermarks=watermarks or {
+                s["id"]: {
+                    "last_sheet_version": 5,
+                    "last_read_at": "2026-08-01T00:00:00+00:00",
+                }
+                for s in sources
+            },
+            changed_row_ids_by_sheet=changed,
+            fetch_sheet_delta_fn=fetch_fn,
+            **kw,
+        )
+
+    def test_none_evidence_is_skipped_lookup_failed_with_zero_probes(self):
+        fetch = mock.Mock()
+
+        result = self._run(None, fetch, [_source(1)])
+
+        self.assertEqual(result["read_verdict"], "skipped")
+        self.assertTrue(result["reason"].startswith("row_event_lookup_failed"))
+        fetch.assert_not_called()
+        self.assertEqual(result["rows_asserted"], 0)
+
+    def test_empty_evidence_is_skipped_never_pass_but_probes_still_run(self):
+        def fake_fetch(client, source, last_version, rows_modified_since):
+            return {
+                "escalate": False, "sheet": None, "version": 6, "calls": 1,
+            }
+
+        result = self._run({}, fake_fetch, [_source(1)])
+
+        self.assertEqual(result["read_verdict"], "skipped")
+        self.assertTrue(
+            result["reason"].startswith("zero_changed_rows_to_assert"),
+        )
+        self.assertEqual(result["sheets_probed"], 1)  # watermark exercised
+        self.assertEqual(result["rows_asserted"], 0)
+
+    def test_all_empty_change_sets_is_skipped_never_pass(self):
+        def fake_fetch(client, source, last_version, rows_modified_since):
+            return {
+                "escalate": False, "sheet": None, "version": 6, "calls": 1,
+            }
+
+        result = self._run({1: set(), 2: set()}, fake_fetch,
+                           [_source(1), _source(2)])
+
+        self.assertEqual(result["read_verdict"], "skipped")
+        self.assertEqual(result["rows_asserted"], 0)
+
+    def test_changed_sheet_never_probed_is_skipped_not_pass(self):
+        def fake_fetch(client, source, last_version, rows_modified_since):
+            if source["id"] == 2:
+                return {"escalate": True, "reason": "abbreviated"}
+            return {
+                "escalate": False, "sheet": _FakeSheet([100]),
+                "version": 6, "calls": 2,
+            }
+
+        result = self._run({1: {100}, 2: {200}}, fake_fetch,
+                           [_source(1), _source(2)])
+
+        self.assertEqual(result["read_verdict"], "skipped")
+        self.assertTrue(
+            result["reason"].startswith("changed_sheet_not_probed"),
+        )
+        self.assertEqual(result["changed_sheets_unprobed"], 1)
+        self.assertEqual(result["rows_asserted"], 1)
+
+    def test_mismatch_on_probed_sheet_fails_even_when_another_unprobed(self):
+        def fake_fetch(client, source, last_version, rows_modified_since):
+            if source["id"] == 2:
+                return {"escalate": True, "reason": "abbreviated"}
+            return {
+                "escalate": False, "sheet": _FakeSheet([100]),
+                "version": 6, "calls": 2,
+            }
+
+        result = self._run({1: {100, 200}, 2: {300}}, fake_fetch,
+                           [_source(1), _source(2)])
+
+        self.assertEqual(result["read_verdict"], "fail")
+        self.assertEqual(
+            result["read_mismatches"], [{"sheet_id": 1, "row_id": 200}],
+        )
+
+    def test_pass_requires_and_reports_asserted_rows(self):
+        def fake_fetch(client, source, last_version, rows_modified_since):
+            return {
+                "escalate": False, "sheet": _FakeSheet([100, 101, 102]),
+                "version": 6, "calls": 2,
+            }
+
+        result = self._run({1: {100, 101}}, fake_fetch, [_source(1)])
+
+        self.assertEqual(result["read_verdict"], "pass")
+        self.assertEqual(result["rows_asserted"], 2)
+        self.assertEqual(result["changed_sheets_unprobed"], 0)
+
+    def test_skipped_result_carries_evidence_counters(self):
+        result = self._run({1: {100}}, mock.Mock(), [])
+        self.assertEqual(result["read_verdict"], "skipped")
+        self.assertIn("rows_asserted", result)
+        self.assertIn("changed_sheets_unprobed", result)
 
 
 if __name__ == "__main__":

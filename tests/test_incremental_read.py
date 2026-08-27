@@ -2864,5 +2864,239 @@ class MemoryResultAmbiguityTests(unittest.TestCase):
         self.assertLess(gate_idx, compare_idx)
 
 
+# ── Codex P1 on PR #353: a delta row that LOST its identity must still
+# regenerate its prior group ─────────────────────────────────────────────
+
+class LostIdentityRowTests(unittest.TestCase):
+    """A row the delta read returns because it was modified, but whose
+    ``Work Request #`` or ``Weekly Reference Logged Date`` is now blank,
+    used to be dropped by ``map_delta_sheet_rows`` BEFORE the memory
+    upsert -- so its prior ``(wr, week_ending)`` never entered the
+    affected set and the old group (and its attachment) stayed stale.
+
+    Fix: the mapper reports the dropped row ids; ``_run_phase2_incremental``
+    looks up their stored identity in ``row_state``
+    (``pipeline_memory.reader.get_row_state_pairs_for_rows``) and unions
+    those prior pairs into the affected set. A lookup that cannot
+    confirm (``None``) resolves the run to full mode -- the scope can
+    only widen (T-11-18).
+    """
+
+    def setUp(self):
+        _reset_pipeline_memory()
+        _pop_env()
+
+    def tearDown(self):
+        _reset_pipeline_memory()
+        _pop_env()
+
+    # ── mapper ───────────────────────────────────────────────────────
+
+    def test_map_delta_sheet_rows_reports_dropped_row_ids(self):
+        from pipeline.fetch import map_delta_sheet_rows
+
+        source = _delta_source(sheet_id=111222)
+        lost_date = SimpleNamespace(
+            id=1, modified_at=None, cells=[_delta_cell(10, "90001")],
+        )
+        lost_everything = SimpleNamespace(id=2, modified_at=None, cells=[])
+        kept = _delta_row(3, "90003", "2026-08-30")
+        sheet = _delta_sheet([lost_date, lost_everything, kept])
+        dropped: set = set()
+
+        rows = map_delta_sheet_rows(sheet, source, dropped_row_ids=dropped)
+
+        self.assertEqual([r["__row_id"] for r in rows], [3])
+        self.assertEqual(dropped, {1, 2})
+
+    def test_map_delta_sheet_rows_without_collector_is_unchanged(self):
+        from pipeline.fetch import map_delta_sheet_rows
+
+        source = _delta_source(sheet_id=111222)
+        lost_date = SimpleNamespace(
+            id=1, modified_at=None, cells=[_delta_cell(10, "90001")],
+        )
+        self.assertEqual(
+            map_delta_sheet_rows(_delta_sheet([lost_date]), source), [],
+        )
+
+    # ── reader ───────────────────────────────────────────────────────
+
+    def test_reader_pairs_empty_row_ids_returns_empty_set_zero_calls(self):
+        from pipeline_memory import reader as mem_reader
+
+        with mock.patch.object(mem_reader, "get_client") as mock_client:
+            result = mem_reader.get_row_state_pairs_for_rows(111222, set())
+
+        self.assertEqual(result, set())
+        mock_client.assert_not_called()
+
+    def test_reader_pairs_client_unavailable_returns_none(self):
+        from pipeline_memory import reader as mem_reader
+
+        with mock.patch.object(mem_reader, "get_client", return_value=None):
+            result = mem_reader.get_row_state_pairs_for_rows(111222, {1})
+
+        self.assertIsNone(result)
+
+    def test_reader_pairs_transport_failure_returns_none(self):
+        from pipeline_memory import reader as mem_reader
+
+        with mock.patch.object(
+            mem_reader, "get_client", return_value=mock.Mock(),
+        ), mock.patch.object(mem_reader, "with_retry", return_value=None):
+            result = mem_reader.get_row_state_pairs_for_rows(111222, {1, 2})
+
+        self.assertIsNone(result)
+
+    def test_reader_pairs_success_returns_stored_pairs(self):
+        from pipeline_memory import reader as mem_reader
+
+        payload = mock.Mock(data=[
+            {"wr": "90001", "week_ending": "2026-08-23"},
+            {"wr": "90001", "week_ending": "2026-08-23"},  # duplicate row
+            {"wr": "90002", "week_ending": None},
+        ])
+        with mock.patch.object(
+            mem_reader, "get_client", return_value=mock.Mock(),
+        ), mock.patch.object(
+            mem_reader, "with_retry", return_value=payload,
+        ) as mock_retry:
+            result = mem_reader.get_row_state_pairs_for_rows(
+                111222, {1, 2, 3},
+            )
+
+        self.assertEqual(
+            result, {("90001", "2026-08-23"), ("90002", None)},
+        )
+        self.assertEqual(
+            mock_retry.call_args.kwargs.get("op"), "row_state_pairs_for_rows",
+        )
+
+    def test_reader_pairs_chunks_large_inputs_and_discards_on_mid_chunk_failure(self):
+        from pipeline_memory import reader as mem_reader
+
+        ids = set(range(mem_reader._MAPPING_CHUNK_SIZE + 1))
+        calls = {"n": 0}
+
+        def _retry(fn, **_kw):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return mock.Mock(
+                    data=[{"wr": "90001", "week_ending": "2026-08-23"}],
+                )
+            return None
+
+        with mock.patch.object(
+            mem_reader, "get_client", return_value=mock.Mock(),
+        ), mock.patch.object(mem_reader, "with_retry", side_effect=_retry):
+            result = mem_reader.get_row_state_pairs_for_rows(111222, ids)
+
+        self.assertEqual(calls["n"], 2)
+        self.assertIsNone(result)  # partial union is worse than none
+
+    # ── PHASE 2a wiring ──────────────────────────────────────────────
+
+    def _phase2_with_delta(self, sheet, lookup_return, mem_affected):
+        import pipeline.orchestrate as orch
+
+        source = _delta_source(sheet_id=111222)
+        with mock.patch.object(
+            orch._fetch, "fetch_sheet_delta",
+            return_value={
+                "escalate": False, "sheet": sheet, "version": 9, "calls": 2,
+            },
+        ), mock.patch.object(
+            orch, "_run_memory_write_phase",
+            return_value={
+                "sheets_written": 1, "sheets_errored": 0,
+                "rows_sent": 1, "rows_changed": 1,
+                "affected": set(mem_affected), "memory_confirmed": True,
+                "unconfirmed_reason": None,
+            },
+        ), mock.patch.object(
+            orch._mem_reader, "get_row_state_pairs_for_rows",
+            return_value=lookup_return,
+        ) as mock_lookup, mock.patch.object(
+            orch._mem_reader, "map_affected_to_sheets",
+            return_value={111222},
+        ) as mock_map, mock.patch.object(
+            orch, "get_all_source_rows", return_value=[],
+        ):
+            result = orch._run_phase2_incremental(
+                client=mock.Mock(),
+                source_sheets=[source],
+                watermarks={
+                    111222: {
+                        "last_sheet_version": 8,
+                        "last_read_at": "2026-08-26T18:00:00+00:00",
+                    },
+                },
+                per_sheet_reasons={},
+                mem_run_id="run-1",
+                session_start=datetime.datetime.now(),
+            )
+        return result, mock_lookup, mock_map
+
+    def test_phase2_lost_identity_rows_add_prior_pairs_to_affected(self):
+        lost = SimpleNamespace(
+            id=7, modified_at=None, cells=[_delta_cell(10, "90007")],
+        )
+        sheet = _delta_sheet([_delta_row(1, "90001", "2026-08-30"), lost])
+
+        result, mock_lookup, mock_map = self._phase2_with_delta(
+            sheet,
+            lookup_return={("90007", "2026-08-23")},
+            mem_affected={("90001", "2026-08-30")},
+        )
+
+        self.assertTrue(result["ok"])
+        mock_lookup.assert_called_once_with(111222, {7})
+        expected = {("90001", "2026-08-30"), ("90007", "2026-08-23")}
+        self.assertEqual(result["affected"], expected)
+        mock_map.assert_called_once_with(expected)
+        self.assertEqual(result["delta_rows_identity_lost"], 1)
+
+    def test_phase2_lost_identity_lookup_failure_falls_back_to_full(self):
+        lost = SimpleNamespace(
+            id=7, modified_at=None, cells=[_delta_cell(10, "90007")],
+        )
+        sheet = _delta_sheet([_delta_row(1, "90001", "2026-08-30"), lost])
+
+        result, _, mock_map = self._phase2_with_delta(
+            sheet, lookup_return=None,
+            mem_affected={("90001", "2026-08-30")},
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertIn(
+            "trigger_prior_identity_lookup_failed", result["fallback_reason"],
+        )
+        mock_map.assert_not_called()
+
+    def test_phase2_no_lost_identity_rows_performs_zero_lookups(self):
+        sheet = _delta_sheet([_delta_row(1, "90001", "2026-08-30")])
+
+        result, mock_lookup, _ = self._phase2_with_delta(
+            sheet, lookup_return=set(),
+            mem_affected={("90001", "2026-08-30")},
+        )
+
+        self.assertTrue(result["ok"])
+        mock_lookup.assert_not_called()
+        self.assertEqual(result["delta_rows_identity_lost"], 0)
+
+    def test_fetch_exposes_failed_sheet_ids_accessor(self):
+        import pipeline.fetch as fetch
+
+        result = fetch.get_last_full_read_failed_sheet_ids()
+
+        self.assertIsInstance(result, set)
+        result.add("sentinel")  # defensive copy -- must not leak back
+        self.assertNotIn(
+            "sentinel", fetch.get_last_full_read_failed_sheet_ids(),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

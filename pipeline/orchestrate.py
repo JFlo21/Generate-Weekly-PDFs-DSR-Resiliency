@@ -1177,6 +1177,10 @@ def _run_phase2_incremental(
         delta_rows: list[dict[str, Any]] = []
         delta_sheets_changed = 0
         escalations: list[str] = []
+        # Codex P1 (PR #353): modified rows the mapper dropped because
+        # they lost their identity (blank WR # / week date / all cells)
+        # -- their PRIOR (wr, week_ending) must still regenerate.
+        dropped_row_ids_by_sheet: dict[Any, set[Any]] = {}
 
         def _probe(source):
             watermark = watermarks.get(source.get('id')) or {}
@@ -1206,7 +1210,12 @@ def _run_phase2_incremental(
                 if sheet is None:
                     continue  # unchanged -- zero rows, nothing to add
                 delta_sheets_changed += 1
-                delta_rows.extend(_fetch.map_delta_sheet_rows(sheet, source))
+                delta_rows.extend(_fetch.map_delta_sheet_rows(
+                    sheet, source,
+                    dropped_row_ids=dropped_row_ids_by_sheet.setdefault(
+                        source.get('id'), set(),
+                    ),
+                ))
 
         if escalations:
             return {
@@ -1265,7 +1274,45 @@ def _run_phase2_incremental(
                 ),
             }
 
-        affected = mem_result.get("affected", set())
+        affected = set(mem_result.get("affected", set()) or ())
+
+        # Codex P1 (PR #353): a modified row that lost its identity was
+        # never upserted, so the RPC could not return its prior pair.
+        # Look the stored identity up and widen the affected set with it;
+        # a lookup that cannot confirm resolves the run to full mode.
+        delta_rows_identity_lost = sum(
+            len(ids) for ids in dropped_row_ids_by_sheet.values()
+        )
+        for _sid, _rids in dropped_row_ids_by_sheet.items():
+            if not _rids:
+                continue
+            _prior_pairs = _mem_reader.get_row_state_pairs_for_rows(
+                _sid, _rids,
+            )
+            if _prior_pairs is None:
+                logging.warning(
+                    "⚠️ PHASE 2a: could not confirm the prior identity of "
+                    f"{len(_rids)} modified row(s) on sheet {_sid} that lost "
+                    "their WR/week identity -- resolving this run to full "
+                    "mode."
+                )
+                return {
+                    "ok": False,
+                    "fallback_reason": (
+                        "trigger_prior_identity_lookup_failed: "
+                        f"sheet {_sid}: {len(_rids)} identity-lost row(s) "
+                        "could not be resolved to their stored "
+                        "(wr, week_ending) (cannot confirm; resolving this "
+                        "run to full mode)"
+                    ),
+                }
+            if _prior_pairs:
+                logging.info(
+                    f"🧭 PHASE 2a: {len(_prior_pairs)} prior group(s) "
+                    f"widened into the affected set from {len(_rids)} "
+                    f"identity-lost row(s) on sheet {_sid}."
+                )
+                affected |= _prior_pairs
 
         if affected:
             mapped_sheet_ids = _mem_reader.map_affected_to_sheets(affected)
@@ -1299,6 +1346,7 @@ def _run_phase2_incremental(
             "delta_rows_count": len(delta_rows),
             "delta_sheets_changed": delta_sheets_changed,
             "mapped_sheet_count": len(narrowed_sheets),
+            "delta_rows_identity_lost": delta_rows_identity_lost,
         }
     except Exception as exc:
         logging.warning(
@@ -1320,6 +1368,7 @@ def _reconcile_deep_run_deletions(
     run_id: str,
     get_row_state_row_ids_fn=None,
     mark_rows_deleted_fn=None,
+    failed_sheet_ids: set | None = None,
 ) -> dict[str, Any]:
     """Phase 11 Plan 06 (INC-03, CONTEXT.md D-03): the weekly deep run's
     deletion-reconciliation half.
@@ -1333,19 +1382,26 @@ def _reconcile_deep_run_deletions(
     from the live set is marked deleted via
     ``pipeline_memory.writer.mark_rows_deleted``.
 
-    T-11-30 (critical, mitigated): a sheet ABSENT from
-    *live_row_ids_by_sheet*, or present with an EMPTY set, is skipped
-    entirely (warning + Sentry breadcrumb, counted in
-    ``sheets_skipped_zero_row``) -- ``pipeline/fetch.py``'s
-    ``get_all_source_rows`` does not expose a per-sheet read-success
-    signal to this caller (``pipeline/fetch.py`` is outside this
-    plan's declared ``files_modified``), so a zero-row observation and
-    a failed/partial read of that sheet are indistinguishable from
-    here. Treating both identically as "cannot confirm this sheet's
-    live state, do not touch its row_state" is the safe superset of
-    both plan-stated behaviors (a zero-row full read is never read as
-    "every row deleted"; a sheet not successfully read in full is
-    never touched) rather than risking a false mass-deletion.
+    T-11-30 (critical, mitigated) -- two guards, both required:
+
+      1. *failed_sheet_ids* (Greptile P1, PR #353): every sheet whose
+         read did not complete cleanly this run -- the caller passes
+         ``pipeline.fetch.get_last_full_read_failed_sheet_ids()``. A
+         mid-sheet exception inside ``get_all_source_rows`` leaves a
+         PARTIAL ``sheet_rows`` list that is still merged into
+         ``all_rows``, so a NON-EMPTY live set is not proof of a
+         complete read; such a sheet is skipped entirely (warning +
+         Sentry breadcrumb, counted in ``sheets_skipped_failed_read``)
+         and its ``row_state`` is left untouched for the next deep run.
+      2. A sheet ABSENT from *live_row_ids_by_sheet*, or present with
+         an EMPTY set, is skipped entirely (counted in
+         ``sheets_skipped_zero_row``): a zero-row observation is far
+         more likely an upstream failure than a mass deletion.
+
+    Together: absence from a partial or empty read is never evidence of
+    deletion; only a sheet that read cleanly AND returned rows is
+    diffed. The regeneration scope can only be too wide, never too
+    narrow (T-11-18).
 
     An EMPTY return from ``get_row_state_row_ids`` (genuinely zero rows
     stored, or a Supabase read failure -- the function's own fail-open
@@ -1373,15 +1429,34 @@ def _reconcile_deep_run_deletions(
         mark_rows_deleted_fn or _mem_writer.mark_rows_deleted
     )
 
+    failed_sheet_ids = set(failed_sheet_ids or ())
+
     result: dict[str, Any] = {
         "sheets_checked": 0,
         "sheets_skipped_zero_row": 0,
+        "sheets_skipped_failed_read": 0,
         "rows_marked_deleted": 0,
         "affected_pairs": set(),
     }
 
     for sheet in source_sheets:
         sheet_id = sheet.get("id")
+        if sheet_id in failed_sheet_ids:
+            result["sheets_skipped_failed_read"] += 1
+            logging.warning(
+                f"⚠️ Deep-run reconciliation: sheet {sheet_id} did not "
+                "read cleanly this run (failed or partial full read) -- "
+                "skipping deletion detection for this sheet; its live "
+                "row set is not a complete read (T-11-30)."
+            )
+            sentry_add_breadcrumb(
+                "pipeline_memory",
+                f"Deep-run reconciliation skipped sheet {sheet_id}: "
+                "failed/partial full read",
+                level="warning",
+                data={"sheet_id": sheet_id},
+            )
+            continue
         live_ids = live_row_ids_by_sheet.get(sheet_id) or set()
         if not live_ids:
             result["sheets_skipped_zero_row"] += 1
@@ -2090,7 +2165,16 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # try/except (mirrors every other hook here) so an unexpected
         # bug can never affect Excel generation, upload, or cleanup
         # below.
-        if _is_deep_run and RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
+        # Greptile P1 (PR #353): additionally gated on the resolved mode
+        # being 'full' -- the live row-id set below is derived from
+        # all_rows, which is only a complete per-sheet read in full mode
+        # (PHASE 2b's narrowed rows would look like a mass deletion).
+        if (
+            _is_deep_run
+            and _resolved_mode == 'full'
+            and RUN_MEMORY_WRITE_ENABLED
+            and not TEST_MODE
+        ):
             try:
                 _reconcile_live_ids_by_sheet = {}
                 for _rr in all_rows:
@@ -2103,6 +2187,9 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
 
                 _reconcile_result = _reconcile_deep_run_deletions(
                     source_sheets, _reconcile_live_ids_by_sheet, _mem_run_id,
+                    # Greptile P1 (PR #353): sheets whose full read failed
+                    # or was only partially processed are never diffed.
+                    failed_sheet_ids=_fetch.get_last_full_read_failed_sheet_ids(),
                 )
                 _reconcile_ran = True
                 _reconcile_affected_pairs = _reconcile_result[
@@ -2119,7 +2206,9 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         f"{_reconcile_result['sheets_checked']} sheet(s) "
                         "checked "
                         f"({_reconcile_result['sheets_skipped_zero_row']} "
-                        "sheet(s) skipped: zero-row/unread full read)."
+                        "sheet(s) skipped: zero-row full read; "
+                        f"{_reconcile_result['sheets_skipped_failed_read']} "
+                        "skipped: failed/partial read)."
                     )
             except Exception:
                 logging.warning(
