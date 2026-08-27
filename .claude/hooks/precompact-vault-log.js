@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// project-hook: precompact-vault-log v1.1.2  (Generate-Weekly-PDFs-DSR-Resiliency)
+// project-hook: precompact-vault-log v1.1.3  (Generate-Weekly-PDFs-DSR-Resiliency)
 // Event: PreCompact (auto + manual — no matcher).
 // Installation: INTENTIONALLY LOCAL-ONLY. This hook writes to Juan's personal
 //          second brain (OneDrive `my-wiki`), so it is wired from the gitignored
@@ -252,10 +252,16 @@ function main(data) {
   // duplicate another session's, so the entry gets a collision-proof id
   // (`-unlocked-<pid>` suffix) instead of a possibly-duplicate one
   // (Greptile, PR #355). Such ids never advance the letter sequence.
-  const { id, unlocked } = withLogLock(logPath, (locked) => {
-    const made = makeEntry(fs.readFileSync(logPath, 'utf8'), locked ? '' : `-unlocked-${process.pid}`);
+  const { id, unlocked } = withLogLock(logPath, (locked, stillOwned) => {
+    const logText = fs.readFileSync(logPath, 'utf8');
+    // Re-verify ownership immediately before the append: if a waiter
+    // reclaimed our lock as an orphan (this holder stuck longer than
+    // LOG_LOCK_STALE_MS), the letter id derived under it may duplicate the
+    // reclaimer's, so append a collision-proof id instead (Greptile, PR #355).
+    const owned = locked && stillOwned();
+    const made = makeEntry(logText, owned ? '' : `-unlocked-${process.pid}`);
     fs.appendFileSync(logPath, made.entry, 'utf8');
-    return { ...made, unlocked: !locked };
+    return { ...made, unlocked: !owned };
   });
   out.systemMessage = `Second brain checkpoint [${id}] appended to wiki/log.md; write-back packet ${packetName} parked for after compaction.`
     + (unlocked ? ' (log lock could not be owned — id made collision-proof)' : '');
@@ -264,32 +270,48 @@ function main(data) {
 
 // Budget: the hook runs under a 30 s timeout; HANDOFF_WAIT_MS (8 s) + this
 // wait + I/O stays inside it. A holder's critical section is milliseconds,
-// so any lock older than LOG_LOCK_STALE_MS is an orphan and is reclaimed
-// inside the wait loop -- the timeout path is reachable only when the
-// filesystem refuses both creation and reclaim.
+// so any lock older than LOG_LOCK_STALE_MS is treated as an orphan.
 const LOG_LOCK_WAIT_MS = 15000;
 const LOG_LOCK_STALE_MS = 10000;
-// Calls fn(held): held === true means this invocation OWNS the lock; false
-// means the wait expired (or an unexpected FS error) and fn must not assume
-// serialization.
+// Ownership model (Greptile, PR #355 -- "stale reclaim breaks ownership"):
+//  * the lock file CONTAINS the owner's token; only the token holder may
+//    delete it (the finally block re-checks), so a reclaimer can never
+//    remove a lock somebody else just created;
+//  * orphan reclaim is ATOMIC and single-winner: the stale file is
+//    rename()d to a unique graveyard name (only one renamer succeeds; the
+//    losers see ENOENT and simply retry the wx create), then deleted --
+//    no stat->unlink window in which a fresh lock could be destroyed;
+//  * a holder that was itself reclaimed (stuck past the stale threshold)
+//    discovers it via stillOwned() right before its append and falls back
+//    to a collision-proof id, so duplicate letter ids cannot arise.
+// Calls fn(held, stillOwned): held === true means this invocation acquired
+// the lock; stillOwned() re-reads the token at call time.
 function withLogLock(logPath, fn) {
   const lockPath = logPath + '.precompact.lock';
+  const token = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const start = Date.now();
   let held = false;
   while (!held && Date.now() - start < LOG_LOCK_WAIT_MS) {
     try {
-      fs.closeSync(fs.openSync(lockPath, 'wx'));
+      const fd = fs.openSync(lockPath, 'wx');
+      try { fs.writeSync(fd, token); } finally { fs.closeSync(fd); }
       held = true;
     } catch (e) {
       if (!e || e.code !== 'EEXIST') break; // unexpected FS error: proceed unlocked
-      try { // orphaned lock (crashed holder): reclaim and retry immediately
-        if (Date.now() - fs.statSync(lockPath).mtimeMs > LOG_LOCK_STALE_MS) { fs.unlinkSync(lockPath); continue; }
-      } catch { /* vanished or unreadable: retry */ }
+      try {
+        if (Date.now() - fs.statSync(lockPath).mtimeMs > LOG_LOCK_STALE_MS) {
+          const graveyard = `${lockPath}.stale-${process.pid}-${Date.now()}`;
+          fs.renameSync(lockPath, graveyard); // atomic: exactly one reclaimer wins
+          try { fs.unlinkSync(graveyard); } catch { /* ignore */ }
+          continue;
+        }
+      } catch { /* vanished, unreadable, or lost the rename race: retry */ }
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
     }
   }
-  try { return fn(held); }
-  finally { if (held) { try { fs.unlinkSync(lockPath); } catch { /* ignore */ } } }
+  const stillOwned = () => { try { return fs.readFileSync(lockPath, 'utf8') === token; } catch { return false; } };
+  try { return fn(held, stillOwned); }
+  finally { if (held && stillOwned()) { try { fs.unlinkSync(lockPath); } catch { /* ignore */ } } }
 }
 
 if (process.argv.includes('--install')) {
