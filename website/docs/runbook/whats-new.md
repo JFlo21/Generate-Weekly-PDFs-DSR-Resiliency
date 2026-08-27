@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: August 26, 2026 (updated automatically)_
+_Last updated: August 27, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -14,16 +14,16 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — August 26, 2026
+### 📋 Changelog — August 27, 2026
 
+- ✨ New capability: Phase 11 — incremental read + affected-group regen, flags OFF
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - ✨ New capability: Phase 10 — Supabase run-memory foundation (shadow writes, flag OFF)
 - ✅ Problem fixed: close Phase 09 gap G-09-MOD-06 (Gate 4 fail-capable, Gate 6 offline)
+- 📄 Help guides updated: log 82ce830 &#91;skip ci&#93;
+- ✨ New capability: Phase 11 — incremental read + affected-group regen, flags OFF ()
 - 📄 Help guides updated: automated plain-language update from Notion Worker
-- 📄 Help guides updated: log 3508301 &#91;skip ci&#93;
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- 📄 Help guides updated: log 99dc25d &#91;skip ci&#93;
 
 <!-- /runbook-repo -->
 
@@ -503,4 +503,3 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
-
