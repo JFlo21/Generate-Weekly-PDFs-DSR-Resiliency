@@ -136,6 +136,18 @@ canonicalized-content standard; `group_state` attachment-id proof deferred to th
   never acted on by the run (Phase 10 shadow contract: compute, compare, never act, fail
   open). Alternating odd/even runs are ruled out (falsified by Phase 10's own 10-06 lesson:
   two separately scheduled runs are never byte-identical on live data).
+  **Refined 2026-08-27 (run #2801 evidence):** "actually regenerated" means the generated
+  groups that had an upload task. The full path also regenerates, on every run, ~150
+  quarantined garbage-name groups (`_User__NO_MATCH` / `_User_Unknown_Foreman`) whose upload is
+  withheld because their WR is on no target sheet — they never gain an attachment and are never
+  observable output, so a changed-rows candidate can never contain them. They are dropped from
+  both sides (`_shadow_parity_input_sets`, count persisted as `actual_withheld_excluded`); a
+  candidate group the full path skipped entirely is still reported. `RUN_MEMORY_SHADOW_MAX_MINUTES`
+  is set to 25 in the workflow (10 covered 56/121 sheets → read side `skipped` → no `pass`).
+  **Refinement #2 (run #2802):** the D-04 candidate is every group of an affected pair and the
+  unmodified hash gate then skips unchanged ones identically, so the candidate is a superset by
+  construction — `only_in_candidate` is informational; `fail` = `actual_not_in_candidate` (the
+  incremental selector would MISS a regeneration) or a hash mismatch on a shared group.
 - **D-08:** **The shadow also issues the real delta reads.** Each shadow run performs the
   D-01 `if_version_after` / `rows_modified_since` calls per sheet (using the persisted
   watermarks) so the watermark + D-02 escalation logic is exercised end-to-end *before*

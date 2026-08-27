@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-27 11:58 CDT · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-27 16:20 CDT · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
@@ -17,7 +17,57 @@ PreCompact hook). Phase 11 EXECUTING — **7/8 plans done**; **11-08 INC-05 reti
 `production_frequent` run after #356). Then: checklist item 6 SQL + items 2–3 → ≥5 `pass` verdicts →
 re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-08-27 11:58 CDT) — post-flip run wrote NO run memory (supabase-py AttributeError); fix on PR #356, awaiting merge
+## Latest work (2026-08-27 16:20 CDT) — three PRs queued: #355 (docs, rebased/mergeable) → #358 (parity actual = uploaded set + shadow 25) → #359 (hash sort tiebreaker, owner-approved)
+- **#359** `fix/data-hash-sort-tiebreaker`: `_extended_row_fields()` extracted; EXTENDED sort key +
+  hashed-field string + foreman as tiebreaker; legacy untouched. Full suite green; new
+  `tests/test_change_detection_tiebreak.py` pins order-independence for ties AND byte-identity for
+  tie-free groups. Post-merge validation: one-time bounded regeneration bump, then `Skip` on
+  `91057431/080226`. Ledger `[2026-08-27 16:10]`.
+- **#355** rebased onto master in a worktree (conflicts: state file → master's; ledger → both entries
+  kept, `[00:15]` before `[11:51]`); force-pushed with lease; now MERGEABLE.
+- **Merge order matters** (all three touch the ledger tail / state file): #355 → #358 → #359; the
+  remaining branches get rebased after each merge (merge watcher armed this session).
+- **Then:** first `production_frequent` run after all three → expect `actual_withheld_excluded≈150`,
+  read side ≈121 sheets probed, verdict `pass` → streak clock; `group_state` COALESCE-preserve proof
+  (checklist 3b). Scheduler: 17:00Z/19:00Z missed; 21:00Z watched.
+
+## Previous (2026-08-27 15:35 CDT) — PR #358 open: parity "actual" = uploaded set + shadow budget 25; hash-alternation churn diagnosed (sort-key tie), fix awaiting approval
+- **#358** `fix/parity-actual-uploaded-set-and-shadow-budget` (`659a9be`, carries #357's docs commit):
+  `_shadow_parity_input_sets()` drops generated-but-withheld groups from both sides
+  (`parity_details.actual_withheld_excluded`); `RUN_MEMORY_SHADOW_MAX_MINUTES: '25'` on `Generate
+  reports` (owner-approved). Suite 1760 passed / 1 skipped; runbook build green; YAML parsed.
+- **Diagnosed, NOT fixed (needs approval — change-detection primitive):** `91057431/080226` and a
+  small set of uploaded old-week groups alternate between two content hashes with no data change
+  (`billing_audit.pipeline_run`, constant `assignment_fp`). Cause: `calculate_data_hash` sorts on
+  `(WR, Snapshot Date, CU, Pole/Point, Quantity)`; rows tying on that key but differing in a hashed
+  field keep parallel-fetch arrival order (stable sort) → hash flips → durable store rewritten →
+  regenerate + re-upload every run. Incremental would not regenerate them → real `only_in_actual`
+  every run → `pass` impossible until fixed. Proposed: append the per-row hashed-field string as a
+  sort tiebreaker (groups without differing ties keep byte-identical hashes; flipping groups change
+  once). Validate on a known-good sample first.
+- **Scheduler:** 17:00Z and 19:00Z crons missed (Actions "operational" on githubstatus); 21:00Z watched.
+- **Next:** Juan merges #358 (closes #357's scope) → approve/decline the tiebreaker fix → first
+  `production_frequent` run after both shows `actual_withheld_excluded≈150`, read side probed ≈121
+  sheets, verdict `pass` → streak clock starts. Then COALESCE-preserve proof (checklist item 3b).
+
+## Previous (2026-08-27 14:35 CDT) — #356 MERGED; first real memory run #2801 confirmed writes + IN-01 proof; parity `fail` is a comparator/budget problem, not a selector defect
+- **#356 merged** (`8904008`; master `5a9bbf3`). Manual dispatch #2801 (33102956870, `success`, 53 min):
+  `26 sheet(s) written, 0 errored … confirmed=True`; `run_ledger` `33102956870.1` `sheets_changed=26`,
+  `mem_confirmed=true`. `group_state` holds 4 uploaded groups with `attachment_id`s verified against
+  Smartsheet (checklist items 2–3 first half done; COALESCE-preserve half = next run).
+- **`parity_verdict=fail`, structural:** (1) `_shadow_actual_hashes` includes the 154 withheld
+  quarantine groups (`_NO_MATCH`/`Unknown_Foreman`, regenerated every run, never uploaded) →
+  `group_key_set_mismatch` on every run; "actual" must be the uploaded set. (2) read side abandons
+  65/121 sheets inside `RUN_MEMORY_SHADOW_MAX_MINUTES=10` → `skipped` → overall can never be `pass`;
+  ~25 min needed. The 40 `only_in_candidate` groups were the 08-25→today baseline gap (self-heals).
+  **Owner decisions needed:** comparator "actual" definition (D-07 refinement) and the shadow budget
+  (workflow env — protected). Ledger `[2026-08-27 14:35]` has the full evidence.
+- **Open:** churn group `91057431/080226` re-uploaded every run since 15:57Z despite an unchanged
+  authoritative hash — investigate before 11-08. Scheduler: 17:00Z + 19:00Z crons missed; watcher armed.
+- **Next:** Juan decides the two comparator changes → small PR (parity.py/orchestrate.py + tests +
+  env) → streak clock restarts on the first `production_frequent` run after it. #355 still open.
+
+## Previous (2026-08-27 11:58 CDT) — post-flip run wrote NO run memory (supabase-py AttributeError); fix on PR #356, awaiting merge
 - **Merged since last entry:** #354 (`46b64ac`, review fixes), #353 (`673f7b2`, the flip —
   `RUN_MEMORY_WRITE_ENABLED: '1'` on the `Generate reports` step only). #355 (docs: `sheets_errored`
   column fix, handoff, PreCompact hook script) still OPEN.

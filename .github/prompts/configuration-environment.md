@@ -110,6 +110,9 @@ SHADOW-INCREMENTAL PARITY PROOF VARIABLES (Phase 11, INC-04):
 # TIME_BUDGET_MINUTES. The whole block is skipped entirely (never a
 # partial start) when the remaining session budget would leave less than
 # this many minutes plus RUN_MEMORY_SHADOW_GENERATION_HEADROOM_MIN.
+# The weekly workflow sets 25: at 10 only 56 of 121 sheets were probed on
+# run #2801 (~11 s/sheet incl. Smartsheet 5xx retries), which makes the
+# read verdict `skipped` and blocks a parity `pass`.
 RUN_MEMORY_SHADOW_MAX_MINUTES=10
 
 # Per-call ceiling (seconds) so one stuck delta-probe call cannot itself

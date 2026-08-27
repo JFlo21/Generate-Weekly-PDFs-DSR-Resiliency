@@ -7091,3 +7091,107 @@ follow-up findings closed, same 6 files.
   deprecated. Please configure it in the http client instead` — a future SDK bump must move
   the bound to `SyncClientOptions(httpx_client=httpx.Client(timeout=…))`; the same test will
   catch it. The D-09 streak clock restarts with the first scheduled run that carries this fix.
+
+## [2026-08-27 14:35] First run with working run-memory (#2801, 33102956870.1): writes confirmed, IN-01 attachment-id proof, and why the shadow parity verdict is `fail` on every run as wired
+
+- **Fix confirmed in production (#356).** Manual dispatch #2801 on `master` `5a9bbf3`: `⚡ Run-memory
+  row writes: 26 sheet(s) written, 0 errored, 211178 row(s) sent, 75 changed, 37 group(s) affected,
+  confirmed=True`; `run_ledger` row `33102956870.1` `status=success`, `sheets_checked=121`,
+  `sheets_changed=26`, `mem_confirmed=true`, `mem_sheets_errored=0`. First CI run ever to write memory.
+- **IN-01 / checklist items 2–3 (first half) PROVEN.** `pipeline_memory.group_state` holds the 4 uploaded
+  groups with non-NULL `attachment_id`; Smartsheet `get_attachment` on the target sheet confirms
+  `309695391633284` → `WR_91057431_WeekEnding_080226_User_Charlie_Tremper.xlsx` and
+  `6345226370060164` → `WR_90925512_WeekEnding_083026_User_John_Bishop.xlsx` (created 19:08Z, this run).
+  The COALESCE-preserves-on-skip half needs the next run in which those groups are skipped.
+- **`parity_verdict = fail` — and it will be `fail`/`skipped` on EVERY run until two comparator issues are
+  fixed. Neither is a selector defect:**
+  1. **Group side counts withheld groups as "actual".** `_shadow_actual_hashes` is built from
+     `_deferred_group_state` = every generated group (158). 154 of them are the quarantined
+     garbage-name groups (123 `_User__NO_MATCH` + 31 `_User_Unknown_Foreman`) that regenerate on every
+     run via `🔁 Regenerating … despite unchanged hash (attachment missing)` because their upload is
+     withheld (`Durable hash withheld for 154 group(s)`), so they never gain an attachment. The incremental
+     candidate (rows-changed-derived) can never contain them → `group_key_set_mismatch` forever
+     (`actual_count=158, candidate_count=43, groups_compared=3`). "Actual" must mean the groups whose
+     upload completed (`group_upload_ok`) — the same set `_build_group_state_flush` flushes — or the
+     comparison must exclude withheld groups. D-07 said "what the full path actually regenerated"; the
+     never-uploaded quarantine set was not anticipated.
+  2. **Read side cannot finish 121 sheets in `RUN_MEMORY_SHADOW_MAX_MINUTES=10`.** 56 probed, 65
+     abandoned in 607 s (~11 s/sheet incl. Smartsheet HTTP 500 retries) → `changed_sheet_not_probed` →
+     `read_verdict=skipped`; `combine_verdicts` makes any `skipped` side an overall `skipped`, so a
+     `pass` is impossible at this budget. ~25 min is needed (the run took 53 min against a 165-min budget).
+- **`only_in_candidate` (40 current-week groups) was the expected baseline gap**, not a defect: memory's
+  `row_state` was last written 08-25 (every CI run since failed to write) while `hash_history`/the durable
+  store were current through #2800 — e.g. `90787223/083026` was uploaded by #2799 at 15:57Z. Self-heals from
+  the next run now that `row_state` is current.
+- **Open (secondary): one genuine churn group.** `91057431/080226 primary Charlie_Tremper` is regenerated
+  and re-uploaded on #2799, #2800, #2801 (not on the four runs before) via the "hash changed" branch, yet
+  `billing_audit.group_content_hash` (authoritative, lookup 200 OK) holds the same hash `10e61b2f25575738`
+  that this run's `group_state` recorded, with `updated_at=2026-07-27`. Harmless (one delete+upload per
+  run) but unexplained — investigate `_resolve_unchanged_for_skip` inputs for that group before INC-05
+  retirement leans on `group_state.attachment_id`.
+- **RULE — parity "actual" is the uploaded set.** A group the full path generates but withholds from upload
+  is not observable output; comparing against it makes the evidence gate unpassable by construction.
+- **RULE — size shadow budgets from measured per-sheet cost, not the pre-fetch default.** Sub-budgets copied
+  from `ATTACHMENT_PREFETCH_MAX_MINUTES` must be re-derived for a phase that touches every sheet.
+- **Scheduler:** 17:00Z and 19:00Z crons both absent as of 19:16Z; one late 15:00Z slot fired at 16:45Z.
+  githubstatus shows Actions "operational" with only a Billing incident open — escalate to GitHub Support
+  with the run list if the 21:00Z slot is also missed.
+## [2026-08-27 15:20] Shadow parity "actual" = uploaded set; `RUN_MEMORY_SHADOW_MAX_MINUTES` 10 → 25 in the workflow (PR #358); the hash-alternation churn is a sort-key tie
+
+- **Change 1 — comparator input sets (`pipeline/orchestrate.py`).** New pure helper
+  `_shadow_parity_input_sets(candidate, deferred_records, upload_tasks)` → `(candidate, actual,
+  withheld_excluded)`: "actual" = generated groups with ≥1 upload task; generated-but-withheld groups
+  are dropped from BOTH sides (unobservable either way); a candidate group the full path skipped
+  entirely stays (real divergence). Count persisted as `parity_details.actual_withheld_excluded`.
+  Tests: `ShadowParityInputSetTests` (incl. a 154-withheld replay of #2801 that now yields `pass`, and
+  a source-order assertion that the helper runs before `compare_shadow_parity`).
+- **Change 2 — workflow env (owner-approved).** `RUN_MEMORY_SHADOW_MAX_MINUTES: '25'` on the
+  `Generate reports` step only; code default stays 10. Sized from #2801 (56/121 sheets in 607 s).
+  Docs: environment reference, Operations flag + symptom rows, `11-CONTEXT.md` D-07 refinement,
+  blog post `website/blog/2026-08-27-parity-actual-uploaded-set.md`.
+- **Finding — the "hash changed every run" churn is a sort-key tie, not volatile data.**
+  `billing_audit.pipeline_run` shows `91057431/2026-08-02` alternating between exactly two
+  `content_hash` values on 12 consecutive runs with a constant `assignment_fp` (142/142). Its rows
+  span three source sheets (64/55/23). `calculate_data_hash` sorts rows by
+  `(WR, Snapshot Date, CU, Pole/Point, Quantity)` and then hashes 16 fields per row — two rows that
+  tie on the key but differ in a hashed field (price, Work Type, Dept, Scope, …) keep the parallel
+  fetch's `as_completed` arrival order under Python's stable sort, so the hash flips with thread
+  timing. The durable store IS rewritten each run (`updated_at` is insert-only, no trigger), so it
+  always disagrees with the next run → regenerate → re-upload, forever. Consequence for Phase 11:
+  incremental (row-hash-driven) would NOT regenerate such a group, the full path always does → a
+  genuine `only_in_actual` on every run → `pass` impossible until fixed.
+  **Proposed fix (needs owner approval — change-detection primitive, protected):** extend the sort
+  key with the per-row hashed-field string as a final tiebreaker so equal-key rows order
+  deterministically. Groups without differing ties keep byte-identical hashes; groups with such
+  ties (the currently-flipping population) change hash once → one regeneration + upload each.
+  Validate on a known-good sample per the billing guardrail before merging.
+- **RULE — a content hash over a multi-source row set must sort on a total key.** Any tie left to
+  input order becomes a coin flip once the input is a parallel fetch.
+
+## [2026-08-27 16:45] First SCHEDULED run with working memory (#2802, 33113384941.1) — D-07 refinement #2: candidate-only groups are not a divergence; attachment ids preserved on skip; churn group skipped
+
+- **Evidence.** `production_frequent`, `success`, 43 min. `⚡ Run-memory row writes: 8 sheet(s)
+  written, 0 errored, 211298 row(s) sent, 13 changed, 8 group(s) affected, confirmed=True`;
+  `run_ledger` `sheets_changed=8`, `groups_generated=162` (8 uploaded + 154 withheld quarantine).
+  Read side: 71/121 sheets probed in 611 s → `skipped` (confirms the 25-min budget on #358 — ~17 min
+  needed at this rate). Scheduler delivered the 19:00Z slot ~88 min late (20:27Z).
+- **Group verdict `fail` with `groups_compared=8`, candidate 9, actual 162.** With #358's uploaded-set
+  definition this is 8 vs 9: every uploaded group was in the candidate; the one candidate-only key is
+  `083026_90925512_HELPER_Walker_David_Moody` — the helper variant of a WR whose primary changed.
+  D-04 defines the candidate as *every group of an affected (WR, week) pair* processed by the
+  *unmodified* group loop, i.e. the same hash-skip gate the full run applied — so the candidate is a
+  superset by construction and that helper would have been skipped identically. **Refinement #2
+  (on #358):** `compare_shadow_parity` fails only for `actual_not_in_candidate` (the full run
+  regenerated a group the selector would have MISSED) or a hash mismatch on a shared group;
+  candidate-only groups are recorded in `only_in_candidate`; candidate-only with nothing regenerated
+  is `skipped`, never `pass`. `group_key_set_mismatch` retired as a reason. Tests added.
+- **Checklist 3b (attachment id preserved on skip) — proven for the skip path.** `91537611/083026` and
+  `91057431/080226` were `⏩ Skip (unchanged + attachment exists)`; their `group_state` rows are
+  untouched (`attachment_id` 8847660879351684 / 309695391633284, `last_generated_run` = #2801).
+  `90925512/083026` and `91568483/083026` had real row changes → regenerated → new attachment ids,
+  `last_generated_run` = #2802 — correct. The COALESCE branch proper (regenerated group whose upload
+  leg reports `skipped`) is not exercised by these runs; it needs a reduced_sub second leg.
+- **Churn group:** `91057431/080226` hashed `10e61b2f25575738` again this run (same as #2801) and was
+  skipped — the tie resolves by thread timing, not strict alternation; #359 makes it deterministic.
+- **RULE — parity's candidate is a superset; only `actual − candidate` can fail.** Judge a selector
+  by what it would miss, not by what it would consider and then skip.

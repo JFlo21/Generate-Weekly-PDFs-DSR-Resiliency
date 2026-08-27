@@ -1977,6 +1977,88 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class ShadowParityInputSetTests(unittest.TestCase):
+    """2026-08-27 run #2801 (33102956870.1): the first real memory run
+    compared the incremental candidate against EVERY generated group,
+    154 of which were the quarantined garbage-name groups that regenerate
+    every run, are never uploaded, and can never be in a changed-rows
+    candidate -- ``group_key_set_mismatch`` by construction.
+    ``_shadow_parity_input_sets`` restricts "actual" to generated groups
+    that have an upload task and drops generated-but-withheld groups from
+    both sides, while a candidate group the full path skipped entirely
+    stays (a real divergence)."""
+
+    def _sets(self, candidate, deferred, tasks):
+        import pipeline.orchestrate as orch
+        return orch._shadow_parity_input_sets(candidate, deferred, tasks)
+
+    @staticmethod
+    def _rec(gk, h):
+        return {'group_key': gk, 'wr_num': gk.split('_')[1],
+                'week_iso': '2026-08-30', 'variant': 'primary',
+                'identifier': '', 'file_identifier': '',
+                'data_hash': h, 'row_count': 1}
+
+    def test_withheld_generated_groups_are_not_actual(self):
+        deferred = [self._rec('083026_90001_USER_A', 'h1'),
+                    self._rec('010426_90002_USER__NO_MATCH', 'h2'),
+                    self._rec('011126_90003_USER_Unknown_Foreman', 'h3')]
+        tasks = [{'group_key': '083026_90001_USER_A', 'target_sheet_id': 1}]
+        candidate, actual, withheld = self._sets(
+            {'083026_90001_USER_A': 'h1'}, deferred, tasks)
+        self.assertEqual(actual, {'083026_90001_USER_A': 'h1'})
+        self.assertEqual(withheld, 2)
+        self.assertEqual(candidate, {'083026_90001_USER_A': 'h1'})
+
+    def test_withheld_group_is_dropped_from_candidate_too(self):
+        deferred = [self._rec('010426_90002_USER__NO_MATCH', 'h2')]
+        candidate, actual, withheld = self._sets(
+            {'010426_90002_USER__NO_MATCH': 'h2'}, deferred, [])
+        self.assertEqual(candidate, {})
+        self.assertEqual(actual, {})
+        self.assertEqual(withheld, 1)
+
+    def test_candidate_group_the_full_path_skipped_is_kept(self):
+        # Not generated at all (no deferred record) -> not withheld ->
+        # remains a candidate-only divergence for the comparator.
+        candidate, actual, withheld = self._sets(
+            {'083026_90009_USER_B': 'h9'}, [], [])
+        self.assertEqual(candidate, {'083026_90009_USER_B': 'h9'})
+        self.assertEqual(actual, {})
+        self.assertEqual(withheld, 0)
+
+    def test_reduced_sub_two_leg_counts_once(self):
+        deferred = [self._rec('083026_90005_REDUCED_SUB_', 'h5')]
+        tasks = [{'group_key': '083026_90005_REDUCED_SUB_', 'target_sheet_id': 1},
+                 {'group_key': '083026_90005_REDUCED_SUB_', 'target_sheet_id': 2}]
+        _, actual, withheld = self._sets({}, deferred, tasks)
+        self.assertEqual(actual, {'083026_90005_REDUCED_SUB_': 'h5'})
+        self.assertEqual(withheld, 0)
+
+    def test_run_2801_shape_now_passes_when_uploaded_set_matches(self):
+        from pipeline import parity
+        uploaded = {f'083026_9{i}_USER_X': f'h{i}' for i in range(4)}
+        quarantine = [self._rec(f'010426_8{i}_USER__NO_MATCH', f'q{i}')
+                      for i in range(154)]
+        deferred = [self._rec(gk, h) for gk, h in uploaded.items()] + quarantine
+        tasks = [{'group_key': gk, 'target_sheet_id': 1} for gk in uploaded]
+        candidate, actual, withheld = self._sets(dict(uploaded), deferred, tasks)
+        self.assertEqual(withheld, 154)
+        result = parity.compare_shadow_parity(candidate, actual)
+        self.assertEqual(result['verdict'], 'pass')
+        self.assertEqual(result['groups_compared'], 4)
+
+    def test_use_site_precedes_compare_and_is_recorded(self):
+        import inspect
+        import pipeline.orchestrate as orch
+        src = inspect.getsource(orch)
+        def_idx = src.index("def _shadow_parity_input_sets(")
+        call_idx = src.index("_shadow_parity_input_sets(", def_idx + 1)
+        compare_idx = src.index("_parity.compare_shadow_parity(")
+        self.assertLess(call_idx, compare_idx)
+        self.assertIn('"actual_withheld_excluded": _shadow_withheld_excluded', src)
+
+
 class RpcTimeoutWiringTests(unittest.TestCase):
     """T-10-04 / REVIEW WR-02: RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC must bound
     every PostgREST call, not merely exist in config."""

@@ -783,7 +783,7 @@ stored watermark.
 | `RUN_MEMORY_WRITE_MAX_MINUTES` | `10` | Phase sub-budget for the per-sheet memory writes; the loop stops early rather than consuming the session budget. |
 | `RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC` | `45` | Per-call PostgREST timeout for every `pipeline_memory` write/read. |
 | `RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN` | `2` | Headroom the pre-flight guard requires beyond the write sub-budget before the phase starts. |
-| `RUN_MEMORY_SHADOW_MAX_MINUTES` | `10` | Phase sub-budget for the shadow-parity delta probes. |
+| `RUN_MEMORY_SHADOW_MAX_MINUTES` | `10` (weekly workflow sets `25`) | Phase sub-budget for the shadow-parity delta probes. At `10` only 56 of 121 sheets were probed on run #2801, which forces the read verdict to `skipped` and blocks a `pass`; the workflow sets `25` (~11 s/sheet measured). |
 | `RUN_MEMORY_SHADOW_RPC_TIMEOUT_SEC` | `45` | Per-probe wait inside the shadow block; a stuck probe marks its sheet "not compared", never "clean". |
 | `RUN_MEMORY_SHADOW_GENERATION_HEADROOM_MIN` | `2` | Headroom the shadow pre-flight guard requires. |
 
