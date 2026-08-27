@@ -1025,6 +1025,54 @@ def _build_group_state_flush(
     return records, withheld
 
 
+def _shadow_parity_input_sets(
+    candidate_hashes: dict[Any, Any],
+    deferred_records: list[dict[str, Any]],
+    upload_tasks: list[dict[str, Any]],
+) -> tuple[dict[Any, Any], dict[Any, Any], int]:
+    """Build the two group-hash mappings ``compare_shadow_parity`` sees.
+
+    PURE (no I/O, never raises on well-formed input) so the 2026-08-27
+    #2801 finding is directly unit-testable: the first real memory run
+    compared the incremental candidate against EVERY generated group
+    (158), 154 of which were the quarantined garbage-name groups
+    (``_User__NO_MATCH`` / ``_User_Unknown_Foreman``) that regenerate on
+    every run because their upload is withheld -- so they never gain an
+    attachment -- and are never observable output. The candidate set
+    (derived from changed rows) can never contain them, which made the
+    D-07 group verdict ``fail`` by construction.
+
+    "Actual" therefore means the generated groups that have at least one
+    upload task (``_build_upload_tasks_for_group`` returns none when the
+    WR is absent from every target sheet -- the same set the post-upload
+    ``_build_group_state_flush`` can flush). A generated-but-withheld
+    group is dropped from BOTH sides: it is unobservable whichever path
+    produced it, so it can neither prove nor refute parity. A candidate
+    group the full path did NOT generate at all (skipped as unchanged)
+    stays in the candidate -- that is a real divergence the verdict must
+    still report.
+
+    Returns ``(candidate, actual, withheld_excluded)``.
+    """
+    uploadable = {
+        t.get('group_key') for t in (upload_tasks or [])
+        if isinstance(t, dict)
+    }
+    actual: dict[Any, Any] = {}
+    withheld: set = set()
+    for rec in deferred_records or []:
+        gk = rec.get('group_key')
+        if gk in uploadable:
+            actual[gk] = rec.get('data_hash')
+        else:
+            withheld.add(gk)
+    candidate = {
+        gk: h for gk, h in (candidate_hashes or {}).items()
+        if gk not in withheld
+    }
+    return candidate, actual, len(withheld)
+
+
 def _resolve_row_wr_week(row: dict[str, Any]) -> tuple[str, str | None]:
     """Resolve one source row's (WR, week-ending ISO string) using the
     SAME resolution ``group_source_rows`` uses for its own WR/week keys
@@ -3980,10 +4028,19 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         gk: _shadow_group_hashes.get(gk)
                         for gk in _shadow_candidate_groups
                     }
-                    _shadow_actual_hashes = {
-                        rec['group_key']: rec['data_hash']
-                        for rec in _deferred_group_state
-                    }
+                    # "Actual" = generated groups with an upload task;
+                    # generated-but-withheld groups (no target-sheet row,
+                    # e.g. the quarantined garbage-name set) are dropped
+                    # from both sides -- see _shadow_parity_input_sets.
+                    (
+                        _shadow_candidate_hashes,
+                        _shadow_actual_hashes,
+                        _shadow_withheld_excluded,
+                    ) = _shadow_parity_input_sets(
+                        _shadow_candidate_hashes,
+                        _deferred_group_state,
+                        _upload_tasks,
+                    )
                     _shadow_group_result = _parity.compare_shadow_parity(
                         _shadow_candidate_hashes, _shadow_actual_hashes,
                     )
@@ -4017,6 +4074,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     _parity_details = {
                         "group": _shadow_group_result,
                         "read": _shadow_read_result,
+                        "actual_withheld_excluded": _shadow_withheld_excluded,
                     }
                     if _parity_verdict == "fail":
                         logging.error(

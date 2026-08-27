@@ -7136,3 +7136,34 @@ follow-up findings closed, same 6 files.
 - **Scheduler:** 17:00Z and 19:00Z crons both absent as of 19:16Z; one late 15:00Z slot fired at 16:45Z.
   githubstatus shows Actions "operational" with only a Billing incident open — escalate to GitHub Support
   with the run list if the 21:00Z slot is also missed.
+## [2026-08-27 15:20] Shadow parity "actual" = uploaded set; `RUN_MEMORY_SHADOW_MAX_MINUTES` 10 → 25 in the workflow (PR #358); the hash-alternation churn is a sort-key tie
+
+- **Change 1 — comparator input sets (`pipeline/orchestrate.py`).** New pure helper
+  `_shadow_parity_input_sets(candidate, deferred_records, upload_tasks)` → `(candidate, actual,
+  withheld_excluded)`: "actual" = generated groups with ≥1 upload task; generated-but-withheld groups
+  are dropped from BOTH sides (unobservable either way); a candidate group the full path skipped
+  entirely stays (real divergence). Count persisted as `parity_details.actual_withheld_excluded`.
+  Tests: `ShadowParityInputSetTests` (incl. a 154-withheld replay of #2801 that now yields `pass`, and
+  a source-order assertion that the helper runs before `compare_shadow_parity`).
+- **Change 2 — workflow env (owner-approved).** `RUN_MEMORY_SHADOW_MAX_MINUTES: '25'` on the
+  `Generate reports` step only; code default stays 10. Sized from #2801 (56/121 sheets in 607 s).
+  Docs: environment reference, Operations flag + symptom rows, `11-CONTEXT.md` D-07 refinement,
+  blog post `website/blog/2026-08-27-parity-actual-uploaded-set.md`.
+- **Finding — the "hash changed every run" churn is a sort-key tie, not volatile data.**
+  `billing_audit.pipeline_run` shows `91057431/2026-08-02` alternating between exactly two
+  `content_hash` values on 12 consecutive runs with a constant `assignment_fp` (142/142). Its rows
+  span three source sheets (64/55/23). `calculate_data_hash` sorts rows by
+  `(WR, Snapshot Date, CU, Pole/Point, Quantity)` and then hashes 16 fields per row — two rows that
+  tie on the key but differ in a hashed field (price, Work Type, Dept, Scope, …) keep the parallel
+  fetch's `as_completed` arrival order under Python's stable sort, so the hash flips with thread
+  timing. The durable store IS rewritten each run (`updated_at` is insert-only, no trigger), so it
+  always disagrees with the next run → regenerate → re-upload, forever. Consequence for Phase 11:
+  incremental (row-hash-driven) would NOT regenerate such a group, the full path always does → a
+  genuine `only_in_actual` on every run → `pass` impossible until fixed.
+  **Proposed fix (needs owner approval — change-detection primitive, protected):** extend the sort
+  key with the per-row hashed-field string as a final tiebreaker so equal-key rows order
+  deterministically. Groups without differing ties keep byte-identical hashes; groups with such
+  ties (the currently-flipping population) change hash once → one regeneration + upload each.
+  Validate on a known-good sample per the billing guardrail before merging.
+- **RULE — a content hash over a multi-source row set must sort on a total key.** Any tie left to
+  input order becomes a coin flip once the input is a parallel fetch.

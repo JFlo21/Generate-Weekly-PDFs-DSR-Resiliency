@@ -262,6 +262,13 @@ jobs:
           # delete this line or set '0'; no other change needed.
           # Checklist: docs/run-memory-write-flip-checklist.md.
           RUN_MEMORY_WRITE_ENABLED: '1'
+          # Shadow-parity delta-probe sub-budget (minutes). The code
+          # default (10) covered only 56 of 121 sheets on run #2801
+          # (~11 s/sheet incl. Smartsheet 5xx retries), so the read
+          # verdict was `skipped` and the D-09 streak could never accrue
+          # a `pass`. 25 fits comfortably: #2801 took 53 of the 165-min
+          # TIME_BUDGET_MINUTES with the 10-min budget.
+          RUN_MEMORY_SHADOW_MAX_MINUTES: '25'
           # Snapshot-drift hold gate (260814, Juan-approved after
           # burn-in): holds ONLY automation-self-fire drift candidates
           # at their prior billed week (D-01 — manual and unclassified
