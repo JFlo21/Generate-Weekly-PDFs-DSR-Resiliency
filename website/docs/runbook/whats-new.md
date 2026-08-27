@@ -16,14 +16,14 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — August 27, 2026
 
+- ✅ Problem fixed: guard deletions, parity evidence, lost-identity rows ( review)
 - ✨ New capability: Phase 11 — incremental read + affected-group regen, flags OFF
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - ✨ New capability: Phase 10 — Supabase run-memory foundation (shadow writes, flag OFF)
 - ✅ Problem fixed: close Phase 09 gap G-09-MOD-06 (Gate 4 fail-capable, Gate 6 offline)
-- 📄 Help guides updated: log 82ce830 &#91;skip ci&#93;
-- ✨ New capability: Phase 11 — incremental read + affected-group regen, flags OFF ()
-- 📄 Help guides updated: automated plain-language update from Notion Worker
+- 📄 Help guides updated: log 46b64ac &#91;skip ci&#93;
+- ✅ Problem fixed: guard deletions, parity evidence, lost-identity rows ( review) ()
 
 <!-- /runbook-repo -->
 
