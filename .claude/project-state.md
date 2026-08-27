@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-27 15:35 CDT · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-27 16:20 CDT · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
@@ -17,7 +17,21 @@ PreCompact hook). Phase 11 EXECUTING — **7/8 plans done**; **11-08 INC-05 reti
 `production_frequent` run after #356). Then: checklist item 6 SQL + items 2–3 → ≥5 `pass` verdicts →
 re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-08-27 15:35 CDT) — PR #358 open: parity "actual" = uploaded set + shadow budget 25; hash-alternation churn diagnosed (sort-key tie), fix awaiting approval
+## Latest work (2026-08-27 16:20 CDT) — three PRs queued: #355 (docs, rebased/mergeable) → #358 (parity actual = uploaded set + shadow 25) → #359 (hash sort tiebreaker, owner-approved)
+- **#359** `fix/data-hash-sort-tiebreaker`: `_extended_row_fields()` extracted; EXTENDED sort key +
+  hashed-field string + foreman as tiebreaker; legacy untouched. Full suite green; new
+  `tests/test_change_detection_tiebreak.py` pins order-independence for ties AND byte-identity for
+  tie-free groups. Post-merge validation: one-time bounded regeneration bump, then `Skip` on
+  `91057431/080226`. Ledger `[2026-08-27 16:10]`.
+- **#355** rebased onto master in a worktree (conflicts: state file → master's; ledger → both entries
+  kept, `[00:15]` before `[11:51]`); force-pushed with lease; now MERGEABLE.
+- **Merge order matters** (all three touch the ledger tail / state file): #355 → #358 → #359; the
+  remaining branches get rebased after each merge (merge watcher armed this session).
+- **Then:** first `production_frequent` run after all three → expect `actual_withheld_excluded≈150`,
+  read side ≈121 sheets probed, verdict `pass` → streak clock; `group_state` COALESCE-preserve proof
+  (checklist 3b). Scheduler: 17:00Z/19:00Z missed; 21:00Z watched.
+
+## Previous (2026-08-27 15:35 CDT) — PR #358 open: parity "actual" = uploaded set + shadow budget 25; hash-alternation churn diagnosed (sort-key tie), fix awaiting approval
 - **#358** `fix/parity-actual-uploaded-set-and-shadow-budget` (`659a9be`, carries #357's docs commit):
   `_shadow_parity_input_sets()` drops generated-but-withheld groups from both sides
   (`parity_details.actual_withheld_excluded`); `RUN_MEMORY_SHADOW_MAX_MINUTES: '25'` on `Generate
