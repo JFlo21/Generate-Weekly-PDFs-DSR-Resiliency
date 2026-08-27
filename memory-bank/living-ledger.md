@@ -7059,3 +7059,35 @@ follow-up findings closed, same 6 files.
   WR+date gate while the deep run's live set uses the full acceptance gate, so
   non-accepted rows will be marked deleted weekly and re-added — churn, not a billing
   defect; worth tightening before the incremental flip.
+
+## [2026-08-27 11:51] First post-flip run wrote NO run memory — `pipeline_memory` client init raised AttributeError (supabase-py sync options)
+
+- **Incident:** run 33090659647 (manual dispatch on `master`, first run carrying #353's
+  `RUN_MEMORY_WRITE_ENABLED: '1'`) logged `⚠️ Supabase client init failed; pipeline_memory
+  writes disabled (AttributeError)` right after Phase 1, then `0 sheet(s) written, 113
+  errored, 210957 row(s) sent, confirmed=False` and `⏩ Skipping shadow parity check`. No
+  `run_ledger` row was written. Billing output, uploads, and `billing_audit` (own client,
+  `lookup_attribution_bulk` 200 OK in the same process) were unaffected — fail-open held.
+- **Root cause (reproduced locally, same `supabase==2.31.0` as CI):** WR-02's RPC-timeout
+  wiring built `supabase.lib.client_options.ClientOptions(postgrest_client_timeout=…)`, but
+  the sync `create_client` reads `options.storage` / `options.httpx_client`, which only
+  `SyncClientOptions` / `AsyncClientOptions` define → `AttributeError: 'ClientOptions'
+  object has no attribute 'storage'` inside `_init_supabase_auth_client`. The WR-02 unit
+  tests mock `create_client` and inspect the captured options, so the real constructor was
+  never exercised; the Phase 10 control runs predated WR-02.
+- **Fix (`pipeline_memory/client.py`):** `_client_options` prefers `SyncClientOptions`
+  (falls back to `ClientOptions`, then `None`); `get_client` retries `create_client(url,
+  key)` without options if the SDK rejects them (timeout-unbounded but writes survive) and
+  both warning lines now carry `Type: message`, not just the type name.
+- **RULE — a fail-open path must name its failure.** Logging only `type(exc).__name__` hid
+  a one-line SDK bug behind a warning that read like an outage; anything that silently
+  starves an evidence gate (the D-09 five-run parity streak) must log the exception message
+  and be covered by at least one test against the real dependency.
+- **RULE — construct SDK clients for real in tests.** Mock-boundary tests prove what we pass,
+  not what the SDK accepts. `RpcTimeoutWiringTests.test_options_are_the_sync_variant_the_sdk_expects`
+  builds a client via the real `supabase` package with fake credentials (construction makes
+  no network call) and asserts the 45 s timeout lands on the PostgREST session.
+- **Residual:** supabase-py 2.31 emits `DeprecationWarning: The 'timeout' parameter is
+  deprecated. Please configure it in the http client instead` — a future SDK bump must move
+  the bound to `SyncClientOptions(httpx_client=httpx.Client(timeout=…))`; the same test will
+  catch it. The D-09 streak clock restarts with the first scheduled run that carries this fix.

@@ -2040,6 +2040,57 @@ class RpcTimeoutWiringTests(unittest.TestCase):
         self.assertIsNotNone(client)
         self.assertIsNone(captured["options"])
 
+    def test_options_are_the_sync_variant_the_sdk_expects(self):
+        """Regression for the 2026-08-27 post-flip incident: the base
+        ``ClientOptions`` lacks ``.storage`` so supabase-py 2.x's sync
+        ``create_client`` raised AttributeError and every run-memory write
+        was lost. The mocked tests above cannot see that; this one asks
+        the real SDK to build a client from our options with fake
+        credentials (construction makes no network call)."""
+        try:
+            from supabase import create_client
+            from supabase.lib.client_options import SyncClientOptions
+        except Exception as exc:  # pragma: no cover - SDK absent locally
+            self.skipTest(f"supabase SDK not importable: {exc}")
+        options = self.mem_client._client_options(45)
+        self.assertIsInstance(options, SyncClientOptions)
+        self.assertEqual(options.postgrest_client_timeout, 45)
+        client = create_client("https://example.supabase.co",
+                               "eyJhbGciOiJIUzI1NiJ9.fake.fake",
+                               options=options)
+        self.assertIsNotNone(client)
+        session = getattr(client.postgrest, "session", None)
+        timeout = getattr(session, "timeout", None)
+        self.assertEqual(getattr(timeout, "read", timeout), 45)
+
+    def test_sdk_rejecting_options_falls_back_to_bare_client(self):
+        """If the SDK ever rejects our options object again, get_client()
+        must still return a (timeout-unbounded) client instead of None,
+        and say so in the log."""
+        env = {"SUPABASE_URL": "https://example.invalid",
+               "SUPABASE_SERVICE_ROLE_KEY": "not-a-real-key",
+               "TEST_MODE": ""}
+        calls = []
+
+        def picky_create_client(url, key, options=None):
+            calls.append(options)
+            if options is not None:
+                raise AttributeError(
+                    "'ClientOptions' object has no attribute 'storage'")
+            return object()
+
+        with mock.patch.dict(os.environ, env, clear=False), \
+                mock.patch("supabase.create_client", picky_create_client), \
+                self.assertLogs(level="WARNING") as logs:
+            client = self.mem_client.get_client()
+        self.assertIsNotNone(client)
+        self.assertEqual(len(calls), 2)
+        self.assertIsNotNone(calls[0])
+        self.assertIsNone(calls[1])
+        self.assertTrue(any("retrying without" in line
+                            and "no attribute 'storage'" in line
+                            for line in logs.output))
+
 
 class RunLedgerFailurePathTests(unittest.TestCase):
     """WR-03 / PR #350 review issue 1: a session that dies inside
