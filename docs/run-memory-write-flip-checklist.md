@@ -42,7 +42,7 @@ edits it without explicit approval.
      (`pipeline_memory/client.py` `_rpc_timeout_sec` /
      `RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC`; `pipeline/orchestrate.py`
      failure-path `status="failed"`).
-   - [ ] The #353 review fixes are merged (PR #354: partial reads never
+   - [x] The #353 review fixes are merged (PR #354, squash `46b64ac`: partial reads never
      trigger deletions, empty evidence never passes parity, identity-
      lost delta rows still regenerate their prior group). Merge #354
      BEFORE this flip PR — the deep-run reconciliation and the parity
