@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// project-hook: precompact-vault-log v1.1.0  (Generate-Weekly-PDFs-DSR-Resiliency)
+// project-hook: precompact-vault-log v1.1.1  (Generate-Weekly-PDFs-DSR-Resiliency)
 // Event: PreCompact (auto + manual — no matcher).
 // Installation: INTENTIONALLY LOCAL-ONLY. This hook writes to Juan's personal
 //          second brain (OneDrive `my-wiki`), so it is wired from the gitignored
@@ -220,8 +220,8 @@ function main(data) {
   }
 
   const logPath = path.join(vault, 'wiki', 'log.md');
-  const makeEntry = (logText) => {
-    const id = nextLogId(logText, dateOnly(now));
+  const makeEntry = (logText, idSuffix = '') => {
+    const id = nextLogId(logText, dateOnly(now)) + idSuffix;
     return { id, entry: `\n## [${id}] project | ${PROJECT_SLUG} — auto-compact checkpoint (${trigger})\n${logBody}\n` };
   };
 
@@ -235,19 +235,33 @@ function main(data) {
   // The letter-suffix id is derived from the log's current tail, so the
   // read-id + append pair must be atomic across concurrent sessions or two
   // compactions in the same second both claim e.g. [2026-08-27a]. Serialize
-  // with a `wx` lock file; fail OPEN (proceed unlocked) if it cannot be taken
-  // within LOG_LOCK_WAIT_MS so a stale lock can never block a checkpoint.
-  const { id } = withLogLock(logPath, () => {
-    const made = makeEntry(fs.readFileSync(logPath, 'utf8'));
+  // with a `wx` lock file (orphaned locks are reclaimed after
+  // LOG_LOCK_STALE_MS). Still fail OPEN if the lock cannot be owned within
+  // LOG_LOCK_WAIT_MS -- but then a letter id read without the lock could
+  // duplicate another session's, so the entry gets a collision-proof id
+  // (`-unlocked-<pid>` suffix) instead of a possibly-duplicate one
+  // (Greptile, PR #355). Such ids never advance the letter sequence.
+  const { id, unlocked } = withLogLock(logPath, (locked) => {
+    const made = makeEntry(fs.readFileSync(logPath, 'utf8'), locked ? '' : `-unlocked-${process.pid}`);
     fs.appendFileSync(logPath, made.entry, 'utf8');
-    return made;
+    return { ...made, unlocked: !locked };
   });
   fs.writeFileSync(packetPath, packet, 'utf8'); // path reserved exclusively above
-  out.systemMessage = `Second brain checkpoint [${id}] appended to wiki/log.md; write-back packet ${packetName} parked for after compaction.`;
+  out.systemMessage = `Second brain checkpoint [${id}] appended to wiki/log.md; write-back packet ${packetName} parked for after compaction.`
+    + (unlocked ? ' (log lock could not be owned — id made collision-proof)' : '');
   return out;
 }
 
-const LOG_LOCK_WAIT_MS = 5000;
+// Budget: the hook runs under a 30 s timeout; HANDOFF_WAIT_MS (8 s) + this
+// wait + I/O stays inside it. A holder's critical section is milliseconds,
+// so any lock older than LOG_LOCK_STALE_MS is an orphan and is reclaimed
+// inside the wait loop -- the timeout path is reachable only when the
+// filesystem refuses both creation and reclaim.
+const LOG_LOCK_WAIT_MS = 15000;
+const LOG_LOCK_STALE_MS = 10000;
+// Calls fn(held): held === true means this invocation OWNS the lock; false
+// means the wait expired (or an unexpected FS error) and fn must not assume
+// serialization.
 function withLogLock(logPath, fn) {
   const lockPath = logPath + '.precompact.lock';
   const start = Date.now();
@@ -258,13 +272,13 @@ function withLogLock(logPath, fn) {
       held = true;
     } catch (e) {
       if (!e || e.code !== 'EEXIST') break; // unexpected FS error: proceed unlocked
-      try { // a lock older than the wait window is stale (crashed holder): reclaim
-        if (Date.now() - fs.statSync(lockPath).mtimeMs > 2 * LOG_LOCK_WAIT_MS) { fs.unlinkSync(lockPath); continue; }
+      try { // orphaned lock (crashed holder): reclaim and retry immediately
+        if (Date.now() - fs.statSync(lockPath).mtimeMs > LOG_LOCK_STALE_MS) { fs.unlinkSync(lockPath); continue; }
       } catch { /* vanished or unreadable: retry */ }
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
     }
   }
-  try { return fn(); }
+  try { return fn(held); }
   finally { if (held) { try { fs.unlinkSync(lockPath); } catch { /* ignore */ } } }
 }
 
