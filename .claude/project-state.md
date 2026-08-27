@@ -22,7 +22,9 @@ separate operator-gated PR cut from Phase 11 plan 01). Phase 11 EXECUTING — **
 - **Fix — PR #356** (`fix/pipeline-memory-sync-client-options`, `1c23980`): `SyncClientOptions`
   first with fallbacks; bare-client retry if the SDK rejects options; warnings carry `Type: message`;
   real-SDK construction regression test + fallback test; runbook symptom row; ledger
-  `[2026-08-27 11:51]`. Suite **1754 passed / 1 skipped / 141 subtests**; `npm run build` green.
+  `[2026-08-27 11:51]`. Greptile P2 (missing changelog) fixed in `f37c0ee`: synthesized post
+  `website/blog/2026-08-27-pipeline-memory-client-init-fix.md`; all repo checks green, only the
+  pre-existing Azure mirror check red. Suite **1754 passed / 1 skipped / 141 subtests**; `npm run build` green.
 - **Scheduler:** cron recovered on its own — scheduled run 33094866957 queued 16:45Z (GitHub-side
   outage this morning, not the repo). It runs unfixed `master`, so expect the same warning once more.
 - **Session config:** `.claude/settings.local.json` `autoCompactWindow: 500000` + PreCompact
