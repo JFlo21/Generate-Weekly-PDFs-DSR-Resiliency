@@ -24,6 +24,15 @@ env line. **PR:** #358, after #356 (client-init fix) and #353 (the flip).
    `parity_details.actual_withheld_excluded`.
 2. **`RUN_MEMORY_SHADOW_MAX_MINUTES: '25'`** on the `Generate reports`
    step (code default stays `10`).
+3. **A candidate-only group is not a failure.** The very next scheduled
+   run (#2802) showed the remaining divergence class: the incremental
+   candidate is every group of a touched `(WR, week)` pair, so it also
+   listed the *helper* variant of a WR whose *primary* changed; the full
+   run skipped that helper as unchanged — and the unmodified hash gate
+   would have skipped it identically in incremental mode. The verdict now
+   fails only for `actual_not_in_candidate` (a regeneration the selector
+   would have missed) or a hash mismatch; candidate-only groups are
+   recorded in `only_in_candidate` for inspection.
 
 ## Why
 

@@ -7167,3 +7167,31 @@ follow-up findings closed, same 6 files.
   Validate on a known-good sample per the billing guardrail before merging.
 - **RULE — a content hash over a multi-source row set must sort on a total key.** Any tie left to
   input order becomes a coin flip once the input is a parallel fetch.
+
+## [2026-08-27 16:45] First SCHEDULED run with working memory (#2802, 33113384941.1) — D-07 refinement #2: candidate-only groups are not a divergence; attachment ids preserved on skip; churn group skipped
+
+- **Evidence.** `production_frequent`, `success`, 43 min. `⚡ Run-memory row writes: 8 sheet(s)
+  written, 0 errored, 211298 row(s) sent, 13 changed, 8 group(s) affected, confirmed=True`;
+  `run_ledger` `sheets_changed=8`, `groups_generated=162` (8 uploaded + 154 withheld quarantine).
+  Read side: 71/121 sheets probed in 611 s → `skipped` (confirms the 25-min budget on #358 — ~17 min
+  needed at this rate). Scheduler delivered the 19:00Z slot ~88 min late (20:27Z).
+- **Group verdict `fail` with `groups_compared=8`, candidate 9, actual 162.** With #358's uploaded-set
+  definition this is 8 vs 9: every uploaded group was in the candidate; the one candidate-only key is
+  `083026_90925512_HELPER_Walker_David_Moody` — the helper variant of a WR whose primary changed.
+  D-04 defines the candidate as *every group of an affected (WR, week) pair* processed by the
+  *unmodified* group loop, i.e. the same hash-skip gate the full run applied — so the candidate is a
+  superset by construction and that helper would have been skipped identically. **Refinement #2
+  (on #358):** `compare_shadow_parity` fails only for `actual_not_in_candidate` (the full run
+  regenerated a group the selector would have MISSED) or a hash mismatch on a shared group;
+  candidate-only groups are recorded in `only_in_candidate`; candidate-only with nothing regenerated
+  is `skipped`, never `pass`. `group_key_set_mismatch` retired as a reason. Tests added.
+- **Checklist 3b (attachment id preserved on skip) — proven for the skip path.** `91537611/083026` and
+  `91057431/080226` were `⏩ Skip (unchanged + attachment exists)`; their `group_state` rows are
+  untouched (`attachment_id` 8847660879351684 / 309695391633284, `last_generated_run` = #2801).
+  `90925512/083026` and `91568483/083026` had real row changes → regenerated → new attachment ids,
+  `last_generated_run` = #2802 — correct. The COALESCE branch proper (regenerated group whose upload
+  leg reports `skipped`) is not exercised by these runs; it needs a reduced_sub second leg.
+- **Churn group:** `91057431/080226` hashed `10e61b2f25575738` again this run (same as #2801) and was
+  skipped — the tie resolves by thread timing, not strict alternation; #359 makes it deterministic.
+- **RULE — parity's candidate is a superset; only `actual − candidate` can fail.** Judge a selector
+  by what it would miss, not by what it would consider and then skip.

@@ -144,6 +144,10 @@ canonicalized-content standard; `group_state` attachment-id proof deferred to th
   both sides (`_shadow_parity_input_sets`, count persisted as `actual_withheld_excluded`); a
   candidate group the full path skipped entirely is still reported. `RUN_MEMORY_SHADOW_MAX_MINUTES`
   is set to 25 in the workflow (10 covered 56/121 sheets → read side `skipped` → no `pass`).
+  **Refinement #2 (run #2802):** the D-04 candidate is every group of an affected pair and the
+  unmodified hash gate then skips unchanged ones identically, so the candidate is a superset by
+  construction — `only_in_candidate` is informational; `fail` = `actual_not_in_candidate` (the
+  incremental selector would MISS a regeneration) or a hash mismatch on a shared group.
 - **D-08:** **The shadow also issues the real delta reads.** Each shadow run performs the
   D-01 `if_version_after` / `rows_modified_since` calls per sheet (using the persisted
   watermarks) so the watermark + D-02 escalation logic is exercised end-to-end *before*

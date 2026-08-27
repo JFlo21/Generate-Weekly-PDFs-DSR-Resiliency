@@ -110,6 +110,15 @@ def compare_shadow_parity(
     safety), ``hash_mismatches`` (group-key-plus-both-hashes entries),
     ``reason``, ``elapsed_seconds``.
 
+    Verdict rules (D-07 as refined 2026-08-27): ``fail`` when a group the
+    full path regenerated is absent from the candidate
+    (``actual_not_in_candidate`` -- the incremental selector would have
+    missed it) or when a shared group's hash differs (``hash_mismatch``).
+    Candidate-only groups are recorded but are NOT a divergence: the D-04
+    candidate is every group of an affected (WR, week) pair and the
+    unmodified hash-skip gate then skips the unchanged ones exactly as the
+    full run did.
+
     ``pass`` requires ``groups_compared > 0`` AND both inputs were valid,
     non-``None`` mappings -- a zero-groups comparison (both sides
     legitimately empty, e.g. nothing changed this run) is ``skipped``
@@ -150,49 +159,41 @@ def compare_shadow_parity(
                 })
 
         groups_compared = len(intersection)
-        sets_equal = candidate_keys == actual_keys
         elapsed = _elapsed(start)
 
-        if sets_equal and groups_compared > 0 and not hash_mismatches:
-            return {
-                "verdict": "pass",
-                "groups_compared": groups_compared,
-                "candidate_count": len(candidate_keys),
-                "actual_count": len(actual_keys),
-                "only_in_candidate": [],
-                "only_in_actual": [],
-                "hash_mismatches": [],
-                "reason": None,
-                "elapsed_seconds": elapsed,
-            }
-
-        if not sets_equal:
-            return {
-                "verdict": "fail",
-                "groups_compared": groups_compared,
-                "candidate_count": len(candidate_keys),
-                "actual_count": len(actual_keys),
-                "only_in_candidate": only_in_candidate[:10],
-                "only_in_actual": only_in_actual[:10],
-                "hash_mismatches": hash_mismatches[:10],
-                "reason": "group_key_set_mismatch",
-                "elapsed_seconds": elapsed,
-            }
-
-        # sets_equal is True here -- the only remaining way to reach this
-        # point is a non-empty hash_mismatches list (groups_compared == 0
-        # with sets_equal True implies both empty, already handled above).
-        return {
-            "verdict": "fail",
+        # D-07 refinement #2 (2026-08-27, run #2802 / PR #358). The D-04
+        # candidate is, by construction, a SUPERSET of what incremental
+        # mode would regenerate: it is every group of an affected
+        # (WR, week) pair, and the UNMODIFIED group loop then applies the
+        # same hash-skip gate the full run applied. A candidate-only group
+        # the full run skipped as unchanged would be skipped identically
+        # (#2802: the helper variant of a WR whose primary changed), so it
+        # is recorded in `only_in_candidate` but is not a divergence. The
+        # real failure modes are a group the full run regenerated that the
+        # candidate does NOT contain (incremental would MISS it) and a
+        # hash mismatch on a shared group. Candidate-only groups with
+        # nothing regenerated at all is no evidence either way.
+        base = {
             "groups_compared": groups_compared,
             "candidate_count": len(candidate_keys),
             "actual_count": len(actual_keys),
-            "only_in_candidate": [],
-            "only_in_actual": [],
+            "only_in_candidate": only_in_candidate[:10],
+            "only_in_actual": only_in_actual[:10],
             "hash_mismatches": hash_mismatches[:10],
-            "reason": "hash_mismatch",
             "elapsed_seconds": elapsed,
         }
+        if only_in_actual:
+            return {**base, "verdict": "fail", "reason": "actual_not_in_candidate"}
+        if hash_mismatches:
+            return {**base, "verdict": "fail", "reason": "hash_mismatch"}
+        if groups_compared == 0:
+            return _skipped_group_result(
+                start,
+                "zero_groups_compared: the full path regenerated nothing "
+                f"({len(only_in_candidate)} candidate-only group(s) it "
+                "skipped as unchanged)",
+            )
+        return {**base, "verdict": "pass", "reason": None}
     except Exception as exc:
         logger.warning(
             "compare_shadow_parity failed unexpectedly (non-fatal): %s",
