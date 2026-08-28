@@ -16,3 +16,15 @@ First run after the `RUN_MEMORY_WRITE_ENABLED` flip wrote no run memory: the bas
 `SyncClientOptions`, falls back to a bare client if the SDK rejects options, and logs the
 exception message; a real-SDK construction test guards it. Billing was never affected.
 See `memory-bank/living-ledger.md` `[2026-08-27 11:51]`.
+
+## 2026-08-27 — identity row = canonical row: Excel header + orchestrate Sites 1/2/3 (PR #361)
+A helper group can hold rows from two departments (its key carries no dept/job). #359 made
+the hash order-stable, but the workbook header and the three orchestrate identity sites
+(main-loop `history_key`, `valid_wr_weeks`, `current_keys` prune) still read arrival-order
+`group_rows[0]`, so a stable hash was looked up under an unstable key and the group could
+regenerate every run. All of them now read `canonical_first_row()`; the sort key also carries
+every Job # alias the header accepts (hash-neutral: it sits after the hashed-field string).
+Hashes are byte-identical to master; only mixed-dept helper groups get one final regeneration.
+Declined: legacy-mode header determinism (rollback sort is frozen). Deferred to Juan: aligning
+the header's foreman with the hash's first-nonempty `FOREMAN=` token (billing-output change).
+See `memory-bank/living-ledger.md` `[2026-08-27 20:20]`.
