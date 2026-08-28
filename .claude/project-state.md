@@ -1,28 +1,94 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-27 16:20 CDT · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-27 22:33 CDT (03:33Z) · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
-_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-27 11:51]` (first post-flip run wrote NO run
-memory — `pipeline_memory` client init raised AttributeError on supabase-py sync options; fix on PR #356).
+_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-27 21:10]` (verified pipeline truths from the
+#360 review rounds — acceptance gate, group key, TEST_MODE/Supabase, Snapshot Date, reset purge, stale
+attachment, public-repo identifier rule). Earlier: `[2026-08-27 20:20]` (identity row = canonical row,
+ships with PR #361), `[2026-08-27 16:10]` (hash sort tiebreaker, #359).
 `pipeline_memory` schema is LIVE on Supabase `poeyztlmsawfoqlanucc` (service_role-only). **Write path ON in
 production** since #353 (`673f7b2`, `RUN_MEMORY_WRITE_ENABLED: '1'` on the `Generate reports` step only);
-`RUN_MEMORY_INCREMENTAL_ENABLED` stays OFF. **Merged:** #351 (`82ce830`, plans 01–07), #354 (`46b64ac`,
-review fixes), #353 (the flip). **OPEN (Juan merges): #356** `fix/pipeline-memory-sync-client-options`
-(SyncClientOptions + bare-client fallback + real-SDK test + changelog post — until it merges every run
-logs `client init failed` and writes nothing) and **#355** (docs: `sheets_errored` column fix, handoff,
-PreCompact hook). Phase 11 EXECUTING — **7/8 plans done**; **11-08 INC-05 retirement DEFERRED by owner**
-(streak 0/5 — no scheduled run has yet written a `parity_verdict`; the clock starts with the first
-`production_frequent` run after #356). Then: checklist item 6 SQL + items 2–3 → ≥5 `pass` verdicts →
-re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
+`RUN_MEMORY_INCREMENTAL_ENABLED` stays OFF. **Merged:** #351, #354, #353 (the flip), #356 (sync-client
+fix — memory writes confirmed on run #2801), #358 (parity "actual" = queued-for-upload set + shadow
+budget 25), #355 (docs/hook), #359 (hash sort tiebreaker). **OPEN (Juan merges): #360** Learn docs and
+**#361** identity row = canonical row — ledger + state are byte-identical on both, either order is
+clean. Phase 11 EXECUTING — **7/8 plans done**; **11-08 INC-05 retirement DEFERRED by owner** (needs
+≥5 consecutive `parity_verdict = pass` on `production_frequent` runs; the streak was NOT re-checked
+this session — read the latest `run_ledger.notes` before resuming). Then: checklist item 6 SQL +
+items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-08-27 16:20 CDT) — three PRs queued: #355 (docs, rebased/mergeable) → #358 (parity actual = uploaded set + shadow 25) → #359 (hash sort tiebreaker, owner-approved)
+## Latest work (2026-08-27 22:33 CDT) — #355 + #359 MERGED; #361 (identity row = canonical row) round 2 done; #360 (Learn docs) Copilot rounds 2–19 done — both await Juan's merge; OWNER DECISION pending on repo-wide identifier scrub
+- **Merged:** #355 (`81eb82b`) and #359 (`a8d6795`, hash sort tiebreaker); master at `263dc34`.
+- **#361** `fix/excel-header-canonical-row` (code head `2c51a38` = `79e5411` + `2c51a38`; later commits are ledger/state only):
+  Excel header + orchestrate Sites 1/2/3 read `canonical_first_row()`; Job # aliases AND the legacy
+  identity `User` appended to the (hash-neutral) sort key; Greptile line-length fixed; PR body's
+  Production Safety Check rewritten to cover identity/cleanup/prune effects + rollout expectation.
+  Threads: Greptile, Copilot ×3, Codex P1, Codex Job-alias → fixed **and resolved**; Codex legacy-mode
+  P2 → declined with rationale (left open); Codex first-nonempty-foreman P2 → **deferred to Juan**
+  (billing-output change; left open). CI green on `79e5411`; `2c51a38` re-running at handoff. Greptile
+  retrigger needs a browser login (307 → /login) — click "Re-trigger Greptile" in the PR body if it
+  doesn't re-review on its own. Azure DevOps mirror check fails on every PR build (also docs-only
+  #360) — pre-existing, not required (branch unprotected). 1775 tests pass. Ledger `[2026-08-27 20:20]`.
+- **#360** `docs/learning-guides` (docs head `bae4938` + state-sync commit): **nineteen review rounds done** —
+  Copilot auto-reviews every push here, so each fix commit drew a smaller follow-up round (4: purge
+  scope = `WR_*.xlsx` on the target sheet only, no `$0` line for an admitted row, `EXCLUDE_WRS` /
+  `max_groups` DO narrow an attaching run, `pipeline_memory` edge bidirectional; 5: `workflow_dispatch`
+  needs write access, "normal manual run" excludes `test_mode`, cadence "up to seven a day", parity
+  "actual" = groups queued for upload, computed before the upload phase; 6: **real WR + foreman name
+  removed from the public guides** → `12345678` / `Jane_Doe`; the merged blog post
+  `2026-08-27-parity-actual-uploaded-set.md:70` still names the real WR — follow-up; 7: local-run
+  recipes use explicit EMPTY env values, never "unset" — `load_dotenv()` refills absent vars from
+  `.env`; second real WR removed; `regen_weeks` cannot rebuild an emptied week; 8: Sunday has FOUR
+  normal runs (Sat 3), `SKIP_UPLOAD` recipe carries the empty Supabase values inline, and the ledger
+  is now carried on #360 too; 9: a plain manual run repeats the unchanged-hash skip (escalate for
+  `regen_weeks`), output consumers split (`run_summary.json` → Notion; workbooks →
+  `publish_artifacts_to_supabase.py` → Supabase `artifacts` → portal-v2), counts labelled normal-run; 10: VAC files are `_VacCrew_<name>` in production, `row_event`
+  only on changed hash; 11: ledger `[20:20]` marked "ships with #361, pending merge" so #360 landing
+  first cannot state a false production rule; 12: `_Unknown_Foreman` attribution is FROZEN
+  first-write-wins — escalate, filling the foreman later won't rename it; hand-edited workbooks under the
+  generated name survive unchanged-hash runs (filename-only check); withheld WRs need a target-row fix; 13: `Dept #` + `N/A` column in the layout; this file's
+  timestamp corrected to wall-clock — earlier stamps this evening ran ~50 min fast; 14: `SENTRY_DSN=` in every local recipe,
+  `_Unknown_Foreman` -> escalate immediately; 15: subcontractor rows with blank helper fields go to
+  `_ReducedSub_User_…`, never the plain main file; 16/18: repo is PUBLIC — ids/names aliased ONLY on the ledger/state lines these rounds
+  touched; a tree-wide count found 284 WR-like ids + 20 personnel names in 106 tracked files (committed
+  `generated_docs/*.json` manifests, tests, `.planning/`, blog, `orchestrate.py`) + git history + old PR
+  threads → **Juan decides: scrub tracked files / make repo private / rewrite history** (#360 thread
+  3877686166 left open for that); 17: stale intro status rewritten, ledger "unset" → explicit-empty, changelog post says
+  "key modules"; 18: names on touched ledger lines + every id in this file aliased, rule made truthful; 19: master
+  merged into #360 (ledger conflict = aliased `[16:10]` entry, kept ours), merged #359 key now documented
+  with the helper tiebreakers). Ledger `[21:10]` rounds 3–19.
+  Round 2 (`2a271c8`): 35 Copilot/Codex/Greptile findings checked against the code; 34 fixed, 1
+  declined (Greptile "reorganise the engineer guide", left open for Juan). Round 3 (Copilot
+  re-review of `2a271c8`, 3 comments + 4 suppressed, all valid, fixed in `f20036e`): Snapshot Date
+  must parse inside the Monday–Sunday week to appear in a day block while the total still counts
+  it (`excel.py:722-736` / `:505`); billing period = week ending − 6, never Snapshot Date;
+  `reset_hash_history` = global attachment purge before any group (`orchestrate.py:2374-2385`,
+  destructive); a unit moved out of a week that then has no rows leaves a stale attachment
+  (`cleanup.py:455-471`, `orchestrate.py:4157-4159`); acceptance gate lives in Phase 2 fetch, not
+  grouping; **correction of my round-2 text: `TEST_MODE` DOES gate every `billing_audit` /
+  `pipeline_memory` write (`not TEST_MODE` :3333/:3352/:1934) — only a non-test `SKIP_UPLOAD` run
+  reaches `freeze_row` (:3441)**. Key round-2 truths: gate = WR + weekly date + Units Completed? +
+  price > 0 (`fetch.py:837`; CU/qty/foreman don't gate); group key `(WR, week, variant, claimer)`;
+  `wr_filter` only in TEST_MODE (no attaching scope); `reset_wr_list` destructive/global; real
+  CDT/CST windows; runtime 40–60 (≤~75). `npm run typecheck`/`build` green both rounds; threads
+  replied with the SHA and resolved (only the Greptile one open). **State file AND ledger are now byte-identical
+  on #360, #361 and the main tree** — either merge order is clean for it; keep it that way (edit in
+  the main tree, copy to both worktrees). Note: `CLAUDE.md` still describes grouping as
+  `(WR, week_ending, variant, foreman, dept, job)` — same drift, not touched in #360 (follow-up).
+- **Next:** Juan merges #360 + #361 → first `production_frequent` run after #361: expect
+  `<WR-A>/080226` to `Skip` and no mixed-dept helper churn (watch `billing_audit.pipeline_run`
+  hashes + `group_state.last_generated_run`). Owner call pending on the header-foreman rule (Codex P2
+  on #361, deferred). Then Phase 11 checklist items resume (≥5 `pass` parity verdicts → 11-08).
+
+## Previous (2026-08-27 16:20 CDT) — three PRs queued: #355 (docs, rebased/mergeable) → #358 (parity actual = uploaded set + shadow 25) → #359 (hash sort tiebreaker, owner-approved)
 - **#359** `fix/data-hash-sort-tiebreaker`: `_extended_row_fields()` extracted; EXTENDED sort key +
-  hashed-field string + foreman as tiebreaker; legacy untouched. Full suite green; new
+  hashed-field string + foreman + helper foreman/dept/job as tiebreakers (merged form `a8d6795`);
+  legacy untouched. Full suite green; new
   `tests/test_change_detection_tiebreak.py` pins order-independence for ties AND byte-identity for
   tie-free groups. Post-merge validation: one-time bounded regeneration bump, then `Skip` on
-  `91057431/080226`. Ledger `[2026-08-27 16:10]`.
+  `<WR-A>/080226`. Ledger `[2026-08-27 16:10]`.
 - **#355** rebased onto master in a worktree (conflicts: state file → master's; ledger → both entries
   kept, `[00:15]` before `[11:51]`); force-pushed with lease; now MERGEABLE.
 - **Merge order matters** (all three touch the ledger tail / state file): #355 → #358 → #359; the
@@ -36,7 +102,7 @@ re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its o
   `_shadow_parity_input_sets()` drops generated-but-withheld groups from both sides
   (`parity_details.actual_withheld_excluded`); `RUN_MEMORY_SHADOW_MAX_MINUTES: '25'` on `Generate
   reports` (owner-approved). Suite 1760 passed / 1 skipped; runbook build green; YAML parsed.
-- **Diagnosed, NOT fixed (needs approval — change-detection primitive):** `91057431/080226` and a
+- **Diagnosed, NOT fixed (needs approval — change-detection primitive):** `<WR-A>/080226` and a
   small set of uploaded old-week groups alternate between two content hashes with no data change
   (`billing_audit.pipeline_run`, constant `assignment_fp`). Cause: `calculate_data_hash` sorts on
   `(WR, Snapshot Date, CU, Pole/Point, Quantity)`; rows tying on that key but differing in a hashed
@@ -62,7 +128,7 @@ re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its o
   ~25 min needed. The 40 `only_in_candidate` groups were the 08-25→today baseline gap (self-heals).
   **Owner decisions needed:** comparator "actual" definition (D-07 refinement) and the shadow budget
   (workflow env — protected). Ledger `[2026-08-27 14:35]` has the full evidence.
-- **Open:** churn group `91057431/080226` re-uploaded every run since 15:57Z despite an unchanged
+- **Open:** churn group `<WR-A>/080226` re-uploaded every run since 15:57Z despite an unchanged
   authoritative hash — investigate before 11-08. Scheduler: 17:00Z + 19:00Z crons missed; watcher armed.
 - **Next:** Juan decides the two comparator changes → small PR (parity.py/orchestrate.py + tests +
   env) → streak clock restarts on the first `production_frequent` run after it. #355 still open.
@@ -417,7 +483,7 @@ re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its o
    until the decision is implemented. Observation to carry: baseline stores
    Windows `\` paths → Gate 4 FAIL-diff would be noise on Linux CI.
 
-## Previous (2026-08-24 14:35 CDT) — DIAGNOSIS ONLY: `_User_Unknown_Foreman` (WR 89829163) root-caused; helper-sheet gaps traced to data gates
+## Previous (2026-08-24 14:35 CDT) — DIAGNOSIS ONLY: `_User_<NAME>` (WR <WR>) root-caused; helper-sheet gaps traced to data gates
 0000000000000000. GSD debug session
    `.planning/debug/unknown-foreman-helper-shadow-2026-08-24.md`
    (status root_cause_found; no code/data/workflow change). (1) The
@@ -432,7 +498,7 @@ re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its o
    foreman" source for archived WRs. (2) Helper sheets: scheduled run
    32743959053 evaluated all 166+5 helper groups (0 dropped); missing
    helper files are data-gated (`Helper Dept #` formula blank — WRs
-   91499829/90550059 — or `Foreman Helping?` blank). Need one concrete
+   <WR>/<WR> — or `Foreman Helping?` blank). Need one concrete
    (WR, week, helper, run) example for the "only after full regen"
    claim. Ledger entry `[2026-08-24 14:35]`; wiki project page + log
    updated. Manual run 32748717671 (Juan, 16:04 UTC) was still
@@ -701,8 +767,8 @@ re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its o
 
 ## Previous (2026-08-14 AM) — both underbilled rows REPAIRED (Juan-approved API re-save) + drift steady state ACHIEVED
 00000. **Repair executed + verified** (ledger `[2026-08-14 10:05]`):
-   91718610 → $113.68 (Backup 83; wk-08-09 Excel REGENERATED by run
-   31805121266); 91173728 → $1,179.36 (Backup 73; wk-08-16 file
+   <WR> → $113.68 (Backup 83; wk-08-09 Excel REGENERATED by run
+   31805121266); <WR> → $1,179.36 (Backup 73; wk-08-16 file
    regenerates next scheduled run via hash change). Working idiom:
    same-value write = Smartsheet no-op; text→number Quantity
    type-flip forces recalc. Snapshot Dates NOT re-stamped; no
@@ -718,8 +784,8 @@ re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its o
    repro (scratchpad driver, detector-only) matched burn-in counters
    and identified the 2 mismatches — **both underbilled exactly one
    unit** (actual = rate × (qty−1), stale Install-Quantity formula
-   class): WR 91718610 / SAA-DE-20 / Inst / qty 2 ($56.84 vs
-   $113.68; ProMax Backup 82/83 + Intake Promax 9) and WR 91173728 /
+   class): WR <WR> / SAA-DE-20 / Inst / qty 2 ($56.84 vs
+   $113.68; ProMax Backup 82/83 + Intake Promax 9) and WR <WR> /
    DEC-20AL-C / Inst / qty 4 ($884.52 vs $1,179.36). **Juan action:**
    check Quantity vs Install Quantity on those rows, re-save to
    recalc — upstream fix only. **Legacy `_detect_price_anomalies`
@@ -733,9 +799,9 @@ re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its o
    **ROOT CAUSE CONFIRMED via cell history (`[2026-08-14 00:50]`):**
    both mismatches = automation-triggered recalc racing a human qty
    edit (correct price reverts 2-3s later to stale-qty price).
-   Exact rows: Backup 83 row 5538447881863044 (91718610, wk 08-09,
+   Exact rows: Backup 83 row 5538447881863044 (<WR>, wk 08-09,
    already underbilled $56.84) + Backup 73 row 1166598725369732
-   (91173728, **wk 08-16 CURRENT — re-save before next run** or it
+   (<WR>, **wk 08-16 CURRENT — re-save before next run** or it
    bills $294.84 short). Both predate Juan's 08-13 automation fix;
    rate-sanity counters on future runs verify whether the race died.
 
@@ -817,7 +883,7 @@ re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its o
    billing_audit/schema.sql → burn-in → enable hold gate.
 
 ## Previous work (2026-08-12) — SAA-DE-20 overbill root-caused (upstream data, not code) + Snapshot Date automation defect proven + quick task 260812-isx in flight
-1. **Field-reported wrong pricing solved:** WR 91916464 / Point 27 /
+1. **Field-reported wrong pricing solved:** WR <WR> / Point 27 /
    SAA-DE-20 showed 3 EA @ $341.04 (should be 3 × $56.84 = $170.52).
    Root cause: stale Smartsheet `Install Quantity` formula cell on
    "Resiliency Promax Database Backup 86" (Quantity edited 6→3 on
@@ -921,7 +987,7 @@ re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its o
    `SKIP_UPLOAD=true WR_FILTER=... MAX_GROUPS=5` run, real transport, 2,771
    groups validated, 5 Excel generated, zero SDK error-shape drift).
    **Finding:** `SKIP_UPLOAD=true` is NOT fully read-only — the
-   delete-old-attachment step still ran (WR 89881161 weeks 072025/081725
+   delete-old-attachment step still ran (WR <WR> weeks 072025/081725
    deleted; hash withheld → next weekday cron regenerates + re-uploads
    automatically; Juan chose wait-for-cron). Logged in phase
    `deferred-items.md` + Living Ledger; follow-up fix candidate: gate the
@@ -956,7 +1022,7 @@ re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its o
    passed, 0 issues** (commit `d78e7d5`). Full-UAT in
    `.planning/phases/08-*/08-UAT.md`; the old 1-test `08-HUMAN-UAT.md`
    closed (its attachment-loss check = Test 5, Juan-confirmed: WR
-   89881161 self-healed via cron, WR 89708709/90093002 intact).
+   <WR> self-healed via cron, WR <WR>/<WR> intact).
    `08-VERIFICATION.md` flipped `human_needed` → `passed` (the human
    gate it awaited was exactly Test 5). Roadmap/STATE/PROJECT transition
    had already run in the prior session — no re-transition.
@@ -1050,7 +1116,7 @@ delete→upload order, `@cell`=0, `PARALLEL_WORKERS≤8`, filename/attachment). 
 `memory-bank/living-ledger.md` (newest entries) for the full what/why/rules.
 
 ## Active work
-**🔧 WR 90968595 missing-rows bug: ROOT CAUSE CONFIRMED, fix in PR (2026-07-06).**
+**🔧 WR <WR> missing-rows bug: ROOT CAUSE CONFIRMED, fix in PR (2026-07-06).**
 Not attribution/filtering — a crash-consistency bug in the Sub-project E hash
 store: failed run 28752355941 (7/5, runner lost) upserted the new group hash
 during emission but died before the upload phase, so under authoritative clean
@@ -1060,7 +1126,7 @@ upserts and flushes ONLY after the group's upload legs succeed (withhold on
 error/dry-run → regenerate next run). 4 regression tests; suite 1153 passed +130
 subtests. **Pending:** merge fix PR (stacked on #282) → one-time remediation
 `workflow_dispatch` `advanced_options=regen_weeks:070526` → verify the 7/5 rows in
-the regenerated file → archive debug session `wr-90968595-rows-not-pulled` +
+the regenerated file → archive debug session `wr-<WR>-rows-not-pulled` +
 apply the held second-brain write-back packet. Full rule: newest
 `memory-bank/living-ledger.md` entry.
 
