@@ -7361,5 +7361,9 @@ follow-up findings closed, same 6 files.
   and workbooks → `scripts/publish_artifacts_to_supabase.py` (`:630`) → Supabase `artifacts` →
   `portal-v2` (`useArtifactsInfinite.ts:35`); the portal never reads `run_summary.json`. Daily
   counts are normal-run counts — the deep run is an 8th Monday run in CDT / 5th Sunday run in CST.
+- **Round 10 added:** production VAC files are `_VacCrew_<name>` (`VAC_CREW_CLAIM_ATTRIBUTION_ENABLED:
+  '1'` at `weekly-excel-generation.yml:434`; `excel.py:144`) — the bare `_VacCrew` suffix is the
+  disabled legacy shape; `row_state` is upserted for every accepted row but `row_event` is inserted
+  only when the content hash is new/changed (`pipeline_memory/schema.sql:258-268`).
 - **RULE — a runbook statement about pipeline behaviour cites the line that implements it.** The
   reviewer bots read the code; the doc sentence with no anchor is the one that drifts.
