@@ -7384,5 +7384,10 @@ follow-up findings closed, same 6 files.
   errors/transactions to the production Sentry project. Operator wording for `_Unknown_Foreman`:
   fix the source AND escalate immediately — "check the next run" waits for something that cannot
   happen (the frozen claimer wins).
+- **Round 15 added:** a row with incomplete helper metadata falls back to the plain main file ONLY
+  on an original-contract sheet (`grouping.py:621`); a subcontractor row is excluded from the main
+  file (`:658`) and emitted as the foreman's `_ReducedSub_User_…` / `_AEPBillable_User_…` variant
+  (`:766-883`). Operator checklists must not say a hand-edited workbook "will be overwritten" —
+  same filename-only check as round 12.
 - **RULE — a runbook statement about pipeline behaviour cites the line that implements it.** The
   reviewer bots read the code; the doc sentence with no anchor is the one that drifts.
