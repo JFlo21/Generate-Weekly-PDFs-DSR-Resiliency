@@ -71,3 +71,15 @@ repository is PUBLIC while ~284 WR-like ids and ~20 personnel names sit in 106 t
 touched are aliased. **Owner decision pending:** scrub tracked files / make the repo private /
 rewrite history (#360 thread 3877686166).
 See `memory-bank/living-ledger.md` `[2026-08-27 21:10]`.
+
+## 2026-08-28 — sheet_registry upsert no longer 400s; RPC failures name their PostgREST code (PR #363)
+Every frequent run since 2026-08-27 18:20Z failed the `pipeline_memory.sheet_registry` upsert:
+registered sheets omit `column_mapping` while a newly discovered sheet carries it, postgrest-py
+sends `columns=` as the union of the payload's keys, and PostgREST NULLed the `NOT NULL` column
+on the UPDATE half (23502 → HTTP 400, never self-healing once the registry was one sheet
+behind discovery). The writer now issues one upsert per key-set, so every request is
+key-homogeneous and a registered row's stored mapping is left untouched as intended; the deep
+run's homogeneous payload is still a single identical request. `with_retry` now logs
+`code=<SQLSTATE/PGRST>` on the final failure and the message only for structural code classes
+(the Actions logs are public; `details`/`hint` never). Billing output untouched; fail-open path.
+See `memory-bank/living-ledger.md` `[2026-08-28 15:05]` (root cause) and `[2026-08-28 16:05]`.
