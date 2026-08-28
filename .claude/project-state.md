@@ -1,25 +1,25 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-27 22:21 CDT (03:21Z) · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-27 22:24 CDT (03:24Z) · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
 _Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-27 21:10]` (verified pipeline truths from the
 #360 review rounds — acceptance gate, group key, TEST_MODE/Supabase, Snapshot Date, reset purge, stale
-attachment). Earlier: `[2026-08-27 20:20]` (identity row = canonical row, PR #361), `[2026-08-27 11:51]` (first post-flip run wrote NO run
-memory — `pipeline_memory` client init raised AttributeError on supabase-py sync options; fix on PR #356).
+attachment, public-repo identifier rule). Earlier: `[2026-08-27 20:20]` (identity row = canonical row,
+ships with PR #361), `[2026-08-27 16:10]` (hash sort tiebreaker, #359).
 `pipeline_memory` schema is LIVE on Supabase `poeyztlmsawfoqlanucc` (service_role-only). **Write path ON in
 production** since #353 (`673f7b2`, `RUN_MEMORY_WRITE_ENABLED: '1'` on the `Generate reports` step only);
-`RUN_MEMORY_INCREMENTAL_ENABLED` stays OFF. **Merged:** #351 (`82ce830`, plans 01–07), #354 (`46b64ac`,
-review fixes), #353 (the flip). **OPEN (Juan merges): #356** `fix/pipeline-memory-sync-client-options`
-(SyncClientOptions + bare-client fallback + real-SDK test + changelog post — until it merges every run
-logs `client init failed` and writes nothing) and **#355** (docs: `sheets_errored` column fix, handoff,
-PreCompact hook). Phase 11 EXECUTING — **7/8 plans done**; **11-08 INC-05 retirement DEFERRED by owner**
-(streak 0/5 — no scheduled run has yet written a `parity_verdict`; the clock starts with the first
-`production_frequent` run after #356). Then: checklist item 6 SQL + items 2–3 → ≥5 `pass` verdicts →
-re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
+`RUN_MEMORY_INCREMENTAL_ENABLED` stays OFF. **Merged:** #351, #354, #353 (the flip), #356 (sync-client
+fix — memory writes confirmed on run #2801), #358 (parity "actual" = queued-for-upload set + shadow
+budget 25), #355 (docs/hook), #359 (hash sort tiebreaker). **OPEN (Juan merges): #360** Learn docs and
+**#361** identity row = canonical row — ledger + state are byte-identical on both, either order is
+clean. Phase 11 EXECUTING — **7/8 plans done**; **11-08 INC-05 retirement DEFERRED by owner** (needs
+≥5 consecutive `parity_verdict = pass` on `production_frequent` runs; the streak was NOT re-checked
+this session — read the latest `run_ledger.notes` before resuming). Then: checklist item 6 SQL +
+items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-08-27 22:21 CDT) — #355 + #359 MERGED; #361 (identity row = canonical row) round 2 done; #360 (Learn docs) Copilot rounds 2–16 done — both await Juan's merge
+## Latest work (2026-08-27 22:24 CDT) — #355 + #359 MERGED; #361 (identity row = canonical row) round 2 done; #360 (Learn docs) Copilot rounds 2–17 done — both await Juan's merge
 - **Merged:** #355 (`81eb82b`) and #359 (`a8d6795`, hash sort tiebreaker); master at `263dc34`.
 - **#361** `fix/excel-header-canonical-row` (code head `2c51a38` = `79e5411` + `2c51a38`; later commits are ledger/state only):
   Excel header + orchestrate Sites 1/2/3 read `canonical_first_row()`; Job # aliases AND the legacy
@@ -31,7 +31,7 @@ re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its o
   retrigger needs a browser login (307 → /login) — click "Re-trigger Greptile" in the PR body if it
   doesn't re-review on its own. Azure DevOps mirror check fails on every PR build (also docs-only
   #360) — pre-existing, not required (branch unprotected). 1775 tests pass. Ledger `[2026-08-27 20:20]`.
-- **#360** `docs/learning-guides` (docs head `bae4938` + state-sync commit): **sixteen review rounds done** —
+- **#360** `docs/learning-guides` (docs head `bae4938` + state-sync commit): **seventeen review rounds done** —
   Copilot auto-reviews every push here, so each fix commit drew a smaller follow-up round (4: purge
   scope = `WR_*.xlsx` on the target sheet only, no `$0` line for an admitted row, `EXCLUDE_WRS` /
   `max_groups` DO narrow an attaching run, `pipeline_memory` edge bidirectional; 5: `workflow_dispatch`
@@ -53,7 +53,8 @@ re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its o
   `_Unknown_Foreman` -> escalate immediately; 15: subcontractor rows with blank helper fields go to
   `_ReducedSub_User_…`, never the plain main file; 16: repo is PUBLIC — real WRs aliased to `<WR-A>`/`<WR-B>` in this file
   and the ledger; git history + merged blog post + old PR threads still hold them = owner's scrub
-  decision). Ledger `[21:10]` rounds 3–16.
+  decision; 17: stale intro status rewritten, ledger "unset" → explicit-empty, changelog post says
+  "key modules"). Ledger `[21:10]` rounds 3–17.
   Round 2 (`2a271c8`): 35 Copilot/Codex/Greptile findings checked against the code; 34 fixed, 1
   declined (Greptile "reorganise the engineer guide", left open for Juan). Round 3 (Copilot
   re-review of `2a271c8`, 3 comments + 4 suppressed, all valid, fixed in `f20036e`): Snapshot Date
