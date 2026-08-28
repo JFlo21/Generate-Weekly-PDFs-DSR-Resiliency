@@ -316,6 +316,54 @@ def _build_synthetic_rows():
     return rows
 
 
+def should_skip_no_target_row(
+    wr_num: str,
+    target_map: dict | None,
+    *,
+    attachment_required: bool,
+    test_mode: bool,
+    skip_upload: bool,
+) -> bool:
+    """Owner decision 2026-08-28: a group whose Work Request has no row
+    on the target sheet is a data-entry error on the source sheet
+    (malformed or unregistered ``Work Request #``) -- it is NOT
+    generated and is listed as an error instead of regenerating on every
+    run for a file that can never upload.
+
+    PURE. True only when every guard holds: attachments are required
+    for a skip (the same switch that makes the target map load at all),
+    not TEST_MODE, not a SKIP_UPLOAD dry run (generating is the point of
+    a dry run), the target map is POPULATED (an empty map means the
+    sheet was unreachable -- never a skip; zero-row guard), and the WR
+    is absent from it. Converges by itself: the moment the row appears
+    the group is generated on the next run (its hash was never stored).
+    """
+    if not attachment_required or test_mode or skip_upload:
+        return False
+    if not target_map:
+        return False
+    return str(wr_num) not in target_map
+
+
+def format_no_target_row_summary(
+    groups: dict, target_sheet_id: object,
+) -> str:
+    """One end-of-run ERROR line: how many groups / distinct WR values
+    were NOT generated because the WR has no target-sheet row, with the
+    values listed (the audit trail the owner asked for; the same values
+    the upload-phase warning already printed per group before this
+    rule existed). PURE.
+    """
+    wrs = sorted({str(v[0]) for v in groups.values()})
+    return (
+        f"❌ {len(groups)} group(s) across {len(wrs)} Work Request value(s) "
+        f"have no row on target sheet {target_sheet_id} -- data-entry "
+        f"errors on the source sheets (malformed or unregistered "
+        f"'Work Request #'); NOT generated. Fix the source rows. "
+        f"Values: {', '.join(wrs)}"
+    )
+
+
 def derive_group_identity(
     first_row: dict,
     *,
@@ -1107,6 +1155,7 @@ def _shadow_parity_input_sets(
     candidate_hashes: dict[Any, Any],
     deferred_records: list[dict[str, Any]],
     upload_tasks: list[dict[str, Any]],
+    unobservable: 'set | None' = None,
 ) -> tuple[dict[Any, Any], dict[Any, Any], int]:
     """Build the two group-hash mappings ``compare_shadow_parity`` sees.
 
@@ -1130,6 +1179,12 @@ def _shadow_parity_input_sets(
     stays in the candidate -- that is a real divergence the verdict must
     still report.
 
+    *unobservable* (owner decision 2026-08-28): group keys the full path
+    deliberately did NOT generate because the WR has no target-sheet
+    row. They are the same never-observable set as a withheld group
+    (nothing can ever upload for them), so they are dropped from the
+    candidate as well and counted in ``withheld_excluded``.
+
     Returns ``(candidate, actual, withheld_excluded)``.
     """
     uploadable = {
@@ -1144,6 +1199,7 @@ def _shadow_parity_input_sets(
             actual[gk] = rec.get('data_hash')
         else:
             withheld.add(gk)
+    withheld |= set(unobservable or ())
     candidate = {
         gk: h for gk, h in (candidate_hashes or {}).items()
         if gk not in withheld
@@ -2973,6 +3029,10 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 )
         history_updates = 0
         _groups_skipped = 0
+        _groups_skipped_no_target = 0
+        # group_key -> (wr, week, variant) for groups NOT generated because
+        # the WR has no target-sheet row (owner decision 2026-08-28).
+        _no_target_row_groups: dict = {}
         _groups_generated = 0
         _groups_uploaded = 0
         _groups_errored = 0
@@ -3665,6 +3725,43 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                             data={"error_type": type(_audit_err).__name__},
                         )
 
+                # Owner decision 2026-08-28: a WR with no target-sheet
+                # row is a data-entry error -- not generated, listed as
+                # an error (see should_skip_no_target_row). Sits BEFORE
+                # the hash decision so it applies whether or not the
+                # data changed; the map is loaded lazily exactly as the
+                # attachment check below does.
+                if (
+                    ATTACHMENT_REQUIRED_FOR_SKIP and not TEST_MODE
+                    and not SKIP_UPLOAD
+                ):
+                    if not target_map:
+                        target_map, _target_sheet_obj = (
+                            create_target_sheet_map(client)
+                        )
+                    if should_skip_no_target_row(
+                        wr_num, target_map,
+                        attachment_required=ATTACHMENT_REQUIRED_FOR_SKIP,
+                        test_mode=TEST_MODE, skip_upload=SKIP_UPLOAD,
+                    ):
+                        _no_target_row_groups[group_key] = (
+                            wr_num, week_raw, variant,
+                        )
+                        _groups_skipped_no_target += 1
+                        logging.warning(
+                            f"⛔ Skip (no target-sheet row) {variant} "
+                            f"WR {wr_num} week {week_raw} -- data-entry "
+                            f"error on the source sheet; NOT generated"
+                        )
+                        sentry_add_breadcrumb(
+                            "group", "Skipped: no target-sheet row",
+                            level="warning", data={
+                                "wr": wr_num, "week": week_raw,
+                                "variant": variant,
+                            },
+                        )
+                        continue
+
                 # Decide skip based on stored history BEFORE generating Excel (only if FORCE not set)
                 if _history_eligible_for_skip:
                     if _hash_unchanged:
@@ -3953,8 +4050,26 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 continue
         
         _phase_group_elapsed = (datetime.datetime.now() - _phase_group_start).total_seconds()
-        logging.info(f"⚡ Group processing phase: {_groups_generated} generated, {_groups_skipped} skipped in {_phase_group_elapsed:.1f}s"
-                     + (f" (stopped early — time budget exceeded)" if _time_budget_exceeded else ""))
+        logging.info(
+            f"⚡ Group processing phase: {_groups_generated} generated, "
+            f"{_groups_skipped} skipped, {_groups_skipped_no_target} not "
+            f"generated (no target-sheet row) in {_phase_group_elapsed:.1f}s"
+            + (" (stopped early — time budget exceeded)"
+               if _time_budget_exceeded else "")
+        )
+        if _no_target_row_groups:
+            logging.error(format_no_target_row_summary(
+                _no_target_row_groups, TARGET_SHEET_ID,
+            ))
+            sentry_add_breadcrumb(
+                "group", "Groups not generated: no target-sheet row",
+                level="error", data={
+                    "groups": len(_no_target_row_groups),
+                    "work_requests": len(
+                        {v[0] for v in _no_target_row_groups.values()}
+                    ),
+                },
+            )
 
         # Phase 11 Plan 05 (INC-04, CONTEXT.md D-07/D-08): shadow-
         # incremental parity proof. Runs ONLY while
@@ -4070,6 +4185,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         _shadow_candidate_hashes,
                         _deferred_group_state,
                         _upload_tasks,
+                        unobservable=set(_no_target_row_groups),
                     )
                     _shadow_group_result = _parity.compare_shadow_parity(
                         _shadow_candidate_hashes, _shadow_actual_hashes,
@@ -4924,6 +5040,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             "files_generated": generated_files_count,
             "groups_total": len(groups),
             "groups_skipped": _groups_skipped,
+            "groups_skipped_no_target_row": _groups_skipped_no_target,
             "groups_generated": _groups_generated,
             "groups_uploaded": _groups_uploaded,
             "groups_errored": _groups_errored,
@@ -4968,6 +5085,10 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             scope.set_tag("session_success", "true")
             scope.set_tag("files_generated", str(generated_files_count))
             scope.set_tag("groups_skipped", str(_groups_skipped))
+            scope.set_tag(
+                "groups_skipped_no_target_row",
+                str(_groups_skipped_no_target),
+            )
             scope.set_tag("groups_generated", str(_groups_generated))
             scope.set_tag("groups_uploaded", str(_groups_uploaded))
             scope.set_tag("groups_errored", str(_groups_errored))
@@ -4981,6 +5102,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 "files_generated": generated_files_count,
                 "groups_total": len(groups),
                 "groups_skipped": _groups_skipped,
+            "groups_skipped_no_target_row": _groups_skipped_no_target,
                 "groups_generated": _groups_generated,
                 "groups_uploaded": _groups_uploaded,
                 "groups_errored": _groups_errored,
