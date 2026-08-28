@@ -105,6 +105,7 @@ const config: Config = {
           position: 'left',
           label: 'Runbook',
         },
+        { to: '/docs/learn/for-operators', label: 'Learn', position: 'left' },
         { to: '/blog', label: 'Change Log', position: 'left' },
         {
           href: 'https://github.com/jflo21/generate-weekly-pdfs-dsr-resiliency',
@@ -120,6 +121,8 @@ const config: Config = {
           title: 'Runbook',
           items: [
             { label: 'Overview', to: '/docs' },
+            { label: 'For operators', to: '/docs/learn/for-operators' },
+            { label: 'For engineers', to: '/docs/learn/for-engineers' },
             { label: 'Workflows', to: '/docs/runbook/workflows' },
             { label: 'Python modules', to: '/docs/runbook/python-modules' },
           ],

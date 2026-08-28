@@ -14,8 +14,13 @@ records a changelog entry for every merge into `master` so operators can trace
 
 ## What you'll find here
 
+- **Learn** — two guided reads: [for operators](./learn/for-operators.md)
+  (what the automation does, how to read a file, how to get a unit into the
+  right Excel, when to ask for a manual run) and
+  [for engineers](./learn/for-engineers.md) (the code map, how to diagnose
+  a run, and how to change the pipeline without breaking billing).
 - **Runbook** — hand-maintained pages describing the Python entry points,
-  GitHub Actions workflows, the Express/React portals, and operational
+  GitHub Actions workflows, the `portal-v2` web app, and operational
   procedures.
 - **Change Log** — one auto-generated blog post per merge to `master`,
   summarizing the files that changed (grouped by area) plus the commit
@@ -25,8 +30,9 @@ records a changelog entry for every merge into `master` so operators can trace
 
 ## How to read this runbook
 
-1. Start with [Overview](./runbook/overview.md) if you're new — it explains
-   what the system does end-to-end.
+1. New and non-technical? Read [For operators](./learn/for-operators.md).
+   New and technical? Read [For engineers](./learn/for-engineers.md), then
+   [Overview](./runbook/overview.md) for the system diagram.
 2. Drill into [Python modules](./runbook/python-modules.md) or
    [Workflows](./runbook/workflows.md) to understand a specific component.
 3. Open the [Change Log](/blog) to see what landed recently and why.
