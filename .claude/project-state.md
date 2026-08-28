@@ -1,10 +1,12 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-27 17:45 CDT · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-27 21:30 CDT · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
-_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-27 11:51]` (first post-flip run wrote NO run
+_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-27 21:10]` (verified pipeline truths from the
+#360 review rounds — acceptance gate, group key, TEST_MODE/Supabase, Snapshot Date, reset purge, stale
+attachment). Earlier: `[2026-08-27 20:20]` (identity row = canonical row, PR #361), `[2026-08-27 11:51]` (first post-flip run wrote NO run
 memory — `pipeline_memory` client init raised AttributeError on supabase-py sync options; fix on PR #356).
 `pipeline_memory` schema is LIVE on Supabase `poeyztlmsawfoqlanucc` (service_role-only). **Write path ON in
 production** since #353 (`673f7b2`, `RUN_MEMORY_WRITE_ENABLED: '1'` on the `Generate reports` step only);
@@ -17,24 +19,43 @@ PreCompact hook). Phase 11 EXECUTING — **7/8 plans done**; **11-08 INC-05 reti
 `production_frequent` run after #356). Then: checklist item 6 SQL + items 2–3 → ≥5 `pass` verdicts →
 re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-08-27 17:45 CDT) — #358 MERGED; #357 closed; #355 + #359 rebased & MERGEABLE; hook hardened to v1.1.4; docs Learn section on PR #360
-- **Merged:** #358 (`239a14a`) — parity actual = uploaded set, candidate-only informational (D-07
-  refinement #2 from run #2802), `RUN_MEMORY_SHADOW_MAX_MINUTES: '25'`. #357 closed (content rode in).
-- **Open, MERGEABLE (Azure mirror aside):** #355 `0cea6d1` (docs + PreCompact hook v1.1.4: unique `wx`
-  packets, packet written before the vault step, owner-token log lock with PID-liveness/60 s orphan
-  reclaim via atomic rename, collision-proof `-unlocked-<pid>` fallback, `--install`); #359 `0fb52c9`
-  (hash sort tiebreaker, owner-approved; one-time bounded regeneration bump expected); **#360**
-  `docs/learning-guides` (Learn section: for-operators + for-engineers, overview rewrite, intro,
-  sidebar/navbar, changelog post; typecheck + build green).
-- **Run #2802** (first scheduled run with working memory): 8 sheets written / 0 errored / confirmed;
-  attachment ids preserved on skipped groups; churn group skipped this run.
-- **claude-mem:** worker was down 09:19–15:58 CDT (13.16.1 update); day reconstructed via
-  `POST /api/import` (1 session + 1 summary + 6 `[backfill]` observations); live capture resumed 21:01Z.
-- **Next:** merge #355, #359, #360 (rebase remaining after each — watcher armed) → first
-  `production_frequent` run after #359 → `parity_verdict=pass` → streak clock → ≥5 passes → re-open
-  11-07 → resume Phase 11 at 11-08. Watch the first post-#359 run's regeneration count.
+## Latest work (2026-08-27 21:30 CDT) — #355 + #359 MERGED; #361 (identity row = canonical row) round 2 done; #360 (Learn docs) Copilot rounds 2 + 3 done — both await Juan's merge
+- **Merged:** #355 (`81eb82b`) and #359 (`a8d6795`, hash sort tiebreaker); master at `263dc34`.
+- **#361** `fix/excel-header-canonical-row` (code head `2c51a38` = `79e5411` + `2c51a38`; later commits are ledger/state only):
+  Excel header + orchestrate Sites 1/2/3 read `canonical_first_row()`; Job # aliases AND the legacy
+  identity `User` appended to the (hash-neutral) sort key; Greptile line-length fixed; PR body's
+  Production Safety Check rewritten to cover identity/cleanup/prune effects + rollout expectation.
+  Threads: Greptile, Copilot ×3, Codex P1, Codex Job-alias → fixed **and resolved**; Codex legacy-mode
+  P2 → declined with rationale (left open); Codex first-nonempty-foreman P2 → **deferred to Juan**
+  (billing-output change; left open). CI green on `79e5411`; `2c51a38` re-running at handoff. Greptile
+  retrigger needs a browser login (307 → /login) — click "Re-trigger Greptile" in the PR body if it
+  doesn't re-review on its own. Azure DevOps mirror check fails on every PR build (also docs-only
+  #360) — pre-existing, not required (branch unprotected). 1775 tests pass. Ledger `[2026-08-27 20:20]`.
+- **#360** `docs/learning-guides` (head `f20036e` + state-sync commit): **two review rounds done.**
+  Round 2 (`2a271c8`): 35 Copilot/Codex/Greptile findings checked against the code; 34 fixed, 1
+  declined (Greptile "reorganise the engineer guide", left open for Juan). Round 3 (Copilot
+  re-review of `2a271c8`, 3 comments + 4 suppressed, all valid, fixed in `f20036e`): Snapshot Date
+  must parse inside the Monday–Sunday week to appear in a day block while the total still counts
+  it (`excel.py:722-736` / `:505`); billing period = week ending − 6, never Snapshot Date;
+  `reset_hash_history` = global attachment purge before any group (`orchestrate.py:2374-2385`,
+  destructive); a unit moved out of a week that then has no rows leaves a stale attachment
+  (`cleanup.py:455-471`, `orchestrate.py:4157-4159`); acceptance gate lives in Phase 2 fetch, not
+  grouping; **correction of my round-2 text: `TEST_MODE` DOES gate every `billing_audit` /
+  `pipeline_memory` write (`not TEST_MODE` :3333/:3352/:1934) — only a non-test `SKIP_UPLOAD` run
+  reaches `freeze_row` (:3441)**. Key round-2 truths: gate = WR + weekly date + Units Completed? +
+  price > 0 (`fetch.py:837`; CU/qty/foreman don't gate); group key `(WR, week, variant, claimer)`;
+  `wr_filter` only in TEST_MODE (no attaching scope); `reset_wr_list` destructive/global; real
+  CDT/CST windows; runtime 40–60 (≤~75). `npm run typecheck`/`build` green both rounds; threads
+  replied with the SHA and resolved (only the Greptile one open). **State file is now byte-identical
+  on #360, #361 and the main tree** — either merge order is clean for it; keep it that way (edit in
+  the main tree, copy to both worktrees). Note: `CLAUDE.md` still describes grouping as
+  `(WR, week_ending, variant, foreman, dept, job)` — same drift, not touched in #360 (follow-up).
+- **Next:** Juan merges #360 + #361 → first `production_frequent` run after #361: expect
+  `91057431/080226` to `Skip` and no mixed-dept helper churn (watch `billing_audit.pipeline_run`
+  hashes + `group_state.last_generated_run`). Owner call pending on the header-foreman rule (Codex P2
+  on #361, deferred). Then Phase 11 checklist items resume (≥5 `pass` parity verdicts → 11-08).
 
-## Previous Latest work (2026-08-27 16:20 CDT) — three PRs queued: #355 (docs, rebased/mergeable) → #358 (parity actual = uploaded set + shadow 25) → #359 (hash sort tiebreaker, owner-approved)
+## Previous (2026-08-27 16:20 CDT) — three PRs queued: #355 (docs, rebased/mergeable) → #358 (parity actual = uploaded set + shadow 25) → #359 (hash sort tiebreaker, owner-approved)
 - **#359** `fix/data-hash-sort-tiebreaker`: `_extended_row_fields()` extracted; EXTENDED sort key +
   hashed-field string + foreman as tiebreaker; legacy untouched. Full suite green; new
   `tests/test_change_detection_tiebreak.py` pins order-independence for ties AND byte-identity for
