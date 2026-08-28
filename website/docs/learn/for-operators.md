@@ -59,7 +59,7 @@ opening it:
 WR_12345678_WeekEnding_080226_User_Jane_Doe.xlsx
    │            │                 │
    │            │                 └─ whose work: the foreman (User), a helper
-   │            │                    (Helper_<name>), a VAC crew (VacCrew), or a
+   │            │                    (Helper_<name>), a VAC crew (VacCrew_<name>), or a
    │            │                    subcontractor variant (AEPBillable_… / ReducedSub_…)
    │            └─ week ending, MMDDYY (Sunday 08/02/2026)
    └─ Work Request number
@@ -208,6 +208,6 @@ edit lost.
 | **Week ending** | The Sunday that closes the billing week; files are cut per week ending |
 | **CU / Billable Unit Code** | The catalogue code for a unit of work; it decides the description and price |
 | **Helper file** | Units a *helping* foreman completed on someone else's WR |
-| **VAC crew** | Vacuum-truck crew units, split into their own file |
+| **VAC crew** | Vacuum-truck crew units, split into their own file per VAC foreman (`_VacCrew_<name>`) |
 | **Snapshot date** | The day the unit was done; it places the unit in its day block and must fall inside the Monday–Sunday week. The billing period itself comes from the week-ending date |
 | **Deep run** | The once-a-week run at Monday 12:00 AM Central in summer (Sunday 11 PM in winter) that re-checks everything, including deleted rows |

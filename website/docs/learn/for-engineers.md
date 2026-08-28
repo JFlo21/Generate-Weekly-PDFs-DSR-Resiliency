@@ -232,9 +232,11 @@ The workflow:
 ## The run-memory layer in two minutes (Phase 10–11)
 
 Every scheduled run writes what it read to Supabase `pipeline_memory`: a
-`run_ledger` row, a `sheet_registry` watermark per sheet, `row_state` /
-`row_event` per accepted row, and `group_state` per uploaded group (with the
-attachment id). Production *reads* it too — the sheet watermarks and the last
+`run_ledger` row, a `sheet_registry` watermark per sheet, a `row_state` row
+per accepted row (always upserted — `last_seen_run` advances every run) plus a
+`row_event` only when that row's content hash is new or changed
+(`pipeline_memory/schema.sql:258-268` — event volume is change volume, not
+fetch volume), and `group_state` per uploaded group (with the attachment id). Production *reads* it too — the sheet watermarks and the last
 run's ledger status before fetch, and the changed-row ids for the shadow
 comparator — but no read changes what is generated until
 `RUN_MEMORY_INCREMENTAL_ENABLED` is on. A shadow comparator
