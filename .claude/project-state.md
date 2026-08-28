@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-27 22:30 CDT (03:30Z) · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-27 22:33 CDT (03:33Z) · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
@@ -19,7 +19,7 @@ clean. Phase 11 EXECUTING — **7/8 plans done**; **11-08 INC-05 retirement DEFE
 this session — read the latest `run_ledger.notes` before resuming). Then: checklist item 6 SQL +
 items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-08-27 22:30 CDT) — #355 + #359 MERGED; #361 (identity row = canonical row) round 2 done; #360 (Learn docs) Copilot rounds 2–18 done — both await Juan's merge; OWNER DECISION pending on repo-wide identifier scrub
+## Latest work (2026-08-27 22:33 CDT) — #355 + #359 MERGED; #361 (identity row = canonical row) round 2 done; #360 (Learn docs) Copilot rounds 2–19 done — both await Juan's merge; OWNER DECISION pending on repo-wide identifier scrub
 - **Merged:** #355 (`81eb82b`) and #359 (`a8d6795`, hash sort tiebreaker); master at `263dc34`.
 - **#361** `fix/excel-header-canonical-row` (code head `2c51a38` = `79e5411` + `2c51a38`; later commits are ledger/state only):
   Excel header + orchestrate Sites 1/2/3 read `canonical_first_row()`; Job # aliases AND the legacy
@@ -31,7 +31,7 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
   retrigger needs a browser login (307 → /login) — click "Re-trigger Greptile" in the PR body if it
   doesn't re-review on its own. Azure DevOps mirror check fails on every PR build (also docs-only
   #360) — pre-existing, not required (branch unprotected). 1775 tests pass. Ledger `[2026-08-27 20:20]`.
-- **#360** `docs/learning-guides` (docs head `bae4938` + state-sync commit): **eighteen review rounds done** —
+- **#360** `docs/learning-guides` (docs head `bae4938` + state-sync commit): **nineteen review rounds done** —
   Copilot auto-reviews every push here, so each fix commit drew a smaller follow-up round (4: purge
   scope = `WR_*.xlsx` on the target sheet only, no `$0` line for an admitted row, `EXCLUDE_WRS` /
   `max_groups` DO narrow an attaching run, `pipeline_memory` edge bidirectional; 5: `workflow_dispatch`
@@ -56,8 +56,9 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
   `generated_docs/*.json` manifests, tests, `.planning/`, blog, `orchestrate.py`) + git history + old PR
   threads → **Juan decides: scrub tracked files / make repo private / rewrite history** (#360 thread
   3877686166 left open for that); 17: stale intro status rewritten, ledger "unset" → explicit-empty, changelog post says
-  "key modules"; 18: names on touched ledger lines + every id in this file aliased, rule made truthful).
-  Ledger `[21:10]` rounds 3–18.
+  "key modules"; 18: names on touched ledger lines + every id in this file aliased, rule made truthful; 19: master
+  merged into #360 (ledger conflict = aliased `[16:10]` entry, kept ours), merged #359 key now documented
+  with the helper tiebreakers). Ledger `[21:10]` rounds 3–19.
   Round 2 (`2a271c8`): 35 Copilot/Codex/Greptile findings checked against the code; 34 fixed, 1
   declined (Greptile "reorganise the engineer guide", left open for Juan). Round 3 (Copilot
   re-review of `2a271c8`, 3 comments + 4 suppressed, all valid, fixed in `f20036e`): Snapshot Date
@@ -83,7 +84,8 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
 
 ## Previous (2026-08-27 16:20 CDT) — three PRs queued: #355 (docs, rebased/mergeable) → #358 (parity actual = uploaded set + shadow 25) → #359 (hash sort tiebreaker, owner-approved)
 - **#359** `fix/data-hash-sort-tiebreaker`: `_extended_row_fields()` extracted; EXTENDED sort key +
-  hashed-field string + foreman as tiebreaker; legacy untouched. Full suite green; new
+  hashed-field string + foreman + helper foreman/dept/job as tiebreakers (merged form `a8d6795`);
+  legacy untouched. Full suite green; new
   `tests/test_change_detection_tiebreak.py` pins order-independence for ties AND byte-identity for
   tie-free groups. Post-merge validation: one-time bounded regeneration bump, then `Skip` on
   `<WR-A>/080226`. Ledger `[2026-08-27 16:10]`.
