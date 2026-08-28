@@ -6,7 +6,7 @@ because of the first-write-wins RPC, so it can safely be rerun.
 
 Usage:
     python scripts/backfill_attribution_snapshot.py --week=112624
-    python scripts/backfill_attribution_snapshot.py --week=112624 --wr=91467680
+    python scripts/backfill_attribution_snapshot.py --week=112624 --wr=19236776
 
 Requires ``SUPABASE_URL`` + ``SUPABASE_SERVICE_ROLE_KEY`` and
 ``SMARTSHEET_API_TOKEN`` in the environment. Exits non-zero if the
@@ -71,7 +71,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=[],
         help=(
             "Restrict to one or more WR numbers. Repeat flag for "
-            "multiple (e.g. --wr 91467680 --wr 91467681)."
+            "multiple (e.g. --wr 19236776 --wr 13478502)."
         ),
     )
     return parser.parse_args(argv)

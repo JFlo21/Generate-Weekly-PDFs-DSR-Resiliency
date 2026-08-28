@@ -49,7 +49,7 @@ delta. All three aggregates now use the same definition.
 
 ## Why it changed
 
-On 2026-08-12, WR 91916464 / Point 27 (CU `SAA-DE-20`) billed 3 EA at $341.04
+On 2026-08-12, WR 16881353 / Point 27 (CU `SAA-DE-20`) billed 3 EA at $341.04
 ($113.68/EA) instead of the correct 3 × $56.84 = $170.52. Root cause: the
 source Smartsheet row's `Quantity` was corrected 6 → 3 by the foreman, but the
 sheet's `Install Quantity` formula cell never recalculated and stayed at 6, so

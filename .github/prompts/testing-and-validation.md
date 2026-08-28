@@ -21,10 +21,10 @@ def generate_comprehensive_synthetic_data():
     
     # WORK REQUEST VARIETY (realistic production patterns)
     work_requests = [
-        "WR_90093002",  # High-complexity emergency repair (15-20 rows)
-        "WR_82131472",  # Standard maintenance (8-12 rows) 
-        "WR_83812901",  # Transformer installation (10-15 rows)
-        "WR_89954686",  # Line extension (12-18 rows)
+        "WR_13792260",  # High-complexity emergency repair (15-20 rows)
+        "WR_15822272",  # Standard maintenance (8-12 rows) 
+        "WR_17790445",  # Transformer installation (10-15 rows)
+        "WR_16975895",  # Line extension (12-18 rows)
         "WR_77445123",  # Pole replacement (5-8 rows)
         "WR_66332211",  # Conductor repair (6-10 rows)
         "WR_55443322",  # Emergency storm damage (8-14 rows)
@@ -67,7 +67,7 @@ def inject_audit_test_cases(synthetic_rows):
     
     # PRICE ANOMALY TEST CASES
     # Inject 2-3 rows with >50% price variance within same WR
-    anomaly_wr = "WR_90093002"
+    anomaly_wr = "WR_13792260"
     base_price = 1200.00
     
     anomaly_rows = [
@@ -106,7 +106,7 @@ SYNTHETIC_ROW_VARIANCE=15       # Row count variation per WR (±15 rows)
 ENABLE_AUDIT_ANOMALIES=true     # Include pricing anomalies for audit testing
 
 # Test Scope Filtering
-WR_FILTER=WR_90093002,WR_82131472  # Test specific Work Requests only
+WR_FILTER=WR_13792260,WR_15822272  # Test specific Work Requests only
 DEBUG_SAMPLE_ROWS=10            # Show detailed output for first N rows
 ```
 
@@ -232,7 +232,7 @@ def test_excel_formatting():
 def test_filename_generation():
     """Validates file naming convention and hash integration"""
     
-    test_wr = "WR_90093002"
+    test_wr = "WR_13792260"
     test_date = "081725"
     test_hash = "90f4f758"
     
@@ -314,7 +314,7 @@ TEST_MODE=true SKIP_FILE_OPERATIONS=true python generate_weekly_pdfs.py
 TEST_MODE=true ENABLE_AUDIT_ANOMALIES=true python audit_billing_changes.py
 
 # Specific WR Testing
-TEST_MODE=true WR_FILTER=WR_90093002 PER_CELL_DEBUG_ENABLED=true python generate_weekly_pdfs.py
+TEST_MODE=true WR_FILTER=WR_13792260 PER_CELL_DEBUG_ENABLED=true python generate_weekly_pdfs.py
 
 # Performance Testing
 TEST_MODE=true SYNTHETIC_WR_COUNT=15 SYNTHETIC_ROW_VARIANCE=25 time python generate_weekly_pdfs.py
@@ -356,7 +356,7 @@ def create_realistic_wr_scenarios():
     
     scenarios = {
         # Emergency Storm Damage Repair
-        "WR_90093002": {
+        "WR_13792260": {
             "type": "emergency_repair",
             "complexity": "high",
             "crew_size": "large", 
@@ -370,7 +370,7 @@ def create_realistic_wr_scenarios():
         },
         
         # Scheduled Maintenance Project  
-        "WR_82131472": {
+        "WR_15822272": {
             "type": "scheduled_maintenance",
             "complexity": "medium",
             "crew_size": "standard",
@@ -384,7 +384,7 @@ def create_realistic_wr_scenarios():
         },
         
         # New Service Installation
-        "WR_83812901": {
+        "WR_17790445": {
             "type": "installation_project", 
             "complexity": "high",
             "crew_size": "large",
@@ -542,15 +542,15 @@ def inject_known_audit_anomalies():
     anomaly_patterns = {
         # Price variance anomaly (>50% difference within WR)
         "price_variance_wr90093002": [
-            {"Work Request #": "WR_90093002", "CU": "T001", "Units Total Price": "2500.00"},  # Normal
-            {"Work Request #": "WR_90093002", "CU": "T001", "Units Total Price": "4800.00"},  # 92% higher
-            {"Work Request #": "WR_90093002", "CU": "T001", "Units Total Price": "1100.00"}   # 56% lower
+            {"Work Request #": "WR_13792260", "CU": "T001", "Units Total Price": "2500.00"},  # Normal
+            {"Work Request #": "WR_13792260", "CU": "T001", "Units Total Price": "4800.00"},  # 92% higher
+            {"Work Request #": "WR_13792260", "CU": "T001", "Units Total Price": "1100.00"}   # 56% lower
         ],
         
         # Data consistency issues 
         "data_integrity_issues": [
-            {"Work Request #": "WR_82131472", "Units Total Price": "-500.00"},  # Negative price
-            {"Work Request #": "WR_83812901", "Quantity": "0"},                # Zero quantity
+            {"Work Request #": "WR_15822272", "Units Total Price": "-500.00"},  # Negative price
+            {"Work Request #": "WR_17790445", "Quantity": "0"},                # Zero quantity
             {"Work Request #": "", "Units Total Price": "1200.00"}             # Missing WR
         ],
         

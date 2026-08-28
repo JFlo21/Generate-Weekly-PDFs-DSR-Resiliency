@@ -280,7 +280,7 @@ CU pricing, rate recalculation, and billing formulas do not change.
   non-sentinel `attribution_snapshot`, and the 2025 `hash_history.json` foreman field;
   the 93 WRs / 5,824 rows frozen as `Unknown Foreman` are remediated and their
   `_User_Unknown_Foreman` attachments replaced. Validated against a known-good sample
-  (WR 89829163 WE 082425–092125 → Allen Harris).
+  (WR 19073866 WE 082425–092125 → Avery Example).
 
 - [ ] **OWN-04**: The change to Foundation A's first-write-wins contract is documented in
   the Living Ledger and the runbook; helper/VAC roles follow the same ladder.

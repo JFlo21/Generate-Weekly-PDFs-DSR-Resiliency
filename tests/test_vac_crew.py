@@ -96,18 +96,18 @@ class TestVacCrewGroupIdentityParsing(unittest.TestCase):
 
     def test_vac_crew_filename_parsed_as_vac_crew_variant(self):
         """build_group_identity returns vac_crew variant for VacCrew filenames."""
-        fname = 'WR_90093002_WeekEnding_081725_163045_VacCrew_a4d1aae7ccf82b3e.xlsx'
+        fname = 'WR_13792260_WeekEnding_081725_163045_VacCrew_a4d1aae7ccf82b3e.xlsx'
         result = generate_weekly_pdfs.build_group_identity(fname)
         self.assertIsNotNone(result)
         wr, week, variant, identifier = result
-        self.assertEqual(wr, '90093002')
+        self.assertEqual(wr, '13792260')
         self.assertEqual(week, '081725')
         self.assertEqual(variant, 'vac_crew')
         self.assertEqual(identifier, '')
 
     def test_primary_filename_not_affected(self):
         """build_group_identity still returns primary for standard filenames."""
-        fname = 'WR_90093002_WeekEnding_081725_163045_a4d1aae7ccf82b3e.xlsx'
+        fname = 'WR_13792260_WeekEnding_081725_163045_a4d1aae7ccf82b3e.xlsx'
         result = generate_weekly_pdfs.build_group_identity(fname)
         self.assertIsNotNone(result)
         wr, week, variant, identifier = result
@@ -115,7 +115,7 @@ class TestVacCrewGroupIdentityParsing(unittest.TestCase):
 
     def test_helper_filename_not_affected(self):
         """build_group_identity still returns helper for Helper filenames."""
-        fname = 'WR_90093002_WeekEnding_081725_163045_Helper_JohnSmith_a4d1aae7ccf82b3e.xlsx'
+        fname = 'WR_13792260_WeekEnding_081725_163045_Helper_JohnSmith_a4d1aae7ccf82b3e.xlsx'
         result = generate_weekly_pdfs.build_group_identity(fname)
         self.assertIsNotNone(result)
         wr, week, variant, identifier = result
@@ -124,8 +124,8 @@ class TestVacCrewGroupIdentityParsing(unittest.TestCase):
 
     def test_vac_crew_identity_does_not_match_primary(self):
         """VAC Crew identity tuple is distinct from primary identity tuple for same WR/week."""
-        fname_vac = 'WR_90093002_WeekEnding_081725_163045_VacCrew_aabbccdd11223344.xlsx'
-        fname_primary = 'WR_90093002_WeekEnding_081725_163045_aabbccdd11223344.xlsx'
+        fname_vac = 'WR_13792260_WeekEnding_081725_163045_VacCrew_aabbccdd11223344.xlsx'
+        fname_primary = 'WR_13792260_WeekEnding_081725_163045_aabbccdd11223344.xlsx'
         ident_vac = generate_weekly_pdfs.build_group_identity(fname_vac)
         ident_primary = generate_weekly_pdfs.build_group_identity(fname_primary)
         self.assertIsNotNone(ident_vac)
@@ -150,22 +150,22 @@ class TestSubcontractorVariantGroupIdentityParsing(unittest.TestCase):
 
     def test_aep_billable_filename_parsed_as_aep_billable_variant(self):
         """``_AEPBillable`` filename → variant='aep_billable', identifier=''."""
-        fname = 'WR_91467680_WeekEnding_041926_123456_AEPBillable_ab12cd34ef.xlsx'
+        fname = 'WR_19236776_WeekEnding_041926_123456_AEPBillable_ab12cd34ef.xlsx'
         result = generate_weekly_pdfs.build_group_identity(fname)
         self.assertIsNotNone(result)
         wr, week, variant, identifier = result
-        self.assertEqual(wr, '91467680')
+        self.assertEqual(wr, '19236776')
         self.assertEqual(week, '041926')
         self.assertEqual(variant, 'aep_billable')
         self.assertEqual(identifier, '')
 
     def test_reduced_sub_filename_parsed_as_reduced_sub_variant(self):
         """``_ReducedSub`` filename → variant='reduced_sub', identifier=''."""
-        fname = 'WR_91467680_WeekEnding_041926_123456_ReducedSub_ab12cd34ef.xlsx'
+        fname = 'WR_19236776_WeekEnding_041926_123456_ReducedSub_ab12cd34ef.xlsx'
         result = generate_weekly_pdfs.build_group_identity(fname)
         self.assertIsNotNone(result)
         wr, week, variant, identifier = result
-        self.assertEqual(wr, '91467680')
+        self.assertEqual(wr, '19236776')
         self.assertEqual(week, '041926')
         self.assertEqual(variant, 'reduced_sub')
         self.assertEqual(identifier, '')
@@ -174,11 +174,11 @@ class TestSubcontractorVariantGroupIdentityParsing(unittest.TestCase):
         """``_AEPBillable_Helper_<name>`` filename → variant='aep_billable_helper',
         identifier=helper_name (variant-first per D-09 — must NOT parse
         as plain ``helper`` losing the AEPBillable token)."""
-        fname = 'WR_91467680_WeekEnding_041926_123456_AEPBillable_Helper_Jane_Smith_ab12cd34ef.xlsx'
+        fname = 'WR_19236776_WeekEnding_041926_123456_AEPBillable_Helper_Jane_Smith_ab12cd34ef.xlsx'
         result = generate_weekly_pdfs.build_group_identity(fname)
         self.assertIsNotNone(result)
         wr, week, variant, identifier = result
-        self.assertEqual(wr, '91467680')
+        self.assertEqual(wr, '19236776')
         self.assertEqual(week, '041926')
         self.assertEqual(variant, 'aep_billable_helper')
         self.assertEqual(identifier, 'Jane_Smith')
@@ -186,11 +186,11 @@ class TestSubcontractorVariantGroupIdentityParsing(unittest.TestCase):
     def test_reduced_sub_helper_filename_parsed_with_identifier(self):
         """``_ReducedSub_Helper_<name>`` filename → variant='reduced_sub_helper',
         identifier=helper_name."""
-        fname = 'WR_91467680_WeekEnding_041926_123456_ReducedSub_Helper_Jane_Smith_ab12cd34ef.xlsx'
+        fname = 'WR_19236776_WeekEnding_041926_123456_ReducedSub_Helper_Jane_Smith_ab12cd34ef.xlsx'
         result = generate_weekly_pdfs.build_group_identity(fname)
         self.assertIsNotNone(result)
         wr, week, variant, identifier = result
-        self.assertEqual(wr, '91467680')
+        self.assertEqual(wr, '19236776')
         self.assertEqual(week, '041926')
         self.assertEqual(variant, 'reduced_sub_helper')
         self.assertEqual(identifier, 'Jane_Smith')
@@ -200,8 +200,8 @@ class TestSubcontractorVariantGroupIdentityParsing(unittest.TestCase):
         same WR+week so the variant-aware attachment-identity routing
         (cleanup, hash-history lookup, target-row matching) treats them
         as distinct files."""
-        fname_aep = 'WR_91467680_WeekEnding_041926_123456_AEPBillable_ab12cd34ef.xlsx'
-        fname_primary = 'WR_91467680_WeekEnding_041926_123456_ab12cd34ef.xlsx'
+        fname_aep = 'WR_19236776_WeekEnding_041926_123456_AEPBillable_ab12cd34ef.xlsx'
+        fname_primary = 'WR_19236776_WeekEnding_041926_123456_ab12cd34ef.xlsx'
         ident_aep = generate_weekly_pdfs.build_group_identity(fname_aep)
         ident_primary = generate_weekly_pdfs.build_group_identity(fname_primary)
         self.assertIsNotNone(ident_aep)
@@ -212,8 +212,8 @@ class TestSubcontractorVariantGroupIdentityParsing(unittest.TestCase):
         """``reduced_sub`` identity tuple must differ from ``aep_billable``
         for the same WR+week so the two new variants do not collide on
         attachment-identity routing."""
-        fname_aep = 'WR_91467680_WeekEnding_041926_123456_AEPBillable_ab12cd34ef.xlsx'
-        fname_rs = 'WR_91467680_WeekEnding_041926_123456_ReducedSub_ab12cd34ef.xlsx'
+        fname_aep = 'WR_19236776_WeekEnding_041926_123456_AEPBillable_ab12cd34ef.xlsx'
+        fname_rs = 'WR_19236776_WeekEnding_041926_123456_ReducedSub_ab12cd34ef.xlsx'
         ident_aep = generate_weekly_pdfs.build_group_identity(fname_aep)
         ident_rs = generate_weekly_pdfs.build_group_identity(fname_rs)
         self.assertIsNotNone(ident_aep)
@@ -224,7 +224,7 @@ class TestSubcontractorVariantGroupIdentityParsing(unittest.TestCase):
         """No regression: a plain ``_Helper_<name>`` filename (without
         AEPBillable / ReducedSub prefix) must still parse as
         ``variant='helper'``."""
-        fname = 'WR_91467680_WeekEnding_041926_123456_Helper_Jane_Smith_ab12cd34ef.xlsx'
+        fname = 'WR_19236776_WeekEnding_041926_123456_Helper_Jane_Smith_ab12cd34ef.xlsx'
         result = generate_weekly_pdfs.build_group_identity(fname)
         self.assertIsNotNone(result)
         wr, week, variant, identifier = result
@@ -277,7 +277,7 @@ class TestVacCrewGroupingLogic(unittest.TestCase):
         resolves to ``__effective_user`` = ``'TestForeman'``, producing a key
         ending with ``_VACCREW_TestForeman``.
         """
-        rows = [self._make_row('99887766', '2025-08-17', '$200.00', is_vac_crew=True)]
+        rows = [self._make_row('10854049', '2025-08-17', '$200.00', is_vac_crew=True)]
         groups = generate_weekly_pdfs.group_source_rows(rows)
         keys = list(groups.keys())
         # Post-Subproject-C: key contains '_VACCREW_' (trailing underscore) with a
@@ -311,7 +311,7 @@ class TestVacCrewGroupingLogic(unittest.TestCase):
         orig = generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED
         try:
             generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED = False
-            rows = [self._make_row('99887766', '2025-08-17', '$200.00', is_vac_crew=True)]
+            rows = [self._make_row('10854049', '2025-08-17', '$200.00', is_vac_crew=True)]
             groups = generate_weekly_pdfs.group_source_rows(rows)
             keys = list(groups.keys())
             self.assertTrue(

@@ -321,7 +321,7 @@ def validate_aggregated_hash_robustness() -> None:
     for i in range(20):
         rows.append({
             "__variant": "primary",
-            "Work Request #": "91467680",
+            "Work Request #": "19236776",
             "Weekly Reference Logged Date": "2026-04-19",
             "Snapshot Date": "2026-04-19",
             "CU": f"CU-{i % 5}",
@@ -338,7 +338,7 @@ def validate_aggregated_hash_robustness() -> None:
         for i in range(10):
             rows.append({
                 "__variant": "helper",
-                "Work Request #": "91467680",
+                "Work Request #": "19236776",
                 "Weekly Reference Logged Date": "2026-04-19",
                 "Snapshot Date": "2026-04-19",
                 "CU": f"CU-H{i}",
@@ -358,7 +358,7 @@ def validate_aggregated_hash_robustness() -> None:
     for i in range(10):
         rows.append({
             "__variant": "vac_crew",
-            "Work Request #": "91467680",
+            "Work Request #": "19236776",
             "Weekly Reference Logged Date": "2026-04-19",
             "Snapshot Date": "2026-04-19",
             "CU": f"CU-V{i}",

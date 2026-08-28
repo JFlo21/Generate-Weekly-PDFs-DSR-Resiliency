@@ -368,7 +368,7 @@ FROZEN vac-crew claimer from `billing_audit.attribution_snapshot`
 (`frozen_vac_crew` column) — resolved via Foundation A's
 `resolve_claimer` contract. Each file holds only one claimer's
 completed line items and is named `_VacCrew_<claimer>` (e.g.
-`WR_90773033_WeekEnding_051226_<timestamp>_VacCrew_Jane_Smith_<hash>.xlsx`
+`WR_16087226_WeekEnding_051226_<timestamp>_VacCrew_Jane_Smith_<hash>.xlsx`
 — the generator inserts an `<HHMMSS>` timestamp token before the
 variant suffix).
 Rows with no frozen claimer yet (`no_history`) fall back to the

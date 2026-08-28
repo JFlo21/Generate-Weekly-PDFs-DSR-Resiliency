@@ -253,7 +253,7 @@ python generate_weekly_pdfs.py
 ### Selective Reset
 ```bash  
 # Reset specific Work Requests only
-export RESET_WR_LIST="90093002,82131472,83812901"
+export RESET_WR_LIST="13792260,15822272,17790445"
 python generate_weekly_pdfs.py
 ```
 

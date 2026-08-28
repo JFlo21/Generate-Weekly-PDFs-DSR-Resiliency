@@ -154,7 +154,7 @@ class TestLookupAttributionAll(unittest.TestCase):
         with mock.patch("billing_audit.writer.get_client",
                         return_value=client):
             row, status = _lookup_attribution_all(
-                "91467680", datetime.date(2026, 4, 19), 12345)
+                "19236776", datetime.date(2026, 4, 19), 12345)
         self.assertEqual(status, "success")
         self.assertEqual(row["primary_foreman"], "Alice")
         self.assertEqual(row["helper"], "Bob")
@@ -171,7 +171,7 @@ class TestLookupAttributionAll(unittest.TestCase):
         with mock.patch("billing_audit.writer.get_client",
                         return_value=client):
             row, status = _lookup_attribution_all(
-                "91467680", datetime.date(2026, 4, 19), 12345)
+                "19236776", datetime.date(2026, 4, 19), 12345)
         self.assertEqual(status, "success")
         self.assertEqual(row["primary_foreman"], "Alice")
 
@@ -183,7 +183,7 @@ class TestLookupAttributionAll(unittest.TestCase):
         with mock.patch("billing_audit.writer.get_client",
                         return_value=client):
             row, status = _lookup_attribution_all(
-                "91467680", datetime.date(2026, 4, 19), 12345)
+                "19236776", datetime.date(2026, 4, 19), 12345)
         self.assertIsNone(row)
         self.assertEqual(status, "no_row")
 
@@ -195,7 +195,7 @@ class TestLookupAttributionAll(unittest.TestCase):
              mock.patch("billing_audit.writer.with_retry",
                         return_value=None):
             row, status = _lookup_attribution_all(
-                "91467680", datetime.date(2026, 4, 19), 12345)
+                "19236776", datetime.date(2026, 4, 19), 12345)
         self.assertIsNone(row)
         self.assertEqual(status, "fetch_failure")
 
@@ -207,7 +207,7 @@ class TestLookupAttributionAll(unittest.TestCase):
             with mock.patch("billing_audit.writer.get_client",
                             return_value=None):
                 row, status = _lookup_attribution_all(
-                    "91467680", datetime.date(2026, 4, 19), 12345)
+                    "19236776", datetime.date(2026, 4, 19), 12345)
         finally:
             ba_client._global_disable_reason = None
         self.assertIsNone(row)
@@ -218,7 +218,7 @@ class TestLookupAttributionAll(unittest.TestCase):
         with mock.patch("billing_audit.writer.get_client",
                         return_value=None):
             row, status = _lookup_attribution_all(
-                "91467680", datetime.date(2026, 4, 19), 12345)
+                "19236776", datetime.date(2026, 4, 19), 12345)
         self.assertIsNone(row)
         self.assertEqual(status, "unavailable")
 
@@ -228,7 +228,7 @@ class TestLookupAttributionAll(unittest.TestCase):
         with mock.patch("billing_audit.writer.get_client",
                         return_value=client):
             row, status = _lookup_attribution_all(
-                "91467680", datetime.date(2026, 4, 19), "not-an-int")
+                "19236776", datetime.date(2026, 4, 19), "not-an-int")
         self.assertIsNone(row)
         self.assertEqual(status, "no_row")
 ```
@@ -615,15 +615,15 @@ class TestAttributionHoldSummary(unittest.TestCase):
             get_counters,
         )
         wk = datetime.date(2026, 4, 19)
-        record_attribution_hold("90773033", wk, "reduced_sub_helper")
-        record_attribution_hold("90773033", wk, "reduced_sub_helper")
-        record_attribution_hold("90727774", wk, "primary")
+        record_attribution_hold("16087226", wk, "reduced_sub_helper")
+        record_attribution_hold("16087226", wk, "reduced_sub_helper")
+        record_attribution_hold("18779836", wk, "primary")
         msg = summarize_attribution_holds()
         self.assertIsNotNone(msg)
         self.assertIn("3 row(s)", msg)
         self.assertIn("2 WR(s)", msg)
-        self.assertIn("90773033", msg)
-        self.assertIn("90727774", msg)
+        self.assertIn("16087226", msg)
+        self.assertIn("18779836", msg)
         # No foreman/helper PII in the summary — only WR + counts.
         self.assertEqual(get_counters().get("attribution_rows_held"), 3)
 
@@ -632,7 +632,7 @@ class TestAttributionHoldSummary(unittest.TestCase):
             record_attribution_hold, summarize_attribution_holds,
         )
         record_attribution_hold(
-            "90773033", datetime.date(2026, 4, 19), "primary")
+            "16087226", datetime.date(2026, 4, 19), "primary")
         _reset_all()
         self.assertIsNone(summarize_attribution_holds())
 ```

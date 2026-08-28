@@ -59,7 +59,7 @@ does NOT repair it.
 
 - **DATA (P1):** the freeze ran as a one-shot cold-start backfill (~2026-04-24)
   that captured the *current* foreman for all historical weeks (the source
-  `Foreman` is a live per-WR value, not per-week history). WR 89834661: 5 weeks of
+  `Foreman` is a live per-WR value, not per-week history). WR 14527770: 5 weeks of
   the prior foreman's work frozen to the current one; 52 rows frozen
   `Unknown Foreman`. Systemic: 5,183 rows / 89 of 617 WRs frozen `Unknown Foreman`.
 - **CODE (P2):** primary `helper` is **uncovered** (no flag, no `resolve_claimer`;
@@ -114,7 +114,7 @@ Sequencing — **A → B → C → D → E**:
 2. **Frozen-attribution fix (parked, awaiting approval)** — wire primary-`helper`
    attribution; fix the sub-helper filename/upload/change-key asymmetry; add a
    blank-foreman guard at freeze; one-time controlled re-attribution of the 5,183
-   `Unknown Foreman` rows + the WR 89834661 weeks (manual Supabase + re-freeze
+   `Unknown Foreman` rows + the WR 14527770 weeks (manual Supabase + re-freeze
    runbook). Full diagnosis: `.planning/debug/frozen-claim-history-gap.md`.
 3. **Subproject E** (last claim-attribution rollout item, not started) — Supabase
    change-detection cutover + filename `_<hash>`/`_<timestamp>` strip. Lands

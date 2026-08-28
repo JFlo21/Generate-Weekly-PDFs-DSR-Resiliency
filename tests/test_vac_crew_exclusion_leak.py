@@ -1,4 +1,4 @@
-"""Regression tests for the WR 90922617 VAC-crew duplication fix.
+"""Regression tests for the WR 19641091 VAC-crew duplication fix.
 
 Debug session: ``vac-crew-leak-foreman-sheet``.
 
@@ -13,7 +13,7 @@ Operator contract (2026-06-08, final):
   * Exclusion is PER-UNIT (WR + week + Point + CU), NOT per-pole: the
     foreman's OTHER units on the same pole are retained.
 
-Real reproduction: WR 90922617 (week 060726). The WR spans two source sheets
+Real reproduction: WR 19641091 (week 060726). The WR spans two source sheets
 (a foreman sheet WITHOUT the VAC columns and a VAC-crew sheet WITH them), so a
 VAC-completed unit (e.g. Point 11 ``ANC-DSC-16-96-D1``) existed as two rows and
 was duplicated onto both Chris Higginbotham's ``_User_`` file and Hugo Garcia's
@@ -29,7 +29,7 @@ import generate_weekly_pdfs
 
 def _base_row(**over):
     row = {
-        'Work Request #': '90922617',
+        'Work Request #': '19641091',
         'Weekly Reference Logged Date': '2026-06-07',
         'Snapshot Date': '2026-06-04',
         'Units Completed?': True,

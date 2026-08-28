@@ -154,7 +154,7 @@ workflow** button, that is a permissions issue: ask the engineering owner.
      that week for every Work Request that still has rows in it — it cannot
      rebuild a week whose rows were all moved away or deleted (see the stale
      attachment note above).
-   - `wr_filter` (e.g. `12345678,87654321`) — only honoured together with
+   - `wr_filter` (e.g. `12345678,19296628`) — only honoured together with
      `test_mode: true`, and a test-mode run never attaches files. Use it to
      check what the robot *would* build for one Work Request; it cannot
      limit a real, attaching run to one WR.

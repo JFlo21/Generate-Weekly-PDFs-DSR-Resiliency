@@ -55,7 +55,7 @@ rows whose Smartsheet `Units Total Price` deviates from
 `data/subcontractor_rates.csv` keyed by CU + Work Type.
 
 Purpose: catch the class of defect proven by the 2026-08-12 incident —
-WR 91916464 / Point 27 / CU SAA-DE-20 / Work Type Inst had Quantity
+WR 16881353 / Point 27 / CU SAA-DE-20 / Work Type Inst had Quantity
 edited 6 -> 3 by the foreman, but the Smartsheet "Install Quantity"
 formula cell kept the stale 6, so `Units Total Price` stayed
 56.84 x 6 = $341.04 instead of 56.84 x 3 = $170.52. The primary variant
@@ -137,7 +137,7 @@ Verified against the repo before planning — do not re-derive:
   <files>audit_billing_changes.py, tests/test_rate_sanity_audit.py</files>
   <behavior>
     - Test 1 (the incident regression): row
-      `{'Work Request #': '91916464', 'CU': 'SAA-DE-20',
+      `{'Work Request #': '16881353', 'CU': 'SAA-DE-20',
         'Work Type': 'Inst', 'Quantity': '3',
         'Units Total Price': '$341.04'}` against a patched rates table
       containing `SAA-DE-20` with `new_install_price` 56.84 produces
@@ -385,7 +385,7 @@ Verified against the repo before planning — do not re-derive:
    `memory-bank/living-ledger.md`. Any diff hunk in `pipeline/` or
    `generate_weekly_pdfs.py` is a contract violation — revert it.
 5. Optional local smoke, read-only:
-   `SKIP_UPLOAD=true WR_FILTER=91916464 python generate_weekly_pdfs.py`
+   `SKIP_UPLOAD=true WR_FILTER=16881353 python generate_weekly_pdfs.py`
    and confirm the audit section reports the mismatch without changing
    any generated price.
 </verification>

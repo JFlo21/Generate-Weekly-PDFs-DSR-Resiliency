@@ -344,7 +344,7 @@ class FreezeRowTests(unittest.TestCase):
     def _valid_row(self):
         return {
             "__row_id": 123456789,
-            "Work Request #": "91467680",
+            "Work Request #": "19236776",
             "__week_ending_date": datetime.datetime(2026, 4, 19),
             "Units Completed?": True,
             "Foreman": "Alice Primary",
@@ -808,7 +808,7 @@ class FreezeRowConcurrencyTests(unittest.TestCase):
     def _valid_row(self, row_id):
         return {
             "__row_id": int(row_id),
-            "Work Request #": "91467680",
+            "Work Request #": "19236776",
             "__week_ending_date": datetime.datetime(2026, 4, 19),
             "Units Completed?": True,
             "Foreman": f"Foreman {row_id}",
@@ -3172,7 +3172,7 @@ class CrossVariantFingerprintAggregationTests(unittest.TestCase):
                 "__helper_foreman": foreman,
                 "__helper_dept": dept,
                 "__helper_job": job,
-                "Work Request #": "91467680",
+                "Work Request #": "19236776",
                 "Snapshot Date": "2026-04-19",
                 "CU": cu,
                 "Quantity": qty,
@@ -3776,7 +3776,7 @@ class TestFreezeRowVariantAttribution(unittest.TestCase):
     def _valid_row(self):
         return {
             "__row_id": 987654321,
-            "Work Request #": "91467680",
+            "Work Request #": "19236776",
             "__week_ending_date": datetime.datetime(2026, 4, 19),
             "Units Completed?": True,
             "Foreman": "Alice Primary",
@@ -4321,12 +4321,12 @@ class TestLookupAttribution(unittest.TestCase):
             })],
         )
         with mock.patch('billing_audit.writer.get_client', return_value=client):
-            lookup_attribution('91467680', datetime.date(2026, 4, 19), 12345)
+            lookup_attribution('19236776', datetime.date(2026, 4, 19), 12345)
         rpc_call = client.schema.return_value.rpc.call_args
         # First positional argument is the RPC function name
         self.assertEqual(rpc_call.args[0], 'lookup_attribution')
         params = rpc_call.args[1]
-        self.assertEqual(params['p_wr'], '91467680')
+        self.assertEqual(params['p_wr'], '19236776')
         self.assertEqual(params['p_week_ending'], '2026-04-19')
         self.assertEqual(params['p_smartsheet_row_id'], 12345)
 
@@ -4336,7 +4336,7 @@ class TestLookupAttribution(unittest.TestCase):
         from billing_audit.writer import lookup_attribution
         with mock.patch('billing_audit.writer.get_client', return_value=None):
             result = lookup_attribution(
-                '91467680', datetime.date(2026, 4, 19), 12345
+                '19236776', datetime.date(2026, 4, 19), 12345
             )
         self.assertIsNone(result)
 
@@ -4360,7 +4360,7 @@ class TestLookupAttribution(unittest.TestCase):
                  'billing_audit.writer.with_retry',
                  side_effect=_capture_with_retry,
              ):
-            lookup_attribution('91467680', datetime.date(2026, 4, 19), 12345)
+            lookup_attribution('19236776', datetime.date(2026, 4, 19), 12345)
         self.assertIn('lookup_attribution', captured_ops)
         self.assertNotIn('freeze_attribution', captured_ops)
         self.assertNotIn('pipeline_run_select', captured_ops)
@@ -4378,14 +4378,14 @@ class TestLookupAttribution(unittest.TestCase):
         )
         with mock.patch('billing_audit.writer.get_client', return_value=client):
             # Numeric suffix .0 stripped before sanitization
-            lookup_attribution('91467680.0', datetime.date(2026, 4, 19), 1)
+            lookup_attribution('19236776.0', datetime.date(2026, 4, 19), 1)
         params = client.schema.return_value.rpc.call_args.args[1]
-        self.assertEqual(params['p_wr'], '91467680')
+        self.assertEqual(params['p_wr'], '19236776')
 
         # Path traversal sanitized to underscores
         with mock.patch('billing_audit.writer.get_client', return_value=client):
             lookup_attribution(
-                'WR_91467680/evil', datetime.date(2026, 4, 19), 1
+                'WR_19236776/evil', datetime.date(2026, 4, 19), 1
             )
         params = client.schema.return_value.rpc.call_args.args[1]
         self.assertNotIn('/', params['p_wr'])
@@ -4401,16 +4401,16 @@ class TestLookupAttribution(unittest.TestCase):
                 lookup_attribution('', datetime.date(2026, 4, 19), 1)
             )
             self.assertIsNone(
-                lookup_attribution('91467680', None, 1)
+                lookup_attribution('19236776', None, 1)
             )
             self.assertIsNone(
                 lookup_attribution(
-                    '91467680', datetime.date(2026, 4, 19), None,
+                    '19236776', datetime.date(2026, 4, 19), None,
                 )
             )
             self.assertIsNone(
                 lookup_attribution(
-                    '91467680', datetime.date(2026, 4, 19), '1',
+                    '19236776', datetime.date(2026, 4, 19), '1',
                 )
             )
         # No RPC dispatched for any invalid input
@@ -4430,7 +4430,7 @@ class TestLookupAttribution(unittest.TestCase):
         )
         with mock.patch('billing_audit.writer.get_client', return_value=client):
             result = lookup_attribution(
-                '91467680', datetime.date(2026, 4, 19), 12345
+                '19236776', datetime.date(2026, 4, 19), 12345
             )
         self.assertEqual(result, expected)
 
@@ -4445,7 +4445,7 @@ class TestLookupAttribution(unittest.TestCase):
         )
         with mock.patch('billing_audit.writer.get_client', return_value=client):
             result = lookup_attribution(
-                '91467680', datetime.date(2026, 4, 19), 12345
+                '19236776', datetime.date(2026, 4, 19), 12345
             )
         self.assertIsNone(result)
 
@@ -4460,7 +4460,7 @@ class TestLookupAttribution(unittest.TestCase):
         )
         with mock.patch('billing_audit.writer.get_client', return_value=client):
             result = lookup_attribution(
-                '91467680', datetime.date(2026, 4, 19), 12345
+                '19236776', datetime.date(2026, 4, 19), 12345
             )
         self.assertIsNone(result)
 
@@ -4476,7 +4476,7 @@ class TestLookupAttribution(unittest.TestCase):
         )
         with mock.patch('billing_audit.writer.get_client', return_value=client):
             result = lookup_attribution(
-                '91467680', datetime.date(2026, 4, 19), 12345
+                '19236776', datetime.date(2026, 4, 19), 12345
             )
         self.assertEqual(result, expected)
 
@@ -4489,7 +4489,7 @@ class TestLookupAttribution(unittest.TestCase):
         )
         with mock.patch('billing_audit.writer.get_client', return_value=client):
             result = lookup_attribution(
-                '91467680', datetime.date(2026, 4, 19), 12345
+                '19236776', datetime.date(2026, 4, 19), 12345
             )
         self.assertIsNone(result)
 
@@ -4516,7 +4516,7 @@ class TestLookupAttribution(unittest.TestCase):
         with mock.patch('billing_audit.writer.get_client', return_value=client), \
              mock.patch('time.sleep'):
             result = lookup_attribution(
-                '91467680', datetime.date(2026, 4, 19), 12345
+                '19236776', datetime.date(2026, 4, 19), 12345
             )
         self.assertIsNone(result)
 
@@ -4544,7 +4544,7 @@ class TestLookupAttribution(unittest.TestCase):
         with mock.patch('billing_audit.writer.get_client', return_value=client), \
              mock.patch('time.sleep'):
             result = lookup_attribution(
-                '91467680', datetime.date(2026, 4, 19), 12345
+                '19236776', datetime.date(2026, 4, 19), 12345
             )
         self.assertIsNone(result)
 
@@ -4574,7 +4574,7 @@ class TestLookupAttribution(unittest.TestCase):
             'billing_audit.writer.get_client', return_value=client_mock
         ), mock.patch('time.sleep'):
             lookup_attribution(
-                '91467680', datetime.date(2026, 4, 19), 12345
+                '19236776', datetime.date(2026, 4, 19), 12345
             )
         self.assertIsNotNone(ba_client._global_disable_reason)
 
@@ -4582,7 +4582,7 @@ class TestLookupAttribution(unittest.TestCase):
         # the reader returns None without dispatching another RPC.
         with mock.patch('billing_audit.writer.get_client', return_value=None):
             result = lookup_attribution(
-                '91467680', datetime.date(2026, 4, 19), 99999
+                '19236776', datetime.date(2026, 4, 19), 99999
             )
         self.assertIsNone(result)
         # The mock client's RPC dispatched ONCE (the kill-trip call),
@@ -4627,7 +4627,7 @@ class TestLookupAttribution(unittest.TestCase):
         ), mock.patch('time.sleep'):
             for _ in range(5):
                 lookup_attribution(
-                    '91467680', datetime.date(2026, 4, 19), 12345
+                    '19236776', datetime.date(2026, 4, 19), 12345
                 )
 
         # freeze_attribution's breaker MUST remain untouched.
@@ -4670,7 +4670,7 @@ class TestLookupAttributionAll(unittest.TestCase):
         with mock.patch("billing_audit.writer.get_client",
                         return_value=client):
             row, status = _lookup_attribution_all(
-                "91467680", datetime.date(2026, 4, 19), 12345)
+                "19236776", datetime.date(2026, 4, 19), 12345)
         self.assertEqual(status, "success")
         self.assertEqual(row["primary_foreman"], "Alice")
         self.assertEqual(row["helper"], "Bob")
@@ -4687,7 +4687,7 @@ class TestLookupAttributionAll(unittest.TestCase):
         with mock.patch("billing_audit.writer.get_client",
                         return_value=client):
             row, status = _lookup_attribution_all(
-                "91467680", datetime.date(2026, 4, 19), 12345)
+                "19236776", datetime.date(2026, 4, 19), 12345)
         self.assertEqual(status, "success")
         self.assertEqual(row["primary_foreman"], "Alice")
 
@@ -4699,7 +4699,7 @@ class TestLookupAttributionAll(unittest.TestCase):
         with mock.patch("billing_audit.writer.get_client",
                         return_value=client):
             row, status = _lookup_attribution_all(
-                "91467680", datetime.date(2026, 4, 19), 12345)
+                "19236776", datetime.date(2026, 4, 19), 12345)
         self.assertIsNone(row)
         self.assertEqual(status, "no_row")
 
@@ -4711,7 +4711,7 @@ class TestLookupAttributionAll(unittest.TestCase):
         with mock.patch("billing_audit.writer.get_client",
                         return_value=client):
             row, status = _lookup_attribution_all(
-                "91467680", datetime.date(2026, 4, 19), 12345)
+                "19236776", datetime.date(2026, 4, 19), 12345)
         self.assertIsNone(row)
         self.assertEqual(status, "no_row")
 
@@ -4723,7 +4723,7 @@ class TestLookupAttributionAll(unittest.TestCase):
         with mock.patch("billing_audit.writer.get_client",
                         return_value=client):
             row, status = _lookup_attribution_all(
-                "91467680", datetime.date(2026, 4, 19), 12345)
+                "19236776", datetime.date(2026, 4, 19), 12345)
         self.assertIsNone(row)
         self.assertEqual(status, "no_row")
 
@@ -4739,7 +4739,7 @@ class TestLookupAttributionAll(unittest.TestCase):
              mock.patch("billing_audit.writer.with_retry",
                         side_effect=RuntimeError("boom")):
             row, status = _lookup_attribution_all(
-                "91467680", datetime.date(2026, 4, 19), 12345)
+                "19236776", datetime.date(2026, 4, 19), 12345)
         self.assertIsNone(row)
         self.assertEqual(status, "fetch_failure")
 
@@ -4751,7 +4751,7 @@ class TestLookupAttributionAll(unittest.TestCase):
              mock.patch("billing_audit.writer.with_retry",
                         return_value=None):
             row, status = _lookup_attribution_all(
-                "91467680", datetime.date(2026, 4, 19), 12345)
+                "19236776", datetime.date(2026, 4, 19), 12345)
         self.assertIsNone(row)
         self.assertEqual(status, "fetch_failure")
 
@@ -4763,7 +4763,7 @@ class TestLookupAttributionAll(unittest.TestCase):
             with mock.patch("billing_audit.writer.get_client",
                             return_value=None):
                 row, status = _lookup_attribution_all(
-                    "91467680", datetime.date(2026, 4, 19), 12345)
+                    "19236776", datetime.date(2026, 4, 19), 12345)
         finally:
             ba_client._global_disable_reason = None
         self.assertIsNone(row)
@@ -4774,7 +4774,7 @@ class TestLookupAttributionAll(unittest.TestCase):
         with mock.patch("billing_audit.writer.get_client",
                         return_value=None):
             row, status = _lookup_attribution_all(
-                "91467680", datetime.date(2026, 4, 19), 12345)
+                "19236776", datetime.date(2026, 4, 19), 12345)
         self.assertIsNone(row)
         self.assertEqual(status, "unavailable")
 
@@ -4784,7 +4784,7 @@ class TestLookupAttributionAll(unittest.TestCase):
         with mock.patch("billing_audit.writer.get_client",
                         return_value=client):
             row, status = _lookup_attribution_all(
-                "91467680", datetime.date(2026, 4, 19), "not-an-int")
+                "19236776", datetime.date(2026, 4, 19), "not-an-int")
         self.assertIsNone(row)
         self.assertEqual(status, "no_row")
 
@@ -4950,15 +4950,15 @@ class TestAttributionHoldSummary(unittest.TestCase):
             get_counters,
         )
         wk = datetime.date(2026, 4, 19)
-        record_attribution_hold("90773033", wk, "reduced_sub_helper")
-        record_attribution_hold("90773033", wk, "reduced_sub_helper")
-        record_attribution_hold("90727774", wk, "primary")
+        record_attribution_hold("16087226", wk, "reduced_sub_helper")
+        record_attribution_hold("16087226", wk, "reduced_sub_helper")
+        record_attribution_hold("18779836", wk, "primary")
         msg = summarize_attribution_holds()
         self.assertIsNotNone(msg)
         self.assertIn("3 row(s)", msg)
         self.assertIn("2 WR(s)", msg)
-        self.assertIn("90773033", msg)
-        self.assertIn("90727774", msg)
+        self.assertIn("16087226", msg)
+        self.assertIn("18779836", msg)
         self.assertEqual(get_counters().get("attribution_rows_held"), 3)
 
     def test_reset_clears_holds(self):
@@ -4966,7 +4966,7 @@ class TestAttributionHoldSummary(unittest.TestCase):
             record_attribution_hold, summarize_attribution_holds,
         )
         record_attribution_hold(
-            "90773033", datetime.date(2026, 4, 19), "primary")
+            "16087226", datetime.date(2026, 4, 19), "primary")
         _reset_all()
         self.assertIsNone(summarize_attribution_holds())
 

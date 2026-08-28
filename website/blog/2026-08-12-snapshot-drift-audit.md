@@ -42,7 +42,7 @@ raise the audit `risk_level`; a Sentry warning fires whenever a hold applies.
 The per-sheet "record Snapshot Date" Smartsheet automation uses trigger "when
 rows are changed" with condition "Units Completed? is checked" — conditions
 filter rows, not fields, so ANY edit to a completed row (even a same-value
-re-save) re-stamps `Snapshot Date` to today. Proven 2026-08-12 on WR 91916464
+re-save) re-stamps `Snapshot Date` to today. Proven 2026-08-12 on WR 16881353
 / Point 27: a Quantity re-save at 18:11:24Z drew an automation re-stamp at
 18:11:48Z (and a `Weekly Reference Logged Date` rewrite to the wrong Sunday)
 while `Units Completed?` had been unchanged for six days. Every re-stamp moves

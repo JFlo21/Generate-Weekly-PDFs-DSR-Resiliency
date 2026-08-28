@@ -512,7 +512,7 @@ class PassiveCompareTests(unittest.TestCase):
     def _row(self, row_id: str, **overrides) -> dict:
         base = {
             "row_id": row_id,
-            "wr": "91467680",
+            "wr": "19236776",
             "week_ending": "2026-08-24",
             "snapshot_date": "2026-08-24",
             "cu": "CU1",
@@ -588,7 +588,7 @@ class PassiveCompareTests(unittest.TestCase):
         text = self.compare.format_report(report)
         for value in (
             "Alice Primary", "Bob Helper", "Carol Secondary", "Dave Helper2",
-            "91467680",
+            "19236776",
         ):
             self.assertNotIn(value, text)
 

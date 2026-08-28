@@ -18,9 +18,9 @@ the canonical filename becomes:
 WR_{wr}_WeekEnding_{MMDDYY}{variant_suffix}.xlsx
 ```
 
-(e.g. `WR_90773033_WeekEnding_041226_User_Jane_Smith.xlsx`,
-`WR_90773033_WeekEnding_041226_VacCrew_Bob.xlsx`, or bare
-`WR_90773033_WeekEnding_041226.xlsx`).
+(e.g. `WR_16087226_WeekEnding_041226_User_Jane_Smith.xlsx`,
+`WR_16087226_WeekEnding_041226_VacCrew_Bob.xlsx`, or bare
+`WR_16087226_WeekEnding_041226.xlsx`).
 
 ## Why this is the last sub-project (the dependency)
 

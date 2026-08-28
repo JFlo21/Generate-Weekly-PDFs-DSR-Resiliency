@@ -84,14 +84,14 @@ class CompareShadowParityTests(unittest.TestCase):
         # is every group of an affected (WR, week) pair; the unmodified
         # hash-skip gate then skips the unchanged ones exactly as the full
         # run did. A candidate-only group is informational, not a divergence.
-        candidate = {"083026_90925512_USER_John_Bishop": "hA",
-                     "083026_90925512_HELPER_Walker_David_Moody": "hB"}
-        actual = {"083026_90925512_USER_John_Bishop": "hA"}
+        candidate = {"083026_13242113_USER_John_Bishop": "hA",
+                     "083026_13242113_HELPER_Walker_David_Moody": "hB"}
+        actual = {"083026_13242113_USER_John_Bishop": "hA"}
         result = parity.compare_shadow_parity(candidate, actual)
         self.assertEqual(result["verdict"], "pass")
         self.assertEqual(result["groups_compared"], 1)
         self.assertEqual(result["only_in_candidate"],
-                         ["083026_90925512_HELPER_Walker_David_Moody"])
+                         ["083026_13242113_HELPER_Walker_David_Moody"])
         self.assertEqual(result["only_in_actual"], [])
 
     def test_actual_not_in_candidate_is_the_real_divergence(self):

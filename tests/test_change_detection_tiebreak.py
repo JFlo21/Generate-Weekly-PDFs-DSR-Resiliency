@@ -1,6 +1,6 @@
 """Sort-key tiebreaker in ``calculate_data_hash`` (2026-08-27, run #2801).
 
-``billing_audit.pipeline_run`` showed WR 91057431 / week 080226 alternating
+``billing_audit.pipeline_run`` showed WR 17451333 / week 080226 alternating
 between two content hashes on 12 consecutive runs with a constant assignment
 fingerprint: its 142 rows span three source sheets, two of them tie on the
 ``(WR, Snapshot Date, CU, Pole/Point, Quantity)`` sort key while differing
@@ -36,7 +36,7 @@ import generate_weekly_pdfs  # noqa: E402
 from pipeline import change_detection  # noqa: E402
 
 
-def _row(wr='91057431', cu='CU-100', qty=1, price='$50.00', pole='P-7',
+def _row(wr='17451333', cu='CU-100', qty=1, price='$50.00', pole='P-7',
          snapshot='2026-07-30', **extra):
     row = {
         'Work Request #': wr,

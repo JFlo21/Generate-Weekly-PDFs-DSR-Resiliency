@@ -643,7 +643,7 @@ class CommonFailureRecovery:
             "Clear discovery cache: rm generated_docs/discovery_cache.json",
             "Verify API token has sheet access permissions", 
             "Check if base sheet IDs are still valid",
-            "Test with reduced sheet set: WR_FILTER=WR_90093002",
+            "Test with reduced sheet set: WR_FILTER=WR_13792260",
             "Enable debug mode: USE_DISCOVERY_CACHE=false DEBUG_SAMPLE_ROWS=5"
         ]
         
@@ -805,7 +805,7 @@ def test_minimal_functionality():
     """
     minimal_config = {
         'TEST_MODE': 'true',
-        'WR_FILTER': 'WR_90093002',  # Single WR only
+        'WR_FILTER': 'WR_13792260',  # Single WR only
         'SKIP_FILE_OPERATIONS': 'true',
         'QUIET_LOGGING': 'false',
         'DEBUG_SAMPLE_ROWS': '3'
@@ -862,7 +862,7 @@ grep -E "(ERROR|WARNING|✅|❌|⚠️)" generated_docs/README.md 2>/dev/null | 
 
 # Recovery Test Sequence
 echo "🔧 Recovery Test:"
-TEST_MODE=true SKIP_FILE_OPERATIONS=true WR_FILTER=WR_90093002 python generate_weekly_pdfs.py
+TEST_MODE=true SKIP_FILE_OPERATIONS=true WR_FILTER=WR_13792260 python generate_weekly_pdfs.py
 ```
 
 ESCALATION PROCEDURES:

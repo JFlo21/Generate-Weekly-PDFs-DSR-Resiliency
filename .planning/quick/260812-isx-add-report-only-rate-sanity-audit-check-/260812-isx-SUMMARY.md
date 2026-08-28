@@ -223,7 +223,7 @@ None — no external service configuration required.
 
 - The detector is live and default-on (`RATE_SANITY_AUDIT_ENABLED=true` by default); no further action required to activate it in production.
 - Optional local smoke test (not run in this session, per the plan's "Optional" verification item):
-  `SKIP_UPLOAD=true WR_FILTER=91916464 python generate_weekly_pdfs.py` — would confirm the live audit section reports the (now-corrected, per the 13:40 incident entry) WR 91916464 row without changing any generated price. Left for an operator/next session to run against live Smartsheet data if desired.
+  `SKIP_UPLOAD=true WR_FILTER=16881353 python generate_weekly_pdfs.py` — would confirm the live audit section reports the (now-corrected, per the 13:40 incident entry) WR 16881353 row without changing any generated price. Left for an operator/next session to run against live Smartsheet data if desired.
 - No blockers.
 
 ---

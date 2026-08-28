@@ -717,7 +717,7 @@ def group_source_rows(rows):
                 print(f"   Key format: {week_end_for_key}")
             
             # CRITICAL GROUPING KEY: Ensures one work request per week ending date per file
-            # Format: MMDDYY_WRNUMBER (e.g., "081725_89708709")
+            # Format: MMDDYY_WRNUMBER (e.g., "081725_17310321")
             key = f"{week_end_for_key}_{wr_key}"
             
             # ENHANCED SENTRY MONITORING: Validate the grouping logic integrity

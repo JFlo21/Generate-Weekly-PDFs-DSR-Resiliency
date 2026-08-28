@@ -82,16 +82,16 @@ Each task was committed atomically:
 
 ## D-05 Live Probe Result (operator-run 2026-07-22 ~10:07 CDT)
 
-**Command:** `SKIP_UPLOAD=true WR_FILTER=84157414,89881161 MAX_GROUPS=5 python generate_weekly_pdfs.py` (SDK version confirmed `4.3.0` via `python -m pip show smartsheet-python-sdk`)
+**Command:** `SKIP_UPLOAD=true WR_FILTER=16719437,12937329 MAX_GROUPS=5 python generate_weekly_pdfs.py` (SDK version confirmed `4.3.0` via `python -m pip show smartsheet-python-sdk`)
 
 **Result: PASSED** for all SDK-facing criteria:
 - Real transport green end-to-end: all source sheets fetched, "Grouping validation passed: 2771 groups", target-sheet map 676 WRs (sheet `5723337641643908`), PPP map 545 WRs (sheet `8162920222379908`).
 - 676 target-row + 545 PPP attachment-list calls completed via the retry wrapper in 12.8s/9.5s (8 workers), 0 cancelled.
-- 5 Excel files generated locally under `generated_docs/` (WR 84157414 ×3 weeks, WR 89881161 ×2 weeks); totals validation printed; "Session complete!".
+- 5 Excel files generated locally under `generated_docs/` (WR 16719437 ×3 weeks, WR 12937329 ×2 weeks); totals validation printed; "Session complete!".
 - Zero `ModuleNotFoundError` / `AttributeError` / retry-path exceptions. No SDK error-shape drift observed — `pipeline/retry.py`'s `ApiError.error.result` introspection matches the real 4.3.0 response shape.
 
 **Approved-with-finding (recorded, not treated as SDK drift):**
-- `SKIP_UPLOAD=true` gates only the UPLOAD half of the delete-then-upload sequence, not the DELETE half. The run deleted 2 prior primary attachments on the production target sheet (WR 89881161, weeks 072025 and 081725) and then correctly skipped the re-upload. This is pre-existing engine behavior, identical on 3.x — unrelated to the 4.3.0 migration.
+- `SKIP_UPLOAD=true` gates only the UPLOAD half of the delete-then-upload sequence, not the DELETE half. The run deleted 2 prior primary attachments on the production target sheet (WR 12937329, weeks 072025 and 081725) and then correctly skipped the re-upload. This is pre-existing engine behavior, identical on 3.x — unrelated to the 4.3.0 migration.
 - Self-healing confirmed in the log: the hash-history write was withheld for all 5 groups ("upload did not complete — they will regenerate next run"), so the next scheduled weekday cron run will regenerate and re-upload both files. Operator decision: wait for cron, no manual restore performed.
 - Full detail and suggested fix logged in `deferred-items.md` (see "08-02: SKIP_UPLOAD deletes prior attachments before skipping upload").
 

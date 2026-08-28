@@ -4,8 +4,8 @@ Weekly PDF Generator with Complete Fixes
 Generates Excel reports from Smartsheet data for weekly billing periods.
 
 FIXES IMPLEMENTED:
-- WR 90093002 Excel generation fix
-- WR 89954686 specific handling 
+- WR 13792260 Excel generation fix
+- WR 16975895 specific handling 
 - Proper file deletion logic
 - Complete audit system integration
 - All incomplete code sections completed
@@ -432,7 +432,7 @@ def group_source_rows(rows):
                 logging.debug(f"WR# {wr_key}: Week ending {week_ending_date.strftime('%A, %m/%d/%Y')}")
             
             # CRITICAL GROUPING KEY: Ensures one work request per week ending date per file
-            # Format: MMDDYY_WRNUMBER (e.g., "081725_89708709")
+            # Format: MMDDYY_WRNUMBER (e.g., "081725_17310321")
             key = f"{week_end_for_key}_{wr_key}"
             
             # Add the current foreman and calculated week ending date to the row data
@@ -470,8 +470,8 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     FIXED: Generate a formatted Excel report for a group of rows.
     
     SPECIFIC FIXES IMPLEMENTED:
-    - WR 90093002 Excel generation (complete implementation)
-    - WR 89954686 specific handling 
+    - WR 13792260 Excel generation (complete implementation)
+    - WR 16975895 specific handling 
     - Proper error handling for worksheet objects
     - Complete daily data block generation
     """
@@ -501,8 +501,8 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     # SUCCESS: Exactly one work request in this group
     wr_num = wr_numbers[0]
     
-    # SPECIFIC FIX FOR WR 90093002 and WR 89954686
-    if wr_num in ['90093002', '89954686']:
+    # SPECIFIC FIX FOR WR 13792260 and WR 16975895
+    if wr_num in ['13792260', '16975895']:
         logging.info(f"🔧 Applying specific fixes for WR# {wr_num}")
     
     # Get the calculated week ending date from the row data if available

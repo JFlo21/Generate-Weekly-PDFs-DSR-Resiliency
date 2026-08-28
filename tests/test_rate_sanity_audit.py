@@ -2,7 +2,7 @@
 Tests for the report-only rate-sanity audit check.
 
 Covers the 2026-08-12 SAA-DE-20 stale-quantity-formula incident
-regression (WR 91916464 / Point 27): Quantity edited 6 -> 3 by the
+regression (WR 16881353 / Point 27): Quantity edited 6 -> 3 by the
 foreman, but the Smartsheet "Install Quantity" formula cell kept the
 stale 6, so ``Units Total Price`` stayed 56.84 x 6 = $341.04 instead
 of 56.84 x 3 = $170.52. The primary variant pass-through never caught
@@ -55,7 +55,7 @@ class TestRateSanityIncidentRegression(RateSanityTestBase):
     def test_incident_row_is_flagged(self) -> None:
         """qty 3 / $341.04 -> exactly one mismatch, expected 170.52, delta 170.52."""
         row = {
-            'Work Request #': '91916464',
+            'Work Request #': '16881353',
             'CU': 'SAA-DE-20',
             'Work Type': 'Inst',
             'Quantity': '3',
@@ -71,12 +71,12 @@ class TestRateSanityIncidentRegression(RateSanityTestBase):
         self.assertAlmostEqual(record['actual_price'], 341.04)
         self.assertAlmostEqual(record['delta'], 170.52)
         self.assertEqual(record['type'], 'rate_sanity_mismatch')
-        self.assertEqual(record['work_request'], '91916464')
+        self.assertEqual(record['work_request'], '16881353')
 
     def test_clean_row_is_not_flagged(self) -> None:
         """qty 1 / $56.84 (correct price) -> zero mismatches."""
         row = {
-            'Work Request #': '91916464',
+            'Work Request #': '16881353',
             'CU': 'SAA-DE-20',
             'Work Type': 'Inst',
             'Quantity': '1',
@@ -92,7 +92,7 @@ class TestRateSanityEndToEndWiring(RateSanityTestBase):
 
     def test_audit_financial_data_surfaces_mismatch(self) -> None:
         row = {
-            'Work Request #': '91916464',
+            'Work Request #': '16881353',
             'CU': 'SAA-DE-20',
             'Work Type': 'Inst',
             'Quantity': '3',
@@ -126,7 +126,7 @@ class TestRateSanitySkipsAndTolerance(RateSanityTestBase):
 
     def _base_row(self, **overrides: Any) -> Dict[str, Any]:
         row = {
-            'Work Request #': '91916464',
+            'Work Request #': '16881353',
             'CU': 'SAA-DE-20',
             'Work Type': 'Inst',
             'Quantity': '3',
@@ -236,7 +236,7 @@ class TestRateSanitySummary(RateSanityTestBase):
 
     def test_summary_counts_and_escalates_risk(self) -> None:
         row = {
-            'Work Request #': '91916464',
+            'Work Request #': '16881353',
             'CU': 'SAA-DE-20',
             'Work Type': 'Inst',
             'Quantity': '3',
@@ -260,7 +260,7 @@ class TestRateSanitySummary(RateSanityTestBase):
 
     def test_kill_switch_zeroes_summary_counter(self) -> None:
         row = {
-            'Work Request #': '91916464',
+            'Work Request #': '16881353',
             'CU': 'SAA-DE-20',
             'Work Type': 'Inst',
             'Quantity': '3',
@@ -302,7 +302,7 @@ class TestRateSanityAggregateInclusion(RateSanityTestBase):
         self,
     ) -> None:
         row = {
-            'Work Request #': '91916464',
+            'Work Request #': '16881353',
             'CU': 'SAA-DE-20',
             'Work Type': 'Inst',
             'Quantity': '3',
@@ -340,7 +340,7 @@ class TestRateSanityAggregateInclusion(RateSanityTestBase):
         self,
     ) -> None:
         clean_row = {
-            'Work Request #': '91916464',
+            'Work Request #': '16881353',
             'CU': 'SAA-DE-20',
             'Work Type': 'Inst',
             'Quantity': '1',
@@ -348,7 +348,7 @@ class TestRateSanityAggregateInclusion(RateSanityTestBase):
             'Snapshot Date': '2026-08-09',
         }
         mismatch_row = {
-            'Work Request #': '91916464',
+            'Work Request #': '16881353',
             'CU': 'SAA-DE-20',
             'Work Type': 'Inst',
             'Quantity': '3',
@@ -391,7 +391,7 @@ class TestRateSanityCurrentCycleScoping(RateSanityTestBase):
 
     def _mismatch_row(self, **overrides: Any) -> Dict[str, Any]:
         row = {
-            'Work Request #': '91916464',
+            'Work Request #': '16881353',
             'CU': 'SAA-DE-20',
             'Work Type': 'Inst',
             'Quantity': '3',
@@ -560,7 +560,7 @@ class TestRateSanityScopeHardening(RateSanityTestBase):
         SAA-DE-20 incident row on the non-subcontractor Backup 86
         sheet must still be flagged after both fixes ship."""
         row = {
-            'Work Request #': '91916464',
+            'Work Request #': '16881353',
             'CU': 'SAA-DE-20',
             'Work Type': 'Inst',
             'Quantity': '3',
@@ -587,7 +587,7 @@ class TestRateSanityScopeHardening(RateSanityTestBase):
         ($49.66, the correct price for that basis) is excluded with
         reason ``subcontractor_basis``, not flagged as a mismatch."""
         row = {
-            'Work Request #': '91916464',
+            'Work Request #': '16881353',
             'CU': 'SAA-DE-20',
             'Work Type': 'Inst',
             'Quantity': '1',
@@ -611,7 +611,7 @@ class TestRateSanityScopeHardening(RateSanityTestBase):
         """Same numbers as the incident row, but on a subcontractor
         sheet -- proves the gate excludes it, not the tolerance."""
         row = {
-            'Work Request #': '91916464',
+            'Work Request #': '16881353',
             'CU': 'SAA-DE-20',
             'Work Type': 'Inst',
             'Quantity': '3',
@@ -632,7 +632,7 @@ class TestRateSanityScopeHardening(RateSanityTestBase):
         scope. Excluding it would lose real detector coverage with no
         basis mismatch to justify the exclusion."""
         row = {
-            'Work Request #': '91916464',
+            'Work Request #': '16881353',
             'CU': 'SAA-DE-20',
             'Work Type': 'Inst',
             'Quantity': '3',
@@ -651,7 +651,7 @@ class TestRateSanityScopeHardening(RateSanityTestBase):
         by the ``__is_subcontractor`` gate -- no separate VAC rule
         needed."""
         row = {
-            'Work Request #': '91916464',
+            'Work Request #': '16881353',
             'CU': 'SAA-DE-20',
             'Work Type': 'Inst',
             'Quantity': '3',
@@ -670,7 +670,7 @@ class TestRateSanityScopeHardening(RateSanityTestBase):
         entry -> the weekly fallback never activates, fail closed to
         out-of-scope even though the weekly date is post-cutoff."""
         row = {
-            'Work Request #': '91916464',
+            'Work Request #': '16881353',
             'CU': 'SAA-DE-20',
             'Work Type': 'Inst',
             'Quantity': '3',
@@ -703,7 +703,7 @@ class TestRateSanityScopeHardening(RateSanityTestBase):
         contain 'Snapshot Date' -> the fallback still rescues
         automation-lag rows."""
         row = {
-            'Work Request #': '91916464',
+            'Work Request #': '16881353',
             'CU': 'SAA-DE-20',
             'Work Type': 'Inst',
             'Quantity': '3',
@@ -727,7 +727,7 @@ class TestRateSanityScopeHardening(RateSanityTestBase):
         out of scope (fail closed), even with a post-cutoff weekly
         date and a blank snapshot."""
         row = {
-            'Work Request #': '91916464',
+            'Work Request #': '16881353',
             'CU': 'SAA-DE-20',
             'Work Type': 'Inst',
             'Quantity': '3',
@@ -753,7 +753,7 @@ class TestRateSanityScopeHardening(RateSanityTestBase):
         pre-existing direct-call test in this file uses) must still
         flag a snapshot-dated post-cutoff mismatch."""
         row = {
-            'Work Request #': '91916464',
+            'Work Request #': '16881353',
             'CU': 'SAA-DE-20',
             'Work Type': 'Inst',
             'Quantity': '3',
@@ -788,7 +788,7 @@ class TestRateSanityScopeHardening(RateSanityTestBase):
             'Units Total Price': '$341.04',
         }
         incident_row = {
-            'Work Request #': '91916464',
+            'Work Request #': '16881353',
             'CU': 'SAA-DE-20',
             'Work Type': 'Inst',
             'Quantity': '3',
@@ -825,7 +825,7 @@ class TestRateSanityScopeHardening(RateSanityTestBase):
         R7, flag flipped. Fails on pre-fix code (today's gate ignores
         the flag entirely)."""
         row = {
-            'Work Request #': '91916464',
+            'Work Request #': '16881353',
             'CU': 'SAA-DE-20',
             'Work Type': 'Inst',
             'Quantity': '3',
@@ -861,7 +861,7 @@ class TestRateSanityScopeHardening(RateSanityTestBase):
         pipeline/utils.py:117-119 returns on the snapshot branch
         before the fallback branch is ever reached."""
         row = {
-            'Work Request #': '91916464',
+            'Work Request #': '16881353',
             'CU': 'SAA-DE-20',
             'Work Type': 'Inst',
             'Quantity': '3',
@@ -889,7 +889,7 @@ class TestRateSanityScopeHardening(RateSanityTestBase):
         column -> still out of scope. Pins AND, not OR, between the
         facade flag and the per-sheet column-mapping check."""
         row = {
-            'Work Request #': '91916464',
+            'Work Request #': '16881353',
             'CU': 'SAA-DE-20',
             'Work Type': 'Inst',
             'Quantity': '3',

@@ -26,7 +26,7 @@ guarantee requires.
 
 ## Why
 
-`WR 91057431 / week 080226` was regenerated, its prior attachment
+`WR 17451333 / week 080226` was regenerated, its prior attachment
 deleted, and a new file uploaded on **every** run since 2026-08-25 — 12
 consecutive runs — while nothing in its data changed. Its 142 rows come
 from three source sheets; two of them tie on the sort key but differ in a
@@ -50,7 +50,7 @@ class for crew fields only.
   constant `assignment_fp`). Each is uploaded once more and then stable.
   A bump materially larger than that population is the signal to revert.
 - **Second run onward:** `⏩ Skip (unchanged + attachment exists) primary
-  WR 91057431 week 080226`, and `pipeline_memory.group_state.content_hash`
+  WR 17451333 week 080226`, and `pipeline_memory.group_state.content_hash`
   for such groups stops changing between runs.
 - Groups that never had a tie are unaffected — byte-identical hashes, no
   regeneration. A test pins that guarantee against the pre-fix ordering.

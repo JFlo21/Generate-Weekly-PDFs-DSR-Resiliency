@@ -331,7 +331,7 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
         # (price, Work Type, Dept #, Scope, Job #, ...) still kept the
         # parallel-fetch `as_completed` arrival order under Python's
         # stable sort, so their group's hash flipped with thread timing:
-        # `billing_audit.pipeline_run` showed WR 91057431 / week 080226
+        # `billing_audit.pipeline_run` showed WR 17451333 / week 080226
         # alternating between two hashes for 12 consecutive runs with a
         # constant assignment fingerprint -- regenerated and re-uploaded
         # every run, and a permanent shadow-parity divergence (Phase 11
