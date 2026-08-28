@@ -308,23 +308,30 @@ class CanonicalForemanTests(_HashModeMixin, unittest.TestCase):
         generate_weekly_pdfs.RES_GROUPING_MODE = 'both'
         generate_weekly_pdfs.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = False
         try:
-            helper_rows = [_row(**{
-                'Work Request #': '90001',
-                'Weekly Reference Logged Date': '2026-07-26',
-                '__week_ending_date': datetime.datetime(2026, 7, 26),
-                '__variant': 'helper',
-                '__helper_foreman': 'Sam Sample',
-                '__helper_dept': 'NA-03', '__helper_job': 'J-1',
-                '__effective_user': 'Sam Sample',
-                '__current_foreman': 'Pat Example',
-                'Foreman': 'Primary Person'})]
-            with mock.patch('pipeline.excel.canonical_foreman',
-                            side_effect=AssertionError(
-                                'hash rule consulted for a helper file')):
-                generate_weekly_pdfs.generate_excel(
-                    '072626_90001_HELPER_Sam_Sample', helper_rows,
-                    datetime.datetime(2026, 7, 26),
-                    data_hash='deadbeefcafe0004')
+            # Every partitioned variant: the header is the partition key
+            # (frozen claimer / attributed helper), never the hash rule.
+            for i, variant in enumerate(('helper', 'reduced_sub_helper',
+                                         'aep_billable_helper', 'vac_crew',
+                                         'reduced_sub', 'aep_billable')):
+                rows = [_row(**{
+                    'Work Request #': '90001',
+                    'Weekly Reference Logged Date': '2026-07-26',
+                    '__week_ending_date': datetime.datetime(2026, 7, 26),
+                    '__variant': variant,
+                    '__helper_foreman': 'Sam Sample',
+                    '__helper_dept': 'NA-03', '__helper_job': 'J-1',
+                    '__effective_user': 'Sam Sample',
+                    '__current_foreman': 'Frozen Claimer',
+                    'Foreman': 'Primary Person'})]
+                key = ('072626_90001_HELPER_Sam_Sample'
+                       if variant.endswith('helper') else '072626_90001')
+                with self.subTest(variant=variant), mock.patch(
+                        'pipeline.excel.canonical_foreman',
+                        side_effect=AssertionError(
+                            'hash rule consulted for %s' % variant)):
+                    generate_weekly_pdfs.generate_excel(
+                        key, rows, datetime.datetime(2026, 7, 26),
+                        data_hash='deadbeefcafe%04d' % (10 + i))
             primary_rows = [dict(r, **{
                 'Weekly Reference Logged Date': '2026-07-26',
                 '__week_ending_date': datetime.datetime(2026, 7, 26)})

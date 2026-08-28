@@ -23,8 +23,8 @@ tuple, prune key) are now one module-level `derive_group_identity()` called with
 so the CR-01 drift shape is no longer expressible and the sites are behaviourally tested for both
 arrival orders. The primary workbook header's foreman is the hash's `FOREMAN=` rule (`canonical_foreman()`,
 first non-empty claimer in canonical order) — owner-approved; inert on the production path because
-`group_source_rows` never leaves `__current_foreman` blank, and deliberately NOT applied to the
-subcontractor / helper-shadow headers (their raw `Foreman` is the primary crew); hashes and identity
+`group_source_rows` never leaves `__current_foreman` blank, and gated on `variant == 'primary'` — helper,
+helper-shadow, vac_crew and subcontractor primary headers keep their partition key; hashes and identity
 keys are byte-identical (golden digests). `canonical_first_row()` now
 uses the extended total order in legacy mode too, so the legacy header is deterministic while the
 legacy hash is untouched. Closes the three threads left open on #361.

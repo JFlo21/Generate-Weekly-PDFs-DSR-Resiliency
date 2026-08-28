@@ -595,8 +595,14 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         # production path this equals the legacy first-row value; the
         # rule only changes the header for rows built elsewhere. The
         # raw-Foreman fallback is safe HERE only: a primary file's raw
-        # Foreman is the primary crew.
-        display_foreman = canonical_foreman(group_rows) or current_foreman
+        # Foreman is the primary crew. The subcontractor primary
+        # variants (reduced_sub / aep_billable) share this branch but
+        # are partitioned by the FROZEN claimer, so they keep it.
+        display_foreman = current_foreman
+        if variant == 'primary':
+            display_foreman = (
+                canonical_foreman(group_rows) or current_foreman
+            )
         display_dept = first_row.get('Dept #', '')
         display_job = job_number
 

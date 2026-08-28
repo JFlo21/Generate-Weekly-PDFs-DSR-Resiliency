@@ -3846,12 +3846,9 @@ class TestHelperShadowVariantFileIdentifier(unittest.TestCase):
         )
 
     def test_production_valid_wr_weeks_and_current_keys_carry_shadow_variant_gate(self):
-        # Source-level guard: Sites 2 and 3 must also carry
-        # shadow-variant gates. We verify by counting occurrences
-        # of the three-tuple gate; with Site 1's gate, expect
-        # >= 3 total (Sites 1, 2, 3). The Site 3 cascade uses
-        # ``_variant`` (underscore prefix) so the gate text is
-        # slightly different -- count BOTH forms.
+        # Source-level guard: the shadow-variant gate lives ONCE in
+        # ``derive_group_identity`` and Sites 1, 2 and 3 must all call
+        # it (no inline gate may remain in ``main()``).
         import inspect
         import pipeline.orchestrate  # W6: Sites 1/2/3 live in main()
         # Sites 1, 2 and 3 now share ONE definition,

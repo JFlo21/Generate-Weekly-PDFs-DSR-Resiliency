@@ -7451,10 +7451,12 @@ follow-up findings closed, same 6 files.
   effective_user` (`pipeline/grouping.py:1166`) and `__effective_user` defaults to the literal
   `'Unknown Foreman'`, so a canonical first row never has a blank claimer and the rule returns that
   row's own value — header and hash already agreed; now they agree by construction. It changes the
-  header only for rows built outside `group_source_rows`. The subcontractor / helper-shadow headers
-  keep `first_row['__current_foreman']` (the partition key): the raw `Foreman` column there is the
-  primary crew's foreman, not the attributed helper, so the hash rule must never feed those headers
-  (`test_only_the_primary_header_consults_the_hash_rule`). Filename and identity still derive from
+  header only for rows built outside `group_source_rows`. The rule is gated on `variant == 'primary'`:
+  helper, helper-shadow, vac_crew AND the subcontractor primary variants (`reduced_sub` /
+  `aep_billable`, which share the primary display branch) keep `first_row['__current_foreman']` —
+  the partition key (attributed helper / frozen claimer). The raw `Foreman` column is the primary
+  crew's *current* foreman, so it must never feed a partitioned header
+  (`test_only_the_primary_header_consults_the_hash_rule` mocks the rule to raise for all six). Filename and identity still derive from
   the canonical first row — no history-key / attachment-cleanup effect.
 - **`canonical_first_row()` always uses the extended TOTAL order.** The legacy hash
   (`EXTENDED_CHANGE_DETECTION=0`) hashes per-row fields in 5-key order and carries no meta — it never
