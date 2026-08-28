@@ -7295,7 +7295,8 @@ follow-up findings closed, same 6 files.
   source-pinned — the repo's existing practice (`test_primary_claim_attribution`). Making the sites
   themselves testable means extracting ONE `derive_group_identity()` helper that all three call
   (Site 1 uses both `identifier` / `file_identifier`, Site 2 the file identifier, Site 3 the history
-  identifier) — a production `main()` refactor for Juan to approve, not done in #361.
+  identifier) — a production `main()` refactor for Juan to approve, not done in #361 →
+  **done in the follow-up, see `[2026-08-28 12:05]`.**
 
 ## [2026-08-27 21:10] Learn-guide review round (PR #360) — verified pipeline truths the docs must not drift from
 
@@ -7419,3 +7420,69 @@ follow-up findings closed, same 6 files.
   same filename-only check as round 12.
 - **RULE — a runbook statement about pipeline behaviour cites the line that implements it.** The
   reviewer bots read the code; the doc sentence with no anchor is the one that drifts.
+
+## [2026-08-28 12:05] One identity definition for Sites 1/2/3, header foreman = hash's FOREMAN= rule, deterministic legacy header (PR #361 follow-up)
+
+> Closes the three threads left open on #361: Copilot 3877822173 (behavioural Sites 1–3 test), Codex
+> 3876992822 (header foreman), Codex 3876992815 (legacy-mode header determinism). Branch
+> `fix/identity-helper-header-foreman`; ships when its PR merges.
+
+- **`derive_group_identity(first_row, **_identity_switches)` (`pipeline/orchestrate.py`, module
+  level) is the ONE identity definition.** Returns `(identifier, file_identifier)`; Site 1 uses both
+  (`history_key` / filename), Site 2 the file identifier (`valid_wr_weeks` cleanup tuple), Site 3 the
+  history identifier (`current_keys` prune). The three ~60-line inline chains are gone; the switches
+  (`PRIMARY_CLAIM_ATTRIBUTION_ENABLED`, `VAC_CREW_CLAIM_ATTRIBUTION_ENABLED`, `RES_GROUPING_MODE`) are
+  bound ONCE in `main()` right after the facade prelude, so the sites cannot even pass different
+  values. `DeriveGroupIdentityTests` pins the helper against a verbatim copy of the removed chain for
+  every variant × both kill switches × every grouping mode (144 subtests); `SitesTwoOrderTests`
+  builds history key, cleanup tuple and prune key from the helper for both arrival orders (mixed-dept
+  helper group, mixed-`User` primary group, mixed-claimer attributed group) and asserts one key and
+  one hash; `SitesWiringTests` pins that `main()` calls the helper exactly three times with the bound
+  switches and carries no inline chain. Seven older source pins (primary-claim, vac-crew,
+  subcontractor-pricing, subcontractor-primary-claim) were re-pointed at the helper — same intent
+  (grouping-mode gate, kill-switch gate, three sites in lockstep), new surface.
+- **`canonical_foreman(group_rows)` (`pipeline/change_detection.py`) is the hash's `FOREMAN=` rule** —
+  first non-empty `__current_foreman` (else `Foreman`) in canonical order — extracted as
+  `_first_nonempty_foreman(sorted_rows)` and called by `calculate_data_hash` (golden digests prove
+  byte-identity: `4f5d44a9fe2ba3f4`, `b8da636059f26ffe`, `c5dbeb790ed43c0c`). **Header alignment
+  (owner-approved 2026-08-28), primary display branch ONLY:** `generate_excel`'s primary header shows
+  `canonical_foreman(group_rows) or current_foreman`. The production-risk review showed it is **inert
+  on the production path**: `group_source_rows` writes `__current_foreman = current_foreman or
+  effective_user` (`pipeline/grouping.py:1166`) and `__effective_user` defaults to the literal
+  `'Unknown Foreman'`, so a canonical first row never has a blank claimer and the rule returns that
+  row's own value — header and hash already agreed; now they agree by construction. It changes the
+  header only for rows built outside `group_source_rows`. The subcontractor / helper-shadow headers
+  keep `first_row['__current_foreman']` (the partition key): the raw `Foreman` column there is the
+  primary crew's foreman, not the attributed helper, so the hash rule must never feed those headers
+  (`test_only_the_primary_header_consults_the_hash_rule`). Filename and identity still derive from
+  the canonical first row — no history-key / attachment-cleanup effect.
+- **`canonical_first_row()` always uses the extended TOTAL order.** The legacy hash
+  (`EXTENDED_CHANGE_DETECTION=0`) hashes per-row fields in 5-key order and carries no meta — it never
+  reads a first row — so tied rows (same 5 keys, different helper dept/job) now pick one deterministic
+  representative for the header and the identity sites while the legacy hash stays byte-identical
+  (golden `4d8eea56b2fefe65`, both orders; `test_legacy_mode_untouched` still holds). This is the
+  Codex ask verbatim: "preserve the legacy hash algorithm, use a deterministic tiebreaker for the
+  header row". Consequence for a manual `extended_change_detection=false` dispatch: a helper group
+  spanning two depts/jobs whose last legacy key came from arrival order regenerates and re-uploads
+  **once** (Sites 2/3 move with Site 1 — nothing is pruned); do not read that as churn.
+- **Rollout.** Extended mode (production): a behaviour-preserving refactor — every hash input,
+  history key, cleanup tuple, prune key, filename and header is byte-identical to master, so the first
+  run after merge regenerates zero groups from this change and deletes nothing. Legacy mode: the
+  one-time regeneration above. Watch the first post-merge run's regenerated-vs-skipped counts and
+  `billing_audit.pipeline_run` hash stability for the previously flipping WRs; churn there would mean
+  a key shape was not preserved → revert. Verified independently: `haiku-verifier` PASS on all six
+  rubric items; `production-risk-reviewer` P0 none, P1 (helper-shadow header exposure) fixed as
+  above, P2s applied (dead `src` block, count-pin messages, legacy note) or recorded (double sort in
+  `generate_excel` — two extended sorts per workbook, immaterial at ~550 rows; folding
+  `canonical_first_row` into the shared definition — possible follow-up). `pytest tests/`: 1794
+  passed, 1 skipped.
+- **RULE — `__current_foreman` is never empty on rows from `group_source_rows`** (`grouping.py:1166`
+  falls back to `__effective_user`, which `fetch.py` defaults to `'Unknown Foreman'`). "Blank foreman"
+  defensive logic in `pipeline/excel.py` is inert; the raw `Foreman` column is NOT a safe header
+  source for helper-shadow / subcontractor variants (it names the primary foreman).
+- **RULE — identity is `derive_group_identity()`; never re-inline a variant chain at a site.** Adding
+  a variant means one branch in the helper + one row in `DeriveGroupIdentityTests.ROWS`, and the
+  reference copy in that test is updated deliberately (it is the audit trail of the pre-extraction
+  chain, not production code).
+- **RULE — the header shows what the hash records.** Any header value that the hash also derives
+  (foreman via `canonical_foreman`, Job # via `header_job_number`) goes through the shared function.

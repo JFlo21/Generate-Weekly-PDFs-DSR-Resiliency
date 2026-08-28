@@ -418,17 +418,29 @@ class TestVacCrewIdentitySitesAndDisplay(unittest.TestCase):
             "Site 2 valid_wr_weeks must not hard-code '' for vac_crew unconditionally; "
             "must be gated on VAC_CREW_CLAIM_ATTRIBUTION_ENABLED",
         )
-        # Positive guard: the kill-switch name must appear near the vac_crew file_id block.
-        vc_site2_idx = self._src.find(
-            "elif variant == 'vac_crew':\n"
-            "                    # Subproject C identity site (Site 2"
+        # Positive guard: the vac_crew branch lives once in the shared
+        # derive_group_identity() and is gated on the kill switch there;
+        # Site 2 (like Sites 1 and 3) passes the run's switches into it.
+        vc_idx = self._src.find(
+            "    if variant == 'vac_crew':\n"
+            "        _vc = first_row.get('__current_foreman', '')"
         )
-        self.assertNotEqual(vc_site2_idx, -1, "Site 2 vac_crew block not found")
-        window = self._src[vc_site2_idx: vc_site2_idx + 750]
+        self.assertNotEqual(vc_idx, -1, "helper vac_crew block not found")
+        window = self._src[vc_idx: vc_idx + 400]
         self.assertIn(
-            'VAC_CREW_CLAIM_ATTRIBUTION_ENABLED',
+            'vac_crew_claim_enabled',
             window,
-            "Site 2 vac_crew file_id derivation must reference VAC_CREW_CLAIM_ATTRIBUTION_ENABLED",
+            "derive_group_identity vac_crew branch must gate on the switch",
+        )
+        self.assertIn(
+            "'vac_crew_claim_enabled': VAC_CREW_CLAIM_ATTRIBUTION_ENABLED",
+            self._src,
+            "_identity_switches must carry VAC_CREW_CLAIM_ATTRIBUTION_ENABLED",
+        )
+        self.assertEqual(
+            self._src.count("**_identity_switches)"), 3,
+            "Sites 1, 2 and 3 must each pass the bound switches "
+            "(update this count if you add an identity site)",
         )
 
 

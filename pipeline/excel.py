@@ -35,6 +35,7 @@ from pipeline.config import (
 )
 from pipeline.change_detection import (
     canonical_first_row,
+    canonical_foreman,
     header_job_number,
 )
 from pipeline.pricing import _parse_quantity, _resolve_row_price, parse_price
@@ -188,7 +189,11 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         logging.error(error_msg)
         raise Exception(error_msg)
     
-    # Use the current foreman (most recent) from the row data
+    # The attributed claimer of the canonical row -- the partition key
+    # for the subcontractor / helper-shadow variants, whose header MUST
+    # keep naming it (the raw ``Foreman`` column is the primary crew's
+    # foreman, not the attributed helper). Only the primary display
+    # branch below consults the hash's FOREMAN= rule.
     current_foreman = first_row.get('__current_foreman', 'Unknown_Foreman')
     
     # CRITICAL VALIDATION: Ensure grouping logic worked correctly
@@ -581,8 +586,17 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         display_dept = first_row.get('__vac_crew_dept', '')
         display_job = first_row.get('__vac_crew_job', '')
     else:
-        # Primary variant: show primary foreman with standard dept/job from row data
-        display_foreman = current_foreman
+        # Primary variant: the foreman the hash records (FOREMAN= meta
+        # token -- first non-empty __current_foreman, else Foreman, in
+        # canonical order) so header and hash cannot disagree (Codex,
+        # PR #361 follow-up). Rows from group_source_rows always carry
+        # a non-empty __current_foreman (pipeline/grouping.py falls
+        # back to __effective_user / 'Unknown Foreman'), so on the
+        # production path this equals the legacy first-row value; the
+        # rule only changes the header for rows built elsewhere. The
+        # raw-Foreman fallback is safe HERE only: a primary file's raw
+        # Foreman is the primary crew.
+        display_foreman = canonical_foreman(group_rows) or current_foreman
         display_dept = first_row.get('Dept #', '')
         display_job = job_number
 

@@ -209,9 +209,42 @@ def canonical_sorted_rows(
 
 
 def canonical_first_row(group_rows: list[dict]) -> dict:
-    """The row ``calculate_data_hash`` treats as the group's first row."""
-    ordered = canonical_sorted_rows(group_rows)
+    """The row every header / identity consumer reads for a group.
+
+    Always the first row of the extended TOTAL order, whatever
+    ``EXTENDED_CHANGE_DETECTION`` says. In extended mode that is exactly
+    the row ``calculate_data_hash`` treats as first. In legacy mode the
+    hash never reads a first row -- it hashes per-row fields in 5-key
+    order and carries no meta -- so tied rows (same 5 keys, different
+    helper dept / job) can pick a deterministic representative for the
+    header and the identity sites without touching the legacy hash
+    (Codex, PR #361 follow-up). For a group with no 5-key ties both
+    orders start with the same row.
+    """
+    ordered = canonical_sorted_rows(group_rows, extended=True)
     return ordered[0] if ordered else {}
+
+
+def _first_nonempty_foreman(sorted_rows: list[dict]) -> Any:
+    """The first non-empty ``__current_foreman`` (else ``Foreman``) in
+    ``sorted_rows`` -- the hash's ``FOREMAN=`` rule; '' if none."""
+    for row in sorted_rows:
+        foreman = row.get('__current_foreman') or row.get('Foreman') or ''
+        if foreman:
+            return foreman
+    return ''
+
+
+def canonical_foreman(group_rows: list[dict]) -> Any:
+    """The foreman the group's hash records (``FOREMAN=`` meta token):
+    the first non-empty ``__current_foreman`` (else ``Foreman``) in
+    canonical order. The workbook header shows this same value, so a
+    primary group mixing blank and populated claimers can no longer show
+    a blank foreman while its hash names one (Codex, PR #361 follow-up).
+    Raw value, '' if no row carries a foreman.
+    """
+    return _first_nonempty_foreman(
+        canonical_sorted_rows(group_rows, extended=True))
 
 
 def calculate_data_hash(group_rows: list[dict]) -> str:
@@ -347,11 +380,13 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
     # include variant-scoped fields deterministically.
     group_variant = sorted_rows[0].get('__variant', 'primary') if sorted_rows else 'primary'
 
-    group_foreman = None
+    # FOREMAN= meta token: the first non-empty foreman in canonical order.
+    # ONE rule -- the workbook header reads the same value through
+    # canonical_foreman() (Codex, PR #361 follow-up). Byte-identical to
+    # the former inline scan (golden digests in
+    # tests/test_group_identity_and_header_foreman.py).
+    group_foreman = _first_nonempty_foreman(sorted_rows) or None
     for row in sorted_rows:
-        foreman = row.get('__current_foreman') or row.get('Foreman') or ''
-        if group_foreman is None and foreman:
-            group_foreman = foreman
         # Per-row hashed fields live in _extended_row_fields() so the sort
         # tiebreaker above and the hash below are guaranteed to see the
         # exact same string.

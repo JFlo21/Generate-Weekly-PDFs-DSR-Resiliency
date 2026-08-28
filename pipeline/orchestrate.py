@@ -316,6 +316,83 @@ def _build_synthetic_rows():
     return rows
 
 
+def derive_group_identity(
+    first_row: dict,
+    *,
+    primary_claim_enabled: bool,
+    vac_crew_claim_enabled: bool,
+    res_grouping_mode: str,
+) -> tuple[str, str]:
+    """``(identifier, file_identifier)`` for the group whose canonical
+    first row is ``first_row``.
+
+    The ONE identity definition behind the three orchestrate identity
+    sites -- Site 1 (main-loop ``identifier`` / ``file_identifier`` /
+    ``history_key``), Site 2 (``valid_wr_weeks`` attachment-cleanup
+    tuple) and Site 3 (``current_keys`` hash-history prune). Before this
+    extraction each site carried its own copy of the branch chain; CR-01
+    documents the bug shape when they drift (a fresh history key treated
+    as stale, live attachments pruned, permanent regeneration churn).
+    Copilot on PR #361 asked for the sites to be behaviourally testable;
+    ``tests/test_group_identity_and_header_foreman.py`` pins the helper
+    against the former inline chain for every branch.
+
+    ``identifier`` is the history-key shape; ``file_identifier`` is the
+    filename shape ``generate_excel`` / ``build_group_identity`` use.
+    They differ only for the helper-style variants (``foreman|dept|job``
+    vs the sanitized foreman). Kill switches are passed in because
+    ``main()`` binds them from the facade at entry (test rebinds).
+
+    Branches (all read the CANONICAL row, never arrival order):
+    - helper / aep_billable_helper / reduced_sub_helper -> helper foreman
+      + dept + job (CR-01 gate: the shadow variants must not fall through
+      to the ``User`` branch).
+    - vac_crew -> sanitized claimer, gated on the vac-crew kill switch
+      (disabled mode reproduces the bare legacy identity).
+    - reduced_sub / aep_billable -> sanitized frozen claimer.
+    - primary -> sanitized frozen claimer when primary claim attribution
+      is on AND the grouping mode partitions by claimer; else the legacy
+      ``User`` field.
+    """
+    variant = first_row.get('__variant', 'primary')
+    if variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper'):
+        helper_foreman = first_row.get('__helper_foreman', '')
+        helper_dept = first_row.get('__helper_dept', '')
+        helper_job = first_row.get('__helper_job', '')
+        identifier = f"{helper_foreman}|{helper_dept}|{helper_job}"
+        file_identifier = (
+            _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50]
+            if helper_foreman else ''
+        )
+        return identifier, file_identifier
+    if variant == 'vac_crew':
+        _vc = first_row.get('__current_foreman', '')
+        identifier = (
+            _RE_SANITIZE_IDENTIFIER.sub('_', _vc)[:50]
+            if (vac_crew_claim_enabled and _vc) else ''
+        )
+        return identifier, identifier
+    if variant in ('reduced_sub', 'aep_billable'):
+        _b_claimer = first_row.get('__current_foreman', '')
+        identifier = (
+            _RE_SANITIZE_IDENTIFIER.sub('_', _b_claimer)[:50]
+            if _b_claimer else ''
+        )
+        return identifier, identifier
+    if primary_claim_enabled and res_grouping_mode in ('helper', 'both'):
+        _pf = first_row.get('__current_foreman', '')
+        identifier = (
+            _RE_SANITIZE_IDENTIFIER.sub('_', _pf)[:50] if _pf else ''
+        )
+        return identifier, identifier
+    # Legacy primary identity: the row's ``User`` field.
+    user_val = first_row.get('User')
+    identifier = (
+        _RE_SANITIZE_IDENTIFIER.sub('_', user_val)[:50] if user_val else ''
+    )
+    return identifier, identifier
+
+
 def _run_synthetic_test_mode(session_start):
     """Execute the synthetic TEST_MODE path. Returns number of files generated."""
     logging.info("🧪 TEST_MODE without SMARTSHEET_API_TOKEN: using synthetic in-memory dataset")
@@ -1716,6 +1793,13 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
     KEEP_HISTORICAL_WEEKS = _gwp.KEEP_HISTORICAL_WEEKS
     PRIMARY_CLAIM_ATTRIBUTION_ENABLED = _gwp.PRIMARY_CLAIM_ATTRIBUTION_ENABLED
     VAC_CREW_CLAIM_ATTRIBUTION_ENABLED = _gwp.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED
+    # Kill switches + grouping mode for derive_group_identity(), bound
+    # ONCE so Sites 1/2/3 cannot pass different values (PR #361 follow-up).
+    _identity_switches = {
+        'primary_claim_enabled': PRIMARY_CLAIM_ATTRIBUTION_ENABLED,
+        'vac_crew_claim_enabled': VAC_CREW_CLAIM_ATTRIBUTION_ENABLED,
+        'res_grouping_mode': RES_GROUPING_MODE,
+    }
     SUBCONTRACTOR_RATE_VARIANTS_ENABLED = (
         _gwp.SUBCONTRACTOR_RATE_VARIANTS_ENABLED
     )
@@ -3208,80 +3292,13 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     )
                     _groups_skipped += 1
                     continue
-                if variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper'):
-                    # CRITICAL FIX: Include helper dept and job in identifier for unique hash keys
-                    # This ensures helper files regenerate when new helper rows are added.
-                    #
-                    # CR-01 gap closure (Site 1 — main-loop identifier):
-                    # helper, aep_billable_helper, and reduced_sub_helper all
-                    # derive identifier / file_identifier from __helper_foreman
-                    # so the round-trip with build_group_identity (which parses
-                    # the helper-shadow filename's _Helper_<name>_<hash> tail in
-                    # Plan 02) succeeds. Pre-fix, the two shadow variants fell
-                    # through to the ``else`` branch that reads ``User`` —
-                    # typically blank for shadow rows — producing
-                    # file_identifier='' and a (parsed='Jane_Smith') == ('')
-                    # mismatch in _has_existing_week_attachment. Result:
-                    # permanent regeneration churn and orphan accumulation on
-                    # SUBCONTRACTOR_PPP_SHEET_ID. The change is additive — the
-                    # legacy ``helper`` body is preserved exactly; we just
-                    # expand the gate to include the two helper-shadow variants.
-                    # Sites 2 (valid_wr_weeks builder) and 3 (current_keys
-                    # hash-history prune) carry the same gate — drift between
-                    # the three sites is exactly the bug shape CR-01 documents.
-                    helper_foreman = first_row.get('__helper_foreman', '')
-                    helper_dept = first_row.get('__helper_dept', '')
-                    helper_job = first_row.get('__helper_job', '')
-                    identifier = f"{helper_foreman}|{helper_dept}|{helper_job}"
-                    # file_identifier matches the sanitized name that generate_excel() puts in the filename
-                    file_identifier = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50] if helper_foreman else ''
-                elif variant == 'vac_crew':
-                    # Subproject C identity site (Site 1 — main-loop identifier /
-                    # history_key / file_identifier). GATED on the kill switch:
-                    # disabled mode MUST reproduce the exact legacy '' identifier
-                    # (bare _VacCrew filename, bare history_key) so existing
-                    # attachments are not treated as stale and regeneration churn
-                    # is not triggered. Enabled mode uses the sanitized claimer.
-                    _vc = first_row.get('__current_foreman', '')
-                    identifier = (
-                        _RE_SANITIZE_IDENTIFIER.sub('_', _vc)[:50]
-                        if (VAC_CREW_CLAIM_ATTRIBUTION_ENABLED and _vc) else ''
-                    )
-                    file_identifier = identifier
-                elif variant in ('reduced_sub', 'aep_billable'):
-                    # Subproject B identity site (Site 1 — main-loop
-                    # identifier). Partitioned by the frozen primary
-                    # claimer (__current_foreman). identifier ==
-                    # file_identifier == sanitized claimer, matching the
-                    # _ReducedSub_User_<name> filename and Sites 2 & 3.
-                    _b_claimer = first_row.get('__current_foreman', '')
-                    identifier = (
-                        _RE_SANITIZE_IDENTIFIER.sub('_', _b_claimer)[:50]
-                        if _b_claimer else ''
-                    )
-                    file_identifier = identifier
-                else:
-                    # Subproject D (2026-05-25): Site 1 — main-loop primary
-                    # identity (history_key / file_identifier). Gated on kill
-                    # switch: enabled → frozen claimer (__current_foreman);
-                    # disabled → legacy ``User`` field ('' in production).
-                    if (
-                        PRIMARY_CLAIM_ATTRIBUTION_ENABLED
-                        and RES_GROUPING_MODE in ('helper', 'both')
-                    ):
-                        _pf = first_row.get('__current_foreman', '')
-                        identifier = (
-                            _RE_SANITIZE_IDENTIFIER.sub('_', _pf)[:50]
-                            if _pf else ''
-                        )
-                        file_identifier = identifier
-                    else:
-                        # Legacy primary variant: identifier derived from
-                        # the row's ``User`` field.
-                        user_val = first_row.get('User')
-                        # PERFORMANCE: Use pre-compiled regex for identifier sanitization
-                        identifier = _RE_SANITIZE_IDENTIFIER.sub('_', user_val)[:50] if user_val else ''
-                        file_identifier = identifier
+                # CR-01 gap closure (Site 1 — main-loop identifier /
+                # history_key / file_identifier): the identity is the ONE
+                # shared definition, derive_group_identity() -- Sites 2 and 3
+                # call the same function, so the three sites cannot drift
+                # (Copilot on PR #361; CR-01 documents the bug shape).
+                identifier, file_identifier = derive_group_identity(
+                    first_row, **_identity_switches)
                 
                 # History key includes variant dimension to prevent collisions
                 history_key = f"{wr_num}|{week_raw}|{variant}|{identifier}"
@@ -4551,61 +4568,10 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 # when KEEP_HISTORICAL_WEEKS is enabled.
                 wr = _RE_SANITIZE_HELPER_NAME.sub('_', wr)[:50]
                 variant = _first.get('__variant', 'primary')
-                if variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper'):
-                    # CR-01 gap closure (Site 2 — mirror of Site 1).
-                    # build_group_identity returns the sanitized helper
-                    # foreman as the parsed identifier for all three
-                    # helper-style variants; valid_wr_weeks must match
-                    # that tuple shape so
-                    # cleanup_untracked_sheet_attachments correctly
-                    # identifies which helper-shadow attachments are
-                    # "live" and which are stale. Pre-fix, shadow
-                    # variants fell through to the ``User``-derived
-                    # ``else`` branch and produced file_id='' tuples
-                    # that NEVER matched the parser's 'Jane_Smith'
-                    # identifier — risking cleanup either pruning
-                    # legitimate attachments or missing orphans.
-                    # Sites 1 and 3 carry the same gate.
-                    helper_foreman = _first.get('__helper_foreman', '')
-                    file_id = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50] if helper_foreman else ''
-                elif variant == 'vac_crew':
-                    # Subproject C identity site (Site 2 — valid_wr_weeks).
-                    # GATED on the kill switch (mirrors Site 1): disabled mode
-                    # produces file_id='' so the 4-tuple matches the bare
-                    # _VacCrew attachment identity and cleanup does not delete
-                    # live legacy-mode attachments.
-                    _vc = _first.get('__current_foreman', '')
-                    file_id = (
-                        _RE_SANITIZE_IDENTIFIER.sub('_', _vc)[:50]
-                        if (VAC_CREW_CLAIM_ATTRIBUTION_ENABLED and _vc) else ''
-                    )
-                elif variant in ('reduced_sub', 'aep_billable'):
-                    # Subproject B identity site (Site 2 — valid_wr_weeks).
-                    # Mirror Site 1 so attachment cleanup keeps the live
-                    # per-claimer file.
-                    _b_claimer = _first.get('__current_foreman', '')
-                    file_id = (
-                        _RE_SANITIZE_IDENTIFIER.sub('_', _b_claimer)[:50]
-                        if _b_claimer else ''
-                    )
-                else:
-                    # Subproject D (2026-05-25): primary identity site
-                    # (Site 2 — valid_wr_weeks). Mirror Site 1 so attachment
-                    # cleanup keeps the live per-claimer primary file.
-                    # Disabled mode preserves the legacy ``User``-field path.
-                    if (
-                        PRIMARY_CLAIM_ATTRIBUTION_ENABLED
-                        and RES_GROUPING_MODE in ('helper', 'both')
-                    ):
-                        _pf = _first.get('__current_foreman', '')
-                        file_id = (
-                            _RE_SANITIZE_IDENTIFIER.sub('_', _pf)[:50]
-                            if (PRIMARY_CLAIM_ATTRIBUTION_ENABLED and _pf) else ''
-                        )
-                    else:
-                        user_val = _first.get('User')
-                        # PERFORMANCE: Use pre-compiled regex
-                        file_id = _RE_SANITIZE_IDENTIFIER.sub('_', user_val)[:50] if user_val else ''
+                # CR-01 gap closure (Site 2 — mirror of Site 1): the
+                # file identifier from the ONE shared definition.
+                _, file_id = derive_group_identity(
+                    _first, **_identity_switches)
                 valid_wr_weeks.add((wr, week_raw, variant, file_id))
         if not TEST_MODE:
             # Invalidate stale attachment cache after upload phase — uploads added/deleted attachments
@@ -4831,72 +4797,12 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         _wr = _RE_SANITIZE_HELPER_NAME.sub('_', _wr)[:50]
                         _week = key.split('_',1)[0]
                         _variant = _first.get('__variant', 'primary')
-                        if _variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper'):
-                            # CR-01 gap closure (Site 3 — mirror of Site 1).
-                            # Site 1 writes the helper-shadow history_key as
-                            # f"{wr}|{week}|{variant}|{foreman}|{dept}|{job}" —
-                            # this prune-key reconstruction MUST match it
-                            # byte-for-byte or the entry written this run is
-                            # treated as stale and deleted before
-                            # save_hash_history runs. Pre-fix, both Sites 1
-                            # and 3 fell through to the same ``User``-derived
-                            # branch, so the two stayed aligned by accident
-                            # (both produced '' identifiers). With Site 1 now
-                            # correctly deriving from __helper_foreman, Site 3
-                            # must follow or the alignment breaks the OTHER
-                            # way and we permanently lose hash-skip for
-                            # helper-shadow variants. Note: ``_ident`` here is
-                            # the HISTORY-KEY shape (pipe-joined triple), NOT
-                            # the FILE-IDENTIFIER shape (Site 1 builds both;
-                            # this site reconstructs the history-key shape
-                            # only — the same pattern as the legacy helper
-                            # branch).
-                            _hf = _first.get('__helper_foreman', '')
-                            _hd = _first.get('__helper_dept', '')
-                            _hj = _first.get('__helper_job', '')
-                            _ident = f"{_hf}|{_hd}|{_hj}"
-                        elif _variant == 'vac_crew':
-                            # Subproject C identity site (Site 3 —
-                            # current_keys). GATED on the kill switch (mirrors
-                            # Site 1): disabled mode produces _ident='' so the
-                            # reconstructed current_keys entry matches the
-                            # bare history_key written by Site 1 and the fresh
-                            # entry is not treated as stale and deleted.
-                            _vc = _first.get('__current_foreman', '')
-                            _ident = (
-                                _RE_SANITIZE_IDENTIFIER.sub('_', _vc)[:50]
-                                if (VAC_CREW_CLAIM_ATTRIBUTION_ENABLED and _vc) else ''
-                            )
-                        elif _variant in ('reduced_sub', 'aep_billable'):
-                            # Subproject B identity site (Site 3 —
-                            # current_keys). Must match the history_key
-                            # written at Site 1 byte-for-byte (sanitized
-                            # claimer) or the freshly-written entry is
-                            # treated as stale and deleted before save.
-                            _b_claimer = _first.get('__current_foreman', '')
-                            _ident = (
-                                _RE_SANITIZE_IDENTIFIER.sub('_', _b_claimer)[:50]
-                                if _b_claimer else ''
-                            )
-                        else:
-                            # Subproject D (2026-05-25): primary identity
-                            # site (Site 3 — current_keys). Must match the
-                            # history_key written at Site 1 byte-for-byte
-                            # (sanitized claimer when on, legacy User-field
-                            # when off) or the freshly-written entry is
-                            # treated as stale and deleted before save.
-                            if (
-                                PRIMARY_CLAIM_ATTRIBUTION_ENABLED
-                                and RES_GROUPING_MODE in ('helper', 'both')
-                            ):
-                                _pf = _first.get('__current_foreman', '')
-                                _ident = (
-                                    _RE_SANITIZE_IDENTIFIER.sub('_', _pf)[:50]
-                                    if (PRIMARY_CLAIM_ATTRIBUTION_ENABLED and _pf) else ''
-                                )
-                            else:
-                                _uv = _first.get('User')
-                                _ident = _RE_SANITIZE_IDENTIFIER.sub('_', _uv)[:50] if _uv else ''
+                        # CR-01 gap closure (Site 3 — mirror of Site 1): the
+                        # history-key identifier from the ONE shared
+                        # definition, so the prune key matches Site 1's
+                        # history_key byte-for-byte.
+                        _ident, _ = derive_group_identity(
+                            _first, **_identity_switches)
                         current_keys.add(f"{_wr}|{_week}|{_variant}|{_ident}")
                 stale_keys = [k for k in hash_history if k not in current_keys]
                 if stale_keys:

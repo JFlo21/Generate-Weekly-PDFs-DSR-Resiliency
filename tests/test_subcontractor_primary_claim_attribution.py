@@ -408,12 +408,23 @@ class TestThreeIdentitySitesCarryClaimer(unittest.TestCase):
         )
 
     def test_exactly_three_identity_site_markers(self):
-        # Each of Site 1/2/3 carries the marker comment so the lockstep
-        # is auditable (CR-01). Drift between the three is the bug shape.
+        # Sites 1/2/3 are in lockstep by construction now: the Subproject
+        # B branch (reduced_sub / aep_billable -> sanitized frozen claimer)
+        # lives once in derive_group_identity() and each site calls it
+        # (PR #361 follow-up). Drift between the three was the CR-01 bug
+        # shape; it is no longer expressible.
+        import inspect as _inspect
+        import pipeline.orchestrate as _orch
+        helper_src = _inspect.getsource(_orch.derive_group_identity)
+        self.assertIn("variant in ('reduced_sub', 'aep_billable')",
+                      helper_src)
+        self.assertIn("_b_claimer = first_row.get('__current_foreman', '')",
+                      helper_src)
         self.assertEqual(
-            self._src.count('Subproject B identity site'),
+            _inspect.getsource(_orch.main).count("= derive_group_identity("),
             3,
-            "Exactly three identity sites must carry the Subproject B branch",
+            "Exactly three identity sites must call derive_group_identity "
+            "(update this count if you add an identity site)",
         )
 
     def test_site1_branches_on_subcontractor_primary_variants(self):
