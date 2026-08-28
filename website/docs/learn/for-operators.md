@@ -127,12 +127,12 @@ look at *Report Generated On* — it should be newer than your edit.
 
 | What you see | Likely cause | Fix |
 | --- | --- | --- |
-| The unit isn't in any file | Missing WR # or date, *Units Completed?* unchecked, no price (blank / `$0`), or a CU that reads `NO MATCH` | Complete the row; it appears on the next run |
+| The unit isn't in any file | Missing WR # or date, *Units Completed?* unchecked, no price (blank / `$0`), or a CU that reads `NO MATCH` — or the Work Request has **no row on any target sheet**, in which case the file is built but never attached | Complete the row; it appears on the next run. If the WR has no target-sheet row, completing the source row changes nothing — ask the engineering owner to fix the target-row mapping |
 | The unit is in the file but the line has a blank code or a zero quantity | The row was picked up but its CU or quantity is incomplete (a picked-up row always carries a price above $0) | Fix those fields; the file rebuilds on the next run |
 | The file total includes the unit but it is in no day block | The row's Snapshot Date is blank, unreadable, or outside that Monday–Sunday week | Fix the Snapshot Date; the file rebuilds on the next run |
 | The unit is in the **wrong week's** file | The week-ending / logged date on the row is wrong | Correct the date; the new week's file gains it. The old week's file rebuilds without it **only if other units remain in that week for that WR** — if it was the only one, nothing regenerates the old file and the stale attachment stays until the engineering owner removes it |
 | The unit is in a `_Helper_…` file but you expected the main file | Both helper and primary checkboxes are checked | That is by design — the helper file is the billable one; uncheck the helper flag only if the unit really wasn't helper work |
-| The file name says `_NO_MATCH` or `Unknown_Foreman` | The robot could not work out a foreman for the row | Fill in the foreman. The name itself does **not** stop the upload: if the Work Request has a row on a target sheet, the file is attached under that name, so fix it promptly. If the WR is on no target sheet the file is built but withheld |
+| The file name says `_NO_MATCH` or `Unknown_Foreman` | The robot could not work out a foreman for the row | Fill in the foreman, then check the next run. The name itself does **not** stop the upload: if the Work Request has a row on a target sheet, the file is attached under that name, so fix it promptly (if the WR is on no target sheet the file is built but withheld). **If the name persists after the next run, escalate** — once a report has been attributed, that attribution is frozen (first write wins) and only engineering can correct it |
 | Old file, no update after your edit | The run hasn't happened yet, or the change didn't touch a billed field (a plain manual run makes the same "unchanged, skip" decision, so it won't help either) | Wait for the next run; if it's still stale after two runs, ask the engineering owner — they can force that week with `regen_weeks` or work out why the change isn't billed |
 
 ## Asking for a manual run
@@ -195,16 +195,19 @@ Work through this in order — most issues stop at step 2:
 
 :::caution Never
 Don't rename, edit or re-upload the generated Excel files by hand, and don't
-delete attachments to "force a refresh" — the robot re-creates a missing
-file on its next run, but a hand-edited file will simply be replaced and the
-edit lost.
+delete attachments to "force a refresh". The robot re-creates a *missing*
+file on its next run, but it only checks that a file with the right generated
+name is attached — not what is inside it — so a hand-edited workbook
+re-uploaded under the generated name is **kept** for as long as the source
+rows are unchanged, and a wrong report can sit there for weeks. If a file has
+been hand-edited, report it so engineering can force a rebuild.
 :::
 
 ## Glossary
 
 | Term | Meaning |
 | --- | --- |
-| **WR / Work Request** | The job number a set of units is billed under |
+| **WR / Work Request** | The Work Request number the units are billed under; it decides which report a unit lands in and which row the report is attached to. Not the same field as **Job #** (a separate column shown in REPORT DETAILS) |
 | **Week ending** | The Sunday that closes the billing week; files are cut per week ending |
 | **CU / Billable Unit Code** | The catalogue code for a unit of work; it decides the description and price |
 | **Helper file** | Units a *helping* foreman completed on someone else's WR |
