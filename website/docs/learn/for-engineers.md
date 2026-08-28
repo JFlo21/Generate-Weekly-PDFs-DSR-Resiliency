@@ -135,9 +135,9 @@ select run_id, variant, content_hash, assignment_fp, created_at
 
 ```bash
 pip install -r requirements.txt
-SMARTSHEET_API_TOKEN= TEST_MODE=true python generate_weekly_pdfs.py   # empty token: synthetic rows
-TEST_MODE=true WR_FILTER=12345678 python generate_weekly_pdfs.py   # token set: real reads, one WR, no uploads
-SUPABASE_URL= SUPABASE_SERVICE_ROLE_KEY= SKIP_UPLOAD=true python generate_weekly_pdfs.py   # real reads, EVERY group, no uploads, no Supabase
+SENTRY_DSN= SMARTSHEET_API_TOKEN= TEST_MODE=true python generate_weekly_pdfs.py   # empty token: synthetic rows, no Sentry
+SENTRY_DSN= TEST_MODE=true WR_FILTER=12345678 python generate_weekly_pdfs.py   # token set: real reads, one WR, no uploads, no Sentry
+SENTRY_DSN= SUPABASE_URL= SUPABASE_SERVICE_ROLE_KEY= SKIP_UPLOAD=true python generate_weekly_pdfs.py   # real reads, EVERY group, no uploads, no Supabase, no Sentry
 pytest tests/ -v                                        # ~1,770 tests, must be green
 ```
 
@@ -164,7 +164,11 @@ fills in any *absent* variable from a developer `.env` but never overrides
 one that is present, even when empty (the same trick the synthetic recipe
 above uses for the Smartsheet token, and that
 `tests/test_entrypoint_no_double_import.py` relies on). The writers are
-fail-open and the Excel output does not need them.
+fail-open and the Excel output does not need them. `SENTRY_DSN=` is there for
+the same reason: an empty DSN makes `init_sentry()` a no-op
+(`pipeline/observability.py:771`), while an absent one is refilled from
+`.env` and sends your local run's errors and transactions to the production
+Sentry project.
 :::
 
 ### 4. Sentry
