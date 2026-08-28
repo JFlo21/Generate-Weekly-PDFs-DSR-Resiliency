@@ -33,7 +33,10 @@ from pipeline.config import (
     _RE_SANITIZE_HELPER_NAME,
     _RE_SANITIZE_IDENTIFIER,
 )
-from pipeline.change_detection import canonical_first_row
+from pipeline.change_detection import (
+    canonical_first_row,
+    header_job_number,
+)
 from pipeline.pricing import _parse_quantity, _resolve_row_price, parse_price
 from pipeline.utils import excel_serial_to_date
 
@@ -238,17 +241,10 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     # Prefer 'Scope #' then fallback to 'Scope ID'
     scope_id = first_row.get('Scope #') or first_row.get('Scope ID', '')
     
-    # Try multiple column name variations for Job # to handle different formats
-    job_number = (first_row.get('Job #') or 
-                  first_row.get('Job#') or 
-                  first_row.get('Job Number') or 
-                  first_row.get('JobNumber') or 
-                  first_row.get('Job_Number') or 
-                  first_row.get('JOB #') or 
-                  first_row.get('JOB#') or 
-                  first_row.get('job #') or 
-                  first_row.get('job#') or 
-                  '')
+    # Job # under every accepted column-name variation, resolved by the
+    # ONE alias resolver the canonical sort key also uses (same aliases,
+    # same precedence) so the header can never depend on arrival order.
+    job_number = header_job_number(first_row)
     
     # Log warning if Job # is missing
     if not job_number:

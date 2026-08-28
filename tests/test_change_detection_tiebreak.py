@@ -55,6 +55,35 @@ def _row(wr='91057431', cu='CU-100', qty=1, price='$50.00', pole='P-7',
     return row
 
 
+def _report_details(rows, group_key, labels):
+    """Generate the workbook for ``rows`` and return the REPORT DETAILS
+    values next to ``labels`` (e.g. 'Job #:')."""
+    import tempfile
+    import openpyxl
+    saved = {k: getattr(generate_weekly_pdfs, k) for k in
+             ('OUTPUT_FOLDER', 'RES_GROUPING_MODE',
+              'PRIMARY_CLAIM_ATTRIBUTION_ENABLED')}
+    tmp = tempfile.TemporaryDirectory()
+    generate_weekly_pdfs.OUTPUT_FOLDER = tmp.name
+    generate_weekly_pdfs.RES_GROUPING_MODE = 'both'
+    generate_weekly_pdfs.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = False
+    try:
+        path = generate_weekly_pdfs.generate_excel(
+            group_key, list(rows), datetime.datetime(2026, 7, 26),
+            data_hash='deadbeefcafe0002')[0]
+        ws = openpyxl.load_workbook(path).active
+        vals = {}
+        for row in ws.iter_rows(values_only=True):
+            for i, v in enumerate(row):
+                if v in labels:
+                    vals[v] = row[i + 1]
+        return vals
+    finally:
+        for k, v in saved.items():
+            setattr(generate_weekly_pdfs, k, v)
+        tmp.cleanup()
+
+
 class SortTiebreakTests(unittest.TestCase):
 
     def setUp(self):
@@ -187,7 +216,7 @@ class SortTiebreakTests(unittest.TestCase):
         # Header-only tiebreaker: the hash is untouched in every order.
         self.assertEqual(len(self._hashes_for_all_orders([a, b])), 1)
         # Same precedence as generate_excel: 'Job #' beats the aliases.
-        self.assertEqual(change_detection._header_job_number(
+        self.assertEqual(change_detection.header_job_number(
             {'Job#': 'alias', 'Job #': 'canonical'}), 'canonical')
 
     def test_user_identity_only_difference_is_order_independent(self):
@@ -204,6 +233,61 @@ class SortTiebreakTests(unittest.TestCase):
         self.assertEqual(
             change_detection.canonical_first_row([b, a])['User'], 'alice')
         self.assertEqual(len(self._hashes_for_all_orders([a, b])), 1)
+
+    def test_work_order_alias_only_difference_is_order_independent(self):
+        # Codex / Copilot on PR #361 (round 3): the hash collapses
+        # 'Work Order #' and 'Work Order Number' to one string, but the
+        # REPORT DETAILS header shows only the canonical row's raw
+        # 'Work Order #'. Two rows differing only in WHICH alias carries
+        # the value tie on the whole hashed key, so the header could
+        # alternate between 'WO-1' and blank under one hash.
+        a = _row(**{'Work Order #': 'WO-1'})
+        b = _row(**{'Work Order Number': 'WO-1'})
+        self.assertIs(change_detection.canonical_first_row([a, b]),
+                      change_detection.canonical_first_row([b, a]))
+        # The populated displayed column wins, so the header is never
+        # blank when a row in the group can fill it.
+        self.assertEqual(
+            change_detection.canonical_first_row([b, a])
+            .get('Work Order #'), 'WO-1')
+        self.assertEqual(len(self._hashes_for_all_orders([a, b])), 1)
+
+    def test_serialized_field_collision_is_order_independent(self):
+        # Copilot on PR #361 (round 3): the hashed fields are joined with
+        # an unescaped '|', so two different rows can serialize to the
+        # same string. Their hash contributions are identical (nothing
+        # to fix there), but the workbook shows the canonical row's raw
+        # Work Order, so the tie must be broken by the unjoined fields.
+        a = _row(**{'Work Order #': 'WO|East', 'CU Description': 'Install'})
+        b = _row(**{'Work Order #': 'WO', 'CU Description': 'East|Install'})
+        joined = lambda r: "|".join(
+            change_detection._extended_row_fields(r, 'primary'))
+        self.assertEqual(joined(a), joined(b), "fixture must collide")
+        self.assertIs(change_detection.canonical_first_row([a, b]),
+                      change_detection.canonical_first_row([b, a]))
+        self.assertEqual(len(self._hashes_for_all_orders([a, b])), 1)
+
+    def test_excel_job_number_comes_from_the_shared_resolver(self):
+        """Copilot on PR #361 (round 3): generate_excel and the canonical
+        sort key must share ONE Job # alias resolver, or adding /
+        reordering an Excel alias silently reintroduces an
+        order-dependent header. Pin the sharing and the precedence."""
+        import pipeline.excel
+        self.assertIs(pipeline.excel.header_job_number,
+                      change_detection.header_job_number)
+        for alias in change_detection._JOB_NUMBER_ALIASES:
+            self.assertEqual(
+                change_detection.header_job_number({alias: 'J-9'}), 'J-9',
+                alias)
+        # Behavioural: a row carrying Job # under a lower-precedence
+        # alias only still fills the workbook's "Job #:" cell.
+        row = _row(wr='90002', **{
+            'Weekly Reference Logged Date': '2026-07-26',
+            '__week_ending_date': datetime.datetime(2026, 7, 26),
+            'JOB#': 'J-9'})
+        self.assertEqual(
+            _report_details([row], '072626_90002', ('Job #:',)),
+            {'Job #:': 'J-9'})
 
     def test_tie_breaker_still_detects_a_real_edit(self):
         base = [
@@ -305,7 +389,14 @@ class IdentitySitesUseCanonicalRowTests(unittest.TestCase):
     User from the canonical row, never from arrival-order group_rows[0]
     -- or a stable hash is looked up under an unstable history_key, the
     prior key is pruned, and a mixed-department helper group regenerates
-    and re-uploads every run."""
+    and re-uploads every run.
+
+    The three sites are inline in ``pipeline.orchestrate.main`` (no test
+    in this suite drives that function -- see
+    test_deep_run_reconciliation / test_incremental_read), so the wiring
+    is pinned at source level, the repository's existing practice for
+    these sites (test_primary_claim_attribution), and the identity
+    INPUTS the sites read are pinned behaviourally below."""
 
     @classmethod
     def setUpClass(cls):
@@ -314,6 +405,40 @@ class IdentitySitesUseCanonicalRowTests(unittest.TestCase):
         cls._src = Path(
             inspect.getsourcefile(pipeline.orchestrate)
         ).read_text(encoding='utf-8')
+
+    def test_identity_inputs_from_the_canonical_row_are_order_independent(
+            self):
+        """Every field Sites 1-3 read (helper foreman / dept / job, User,
+        __current_foreman, __variant) and the history-key shape Site 1
+        writes and Site 3 reconstructs are identical for both arrival
+        orders of a mixed-department helper group -- under one hash."""
+        saved = generate_weekly_pdfs.EXTENDED_CHANGE_DETECTION
+        generate_weekly_pdfs.EXTENDED_CHANGE_DETECTION = True
+        try:
+            a = _row(User='u1', **{
+                '__variant': 'helper', '__helper_foreman': 'Sam Sample',
+                '__helper_dept': 'NA-03', '__helper_job': 'J-1',
+                '__current_foreman': 'Pat Example'})
+            b = _row(User='u2', **{
+                '__variant': 'helper', '__helper_foreman': 'Sam Sample',
+                '__helper_dept': 'NA-04', '__helper_job': 'J-2',
+                '__current_foreman': 'Pat Example'})
+            fields = ('__helper_foreman', '__helper_dept', '__helper_job',
+                      'User', '__current_foreman', '__variant')
+            seen_identity, seen_key, seen_hash = set(), set(), set()
+            for rows in ([a, b], [b, a]):
+                first = change_detection.canonical_first_row(rows)
+                seen_identity.add(tuple(first.get(f, '') for f in fields))
+                seen_key.add("|".join((
+                    first.get('__helper_foreman', ''),
+                    first.get('__helper_dept', ''),
+                    first.get('__helper_job', ''))))
+                seen_hash.add(generate_weekly_pdfs.calculate_data_hash(rows))
+            self.assertEqual(len(seen_identity), 1, seen_identity)
+            self.assertEqual(seen_key, {'Sam Sample|NA-03|J-1'})
+            self.assertEqual(len(seen_hash), 1)
+        finally:
+            generate_weekly_pdfs.EXTENDED_CHANGE_DETECTION = saved
 
     def test_no_identity_field_is_read_from_the_arrival_order_row(self):
         for needle in ("group_rows[0].get('__helper_foreman'",
