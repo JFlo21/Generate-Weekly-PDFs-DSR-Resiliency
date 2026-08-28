@@ -17,6 +17,20 @@ First run after the `RUN_MEMORY_WRITE_ENABLED` flip wrote no run memory: the bas
 exception message; a real-SDK construction test guards it. Billing was never affected.
 See `memory-bank/living-ledger.md` `[2026-08-27 11:51]`.
 
+## 2026-08-28 — one identity definition for Sites 1/2/3; header foreman = hash rule; deterministic legacy header (PR #362)
+The three inline identity chains in `pipeline.orchestrate.main` (history key, attachment-cleanup
+tuple, prune key) are now one module-level `derive_group_identity()` called with switches bound once,
+so the CR-01 drift shape is no longer expressible and the sites are behaviourally tested for both
+arrival orders. The primary workbook header's foreman is the hash's `FOREMAN=` rule (`canonical_foreman()`,
+first non-empty claimer in canonical order) — owner-approved and reachable in production
+(a whitespace-only `Foreman Assigned?` yields a blank `__current_foreman`; such a primary group used to
+show a blank header foreman while its hash named a later row's), gated on `variant == 'primary'` —
+helper, helper-shadow, vac_crew and subcontractor primary headers keep their partition key; hashes and identity
+keys are byte-identical (golden digests). `canonical_first_row()` now
+uses the extended total order in legacy mode too, so the legacy header is deterministic while the
+legacy hash is untouched. Closes the three threads left open on #361.
+See `memory-bank/living-ledger.md` `[2026-08-28 12:05]`. PR #362.
+
 ## 2026-08-27 — identity row = canonical row: Excel header + orchestrate Sites 1/2/3 (PR #361)
 A helper group can hold rows from two departments (its key carries no dept/job). #359 made
 the hash order-stable, but the workbook header and the three orchestrate identity sites
@@ -36,7 +50,7 @@ the arrival-order row, so the same one-time effect applies there.
 Declined: legacy-mode header determinism (rollback sort is frozen). Deferred to Juan: aligning
 the header's foreman with the hash's first-nonempty `FOREMAN=` token (billing-output change), and
 a behavioural Sites 1–3 test, which needs the three inline `main()` identity blocks extracted into
-one shared helper (production refactor).
+one shared helper (production refactor) — both done in the 2026-08-28 follow-up above.
 See `memory-bank/living-ledger.md` `[2026-08-27 20:20]`.
 
 ## 2026-08-27 — Learn guides corrected against pipeline behaviour (PR #360 review round)

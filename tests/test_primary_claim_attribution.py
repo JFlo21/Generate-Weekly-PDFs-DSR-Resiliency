@@ -398,15 +398,27 @@ class TestPrimaryModeStaysBare(unittest.TestCase):
         import pipeline.orchestrate  # W6: main() relocated
         src = (inspect.getsource(generate_weekly_pdfs)
                + "\n" + inspect.getsource(pipeline.orchestrate))
-        # Site 1 (main-loop history_key/file_identifier): gate must include
-        # the grouping-mode check so primary mode produces the legacy
-        # (User-field) identifier, NOT a __current_foreman _User_ identity.
+        # Site 1 (main-loop history_key/file_identifier): the gate lives in
+        # the ONE shared identity definition, derive_group_identity(), and
+        # must include the grouping-mode check so primary mode produces the
+        # legacy (User-field) identifier, NOT a __current_foreman _User_
+        # identity. Site 1 calls it with the run's switches, bound once.
         self.assertRegex(
             src,
-            r"PRIMARY_CLAIM_ATTRIBUTION_ENABLED\s+and\s+"
-            r"RES_GROUPING_MODE in \('helper', 'both'\)"
+            r"primary_claim_enabled\s+and\s+"
+            r"res_grouping_mode in \('helper', 'both'\)"
             r"[\s\S]{0,520}__current_foreman"
             r"[\s\S]{0,520}first_row\.get\('User'\)",
+        )
+        self.assertRegex(
+            src,
+            r"identifier, file_identifier = derive_group_identity\("
+            r"\s*first_row, \*\*_identity_switches\)",
+        )
+        self.assertRegex(
+            src,
+            r"_identity_switches = \{[\s\S]{0,300}"
+            r"'res_grouping_mode': RES_GROUPING_MODE",
         )
 
     def test_sites_bc_identity_gated_on_grouping_mode(self):
@@ -421,17 +433,27 @@ class TestPrimaryModeStaysBare(unittest.TestCase):
                + "\n" + inspect.getsource(pipeline.grouping)
                + "\n" + inspect.getsource(pipeline.excel)
                + "\n" + inspect.getsource(pipeline.orchestrate))
-        # Sites 2 & 3 (valid_wr_weeks / current_keys builders) plus the
-        # filename suffix and Site 1 all gate the __current_foreman primary
-        # partition on the grouping mode -> at least 4 occurrences.
+        # Sites 1, 2 & 3 (main-loop identifier / valid_wr_weeks /
+        # current_keys builders) gate through the ONE shared
+        # derive_group_identity(), each called with the run's switches
+        # (which carry the grouping mode); the filename suffix keeps its
+        # own inline gate -> at least 4 mode-gated surfaces.
         count = len(_re.findall(
             r"PRIMARY_CLAIM_ATTRIBUTION_ENABLED\s+and\s+"
             r"RES_GROUPING_MODE in \('helper', 'both'\)",
+            src,
+        )) + len(_re.findall(
+            r"= derive_group_identity\(\s*\w+, \*\*_identity_switches\)",
             src,
         ))
         self.assertGreaterEqual(
             count, 4,
             f"expected >=4 mode-gated primary surfaces, found {count}",
+        )
+        self.assertRegex(
+            src,
+            r"primary_claim_enabled\s+and\s+"
+            r"res_grouping_mode in \('helper', 'both'\)",
         )
 
 
@@ -478,9 +500,12 @@ class TestSiteAMainLoopIdentity(unittest.TestCase):
         # chars. The structural invariant (PRIMARY_CLAIM_ATTRIBUTION_ENABLED
         # → __current_foreman dict-key → first_row.get('User') fallback) is
         # preserved — only the window size changed.
+        # The chain now lives in derive_group_identity() (the ONE identity
+        # definition the three sites call); the invariant is unchanged.
         self.assertRegex(
             src,
-            r"PRIMARY_CLAIM_ATTRIBUTION_ENABLED[\s\S]{0,500}"
+            r"if primary_claim_enabled and res_grouping_mode in "
+            r"\('helper', 'both'\):[\s\S]{0,500}"
             r"__current_foreman[\s\S]{0,500}"
             r"first_row\.get\('User'\)",
         )
@@ -494,19 +519,31 @@ class TestSitesBCIdentity(unittest.TestCase):
         import pipeline.orchestrate  # W6: main() relocated
         src = (inspect.getsource(generate_weekly_pdfs)
                + "\n" + inspect.getsource(pipeline.orchestrate))
-        # Site 2 (valid_wr_weeks builder): the else branch builds file_id
-        # from __current_foreman gated on PRIMARY_CLAIM_ATTRIBUTION_ENABLED.
+        # Site 2 (valid_wr_weeks builder): file_id comes from the ONE
+        # shared derive_group_identity(), called with the bound switches.
         self.assertRegex(
             src,
-            r"file_id = \(\s*_RE_SANITIZE_IDENTIFIER\.sub\('_', _pf\)\[:50\]"
-            r"\s*if \(PRIMARY_CLAIM_ATTRIBUTION_ENABLED and _pf\)",
+            r"_, file_id = derive_group_identity\("
+            r"\s*_first, \*\*_identity_switches\)",
         )
-        # Site 3 (current_keys builder): the else branch builds _ident
-        # from __current_foreman gated on PRIMARY_CLAIM_ATTRIBUTION_ENABLED.
+        # Site 3 (current_keys builder): _ident likewise.
         self.assertRegex(
             src,
-            r"_ident = \(\s*_RE_SANITIZE_IDENTIFIER\.sub\('_', _pf\)\[:50\]"
-            r"\s*if \(PRIMARY_CLAIM_ATTRIBUTION_ENABLED and _pf\)",
+            r"_ident, _ = derive_group_identity\("
+            r"\s*_first, \*\*_identity_switches\)",
+        )
+        # ...the switches carry the kill switch, and the helper's primary
+        # branch derives from __current_foreman only when it is on
+        # (legacy User path otherwise).
+        self.assertRegex(
+            src,
+            r"'primary_claim_enabled': PRIMARY_CLAIM_ATTRIBUTION_ENABLED",
+        )
+        self.assertRegex(
+            src,
+            r"if primary_claim_enabled and res_grouping_mode in "
+            r"\('helper', 'both'\):\s*\n\s*"
+            r"_pf = first_row\.get\('__current_foreman', ''\)",
         )
 
 

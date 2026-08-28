@@ -3687,8 +3687,9 @@ class TestHelperShadowVariantFileIdentifier(unittest.TestCase):
 
         Returns ``(identifier, file_identifier)`` -- the two outputs
         the production code computes per group. Must stay in sync
-        with the production cascade in ``main()`` immediately
-        above ``history_key = f"{wr_num}|...":``.
+        with the production cascade, now the shared
+        ``pipeline.orchestrate.derive_group_identity`` (the three
+        sites in ``main()`` all call it).
         """
         if variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper'):
             helper_foreman = first_row.get('__helper_foreman', '')
@@ -3845,42 +3846,35 @@ class TestHelperShadowVariantFileIdentifier(unittest.TestCase):
         )
 
     def test_production_valid_wr_weeks_and_current_keys_carry_shadow_variant_gate(self):
-        # Source-level guard: Sites 2 and 3 must also carry
-        # shadow-variant gates. We verify by counting occurrences
-        # of the three-tuple gate; with Site 1's gate, expect
-        # >= 3 total (Sites 1, 2, 3). The Site 3 cascade uses
-        # ``_variant`` (underscore prefix) so the gate text is
-        # slightly different -- count BOTH forms.
+        # Source-level guard: the shadow-variant gate lives ONCE in
+        # ``derive_group_identity`` and Sites 1, 2 and 3 must all call
+        # it (no inline gate may remain in ``main()``).
         import inspect
-        import pathlib
-        import pipeline.orchestrate  # W6: Sites 1/2/3 gates live in main()
-        src = (
-            pathlib.Path(
-                inspect.getsourcefile(generate_weekly_pdfs)
-            ).read_text(encoding='utf-8')
-            + "\n"
-            + pathlib.Path(
-                inspect.getsourcefile(pipeline.orchestrate)
-            ).read_text(encoding='utf-8')
+        import pipeline.orchestrate  # W6: Sites 1/2/3 live in main()
+        # Sites 1, 2 and 3 now share ONE definition,
+        # ``derive_group_identity`` (PR #361 follow-up), so the
+        # three-tuple gate lives there once and every site must call
+        # it -- drift between the sites is no longer possible.
+        helper_src = inspect.getsource(
+            pipeline.orchestrate.derive_group_identity
         )
-        count_v1 = (
-            src.count("variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper')")
-            + src.count('variant in ("helper", "aep_billable_helper", "reduced_sub_helper")')
+        self.assertIn(
+            "variant in ('helper', 'aep_billable_helper', "
+            "'reduced_sub_helper')",
+            helper_src,
+            "derive_group_identity must carry the shadow-variant gate",
         )
-        count_v2 = (
-            src.count("_variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper')")
-            + src.count('_variant in ("helper", "aep_billable_helper", "reduced_sub_helper")')
+        main_src = inspect.getsource(pipeline.orchestrate.main)
+        self.assertEqual(
+            main_src.count("= derive_group_identity("), 3,
+            "Sites 1, 2 and 3 must each call derive_group_identity "
+            "(update this count if you add an identity site)",
         )
-        # Sites 1 and 2 use ``variant``; Site 3 uses ``_variant``.
-        # Total occurrences across both forms must be >= 3.
-        # Note: ``variant in (...)`` count is >= 2 since it appears
-        # in both Site 1 and Site 2 (and also in calculate_data_hash
-        # which is unrelated but uses the same gate text).
-        self.assertGreaterEqual(
-            count_v1 + count_v2, 3,
-            f"Expected the three-tuple gate to appear at Sites 1, 2, "
-            f"and 3 (any combination of `variant` / `_variant`). Found "
-            f"{count_v1} `variant in (...)` and {count_v2} `_variant in (...)`."
+        self.assertNotIn(
+            "_variant in ('helper', 'aep_billable_helper', "
+            "'reduced_sub_helper')",
+            main_src,
+            "no inline shadow-variant gate may remain in main()",
         )
 
 
