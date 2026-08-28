@@ -16,6 +16,7 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — August 28, 2026
 
+- 📄 Help guides updated: scrub entry + / merged state
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - ✨ New capability: groups whose WR has no target-sheet row are not generated, listed as an error
 - 📄 Help guides updated: Learn section — operator and engineer guides; overview refreshed
@@ -23,7 +24,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - ✅ Problem fixed: key-homogeneous sheet&#95;registry upserts + diagnosable RPC failures
 - ✅ Problem fixed: header metadata from the hash's canonical row, not arrival order
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- ✅ Problem fixed: total-order sort tiebreaker in calculate&#95;data&#95;hash
 
 <!-- /runbook-repo -->
 
