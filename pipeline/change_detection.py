@@ -236,12 +236,16 @@ def _first_nonempty_foreman(sorted_rows: list[dict]) -> Any:
 
 
 def canonical_foreman(group_rows: list[dict]) -> Any:
-    """The foreman the group's hash records (``FOREMAN=`` meta token):
-    the first non-empty ``__current_foreman`` (else ``Foreman``) in
-    canonical order. The workbook header shows this same value, so a
-    primary group mixing blank and populated claimers can no longer show
-    a blank foreman while its hash names one (Codex, PR #361 follow-up).
-    Raw value, '' if no row carries a foreman.
+    """The group's canonical foreman: the first non-empty
+    ``__current_foreman`` (else ``Foreman``) in the extended total order.
+
+    In EXTENDED mode (production) this is exactly the value the hash
+    records as its ``FOREMAN=`` meta token, so the primary workbook
+    header and the hash cannot disagree (Codex, PR #361 follow-up). In
+    LEGACY mode (``EXTENDED_CHANGE_DETECTION=0``) the hash carries no
+    meta at all -- this value takes no part in it and is only the
+    deterministic header selection. Raw value, '' if no row carries a
+    foreman.
     """
     return _first_nonempty_foreman(
         canonical_sorted_rows(group_rows, extended=True))
