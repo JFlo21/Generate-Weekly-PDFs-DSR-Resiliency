@@ -92,6 +92,24 @@ class SortTiebreakTests(unittest.TestCase):
         ]
         self.assertEqual(len(self._hashes_for_all_orders(rows)), 1)
 
+    def test_helper_rows_differing_only_in_helper_metadata_are_order_independent(self):
+        # Greptile on PR #359: HELPER= / HELPER_DEPT= / HELPER_JOB= are read
+        # from sorted_rows[0], so helper metadata must be in the tiebreaker
+        # too or two rows tying on everything else would keep arrival order.
+        rows = [
+            _row(**{'__variant': 'helper', '__helper_foreman': 'Juan Carlos Mendoza',
+                    '__helper_dept': 'NA-03', '__helper_job': ''}),
+            _row(**{'__variant': 'helper', '__helper_foreman': 'Juan Carlos Mendoza',
+                    '__helper_dept': 'NA-04', '__helper_job': 'J-77'}),
+        ]
+        self.assertEqual(len(self._hashes_for_all_orders(rows)), 1)
+        # ...and the metadata still matters where the hash reads it: the
+        # HELPER_* tokens come from the row that sorts FIRST (NA-03 here),
+        # so editing that row's helper job changes the hash.
+        edited = [dict(rows[0], **{'__helper_job': 'J-78'}), dict(rows[1])]
+        self.assertNotEqual(generate_weekly_pdfs.calculate_data_hash(rows),
+                            generate_weekly_pdfs.calculate_data_hash(edited))
+
     def test_tie_breaker_still_detects_a_real_edit(self):
         base = [
             _row(**{'Work Type': 'Install'}),

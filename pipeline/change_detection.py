@@ -190,14 +190,21 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
         # D-07) because the row-hash-driven incremental path would never
         # regenerate it.
         #
-        # The tiebreaker is the row's own hashed-field string plus its
-        # foreman (the FOREMAN= meta token below is taken from the first
-        # row that has one). It only reorders rows that tie on the full
-        # key above, so any group without such ties hashes byte-identically
-        # to before; a group whose tied rows differ in hashed content gets
-        # one deterministic hash from now on (one final regeneration).
-        # Variant is group-level (every row in a group shares `__variant`,
-        # see the note below the sort), so the first row is authoritative.
+        # The tiebreaker is the row's own hashed-field string plus every
+        # other per-row input the hash reads from a *positional* row: the
+        # foreman (FOREMAN= comes from the first row that has one) and the
+        # helper metadata (HELPER= / HELPER_DEPT= / HELPER_JOB= come from
+        # sorted_rows[0] for helper-style variants). Grouping keys on the
+        # helper fields, so rows of one group normally agree on them -- but
+        # the hash must not depend on that: with them in the key, two rows
+        # that tie on everything else and differ only in helper dept/job
+        # still order deterministically (Greptile, PR #359). It only
+        # reorders rows that tie on the full key above, so any group
+        # without such ties hashes byte-identically to before; a group
+        # whose tied rows differ gets one deterministic hash from now on
+        # (one final regeneration). Variant is group-level (every row in a
+        # group shares `__variant`, see the note below the sort), so the
+        # first row is authoritative.
         _variant_for_key = (
             group_rows[0].get('__variant', 'primary') if group_rows else 'primary'
         )
@@ -206,6 +213,9 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
             key=lambda x: _sort_extended(x) + (
                 "|".join(_extended_row_fields(x, _variant_for_key)),
                 str(x.get('__current_foreman') or x.get('Foreman') or ''),
+                str(x.get('__helper_foreman') or ''),
+                str(x.get('__helper_dept') or ''),
+                str(x.get('__helper_job') or ''),
             ),
         )
     else:
