@@ -358,10 +358,16 @@ def upsert_sheet_registry(
     never to silently adopt.
 
     Empty input performs ZERO calls, checked before the client/flag
-    guards, same as ``upsert_rows_bulk``. Issues exactly ONE table
-    upsert with ``on_conflict="sheet_id"`` -- so a single row's write
-    failure fails the whole call; that's acceptable here (the whole
-    registry is small, one call per run) unlike the row-level bulk path.
+    guards, same as ``upsert_rows_bulk``. Issues one table upsert PER
+    KEY-SET (``on_conflict="sheet_id"``; at most four requests -- the
+    ``column_mapping`` x ``last_full_read_at`` presence combinations):
+    postgrest-py sends ``columns=`` as the UNION of the payload's keys
+    and PostgREST applies it to every row, so a row that omits a key
+    next to one that carries it is written as NULL on the UPDATE half
+    (23502 on ``column_mapping``, silent watermark loss on
+    ``last_full_read_at``). Grouping keeps "omitted key == column
+    untouched" true for every request; a row failure fails only its
+    own group. Ledger ``[2026-08-28 15:05]``.
     ``run_id`` is accepted for call-site symmetry with the other writer
     entry points but is not a ``sheet_registry`` column (no ``run_id``
     column on this table).
@@ -403,19 +409,29 @@ def upsert_sheet_registry(
             row["last_full_read_at"] = capture_time
         payload.append(row)
 
-    def _invoke():
-        return (
-            client.schema("pipeline_memory")
-            .table("sheet_registry")
-            .upsert(payload, on_conflict="sheet_id")
-            .execute()
-        )
+    # One upsert PER KEY-SET (see docstring): the union ``columns=``
+    # postgrest-py derives from a mixed payload makes PostgREST NULL
+    # every omitted key on the UPDATE half. Insertion order = first
+    # appearance, so the request sequence is deterministic.
+    groups: dict[tuple[str, ...], list[dict[str, Any]]] = {}
+    for row in payload:
+        groups.setdefault(tuple(sorted(row)), []).append(row)
 
-    result = with_retry(_invoke, op="sheet_registry_upsert")
-    if result is None:
-        _bump_counter_by("sheets_registry_errored", len(payload))
-        return
-    _bump_counter_by("sheets_registry_written", len(payload))
+    for group in groups.values():
+
+        def _invoke(_rows=group):
+            return (
+                client.schema("pipeline_memory")
+                .table("sheet_registry")
+                .upsert(_rows, on_conflict="sheet_id")
+                .execute()
+            )
+
+        result = with_retry(_invoke, op="sheet_registry_upsert")
+        if result is None:
+            _bump_counter_by("sheets_registry_errored", len(group))
+            continue
+        _bump_counter_by("sheets_registry_written", len(group))
 
 
 # ── group_state payload contract (plan 10-03 Task 2) ────────────────────────

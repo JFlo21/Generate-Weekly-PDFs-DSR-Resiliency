@@ -414,6 +414,35 @@ def _disable_for_run(reason_code: str, exc: Exception) -> None:
     )
 
 
+# SQLSTATE classes / PostgREST prefixes whose ``message`` is structural
+# (names a column, constraint, relation or schema) and never echoes a
+# row value. Data-exception classes (``22xxx``) DO quote the offending
+# literal, and this repository's Actions logs are public, so those --
+# and ``details`` / ``hint`` -- are never logged. Code is always logged.
+_MESSAGE_SAFE_CODE_PREFIXES = ("23", "42", "PGRST")
+
+
+def _error_summary(exc: Exception) -> tuple[str | None, str]:
+    """Return ``(code, message)`` safe for the public Actions log.
+
+    ``code`` is the PostgREST/SQLSTATE code when present. ``message``
+    is the PostgREST ``message`` only for structural codes (see
+    ``_MESSAGE_SAFE_CODE_PREFIXES``), ``str(exc)`` for non-PostgREST
+    errors, and always truncated to 200 characters.
+    """
+    code = getattr(exc, "code", None)
+    code = str(code) if code not in (None, "") else None
+    if _PGAPIError is not None and isinstance(exc, _PGAPIError):
+        message = getattr(exc, "message", None)
+        if not isinstance(message, str):
+            message = ""
+        if not (code and code.startswith(_MESSAGE_SAFE_CODE_PREFIXES)):
+            message = ""
+    else:
+        message = str(exc)
+    return code, message[:200]
+
+
 def with_retry(fn: Callable[..., Any], *args: Any,
                op: str = "default", **kwargs: Any) -> Any:
     """Run ``fn`` with exponential backoff on transient errors.
@@ -440,6 +469,8 @@ def with_retry(fn: Callable[..., Any], *args: Any,
 
     max_attempts = 4
     last_error_name = "Unknown"
+    last_error_code: str | None = None
+    last_error_message = ""
     attempts_made = 0
     final_was_transient = False
     for attempt in range(max_attempts):
@@ -449,6 +480,7 @@ def with_retry(fn: Callable[..., Any], *args: Any,
             attempts_made = attempt + 1
             err_name = type(exc).__name__
             last_error_name = err_name
+            last_error_code, last_error_message = _error_summary(exc)
             is_transient = False
             if _PGAPIError is not None and isinstance(exc, _PGAPIError):
                 is_transient, is_global_kill, reason_code = (
@@ -516,9 +548,15 @@ def with_retry(fn: Callable[..., Any], *args: Any,
             },
         )
 
+    _detail = ""
+    if last_error_code:
+        _detail += f" code={last_error_code}"
+    if last_error_message:
+        _detail += f": {last_error_message}"
     logging.warning(
         f"⚠️ pipeline_memory[{op}] RPC failed after "
         f"{attempts_made}/{max_attempts} attempt(s) ({last_error_name})"
+        f"{_detail}"
     )
     _sentry_breadcrumb(
         "pipeline_memory",
@@ -527,6 +565,8 @@ def with_retry(fn: Callable[..., Any], *args: Any,
         data={
             "op": op,
             "error_type": last_error_name,
+            "error_code": last_error_code,
+            "error_message": last_error_message,
             "attempts": attempts_made,
             "max_attempts": max_attempts,
             "was_transient": final_was_transient,
