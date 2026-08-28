@@ -7354,5 +7354,12 @@ follow-up findings closed, same 6 files.
   below a copy-paste block. The ledger is now synced onto #360 as well, so ledger + state are
   byte-identical on #360, #361 and the main tree (a state file must only cite ledger entries that
   ship in the same branch).
+- **Round 9 added:** "ask for a manual run" is NOT a remedy for a stale file — a default manual run
+  makes the same unchanged-hash + attachment-present skip (`orchestrate.py:3296-3318`); only
+  `REGEN_WEEKS` / `FORCE_GENERATION` / the resets bypass it. Output consumers are two separate
+  paths: `run_summary.json` → Notion sync + workflow metrics (`weekly-excel-generation.yml:853`),
+  and workbooks → `scripts/publish_artifacts_to_supabase.py` (`:630`) → Supabase `artifacts` →
+  `portal-v2` (`useArtifactsInfinite.ts:35`); the portal never reads `run_summary.json`. Daily
+  counts are normal-run counts — the deep run is an 8th Monday run in CDT / 5th Sunday run in CST.
 - **RULE — a runbook statement about pipeline behaviour cites the line that implements it.** The
   reviewer bots read the code; the doc sentence with no anchor is the one that drifts.
