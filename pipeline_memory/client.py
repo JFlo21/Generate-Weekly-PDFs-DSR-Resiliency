@@ -364,6 +364,14 @@ def _disable_for_run(reason_code: str, exc: Exception) -> None:
 
     Idempotent in its user-visible output: the operator-facing WARNING
     fires only on the first trip.
+
+    Same disclosure policy as ``_error_summary``: the server-provided
+    ``message`` / ``hint`` / ``details`` are untrusted diagnostic text
+    (they can echo request or database data) and this repository's
+    Actions logs are public, so only the code, the error type and the
+    locally authored remediation guidance are logged or sent to Sentry.
+    The three kill codes are well understood; the server text adds
+    nothing an operator needs.
     """
     global _global_disable_reason, _global_disable_logged
     _global_disable_reason = reason_code
@@ -371,9 +379,6 @@ def _disable_for_run(reason_code: str, exc: Exception) -> None:
     if _global_disable_logged:
         return
     _global_disable_logged = True
-
-    message = getattr(exc, "message", None) or ""
-    hint = getattr(exc, "hint", None) or ""
 
     if reason_code == "PGRST106":
         operator_hint = (
@@ -398,9 +403,7 @@ def _disable_for_run(reason_code: str, exc: Exception) -> None:
 
     logging.warning(
         f"🔌 pipeline_memory disabled for this run "
-        f"(code={reason_code}). {operator_hint} "
-        f"Server message: {message.strip()!r}. "
-        f"Server hint: {hint.strip()!r}."
+        f"(code={reason_code}, {type(exc).__name__}). {operator_hint}"
     )
     _sentry_breadcrumb(
         "pipeline_memory",
@@ -408,10 +411,66 @@ def _disable_for_run(reason_code: str, exc: Exception) -> None:
         level="warning",
         data={
             "reason_code": reason_code,
-            "server_message": message,
-            "server_hint": hint,
+            "error_type": type(exc).__name__,
         },
     )
+
+
+# SQLSTATE codes whose ``message`` is known to be value-free (it names a
+# column, constraint, relation, role or function -- the offending values
+# live in ``details``, which is never logged). Everything else is
+# code-only: data-exception classes (``22xxx``) quote the literal,
+# ``42601`` echoes the token the parser stopped at, and every ``PGRST*``
+# code is code-only because e.g. ``PGRST100`` (query-string parse
+# failure) repeats the failed filter text, which is built from row-
+# derived values. This repository's Actions logs are public.
+_MESSAGE_SAFE_SQLSTATES = frozenset({
+    "23502",  # null value in column "x" of relation "y"
+    "23503",  # ... violates foreign key constraint "x"
+    "23505",  # duplicate key value violates unique constraint "x"
+    "23514",  # new row for relation "x" violates check constraint "y"
+    "42501",  # permission denied for table x
+    "42703",  # column "x" does not exist
+    "42704",  # type / object "x" does not exist
+    "42883",  # function x(types) does not exist
+    "42P01",  # relation "x" does not exist
+})
+
+
+def _message_is_structural(code: str | None) -> bool:
+    """True only for the explicit allowlist above. Membership (not a
+    prefix) also means an HTTP status that postgrest-py stored in
+    ``code`` when the body was not JSON (``422``, ``429`` ...) can
+    never match.
+    """
+    return bool(code) and code in _MESSAGE_SAFE_SQLSTATES
+
+
+def _error_summary(exc: Exception) -> tuple[str | None, str]:
+    """Return ``(code, message)`` safe for the public Actions log.
+
+    ``code`` is the PostgREST/SQLSTATE code when present (truncated).
+    ``message`` is the PostgREST ``message`` only when
+    ``_message_is_structural`` says so (``PGRST*`` codes are code-only),
+    ``str(exc)`` for non-PostgREST errors, and always truncated to 200
+    characters. Anything carrying a
+    ``details`` attribute is treated as a PostgREST error even if the
+    ``postgrest`` import guard fired, because ``str(APIError)`` renders
+    the raw dict -- ``details`` and ``hint`` included.
+    """
+    code = getattr(exc, "code", None)
+    code = str(code)[:40] if code not in (None, "") else None
+    is_api_error = (
+        (_PGAPIError is not None and isinstance(exc, _PGAPIError))
+        or hasattr(exc, "details")
+    )
+    if is_api_error:
+        message = getattr(exc, "message", None)
+        if not isinstance(message, str) or not _message_is_structural(code):
+            message = ""
+    else:
+        message = str(exc)
+    return code, message[:200]
 
 
 def with_retry(fn: Callable[..., Any], *args: Any,
@@ -440,6 +499,8 @@ def with_retry(fn: Callable[..., Any], *args: Any,
 
     max_attempts = 4
     last_error_name = "Unknown"
+    last_error_code: str | None = None
+    last_error_message = ""
     attempts_made = 0
     final_was_transient = False
     for attempt in range(max_attempts):
@@ -449,6 +510,7 @@ def with_retry(fn: Callable[..., Any], *args: Any,
             attempts_made = attempt + 1
             err_name = type(exc).__name__
             last_error_name = err_name
+            last_error_code, last_error_message = _error_summary(exc)
             is_transient = False
             if _PGAPIError is not None and isinstance(exc, _PGAPIError):
                 is_transient, is_global_kill, reason_code = (
@@ -516,9 +578,15 @@ def with_retry(fn: Callable[..., Any], *args: Any,
             },
         )
 
+    _detail = ""
+    if last_error_code:
+        _detail += f" code={last_error_code}"
+    if last_error_message:
+        _detail += f": {last_error_message}"
     logging.warning(
         f"⚠️ pipeline_memory[{op}] RPC failed after "
         f"{attempts_made}/{max_attempts} attempt(s) ({last_error_name})"
+        f"{_detail}"
     )
     _sentry_breadcrumb(
         "pipeline_memory",
@@ -527,6 +595,8 @@ def with_retry(fn: Callable[..., Any], *args: Any,
         data={
             "op": op,
             "error_type": last_error_name,
+            "error_code": last_error_code,
+            "error_message": last_error_message,
             "attempts": attempts_made,
             "max_attempts": max_attempts,
             "was_transient": final_was_transient,

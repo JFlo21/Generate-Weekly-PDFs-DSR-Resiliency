@@ -655,7 +655,13 @@ class ColumnMappingRefreshTests(unittest.TestCase):
         )
         self.assertIn("column_mapping", payload[0])
 
-    def test_upsert_sheet_registry_omits_mapping_for_sheets_not_in_set(self):
+    def test_upsert_sheet_registry_echoes_stored_mapping_for_sheets_not_in_set(
+        self,
+    ):
+        """PR #363: ``column_mapping`` is NOT NULL and PostgreSQL checks
+        the INSERT candidate before ``ON CONFLICT``, so a registered
+        sheet can never omit it -- it echoes the STORED mapping from
+        the watermarks (never the freshly discovered one)."""
         from pipeline_memory import writer as mem_writer
 
         client = mock.Mock()
@@ -673,13 +679,14 @@ class ColumnMappingRefreshTests(unittest.TestCase):
                 [{"id": 111, "name": "S1", "column_mapping": {"A": 1}}],
                 "run-1", lambda sid: "primary", {111: 5},
                 column_mapping_sheets=set(),
+                watermarks={111: {"column_mapping": {"A": 999}}},
             )
 
         payload = (
             client.schema.return_value.table.return_value.upsert
             .call_args[0][0]
         )
-        self.assertNotIn("column_mapping", payload[0])
+        self.assertEqual(payload[0]["column_mapping"], {"A": 999})
 
     def test_upsert_sheet_registry_includes_mapping_for_sheets_in_set(self):
         from pipeline_memory import writer as mem_writer
@@ -730,12 +737,14 @@ class ColumnMappingRefreshTests(unittest.TestCase):
     ):
         """A frequent run where every sheet already has a registry row
         computes an EMPTY mapping-refresh set -- upsert_sheet_registry
-        then omits column_mapping from every row's payload."""
+        then writes ZERO discovered mappings: every row echoes the
+        stored one (the column is NOT NULL, so it is never omitted)."""
         from pipeline.orchestrate import _compute_registry_mapping_sheets
         from pipeline_memory import writer as mem_writer
 
+        watermarks = {111: {"column_mapping": {"A": 999}}}
         mapping_sheets = _compute_registry_mapping_sheets(
-            False, [{"id": 111}], {111: {}},
+            False, [{"id": 111}], watermarks,
         )
         self.assertEqual(mapping_sheets, set())
 
@@ -753,12 +762,13 @@ class ColumnMappingRefreshTests(unittest.TestCase):
                 [{"id": 111, "name": "S1", "column_mapping": {"A": 1}}],
                 "run-1", lambda sid: "primary", {111: 5},
                 column_mapping_sheets=mapping_sheets,
+                watermarks=watermarks,
             )
         payload = (
             client.schema.return_value.table.return_value.upsert
             .call_args[0][0]
         )
-        self.assertNotIn("column_mapping", payload[0])
+        self.assertEqual(payload[0]["column_mapping"], {"A": 999})
 
     def test_log_column_mapping_drift_detects_change_and_uses_shared_normaliser(
         self,

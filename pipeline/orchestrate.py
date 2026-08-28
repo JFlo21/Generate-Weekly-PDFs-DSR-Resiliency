@@ -2128,6 +2128,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     capture_times=_registry_capture_times,
                     full_read_sheets=_registry_full_read_ids,
                     column_mapping_sheets=_registry_mapping_sheets,
+                    watermarks=_watermarks,
                 )
             except Exception:
                 logging.warning(
@@ -2278,6 +2279,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     capture_times=_registry_capture_times,
                     full_read_sheets=_registry_full_read_ids,
                     column_mapping_sheets=_registry_mapping_sheets,
+                    watermarks=_watermarks,
                 )
             except Exception:
                 logging.warning(

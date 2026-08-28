@@ -7494,3 +7494,99 @@ follow-up findings closed, same 6 files.
   chain, not production code).
 - **RULE — the header shows what the hash records.** Any header value that the hash also derives
   (foreman via `canonical_foreman`, Job # via `header_job_number`) goes through the shared function.
+
+## [2026-08-28 15:05] `sheet_registry` upsert 400 diagnosed — a key-heterogeneous bulk upsert NULLs `column_mapping` on registered rows (fix awaiting approval); #361 threads closed after #362
+
+- **Symptom.** Every production run since 33102956870 (2026-08-27 18:20Z — the first run after #356
+  made the Supabase client construct) logs `⚠️ pipeline_memory[sheet_registry_upsert] RPC failed after
+  1/4 attempt(s) (APIError)` twice (pass 1 and pass 2). `run_ledger` 201, `rpc/upsert_rows_bulk` 200,
+  the watermark GET on the same columns 200 — schema exposure, RLS and the `kind` CHECK are not it
+  (`_resolve_mem_sheet_kind` only returns the three allowed values). Not a #359/#361/#362 regression:
+  those runs carried the same warning before any of them merged.
+- **Root cause (mechanism verified in code; PostgreSQL semantics from the executor's order —
+  `ExecConstraints` runs on the candidate tuple before the `ON CONFLICT` arbiter check — not reproduced
+  live this session; the PostgREST message itself is not logged).** On a frequent run
+  `_compute_registry_mapping_sheets` puts `column_mapping` ONLY on rows for sheets with no registry row
+  yet — and **omitting a `NOT NULL` column can never mean "leave it untouched"**: the omitted
+  `column_mapping` is NULL on the INSERT candidate → 23502 → HTTP 400 even when
+  every `sheet_id` already exists (Codex P1 on #363 corrected this session's first reading, which blamed
+  only the postgrest-py `columns=` union; that union is real — `pre_upsert` → `_unique_columns` — but
+  it is what NULLs an omitted *nullable* key on the UPDATE half, not what makes the NOT NULL omission
+  fatal). The live registry holds 120 rows (seeded 2026-08-25,
+  `[2026-08-25 18:37]`); discovery now finds 121 sheets → exactly one unregistered sheet → mixed payload
+  → the call fails, the new sheet never gets registered, so the failure never self-heals. The Monday deep
+  run passes `column_mapping_sheets=None` (homogeneous) and would succeed, then the next frequent run
+  fails again the moment any new sheet appears.
+- **Same mechanism, latent.** With `RUN_MEMORY_INCREMENTAL_ENABLED` on, delta-read sheets omit
+  `last_full_read_at`; in a payload mixed with full-read rows that column is NULLed on them (nullable, so
+  silent) → the full-read watermark is lost → D-02 trigger 1 forces full reads it should not. The writer
+  docstring's "PostgREST only touches the keys present" holds only for a key-homogeneous payload.
+- **Impact today.** Registry watermarks (`last_read_at`, `last_sheet_version`) stale since 08-27; no
+  billing-output impact (fail-open, flag-off incremental mode falls back to full anyway).
+- **Proposed fix (owner approval needed — production Supabase write path, no schema change).**
+  (1) `pipeline_memory/writer.upsert_sheet_registry`: group the payload by its key-set and issue one
+  upsert per group (≤4 requests) so each request's `columns=` is exactly its rows' keys; per-group
+  counters. (2) `pipeline_memory/client.with_retry`: add `str(exc)[:200]` to the "RPC failed" warning and
+  breadcrumb so the next failure names its PostgREST code in the Actions log. Tests: writer unit test with
+  mixed registered/unregistered sheets asserting per-request key homogeneity (no existing test pins a
+  single request). Confirmation available to the owner now: Supabase → Logs → API, the 400 on
+  `/rest/v1/sheet_registry` should read `null value in column "column_mapping" violates not-null constraint`.
+- **RULE — a PostgREST upsert can never "leave a NOT NULL column untouched" by omitting it** (the
+  INSERT candidate is constraint-checked before `ON CONFLICT`): read back and echo the stored value.
+  **And bulk upserts must be key-homogeneous per request** for nullable columns: the `columns=` union
+  NULLs an omitted key on the UPDATE half. Split by key-set.
+- **Also observed, pre-existing (identical in the pre-#361 03:48Z run):** `⚠️ … hash withheld for 154
+  group(s) whose upload did not complete`. Exactly 154 `⚠️ Work request … not found in target sheet`
+  warnings per run = the 154 withheld; 153 of them are the "despite unchanged hash (attachment missing or
+  verification failed)" regenerations — generated, never uploadable, hash withheld, repeat
+  (~45 min of generation per run, 179 of 3138 groups this run). Separate follow-up, owner decision:
+  treat "WR absent from target sheet" as a terminal skip rather than a verification failure.
+- **Post-merge status.** #362 merged 19:39Z (`5a5249c`). The 12:04 CDT run (`0b910c1`, first run carrying
+  #361) regenerated only the pre-existing 153 + 21 real changes — #361 produced no hash churn in
+  production. First run carrying #362 = next scheduled run; expect zero regeneration from it. #361 threads
+  3877822173 / 3876992822 / 3876992815 replied and resolved, pointing at #362.
+
+## [2026-08-28 16:05] `sheet_registry` upsert fix shipped on PR #363 — one upsert per key-set; RPC failures now name their PostgREST code
+
+- **Fix (`pipeline_memory/writer.py`, corrected after Codex P1 on #363).** `column_mapping` is now on
+  EVERY row: registered sheets echo their STORED mapping from the watermarks the reader already fetched
+  (`watermarks=` kwarg, both call sites pass `_watermarks`) — that is how "a frequent run never silently
+  adopts a drifted mapping" is kept — and only `column_mapping_sheets` (or all, on the deep run) write
+  the discovered one; a registered sheet with no watermark row (caller inconsistency) writes the
+  discovered mapping with a WARNING rather than failing the call. The first shipped shape (grouping
+  alone) would have registered the new sheet and kept failing the 120 registered ones. Grouping by
+  key-set stays for the nullable `last_full_read_at` (≤2 requests; the postgrest-py `columns=` union
+  would NULL it on the UPDATE half); a failed group bumps `sheets_registry_errored` by its own size and
+  later groups still run. Deep run: one request, byte-identical.
+- **Observability (`pipeline_memory/client.py`).** `with_retry`'s final "RPC failed after …" warning and
+  breadcrumb now carry `code=<PostgREST/SQLSTATE>` always, and the `message` only for an explicit
+  allowlist of value-free SQLSTATEs (`23502/23503/23505/23514/42501/42703/42704/42883/42P01`). `PGRST*`
+  is code-only (Codex P2 on #363: `PGRST100` repeats the failed filter text, which is built from
+  row-derived values), `42601` is withheld (echoes the parser token), and an HTTP status postgrest-py
+  stored in `code` (`422`) cannot match a membership test. `details`/`hint` are never logged; anything carrying a `details`
+  attribute is summarised like an `APIError` even if the `postgrest` import guard fired (`str(APIError)`
+  renders the raw dict). `22xxx` messages are withheld because they quote the offending literal and the
+  Actions logs are public.
+- **Review (production-risk, Opus): SHIP.** Independently reproduced the `columns=` union against
+  postgrest 2.31.0; noted `default_to_null=False` (`Prefer: missing=default`) would NOT have worked
+  (NOT NULL, no default). Findings taken: F2 SQLSTATE-shape allowlist, F3 `details` duck-typing, F4 `code`
+  truncation, F1 docstring note. The deferred item — `_disable_for_run` logging server `message`+`hint`
+  unconditionally for PGRST106/301/302 — was raised by Greptile on #363 (reproduced a marker in both the
+  warning and the breadcrumb) and fixed on the same PR: the kill-switch path now logs only the code, the
+  error type and the locally authored operator guidance; no server text reaches the log or Sentry.
+  `billing_audit/client.py` has the same-shaped twin — separate follow-up.
+- **RULE — sharing one `with_retry` op across a request loop changes the circuit breaker's "consecutive"
+  semantics to per-request:** a sibling group's success resets the counter, so a permanently failing group
+  is reported by the per-request WARNING, never by the breaker; and ≥3 transient failures inside one call
+  can now open the breaker for the rest of the run (fail-open, self-correcting). Partial writes are safe
+  for `sheet_registry` (idempotent, keyed on `sheet_id`, no cross-row invariant) — do not copy the split
+  pattern into `upsert_rows_bulk` without re-deriving that argument.
+- **Tests.** `tests/test_sheet_registry_homogeneous_upsert.py` (11): mixed `column_mapping` split,
+  full/delta split, homogeneous = one request, partial-group counters, 23502 code+message, `22P02` message
+  withheld, `hint`/`details` never logged, HTTP-status `code` not admitted, duck-typed `details`, exact
+  200-char bound, and a contract test against the real `pre_upsert` (a postgrest upgrade that changes the
+  union is noticed). Full suite 1805 passed. haiku-verifier: all rubric items pass (its one FAIL was a
+  pre-existing >79-char line outside the diff — not reformatted).
+- **Post-merge check.** Next scheduled run: no `sheet_registry_upsert` warning; registry = 121 rows; a
+  one-time watermark jump in `last_read_at`/`last_sheet_version` (stale since 08-27) is expected and
+  nothing consumes it as a change signal.

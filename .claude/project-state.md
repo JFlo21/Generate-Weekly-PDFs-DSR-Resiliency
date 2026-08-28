@@ -1,10 +1,10 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-28 12:05 CDT (17:05Z) · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-28 16:05 CDT (21:05Z) · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
-_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-27 21:10]` (verified pipeline truths from the
+_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-28 16:05]` (sheet_registry fix on #363). Earlier: `[2026-08-28 15:05]` (root cause + 154-withheld pattern), `[2026-08-28 12:05]` (#362), `[2026-08-27 21:10]` (verified pipeline truths from the
 #360 review rounds — acceptance gate, group key, TEST_MODE/Supabase, Snapshot Date, reset purge, stale
 attachment, public-repo identifier rule). Earlier: `[2026-08-27 20:20]` (identity row = canonical row,
 ships with PR #361), `[2026-08-27 16:10]` (hash sort tiebreaker, #359).
@@ -18,7 +18,28 @@ canonical row — its ledger/state/changelog are supersets of master's copies, s
 this session — read the latest `run_ledger.notes` before resuming). Then: checklist item 6 SQL +
 items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-08-28 12:05 CDT) — #361 MERGED (`eb8338f`); #362 open: one `derive_group_identity()` for Sites 1/2/3, header foreman = hash rule (owner-approved), deterministic legacy header; OWNER DECISION pending on repo-wide identifier scrub
+## Latest work (2026-08-28 16:05 CDT) — #362 MERGED (`5a5249c`); `sheet_registry` upsert 400 FIXED on PR #363 (open, reviewed SHIP); two owner decisions framed
+
+- **Main tree = `master` (`0e93122` + local ledger edits).** #361 (`eb8338f`) and #362 (`5a5249c`) both merged.
+  The 12:04 CDT run (`0b910c1`, first run with #361) showed no hash churn beyond the pre-existing pattern below;
+  the first run with #362 is the next scheduled one — expect zero regeneration from it.
+- **`pipeline_memory[sheet_registry_upsert]` HTTP 400 on every run since 2026-08-27 18:20Z** — diagnosed, see
+  ledger `[2026-08-28 15:05]`: frequent runs send a bulk upsert whose rows disagree on whether `column_mapping`
+  is present (120 registered sheets omit it, the 1 new sheet carries it); postgrest-py sends `columns=` as the
+  union, so PostgREST NULLs `column_mapping` on the UPDATE half → NOT NULL violation → 400, non-retryable,
+  never self-heals. **Fix on PR #363** (owner-approved 2026-08-28): one upsert per key-set + `with_retry`
+  logs `code=` always and the PostgREST message only for structural classes (public logs). No schema
+  change; full suite 1805 green; production-risk review SHIP. Ledger `[2026-08-28 16:05]`.
+- **Pre-existing every-run waste:** 154 group-weeks (135 WRs, 146 `primary`) whose WR has no target-sheet row
+  regenerate every run and never upload. **Owner decision pending (framed 2026-08-28):** option A = skip when
+  hash unchanged AND target map populated AND WR absent (converges when the row appears; empty-map guard
+  mandatory); or first review the WR list for Smartsheet-side gaps.
+- #361 threads 3877822173 / 3876992822 / 3876992815 resolved (→ #362). **Owner decision pending (framed
+  2026-08-28):** repo-wide identifier scrub (#360 thread 3877686166) — A = scrub current tip + untrack
+  `artifact_manifest.json`/`hash_history.json` (recommended first); B = history rewrite; C = go private;
+  D = accept. Phase 11 checklist resumes after #363 merges.
+
+## Previous (2026-08-28 12:05 CDT) — #361 MERGED (`eb8338f`); #362 open: one `derive_group_identity()` for Sites 1/2/3, header foreman = hash rule (owner-approved), deterministic legacy header; OWNER DECISION pending on repo-wide identifier scrub
 - **#362** `fix/identity-helper-header-foreman` (`49373fd`, branch of master `b23b7af`): closes #361's three open threads. `derive_group_identity(first_row, **_identity_switches)` replaces the three inline identity chains in `main()` (switches bound once after the facade prelude); `canonical_foreman()` = hash `FOREMAN=` rule, now also the PRIMARY workbook header foreman (approved by Juan 2026-08-28; **reachable in production** via the whitespace-only `Foreman Assigned?` path (`fetch.py:888-892` → blank `__current_foreman`; such primary groups showed a blank header while the hash named a foreman) and gated on `variant == 'primary'` — helper/helper-shadow/vac_crew/subcontractor headers keep their partition key; hashes/identity keys byte-identical, golden digests); `canonical_first_row()` uses the extended total order in legacy mode too (legacy hash untouched). New `tests/test_group_identity_and_header_foreman.py` (15 tests, 144 subtests: verbatim reference chain, two-order keys, wiring, golden digests, legacy, primary-only header rule); 7 older source pins re-pointed. 1794 passed, 1 skipped; 0 added lines >79 chars. Independent review: haiku-verifier PASS ×6; production-risk-reviewer P0 none, P1 (helper-shadow header exposure) fixed, P2s applied/recorded. Ledger `[2026-08-28 12:05]`.
 - **Merged:** #355 (`81eb82b`) and #359 (`a8d6795`, hash sort tiebreaker); master at `263dc34`.
 - **#361** `fix/excel-header-canonical-row` **MERGED** → master `eb8338f` (code = `79e5411` + `2c51a38` + the round-3 commit of 2026-08-28; master merged in at `a68e0ad` after #360 landed — ledger/state conflicts kept this branch's copies). **Round 3 (2026-08-28):** Work Order alias + `|`-serialization tiebreakers appended to the hash-neutral sort key; `header_job_number()` is the ONE Job # alias resolver (Excel header + sort key, raw value kept for the cell); 4 new tests; 1779 pass, 0 overlong added lines. The three threads left open there are closed by the follow-up PR (bullet above). Azure DevOps mirror check fails on every PR build incl. merged #360 — pre-existing. Earlier this cycle: Greptile re-check already fixed; fictional fixture names; ledger count; changelog + safety check widened to primary/legacy one-time regeneration:
