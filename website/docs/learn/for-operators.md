@@ -73,7 +73,10 @@ sheet). A row that is marked as *both* "Helping Foreman Completed Unit?" and
 "Units Completed?" **and** names a helping foreman and a helper department
 appears **only** in the helper file, never in the main one, so nothing is
 billed twice. If the helper name or department is blank, the row is treated
-as the foreman's own unit and lands in the main file instead.
+as the foreman's own unit: on an original-contract sheet it lands in the main
+file; on a subcontractor sheet it is never put in the plain main file — it
+goes to that foreman's `_ReducedSub_User_…` (and, when eligible,
+`_AEPBillable_User_…`) file instead.
 
 ## How to read a file
 
@@ -183,7 +186,8 @@ Work through this in order — most issues stop at step 2:
 
 1. **Check the row in Smartsheet.** Is the WR #, date, CU, quantity, price
    and *Units Completed?* what you expect? Fix it there; never edit the Excel
-   file (it will be overwritten on the next run).
+   file (a hand-edited file is not detected — it can sit there unchanged until
+   the source rows change; see the caution below).
 2. **Check the timestamp.** *Report Generated On* older than your edit means
    the run hasn't caught up yet. Wait for the next scheduled run.
 3. **Check the run.** GitHub → Actions → the latest *Weekly Excel Generation*
