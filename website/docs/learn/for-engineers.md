@@ -171,8 +171,8 @@ default (`SENTRY_ENABLE_LOGS`) because INFO lines can carry row data.
 
 ## Making a change safely
 
-The pipeline is production-critical: it runs seven times a day against real
-billing data. The rules below are the ones whose violation has caused
+The pipeline is production-critical: it runs several times a day (up to
+seven on weekdays, three at weekends) against real billing data. The rules below are the ones whose violation has caused
 incidents; each links to where the full story is recorded.
 
 | Never… | Because | Full rule |
@@ -231,7 +231,9 @@ run's ledger status before fetch, and the changed-row ids for the shadow
 comparator — but no read changes what is generated until
 `RUN_MEMORY_INCREMENTAL_ENABLED` is on. A shadow comparator
 computes what an incremental run *would* have regenerated and compares it
-with what the full run uploaded; the verdict is `pass`, `fail` or `skipped`
+with the set the full run queued for upload (generated groups with an upload
+task — the comparator runs before the upload phase, so a later upload
+failure does not change the verdict); the verdict is `pass`, `fail` or `skipped`
 and lives in `run_ledger.notes`. Five consecutive `pass` verdicts on
 `production_frequent` runs are the evidence required before
 `RUN_MEMORY_INCREMENTAL_ENABLED` may be turned on. Everything on this path

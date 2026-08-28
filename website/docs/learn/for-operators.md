@@ -137,8 +137,9 @@ look at *Report Generated On* — it should be newer than your edit.
 
 ## Asking for a manual run
 
-Anyone with access to the repository can run the workflow by hand — this is
-the same robot, started on demand:
+Anyone with **write** access to the repository can run the workflow by hand
+— this is the same robot, started on demand. If you don't see the **Run
+workflow** button, that is a permissions issue: ask the engineering owner.
 
 1. GitHub → **Actions** → **Weekly Excel Generation with Sentry Monitoring**
    → **Run workflow**.
@@ -166,8 +167,8 @@ the same robot, started on demand:
 4. Click **Run workflow** and wait for the green check (40–60 minutes, up to
    about 75).
 
-A manual run does everything a scheduled run does, including attaching
-files. There is currently **no way to pick one Work Request for an attaching
+A normal manual run (`test_mode` off) does everything a scheduled run
+does, including attaching files. There is currently **no way to pick one Work Request for an attaching
 run** — `wr_filter` only works in test mode, which never attaches.
 (`max_groups`, and the engineer-side `EXCLUDE_WRS` setting, can shrink an
 attaching run, but neither can select a WR.) So a normal manual run is simply
