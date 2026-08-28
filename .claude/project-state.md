@@ -20,7 +20,7 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
 
 ## Latest work (2026-08-28 18:05 CDT) — #363 + #364 MERGED; PR #365 open (no-target-row groups not generated, listed as error); identifier scrub (option A) in progress
 
-- **Main tree = `master` (`331974b`).** #361–#364 merged. **PR #365 open** (owner-decided skip rule; 1823 tests green; risk review pending).
+- **Main tree = `master` (`331974b`).** #361–#364 merged. **PR #365 open** (owner-decided skip rule + circuit breaker / load-once from the risk review; 1831 tests green; rubric PASS).
   The 12:04 CDT run (`0b910c1`, first run with #361) showed no hash churn beyond the pre-existing pattern below;
   the first run with #362 is the next scheduled one — expect zero regeneration from it.
 - **`pipeline_memory[sheet_registry_upsert]` HTTP 400 on every run since 2026-08-27 18:20Z** — diagnosed, see

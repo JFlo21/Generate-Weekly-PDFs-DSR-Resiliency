@@ -7637,6 +7637,28 @@ follow-up findings closed, same 6 files.
     requires `primary_present` (`pipeline/upload.py`), so no variant loses an upload it had; no attachments
     exist on rows that do not exist, so cleanup is unaffected. 12 tests (`tests/test_skip_no_target_row.py`);
     full suite 1823 green.
+  - **Risk review (Opus): FIX FIRST → addressed on the PR.** P1-A: a NON-EMPTY target map is not proof
+    of a COMPLETE one (wrong `TARGET_SHEET_ID`, a sharing change returning a row subset, a mid-edit sheet
+    all yield a populated-but-short map) — "absent from a partial read" must never become "never
+    generate". New pre-loop circuit breaker `no_target_row_gate_enabled()`: if more than
+    `NO_TARGET_ROW_MAX_MISS_RATIO` (env, default `0.5`) of the run's distinct WR values are absent, the
+    skip is disabled for the run (ERROR `🛑` + breadcrumb) and the pipeline falls back to
+    generate-and-warn. Steady state today is ~137 missing of ~1,300+ distinct WRs (≈10%). P1-B: the
+    target map loads AT MOST ONCE per run (`_target_map_load_attempted`; the loader swallows errors and
+    returns `{}`, so a per-group retry was one full `get_sheet` per group against the 300 req/min
+    limit) — the attachment-check lazy load shares the flag. P2s: the ERROR line caps its value list at
+    25 (public log; a malformed cell can hold free text), names the collision-quarantine cause, and the
+    `primary_present` coupling with the PPP upload leg (`pipeline/upload.py`) is documented on the
+    helper and pinned by `UploadLegCouplingTests`. Deliberate: `FORCE_GENERATION` / `WR_FILTER` /
+    `RESET_WR_LIST` do NOT bypass the gate (forcing cannot make a file uploadable). Left for the owner:
+    exporting `groups_skipped_no_target_row` in `weekly-excel-generation.yml`'s Notion metrics step (a
+    workflow edit) — until then Notion's `total − generated − skipped − errored` shows the new count
+    unexplained; the Sentry tag and both run-summary dicts already carry it.
+  - **RULE — a non-empty Smartsheet map is not proof of a complete read.** Any skip decision keyed on
+    absence-from-a-map needs a mass-suppression breaker that fails open, not just a non-empty check.
+  - **RULE — `should_skip_no_target_row` is safe only while every upload leg requires the primary row.**
+    Relaxing `primary_present` for the PPP leg silently suppresses `_ReducedSub` output; the coupling test
+    exists to make that change fail loudly.
   - **Expected on the first post-merge run:** `… N not generated (no target-sheet row)` in the phase
     summary, one `❌` ERROR line, zero `Work request … not found in target sheet` upload warnings, and a
     group phase ~45 min shorter. The source-side cleanup (the CSV in the session scratchpad; not in the repo)
