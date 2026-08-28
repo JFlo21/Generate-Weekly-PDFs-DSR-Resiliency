@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: August 27, 2026 (updated automatically)_
+_Last updated: August 28, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -14,8 +14,9 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — August 27, 2026
+### 📋 Changelog — August 28, 2026
 
+- 📄 Help guides updated: fix run&#95;ledger column name in flip confirmation SQL; record flip live
 - ✅ Problem fixed: compare against the uploaded set; RUN&#95;MEMORY&#95;SHADOW&#95;MAX&#95;MINUTES 10 -&gt; 25
 - ✅ Problem fixed: build pipeline&#95;memory client with SyncClientOptions (post-flip AttributeError)
 - • ops: enable RUN&#95;MEMORY&#95;WRITE&#95;ENABLED in weekly run
@@ -23,7 +24,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - ✨ New capability: Phase 11 — incremental read + affected-group regen, flags OFF
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- ✨ New capability: Phase 10 — Supabase run-memory foundation (shadow writes, flag OFF)
 
 <!-- /runbook-repo -->
 
