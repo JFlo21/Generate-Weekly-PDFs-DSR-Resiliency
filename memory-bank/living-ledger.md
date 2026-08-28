@@ -7367,5 +7367,13 @@ follow-up findings closed, same 6 files.
   '1'` at `weekly-excel-generation.yml:434`; `excel.py:144`) — the bare `_VacCrew` suffix is the
   disabled legacy shape; `row_state` is upserted for every accepted row but `row_event` is inserted
   only when the content hash is new/changed (`pipeline_memory/schema.sql:258-268`).
+- **Round 12 added (operator remedies vs frozen state):** `freeze_row` stores `"Unknown Foreman"` as a
+  NON-blank claimer when nothing resolves (`billing_audit/writer.py:555-570`) and `resolve_claimer`
+  uses any non-blank frozen value over the live one (`:1058-1060`) — so filling the foreman later
+  does not rename an `_Unknown_Foreman` report; correction is an engineering edit of
+  `billing_audit.attribution_snapshot`. `_has_existing_week_attachment` (`cleanup.py:581-599`)
+  checks filename identity only — a hand-edited workbook re-uploaded under the generated name
+  survives every unchanged-hash run; force regeneration. A WR with no target-sheet row is built but
+  withheld — completing the source row cannot make it appear. WR ≠ `Job #` in operator wording.
 - **RULE — a runbook statement about pipeline behaviour cites the line that implements it.** The
   reviewer bots read the code; the doc sentence with no anchor is the one that drifts.
