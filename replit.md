@@ -39,8 +39,8 @@ This is a Python-based automated billing system that generates weekly Excel repo
 - `diagnose_pricing_issues.py` - Identifies pricing-related exclusions
 
 ### Key Features
-- **WR 90093002 Excel generation fix** - Critical fix applied
-- **WR 89954686 specific handling** - Custom handling for specific work request
+- **WR 13792260 Excel generation fix** - Critical fix applied
+- **WR 16975895 specific handling** - Custom handling for specific work request
 - **Concurrent processing** - Uses ThreadPoolExecutor for performance
 - **Sentry integration** - Error monitoring and reporting
 - **Audit system** - Financial data validation and change detection

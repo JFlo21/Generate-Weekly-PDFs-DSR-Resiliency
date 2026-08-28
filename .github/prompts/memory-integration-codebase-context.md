@@ -14,7 +14,7 @@ You are an AI agent with comprehensive understanding of the Generate-Weekly-PDFs
 
 ### Core Files & Responsibilities
 1. **generate_weekly_pdfs.py** (1762 lines) - Main production system
-   - Complete fixes for WR 90093002, 89954686  
+   - Complete fixes for WR 13792260, 16975895  
    - Discovery caching, extended change detection, **comprehensive synthetic test mode**
    - **Enhanced attachment validation** with hash-based duplicate detection
    - 30+ environment variables, hash-based change detection
@@ -169,7 +169,7 @@ TEST_MODE=true python generate_weekly_pdfs.py
 TEST_MODE=true SKIP_FILE_OPERATIONS=true python generate_weekly_pdfs.py
 
 # Test specific Work Requests only
-TEST_MODE=true WR_FILTER=WR_90093002,WR_82131472 python generate_weekly_pdfs.py
+TEST_MODE=true WR_FILTER=WR_13792260,WR_15822272 python generate_weekly_pdfs.py
 
 # Production run  
 python generate_weekly_pdfs.py

@@ -323,7 +323,7 @@ return (wr, week, variant, identifier)
 
 **Patterns to copy for `_AEPBillable` / `_ReducedSub` parser extension:**
 - D-10: the new variant markers are `'AEPBillable'` and `'ReducedSub'`. Critical: matched against the **tail span**, not against the WR portion (the WeekEnding-anchor mechanism at L1740-1810 already isolates the tail). The scoped check forbids false-positives if a sanitized WR somehow contains `AEPBillable` / `ReducedSub` literally.
-- D-09 ordering: variant-first, helper-second. Filename example: `WR_91467680_WeekEnding_041926_123456_AEPBillable_Helper_Jane_Smith_ab12cd34ef.xlsx`. So the parser must detect `AEPBillable` FIRST, then look forward in the tail for an optional `Helper` marker that flips the variant to `aep_billable_helper` (and captures the identifier between `Helper` and the final hash).
+- D-09 ordering: variant-first, helper-second. Filename example: `WR_19236776_WeekEnding_041926_123456_AEPBillable_Helper_Jane_Smith_ab12cd34ef.xlsx`. So the parser must detect `AEPBillable` FIRST, then look forward in the tail for an optional `Helper` marker that flips the variant to `aep_billable_helper` (and captures the identifier between `Helper` and the final hash).
 - The four target variant strings the parser MUST produce: `'aep_billable'`, `'reduced_sub'`, `'aep_billable_helper'`, `'reduced_sub_helper'` — these are the exact tokens the rest of the pipeline uses (hash key, freeze_row variant kwarg, attachment-identity match). DO NOT introduce capitalized versions.
 - The parser must respect the round-7 / round-9 collision-quarantine semantics — but since the parser is *read-only* (filename → tuple), it has no upload-side surface; the producer/consumer collision pre-scans at L4760-4789 (source) and L4223-4275 (target) already guard the routing. The parser just needs to not be confused by the new variant tokens.
 - Ledger guardrail: variant detection priority must be deterministic. The new variants should be checked BEFORE `Helper` / `VacCrew` / `User` so `_AEPBillable_Helper_<name>` parses as `aep_billable_helper` not `helper` (otherwise `aep_billable_helper` hash-bucket loses cohesion).
@@ -615,11 +615,11 @@ def test_loads_valid_csv(self):
 def test_vac_crew_filename_parsed_as_vac_crew_variant(self):
     """A VAC Crew filename must round-trip through build_group_identity."""
     ident = generate_weekly_pdfs.build_group_identity(
-        'WR_90093002_WeekEnding_041926_123456_VacCrew_ab12cd34ef.xlsx'
+        'WR_13792260_WeekEnding_041926_123456_VacCrew_ab12cd34ef.xlsx'
     )
     self.assertIsNotNone(ident)
     wr, week, variant, identifier = ident
-    self.assertEqual(wr, '90093002')
+    self.assertEqual(wr, '13792260')
     self.assertEqual(week, '041926')
     self.assertEqual(variant, 'vac_crew')
     self.assertEqual(identifier, '')
@@ -627,7 +627,7 @@ def test_vac_crew_filename_parsed_as_vac_crew_variant(self):
 def test_primary_filename_not_affected(self):
     """A primary filename must NOT be mis-detected as VAC Crew."""
     ident = generate_weekly_pdfs.build_group_identity(
-        'WR_90093002_WeekEnding_041926_123456_ab12cd34ef.xlsx'
+        'WR_13792260_WeekEnding_041926_123456_ab12cd34ef.xlsx'
     )
     self.assertIsNotNone(ident)
     wr, week, variant, identifier = ident

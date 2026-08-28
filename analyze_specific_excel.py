@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Analyze specific Excel file: WR_90124277_WeekEnding_092825_120044_a8b10c0045369976.xlsx
+Analyze specific Excel file: WR_19255017_WeekEnding_092825_120044_a8b10c0045369976.xlsx
 
 This script will read the Excel file and analyze the total calculations to identify
 why the expected total of $7,094.58 is not showing correctly.
@@ -10,7 +10,7 @@ import openpyxl
 import os
 from generate_weekly_pdfs import parse_price
 
-def analyze_excel_file(filename="WR_90124277_WeekEnding_092825_120044_a8b10c0045369976.xlsx", expected_total=7094.58):
+def analyze_excel_file(filename="WR_19255017_WeekEnding_092825_120044_a8b10c0045369976.xlsx", expected_total=7094.58):
     """Analyze the specific Excel file for total calculation issues."""
     
     print("📊 EXCEL FILE ANALYSIS")
@@ -168,10 +168,10 @@ def analyze_work_request_data():
     """Analyze the work request data that should have been used to generate this Excel."""
     
     print(f"\n🔍 SOURCE DATA ANALYSIS:")
-    print("Analyzing what data should be in WR 90124277 for week ending 09/28/25...")
+    print("Analyzing what data should be in WR 19255017 for week ending 09/28/25...")
     
     # Extract info from filename
-    filename = "WR_90124277_WeekEnding_092825_120044_a8b10c0045369976.xlsx"
+    filename = "WR_19255017_WeekEnding_092825_120044_a8b10c0045369976.xlsx"
     parts = filename.replace('.xlsx', '').split('_')
     
     if len(parts) >= 4:

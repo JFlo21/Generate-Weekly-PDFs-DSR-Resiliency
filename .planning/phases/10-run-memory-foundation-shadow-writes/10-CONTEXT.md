@@ -238,8 +238,8 @@ Phase 10 execution touches `pipeline/*` - same engine files (ROADMAP "Depends on
 
 - Evidence baseline: run 32743959053 (94 min; fetch 33 min / 207,844 rows / 117 sheets;
   pre-fetch 20 min; 12,227 `freeze_attribution` RPCs + 3,091 `group_content_hash` GETs).
-- Known-good validation sample for later ownership work: WR 89829163, WE 082425-092125
-  -> Allen Harris (do not act on it in Phase 10; it is Phase 12's sample).
+- Known-good validation sample for later ownership work: WR 19073866, WE 082425-092125
+  -> Avery Example (do not act on it in Phase 10; it is Phase 12's sample).
 - The fixture sheets must mirror the real formula shape (WR-level cross-sheet
   INDEX/MATCH), and must be labeled as disposable test sheets in a sandbox folder.
 - Juan's stated priority (profile): no regressions, changes must actually reach the

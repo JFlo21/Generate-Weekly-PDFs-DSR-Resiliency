@@ -778,7 +778,7 @@ class TestBillingAuditImportFailureBindsWriterNone(unittest.TestCase):
 
 
 class TestCrashConsistencyDeferredFlush(unittest.TestCase):
-    """2026-07-06 WR 90968595 / week 070526 incident regression guard.
+    """2026-07-06 WR 11951363 / week 070526 incident regression guard.
 
     The durable group hash (billing_audit.group_content_hash) must be
     persisted ONLY after the group's attachment upload succeeds. Run

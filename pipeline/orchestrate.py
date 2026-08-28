@@ -289,7 +289,7 @@ def _build_synthetic_rows():
     base_week_end = base_week_end + datetime.timedelta(days=(6 - base_week_end.weekday()))
     week_end_iso = base_week_end.strftime('%Y-%m-%d')
     rows = []
-    wrs = ['90093002', '89708709']
+    wrs = ['13792260', '17310321']
     foremen = ['Alice Foreman', 'Bob Foreman']
     daily_prices = [1200.50, 800.00, 950.75, 0, 1300.25, 600.00, 1450.00]
     for idx, wr in enumerate(wrs):
@@ -3007,7 +3007,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # lost runner) mark content as published while Smartsheet still
         # holds the stale attachment — with clean (hash-less) filenames
         # the skip gate then deadlocks on "unchanged + attachment
-        # exists" forever (root cause of the WR 90968595 / week 070526
+        # exists" forever (root cause of the WR 11951363 / week 070526
         # incident, failed run 28752355941).
         _deferred_hash_upserts = []
         # Codex P2 (PR #283): the LOCAL json hash_history entry is

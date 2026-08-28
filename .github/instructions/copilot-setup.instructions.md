@@ -14,7 +14,7 @@ This repository is a **production billing automation system** that generates wee
 - **Error Handling**: Sentry integration with filtered 404s, comprehensive logging, graceful degradation
 
 ## Key Components
-- **generate_weekly_pdfs.py** (1762 lines): Production entry point with complete fixes for WR 90093002, 89954686. Implements discovery caching, extended change detection, synthetic test mode.
+- **generate_weekly_pdfs.py** (1762 lines): Production entry point with complete fixes for WR 13792260, 16975895. Implements discovery caching, extended change detection, synthetic test mode.
 - **audit_billing_changes.py** (479 lines): Advanced audit engine with price anomaly detection, trend analysis, selective cell history enrichment. Risk levels: LOW/MEDIUM/HIGH with delta tracking.
 - **cleanup_excels.py**: Standalone cleanup utility for removing stale WR_*.xlsx files while preserving latest per (WR, WeekEnding) identity.
 - **scripts/generate_artifact_manifest.py**: Comprehensive artifact manifest generator with SHA256 validation, organized metadata, and audit trail support for GitHub Actions artifact preservation.

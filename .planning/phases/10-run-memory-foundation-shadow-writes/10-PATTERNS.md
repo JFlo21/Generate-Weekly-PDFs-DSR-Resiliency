@@ -685,7 +685,7 @@ class FreezeRowTests(unittest.TestCase):
             os.environ.pop(k, None)
 
     def _valid_row(self):
-        return {"__row_id": 123456789, "Work Request #": "91467680", ...,
+        return {"__row_id": 123456789, "Work Request #": "19236776", ...,
                 "Foreman": "Alice Primary", "__helper_foreman": "Bob Helper", ...}
 
     def test_noop_when_client_none(self):

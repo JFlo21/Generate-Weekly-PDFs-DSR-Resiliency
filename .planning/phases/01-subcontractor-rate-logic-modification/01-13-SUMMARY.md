@@ -168,7 +168,7 @@ All 8 tests pass against the post-Task-1 source. The plan's ``tdd="true"`` frami
 
 ## Issues Encountered
 
-- **Worktree base reset at agent startup.** The worktree was initialized from master tip (`80900694`, no `.planning/` directory) rather than the `gsd/phase-01-subcontractor-rate-logic-modification` branch tip (`478078f`). The `<worktree_branch_check>` step at agent startup detected the divergence and did `git reset --hard 478078fd...`, restoring the expected base with all prior 01-01 through 01-12 work in scope. No semantic impact on the plan execution — only operational. The reset is a known-safe operation per the startup script's protection ranges (HEAD is on a `worktree-agent-*` branch, not a protected ref).
+- **Worktree base reset at agent startup.** The worktree was initialized from master tip (`10234197`, no `.planning/` directory) rather than the `gsd/phase-01-subcontractor-rate-logic-modification` branch tip (`478078f`). The `<worktree_branch_check>` step at agent startup detected the divergence and did `git reset --hard 478078fd...`, restoring the expected base with all prior 01-01 through 01-12 work in scope. No semantic impact on the plan execution — only operational. The reset is a known-safe operation per the startup script's protection ranges (HEAD is on a `worktree-agent-*` branch, not a protected ref).
 
 ## User Setup Required
 

@@ -156,42 +156,42 @@ git commit -m "feat(vac-crew): add VAC_CREW_* kill switches + banner + workflow 
 class TestVacCrewSuffixAndParser(unittest.TestCase):
     def test_suffix_embeds_name(self):
         self.assertEqual(
-            generate_weekly_pdfs._vac_crew_variant_suffix('John Smith', '91467680', '041926'),
+            generate_weekly_pdfs._vac_crew_variant_suffix('John Smith', '19236776', '041926'),
             '_VacCrew_John_Smith',
         )
 
     def test_suffix_empty_claimer_raises(self):
         with self.assertRaises(ValueError):
-            generate_weekly_pdfs._vac_crew_variant_suffix('', '91467680', '041926')
+            generate_weekly_pdfs._vac_crew_variant_suffix('', '19236776', '041926')
 
     def test_parser_vaccrew_name_round_trips(self):
-        fname = 'WR_91467680_WeekEnding_041926_120000_VacCrew_John_Smith_abc123.xlsx'
+        fname = 'WR_19236776_WeekEnding_041926_120000_VacCrew_John_Smith_abc123.xlsx'
         self.assertEqual(
             generate_weekly_pdfs.build_group_identity(fname),
-            ('91467680', '041926', 'vac_crew', 'John_Smith'),
+            ('19236776', '041926', 'vac_crew', 'John_Smith'),
         )
 
     def test_parser_name_containing_helper_token_stays_vac_crew(self):
         # A crew member whose name contains 'Helper' must NOT misparse as a
         # helper variant — VacCrew is checked before the Helper scan.
-        fname = 'WR_91467680_WeekEnding_041926_120000_VacCrew_Pat_Helper_abc123.xlsx'
+        fname = 'WR_19236776_WeekEnding_041926_120000_VacCrew_Pat_Helper_abc123.xlsx'
         self.assertEqual(
             generate_weekly_pdfs.build_group_identity(fname),
-            ('91467680', '041926', 'vac_crew', 'Pat_Helper'),
+            ('19236776', '041926', 'vac_crew', 'Pat_Helper'),
         )
 
     def test_parser_legacy_vaccrew_no_name(self):
-        fname = 'WR_91467680_WeekEnding_041926_120000_VacCrew_abc123.xlsx'
+        fname = 'WR_19236776_WeekEnding_041926_120000_VacCrew_abc123.xlsx'
         self.assertEqual(
             generate_weekly_pdfs.build_group_identity(fname),
-            ('91467680', '041926', 'vac_crew', ''),
+            ('19236776', '041926', 'vac_crew', ''),
         )
 ```
 
 - [ ] **Step 2: Run to verify failure**
 
 Run: `python -m pytest tests/test_vac_crew_claim_attribution.py::TestVacCrewSuffixAndParser -v`
-Expected: FAIL — `_vac_crew_variant_suffix` missing; `test_parser_name_containing_helper_token_stays_vac_crew` returns `('91467680','041926','helper','Pat')` (current Helper-first order); `test_parser_vaccrew_name_round_trips` returns identifier `''`.
+Expected: FAIL — `_vac_crew_variant_suffix` missing; `test_parser_name_containing_helper_token_stays_vac_crew` returns `('19236776','041926','helper','Pat')` (current Helper-first order); `test_parser_vaccrew_name_round_trips` returns identifier `''`.
 
 - [ ] **Step 3: Add the suffix helper** (near `_subcontractor_primary_variant_suffix`)
 
@@ -261,7 +261,7 @@ Read the B pre-pass (`_sub_primary_claimer_map`) as the exact template. The vac_
 - [ ] **Step 1: Write the failing test**
 
 ```python
-def _make_vac_row(row_id=6001, wr='91467680', name='CurrentCrew', snapshot='2026-04-19'):
+def _make_vac_row(row_id=6001, wr='19236776', name='CurrentCrew', snapshot='2026-04-19'):
     return {
         '__row_id': row_id,
         'Work Request #': wr,
@@ -413,7 +413,7 @@ class TestVacCrewEmission(unittest.TestCase):
         with mock.patch('billing_audit.writer.resolve_claimer') as m:
             groups = generate_weekly_pdfs.group_source_rows([_make_vac_row(name='CurrentCrew')])
             m.assert_not_called()
-        self.assertIn('041926_91467680_VACCREW', groups)
+        self.assertIn('041926_19236776_VACCREW', groups)
         self.assertFalse(any('VACCREW_' in k for k in groups))  # no claimer suffix
 
     def test_map_miss_uses_current_name_not_hold(self):
@@ -531,7 +531,7 @@ class TestVacCrewIdentitySitesAndDisplay(unittest.TestCase):
         generate_weekly_pdfs.OUTPUT_FOLDER = tmp.name
         self.addCleanup(lambda: setattr(generate_weekly_pdfs, 'OUTPUT_FOLDER', orig))
         row = {
-            'Work Request #': '91467680', 'Units Completed?': True,
+            'Work Request #': '19236776', 'Units Completed?': True,
             'Units Total Price': '$100.00', 'Customer Name': 'Cust',
             'Dept #': '500', 'Job #': 'J-1', 'CU': 'ANC-M', 'Work Type': 'Inst', 'Quantity': 2,
             '__variant': 'vac_crew', '__current_foreman': 'FrozenCrew',
@@ -539,7 +539,7 @@ class TestVacCrewIdentitySitesAndDisplay(unittest.TestCase):
             '__week_ending_date': dt.datetime(2026, 4, 19),
         }
         result = generate_weekly_pdfs.generate_excel(
-            '041926_91467680_VACCREW_FrozenCrew', [row], dt.datetime(2026, 4, 19),
+            '041926_19236776_VACCREW_FrozenCrew', [row], dt.datetime(2026, 4, 19),
             data_hash='deadbeefcafe0c01',
         )
         excel_path, filename = result[0], result[1]
@@ -634,11 +634,11 @@ class TestVacCrewLegacyCleanup(unittest.TestCase):
 
     def test_scope_builder_collects_vac_wrs(self):
         groups = {
-            '041926_91467680_VACCREW_John': [{'Work Request #': '91467680'}],
+            '041926_19236776_VACCREW_John': [{'Work Request #': '19236776'}],
             '041926_55555_REDUCEDSUB_USER_X': [{'Work Request #': '55555'}],
         }
         scope = generate_weekly_pdfs._build_vac_crew_wr_scope(groups)
-        self.assertIn('91467680', scope)
+        self.assertIn('19236776', scope)
         self.assertNotIn('55555', scope)
 
     def test_legacy_vaccrew_deleted_live_claimer_exempt(self):
@@ -710,14 +710,14 @@ class TestVacCrewHashPrune(unittest.TestCase):
 
     def test_drops_legacy_vaccrew_orphans_returns_true(self):
         hist = {
-            '91467680|041926|vac_crew|': {'hash': 'h1'},
-            '91467680|041926|vac_crew|John': {'hash': 'h2'},  # new — survives
+            '19236776|041926|vac_crew|': {'hash': 'h1'},
+            '19236776|041926|vac_crew|John': {'hash': 'h2'},  # new — survives
             '55555|041926|vac_crew|': {'hash': 'h3'},          # non-scope — survives
         }
-        changed = generate_weekly_pdfs._run_vac_crew_hash_prune(hist, self._groups(['91467680']))
+        changed = generate_weekly_pdfs._run_vac_crew_hash_prune(hist, self._groups(['19236776']))
         self.assertIs(changed, True)
-        self.assertNotIn('91467680|041926|vac_crew|', hist)
-        self.assertIn('91467680|041926|vac_crew|John', hist)
+        self.assertNotIn('19236776|041926|vac_crew|', hist)
+        self.assertIn('19236776|041926|vac_crew|John', hist)
         self.assertIn('55555|041926|vac_crew|', hist)
         self.assertEqual(hist['_vac_crew_prune_version'],
                          generate_weekly_pdfs.VAC_CREW_HASH_PRUNE_VERSION)
@@ -725,7 +725,7 @@ class TestVacCrewHashPrune(unittest.TestCase):
     def test_idempotent_returns_false(self):
         hist = {'_vac_crew_prune_version': generate_weekly_pdfs.VAC_CREW_HASH_PRUNE_VERSION}
         self.assertIs(
-            generate_weekly_pdfs._run_vac_crew_hash_prune(hist, self._groups(['91467680'])),
+            generate_weekly_pdfs._run_vac_crew_hash_prune(hist, self._groups(['19236776'])),
             False,
         )
 
@@ -842,15 +842,15 @@ class TestVacCrewEndToEnd(unittest.TestCase):
     def test_non_vac_primary_row_unaffected(self):
         # A non-vac, non-helper primary row still groups exactly as before.
         row = {
-            'Work Request #': '91467680', 'Weekly Reference Logged Date': '2026-04-19',
+            'Work Request #': '19236776', 'Weekly Reference Logged Date': '2026-04-19',
             'Snapshot Date': '2026-04-19', 'Units Completed?': True, 'Units Total Price': '$10.00',
             'CU': 'X', 'Work Type': 'Inst', 'Quantity': 1,
             '__effective_user': 'Boss', '__is_helper_row': False, '__is_vac_crew': False,
             '__helper_foreman': '', '__helper_dept': '', '__helper_job': '',
-            '__source_sheet_id': 99999999, '__row_id': 1,
+            '__source_sheet_id': 10277491, '__row_id': 1,
         }
         groups = generate_weekly_pdfs.group_source_rows([row])
-        self.assertTrue(any(k.startswith('041926_91467680') and 'VACCREW' not in k for k in groups))
+        self.assertTrue(any(k.startswith('041926_19236776') and 'VACCREW' not in k for k in groups))
 
 
 class TestVacCrewProductionInvariants(unittest.TestCase):

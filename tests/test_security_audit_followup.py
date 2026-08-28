@@ -124,7 +124,7 @@ class TestWrNumFilenameSanitization(unittest.TestCase):
 
     def test_numeric_wr_is_noop(self):
         """Realistic production WR#s pass through unchanged."""
-        for raw in ('90093002', '89954686', '12345', '123-45'):
+        for raw in ('13792260', '16975895', '12345', '123-45'):
             sanitized = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub(
                 '_', raw,
             )[:50]
@@ -243,13 +243,13 @@ class TestRedactExceptionMessage(unittest.TestCase):
         """End-to-end: a realistic SDK message loses every PII token."""
         pii_free_payload = generate_weekly_pdfs._redact_exception_message(
             Exception(
-                "Smartsheet API 1006: Row update for WR 90093002 failed — "
+                "Smartsheet API 1006: Row update for WR 13792260 failed — "
                 "Customer='ACME Industries', Foreman='Pat Rivera', "
                 "Job=ABC-001, Price=$1,234.56, notified pat@acme.com"
             ),
         )
         for leaked in (
-            '90093002', 'ACME Industries', 'Pat Rivera',
+            '13792260', 'ACME Industries', 'Pat Rivera',
             'ABC-001', '1,234.56', '1234.56', 'pat@acme.com',
         ):
             self.assertNotIn(
@@ -538,7 +538,7 @@ class TestWrIdentifierConsistencyAcrossUploadPath(unittest.TestCase):
 
     def test_sanitizer_numeric_wr_is_stable(self):
         """Realistic WR#s sanitize to themselves — no-op preserves prod."""
-        for numeric in ('90093002', '89954686', '12345'):
+        for numeric in ('13792260', '16975895', '12345'):
             sanitized = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub(
                 '_', numeric,
             )[:50]
@@ -556,7 +556,7 @@ class TestWrIdentifierConsistencyAcrossUploadPath(unittest.TestCase):
         the regex, idempotence is the invariant that keeps the two
         in sync.
         """
-        for raw in ('90093002', '1234/../evil', 'WR#$bad', '  spacey  '):
+        for raw in ('13792260', '1234/../evil', 'WR#$bad', '  spacey  '):
             once = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub(
                 '_', raw,
             )[:50]
@@ -906,7 +906,7 @@ class TestTargetMapWrKeyCollisionDetection(unittest.TestCase):
         seen_raw_for_key: dict = {}
         quarantined: set = set()
         collisions = 0
-        for raw in ('90093002', '90093002'):
+        for raw in ('13792260', '13792260'):
             key = generate_weekly_pdfs._RE_SANITIZE_HELPER_NAME.sub('_', raw)[:50]
             if key in quarantined:
                 collisions += 1
@@ -994,11 +994,11 @@ class TestBuildGroupIdentityWithUnderscoresInWr(unittest.TestCase):
     def test_plain_numeric_wr_still_parses(self):
         """Realistic production filenames must still round-trip."""
         ident = generate_weekly_pdfs.build_group_identity(
-            'WR_90093002_WeekEnding_041926_123456_ab12cd34ef.xlsx'
+            'WR_13792260_WeekEnding_041926_123456_ab12cd34ef.xlsx'
         )
         self.assertIsNotNone(ident)
         wr, week, variant, identifier = ident
-        self.assertEqual(wr, '90093002')
+        self.assertEqual(wr, '13792260')
         self.assertEqual(week, '041926')
         self.assertEqual(variant, 'primary')
 
@@ -1275,11 +1275,11 @@ class TestBuildGroupIdentityWithUnderscoresInWr(unittest.TestCase):
         must still fall through to the unchanged ``Helper`` branch.
         """
         ident = generate_weekly_pdfs.build_group_identity(
-            'WR_91467680_WeekEnding_041926_123456_Helper_Jane_Smith_ab12cd34ef.xlsx'
+            'WR_19236776_WeekEnding_041926_123456_Helper_Jane_Smith_ab12cd34ef.xlsx'
         )
         self.assertIsNotNone(ident)
         wr, week, variant, identifier = ident
-        self.assertEqual(wr, '91467680')
+        self.assertEqual(wr, '19236776')
         self.assertEqual(week, '041926')
         self.assertEqual(variant, 'helper')
         self.assertEqual(identifier, 'Jane_Smith')
@@ -1356,7 +1356,7 @@ class TestSourceWrCollisionQuarantine(unittest.TestCase):
         groups = {
             '041926_raw1': [{'Work Request #': '1234/evil', '__variant': 'primary'}],
             '041926_raw2': [{'Work Request #': '1234\\evil', '__variant': 'primary'}],
-            '041926_raw3': [{'Work Request #': '90093002', '__variant': 'primary'}],
+            '041926_raw3': [{'Work Request #': '13792260', '__variant': 'primary'}],
         }
         quarantined = self._run_pre_scan(groups)
         # The slash/backslash pair must be quarantined; the lone
@@ -1375,10 +1375,10 @@ class TestSourceWrCollisionQuarantine(unittest.TestCase):
         value per sanitized key).
         """
         groups = {
-            '041926_90093002': [{'Work Request #': '90093002', '__variant': 'primary'}],
-            '041926_89954686': [{'Work Request #': '89954686', '__variant': 'primary'}],
+            '041926_13792260': [{'Work Request #': '13792260', '__variant': 'primary'}],
+            '041926_16975895': [{'Work Request #': '16975895', '__variant': 'primary'}],
             '041926_12345': [{'Work Request #': '12345', '__variant': 'primary'}],
-            '042626_90093002': [{'Work Request #': '90093002', '__variant': 'primary'}],
+            '042626_13792260': [{'Work Request #': '13792260', '__variant': 'primary'}],
         }
         quarantined = self._run_pre_scan(groups)
         self.assertEqual(quarantined, set())
@@ -1819,7 +1819,7 @@ class TestDualTargetMapIndependentQuarantine(unittest.TestCase):
         return the same target_map dict as the legacy
         ``create_target_sheet_map(client)`` wrapper.
         """
-        sheet = _make_fake_sheet(['90093002', '89708709', '12345'])
+        sheet = _make_fake_sheet(['13792260', '17310321', '12345'])
         client = _FakeClient({
             generate_weekly_pdfs.TARGET_SHEET_ID: sheet,
         })
@@ -1845,7 +1845,7 @@ class TestDualTargetMapIndependentQuarantine(unittest.TestCase):
         distinct WR# rows must yield disjoint target_maps. Proves the
         helper is not accidentally sharing state across calls.
         """
-        sheet_a = _make_fake_sheet(['90093002', '89708709'])
+        sheet_a = _make_fake_sheet(['13792260', '17310321'])
         sheet_b = _make_fake_sheet(['77777001', '77777002'])
         client = _FakeClient({
             generate_weekly_pdfs.TARGET_SHEET_ID: sheet_a,
@@ -1857,7 +1857,7 @@ class TestDualTargetMapIndependentQuarantine(unittest.TestCase):
         map_b, _ = generate_weekly_pdfs.create_target_sheet_map_for(
             client, generate_weekly_pdfs.SUBCONTRACTOR_PPP_SHEET_ID,
         )
-        self.assertSetEqual(set(map_a.keys()), {'90093002', '89708709'})
+        self.assertSetEqual(set(map_a.keys()), {'13792260', '17310321'})
         self.assertSetEqual(set(map_b.keys()), {'77777001', '77777002'})
         self.assertEqual(
             set(map_a.keys()) & set(map_b.keys()),
@@ -1943,7 +1943,7 @@ class TestDualTargetMapIndependentQuarantine(unittest.TestCase):
         on the same mocked sheet produces identical ``target_map``
         keys. Locks the idempotence of ``_RE_SANITIZE_HELPER_NAME``
         end-to-end through the helper."""
-        sheet = _make_fake_sheet(['1234/evil', '90093002'])
+        sheet = _make_fake_sheet(['1234/evil', '13792260'])
         client = _FakeClient({
             generate_weekly_pdfs.TARGET_SHEET_ID: sheet,
         })
@@ -2025,7 +2025,7 @@ class TestDualTargetSheetRouting(unittest.TestCase):
     """
 
     @staticmethod
-    def _make_kwargs(variant, *, wr_num='90093002', target_map=None,
+    def _make_kwargs(variant, *, wr_num='13792260', target_map=None,
                      target_map_ppp=None):
         """Minimal kwargs for the helper.
 
@@ -2107,8 +2107,8 @@ class TestDualTargetSheetRouting(unittest.TestCase):
             t['target_row'] for t in tasks
             if t['target_sheet_id'] == generate_weekly_pdfs.SUBCONTRACTOR_PPP_SHEET_ID
         )
-        self.assertEqual(target_row_for_target, 'row-TARGET-90093002')
-        self.assertEqual(target_row_for_ppp, 'row-PPP-90093002')
+        self.assertEqual(target_row_for_target, 'row-TARGET-13792260')
+        self.assertEqual(target_row_for_ppp, 'row-PPP-13792260')
 
     def test_reduced_sub_helper_variant_routes_to_both_sheets(self):
         """Test 4: ``reduced_sub_helper`` (shadow helper) follows
@@ -2183,7 +2183,7 @@ class TestDualTargetSheetRouting(unittest.TestCase):
         kwargs = self._make_kwargs(
             'reduced_sub',
             target_map={},
-            target_map_ppp={'90093002': 'row-PPP-90093002'},
+            target_map_ppp={'13792260': 'row-PPP-13792260'},
         )
         tasks = generate_weekly_pdfs._build_upload_tasks_for_group(**kwargs)
         self.assertEqual(

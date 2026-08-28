@@ -529,7 +529,7 @@ class TestSentryBeforeBreadcrumb:
     def test_drops_primary_group_created_breadcrumb(self):
         # Pre-existing INFO log that always fires in prod, now also covered.
         crumb = {
-            "message": "🧑 PRIMARY GROUP CREATED: WR=90093002, Week=070526",
+            "message": "🧑 PRIMARY GROUP CREATED: WR=13792260, Week=070526",
         }
         assert gwp.sentry_before_breadcrumb(crumb, {}) is None
 
@@ -584,7 +584,7 @@ class TestSentryBeforeBreadcrumb:
             "category": "group",
             "message": "Skipped unchanged group",
             "data": {
-                "wr": "90093002",
+                "wr": "13792260",
                 "week": "070526",
                 "variant": "_Helper_Jane_Doe",
                 "hash": "abc1234",

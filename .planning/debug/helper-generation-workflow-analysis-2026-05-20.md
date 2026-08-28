@@ -54,13 +54,13 @@ From run `26200546881` on `master` (`646fdead`):
 Representative log line:
 
 ```text
-Dropped helper row (price missing or zero): WR=90773033, Weekly=2026-04-12, Snapshot=2026-04-08, CU=GYF-38-42W-I, Qty=3.0, SmartSheet price=<blank>. Row has VAC/helper criteria checked but Units Total Price is zero/blank.
+Dropped helper row (price missing or zero): WR=16087226, Weekly=2026-04-12, Snapshot=2026-04-08, CU=GYF-38-42W-I, Qty=3.0, SmartSheet price=<blank>. Row has VAC/helper criteria checked but Units Total Price is zero/blank.
 ```
 
 The same run generated:
 
 ```text
-WR_90773033_WeekEnding_041226_210416_ReducedSub_Helper_Chris_Lopez_b29e8733b2dbdd7e.xlsx
+WR_16087226_WeekEnding_041226_210416_ReducedSub_Helper_Drew_Placeholder_b29e8733b2dbdd7e.xlsx
 ```
 
 No `_AEPBillable_Helper_` file was generated in that run. The only
@@ -97,10 +97,10 @@ For the dropped helper-price rows:
 Top WRs blocked by missing `Helper Dept #`:
 
 ```text
-90851321: 55
-90727774: 44
-90948056: 14
-90479323: 3
+19772574: 55
+18779836: 44
+10564755: 14
+13563356: 3
 9005228: 3
 ```
 

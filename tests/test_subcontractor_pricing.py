@@ -2046,7 +2046,7 @@ class TestResolveRowPriceCanonicalColumnNames(unittest.TestCase):
 class TestSubcontractorVariantFilenameSuffixes(unittest.TestCase):
     """Plan 01-03 Task 2: generate_excel produces the 4 new variant filename suffixes."""
 
-    def _make_group_row(self, variant, wr='99887766', week='2026-04-19',
+    def _make_group_row(self, variant, wr='10854049', week='2026-04-19',
                         snap='2026-04-19', helper_foreman='', cu='XYZ',
                         work_type='Install', quantity=2, price='$0.00'):
         return {
@@ -2104,7 +2104,7 @@ class TestSubcontractorVariantFilenameSuffixes(unittest.TestCase):
         import datetime as dt
         rows = [self._make_group_row('aep_billable')]
         result = generate_weekly_pdfs.generate_excel(
-            '041926_99887766_AEPBILLABLE', rows, dt.datetime(2026, 4, 19),
+            '041926_10854049_AEPBILLABLE', rows, dt.datetime(2026, 4, 19),
             data_hash='deadbeefcafebab0',
         )
         # Return is now a 5-tuple
@@ -2119,7 +2119,7 @@ class TestSubcontractorVariantFilenameSuffixes(unittest.TestCase):
         import datetime as dt
         rows = [self._make_group_row('reduced_sub')]
         result = generate_weekly_pdfs.generate_excel(
-            '041926_99887766_REDUCEDSUB', rows, dt.datetime(2026, 4, 19),
+            '041926_10854049_REDUCEDSUB', rows, dt.datetime(2026, 4, 19),
             data_hash='deadbeefcafebab1',
         )
         filename = result[1]
@@ -2132,7 +2132,7 @@ class TestSubcontractorVariantFilenameSuffixes(unittest.TestCase):
         import datetime as dt
         rows = [self._make_group_row('aep_billable_helper', helper_foreman='Jane Smith')]
         result = generate_weekly_pdfs.generate_excel(
-            '041926_99887766_AEPBILLABLE_HELPER_Jane_Smith', rows,
+            '041926_10854049_AEPBILLABLE_HELPER_Jane_Smith', rows,
             dt.datetime(2026, 4, 19), data_hash='deadbeefcafebab2',
         )
         filename = result[1]
@@ -2143,7 +2143,7 @@ class TestSubcontractorVariantFilenameSuffixes(unittest.TestCase):
         import datetime as dt
         rows = [self._make_group_row('reduced_sub_helper', helper_foreman='Jane Smith')]
         result = generate_weekly_pdfs.generate_excel(
-            '041926_99887766_REDUCEDSUB_HELPER_Jane_Smith', rows,
+            '041926_10854049_REDUCEDSUB_HELPER_Jane_Smith', rows,
             dt.datetime(2026, 4, 19), data_hash='deadbeefcafebab3',
         )
         filename = result[1]
@@ -2196,7 +2196,7 @@ class TestSubcontractorHelperVariantDeptJobDisplay(unittest.TestCase):
     def _make_sub_helper_row(self, variant, helper_foreman='Jane Smith'):
         import datetime as dt
         return {
-            'Work Request #': '99887766',
+            'Work Request #': '10854049',
             'Weekly Reference Logged Date': '2026-04-19',
             'Snapshot Date': '2026-04-19',
             'Units Completed?': True,
@@ -2240,7 +2240,7 @@ class TestSubcontractorHelperVariantDeptJobDisplay(unittest.TestCase):
     def test_reduced_sub_helper_shows_helper_dept_and_job(self):
         path = self._generate(
             'reduced_sub_helper',
-            '041926_99887766_REDUCEDSUB_HELPER_Jane_Smith',
+            '041926_10854049_REDUCEDSUB_HELPER_Jane_Smith',
             'deadbeefcafe0001',
         )
         self.assertEqual(
@@ -2255,7 +2255,7 @@ class TestSubcontractorHelperVariantDeptJobDisplay(unittest.TestCase):
     def test_aep_billable_helper_shows_helper_dept_and_job(self):
         path = self._generate(
             'aep_billable_helper',
-            '041926_99887766_AEPBILLABLE_HELPER_Jane_Smith',
+            '041926_10854049_AEPBILLABLE_HELPER_Jane_Smith',
             'deadbeefcafe0002',
         )
         self.assertEqual(
@@ -2274,7 +2274,7 @@ class TestSubcontractorHelperVariantDeptJobDisplay(unittest.TestCase):
         respected."""
         path = self._generate(
             'reduced_sub_helper',
-            '041926_99887766_REDUCEDSUB_HELPER_Jane_Smith',
+            '041926_10854049_REDUCEDSUB_HELPER_Jane_Smith',
             'deadbeefcafe0003',
         )
         self.assertEqual(self._read_detail(path, 'Foreman:'), 'Jane Smith')
@@ -2284,8 +2284,8 @@ class TestSubcontractorHelperVariantDeptJobDisplay(unittest.TestCase):
         aep_billable (primary) files show the PRIMARY Dept # / Job #."""
         import datetime as dt
         for variant, key in (
-            ('reduced_sub', '041926_99887766_REDUCEDSUB'),
-            ('aep_billable', '041926_99887766_AEPBILLABLE'),
+            ('reduced_sub', '041926_10854049_REDUCEDSUB'),
+            ('aep_billable', '041926_10854049_AEPBILLABLE'),
         ):
             with self.subTest(variant=variant):
                 row = self._make_sub_helper_row(variant, helper_foreman='')
@@ -2337,7 +2337,7 @@ class TestSubcontractorVariantPriceSubstitution(unittest.TestCase):
                   qty=2, smartsheet_price='$999.00'):
         import datetime as dt
         return {
-            'Work Request #': '99887766',
+            'Work Request #': '10854049',
             'Weekly Reference Logged Date': '2026-04-19',
             'Snapshot Date': '2026-04-19',
             'Units Completed?': True,
@@ -2388,7 +2388,7 @@ class TestSubcontractorVariantPriceSubstitution(unittest.TestCase):
         import datetime as dt
         rows = [self._make_row('aep_billable', work_type='Install', qty=3)]
         result = generate_weekly_pdfs.generate_excel(
-            '041926_99887766_AEPBILLABLE', rows, dt.datetime(2026, 4, 19),
+            '041926_10854049_AEPBILLABLE', rows, dt.datetime(2026, 4, 19),
             data_hash='deadbeef00000001',
         )
         excel_path = result[0]
@@ -2404,7 +2404,7 @@ class TestSubcontractorVariantPriceSubstitution(unittest.TestCase):
         import datetime as dt
         rows = [self._make_row('reduced_sub', work_type='Install', qty=4)]
         result = generate_weekly_pdfs.generate_excel(
-            '041926_99887766_REDUCEDSUB', rows, dt.datetime(2026, 4, 19),
+            '041926_10854049_REDUCEDSUB', rows, dt.datetime(2026, 4, 19),
             data_hash='deadbeef00000002',
         )
         excel_path = result[0]
@@ -2418,7 +2418,7 @@ class TestSubcontractorVariantPriceSubstitution(unittest.TestCase):
         import datetime as dt
         rows = [self._make_row('aep_billable', cu='UNKNOWN_CU', smartsheet_price='$77.50', qty=5)]
         result = generate_weekly_pdfs.generate_excel(
-            '041926_99887766_AEPBILLABLE', rows, dt.datetime(2026, 4, 19),
+            '041926_10854049_AEPBILLABLE', rows, dt.datetime(2026, 4, 19),
             data_hash='deadbeef00000003',
         )
         excel_path = result[0]
@@ -2436,7 +2436,7 @@ class TestSubcontractorVariantPriceSubstitution(unittest.TestCase):
         rows = [self._make_row('primary', cu='ALB-6-AUR1', smartsheet_price='$42.42', qty=1)]
         # NOTE: primary group_key has no _AEPBILLABLE/_REDUCEDSUB suffix
         result = generate_weekly_pdfs.generate_excel(
-            '041926_99887766', rows, dt.datetime(2026, 4, 19),
+            '041926_10854049', rows, dt.datetime(2026, 4, 19),
             data_hash='deadbeef00000004',
         )
         excel_path = result[0]
@@ -3198,7 +3198,7 @@ class TestHelperShadowSuffixDefensiveRaise(unittest.TestCase):
         """
         import datetime as _dt
         return [{
-            'Work Request #': '91467680',
+            'Work Request #': '19236776',
             'Weekly Reference Logged Date': '04/19/26',
             'Snapshot Date': '04/19/26',
             'Units Completed?': True,
@@ -3238,7 +3238,7 @@ class TestHelperShadowSuffixDefensiveRaise(unittest.TestCase):
         group = self._make_group('aep_billable_helper', helper_foreman='')
         with self.assertRaises(ValueError) as ctx:
             generate_weekly_pdfs.generate_excel(
-                '041926_91467680',
+                '041926_19236776',
                 group,
                 _dt.datetime(2026, 4, 19),
                 data_hash='deadbeefcafebab4',
@@ -3250,7 +3250,7 @@ class TestHelperShadowSuffixDefensiveRaise(unittest.TestCase):
         # _make_group MUST NOT appear in the message body.
         msg = str(ctx.exception)
         self.assertIn('aep_billable_helper', msg)
-        self.assertIn('91467680', msg)
+        self.assertIn('19236776', msg)
         self.assertNotIn('500', msg, f"dept # leaked into raise body: {msg!r}")
         self.assertNotIn('JOB-99', msg, f"job # leaked into raise body: {msg!r}")
 
@@ -3259,14 +3259,14 @@ class TestHelperShadowSuffixDefensiveRaise(unittest.TestCase):
         group = self._make_group('reduced_sub_helper', helper_foreman='')
         with self.assertRaises(ValueError) as ctx:
             generate_weekly_pdfs.generate_excel(
-                '041926_91467680',
+                '041926_19236776',
                 group,
                 _dt.datetime(2026, 4, 19),
                 data_hash='deadbeefcafebab5',
             )
         msg = str(ctx.exception)
         self.assertIn('reduced_sub_helper', msg)
-        self.assertIn('91467680', msg)
+        self.assertIn('19236776', msg)
         self.assertNotIn('500', msg, f"dept # leaked into raise body: {msg!r}")
         self.assertNotIn('JOB-99', msg, f"job # leaked into raise body: {msg!r}")
 
@@ -3282,7 +3282,7 @@ class TestHelperShadowSuffixDefensiveRaise(unittest.TestCase):
         group = self._make_group('helper', helper_foreman='')
         try:
             generate_weekly_pdfs.generate_excel(
-                '041926_91467680',
+                '041926_19236776',
                 group,
                 _dt.datetime(2026, 4, 19),
                 data_hash='deadbeefcafebab6',
@@ -3410,7 +3410,7 @@ class TestPhase1IntegrationRegression(unittest.TestCase):
     def _primary_row(self, cu='CU-A', qty=1, price='$100.00',
                      pole='P-1'):
         return {
-            'Work Request #': '91467680',
+            'Work Request #': '19236776',
             'Snapshot Date': '2026-04-19',
             'CU': cu,
             'Quantity': qty,
@@ -3427,7 +3427,7 @@ class TestPhase1IntegrationRegression(unittest.TestCase):
     def _helper_row(self, cu='CU-H1', qty=1, price='$200.00',
                     pole='P-H1', helper='BobHelper'):
         return {
-            'Work Request #': '91467680',
+            'Work Request #': '19236776',
             'Snapshot Date': '2026-04-19',
             'CU': cu,
             'Quantity': qty,
@@ -3448,7 +3448,7 @@ class TestPhase1IntegrationRegression(unittest.TestCase):
     def _vac_crew_row(self, cu='CU-V1', qty=1, price='$300.00',
                       pole='P-V1', name='VacMember1'):
         return {
-            'Work Request #': '91467680',
+            'Work Request #': '19236776',
             'Snapshot Date': '2026-04-19',
             'CU': cu,
             'Quantity': qty,
@@ -3469,7 +3469,7 @@ class TestPhase1IntegrationRegression(unittest.TestCase):
     def _aep_billable_row(self, cu='CU-S1', qty=1, price='$50.00',
                           pole='P-S1'):
         return {
-            'Work Request #': '91467680',
+            'Work Request #': '19236776',
             'Snapshot Date': '2026-04-19',
             'CU': cu,
             'Quantity': qty,
@@ -3776,7 +3776,7 @@ class TestHelperShadowVariantFileIdentifier(unittest.TestCase):
             },
         )
         ident = generate_weekly_pdfs.build_group_identity(
-            'WR_91467680_WeekEnding_041926_123456_AEPBillable_Helper_Jane_Smith_ab12cd34ef.xlsx'
+            'WR_19236776_WeekEnding_041926_123456_AEPBillable_Helper_Jane_Smith_ab12cd34ef.xlsx'
         )
         self.assertIsNotNone(ident)
         wr, week, parsed_variant, parsed_identifier = ident
@@ -3793,7 +3793,7 @@ class TestHelperShadowVariantFileIdentifier(unittest.TestCase):
             },
         )
         ident = generate_weekly_pdfs.build_group_identity(
-            'WR_91467680_WeekEnding_041926_123456_ReducedSub_Helper_John_Doe_ab12cd34ef.xlsx'
+            'WR_19236776_WeekEnding_041926_123456_ReducedSub_Helper_John_Doe_ab12cd34ef.xlsx'
         )
         self.assertIsNotNone(ident)
         wr, week, parsed_variant, parsed_identifier = ident
@@ -4204,7 +4204,7 @@ class TestPhase1FilenameRoundTripCoverage(unittest.TestCase):
         ``variant`` string.
 
         The filename shape used:
-          ``WR_91467680_WeekEnding_041926_123456[_<tail>]_<hash>.xlsx``
+          ``WR_19236776_WeekEnding_041926_123456[_<tail>]_<hash>.xlsx``
 
         Where ``<tail>`` is the variant marker (+ helper name for
         helper variants) and ``<hash>`` is a 16-char hex token —
@@ -4212,7 +4212,7 @@ class TestPhase1FilenameRoundTripCoverage(unittest.TestCase):
         emits. We parametrize via subTest so a failure in one
         variant doesn't mask the others.
         """
-        wr = '91467680'
+        wr = '19236776'
         week = '041926'
         timestamp = '123456'
         data_hash = 'deadbeefcafebabe'  # 16-char hex, parser-stable
@@ -4667,7 +4667,7 @@ class TestCleanupVariantWhitelist(unittest.TestCase):
         # (so the identity-prune path would normally preserve it).
         atts = [
             self._make_attachment(
-                'WR_91467680_WeekEnding_041926_120000_abc.xlsx', 100
+                'WR_19236776_WeekEnding_041926_120000_abc.xlsx', 100
             ),  # primary (off-contract for PPP whitelist)
         ]
         sheet, client = self._make_sheet_with_attachments(atts)
@@ -4675,7 +4675,7 @@ class TestCleanupVariantWhitelist(unittest.TestCase):
         # KEEP_HISTORICAL_WEEKS — these would normally save the
         # attachment under the legacy identity-prune logic.
         generate_weekly_pdfs.KEEP_HISTORICAL_WEEKS = True
-        valid = {('91467680', '041926', 'primary', '')}
+        valid = {('19236776', '041926', 'primary', '')}
         generate_weekly_pdfs.cleanup_untracked_sheet_attachments(
             client,
             target_sheet_id=9999,

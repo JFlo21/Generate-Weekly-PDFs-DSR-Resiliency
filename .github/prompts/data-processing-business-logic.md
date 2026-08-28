@@ -224,8 +224,8 @@ FILE NAMING CONVENTION:
 # Pattern: WR_{work_request}_WeekEnding_{MMDDYY}_{timestamp}_{hash}.xlsx
 filename = f"WR_{wr_numbers[0]}_WeekEnding_{week_ending}_{timestamp}_{data_hash[:8]}.xlsx"
 
-# Example: WR_90093002_WeekEnding_081725_183906_90f4f758.xlsx
-# - WR_90093002: Work Request number
+# Example: WR_13792260_WeekEnding_081725_183906_90f4f758.xlsx
+# - WR_13792260: Work Request number
 # - WeekEnding_081725: Week ending August 17, 2025  
 # - 183906: Timestamp for uniqueness
 # - 90f4f758: Data hash for change detection (8 chars)

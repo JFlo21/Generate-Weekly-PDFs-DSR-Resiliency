@@ -28,8 +28,8 @@ result: pass
 expected: `pytest tests/test_skip_upload_delete_gating.py -v` passes all 7 tests — SKIP_UPLOAD=true now gates the DELETE half too (dry_run wired at all 5 mutating call sites in pipeline/orchestrate.py), so a SKIP_UPLOAD run performs zero Smartsheet mutations.
 result: pass
 
-### 5. No lingering production-attachment loss (WR 89881161 self-heal; WR 89708709 / WR 90093002 intact)
-expected: On target sheet 5723337641643908 — WR 89881161 weeks 072025 and 081725 (deleted by the D-05 probe) have been regenerated and re-uploaded by a subsequent weekday cron run; WR 89708709 and WR 90093002 either have no matching attachments (no-op) or show no unexplained loss. No manual restore needed.
+### 5. No lingering production-attachment loss (WR 12937329 self-heal; WR 17310321 / WR 13792260 intact)
+expected: On target sheet 5723337641643908 — WR 12937329 weeks 072025 and 081725 (deleted by the D-05 probe) have been regenerated and re-uploaded by a subsequent weekday cron run; WR 17310321 and WR 13792260 either have no matching attachments (no-op) or show no unexplained loss. No manual restore needed.
 result: pass
 
 ### 6. Migration recorded for operators (Living Ledger + rollout/rollback runbooks)

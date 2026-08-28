@@ -1093,7 +1093,7 @@ def lookup_attribution(
         Work Request identifier. Sanitized at the producer site via
         ``_WR_SANITIZE`` (idempotent regex per [2026-04-23 18:25] —
         callers may pass either raw or pre-sanitized WR; both produce
-        the same RPC payload). Numeric-suffix WRs like ``'91467680.0'``
+        the same RPC payload). Numeric-suffix WRs like ``'19236776.0'``
         have the ``.0`` decimal suffix stripped via ``.split('.')[0]``
         before sanitization.
     week_ending : datetime.date

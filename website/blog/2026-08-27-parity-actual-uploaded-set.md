@@ -67,7 +67,7 @@ minutes fits with room to spare.
   is a handful of groups whose content hash alternates between two
   values on consecutive runs with no data change (a sort-key tie in
   `calculate_data_hash` resolved by fetch order — e.g.
-  `WR 91057431 / week 080226`, re-uploaded every run since 15:57Z on
+  `WR 17451333 / week 080226`, re-uploaded every run since 15:57Z on
   2026-08-27). That is tracked separately; do not flip the incremental
   flag while it persists.
 

@@ -104,7 +104,7 @@ security tests). Phase is Nyquist-compliant with zero open gaps.
 
 **08-02-T3 audit note (manual probe):** executed by operator 2026-07-22
 (~10:07 CDT). The "ZERO writes" secure behavior was VIOLATED as planned
-— the probe deleted 2 prior attachments (WR 89881161) because
+— the probe deleted 2 prior attachments (WR 12937329) because
 `SKIP_UPLOAD` gated only the upload half (T-08-03, `08-SECURITY.md`).
 Fixed same day (commit `442cb92`): `dry_run=SKIP_UPLOAD` now gates all
 mutating cleanup paths, and the formerly manual-only "zero writes"

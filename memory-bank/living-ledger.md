@@ -1717,9 +1717,9 @@
   passing and 4 net skipped on the postgrest-gated APIError tests).
 - [2026-05-19 22:00] **Phase 01.1 Plan 06 — SUB-09 helper-path
   partition gap-closure.** UAT-confirmed duplicate-billing artifact
-  (live run 26138204743): WR_90773033 wk 041226 foreman Chris_Lopez
-  produced BOTH a legacy ``_Helper_Chris_Lopez.xlsx`` on TARGET_SHEET_ID
-  AND the correct ``_ReducedSub_Helper_Chris_Lopez.xlsx`` on PPP. The
+  (live run 26138204743): WR_16087226 wk 041226 foreman Drew_Placeholder
+  produced BOTH a legacy ``_Helper_Drew_Placeholder.xlsx`` on TARGET_SHEET_ID
+  AND the correct ``_ReducedSub_Helper_Drew_Placeholder.xlsx`` on PPP. The
   Phase 01.1-02 Bug-B1 fix applied ``not is_subcontractor_row`` to the
   **primary** emission path in ``group_source_rows`` but forgot to apply
   the same guard to the **legacy helper** emission path at
@@ -2303,7 +2303,7 @@
   ``billing_audit.attribution_snapshot``) rather than shipping one
   bare ``_VacCrew`` file per WR+week. Each file holds only one
   claimer's completed line items and is named ``_VacCrew_<name>``
-  (e.g. ``WR_90773033_WeekEnding_051226_VacCrew_Jane_Smith_<hash>.xlsx``).
+  (e.g. ``WR_16087226_WeekEnding_051226_VacCrew_Jane_Smith_<hash>.xlsx``).
   Hash-in-filename retained (E does the strip). ``billing_audit/``
   NOT modified — everything C needs shipped in Foundation A.
   Spec: ``docs/superpowers/specs/2026-05-21-subproject-c-vac-crew-
@@ -3378,7 +3378,7 @@
   wrong/current ``_User_<name>`` — is the fingerprint. The
   ``attribution_snapshot`` data was fine all along (142,806 rows, 49
   weeks back to 2025-06, 99.3% real ``frozen_primary``; e.g. WR
-  90727774 correctly froze Mark Diaz for the March/early-May weeks and
+  18779836 correctly froze Mark Diaz for the March/early-May weeks and
   Wade Watson for May 17/24 — but every file shipped as Wade Watson).
   **Why the deploy silently never took (the latent ``schema.sql``
   defect):** ``schema.sql`` instructed operators to "apply this CREATE
@@ -3392,7 +3392,7 @@
   BIGINT)`` then re-creates the 5-column version, creates
   ``lookup_attribution_bulk``, grants EXECUTE to ``service_role``, and
   ``NOTIFY pgrst, 'reload schema'``. Verified: per-row + bulk now resolve
-  ``primary_foreman='Mark Diaz'`` for WR 90727774 wk 2026-03-01 (was
+  ``primary_foreman='Mark Diaz'`` for WR 18779836 wk 2026-03-01 (was
   Wade Watson). (2) Patched ``billing_audit/schema.sql`` to add the
   ``DROP FUNCTION IF EXISTS`` before the ``lookup_attribution`` create
   and corrected the misleading "adding columns is backward-compatible"
@@ -3482,7 +3482,7 @@
   RPC deployed 2026-05-27 via ``DROP FUNCTION IF EXISTS`` + ``CREATE``
   pattern (per the [2026-05-27 14:45] return-shape rule), validated by
   direct call returning real ``frozen_primary='Mark Diaz'`` for
-  WR 90727774 wk 2026-03-01 (was silently returning current foreman
+  WR 18779836 wk 2026-03-01 (was silently returning current foreman
   Wade Watson pre-fix).
   (2) ``billing_audit.group_content_hash`` table deployed + populated
   with 2,285 rows by Sub-project E shadow writes since the 2026-05-25
@@ -3787,7 +3787,7 @@ has over the primary. The fix is a UNIT-LEVEL cross-row reconciliation pre-pass 
 NO change to the detection conjunction, the acceptance gates, or the billing-audit attribution
 machinery (see "Reverted" below).
 
-**Why:** Operator reported the same unit (WR 90922617, Point 11 `ANC-DSC-16-96-D1`, Point 11
+**Why:** Operator reported the same unit (WR 19641091, Point 11 `ANC-DSC-16-96-D1`, Point 11
 `PLA-HDIG`, Point 15 `ANC-`) appearing on BOTH the foreman's `_User_` Excel and Hugo Garcia's
 `_VacCrew_` Excel — double-crediting/double-billing.
 
@@ -3830,7 +3830,7 @@ occur, so the whole widening was REVERTED rather than chased through the billing
 `EXCLUDING from foreman/helper` log marker added to `_PII_LOG_MARKERS`), new TDD
 `tests/test_vac_crew_exclusion_leak.py`, and a sanitizer test in
 `tests/test_sentry_log_sanitizer.py`. Verified by a read-only `SKIP_UPLOAD` dry run against real
-WR 90922617 (week 060726): Chris's `_User_` total dropped $30,023.63→$26,098.52 (exactly the 3
+WR 19641091 (week 060726): Chris's `_User_` total dropped $30,023.63→$26,098.52 (exactly the 3
 VAC-claimed units, −$3,925.11), Hugo's `_VacCrew_` total unchanged ($11,419.29), zero
 cross-sheet duplicates, all 26 of Chris's own Point 11 units retained. Suite 1055 passed / 0
 failures; `py_compile` OK. Hash key NOT shortened (dropping a leaked row changes the affected
@@ -4186,10 +4186,10 @@ Wave 4 (grouping/excel). All gates GREEN @ 1101 pytest.
 GSD debug `find_root_cause_only` (session `.planning/debug/frozen-claim-history-gap.md`). Operator
 asked whether frozen-attribution preserves the PREVIOUS actor's historical Excel file when a job's
 actor is reassigned (Smartsheet overwrites the live foreman), across primary / helper / VAC /
-subcontractor. Anchor case WR 89834661. **TWO independent problems found (NO fixes applied):**
+subcontractor. Anchor case WR 14527770. **TWO independent problems found (NO fixes applied):**
 
 **P1 — DATA (cold-start backfill froze the wrong foreman).** The freeze system began writing
-~2026-04-24; WR 89834661's Sept-2025 work was frozen in ONE backfill on 2026-04-24, by which time
+~2026-04-24; WR 14527770's Sept-2025 work was frozen in ONE backfill on 2026-04-24, by which time
 Smartsheet had already been overwritten from the true foreman-of-record to the current foreman.
 First-write-wins captured the post-overwrite value → all weeks 09/07–03/29 frozen to the CURRENT
 foreman, the real prior foreman absent, 52 rows in 09/21 frozen `Unknown Foreman`. **First-write-wins
@@ -4575,7 +4575,7 @@ Codex's review of this tip is silent → merge to `master`.
 breadcrumb carries PII in two places: (1) `message` (free text) — dropped whole on a `_PII_LOG_MARKERS` hit
 (allow-by-default / deny-on-marker, like logs); (2) `data` (structured key/value) — row-identifier keys in the
 new `_PII_BREADCRUMB_DATA_KEYS` frozenset are STRIPPED IN PLACE. A message-marker sweep CANNOT catch `data`: a
-bare value like `wr="90093002"` matches no text marker. Manual breadcrumbs (`sentry_add_breadcrumb`) route PII
+bare value like `wr="13792260"` matches no text marker. Manual breadcrumbs (`sentry_add_breadcrumb`) route PII
 specifically through `data` under a benign message — e.g. `orchestrate.py:1814` skip crumb
 `message="Skipped unchanged group", data={"wr":…, "week":…, "variant":…, "hash":…}`. The message-only v1 of this
 hook (previous tip d0dd2eb) kept those, so WR + week + (variant embeds foreman) still leaked on every
@@ -4642,7 +4642,7 @@ ledger, and `docs/AI_CONTEXT_RESUME.md` to the merged state; second brain (proje
 dashboard, log) updated the same session. Ultimate proof still pending: the next scheduled 2h production cron
 surviving a real code-4000 blip without dropping a source sheet.
 
-## [2026-07-06 14:30] Debug session opened: WR 90968595 late-arriving ProMax rows missing from main-file Excel
+## [2026-07-06 14:30] Debug session opened: WR 11951363 late-arriving ProMax rows missing from main-file Excel
 
 **Symptom (operator-reported):** WR 909-685-95's current-week Excel generates, and its 7/2 snapshot rows are
 present, but rows that arrived from ProMax on **2026-07-05** (units claimed by the foreman + department
@@ -4659,16 +4659,16 @@ dual-checkbox exclusion (both "Helping Foreman Completed Unit?" + "Units Complet
 exclusion by design); (3) Weekly Reference Logged Date vs Snapshot Date filtering dropping the 7/5 rows from
 the week-ending group.
 
-**State:** GSD debug session `.planning/debug/wr-90968595-rows-not-pulled.md` (goal: find_and_fix,
+**State:** GSD debug session `.planning/debug/wr-11951363-rows-not-pulled.md` (goal: find_and_fix,
 investigation read-only, fix gated on Juan's checkpoint + full pytest). Root cause NOT yet confirmed — do not
 change grouping/attribution code from this entry alone; wait for the session's evidence-backed resolution.
 
-## [2026-07-06 15:05] RESOLVED root cause + NEW RULE: durable group hash may only advance after upload success (WR 90968595 incident)
+## [2026-07-06 15:05] RESOLVED root cause + NEW RULE: durable group hash may only advance after upload success (WR 11951363 incident)
 
 **Root cause (confirmed):** crash-consistency bug in the Sub-project E authoritative hash store. The per-group
 content hash was upserted to `billing_audit.group_content_hash` in the EMISSION loop, but attachment uploads
 run later in the deferred batch phase. Failed run **28752355941** (2026-07-05, "hosted runner lost
-communication") died after upserting hash `561017c7` for WR 90968595 / week 2026-07-05 / primary but before
+communication") died after upserting hash `561017c7` for WR 11951363 / week 2026-07-05 / primary but before
 the upload phase replaced the attachment. Under `SUPABASE_HASH_STORE_AUTHORITATIVE=1` filenames are clean
 (hash-less), so the skip gate can only verify an attachment EXISTS, not that it is current → every later run:
 computed==stored + attachment exists → **skip forever**. Regeneration cannot recover by design; the 7/5 ProMax
@@ -4689,8 +4689,8 @@ change detection.
 
 **One-time remediation (after the fix merges):** `workflow_dispatch` with `advanced_options` =
 `regen_weeks:070526` — bypasses the poisoned skip gate for week 07/05/26 and force-replaces attachments,
-healing WR 90968595 and any other groups the failed run poisoned. Verify the regenerated
-`WR_90968595_WeekEnding_070526` file contains the July 5th ProMax rows. (`reset_wr_list:90968595` also works
+healing WR 11951363 and any other groups the failed run poisoned. Verify the regenerated
+`WR_11951363_WeekEnding_070526` file contains the July 5th ProMax rows. (`reset_wr_list:11951363` also works
 but purges ALL weeks' attachments for that WR — broader than needed.)
 
 **Ops lesson:** a failed Actions run ("runner lost communication") can now be loud in the ledger — any group
@@ -4863,7 +4863,7 @@ API), and the emergency `>=3.1.0,<4.0.0` pin lifted to the exact
 
 Operator (Juan) ran the D-05 bounded read-only probe against real
 Smartsheet on 4.3.0 (~10:07 CDT, `SKIP_UPLOAD=true
-WR_FILTER=84157414,89881161 MAX_GROUPS=5`, SDK version confirmed 4.3.0 via
+WR_FILTER=16719437,12937329 MAX_GROUPS=5`, SDK version confirmed 4.3.0 via
 `python -m pip`). Result: **PASSED** for all SDK-facing criteria — all
 source sheets fetched, "Grouping validation passed: 2771 groups", 676
 target-row + 545 PPP attachment-list calls completed via the retry wrapper
@@ -4874,7 +4874,7 @@ exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
 
 - **Pre-existing finding, NOT SDK drift:** `SKIP_UPLOAD=true` gates only the
   upload half of the engine's delete-then-upload sequence, not the delete
-  half. The probe deleted 2 prior WR 89881161 attachments on the production
+  half. The probe deleted 2 prior WR 12937329 attachments on the production
   `TARGET_SHEET_ID` sheet before correctly skipping the re-upload — this is
   byte-identical behavior on 3.x, unrelated to the SDK migration. Full
   detail + suggested fix logged in
@@ -4901,7 +4901,7 @@ exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
   matching, skip logging) still run so dry-run output stays
   representative.
 - **Why:** the D-05 live probe (`SKIP_UPLOAD=true`) deleted 2 real
-  production attachments (WR 89881161, weeks 072025/081725) because
+  production attachments (WR 12937329, weeks 072025/081725) because
   `delete_old_excel_attachments()` ran unconditionally in `_upload_one`
   while `SKIP_UPLOAD` gated only the `attach_file_to_row` call.
   Pre-existing defect (identical under SDK 3.x), surfaced by the probe,
@@ -5221,9 +5221,9 @@ exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
 
 ## [2026-08-12 13:40] SAA-DE-20 overbill: stale Smartsheet formula cell + Snapshot Date automation re-stamp defect (two distinct ProMax-sheet failure modes)
 
-- **Incident 1 (field-reported wrong pricing):** WR 91916464 / Point 27 /
+- **Incident 1 (field-reported wrong pricing):** WR 16881353 / Point 27 /
   SAA-DE-20 Inst showed 3 EA @ $341.04 ($113.68/EA) in
-  `WR_91916464_WeekEnding_080926_User_Isaac_Atkinson.xlsx`; correct is
+  `WR_16881353_WeekEnding_080926_User_Emerson_Fictional.xlsx`; correct is
   3 x $56.84 = $170.52 (group SAA install rate).
 - **Root cause (DATA, not code):** on "Resiliency Promax Database
   Backup 86" the row's `Quantity` was loaded as 6 on 2026-07-07, then
@@ -5447,7 +5447,7 @@ exceptions. No SDK 4.3.0 error-shape drift observed — `pipeline/retry.py`'s
   newest-first (A1); automation writes carry
   `automation@smartsheet.com` (A4) on both legitimate and erroneous
   stamps. WINDOWS defect #1 (unrun-verify) closed on this evidence.
-- **Complete Point 27 evidence chain** (WR 91916464, row id
+- **Complete Point 27 evidence chain** (WR 16881353, row id
   4458327346708356): legit stamp 2026-08-06 15:59:07Z (23s after the
   foreman's `Units Completed?` check); erroneous self-fire 2026-08-12
   18:11:48Z re-stamping `Snapshot Date` to 08-12 **and** `Weekly
@@ -5811,12 +5811,12 @@ follow-up findings closed, same 6 files.
   skipped=27 out_of_scope=115,340 (810/114,530) mismatches=2`
   (burn-in: checked=85,398, same out_of_scope split, same 2) —
   the local repro is a faithful oracle for CI audit behavior.
-- **Mismatch 1: WR 91718610 / CU SAA-DE-20 / Inst / Qty 2** —
+- **Mismatch 1: WR 16723988 / CU SAA-DE-20 / Inst / Qty 2** —
   expected $113.68 (2 × $56.84), actual $56.84 → **underbilled
   exactly one unit** (actual = rate × (qty−1)). Same CU as the
   2026-08-12 incident, opposite direction. Source rows live on
   Resiliency Promax Database Backup 82/83 + Intake Promax 9.
-- **Mismatch 2: WR 91173728 / CU DEC-20AL-C / Inst / Qty 4** —
+- **Mismatch 2: WR 11417424 / CU DEC-20AL-C / Inst / Qty 4** —
   expected $1,179.36 (4 × $294.84), actual $884.52 (3 × $294.84) →
   **underbilled exactly one unit**, same class. (Smartsheet search
   didn't surface its ProMax source sheet — index lag; find by WR
@@ -5851,7 +5851,7 @@ follow-up findings closed, same 6 files.
 
 ## [2026-08-14 00:50] ROOT CAUSE CONFIRMED via cell history: both rate-sanity mismatches are automation-triggered stale recalcs (2-3s after a human qty edit), with exact row pointers
 
-- **WR 91718610 / SAA-DE-20 / Inst — Resiliency Promax Database
+- **WR 16723988 / SAA-DE-20 / Inst — Resiliency Promax Database
   Backup 83 (sheet 1751347954143108), row 5538447881863044.**
   Cell-history timeline (UTC 2026-08-07): 00:15:38 Jose Mendez edits
   Quantity 1→2 (+ checks Units Completed?); 00:16:01 automation
@@ -5863,7 +5863,7 @@ follow-up findings closed, same 6 files.
   PRICING-TOTALS formula result, not the quantity SUMIFS. Billed week
   2026-08-09 → that week's Excel already underbilled $56.84; re-save
   regenerates via hash change.
-- **WR 91173728 / DEC-20AL-C / Inst — Resiliency Promax Database
+- **WR 11417424 / DEC-20AL-C / Inst — Resiliency Promax Database
   Backup 73 (sheet 5545068919213956), row 1166598725369732.**
   Timeline (UTC 2026-08-11): 22:33:31 Patrick Duffy edits Quantity
   3→4; 22:33:48 price recalcs CORRECTLY to $1,179.36; **22:33:51
@@ -5892,13 +5892,13 @@ follow-up findings closed, same 6 files.
   immediately back as NUMBER — each step is a real change and the
   second recalc lands on correct current inputs. Snapshot Date was
   NOT re-stamped by automations on either edit.
-- **Row 1 (Backup 83 / 5538447881863044, WR 91718610):** fixed →
+- **Row 1 (Backup 83 / 5538447881863044, WR 16723988):** fixed →
   $113.68, stable through the automation window AND run 31805121266,
   which REGENERATED Week=080926 (the underbilled 08-09 Excel is
   corrected + re-uploaded). Caution logged: the session slept mid-
   flip, leaving the row in text-Quantity state 07:06–08:11 UTC
   (price $0 transiently); no run fetched in that window.
-- **Row 2 (Backup 73 / 1166598725369732, WR 91173728):** fixed →
+- **Row 2 (Backup 73 / 1166598725369732, WR 11417424):** fixed →
   $1,179.36 at 14:56 UTC (after run 31805121266 fetched), stable.
   That run generated Week=081626 with the old $884.52 — the NEXT
   scheduled run picks up the hash change and regenerates the
@@ -6034,17 +6034,17 @@ follow-up findings closed, same 6 files.
 - **Regression:** `tests/test_cloud_agent_install.py` asserts the
   script exists, is executable, and does not contain `cd portal`.
 
-## [2026-08-24 14:35] `_User_Unknown_Foreman` root cause (WR 89829163) — sentinel frozen as claimer + `Foreman` is a WR-level RA lookup; helper-sheet gaps are data-gated (diagnosis only, no code change)
+## [2026-08-24 14:35] `_User_Unknown_Foreman` root cause (WR 19073866) — sentinel frozen as claimer + `Foreman` is a WR-level RA lookup; helper-sheet gaps are data-gated (diagnosis only, no code change)
 
-- **Symptom:** WR 89829163 ships as `WR_89829163_WeekEnding_{082425,083125,091425,092125}_User_Unknown_Foreman.xlsx`
-  although Allen Harris was the foreman (pre-attribution `hash_history.json`, 2025-09-29).
+- **Symptom:** WR 19073866 ships as `WR_19073866_WeekEnding_{082425,083125,091425,092125}_User_Unknown_Foreman.xlsx`
+  although Avery Example was the foreman (pre-attribution `hash_history.json`, 2025-09-29).
 - **Root cause (3 independent sources):** (a) the source sheets' `Foreman` column is a
   **column formula** = WR-level INDEX/MATCH into the Resource Analyst sheet; once a WR is
   archived/removed from RA every row's `Foreman` goes blank (`Foreman Assigned` shows
   `#NO MATCH`; `Foreman Assigned?` is not mapped) → `pipeline/fetch.py` resolves
   `effective_user='Unknown Foreman'`. (b) `billing_audit/writer.py::freeze_row` writes
   `__effective_user` verbatim, so the `'Unknown Foreman'` **sentinel is frozen as a real
-  claimer** (first-write-wins; WR 89829163 rows frozen 2026-04-24 by run 24912872441, after
+  claimer** (first-write-wins; WR 19073866 rows frozen 2026-04-24 by run 24912872441, after
   the WR was already archived). `resolve_claimer` only treats blank/`#…` as no-claimer, so
   Subproject D partitions the primary file as `_USER_Unknown_Foreman` forever. (c) run
   32743959053 log: `group_content_hash…identifier=eq.Unknown_Foreman` for all 4 weeks.
@@ -6058,10 +6058,10 @@ follow-up findings closed, same 6 files.
   durable "last known foreman" source for archived WRs — the sheets keep no per-row memory.
 - **Helper ("shadow helper") sheets:** scheduled run 32743959053 evaluated ALL 166 helper +
   3 ReducedSub_Helper + 2 AEPBillable_Helper groups (reconciled: 0 dropped between grouping
-  and generation; helper files exist for current-week claims, e.g. WR 91739125
-  `_Helper_Kevin_Ludlam` 082326). Claims with no helper file are data-gated: `Helper Dept #`
+  and generation; helper files exist for current-week claims, e.g. WR 11136536
+  `_Helper_Finley_Stand` 082326). Claims with no helper file are data-gated: `Helper Dept #`
   blank (a column formula that resolves the helper's dept from the foreman→dept mapping —
-  15 WRs in that run, 91499829 ×71 rows, 90550059 ×69) or `Foreman Helping?` blank (WR-level
+  15 WRs in that run, 13656311 ×71 rows, 18246129 ×69) or `Foreman Helping?` blank (WR-level
   RA "Assigned Helper" lookup). Eliminated: discovery-cache column mappings, skip gate
   (variant+identifier aware), KEEP_HISTORICAL cleanup, time budget, MAX_GROUPS. A forced
   regeneration changes none of these gates — need one concrete (WR, week, helper, run id)
@@ -6092,7 +6092,7 @@ follow-up findings closed, same 6 files.
 - **Rule (proposed, needs Juan):** ownership = "as-of the week, never a sentinel" — this
   AMENDS Foundation A's frozen first-write-wins contract ([2026-05-20 13:45]) and is
   billing-visible; do not implement Phase 12 without explicit approval + a known-good
-  validation sample (WR 89829163 WE 082425–092125 → Allen Harris).
+  validation sample (WR 19073866 WE 082425–092125 → Avery Example).
 - **Blocked on:** spec §8 decisions (semantics, schema placement, `row_event` retention,
   deep-run reconciliation, backfill sources, audit finding key). Next: `/gsd:plan-phase 10`
   after decisions; `/lattice-init` before implementation.
@@ -6309,7 +6309,7 @@ follow-up findings closed, same 6 files.
   | 4 | `pipeline/snapshot_drift.py:50` | `import-untyped` dateutil stubs | C | `a6e19db` 2026-08-12 | quick task 260812-jqx (#330) |
   | 5 | `audit_billing_changes.py:164` | `arg-type` dict.get(Any \| None) | C | `3b2f7b0` 2026-08-13 | quick task 260813-nhn (#334) |
   | 6-8 | `audit_billing_changes.py:371/740/741` | `attr-defined` extend/append, `operator` < | C | `647a688` 2026-08-12 | quick task 260812-isx (#329) |
-  | 9-10 | `pipeline/orchestrate.py:2287-2288` | `annotation-unchecked` notes | B | `de43b79` 2026-07-06 | WR 90968595 debug (#283) |
+  | 9-10 | `pipeline/orchestrate.py:2287-2288` | `annotation-unchecked` notes | B | `de43b79` 2026-07-06 | WR 11951363 debug (#283) |
 - **Tracked debt:** the single class-A item (#3, runtime-guarded by the `except (TypeError,
   ValueError): continue` directly below it, so no correctness impact today) is
   `.planning/todos/pending/` "fix snapshot_store int(row.get()) arg-type" — a one-line fix in
@@ -7144,7 +7144,7 @@ follow-up findings closed, same 6 files.
      `pass` is impossible at this budget. ~25 min is needed (the run took 53 min against a 165-min budget).
 - **`only_in_candidate` (40 current-week groups) was the expected baseline gap**, not a defect: memory's
   `row_state` was last written 08-25 (every CI run since failed to write) while `hash_history`/the durable
-  store were current through #2800 — e.g. `90787223/083026` was uploaded by #2799 at 15:57Z. Self-heals from
+  store were current through #2800 — e.g. `13520075/083026` was uploaded by #2799 at 15:57Z. Self-heals from
   the next run now that `row_state` is current.
 - **Open (secondary): one genuine churn group.** `<WR-A>/080226 primary <FOREMAN-A>` is regenerated
   and re-uploaded on #2799, #2800, #2801 (not on the four runs before) via the "hash changed" branch, yet
@@ -7242,7 +7242,7 @@ follow-up findings closed, same 6 files.
   regenerated a group the selector would have MISSED) or a hash mismatch on a shared group;
   candidate-only groups are recorded in `only_in_candidate`; candidate-only with nothing regenerated
   is `skipped`, never `pass`. `group_key_set_mismatch` retired as a reason. Tests added.
-- **Checklist 3b (attachment id preserved on skip) — proven for the skip path.** `91537611/083026` and
+- **Checklist 3b (attachment id preserved on skip) — proven for the skip path.** `18459506/083026` and
   `<WR-A>/080226` were `⏩ Skip (unchanged + attachment exists)`; their `group_state` rows are
   untouched (`attachment_id` 8847660879351684 / 309695391633284, `last_generated_run` = #2801).
   `<WR-B>/083026` and `<WR-C>/083026` had real row changes → regenerated → new attachment ids,

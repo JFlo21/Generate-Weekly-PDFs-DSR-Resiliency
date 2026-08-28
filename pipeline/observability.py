@@ -546,7 +546,7 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
 # attach PII via ``data`` with a BENIGN ``message`` that no ``_PII_LOG_MARKERS``
 # entry matches — e.g. ``orchestrate.py`` skip/regenerate crumbs carry
 # ``data={"wr":…, "week":…, "variant":…}`` under ``message="Skipped unchanged
-# group"``. The message-marker sweep cannot catch a bare ``90093002`` value, so
+# group"``. The message-marker sweep cannot catch a bare ``13792260`` value, so
 # ``sentry_before_breadcrumb`` strips these keys by NAME (Codex P2, PR #281).
 # ``variant`` is included because ``_User_<foreman>`` / ``_Helper_<foreman>``
 # embed the foreman name. Keep lowercase; matching is case-insensitive.
@@ -628,7 +628,7 @@ def sentry_before_breadcrumb(crumb, hint):
         and are kept so the debug trail is not gutted.
       * ``data`` (structured key/value) — row-identifier keys in
         ``_PII_BREADCRUMB_DATA_KEYS`` are stripped IN PLACE (a bare ``wr``
-        value like ``90093002`` never matches a text marker, so a
+        value like ``13792260`` never matches a text marker, so a
         deny-by-key model is required; e.g. the ``orchestrate.py`` skip /
         regenerate crumbs). The breadcrumb + its non-PII keys survive.
 

@@ -31,11 +31,11 @@ Every workflow run generates Excel billing reports that are automatically preser
 **Structure**:
 ```
 by_wr/
-├── WR_90093002/
-│   ├── WR_90093002_WeekEnding_081725_163045_a4d1aae7.xlsx
-│   └── WR_90093002_WeekEnding_082425_163045_b7e2ccf9.xlsx
-├── WR_89979435/
-│   └── WR_89979435_WeekEnding_092825_163045_3f8d9be1.xlsx
+├── WR_13792260/
+│   ├── WR_13792260_WeekEnding_081725_163045_a4d1aae7.xlsx
+│   └── WR_13792260_WeekEnding_082425_163045_b7e2ccf9.xlsx
+├── WR_10565998/
+│   └── WR_10565998_WeekEnding_092825_163045_3f8d9be1.xlsx
 └── ...
 ```
 
@@ -48,10 +48,10 @@ by_wr/
 ```
 by_week/
 ├── Week_081725/
-│   ├── WR_90093002_WeekEnding_081725_163045_a4d1aae7.xlsx
-│   └── WR_89954686_WeekEnding_081725_163045_c2f5aab3.xlsx
+│   ├── WR_13792260_WeekEnding_081725_163045_a4d1aae7.xlsx
+│   └── WR_16975895_WeekEnding_081725_163045_c2f5aab3.xlsx
 ├── Week_092825/
-│   └── WR_89979435_WeekEnding_092825_163045_3f8d9be1.xlsx
+│   └── WR_10565998_WeekEnding_092825_163045_3f8d9be1.xlsx
 └── ...
 ```
 
@@ -77,14 +77,14 @@ WR_{work_request}_WeekEnding_{MMDDYY}_{timestamp}_{hash}.xlsx
 ```
 
 **Components**:
-- `work_request`: Work Request number (e.g., 90093002)
+- `work_request`: Work Request number (e.g., 13792260)
 - `MMDDYY`: Week ending date in month/day/year format
 - `timestamp`: Generation timestamp (HHMMSS format)
 - `hash`: 8-character data hash for change detection
 
 **Examples**:
-- `WR_90093002_WeekEnding_081725_163045_a4d1aae7.xlsx`
-- `WR_89979435_WeekEnding_092825_142301_3f8d9be1.xlsx`
+- `WR_13792260_WeekEnding_081725_163045_a4d1aae7.xlsx`
+- `WR_10565998_WeekEnding_092825_142301_3f8d9be1.xlsx`
 
 **Benefits**:
 - ✅ Human-readable and sortable
@@ -190,10 +190,10 @@ The `artifact_manifest.json` provides comprehensive metadata:
   "source_folder": "generated_docs",
   "artifacts": [
     {
-      "filename": "WR_90093002_WeekEnding_081725_163045_a4d1aae7.xlsx",
-      "filepath": "generated_docs/WR_90093002_WeekEnding_081725_163045_a4d1aae7.xlsx",
+      "filename": "WR_13792260_WeekEnding_081725_163045_a4d1aae7.xlsx",
+      "filepath": "generated_docs/WR_13792260_WeekEnding_081725_163045_a4d1aae7.xlsx",
       "sha256": "0fde654d4c6e659b45783a725dc92f1bfb0baa6c2de64b34e814dc206ff4aaaf",
-      "work_request": "90093002",
+      "work_request": "13792260",
       "week_ending": "081725",
       "timestamp": "163045",
       "data_hash": "a4d1aae7",
@@ -207,13 +207,13 @@ The `artifact_manifest.json` provides comprehensive metadata:
     "total_files": 23,
     "total_size_bytes": 1048576,
     "total_size_mb": 1.00,
-    "work_requests": ["90093002", "89979435", "..."],
+    "work_requests": ["13792260", "10565998", "..."],
     "week_endings": ["081725", "082425", "..."],
     "by_week": {
-      "081725": ["WR_90093002_WeekEnding_081725_...", "..."]
+      "081725": ["WR_13792260_WeekEnding_081725_...", "..."]
     },
     "by_wr": {
-      "90093002": ["WR_90093002_WeekEnding_081725_...", "..."]
+      "13792260": ["WR_13792260_WeekEnding_081725_...", "..."]
     }
   }
 }
@@ -227,7 +227,7 @@ The `artifact_manifest.json` provides comprehensive metadata:
 gh run download <run-id> --name "By-WorkRequest-production_frequent-Run1234"
 
 # Navigate to specific WR folder
-cd artifact_staging/by_wr/WR_90093002/
+cd artifact_staging/by_wr/WR_13792260/
 ```
 
 ### 2. Retrieve All Reports for a Billing Week
@@ -245,8 +245,8 @@ cd artifact_staging/by_week/Week_092825/
 gh run download <run-id> --name "Manifest-production_frequent-Run1234"
 
 # Verify SHA256 hash
-manifest_hash=$(jq -r '.artifacts[] | select(.filename=="WR_90093002_WeekEnding_081725_163045_a4d1aae7.xlsx") | .sha256' artifact_manifest.json)
-file_hash=$(sha256sum WR_90093002_WeekEnding_081725_163045_a4d1aae7.xlsx | cut -d' ' -f1)
+manifest_hash=$(jq -r '.artifacts[] | select(.filename=="WR_13792260_WeekEnding_081725_163045_a4d1aae7.xlsx") | .sha256' artifact_manifest.json)
+file_hash=$(sha256sum WR_13792260_WeekEnding_081725_163045_a4d1aae7.xlsx | cut -d' ' -f1)
 
 if [ "$manifest_hash" == "$file_hash" ]; then
   echo "✅ File integrity verified"

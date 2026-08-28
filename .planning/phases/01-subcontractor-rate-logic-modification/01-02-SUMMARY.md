@@ -291,8 +291,8 @@ Performed inline before writing this section:
 - `grep -nE '"_AEPBILLABLE"' generate_weekly_pdfs.py` → L778: **FOUND**
 - `grep -nE '"_REDUCEDSUB"' generate_weekly_pdfs.py` → L779: **FOUND**
 - `grep -nE '"Subcontractor rates CSV missing"' generate_weekly_pdfs.py` → L784: **FOUND**
-- `python -c "import generate_weekly_pdfs as g; r=g.build_group_identity('WR_91467680_WeekEnding_041926_123456_AEPBillable_ab12cd34ef.xlsx'); assert r is not None and r[2]=='aep_billable' and r[3]==''"` → exit 0: **CONFIRMED**
-- `python -c "import generate_weekly_pdfs as g; r=g.build_group_identity('WR_91467680_WeekEnding_041926_123456_ReducedSub_Helper_Jane_Smith_ab12cd34ef.xlsx'); assert r is not None and r[2]=='reduced_sub_helper' and r[3]=='Jane_Smith'"` → exit 0: **CONFIRMED**
+- `python -c "import generate_weekly_pdfs as g; r=g.build_group_identity('WR_19236776_WeekEnding_041926_123456_AEPBillable_ab12cd34ef.xlsx'); assert r is not None and r[2]=='aep_billable' and r[3]==''"` → exit 0: **CONFIRMED**
+- `python -c "import generate_weekly_pdfs as g; r=g.build_group_identity('WR_19236776_WeekEnding_041926_123456_ReducedSub_Helper_Jane_Smith_ab12cd34ef.xlsx'); assert r is not None and r[2]=='reduced_sub_helper' and r[3]=='Jane_Smith'"` → exit 0: **CONFIRMED**
 - `python -c "import generate_weekly_pdfs as g; r=g.build_group_identity('WR_AEPBillable_WeekEnding_041926_123456_ab12cd34ef.xlsx'); assert r is not None and r[0]=='AEPBillable' and r[2]=='primary'"` → exit 0: **CONFIRMED (tail-scoping)**
 - Inline D-20 byte-identical guarantee: `g._SUBCONTRACTOR_RATES_FINGERPRINT='A'; h1=...; g._SUBCONTRACTOR_RATES_FINGERPRINT='B'; h2=...; assert h1==h2` for `__variant='primary'` → exit 0: **CONFIRMED**
 - `python -m py_compile generate_weekly_pdfs.py` → exit 0: **CONFIRMED**

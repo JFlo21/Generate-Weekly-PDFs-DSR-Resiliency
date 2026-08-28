@@ -93,34 +93,34 @@ class TestBuildGroupIdentityParsesPrimaryUserToken(unittest.TestCase):
 
     def test_reducedsub_user_token_parses_claimer(self):
         ident = generate_weekly_pdfs.build_group_identity(
-            'WR_91467680_WeekEnding_041926_120000_ReducedSub_User_John_Doe_abc123.xlsx'
+            'WR_19236776_WeekEnding_041926_120000_ReducedSub_User_John_Doe_abc123.xlsx'
         )
-        self.assertEqual(ident, ('91467680', '041926', 'reduced_sub', 'John_Doe'))
+        self.assertEqual(ident, ('19236776', '041926', 'reduced_sub', 'John_Doe'))
 
     def test_aepbillable_user_token_parses_claimer(self):
         ident = generate_weekly_pdfs.build_group_identity(
-            'WR_91467680_WeekEnding_041926_120000_AEPBillable_User_John_Doe_abc123.xlsx'
+            'WR_19236776_WeekEnding_041926_120000_AEPBillable_User_John_Doe_abc123.xlsx'
         )
-        self.assertEqual(ident, ('91467680', '041926', 'aep_billable', 'John_Doe'))
+        self.assertEqual(ident, ('19236776', '041926', 'aep_billable', 'John_Doe'))
 
     def test_legacy_reducedsub_parses_empty_identifier(self):
         ident = generate_weekly_pdfs.build_group_identity(
-            'WR_91467680_WeekEnding_041926_120000_ReducedSub_abc123.xlsx'
+            'WR_19236776_WeekEnding_041926_120000_ReducedSub_abc123.xlsx'
         )
-        self.assertEqual(ident, ('91467680', '041926', 'reduced_sub', ''))
+        self.assertEqual(ident, ('19236776', '041926', 'reduced_sub', ''))
 
     def test_legacy_aepbillable_parses_empty_identifier(self):
         ident = generate_weekly_pdfs.build_group_identity(
-            'WR_91467680_WeekEnding_041926_120000_AEPBillable_abc123.xlsx'
+            'WR_19236776_WeekEnding_041926_120000_AEPBillable_abc123.xlsx'
         )
-        self.assertEqual(ident, ('91467680', '041926', 'aep_billable', ''))
+        self.assertEqual(ident, ('19236776', '041926', 'aep_billable', ''))
 
     def test_reducedsub_helper_still_parses_helper(self):
         # Regression: the new User branch must not break helper-shadow parsing.
         ident = generate_weekly_pdfs.build_group_identity(
-            'WR_91467680_WeekEnding_041926_120000_ReducedSub_Helper_Jane_Smith_def456.xlsx'
+            'WR_19236776_WeekEnding_041926_120000_ReducedSub_Helper_Jane_Smith_def456.xlsx'
         )
-        self.assertEqual(ident, ('91467680', '041926', 'reduced_sub_helper', 'Jane_Smith'))
+        self.assertEqual(ident, ('19236776', '041926', 'reduced_sub_helper', 'Jane_Smith'))
 
 
 if __name__ == '__main__':
@@ -291,30 +291,30 @@ class TestPrimaryVariantSuffixHelper(unittest.TestCase):
 
     def test_reduced_sub_suffix_embeds_user_token(self):
         suffix = generate_weekly_pdfs._subcontractor_primary_variant_suffix(
-            'reduced_sub', 'John Doe', '91467680', '041926'
+            'reduced_sub', 'John Doe', '19236776', '041926'
         )
         self.assertEqual(suffix, '_ReducedSub_User_John_Doe')
 
     def test_aep_billable_suffix_embeds_user_token(self):
         suffix = generate_weekly_pdfs._subcontractor_primary_variant_suffix(
-            'aep_billable', 'John Doe', '91467680', '041926'
+            'aep_billable', 'John Doe', '19236776', '041926'
         )
         self.assertEqual(suffix, '_AEPBillable_User_John_Doe')
 
     def test_empty_claimer_raises(self):
         with self.assertRaises(ValueError):
             generate_weekly_pdfs._subcontractor_primary_variant_suffix(
-                'reduced_sub', '', '91467680', '041926'
+                'reduced_sub', '', '19236776', '041926'
             )
 
     def test_suffix_round_trips_through_parser(self):
         suffix = generate_weekly_pdfs._subcontractor_primary_variant_suffix(
-            'reduced_sub', 'John Doe', '91467680', '041926'
+            'reduced_sub', 'John Doe', '19236776', '041926'
         )
-        fname = f'WR_91467680_WeekEnding_041926_120000{suffix}_abc123.xlsx'
+        fname = f'WR_19236776_WeekEnding_041926_120000{suffix}_abc123.xlsx'
         self.assertEqual(
             generate_weekly_pdfs.build_group_identity(fname),
-            ('91467680', '041926', 'reduced_sub', 'John_Doe'),
+            ('19236776', '041926', 'reduced_sub', 'John_Doe'),
         )
 ```
 
@@ -422,7 +422,7 @@ from billing_audit.writer import ResolveOutcome
 
 
 def _make_sub_primary_row(
-    wr='91467680', row_id=5001, units_price='$100.00',
+    wr='19236776', row_id=5001, units_price='$100.00',
     snapshot='2026-04-19', effective_user='CurrentForeman',
     source_sheet_id=8162920222379908,
 ):
@@ -548,14 +548,14 @@ class TestPrePassEmission(unittest.TestCase):
     def test_non_subcontractor_row_unaffected(self):
         # A non-sub completed row must still emit the legacy primary key
         # and must NOT trigger resolve_claimer.
-        row = _make_sub_primary_row(source_sheet_id=99999999)
+        row = _make_sub_primary_row(source_sheet_id=10277491)
         with mock.patch(
             'billing_audit.writer.resolve_claimer',
             return_value=ResolveOutcome('use', 'X', 'frozen', 'success'),
         ) as m:
             groups = generate_weekly_pdfs.group_source_rows([row])
             m.assert_not_called()
-        self.assertIn('041926_91467680', groups)
+        self.assertIn('041926_19236776', groups)
 ```
 
 - [ ] **Step 3: Run the failing tests**
@@ -949,20 +949,20 @@ class TestMigrationCleanup(unittest.TestCase):
 
     def test_legacy_reducedsub_deleted_new_claimer_exempt(self):
         legacy = self._att(
-            'WR_91467680_WeekEnding_041926_120000_ReducedSub_abc123.xlsx', 10
+            'WR_19236776_WeekEnding_041926_120000_ReducedSub_abc123.xlsx', 10
         )
         new_file = self._att(
-            'WR_91467680_WeekEnding_041926_120000_ReducedSub_User_John_Doe_def456.xlsx',
+            'WR_19236776_WeekEnding_041926_120000_ReducedSub_User_John_Doe_def456.xlsx',
             20,
         )
         client, sheet = self._client([legacy, new_file])
         generate_weekly_pdfs.cleanup_untracked_sheet_attachments(
             client,
             target_sheet_id=5723337641643908,
-            valid_wr_weeks={('91467680', '041926', 'reduced_sub', 'John_Doe')},
+            valid_wr_weeks={('19236776', '041926', 'reduced_sub', 'John_Doe')},
             test_mode=False,
             target_sheet=sheet,
-            sub_wr_scope={'91467680'},
+            sub_wr_scope={'19236776'},
             sub_legacy_primary_variants={'reduced_sub', 'aep_billable'},
         )
         deletes = [c.args for c in client.Attachments.delete_attachment.call_args_list]
@@ -973,7 +973,7 @@ class TestMigrationCleanup(unittest.TestCase):
 
     def test_legacy_aepbillable_deleted(self):
         legacy = self._att(
-            'WR_91467680_WeekEnding_041926_120000_AEPBillable_abc123.xlsx', 30
+            'WR_19236776_WeekEnding_041926_120000_AEPBillable_abc123.xlsx', 30
         )
         client, sheet = self._client([legacy])
         generate_weekly_pdfs.cleanup_untracked_sheet_attachments(
@@ -982,7 +982,7 @@ class TestMigrationCleanup(unittest.TestCase):
             valid_wr_weeks=set(),
             test_mode=False,
             target_sheet=sheet,
-            sub_wr_scope={'91467680'},
+            sub_wr_scope={'19236776'},
             sub_legacy_primary_variants={'reduced_sub', 'aep_billable'},
         )
         deletes = [c.args for c in client.Attachments.delete_attachment.call_args_list]
@@ -990,7 +990,7 @@ class TestMigrationCleanup(unittest.TestCase):
 
     def test_non_sub_wr_legacy_reducedsub_preserved(self):
         legacy = self._att(
-            'WR_99999999_WeekEnding_041926_120000_ReducedSub_abc123.xlsx', 40
+            'WR_10277491_WeekEnding_041926_120000_ReducedSub_abc123.xlsx', 40
         )
         client, sheet = self._client([legacy])
         generate_weekly_pdfs.cleanup_untracked_sheet_attachments(
@@ -999,7 +999,7 @@ class TestMigrationCleanup(unittest.TestCase):
             valid_wr_weeks=set(),
             test_mode=False,
             target_sheet=sheet,
-            sub_wr_scope={'91467680'},  # 99999999 NOT in scope
+            sub_wr_scope={'19236776'},  # 10277491 NOT in scope
             sub_legacy_primary_variants={'reduced_sub', 'aep_billable'},
         )
         deletes = [c.args for c in client.Attachments.delete_attachment.call_args_list]
@@ -1007,13 +1007,13 @@ class TestMigrationCleanup(unittest.TestCase):
 
     def test_param_omitted_is_noop(self):
         legacy = self._att(
-            'WR_91467680_WeekEnding_041926_120000_ReducedSub_abc123.xlsx', 50
+            'WR_19236776_WeekEnding_041926_120000_ReducedSub_abc123.xlsx', 50
         )
         client, sheet = self._client([legacy])
         generate_weekly_pdfs.cleanup_untracked_sheet_attachments(
             client,
             target_sheet_id=5723337641643908,
-            valid_wr_weeks={('91467680', '041926', 'reduced_sub', '')},
+            valid_wr_weeks={('19236776', '041926', 'reduced_sub', '')},
             test_mode=False,
             target_sheet=sheet,
         )
@@ -1194,18 +1194,18 @@ class TestSubprojectBHashPrune(unittest.TestCase):
 
     def test_first_run_drops_legacy_primary_variant_orphans(self):
         hist = {
-            '91467680|041926|reduced_sub|': {'hash': 'h1', 'timestamp': '2026-01-01'},
-            '91467680|041926|aep_billable|': {'hash': 'h2', 'timestamp': '2026-01-02'},
+            '19236776|041926|reduced_sub|': {'hash': 'h1', 'timestamp': '2026-01-01'},
+            '19236776|041926|aep_billable|': {'hash': 'h2', 'timestamp': '2026-01-02'},
             # New per-claimer entry — must survive
-            '91467680|041926|reduced_sub|John': {'hash': 'h3', 'timestamp': '2026-01-03'},
+            '19236776|041926|reduced_sub|John': {'hash': 'h3', 'timestamp': '2026-01-03'},
             # Non-sub WR — must survive
             '12345|041926|reduced_sub|': {'hash': 'h4', 'timestamp': '2026-01-04'},
         }
         with self.assertLogs(level='INFO') as log_cm:
-            generate_weekly_pdfs._run_subproject_b_hash_prune(hist, self._groups(['91467680']))
-        self.assertNotIn('91467680|041926|reduced_sub|', hist)
-        self.assertNotIn('91467680|041926|aep_billable|', hist)
-        self.assertIn('91467680|041926|reduced_sub|John', hist)
+            generate_weekly_pdfs._run_subproject_b_hash_prune(hist, self._groups(['19236776']))
+        self.assertNotIn('19236776|041926|reduced_sub|', hist)
+        self.assertNotIn('19236776|041926|aep_billable|', hist)
+        self.assertIn('19236776|041926|reduced_sub|John', hist)
         self.assertIn('12345|041926|reduced_sub|', hist)
         self.assertEqual(
             hist['_subproject_b_prune_version'],
@@ -1217,11 +1217,11 @@ class TestSubprojectBHashPrune(unittest.TestCase):
 
     def test_idempotent_when_sentinel_current(self):
         hist = {
-            '91467680|041926|reduced_sub|': {'hash': 'h1', 'timestamp': '2026-01-01'},
+            '19236776|041926|reduced_sub|': {'hash': 'h1', 'timestamp': '2026-01-01'},
             '_subproject_b_prune_version': generate_weekly_pdfs.SUBPROJECT_B_HASH_PRUNE_VERSION,
         }
-        generate_weekly_pdfs._run_subproject_b_hash_prune(hist, self._groups(['91467680']))
-        self.assertIn('91467680|041926|reduced_sub|', hist)  # no-op
+        generate_weekly_pdfs._run_subproject_b_hash_prune(hist, self._groups(['19236776']))
+        self.assertIn('19236776|041926|reduced_sub|', hist)  # no-op
         self.assertEqual(
             hist['_subproject_b_prune_version'],
             generate_weekly_pdfs.SUBPROJECT_B_HASH_PRUNE_VERSION,
@@ -1405,14 +1405,14 @@ class TestNonSubVariantsPreserved(unittest.TestCase):
         _reset_all()
 
     def test_non_subcontractor_primary_row_emits_legacy_primary_key(self):
-        row = _make_sub_primary_row(source_sheet_id=99999999)
+        row = _make_sub_primary_row(source_sheet_id=10277491)
         groups = generate_weekly_pdfs.group_source_rows([row])
-        self.assertIn('041926_91467680', groups)
+        self.assertIn('041926_19236776', groups)
         # No subcontractor variant keys for a non-sub row.
         self.assertFalse(any('REDUCEDSUB' in k for k in groups))
 
     def test_vac_crew_row_unaffected(self):
-        row = _make_sub_primary_row(source_sheet_id=99999999)
+        row = _make_sub_primary_row(source_sheet_id=10277491)
         row['__is_vac_crew'] = True
         row['__vac_crew_name'] = 'VacGuy'
         groups = generate_weekly_pdfs.group_source_rows([row])

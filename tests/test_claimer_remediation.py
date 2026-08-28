@@ -154,7 +154,7 @@ class TestDryRunNeverDeletes(_BaseRemediationTest):
 
         # Real-claimer names — must NOT be deleted
         real_1 = _clean_filename("90001", week, "User_Jane_Smith")
-        real_2 = _clean_filename("90002", week, "VacCrew_Pat_Lee")
+        real_2 = _clean_filename("90002", week, "VacCrew_Quinn_Alias")
 
         attachments = [
             _make_attachment(garbage_1, 101),
@@ -256,7 +256,7 @@ class TestExecuteDeletesOnlyGarbage(_BaseRemediationTest):
         real_names = [
             _clean_filename("90001", week, "User_Jane_Smith"),
             _clean_filename("90002", week, "ReducedSub_User_Bob_Jones"),
-            _clean_filename("90003", week, "VacCrew_Pat_Lee"),
+            _clean_filename("90003", week, "VacCrew_Quinn_Alias"),
         ]
 
         attachments = [_make_attachment(n, 500 + i) for i, n in enumerate(real_names)]

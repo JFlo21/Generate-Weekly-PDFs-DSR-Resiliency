@@ -21,7 +21,7 @@ python generate_weekly_pdfs.py
 1. Open **Actions → Weekly Excel Generation → Run workflow**.
 2. Pick the branch (`master` for production).
 3. Set inputs as needed — `test_mode=true` for dry runs,
-   `wr_filter=90093002,89954686` for a targeted reprocess.
+   `wr_filter=13792260,16975895` for a targeted reprocess.
 4. Submit.
 
 ## Common knobs

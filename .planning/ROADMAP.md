@@ -666,7 +666,7 @@ Repairs the 2026-08-24 `_User_Unknown_Foreman` defect and the 93 affected WRs.
 2. Dry-run backfill report lists, per affected (WR, week), the proposed owner and its
    source; Juan approves before the live remediation.
 
-3. WR 89829163 WE 082425/083125/091425/092125 regenerate as `_User_Allen_Harris` from the
+3. WR 19073866 WE 082425/083125/091425/092125 regenerate as `_User_Avery_Example` from the
    `backfill_hash_history` source; no `_User__NO_MATCH` / `_User_Unknown_Foreman` churn
    remains in the scheduled run (today: ~154 regenerations per run).
 

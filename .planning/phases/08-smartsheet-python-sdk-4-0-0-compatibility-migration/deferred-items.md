@@ -45,15 +45,15 @@ future mypy-baseline refresh.
 ## 08-02: SKIP_UPLOAD deletes prior attachments before skipping upload
 
 **Found during:** Task 3 (D-05 operator-run live read-only probe on 4.3.0,
-2026-07-22, `SKIP_UPLOAD=true WR_FILTER=84157414,89881161 MAX_GROUPS=5`)
+2026-07-22, `SKIP_UPLOAD=true WR_FILTER=16719437,12937329 MAX_GROUPS=5`)
 
 **Issue:** `SKIP_UPLOAD=true` is documented and intended as a read-only dry
 run flag, but it is NOT fully read-only. The delete-old-then-upload sequence
 in the upload worker gates only the UPLOAD half on `SKIP_UPLOAD` — the
 DELETE half runs unconditionally. During the probe, the run deleted 2 prior
 primary attachments on the production `TARGET_SHEET_ID` sheet
-(`5723337641643908`) for WR 89881161 (weeks 072025 and 081725 —
-`WR_89881161_WeekEnding_072025_User_Chad_Wheat.xlsx` and the 081725
+(`5723337641643908`) for WR 12937329 (weeks 072025 and 081725 —
+`WR_12937329_WeekEnding_072025_User_Casey_Sample.xlsx` and the 081725
 equivalent), then correctly skipped the re-upload per `SKIP_UPLOAD=true`.
 
 **Verified NOT a regression from SDK 4.3.0:** the delete-then-upload
