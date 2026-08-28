@@ -7296,8 +7296,10 @@ follow-up findings closed, same 6 files.
 - **`WR_FILTER` is honoured only in `TEST_MODE`** (`grouping.py:1222`); test mode never creates upload
   tasks (`orchestrate.py:3797`); with a token, test mode reads the real sheets (`orchestrate.py:1839`
   picks synthetic rows only when the token is absent). There is no way to scope an attaching run to one
-  WR. `SKIP_UPLOAD` / `TEST_MODE` do not gate the `billing_audit` writers (`freeze_row` at `:3441`
-  precedes the upload gate) — unset the Supabase credentials for local runs.
+  WR. **`TEST_MODE` gates every `billing_audit` / `pipeline_memory` write** (`not TEST_MODE` at
+  `orchestrate.py:3333`, `:3352`, `:1934`); `SKIP_UPLOAD` alone does NOT (`freeze_row` at `:3441`
+  precedes the upload gate) — a non-test `SKIP_UPLOAD` run needs the Supabase credentials unset.
+  (Round 2 of the review said "neither flag" — wrong; corrected in round 3.)
 - **`RESET_WR_LIST` is global:** the purge is per listed WR (`:2381`) but `or RESET_WR_LIST` at `:3302`
   disables the unchanged-skip for every group. `REGEN_WEEKS` is exact-string membership on `week_raw`
   (Sundays only — `081026` is a Monday and matches nothing).
@@ -7312,5 +7314,14 @@ follow-up findings closed, same 6 files.
   group keys (`run_ledger.notes.parity_details` does); `.github/hooks/pre-push-tests.json` is not a Git
   hook; production reads `pipeline_memory` (watermarks `:1939`, ledger status `:1942`, comparator
   `:4048`) but no read alters output until `RUN_MEMORY_INCREMENTAL_ENABLED`.
+- **Round 3 (Copilot re-review) added:** the day blocks only show rows whose `Snapshot Date` parses
+  and falls inside the Monday–Sunday week (`excel.py:722-736`) while the file total sums every group
+  row (`:505`) — a bad Snapshot Date makes total ≠ lines; the billing period is week_ending − 6 →
+  week_ending, never Snapshot Date (`:522-525`). `RESET_HASH_HISTORY` runs the **global** attachment
+  purge before any group is processed (`orchestrate.py:2374-2385`) — as destructive as
+  `RESET_WR_LIST`, sheet-wide. A unit moved out of a week that then has no rows leaves a **stale
+  attachment**: no group is emitted for the empty week, the untracked-attachment cleanup keeps the
+  newest file per identity and only deletes older variants (`cleanup.py:455-471`), and deep-run
+  reconciliation explicitly defers fully-empty pairs (`orchestrate.py:4157-4159`) — manual removal.
 - **RULE — a runbook statement about pipeline behaviour cites the line that implements it.** The
   reviewer bots read the code; the doc sentence with no anchor is the one that drifts.
