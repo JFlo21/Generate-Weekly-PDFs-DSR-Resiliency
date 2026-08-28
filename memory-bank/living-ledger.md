@@ -7379,5 +7379,10 @@ follow-up findings closed, same 6 files.
   the rows have a department) and the day-block header has an unused `N/A` column between `# Units`
   and `Pricing` (`:634`). Also: the state file's "Last updated" stamp had drifted ~50 min ahead of
   wall-clock (Copilot flagged it as future-dated) — take timestamps from `date -u`, never estimate.
+- **Round 14 added:** `SENTRY_DSN` is refilled from `.env` too — every local recipe sets `SENTRY_DSN=`
+  (empty → `init_sentry()` no-op, `pipeline/observability.py:41/:771`); otherwise local runs post
+  errors/transactions to the production Sentry project. Operator wording for `_Unknown_Foreman`:
+  fix the source AND escalate immediately — "check the next run" waits for something that cannot
+  happen (the frozen claimer wins).
 - **RULE — a runbook statement about pipeline behaviour cites the line that implements it.** The
   reviewer bots read the code; the doc sentence with no anchor is the one that drifts.
