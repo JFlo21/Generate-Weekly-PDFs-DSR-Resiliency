@@ -7347,5 +7347,12 @@ follow-up findings closed, same 6 files.
   SUPABASE_SERVICE_ROLE_KEY=`) — the pattern `tests/test_entrypoint_no_double_import.py:28-33`
   already relies on. Also: `REGEN_WEEKS` only reaches groups present in the fetched data
   (`orchestrate.py:3300`) — it cannot rebuild a week whose rows were all moved or deleted.
+- **Round 8 added:** per-day cadence from the two crons is Mon–Thu 7, Fri 6, **Sat 3, Sun 4** (the
+  weekday cron's Monday 01:00 UTC slot is Sunday 8 PM CDT / 7 PM CST) plus the Monday deep run —
+  `CLAUDE.md`'s "Weekends: 3 runs/day" undercounts Sunday (drift, not touched). The `SKIP_UPLOAD`
+  recipe line itself carries `SUPABASE_URL= SUPABASE_SERVICE_ROLE_KEY=`; don't rely on a warning
+  below a copy-paste block. The ledger is now synced onto #360 as well, so ledger + state are
+  byte-identical on #360, #361 and the main tree (a state file must only cite ledger entries that
+  ship in the same branch).
 - **RULE — a runbook statement about pipeline behaviour cites the line that implements it.** The
   reviewer bots read the code; the doc sentence with no anchor is the one that drifts.
