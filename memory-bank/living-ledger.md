@@ -7450,7 +7450,7 @@ follow-up findings closed, same 6 files.
   corrected the review's "inert" conclusion): a whitespace-only `Foreman Assigned?` is truthy before
   `.strip()` (`pipeline/fetch.py:888-892`), so `__effective_user` is `''` and `grouping.py:1166`
   (`current_foreman or effective_user`) passes the blank through as `__current_foreman` — the same
-  path the `[]` Subproject-B entry (Codex P1 #4) documents. A primary group
+  path the `[2026-05-21 13:20]` Subproject-B entry (PR #215 review, Codex P1 #4) documents. A primary group
   mixing such a row with a normally assigned one used to show a **blank** header foreman while its
   hash named the later row's; it now shows that foreman. Uniform groups (the normal case) are
   byte-identical. The rule is gated on `variant == 'primary'`:
