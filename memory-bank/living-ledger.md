@@ -7375,5 +7375,9 @@ follow-up findings closed, same 6 files.
   checks filename identity only — a hand-edited workbook re-uploaded under the generated name
   survives every unchanged-hash run; force regeneration. A WR with no target-sheet row is built but
   withheld — completing the source row cannot make it appear. WR ≠ `Job #` in operator wording.
+- **Round 13 added:** REPORT DETAILS carries a conditional `Dept #` line (`excel.py:597`, only when
+  the rows have a department) and the day-block header has an unused `N/A` column between `# Units`
+  and `Pricing` (`:634`). Also: the state file's "Last updated" stamp had drifted ~50 min ahead of
+  wall-clock (Copilot flagged it as future-dated) — take timestamps from `date -u`, never estimate.
 - **RULE — a runbook statement about pipeline behaviour cites the line that implements it.** The
   reviewer bots read the code; the doc sentence with no anchor is the one that drifts.
