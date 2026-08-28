@@ -49,9 +49,9 @@ are what you grep for in a run log.
 flowchart TD
     P1["PHASE 1 · discovery<br/>📂 cached sheet IDs · ⚡ Phase 1 complete"]
     P1 --> M["🧭 Run-memory mode resolved: full | incremental"]
-    M --> P2["PHASE 2 · fetch<br/>🚀 parallel fetch with N workers"]
+    M --> P2["PHASE 2 · fetch + row acceptance gate (fetch.py:837)<br/>🚀 parallel fetch with N workers"]
     P2 --> W["⚡ Run-memory row writes: N sheets, 0 errored, confirmed=True<br/>(Supabase pipeline_memory, fail-open)"]
-    W --> G["Grouping + acceptance gate<br/>🧑 PRIMARY GROUP CREATED · 🔧 HELPER GROUP CREATED · ➖ EXCLUDING"]
+    W --> G["Grouping (accepted rows only)<br/>🧑 PRIMARY GROUP CREATED · 🔧 HELPER GROUP CREATED · ➖ EXCLUDING"]
     G --> L["Group loop — per group:<br/>⏩ Skip (unchanged + attachment exists)<br/>🔁 Regenerating … despite unchanged hash (attachment missing)<br/>📊 Generating Excel file"]
     L --> S["Shadow parity (Phase 11)<br/>🚨 Shadow parity FAIL | ⏩ Skipping shadow parity check"]
     S --> U["📤 PARALLEL UPLOAD PHASE<br/>🗑️ Removing prior attachment · ✅ Uploaded"]
@@ -148,13 +148,17 @@ without test mode processes every group and only suppresses the attachment
 step. Both write files under `generated_docs/`; a group's file is
 byte-comparable across runs with `scripts/compare_control_run.py`.
 
-:::warning Supabase is not covered by either flag
-With `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` in your environment the
-group loop still calls the `billing_audit` writers — `freeze_row()`
-(first-write-wins attribution) and `emit_run_fingerprint()` — before the
-upload gate, so a local run can permanently freeze production attribution.
-Unset the Supabase credentials for local runs; the writers are fail-open and
-the Excel output does not need them.
+:::warning `SKIP_UPLOAD` alone does not cover Supabase — `TEST_MODE` does
+Every `billing_audit` and `pipeline_memory` write is gated by `not TEST_MODE`
+(`pipeline/orchestrate.py:3333`, `:3352`, `:1934`), so the test-mode recipes
+above never touch Supabase. `SKIP_UPLOAD=true` *without* test mode still
+runs the `billing_audit` writers — `freeze_row()` (first-write-wins
+attribution) and `emit_run_fingerprint()` — before the upload gate
+(`:3441`), so a non-test local run with `SUPABASE_URL` /
+`SUPABASE_SERVICE_ROLE_KEY` in the environment can permanently freeze
+production attribution. For a `SKIP_UPLOAD` run, unset the Supabase
+credentials; the writers are fail-open and the Excel output does not need
+them.
 :::
 
 ### 4. Sentry

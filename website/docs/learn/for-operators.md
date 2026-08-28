@@ -110,10 +110,14 @@ rows, so the way to get a correct file is to get the rows right. A row is
   table can fill the price in; a CU that reads `NO MATCH` drops it too)
 
 For the line to be **correct** it also needs a **CU** (billable unit code)
-with a **quantity**, and a **Foreman** (or the helper / VAC-crew fields for
-split work). Those do *not* stop the row from being picked up: a row missing
-them still appears — as a line with a blank code or a zero quantity, or in a
-file named `_Unknown_Foreman`.
+with a **quantity**, a **Foreman** (or the helper / VAC-crew fields for
+split work), and a **Snapshot Date** that is a real date inside that
+Monday–Sunday week. Those do *not* stop the row from being picked up: a row
+missing the code, quantity or foreman still appears — as a line with a blank
+code or a zero quantity, or in a file named `_Unknown_Foreman` — and a row
+with a blank, unreadable or out-of-week Snapshot Date is counted in the
+file's total but shown in **no day block**, so the total and the lines won't
+add up until the date is fixed.
 
 Then wait for the next scheduled run (or ask for a manual run, below). To
 check that the robot saw your change, open the attachment after the run and
@@ -125,7 +129,8 @@ look at *Report Generated On* — it should be newer than your edit.
 | --- | --- | --- |
 | The unit isn't in any file | Missing WR # or date, *Units Completed?* unchecked, no price (blank / `$0`), or a CU that reads `NO MATCH` | Complete the row; it appears on the next run |
 | The unit is in the file but the line has a blank code, a zero quantity or a `$0` price | The row was picked up but its CU, quantity or price is incomplete | Fix those fields; the file rebuilds on the next run |
-| The unit is in the **wrong week's** file | The week-ending / logged date on the row is wrong | Correct the date; the old week's file rebuilds without it and the new week's file gains it |
+| The file total includes the unit but it is in no day block | The row's Snapshot Date is blank, unreadable, or outside that Monday–Sunday week | Fix the Snapshot Date; the file rebuilds on the next run |
+| The unit is in the **wrong week's** file | The week-ending / logged date on the row is wrong | Correct the date; the new week's file gains it. The old week's file rebuilds without it **only if other units remain in that week for that WR** — if it was the only one, nothing regenerates the old file and the stale attachment stays until the engineering owner removes it |
 | The unit is in a `_Helper_…` file but you expected the main file | Both helper and primary checkboxes are checked | That is by design — the helper file is the billable one; uncheck the helper flag only if the unit really wasn't helper work |
 | The file name says `_NO_MATCH` or `Unknown_Foreman` | The robot could not work out a foreman for the row | Fill in the foreman. The name itself does **not** stop the upload: if the Work Request has a row on a target sheet, the file is attached under that name, so fix it promptly. If the WR is on no target sheet the file is built but withheld |
 | Old file, no update after your edit | The run hasn't happened yet, or the change didn't touch a billed field | Wait for the next run; if it's still stale after two runs, ask for a manual run |
@@ -152,8 +157,10 @@ the same robot, started on demand:
      "unchanged, skip" check for *every* group in that run, so the whole run
      regenerates and re-uploads. If the run fails after the delete, those WRs
      have no attachment until the next successful run.
-   - `reset_hash_history: true` — rebuild **everything** (slow; only when
-     asked to by the engineering owner).
+   - `reset_hash_history: true` — rebuild **everything**. **Destructive —
+     engineering owner only.** Before generating anything it deletes *every*
+     existing Excel attachment on the target sheet, so if the run fails
+     afterwards no Work Request has a file until the next successful run.
 4. Click **Run workflow** and wait for the green check (40–60 minutes, up to
    about 75).
 
@@ -195,5 +202,5 @@ edit lost.
 | **CU / Billable Unit Code** | The catalogue code for a unit of work; it decides the description and price |
 | **Helper file** | Units a *helping* foreman completed on someone else's WR |
 | **VAC crew** | Vacuum-truck crew units, split into their own file |
-| **Snapshot date** | The date the unit was logged — used for the day blocks and the billing period |
+| **Snapshot date** | The day the unit was done; it places the unit in its day block and must fall inside the Monday–Sunday week. The billing period itself comes from the week-ending date |
 | **Deep run** | The once-a-week run at Monday 12:00 AM Central in summer (Sunday 11 PM in winter) that re-checks everything, including deleted rows |
