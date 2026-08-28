@@ -16,14 +16,14 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — August 28, 2026
 
+- ✨ New capability: groups whose WR has no target-sheet row are not generated, listed as an error
+- 📄 Help guides updated: Learn section — operator and engineer guides; overview refreshed
 - ✅ Problem fixed: kill-switch warning/breadcrumb log no server text
 - ✅ Problem fixed: key-homogeneous sheet&#95;registry upserts + diagnosable RPC failures
 - ✅ Problem fixed: header metadata from the hash's canonical row, not arrival order
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- 📄 Help guides updated: Learn section — operator and engineer guides; overview refreshed
 - ✅ Problem fixed: total-order sort tiebreaker in calculate&#95;data&#95;hash
 - 📄 Help guides updated: fix run&#95;ledger column name in flip confirmation SQL; record flip live
-- ✅ Problem fixed: compare against the uploaded set; RUN&#95;MEMORY&#95;SHADOW&#95;MAX&#95;MINUTES 10 -&gt; 25
 
 <!-- /runbook-repo -->
 
@@ -497,4 +497,3 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
-
