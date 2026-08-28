@@ -7323,5 +7323,16 @@ follow-up findings closed, same 6 files.
   attachment**: no group is emitted for the empty week, the untracked-attachment cleanup keeps the
   newest file per identity and only deletes older variants (`cleanup.py:455-471`), and deep-run
   reconciliation explicitly defers fully-empty pairs (`orchestrate.py:4157-4159`) — manual removal.
+- **Round 4 added:** the reset purges delete only attachments named `WR_*.xlsx` on `TARGET_SHEET_ID`
+  (`cleanup.py:611`) — other attachments and PPP copies survive; a picked-up row can never render a
+  `$0` line (`_resolve_row_price`, `pricing.py:564`, returns the admitted price or a positive
+  rate × quantity); `EXCLUDE_WRS` (`grouping.py:1281`, always active) and `MAX_GROUPS`
+  (`orchestrate.py:2396`) DO narrow an attaching run — only "select one WR" is impossible outside
+  `TEST_MODE`.
+- **Round 5 added:** `workflow_dispatch` needs repository **write** access (a missing "Run workflow"
+  button is a permissions issue); the shadow-parity "actual" set is *groups with an upload task*,
+  computed at `orchestrate.py:4039` (`_shadow_parity_input_sets`, `:1028`) BEFORE the parallel upload
+  phase at `:4200` — a later upload failure never changes the verdict; cadence is "up to seven runs
+  a day" (Mon–Thu 7 Central runs, Fri 6, Sat 3, Sun 3 + the evening run), not "seven every day".
 - **RULE — a runbook statement about pipeline behaviour cites the line that implements it.** The
   reviewer bots read the code; the doc sentence with no anchor is the one that drifts.
