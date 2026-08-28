@@ -20,13 +20,16 @@ re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its o
 
 ## Latest work (2026-08-27 20:20 CDT) — #355 + #359 MERGED; #361 (identity row = canonical row) review round 2 pushed; #360 (Learn docs) approved, awaiting Juan's merge
 - **Merged:** #355 (`81eb82b`) and #359 (`a8d6795`, hash sort tiebreaker); master at `263dc34`.
-- **#361** `fix/excel-header-canonical-row` (`79e5411`): Excel header + orchestrate Sites 1/2/3 read
-  `canonical_first_row()`; Job # aliases appended to the (hash-neutral) sort key; Greptile line-length
-  fixed. Threads answered: Codex P1 / Copilot / Greptile / Codex Job-alias → fixed; legacy-mode P2 →
-  declined with rationale; first-nonempty-foreman P2 → **deferred to Juan** (billing-output change).
-  CI green on `79e5411` (compile/test, coverage run, lint, CodeQL); Greptile re-review pending. The
-  Azure DevOps mirror check fails on every PR build (also docs-only #360) — pre-existing, not a
-  required check (branch unprotected). 1774 tests pass. Ledger `[2026-08-27 20:20]`.
+- **#361** `fix/excel-header-canonical-row` (head `2c51a38`; code commits `79e5411` + `2c51a38`):
+  Excel header + orchestrate Sites 1/2/3 read `canonical_first_row()`; Job # aliases AND the legacy
+  identity `User` appended to the (hash-neutral) sort key; Greptile line-length fixed; PR body's
+  Production Safety Check rewritten to cover identity/cleanup/prune effects + rollout expectation.
+  Threads: Greptile, Copilot ×3, Codex P1, Codex Job-alias → fixed **and resolved**; Codex legacy-mode
+  P2 → declined with rationale (left open); Codex first-nonempty-foreman P2 → **deferred to Juan**
+  (billing-output change; left open). CI green on `79e5411`; `2c51a38` re-running at handoff. Greptile
+  retrigger needs a browser login (307 → /login) — click "Re-trigger Greptile" in the PR body if it
+  doesn't re-review on its own. Azure DevOps mirror check fails on every PR build (also docs-only
+  #360) — pre-existing, not required (branch unprotected). 1775 tests pass. Ledger `[2026-08-27 20:20]`.
 - **#360** `docs/learning-guides`: approved, MERGEABLE, only the Azure mirror red. It ALSO edits
   `.claude/project-state.md` — whichever of #360 / #361 lands second needs a rebase (state file:
   keep the newer "Latest work" block on top, demote the other to "Previous").
