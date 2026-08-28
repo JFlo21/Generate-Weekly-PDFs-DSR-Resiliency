@@ -226,6 +226,7 @@ from pipeline.change_detection import (  # noqa: E402
     _resolve_unchanged_for_skip,
     build_group_identity,
     calculate_data_hash,
+    canonical_first_row,
     extract_data_hash_from_filename,
     list_generated_excel_files,
     load_hash_history,
@@ -3174,8 +3175,18 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 wr_num = _RE_SANITIZE_HELPER_NAME.sub('_', wr_num)[:50]
                 week_raw = group_key.split('_',1)[0] if '_' in group_key else ''
 
-                # Extract variant and identifier for variant-aware hash history
-                first_row = group_rows[0] if group_rows else {}
+                # Extract variant and identifier for variant-aware hash
+                # history. Every identity-bearing field below (helper
+                # dept / job, claimer, User) is read from the row
+                # calculate_data_hash treats as first -- the same row
+                # generate_excel reads for its header -- never from
+                # arrival-order group_rows[0]: the helper group key carries
+                # no dept/job, so one group can hold rows from two
+                # departments, and a stable hash must be looked up under a
+                # stable history_key or the group regenerates and
+                # re-uploads every run (Codex / Copilot, PR #361). Sites 2
+                # and 3 derive from the same canonical row.
+                first_row = canonical_first_row(group_rows)
                 variant = first_row.get('__variant', 'primary')
 
                 # Source-side collision quarantine (see pre-scan above).
@@ -3824,7 +3835,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     'hash': data_hash,
                     'rows': len(group_rows),
                     'updated_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                    'foreman': group_rows[0].get('__current_foreman'),
+                    'foreman': first_row.get('__current_foreman'),
                     'week': week_raw,
                     'variant': variant,
                     'identifier': identifier,
@@ -4522,7 +4533,10 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         for key, group_rows in groups.items():
             if '_' in key:
                 week_raw = key.split('_',1)[0]
-                wr_raw = group_rows[0].get('Work Request #')
+                # Identity row -- the canonical (hash-order) first row,
+                # mirroring Site 1; never arrival-order group_rows[0].
+                _first = canonical_first_row(group_rows)
+                wr_raw = _first.get('Work Request #')
                 wr = str(wr_raw).split('.')[0] if wr_raw else ''
                 # Apply the same sanitizer used at every other site
                 # (generate_excel, main-loop derivation, hash-prune
@@ -4536,7 +4550,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 # prune attachments for sanitization-sensitive WRs
                 # when KEEP_HISTORICAL_WEEKS is enabled.
                 wr = _RE_SANITIZE_HELPER_NAME.sub('_', wr)[:50]
-                variant = group_rows[0].get('__variant', 'primary')
+                variant = _first.get('__variant', 'primary')
                 if variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper'):
                     # CR-01 gap closure (Site 2 — mirror of Site 1).
                     # build_group_identity returns the sanitized helper
@@ -4552,7 +4566,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     # identifier — risking cleanup either pruning
                     # legitimate attachments or missing orphans.
                     # Sites 1 and 3 carry the same gate.
-                    helper_foreman = group_rows[0].get('__helper_foreman', '')
+                    helper_foreman = _first.get('__helper_foreman', '')
                     file_id = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50] if helper_foreman else ''
                 elif variant == 'vac_crew':
                     # Subproject C identity site (Site 2 — valid_wr_weeks).
@@ -4560,7 +4574,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     # produces file_id='' so the 4-tuple matches the bare
                     # _VacCrew attachment identity and cleanup does not delete
                     # live legacy-mode attachments.
-                    _vc = group_rows[0].get('__current_foreman', '')
+                    _vc = _first.get('__current_foreman', '')
                     file_id = (
                         _RE_SANITIZE_IDENTIFIER.sub('_', _vc)[:50]
                         if (VAC_CREW_CLAIM_ATTRIBUTION_ENABLED and _vc) else ''
@@ -4569,7 +4583,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     # Subproject B identity site (Site 2 — valid_wr_weeks).
                     # Mirror Site 1 so attachment cleanup keeps the live
                     # per-claimer file.
-                    _b_claimer = group_rows[0].get('__current_foreman', '')
+                    _b_claimer = _first.get('__current_foreman', '')
                     file_id = (
                         _RE_SANITIZE_IDENTIFIER.sub('_', _b_claimer)[:50]
                         if _b_claimer else ''
@@ -4583,13 +4597,13 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         PRIMARY_CLAIM_ATTRIBUTION_ENABLED
                         and RES_GROUPING_MODE in ('helper', 'both')
                     ):
-                        _pf = group_rows[0].get('__current_foreman', '')
+                        _pf = _first.get('__current_foreman', '')
                         file_id = (
                             _RE_SANITIZE_IDENTIFIER.sub('_', _pf)[:50]
                             if (PRIMARY_CLAIM_ATTRIBUTION_ENABLED and _pf) else ''
                         )
                     else:
-                        user_val = group_rows[0].get('User')
+                        user_val = _first.get('User')
                         # PERFORMANCE: Use pre-compiled regex
                         file_id = _RE_SANITIZE_IDENTIFIER.sub('_', user_val)[:50] if user_val else ''
                 valid_wr_weeks.add((wr, week_raw, variant, file_id))
@@ -4799,7 +4813,11 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 current_keys = set()
                 for key, group_rows in groups.items():
                     if '_' in key:
-                        _wr_raw = group_rows[0].get('Work Request #')
+                        # Identity row -- the canonical (hash-order) first
+                        # row, mirroring Site 1; never arrival-order
+                        # group_rows[0].
+                        _first = canonical_first_row(group_rows)
+                        _wr_raw = _first.get('Work Request #')
                         _wr = str(_wr_raw).split('.')[0] if _wr_raw else ''
                         # Codex P2: apply the same filesystem-safety
                         # sanitizer used by the main loop (line ~4493)
@@ -4812,7 +4830,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         # never persist across runs for those WRs.
                         _wr = _RE_SANITIZE_HELPER_NAME.sub('_', _wr)[:50]
                         _week = key.split('_',1)[0]
-                        _variant = group_rows[0].get('__variant', 'primary')
+                        _variant = _first.get('__variant', 'primary')
                         if _variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper'):
                             # CR-01 gap closure (Site 3 — mirror of Site 1).
                             # Site 1 writes the helper-shadow history_key as
@@ -4833,9 +4851,9 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                             # this site reconstructs the history-key shape
                             # only — the same pattern as the legacy helper
                             # branch).
-                            _hf = group_rows[0].get('__helper_foreman', '')
-                            _hd = group_rows[0].get('__helper_dept', '')
-                            _hj = group_rows[0].get('__helper_job', '')
+                            _hf = _first.get('__helper_foreman', '')
+                            _hd = _first.get('__helper_dept', '')
+                            _hj = _first.get('__helper_job', '')
                             _ident = f"{_hf}|{_hd}|{_hj}"
                         elif _variant == 'vac_crew':
                             # Subproject C identity site (Site 3 —
@@ -4844,7 +4862,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                             # reconstructed current_keys entry matches the
                             # bare history_key written by Site 1 and the fresh
                             # entry is not treated as stale and deleted.
-                            _vc = group_rows[0].get('__current_foreman', '')
+                            _vc = _first.get('__current_foreman', '')
                             _ident = (
                                 _RE_SANITIZE_IDENTIFIER.sub('_', _vc)[:50]
                                 if (VAC_CREW_CLAIM_ATTRIBUTION_ENABLED and _vc) else ''
@@ -4855,7 +4873,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                             # written at Site 1 byte-for-byte (sanitized
                             # claimer) or the freshly-written entry is
                             # treated as stale and deleted before save.
-                            _b_claimer = group_rows[0].get('__current_foreman', '')
+                            _b_claimer = _first.get('__current_foreman', '')
                             _ident = (
                                 _RE_SANITIZE_IDENTIFIER.sub('_', _b_claimer)[:50]
                                 if _b_claimer else ''
@@ -4871,13 +4889,13 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                                 PRIMARY_CLAIM_ATTRIBUTION_ENABLED
                                 and RES_GROUPING_MODE in ('helper', 'both')
                             ):
-                                _pf = group_rows[0].get('__current_foreman', '')
+                                _pf = _first.get('__current_foreman', '')
                                 _ident = (
                                     _RE_SANITIZE_IDENTIFIER.sub('_', _pf)[:50]
                                     if (PRIMARY_CLAIM_ATTRIBUTION_ENABLED and _pf) else ''
                                 )
                             else:
-                                _uv = group_rows[0].get('User')
+                                _uv = _first.get('User')
                                 _ident = _RE_SANITIZE_IDENTIFIER.sub('_', _uv)[:50] if _uv else ''
                         current_keys.add(f"{_wr}|{_week}|{_variant}|{_ident}")
                 stale_keys = [k for k in hash_history if k not in current_keys]

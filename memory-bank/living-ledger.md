@@ -7267,11 +7267,15 @@ follow-up findings closed, same 6 files.
 - **What.** `canonical_sorted_rows()` / `canonical_first_row()` in `pipeline/change_detection.py` are
   the ONE definition of a group's row order; `calculate_data_hash`, `generate_excel`'s header and the
   three identity sites all derive from it (`first_row` / `_first` binding). The extended sort key now
-  ends with `_header_job_number(x)` — the exact Job # alias precedence `generate_excel` uses — and
-  the legacy identity `User` (Copilot, round 2), so every header and identity input is in the key. Anything after the hashed-field string can only reorder rows whose
+  carries `str(header_job_number(x))` — the ONE Job # alias resolver, which `generate_excel` also
+  calls for the header (Copilot, round 3) — the unjoined hashed fields (`|`-serialization
+  collisions: `('WO|East', 'Install')` and `('WO', 'East|Install')` join to the same string), the
+  raw `Work Order #` (populated column first — the hash collapses both aliases, the header shows
+  only this one) and the legacy identity `User` (Copilot / Codex, rounds 2–3), so every header and
+  identity input is in the key. Anything after the hashed-field string can only reorder rows whose
   hashed strings are identical → **hashes byte-identical to master**; uniform groups keep a
   byte-identical identity; a mixed-dept/job helper group gets one deterministic key (one final
-  regeneration). `pytest tests/`: 1774 passed.
+  regeneration). `pytest tests/`: 1779 passed, 1 skipped (round 3).
 - **Not changed (by decision).** Legacy mode's 5-key sort (rollback hash stability; legacy already
   hashes tied rows in arrival order — `test_legacy_mode_untouched`). The header's foreman rule vs the
   hash's first-nonempty `FOREMAN=` token — **deferred to Juan**: aligning them changes which foreman
@@ -7283,6 +7287,15 @@ follow-up findings closed, same 6 files.
   pattern) and `test_job_alias_only_difference_is_order_independent`.
 - **RULE — a sort tiebreaker is hash-neutral iff it sits after the hashed-field string.** Header-only
   inputs belong there; hashed inputs are already ordered by the string itself.
+- **Open (round 3, 2026-08-28) — a behavioural test for Sites 1–3.** Copilot asked for a two-order
+  test asserting identical history keys / cleanup tuples / prune keys. The three sites are inline in
+  `pipeline.orchestrate.main` and no test drives that function (`test_deep_run_reconciliation`,
+  `test_incremental_read` record the same limit), so the identity INPUTS are pinned behaviourally
+  (`test_identity_inputs_from_the_canonical_row_are_order_independent`) and the wiring stays
+  source-pinned — the repo's existing practice (`test_primary_claim_attribution`). Making the sites
+  themselves testable means extracting ONE `derive_group_identity()` helper that all three call
+  (Site 1 uses both `identifier` / `file_identifier`, Site 2 the file identifier, Site 3 the history
+  identifier) — a production `main()` refactor for Juan to approve, not done in #361.
 
 ## [2026-08-27 21:10] Learn-guide review round (PR #360) — verified pipeline truths the docs must not drift from
 
