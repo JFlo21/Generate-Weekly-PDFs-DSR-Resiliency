@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-27 21:45 CDT · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-27 21:55 CDT · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
@@ -19,7 +19,7 @@ PreCompact hook). Phase 11 EXECUTING — **7/8 plans done**; **11-08 INC-05 reti
 `production_frequent` run after #356). Then: checklist item 6 SQL + items 2–3 → ≥5 `pass` verdicts →
 re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-08-27 21:45 CDT) — #355 + #359 MERGED; #361 (identity row = canonical row) round 2 done; #360 (Learn docs) Copilot rounds 2–5 done — both await Juan's merge
+## Latest work (2026-08-27 21:45 CDT) — #355 + #359 MERGED; #361 (identity row = canonical row) round 2 done; #360 (Learn docs) Copilot rounds 2–6 done — both await Juan's merge
 - **Merged:** #355 (`81eb82b`) and #359 (`a8d6795`, hash sort tiebreaker); master at `263dc34`.
 - **#361** `fix/excel-header-canonical-row` (code head `2c51a38` = `79e5411` + `2c51a38`; later commits are ledger/state only):
   Excel header + orchestrate Sites 1/2/3 read `canonical_first_row()`; Job # aliases AND the legacy
@@ -31,12 +31,15 @@ re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its o
   retrigger needs a browser login (307 → /login) — click "Re-trigger Greptile" in the PR body if it
   doesn't re-review on its own. Azure DevOps mirror check fails on every PR build (also docs-only
   #360) — pre-existing, not required (branch unprotected). 1775 tests pass. Ledger `[2026-08-27 20:20]`.
-- **#360** `docs/learning-guides` (docs head `000a65c` + state-sync commit): **five review rounds done** —
+- **#360** `docs/learning-guides` (docs head `c037926` + state-sync commit): **six review rounds done** —
   Copilot auto-reviews every push here, so each fix commit drew a smaller follow-up round (4: purge
   scope = `WR_*.xlsx` on the target sheet only, no `$0` line for an admitted row, `EXCLUDE_WRS` /
   `max_groups` DO narrow an attaching run, `pipeline_memory` edge bidirectional; 5: `workflow_dispatch`
   needs write access, "normal manual run" excludes `test_mode`, cadence "up to seven a day", parity
-  "actual" = groups queued for upload, computed before the upload phase). Ledger `[21:10]` rounds 3–5.
+  "actual" = groups queued for upload, computed before the upload phase; 6: **real WR + foreman name
+  removed from the public guides** → `12345678` / `Jane_Doe`; the merged blog post
+  `2026-08-27-parity-actual-uploaded-set.md:70` still names the real WR — follow-up). Ledger `[21:10]`
+  rounds 3–6.
   Round 2 (`2a271c8`): 35 Copilot/Codex/Greptile findings checked against the code; 34 fixed, 1
   declined (Greptile "reorganise the engineer guide", left open for Juan). Round 3 (Copilot
   re-review of `2a271c8`, 3 comments + 4 suppressed, all valid, fixed in `f20036e`): Snapshot Date
