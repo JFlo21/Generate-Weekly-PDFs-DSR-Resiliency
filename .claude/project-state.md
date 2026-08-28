@@ -30,9 +30,17 @@ re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its o
   retrigger needs a browser login (307 → /login) — click "Re-trigger Greptile" in the PR body if it
   doesn't re-review on its own. Azure DevOps mirror check fails on every PR build (also docs-only
   #360) — pre-existing, not required (branch unprotected). 1775 tests pass. Ledger `[2026-08-27 20:20]`.
-- **#360** `docs/learning-guides`: approved, MERGEABLE, only the Azure mirror red. It ALSO edits
-  `.claude/project-state.md` — whichever of #360 / #361 lands second needs a rebase (state file:
-  keep the newer "Latest work" block on top, demote the other to "Previous").
+- **#360** `docs/learning-guides` (head `2a271c8`): review round done — 35 Copilot/Codex/Greptile
+  findings checked against the code; 34 fixed, 1 declined (Greptile "reorganise the engineer
+  guide", left open for Juan). Key corrections: acceptance gate = WR + weekly date + Units
+  Completed? + price > 0 (`fetch.py:837`; CU/qty/foreman don't gate); group key =
+  `(WR, week, variant, claimer)`; `wr_filter` only in TEST_MODE (no attaching scope);
+  `reset_wr_list` destructive/global; real CDT/CST schedule windows; runtime 40–60 (≤~75).
+  `npm run typecheck`/`build` green. Threads replied with the SHA and resolved. It ALSO edits
+  `.claude/project-state.md` (an older copy) — whichever of #360 / #361 lands second needs a
+  rebase (state file: keep the newer "Latest work" block on top, demote the other to "Previous").
+  Note: `CLAUDE.md` still describes grouping as `(WR, week_ending, variant, foreman, dept, job)` —
+  same drift, not touched in #360 (separate follow-up).
 - **Next:** Juan merges #360 + #361 → first `production_frequent` run after #361: expect
   `91057431/080226` to `Skip` and no mixed-dept helper churn (watch `billing_audit.pipeline_run`
   hashes + `group_state.last_generated_run`). Owner call pending on the header-foreman rule (Codex P2
