@@ -7253,6 +7253,8 @@ follow-up findings closed, same 6 files.
 
 ## [2026-08-27 20:20] Identity row = canonical row (PR #361) — the Excel header AND the three orchestrate identity sites read `canonical_first_row()`, never arrival-order `group_rows[0]`
 
+> **Status: ships with PR #361 (`fix/excel-header-canonical-row`) — not production behaviour until that PR merges.** Until then `pipeline/excel.py` and the orchestrate identity sites still read arrival-order `group_rows[0]`; this entry records the rule the PR establishes so the ledger is complete whichever of #360 / #361 lands first.
+
 - **Why.** The helper group key is `{week}_{wr}_HELPER_{name}` (no dept/job), so one helper group can
   hold rows from two departments. #359 made the hash order-stable, but `generate_excel` still read
   foreman / helper dept / helper job / Dept # from arrival-order `group_rows[0]` (Codex on #359 — the
