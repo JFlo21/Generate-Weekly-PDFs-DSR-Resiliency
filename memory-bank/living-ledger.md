@@ -7446,12 +7446,14 @@ follow-up findings closed, same 6 files.
   `_first_nonempty_foreman(sorted_rows)` and called by `calculate_data_hash` (golden digests prove
   byte-identity: `4f5d44a9fe2ba3f4`, `b8da636059f26ffe`, `c5dbeb790ed43c0c`). **Header alignment
   (owner-approved 2026-08-28), primary display branch ONLY:** `generate_excel`'s primary header shows
-  `canonical_foreman(group_rows) or current_foreman`. The production-risk review showed it is **inert
-  on the production path**: `group_source_rows` writes `__current_foreman = current_foreman or
-  effective_user` (`pipeline/grouping.py:1166`) and `__effective_user` defaults to the literal
-  `'Unknown Foreman'`, so a canonical first row never has a blank claimer and the rule returns that
-  row's own value — header and hash already agreed; now they agree by construction. It changes the
-  header only for rows built outside `group_source_rows`. The rule is gated on `variant == 'primary'`:
+  `canonical_foreman(group_rows) or current_foreman`. **Reachable in production** (Copilot on #362
+  corrected the review's "inert" conclusion): a whitespace-only `Foreman Assigned?` is truthy before
+  `.strip()` (`pipeline/fetch.py:888-892`), so `__effective_user` is `''` and `grouping.py:1166`
+  (`current_foreman or effective_user`) passes the blank through as `__current_foreman` — the same
+  path the `[]` Subproject-B entry (Codex P1 #4) documents. A primary group
+  mixing such a row with a normally assigned one used to show a **blank** header foreman while its
+  hash named the later row's; it now shows that foreman. Uniform groups (the normal case) are
+  byte-identical. The rule is gated on `variant == 'primary'`:
   helper, helper-shadow, vac_crew AND the subcontractor primary variants (`reduced_sub` /
   `aep_billable`, which share the primary display branch) keep `first_row['__current_foreman']` —
   the partition key (attributed helper / frozen claimer). The raw `Foreman` column is the primary
@@ -7467,9 +7469,11 @@ follow-up findings closed, same 6 files.
   header row". Consequence for a manual `extended_change_detection=false` dispatch: a helper group
   spanning two depts/jobs whose last legacy key came from arrival order regenerates and re-uploads
   **once** (Sites 2/3 move with Site 1 — nothing is pruned); do not read that as churn.
-- **Rollout.** Extended mode (production): a behaviour-preserving refactor — every hash input,
-  history key, cleanup tuple, prune key, filename and header is byte-identical to master, so the first
-  run after merge regenerates zero groups from this change and deletes nothing. Legacy mode: the
+- **Rollout.** Extended mode (production): every hash input, history key, cleanup tuple, prune key
+  and filename is byte-identical to master, so the first run after merge regenerates zero groups from
+  this change and deletes nothing. The only visible change is the primary header foreman for groups
+  with a whitespace-assigned (blank-claimer) canonical first row — workbook content, hash unchanged,
+  so it appears the next time such a group regenerates for a real change. Legacy mode: the
   one-time regeneration above. Watch the first post-merge run's regenerated-vs-skipped counts and
   `billing_audit.pipeline_run` hash stability for the previously flipping WRs; churn there would mean
   a key shape was not preserved → revert. Verified independently: `haiku-verifier` PASS on all six
@@ -7478,10 +7482,12 @@ follow-up findings closed, same 6 files.
   `generate_excel` — two extended sorts per workbook, immaterial at ~550 rows; folding
   `canonical_first_row` into the shared definition — possible follow-up). `pytest tests/`: 1794
   passed, 1 skipped.
-- **RULE — `__current_foreman` is never empty on rows from `group_source_rows`** (`grouping.py:1166`
-  falls back to `__effective_user`, which `fetch.py` defaults to `'Unknown Foreman'`). "Blank foreman"
-  defensive logic in `pipeline/excel.py` is inert; the raw `Foreman` column is NOT a safe header
-  source for helper-shadow / subcontractor variants (it names the primary foreman).
+- **RULE — `__current_foreman` CAN be blank on production rows: the whitespace-only
+  `Foreman Assigned?` path** (`fetch.py:888-892` → `__effective_user=''` → `grouping.py:1166`). The
+  `'Unknown Foreman'` default covers only a missing/empty assignment, not a whitespace one. Any
+  first-row foreman read must therefore tolerate a blank (`canonical_foreman` for the primary header;
+  the identity sites sanitize `''` to `''`). The raw `Foreman` column is NOT a safe header source for
+  partitioned variants (it names the primary crew's current foreman, not the partition key).
 - **RULE — identity is `derive_group_identity()`; never re-inline a variant chain at a site.** Adding
   a variant means one branch in the helper + one row in `DeriveGroupIdentityTests.ROWS`, and the
   reference copy in that test is updated deliberately (it is the audit trail of the pre-extraction

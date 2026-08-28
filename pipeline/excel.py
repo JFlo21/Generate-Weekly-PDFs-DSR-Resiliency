@@ -589,11 +589,12 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         # Primary variant: the foreman the hash records (FOREMAN= meta
         # token -- first non-empty __current_foreman, else Foreman, in
         # canonical order) so header and hash cannot disagree (Codex,
-        # PR #361 follow-up). Rows from group_source_rows always carry
-        # a non-empty __current_foreman (pipeline/grouping.py falls
-        # back to __effective_user / 'Unknown Foreman'), so on the
-        # production path this equals the legacy first-row value; the
-        # rule only changes the header for rows built elsewhere. The
+        # PR #361 follow-up). Reachable in production: a whitespace-only
+        # 'Foreman Assigned?' is truthy before strip, so pipeline/fetch
+        # stores __effective_user='' and grouping.py:1166 passes that
+        # blank through as __current_foreman -- a primary group mixing
+        # such a row with a normally assigned one used to show a blank
+        # foreman while its hash named the later row's. The
         # raw-Foreman fallback is safe HERE only: a primary file's raw
         # Foreman is the primary crew. The subcontractor primary
         # variants (reduced_sub / aep_billable) share this branch but
