@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-27 22:24 CDT (03:24Z) · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-27 22:30 CDT (03:30Z) · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
@@ -19,7 +19,7 @@ clean. Phase 11 EXECUTING — **7/8 plans done**; **11-08 INC-05 retirement DEFE
 this session — read the latest `run_ledger.notes` before resuming). Then: checklist item 6 SQL +
 items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-08-27 22:24 CDT) — #355 + #359 MERGED; #361 (identity row = canonical row) round 2 done; #360 (Learn docs) Copilot rounds 2–17 done — both await Juan's merge
+## Latest work (2026-08-27 22:30 CDT) — #355 + #359 MERGED; #361 (identity row = canonical row) round 2 done; #360 (Learn docs) Copilot rounds 2–18 done — both await Juan's merge; OWNER DECISION pending on repo-wide identifier scrub
 - **Merged:** #355 (`81eb82b`) and #359 (`a8d6795`, hash sort tiebreaker); master at `263dc34`.
 - **#361** `fix/excel-header-canonical-row` (code head `2c51a38` = `79e5411` + `2c51a38`; later commits are ledger/state only):
   Excel header + orchestrate Sites 1/2/3 read `canonical_first_row()`; Job # aliases AND the legacy
@@ -31,7 +31,7 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
   retrigger needs a browser login (307 → /login) — click "Re-trigger Greptile" in the PR body if it
   doesn't re-review on its own. Azure DevOps mirror check fails on every PR build (also docs-only
   #360) — pre-existing, not required (branch unprotected). 1775 tests pass. Ledger `[2026-08-27 20:20]`.
-- **#360** `docs/learning-guides` (docs head `bae4938` + state-sync commit): **seventeen review rounds done** —
+- **#360** `docs/learning-guides` (docs head `bae4938` + state-sync commit): **eighteen review rounds done** —
   Copilot auto-reviews every push here, so each fix commit drew a smaller follow-up round (4: purge
   scope = `WR_*.xlsx` on the target sheet only, no `$0` line for an admitted row, `EXCLUDE_WRS` /
   `max_groups` DO narrow an attaching run, `pipeline_memory` edge bidirectional; 5: `workflow_dispatch`
@@ -51,10 +51,13 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
   generated name survive unchanged-hash runs (filename-only check); withheld WRs need a target-row fix; 13: `Dept #` + `N/A` column in the layout; this file's
   timestamp corrected to wall-clock — earlier stamps this evening ran ~50 min fast; 14: `SENTRY_DSN=` in every local recipe,
   `_Unknown_Foreman` -> escalate immediately; 15: subcontractor rows with blank helper fields go to
-  `_ReducedSub_User_…`, never the plain main file; 16: repo is PUBLIC — real WRs aliased to `<WR-A>`/`<WR-B>` in this file
-  and the ledger; git history + merged blog post + old PR threads still hold them = owner's scrub
-  decision; 17: stale intro status rewritten, ledger "unset" → explicit-empty, changelog post says
-  "key modules"). Ledger `[21:10]` rounds 3–17.
+  `_ReducedSub_User_…`, never the plain main file; 16/18: repo is PUBLIC — ids/names aliased ONLY on the ledger/state lines these rounds
+  touched; a tree-wide count found 284 WR-like ids + 20 personnel names in 106 tracked files (committed
+  `generated_docs/*.json` manifests, tests, `.planning/`, blog, `orchestrate.py`) + git history + old PR
+  threads → **Juan decides: scrub tracked files / make repo private / rewrite history** (#360 thread
+  3877686166 left open for that); 17: stale intro status rewritten, ledger "unset" → explicit-empty, changelog post says
+  "key modules"; 18: names on touched ledger lines + every id in this file aliased, rule made truthful).
+  Ledger `[21:10]` rounds 3–18.
   Round 2 (`2a271c8`): 35 Copilot/Codex/Greptile findings checked against the code; 34 fixed, 1
   declined (Greptile "reorganise the engineer guide", left open for Juan). Round 3 (Copilot
   re-review of `2a271c8`, 3 comments + 4 suppressed, all valid, fixed in `f20036e`): Snapshot Date
@@ -478,7 +481,7 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
    until the decision is implemented. Observation to carry: baseline stores
    Windows `\` paths → Gate 4 FAIL-diff would be noise on Linux CI.
 
-## Previous (2026-08-24 14:35 CDT) — DIAGNOSIS ONLY: `_User_Unknown_Foreman` (WR 89829163) root-caused; helper-sheet gaps traced to data gates
+## Previous (2026-08-24 14:35 CDT) — DIAGNOSIS ONLY: `_User_<NAME>` (WR <WR>) root-caused; helper-sheet gaps traced to data gates
 0000000000000000. GSD debug session
    `.planning/debug/unknown-foreman-helper-shadow-2026-08-24.md`
    (status root_cause_found; no code/data/workflow change). (1) The
@@ -493,7 +496,7 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
    foreman" source for archived WRs. (2) Helper sheets: scheduled run
    32743959053 evaluated all 166+5 helper groups (0 dropped); missing
    helper files are data-gated (`Helper Dept #` formula blank — WRs
-   91499829/90550059 — or `Foreman Helping?` blank). Need one concrete
+   <WR>/<WR> — or `Foreman Helping?` blank). Need one concrete
    (WR, week, helper, run) example for the "only after full regen"
    claim. Ledger entry `[2026-08-24 14:35]`; wiki project page + log
    updated. Manual run 32748717671 (Juan, 16:04 UTC) was still
@@ -762,8 +765,8 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
 
 ## Previous (2026-08-14 AM) — both underbilled rows REPAIRED (Juan-approved API re-save) + drift steady state ACHIEVED
 00000. **Repair executed + verified** (ledger `[2026-08-14 10:05]`):
-   91718610 → $113.68 (Backup 83; wk-08-09 Excel REGENERATED by run
-   31805121266); 91173728 → $1,179.36 (Backup 73; wk-08-16 file
+   <WR> → $113.68 (Backup 83; wk-08-09 Excel REGENERATED by run
+   31805121266); <WR> → $1,179.36 (Backup 73; wk-08-16 file
    regenerates next scheduled run via hash change). Working idiom:
    same-value write = Smartsheet no-op; text→number Quantity
    type-flip forces recalc. Snapshot Dates NOT re-stamped; no
@@ -779,8 +782,8 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
    repro (scratchpad driver, detector-only) matched burn-in counters
    and identified the 2 mismatches — **both underbilled exactly one
    unit** (actual = rate × (qty−1), stale Install-Quantity formula
-   class): WR 91718610 / SAA-DE-20 / Inst / qty 2 ($56.84 vs
-   $113.68; ProMax Backup 82/83 + Intake Promax 9) and WR 91173728 /
+   class): WR <WR> / SAA-DE-20 / Inst / qty 2 ($56.84 vs
+   $113.68; ProMax Backup 82/83 + Intake Promax 9) and WR <WR> /
    DEC-20AL-C / Inst / qty 4 ($884.52 vs $1,179.36). **Juan action:**
    check Quantity vs Install Quantity on those rows, re-save to
    recalc — upstream fix only. **Legacy `_detect_price_anomalies`
@@ -794,9 +797,9 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
    **ROOT CAUSE CONFIRMED via cell history (`[2026-08-14 00:50]`):**
    both mismatches = automation-triggered recalc racing a human qty
    edit (correct price reverts 2-3s later to stale-qty price).
-   Exact rows: Backup 83 row 5538447881863044 (91718610, wk 08-09,
+   Exact rows: Backup 83 row 5538447881863044 (<WR>, wk 08-09,
    already underbilled $56.84) + Backup 73 row 1166598725369732
-   (91173728, **wk 08-16 CURRENT — re-save before next run** or it
+   (<WR>, **wk 08-16 CURRENT — re-save before next run** or it
    bills $294.84 short). Both predate Juan's 08-13 automation fix;
    rate-sanity counters on future runs verify whether the race died.
 
@@ -878,7 +881,7 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
    billing_audit/schema.sql → burn-in → enable hold gate.
 
 ## Previous work (2026-08-12) — SAA-DE-20 overbill root-caused (upstream data, not code) + Snapshot Date automation defect proven + quick task 260812-isx in flight
-1. **Field-reported wrong pricing solved:** WR 91916464 / Point 27 /
+1. **Field-reported wrong pricing solved:** WR <WR> / Point 27 /
    SAA-DE-20 showed 3 EA @ $341.04 (should be 3 × $56.84 = $170.52).
    Root cause: stale Smartsheet `Install Quantity` formula cell on
    "Resiliency Promax Database Backup 86" (Quantity edited 6→3 on
@@ -982,7 +985,7 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
    `SKIP_UPLOAD=true WR_FILTER=... MAX_GROUPS=5` run, real transport, 2,771
    groups validated, 5 Excel generated, zero SDK error-shape drift).
    **Finding:** `SKIP_UPLOAD=true` is NOT fully read-only — the
-   delete-old-attachment step still ran (WR 89881161 weeks 072025/081725
+   delete-old-attachment step still ran (WR <WR> weeks 072025/081725
    deleted; hash withheld → next weekday cron regenerates + re-uploads
    automatically; Juan chose wait-for-cron). Logged in phase
    `deferred-items.md` + Living Ledger; follow-up fix candidate: gate the
@@ -1017,7 +1020,7 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
    passed, 0 issues** (commit `d78e7d5`). Full-UAT in
    `.planning/phases/08-*/08-UAT.md`; the old 1-test `08-HUMAN-UAT.md`
    closed (its attachment-loss check = Test 5, Juan-confirmed: WR
-   89881161 self-healed via cron, WR 89708709/90093002 intact).
+   <WR> self-healed via cron, WR <WR>/<WR> intact).
    `08-VERIFICATION.md` flipped `human_needed` → `passed` (the human
    gate it awaited was exactly Test 5). Roadmap/STATE/PROJECT transition
    had already run in the prior session — no re-transition.
@@ -1111,7 +1114,7 @@ delete→upload order, `@cell`=0, `PARALLEL_WORKERS≤8`, filename/attachment). 
 `memory-bank/living-ledger.md` (newest entries) for the full what/why/rules.
 
 ## Active work
-**🔧 WR 90968595 missing-rows bug: ROOT CAUSE CONFIRMED, fix in PR (2026-07-06).**
+**🔧 WR <WR> missing-rows bug: ROOT CAUSE CONFIRMED, fix in PR (2026-07-06).**
 Not attribution/filtering — a crash-consistency bug in the Sub-project E hash
 store: failed run 28752355941 (7/5, runner lost) upserted the new group hash
 during emission but died before the upload phase, so under authoritative clean
@@ -1121,7 +1124,7 @@ upserts and flushes ONLY after the group's upload legs succeed (withhold on
 error/dry-run → regenerate next run). 4 regression tests; suite 1153 passed +130
 subtests. **Pending:** merge fix PR (stacked on #282) → one-time remediation
 `workflow_dispatch` `advanced_options=regen_weeks:070526` → verify the 7/5 rows in
-the regenerated file → archive debug session `wr-90968595-rows-not-pulled` +
+the regenerated file → archive debug session `wr-<WR>-rows-not-pulled` +
 apply the held second-brain write-back packet. Full rule: newest
 `memory-bank/living-ledger.md` entry.
 

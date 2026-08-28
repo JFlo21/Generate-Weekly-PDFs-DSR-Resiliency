@@ -7123,8 +7123,8 @@ follow-up findings closed, same 6 files.
   `sheets_changed=26`, `mem_confirmed=true`, `mem_sheets_errored=0`. First CI run ever to write memory.
 - **IN-01 / checklist items 2–3 (first half) PROVEN.** `pipeline_memory.group_state` holds the 4 uploaded
   groups with non-NULL `attachment_id`; Smartsheet `get_attachment` on the target sheet confirms
-  `309695391633284` → `WR_<WR-A>_WeekEnding_080226_User_Charlie_Tremper.xlsx` and
-  `6345226370060164` → `WR_<WR-B>_WeekEnding_083026_User_John_Bishop.xlsx` (created 19:08Z, this run).
+  `309695391633284` → `WR_<WR-A>_WeekEnding_080226_User_<FOREMAN-A>.xlsx` and
+  `6345226370060164` → `WR_<WR-B>_WeekEnding_083026_User_<FOREMAN-B>.xlsx` (created 19:08Z, this run).
   The COALESCE-preserves-on-skip half needs the next run in which those groups are skipped.
 - **`parity_verdict = fail` — and it will be `fail`/`skipped` on EVERY run until two comparator issues are
   fixed. Neither is a selector defect:**
@@ -7146,7 +7146,7 @@ follow-up findings closed, same 6 files.
   `row_state` was last written 08-25 (every CI run since failed to write) while `hash_history`/the durable
   store were current through #2800 — e.g. `90787223/083026` was uploaded by #2799 at 15:57Z. Self-heals from
   the next run now that `row_state` is current.
-- **Open (secondary): one genuine churn group.** `<WR-A>/080226 primary Charlie_Tremper` is regenerated
+- **Open (secondary): one genuine churn group.** `<WR-A>/080226 primary <FOREMAN-A>` is regenerated
   and re-uploaded on #2799, #2800, #2801 (not on the four runs before) via the "hash changed" branch, yet
   `billing_audit.group_content_hash` (authoritative, lookup 200 OK) holds the same hash `10e61b2f25575738`
   that this run's `group_state` recorded, with `updated_at=2026-07-27`. Harmless (one delete+upload per
@@ -7232,7 +7232,7 @@ follow-up findings closed, same 6 files.
   needed at this rate). Scheduler delivered the 19:00Z slot ~88 min late (20:27Z).
 - **Group verdict `fail` with `groups_compared=8`, candidate 9, actual 162.** With #358's uploaded-set
   definition this is 8 vs 9: every uploaded group was in the candidate; the one candidate-only key is
-  `083026_<WR-B>_HELPER_Walker_David_Moody` — the helper variant of a WR whose primary changed.
+  `083026_<WR-B>_HELPER_<HELPER-A>` — the helper variant of a WR whose primary changed.
   D-04 defines the candidate as *every group of an affected (WR, week) pair* processed by the
   *unmodified* group loop, i.e. the same hash-skip gate the full run applied — so the candidate is a
   superset by construction and that helper would have been skipped identically. **Refinement #2
@@ -7340,14 +7340,20 @@ follow-up findings closed, same 6 files.
 - **Round 6 — RULE: public runbook examples use fictional identifiers.** The guides had copied a real
   WR (the churn-incident one) and a real foreman name into a filename example and the SQL/CLI
   recipes; the Docusaurus site is public and the pipeline treats WR/foreman as row PII. Use
-  `12345678` / `Jane_Doe`-style values in `website/`. **Round 16 correction: the repository itself is
-  PUBLIC, so the rule covers every tracked file and PR text, not just the rendered site.** Real WR /
-  foreman identifiers live only in Smartsheet / Supabase; cross-reference incidents with opaque
-  aliases — `<WR-A>` = the 080226 hash-churn WR (the `[2026-08-27 14:35]`…`[16:10]` incident),
-  `<WR-B>` = the second WR that appeared in a `reset_wr_list` example. This ledger and the state file
-  were aliased in place on 2026-08-27; the identifiers remain in git history, in the merged blog post
-  `2026-08-27-parity-actual-uploaded-set.md`, and in older PR threads — scrubbing those is the
-  owner's call. (Round 7 caught a second real WR the sweep missed — grep for every 8-digit number.)
+  `12345678` / `Jane_Doe`-style values in `website/`. **Round 16/18 correction: the repository itself is
+  PUBLIC, so the rule covers every tracked file and PR text, not just the rendered site.** Cross-reference
+  incidents with opaque aliases — `<WR-A>` = the 080226 hash-churn WR (the `[2026-08-27 14:35]`…`[16:10]`
+  incident), `<WR-B>` = the second WR that appeared in a `reset_wr_list` example, `<FOREMAN-A/B>`,
+  `<HELPER-A>` = the people on those groups. **What is actually aliased (2026-08-27):** the lines of this
+  ledger and of `.claude/project-state.md` that the #360 review rounds touched. **What is NOT:** a
+  tree-wide count on 2026-08-28 03:30Z found 284 distinct WR-like ids and 20 `_User_/_Helper_/_VacCrew_`
+  personnel names across 106 tracked files — including committed `generated_docs/artifact_manifest.json`
+  (257 ids) and `generated_docs/hash_history.json` (98), `tests/` fixtures (e.g.
+  `test_parity_shadow.py`, `test_subcontractor_*`), `.planning/`, `docs/superpowers/`, `.github/prompts/`,
+  the merged blog post `2026-08-27-parity-actual-uploaded-set.md`, and `pipeline/orchestrate.py` (one
+  name) — plus git history and older PR threads. Scrubbing those, making the repo private, or rewriting
+  history is an **owner decision** (tracked on #360 thread 3877686166); until it is made, do not claim
+  the tree is clean. (Round 7 caught a second real WR the sweep missed — grep for every 8-digit number.)
 - **Round 7 — RULE: "unset" is not a safe local-run instruction.** `generate_weekly_pdfs.py:24` calls
   `load_dotenv()` at import; python-dotenv fills in *absent* variables from a developer `.env` but
   never overrides a present one, even empty. So a recipe that must avoid the Smartsheet token or the
