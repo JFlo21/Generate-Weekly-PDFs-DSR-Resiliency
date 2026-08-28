@@ -93,6 +93,63 @@ def _extended_row_fields(row: dict, group_variant: str) -> list[str]:
     return row_fields
 
 
+def canonical_sorted_rows(group_rows: list[dict], extended: bool | None = None) -> list[dict]:
+    """Return the group's rows in the order ``calculate_data_hash`` hashes them.
+
+    This is the ONE definition of a group's canonical row order. The hash
+    uses it, and ``pipeline.excel.generate_excel`` uses its first element
+    for the workbook's header metadata (foreman / helper dept / helper job)
+    so the row the hash considers "first" and the row Excel displays are
+    the same row regardless of parallel-fetch arrival order (Codex, PR
+    #359: a helper group can hold rows from two departments -- the group
+    key is ``{week}_{wr}_HELPER_{name}`` -- so an arrival-order
+    ``group_rows[0]`` could show a dept/job the stable hash never sees).
+
+    ``extended`` defaults to the facade's ``EXTENDED_CHANGE_DETECTION``.
+    Extended mode sorts on the business key, the VAC-crew fields, the
+    row's own hashed-field string, its foreman and its helper metadata (a
+    total order for any two rows that differ in anything the hash reads).
+    Legacy mode keeps the original 5-key sort (rollback-stability
+    guarantee -- see the note in ``calculate_data_hash``).
+    """
+    if not group_rows:
+        return []
+    if extended is None:
+        import generate_weekly_pdfs as _gwp  # noqa: PLC0415
+        extended = bool(_gwp.EXTENDED_CHANGE_DETECTION)
+    _sort_base = lambda x: (
+        str(x.get('Work Request #', '')),
+        str(x.get('Snapshot Date', '')),
+        str(x.get('CU', '')),
+        str(x.get('Pole #') or x.get('Point #') or x.get('Point Number') or ''),
+        str(x.get('Quantity', '')),
+    )
+    if not extended:
+        return sorted(group_rows, key=_sort_base)
+    _sort_extended = lambda x: _sort_base(x) + (
+        str(x.get('__vac_crew_name') or ''),
+        str(x.get('__vac_crew_dept') or ''),
+        str(x.get('__vac_crew_job') or ''),
+    )
+    _variant_for_key = group_rows[0].get('__variant', 'primary')
+    return sorted(
+        group_rows,
+        key=lambda x: _sort_extended(x) + (
+            "|".join(_extended_row_fields(x, _variant_for_key)),
+            str(x.get('__current_foreman') or x.get('Foreman') or ''),
+            str(x.get('__helper_foreman') or ''),
+            str(x.get('__helper_dept') or ''),
+            str(x.get('__helper_job') or ''),
+        ),
+    )
+
+
+def canonical_first_row(group_rows: list[dict]) -> dict:
+    """The row ``calculate_data_hash`` treats as the group's first row."""
+    ordered = canonical_sorted_rows(group_rows)
+    return ordered[0] if ordered else {}
+
+
 def calculate_data_hash(group_rows: list[dict]) -> str:
     """Calculate a hash of the group data to detect changes.
 
@@ -162,19 +219,9 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
     # invalidating the rollback-stability guarantee. Legacy mode's row_data
     # also excludes VAC crew fields, so a vac_crew-specific tie-breaker
     # there would be purely cosmetic — skip it.
-    _sort_base = lambda x: (
-        str(x.get('Work Request #', '')),
-        str(x.get('Snapshot Date', '')),
-        str(x.get('CU', '')),
-        str(x.get('Pole #') or x.get('Point #') or x.get('Point Number') or ''),
-        str(x.get('Quantity', '')),
-    )
+    # The order itself lives in canonical_sorted_rows() so Excel's header
+    # row and the hash's first row can never disagree (see its docstring).
     if EXTENDED_CHANGE_DETECTION:
-        _sort_extended = lambda x: _sort_base(x) + (
-            str(x.get('__vac_crew_name') or ''),
-            str(x.get('__vac_crew_dept') or ''),
-            str(x.get('__vac_crew_job') or ''),
-        )
         # Total-order tiebreaker (2026-08-27, run #2801 / PR #359).
         #
         # The VAC-crew tiebreaker above only closed the tie for crew
@@ -205,21 +252,9 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
         # (one final regeneration). Variant is group-level (every row in a
         # group shares `__variant`, see the note below the sort), so the
         # first row is authoritative.
-        _variant_for_key = (
-            group_rows[0].get('__variant', 'primary') if group_rows else 'primary'
-        )
-        sorted_rows = sorted(
-            group_rows,
-            key=lambda x: _sort_extended(x) + (
-                "|".join(_extended_row_fields(x, _variant_for_key)),
-                str(x.get('__current_foreman') or x.get('Foreman') or ''),
-                str(x.get('__helper_foreman') or ''),
-                str(x.get('__helper_dept') or ''),
-                str(x.get('__helper_job') or ''),
-            ),
-        )
+        sorted_rows = canonical_sorted_rows(group_rows, extended=True)
     else:
-        sorted_rows = sorted(group_rows, key=_sort_base)
+        sorted_rows = canonical_sorted_rows(group_rows, extended=False)
 
     if not EXTENDED_CHANGE_DETECTION:
         # OPTIMIZATION: Use incremental hashing to avoid large string allocation
