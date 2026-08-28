@@ -620,7 +620,15 @@ if _env_hist_path:
 else:
     HASH_HISTORY_PATH = _default_hist_path
 HISTORY_SKIP_ENABLED = os.getenv('HISTORY_SKIP_ENABLED','1').lower() in ('1','true','yes')  # Allow skip based on identical stored hash ONLY if attachment still present
-ATTACHMENT_REQUIRED_FOR_SKIP = os.getenv('ATTACHMENT_REQUIRED_FOR_SKIP','1').lower() in ('1','true','yes')  # If true, even identical hash regenerates when attachment missing
+ATTACHMENT_REQUIRED_FOR_SKIP = os.getenv('ATTACHMENT_REQUIRED_FOR_SKIP','1').lower() in ('1','true','yes')
+# Owner decision 2026-08-28: groups whose WR has no target-sheet row are
+# not generated. Circuit breaker: if MORE than this share of the run's
+# distinct WR values is absent from the target map, the map is probably
+# partial or wrong (sheet id / permissions), so the skip is disabled for
+# the run and the pipeline falls back to generate-and-warn.
+NO_TARGET_ROW_MAX_MISS_RATIO = float(
+    os.getenv('NO_TARGET_ROW_MAX_MISS_RATIO', '0.5') or 0.5
+)  # If true, even identical hash regenerates when attachment missing
 KEEP_HISTORICAL_WEEKS = os.getenv('KEEP_HISTORICAL_WEEKS','0').lower() in ('1','true','yes')  # Preserve attachments for weeks not processed this run
 if EXTENDED_CHANGE_DETECTION:
     logging.info("🔄 Extended change detection ENABLED (hash includes Foreman, Dept #, Scope, totals, etc.)")

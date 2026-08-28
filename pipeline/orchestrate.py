@@ -83,6 +83,7 @@ from pipeline.config import (  # noqa: E402
     ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN,
     ATTACHMENT_PREFETCH_MAX_MINUTES,
     ATTACHMENT_REQUIRED_FOR_SKIP,
+    NO_TARGET_ROW_MAX_MISS_RATIO,
     ATTRIBUTION_BULK_PREFETCH_FALLBACK,
     AUDIT_SHEET_ID,
     DEBUG_ESSENTIAL_ROWS,
@@ -316,6 +317,45 @@ def _build_synthetic_rows():
     return rows
 
 
+def derive_group_wr(group_rows: list) -> str:
+    """The WR identifier the group loop derives for a group -- the same
+    three steps, so the pre-loop circuit breaker and the per-group gate
+    agree byte-for-byte: ``str(raw).split('.')[0]``, then the
+    filesystem sanitizer, then ``[:50]``. PURE.
+    """
+    raw = group_rows[0].get('Work Request #') if group_rows else None
+    wr = str(raw).split('.')[0] if raw else ''
+    return _RE_SANITIZE_HELPER_NAME.sub('_', wr)[:50]
+
+
+def no_target_row_gate_enabled(
+    groups: dict,
+    target_map: dict | None,
+    *,
+    max_miss_ratio: float,
+) -> tuple[bool, int, int, float]:
+    """Circuit breaker for the no-target-row skip (risk review P1-A).
+
+    A NON-EMPTY target map is not proof of a COMPLETE one: a wrong
+    ``TARGET_SHEET_ID``, a sharing change that returns a row subset, or
+    a mid-edit sheet all yield a populated-but-short map, and "absent
+    from a partial read" must never become "never generate" (the same
+    principle the source-read code states for deletions). Returns
+    ``(enabled, missing, universe, ratio)`` where *universe* is the
+    number of distinct non-empty WR values across *groups* and
+    *missing* how many of them have no target-map key. Enabled only
+    when the map is populated AND ``ratio <= max_miss_ratio``; a
+    disabled gate means the run falls back to generate-and-warn. PURE.
+    """
+    universe = {derive_group_wr(rows) for rows in (groups or {}).values()}
+    universe.discard('')
+    if not target_map or not universe:
+        return False, len(universe), len(universe), 1.0
+    missing = len(universe - set(target_map))
+    ratio = missing / len(universe)
+    return ratio <= max_miss_ratio, missing, len(universe), ratio
+
+
 def should_skip_no_target_row(
     wr_num: str,
     target_map: dict | None,
@@ -337,6 +377,14 @@ def should_skip_no_target_row(
     sheet was unreachable -- never a skip; zero-row guard), and the WR
     is absent from it. Converges by itself: the moment the row appears
     the group is generated on the next run (its hash was never stored).
+
+    Safe only because every upload leg requires the primary target row:
+    ``pipeline/upload.py::_build_upload_tasks_for_group`` gates the
+    reduced_sub PPP leg on ``primary_present`` too, so a WR absent from
+    the target map has NO upload path for ANY variant (pinned by
+    ``tests/test_skip_no_target_row.py``). Deliberately sits above
+    ``FORCE_GENERATION`` / ``WR_FILTER`` / ``RESET_WR_LIST``: forcing
+    cannot make a file uploadable.
     """
     if not attachment_required or test_mode or skip_upload:
         return False
@@ -346,21 +394,28 @@ def should_skip_no_target_row(
 
 
 def format_no_target_row_summary(
-    groups: dict, target_sheet_id: object,
+    groups: dict, target_sheet_id: object, max_values: int = 25,
 ) -> str:
     """One end-of-run ERROR line: how many groups / distinct WR values
     were NOT generated because the WR has no target-sheet row, with the
     values listed (the audit trail the owner asked for; the same values
     the upload-phase warning already printed per group before this
-    rule existed). PURE.
+    rule existed). The list is capped at *max_values* because the
+    Actions log is public and a malformed ``Work Request #`` cell can
+    hold free text. A WR quarantined for a duplicate row on the TARGET
+    sheet is also absent from the map, so that cause is named. PURE.
     """
     wrs = sorted({str(v[0]) for v in groups.values()})
+    shown = ', '.join(wrs[:max_values])
+    if len(wrs) > max_values:
+        shown += f", ... and {len(wrs) - max_values} more"
     return (
         f"❌ {len(groups)} group(s) across {len(wrs)} Work Request value(s) "
         f"have no row on target sheet {target_sheet_id} -- data-entry "
         f"errors on the source sheets (malformed or unregistered "
-        f"'Work Request #'); NOT generated. Fix the source rows. "
-        f"Values: {', '.join(wrs)}"
+        f"'Work Request #') or a duplicate WR row on the target sheet "
+        f"(collision quarantine); NOT generated. Fix the source rows. "
+        f"Values: {shown}"
     )
 
 
@@ -3288,6 +3343,45 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             _billing_audit_fp_buckets = {}
             _billing_audit_agg_content_hashes = {}
 
+        # Owner decision 2026-08-28 (no-target-row skip), risk-review
+        # hardening: load the target map AT MOST ONCE per run (the loader
+        # swallows errors and returns {}, so a per-group retry would be
+        # one full get_sheet per group), and run the circuit breaker
+        # BEFORE the loop -- a populated-but-partial map must fail open
+        # to the pre-existing generate-and-warn behaviour.
+        _target_map_load_attempted = bool(target_map)
+        _no_target_gate_on = False
+        if ATTACHMENT_REQUIRED_FOR_SKIP and not TEST_MODE and not SKIP_UPLOAD:
+            if not target_map and not _target_map_load_attempted:
+                _target_map_load_attempted = True
+                target_map, _target_sheet_obj = (
+                    create_target_sheet_map(client)
+                )
+            (
+                _no_target_gate_on, _nt_missing, _nt_universe, _nt_ratio,
+            ) = no_target_row_gate_enabled(
+                groups, target_map,
+                max_miss_ratio=NO_TARGET_ROW_MAX_MISS_RATIO,
+            )
+            if target_map and not _no_target_gate_on:
+                logging.error(
+                    f"🛑 No-target-row skip DISABLED for this run: "
+                    f"{_nt_missing} of {_nt_universe} Work Request values "
+                    f"({_nt_ratio:.0%}) are absent from target sheet "
+                    f"{TARGET_SHEET_ID}, above "
+                    f"NO_TARGET_ROW_MAX_MISS_RATIO="
+                    f"{NO_TARGET_ROW_MAX_MISS_RATIO:.2f}. The target map "
+                    f"is probably partial or wrong (sheet id / sharing); "
+                    f"falling back to generate-and-warn."
+                )
+                sentry_add_breadcrumb(
+                    "group", "No-target-row skip disabled (miss ratio)",
+                    level="error", data={
+                        "missing": _nt_missing, "universe": _nt_universe,
+                        "ratio": round(_nt_ratio, 3),
+                    },
+                )
+
         for group_idx, (group_key, group_rows) in enumerate(groups.items(), 1):
             # Graceful time budget: stop before Actions hard-kills the job
             if TIME_BUDGET_MINUTES and GITHUB_ACTIONS_MODE:
@@ -3732,18 +3826,13 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 # data changed; the map is loaded lazily exactly as the
                 # attachment check below does.
                 if (
-                    ATTACHMENT_REQUIRED_FOR_SKIP and not TEST_MODE
-                    and not SKIP_UPLOAD
-                ):
-                    if not target_map:
-                        target_map, _target_sheet_obj = (
-                            create_target_sheet_map(client)
-                        )
-                    if should_skip_no_target_row(
+                    _no_target_gate_on
+                    and should_skip_no_target_row(
                         wr_num, target_map,
                         attachment_required=ATTACHMENT_REQUIRED_FOR_SKIP,
                         test_mode=TEST_MODE, skip_upload=SKIP_UPLOAD,
-                    ):
+                    )
+                ):
                         _no_target_row_groups[group_key] = (
                             wr_num, week_raw, variant,
                         )
@@ -3769,8 +3858,14 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         can_skip = True
                         if ATTACHMENT_REQUIRED_FOR_SKIP and not TEST_MODE:
                             # Need a target row to verify attachment presence
-                            if not target_map:
-                                target_map, _target_sheet_obj = create_target_sheet_map(client)
+                            if (
+                                not target_map
+                                and not _target_map_load_attempted
+                            ):
+                                _target_map_load_attempted = True
+                                target_map, _target_sheet_obj = (
+                                    create_target_sheet_map(client)
+                                )
                             target_row = target_map.get(str(wr_num)) if target_map else None
                             if target_row is None:
                                 can_skip = False  # Can't verify; safer to regenerate
@@ -5102,7 +5197,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 "files_generated": generated_files_count,
                 "groups_total": len(groups),
                 "groups_skipped": _groups_skipped,
-            "groups_skipped_no_target_row": _groups_skipped_no_target,
+                "groups_skipped_no_target_row": _groups_skipped_no_target,
                 "groups_generated": _groups_generated,
                 "groups_uploaded": _groups_uploaded,
                 "groups_errored": _groups_errored,
