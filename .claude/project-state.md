@@ -1,10 +1,10 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-28 18:05 CDT (23:05Z) · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-28 18:45 CDT (23:45Z) · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
-_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-28 18:05]` (decisions: no-target-row skip on #365; scrub option A). Earlier: `[2026-08-28 17:10]` (#363 merged, 154-withheld = source-data shape), `[2026-08-28 16:05]` (sheet_registry fix on #363), `[2026-08-28 15:05]` (root cause + 154-withheld pattern), `[2026-08-28 12:05]` (#362), `[2026-08-27 21:10]` (verified pipeline truths from the
+_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-28 18:45]` (#365 + #366 merged; post-merge run expectations). Earlier: `[2026-08-28 18:20]` (identifier scrub, #366), `[2026-08-28 18:05]` (decisions: no-target-row skip on #365; scrub option A), `[2026-08-28 17:10]` (#363 merged, 154-withheld = source-data shape), `[2026-08-28 16:05]` (sheet_registry fix on #363), `[2026-08-28 15:05]` (root cause + 154-withheld pattern), `[2026-08-28 12:05]` (#362), `[2026-08-27 21:10]` (verified pipeline truths from the
 #360 review rounds — acceptance gate, group key, TEST_MODE/Supabase, Snapshot Date, reset purge, stale
 attachment, public-repo identifier rule). Earlier: `[2026-08-27 20:20]` (identity row = canonical row,
 ships with PR #361), `[2026-08-27 16:10]` (hash sort tiebreaker, #359).
@@ -18,9 +18,9 @@ canonical row — its ledger/state/changelog are supersets of master's copies, s
 this session — read the latest `run_ledger.notes` before resuming). Then: checklist item 6 SQL +
 items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-08-28 18:05 CDT) — #363 + #364 MERGED; PR #365 open (no-target-row groups not generated, listed as error); identifier scrub (option A) in progress
+## Latest work (2026-08-28 18:45 CDT) — #363–#366 MERGED; no-target-row skip + public-tip identifier scrub live on `master`; first post-merge run pending
 
-- **Main tree = `master` (`331974b`).** #361–#364 merged. **PR #365 open** (owner-decided skip rule + circuit breaker / load-once from the risk review; 1831 tests green; rubric PASS).
+- **Main tree = `master` (`016974e`).** #361–#366 merged. **#365** (`13f1ffa`): owner-decided no-target-row skip + risk-review breaker / load-once + review round 2 (quarantine-aware gate, gate ahead of the billing-audit snapshot, breaker over unscoped rows with a validated threshold, PII-safe ERROR/WARNING audit split, 22-key `run_summary` contract; 18 threads resolved; 1838 tests green). **#366** (`d1cc49b`): identifier scrub, generated JSONs untracked. **Next signal = the 23:00Z scheduled run** — see ledger `[2026-08-28 18:45]` for the exact lines to expect (and what a `🛑` breaker line means).
   The 12:04 CDT run (`0b910c1`, first run with #361) showed no hash churn beyond the pre-existing pattern below;
   the first run with #362 is the next scheduled one — expect zero regeneration from it.
 - **`pipeline_memory[sheet_registry_upsert]` HTTP 400 on every run since 2026-08-27 18:20Z** — diagnosed, see
@@ -36,13 +36,15 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
   every run and never upload. Characterised `[2026-08-28 17:10]`: ~55% malformed source `Work Request #`
   values (wrong length / non-numeric), ~45% plausible 8-digit WRs missing from the target sheet; Smartsheet
   data hygiene, not Supabase. **DECIDED (Juan 2026-08-28): not generated, listed as an error** — PR #365
-  (`should_skip_no_target_row`, end-of-run ERROR audit line, parity exclusion). Source-side cleanup is a
-  Smartsheet task for the data owner (CSV in the session scratchpad only).
+  (`should_skip_no_target_row`, end-of-run ERROR counts line + WARNING values line, parity exclusion) —
+  **MERGED.** Source-side cleanup is a Smartsheet task for the data owner (CSV in the session scratchpad
+  only). Owner item still open: the Notion-metrics workflow line exporting `groups_skipped_no_target_row`
+  (workflow edit, needs approval).
 - **DECIDED (Juan 2026-08-28): identifier scrub = option A** — alias real WR ids / names in the tracked tip,
-  untrack `generated_docs/artifact_manifest.json` + `hash_history.json` (CI regenerates both). In progress on
-  branch `chore/public-identifier-scrub`; two production-logic mentions (`pipeline/excel.py` WR-keyed log,
-  `generate_weekly_pdfs.py` banner) left for the owner's explicit call. #360 thread 3877686166 closes with
-  that PR. Phase 11 checklist resumes after.
+  untrack `generated_docs/artifact_manifest.json` + `hash_history.json` (CI regenerates both). **MERGED (#366).**
+  Real WRs left by owner choice: `pipeline/excel.py` WR-keyed log, `generate_weekly_pdfs.py` banner, one
+  `.github/prompts/testing-and-validation.md` fixture key. Phase 11 checklist resumes now (parity streak →
+  11-08).
 
 ## Previous (2026-08-28 12:05 CDT) — #361 MERGED (`eb8338f`); #362 open: one `derive_group_identity()` for Sites 1/2/3, header foreman = hash rule (owner-approved), deterministic legacy header; OWNER DECISION pending on repo-wide identifier scrub
 - **#362** `fix/identity-helper-header-foreman` (`49373fd`, branch of master `b23b7af`): closes #361's three open threads. `derive_group_identity(first_row, **_identity_switches)` replaces the three inline identity chains in `main()` (switches bound once after the facade prelude); `canonical_foreman()` = hash `FOREMAN=` rule, now also the PRIMARY workbook header foreman (approved by Juan 2026-08-28; **reachable in production** via the whitespace-only `Foreman Assigned?` path (`fetch.py:888-892` → blank `__current_foreman`; such primary groups showed a blank header while the hash named a foreman) and gated on `variant == 'primary'` — helper/helper-shadow/vac_crew/subcontractor headers keep their partition key; hashes/identity keys byte-identical, golden digests); `canonical_first_row()` uses the extended total order in legacy mode too (legacy hash untouched). New `tests/test_group_identity_and_header_foreman.py` (15 tests, 144 subtests: verbatim reference chain, two-order keys, wiring, golden digests, legacy, primary-only header rule); 7 older source pins re-pointed. 1794 passed, 1 skipped; 0 added lines >79 chars. Independent review: haiku-verifier PASS ×6; production-risk-reviewer P0 none, P1 (helper-shadow header exposure) fixed, P2s applied/recorded. Ledger `[2026-08-28 12:05]`.

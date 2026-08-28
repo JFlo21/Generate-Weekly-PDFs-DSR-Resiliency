@@ -7688,3 +7688,37 @@ follow-up findings closed, same 6 files.
   the owner: `pipeline/excel.py` keys a log line on two real WRs and `generate_weekly_pdfs.py`'s startup
   banner names them — aliasing them changes production output. Mapping real→alias lives only in the
   session scratchpad, never in the repo.
+
+## [2026-08-28 18:20] Public-tip identifier scrub shipped on PR #366 (option A)
+
+- Every real WR number and real crew name in tracked files is now a deterministic fictional alias (same
+  real value → same alias everywhere, so this ledger's older entries, the plans, prompts, runbook pages and
+  test fixtures still cross-reference; aliases start with `1` and cannot collide with a real 8x/9x WR).
+  `generated_docs/artifact_manifest.json` and `hash_history.json` are untracked and ignored — CI regenerates
+  both every run; the committed copies were stale snapshots carrying 513 + 98 identifiers. Suite unchanged
+  because fixtures derive expectations at runtime.
+- **Left in place, owner call pending:** `pipeline/excel.py` keys a log line on two real WRs,
+  `generate_weekly_pdfs.py`'s startup banner names them, and one `.github/prompts/testing-and-validation.md`
+  fixture key (`price_variance_wr…`) embeds the first of them — the only real WR values remaining in the tree
+  (verified on the merged tip with an 8-digit `8x/9x` scan).
+- **RULE — the alias map is not a repo artifact.** It lives outside the repository; a new real identifier
+  that needs aliasing gets a fresh alias, never a lookup in a committed table. New content follows the
+  existing public-repo rule (`[2026-08-27 21:10]`): fictional identifiers only, in every tracked file and
+  in PR text.
+
+## [2026-08-28 18:45] #365 + #366 MERGED — first post-merge run is the next scheduled one
+
+- `master` = `13f1ffa` (#365, no-target-row skip with the round-2 review fixes) + `d1cc49b` (#366, scrub).
+  #366 merged without the planned rebase; its ledger/changelog entries (held locally to avoid a two-PR
+  ledger conflict) land with this docs commit. The merged tip carries #365's round-2 code, the 22-key
+  `run_summary` golden and the reworded ledger text; the two generated JSON files are untracked and ignored.
+- **Expected on the first post-merge run (schedule `0 23 * * 1-5`, UTC):** `… N not generated (no
+  target-sheet row)` in the phase summary (N ≈ 154 today, shrinking as source rows are fixed), one `❌`
+  ERROR line with counts only, one `Work request values with no target-sheet row: …` WARNING line (≤25
+  values), zero per-group `Work request … not found in target sheet` upload warnings, `groups_skipped_
+  no_target_row` in `run_summary.json`, no `🛑` breaker line (steady-state miss ratio ≈10% ≪ 0.5), and a
+  group-processing phase ~45 min shorter. A `🛑` line means the target map came back partial — the skip
+  fell open to generate-and-warn by design; investigate `TARGET_SHEET_ID` / sharing before anything else.
+- **RULE — hold a second PR's ledger entry locally until the first merges, then ship it as a docs commit.**
+  Two open PRs appending to `memory-bank/living-ledger.md` conflict at the second merge; the second PR's
+  entry is reproducible from its write-back script, so the cost of holding it is zero.
