@@ -292,6 +292,7 @@ def upsert_sheet_registry(
     capture_times: dict[Any, str] | None = None,
     full_read_sheets: set | None = None,
     column_mapping_sheets: set | None = None,
+    watermarks: dict | None = None,
 ) -> None:
     """Best-effort bulk upsert of ``sheet_registry``. NEVER raises.
 
@@ -358,16 +359,28 @@ def upsert_sheet_registry(
     never to silently adopt.
 
     Empty input performs ZERO calls, checked before the client/flag
-    guards, same as ``upsert_rows_bulk``. Issues one table upsert PER
-    KEY-SET (``on_conflict="sheet_id"``; at most four requests -- the
-    ``column_mapping`` x ``last_full_read_at`` presence combinations):
-    postgrest-py sends ``columns=`` as the UNION of the payload's keys
-    and PostgREST applies it to every row, so a row that omits a key
-    next to one that carries it is written as NULL on the UPDATE half
-    (23502 on ``column_mapping``, silent watermark loss on
-    ``last_full_read_at``). Grouping keeps "omitted key == column
-    untouched" true for every request; a row failure fails only its
-    own group. All groups share the ``sheet_registry_upsert`` retry op,
+    guards, same as ``upsert_rows_bulk``.
+
+    ``column_mapping`` is present on EVERY row. PostgreSQL constraint-
+    checks the INSERT candidate row BEFORE it consults ``ON CONFLICT``,
+    so a payload that omits a ``NOT NULL`` column with no default raises
+    23502 even when every ``sheet_id`` already exists -- omission can
+    never mean "leave it untouched" for that column. Registered sheets
+    on a frequent run therefore echo their STORED mapping from
+    *watermarks* (the value the reader already fetched), which is how
+    the "never silently adopt a drifted mapping" invariant is kept;
+    only the sheets in *column_mapping_sheets* (or all, when ``None``)
+    write the freshly discovered mapping.
+
+    Nullable columns are different: ``last_full_read_at`` may be
+    omitted, but postgrest-py sends ``columns=`` as the UNION of the
+    payload's keys and PostgREST uses that list for the UPDATE half, so
+    a row that omits it next to one that carries it would have its
+    watermark NULLed. Hence one table upsert PER KEY-SET
+    (``on_conflict="sheet_id"``; at most two requests today): every
+    request is key-homogeneous and "omitted nullable key == column
+    untouched" holds. A row failure fails only its own group. All
+    groups share the ``sheet_registry_upsert`` retry op,
     so the circuit breaker's "consecutive failures" now counts per
     request and a sibling group's success resets it -- a group that
     fails permanently is reported by the per-request WARNING, not by
@@ -409,14 +422,30 @@ def upsert_sheet_registry(
         }
         if column_mapping_sheets is None or sheet_id in column_mapping_sheets:
             row["column_mapping"] = sheet.get("column_mapping") or {}
+        else:
+            stored = (watermarks or {}).get(sheet_id) or {}
+            stored_mapping = stored.get("column_mapping")
+            if isinstance(stored_mapping, dict):
+                row["column_mapping"] = stored_mapping
+            else:
+                # Caller inconsistency (sheet neither new nor known):
+                # the column is NOT NULL, so the only non-failing value
+                # is the discovered mapping. Logged, never silent.
+                logging.warning(
+                    "⚠️ pipeline_memory sheet_registry: no stored "
+                    "column_mapping for a registered sheet; writing "
+                    "the discovered mapping instead."
+                )
+                row["column_mapping"] = sheet.get("column_mapping") or {}
         if is_full_read:
             row["last_full_read_at"] = capture_time
         payload.append(row)
 
     # One upsert PER KEY-SET (see docstring): the union ``columns=``
-    # postgrest-py derives from a mixed payload makes PostgREST NULL
-    # every omitted key on the UPDATE half. Insertion order = first
-    # appearance, so the request sequence is deterministic.
+    # postgrest-py derives from a mixed payload would NULL an omitted
+    # nullable key (``last_full_read_at``) on the UPDATE half.
+    # Insertion order = first appearance, so the request sequence is
+    # deterministic.
     groups: dict[tuple[str, ...], list[dict[str, Any]]] = {}
     for row in payload:
         groups.setdefault(tuple(sorted(row)), []).append(row)

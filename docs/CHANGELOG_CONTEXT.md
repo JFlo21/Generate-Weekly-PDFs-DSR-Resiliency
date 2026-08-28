@@ -82,4 +82,5 @@ key-homogeneous and a registered row's stored mapping is left untouched as inten
 run's homogeneous payload is still a single identical request. `with_retry` now logs
 `code=<SQLSTATE/PGRST>` on the final failure and the message only for structural code classes
 (the Actions logs are public; `details`/`hint` never). Billing output untouched; fail-open path.
-See `memory-bank/living-ledger.md` `[2026-08-28 15:05]` (root cause) and `[2026-08-28 16:05]`.
+See `memory-bank/living-ledger.md` `[2026-08-28 15:05]` (root cause) and `[2026-08-28 16:05]`;
+PR #363.

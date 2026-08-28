@@ -364,6 +364,14 @@ def _disable_for_run(reason_code: str, exc: Exception) -> None:
 
     Idempotent in its user-visible output: the operator-facing WARNING
     fires only on the first trip.
+
+    Same disclosure policy as ``_error_summary``: the server-provided
+    ``message`` / ``hint`` / ``details`` are untrusted diagnostic text
+    (they can echo request or database data) and this repository's
+    Actions logs are public, so only the code, the error type and the
+    locally authored remediation guidance are logged or sent to Sentry.
+    The three kill codes are well understood; the server text adds
+    nothing an operator needs.
     """
     global _global_disable_reason, _global_disable_logged
     _global_disable_reason = reason_code
@@ -371,9 +379,6 @@ def _disable_for_run(reason_code: str, exc: Exception) -> None:
     if _global_disable_logged:
         return
     _global_disable_logged = True
-
-    message = getattr(exc, "message", None) or ""
-    hint = getattr(exc, "hint", None) or ""
 
     if reason_code == "PGRST106":
         operator_hint = (
@@ -398,9 +403,7 @@ def _disable_for_run(reason_code: str, exc: Exception) -> None:
 
     logging.warning(
         f"🔌 pipeline_memory disabled for this run "
-        f"(code={reason_code}). {operator_hint} "
-        f"Server message: {message.strip()!r}. "
-        f"Server hint: {hint.strip()!r}."
+        f"(code={reason_code}, {type(exc).__name__}). {operator_hint}"
     )
     _sentry_breadcrumb(
         "pipeline_memory",
@@ -408,35 +411,39 @@ def _disable_for_run(reason_code: str, exc: Exception) -> None:
         level="warning",
         data={
             "reason_code": reason_code,
-            "server_message": message,
-            "server_hint": hint,
+            "error_type": type(exc).__name__,
         },
     )
 
 
-# SQLSTATE classes whose ``message`` is structural (names a column,
-# constraint, relation or schema) and never echoes a row value.
-# Data-exception classes (``22xxx``) DO quote the offending literal, and
-# this repository's Actions logs are public, so those -- and ``details``
-# / ``hint`` -- are never logged. The code is always logged.
-_MESSAGE_SAFE_SQLSTATE_CLASSES = ("23", "42")
+# SQLSTATE codes whose ``message`` is known to be value-free (it names a
+# column, constraint, relation, role or function -- the offending values
+# live in ``details``, which is never logged). Everything else is
+# code-only: data-exception classes (``22xxx``) quote the literal,
+# ``42601`` echoes the token the parser stopped at, and every ``PGRST*``
+# code is code-only because e.g. ``PGRST100`` (query-string parse
+# failure) repeats the failed filter text, which is built from row-
+# derived values. This repository's Actions logs are public.
+_MESSAGE_SAFE_SQLSTATES = frozenset({
+    "23502",  # null value in column "x" of relation "y"
+    "23503",  # ... violates foreign key constraint "x"
+    "23505",  # duplicate key value violates unique constraint "x"
+    "23514",  # new row for relation "x" violates check constraint "y"
+    "42501",  # permission denied for table x
+    "42703",  # column "x" does not exist
+    "42704",  # type / object "x" does not exist
+    "42883",  # function x(types) does not exist
+    "42P01",  # relation "x" does not exist
+})
 
 
 def _message_is_structural(code: str | None) -> bool:
-    """True for ``PGRST*`` codes and SQLSTATE-shaped ``23xxx`` /
-    ``42xxx`` codes only. postgrest-py puts the HTTP status into
-    ``code`` when the error body is not JSON (``422``, ``429`` ...), so
-    a bare prefix match would let ``42`` admit ``422`` -- anchor on the
-    five-character SQLSTATE shape instead.
+    """True only for the explicit allowlist above. Membership (not a
+    prefix) also means an HTTP status that postgrest-py stored in
+    ``code`` when the body was not JSON (``422``, ``429`` ...) can
+    never match.
     """
-    if not code:
-        return False
-    if code.startswith("PGRST"):
-        return True
-    return (
-        len(code) == _PG_SQLSTATE_LENGTH
-        and code.startswith(_MESSAGE_SAFE_SQLSTATE_CLASSES)
-    )
+    return bool(code) and code in _MESSAGE_SAFE_SQLSTATES
 
 
 def _error_summary(exc: Exception) -> tuple[str | None, str]:
@@ -444,8 +451,9 @@ def _error_summary(exc: Exception) -> tuple[str | None, str]:
 
     ``code`` is the PostgREST/SQLSTATE code when present (truncated).
     ``message`` is the PostgREST ``message`` only when
-    ``_message_is_structural`` says so, ``str(exc)`` for non-PostgREST
-    errors, and always truncated to 200 characters. Anything carrying a
+    ``_message_is_structural`` says so (``PGRST*`` codes are code-only),
+    ``str(exc)`` for non-PostgREST errors, and always truncated to 200
+    characters. Anything carrying a
     ``details`` attribute is treated as a PostgREST error even if the
     ``postgrest`` import guard fired, because ``str(APIError)`` renders
     the raw dict -- ``details`` and ``hint`` included.

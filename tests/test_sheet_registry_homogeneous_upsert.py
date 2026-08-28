@@ -1,11 +1,21 @@
 """``sheet_registry`` bulk upsert must be key-homogeneous per request.
 
-postgrest-py sends ``columns=`` as the UNION of keys across a list
-payload and PostgREST applies that list to every row, so on the
-``ON CONFLICT DO UPDATE`` half a row that omitted ``column_mapping``
-writes NULL into a ``NOT NULL`` column (23502 -> HTTP 400, whole call
-fails). Production hit this the moment discovery found one sheet more
-than the registry held (ledger ``[2026-08-28 15:05]``).
+Two PostgreSQL/PostgREST facts drive the writer's shape:
+
+1. PostgreSQL constraint-checks the INSERT candidate row BEFORE it
+   consults ``ON CONFLICT``, so any payload row that omits the
+   ``NOT NULL`` ``column_mapping`` raises 23502 even when its
+   ``sheet_id`` already exists (PostgreSQL runs ``ExecConstraints`` on
+   the candidate tuple before the ``ON CONFLICT`` arbiter check).
+   Registered sheets therefore echo their STORED mapping from the
+   watermarks.
+2. postgrest-py sends ``columns=`` as the UNION of keys across a list
+   payload and PostgREST uses that list for the UPDATE half, so a
+   nullable key omitted on one row next to a row that carries it is
+   NULLed. Hence one request per key-set.
+
+Production hit (1) the moment discovery found one sheet more than the
+registry held (ledger ``[2026-08-28 15:05]``).
 
 Also pins that ``with_retry``'s final "RPC failed" warning names the
 PostgREST code and message (never ``details``, which can carry row
@@ -42,6 +52,14 @@ class RegistryUpsertKeyHomogeneityTests(unittest.TestCase):
             {"id": 3, "name": "C", "column_mapping": {"F": 3}},
         ]
 
+    # Sheets 1 and 2 are registered; their stored mappings differ from
+    # the freshly discovered ones so an echo is distinguishable from
+    # a silent adoption.
+    WATERMARKS = {
+        1: {"sheet_id": 1, "column_mapping": {"F": 10}},
+        2: {"sheet_id": 2, "column_mapping": {"F": 20}},
+    }
+
     @staticmethod
     def _call(client, **kwargs):
         from pipeline_memory import writer as mem_writer
@@ -55,37 +73,65 @@ class RegistryUpsertKeyHomogeneityTests(unittest.TestCase):
             )
         return mem_writer.get_counters()
 
-    def test_registered_plus_new_sheet_splits_by_key_set(self):
+    def test_registered_sheets_echo_stored_mapping_new_sheet_discovered(
+            self):
+        """Frequent run: every row carries column_mapping (NOT NULL is
+        checked on the INSERT candidate), registered sheets echo the
+        STORED value, only the new sheet writes the discovered one --
+        and the payload is homogeneous, so it is ONE request."""
         cap: list = []
         client = _make_client(upsert_capture=cap)
 
-        counters = self._call(client, column_mapping_sheets={3})
+        counters = self._call(client, column_mapping_sheets={3},
+                              watermarks=self.WATERMARKS)
 
-        self.assertEqual(len(cap), 2)
-        for call in cap:
-            payload = call.args[0]
-            self.assertEqual(call.kwargs.get("on_conflict"), "sheet_id")
-            self.assertEqual(len({frozenset(r) for r in payload}), 1)
-        by_id = {r["sheet_id"]: r for c in cap for r in c.args[0]}
+        self.assertEqual(len(cap), 1)
+        call = cap[0]
+        self.assertEqual(call.kwargs.get("on_conflict"), "sheet_id")
+        payload = call.args[0]
+        self.assertEqual(len({frozenset(r) for r in payload}), 1)
+        by_id = {r["sheet_id"]: r for r in payload}
         self.assertEqual(sorted(by_id), [1, 2, 3])
-        self.assertIn("column_mapping", by_id[3])
-        self.assertNotIn("column_mapping", by_id[1])
-        self.assertNotIn("column_mapping", by_id[2])
+        self.assertEqual(by_id[1]["column_mapping"], {"F": 10})
+        self.assertEqual(by_id[2]["column_mapping"], {"F": 20})
+        self.assertEqual(by_id[3]["column_mapping"], {"F": 3})
         self.assertEqual(counters["sheets_registry_written"], 3)
         self.assertEqual(counters.get("sheets_registry_errored", 0), 0)
+
+    def test_every_row_carries_column_mapping_even_without_watermark(
+            self):
+        """Inconsistent caller input (registered per the set, but no
+        watermark row) must still never omit the NOT NULL column."""
+        cap: list = []
+        client = _make_client(upsert_capture=cap)
+
+        with self.assertLogs(level="WARNING") as logs:
+            self._call(client, column_mapping_sheets={3}, watermarks={})
+
+        by_id = {r["sheet_id"]: r for c in cap for r in c.args[0]}
+        for sid in (1, 2, 3):
+            self.assertIn("column_mapping", by_id[sid])
+        self.assertEqual(by_id[1]["column_mapping"], {"F": 1})
+        self.assertTrue(any("no stored column_mapping" in l
+                            for l in logs.output))
 
     def test_full_and_delta_read_mix_splits_too(self):
         cap: list = []
         client = _make_client(upsert_capture=cap)
 
         self._call(client, column_mapping_sheets=set(),
-                   full_read_sheets={1})
+                   full_read_sheets={1},
+                   watermarks={**self.WATERMARKS,
+                               3: {"sheet_id": 3,
+                                   "column_mapping": {"F": 30}}})
 
         self.assertEqual(len(cap), 2)
         by_id = {r["sheet_id"]: r for c in cap for r in c.args[0]}
         self.assertIn("last_full_read_at", by_id[1])
         self.assertNotIn("last_full_read_at", by_id[2])
         self.assertNotIn("last_full_read_at", by_id[3])
+        for sid in (1, 2, 3):
+            self.assertIn("column_mapping", by_id[sid])
         for call in cap:
             self.assertEqual(
                 len({frozenset(r) for r in call.args[0]}), 1,
@@ -109,13 +155,17 @@ class RegistryUpsertKeyHomogeneityTests(unittest.TestCase):
         def _execute():
             payload = table.upsert.call_args.args[0]
             cap.append(table.upsert.call_args)
-            if "column_mapping" not in payload[0]:
+            if "last_full_read_at" not in payload[0]:
                 raise RuntimeError("boom")
             return mock.Mock(data=[])
 
         table.upsert.return_value.execute.side_effect = _execute
 
-        counters = self._call(client, column_mapping_sheets={3})
+        counters = self._call(client, column_mapping_sheets=set(),
+                              full_read_sheets={1},
+                              watermarks={**self.WATERMARKS,
+                                          3: {"sheet_id": 3,
+                                              "column_mapping": {}}})
 
         self.assertEqual(len(cap), 2)
         self.assertEqual(counters["sheets_registry_written"], 1)
@@ -238,6 +288,32 @@ class WithRetryFailureMessageTests(unittest.TestCase):
         self.assertNotIn("raw-body-echo", line)
         self.assertEqual(data["error_message"], "")
 
+    def test_pgrst_codes_are_code_only(self):
+        """PGRST100 repeats the failed filter text (row-derived values)."""
+        from postgrest.exceptions import APIError
+
+        line, data = self._final_warning(APIError({
+            "message": '"failed to parse filter (in.(secret-wr-list))"',
+            "code": "PGRST100", "details": None, "hint": None,
+        }))
+
+        self.assertIn("code=PGRST100", line)
+        self.assertNotIn("secret-wr-list", line)
+        self.assertEqual(data["error_message"], "")
+
+    def test_syntax_error_message_is_withheld(self):
+        """42601 echoes the token the parser stopped at."""
+        from postgrest.exceptions import APIError
+
+        line, data = self._final_warning(APIError({
+            "message": 'syntax error at or near "secret-token"',
+            "code": "42601", "details": None, "hint": None,
+        }))
+
+        self.assertIn("code=42601", line)
+        self.assertNotIn("secret-token", line)
+        self.assertEqual(data["error_message"], "")
+
     def test_details_bearing_error_is_never_str_dumped(self):
         """Duck-typing guard: anything with ``details`` is summarised
         like an APIError, even if it is not one (import-guard path)."""
@@ -256,6 +332,49 @@ class WithRetryFailureMessageTests(unittest.TestCase):
         self.assertIn("violates not-null constraint", line)
         self.assertNotIn("secret-row-value", line)
         self.assertNotIn("secret-row-value", data["error_message"])
+
+
+class GlobalDisableDiagnosticsTests(unittest.TestCase):
+    """The run-global kill switch (PGRST106/301/302) must follow the same
+    policy as ordinary failures: server ``message`` / ``hint`` /
+    ``details`` are untrusted text and never reach the public log or
+    the breadcrumb -- only the code and locally authored guidance do."""
+
+    def setUp(self):
+        shadow._reset_all()
+
+    def tearDown(self):
+        shadow._reset_all()
+
+    def test_kill_switch_logs_code_and_local_guidance_only(self):
+        from postgrest.exceptions import APIError
+        from pipeline_memory import client as mem_client
+
+        exc = APIError({
+            "message": "secret-message-marker",
+            "code": "PGRST106",
+            "details": "secret-details-marker",
+            "hint": "secret-hint-marker",
+        })
+        crumbs: list = []
+        with mock.patch(
+            "pipeline_memory.client._sentry_breadcrumb",
+            side_effect=lambda *a, **k: crumbs.append((a, k)),
+        ), self.assertLogs(level="WARNING") as logs:
+            mem_client._disable_for_run("PGRST106", exc)
+
+        line = next(l for l in logs.output if "disabled for this run" in l)
+        self.assertIn("code=PGRST106", line)
+        self.assertIn("Exposed schemas", line)
+        crumb = next(
+            k for a, k in crumbs if a[1] == "Integration globally disabled"
+        )
+        self.assertEqual(crumb["data"]["reason_code"], "PGRST106")
+        for marker in ("secret-message-marker", "secret-hint-marker",
+                       "secret-details-marker"):
+            self.assertNotIn(marker, line)
+            self.assertNotIn(marker, repr(crumb["data"]))
+        self.assertIsNone(mem_client.get_client())
 
 
 class PostgrestColumnsUnionContractTests(unittest.TestCase):
