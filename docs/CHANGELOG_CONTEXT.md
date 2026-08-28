@@ -23,7 +23,8 @@ the hash order-stable, but the workbook header and the three orchestrate identit
 (main-loop `history_key`, `valid_wr_weeks`, `current_keys` prune) still read arrival-order
 `group_rows[0]`, so a stable hash was looked up under an unstable key and the group could
 regenerate every run. All of them now read `canonical_first_row()`; the sort key also carries
-every Job # alias the header accepts (hash-neutral: it sits after the hashed-field string).
+every Job # alias the header accepts and the legacy identity `User` (hash-neutral: both sit
+after the hashed-field string).
 Hashes are byte-identical to master; only mixed-dept helper groups get one final regeneration.
 Declined: legacy-mode header determinism (rollback sort is frozen). Deferred to Juan: aligning
 the header's foreman with the hash's first-nonempty `FOREMAN=` token (billing-output change).

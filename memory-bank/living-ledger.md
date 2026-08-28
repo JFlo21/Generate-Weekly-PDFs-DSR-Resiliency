@@ -7263,8 +7263,8 @@ follow-up findings closed, same 6 files.
 - **What.** `canonical_sorted_rows()` / `canonical_first_row()` in `pipeline/change_detection.py` are
   the ONE definition of a group's row order; `calculate_data_hash`, `generate_excel`'s header and the
   three identity sites all derive from it (`first_row` / `_first` binding). The extended sort key now
-  ends with `_header_job_number(x)` — the exact Job # alias precedence `generate_excel` uses — so
-  every header input is in the key. Anything after the hashed-field string can only reorder rows whose
+  ends with `_header_job_number(x)` — the exact Job # alias precedence `generate_excel` uses — and
+  the legacy identity `User` (Copilot, round 2), so every header and identity input is in the key. Anything after the hashed-field string can only reorder rows whose
   hashed strings are identical → **hashes byte-identical to master**; uniform groups keep a
   byte-identical identity; a mixed-dept/job helper group gets one deterministic key (one final
   regeneration). `pytest tests/`: 1774 passed.

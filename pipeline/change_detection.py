@@ -131,9 +131,10 @@ def canonical_sorted_rows(
 
     ``extended`` defaults to the facade's ``EXTENDED_CHANGE_DETECTION``.
     Extended mode sorts on the business key, the VAC-crew fields, the
-    row's own hashed-field string, its foreman, its helper metadata and
-    the header's Job # under every alias (a total order for any two rows
-    that differ in anything the hash or the header reads).
+    row's own hashed-field string, its foreman, its helper metadata, the
+    header's Job # under every alias and the legacy identity ``User`` (a
+    total order for any two rows that differ in anything the hash, the
+    header or an orchestrate identity site reads).
     Legacy mode keeps the original 5-key sort (rollback-stability
     guarantee -- see the note in ``calculate_data_hash``).
     """
@@ -172,6 +173,11 @@ def canonical_sorted_rows(
             # the hashed-field string, so it can only reorder rows whose
             # hashed strings are identical -- hash-neutral by construction.
             _header_job_number(x),
+            # Identity-only input: with PRIMARY_CLAIM_ATTRIBUTION off the
+            # orchestrate identity sites derive the primary identifier from
+            # the canonical row's ``User`` (Copilot, PR #361). Last in the
+            # key, after every hashed / meta field -- hash-neutral.
+            str(x.get('User') or ''),
         ),
     )
 

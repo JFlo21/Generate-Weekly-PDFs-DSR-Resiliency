@@ -190,6 +190,21 @@ class SortTiebreakTests(unittest.TestCase):
         self.assertEqual(change_detection._header_job_number(
             {'Job#': 'alias', 'Job #': 'canonical'}), 'canonical')
 
+    def test_user_identity_only_difference_is_order_independent(self):
+        # Copilot on PR #361 (round 2): with PRIMARY_CLAIM_ATTRIBUTION off
+        # the orchestrate identity sites derive the primary identifier from
+        # the canonical row's 'User', which is neither hashed nor -- before
+        # this -- in the sort key, so two rows differing only in User kept
+        # arrival order and the history_key could alternate under a stable
+        # hash. Identity-only tiebreaker: order-independent, hash-neutral.
+        a = _row(User='alice')
+        b = _row(User='bob')
+        self.assertIs(change_detection.canonical_first_row([a, b]),
+                      change_detection.canonical_first_row([b, a]))
+        self.assertEqual(
+            change_detection.canonical_first_row([b, a])['User'], 'alice')
+        self.assertEqual(len(self._hashes_for_all_orders([a, b])), 1)
+
     def test_tie_breaker_still_detects_a_real_edit(self):
         base = [
             _row(**{'Work Type': 'Install'}),
