@@ -411,9 +411,6 @@ def _disable_for_run(reason_code: str, exc: Exception) -> None:
         return
     _global_disable_logged = True
 
-    message = getattr(exc, "message", None) or ""
-    hint = getattr(exc, "hint", None) or ""
-
     if reason_code == "PGRST106":
         operator_hint = (
             "The 'billing_audit' schema is not exposed by PostgREST. "
@@ -436,14 +433,15 @@ def _disable_for_run(reason_code: str, exc: Exception) -> None:
             "integration disabled for this run."
         )
 
-    # Keep the message sanitized — server response bodies can quote
-    # identifiers, but for PGRST106/301/302 they only quote schema /
-    # role names, which are operational context (not row PII).
+    # Same disclosure policy as pipeline_memory (PR #363): the server
+    # ``message`` / ``hint`` / ``details`` are untrusted diagnostic text
+    # that can echo request or database data, and this repository's
+    # Actions logs are public -- only the code, the error type and the
+    # locally authored guidance are logged or sent to Sentry. The three
+    # kill codes are well understood; the server text adds nothing.
     logging.warning(
         f"🔌 billing_audit disabled for this run "
-        f"(code={reason_code}). {operator_hint} "
-        f"Server message: {message.strip()!r}. "
-        f"Server hint: {hint.strip()!r}."
+        f"(code={reason_code}, {type(exc).__name__}). {operator_hint}"
     )
     _sentry_breadcrumb(
         "billing_audit",
@@ -451,8 +449,7 @@ def _disable_for_run(reason_code: str, exc: Exception) -> None:
         level="warning",
         data={
             "reason_code": reason_code,
-            "server_message": message,
-            "server_hint": hint,
+            "error_type": type(exc).__name__,
         },
     )
 
