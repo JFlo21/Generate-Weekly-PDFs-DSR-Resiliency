@@ -7338,6 +7338,14 @@ follow-up findings closed, same 6 files.
   WR (the churn-incident one) and a real foreman name into a filename example and the SQL/CLI
   recipes; the Docusaurus site is public and the pipeline treats WR/foreman as row PII. Use
   `12345678` / `Jane_Doe`-style values in `website/` — real identifiers stay in the ledger, state
-  file and PR threads only.
+  file and PR threads only. (Round 7 caught a second real WR the sweep missed — grep for every
+  8-digit number, not just the one you remember.)
+- **Round 7 — RULE: "unset" is not a safe local-run instruction.** `generate_weekly_pdfs.py:24` calls
+  `load_dotenv()` at import; python-dotenv fills in *absent* variables from a developer `.env` but
+  never overrides a present one, even empty. So a recipe that must avoid the Smartsheet token or the
+  Supabase clients sets them to an explicit empty string (`SMARTSHEET_API_TOKEN=`, `SUPABASE_URL=
+  SUPABASE_SERVICE_ROLE_KEY=`) — the pattern `tests/test_entrypoint_no_double_import.py:28-33`
+  already relies on. Also: `REGEN_WEEKS` only reaches groups present in the fetched data
+  (`orchestrate.py:3300`) — it cannot rebuild a week whose rows were all moved or deleted.
 - **RULE — a runbook statement about pipeline behaviour cites the line that implements it.** The
   reviewer bots read the code; the doc sentence with no anchor is the one that drifts.
