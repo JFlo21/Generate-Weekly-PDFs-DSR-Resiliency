@@ -7334,5 +7334,10 @@ follow-up findings closed, same 6 files.
   computed at `orchestrate.py:4039` (`_shadow_parity_input_sets`, `:1028`) BEFORE the parallel upload
   phase at `:4200` — a later upload failure never changes the verdict; cadence is "up to seven runs
   a day" (Mon–Thu 7 Central runs, Fri 6, Sat 3, Sun 3 + the evening run), not "seven every day".
+- **Round 6 — RULE: public runbook examples use fictional identifiers.** The guides had copied a real
+  WR (the churn-incident one) and a real foreman name into a filename example and the SQL/CLI
+  recipes; the Docusaurus site is public and the pipeline treats WR/foreman as row PII. Use
+  `12345678` / `Jane_Doe`-style values in `website/` — real identifiers stay in the ledger, state
+  file and PR threads only.
 - **RULE — a runbook statement about pipeline behaviour cites the line that implements it.** The
   reviewer bots read the code; the doc sentence with no anchor is the one that drifts.
