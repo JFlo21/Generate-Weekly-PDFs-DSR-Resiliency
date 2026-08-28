@@ -93,8 +93,32 @@ def _extended_row_fields(row: dict, group_variant: str) -> list[str]:
     return row_fields
 
 
-def canonical_sorted_rows(group_rows: list[dict], extended: bool | None = None) -> list[dict]:
-    """Return the group's rows in the order ``calculate_data_hash`` hashes them.
+# Every column-title alias ``pipeline.excel.generate_excel`` accepts for the
+# REPORT DETAILS "Job #:" value, in its precedence order. The hash reads
+# only 'Job #' / 'Job Number' (see _extended_row_fields); the others are
+# header-only, so they belong in the canonical sort key: without them two
+# rows tied on everything the hash reads could still surface a different
+# Job # in the header between runs (Codex, PR #361).
+_JOB_NUMBER_ALIASES = (
+    'Job #', 'Job#', 'Job Number', 'JobNumber', 'Job_Number',
+    'JOB #', 'JOB#', 'job #', 'job#',
+)
+
+
+def _header_job_number(row: dict) -> str:
+    """The Job # value ``generate_excel`` shows for ``row`` ('' if none)."""
+    for key in _JOB_NUMBER_ALIASES:
+        value = row.get(key)
+        if value:
+            return str(value)
+    return ''
+
+
+def canonical_sorted_rows(
+    group_rows: list[dict], extended: bool | None = None,
+) -> list[dict]:
+    """Return the group's rows in the order ``calculate_data_hash`` hashes
+    them.
 
     This is the ONE definition of a group's canonical row order. The hash
     uses it, and ``pipeline.excel.generate_excel`` uses its first element
@@ -107,8 +131,9 @@ def canonical_sorted_rows(group_rows: list[dict], extended: bool | None = None) 
 
     ``extended`` defaults to the facade's ``EXTENDED_CHANGE_DETECTION``.
     Extended mode sorts on the business key, the VAC-crew fields, the
-    row's own hashed-field string, its foreman and its helper metadata (a
-    total order for any two rows that differ in anything the hash reads).
+    row's own hashed-field string, its foreman, its helper metadata and
+    the header's Job # under every alias (a total order for any two rows
+    that differ in anything the hash or the header reads).
     Legacy mode keeps the original 5-key sort (rollback-stability
     guarantee -- see the note in ``calculate_data_hash``).
     """
@@ -121,7 +146,9 @@ def canonical_sorted_rows(group_rows: list[dict], extended: bool | None = None) 
         str(x.get('Work Request #', '')),
         str(x.get('Snapshot Date', '')),
         str(x.get('CU', '')),
-        str(x.get('Pole #') or x.get('Point #') or x.get('Point Number') or ''),
+        str(
+            x.get('Pole #') or x.get('Point #') or x.get('Point Number') or ''
+        ),
         str(x.get('Quantity', '')),
     )
     if not extended:
@@ -140,6 +167,11 @@ def canonical_sorted_rows(group_rows: list[dict], extended: bool | None = None) 
             str(x.get('__helper_foreman') or ''),
             str(x.get('__helper_dept') or ''),
             str(x.get('__helper_job') or ''),
+            # Header-only input: the Job # aliases generate_excel accepts
+            # beyond the two the hash reads (Codex, PR #361). Sits after
+            # the hashed-field string, so it can only reorder rows whose
+            # hashed strings are identical -- hash-neutral by construction.
+            _header_job_number(x),
         ),
     )
 

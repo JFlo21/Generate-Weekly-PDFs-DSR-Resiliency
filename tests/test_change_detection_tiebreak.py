@@ -98,9 +98,11 @@ class SortTiebreakTests(unittest.TestCase):
         # from sorted_rows[0], so helper metadata must be in the tiebreaker
         # too or two rows tying on everything else would keep arrival order.
         rows = [
-            _row(**{'__variant': 'helper', '__helper_foreman': 'Juan Carlos Mendoza',
+            _row(**{'__variant': 'helper',
+                    '__helper_foreman': 'Juan Carlos Mendoza',
                     '__helper_dept': 'NA-03', '__helper_job': ''}),
-            _row(**{'__variant': 'helper', '__helper_foreman': 'Juan Carlos Mendoza',
+            _row(**{'__variant': 'helper',
+                    '__helper_foreman': 'Juan Carlos Mendoza',
                     '__helper_dept': 'NA-04', '__helper_job': 'J-77'}),
         ]
         self.assertEqual(len(self._hashes_for_all_orders(rows)), 1)
@@ -143,7 +145,8 @@ class SortTiebreakTests(unittest.TestCase):
                 return _row(wr='90001', **{
                     'Weekly Reference Logged Date': '2026-07-26',
                     '__week_ending_date': datetime.datetime(2026, 7, 26),
-                    '__variant': 'helper', '__helper_foreman': 'Juan Carlos Mendoza',
+                    '__variant': 'helper',
+                    '__helper_foreman': 'Juan Carlos Mendoza',
                     '__helper_dept': dept, '__helper_job': job,
                     '__effective_user': 'Juan Carlos Mendoza',
                     '__current_foreman': 'Charlie Tremper'})
@@ -152,7 +155,8 @@ class SortTiebreakTests(unittest.TestCase):
             for rows in ([a, b], [b, a]):
                 path = generate_weekly_pdfs.generate_excel(
                     '072626_90001_HELPER_Juan_Carlos_Mendoza', list(rows),
-                    datetime.datetime(2026, 7, 26), data_hash='deadbeefcafe0001')[0]
+                    datetime.datetime(2026, 7, 26),
+                    data_hash='deadbeefcafe0001')[0]
                 ws = openpyxl.load_workbook(path).active
                 vals = {}
                 for row in ws.iter_rows(values_only=True):
@@ -167,6 +171,24 @@ class SortTiebreakTests(unittest.TestCase):
             for k, v in saved.items():
                 setattr(generate_weekly_pdfs, k, v)
             tmp.cleanup()
+
+    def test_job_alias_only_difference_is_order_independent(self):
+        # Codex on PR #361: generate_excel accepts Job # under several
+        # column-title aliases, but the hash reads only 'Job #' /
+        # 'Job Number'. Two rows differing only in an alias the hash never
+        # sees tie on the whole hashed key, so the header's Job # must be
+        # pinned by the canonical order, not by arrival order.
+        a = _row(**{'Job#': 'J-A'})
+        b = _row(**{'Job#': 'J-B'})
+        self.assertIs(change_detection.canonical_first_row([a, b]),
+                      change_detection.canonical_first_row([b, a]))
+        self.assertEqual(
+            change_detection.canonical_first_row([b, a])['Job#'], 'J-A')
+        # Header-only tiebreaker: the hash is untouched in every order.
+        self.assertEqual(len(self._hashes_for_all_orders([a, b])), 1)
+        # Same precedence as generate_excel: 'Job #' beats the aliases.
+        self.assertEqual(change_detection._header_job_number(
+            {'Job#': 'alias', 'Job #': 'canonical'}), 'canonical')
 
     def test_tie_breaker_still_detects_a_real_edit(self):
         base = [
@@ -259,6 +281,41 @@ class SortTiebreakTests(unittest.TestCase):
         # Legacy hashes Work Type per row in input order for tied rows, so
         # the two orders differ -- that is the documented legacy behaviour.
         self.assertNotEqual(a, b)
+
+
+class IdentitySitesUseCanonicalRowTests(unittest.TestCase):
+    """Codex / Copilot on PR #361: the three orchestrate identity sites
+    (Site 1 main-loop identifier / history_key, Site 2 valid_wr_weeks,
+    Site 3 current_keys prune) must read helper dept / job, claimer and
+    User from the canonical row, never from arrival-order group_rows[0]
+    -- or a stable hash is looked up under an unstable history_key, the
+    prior key is pruned, and a mixed-department helper group regenerates
+    and re-uploads every run."""
+
+    @classmethod
+    def setUpClass(cls):
+        import inspect
+        import pipeline.orchestrate
+        cls._src = Path(
+            inspect.getsourcefile(pipeline.orchestrate)
+        ).read_text(encoding='utf-8')
+
+    def test_no_identity_field_is_read_from_the_arrival_order_row(self):
+        for needle in ("group_rows[0].get('__helper_foreman'",
+                       "group_rows[0].get('__helper_dept'",
+                       "group_rows[0].get('__helper_job'",
+                       "group_rows[0].get('User')"):
+            self.assertNotIn(
+                needle, self._src,
+                f"{needle} must come from canonical_first_row(group_rows)")
+
+    def test_each_identity_site_binds_the_canonical_row(self):
+        for marker in ("CR-01 gap closure (Site 1",
+                       "CR-01 gap closure (Site 2",
+                       "CR-01 gap closure (Site 3"):
+            at = self._src.index(marker)
+            self.assertIn("canonical_first_row(group_rows)",
+                          self._src[max(0, at - 5000):at], marker)
 
 
 if __name__ == "__main__":
