@@ -86,12 +86,13 @@ way every time:
    *Billing Period* (always the Monday-through-Sunday week that ends on the
    week-ending date, whatever the first logged day in the file is).
 3. **REPORT DETAILS** — *Foreman* (or the helper / VAC crew the file is
-   for), *Work Request #*, *Scope ID #*, *Work Order #*, *Customer* and
-   *Job #*.
+   for), *Dept #* (only when the rows carry a department), *Work Request #*,
+   *Scope ID #*, *Work Order #*, *Customer* and *Job #*.
 4. **One block per day** — a red day header (e.g. *Tuesday (07/28/2026)*)
    followed by the units logged that day, with the columns
    *Point Number · Billable Unit Code · Work Type · Unit Description ·
-   Unit of Measure · # Units · Pricing*, and a **TOTAL** line for the day.
+   Unit of Measure · # Units · N/A · Pricing* (the *N/A* column is an unused
+   placeholder), and a **TOTAL** line for the day.
 
 If a number looks wrong, the cause is almost always in the Smartsheet row it
 came from — see "When something looks wrong" below.
