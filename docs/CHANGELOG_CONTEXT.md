@@ -25,7 +25,11 @@ the hash order-stable, but the workbook header and the three orchestrate identit
 regenerate every run. All of them now read `canonical_first_row()`; the sort key also carries
 every Job # alias the header accepts and the legacy identity `User` (hash-neutral: both sit
 after the hashed-field string).
-Hashes are byte-identical to master; only mixed-dept helper groups get one final regeneration.
+Hashes are byte-identical to master; any group whose identity row changes — helper groups with
+mixed dept/job metadata AND primary groups with mixed `User`/claimer values — gets one final
+regeneration (same hash, attachment replaced once), then stays stable. In legacy mode
+(`EXTENDED_CHANGE_DETECTION=0`) the header/identity row is now the 5-key-sorted row instead of
+the arrival-order row, so the same one-time effect applies there.
 Declined: legacy-mode header determinism (rollback sort is frozen). Deferred to Juan: aligning
 the header's foreman with the hash's first-nonempty `FOREMAN=` token (billing-output change).
 See `memory-bank/living-ledger.md` `[2026-08-27 20:20]`.

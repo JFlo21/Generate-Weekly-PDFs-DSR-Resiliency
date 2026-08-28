@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-27 22:33 CDT (03:33Z) · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-27 22:42 CDT (03:42Z) · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
@@ -12,16 +12,15 @@ ships with PR #361), `[2026-08-27 16:10]` (hash sort tiebreaker, #359).
 production** since #353 (`673f7b2`, `RUN_MEMORY_WRITE_ENABLED: '1'` on the `Generate reports` step only);
 `RUN_MEMORY_INCREMENTAL_ENABLED` stays OFF. **Merged:** #351, #354, #353 (the flip), #356 (sync-client
 fix — memory writes confirmed on run #2801), #358 (parity "actual" = queued-for-upload set + shadow
-budget 25), #355 (docs/hook), #359 (hash sort tiebreaker). **OPEN (Juan merges): #360** Learn docs and
-**#361** identity row = canonical row — ledger + state are byte-identical on both, either order is
-clean. Phase 11 EXECUTING — **7/8 plans done**; **11-08 INC-05 retirement DEFERRED by owner** (needs
+budget 25), #355 (docs/hook), #359 (hash sort tiebreaker). **Merged 2026-08-28 03:37Z: #360** Learn docs (`5d7b7ce`). **OPEN (Juan merges): #361** identity row =
+canonical row — its ledger/state/changelog are supersets of master's copies, so it merges clean. Phase 11 EXECUTING — **7/8 plans done**; **11-08 INC-05 retirement DEFERRED by owner** (needs
 ≥5 consecutive `parity_verdict = pass` on `production_frequent` runs; the streak was NOT re-checked
 this session — read the latest `run_ledger.notes` before resuming). Then: checklist item 6 SQL +
 items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-08-27 22:33 CDT) — #355 + #359 MERGED; #361 (identity row = canonical row) round 2 done; #360 (Learn docs) Copilot rounds 2–19 done — both await Juan's merge; OWNER DECISION pending on repo-wide identifier scrub
+## Latest work (2026-08-27 22:42 CDT) — #360 MERGED (`5d7b7ce`, master `da0b759`); #361 open, review threads being closed; OWNER DECISION pending on repo-wide identifier scrub
 - **Merged:** #355 (`81eb82b`) and #359 (`a8d6795`, hash sort tiebreaker); master at `263dc34`.
-- **#361** `fix/excel-header-canonical-row` (code head `2c51a38` = `79e5411` + `2c51a38`; later commits are ledger/state only):
+- **#361** `fix/excel-header-canonical-row` (code head `2c51a38` = `79e5411` + `2c51a38`; later commits are ledger/state/test-fixture only). Greptile re-check: already fixed (0 overlong added lines). Open threads: Codex legacy-mode P2 (declined) + first-nonempty-foreman P2 (owner call); Codex/Copilot Work Order alias and `|`-serialization tiebreakers + shared Job-alias resolver — hash-neutral but change-detection code, awaiting Juan's go-ahead. Fixed this session: fictional fixture names, ledger count 1775, changelog + safety check widened to primary/legacy one-time regeneration:
   Excel header + orchestrate Sites 1/2/3 read `canonical_first_row()`; Job # aliases AND the legacy
   identity `User` appended to the (hash-neutral) sort key; Greptile line-length fixed; PR body's
   Production Safety Check rewritten to cover identity/cleanup/prune effects + rollout expectation.
@@ -31,7 +30,7 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
   retrigger needs a browser login (307 → /login) — click "Re-trigger Greptile" in the PR body if it
   doesn't re-review on its own. Azure DevOps mirror check fails on every PR build (also docs-only
   #360) — pre-existing, not required (branch unprotected). 1775 tests pass. Ledger `[2026-08-27 20:20]`.
-- **#360** `docs/learning-guides` (docs head `bae4938` + state-sync commit): **nineteen review rounds done** —
+- **#360** `docs/learning-guides` **MERGED** at `344b14d` → master `5d7b7ce` (2026-08-28 03:37Z): **nineteen review rounds done** —
   Copilot auto-reviews every push here, so each fix commit drew a smaller follow-up round (4: purge
   scope = `WR_*.xlsx` on the target sheet only, no `$0` line for an admitted row, `EXCLUDE_WRS` /
   `max_groups` DO narrow an attaching run, `pipeline_memory` edge bidirectional; 5: `workflow_dispatch`

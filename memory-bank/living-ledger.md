@@ -7271,7 +7271,7 @@ follow-up findings closed, same 6 files.
   the legacy identity `User` (Copilot, round 2), so every header and identity input is in the key. Anything after the hashed-field string can only reorder rows whose
   hashed strings are identical → **hashes byte-identical to master**; uniform groups keep a
   byte-identical identity; a mixed-dept/job helper group gets one deterministic key (one final
-  regeneration). `pytest tests/`: 1774 passed.
+  regeneration). `pytest tests/`: 1775 passed, 1 skipped.
 - **Not changed (by decision).** Legacy mode's 5-key sort (rollback hash stability; legacy already
   hashes tied rows in arrival order — `test_legacy_mode_untouched`). The header's foreman rule vs the
   hash's first-nonempty `FOREMAN=` token — **deferred to Juan**: aligning them changes which foreman

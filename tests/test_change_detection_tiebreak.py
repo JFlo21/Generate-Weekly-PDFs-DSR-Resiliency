@@ -48,7 +48,7 @@ def _row(wr='91057431', cu='CU-100', qty=1, price='$50.00', pole='P-7',
         'Work Type': 'Install',
         'Dept #': '520',
         'Units Completed?': True,
-        'Foreman': 'Charlie Tremper',
+        'Foreman': 'Pat Example',
         '__variant': 'primary',
     }
     row.update(extra)
@@ -99,10 +99,10 @@ class SortTiebreakTests(unittest.TestCase):
         # too or two rows tying on everything else would keep arrival order.
         rows = [
             _row(**{'__variant': 'helper',
-                    '__helper_foreman': 'Juan Carlos Mendoza',
+                    '__helper_foreman': 'Sam Sample',
                     '__helper_dept': 'NA-03', '__helper_job': ''}),
             _row(**{'__variant': 'helper',
-                    '__helper_foreman': 'Juan Carlos Mendoza',
+                    '__helper_foreman': 'Sam Sample',
                     '__helper_dept': 'NA-04', '__helper_job': 'J-77'}),
         ]
         self.assertEqual(len(self._hashes_for_all_orders(rows)), 1)
@@ -146,15 +146,15 @@ class SortTiebreakTests(unittest.TestCase):
                     'Weekly Reference Logged Date': '2026-07-26',
                     '__week_ending_date': datetime.datetime(2026, 7, 26),
                     '__variant': 'helper',
-                    '__helper_foreman': 'Juan Carlos Mendoza',
+                    '__helper_foreman': 'Sam Sample',
                     '__helper_dept': dept, '__helper_job': job,
-                    '__effective_user': 'Juan Carlos Mendoza',
-                    '__current_foreman': 'Charlie Tremper'})
+                    '__effective_user': 'Sam Sample',
+                    '__current_foreman': 'Pat Example'})
             a, b = helper_row('NA-03', 'J-1'), helper_row('NA-04', 'J-2')
             details = []
             for rows in ([a, b], [b, a]):
                 path = generate_weekly_pdfs.generate_excel(
-                    '072626_90001_HELPER_Juan_Carlos_Mendoza', list(rows),
+                    '072626_90001_HELPER_Sam_Sample', list(rows),
                     datetime.datetime(2026, 7, 26),
                     data_hash='deadbeefcafe0001')[0]
                 ws = openpyxl.load_workbook(path).active
