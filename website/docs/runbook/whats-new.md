@@ -9,24 +9,6 @@ _Last updated: August 28, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
-<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
-## linetec-inspector-manifest-generator
-
-> ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
-
-### 📋 Changelog — August 28, 2026
-
-- ✅ Problem fixed: schedule lane never mapped MANIFEST&#95;WORKFLOW&#95;EVENT&#95;LIVE&#95;WRITE — Workflow Events were silently dry-run (+ ledger batch 2026-08-28b)
-- ✨ New capability: audit heal transitions C1/C2/C3 + Assigned GF roster fill (+ ledger batch 2026-08-28)
-- 📄 Help guides updated: ledger — PR merged, hop 1 green, post-merge next steps
-- ✅ Problem fixed: hand-entered Requests rows reach the GF Decision Register — manual-row seed, GF handoff stamp, Destination=both GF-first (BUG-015/016)
-- ✅ Problem fixed: BUG-013 priced-queue partition cache + claims-pending skip; BUG-014 hop-1 workflow name glob (first live day of Phase 31.1)
-- 📄 Help guides updated: 2026-08-27 holdup-triage write-back packet + resume delta
-- • Phase 31.1: control-plane orchestration hardening — schedule split, workflow&#95;run chain, wake debounce, bounded reads, Requests-as-source, stage transitions
-- ✅ Problem fixed: normalize the register Manifest Version before the staging billers heal (BUG-010)
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
 ## Weekly Billing Reports (DSR Resiliency)
 
@@ -42,6 +24,24 @@ This page explains what each of our tools does and its recent updates, in everyd
 - ✅ Problem fixed: compare against the uploaded set; RUN&#95;MEMORY&#95;SHADOW&#95;MAX&#95;MINUTES 10 -&gt; 25
 - ✅ Problem fixed: build pipeline&#95;memory client with SyncClientOptions (post-flip AttributeError)
 - • ops: enable RUN&#95;MEMORY&#95;WRITE&#95;ENABLED in weekly run
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
+## linetec-inspector-manifest-generator
+
+> ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
+
+### 📋 Changelog — August 28, 2026
+
+- ✅ Problem fixed: schedule lane never mapped MANIFEST&#95;WORKFLOW&#95;EVENT&#95;LIVE&#95;WRITE — Workflow Events were silently dry-run (+ ledger batch 2026-08-28b)
+- ✨ New capability: audit heal transitions C1/C2/C3 + Assigned GF roster fill (+ ledger batch 2026-08-28)
+- 📄 Help guides updated: ledger — PR merged, hop 1 green, post-merge next steps
+- ✅ Problem fixed: hand-entered Requests rows reach the GF Decision Register — manual-row seed, GF handoff stamp, Destination=both GF-first (BUG-015/016)
+- ✅ Problem fixed: BUG-013 priced-queue partition cache + claims-pending skip; BUG-014 hop-1 workflow name glob (first live day of Phase 31.1)
+- 📄 Help guides updated: 2026-08-27 holdup-triage write-back packet + resume delta
+- • Phase 31.1: control-plane orchestration hardening — schedule split, workflow&#95;run chain, wake debounce, bounded reads, Requests-as-source, stage transitions
+- ✅ Problem fixed: normalize the register Manifest Version before the staging billers heal (BUG-010)
 
 <!-- /runbook-repo -->
 
