@@ -22,7 +22,7 @@ documentation only — no pipeline, workflow or schema change.
     common "my unit is missing / in the wrong file" causes; how to ask for
     a manual run and which inputs to use; a what-to-do-when-it-looks-wrong
     checklist; a glossary.
-  - **For engineers** — the code map (every `pipeline/` module with size,
+  - **For engineers** — the code map (the key `pipeline/` modules with size,
     responsibility and "touch it when…"); the anatomy of a run with the
     log markers to grep for; how to diagnose with `gh run view`, the
     Supabase `pipeline_memory` / `billing_audit` queries, and a local

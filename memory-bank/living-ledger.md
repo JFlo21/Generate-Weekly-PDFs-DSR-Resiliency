@@ -7300,7 +7300,8 @@ follow-up findings closed, same 6 files.
   picks synthetic rows only when the token is absent). There is no way to scope an attaching run to one
   WR. **`TEST_MODE` gates every `billing_audit` / `pipeline_memory` write** (`not TEST_MODE` at
   `orchestrate.py:3333`, `:3352`, `:1934`); `SKIP_UPLOAD` alone does NOT (`freeze_row` at `:3441`
-  precedes the upload gate) — a non-test `SKIP_UPLOAD` run needs the Supabase credentials unset.
+  precedes the upload gate) — a non-test `SKIP_UPLOAD` run needs `SUPABASE_URL= SUPABASE_SERVICE_ROLE_KEY=`
+  set to explicit EMPTY values (not unset — see the round-7 `load_dotenv()` rule below).
   (Round 2 of the review said "neither flag" — wrong; corrected in round 3.)
 - **`RESET_WR_LIST` is global:** the purge is per listed WR (`:2381`) but `or RESET_WR_LIST` at `:3302`
   disables the unchanged-skip for every group. `REGEN_WEEKS` is exact-string membership on `week_raw`
