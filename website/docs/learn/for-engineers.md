@@ -177,8 +177,10 @@ default (`SENTRY_ENABLE_LOGS`) because INFO lines can carry row data.
 
 ## Making a change safely
 
-The pipeline is production-critical: it runs several times a day (up to
-seven Monday–Thursday, six on Friday, three on Saturday, four on Sunday) against real billing data. The rules below are the ones whose violation has caused
+The pipeline is production-critical: it runs several times a day (normal runs:
+seven Monday–Thursday, six on Friday, three on Saturday, four on Sunday —
+plus the weekly deep run, Monday 00:00 CDT / Sunday 23:00 CST) against real
+billing data. The rules below are the ones whose violation has caused
 incidents; each links to where the full story is recorded.
 
 | Never… | Because | Full rule |

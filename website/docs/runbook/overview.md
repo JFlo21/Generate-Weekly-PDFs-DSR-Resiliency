@@ -25,8 +25,9 @@ flowchart LR
     E -->|replace attachment on the WR row| T[(Target sheet<br/>+ PPP sheet for ReducedSub)]
     B <-->|frozen attribution, durable group hashes,<br/>run fingerprints| BA[(Supabase billing_audit)]
     B <-->|writes: run ledger, sheet watermarks,<br/>row + group state, parity verdict<br/>reads: watermarks, last-run status,<br/>changed-row ids| PM[(Supabase pipeline_memory)]
-    B --> R[run_summary.json + artifacts]
+    B --> R[run_summary.json]
     R --> N[scripts/notion_sync.py → Notion]
+    E -->|scripts/publish_artifacts_to_supabase.py| PA[(Supabase artifacts → portal-v2)]
     B -.errors.-> X[(Sentry)]
 ```
 
@@ -57,7 +58,10 @@ name. Its output is one Excel file per `(WR, week ending, variant, claimer)`
 group under `generated_docs/` — department and job are hashed content and,
 for helper files, part of the change-detection identity, but never split a
 file — attached to the WR's row on the target sheet, plus a frozen 21-key
-`run_summary.json` the Notion sync and dashboards consume.
+`run_summary.json` that the Notion sync and the workflow's metrics steps
+read. The `portal-v2` dashboard does not read that file: it queries the
+Supabase `artifacts` table that `scripts/publish_artifacts_to_supabase.py`
+fills from the generated workbooks after each run.
 
 In a normal run files regenerate only when the group's content hash changes
 or its attachment is missing; the hash covers every billed field of every row

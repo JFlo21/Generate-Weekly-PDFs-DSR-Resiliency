@@ -24,7 +24,7 @@ file is attached in its place.
 
 ```mermaid
 flowchart LR
-    A["Crews enter units in Smartsheet"] --> B["Robot reads every source sheet<br/>(6–7× on weekdays, 3× Saturday, 4× Sunday)"]
+    A["Crews enter units in Smartsheet"] --> B["Robot reads every source sheet<br/>(normal runs: 6–7× on weekdays, 3× Saturday, 4× Sunday, plus one weekly deep run)"]
     B --> C["Groups rows by Work Request + week ending<br/>(+ foreman / helper / crew)"]
     C --> D{"Did this group change<br/>since the last file?"}
     D -- "No, and the file is still attached" --> E["Skip — nothing to do"]
@@ -133,7 +133,7 @@ look at *Report Generated On* — it should be newer than your edit.
 | The unit is in the **wrong week's** file | The week-ending / logged date on the row is wrong | Correct the date; the new week's file gains it. The old week's file rebuilds without it **only if other units remain in that week for that WR** — if it was the only one, nothing regenerates the old file and the stale attachment stays until the engineering owner removes it |
 | The unit is in a `_Helper_…` file but you expected the main file | Both helper and primary checkboxes are checked | That is by design — the helper file is the billable one; uncheck the helper flag only if the unit really wasn't helper work |
 | The file name says `_NO_MATCH` or `Unknown_Foreman` | The robot could not work out a foreman for the row | Fill in the foreman. The name itself does **not** stop the upload: if the Work Request has a row on a target sheet, the file is attached under that name, so fix it promptly. If the WR is on no target sheet the file is built but withheld |
-| Old file, no update after your edit | The run hasn't happened yet, or the change didn't touch a billed field | Wait for the next run; if it's still stale after two runs, ask for a manual run |
+| Old file, no update after your edit | The run hasn't happened yet, or the change didn't touch a billed field (a plain manual run makes the same "unchanged, skip" decision, so it won't help either) | Wait for the next run; if it's still stale after two runs, ask the engineering owner — they can force that week with `regen_weeks` or work out why the change isn't billed |
 
 ## Asking for a manual run
 
