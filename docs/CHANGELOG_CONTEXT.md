@@ -29,3 +29,13 @@ Hashes are byte-identical to master; only mixed-dept helper groups get one final
 Declined: legacy-mode header determinism (rollback sort is frozen). Deferred to Juan: aligning
 the header's foreman with the hash's first-nonempty `FOREMAN=` token (billing-output change).
 See `memory-bank/living-ledger.md` `[2026-08-27 20:20]`.
+
+## 2026-08-27 — Learn guides corrected against pipeline behaviour (PR #360 review round)
+The new operator / engineer guides and the system overview copied several claims that the
+code contradicts: the acceptance gate (WR + weekly date + Units Completed? + price > 0 in
+`fetch.py:837`; CU / quantity / foreman do not gate), the group key (`(WR, week, variant,
+claimer)` — dept/job never split a file), `wr_filter` (test-mode only, never attaches),
+`reset_wr_list` (destructive and global), the real CDT/CST schedule windows and run times,
+and where attribution freezes. All corrected with line anchors; `CLAUDE.md`'s six-field
+grouping description carries the same drift and is a separate follow-up.
+See `memory-bank/living-ledger.md` `[2026-08-27 21:10]`.

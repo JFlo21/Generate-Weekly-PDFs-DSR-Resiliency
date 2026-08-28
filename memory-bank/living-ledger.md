@@ -7279,3 +7279,38 @@ follow-up findings closed, same 6 files.
   pattern) and `test_job_alias_only_difference_is_order_independent`.
 - **RULE — a sort tiebreaker is hash-neutral iff it sits after the hashed-field string.** Header-only
   inputs belong there; hashed inputs are already ordered by the string itself.
+
+## [2026-08-27 21:10] Learn-guide review round (PR #360) — verified pipeline truths the docs must not drift from
+
+- **Context.** 35 Copilot / Codex / Greptile findings on the new operator + engineer guides; each was
+  checked against the code before editing (34 fixed, 1 declined). Several "obvious" statements copied
+  from `CLAUDE.md` and older pages were wrong.
+- **The acceptance gate lives in `pipeline/fetch.py:837`:** `Work Request #` AND `Weekly Reference
+  Logged Date` AND `Units Completed?` AND `has_price` (price > 0 after the pre-acceptance rate rescue);
+  a CU containing `NO MATCH` is dropped (`:842`). CU, quantity and foreman do NOT gate acceptance — a
+  row missing them lands in a file as a blank-code / zero-quantity line or under `_Unknown_Foreman`.
+  `grouping.py:456`'s `total_price is None` re-check is dead (`parse_price` never returns None).
+- **Group key = `(WR, week, variant, claimer)`.** dept/job are hashed content and helper hash-history
+  identity (`{helper}|{dept}|{job}`), never a file split. `CLAUDE.md` ("group by (WR, week_ending,
+  variant, foreman, dept, job)") carries this drift — follow-up to correct it.
+- **`WR_FILTER` is honoured only in `TEST_MODE`** (`grouping.py:1222`); test mode never creates upload
+  tasks (`orchestrate.py:3797`); with a token, test mode reads the real sheets (`orchestrate.py:1839`
+  picks synthetic rows only when the token is absent). There is no way to scope an attaching run to one
+  WR. `SKIP_UPLOAD` / `TEST_MODE` do not gate the `billing_audit` writers (`freeze_row` at `:3441`
+  precedes the upload gate) — unset the Supabase credentials for local runs.
+- **`RESET_WR_LIST` is global:** the purge is per listed WR (`:2381`) but `or RESET_WR_LIST` at `:3302`
+  disables the unchanged-skip for every group. `REGEN_WEEKS` is exact-string membership on `week_raw`
+  (Sundays only — `081026` is a Monday and matches nothing).
+- **Schedule truth (UTC-fixed crons):** weekdays `13,15,17,19,21,23,1 UTC Mon–Fri` = 8 AM–6 PM CDT
+  Mon–Fri plus 8 PM Sun–Thu (7 AM–5 PM / 7 PM CST); weekends `15,19,23 UTC` = 10 / 2 / 6 CDT
+  (9 / 1 / 5 CST); deep run `0 5 * * 1` = Mon 00:00 CDT / Sun 23:00 CST. Runtime: the last 12
+  successful runs took 35–72 min → docs say 40–60, up to ~75 with shadow parity.
+- **Other verified facts:** helper-only placement needs `__helper_foreman` + `__helper_dept`
+  (`grouping.py:596-602`); Billing Period = week_ending − 6 → week_ending (`excel.py:524`);
+  `audit_financial_data` runs on the fetched rows before grouping (`orchestrate.py:2276`);
+  `pipeline_run` is one row per `(wr, week_ending, run_id)`; the parity FAIL Sentry event carries no
+  group keys (`run_ledger.notes.parity_details` does); `.github/hooks/pre-push-tests.json` is not a Git
+  hook; production reads `pipeline_memory` (watermarks `:1939`, ledger status `:1942`, comparator
+  `:4048`) but no read alters output until `RUN_MEMORY_INCREMENTAL_ENABLED`.
+- **RULE — a runbook statement about pipeline behaviour cites the line that implements it.** The
+  reviewer bots read the code; the doc sentence with no anchor is the one that drifts.
