@@ -1,10 +1,11 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-27 16:20 CDT · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-27 20:20 CDT · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
-_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-27 11:51]` (first post-flip run wrote NO run
+_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-27 20:20]` (identity row = canonical row,
+PR #361). Earlier: `[2026-08-27 11:51]` (first post-flip run wrote NO run
 memory — `pipeline_memory` client init raised AttributeError on supabase-py sync options; fix on PR #356).
 `pipeline_memory` schema is LIVE on Supabase `poeyztlmsawfoqlanucc` (service_role-only). **Write path ON in
 production** since #353 (`673f7b2`, `RUN_MEMORY_WRITE_ENABLED: '1'` on the `Generate reports` step only);
@@ -17,7 +18,24 @@ PreCompact hook). Phase 11 EXECUTING — **7/8 plans done**; **11-08 INC-05 reti
 `production_frequent` run after #356). Then: checklist item 6 SQL + items 2–3 → ≥5 `pass` verdicts →
 re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-08-27 16:20 CDT) — three PRs queued: #355 (docs, rebased/mergeable) → #358 (parity actual = uploaded set + shadow 25) → #359 (hash sort tiebreaker, owner-approved)
+## Latest work (2026-08-27 20:20 CDT) — #355 + #359 MERGED; #361 (identity row = canonical row) review round 2 pushed; #360 (Learn docs) approved, awaiting Juan's merge
+- **Merged:** #355 (`81eb82b`) and #359 (`a8d6795`, hash sort tiebreaker); master at `263dc34`.
+- **#361** `fix/excel-header-canonical-row` (`79e5411`): Excel header + orchestrate Sites 1/2/3 read
+  `canonical_first_row()`; Job # aliases appended to the (hash-neutral) sort key; Greptile line-length
+  fixed. Threads answered: Codex P1 / Copilot / Greptile / Codex Job-alias → fixed; legacy-mode P2 →
+  declined with rationale; first-nonempty-foreman P2 → **deferred to Juan** (billing-output change).
+  CI green on `79e5411` (compile/test, coverage run, lint, CodeQL); Greptile re-review pending. The
+  Azure DevOps mirror check fails on every PR build (also docs-only #360) — pre-existing, not a
+  required check (branch unprotected). 1774 tests pass. Ledger `[2026-08-27 20:20]`.
+- **#360** `docs/learning-guides`: approved, MERGEABLE, only the Azure mirror red. It ALSO edits
+  `.claude/project-state.md` — whichever of #360 / #361 lands second needs a rebase (state file:
+  keep the newer "Latest work" block on top, demote the other to "Previous").
+- **Next:** Juan merges #360 + #361 → first `production_frequent` run after #361: expect
+  `91057431/080226` to `Skip` and no mixed-dept helper churn (watch `billing_audit.pipeline_run`
+  hashes + `group_state.last_generated_run`). Owner call pending on the header-foreman rule (Codex P2
+  on #361, deferred). Then Phase 11 checklist items resume (≥5 `pass` parity verdicts → 11-08).
+
+## Previous (2026-08-27 16:20 CDT) — three PRs queued: #355 (docs, rebased/mergeable) → #358 (parity actual = uploaded set + shadow 25) → #359 (hash sort tiebreaker, owner-approved)
 - **#359** `fix/data-hash-sort-tiebreaker`: `_extended_row_fields()` extracted; EXTENDED sort key +
   hashed-field string + foreman as tiebreaker; legacy untouched. Full suite green; new
   `tests/test_change_detection_tiebreak.py` pins order-independence for ties AND byte-identity for

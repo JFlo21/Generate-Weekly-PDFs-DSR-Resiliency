@@ -7250,3 +7250,32 @@ follow-up findings closed, same 6 files.
   skipped — the tie resolves by thread timing, not strict alternation; #359 makes it deterministic.
 - **RULE — parity's candidate is a superset; only `actual − candidate` can fail.** Judge a selector
   by what it would miss, not by what it would consider and then skip.
+
+## [2026-08-27 20:20] Identity row = canonical row (PR #361) — the Excel header AND the three orchestrate identity sites read `canonical_first_row()`, never arrival-order `group_rows[0]`
+
+- **Why.** The helper group key is `{week}_{wr}_HELPER_{name}` (no dept/job), so one helper group can
+  hold rows from two departments. #359 made the hash order-stable, but `generate_excel` still read
+  foreman / helper dept / helper job / Dept # from arrival-order `group_rows[0]` (Codex on #359 — the
+  fix commit missed that merge by seconds), and Sites 1/2/3 in `pipeline/orchestrate.py` (main-loop
+  identifier / `history_key`, `valid_wr_weeks`, `current_keys` prune) built the helper identifier the
+  same way (Codex P1 + Copilot on #361). A stable hash looked up under an order-dependent key: prior
+  key pruned → durable lookup miss → regenerate + re-upload every run.
+- **What.** `canonical_sorted_rows()` / `canonical_first_row()` in `pipeline/change_detection.py` are
+  the ONE definition of a group's row order; `calculate_data_hash`, `generate_excel`'s header and the
+  three identity sites all derive from it (`first_row` / `_first` binding). The extended sort key now
+  ends with `_header_job_number(x)` — the exact Job # alias precedence `generate_excel` uses — so
+  every header input is in the key. Anything after the hashed-field string can only reorder rows whose
+  hashed strings are identical → **hashes byte-identical to master**; uniform groups keep a
+  byte-identical identity; a mixed-dept/job helper group gets one deterministic key (one final
+  regeneration). `pytest tests/`: 1774 passed.
+- **Not changed (by decision).** Legacy mode's 5-key sort (rollback hash stability; legacy already
+  hashes tied rows in arrival order — `test_legacy_mode_untouched`). The header's foreman rule vs the
+  hash's first-nonempty `FOREMAN=` token — **deferred to Juan**: aligning them changes which foreman
+  the primary header shows for groups mixing empty and populated `__current_foreman` (billing
+  output), and it cannot cause churn now that header and identity agree.
+- **RULE — every first-row read that feeds an identity, filename, history key or header goes through
+  `canonical_first_row(group_rows)`.** `group_rows[0]` is only valid for group-level fields (WR, week,
+  variant). Guarded by `IdentitySitesUseCanonicalRowTests` (source guards, the vac-crew Site 1/3
+  pattern) and `test_job_alias_only_difference_is_order_independent`.
+- **RULE — a sort tiebreaker is hash-neutral iff it sits after the hashed-field string.** Header-only
+  inputs belong there; hashed inputs are already ordered by the string itself.
