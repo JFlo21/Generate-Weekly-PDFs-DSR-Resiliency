@@ -38,4 +38,13 @@ claimer)` — dept/job never split a file), `wr_filter` (test-mode only, never a
 `reset_wr_list` (destructive and global), the real CDT/CST schedule windows and run times,
 and where attribution freezes. All corrected with line anchors; `CLAUDE.md`'s six-field
 grouping description carries the same drift and is a separate follow-up.
+Rounds 3–18 (Copilot auto-reviews every push) added: Snapshot Date day-block filter, reset
+purge scope (`WR_*.xlsx` on the target sheet only), `TEST_MODE` gates Supabase writes while
+`SKIP_UPLOAD` alone does not, explicit-EMPTY env values (never "unset" — `load_dotenv()`
+refills absent ones, `SENTRY_DSN` included), Sunday = 4 normal runs, frozen
+`_Unknown_Foreman` attribution, filename-only attachment check, and — the open item — the
+repository is PUBLIC while ~284 WR-like ids and ~20 personnel names sit in 106 tracked files
+(committed `generated_docs/*.json`, tests, `.planning/`, blog); only the lines these rounds
+touched are aliased. **Owner decision pending:** scrub tracked files / make the repo private /
+rewrite history (#360 thread 3877686166).
 See `memory-bank/living-ledger.md` `[2026-08-27 21:10]`.

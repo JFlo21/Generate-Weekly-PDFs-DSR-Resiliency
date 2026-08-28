@@ -7196,7 +7196,9 @@ follow-up findings closed, same 6 files.
 - **Change (`pipeline/change_detection.py`, EXTENDED mode only).** The per-row hashed-field list is
   extracted verbatim into `_extended_row_fields(row, group_variant)`; the extended sort key is now
   `(WR, Snapshot Date, CU, Pole/Point, Quantity, vac_name, vac_dept, vac_job)` **+
-  `"|".join(_extended_row_fields(row))` + foreman**. The tiebreaker can only reorder rows that tie on
+  `"|".join(_extended_row_fields(row))` + foreman + `__helper_foreman` + `__helper_dept` +
+  `__helper_job`** (final merged form, `a8d6795`; PR #361 further appends the Job # aliases and the
+  legacy `User` identity — all hash-neutral). The tiebreaker can only reorder rows that tie on
   the full business key, so every group without such ties hashes byte-identically to before; a group
   whose tied rows differ in hashed content gets one deterministic hash from now on (one final
   regeneration + upload, then stable). LEGACY mode (`EXTENDED_CHANGE_DETECTION=0`) is untouched — its
@@ -7243,7 +7245,7 @@ follow-up findings closed, same 6 files.
 - **Checklist 3b (attachment id preserved on skip) — proven for the skip path.** `91537611/083026` and
   `<WR-A>/080226` were `⏩ Skip (unchanged + attachment exists)`; their `group_state` rows are
   untouched (`attachment_id` 8847660879351684 / 309695391633284, `last_generated_run` = #2801).
-  `<WR-B>/083026` and `91568483/083026` had real row changes → regenerated → new attachment ids,
+  `<WR-B>/083026` and `<WR-C>/083026` had real row changes → regenerated → new attachment ids,
   `last_generated_run` = #2802 — correct. The COALESCE branch proper (regenerated group whose upload
   leg reports `skipped`) is not exercised by these runs; it needs a reduced_sub second leg.
 - **Churn group:** `<WR-A>/080226` hashed `10e61b2f25575738` again this run (same as #2801) and was
@@ -7343,7 +7345,8 @@ follow-up findings closed, same 6 files.
   `12345678` / `Jane_Doe`-style values in `website/`. **Round 16/18 correction: the repository itself is
   PUBLIC, so the rule covers every tracked file and PR text, not just the rendered site.** Cross-reference
   incidents with opaque aliases — `<WR-A>` = the 080226 hash-churn WR (the `[2026-08-27 14:35]`…`[16:10]`
-  incident), `<WR-B>` = the second WR that appeared in a `reset_wr_list` example, `<FOREMAN-A/B>`,
+  incident), `<WR-B>` = the second WR that appeared in a `reset_wr_list` example, `<WR-C>` = a third WR in the
+  #2802 COALESCE evidence, `<FOREMAN-A/B>`,
   `<HELPER-A>` = the people on those groups. **What is actually aliased (2026-08-27):** the lines of this
   ledger and of `.claude/project-state.md` that the #360 review rounds touched. **What is NOT:** a
   tree-wide count on 2026-08-28 03:30Z found 284 distinct WR-like ids and 20 `_User_/_Helper_/_VacCrew_`
