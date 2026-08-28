@@ -7421,11 +7421,11 @@ follow-up findings closed, same 6 files.
 - **RULE — a runbook statement about pipeline behaviour cites the line that implements it.** The
   reviewer bots read the code; the doc sentence with no anchor is the one that drifts.
 
-## [2026-08-28 12:05] One identity definition for Sites 1/2/3, header foreman = hash's FOREMAN= rule, deterministic legacy header (PR #361 follow-up)
+## [2026-08-28 12:05] One identity definition for Sites 1/2/3, header foreman = hash's FOREMAN= rule, deterministic legacy header (PR #362, follow-up to #361)
 
 > Closes the three threads left open on #361: Copilot 3877822173 (behavioural Sites 1–3 test), Codex
-> 3876992822 (header foreman), Codex 3876992815 (legacy-mode header determinism). Branch
-> `fix/identity-helper-header-foreman`; ships when its PR merges.
+> 3876992822 (header foreman), Codex 3876992815 (legacy-mode header determinism). PR #362, branch
+> `fix/identity-helper-header-foreman`; ships when it merges.
 
 - **`derive_group_identity(first_row, **_identity_switches)` (`pipeline/orchestrate.py`, module
   level) is the ONE identity definition.** Returns `(identifier, file_identifier)`; Site 1 uses both

@@ -17,7 +17,7 @@ First run after the `RUN_MEMORY_WRITE_ENABLED` flip wrote no run memory: the bas
 exception message; a real-SDK construction test guards it. Billing was never affected.
 See `memory-bank/living-ledger.md` `[2026-08-27 11:51]`.
 
-## 2026-08-28 — one identity definition for Sites 1/2/3; header foreman = hash rule; deterministic legacy header (PR #361 follow-up)
+## 2026-08-28 — one identity definition for Sites 1/2/3; header foreman = hash rule; deterministic legacy header (PR #362)
 The three inline identity chains in `pipeline.orchestrate.main` (history key, attachment-cleanup
 tuple, prune key) are now one module-level `derive_group_identity()` called with switches bound once,
 so the CR-01 drift shape is no longer expressible and the sites are behaviourally tested for both
@@ -28,7 +28,7 @@ helper-shadow, vac_crew and subcontractor primary headers keep their partition k
 keys are byte-identical (golden digests). `canonical_first_row()` now
 uses the extended total order in legacy mode too, so the legacy header is deterministic while the
 legacy hash is untouched. Closes the three threads left open on #361.
-See `memory-bank/living-ledger.md` `[2026-08-28 12:05]`.
+See `memory-bank/living-ledger.md` `[2026-08-28 12:05]`. PR #362.
 
 ## 2026-08-27 — identity row = canonical row: Excel header + orchestrate Sites 1/2/3 (PR #361)
 A helper group can hold rows from two departments (its key carries no dept/job). #359 made
