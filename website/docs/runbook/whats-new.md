@@ -16,13 +16,13 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — August 28, 2026
 
+- ✅ Problem fixed: total-order sort tiebreaker in calculate&#95;data&#95;hash
 - 📄 Help guides updated: fix run&#95;ledger column name in flip confirmation SQL; record flip live
 - ✅ Problem fixed: compare against the uploaded set; RUN&#95;MEMORY&#95;SHADOW&#95;MAX&#95;MINUTES 10 -&gt; 25
 - ✅ Problem fixed: build pipeline&#95;memory client with SyncClientOptions (post-flip AttributeError)
 - • ops: enable RUN&#95;MEMORY&#95;WRITE&#95;ENABLED in weekly run
 - ✅ Problem fixed: guard deletions, parity evidence, lost-identity rows ( review)
 - ✨ New capability: Phase 11 — incremental read + affected-group regen, flags OFF
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
 <!-- /runbook-repo -->
