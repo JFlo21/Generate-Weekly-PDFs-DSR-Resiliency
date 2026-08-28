@@ -147,8 +147,10 @@ workflow** button, that is a permissions issue: ask the engineering owner.
 3. Useful options:
    - `advanced_options: regen_weeks:080226;080926` — force-rebuild specific
      week endings (the Sunday, as MMDDYY, separated by `;`). This rebuilds
-     that week for **every** Work Request.
-   - `wr_filter` (e.g. `12345678,90925512`) — only honoured together with
+     that week for every Work Request that still has rows in it — it cannot
+     rebuild a week whose rows were all moved away or deleted (see the stale
+     attachment note above).
+   - `wr_filter` (e.g. `12345678,87654321`) — only honoured together with
      `test_mode: true`, and a test-mode run never attaches files. Use it to
      check what the robot *would* build for one Work Request; it cannot
      limit a real, attaching run to one WR.

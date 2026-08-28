@@ -135,7 +135,7 @@ select run_id, variant, content_hash, assignment_fp, created_at
 
 ```bash
 pip install -r requirements.txt
-TEST_MODE=true python generate_weekly_pdfs.py            # no token: synthetic rows
+SMARTSHEET_API_TOKEN= TEST_MODE=true python generate_weekly_pdfs.py   # empty token: synthetic rows
 TEST_MODE=true WR_FILTER=12345678 python generate_weekly_pdfs.py   # token set: real reads, one WR, no uploads
 SKIP_UPLOAD=true python generate_weekly_pdfs.py          # real reads, EVERY group, no uploads
 pytest tests/ -v                                        # ~1,770 tests, must be green
@@ -156,9 +156,15 @@ runs the `billing_audit` writers — `freeze_row()` (first-write-wins
 attribution) and `emit_run_fingerprint()` — before the upload gate
 (`:3441`), so a non-test local run with `SUPABASE_URL` /
 `SUPABASE_SERVICE_ROLE_KEY` in the environment can permanently freeze
-production attribution. For a `SKIP_UPLOAD` run, unset the Supabase
-credentials; the writers are fail-open and the Excel output does not need
-them.
+production attribution. For a `SKIP_UPLOAD` run, set both variables to an
+**explicit empty value** (`SUPABASE_URL= SUPABASE_SERVICE_ROLE_KEY=
+SKIP_UPLOAD=true python generate_weekly_pdfs.py`) — unsetting is not enough,
+because `generate_weekly_pdfs.py` calls `load_dotenv()` at import, which
+fills in any *absent* variable from a developer `.env` but never overrides
+one that is present, even when empty (the same trick the synthetic recipe
+above uses for the Smartsheet token, and that
+`tests/test_entrypoint_no_double_import.py` relies on). The writers are
+fail-open and the Excel output does not need them.
 :::
 
 ### 4. Sentry
