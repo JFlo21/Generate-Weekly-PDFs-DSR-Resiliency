@@ -7060,6 +7060,29 @@ follow-up findings closed, same 6 files.
   non-accepted rows will be marked deleted weekly and re-added — churn, not a billing
   defect; worth tightening before the incremental flip.
 
+## [2026-08-27 00:15] RUN_MEMORY_WRITE_ENABLED is LIVE — #353 merged (`673f7b2`, 05:06 UTC); first post-flip scheduled run expected 13:00 UTC
+
+- **Production change:** the `Generate reports` step now sets `RUN_MEMORY_WRITE_ENABLED: '1'`.
+  Every scheduled run writes `pipeline_memory` (run_ledger / sheet_registry / row_state /
+  group_state), runs the 11-05 in-process shadow-parity comparator (`parity_verdict` in
+  `run_ledger.notes`), and Monday's `weekly_comprehensive` run reconciles deletions.
+  `RUN_MEMORY_INCREMENTAL_ENABLED` stays OFF. Prerequisites on `master`: #351 (`82ce830`,
+  plans 01–07 + `66ce083`) and #354 (`46b64ac`, the #353 review fixes). Rollback = delete the
+  one line. The last scheduled run before the flip was 02:41 UTC on `7b4239c` (flag absent →
+  no memory written, as expected); the next cron fire (13:00 UTC / 08:00 CDT) is the first run
+  that exercises the write path on schedule.
+- **RULE — `run_ledger` has NO `sheets_errored` column.** Real columns: `run_id, mode,
+  started_at, finished_at, release, sheets_checked, sheets_changed, rows_seen, rows_changed,
+  groups_affected, groups_generated, status, notes` (`_RUN_LEDGER_FINISH_COLUMNS` in
+  `pipeline_memory/writer.py` + `status`/`mode`). The per-run error count is
+  `notes->>'mem_sheets_errored'`; the confirmation flag is `notes->>'mem_confirmed'`; the
+  parity verdict is `notes->>'parity_verdict'`. The flip checklist's item 6 and the runbook SQL
+  written on #353 used the non-existent column — corrected in this entry's PR. Item-6 query:
+  `select run_id, status, finished_at, sheets_changed, notes->>'mem_sheets_errored' mem_err,
+  notes->>'mem_confirmed' confirmed, notes->>'parity_verdict' parity from
+  pipeline_memory.run_ledger order by started_at desc limit 3;`
+- **Owner's item 2–3 path:** post-merge observation (merged without a pre-merge dispatch) — the
+  `group_state.attachment_id` COALESCE proof is read off the first two scheduled runs.
 ## [2026-08-27 11:51] First post-flip run wrote NO run memory — `pipeline_memory` client init raised AttributeError (supabase-py sync options)
 
 - **Incident:** run 33090659647 (manual dispatch on `master`, first run carrying #353's

@@ -1,0 +1,49 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-08-27T05:18:40.564Z",
+  "phase": "11",
+  "phase_name": "Incremental Read + Affected-Group Regeneration",
+  "phase_dir": ".planning/phases/11-incremental-read-affected-group-regeneration",
+  "plan": 8,
+  "task": 1,
+  "total_tasks": 4,
+  "status": "paused",
+  "completed_tasks": [
+    {"id": "11-01", "name": "Write-flip preconditions (WR-01/WR-04/IN-01)", "status": "done", "commit": "f4a5baf"},
+    {"id": "11-02", "name": "INC-01 delta read + resolve_run_mode", "status": "done", "commit": "3505158"},
+    {"id": "11-03", "name": "D-06 preservation gates", "status": "done", "commit": "de44662"},
+    {"id": "11-04", "name": "INC-02 PHASE 2a/2b scoped regeneration (D-05 approved partial)", "status": "done", "commit": "20f0dac"},
+    {"id": "11-05", "name": "INC-04 shadow parity comparator + D-08 shadow reads", "status": "done", "commit": "62b2364"},
+    {"id": "11-06", "name": "INC-03 weekly deep-run reconciliation", "status": "done", "commit": "4341511"},
+    {"id": "11-07", "name": "D-09 parity streak + INC-05 decision gate (decision: defer)", "status": "done", "commit": "1eab3db"},
+    {"id": "post-phase", "name": "PRs merged to master: #351 82ce830 (plans 01-07 + 66ce083), #354 46b64ac (#353 review fixes), #353 673f7b2 (RUN_MEMORY_WRITE_ENABLED flip LIVE)", "status": "done", "commit": "673f7b2"}
+  ],
+  "remaining_tasks": [
+    {"id": "post-flip-observe", "name": "Checklist item 6 after the first scheduled post-flip run (expected 2026-08-27 13:00 UTC): run_ledger row success, sheets_changed populated, notes->>'mem_sheets_errored'='0', mem_confirmed=true, parity_verdict present", "status": "not_started"},
+    {"id": "coalesce-proof", "name": "Checklist items 2-3 via post-merge observation after run 2: group_state.attachment_id populated on run N and preserved (COALESCE) on run N+1", "status": "not_started"},
+    {"id": "parity-streak", "name": ">=5 consecutive parity_verdict=pass on production_frequent runs (get_parity_streak(); skipped neither counts nor resets)", "status": "not_started"},
+    {"id": "reopen-11-07", "name": "Re-open the 11-07 Task 2 decision in 11-07-SUMMARY.md (option id + real streak output), then /gsd-core:gsd-execute-phase 11 resumes at 11-08 as its own PR, then phase verification", "status": "not_started"},
+    {"id": "11-08", "name": "INC-05 retirement (deferred by owner decision 2026-08-26; gated on the streak)", "status": "not_started"}
+  ],
+  "blockers": [
+    {"description": "Five-run parity streak cannot exist until scheduled runs execute with the write flag on (first run 13:00 UTC 2026-08-27; ~1 business day for five passes)", "type": "external", "workaround": "none - wait; quiet runs report skipped"},
+    {"description": "11-08 is gated on the streak AND a re-opened 11-07 decision; its opening gate reads 11-07-SUMMARY.md's recorded option id (currently defer) and halts", "type": "human_action", "workaround": "update the SUMMARY's option id with the real get_parity_streak() output before re-running execute-phase"}
+  ],
+  "async_jobs": [],
+  "human_actions_pending": [
+    {"action": "Merge PR #355 (docs only: run_ledger has no sheets_errored column; ledger/state updated)", "context": "Runbook SQL and checklist item 6 referenced a non-existent column", "blocking": false},
+    {"action": "After the 13:00 UTC run: say 'check the flip' so the item-6 SQL is run against Supabase poeyztlmsawfoqlanucc", "context": "First scheduled run that exercises RUN_MEMORY_WRITE_ENABLED=1", "blocking": true},
+    {"action": "Prune stale local branches feat/phase-11-incremental-read, ops/run-memory-write-flip, fix/deep-run-partial-reads-parity-evidence (all merged; remote branches deleted)", "context": "Housekeeping", "blocking": false},
+    {"action": "Decide on the incremental-vs-deep-run acceptance-gate churn (delta rows stored under the WR+date gate are 'deleted' weekly by the full-acceptance live set) before flipping RUN_MEMORY_INCREMENTAL_ENABLED", "context": "Noted in Living Ledger [2026-08-26 23:40]; churn, not a billing defect", "blocking": false}
+  ],
+  "decisions": [
+    {"decision": "11-05 blocking-human write-flip gate approved with the evidence explicitly NOT met, scoped to code + unit tests; same-class preconditions in 11-06/11-07 carried forward", "rationale": "Owner call; live-evidence gates remained open post-merge", "phase": "11"},
+    {"decision": "11-07 Task 2: INC-05 retirement DEFERRED (option id defer)", "rationale": "D-12's five-pass condition unsatisfiable until the flip merged and scheduled runs recorded verdicts; retiring on the branch would bundle removals, which the plan forbids", "phase": "11"},
+    {"decision": "Unconfirmed memory write => full-mode fallback (trigger_memory_write_unconfirmed), not a delta-derived superset affected set", "rationale": "One consistent fail-closed path is easier to audit than two", "phase": "11"},
+    {"decision": "Review fixes for #353 landed as their own PR (#354) rather than inside the flip PR", "rationale": "The flip must stay a one-line revert", "phase": "11"},
+    {"decision": "Checklist items 2-3 satisfied by post-merge observation of two scheduled runs rather than a pre-merge upload-enabled dispatch", "rationale": "Any upload-enabled run exercises the COALESCE; nothing in production reads group_state.attachment_id until 11-08", "phase": "11"}
+  ],
+  "uncommitted_files": ["generated_docs/hash_history.json (owner's runtime artifact - never stage)"],
+  "next_action": "Wait for the 2026-08-27 13:00 UTC scheduled run, then run the checklist item-6 SQL (docs/run-memory-write-flip-checklist.md; corrected column names in PR #355) against pipeline_memory.run_ledger and report; after run 2, the group_state.attachment_id COALESCE proof.",
+  "context_notes": "Phase 11 is 7/8 plans executed and fully on master; production now writes pipeline_memory on every scheduled run with the incremental read still OFF. No post-flip run has happened yet, so nothing is verified live. The remaining phase work (11-08 + verification) is gated on evidence that only scheduled runs can produce. GSD tooling notes: dispatch executors as gsd-core:gsd-executor; isolation auto-degrades to sequential while HEAD != origin/HEAD; a blocking-human first task is best presented from the plan text rather than by spawning an executor."
+}

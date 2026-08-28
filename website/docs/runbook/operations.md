@@ -221,14 +221,16 @@ rolled out in two separately gated steps:
 ### Confirming the flip (first scheduled run after #353)
 
 ```sql
-select run_id, status, finished_at, sheets_changed, sheets_errored,
+select run_id, status, finished_at, sheets_changed,
+       notes->>'mem_sheets_errored' as mem_err,
        notes->>'execution_type' as exec, notes->>'parity_verdict' as parity,
        notes->>'mem_confirmed' as confirmed
 from pipeline_memory.run_ledger order by started_at desc limit 3;
 ```
 
-Pass = `status='success'`, `sheets_changed` populated, `sheets_errored=0`,
-`confirmed=true`, a `parity` value present. The streak that authorises the
+Pass = `status='success'`, `sheets_changed` populated, `mem_err='0'`,
+`confirmed=true`, a `parity` value present. (`run_ledger` has no
+`sheets_errored` column — the per-run error count lives in `notes`.) The streak that authorises the
 incremental read is derived on demand by
 `pipeline_memory.reader.get_parity_streak()` — five consecutive `pass`
 verdicts on `production_frequent` runs with no intervening `fail`.

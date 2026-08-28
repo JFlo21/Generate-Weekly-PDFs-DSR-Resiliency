@@ -71,13 +71,15 @@ populated memory once, but a manual run is not a scheduled one.
 After the first scheduled `production_frequent` run:
 
 ```sql
-select run_id, status, finished_at, sheets_changed, sheets_errored,
+select run_id, status, finished_at, sheets_changed,
+       notes->>'mem_sheets_errored' as mem_err,
        notes->>'parity_verdict' as parity, notes->>'mem_confirmed' as confirmed
 from pipeline_memory.run_ledger order by started_at desc limit 3;
 ```
 
-Expect `status='success'`, `sheets_changed` populated, `sheets_errored=0`,
-`confirmed=true`. The full owner checklist lives in
+Expect `status='success'`, `sheets_changed` populated, `mem_err='0'`,
+`confirmed=true`. (`run_ledger` has no `sheets_errored` column — the
+per-run error count lives in `notes`.) The full owner checklist lives in
 `docs/run-memory-write-flip-checklist.md`; the runbook's Operations page
 has the symptom table.
 
