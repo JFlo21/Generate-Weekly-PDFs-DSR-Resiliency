@@ -24,7 +24,7 @@ flowchart LR
     D --> E[generated_docs/*.xlsx]
     E -->|replace attachment on the WR row| T[(Target sheet<br/>+ PPP sheet for ReducedSub)]
     B <-->|frozen attribution, durable group hashes,<br/>run fingerprints| BA[(Supabase billing_audit)]
-    B -->|run ledger, sheet watermarks,<br/>row + group state, parity verdict| PM[(Supabase pipeline_memory)]
+    B <-->|writes: run ledger, sheet watermarks,<br/>row + group state, parity verdict<br/>reads: watermarks, last-run status,<br/>changed-row ids| PM[(Supabase pipeline_memory)]
     B --> R[run_summary.json + artifacts]
     R --> N[scripts/notion_sync.py → Notion]
     B -.errors.-> X[(Sentry)]

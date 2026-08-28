@@ -128,7 +128,7 @@ look at *Report Generated On* — it should be newer than your edit.
 | What you see | Likely cause | Fix |
 | --- | --- | --- |
 | The unit isn't in any file | Missing WR # or date, *Units Completed?* unchecked, no price (blank / `$0`), or a CU that reads `NO MATCH` | Complete the row; it appears on the next run |
-| The unit is in the file but the line has a blank code, a zero quantity or a `$0` price | The row was picked up but its CU, quantity or price is incomplete | Fix those fields; the file rebuilds on the next run |
+| The unit is in the file but the line has a blank code or a zero quantity | The row was picked up but its CU or quantity is incomplete (a picked-up row always carries a price above $0) | Fix those fields; the file rebuilds on the next run |
 | The file total includes the unit but it is in no day block | The row's Snapshot Date is blank, unreadable, or outside that Monday–Sunday week | Fix the Snapshot Date; the file rebuilds on the next run |
 | The unit is in the **wrong week's** file | The week-ending / logged date on the row is wrong | Correct the date; the new week's file gains it. The old week's file rebuilds without it **only if other units remain in that week for that WR** — if it was the only one, nothing regenerates the old file and the stale attachment stays until the engineering owner removes it |
 | The unit is in a `_Helper_…` file but you expected the main file | Both helper and primary checkboxes are checked | That is by design — the helper file is the billable one; uncheck the helper flag only if the unit really wasn't helper work |
@@ -152,22 +152,26 @@ the same robot, started on demand:
      check what the robot *would* build for one Work Request; it cannot
      limit a real, attaching run to one WR.
    - `advanced_options: reset_wr_list:91057431` — **destructive; ask the
-     engineering owner first.** It deletes the listed WRs' existing Excel
-     attachments before generating, and it also switches off the
+     engineering owner first.** It deletes the listed WRs' generated `WR_…xlsx`
+     reports on the target sheet before generating, and it also switches off the
      "unchanged, skip" check for *every* group in that run, so the whole run
      regenerates and re-uploads. If the run fails after the delete, those WRs
      have no attachment until the next successful run.
    - `reset_hash_history: true` — rebuild **everything**. **Destructive —
      engineering owner only.** Before generating anything it deletes *every*
-     existing Excel attachment on the target sheet, so if the run fails
-     afterwards no Work Request has a file until the next successful run.
+     generated report on the target sheet — every attachment named
+     `WR_…xlsx`; other attachments and the PPP-sheet copies are not
+     touched — so if the run fails afterwards no Work Request has a report
+     on the target sheet until the next successful run.
 4. Click **Run workflow** and wait for the green check (40–60 minutes, up to
    about 75).
 
 A manual run does everything a scheduled run does, including attaching
-files. There is currently **no way to limit an attaching run to one Work
-Request** — every option that narrows the run also stops it from attaching —
-so a normal manual run is simply "catch up now".
+files. There is currently **no way to pick one Work Request for an attaching
+run** — `wr_filter` only works in test mode, which never attaches.
+(`max_groups`, and the engineer-side `EXCLUDE_WRS` setting, can shrink an
+attaching run, but neither can select a WR.) So a normal manual run is simply
+"catch up now".
 
 ## When something looks wrong
 
