@@ -21,6 +21,7 @@ These tests pin three properties of the fix:
 
 from __future__ import annotations
 
+import datetime
 import hashlib
 import itertools
 import sys
@@ -109,6 +110,63 @@ class SortTiebreakTests(unittest.TestCase):
         edited = [dict(rows[0], **{'__helper_job': 'J-78'}), dict(rows[1])]
         self.assertNotEqual(generate_weekly_pdfs.calculate_data_hash(rows),
                             generate_weekly_pdfs.calculate_data_hash(edited))
+
+    def test_canonical_first_row_is_input_order_independent(self):
+        # Codex on PR #359: Excel must read header metadata from the row the
+        # hash treats as first, not from arrival-order group_rows[0].
+        a = _row(**{'__variant': 'helper', '__helper_foreman': 'H',
+                    '__helper_dept': 'NA-03', '__helper_job': 'J-1'})
+        b = _row(**{'__variant': 'helper', '__helper_foreman': 'H',
+                    '__helper_dept': 'NA-04', '__helper_job': 'J-2'})
+        first_ab = change_detection.canonical_first_row([a, b])
+        first_ba = change_detection.canonical_first_row([b, a])
+        self.assertIs(first_ab, first_ba)
+        self.assertEqual(first_ab['__helper_dept'], 'NA-03')
+        self.assertEqual(change_detection.canonical_sorted_rows([a, b]),
+                         change_detection.canonical_sorted_rows([b, a]))
+
+    def test_excel_header_uses_the_canonical_row(self):
+        """Two helper rows differing only in helper dept/job, generated in
+        both arrival orders, must produce the same REPORT DETAILS values
+        (the ones the hash's first row carries)."""
+        import tempfile
+        import openpyxl
+        saved = {k: getattr(generate_weekly_pdfs, k) for k in
+                 ('OUTPUT_FOLDER', 'RES_GROUPING_MODE',
+                  'PRIMARY_CLAIM_ATTRIBUTION_ENABLED')}
+        tmp = tempfile.TemporaryDirectory()
+        generate_weekly_pdfs.OUTPUT_FOLDER = tmp.name
+        generate_weekly_pdfs.RES_GROUPING_MODE = 'both'
+        generate_weekly_pdfs.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = False
+        try:
+            def helper_row(dept, job):
+                return _row(wr='90001', **{
+                    'Weekly Reference Logged Date': '2026-07-26',
+                    '__week_ending_date': datetime.datetime(2026, 7, 26),
+                    '__variant': 'helper', '__helper_foreman': 'Juan Carlos Mendoza',
+                    '__helper_dept': dept, '__helper_job': job,
+                    '__effective_user': 'Juan Carlos Mendoza',
+                    '__current_foreman': 'Charlie Tremper'})
+            a, b = helper_row('NA-03', 'J-1'), helper_row('NA-04', 'J-2')
+            details = []
+            for rows in ([a, b], [b, a]):
+                path = generate_weekly_pdfs.generate_excel(
+                    '072626_90001_HELPER_Juan_Carlos_Mendoza', list(rows),
+                    datetime.datetime(2026, 7, 26), data_hash='deadbeefcafe0001')[0]
+                ws = openpyxl.load_workbook(path).active
+                vals = {}
+                for row in ws.iter_rows(values_only=True):
+                    for i, v in enumerate(row):
+                        if v in ('Dept #:', 'Job #:'):
+                            vals[v] = row[i + 1]
+                details.append(vals)
+            self.assertEqual(details[0], details[1])
+            self.assertEqual(details[0].get('Dept #:'), 'NA-03')
+            self.assertEqual(details[0].get('Job #:'), 'J-1')
+        finally:
+            for k, v in saved.items():
+                setattr(generate_weekly_pdfs, k, v)
+            tmp.cleanup()
 
     def test_tie_breaker_still_detects_a_real_edit(self):
         base = [

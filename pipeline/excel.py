@@ -33,6 +33,7 @@ from pipeline.config import (
     _RE_SANITIZE_HELPER_NAME,
     _RE_SANITIZE_IDENTIFIER,
 )
+from pipeline.change_detection import canonical_first_row
 from pipeline.pricing import _parse_quantity, _resolve_row_price, parse_price
 from pipeline.utils import excel_serial_to_date
 
@@ -168,7 +169,12 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     SUPABASE_HASH_STORE_AUTHORITATIVE = _gwp.SUPABASE_HASH_STORE_AUTHORITATIVE
     TEST_MODE = _gwp.TEST_MODE
     VAC_CREW_CLAIM_ATTRIBUTION_ENABLED = _gwp.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED
-    first_row = group_rows[0]
+    # Header metadata (variant, foreman, helper dept/job, Dept #, ...) is
+    # read from the SAME row calculate_data_hash() treats as first, not
+    # from arrival-order group_rows[0]: a helper group can hold rows from
+    # two departments, and a stable hash must describe a stable header
+    # (Codex, PR #359). Row blocks below still iterate group_rows as-is.
+    first_row = canonical_first_row(group_rows) if group_rows else {}
     
     # Parse the combined key format: "MMDDYY_WRNUMBER"
     if '_' in group_key:
