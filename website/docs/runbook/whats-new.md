@@ -16,14 +16,14 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — August 28, 2026
 
+- ✅ Problem fixed: kill-switch warning/breadcrumb log no server text
+- ✅ Problem fixed: key-homogeneous sheet&#95;registry upserts + diagnosable RPC failures
 - ✅ Problem fixed: header metadata from the hash's canonical row, not arrival order
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - 📄 Help guides updated: Learn section — operator and engineer guides; overview refreshed
 - ✅ Problem fixed: total-order sort tiebreaker in calculate&#95;data&#95;hash
 - 📄 Help guides updated: fix run&#95;ledger column name in flip confirmation SQL; record flip live
 - ✅ Problem fixed: compare against the uploaded set; RUN&#95;MEMORY&#95;SHADOW&#95;MAX&#95;MINUTES 10 -&gt; 25
-- ✅ Problem fixed: build pipeline&#95;memory client with SyncClientOptions (post-flip AttributeError)
-- • ops: enable RUN&#95;MEMORY&#95;WRITE&#95;ENABLED in weekly run
 
 <!-- /runbook-repo -->
 
@@ -34,6 +34,7 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — August 28, 2026
 
+- ✅ Problem fixed: a row's second Coverage Exception in the same sweep no longer aborts the hourly reconcile (repair-lock same-sweep memo) + C2 executed
 - ✅ Problem fixed: schedule lane never mapped MANIFEST&#95;WORKFLOW&#95;EVENT&#95;LIVE&#95;WRITE — Workflow Events were silently dry-run (+ ledger batch 2026-08-28b)
 - ✨ New capability: audit heal transitions C1/C2/C3 + Assigned GF roster fill (+ ledger batch 2026-08-28)
 - 📄 Help guides updated: ledger — PR merged, hop 1 green, post-merge next steps
@@ -41,7 +42,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - ✅ Problem fixed: BUG-013 priced-queue partition cache + claims-pending skip; BUG-014 hop-1 workflow name glob (first live day of Phase 31.1)
 - 📄 Help guides updated: 2026-08-27 holdup-triage write-back packet + resume delta
 - • Phase 31.1: control-plane orchestration hardening — schedule split, workflow&#95;run chain, wake debounce, bounded reads, Requests-as-source, stage transitions
-- ✅ Problem fixed: normalize the register Manifest Version before the staging billers heal (BUG-010)
 
 <!-- /runbook-repo -->
 
@@ -77,9 +77,6 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 - ✨ New capability: switch ClaudeOS continuity layer from .remember to claude-mem
 - 📄 Help guides updated: reconcile fable5 effort policy to owner-saved xhigh; record 08-23 gsd VERSION fix; plugin autoUpdate churn
 - ✅ Problem fixed: junction guard mirrors plugin-cache version into gsd-core/VERSION
-- 📄 Help guides updated: close handoff items 1+3 (push done, dormant GSD npm global removed)
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- ✅ Problem fixed: junction guard also heals stale gsd-core .build.lock (upstream acquireLock has no stale reclaim)
 
 <!-- /runbook-repo -->
 
