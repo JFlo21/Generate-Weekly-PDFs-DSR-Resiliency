@@ -56,7 +56,7 @@ Open the billing target sheet, find the Work Request's row, and open its
 opening it:
 
 ```
-WR_91057431_WeekEnding_080226_User_Charlie_Tremper.xlsx
+WR_12345678_WeekEnding_080226_User_Jane_Doe.xlsx
    │            │                 │
    │            │                 └─ whose work: the foreman (User), a helper
    │            │                    (Helper_<name>), a VAC crew (VacCrew), or a
@@ -148,11 +148,11 @@ workflow** button, that is a permissions issue: ask the engineering owner.
    - `advanced_options: regen_weeks:080226;080926` — force-rebuild specific
      week endings (the Sunday, as MMDDYY, separated by `;`). This rebuilds
      that week for **every** Work Request.
-   - `wr_filter` (e.g. `91057431,90925512`) — only honoured together with
+   - `wr_filter` (e.g. `12345678,90925512`) — only honoured together with
      `test_mode: true`, and a test-mode run never attaches files. Use it to
      check what the robot *would* build for one Work Request; it cannot
      limit a real, attaching run to one WR.
-   - `advanced_options: reset_wr_list:91057431` — **destructive; ask the
+   - `advanced_options: reset_wr_list:12345678` — **destructive; ask the
      engineering owner first.** It deletes the listed WRs' generated `WR_…xlsx`
      reports on the target sheet before generating, and it also switches off the
      "unchanged, skip" check for *every* group in that run, so the whole run

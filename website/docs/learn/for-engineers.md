@@ -94,7 +94,7 @@ gh run view <run-id> --log | sed 's/^[^\t]*\t[^\t]*\t//' \
 For one Work Request and week:
 
 ```bash
-gh run view <run-id> --log | grep -E "WR 91057431 week 080226|91057431_WeekEnding_080226"
+gh run view <run-id> --log | grep -E "WR 12345678 week 080226|12345678_WeekEnding_080226"
 ```
 
 Expect one of: `⏩ Skip (unchanged + attachment exists)`, `🔁 Regenerating …
@@ -113,18 +113,18 @@ from pipeline_memory.run_ledger order by started_at desc limit 5;
 
 -- what memory holds for one group
 select * from pipeline_memory.group_state
- where wr = '91057431' and week_ending = '2026-08-02';
+ where wr = '12345678' and week_ending = '2026-08-02';
 
 -- the durable hash the skip decision compares against
 select * from billing_audit.group_content_hash
- where wr = '91057431' and week_ending = '2026-08-02';
+ where wr = '12345678' and week_ending = '2026-08-02';
 
 -- per-run content hash at WR/week level: one row per (wr, week_ending, run_id),
 -- NOT per file -- a WR with several variants records one of them. Values that
 -- flip across runs with the same source rows = a determinism bug.
 select run_id, variant, content_hash, assignment_fp, created_at
   from billing_audit.pipeline_run
- where wr = '91057431' and week_ending = '2026-08-02'
+ where wr = '12345678' and week_ending = '2026-08-02'
  order by created_at desc limit 10;
 ```
 
@@ -136,7 +136,7 @@ select run_id, variant, content_hash, assignment_fp, created_at
 ```bash
 pip install -r requirements.txt
 TEST_MODE=true python generate_weekly_pdfs.py            # no token: synthetic rows
-TEST_MODE=true WR_FILTER=91057431 python generate_weekly_pdfs.py   # token set: real reads, one WR, no uploads
+TEST_MODE=true WR_FILTER=12345678 python generate_weekly_pdfs.py   # token set: real reads, one WR, no uploads
 SKIP_UPLOAD=true python generate_weekly_pdfs.py          # real reads, EVERY group, no uploads
 pytest tests/ -v                                        # ~1,770 tests, must be green
 ```
