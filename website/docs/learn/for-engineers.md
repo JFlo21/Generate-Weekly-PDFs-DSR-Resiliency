@@ -137,7 +137,7 @@ select run_id, variant, content_hash, assignment_fp, created_at
 pip install -r requirements.txt
 SMARTSHEET_API_TOKEN= TEST_MODE=true python generate_weekly_pdfs.py   # empty token: synthetic rows
 TEST_MODE=true WR_FILTER=12345678 python generate_weekly_pdfs.py   # token set: real reads, one WR, no uploads
-SKIP_UPLOAD=true python generate_weekly_pdfs.py          # real reads, EVERY group, no uploads
+SUPABASE_URL= SUPABASE_SERVICE_ROLE_KEY= SKIP_UPLOAD=true python generate_weekly_pdfs.py   # real reads, EVERY group, no uploads, no Supabase
 pytest tests/ -v                                        # ~1,770 tests, must be green
 ```
 
@@ -178,7 +178,7 @@ default (`SENTRY_ENABLE_LOGS`) because INFO lines can carry row data.
 ## Making a change safely
 
 The pipeline is production-critical: it runs several times a day (up to
-seven on weekdays, three at weekends) against real billing data. The rules below are the ones whose violation has caused
+seven Monday–Thursday, six on Friday, three on Saturday, four on Sunday) against real billing data. The rules below are the ones whose violation has caused
 incidents; each links to where the full story is recorded.
 
 | Never… | Because | Full rule |

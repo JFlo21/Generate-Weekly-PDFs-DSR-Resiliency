@@ -24,7 +24,7 @@ file is attached in its place.
 
 ```mermaid
 flowchart LR
-    A["Crews enter units in Smartsheet"] --> B["Robot reads every source sheet<br/>(6–7× on weekdays, 3× on weekends)"]
+    A["Crews enter units in Smartsheet"] --> B["Robot reads every source sheet<br/>(6–7× on weekdays, 3× Saturday, 4× Sunday)"]
     B --> C["Groups rows by Work Request + week ending<br/>(+ foreman / helper / crew)"]
     C --> D{"Did this group change<br/>since the last file?"}
     D -- "No, and the file is still attached" --> E["Skip — nothing to do"]
@@ -38,7 +38,7 @@ flowchart LR
 | --- | --- |
 | Monday–Friday, every 2 hours from 8 AM to 6 PM in summer (7 AM to 5 PM in winter) | Normal run — picks up whatever changed since the last one |
 | Sunday–Thursday, one evening run at 8 PM in summer (7 PM in winter) — there is **no Friday-evening run** | Same |
-| Saturday and Sunday at 10 AM, 2 PM and 6 PM in summer (9 AM, 1 PM and 5 PM in winter) | Same, lighter cadence |
+| Saturday and Sunday at 10 AM, 2 PM and 6 PM in summer (9 AM, 1 PM and 5 PM in winter) — Sunday also gets the 8 PM evening run above, so Saturday has three normal runs and Sunday four | Same, lighter cadence |
 | Monday 12:00 AM in summer (Sunday 11 PM in winter) | The **weekly deep run** — re-checks everything, including rows that were deleted |
 
 The schedule is fixed in UTC, which is why every time above shifts by an hour

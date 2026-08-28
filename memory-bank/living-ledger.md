@@ -7191,6 +7191,38 @@ follow-up findings closed, same 6 files.
 - **RULE — a content hash over a multi-source row set must sort on a total key.** Any tie left to
   input order becomes a coin flip once the input is a parallel fetch.
 
+## [2026-08-27 16:10] `calculate_data_hash` total-order sort tiebreaker (PR #359) — ends the every-run re-upload of tie groups and the permanent parity divergence
+
+- **Change (`pipeline/change_detection.py`, EXTENDED mode only).** The per-row hashed-field list is
+  extracted verbatim into `_extended_row_fields(row, group_variant)`; the extended sort key is now
+  `(WR, Snapshot Date, CU, Pole/Point, Quantity, vac_name, vac_dept, vac_job)` **+
+  `"|".join(_extended_row_fields(row))` + foreman**. The tiebreaker can only reorder rows that tie on
+  the full business key, so every group without such ties hashes byte-identically to before; a group
+  whose tied rows differ in hashed content gets one deterministic hash from now on (one final
+  regeneration + upload, then stable). LEGACY mode (`EXTENDED_CHANGE_DETECTION=0`) is untouched — its
+  docstring promises no tiebreakers for rollback stability.
+- **Why.** Run #2801's parity `fail` kept one uploaded group in `only_in_actual`: `91057431/080226`
+  alternated between exactly two hashes for 12 consecutive runs (`billing_audit.pipeline_run`,
+  constant `assignment_fp`, 142/142) — three source sheets, rows tying on the key but differing in a
+  hashed field, parallel-fetch `as_completed` order preserved by the stable sort. The durable store is
+  rewritten each run so the next run always disagrees → regenerate → delete + re-upload, forever. The
+  row-hash-driven incremental path would never regenerate it → `pass` impossible. The VAC-crew
+  tiebreaker (earlier fix, same failure class) had closed only the crew-field case.
+- **Tests (`tests/test_change_detection_tiebreak.py`).** Tied rows differing in Work Type/price hash
+  identically under every permutation; foreman-only ties deterministic; a real edit still changes the
+  hash; a 40-row tie-free fixture hashes byte-identically to the pre-fix ordering (the no-churn
+  guarantee); legacy mode unchanged. Hash-related suites (vac_crew, subcontractor pricing, billing
+  audit shadow, snapshot drift, control-run comparator, perf) all green.
+- **Validation plan (billing guardrail).** No Smartsheet token is available to this session, so the
+  pre-merge validation is the tie-free byte-identity test above. Post-merge, on the first run: expect
+  a one-time bump in "hash changed" regenerations bounded by the flipping population (≈ the groups
+  `pipeline_run` shows alternating with a constant fingerprint), then `⏩ Skip (unchanged + attachment
+  exists) primary WR 91057431 week 080226` on the run after; `group_state.content_hash` for it stops
+  changing. If the bump is materially larger than that population, revert.
+- **RULE — a content hash over a multi-source row set must sort on a total key.** Any tie left to
+  input order becomes a coin flip once the input is a parallel fetch. When adding hashed fields, add
+  them to the tiebreaker too (here automatic: the tiebreaker IS the hashed string).
+
 ## [2026-08-27 16:45] First SCHEDULED run with working memory (#2802, 33113384941.1) — D-07 refinement #2: candidate-only groups are not a divergence; attachment ids preserved on skip; churn group skipped
 
 - **Evidence.** `production_frequent`, `success`, 43 min. `⚡ Run-memory row writes: 8 sheet(s)
@@ -7218,3 +7250,109 @@ follow-up findings closed, same 6 files.
   skipped — the tie resolves by thread timing, not strict alternation; #359 makes it deterministic.
 - **RULE — parity's candidate is a superset; only `actual − candidate` can fail.** Judge a selector
   by what it would miss, not by what it would consider and then skip.
+
+## [2026-08-27 20:20] Identity row = canonical row (PR #361) — the Excel header AND the three orchestrate identity sites read `canonical_first_row()`, never arrival-order `group_rows[0]`
+
+- **Why.** The helper group key is `{week}_{wr}_HELPER_{name}` (no dept/job), so one helper group can
+  hold rows from two departments. #359 made the hash order-stable, but `generate_excel` still read
+  foreman / helper dept / helper job / Dept # from arrival-order `group_rows[0]` (Codex on #359 — the
+  fix commit missed that merge by seconds), and Sites 1/2/3 in `pipeline/orchestrate.py` (main-loop
+  identifier / `history_key`, `valid_wr_weeks`, `current_keys` prune) built the helper identifier the
+  same way (Codex P1 + Copilot on #361). A stable hash looked up under an order-dependent key: prior
+  key pruned → durable lookup miss → regenerate + re-upload every run.
+- **What.** `canonical_sorted_rows()` / `canonical_first_row()` in `pipeline/change_detection.py` are
+  the ONE definition of a group's row order; `calculate_data_hash`, `generate_excel`'s header and the
+  three identity sites all derive from it (`first_row` / `_first` binding). The extended sort key now
+  ends with `_header_job_number(x)` — the exact Job # alias precedence `generate_excel` uses — and
+  the legacy identity `User` (Copilot, round 2), so every header and identity input is in the key. Anything after the hashed-field string can only reorder rows whose
+  hashed strings are identical → **hashes byte-identical to master**; uniform groups keep a
+  byte-identical identity; a mixed-dept/job helper group gets one deterministic key (one final
+  regeneration). `pytest tests/`: 1774 passed.
+- **Not changed (by decision).** Legacy mode's 5-key sort (rollback hash stability; legacy already
+  hashes tied rows in arrival order — `test_legacy_mode_untouched`). The header's foreman rule vs the
+  hash's first-nonempty `FOREMAN=` token — **deferred to Juan**: aligning them changes which foreman
+  the primary header shows for groups mixing empty and populated `__current_foreman` (billing
+  output), and it cannot cause churn now that header and identity agree.
+- **RULE — every first-row read that feeds an identity, filename, history key or header goes through
+  `canonical_first_row(group_rows)`.** `group_rows[0]` is only valid for group-level fields (WR, week,
+  variant). Guarded by `IdentitySitesUseCanonicalRowTests` (source guards, the vac-crew Site 1/3
+  pattern) and `test_job_alias_only_difference_is_order_independent`.
+- **RULE — a sort tiebreaker is hash-neutral iff it sits after the hashed-field string.** Header-only
+  inputs belong there; hashed inputs are already ordered by the string itself.
+
+## [2026-08-27 21:10] Learn-guide review round (PR #360) — verified pipeline truths the docs must not drift from
+
+- **Context.** 35 Copilot / Codex / Greptile findings on the new operator + engineer guides; each was
+  checked against the code before editing (34 fixed, 1 declined). Several "obvious" statements copied
+  from `CLAUDE.md` and older pages were wrong.
+- **The acceptance gate lives in `pipeline/fetch.py:837`:** `Work Request #` AND `Weekly Reference
+  Logged Date` AND `Units Completed?` AND `has_price` (price > 0 after the pre-acceptance rate rescue);
+  a CU containing `NO MATCH` is dropped (`:842`). CU, quantity and foreman do NOT gate acceptance — a
+  row missing them lands in a file as a blank-code / zero-quantity line or under `_Unknown_Foreman`.
+  `grouping.py:456`'s `total_price is None` re-check is dead (`parse_price` never returns None).
+- **Group key = `(WR, week, variant, claimer)`.** dept/job are hashed content and helper hash-history
+  identity (`{helper}|{dept}|{job}`), never a file split. `CLAUDE.md` ("group by (WR, week_ending,
+  variant, foreman, dept, job)") carries this drift — follow-up to correct it.
+- **`WR_FILTER` is honoured only in `TEST_MODE`** (`grouping.py:1222`); test mode never creates upload
+  tasks (`orchestrate.py:3797`); with a token, test mode reads the real sheets (`orchestrate.py:1839`
+  picks synthetic rows only when the token is absent). There is no way to scope an attaching run to one
+  WR. **`TEST_MODE` gates every `billing_audit` / `pipeline_memory` write** (`not TEST_MODE` at
+  `orchestrate.py:3333`, `:3352`, `:1934`); `SKIP_UPLOAD` alone does NOT (`freeze_row` at `:3441`
+  precedes the upload gate) — a non-test `SKIP_UPLOAD` run needs the Supabase credentials unset.
+  (Round 2 of the review said "neither flag" — wrong; corrected in round 3.)
+- **`RESET_WR_LIST` is global:** the purge is per listed WR (`:2381`) but `or RESET_WR_LIST` at `:3302`
+  disables the unchanged-skip for every group. `REGEN_WEEKS` is exact-string membership on `week_raw`
+  (Sundays only — `081026` is a Monday and matches nothing).
+- **Schedule truth (UTC-fixed crons):** weekdays `13,15,17,19,21,23,1 UTC Mon–Fri` = 8 AM–6 PM CDT
+  Mon–Fri plus 8 PM Sun–Thu (7 AM–5 PM / 7 PM CST); weekends `15,19,23 UTC` = 10 / 2 / 6 CDT
+  (9 / 1 / 5 CST); deep run `0 5 * * 1` = Mon 00:00 CDT / Sun 23:00 CST. Runtime: the last 12
+  successful runs took 35–72 min → docs say 40–60, up to ~75 with shadow parity.
+- **Other verified facts:** helper-only placement needs `__helper_foreman` + `__helper_dept`
+  (`grouping.py:596-602`); Billing Period = week_ending − 6 → week_ending (`excel.py:524`);
+  `audit_financial_data` runs on the fetched rows before grouping (`orchestrate.py:2276`);
+  `pipeline_run` is one row per `(wr, week_ending, run_id)`; the parity FAIL Sentry event carries no
+  group keys (`run_ledger.notes.parity_details` does); `.github/hooks/pre-push-tests.json` is not a Git
+  hook; production reads `pipeline_memory` (watermarks `:1939`, ledger status `:1942`, comparator
+  `:4048`) but no read alters output until `RUN_MEMORY_INCREMENTAL_ENABLED`.
+- **Round 3 (Copilot re-review) added:** the day blocks only show rows whose `Snapshot Date` parses
+  and falls inside the Monday–Sunday week (`excel.py:722-736`) while the file total sums every group
+  row (`:505`) — a bad Snapshot Date makes total ≠ lines; the billing period is week_ending − 6 →
+  week_ending, never Snapshot Date (`:522-525`). `RESET_HASH_HISTORY` runs the **global** attachment
+  purge before any group is processed (`orchestrate.py:2374-2385`) — as destructive as
+  `RESET_WR_LIST`, sheet-wide. A unit moved out of a week that then has no rows leaves a **stale
+  attachment**: no group is emitted for the empty week, the untracked-attachment cleanup keeps the
+  newest file per identity and only deletes older variants (`cleanup.py:455-471`), and deep-run
+  reconciliation explicitly defers fully-empty pairs (`orchestrate.py:4157-4159`) — manual removal.
+- **Round 4 added:** the reset purges delete only attachments named `WR_*.xlsx` on `TARGET_SHEET_ID`
+  (`cleanup.py:611`) — other attachments and PPP copies survive; a picked-up row can never render a
+  `$0` line (`_resolve_row_price`, `pricing.py:564`, returns the admitted price or a positive
+  rate × quantity); `EXCLUDE_WRS` (`grouping.py:1281`, always active) and `MAX_GROUPS`
+  (`orchestrate.py:2396`) DO narrow an attaching run — only "select one WR" is impossible outside
+  `TEST_MODE`.
+- **Round 5 added:** `workflow_dispatch` needs repository **write** access (a missing "Run workflow"
+  button is a permissions issue); the shadow-parity "actual" set is *groups with an upload task*,
+  computed at `orchestrate.py:4039` (`_shadow_parity_input_sets`, `:1028`) BEFORE the parallel upload
+  phase at `:4200` — a later upload failure never changes the verdict; cadence is "up to seven runs
+  a day" (Mon–Thu 7 Central runs, Fri 6, Sat 3, Sun 3 + the evening run), not "seven every day".
+- **Round 6 — RULE: public runbook examples use fictional identifiers.** The guides had copied a real
+  WR (the churn-incident one) and a real foreman name into a filename example and the SQL/CLI
+  recipes; the Docusaurus site is public and the pipeline treats WR/foreman as row PII. Use
+  `12345678` / `Jane_Doe`-style values in `website/` — real identifiers stay in the ledger, state
+  file and PR threads only. (Round 7 caught a second real WR the sweep missed — grep for every
+  8-digit number, not just the one you remember.)
+- **Round 7 — RULE: "unset" is not a safe local-run instruction.** `generate_weekly_pdfs.py:24` calls
+  `load_dotenv()` at import; python-dotenv fills in *absent* variables from a developer `.env` but
+  never overrides a present one, even empty. So a recipe that must avoid the Smartsheet token or the
+  Supabase clients sets them to an explicit empty string (`SMARTSHEET_API_TOKEN=`, `SUPABASE_URL=
+  SUPABASE_SERVICE_ROLE_KEY=`) — the pattern `tests/test_entrypoint_no_double_import.py:28-33`
+  already relies on. Also: `REGEN_WEEKS` only reaches groups present in the fetched data
+  (`orchestrate.py:3300`) — it cannot rebuild a week whose rows were all moved or deleted.
+- **Round 8 added:** per-day cadence from the two crons is Mon–Thu 7, Fri 6, **Sat 3, Sun 4** (the
+  weekday cron's Monday 01:00 UTC slot is Sunday 8 PM CDT / 7 PM CST) plus the Monday deep run —
+  `CLAUDE.md`'s "Weekends: 3 runs/day" undercounts Sunday (drift, not touched). The `SKIP_UPLOAD`
+  recipe line itself carries `SUPABASE_URL= SUPABASE_SERVICE_ROLE_KEY=`; don't rely on a warning
+  below a copy-paste block. The ledger is now synced onto #360 as well, so ledger + state are
+  byte-identical on #360, #361 and the main tree (a state file must only cite ledger entries that
+  ship in the same branch).
+- **RULE — a runbook statement about pipeline behaviour cites the line that implements it.** The
+  reviewer bots read the code; the doc sentence with no anchor is the one that drifts.

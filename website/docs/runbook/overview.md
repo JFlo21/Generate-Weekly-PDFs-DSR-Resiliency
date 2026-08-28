@@ -38,7 +38,7 @@ flowchart LR
 | `billing_audit/` (Supabase) | Frozen claimer attribution, per-run fingerprints, and the **durable group hash store** that the skip-if-unchanged decision reads when `SUPABASE_HASH_STORE_AUTHORITATIVE=1` (production). |
 | `pipeline_memory/` (Supabase) | Phase 10–11 run memory: `run_ledger`, `sheet_registry`, `row_state` / `row_event`, `group_state`, and the shadow-parity verdict that gates the incremental-read rollout. Writes are on (`RUN_MEMORY_WRITE_ENABLED=1`) and production reads them (sheet watermarks and last-run status before fetch; changed-row ids for the shadow comparator), but no read alters the generated output until `RUN_MEMORY_INCREMENTAL_ENABLED` is on. |
 | `audit_billing_changes.py` | Price-anomaly / risk-level detection; run standalone or imported by the generator. |
-| `.github/workflows/weekly-excel-generation.yml` | Scheduled + manual trigger for the generator (weekday 2-hourly, weekend 3×, Monday deep run). |
+| `.github/workflows/weekly-excel-generation.yml` | Scheduled + manual trigger for the generator (weekday 2-hourly plus a Sunday–Thursday evening run, weekend daytime 3×, Monday deep run). |
 | `.github/workflows/system-health-check.yml` | Daily smoke test of secrets and connectivity. |
 | `scripts/notion_sync.py` | Mirrors each run into Notion pipeline / metric / incident databases. |
 | `portal-v2/` | Vite + React + Supabase operator web app (the legacy Express `portal/` was removed 2026-06-02). |
