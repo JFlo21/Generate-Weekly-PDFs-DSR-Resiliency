@@ -1964,9 +1964,14 @@ class TestDualTargetMapIndependentQuarantine(unittest.TestCase):
         """
         import inspect as _inspect
 
-        src = _inspect.getsource(
-            generate_weekly_pdfs.create_target_sheet_map_for,
-        )
+        # PR #365: the body moved to ``pipeline.upload.
+        # _build_target_sheet_map`` (it also returns the quarantined
+        # key set); ``create_target_sheet_map_for`` is a two-tuple
+        # wrapper over it. The per-call quarantine sets live in the
+        # builder body.
+        from pipeline.upload import _build_target_sheet_map
+
+        src = _inspect.getsource(_build_target_sheet_map)
         # Acceptable forms — Python allows annotated or unannotated
         # init. Either form proves the variable is function-local.
         self.assertTrue(

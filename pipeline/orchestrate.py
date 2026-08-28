@@ -83,6 +83,7 @@ from pipeline.config import (  # noqa: E402
     ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN,
     ATTACHMENT_PREFETCH_MAX_MINUTES,
     ATTACHMENT_REQUIRED_FOR_SKIP,
+    NO_TARGET_ROW_MAX_MISS_RATIO,
     ATTRIBUTION_BULK_PREFETCH_FALLBACK,
     AUDIT_SHEET_ID,
     DEBUG_ESSENTIAL_ROWS,
@@ -258,6 +259,7 @@ from pipeline.cleanup import (  # noqa: E402
 from pipeline.upload import (  # noqa: E402
     _build_upload_tasks_for_group,
     create_target_sheet_map,
+    create_target_sheet_map_with_quarantine,
     create_target_sheet_map_for,
 )
 from pipeline.attribution import (  # noqa: E402
@@ -314,6 +316,139 @@ def _build_synthetic_rows():
             # Include a zero price row intentionally (price==0) to confirm exclusion
             rows.append(row)
     return rows
+
+
+# ``group_key -> (wr, week_raw, variant)`` for the groups a run did NOT
+# generate because the WR has no target-sheet row.
+NoTargetRowGroups = dict[str, tuple[str, str, str]]
+
+
+def derive_row_wr(row: dict[str, Any]) -> str:
+    """The WR identifier the group loop derives from a source row -- the
+    same three steps, so the pre-loop circuit breaker and the per-group
+    gate agree byte-for-byte: ``str(raw).split('.')[0]``, then the
+    filesystem sanitizer, then ``[:50]``. PURE.
+    """
+    raw = row.get('Work Request #') if isinstance(row, dict) else None
+    wr = str(raw).split('.')[0] if raw else ''
+    return _RE_SANITIZE_HELPER_NAME.sub('_', wr)[:50]
+
+
+def derive_group_wr(group_rows: list[dict[str, Any]]) -> str:
+    """``derive_row_wr`` of the group's first row ('' for an empty
+    group) -- exactly what the loop reads. PURE."""
+    return derive_row_wr(group_rows[0]) if group_rows else ''
+
+
+def no_target_row_gate_enabled(
+    rows: list[dict[str, Any]],
+    target_map: dict[str, Any] | None,
+    *,
+    max_miss_ratio: float,
+    quarantined: frozenset[str] | set[str] = frozenset(),
+) -> tuple[bool, int, int, float]:
+    """Circuit breaker for the no-target-row skip (risk review P1-A).
+
+    A NON-EMPTY target map is not proof of a COMPLETE one: a wrong
+    ``TARGET_SHEET_ID``, a sharing change that returns a row subset, or
+    a mid-edit sheet all yield a populated-but-short map, and "absent
+    from a partial read" must never become "never generate" (the same
+    principle the source-read code states for deletions). Measured over
+    *rows* -- every fetched source row, NOT the group mapping, which
+    ``main()`` may already have scoped for incremental mode or
+    ``MAX_GROUPS`` (a 1-of-1 scoped miss must not disable the gate).
+    Keys the builder *quarantined* (target-sheet collisions) are not
+    "missing": those WRs have target rows. Returns
+    ``(enabled, missing, universe, ratio)`` where *universe* is the
+    number of distinct non-empty WR values across *rows*. Enabled only
+    when the map is populated AND ``ratio <= max_miss_ratio``; a
+    disabled gate means the run falls back to generate-and-warn. PURE.
+    """
+    universe = {derive_row_wr(row) for row in (rows or [])}
+    universe.discard('')
+    if not target_map or not universe:
+        return False, len(universe), len(universe), 1.0
+    missing = len(universe - set(target_map) - set(quarantined))
+    ratio = missing / len(universe)
+    return ratio <= max_miss_ratio, missing, len(universe), ratio
+
+
+def should_skip_no_target_row(
+    wr_num: str,
+    target_map: dict[str, Any] | None,
+    *,
+    attachment_required: bool,
+    test_mode: bool,
+    skip_upload: bool,
+    quarantined: frozenset[str] | set[str] = frozenset(),
+) -> bool:
+    """Owner decision 2026-08-28: a group whose Work Request has no row
+    on the target sheet is a data-entry error on the source sheet
+    (malformed or unregistered ``Work Request #``) -- it is NOT
+    generated and is listed as an error instead of regenerating on every
+    run for a file that can never upload.
+
+    PURE. True only when every guard holds: attachments are required
+    for a skip (the same switch that makes the target map load at all),
+    not TEST_MODE, not a SKIP_UPLOAD dry run (generating is the point of
+    a dry run), the target map is POPULATED (an empty map means the
+    sheet was unreachable -- never a skip; zero-row guard), the WR is
+    absent from it AND the builder did not *quarantine* it (a
+    target-sheet collision: two target rows sanitize to the same key,
+    so the WR HAS rows -- the pre-existing "collision ... 'not found in
+    target sheet'" path stays in charge of that outcome). Converges by
+    itself: the moment the row appears the group is generated on the
+    next run (its hash was never stored).
+
+    Safe only because every upload leg requires the primary target row:
+    ``pipeline/upload.py::_build_upload_tasks_for_group`` gates the
+    reduced_sub PPP leg on ``primary_present`` too, so a WR absent from
+    the target map has NO upload path for ANY variant (pinned by
+    ``tests/test_skip_no_target_row.py``). Deliberately sits above
+    ``FORCE_GENERATION`` / ``WR_FILTER`` / ``RESET_WR_LIST``: forcing
+    cannot make a file uploadable.
+    """
+    if not attachment_required or test_mode or skip_upload:
+        return False
+    if not target_map:
+        return False
+    key = str(wr_num)
+    if key in quarantined:
+        return False
+    return key not in target_map
+
+
+def format_no_target_row_summary(
+    groups: NoTargetRowGroups, target_sheet_id: object,
+    max_values: int = 25,
+) -> tuple[str, str]:
+    """End-of-run audit for the groups NOT generated because the WR has
+    no target-sheet row, as ``(error_line, values_line)``:
+
+    * *error_line* (logged at ERROR -> a Sentry event, which has NO PII
+      sanitizer) carries counts and guidance only -- never a value.
+    * *values_line* (logged at WARNING) lists the offending
+      ``Work Request #`` values -- the audit trail the owner asked for
+      -- and starts with the registered ``_PII_LOG_MARKERS`` text
+      ``"Work request "`` so the Sentry breadcrumb / Sentry Logs
+      sanitizers drop it while the Actions log keeps it. Capped at
+      *max_values* because a malformed cell can hold free text.
+
+    PURE.
+    """
+    wrs = sorted({str(v[0]) for v in groups.values()})
+    shown = ', '.join(wrs[:max_values])
+    if len(wrs) > max_values:
+        shown += f", ... and {len(wrs) - max_values} more"
+    error_line = (
+        f"❌ {len(groups)} group(s) across {len(wrs)} distinct 'Work "
+        f"Request #' value(s) have no row on target sheet "
+        f"{target_sheet_id} -- data-entry errors on the source sheets "
+        f"(malformed or unregistered values); NOT generated. Fix the "
+        f"source rows; the values are on the next log line."
+    )
+    values_line = f"Work request values with no target-sheet row: {shown}"
+    return error_line, values_line
 
 
 def derive_group_identity(
@@ -450,6 +585,7 @@ def _run_synthetic_test_mode(session_start):
             "groups_generated": generated_files_count,
             "groups_uploaded": 0,
             "groups_skipped": 0,
+            "groups_skipped_no_target_row": 0,
             "groups_errored": len(groups) - generated_files_count,
             "files_generated": generated_files_count,
             "history_updates": 0,
@@ -1107,6 +1243,7 @@ def _shadow_parity_input_sets(
     candidate_hashes: dict[Any, Any],
     deferred_records: list[dict[str, Any]],
     upload_tasks: list[dict[str, Any]],
+    unobservable: 'set[Any] | None' = None,
 ) -> tuple[dict[Any, Any], dict[Any, Any], int]:
     """Build the two group-hash mappings ``compare_shadow_parity`` sees.
 
@@ -1130,6 +1267,12 @@ def _shadow_parity_input_sets(
     stays in the candidate -- that is a real divergence the verdict must
     still report.
 
+    *unobservable* (owner decision 2026-08-28): group keys the full path
+    deliberately did NOT generate because the WR has no target-sheet
+    row. They are the same never-observable set as a withheld group
+    (nothing can ever upload for them), so they are dropped from the
+    candidate as well and counted in ``withheld_excluded``.
+
     Returns ``(candidate, actual, withheld_excluded)``.
     """
     uploadable = {
@@ -1144,6 +1287,7 @@ def _shadow_parity_input_sets(
             actual[gk] = rec.get('data_hash')
         else:
             withheld.add(gk)
+    withheld |= set(unobservable or ())
     candidate = {
         gk: h for gk, h in (candidate_hashes or {}).items()
         if gk not in withheld
@@ -2490,10 +2634,16 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # Create target sheet map for production uploads.
         target_map = {}
         _target_sheet_obj = None  # Cached for cleanup to avoid redundant API call
+        # Sanitized WR keys the builder REMOVED for target-sheet collisions
+        # (PR #365): such a WR HAS target rows, so the no-target-row skip
+        # must never classify it as a missing source row.
+        _target_map_quarantined: frozenset[str] = frozenset()
         if not TEST_MODE:
             with sentry_sdk.start_span(op="smartsheet.target_map", name="Create target sheet map for uploads") as span:
-                target_map, _target_sheet_obj = (
-                    create_target_sheet_map_for(client, TARGET_SHEET_ID)
+                (
+                    target_map, _target_sheet_obj, _target_map_quarantined,
+                ) = create_target_sheet_map_with_quarantine(
+                    client, TARGET_SHEET_ID,
                 )
                 span.set_data("wr_count", len(target_map))
 
@@ -2973,6 +3123,10 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 )
         history_updates = 0
         _groups_skipped = 0
+        _groups_skipped_no_target = 0
+        # Groups NOT generated because the WR has no target-sheet row
+        # (owner decision 2026-08-28).
+        _no_target_row_groups: NoTargetRowGroups = {}
         _groups_generated = 0
         _groups_uploaded = 0
         _groups_errored = 0
@@ -3228,6 +3382,44 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             _billing_audit_fp_buckets = {}
             _billing_audit_agg_content_hashes = {}
 
+        # Owner decision 2026-08-28 (no-target-row skip), risk-review
+        # hardening: the primary target map was loaded ONCE, eagerly, at
+        # the "Create target sheet map for production uploads" site above
+        # (every non-TEST run). Record that ATTEMPT -- not whether rows
+        # came back -- so an unreachable / empty / malformed sheet is
+        # never re-fetched per group (the loader swallows errors and
+        # returns {}). The circuit breaker runs BEFORE the loop over the
+        # UNSCOPED fetched rows: a populated-but-partial map must fail
+        # open to the pre-existing generate-and-warn behaviour.
+        _target_map_load_attempted = not TEST_MODE
+        _no_target_gate_on = False
+        if ATTACHMENT_REQUIRED_FOR_SKIP and not TEST_MODE and not SKIP_UPLOAD:
+            (
+                _no_target_gate_on, _nt_missing, _nt_universe, _nt_ratio,
+            ) = no_target_row_gate_enabled(
+                all_rows, target_map,
+                max_miss_ratio=NO_TARGET_ROW_MAX_MISS_RATIO,
+                quarantined=_target_map_quarantined,
+            )
+            if target_map and not _no_target_gate_on:
+                logging.error(
+                    f"🛑 No-target-row skip DISABLED for this run: "
+                    f"{_nt_missing} of {_nt_universe} Work Request values "
+                    f"({_nt_ratio:.0%}) are absent from target sheet "
+                    f"{TARGET_SHEET_ID}, above "
+                    f"NO_TARGET_ROW_MAX_MISS_RATIO="
+                    f"{NO_TARGET_ROW_MAX_MISS_RATIO:.2f}. The target map "
+                    f"is probably partial or wrong (sheet id / sharing); "
+                    f"falling back to generate-and-warn."
+                )
+                sentry_add_breadcrumb(
+                    "group", "No-target-row skip disabled (miss ratio)",
+                    level="error", data={
+                        "missing": _nt_missing, "universe": _nt_universe,
+                        "ratio": round(_nt_ratio, 3),
+                    },
+                )
+
         for group_idx, (group_key, group_rows) in enumerate(groups.items(), 1):
             # Graceful time budget: stop before Actions hard-kills the job
             if TIME_BUDGET_MINUTES and GITHUB_ACTIONS_MODE:
@@ -3370,6 +3562,43 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     _has_uncached_freeze_candidates = bool(
                         _eligible_freeze_keys - billing_audit_row_cache
                     )
+
+                # Owner decision 2026-08-28: a WR with no target-sheet
+                # row is a data-entry error -- not generated, listed as
+                # an error (see should_skip_no_target_row). Sits BEFORE
+                # the billing-audit freeze / fingerprint block and the
+                # hash decision, so such a group is neither tracked in
+                # Supabase nor generated, whether or not its data
+                # changed. The WARNING starts with the registered
+                # ``_PII_LOG_MARKERS`` text "Work request " so the
+                # Sentry breadcrumb is dropped; the Actions log keeps it.
+                if (
+                    _no_target_gate_on
+                    and should_skip_no_target_row(
+                        wr_num, target_map,
+                        attachment_required=ATTACHMENT_REQUIRED_FOR_SKIP,
+                        test_mode=TEST_MODE, skip_upload=SKIP_UPLOAD,
+                        quarantined=_target_map_quarantined,
+                    )
+                ):
+                    _no_target_row_groups[group_key] = (
+                        wr_num, week_raw, variant,
+                    )
+                    _groups_skipped_no_target += 1
+                    logging.warning(
+                        f"⛔ Skip (no target-sheet row): Work request "
+                        f"{wr_num} week {week_raw} {variant} -- "
+                        f"data-entry error on the source sheet; NOT "
+                        f"generated"
+                    )
+                    sentry_add_breadcrumb(
+                        "group", "Skipped: no target-sheet row",
+                        level="warning", data={
+                            "wr": wr_num, "week": week_raw,
+                            "variant": variant,
+                        },
+                    )
+                    continue
 
                 # ── Billing audit snapshot: freeze personnel + emit run fingerprint ──
                 # Runs when the group hash has changed/is new, OR when some rows
@@ -3665,6 +3894,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                             data={"error_type": type(_audit_err).__name__},
                         )
 
+
                 # Decide skip based on stored history BEFORE generating Excel (only if FORCE not set)
                 if _history_eligible_for_skip:
                     if _hash_unchanged:
@@ -3672,8 +3902,14 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         can_skip = True
                         if ATTACHMENT_REQUIRED_FOR_SKIP and not TEST_MODE:
                             # Need a target row to verify attachment presence
-                            if not target_map:
-                                target_map, _target_sheet_obj = create_target_sheet_map(client)
+                            if (
+                                not target_map
+                                and not _target_map_load_attempted
+                            ):
+                                _target_map_load_attempted = True
+                                target_map, _target_sheet_obj = (
+                                    create_target_sheet_map(client)
+                                )
                             target_row = target_map.get(str(wr_num)) if target_map else None
                             if target_row is None:
                                 can_skip = False  # Can't verify; safer to regenerate
@@ -3953,8 +4189,28 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 continue
         
         _phase_group_elapsed = (datetime.datetime.now() - _phase_group_start).total_seconds()
-        logging.info(f"⚡ Group processing phase: {_groups_generated} generated, {_groups_skipped} skipped in {_phase_group_elapsed:.1f}s"
-                     + (f" (stopped early — time budget exceeded)" if _time_budget_exceeded else ""))
+        logging.info(
+            f"⚡ Group processing phase: {_groups_generated} generated, "
+            f"{_groups_skipped} skipped, {_groups_skipped_no_target} not "
+            f"generated (no target-sheet row) in {_phase_group_elapsed:.1f}s"
+            + (" (stopped early — time budget exceeded)"
+               if _time_budget_exceeded else "")
+        )
+        if _no_target_row_groups:
+            _nt_error_line, _nt_values_line = format_no_target_row_summary(
+                _no_target_row_groups, TARGET_SHEET_ID,
+            )
+            logging.error(_nt_error_line)
+            logging.warning(_nt_values_line)
+            sentry_add_breadcrumb(
+                "group", "Groups not generated: no target-sheet row",
+                level="error", data={
+                    "groups": len(_no_target_row_groups),
+                    "work_requests": len(
+                        {v[0] for v in _no_target_row_groups.values()}
+                    ),
+                },
+            )
 
         # Phase 11 Plan 05 (INC-04, CONTEXT.md D-07/D-08): shadow-
         # incremental parity proof. Runs ONLY while
@@ -4070,6 +4326,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         _shadow_candidate_hashes,
                         _deferred_group_state,
                         _upload_tasks,
+                        unobservable=set(_no_target_row_groups),
                     )
                     _shadow_group_result = _parity.compare_shadow_parity(
                         _shadow_candidate_hashes, _shadow_actual_hashes,
@@ -4924,6 +5181,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             "files_generated": generated_files_count,
             "groups_total": len(groups),
             "groups_skipped": _groups_skipped,
+            "groups_skipped_no_target_row": _groups_skipped_no_target,
             "groups_generated": _groups_generated,
             "groups_uploaded": _groups_uploaded,
             "groups_errored": _groups_errored,
@@ -4968,6 +5226,10 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             scope.set_tag("session_success", "true")
             scope.set_tag("files_generated", str(generated_files_count))
             scope.set_tag("groups_skipped", str(_groups_skipped))
+            scope.set_tag(
+                "groups_skipped_no_target_row",
+                str(_groups_skipped_no_target),
+            )
             scope.set_tag("groups_generated", str(_groups_generated))
             scope.set_tag("groups_uploaded", str(_groups_uploaded))
             scope.set_tag("groups_errored", str(_groups_errored))
@@ -4981,6 +5243,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 "files_generated": generated_files_count,
                 "groups_total": len(groups),
                 "groups_skipped": _groups_skipped,
+                "groups_skipped_no_target_row": _groups_skipped_no_target,
                 "groups_generated": _groups_generated,
                 "groups_uploaded": _groups_uploaded,
                 "groups_errored": _groups_errored,
