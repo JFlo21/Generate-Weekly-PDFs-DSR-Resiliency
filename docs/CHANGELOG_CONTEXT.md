@@ -112,3 +112,12 @@ Operators: expect `… N not generated (no target-sheet row)` in the phase summa
 one `Work request values with no target-sheet row: …` line; the per-group `Work request … not found
 in target sheet` upload warnings disappear. See `memory-bank/living-ledger.md` `[2026-08-28 18:05]`;
 PR #365.
+
+## 2026-08-28 — real identifiers aliased in the public tip; generated manifest/hash files untracked (PR #366)
+The repository is public. Every real Work Request number and real crew name in tracked files is
+now a consistent fictional alias, and `generated_docs/artifact_manifest.json` / `hash_history.json`
+— runtime state CI regenerates every run — are no longer tracked. No production code path changed;
+operators will notice only that ledger/runbook examples use `1xxxxxxx`-style WRs. Two real WRs
+remain by owner choice: the `pipeline/excel.py` WR-keyed log line, the startup banner that names
+them, and one `.github/prompts/testing-and-validation.md` fixture key. See
+`memory-bank/living-ledger.md` `[2026-08-28 18:20]`; PR #366.
