@@ -198,13 +198,13 @@ class CombineVerdictsTests(unittest.TestCase):
 class GoldenContractTests(unittest.TestCase):
     """Plan-level guardrail: this plan touches no frozen contract."""
 
-    def test_run_summary_baseline_unmodified_21_keys(self):
+    def test_run_summary_baseline_key_count(self):
         import json
 
         baseline_path = _REPO_ROOT / "tests" / "golden" / "run_summary_baseline.json"
         with open(baseline_path, encoding="utf-8") as fh:
             baseline = json.load(fh)
-        self.assertEqual(len(baseline), 21)
+        self.assertEqual(len(baseline), 22)  # 21 + PR #365's counter
 
 
 # ── Task 3 (D-08): shadow delta reads + the read-side assertion ───────────

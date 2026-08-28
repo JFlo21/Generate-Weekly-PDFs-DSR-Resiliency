@@ -32,7 +32,7 @@ from pipeline.observability import _redact_exception_message
 logger = logging.getLogger(__name__)
 
 
-def create_target_sheet_map_for(client, sheet_id):
+def _build_target_sheet_map(client, sheet_id):
     """Build a sanitized ``{wr_num: target_row}`` map for any target
     sheet id.
 
@@ -84,7 +84,7 @@ def create_target_sheet_map_for(client, sheet_id):
                 f"Work Request # column not found in target sheet "
                 f"{sheet_id}"
             )
-            return {}, None
+            return {}, None, frozenset()
 
         # Map work request numbers to rows. Sanitize with the same
         # filesystem-safety regex used on source-row WR#s so downstream
@@ -180,14 +180,36 @@ def create_target_sheet_map_for(client, sheet_id):
             f"Created target sheet map for {sheet_id} with "
             f"{len(target_map)} work requests"
         )
-        return target_map, target_sheet
+        return target_map, target_sheet, frozenset(_quarantined_keys)
 
     except Exception as e:
         logging.error(
             f"Failed to create target sheet map for {sheet_id}: "
             f"{_redact_exception_message(e)}"
         )
-        return {}, None
+        return {}, None, frozenset()
+
+
+def create_target_sheet_map_with_quarantine(client, sheet_id):
+    """``(target_map, target_sheet, quarantined_keys)`` for *sheet_id*.
+
+    *quarantined_keys* is the frozenset of sanitized WR keys the builder
+    REMOVED from ``target_map`` because two target rows collided on
+    them (PR #365 / Greptile): those WRs DO have target rows, so a
+    caller classifying "absent from the map" must treat them as a
+    target-sheet duplicate, never as a missing source row.
+    """
+    return _build_target_sheet_map(client, sheet_id)
+
+
+def create_target_sheet_map_for(client, sheet_id):
+    """Back-compat two-tuple ``(target_map, target_sheet)`` view of
+    ``create_target_sheet_map_with_quarantine`` (all pre-existing
+    callers and tests)."""
+    target_map, target_sheet, _quarantined = _build_target_sheet_map(
+        client, sheet_id,
+    )
+    return target_map, target_sheet
 
 
 def create_target_sheet_map(client):

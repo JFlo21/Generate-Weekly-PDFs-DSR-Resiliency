@@ -7622,14 +7622,25 @@ follow-up findings closed, same 6 files.
   listing them as an error each run IS the audit method. Implemented on **PR #365**:
   - `pipeline/orchestrate.py::should_skip_no_target_row()` (pure): skip only when attachments are required
     for a skip, not `TEST_MODE`, not `SKIP_UPLOAD`, the target map is **populated** (empty map = sheet
-    unreachable → never a skip; zero-row guard) and the WR is absent from it. The gate sits BEFORE the
-    stored-history decision so it applies whether or not the data changed; the target map loads lazily
-    exactly as the attachment check does. The group's hash is never stored, so the rule converges by itself
-    the moment the row appears on the target sheet.
-  - `format_no_target_row_summary()` (pure): one end-of-run **ERROR** line — group count, distinct WR-value
-    count, target sheet id, the values (the same values the upload-phase warning already printed per group)
-    — plus an error breadcrumb; per-group WARNING `⛔ Skip (no target-sheet row) …` + breadcrumb; counter
-    `groups_skipped_no_target_row` in the phase summary, both run-summary dicts and a Sentry tag.
+    unreachable → never a skip; zero-row guard), the WR is absent from it, the builder did NOT quarantine
+    it (a target-sheet collision means the WR HAS rows — the pre-existing "not found in target sheet"
+    outcome stays in charge), AND the pre-loop circuit breaker is on (see the risk review below). The gate
+    sits BEFORE the billing-audit `freeze_row` / `emit_run_fingerprint` block and the stored-history
+    decision, so a no-target group is neither tracked in Supabase nor generated, whether or not its data
+    changed. The primary target map is loaded ONCE, eagerly, at the pre-existing "Create target sheet
+    map" site (every non-`TEST_MODE` run) via `create_target_sheet_map_with_quarantine()`, which also
+    returns the quarantined key set; `_target_map_load_attempted = not TEST_MODE` records the ATTEMPT (not
+    the row count) so an empty / unreachable sheet is never re-fetched per group. The group's hash is never
+    stored, so the rule converges by itself the moment the row appears on the target sheet.
+  - `format_no_target_row_summary()` (pure) returns `(error_line, values_line)`: the **ERROR** line carries
+    the group count, distinct-value count, target sheet id and guidance — never a value, because ERROR
+    logs become Sentry events and the event path has NO PII sanitizer; the **WARNING** line lists the
+    offending values (capped at 25) and starts with the registered `_PII_LOG_MARKERS` text
+    `"Work request "` so the breadcrumb / Sentry-Logs sanitizers drop it while the Actions log — the audit
+    — keeps it. The per-group WARNING `⛔ Skip (no target-sheet row): Work request …` carries the same
+    marker. Counter `groups_skipped_no_target_row` in the phase summary, both run-summary dicts (the
+    synthetic summary and `tests/golden/run_summary_baseline.json` are now a 22-key contract) and a
+    Sentry tag.
   - `_shadow_parity_input_sets(unobservable=)`: never-generated groups are the same never-observable set
     as withheld groups, so they leave the parity candidate too (otherwise the shadow-parity verdict would
     report them as "candidate not generated" divergences and block the Phase 11 streak).
@@ -7640,14 +7651,17 @@ follow-up findings closed, same 6 files.
   - **Risk review (Opus): FIX FIRST → addressed on the PR.** P1-A: a NON-EMPTY target map is not proof
     of a COMPLETE one (wrong `TARGET_SHEET_ID`, a sharing change returning a row subset, a mid-edit sheet
     all yield a populated-but-short map) — "absent from a partial read" must never become "never
-    generate". New pre-loop circuit breaker `no_target_row_gate_enabled()`: if more than
-    `NO_TARGET_ROW_MAX_MISS_RATIO` (env, default `0.5`) of the run's distinct WR values are absent, the
+    generate". New pre-loop circuit breaker `no_target_row_gate_enabled()`: the gate is ON only when the
+    map is populated AND `missing / universe <= NO_TARGET_ROW_MAX_MISS_RATIO` (env, default `0.5`;
+    validated as a finite number in `[0, 1]`, else WARNING + default), where *universe* is the distinct
+    non-empty WR values across ALL fetched source rows (`all_rows`, never the incremental /
+    `MAX_GROUPS`-scoped group map) and quarantined keys do not count as missing. Above the threshold the
     skip is disabled for the run (ERROR `🛑` + breadcrumb) and the pipeline falls back to
     generate-and-warn. Steady state today is ~137 missing of ~1,300+ distinct WRs (≈10%). P1-B: the
-    target map loads AT MOST ONCE per run (`_target_map_load_attempted`; the loader swallows errors and
-    returns `{}`, so a per-group retry was one full `get_sheet` per group against the 300 req/min
-    limit) — the attachment-check lazy load shares the flag. P2s: the ERROR line caps its value list at
-    25 (public log; a malformed cell can hold free text), names the collision-quarantine cause, and the
+    target map is loaded at most once per run (`_target_map_load_attempted` records the attempt; the
+    loader swallows errors and returns `{}`, so a per-group retry was one full `get_sheet` per group
+    against the 300 req/min limit) — the attachment-check lazy load shares the flag. P2s: the values
+    line caps its list at 25 (public log; a malformed cell can hold free text), and the
     `primary_present` coupling with the PPP upload leg (`pipeline/upload.py`) is documented on the
     helper and pinned by `UploadLegCouplingTests`. Deliberate: `FORCE_GENERATION` / `WR_FILTER` /
     `RESET_WR_LIST` do NOT bypass the gate (forcing cannot make a file uploadable). Left for the owner:

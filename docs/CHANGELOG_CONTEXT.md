@@ -97,10 +97,18 @@ when the kill switch trips or what it disables changed. See `memory-bank/living-
 Owner decision: a Work Request with no row on the target sheet is a data-entry error on the source
 sheet, not a matching problem. Such groups (154 group-weeks per run) used to regenerate on every run
 — "can't verify the attachment, safer to regenerate" — and then fail to upload, ~45 minutes of wasted
-generation per run. They are now skipped before the hash decision (only when the target map is
-populated; `TEST_MODE` and `SKIP_UPLOAD` dry runs are exempt) and reported once per run at ERROR with
-the counts and the offending values — that line is the audit trail for the data owner. The rule
-converges by itself when a row is added. Parity treats never-generated groups like withheld ones.
-Operators: expect `… N not generated (no target-sheet row)` in the phase summary and one `❌` line;
-the per-group `Work request … not found in target sheet` upload warnings disappear. See
-`memory-bank/living-ledger.md` `[2026-08-28 18:05]`; PR #365.
+generation per run. They are now skipped before the billing-audit snapshot and the hash decision, so
+they are neither tracked in Supabase nor generated. Guards: the target map must be populated, the WR
+must not be a target-sheet collision (quarantined keys keep the old "not found" outcome), `TEST_MODE`
+and `SKIP_UPLOAD` dry runs are exempt, and a circuit breaker disables the skip for the whole run
+(`🛑` ERROR, fall back to generate-and-warn) when more than `NO_TARGET_ROW_MAX_MISS_RATIO` (default
+`0.5`, must be in `[0, 1]`) of the distinct WR values across all fetched source rows are absent from
+the map — a populated-but-partial read must never become "never generate". Reported once per run as
+an ERROR line with the counts (never the values — ERROR logs reach Sentry) followed by a WARNING line
+with the offending values (capped at 25) — those two lines are the audit trail for the data owner.
+The rule converges by itself when a row is added. Parity treats never-generated groups like withheld
+ones; `run_summary.json` gains `groups_skipped_no_target_row` (22-key contract, golden updated).
+Operators: expect `… N not generated (no target-sheet row)` in the phase summary, one `❌` line and
+one `Work request values with no target-sheet row: …` line; the per-group `Work request … not found
+in target sheet` upload warnings disappear. See `memory-bank/living-ledger.md` `[2026-08-28 18:05]`;
+PR #365.
