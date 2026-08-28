@@ -92,3 +92,15 @@ fields are untrusted diagnostic text that can echo request or database data. The
 carries the code, the error type and the locally authored operator guidance only; nothing about
 when the kill switch trips or what it disables changed. See `memory-bank/living-ledger.md`
 `[2026-08-28 17:10]`; PR #364.
+
+## 2026-08-28 — groups whose WR has no target-sheet row are not generated; listed as an error (PR #365)
+Owner decision: a Work Request with no row on the target sheet is a data-entry error on the source
+sheet, not a matching problem. Such groups (154 group-weeks per run) used to regenerate on every run
+— "can't verify the attachment, safer to regenerate" — and then fail to upload, ~45 minutes of wasted
+generation per run. They are now skipped before the hash decision (only when the target map is
+populated; `TEST_MODE` and `SKIP_UPLOAD` dry runs are exempt) and reported once per run at ERROR with
+the counts and the offending values — that line is the audit trail for the data owner. The rule
+converges by itself when a row is added. Parity treats never-generated groups like withheld ones.
+Operators: expect `… N not generated (no target-sheet row)` in the phase summary and one `❌` line;
+the per-group `Work request … not found in target sheet` upload warnings disappear. See
+`memory-bank/living-ledger.md` `[2026-08-28 18:05]`; PR #365.

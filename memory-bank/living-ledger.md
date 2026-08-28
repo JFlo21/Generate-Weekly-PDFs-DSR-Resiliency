@@ -7614,3 +7614,41 @@ follow-up findings closed, same 6 files.
   verification failed)" because `target_row is None → can_skip = False` (`orchestrate.py` ~3663), then
   the upload finds no row and the hash is withheld — ~45 min of generation per run for files that can
   never upload. Decision framed for the owner (state file).
+
+## [2026-08-28 18:05] Owner decisions: no-target-row groups are NOT generated (PR #365); public-identifier scrub = option A (PR to follow)
+
+- **Decision 1 (Juan, 2026-08-28):** the 154 never-uploadable group-weeks are genuinely malformed / unregistered
+  `Work Request #` values on the source sheets — data-entry errors. They must not be generated or tracked;
+  listing them as an error each run IS the audit method. Implemented on **PR #365**:
+  - `pipeline/orchestrate.py::should_skip_no_target_row()` (pure): skip only when attachments are required
+    for a skip, not `TEST_MODE`, not `SKIP_UPLOAD`, the target map is **populated** (empty map = sheet
+    unreachable → never a skip; zero-row guard) and the WR is absent from it. The gate sits BEFORE the
+    stored-history decision so it applies whether or not the data changed; the target map loads lazily
+    exactly as the attachment check does. The group's hash is never stored, so the rule converges by itself
+    the moment the row appears on the target sheet.
+  - `format_no_target_row_summary()` (pure): one end-of-run **ERROR** line — group count, distinct WR-value
+    count, target sheet id, the values (the same values the upload-phase warning already printed per group)
+    — plus an error breadcrumb; per-group WARNING `⛔ Skip (no target-sheet row) …` + breadcrumb; counter
+    `groups_skipped_no_target_row` in the phase summary, both run-summary dicts and a Sentry tag.
+  - `_shadow_parity_input_sets(unobservable=)`: never-generated groups are the same never-observable set
+    as withheld groups, so they leave the parity candidate too (otherwise the shadow-parity verdict would
+    report them as "candidate not generated" divergences and block the Phase 11 streak).
+  - Safety: WRs present on the target sheet follow exactly the old path; the reduced_sub second leg also
+    requires `primary_present` (`pipeline/upload.py`), so no variant loses an upload it had; no attachments
+    exist on rows that do not exist, so cleanup is unaffected. 12 tests (`tests/test_skip_no_target_row.py`);
+    full suite 1823 green.
+  - **Expected on the first post-merge run:** `… N not generated (no target-sheet row)` in the phase
+    summary, one `❌` ERROR line, zero `Work request … not found in target sheet` upload warnings, and a
+    group phase ~45 min shorter. The source-side cleanup (the CSV in the session scratchpad; not in the repo)
+    is a Smartsheet task for the data owner; as rows get fixed the ERROR line shrinks.
+- **RULE — "cannot verify" is not the same as "cannot upload".** A WR with no target-sheet row can never
+  upload; regenerating it "to be safe" is pure waste. Skip it, say so at ERROR, and let the rule converge
+  when the row appears. Keep the zero-row guard: an EMPTY target map must never become a skip.
+- **Decision 2 (Juan, 2026-08-28): option A** — scrub the current public tip (alias real WR ids and crew
+  names in tracked files; untrack `generated_docs/artifact_manifest.json` and `hash_history.json`, which CI
+  regenerates every run and which carry 513 + 98 ids) — history rewrite (B) and going private (C) NOT
+  chosen. Inventory before the scrub: 38 real WR ids + 6 real names across 104 tracked files (after
+  excluding the two generated files). Two production-logic mentions are deliberately LEFT and flagged for
+  the owner: `pipeline/excel.py` keys a log line on two real WRs and `generate_weekly_pdfs.py`'s startup
+  banner names them — aliasing them changes production output. Mapping real→alias lives only in the
+  session scratchpad, never in the repo.
