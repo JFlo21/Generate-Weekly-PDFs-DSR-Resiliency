@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-27 22:17 CDT (03:17Z) · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-27 22:21 CDT (03:21Z) · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
@@ -19,7 +19,7 @@ PreCompact hook). Phase 11 EXECUTING — **7/8 plans done**; **11-08 INC-05 reti
 `production_frequent` run after #356). Then: checklist item 6 SQL + items 2–3 → ≥5 `pass` verdicts →
 re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-08-27 22:17 CDT) — #355 + #359 MERGED; #361 (identity row = canonical row) round 2 done; #360 (Learn docs) Copilot rounds 2–15 done — both await Juan's merge
+## Latest work (2026-08-27 22:21 CDT) — #355 + #359 MERGED; #361 (identity row = canonical row) round 2 done; #360 (Learn docs) Copilot rounds 2–16 done — both await Juan's merge
 - **Merged:** #355 (`81eb82b`) and #359 (`a8d6795`, hash sort tiebreaker); master at `263dc34`.
 - **#361** `fix/excel-header-canonical-row` (code head `2c51a38` = `79e5411` + `2c51a38`; later commits are ledger/state only):
   Excel header + orchestrate Sites 1/2/3 read `canonical_first_row()`; Job # aliases AND the legacy
@@ -31,7 +31,7 @@ re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its o
   retrigger needs a browser login (307 → /login) — click "Re-trigger Greptile" in the PR body if it
   doesn't re-review on its own. Azure DevOps mirror check fails on every PR build (also docs-only
   #360) — pre-existing, not required (branch unprotected). 1775 tests pass. Ledger `[2026-08-27 20:20]`.
-- **#360** `docs/learning-guides` (docs head `bae4938` + state-sync commit): **fifteen review rounds done** —
+- **#360** `docs/learning-guides` (docs head `bae4938` + state-sync commit): **sixteen review rounds done** —
   Copilot auto-reviews every push here, so each fix commit drew a smaller follow-up round (4: purge
   scope = `WR_*.xlsx` on the target sheet only, no `$0` line for an admitted row, `EXCLUDE_WRS` /
   `max_groups` DO narrow an attaching run, `pipeline_memory` edge bidirectional; 5: `workflow_dispatch`
@@ -51,7 +51,9 @@ re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its o
   generated name survive unchanged-hash runs (filename-only check); withheld WRs need a target-row fix; 13: `Dept #` + `N/A` column in the layout; this file's
   timestamp corrected to wall-clock — earlier stamps this evening ran ~50 min fast; 14: `SENTRY_DSN=` in every local recipe,
   `_Unknown_Foreman` -> escalate immediately; 15: subcontractor rows with blank helper fields go to
-  `_ReducedSub_User_…`, never the plain main file). Ledger `[21:10]` rounds 3–15.
+  `_ReducedSub_User_…`, never the plain main file; 16: repo is PUBLIC — real WRs aliased to `<WR-A>`/`<WR-B>` in this file
+  and the ledger; git history + merged blog post + old PR threads still hold them = owner's scrub
+  decision). Ledger `[21:10]` rounds 3–16.
   Round 2 (`2a271c8`): 35 Copilot/Codex/Greptile findings checked against the code; 34 fixed, 1
   declined (Greptile "reorganise the engineer guide", left open for Juan). Round 3 (Copilot
   re-review of `2a271c8`, 3 comments + 4 suppressed, all valid, fixed in `f20036e`): Snapshot Date
@@ -71,7 +73,7 @@ re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its o
   the main tree, copy to both worktrees). Note: `CLAUDE.md` still describes grouping as
   `(WR, week_ending, variant, foreman, dept, job)` — same drift, not touched in #360 (follow-up).
 - **Next:** Juan merges #360 + #361 → first `production_frequent` run after #361: expect
-  `91057431/080226` to `Skip` and no mixed-dept helper churn (watch `billing_audit.pipeline_run`
+  `<WR-A>/080226` to `Skip` and no mixed-dept helper churn (watch `billing_audit.pipeline_run`
   hashes + `group_state.last_generated_run`). Owner call pending on the header-foreman rule (Codex P2
   on #361, deferred). Then Phase 11 checklist items resume (≥5 `pass` parity verdicts → 11-08).
 
@@ -80,7 +82,7 @@ re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its o
   hashed-field string + foreman as tiebreaker; legacy untouched. Full suite green; new
   `tests/test_change_detection_tiebreak.py` pins order-independence for ties AND byte-identity for
   tie-free groups. Post-merge validation: one-time bounded regeneration bump, then `Skip` on
-  `91057431/080226`. Ledger `[2026-08-27 16:10]`.
+  `<WR-A>/080226`. Ledger `[2026-08-27 16:10]`.
 - **#355** rebased onto master in a worktree (conflicts: state file → master's; ledger → both entries
   kept, `[00:15]` before `[11:51]`); force-pushed with lease; now MERGEABLE.
 - **Merge order matters** (all three touch the ledger tail / state file): #355 → #358 → #359; the
@@ -94,7 +96,7 @@ re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its o
   `_shadow_parity_input_sets()` drops generated-but-withheld groups from both sides
   (`parity_details.actual_withheld_excluded`); `RUN_MEMORY_SHADOW_MAX_MINUTES: '25'` on `Generate
   reports` (owner-approved). Suite 1760 passed / 1 skipped; runbook build green; YAML parsed.
-- **Diagnosed, NOT fixed (needs approval — change-detection primitive):** `91057431/080226` and a
+- **Diagnosed, NOT fixed (needs approval — change-detection primitive):** `<WR-A>/080226` and a
   small set of uploaded old-week groups alternate between two content hashes with no data change
   (`billing_audit.pipeline_run`, constant `assignment_fp`). Cause: `calculate_data_hash` sorts on
   `(WR, Snapshot Date, CU, Pole/Point, Quantity)`; rows tying on that key but differing in a hashed
@@ -120,7 +122,7 @@ re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its o
   ~25 min needed. The 40 `only_in_candidate` groups were the 08-25→today baseline gap (self-heals).
   **Owner decisions needed:** comparator "actual" definition (D-07 refinement) and the shadow budget
   (workflow env — protected). Ledger `[2026-08-27 14:35]` has the full evidence.
-- **Open:** churn group `91057431/080226` re-uploaded every run since 15:57Z despite an unchanged
+- **Open:** churn group `<WR-A>/080226` re-uploaded every run since 15:57Z despite an unchanged
   authoritative hash — investigate before 11-08. Scheduler: 17:00Z + 19:00Z crons missed; watcher armed.
 - **Next:** Juan decides the two comparator changes → small PR (parity.py/orchestrate.py + tests +
   env) → streak clock restarts on the first `production_frequent` run after it. #355 still open.

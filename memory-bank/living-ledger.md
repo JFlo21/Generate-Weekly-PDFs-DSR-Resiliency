@@ -7123,8 +7123,8 @@ follow-up findings closed, same 6 files.
   `sheets_changed=26`, `mem_confirmed=true`, `mem_sheets_errored=0`. First CI run ever to write memory.
 - **IN-01 / checklist items 2–3 (first half) PROVEN.** `pipeline_memory.group_state` holds the 4 uploaded
   groups with non-NULL `attachment_id`; Smartsheet `get_attachment` on the target sheet confirms
-  `309695391633284` → `WR_91057431_WeekEnding_080226_User_Charlie_Tremper.xlsx` and
-  `6345226370060164` → `WR_90925512_WeekEnding_083026_User_John_Bishop.xlsx` (created 19:08Z, this run).
+  `309695391633284` → `WR_<WR-A>_WeekEnding_080226_User_Charlie_Tremper.xlsx` and
+  `6345226370060164` → `WR_<WR-B>_WeekEnding_083026_User_John_Bishop.xlsx` (created 19:08Z, this run).
   The COALESCE-preserves-on-skip half needs the next run in which those groups are skipped.
 - **`parity_verdict = fail` — and it will be `fail`/`skipped` on EVERY run until two comparator issues are
   fixed. Neither is a selector defect:**
@@ -7146,7 +7146,7 @@ follow-up findings closed, same 6 files.
   `row_state` was last written 08-25 (every CI run since failed to write) while `hash_history`/the durable
   store were current through #2800 — e.g. `90787223/083026` was uploaded by #2799 at 15:57Z. Self-heals from
   the next run now that `row_state` is current.
-- **Open (secondary): one genuine churn group.** `91057431/080226 primary Charlie_Tremper` is regenerated
+- **Open (secondary): one genuine churn group.** `<WR-A>/080226 primary Charlie_Tremper` is regenerated
   and re-uploaded on #2799, #2800, #2801 (not on the four runs before) via the "hash changed" branch, yet
   `billing_audit.group_content_hash` (authoritative, lookup 200 OK) holds the same hash `10e61b2f25575738`
   that this run's `group_state` recorded, with `updated_at=2026-07-27`. Harmless (one delete+upload per
@@ -7173,7 +7173,7 @@ follow-up findings closed, same 6 files.
   Docs: environment reference, Operations flag + symptom rows, `11-CONTEXT.md` D-07 refinement,
   blog post `website/blog/2026-08-27-parity-actual-uploaded-set.md`.
 - **Finding — the "hash changed every run" churn is a sort-key tie, not volatile data.**
-  `billing_audit.pipeline_run` shows `91057431/2026-08-02` alternating between exactly two
+  `billing_audit.pipeline_run` shows `<WR-A>/2026-08-02` alternating between exactly two
   `content_hash` values on 12 consecutive runs with a constant `assignment_fp` (142/142). Its rows
   span three source sheets (64/55/23). `calculate_data_hash` sorts rows by
   `(WR, Snapshot Date, CU, Pole/Point, Quantity)` and then hashes 16 fields per row — two rows that
@@ -7201,7 +7201,7 @@ follow-up findings closed, same 6 files.
   whose tied rows differ in hashed content gets one deterministic hash from now on (one final
   regeneration + upload, then stable). LEGACY mode (`EXTENDED_CHANGE_DETECTION=0`) is untouched — its
   docstring promises no tiebreakers for rollback stability.
-- **Why.** Run #2801's parity `fail` kept one uploaded group in `only_in_actual`: `91057431/080226`
+- **Why.** Run #2801's parity `fail` kept one uploaded group in `only_in_actual`: `<WR-A>/080226`
   alternated between exactly two hashes for 12 consecutive runs (`billing_audit.pipeline_run`,
   constant `assignment_fp`, 142/142) — three source sheets, rows tying on the key but differing in a
   hashed field, parallel-fetch `as_completed` order preserved by the stable sort. The durable store is
@@ -7217,7 +7217,7 @@ follow-up findings closed, same 6 files.
   pre-merge validation is the tie-free byte-identity test above. Post-merge, on the first run: expect
   a one-time bump in "hash changed" regenerations bounded by the flipping population (≈ the groups
   `pipeline_run` shows alternating with a constant fingerprint), then `⏩ Skip (unchanged + attachment
-  exists) primary WR 91057431 week 080226` on the run after; `group_state.content_hash` for it stops
+  exists) primary WR <WR-A> week 080226` on the run after; `group_state.content_hash` for it stops
   changing. If the bump is materially larger than that population, revert.
 - **RULE — a content hash over a multi-source row set must sort on a total key.** Any tie left to
   input order becomes a coin flip once the input is a parallel fetch. When adding hashed fields, add
@@ -7232,7 +7232,7 @@ follow-up findings closed, same 6 files.
   needed at this rate). Scheduler delivered the 19:00Z slot ~88 min late (20:27Z).
 - **Group verdict `fail` with `groups_compared=8`, candidate 9, actual 162.** With #358's uploaded-set
   definition this is 8 vs 9: every uploaded group was in the candidate; the one candidate-only key is
-  `083026_90925512_HELPER_Walker_David_Moody` — the helper variant of a WR whose primary changed.
+  `083026_<WR-B>_HELPER_Walker_David_Moody` — the helper variant of a WR whose primary changed.
   D-04 defines the candidate as *every group of an affected (WR, week) pair* processed by the
   *unmodified* group loop, i.e. the same hash-skip gate the full run applied — so the candidate is a
   superset by construction and that helper would have been skipped identically. **Refinement #2
@@ -7241,12 +7241,12 @@ follow-up findings closed, same 6 files.
   candidate-only groups are recorded in `only_in_candidate`; candidate-only with nothing regenerated
   is `skipped`, never `pass`. `group_key_set_mismatch` retired as a reason. Tests added.
 - **Checklist 3b (attachment id preserved on skip) — proven for the skip path.** `91537611/083026` and
-  `91057431/080226` were `⏩ Skip (unchanged + attachment exists)`; their `group_state` rows are
+  `<WR-A>/080226` were `⏩ Skip (unchanged + attachment exists)`; their `group_state` rows are
   untouched (`attachment_id` 8847660879351684 / 309695391633284, `last_generated_run` = #2801).
-  `90925512/083026` and `91568483/083026` had real row changes → regenerated → new attachment ids,
+  `<WR-B>/083026` and `91568483/083026` had real row changes → regenerated → new attachment ids,
   `last_generated_run` = #2802 — correct. The COALESCE branch proper (regenerated group whose upload
   leg reports `skipped`) is not exercised by these runs; it needs a reduced_sub second leg.
-- **Churn group:** `91057431/080226` hashed `10e61b2f25575738` again this run (same as #2801) and was
+- **Churn group:** `<WR-A>/080226` hashed `10e61b2f25575738` again this run (same as #2801) and was
   skipped — the tie resolves by thread timing, not strict alternation; #359 makes it deterministic.
 - **RULE — parity's candidate is a superset; only `actual − candidate` can fail.** Judge a selector
   by what it would miss, not by what it would consider and then skip.
@@ -7339,9 +7339,14 @@ follow-up findings closed, same 6 files.
 - **Round 6 — RULE: public runbook examples use fictional identifiers.** The guides had copied a real
   WR (the churn-incident one) and a real foreman name into a filename example and the SQL/CLI
   recipes; the Docusaurus site is public and the pipeline treats WR/foreman as row PII. Use
-  `12345678` / `Jane_Doe`-style values in `website/` — real identifiers stay in the ledger, state
-  file and PR threads only. (Round 7 caught a second real WR the sweep missed — grep for every
-  8-digit number, not just the one you remember.)
+  `12345678` / `Jane_Doe`-style values in `website/`. **Round 16 correction: the repository itself is
+  PUBLIC, so the rule covers every tracked file and PR text, not just the rendered site.** Real WR /
+  foreman identifiers live only in Smartsheet / Supabase; cross-reference incidents with opaque
+  aliases — `<WR-A>` = the 080226 hash-churn WR (the `[2026-08-27 14:35]`…`[16:10]` incident),
+  `<WR-B>` = the second WR that appeared in a `reset_wr_list` example. This ledger and the state file
+  were aliased in place on 2026-08-27; the identifiers remain in git history, in the merged blog post
+  `2026-08-27-parity-actual-uploaded-set.md`, and in older PR threads — scrubbing those is the
+  owner's call. (Round 7 caught a second real WR the sweep missed — grep for every 8-digit number.)
 - **Round 7 — RULE: "unset" is not a safe local-run instruction.** `generate_weekly_pdfs.py:24` calls
   `load_dotenv()` at import; python-dotenv fills in *absent* variables from a developer `.env` but
   never overrides a present one, even empty. So a recipe that must avoid the Smartsheet token or the
