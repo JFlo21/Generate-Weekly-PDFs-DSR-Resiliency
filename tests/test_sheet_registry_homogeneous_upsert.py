@@ -163,7 +163,7 @@ class WithRetryFailureMessageTests(unittest.TestCase):
         self.assertIn("not-null", crumb["data"]["error_message"])
         self.assertNotIn("secret-row-value", crumb["data"]["error_message"])
 
-    def test_non_postgrest_error_logs_str_truncated(self):
+    def test_non_postgrest_error_logs_str_truncated_to_200(self):
         from pipeline_memory import client as mem_client
 
         def _boom():
@@ -174,7 +174,113 @@ class WithRetryFailureMessageTests(unittest.TestCase):
 
         line = next(l for l in logs.output if "RPC failed after" in l)
         self.assertIn("ValueError", line)
-        self.assertLess(len(line), 400)
+        self.assertTrue(line.endswith(": " + "x" * 200))
+        self.assertNotIn("x" * 201, line)
+
+    def _final_warning(self, exc):
+        from pipeline_memory import client as mem_client
+
+        def _boom():
+            raise exc
+
+        crumbs: list = []
+        with mock.patch(
+            "pipeline_memory.client._sentry_breadcrumb",
+            side_effect=lambda *a, **k: crumbs.append((a, k)),
+        ), self.assertLogs(level="WARNING") as logs:
+            mem_client.with_retry(_boom, op="sheet_registry_upsert")
+        line = next(l for l in logs.output if "RPC failed after" in l)
+        crumb = next(k for a, k in crumbs if a[1] == "RPC failed")
+        return line, crumb["data"]
+
+    def test_data_exception_message_is_withheld(self):
+        """22xxx messages quote the offending literal -- never logged."""
+        from postgrest.exceptions import APIError
+
+        line, data = self._final_warning(APIError({
+            "message": 'invalid input syntax for type integer: '
+                       '"literal-row-value"',
+            "code": "22P02", "details": None, "hint": None,
+        }))
+
+        self.assertIn("code=22P02", line)
+        self.assertNotIn("literal-row-value", line)
+        self.assertEqual(data["error_code"], "22P02")
+        self.assertEqual(data["error_message"], "")
+
+    def test_hint_and_details_never_logged(self):
+        from postgrest.exceptions import APIError
+
+        line, data = self._final_warning(APIError({
+            "message": 'duplicate key value violates unique constraint '
+                       '"sheet_registry_pkey"',
+            "code": "23505",
+            "details": "Key (sheet_id)=(1) secret-detail-text",
+            "hint": "secret-hint-text",
+        }))
+
+        self.assertIn("unique constraint", line)
+        for leak in ("secret-detail-text", "secret-hint-text"):
+            self.assertNotIn(leak, line)
+            self.assertNotIn(leak, data["error_message"])
+
+    def test_http_status_in_code_does_not_match_sqlstate_allowlist(self):
+        """postgrest-py stores the HTTP status (int) in ``code`` when the
+        body is not JSON; ``422`` must not pass as a ``42xxx`` code."""
+        from postgrest.exceptions import APIError
+
+        line, data = self._final_warning(APIError({
+            "message": "raw-body-echo", "code": 422,
+            "details": None, "hint": None,
+        }))
+
+        self.assertIn("code=422", line)
+        self.assertNotIn("raw-body-echo", line)
+        self.assertEqual(data["error_message"], "")
+
+    def test_details_bearing_error_is_never_str_dumped(self):
+        """Duck-typing guard: anything with ``details`` is summarised
+        like an APIError, even if it is not one (import-guard path)."""
+
+        class _FakeApiError(Exception):
+            code = "23502"
+            message = 'null value in column "x" violates not-null constraint'
+            details = "Failing row contains (secret-row-value)."
+            hint = None
+
+            def __str__(self):
+                return f"{self.message} {self.details}"
+
+        line, data = self._final_warning(_FakeApiError())
+
+        self.assertIn("violates not-null constraint", line)
+        self.assertNotIn("secret-row-value", line)
+        self.assertNotIn("secret-row-value", data["error_message"])
+
+
+class PostgrestColumnsUnionContractTests(unittest.TestCase):
+    """Pins the library behaviour the writer fix rests on: a mixed list
+    payload yields a ``columns=`` union, a homogeneous one does not
+    widen. If a postgrest upgrade changes this, revisit the grouping."""
+
+    def test_pre_upsert_columns_is_union_of_row_keys(self):
+        from postgrest.base_request_builder import pre_upsert
+        from postgrest.types import ReturnMethod
+
+        mixed = [{"sheet_id": 1, "name": "A"},
+                 {"sheet_id": 2, "name": "B", "column_mapping": {}}]
+        _, params, _, _ = pre_upsert(
+            mixed, count=None, returning=ReturnMethod.representation,
+            ignore_duplicates=False, on_conflict="sheet_id",
+        )
+        self.assertIn('"column_mapping"', params["columns"])
+
+        same = [{"sheet_id": 1, "name": "A"}, {"sheet_id": 2, "name": "B"}]
+        _, params, _, _ = pre_upsert(
+            same, count=None, returning=ReturnMethod.representation,
+            ignore_duplicates=False, on_conflict="sheet_id",
+        )
+        self.assertNotIn("column_mapping", params["columns"])
 
 
 if __name__ == "__main__":

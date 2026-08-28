@@ -367,7 +367,11 @@ def upsert_sheet_registry(
     (23502 on ``column_mapping``, silent watermark loss on
     ``last_full_read_at``). Grouping keeps "omitted key == column
     untouched" true for every request; a row failure fails only its
-    own group. Ledger ``[2026-08-28 15:05]``.
+    own group. All groups share the ``sheet_registry_upsert`` retry op,
+    so the circuit breaker's "consecutive failures" now counts per
+    request and a sibling group's success resets it -- a group that
+    fails permanently is reported by the per-request WARNING, not by
+    the breaker. Ledger ``[2026-08-28 15:05]``.
     ``run_id`` is accepted for call-site symmetry with the other writer
     entry points but is not a ``sheet_registry`` column (no ``run_id``
     column on this table).

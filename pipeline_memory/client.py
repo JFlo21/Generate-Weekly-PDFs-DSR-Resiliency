@@ -414,29 +414,51 @@ def _disable_for_run(reason_code: str, exc: Exception) -> None:
     )
 
 
-# SQLSTATE classes / PostgREST prefixes whose ``message`` is structural
-# (names a column, constraint, relation or schema) and never echoes a
-# row value. Data-exception classes (``22xxx``) DO quote the offending
-# literal, and this repository's Actions logs are public, so those --
-# and ``details`` / ``hint`` -- are never logged. Code is always logged.
-_MESSAGE_SAFE_CODE_PREFIXES = ("23", "42", "PGRST")
+# SQLSTATE classes whose ``message`` is structural (names a column,
+# constraint, relation or schema) and never echoes a row value.
+# Data-exception classes (``22xxx``) DO quote the offending literal, and
+# this repository's Actions logs are public, so those -- and ``details``
+# / ``hint`` -- are never logged. The code is always logged.
+_MESSAGE_SAFE_SQLSTATE_CLASSES = ("23", "42")
+
+
+def _message_is_structural(code: str | None) -> bool:
+    """True for ``PGRST*`` codes and SQLSTATE-shaped ``23xxx`` /
+    ``42xxx`` codes only. postgrest-py puts the HTTP status into
+    ``code`` when the error body is not JSON (``422``, ``429`` ...), so
+    a bare prefix match would let ``42`` admit ``422`` -- anchor on the
+    five-character SQLSTATE shape instead.
+    """
+    if not code:
+        return False
+    if code.startswith("PGRST"):
+        return True
+    return (
+        len(code) == _PG_SQLSTATE_LENGTH
+        and code.startswith(_MESSAGE_SAFE_SQLSTATE_CLASSES)
+    )
 
 
 def _error_summary(exc: Exception) -> tuple[str | None, str]:
     """Return ``(code, message)`` safe for the public Actions log.
 
-    ``code`` is the PostgREST/SQLSTATE code when present. ``message``
-    is the PostgREST ``message`` only for structural codes (see
-    ``_MESSAGE_SAFE_CODE_PREFIXES``), ``str(exc)`` for non-PostgREST
-    errors, and always truncated to 200 characters.
+    ``code`` is the PostgREST/SQLSTATE code when present (truncated).
+    ``message`` is the PostgREST ``message`` only when
+    ``_message_is_structural`` says so, ``str(exc)`` for non-PostgREST
+    errors, and always truncated to 200 characters. Anything carrying a
+    ``details`` attribute is treated as a PostgREST error even if the
+    ``postgrest`` import guard fired, because ``str(APIError)`` renders
+    the raw dict -- ``details`` and ``hint`` included.
     """
     code = getattr(exc, "code", None)
-    code = str(code) if code not in (None, "") else None
-    if _PGAPIError is not None and isinstance(exc, _PGAPIError):
+    code = str(code)[:40] if code not in (None, "") else None
+    is_api_error = (
+        (_PGAPIError is not None and isinstance(exc, _PGAPIError))
+        or hasattr(exc, "details")
+    )
+    if is_api_error:
         message = getattr(exc, "message", None)
-        if not isinstance(message, str):
-            message = ""
-        if not (code and code.startswith(_MESSAGE_SAFE_CODE_PREFIXES)):
+        if not isinstance(message, str) or not _message_is_structural(code):
             message = ""
     else:
         message = str(exc)
