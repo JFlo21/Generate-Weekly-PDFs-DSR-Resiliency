@@ -7191,6 +7191,38 @@ follow-up findings closed, same 6 files.
 - **RULE — a content hash over a multi-source row set must sort on a total key.** Any tie left to
   input order becomes a coin flip once the input is a parallel fetch.
 
+## [2026-08-27 16:10] `calculate_data_hash` total-order sort tiebreaker (PR #359) — ends the every-run re-upload of tie groups and the permanent parity divergence
+
+- **Change (`pipeline/change_detection.py`, EXTENDED mode only).** The per-row hashed-field list is
+  extracted verbatim into `_extended_row_fields(row, group_variant)`; the extended sort key is now
+  `(WR, Snapshot Date, CU, Pole/Point, Quantity, vac_name, vac_dept, vac_job)` **+
+  `"|".join(_extended_row_fields(row))` + foreman**. The tiebreaker can only reorder rows that tie on
+  the full business key, so every group without such ties hashes byte-identically to before; a group
+  whose tied rows differ in hashed content gets one deterministic hash from now on (one final
+  regeneration + upload, then stable). LEGACY mode (`EXTENDED_CHANGE_DETECTION=0`) is untouched — its
+  docstring promises no tiebreakers for rollback stability.
+- **Why.** Run #2801's parity `fail` kept one uploaded group in `only_in_actual`: `91057431/080226`
+  alternated between exactly two hashes for 12 consecutive runs (`billing_audit.pipeline_run`,
+  constant `assignment_fp`, 142/142) — three source sheets, rows tying on the key but differing in a
+  hashed field, parallel-fetch `as_completed` order preserved by the stable sort. The durable store is
+  rewritten each run so the next run always disagrees → regenerate → delete + re-upload, forever. The
+  row-hash-driven incremental path would never regenerate it → `pass` impossible. The VAC-crew
+  tiebreaker (earlier fix, same failure class) had closed only the crew-field case.
+- **Tests (`tests/test_change_detection_tiebreak.py`).** Tied rows differing in Work Type/price hash
+  identically under every permutation; foreman-only ties deterministic; a real edit still changes the
+  hash; a 40-row tie-free fixture hashes byte-identically to the pre-fix ordering (the no-churn
+  guarantee); legacy mode unchanged. Hash-related suites (vac_crew, subcontractor pricing, billing
+  audit shadow, snapshot drift, control-run comparator, perf) all green.
+- **Validation plan (billing guardrail).** No Smartsheet token is available to this session, so the
+  pre-merge validation is the tie-free byte-identity test above. Post-merge, on the first run: expect
+  a one-time bump in "hash changed" regenerations bounded by the flipping population (≈ the groups
+  `pipeline_run` shows alternating with a constant fingerprint), then `⏩ Skip (unchanged + attachment
+  exists) primary WR 91057431 week 080226` on the run after; `group_state.content_hash` for it stops
+  changing. If the bump is materially larger than that population, revert.
+- **RULE — a content hash over a multi-source row set must sort on a total key.** Any tie left to
+  input order becomes a coin flip once the input is a parallel fetch. When adding hashed fields, add
+  them to the tiebreaker too (here automatic: the tiebreaker IS the hashed string).
+
 ## [2026-08-27 16:45] First SCHEDULED run with working memory (#2802, 33113384941.1) — D-07 refinement #2: candidate-only groups are not a divergence; attachment ids preserved on skip; churn group skipped
 
 - **Evidence.** `production_frequent`, `success`, 43 min. `⚡ Run-memory row writes: 8 sheet(s)
