@@ -84,3 +84,11 @@ run's homogeneous payload is still a single identical request. `with_retry` now 
 (the Actions logs are public; `details`/`hint` never). Billing output untouched; fail-open path.
 See `memory-bank/living-ledger.md` `[2026-08-28 15:05]` (root cause) and `[2026-08-28 16:05]`;
 PR #363.
+
+## 2026-08-28 — billing_audit kill switch no longer logs server text (PR #364)
+Twin of the #363 fix: `billing_audit/client.py::_disable_for_run` (PGRST106/301/302) used to put the
+PostgREST `message` and `hint` into the public Actions warning and the Sentry breadcrumb. Those
+fields are untrusted diagnostic text that can echo request or database data. The warning now
+carries the code, the error type and the locally authored operator guidance only; nothing about
+when the kill switch trips or what it disables changed. See `memory-bank/living-ledger.md`
+`[2026-08-28 17:10]`; PR #364.

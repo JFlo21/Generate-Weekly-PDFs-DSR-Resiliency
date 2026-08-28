@@ -1,10 +1,10 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-28 16:05 CDT (21:05Z) · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-28 17:10 CDT (22:10Z) · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
-_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-28 16:05]` (sheet_registry fix on #363). Earlier: `[2026-08-28 15:05]` (root cause + 154-withheld pattern), `[2026-08-28 12:05]` (#362), `[2026-08-27 21:10]` (verified pipeline truths from the
+_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-28 17:10]` (#363 merged, #364 open, 154-withheld = source-data shape). Earlier: `[2026-08-28 16:05]` (sheet_registry fix on #363), `[2026-08-28 15:05]` (root cause + 154-withheld pattern), `[2026-08-28 12:05]` (#362), `[2026-08-27 21:10]` (verified pipeline truths from the
 #360 review rounds — acceptance gate, group key, TEST_MODE/Supabase, Snapshot Date, reset purge, stale
 attachment, public-repo identifier rule). Earlier: `[2026-08-27 20:20]` (identity row = canonical row,
 ships with PR #361), `[2026-08-27 16:10]` (hash sort tiebreaker, #359).
@@ -18,22 +18,26 @@ canonical row — its ledger/state/changelog are supersets of master's copies, s
 this session — read the latest `run_ledger.notes` before resuming). Then: checklist item 6 SQL +
 items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-08-28 16:05 CDT) — #362 MERGED (`5a5249c`); `sheet_registry` upsert 400 FIXED on PR #363 (open, reviewed SHIP); two owner decisions framed
+## Latest work (2026-08-28 17:10 CDT) — #363 MERGED (squash); PR #364 open (`billing_audit` kill-switch logging); 154-withheld groups = malformed source WRs + missing target rows; two owner decisions still open
 
-- **Main tree = `master` (`0e93122` + local ledger edits).** #361 (`eb8338f`) and #362 (`5a5249c`) both merged.
+- **Main tree = `master` (`43a7d8b`).** #361, #362 and #363 merged; **PR #364 open** (one-file twin of the #363 kill-switch fix, 1811 tests green).
   The 12:04 CDT run (`0b910c1`, first run with #361) showed no hash churn beyond the pre-existing pattern below;
   the first run with #362 is the next scheduled one — expect zero regeneration from it.
 - **`pipeline_memory[sheet_registry_upsert]` HTTP 400 on every run since 2026-08-27 18:20Z** — diagnosed, see
   ledger `[2026-08-28 15:05]`: frequent runs send a bulk upsert whose rows disagree on whether `column_mapping`
   is present (120 registered sheets omit it, the 1 new sheet carries it); postgrest-py sends `columns=` as the
   union, so PostgREST NULLs `column_mapping` on the UPDATE half → NOT NULL violation → 400, non-retryable,
-  never self-heals. **Fix on PR #363** (owner-approved 2026-08-28): one upsert per key-set + `with_retry`
-  logs `code=` always and the PostgREST message only for structural classes (public logs). No schema
-  change; full suite 1805 green; production-risk review SHIP. Ledger `[2026-08-28 16:05]`.
-- **Pre-existing every-run waste:** 154 group-weeks (135 WRs, 146 `primary`) whose WR has no target-sheet row
-  regenerate every run and never upload. **Owner decision pending (framed 2026-08-28):** option A = skip when
-  hash unchanged AND target map populated AND WR absent (converges when the row appears; empty-map guard
-  mandatory); or first review the WR list for Smartsheet-side gaps.
+  never self-heals. **FIXED — #363 merged:** every row carries `column_mapping` (registered sheets echo the
+  stored one; PostgreSQL checks the INSERT candidate before `ON CONFLICT`, so omission was fatal even for
+  existing rows — the first grouping-only shape would not have worked), key-set split for the nullable
+  watermark, `with_retry` logs `code=` always and the message only from a value-free allowlist. Verify on
+  the next scheduled run. Ledger `[2026-08-28 15:05]`/`[16:05]`.
+- **Pre-existing every-run waste:** 154 group-weeks (137 WR values) whose WR has no target-sheet row regenerate
+  every run and never upload. Characterised `[2026-08-28 17:10]`: ~55% malformed source `Work Request #`
+  values (wrong length / non-numeric), ~45% plausible 8-digit WRs missing from the target sheet; Smartsheet
+  data hygiene, not Supabase. **Owner decision pending:** (1) source cleanup + add missing target rows (data),
+  (2) code option A = skip when hash unchanged AND target map populated AND WR absent (converges when the row
+  appears; empty-map guard mandatory), (3) optional: a malformed-WR diagnostics line per run.
 - #361 threads 3877822173 / 3876992822 / 3876992815 resolved (→ #362). **Owner decision pending (framed
   2026-08-28):** repo-wide identifier scrub (#360 thread 3877686166) — A = scrub current tip + untrack
   `artifact_manifest.json`/`hash_history.json` (recommended first); B = history rewrite; C = go private;

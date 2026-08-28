@@ -7590,3 +7590,27 @@ follow-up findings closed, same 6 files.
 - **Post-merge check.** Next scheduled run: no `sheet_registry_upsert` warning; registry = 121 rows; a
   one-time watermark jump in `last_read_at`/`last_sheet_version` (stale since 08-27) is expected and
   nothing consumes it as a change signal.
+
+## [2026-08-28 17:10] #363 MERGED; `billing_audit` kill-switch twin on PR #364; the 154 never-uploadable groups are a source-data shape problem, not a Supabase one
+
+- **#363 merged (squash).** Next scheduled run is the proof: no `sheet_registry_upsert` warning, 121
+  registry rows, registered sheets' `last_read_at` / `last_sheet_version` moving for the first time
+  since 08-27.
+- **PR #364 — `billing_audit/client.py::_disable_for_run`** no longer logs the server `message`/`hint`
+  (nor stores them in the breadcrumb): code + error type + local operator guidance only — the twin of
+  the #363 fix. Two tests (`tests/test_billing_audit_kill_switch_logging.py`). No behaviour change to
+  when/what the kill switch disables.
+- **The "154 withheld" groups, characterised from the 2026-08-28 12:04 CDT run log (private list in the
+  session scratchpad, NOT in the repo).** 137 distinct WR values fail the target-sheet lookup. Every
+  WR that skips or uploads normally is 8 digits (574/574 in that run). Of the 137: 29 are 7 digits,
+  15 are 9 digits, 2 are 6, 2 are 10, 1 is 11, 6 are non-numeric (DCP-style project codes, a hyphenated
+  value, free text), 23 are 8 digits with an atypical prefix, and 62 are 8-digit plausible WRs. So
+  ~55% are malformed `Work Request #` values on the SOURCE sheets (typos / non-WR text) that can never
+  match anything, and ~45% are plausible WRs that simply have no row on the target sheet
+  (`5723337641643908`). **Supabase is not involved in that lookup**: the target map is built from the
+  Smartsheet target sheet (`pipeline/upload.py::create_target_sheet_map`) and the WR comes from the
+  Smartsheet source rows. Both halves are Smartsheet data hygiene, not a matching bug.
+- **Consequence.** These groups regenerate every run "despite unchanged hash (attachment missing or
+  verification failed)" because `target_row is None → can_skip = False` (`orchestrate.py` ~3663), then
+  the upload finds no row and the hash is withheld — ~45 min of generation per run for files that can
+  never upload. Decision framed for the owner (state file).
