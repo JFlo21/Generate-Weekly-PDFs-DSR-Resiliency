@@ -24,7 +24,7 @@ file is attached in its place.
 
 ```mermaid
 flowchart LR
-    A["Crews enter units in Smartsheet"] --> B["Robot reads every source sheet<br/>(7× on weekdays, 3× on weekends)"]
+    A["Crews enter units in Smartsheet"] --> B["Robot reads every source sheet<br/>(6–7× on weekdays, 3× on weekends)"]
     B --> C["Groups rows by Work Request + week ending<br/>(+ foreman / helper / crew)"]
     C --> D{"Did this group change<br/>since the last file?"}
     D -- "No, and the file is still attached" --> E["Skip — nothing to do"]
@@ -34,15 +34,20 @@ flowchart LR
 
 ## When it runs
 
-| When | What kind of run |
+| When (Central time) | What kind of run |
 | --- | --- |
-| Weekdays, roughly every 2 hours between 8 AM and 8 PM Central | Normal run — picks up whatever changed since the last one |
-| Saturday and Sunday, three times a day | Same, lighter cadence |
-| Sunday night / Monday ~midnight Central | The **weekly deep run** — re-checks everything, including rows that were deleted |
+| Monday–Friday, every 2 hours from 8 AM to 6 PM in summer (7 AM to 5 PM in winter) | Normal run — picks up whatever changed since the last one |
+| Sunday–Thursday, one evening run at 8 PM in summer (7 PM in winter) — there is **no Friday-evening run** | Same |
+| Saturday and Sunday at 10 AM, 2 PM and 6 PM in summer (9 AM, 1 PM and 5 PM in winter) | Same, lighter cadence |
+| Monday 12:00 AM in summer (Sunday 11 PM in winter) | The **weekly deep run** — re-checks everything, including rows that were deleted |
 
-A normal run takes about 35–55 minutes. So a unit entered at 10:05 AM is
-usually in its Excel file by around noon. You do not need to do anything to
-make that happen.
+The schedule is fixed in UTC, which is why every time above shifts by an hour
+between daylight-saving time ("summer") and standard time ("winter").
+
+A normal run takes about 40–60 minutes, and up to about 75 while the
+shadow-parity check is switched on. So a unit entered at 10:05 AM is picked
+up by the noon run and is usually in its Excel file by about 1 PM. You do not
+need to do anything to make that happen.
 
 ## Where the files are
 
@@ -65,8 +70,10 @@ foreman's own units, one per helping foreman, one per VAC crew, and — for
 subcontractor sheets — priced variants (`_AEPBillable_User_…`,
 `_ReducedSub_User_…`; the ReducedSub files are also attached on the PPP
 sheet). A row that is marked as *both* "Helping Foreman Completed Unit?" and
-"Units Completed?" appears **only** in the helper file, never in the main
-one, so nothing is billed twice.
+"Units Completed?" **and** names a helping foreman and a helper department
+appears **only** in the helper file, never in the main one, so nothing is
+billed twice. If the helper name or department is blank, the row is treated
+as the foreman's own unit and lands in the main file instead.
 
 ## How to read a file
 
@@ -76,8 +83,8 @@ way every time:
 1. **Header** — the Linetec logo, *WEEKLY UNITS COMPLETED PER SCOPE ID*, and
    the *Report Generated On* timestamp (the moment the robot built the file).
 2. **REPORT SUMMARY** — *Total Billed Amount*, *Total Line Items*, and the
-   *Billing Period* (the first snapshot date in the file through the week
-   ending).
+   *Billing Period* (always the Monday-through-Sunday week that ends on the
+   week-ending date, whatever the first logged day in the file is).
 3. **REPORT DETAILS** — *Foreman* (or the helper / VAC crew the file is
    for), *Work Request #*, *Scope ID #*, *Work Order #*, *Customer* and
    *Job #*.
@@ -93,14 +100,20 @@ came from — see "When something looks wrong" below.
 
 You don't build it — you **feed it**. The file is a mirror of the Smartsheet
 rows, so the way to get a correct file is to get the rows right. A row is
-picked up when it has, at minimum:
+**picked up** when it has all four of:
 
 - a **Work Request #**
 - a **week-ending / weekly reference logged date** (this decides *which*
   file the unit lands in)
-- a **CU** (billable unit code) with a **quantity** and a **price**
 - **Units Completed?** checked
-- a **Foreman** (or the helper / VAC-crew fields for split work)
+- a **price above $0** (a blank or `$0` price drops the row unless the rate
+  table can fill the price in; a CU that reads `NO MATCH` drops it too)
+
+For the line to be **correct** it also needs a **CU** (billable unit code)
+with a **quantity**, and a **Foreman** (or the helper / VAC-crew fields for
+split work). Those do *not* stop the row from being picked up: a row missing
+them still appears — as a line with a blank code or a zero quantity, or in a
+file named `_Unknown_Foreman`.
 
 Then wait for the next scheduled run (or ask for a manual run, below). To
 check that the robot saw your change, open the attachment after the run and
@@ -110,10 +123,11 @@ look at *Report Generated On* — it should be newer than your edit.
 
 | What you see | Likely cause | Fix |
 | --- | --- | --- |
-| The unit isn't in any file | Missing WR #, date, CU, price, or *Units Completed?* unchecked | Complete the row; it appears on the next run |
+| The unit isn't in any file | Missing WR # or date, *Units Completed?* unchecked, no price (blank / `$0`), or a CU that reads `NO MATCH` | Complete the row; it appears on the next run |
+| The unit is in the file but the line has a blank code, a zero quantity or a `$0` price | The row was picked up but its CU, quantity or price is incomplete | Fix those fields; the file rebuilds on the next run |
 | The unit is in the **wrong week's** file | The week-ending / logged date on the row is wrong | Correct the date; the old week's file rebuilds without it and the new week's file gains it |
 | The unit is in a `_Helper_…` file but you expected the main file | Both helper and primary checkboxes are checked | That is by design — the helper file is the billable one; uncheck the helper flag only if the unit really wasn't helper work |
-| The file name says `_NO_MATCH` or `Unknown_Foreman` | The row has no usable foreman | Fill in the foreman. These files are generated but **never attached** — they're quarantined until fixed |
+| The file name says `_NO_MATCH` or `Unknown_Foreman` | The robot could not work out a foreman for the row | Fill in the foreman. The name itself does **not** stop the upload: if the Work Request has a row on a target sheet, the file is attached under that name, so fix it promptly. If the WR is on no target sheet the file is built but withheld |
 | Old file, no update after your edit | The run hasn't happened yet, or the change didn't touch a billed field | Wait for the next run; if it's still stale after two runs, ask for a manual run |
 
 ## Asking for a manual run
@@ -125,18 +139,28 @@ the same robot, started on demand:
    → **Run workflow**.
 2. Leave everything at its default for a normal catch-up run.
 3. Useful options:
-   - `wr_filter` — only rebuild these Work Requests, e.g. `91057431,90925512`
-     (comma-separated, no spaces needed).
-   - `advanced_options: regen_weeks:080226;081026` — force-rebuild specific
-     week endings (MMDDYY, separated by `;`).
-   - `advanced_options: reset_wr_list:91057431` — throw away what the robot
-     remembers about these WRs and rebuild them from scratch.
+   - `advanced_options: regen_weeks:080226;080926` — force-rebuild specific
+     week endings (the Sunday, as MMDDYY, separated by `;`). This rebuilds
+     that week for **every** Work Request.
+   - `wr_filter` (e.g. `91057431,90925512`) — only honoured together with
+     `test_mode: true`, and a test-mode run never attaches files. Use it to
+     check what the robot *would* build for one Work Request; it cannot
+     limit a real, attaching run to one WR.
+   - `advanced_options: reset_wr_list:91057431` — **destructive; ask the
+     engineering owner first.** It deletes the listed WRs' existing Excel
+     attachments before generating, and it also switches off the
+     "unchanged, skip" check for *every* group in that run, so the whole run
+     regenerates and re-uploads. If the run fails after the delete, those WRs
+     have no attachment until the next successful run.
    - `reset_hash_history: true` — rebuild **everything** (slow; only when
      asked to by the engineering owner).
-4. Click **Run workflow** and wait for the green check (35–55 minutes).
+4. Click **Run workflow** and wait for the green check (40–60 minutes, up to
+   about 75).
 
 A manual run does everything a scheduled run does, including attaching
-files, so use the filters when you only need one Work Request.
+files. There is currently **no way to limit an attaching run to one Work
+Request** — every option that narrows the run also stops it from attaching —
+so a normal manual run is simply "catch up now".
 
 ## When something looks wrong
 
@@ -172,4 +196,4 @@ edit lost.
 | **Helper file** | Units a *helping* foreman completed on someone else's WR |
 | **VAC crew** | Vacuum-truck crew units, split into their own file |
 | **Snapshot date** | The date the unit was logged — used for the day blocks and the billing period |
-| **Deep run** | The Monday-night run that re-checks everything, including deleted rows |
+| **Deep run** | The once-a-week run at Monday 12:00 AM Central in summer (Sunday 11 PM in winter) that re-checks everything, including deleted rows |

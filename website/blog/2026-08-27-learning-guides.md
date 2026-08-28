@@ -39,9 +39,10 @@ documentation only — no pipeline, workflow or schema change.
 
 ## Why
 
-Today's work (PRs #355, #356, #358, #359) made the run-memory layer real in
-production and surfaced several rules that only existed in the living
-ledger and in PR threads. Operators had no page that explained, in their
+Today's work made the run-memory layer real in production — #353 turned the
+writes on, #356 fixed the client, #358 refined the parity check — and #359
+made change detection order-stable. Those PRs surfaced several rules that
+only existed in the living ledger and in PR threads. Operators had no page that explained, in their
 terms, why a unit lands where it does or how to get a file rebuilt, and
 engineers had no single entry point that says where to look and what must
 never be changed without validation.
@@ -51,3 +52,7 @@ never be changed without validation.
 Nothing changes in the files or the schedule. The site gains a **Learn**
 entry in the navigation; the operator guide is the page to send to anyone
 who asks "where is my Excel?" or "why is this unit missing?".
+
+Tracking: PR #360 (the review round corrected both guides against the
+pipeline's actual acceptance gate, grouping key, `wr_filter` / test-mode
+behaviour, schedule windows and run times).

@@ -22,8 +22,8 @@ lives in the `pipeline/` package, plus two Supabase packages.
 | --- | --- | --- | --- |
 | `pipeline/orchestrate.py` | ~5,300 | `main()` — the run, phase by phase; run-memory write/incremental/reconciliation helpers; the group loop (skip / regenerate / upload decisions) | you change *when* something happens in a run |
 | `pipeline/discovery.py` | ~680 | Finds source sheets in the Smartsheet folders, validates column mappings, caches to `generated_docs/discovery_cache.json` | a sheet isn't being found, or a column is renamed |
-| `pipeline/fetch.py` | ~1,300 | Parallel `get_sheet` reads (≤8 workers), row normalisation, delta reads | rows are missing at the source, rate limits, retries |
-| `pipeline/grouping.py` | ~1,360 | Row acceptance gate and grouping into `(WR, week, variant, foreman, dept, job)`; helper / VAC-crew / subcontractor variant assignment | a unit lands in the wrong file, or a variant rule changes |
+| `pipeline/fetch.py` | ~1,300 | Parallel `get_sheet` reads (≤8 workers), row normalisation, delta reads, and the **row acceptance gate** (WR + weekly date + *Units Completed?* + price > 0; a `NO MATCH` CU is dropped) | rows are missing at the source, rate limits, retries |
+| `pipeline/grouping.py` | ~1,360 | Grouping into `(WR, week, variant, claimer)` groups — one workbook each; helper / VAC-crew / subcontractor variant assignment | a unit lands in the wrong file, or a variant rule changes |
 | `pipeline/pricing.py` | ~900 | Rate recalculation, subcontractor rate variants (`_AEPBillable`, `_ReducedSub`) | a price is wrong |
 | `pipeline/attribution.py` | ~820 | Who a file is attributed to (frozen claimers from `billing_audit`) | a file is under the wrong foreman/helper name |
 | `pipeline/change_detection.py` | ~800 | `calculate_data_hash()` and the durable hash store decision — whether a group regenerates | files churn (regenerate without a change) or don't regenerate when they should |
@@ -33,8 +33,8 @@ lives in the `pipeline/` package, plus two Supabase packages.
 | `pipeline/parity.py` | ~560 | Phase 11 shadow comparator (`parity_verdict`) | you're working on the incremental-read rollout |
 | `pipeline/config.py` | ~640 | Every env var, with defaults | adding or changing a knob |
 | `pipeline_memory/` | ~2,100 | Supabase `pipeline_memory` schema client / writer / reader (run ledger, sheet registry, row + group state) | run memory, parity evidence, incremental reads |
-| `billing_audit/` | ~2,600 | Supabase `billing_audit`: frozen attribution, run fingerprints, durable group hashes, price-anomaly audit | attribution or the durable hash store |
-| `audit_billing_changes.py` | ~940 | Price-anomaly / risk-level detection run after generation | audit output |
+| `billing_audit/` | ~2,600 | Supabase `billing_audit`: frozen attribution, run fingerprints, durable group hashes, snapshot-drift storage | attribution or the durable hash store |
+| `audit_billing_changes.py` | ~940 | Price-anomaly / risk-level detection (`BillingAudit.audit_financial_data()`), run on the fetched rows **before** grouping and generation — it never sees the per-variant prices resolved later | audit output |
 
 Read [Python modules](../runbook/python-modules.md) for the entry points and
 diagnostics scripts, and [Workflows](../runbook/workflows.md) for the GitHub
@@ -61,17 +61,25 @@ flowchart TD
 
 Two facts explain most "why did it do that" questions:
 
-- **A group regenerates only if its content hash changed or its attachment
-  is missing.** The hash (`calculate_data_hash`) covers the billed fields of
-  every row plus foreman / variant / dept / totals. When the Supabase durable
-  store is authoritative (`SUPABASE_HASH_STORE_AUTHORITATIVE=1`, the
-  production setting) it is the previous hash; `hash_history.json` is the
-  fallback. Groups whose upload is **withheld** (WR on no target sheet —
-  `_NO_MATCH` / `Unknown_Foreman` names) never gain an attachment and are
-  regenerated every run by design; they are also excluded from `group_state`
-  and from the parity comparison.
-- **The change-detection key is `(WR, week, variant, foreman, dept, job)`.**
-  Never shorten it — helper files for past weeks depend on it.
+- **In a normal run a group regenerates only if its content hash changed or
+  its attachment is missing.** The hash (`calculate_data_hash`) covers the
+  billed fields of every row plus foreman / variant / dept / totals. When the
+  Supabase durable store is authoritative
+  (`SUPABASE_HASH_STORE_AUTHORITATIVE=1`, the production setting) it is the
+  previous hash; `hash_history.json` is the fallback. The operator overrides
+  — `FORCE_GENERATION`, `REGEN_WEEKS`, `RESET_HASH_HISTORY`, `RESET_WR_LIST`
+  — bypass that decision (and `RESET_WR_LIST` disables the unchanged-skip for
+  *every* group, not just the listed WRs). Groups whose upload is
+  **withheld** (the WR is on no target sheet) never gain an attachment and
+  are regenerated every run by design; they are also excluded from
+  `group_state` and from the parity comparison. The `_NO_MATCH` /
+  `Unknown_Foreman` names are the usual members of that set, but the name is
+  not what withholds the upload — a WR that *is* on a target sheet gets its
+  `_Unknown_Foreman` file attached.
+- **Files are partitioned by `(WR, week, variant, claimer)`; dept and job
+  never split a file.** They are hashed content, and for helper files they
+  are part of the hash-history identity (`{helper}|{dept}|{job}`). Never
+  shorten that identity — helper files for past weeks depend on it.
 
 ## Diagnosing a run
 
@@ -111,8 +119,10 @@ select * from pipeline_memory.group_state
 select * from billing_audit.group_content_hash
  where wr = '91057431' and week_ending = '2026-08-02';
 
--- per-run content hashes of a group (flipping values = a determinism bug)
-select run_id, content_hash, assignment_fp, created_at
+-- per-run content hash at WR/week level: one row per (wr, week_ending, run_id),
+-- NOT per file -- a WR with several variants records one of them. Values that
+-- flip across runs with the same source rows = a determinism bug.
+select run_id, variant, content_hash, assignment_fp, created_at
   from billing_audit.pipeline_run
  where wr = '91057431' and week_ending = '2026-08-02'
  order by created_at desc limit 10;
@@ -125,20 +135,35 @@ select run_id, content_hash, assignment_fp, created_at
 
 ```bash
 pip install -r requirements.txt
-TEST_MODE=true python generate_weekly_pdfs.py                # synthetic data, no token
-SKIP_UPLOAD=true WR_FILTER=91057431 python generate_weekly_pdfs.py   # real data, no uploads
-pytest tests/ -v                                            # ~1,760 tests, must be green
+TEST_MODE=true python generate_weekly_pdfs.py            # no token: synthetic rows
+TEST_MODE=true WR_FILTER=91057431 python generate_weekly_pdfs.py   # token set: real reads, one WR, no uploads
+SKIP_UPLOAD=true python generate_weekly_pdfs.py          # real reads, EVERY group, no uploads
+pytest tests/ -v                                        # ~1,770 tests, must be green
 ```
 
-`SKIP_UPLOAD=true` reads real Smartsheet data and writes files under
-`generated_docs/` but never attaches them. The generated file for a group is
+`WR_FILTER` is honoured **only** in `TEST_MODE` (`pipeline/grouping.py`:
+`if WR_FILTER and TEST_MODE`), and test mode never creates upload tasks;
+with `SMARTSHEET_API_TOKEN` set it reads the real sheets. `SKIP_UPLOAD=true`
+without test mode processes every group and only suppresses the attachment
+step. Both write files under `generated_docs/`; a group's file is
 byte-comparable across runs with `scripts/compare_control_run.py`.
+
+:::warning Supabase is not covered by either flag
+With `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` in your environment the
+group loop still calls the `billing_audit` writers — `freeze_row()`
+(first-write-wins attribution) and `emit_run_fingerprint()` — before the
+upload gate, so a local run can permanently freeze production attribution.
+Unset the Supabase credentials for local runs; the writers are fail-open and
+the Excel output does not need them.
+:::
 
 ### 4. Sentry
 
-Errors are tagged by release (`<owner>-<repo>@<sha>`); a parity `fail` is
-sent at error level with the group keys in the message. Logs to Sentry are
-off by default (`SENTRY_ENABLE_LOGS`) because INFO lines can carry row data.
+Errors are tagged by release (`<owner>-<repo>@<sha>`). A parity `fail` is
+sent at error level as `Shadow-incremental parity FAIL` with the run id and
+aggregate counts only — the divergent group keys are **not** in the event;
+read them from `run_ledger.notes.parity_details`. Logs to Sentry are off by
+default (`SENTRY_ENABLE_LOGS`) because INFO lines can carry row data.
 
 ## Making a change safely
 
@@ -165,9 +190,12 @@ The workflow:
    `tests/fixtures/`; the suite is plain `unittest`/`pytest`. If a change
    *should* alter a hash, pin the new value and say why in the ledger.
 3. **Run the full suite** and read the pass/fail line — not a pipe's exit
-   code. The Claude Code pre-push hook blocks `git push` on a red suite.
+   code. Nothing enforces this on `git push` from a shell:
+   `.github/hooks/pre-push-tests.json` is a Claude Code hook definition, not
+   a Git hook, so the run is on you.
 4. **Validate against a known-good sample** for anything in the table above
-   (`SKIP_UPLOAD=true` + `WR_FILTER`, or the comparator script).
+   (`TEST_MODE=true WR_FILTER=<wr>` with the token set — `WR_FILTER` is
+   ignored outside test mode — or the comparator script).
 5. **Open the PR with the three sections** — *Objective*, *Changes Made*,
    *Production Safety Check* — and answer every Greptile / Copilot / Codex
    thread with the SHA that addressed it. The Azure DevOps mirror check has
@@ -183,7 +211,7 @@ The workflow:
 | I need to… | Start in | Then |
 | --- | --- | --- |
 | add a column to the Excel | `pipeline/excel.py` (day-block `headers` + row writer) | if it's billed, add it to `calculate_data_hash` **with** a golden-hash update |
-| change who a file is attributed to | `pipeline/attribution.py` + `billing_audit/writer.py` (frozen claimers) | remember attribution is frozen per row after first upload |
+| change who a file is attributed to | `pipeline/attribution.py` + `billing_audit/writer.py` (frozen claimers) | attribution is frozen per row (first-write-wins) by `freeze_row()` in the group loop — **before** generation and upload, so a withheld or failed upload does not un-freeze it; corrections go to the `billing_audit.attribution_snapshot` row, not the attachment |
 | add a new file variant | `pipeline/grouping.py` (variant assignment) → `pipeline/excel.py` (suffix) → `pipeline/upload.py` (routing) → `pipeline/cleanup.py` (recognise the suffix) | every layer must know the suffix or cleanup will treat it as garbage |
 | add an env knob | `pipeline/config.py` → `website/docs/reference/environment.md` → `.github/prompts/configuration-environment.md` | only the `Generate reports` step's `env:` is read by the pipeline |
 | change the schedule or budgets | `.github/workflows/weekly-excel-generation.yml` | owner approval; keep `TIME_BUDGET_MINUTES` < `timeout-minutes` |
@@ -194,7 +222,10 @@ The workflow:
 Every scheduled run writes what it read to Supabase `pipeline_memory`: a
 `run_ledger` row, a `sheet_registry` watermark per sheet, `row_state` /
 `row_event` per accepted row, and `group_state` per uploaded group (with the
-attachment id). Nothing in production *reads* it yet. A shadow comparator
+attachment id). Production *reads* it too — the sheet watermarks and the last
+run's ledger status before fetch, and the changed-row ids for the shadow
+comparator — but no read changes what is generated until
+`RUN_MEMORY_INCREMENTAL_ENABLED` is on. A shadow comparator
 computes what an incremental run *would* have regenerated and compares it
 with what the full run uploaded; the verdict is `pass`, `fail` or `skipped`
 and lives in `run_ledger.notes`. Five consecutive `pass` verdicts on
