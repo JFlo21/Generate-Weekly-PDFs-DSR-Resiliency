@@ -32,16 +32,16 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
 
-### 📋 Changelog — August 28, 2026
+### 📋 Changelog — August 29, 2026
 
+- 📄 Help guides updated: Task 5 live observation recorded, OPS-05 complete, verifier passed 9/9, transition to Phase 32
+- ✅ Problem fixed: skip already-routed intake rows before regen (BUG-019, D-11c) — read-only provenance pre-check
+- ✅ Problem fixed: per-regen start reserve + derived run budget (OPS-05, plan 31.1-09) + WR-02 ConnectionError isolation
+- ✅ Problem fixed: GF Decision Register writes a numeric WR # (synced WRs now match Requests/Billers/Inspector)
+- 📄 Help guides updated: verify-work artifacts — COVERAGE, UAT 29/29, SECURITY 50/50, code review, VERIFICATION + OPS-05 gap plan; workflow&#95;run field fence test; ledger batch 2026-08-28d
 - ✅ Problem fixed: a row's second Coverage Exception in the same sweep no longer aborts the hourly reconcile (repair-lock same-sweep memo) + C2 executed
 - ✅ Problem fixed: schedule lane never mapped MANIFEST&#95;WORKFLOW&#95;EVENT&#95;LIVE&#95;WRITE — Workflow Events were silently dry-run (+ ledger batch 2026-08-28b)
 - ✨ New capability: audit heal transitions C1/C2/C3 + Assigned GF roster fill (+ ledger batch 2026-08-28)
-- 📄 Help guides updated: ledger — PR merged, hop 1 green, post-merge next steps
-- ✅ Problem fixed: hand-entered Requests rows reach the GF Decision Register — manual-row seed, GF handoff stamp, Destination=both GF-first (BUG-015/016)
-- ✅ Problem fixed: BUG-013 priced-queue partition cache + claims-pending skip; BUG-014 hop-1 workflow name glob (first live day of Phase 31.1)
-- 📄 Help guides updated: 2026-08-27 holdup-triage write-back packet + resume delta
-- • Phase 31.1: control-plane orchestration hardening — schedule split, workflow&#95;run chain, wake debounce, bounded reads, Requests-as-source, stage transitions
 
 <!-- /runbook-repo -->
 
@@ -59,7 +59,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — August 28, 2026
+### 📋 Changelog — August 29, 2026
 
 - • 📊 Audit: 2026-08-24T06:44:27Z
 
@@ -70,7 +70,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
 
-### 📋 Changelog — August 28, 2026
+### 📋 Changelog — August 29, 2026
 
 - 📄 Help guides updated: claude-mem installer EPERM inside live session; deps restored, worker back
 - 📄 Help guides updated: record memory-swap commit 8d292c2 + archive push in project-state
@@ -85,7 +85,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** ClaudeOS .remember continuity store (session handoffs; no secrets by policy)
 
-### 📋 Changelog — August 28, 2026
+### 📋 Changelog — August 29, 2026
 
 - • sync: continuity from JFLODESKTOP
 
@@ -96,7 +96,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
 
-### 📋 Changelog — August 28, 2026
+### 📋 Changelog — August 29, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -458,7 +458,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — August 28, 2026
+### 📋 Changelog — August 29, 2026
 
 - • Phase 3: canary publisher — allowlisted repository&#95;dispatch to Runlog
 - ✅ Problem fixed: Fix Greptile issue on PR 30: contender must not release an active publish claim
@@ -497,3 +497,4 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
+
