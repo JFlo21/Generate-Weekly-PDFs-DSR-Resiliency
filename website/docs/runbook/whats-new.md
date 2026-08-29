@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: August 28, 2026 (updated automatically)_
+_Last updated: August 29, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -14,8 +14,9 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — August 28, 2026
+### 📋 Changelog — August 29, 2026
 
+- 📄 Help guides updated: first post-merge run verified; saving corrected
 - 📄 Help guides updated: scrub entry + / merged state
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - ✨ New capability: groups whose WR has no target-sheet row are not generated, listed as an error
@@ -23,7 +24,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - ✅ Problem fixed: kill-switch warning/breadcrumb log no server text
 - ✅ Problem fixed: key-homogeneous sheet&#95;registry upserts + diagnosable RPC failures
 - ✅ Problem fixed: header metadata from the hash's canonical row, not arrival order
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
 <!-- /runbook-repo -->
 
