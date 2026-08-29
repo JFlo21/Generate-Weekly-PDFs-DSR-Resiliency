@@ -106,7 +106,10 @@ and `SKIP_UPLOAD` dry runs are exempt, and a circuit breaker disables the skip f
 the map — a populated-but-partial read must never become "never generate". Reported once per run as
 an ERROR line with the counts (never the values — ERROR logs reach Sentry) followed by a WARNING line
 with the offending values (capped at 25) — those two lines are the audit trail for the data owner.
-The rule converges by itself when a row is added. Parity treats never-generated groups like withheld
+The rule converges by itself when a row is added. Verified on the first post-merge scheduled run
+(33219619070): 154 not generated, 0 not-found upload warnings, run 42 min vs 55 — the saving is ~13–15
+min/run (the "~45 min" estimate on the PR read the generation cost into the whole run; the waste was in
+the upload phase). Parity treats never-generated groups like withheld
 ones; `run_summary.json` gains `groups_skipped_no_target_row` (22-key contract, golden updated).
 Operators: expect `… N not generated (no target-sheet row)` in the phase summary, one `❌` line and
 one `Work request values with no target-sheet row: …` line; the per-group `Work request … not found

@@ -7722,3 +7722,29 @@ follow-up findings closed, same 6 files.
 - **RULE — hold a second PR's ledger entry locally until the first merges, then ship it as a docs commit.**
   Two open PRs appending to `memory-bank/living-ledger.md` conflict at the second merge; the second PR's
   entry is reproducible from its write-back script, so the cost of holding it is zero.
+
+## [2026-08-28 19:00] First post-merge run VERIFIED (run 33219619070, schedule, `c95300e`) — skip rule live; saving corrected to ~13–15 min/run
+
+- **All expected signals present, none of the failure signals:** phase summary `8 generated, 2980 skipped,
+  154 not generated (no target-sheet row) in 603.0s`; exactly 154 per-group `⛔ Skip (no target-sheet row):
+  Work request …` WARNINGs; one `❌ 154 group(s) across 137 distinct 'Work Request #' value(s) …` ERROR line
+  (counts only); one `Work request values with no target-sheet row: …` WARNING listing 25 values
+  `... and 112 more`; **0** per-group `not found in target sheet` upload warnings (the 21:50Z pre-merge run
+  had them); **0** `🛑` breaker lines (miss ratio ≈137/1300 ≪ 0.5) and 0 collision/quarantine lines; upload
+  phase `8 uploaded, 0 errors`; `run_summary.json` = 22 keys with `groups_skipped_no_target_row = 154`,
+  `files_generated = 8`, `groups_uploaded = 8`, `groups_errored = 0`; bundle carries exactly 8 xlsx. Also
+  re-confirmed #363/#364: the `sheet_registry` upsert POSTed with no WARNING, 0 `pipeline_memory` /
+  `billing_audit` warnings, run-memory row writes `6 sheet(s) written, 0 errored`.
+- **CORRECTION — the per-run saving is ~13–15 min, not the "~45 min" estimated in `[2026-08-28 17:10]` /
+  `[18:05]` and on PR #365.** Like-for-like with the 21:50Z pre-merge run (`f9145b0`): total 55 min → 42
+  min; group phase 567.6 s (166 generated) → 603.0 s (8 generated) — generating the 154 files was cheap;
+  the cost lived AFTER generation (audit + 154 failing upload attempts): group-phase end → upload-phase
+  end was 20 min before and 5 min now. The 154 ⛔ lines cluster in the last ~2 min of the group phase
+  (they are the oldest weeks, processed last), consistent with the gate costing nothing.
+- **Unverified in production:** the parity exclusion for never-generated groups (`_shadow_parity_input_sets
+  (..., unobservable=)`) — this run resolved run-memory mode to `full` (`RUN_MEMORY_INCREMENTAL_ENABLED`
+  not set), so no shadow-parity verdict ran. It is covered by `ParityUnobservableTests` only until the
+  incremental flag is switched on (Phase 11 gate).
+- **RULE — quote savings from a like-for-like run pair, not from a phase estimate.** The "45 min" came from
+  reading the group-phase generation cost into the whole run; the actual waste was in the upload phase.
+  Before/after `⚡` phase lines from two runs on the same schedule are the only acceptable evidence.
