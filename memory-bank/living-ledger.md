@@ -7733,23 +7733,31 @@ follow-up findings closed, same 6 files.
   had them); **0** `🛑` breaker lines (miss ratio ≈137/1300 ≪ 0.5) and 0 collision/quarantine lines; upload
   phase `8 uploaded, 0 errors`; `run_summary.json` = 22 keys with `groups_skipped_no_target_row = 154`,
   `files_generated = 8`, `groups_uploaded = 8`, `groups_errored = 0`; bundle carries exactly 8 xlsx. Also
-  re-confirmed #363/#364: the `sheet_registry` upsert POSTed with no WARNING, 0 `pipeline_memory` /
-  `billing_audit` warnings, run-memory row writes `6 sheet(s) written, 0 errored`.
+  **production-verified #363**: the `sheet_registry` upsert POSTed with no WARNING, 0 `pipeline_memory`
+  warnings, run-memory row writes `6 sheet(s) written, 0 errored`. **#364 is NOT verified by this run** —
+  its sanitised warning/breadcrumb only fires when a PGRST106/301/302 failure trips the `billing_audit`
+  kill switch, and no run has exercised that path; it stays test-covered until one does.
 - **CORRECTION — the per-run saving is ~13–15 min, not the "~45 min" estimated in `[2026-08-28 17:10]` /
   `[18:05]` and on PR #365.** Like-for-like with the 21:50Z pre-merge run (`f9145b0`): total 55 min → 42
-  min; group phase 567.6 s (166 generated) → 603.0 s (8 generated) — generating the 154 files was cheap;
-  the cost lived AFTER generation (audit + 154 failing upload attempts): group-phase end → upload-phase
-  end was 20 min before and 5 min now. The 154 ⛔ lines cluster in the last ~2 min of the group phase
+  min; group phase 567.6 s (166 generated) → 603.0 s (8 generated) — generating the 154 files was cheap,
+  and the per-group billing-audit snapshot runs INSIDE the group phase (before Excel generation), so it
+  is not part of the saving either; the cost lived in the upload phase (154 failing upload attempts and
+  their attachment lookups): group-phase end → upload-phase end was 20 min before and 5 min now. The 154 ⛔ lines cluster in the last ~2 min of the group phase
   (they are the oldest weeks, processed last), consistent with the gate costing nothing.
-- **Unverified in production:** the parity exclusion for never-generated groups (`_shadow_parity_input_sets
-  (..., unobservable=)`) — this run resolved run-memory mode to `full` (`RUN_MEMORY_INCREMENTAL_ENABLED`
-  not set), so no shadow-parity verdict ran. It is covered by `ParityUnobservableTests` only until the
-  incremental flag is switched on (Phase 11 gate).
+- **Parity exclusion for never-generated groups — consistent with a pass, not yet read back.** The
+  shadow-parity block's gates were ALL met this run (mode `full`, `RUN_MEMORY_WRITE_ENABLED=1`,
+  incremental off, not TEST_MODE, row writes `confirmed=True`) and the log carries none of its three
+  emitted lines (`⏩ Skipping shadow parity check…`, `🚨 Shadow parity FAIL…`, `⚠️ Shadow parity check
+  failed unexpectedly`). A pass is SILENT by design: the verdict from `combine_verdicts` goes only into
+  `run_ledger.notes.parity_verdict` via `_finish_kwargs`. So the block ran and did not fail; confirming
+  `pass` requires reading that `run_ledger` row (Supabase), which this session did not do. Correction
+  of an earlier draft: full mode is what ENABLES the block — switching the incremental flag on would
+  disable it, not verify it.
 - **RULE — quote savings from a like-for-like run pair, not from a phase estimate.** The "45 min" came from
   reading the group-phase generation cost into the whole run; the actual waste was in the upload phase.
   Before/after `⚡` phase lines from two runs on the same schedule are the only acceptable evidence.
 
-## [2026-08-28 19:30] The 137 no-target-row WRs analysed against Smartsheet (read-only SDK): NEVER had a target row
+## [2026-08-28 19:30] The 137 no-target-row WRs analysed against Smartsheet (read-only SDK): no trace of a target row on any surface available to the token
 
 - Method: read-only Smartsheet SDK pass (the `smartsheet` MCP server is configured but was not attached to the
   session): full read of the target sheet `Pre Planned - Pricing Per Project` (782 rows, 762 distinct WR keys,
@@ -7758,15 +7766,23 @@ follow-up findings closed, same 6 files.
   `Master storms data (Pre-Planned Pricing)` (914 rows, one per WR). The Events API (deleted-row history)
   is **not on the plan** (error 1013). Private per-value list: session scratchpad
   `no_target_row_owner_actions_2026-08-28.csv` — never in the repo.
-- **Finding — target ⊂ Master, and the 137 are exactly a subset of Master-minus-target (158; the other 21 have
-  no rows in the reporting window).** The Master rows of the 137 have `Pre Planned Pricing` filled for 1 of
+- **Finding — the target sheet is (almost) a subset of Master, and the 137 all lie in Master-minus-target.**
+  Counts after the pipeline's own key normalisation: Master 914 distinct WR keys; target 762 distinct keys,
+  of which 756 are on Master and 6 are not (the `… (Test)` cell and similar oddities); Master − target =
+  914 − 756 = 158, of which 137 are the skipped set and 21 have no source rows in the reporting window. The Master rows of the 137 have `Pre Planned Pricing` filled for 1 of
   137; WRs that DO have a target row have it filled 295 of 300. The target sheet is the set of WRs with
-  pre-planned pricing; a WR gets a row there when pricing is entered. **None of the 137 was ever on the
-  target sheet** — 0 of them on `Archived Work Requests` (the target's archive index), 0 on any archive /
-  `_V2` variant of the target visible to the token, no cell-history trace.
-- Owner action buckets (values / group-weeks): **41 / 46** source `Work Request #` typos that are one edit
-  (or a 7-digit truncation) away from a WR that HAS a target row → fix the source cell and the rows fold into
-  that WR's existing file; **10 / 11** source values that are not WRs at all (9-digit, non-numeric, one
+  pre-planned pricing; a WR gets a row there when pricing is entered. **No trace of any of the 137 on the
+  target sheet or its descendants**: 0 on `Archived Work Requests` (the target's archive index), 0 on any
+  archive / `_V2` variant of the target visible to the token, no trace in the cell history of surviving
+  rows. Because deleted-row history (Events API) is unavailable on this plan, this establishes that no
+  row is *findable*, not that a row never existed and was deleted; the pricing fill-rates make
+  "never priced, hence never added" the most likely history for the 84 well-formed values.
+- Owner action buckets (values / group-weeks): **41 / 46** source `Work Request #` values that are one edit
+  (or a 7-digit truncation) away from a WR that HAS a target row — **typo CANDIDATES only**: Master mirrors
+  the source values, so every one of the 137 has its own Master row and edit distance alone cannot prove
+  the neighbour is the intended job. Corroborate each against authoritative job fields (Job #, foreman,
+  dept, dates, scope) before editing the source cell; a wrong edit would fold a legitimate WR's billing
+  rows into another WR's workbook. Once confirmed and fixed, the rows fold into that WR's existing file; **10 / 11** source values that are not WRs at all (9-digit, non-numeric, one
   `DCP…` design id) → need the real WR; **2 / 4** on the target sheet but the cell reads `<WR> (Test)` /
   carries a formatting variant → fix the target cell; **84 / 93** well-formed WRs whose Master row has no
   pre-planned pricing → business call: price them (a target row appears through the normal process and the
@@ -7774,5 +7790,9 @@ follow-up findings closed, same 6 files.
 - Data-hygiene flag outside the 137: 10 WR values appear on TWO target rows with identical text — the
   builder keeps the first row silently (collision logging fires only for *different* raw values), so the
   second row never receives attachments.
-- **RULE — "absent from the target map" means "no pre-planned pricing", not "matching bug".** The target
-  sheet is downstream of pricing entry; the pipeline cannot and should not create those rows.
+- **RULE — "absent from the target map" is a data question with four known causes, never a pipeline matching
+  bug.** Check in this order: (1) source value is a typo/truncation of a WR that has a target row (corroborate
+  before editing); (2) source value is not a WR at all; (3) the target cell carries a suffix / formatting
+  variant; (4) the WR is well-formed but has no pre-planned pricing, so no target row was ever created —
+  the target sheet is downstream of pricing entry, and the pipeline cannot and should not create those rows.
+  Only (4) is a business decision; (1)–(3) are data hygiene.

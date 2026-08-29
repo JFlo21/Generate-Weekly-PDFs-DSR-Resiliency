@@ -96,8 +96,9 @@ when the kill switch trips or what it disables changed. See `memory-bank/living-
 ## 2026-08-28 — groups whose WR has no target-sheet row are not generated; listed as an error (PR #365)
 Owner decision: a Work Request with no row on the target sheet is a data-entry error on the source
 sheet, not a matching problem. Such groups (154 group-weeks per run) used to regenerate on every run
-— "can't verify the attachment, safer to regenerate" — and then fail to upload, ~45 minutes of wasted
-generation per run. They are now skipped before the billing-audit snapshot and the hash decision, so
+— "can't verify the attachment, safer to regenerate" — and then fail to upload; measured on a
+like-for-like run pair, that cost ~13–15 minutes per run, almost all of it in the upload phase (the
+generation itself was cheap). They are now skipped before the billing-audit snapshot and the hash decision, so
 they are neither tracked in Supabase nor generated. Guards: the target map must be populated, the WR
 must not be a target-sheet collision (quarantined keys keep the old "not found" outcome), `TEST_MODE`
 and `SKIP_UPLOAD` dry runs are exempt, and a circuit breaker disables the skip for the whole run
@@ -107,9 +108,9 @@ the map — a populated-but-partial read must never become "never generate". Rep
 an ERROR line with the counts (never the values — ERROR logs reach Sentry) followed by a WARNING line
 with the offending values (capped at 25) — those two lines are the audit trail for the data owner.
 The rule converges by itself when a row is added. Verified on the first post-merge scheduled run
-(33219619070): 154 not generated, 0 not-found upload warnings, run 42 min vs 55 — the saving is ~13–15
-min/run (the "~45 min" estimate on the PR read the generation cost into the whole run; the waste was in
-the upload phase). Parity treats never-generated groups like withheld
+(33219619070): 154 not generated, 0 not-found upload warnings, run 42 min vs 55 (PR #365 had estimated
+~45 min from the generation cost alone; the corrected figure and its evidence are in
+`memory-bank/living-ledger.md` `[2026-08-28 19:00]`, PR #368). Parity treats never-generated groups like withheld
 ones; `run_summary.json` gains `groups_skipped_no_target_row` (22-key contract, golden updated).
 Operators: expect `… N not generated (no target-sheet row)` in the phase summary, one `❌` line and
 one `Work request values with no target-sheet row: …` line; the per-group `Work request … not found

@@ -20,20 +20,22 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
 
 ## Latest work (2026-08-28 19:00 CDT) — #363–#367 MERGED; no-target-row skip VERIFIED on the first post-merge run (154 not generated, 0 not-found upload warnings, 42 min vs 55)
 
-- **Main tree = `master` (`016974e`).** #361–#366 merged. **#365** (`13f1ffa`): owner-decided no-target-row skip + risk-review breaker / load-once + review round 2 (quarantine-aware gate, gate ahead of the billing-audit snapshot, breaker over unscoped rows with a validated threshold, PII-safe ERROR/WARNING audit split, 22-key `run_summary` contract; 18 threads resolved; 1838 tests green). **#366** (`d1cc49b`): identifier scrub, generated JSONs untracked. **VERIFIED on run 33219619070 (23:12Z schedule, `c95300e`)** — every expected line present, 0 failure signals, `run_summary.json` 22 keys with `groups_skipped_no_target_row = 154`; ledger `[2026-08-28 19:00]`. Real saving ≈13–15 min/run (55 → 42 min), not the ~45 min estimated earlier. Parity exclusion still production-unverified (run-memory mode `full`). **The 137 analysed in Smartsheet (ledger `[2026-08-28 19:30]`): never had a target row — target sheet = WRs with pre-planned pricing (295/300 priced vs 1/137); 41 source typos of existing target WRs, 10 non-WR values, 2 target-cell fixes, 84 unpriced WRs (business call). Private action CSV in the session scratchpad.**
-  The 12:04 CDT run (`0b910c1`, first run with #361) showed no hash churn beyond the pre-existing pattern below;
-  the first run with #362 is the next scheduled one — expect zero regeneration from it.
-- **`pipeline_memory[sheet_registry_upsert]` HTTP 400 on every run since 2026-08-27 18:20Z** — diagnosed, see
+- **Main tree = `master` (`c95300e`, contains #367 `9d559c1`).** #361–#367 merged. **#365** (`13f1ffa`): owner-decided no-target-row skip + risk-review breaker / load-once + review round 2 (quarantine-aware gate, gate ahead of the billing-audit snapshot, breaker over unscoped rows with a validated threshold, PII-safe ERROR/WARNING audit split, 22-key `run_summary` contract; 18 threads resolved; 1838 tests green). **#366** (`d1cc49b`): identifier scrub, generated JSONs untracked. **VERIFIED on run 33219619070 (23:12Z schedule, `c95300e`)** — every expected line present, 0 failure signals, `run_summary.json` 22 keys with `groups_skipped_no_target_row = 154`; ledger `[2026-08-28 19:00]`. Real saving ≈13–15 min/run (55 → 42 min), not the ~45 min estimated earlier. Parity exclusion still production-unverified (run-memory mode `full`). **The 137 analysed in Smartsheet (ledger `[2026-08-28 19:30]`): never had a target row — target sheet = WRs with pre-planned pricing (295/300 priced vs 1/137); 41 source typos of existing target WRs, 10 non-WR values, 2 target-cell fixes, 84 unpriced WRs (business call). Private action CSV in the session scratchpad.**
+  Runs since `0b910c1` (#361) through `c95300e` (#367) show no hash churn; the 23:12Z run generated only the
+  8 groups whose rows changed.
+- **`pipeline_memory[sheet_registry_upsert]` HTTP 400 (every run 2026-08-27 18:20Z → #363) — RESOLVED, production-verified** on run
+  33219619070 (upsert POSTed, 0 warnings). Diagnosis, see
   ledger `[2026-08-28 15:05]`: frequent runs send a bulk upsert whose rows disagree on whether `column_mapping`
   is present (120 registered sheets omit it, the 1 new sheet carries it); postgrest-py sends `columns=` as the
   union, so PostgREST NULLs `column_mapping` on the UPDATE half → NOT NULL violation → 400, non-retryable,
   never self-heals. **FIXED — #363 merged:** every row carries `column_mapping` (registered sheets echo the
   stored one; PostgreSQL checks the INSERT candidate before `ON CONFLICT`, so omission was fatal even for
   existing rows — the first grouping-only shape would not have worked), key-set split for the nullable
-  watermark, `with_retry` logs `code=` always and the message only from a value-free allowlist. Verify on
-  the next scheduled run. Ledger `[2026-08-28 15:05]`/`[16:05]`.
-- **Pre-existing every-run waste:** 154 group-weeks (137 WR values) whose WR has no target-sheet row regenerate
-  every run and never upload. Characterised `[2026-08-28 17:10]`: ~55% malformed source `Work Request #`
+  watermark, `with_retry` logs `code=` always and the message only from a value-free allowlist. #364 (the
+  `billing_audit` kill-switch logging twin) stays **test-covered only** — its path runs only when a
+  PGRST106/301/302 failure trips the kill switch, which no run has exercised. Ledger `[2026-08-28 15:05]`/`[16:05]`.
+- **Former every-run waste (closed by #365):** 154 group-weeks (137 WR values) whose WR has no target-sheet row
+  used to regenerate every run and never upload. Characterised `[2026-08-28 17:10]`: ~55% malformed source `Work Request #`
   values (wrong length / non-numeric), ~45% plausible 8-digit WRs missing from the target sheet; Smartsheet
   data hygiene, not Supabase. **DECIDED (Juan 2026-08-28): not generated, listed as an error** — PR #365
   (`should_skip_no_target_row`, end-of-run ERROR counts line + WARNING values line, parity exclusion) —
