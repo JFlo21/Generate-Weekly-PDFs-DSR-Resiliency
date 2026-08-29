@@ -43,9 +43,9 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
   only). Notion export shipped on PR #369 (opt-in Number property `Groups No Target Row`).
 - **DECIDED (Juan 2026-08-28): identifier scrub = option A** — alias real WR ids / names in the tracked tip,
   untrack `generated_docs/artifact_manifest.json` + `hash_history.json` (CI regenerates both). **MERGED (#366).**
-  Real WRs left by owner choice: `pipeline/excel.py` WR-keyed log, `generate_weekly_pdfs.py` banner, one
-  `.github/prompts/testing-and-validation.md` fixture key. Phase 11 checklist resumes now (parity streak →
-  11-08).
+  The three residuals first left by owner choice (`pipeline/excel.py` WR-keyed log, `generate_weekly_pdfs.py`
+  banner, one `.github/prompts/testing-and-validation.md` fixture key) are removed on PR #369. Phase 11
+  checklist resumes now (parity streak → 11-08).
 
 ## Previous (2026-08-28 12:05 CDT) — #361 MERGED (`eb8338f`); #362 open: one `derive_group_identity()` for Sites 1/2/3, header foreman = hash rule (owner-approved), deterministic legacy header; OWNER DECISION pending on repo-wide identifier scrub
 - **#362** `fix/identity-helper-header-foreman` (`49373fd`, branch of master `b23b7af`): closes #361's three open threads. `derive_group_identity(first_row, **_identity_switches)` replaces the three inline identity chains in `main()` (switches bound once after the facade prelude); `canonical_foreman()` = hash `FOREMAN=` rule, now also the PRIMARY workbook header foreman (approved by Juan 2026-08-28; **reachable in production** via the whitespace-only `Foreman Assigned?` path (`fetch.py:888-892` → blank `__current_foreman`; such primary groups showed a blank header while the hash named a foreman) and gated on `variant == 'primary'` — helper/helper-shadow/vac_crew/subcontractor headers keep their partition key; hashes/identity keys byte-identical, golden digests); `canonical_first_row()` uses the extended total order in legacy mode too (legacy hash untouched). New `tests/test_group_identity_and_header_foreman.py` (15 tests, 144 subtests: verbatim reference chain, two-order keys, wiring, golden digests, legacy, primary-only header rule); 7 older source pins re-pointed. 1794 passed, 1 skipped; 0 added lines >79 chars. Independent review: haiku-verifier PASS ×6; production-risk-reviewer P0 none, P1 (helper-shadow header exposure) fixed, P2s applied/recorded. Ledger `[2026-08-28 12:05]`.

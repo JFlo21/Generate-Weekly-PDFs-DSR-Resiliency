@@ -128,7 +128,8 @@ them, and one `.github/prompts/testing-and-validation.md` fixture key. See
 
 ## 2026-08-28 — Notion gets the no-target-row counter (opt-in property); last real WR ids removed from the tree
 The weekly workflow now exports `groups_skipped_no_target_row` to the Notion run sync, which writes it to the
-Pipeline Runs database as the Number property `Groups No Target Row` **only if that property exists** — add it in
-Notion to opt in; nothing changes until you do (Notion would otherwise reject the page). The startup banner and
+Pipeline Runs database as the Number property `Groups No Target Row` **only if that property exists with type
+Number** (a same-named property of any other type is logged and skipped) — add it in Notion to opt in; nothing
+changes until you do (Notion would otherwise reject the page). The startup banner and
 `pipeline/excel.py` no longer name two historical Work Requests (the per-WR branch was a log line with no
 behaviour). No pipeline behaviour change. See `memory-bank/living-ledger.md` `[2026-08-28 20:15]`; PR #369.

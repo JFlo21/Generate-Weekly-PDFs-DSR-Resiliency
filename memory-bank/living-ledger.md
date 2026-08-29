@@ -7809,9 +7809,12 @@ follow-up findings closed, same 6 files.
 - **Notion metrics (owner-approved workflow edit):** `weekly-excel-generation.yml` exports
   `GROUPS_SKIPPED_NO_TARGET_ROW` from `run_summary.json`; `scripts/notion_sync.py` writes it to the Pipeline Runs
   database as the Number property **`Groups No Target Row`** ONLY when the database schema already defines that
-  property (`_db_has_property`, fails closed) — Notion rejects a page carrying an undefined property name, so
-  the sync keeps working unchanged until the property is added. **Operator step to opt in:** add a Number property
-  named exactly `Groups No Target Row` to the Pipeline Runs database. Tests: schema present / absent / API error.
+  property WITH TYPE `number` (`_db_has_number_property`, fails closed; a same-named property of another type
+  logs a WARNING and is skipped, because Notion would reject the number payload and drop the whole run record) —
+  Notion also rejects a page carrying an undefined property name, so the sync keeps working unchanged until the
+  property is added. **Operator step to opt in:** add a Number property named exactly `Groups No Target Row` to
+  the Pipeline Runs database. Tests: schema present as Number / absent / wrong type (rich_text, select, formula,
+  untyped) / API error.
 - **Real-WR residuals gone:** the `pipeline/excel.py` per-WR branch was a no-op INFO log (no behaviour) and is
   removed with its docstring bullets; the startup banner lines naming two WRs are replaced by one generic line;
   the `testing-and-validation.md` fixture key now uses the fictional WR its own rows use. An 8-digit `8x/9x` scan

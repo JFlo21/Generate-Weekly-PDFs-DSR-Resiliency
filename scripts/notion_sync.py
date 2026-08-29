@@ -256,9 +256,10 @@ def sync_run(notion: Client):
         properties[GROUPS_NO_TARGET_PROP] = _number(groups_no_target)
     else:
         log.info(
-            f"Notion property {GROUPS_NO_TARGET_PROP!r} not in the database "
-            f"schema -- groups_skipped_no_target_row={groups_no_target} not "
-            f"exported (add a Number property with that name to enable)"
+            f"Notion property {GROUPS_NO_TARGET_PROP!r} missing from the "
+            f"database schema or not a Number property -- "
+            f"groups_skipped_no_target_row={groups_no_target} not exported "
+            f"(add a Number property with that name to enable)"
         )
     notion.pages.create(parent={"database_id": NOTION_PIPELINE_DB}, properties=properties)
     log.info(f"✅ Synced Run #{GITHUB_RUN_NUMBER} to Notion Pipeline Runs")
