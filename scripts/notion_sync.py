@@ -116,15 +116,31 @@ def _commit_url(sha: str):
 GROUPS_NO_TARGET_PROP = "Groups No Target Row"
 
 
-def _db_has_property(notion: Client, db_id: str, prop_name: str) -> bool:
-    """True when the Notion database schema defines *prop_name*.
+def _db_has_number_property(notion: Client, db_id: str, prop_name: str) -> bool:
+    """True when the Notion database schema defines *prop_name* AND its
+    type is ``number``.
 
-    Fails closed (False) on any API error so a schema lookup problem can
-    never break the run sync -- the property is simply not exported.
+    A name-only check is not enough: Notion rejects the whole page when a
+    property payload does not match the schema type, so a ``rich_text``
+    (or select, formula, ...) property with this name must be treated
+    exactly like a missing one. Fails closed (False) on any API error so
+    a schema lookup problem can never break the run sync -- the property
+    is simply not exported.
     """
     try:
         db = notion.databases.retrieve(database_id=db_id)
-        return prop_name in (db.get("properties") or {})
+        prop = (db.get("properties") or {}).get(prop_name)
+        if not isinstance(prop, dict):
+            return False
+        prop_type = prop.get("type")
+        if prop_type != "number":
+            log.warning(
+                f"Notion property {prop_name!r} exists with type "
+                f"{prop_type!r}, not 'number' -- not exported (change the "
+                f"property type to Number to enable)"
+            )
+            return False
+        return True
     except Exception as exc:  # noqa: BLE001 - non-fatal by design
         log.warning(f"Could not read Notion database schema: {type(exc).__name__}")
         return False
@@ -233,10 +249,10 @@ def sync_run(notion: Client):
 
     # PR #365 counter. Notion rejects a page whose properties include a
     # name the database does not define, so this one is added only when
-    # the schema carries it -- operators add the Number property
+    # the schema carries it AS A NUMBER -- operators add the Number property
     # "Groups No Target Row" to the Pipeline Runs database to opt in;
     # until then the sync keeps working exactly as before.
-    if _db_has_property(notion, NOTION_PIPELINE_DB, GROUPS_NO_TARGET_PROP):
+    if _db_has_number_property(notion, NOTION_PIPELINE_DB, GROUPS_NO_TARGET_PROP):
         properties[GROUPS_NO_TARGET_PROP] = _number(groups_no_target)
     else:
         log.info(

@@ -129,7 +129,20 @@ def test_sync_run_omits_no_target_counter_when_schema_lacks_it(monkeypatch, tmp_
     assert "Files Skipped" in props
 
 
+def test_sync_run_omits_no_target_counter_when_property_type_is_not_number(monkeypatch, tmp_path) -> None:
+    """Notion rejects a number payload on a rich_text / select / formula
+    property -- an incompatible type must be treated like a missing one."""
+    monkeypatch.chdir(tmp_path)
+    _run_sync_env(monkeypatch, "154")
+    for wrong in ({"type": "rich_text"}, {"type": "select"}, {"type": "formula"}, {}):
+        notion = _notion_with_schema({"Run": {}, ns.GROUPS_NO_TARGET_PROP: wrong})
+        ns.sync_run(notion)
+        props = notion.pages.create.call_args.kwargs["properties"]
+        assert ns.GROUPS_NO_TARGET_PROP not in props, wrong
+        assert "Files Skipped" in props
+
+
 def test_db_has_property_fails_closed_on_api_error() -> None:
     notion = MagicMock()
     notion.databases.retrieve.side_effect = RuntimeError("boom")
-    assert ns._db_has_property(notion, "db", "X") is False
+    assert ns._db_has_number_property(notion, "db", "X") is False
