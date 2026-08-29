@@ -7748,3 +7748,31 @@ follow-up findings closed, same 6 files.
 - **RULE — quote savings from a like-for-like run pair, not from a phase estimate.** The "45 min" came from
   reading the group-phase generation cost into the whole run; the actual waste was in the upload phase.
   Before/after `⚡` phase lines from two runs on the same schedule are the only acceptable evidence.
+
+## [2026-08-28 19:30] The 137 no-target-row WRs analysed against Smartsheet (read-only SDK): NEVER had a target row
+
+- Method: read-only Smartsheet SDK pass (the `smartsheet` MCP server is configured but was not attached to the
+  session): full read of the target sheet `Pre Planned - Pricing Per Project` (782 rows, 762 distinct WR keys,
+  10 duplicate WR values, 10 empty, 1 `… (Test)` cell), whole-cell / formatting-variant / one-edit matching,
+  cell history of the WR column, global search per value, and set arithmetic against
+  `Master storms data (Pre-Planned Pricing)` (914 rows, one per WR). The Events API (deleted-row history)
+  is **not on the plan** (error 1013). Private per-value list: session scratchpad
+  `no_target_row_owner_actions_2026-08-28.csv` — never in the repo.
+- **Finding — target ⊂ Master, and the 137 are exactly a subset of Master-minus-target (158; the other 21 have
+  no rows in the reporting window).** The Master rows of the 137 have `Pre Planned Pricing` filled for 1 of
+  137; WRs that DO have a target row have it filled 295 of 300. The target sheet is the set of WRs with
+  pre-planned pricing; a WR gets a row there when pricing is entered. **None of the 137 was ever on the
+  target sheet** — 0 of them on `Archived Work Requests` (the target's archive index), 0 on any archive /
+  `_V2` variant of the target visible to the token, no cell-history trace.
+- Owner action buckets (values / group-weeks): **41 / 46** source `Work Request #` typos that are one edit
+  (or a 7-digit truncation) away from a WR that HAS a target row → fix the source cell and the rows fold into
+  that WR's existing file; **10 / 11** source values that are not WRs at all (9-digit, non-numeric, one
+  `DCP…` design id) → need the real WR; **2 / 4** on the target sheet but the cell reads `<WR> (Test)` /
+  carries a formatting variant → fix the target cell; **84 / 93** well-formed WRs whose Master row has no
+  pre-planned pricing → business call: price them (a target row appears through the normal process and the
+  file generates on the next run) or they are not pre-planned work and the source rows are mis-tagged.
+- Data-hygiene flag outside the 137: 10 WR values appear on TWO target rows with identical text — the
+  builder keeps the first row silently (collision logging fires only for *different* raw values), so the
+  second row never receives attachments.
+- **RULE — "absent from the target map" means "no pre-planned pricing", not "matching bug".** The target
+  sheet is downstream of pricing entry; the pipeline cannot and should not create those rows.
