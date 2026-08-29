@@ -541,7 +541,7 @@ def inject_known_audit_anomalies():
     
     anomaly_patterns = {
         # Price variance anomaly (>50% difference within WR)
-        "price_variance_wr90093002": [
+        "price_variance_wr13792260": [
             {"Work Request #": "WR_13792260", "CU": "T001", "Units Total Price": "2500.00"},  # Normal
             {"Work Request #": "WR_13792260", "CU": "T001", "Units Total Price": "4800.00"},  # 92% higher
             {"Work Request #": "WR_13792260", "CU": "T001", "Units Total Price": "1100.00"}   # 56% lower

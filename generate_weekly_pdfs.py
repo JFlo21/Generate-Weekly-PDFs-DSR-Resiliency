@@ -4,8 +4,7 @@ Weekly PDF Generator with Complete Fixes
 Generates Excel reports from Smartsheet data for weekly billing periods.
 
 FIXES IMPLEMENTED:
-- WR 90093002 Excel generation fix
-- WR 89954686 specific handling 
+- Historical per-WR Excel generation fixes (folded into the general path)
 - Proper file deletion logic
 - Complete audit system integration
 - All incomplete code sections completed
@@ -75,8 +74,7 @@ except Exception as e:
 
 # 🎯 SHOW OUR FIXES ARE ACTIVE
 print("✅ CRITICAL FIXES APPLIED:")
-print("   • WR 90093002 Excel generation fix - ACTIVE")
-print("   • WR 89954686 specific handling - ACTIVE")
+print("   • Per-WR Excel generation fixes - ACTIVE")
 print("   • MergedCell assignment errors - FIXED")
 print("   • Type ignore comments - APPLIED")
 print("🚀 SYSTEM READY FOR PRODUCTION")

@@ -855,6 +855,7 @@ jobs:
             export FILES_GENERATED=$(jq -r '.files_generated // 0' generated_docs/run_summary.json)
             export FILES_UPLOADED=$(jq -r '.groups_uploaded // 0' generated_docs/run_summary.json)
             export FILES_SKIPPED=$(jq -r '.groups_skipped // 0' generated_docs/run_summary.json)
+            export GROUPS_SKIPPED_NO_TARGET_ROW=$(jq -r '.groups_skipped_no_target_row // 0' generated_docs/run_summary.json)
             export GROUPS_TOTAL=$(jq -r '.groups_total // 0' generated_docs/run_summary.json)
             export GROUPS_ERRORED=$(jq -r '.groups_errored // 0' generated_docs/run_summary.json)
             export SHEETS_DISCOVERED=$(jq -r '.sheets_discovered // 0' generated_docs/run_summary.json)

@@ -7796,3 +7796,26 @@ follow-up findings closed, same 6 files.
   variant; (4) the WR is well-formed but has no pre-planned pricing, so no target row was ever created —
   the target sheet is downstream of pricing entry, and the pipeline cannot and should not create those rows.
   Only (4) is a business decision; (1)–(3) are data hygiene.
+
+## [2026-08-28 20:15] Parity read back = pass; Notion export of the no-target counter (schema-gated); last real-WR residuals removed
+
+- **Parity CONFIRMED for the first post-merge run** (read-only `pipeline_memory.run_ledger` read, run_id
+  `33219619070.1`): `parity_verdict = pass`; group verdict `pass` (8 compared, 0 hash mismatches, 0 only-in-actual,
+  1 only-in-candidate = a `USER_Unknown_Foreman` group the candidate set carries and the full run did not emit —
+  tolerated by design); read verdict `pass` (121 sheets probed, 52 rows asserted, 0 mismatches);
+  `actual_withheld_excluded = 154` — the never-generated groups were excluded from the parity universe exactly as
+  `_shadow_parity_input_sets(..., unobservable=)` intends. Closes the "consistent with a pass, not read back"
+  caveat in `[19:00]`.
+- **Notion metrics (owner-approved workflow edit):** `weekly-excel-generation.yml` exports
+  `GROUPS_SKIPPED_NO_TARGET_ROW` from `run_summary.json`; `scripts/notion_sync.py` writes it to the Pipeline Runs
+  database as the Number property **`Groups No Target Row`** ONLY when the database schema already defines that
+  property (`_db_has_property`, fails closed) — Notion rejects a page carrying an undefined property name, so
+  the sync keeps working unchanged until the property is added. **Operator step to opt in:** add a Number property
+  named exactly `Groups No Target Row` to the Pipeline Runs database. Tests: schema present / absent / API error.
+- **Real-WR residuals gone:** the `pipeline/excel.py` per-WR branch was a no-op INFO log (no behaviour) and is
+  removed with its docstring bullets; the startup banner lines naming two WRs are replaced by one generic line;
+  the `testing-and-validation.md` fixture key now uses the fictional WR its own rows use. An 8-digit `8x/9x` scan
+  of tracked files returns 0 files. `test_workflow_and_schema_untouched` (git-diff pin on `.github/workflows/`)
+  passes once the approved workflow change is committed — it guards uncommitted edits, not the file's history.
+- Target-sheet duplicates handed to the owner: 10 WR values on two identical rows each (4 of them the `9999999x`
+  test WRs); private CSV in the session scratchpad.

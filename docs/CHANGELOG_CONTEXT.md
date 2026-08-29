@@ -125,3 +125,10 @@ operators will notice only that ledger/runbook examples use `1xxxxxxx`-style WRs
 remain by owner choice: the `pipeline/excel.py` WR-keyed log line, the startup banner that names
 them, and one `.github/prompts/testing-and-validation.md` fixture key. See
 `memory-bank/living-ledger.md` `[2026-08-28 18:20]`; PR #366.
+
+## 2026-08-28 — Notion gets the no-target-row counter (opt-in property); last real WR ids removed from the tree
+The weekly workflow now exports `groups_skipped_no_target_row` to the Notion run sync, which writes it to the
+Pipeline Runs database as the Number property `Groups No Target Row` **only if that property exists** — add it in
+Notion to opt in; nothing changes until you do (Notion would otherwise reject the page). The startup banner and
+`pipeline/excel.py` no longer name two historical Work Requests (the per-WR branch was a log line with no
+behaviour). No pipeline behaviour change. See `memory-bank/living-ledger.md` `[2026-08-28 20:15]`; PR #369.

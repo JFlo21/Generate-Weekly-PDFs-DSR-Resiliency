@@ -113,6 +113,23 @@ def _commit_url(sha: str):
 
 # ── Duplicate detection ────────────────────────────────────────────────────
 
+GROUPS_NO_TARGET_PROP = "Groups No Target Row"
+
+
+def _db_has_property(notion: Client, db_id: str, prop_name: str) -> bool:
+    """True when the Notion database schema defines *prop_name*.
+
+    Fails closed (False) on any API error so a schema lookup problem can
+    never break the run sync -- the property is simply not exported.
+    """
+    try:
+        db = notion.databases.retrieve(database_id=db_id)
+        return prop_name in (db.get("properties") or {})
+    except Exception as exc:  # noqa: BLE001 - non-fatal by design
+        log.warning(f"Could not read Notion database schema: {type(exc).__name__}")
+        return False
+
+
 def _page_exists(notion: Client, db_id: str, title_prop: str, title_val: str) -> bool:
     """Check if a page with this title already exists in the database."""
     try:
@@ -156,6 +173,7 @@ def sync_run(notion: Client):
     files_skipped   = os.getenv("FILES_SKIPPED", "0")
     groups_total    = os.getenv("GROUPS_TOTAL", "0")
     groups_errored  = os.getenv("GROUPS_ERRORED", "0")
+    groups_no_target = os.getenv("GROUPS_SKIPPED_NO_TARGET_ROW", "0")
     sheets_count    = os.getenv("SHEETS_DISCOVERED", "0")
     rows_fetched    = os.getenv("ROWS_FETCHED", "0")
     duration_min    = os.getenv("DURATION_MINUTES", "0")
@@ -213,6 +231,19 @@ def sync_run(notion: Client):
         "Error Summary":      _text(error_summary),
     }
 
+    # PR #365 counter. Notion rejects a page whose properties include a
+    # name the database does not define, so this one is added only when
+    # the schema carries it -- operators add the Number property
+    # "Groups No Target Row" to the Pipeline Runs database to opt in;
+    # until then the sync keeps working exactly as before.
+    if _db_has_property(notion, NOTION_PIPELINE_DB, GROUPS_NO_TARGET_PROP):
+        properties[GROUPS_NO_TARGET_PROP] = _number(groups_no_target)
+    else:
+        log.info(
+            f"Notion property {GROUPS_NO_TARGET_PROP!r} not in the database "
+            f"schema -- groups_skipped_no_target_row={groups_no_target} not "
+            f"exported (add a Number property with that name to enable)"
+        )
     notion.pages.create(parent={"database_id": NOTION_PIPELINE_DB}, properties=properties)
     log.info(f"✅ Synced Run #{GITHUB_RUN_NUMBER} to Notion Pipeline Runs")
 
