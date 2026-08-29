@@ -1,10 +1,10 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-28 19:30 CDT (00:30Z) · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-28 20:15 CDT (01:15Z) · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
-_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-28 19:30]` (the 137 never had a target row — Smartsheet analysis). Earlier: `[2026-08-28 19:00]` (first post-merge run verified; saving corrected), `[2026-08-28 18:45]` (#365 + #366 merged), `[2026-08-28 18:20]` (identifier scrub, #366), `[2026-08-28 18:05]` (decisions: no-target-row skip on #365; scrub option A), `[2026-08-28 17:10]` (#363 merged, 154-withheld = source-data shape), `[2026-08-28 16:05]` (sheet_registry fix on #363), `[2026-08-28 15:05]` (root cause + 154-withheld pattern), `[2026-08-28 12:05]` (#362), `[2026-08-27 21:10]` (verified pipeline truths from the
+_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-28 20:15]` (parity read back = pass; Notion counter export; real-WR residuals removed). Earlier: `[2026-08-28 19:30]` (the 137: no findable target row — Smartsheet analysis), `[2026-08-28 19:00]` (first post-merge run verified; saving corrected), `[2026-08-28 18:45]` (#365 + #366 merged), `[2026-08-28 18:20]` (identifier scrub, #366), `[2026-08-28 18:05]` (decisions: no-target-row skip on #365; scrub option A), `[2026-08-28 17:10]` (#363 merged, 154-withheld = source-data shape), `[2026-08-28 16:05]` (sheet_registry fix on #363), `[2026-08-28 15:05]` (root cause + 154-withheld pattern), `[2026-08-28 12:05]` (#362), `[2026-08-27 21:10]` (verified pipeline truths from the
 #360 review rounds — acceptance gate, group key, TEST_MODE/Supabase, Snapshot Date, reset purge, stale
 attachment, public-repo identifier rule). Earlier: `[2026-08-27 20:20]` (identity row = canonical row,
 ships with PR #361), `[2026-08-27 16:10]` (hash sort tiebreaker, #359).
@@ -20,7 +20,7 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
 
 ## Latest work (2026-08-28 19:00 CDT) — #363–#367 MERGED; no-target-row skip VERIFIED on the first post-merge run (154 not generated, 0 not-found upload warnings, 42 min vs 55)
 
-- **Main tree = `master` (`c95300e`, contains #367 `9d559c1`).** #361–#367 merged. **#365** (`13f1ffa`): owner-decided no-target-row skip + risk-review breaker / load-once + review round 2 (quarantine-aware gate, gate ahead of the billing-audit snapshot, breaker over unscoped rows with a validated threshold, PII-safe ERROR/WARNING audit split, 22-key `run_summary` contract; 18 threads resolved; 1838 tests green). **#366** (`d1cc49b`): identifier scrub, generated JSONs untracked. **VERIFIED on run 33219619070 (23:12Z schedule, `c95300e`)** — every expected line present, 0 failure signals, `run_summary.json` 22 keys with `groups_skipped_no_target_row = 154`; ledger `[2026-08-28 19:00]`. Real saving ≈13–15 min/run (55 → 42 min), not the ~45 min estimated earlier. Parity exclusion still production-unverified (run-memory mode `full`). **The 137 analysed in Smartsheet (ledger `[2026-08-28 19:30]`): never had a target row — target sheet = WRs with pre-planned pricing (295/300 priced vs 1/137); 41 source typos of existing target WRs, 10 non-WR values, 2 target-cell fixes, 84 unpriced WRs (business call). Private action CSV in the session scratchpad.**
+- **Main tree = `master` (`c95300e`, contains #367 `9d559c1`).** #361–#367 merged. **#365** (`13f1ffa`): owner-decided no-target-row skip + risk-review breaker / load-once + review round 2 (quarantine-aware gate, gate ahead of the billing-audit snapshot, breaker over unscoped rows with a validated threshold, PII-safe ERROR/WARNING audit split, 22-key `run_summary` contract; 18 threads resolved; 1838 tests green). **#366** (`d1cc49b`): identifier scrub, generated JSONs untracked. **VERIFIED on run 33219619070 (23:12Z schedule, `c95300e`)** — every expected line present, 0 failure signals, `run_summary.json` 22 keys with `groups_skipped_no_target_row = 154`; ledger `[2026-08-28 19:00]`. Real saving ≈13–15 min/run (55 → 42 min), not the ~45 min estimated earlier. Shadow parity READ BACK from `run_ledger` (`33219619070.1`): `parity_verdict = pass`, `actual_withheld_excluded = 154` — ledger `[2026-08-28 20:15]`. **The 137 analysed in Smartsheet (ledger `[2026-08-28 19:30]`): no findable target row (deleted-row history unavailable) — target sheet = WRs with pre-planned pricing (295/300 priced vs 1/137); 41 source typos of existing target WRs, 10 non-WR values, 2 target-cell fixes, 84 unpriced WRs (business call). Private action CSV in the session scratchpad.**
   Runs since `0b910c1` (#361) through `c95300e` (#367) show no hash churn; the 23:12Z run generated only the
   8 groups whose rows changed.
 - **`pipeline_memory[sheet_registry_upsert]` HTTP 400 (every run 2026-08-27 18:20Z → #363) — RESOLVED, production-verified** on run
@@ -40,13 +40,12 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
   data hygiene, not Supabase. **DECIDED (Juan 2026-08-28): not generated, listed as an error** — PR #365
   (`should_skip_no_target_row`, end-of-run ERROR counts line + WARNING values line, parity exclusion) —
   **MERGED.** Source-side cleanup is a Smartsheet task for the data owner (CSV in the session scratchpad
-  only). Owner item still open: the Notion-metrics workflow line exporting `groups_skipped_no_target_row`
-  (workflow edit, needs approval).
+  only). Notion export shipped on PR #369 (opt-in Number property `Groups No Target Row`).
 - **DECIDED (Juan 2026-08-28): identifier scrub = option A** — alias real WR ids / names in the tracked tip,
   untrack `generated_docs/artifact_manifest.json` + `hash_history.json` (CI regenerates both). **MERGED (#366).**
-  Real WRs left by owner choice: `pipeline/excel.py` WR-keyed log, `generate_weekly_pdfs.py` banner, one
-  `.github/prompts/testing-and-validation.md` fixture key. Phase 11 checklist resumes now (parity streak →
-  11-08).
+  The three residuals first left by owner choice (`pipeline/excel.py` WR-keyed log, `generate_weekly_pdfs.py`
+  banner, one `.github/prompts/testing-and-validation.md` fixture key) are removed on PR #369. Phase 11
+  checklist resumes now (parity streak → 11-08).
 
 ## Previous (2026-08-28 12:05 CDT) — #361 MERGED (`eb8338f`); #362 open: one `derive_group_identity()` for Sites 1/2/3, header foreman = hash rule (owner-approved), deterministic legacy header; OWNER DECISION pending on repo-wide identifier scrub
 - **#362** `fix/identity-helper-header-foreman` (`49373fd`, branch of master `b23b7af`): closes #361's three open threads. `derive_group_identity(first_row, **_identity_switches)` replaces the three inline identity chains in `main()` (switches bound once after the facade prelude); `canonical_foreman()` = hash `FOREMAN=` rule, now also the PRIMARY workbook header foreman (approved by Juan 2026-08-28; **reachable in production** via the whitespace-only `Foreman Assigned?` path (`fetch.py:888-892` → blank `__current_foreman`; such primary groups showed a blank header while the hash named a foreman) and gated on `variant == 'primary'` — helper/helper-shadow/vac_crew/subcontractor headers keep their partition key; hashes/identity keys byte-identical, golden digests); `canonical_first_row()` uses the extended total order in legacy mode too (legacy hash untouched). New `tests/test_group_identity_and_header_foreman.py` (15 tests, 144 subtests: verbatim reference chain, two-order keys, wiring, golden digests, legacy, primary-only header rule); 7 older source pins re-pointed. 1794 passed, 1 skipped; 0 added lines >79 chars. Independent review: haiku-verifier PASS ×6; production-risk-reviewer P0 none, P1 (helper-shadow header exposure) fixed, P2s applied/recorded. Ledger `[2026-08-28 12:05]`.

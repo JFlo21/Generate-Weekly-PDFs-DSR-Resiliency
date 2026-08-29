@@ -154,8 +154,7 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     FIXED: Generate a formatted Excel report for a group of rows.
 
     SPECIFIC FIXES IMPLEMENTED:
-    - WR 90093002 Excel generation (complete implementation)
-    - WR 89954686 specific handling
+    - Historical per-WR generation fixes (folded into the general path)
     - Proper error handling for worksheet objects
     - Complete daily data block generation
     - Safe cell merging to prevent XML errors
@@ -217,10 +216,6 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     # attachment / hash-history comparisons stay consistent.
     wr_num = _RE_SANITIZE_HELPER_NAME.sub('_', wr_num)[:50]
 
-    # SPECIFIC FIX FOR WR 90093002 and WR 89954686
-    if wr_num in ['90093002', '89954686']:
-        logging.info(f"🔧 Applying specific fixes for WR# {wr_num}")
-    
     # Get the calculated week ending date from the row data if available
     week_ending_date = first_row.get('__week_ending_date')
     if week_ending_date:
