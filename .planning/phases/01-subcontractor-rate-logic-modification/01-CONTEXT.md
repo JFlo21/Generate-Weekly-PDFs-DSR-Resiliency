@@ -287,7 +287,7 @@ and the VAC-crew workflow are not touched.
   (now resolved per D-01), per-CU rate variance, zero-price
   placeholder rows, and the 5 loader gaps that this CONTEXT.md
   resolves
-- `.planning/INGEST-CONFLICTS.md` — single WARNING (Living Ledger
+- `.planning/milestones/v1.0-INGEST-CONFLICTS-2026-05-14.md` — single WARNING (Living Ledger
   ADR extraction) was acknowledged during ingest
 
 ### Codebase-resident specs and rules
@@ -487,7 +487,7 @@ and the VAC-crew workflow are not touched.
 
 - **Splitting CLAUDE.md Living Ledger into per-entry ADR files**
   (`memory-bank/adr/*.md`) — would close the WARNING from
-  `.planning/INGEST-CONFLICTS.md` but is out of v1.0 scope per the
+  `.planning/milestones/v1.0-INGEST-CONFLICTS-2026-05-14.md` but is out of v1.0 scope per the
   user's "Subcontractor only" milestone choice. Promote in a
   future milestone if stricter ADR contract enforcement is
   desired.

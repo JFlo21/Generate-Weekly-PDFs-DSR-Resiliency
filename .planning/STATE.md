@@ -1,21 +1,21 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.3
-milestone_name: Engine Modularization & Hygiene
+milestone: v1.4
+milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
 current_phase: 11
 current_phase_name: Incremental Read + Affected-Group Regeneration
 status: executing
 stopped_at: Completed 11-07-PLAN.md (Task 2 DEFERRED by owner decision; INC-05 open; plan 11-08 not executed)
-last_updated: "2026-08-26T22:40:16.560Z"
-last_activity: 2026-08-26
-last_activity_desc: Phase 11 execution started
+last_updated: "2026-08-29T15:47:55.163Z"
+last_activity: 2026-08-29
+last_activity_desc: Planning hygiene; 11-08 parity gate re-read (0/5, 3 passes to go)
+state_head: a085cfdf3e920fc86a7fdd9465e35917bc716a67
 progress:
-  total_phases: 1
-  completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
-  percent: 100
-state_head: db7592a89ea1d93597a8287c461537626377c5d3
+  total_phases: 12
+  completed_phases: 3
+  total_plans: 46
+  completed_plans: 45
+  percent: 25
 ---
 
 # Project State
@@ -45,8 +45,13 @@ Plan: 7 of 8 complete (11-07 DONE; the `state.advance-plan` counter reads
   in 11-07-SUMMARY.md.
 Status: 11-07 complete; 11-08 deferred (no further Phase 11 execution planned
   until the owner re-opens the Task 2 decision per 11-07-SUMMARY.md).
-Last activity: 2026-08-26 — 11-07 complete (get_parity_streak shipped; INC-05
-  retirement deferred by Juan)
+Last activity: 2026-08-29 — planning hygiene (milestone pointer v1.3 → v1.4 so the
+  tooling resolves Phases 10–13; stale v1.2 checkpoint + ingest report archived under
+  milestones/; config keys explicit). 11-08 gate re-read from run_ledger:
+  get_parity_streak() = 0 — the pre-#365 `fail` (2026-08-28 03:49Z) is still inside the
+  newest-first walk, which zeroes on any fail before the target; two scheduled
+  `production_frequent` passes post-date it (17:04Z, 23:12Z), so three more consecutive
+  passes are needed before 11-07 Task 2 can be re-opened.
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
@@ -57,7 +62,7 @@ Last activity: 2026-08-26 — 11-07 complete (get_parity_streak shipped; INC-05
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [██████████] 100% (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 next)
+Progress: [███░░░░░░░] 25% (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 at 7/8, 11-08 gated)
 ```
 
 ## Performance Metrics

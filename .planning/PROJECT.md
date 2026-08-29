@@ -273,7 +273,7 @@ acceptance is confirmed on the first post-merge cron run:
 - **Treating the Living Ledger as advisory** — every dated entry in
   `decisions.md` under "ADR-equivalent rules from `CLAUDE.md` Living
   Ledger" is operative-locked, confirmed via the WARNING gate in
-  `INGEST-CONFLICTS.md`.
+  `.planning/milestones/v1.0-INGEST-CONFLICTS-2026-05-14.md` (archived there in PR #370).
 
 ## Context
 

@@ -143,7 +143,7 @@ date: 2026-05-15T18:58:16.903664+00:00
 
 ### Project docs
 
-- `.planning/INGEST-CONFLICTS.md`
+- `.planning/INGEST-CONFLICTS.md` *(historical path — archived as `.planning/milestones/v1.0-INGEST-CONFLICTS-2026-05-14.md` in PR #370)*
 - `.planning/PROJECT.md`
 - `.planning/REQUIREMENTS.md`
 - `.planning/ROADMAP.md`
