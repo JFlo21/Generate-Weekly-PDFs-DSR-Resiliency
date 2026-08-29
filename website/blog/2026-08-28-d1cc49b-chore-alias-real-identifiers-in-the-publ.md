@@ -68,7 +68,7 @@ date: 2026-08-28T22:52:43.163750+00:00
 
 ### Project docs
 
-- `.planning/.continue-here.md`
+- `.planning/.continue-here.md` *(historical path — archived as `.planning/milestones/v1.2-continue-here-2026-06-08.md` in PR #370)*
 - `.planning/REQUIREMENTS.md`
 - `.planning/ROADMAP.md`
 - `.planning/debug/helper-generation-workflow-analysis-2026-05-20.md`

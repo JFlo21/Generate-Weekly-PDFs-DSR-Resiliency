@@ -27,7 +27,7 @@ date: 2026-06-08T18:04:21.583036+00:00
 
 ### Project docs
 
-- `.planning/.continue-here.md`
+- `.planning/.continue-here.md` *(historical path — archived as `.planning/milestones/v1.2-continue-here-2026-06-08.md` in PR #370)*
 - `.planning/PROJECT.md`
 - `.planning/REQUIREMENTS.md`
 - `.planning/ROADMAP.md`

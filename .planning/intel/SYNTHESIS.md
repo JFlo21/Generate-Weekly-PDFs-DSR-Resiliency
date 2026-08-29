@@ -94,7 +94,7 @@ Notable locked-equivalent rules:
 
 ## Conflicts
 
-See `.planning/INGEST-CONFLICTS.md` for the three-bucket
+See `.planning/milestones/v1.0-INGEST-CONFLICTS-2026-05-14.md` for the three-bucket
 detail.
 
 - BLOCKERS: 0
@@ -112,7 +112,7 @@ detail.
 - `.planning/intel/requirements.md`
 - `.planning/intel/constraints.md`
 - `.planning/intel/context.md`
-- `.planning/INGEST-CONFLICTS.md`
+- `.planning/milestones/v1.0-INGEST-CONFLICTS-2026-05-14.md`
 
 ## Routing readiness
 

@@ -29,7 +29,7 @@ date: 2026-06-09T06:32:16.572346+00:00
 
 ### Project docs
 
-- `.planning/.continue-here.md`
+- `.planning/.continue-here.md` *(historical path — archived as `.planning/milestones/v1.2-continue-here-2026-06-08.md` in PR #370)*
 - `.planning/phases/08-smartsheet-python-sdk-4-0-0-compatibility-migration/08-RESEARCH.md`
 - `memory-bank/living-ledger.md`
 
