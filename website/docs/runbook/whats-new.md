@@ -16,6 +16,7 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — August 29, 2026
 
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - 📄 Help guides updated: first post-merge run verified; saving corrected
 - 📄 Help guides updated: scrub entry + / merged state
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
@@ -23,7 +24,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - 📄 Help guides updated: Learn section — operator and engineer guides; overview refreshed
 - ✅ Problem fixed: kill-switch warning/breadcrumb log no server text
 - ✅ Problem fixed: key-homogeneous sheet&#95;registry upserts + diagnosable RPC failures
-- ✅ Problem fixed: header metadata from the hash's canonical row, not arrival order
 
 <!-- /runbook-repo -->
 
