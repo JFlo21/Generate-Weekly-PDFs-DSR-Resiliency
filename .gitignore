@@ -144,3 +144,5 @@ generated_docs/artifact_manifest.json
 # GSD planning working files (session-local; never commit)
 .planning/milestone.lock
 .planning/research/.cache/
+# debug notes can hold real crew names / WRs: alias first, then `git add -f`
+.planning/debug/

@@ -7823,26 +7823,31 @@ follow-up findings closed, same 6 files.
 - Target-sheet duplicates handed to the owner: 10 WR values on two identical rows each (4 of them the `9999999x`
   test WRs); private CSV in the session scratchpad.
 
-## [2026-08-29 14:45] #369 + #370 merged; the 11-08 streak counts weekday runs only; never stage `.planning/` with `git add -A`
+## [2026-08-29 16:45] #369 + #370 merged; the 11-08 streak counts weekday runs only; never stage `.planning/` with `git add -A`
 
 - **Merged (squash, Juan):** #369 — the workflow exports `GROUPS_SKIPPED_NO_TARGET_ROW` and `scripts/notion_sync.py`
   writes it to Notion as `Groups No Target Row` only when the Pipeline Runs schema defines that property with type
   `number` (`_db_has_number_property`; wrong type → WARNING + skip, API error → fail closed); last real-WR residuals
   gone. #370 — planning hygiene: STATE milestone pointer v1.4 (progress recomputed), the two W019 files archived under
   `.planning/milestones/`, every reference to the moved paths repointed or labelled historical, config keys explicit.
-- **RULE — the D-12 parity streak is weekday-only.** `weekly-excel-generation.yml` classifies runs by cron identity:
-  Sat/Sun → `execution_type = weekend_maintenance`, Monday 05Z → the weekly deep run, everything else →
-  `production_frequent`. `get_parity_streak()` counts only `production_frequent`, and a `fail` anywhere in its
+- **RULE — the D-12 parity streak is weekday-only, by LOCAL calendar day.** `weekly-excel-generation.yml` (`Determine
+  execution type`, `TZ=America/Chicago`): a `workflow_dispatch` run is `manual`; a scheduled run is `production_frequent`
+  when the Central-time weekday at job start is Mon–Fri and `weekend_maintenance` when it is Sat/Sun — so the Saturday
+  01:00Z cron (Friday 20:00 CDT) is frequent; only the `0 5 * * 1` deep run is classified by cron identity
+  (`github.event.schedule`) as `weekly_comprehensive` (`[2026-08-05 17:35]`). `get_parity_streak()` counts only
+  `production_frequent` — manual parity runs never bank a pass — and a `fail` anywhere in its
   newest-first walk zeroes the count and stops — so it reports `0`, never "2 so far"; read `run_ledger.notes` for the
   banked passes. After the 2026-08-28 03:49Z fail: 17:04Z + 23:12Z banked (21:51Z `skipped`), Saturday's 15:13Z
   `skipped` / 19:11Z `pass` do not count → earliest completion Monday 17Z. Never read weekend passes as 11-08 progress.
 - **RULE — stage named paths; never `git add -A <dir>` in this repo.** `.planning/` carries untracked working files by
   design (`milestone.lock` session lock, `research/.cache/`, pattern maps, debug notes that can hold real crew names and
-  WRs). On #370 an `add -A .planning` pushed four such files (`cbb2df5`), including a debug note with a real foreman +
-  WR, to the public repo; Copilot/Codex caught it within minutes, the branch was rewritten (`9cfd350`) and master never
-  carried them, but the superseded commit stays fetchable by SHA until GC. `.gitignore` now lists
-  `.planning/milestone.lock` and `.planning/research/.cache/`; PII-bearing debug notes stay untracked or are aliased
-  first (2026-08-28 identifier rule).
+  WRs). On #370 an `add -A .planning` pushed four such files, including a debug note with a real foreman + WR, to
+  the public repo in one commit; Copilot/Codex caught it within minutes, the branch was rewritten (`9cfd350`) and
+  master never carried them. The superseded object is unreachable from any ref; its identifier is deliberately NOT
+  recorded here (a public SHA is a locator for the leaked content) — it lives in the private incident record. Owner
+  decision: no Support purge. `.gitignore` now lists `.planning/milestone.lock`, `.planning/research/.cache/` and
+  `.planning/debug/` (new debug notes need `git add -f`, after aliasing per the 2026-08-28 identifier rule);
+  `*-PATTERNS.md` stays a tracked artifact class that lands with its phase PR.
 - **GSD tooling footguns:** `state milestone-switch` is a "start a fresh milestone" command — it resets Current Position
   to *defining requirements* (wrong for an executing milestone; edit the pointer surgically, then `state update-progress`);
   `state advance-plan` with no arguments mutates STATE.md, so never probe it for usage.
