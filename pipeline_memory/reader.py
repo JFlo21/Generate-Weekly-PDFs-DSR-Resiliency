@@ -49,13 +49,26 @@ _ROW_STATE_PAGE_SIZE = 1000
 # Bounded recent-row window for get_parity_streak (Phase 11 Plan 07,
 # CONTEXT.md D-09). Comfortably larger than the five-run gate target so a
 # handful of interleaved ``skipped`` rows never starve the scan before it
-# can prove (or disprove) five consecutive ``production_frequent`` passes.
+# can prove (or disprove) five consecutive counted passes.
 _PARITY_STREAK_DEFAULT_LIMIT = 50
 
-# The D-09 gate: five consecutive ``pass`` verdicts on ``production_
-# frequent`` runs is the evidence 11-07-PLAN.md Task 2's blocking-human
-# checkpoint requires before authorising the INC-05 retirement.
+# The D-09 gate: five consecutive ``pass`` verdicts on counted runs is
+# the evidence 11-07-PLAN.md Task 2's blocking-human checkpoint requires
+# before authorising the INC-05 retirement.
 _PARITY_STREAK_TARGET = 5
+
+# Which ``notes.execution_type`` values the streak counts. D-09 as
+# amended by the owner on 2026-08-29: production is logged through the
+# weekend and a ``workflow_dispatch`` run executes the same code path on
+# the same sheets, so their parity verdicts are the same evidence as a
+# weekday run's. Only the Monday ``weekly_comprehensive`` deep run -- a
+# different workload with its own reconciliation path -- stays outside
+# the streak (its verdicts neither count nor reset).
+_PARITY_STREAK_EXECUTION_TYPES = frozenset({
+    "production_frequent",
+    "weekend_maintenance",
+    "manual",
+})
 
 
 def get_sheet_watermarks(sheet_ids: list) -> dict:
@@ -380,7 +393,9 @@ def get_parity_streak(limit: int = _PARITY_STREAK_DEFAULT_LIMIT) -> dict | None:
 
     Scans the newest ``limit`` ``run_ledger`` rows (``run_id, started_at,
     status, notes``, ordered by ``started_at`` descending) newest-first.
-    Rows whose ``notes.execution_type`` is not ``production_frequent`` are
+    Rows whose ``notes.execution_type`` is not in
+    ``_PARITY_STREAK_EXECUTION_TYPES`` (``production_frequent``,
+    ``weekend_maintenance``, ``manual`` -- D-09 as amended 2026-08-29) are
     ignored entirely -- not counted, not scanned as a candidate. Among the
     remaining rows, ``notes.parity_verdict`` drives the walk: a ``pass``
     increments the running count; a ``fail`` resets the count to zero and
@@ -462,7 +477,7 @@ def get_parity_streak(limit: int = _PARITY_STREAK_DEFAULT_LIMIT) -> dict | None:
         notes = row.get("notes")
         if not isinstance(notes, dict):
             continue
-        if notes.get("execution_type") != "production_frequent":
+        if notes.get("execution_type") not in _PARITY_STREAK_EXECUTION_TYPES:
             continue
 
         verdict = notes.get("parity_verdict")

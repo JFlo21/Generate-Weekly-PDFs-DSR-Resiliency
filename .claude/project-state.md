@@ -1,10 +1,10 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-29 16:45 CDT (21:45Z) · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-29 17:55 CDT (22:55Z) · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
-_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-29 16:45]` (#369 + #370 merged; streak gate counts weekday runs only; `.planning/` staging rule). Earlier: `[2026-08-28 20:15]` (parity read back = pass; Notion counter export; real-WR residuals removed), `[2026-08-28 19:30]` (the 137: no findable target row — Smartsheet analysis), `[2026-08-28 19:00]` (first post-merge run verified; saving corrected), `[2026-08-28 18:45]` (#365 + #366 merged), `[2026-08-28 18:20]` (identifier scrub, #366), `[2026-08-28 18:05]` (decisions: no-target-row skip on #365; scrub option A), `[2026-08-28 17:10]` (#363 merged, 154-withheld = source-data shape), `[2026-08-28 16:05]` (sheet_registry fix on #363), `[2026-08-28 15:05]` (root cause + 154-withheld pattern), `[2026-08-28 12:05]` (#362), `[2026-08-27 21:10]` (verified pipeline truths from the
+_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-29 17:55]` (D-09 amended: streak counts weekend + manual runs; manual run 33277374958 parity pass; no standalone docs PRs). Earlier: `[2026-08-29 16:45]` (#369 + #370 merged; `.planning/` staging rule), `[2026-08-28 20:15]` (parity read back = pass; Notion counter export; real-WR residuals removed), `[2026-08-28 19:30]` (the 137: no findable target row — Smartsheet analysis), `[2026-08-28 19:00]` (first post-merge run verified; saving corrected), `[2026-08-28 18:45]` (#365 + #366 merged), `[2026-08-28 18:20]` (identifier scrub, #366), `[2026-08-28 18:05]` (decisions: no-target-row skip on #365; scrub option A), `[2026-08-28 17:10]` (#363 merged, 154-withheld = source-data shape), `[2026-08-28 16:05]` (sheet_registry fix on #363), `[2026-08-28 15:05]` (root cause + 154-withheld pattern), `[2026-08-28 12:05]` (#362), `[2026-08-27 21:10]` (verified pipeline truths from the
 #360 review rounds — acceptance gate, group key, TEST_MODE/Supabase, Snapshot Date, reset purge, stale
 attachment, public-repo identifier rule). Earlier: `[2026-08-27 20:20]` (identity row = canonical row,
 ships with PR #361), `[2026-08-27 16:10]` (hash sort tiebreaker, #359).
@@ -14,12 +14,21 @@ production** since #353 (`673f7b2`, `RUN_MEMORY_WRITE_ENABLED: '1'` on the `Gene
 fix — memory writes confirmed on run #2801), #358 (parity "actual" = queued-for-upload set + shadow
 budget 25), #355 (docs/hook), #359 (hash sort tiebreaker). **Merged 2026-08-28 03:37Z: #360** Learn docs (`5d7b7ce`). **Merged 2026-08-28: #361** (`eb8338f`). **#362 merged.** Phase 11 EXECUTING — **7/8 plans done**; **11-08 INC-05 retirement DEFERRED by owner** (needs
 ≥5 consecutive `parity_verdict = pass` on `production_frequent` runs; re-read 2026-08-29 19:30Z: **2 of 5** since
-the 03:49Z fail — runs on a local Sat/Sun are `weekend_maintenance` and `workflow_dispatch` runs are `manual`; neither counts,
-so Monday 13/15/17Z is the earliest). Then: checklist item 6 SQL +
+the 03:49Z fail under the original rule; **D-09 amended 2026-08-29: weekend + manual runs count too → 4 of 5**, the next
+counted `pass` completes the gate). Then: checklist item 6 SQL +
 items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-08-29 16:45 CDT) — #369 + #370 MERGED; 11-08 gate = 2/5 (weekday runs only); planning tree points at v1.4
+## Latest work (2026-08-29 17:55 CDT) — D-09 amended (weekend + manual runs count); manual run parity PASS; 11-08 gate = 4/5; #369 + #370 MERGED
 
+- **D-09 amended (owner, 2026-08-29): `get_parity_streak()` counts `production_frequent` + `weekend_maintenance` + `manual`**
+  (`_PARITY_STREAK_EXECUTION_TYPES`; only the `weekly_comprehensive` deep run stays excluded — its verdicts neither count nor
+  reset). Rationale: production is logged through the weekend and a dispatch runs the same code path on the same sheets.
+  Tests: weekend/manual passes count, a weekend fail resets, unknown types ignored, the live 2026-08-29 ledger shape (4 → 0
+  because of the older fail; +1 pass → 5). 11-08's plan gate statement amended to match. Ships as its own code PR.
+- **Owner-directed manual run 33277374958 (`c2859e2`, 21:57–22:32Z, 35 min): `parity_verdict = pass`** — group 4/4, read 121
+  sheets / 54 rows / 0 mismatches, `actual_withheld_excluded = 154`; 4 generated / 4 uploaded / 0 errors; `group_state`
+  192/192 rows carry `attachment_id` (INC-05 precondition holds). Every parity-evaluated run since #361: 4 passes, 2 skipped,
+  0 fails across three execution types.
 - **Main tree = `master` (`c2859e2`).** **#369** (Notion export of `groups_skipped_no_target_row` as the opt-in Number
   property `Groups No Target Row`, type-gated by `_db_has_number_property`; last real-WR residuals removed) and **#370**
   (GSD hygiene: STATE milestone pointer v1.3 → v1.4 with progress recomputed; the stale v1.2 `.continue-here.md` and the
@@ -28,9 +37,9 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
   Phase 01.1 warnings; `smart-entry` = "Phase 11 of 12 · executing".
 - **11-08 gate:** `get_parity_streak()` reports 0 because the 2026-08-28 03:49Z `fail` still sits in its newest-first walk
   (a fail zeroes the count and stops). `run_ledger` read 19:30Z: `production_frequent` passes since that fail = 17:04Z,
-  23:12Z (21:51Z `skipped`) → **2 of 5**. Saturday's 15:13Z / 19:11Z runs are `weekend_maintenance` (`skipped` / `pass`)
-  and manual dispatches are `manual`; the reader excludes both, so the earliest completion is Monday's 13/15/17Z runs —
-  re-check before touching 11-07 Task 2. Ledger `[2026-08-29 16:45]`.
+  23:12Z (21:51Z `skipped`) → 2 of 5 under the original weekday-only rule; **under the amended rule Sat 19:11Z + the manual
+  run also count → 4 of 5**, and the next counted `pass` (Sat 23Z at the earliest) reaches the target — re-read before
+  re-opening 11-07 Task 2. Ledger `[2026-08-29 17:55]`.
 - **Incident (contained, disclosed):** a `git add -A .planning` on #370 staged four untracked working files — the session
   lock, the research cache, the Phase 11 pattern map, and a debug note that holds a real foreman name + WR — in one
   pushed commit. The branch was rewritten within minutes (`9cfd350`, force-with-lease) and the merged tree never

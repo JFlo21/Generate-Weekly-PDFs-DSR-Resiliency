@@ -2189,9 +2189,12 @@ def _streak_row(run_id, verdict=None, execution_type="production_frequent"):
 
 class ParityStreakTests(unittest.TestCase):
     """Phase 11 Plan 07, Task 1 (D-09): ``get_parity_streak`` scans
-    ``run_ledger`` newest-first for consecutive ``production_frequent``
-    ``pass`` verdicts -- pass counts, fail resets and stops, skipped (and
-    an absent verdict) is excluded from the sequence entirely.
+    ``run_ledger`` newest-first for consecutive ``pass`` verdicts on the
+    counted execution types (``production_frequent``,
+    ``weekend_maintenance``, ``manual`` -- D-09 as amended by the owner on
+    2026-08-29) -- pass counts, fail resets and stops, skipped (and an
+    absent verdict) is excluded from the sequence entirely; the weekly
+    deep run is ignored.
     """
 
     def setUp(self):
@@ -2300,7 +2303,7 @@ class ParityStreakTests(unittest.TestCase):
 
         self.assertEqual(result["streak"], 2)
 
-    def test_non_production_frequent_rows_are_ignored(self):
+    def test_weekly_comprehensive_rows_are_ignored(self):
         from pipeline_memory import reader as mem_reader
 
         rows = [
@@ -2320,6 +2323,121 @@ class ParityStreakTests(unittest.TestCase):
         # The weekly-run "fail" must not reset/stop a production_frequent
         # streak -- it is ignored entirely, not scanned as a candidate.
         self.assertEqual(result["streak"], 2)
+
+    def test_weekend_and_manual_passes_count(self):
+        """D-09 amendment (owner, 2026-08-29): weekend and manual runs
+        exercise the same code path on the same sheets, so their
+        ``pass`` verdicts bank toward the gate exactly like a weekday's.
+        """
+        from pipeline_memory import reader as mem_reader
+
+        rows = [
+            _streak_row("r-manual", "pass", execution_type="manual"),
+            _streak_row(
+                "r-weekend", "pass", execution_type="weekend_maintenance",
+            ),
+            _streak_row("r-weekday", "pass"),
+        ]
+        client = self._mock_rows(rows)
+
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=client
+        ):
+            result = mem_reader.get_parity_streak(limit=10)
+
+        self.assertEqual(result["streak"], 3)
+        self.assertEqual(
+            result["contributing_run_ids"],
+            ["r-manual", "r-weekend", "r-weekday"],
+        )
+
+    def test_weekend_fail_resets_and_stops_like_a_weekday_fail(self):
+        """Counting a type means counting it both ways: a weekend
+        ``fail`` is evidence against the gate, not noise to skip."""
+        from pipeline_memory import reader as mem_reader
+
+        rows = [
+            _streak_row("r1", "pass"),
+            _streak_row(
+                "r-weekend", "fail", execution_type="weekend_maintenance",
+            ),
+            _streak_row("r2", "pass"),
+            _streak_row("r3", "pass"),
+        ]
+        client = self._mock_rows(rows)
+
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=client
+        ):
+            result = mem_reader.get_parity_streak(limit=10)
+
+        self.assertEqual(result["streak"], 0)
+        self.assertEqual(result["stopped_run_id"], "r-weekend")
+        self.assertEqual(result["stopped_verdict"], "fail")
+
+    def test_unknown_or_missing_execution_type_is_ignored(self):
+        """Only the enumerated types count -- an unclassified row (the
+        workflow's ``scheduled`` fallback, or no type at all) is neither
+        evidence for nor against the gate."""
+        from pipeline_memory import reader as mem_reader
+
+        rows = [
+            _streak_row("r-untyped", "pass", execution_type=None),
+            _streak_row("r-sched", "fail", execution_type="scheduled"),
+            _streak_row("r1", "pass"),
+        ]
+        client = self._mock_rows(rows)
+
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=client
+        ):
+            result = mem_reader.get_parity_streak(limit=10)
+
+        self.assertEqual(result["streak"], 1)
+        self.assertEqual(result["contributing_run_ids"], ["r1"])
+
+    def test_live_ledger_shape_2026_08_29(self):
+        """The real ``run_ledger`` tail on 2026-08-29 (newest first):
+        manual pass, weekend pass, weekend skipped, weekday pass, weekday
+        skipped, weekday pass, then the pre-#365 weekday fail. Four
+        counted passes then a fail -> the gate reports 0 (a fail before
+        the target invalidates the claim); one more pass in front of
+        them reaches the target before the fail is ever seen."""
+        from pipeline_memory import reader as mem_reader
+
+        tail = [
+            _streak_row("manual-1", "pass", execution_type="manual"),
+            _streak_row(
+                "sat-19z", "pass", execution_type="weekend_maintenance",
+            ),
+            _streak_row(
+                "sat-15z", "skipped", execution_type="weekend_maintenance",
+            ),
+            _streak_row("fri-23z", "pass"),
+            _streak_row("fri-21z", "skipped"),
+            _streak_row("fri-17z", "pass"),
+            _streak_row("fri-03z", "fail"),
+        ]
+        with mock.patch(
+            "pipeline_memory.reader.get_client",
+            return_value=self._mock_rows(tail),
+        ):
+            before = mem_reader.get_parity_streak(limit=10)
+        self.assertEqual(before["streak"], 0)
+        self.assertEqual(before["stopped_run_id"], "fri-03z")
+
+        with_next = [
+            _streak_row(
+                "sat-23z", "pass", execution_type="weekend_maintenance",
+            ),
+        ] + tail
+        with mock.patch(
+            "pipeline_memory.reader.get_client",
+            return_value=self._mock_rows(with_next),
+        ):
+            after = mem_reader.get_parity_streak(limit=10)
+        self.assertEqual(after["streak"], 5)
+        self.assertIsNone(after["stopped_run_id"])
 
     def test_streak_stops_scanning_once_target_reached(self):
         from pipeline_memory import reader as mem_reader

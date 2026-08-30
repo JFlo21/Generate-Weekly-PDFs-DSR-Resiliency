@@ -49,9 +49,11 @@ Last activity: 2026-08-29 — planning hygiene (milestone pointer v1.3 → v1.4 
   tooling resolves Phases 10–13; stale v1.2 checkpoint + ingest report archived under
   milestones/; config keys explicit). 11-08 gate re-read from run_ledger:
   get_parity_streak() = 0 — the pre-#365 `fail` (2026-08-28 03:49Z) is still inside the
-  newest-first walk, which zeroes on any fail before the target; two scheduled
-  `production_frequent` passes post-date it (17:04Z, 23:12Z), so three more consecutive
-  passes are needed before 11-07 Task 2 can be re-opened.
+  newest-first walk, which zeroes on any fail before the target. D-09 AMENDED by the owner
+  2026-08-29: the streak counts `production_frequent` + `weekend_maintenance` + `manual`
+  runs (only the weekly deep run is excluded). Counted passes since that fail: 17:04Z,
+  23:12Z, Sat 19:11Z, manual 21:58Z = 4 of 5; the next counted `pass` reaches the target
+  and 11-07 Task 2 can be re-opened.
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
