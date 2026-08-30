@@ -63,7 +63,16 @@ _PARITY_STREAK_TARGET = 5
 # the same sheets, so their parity verdicts are the same evidence as a
 # weekday run's. Only the Monday ``weekly_comprehensive`` deep run -- a
 # different workload with its own reconciliation path -- stays outside
-# the streak (its verdicts neither count nor reset).
+# the streak (its verdicts neither count nor reset). Two more guards
+# (Copilot / Codex P1 on PR #372): a ``manual`` row counts only when
+# ``notes.streak_eligible`` is True -- the writer sets it False for any
+# dispatch that scopes or dry-runs the workload (MAX_GROUPS, WR_FILTER,
+# RES_GROUPING_MODE, SKIP_UPLOAD, ...), and a row without the marker
+# predates it and cannot be trusted either way; a scheduled row is
+# excluded only when the marker is explicitly False. And a ``pass`` is
+# evidence only on a ``status == "success"`` row -- a job that passed
+# parity and then failed is not a clean observation (it is excluded,
+# not a reset: no comparator fail occurred).
 _PARITY_STREAK_EXECUTION_TYPES = frozenset({
     "production_frequent",
     "weekend_maintenance",
@@ -396,7 +405,11 @@ def get_parity_streak(limit: int = _PARITY_STREAK_DEFAULT_LIMIT) -> dict | None:
     Rows whose ``notes.execution_type`` is not in
     ``_PARITY_STREAK_EXECUTION_TYPES`` (``production_frequent``,
     ``weekend_maintenance``, ``manual`` -- D-09 as amended 2026-08-29) are
-    ignored entirely -- not counted, not scanned as a candidate. Among the
+    ignored entirely -- not counted, not scanned as a candidate; so are
+    rows whose ``notes.streak_eligible`` is False (a scoped / dry run), and
+    ``manual`` rows unless that marker is True. A ``pass`` counts only on
+    a ``status == "success"`` row (a failed job is excluded, not a reset).
+    Among the
     remaining rows, ``notes.parity_verdict`` drives the walk: a ``pass``
     increments the running count; a ``fail`` resets the count to zero and
     stops the scan immediately (a fail anywhere before the target is
@@ -477,11 +490,19 @@ def get_parity_streak(limit: int = _PARITY_STREAK_DEFAULT_LIMIT) -> dict | None:
         notes = row.get("notes")
         if not isinstance(notes, dict):
             continue
-        if notes.get("execution_type") not in _PARITY_STREAK_EXECUTION_TYPES:
+        exec_type = notes.get("execution_type")
+        if exec_type not in _PARITY_STREAK_EXECUTION_TYPES:
+            continue
+        eligible = notes.get("streak_eligible")
+        if eligible is False:
+            continue
+        if exec_type == "manual" and eligible is not True:
             continue
 
         verdict = notes.get("parity_verdict")
         if verdict == "pass":
+            if row.get("status") != "success":
+                continue
             streak += 1
             contributing_run_ids.append(row.get("run_id"))
             if streak >= _PARITY_STREAK_TARGET:

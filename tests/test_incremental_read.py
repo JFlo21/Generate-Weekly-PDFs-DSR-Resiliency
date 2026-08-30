@@ -47,6 +47,11 @@ _ENV_KEYS = (
     "REGEN_WEEKS",
     "RESET_WR_LIST",
     "FORCE_GENERATION",
+    "MAX_GROUPS",
+    "WR_FILTER",
+    "EXCLUDE_WRS",
+    "RES_GROUPING_MODE",
+    "SKIP_UPLOAD",
 )
 
 
@@ -2169,20 +2174,29 @@ class ScopedCounterTests(unittest.TestCase):
 
 # ── Plan 07 Task 1: pipeline_memory.reader.get_parity_streak (D-09) ─────
 
-def _streak_row(run_id, verdict=None, execution_type="production_frequent"):
+def _streak_row(
+    run_id,
+    verdict=None,
+    execution_type="production_frequent",
+    status="success",
+    streak_eligible=None,
+):
     """Build a synthetic ``run_ledger`` row for the streak scan.
 
     ``verdict is None`` means the row's ``notes`` carries no
     ``parity_verdict`` key at all -- the "absent verdict" case, which the
     scan treats identically to an explicit ``skipped``.
+    ``streak_eligible is None`` leaves the marker out (a pre-#372 row).
     """
     notes = {"execution_type": execution_type}
     if verdict is not None:
         notes["parity_verdict"] = verdict
+    if streak_eligible is not None:
+        notes["streak_eligible"] = streak_eligible
     return {
         "run_id": run_id,
         "started_at": "2026-08-26T00:00:00+00:00",
-        "status": "success",
+        "status": status,
         "notes": notes,
     }
 
@@ -2332,7 +2346,10 @@ class ParityStreakTests(unittest.TestCase):
         from pipeline_memory import reader as mem_reader
 
         rows = [
-            _streak_row("r-manual", "pass", execution_type="manual"),
+            _streak_row(
+                "r-manual", "pass", execution_type="manual",
+                streak_eligible=True,
+            ),
             _streak_row(
                 "r-weekend", "pass", execution_type="weekend_maintenance",
             ),
@@ -2396,13 +2413,100 @@ class ParityStreakTests(unittest.TestCase):
         self.assertEqual(result["streak"], 1)
         self.assertEqual(result["contributing_run_ids"], ["r1"])
 
+    def test_manual_without_marker_or_marked_ineligible_is_ignored(self):
+        """Copilot / Codex P1 (PR #372): a dispatch may scope the workload
+        (MAX_GROUPS, WR_FILTER, RES_GROUPING_MODE, SKIP_UPLOAD ...) and
+        still write a parity pass. A manual row counts only when the
+        writer marked it ``streak_eligible: True``; a row without the
+        marker predates it and is ignored, not trusted."""
+        from pipeline_memory import reader as mem_reader
+
+        rows = [
+            _streak_row("m-unmarked", "pass", execution_type="manual"),
+            _streak_row(
+                "m-scoped", "pass", execution_type="manual",
+                streak_eligible=False,
+            ),
+            _streak_row(
+                "m-scoped-fail", "fail", execution_type="manual",
+                streak_eligible=False,
+            ),
+            _streak_row("r1", "pass"),
+        ]
+        with mock.patch(
+            "pipeline_memory.reader.get_client",
+            return_value=self._mock_rows(rows),
+        ):
+            result = mem_reader.get_parity_streak(limit=10)
+
+        self.assertEqual(result["streak"], 1)
+        self.assertEqual(result["contributing_run_ids"], ["r1"])
+        self.assertIsNone(result["stopped_run_id"])
+
+    def test_scheduled_row_marked_ineligible_is_excluded(self):
+        """A scheduled row without the marker (pre-#372) still counts --
+        its inputs are the workflow defaults by construction -- but an
+        explicit ``streak_eligible: False`` excludes it either way."""
+        from pipeline_memory import reader as mem_reader
+
+        rows = [
+            _streak_row("r-legacy", "pass"),
+            _streak_row("r-scoped", "fail", streak_eligible=False),
+            _streak_row("r-marked", "pass", streak_eligible=True),
+        ]
+        with mock.patch(
+            "pipeline_memory.reader.get_client",
+            return_value=self._mock_rows(rows),
+        ):
+            result = mem_reader.get_parity_streak(limit=10)
+
+        self.assertEqual(result["streak"], 2)
+        self.assertEqual(
+            result["contributing_run_ids"], ["r-legacy", "r-marked"],
+        )
+
+    def test_pass_on_a_failed_job_is_excluded_but_a_fail_still_resets(self):
+        """Codex P1 (PR #372): the failure-path finish keeps the parity
+        verdict on a ``status = failed`` row. That pass is not a clean
+        observation -- excluded (no comparator fail occurred, so it is
+        not a reset either); a ``fail`` verdict resets regardless of
+        status."""
+        from pipeline_memory import reader as mem_reader
+
+        rows = [
+            _streak_row("r-failed-job", "pass", status="failed"),
+            _streak_row("r1", "pass"),
+            _streak_row("r2", "pass"),
+        ]
+        with mock.patch(
+            "pipeline_memory.reader.get_client",
+            return_value=self._mock_rows(rows),
+        ):
+            result = mem_reader.get_parity_streak(limit=10)
+        self.assertEqual(result["streak"], 2)
+        self.assertEqual(result["contributing_run_ids"], ["r1", "r2"])
+
+        rows = [
+            _streak_row("r3", "pass"),
+            _streak_row("r-failed-fail", "fail", status="failed"),
+            _streak_row("r4", "pass"),
+        ]
+        with mock.patch(
+            "pipeline_memory.reader.get_client",
+            return_value=self._mock_rows(rows),
+        ):
+            result = mem_reader.get_parity_streak(limit=10)
+        self.assertEqual(result["streak"], 0)
+        self.assertEqual(result["stopped_run_id"], "r-failed-fail")
+
     def test_live_ledger_shape_2026_08_29(self):
         """The real ``run_ledger`` tail on 2026-08-29 (newest first):
-        manual pass, weekend pass, weekend skipped, weekday pass, weekday
-        skipped, weekday pass, then the pre-#365 weekday fail. Four
-        counted passes then a fail -> the gate reports 0 (a fail before
-        the target invalidates the claim); one more pass in front of
-        them reaches the target before the fail is ever seen."""
+        manual pass (no marker -- it predates #372, so it is ignored),
+        weekend pass, weekend skipped, weekday pass, weekday skipped,
+        weekday pass, then the pre-#365 weekday fail. Three counted
+        passes then a fail -> the gate reports 0 (a fail before the
+        target invalidates the claim); two more counted passes in front
+        of them reach the target before the fail is ever seen."""
         from pipeline_memory import reader as mem_reader
 
         tail = [
@@ -2427,6 +2531,10 @@ class ParityStreakTests(unittest.TestCase):
         self.assertEqual(before["stopped_run_id"], "fri-03z")
 
         with_next = [
+            _streak_row(
+                "sun-15z", "pass", execution_type="weekend_maintenance",
+                streak_eligible=True,
+            ),
             _streak_row(
                 "sat-23z", "pass", execution_type="weekend_maintenance",
             ),
@@ -2507,6 +2615,51 @@ class ParityStreakTests(unittest.TestCase):
 
         _, kwargs = mocked_retry.call_args
         self.assertEqual(kwargs.get("op"), "run_ledger_parity_streak")
+
+
+class StreakEligibleMarkerTests(unittest.TestCase):
+    """``writer.streak_eligible_from_env`` (PR #372): True only for a
+    production-equivalent configuration; any scoping / override input
+    makes the run ineligible for the D-09 streak."""
+
+    def setUp(self):
+        _pop_env()
+
+    def tearDown(self):
+        _pop_env()
+
+    def test_default_environment_is_eligible(self):
+        from pipeline_memory import writer as mem_writer
+
+        self.assertTrue(mem_writer.streak_eligible_from_env())
+        os.environ["MAX_GROUPS"] = "0"
+        os.environ["RES_GROUPING_MODE"] = "Both"
+        os.environ["WR_FILTER"] = " , "
+        os.environ["FORCE_GENERATION"] = "false"
+        self.assertTrue(mem_writer.streak_eligible_from_env())
+
+    def test_each_scoping_input_makes_the_run_ineligible(self):
+        from pipeline_memory import writer as mem_writer
+
+        cases = [
+            ("MAX_GROUPS", "1"),
+            ("MAX_GROUPS", "abc"),
+            ("WR_FILTER", "11111111"),
+            ("EXCLUDE_WRS", "11111111"),
+            ("REGEN_WEEKS", "081725"),
+            ("RESET_WR_LIST", "11111111"),
+            ("FORCE_GENERATION", "true"),
+            ("RESET_HASH_HISTORY", "1"),
+            ("TEST_MODE", "yes"),
+            ("SKIP_UPLOAD", "TRUE"),
+            ("RES_GROUPING_MODE", "primary"),
+            ("RES_GROUPING_MODE", "helper"),
+        ]
+        for key, value in cases:
+            with self.subTest(key=key, value=value):
+                _pop_env()
+                os.environ[key] = value
+                self.assertFalse(mem_writer.streak_eligible_from_env())
 
 
 # ── Greptile P1 on PR #351: fail-open memory result ambiguity ─────────
