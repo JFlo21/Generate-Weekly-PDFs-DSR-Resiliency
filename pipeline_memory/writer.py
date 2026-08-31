@@ -208,6 +208,46 @@ _RUN_LEDGER_FINISH_COLUMNS = (
 )
 
 
+# Inputs that scope or alter the normal workload. A run with any of them
+# set still computes a shadow-parity verdict, but over a truncated,
+# filtered, or un-uploaded group set -- not the evidence the D-12 gate
+# means by "a production run passed". Parsed exactly as pipeline.config
+# parses them (not imported: pipeline_memory must not depend on pipeline).
+_STREAK_LIST_ENV = ("WR_FILTER", "EXCLUDE_WRS", "REGEN_WEEKS", "RESET_WR_LIST")
+_STREAK_FLAG_ENV = (
+    "FORCE_GENERATION", "RESET_HASH_HISTORY", "TEST_MODE", "SKIP_UPLOAD",
+)
+_TRUTHY = ("1", "true", "yes")
+
+
+def streak_eligible_from_env() -> bool:
+    """True when this run's configuration is production-equivalent.
+
+    False when any of: ``MAX_GROUPS`` > 0 (or unparseable), a non-empty
+    ``WR_FILTER`` / ``EXCLUDE_WRS`` / ``REGEN_WEEKS`` / ``RESET_WR_LIST``,
+    a truthy ``FORCE_GENERATION`` / ``RESET_HASH_HISTORY`` / ``TEST_MODE``
+    / ``SKIP_UPLOAD``, or ``RES_GROUPING_MODE`` other than ``both``.
+    Written to ``run_ledger.notes.streak_eligible`` by
+    ``run_ledger_finish``; read by ``reader.get_parity_streak``. PURE
+    apart from the environment read.
+    """
+    raw = (os.getenv("MAX_GROUPS", "0") or "0").strip()
+    try:
+        if int(raw) > 0:
+            return False
+    except ValueError:
+        return False
+    for key in _STREAK_LIST_ENV:
+        if any(v.strip() for v in os.getenv(key, "").split(",")):
+            return False
+    for key in _STREAK_FLAG_ENV:
+        if os.getenv(key, "").strip().lower() in _TRUTHY:
+            return False
+    if os.getenv("RES_GROUPING_MODE", "both").strip().lower() != "both":
+        return False
+    return True
+
+
 def run_ledger_finish(run_id: str, **counters: Any) -> None:
     """Upsert the ``run_ledger`` 'finish' row. NEVER raises.
 
@@ -233,6 +273,11 @@ def run_ledger_finish(run_id: str, **counters: Any) -> None:
     'finish' upsert failed 400/23502 until this fix, so no shadow run
     before this commit ever persisted its finish row.
 
+    ``notes.streak_eligible`` is ``streak_eligible_from_env()`` -- True only
+    when no scoping / override input is set, so the D-09 parity streak
+    (``reader.get_parity_streak``) can tell a production-equivalent run
+    from a scoped or dry one (Copilot / Codex P1 on PR #372).
+
     ``notes.execution_type`` reads the ``EXECUTION_TYPE`` env var (the
     same variable ``scripts/notion_sync.py`` already consumes, computed
     by the workflow's "Determine execution type" step: ``manual`` on
@@ -255,6 +300,7 @@ def run_ledger_finish(run_id: str, **counters: Any) -> None:
     }
     notes: dict[str, Any] = {
         "execution_type": os.getenv("EXECUTION_TYPE", "manual"),
+        "streak_eligible": streak_eligible_from_env(),
     }
     notes.update(counters)  # whatever's left: memory-specific counters
 

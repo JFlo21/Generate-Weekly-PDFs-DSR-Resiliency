@@ -7851,3 +7851,40 @@ follow-up findings closed, same 6 files.
 - **GSD tooling footguns:** `state milestone-switch` is a "start a fresh milestone" command — it resets Current Position
   to *defining requirements* (wrong for an executing milestone; edit the pointer surgically, then `state update-progress`);
   `state advance-plan` with no arguments mutates STATE.md, so never probe it for usage.
+
+## [2026-08-29 17:55] D-09 amended — the parity streak counts weekend and manual runs; manual run 33277374958 = parity pass; no standalone docs PRs
+
+- **Owner decision (Juan, 2026-08-29): the D-12 authorisation streak counts every run type that executes the production
+  code path — `production_frequent`, `weekend_maintenance` and `manual` — because production is logged through the
+  weekend and a `workflow_dispatch` run reads the same sheets through the same pipeline.** `get_parity_streak()` now
+  filters on `_PARITY_STREAK_EXECUTION_TYPES`; only the Monday `weekly_comprehensive` deep run (a different workload
+  with its own reconciliation path) stays outside the streak — its verdicts neither count nor reset. Counting a type
+  means counting it both ways: a weekend `fail` resets and stops exactly like a weekday one. Unknown / missing types
+  (the workflow's `scheduled` fallback) remain ignored. Tests in `tests/test_incremental_read.py::ParityStreakTests`
+  including the live 2026-08-29 ledger shape. `11-08-PLAN.md` (gate statement + Task 1 re-check procedure),
+  `11-07-SUMMARY.md` (re-authorisation path), `11-CONTEXT.md` D-09 and `STATE.md` amended to match; the
+  `[2026-08-29 16:45]` weekday-only rule above is superseded by this entry (the classifier facts it records still hold).
+- **RULE — a counted run must be production-equivalent, and a pass must come from a job that finished (PR #372
+  review, Copilot / Codex P1).** A dispatch can run with `MAX_GROUPS`, `WR_FILTER`, `EXCLUDE_WRS`, `REGEN_WEEKS`,
+  `RESET_WR_LIST`, `FORCE_GENERATION`, `RESET_HASH_HISTORY`, `TEST_MODE`, `SKIP_UPLOAD` or a non-`both`
+  `RES_GROUPING_MODE` and still write `parity_verdict = pass` over a truncated or un-uploaded group set. So
+  `run_ledger_finish` now records `notes.streak_eligible` (`writer.streak_eligible_from_env()`, False when any of those
+  is set), `get_parity_streak()` counts a `manual` row only when the marker is True, excludes any row marked False, and
+  counts a `pass` only on a `status = success` row — the failure-path finish keeps the verdict on a `failed` row, and a
+  job that passed parity then failed is not a clean observation (excluded, not a reset: no comparator fail occurred; a
+  `fail` verdict resets regardless of status). Scheduled rows without the marker (pre-#372) still count: their inputs
+  are the workflow defaults by construction.
+- **Reading after the amendment:** counted passes since the 2026-08-28 03:49Z `fail` = 17:04Z, 23:12Z, Sat 19:11Z →
+  3 of 5 — the 21:58Z manual run predates the marker and is deliberately not back-filled (that would be a hand write
+  to `run_ledger`); the reader still reports `0` until five counted passes sit in front of that fail (its walk zeroes
+  on the fail before reaching the target) — Sat 23Z + Sun 15Z at the earliest.
+- **Owner-directed manual run 33277374958 (`c2859e2`, 21:57–22:32Z, 35 min): `parity_verdict = pass`.** Group verdict
+  4/4 compared, 0 hash mismatches, nothing only-in-one-set, `actual_withheld_excluded = 154`; read verdict 121 sheets
+  probed / 54 rows asserted / 0 mismatches / 0 abandoned; 4 generated, 4 uploaded, 0 errors; run-memory 4 sheets
+  written, 0 errored. `group_state` carries `attachment_id` + `attachment_name` on 192/192 rows including this run's
+  four (`last_generated_run = last_verified_run`), so INC-05's precondition — memory supplies what the retired pre-fetch
+  used to — holds on live data.
+- **RULE — no standalone documentation PRs (owner, 2026-08-29).** Ledger / project-state / changelog write-back stays
+  mandatory but rides with the next substantive PR (phase step, fix, workflow change), held as local commits until
+  then; a docs-only PR only when a document genuinely must land alone (an operator-facing runbook correction people
+  are following). The Stop-hook write-back is satisfied by a vault page edit, which needs no PR.

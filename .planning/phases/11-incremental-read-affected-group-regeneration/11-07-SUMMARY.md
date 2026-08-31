@@ -145,7 +145,7 @@ PR, cut strictly after the streak, never bundled").
 
 To run 11-08 later, the owner must:
 1. Merge the `RUN_MEMORY_WRITE_ENABLED` flip PR (`docs/run-memory-write-flip-checklist.md`).
-2. Let ≥5 scheduled `production_frequent` runs record `parity_verdict = pass` in `run_ledger`, with no intervening `fail`.
+2. Let ≥5 counted runs (`production_frequent`, `weekend_maintenance`, or streak-eligible `manual` -- D-09 as amended 2026-08-29, PR #372) record `parity_verdict = pass` on `success` rows in `run_ledger`, with no intervening `fail`.
 3. Confirm the `group_state` attachment-id proof (carried forward from Phase 10 UAT) and record the current frequent-run wall clock vs. the 94-minute baseline from run `32743959053`.
 4. Re-open this Task 2 decision — update this SUMMARY's recorded option id to `retire-now` or `retire-code-keep-cache-steps`, with the real `get_parity_streak()` output pasted in place of the empty reading above.
 5. Execute 11-08 as its own PR/branch, never bundled with any other change.
