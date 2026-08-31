@@ -25,6 +25,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 ### 📋 Changelog — August 31, 2026
 
+- ✨ New capability: parity streak counts weekend + manual runs
 - 📄 Help guides updated: + merged; streak is weekday-only
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
@@ -32,7 +33,6 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 - 📄 Help guides updated: scrub entry + / merged state
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - ✨ New capability: groups whose WR has no target-sheet row are not generated, listed as an error
-- 📄 Help guides updated: Learn section — operator and engineer guides; overview refreshed
 
 <!-- /runbook-repo -->
 
