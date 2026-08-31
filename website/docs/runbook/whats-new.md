@@ -9,15 +9,6 @@ _Last updated: August 31, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
-<!-- runbook-repo: JFlo21/JFlo21 -->
-## JFlo21
-
-> ℹ️ **What this system does:** &gt; 💡 The snake animation above is generated automatically by a GitHub Action — it eats your contribution tiles&#33;
-
-_Running steadily — no meaningful changes were detected in this period._ ✅
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
 ## Weekly Billing Reports (DSR Resiliency)
 
@@ -36,12 +27,21 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
+<!-- runbook-repo: JFlo21/JFlo21 -->
+## JFlo21
+
+> ℹ️ **What this system does:** &gt; 💡 The snake animation above is generated automatically by a GitHub Action — it eats your contribution tiles&#33;
+
+_Running steadily — no meaningful changes were detected in this period._ ✅
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
 ## linetec-inspector-manifest-generator
 
 > ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
 
-### 📋 Changelog — August 30, 2026
+### 📋 Changelog — August 31, 2026
 
 - 📄 Help guides updated: Task 5 live observation recorded, OPS-05 complete, verifier passed 9/9, transition to Phase 32
 - ✅ Problem fixed: skip already-routed intake rows before regen (BUG-019, D-11c) — read-only provenance pre-check
@@ -59,9 +59,9 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — August 30, 2026
+### 📋 Changelog — August 31, 2026
 
-- • 📊 Audit: 2026-08-24T06:44:27Z
+- • 📊 Audit: 2026-08-31T07:04:49Z
 
 <!-- /runbook-repo -->
 
@@ -70,13 +70,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
 
-### 📋 Changelog — August 30, 2026
-
-- 📄 Help guides updated: claude-mem installer EPERM inside live session; deps restored, worker back
-- 📄 Help guides updated: record memory-swap commit 8d292c2 + archive push in project-state
-- ✨ New capability: switch ClaudeOS continuity layer from .remember to claude-mem
-- 📄 Help guides updated: reconcile fable5 effort policy to owner-saved xhigh; record 08-23 gsd VERSION fix; plugin autoUpdate churn
-- ✅ Problem fixed: junction guard mirrors plugin-cache version into gsd-core/VERSION
+_Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
@@ -85,9 +79,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** ClaudeOS .remember continuity store (session handoffs; no secrets by policy)
 
-### 📋 Changelog — August 30, 2026
-
-- • sync: continuity from JFLODESKTOP
+_Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
@@ -456,16 +448,9 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — August 30, 2026
+### 📋 Changelog — August 31, 2026
 
-- • Phase 3: canary publisher — allowlisted repository&#95;dispatch to Runlog
-- ✅ Problem fixed: Fix Greptile issue on PR 30: contender must not release an active publish claim
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- • Merge pull request from Linetec-Services-LLC/copilot/pr-30-fix-greptile-issue
-- 📄 Help guides updated: clarify contention fallthrough and redelivery test intent
-- ✅ Problem fixed: never roll back publish claim after dispatch is accepted
-- ✅ Problem fixed: contender never mutates another consumer's publish claim
-- • Merge remote-tracking branch 'origin/phase3-canary-publisher' into copilot/pr-30-fix-greptile-issue
 
 <!-- /runbook-repo -->
 
@@ -495,3 +480,4 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
+
