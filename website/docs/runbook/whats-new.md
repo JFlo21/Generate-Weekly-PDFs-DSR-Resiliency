@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: August 30, 2026 (updated automatically)_
+_Last updated: August 31, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -23,8 +23,9 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — August 30, 2026
+### 📋 Changelog — August 31, 2026
 
+- 📄 Help guides updated: + merged; streak is weekday-only
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - 📄 Help guides updated: first post-merge run verified; saving corrected
@@ -32,7 +33,6 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - ✨ New capability: groups whose WR has no target-sheet row are not generated, listed as an error
 - 📄 Help guides updated: Learn section — operator and engineer guides; overview refreshed
-- ✅ Problem fixed: kill-switch warning/breadcrumb log no server text
 
 <!-- /runbook-repo -->
 
@@ -495,4 +495,3 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
-
