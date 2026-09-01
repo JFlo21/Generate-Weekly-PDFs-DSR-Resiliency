@@ -1,21 +1,21 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.4
-milestone_name: Supabase Run Memory — incremental billing pipeline
-current_phase: 11
-current_phase_name: Incremental Read + Affected-Group Regeneration
+milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
+current_phase: 11.1
+current_phase_name: post-inc-05-runtime-remediation
 status: executing
-stopped_at: Completed 11-08-PLAN.md (INC-05 retirement shipped; Phase 11 fully closed)
-last_updated: "2026-09-01T02:00:32.400Z"
-last_activity: 2026-08-29
-last_activity_desc: Planning hygiene; 11-08 parity gate re-read (0/5, 3 passes to go)
+stopped_at: PR #374 open for Phase 11.1 (verification human_needed = post-merge timing); awaiting review + merge
+last_updated: "2026-09-01T19:50:00.000Z"
+last_activity: 2026-09-01
+last_activity_desc: Phase 11.1 verified (12/12, 0 gaps) and shipped as PR #374; post-merge SC-1 observation pending
+state_head: 5936ad263cf66a1689345714359cae051ddbdf9f
 progress:
-  total_phases: 12
-  completed_phases: 10
-  total_plans: 46
-  completed_plans: 46
-  percent: 83
-state_head: a085cfdf3e920fc86a7fdd9465e35917bc716a67
+  total_phases: 13
+  completed_phases: 3
+  total_plans: 48
+  completed_plans: 48
+  percent: 23
 ---
 
 # Project State
@@ -35,26 +35,47 @@ pipeline.
 
 ## Current Position
 
-Phase: 11 (Incremental Read + Affected-Group Regeneration) — COMPLETE
-Plan: 8 of 8 complete. All 8 Phase 11 plans have a SUMMARY.md on disk.
-  11-07 re-opened the INC-05 retirement decision on 2026-08-31 with a real
-  5/5 `get_parity_streak()` reading (option id `retire-now`); 11-08 executed
-  that authorisation on its own branch `feat/11-08-inc05-retirement`,
-  strictly after #371/#372 merged. INC-01 through INC-05 are all complete.
-Status: Phase 11 fully shipped. `group_state.content_hash` is the sole
-  change-detection skip gate; `sheet_registry` is the sole cross-run sheet-
-  identity store; the three local JSON caches, the two attachment pre-fetch
-  phases, and the six workflow cache steps are all retired. The "after"
-  frequent-run wall-clock figure remains PENDING until the first scheduled
-  `production_frequent` run executes against the merged retirement
-  (`docs/run-memory-write-flip-checklist.md`) -- a manual item, not a gap.
-Last activity: 2026-08-31 — 11-08 Tasks 2-4 executed (attachment pre-fetch
-  retirement, local-JSON-cache + workflow-cache-step retirement, Living
-  Ledger closing entry), plus a plan-level gate remediation (dropped a
-  retired `USE_DISCOVERY_CACHE` reference in `pipeline/observability.py`;
-  refroze the stale 2026-08-24 mypy Gate 4 baseline). `bash
-  scripts/run_6_gates.sh` = ALL 6 GATES PASSED; full suite 1845 passed / 1
-  skipped / 306 subtests.
+Phase: 11.1 (post-inc-05-runtime-remediation) — COMPLETE (Plan 2 of 2 done)
+Plan: 11.1-01 (Fix 1 — discovery registry-version skip) and 11.1-02
+  (Fix 2 — bulk attachment pre-seed) both executed and gate-verified on
+  branch `feat/11.1-runtime-remediation`. Both fixes for the post-merge
+  runtime regression are shipped; ready for PR / phase close.
+Status: Discovery phase skips full per-sheet validation for any
+  candidate whose live Smartsheet version still matches
+  `pipeline_memory.sheet_registry.last_sheet_version` and whose stored
+  `column_mapping` is valid (D-11.1-01). Group-processing skip-gate
+  confirmation now pre-seeds the existing `_live_row_attachments` memo
+  from 2 bulk `Attachments.list_all_attachments` calls (target sheet +
+  PPP sheet) run once before the group loop, instead of one serial
+  `list_row_attachments` call per skip-candidate row (D-11.1-02);
+  `_live_row_attachments` and both `_has_existing_week_attachment` call
+  sites are byte-for-byte unmodified. Any probe/listing failure or a
+  `total_count` above the 25000-row `BULK_ATTACHMENT_LISTING_MAX_TOTAL`
+  ceiling seeds nothing and falls back to today's lazy per-row path
+  (D-11.1-05 accepted residual risk — option (b) documented, not
+  built). `bash scripts/run_6_gates.sh` = ALL 6 GATES PASSED (Gate 4
+  mypy delta neutral 72->72, no re-baseline needed this plan); full
+  suite 1886 passed / 1 skipped / 306 subtests.
+Last activity: 2026-09-01 — 11.1-02 executed (5 commits: RED test /
+  GREEN pre-seed helpers, RED test / GREEN main() wiring, phase-gate +
+  Living Ledger entry). SC-1/D-11.1-04 (frequent-run wall clock back
+  under ~75 min) and SC-3's log-content confirmation remain POST-MERGE
+  production observations, not verifiable from these plans alone; see
+  `11.1-VALIDATION.md`.
+
+**Phase 11 history (superseded focus, preserved for context):** Phase 11
+  fully shipped 2026-08-31 (8/8 plans). 11-07 re-opened the INC-05
+  retirement decision with a real 5/5 `get_parity_streak()` reading
+  (option id `retire-now`); 11-08 executed that authorisation on its own
+  branch `feat/11-08-inc05-retirement`, strictly after #371/#372 merged.
+  INC-01 through INC-05 are all complete. `group_state.content_hash` is
+  the sole change-detection skip gate; `sheet_registry` is the sole
+  cross-run sheet-identity store; the three local JSON caches, the two
+  attachment pre-fetch phases, and the six workflow cache steps are all
+  retired. Post-merge, the first `production_frequent` run (33512477875)
+  took 169.8 min instead of the 50-77 min norm and hit the time budget —
+  this measured regression is exactly what Phase 11.1 (this phase) exists
+  to remediate; see `11.1-CONTEXT.md`.
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
@@ -65,7 +86,7 @@ Last activity: 2026-08-31 — 11-08 Tasks 2-4 executed (attachment pre-fetch
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [██████████] 100% (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped)
+Progress: [██░░░░░░░░] 23% (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped)
 ```
 
 ## Performance Metrics
@@ -121,6 +142,8 @@ Progress: [██████████] 100% (v1.3 complete; v1.4 Phase 10 cl
 | Phase 11 P06 | ~50min | 3 tasks | 7 files |
 | Phase 11 P07 | ~15min | 2 tasks | 2 files |
 | Phase 11 P08 | ~2h | 3 tasks | 35 files |
+| Phase 11.1 P01 | ~30 min | 3 tasks | 6 files |
+| Phase 11.1 P02 | ~10min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -238,6 +261,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase ?]: [Phase 11] Task 1 precondition unmet (no real parity_verdict row exists yet); Juan approved code+unit-test work on the same basis already ruled for plans 11-05/11-06 (2026-08-26)
 - [Phase ?]: [Phase 11] 11-07 Task 2 GATE: Juan selected DEFER for the INC-05 retirement -- streak reading was 0/5 (no production_frequent parity_verdict rows exist; RUN_MEMORY_WRITE_ENABLED flip PR unmerged). Plan 11-08 does not execute this phase; INC-05 stays open pending flip PR merge + 5 consecutive scheduled pass verdicts.
 - [Phase ?]: [Phase 11] 11-08 INC-05 retirement shipped: group_state.content_hash sole skip gate, always-full sheet discovery via sheet_registry, six workflow cache steps removed; Phase 11 fully closed with dated Living Ledger entry
+- [Phase 11.1]: [Phase 11.1] 11.1-01: discovery registry-version skip fast path (D-11.1-01) ships INC-05-compatible -- registry hit requires exact version equality + valid stored column_mapping, any doubt falls back to full validation; Gate-4 mypy re-baselined 70->72 (zero accepted findings, pure annotation-note line drift)
+- [Phase 11.1]: [Phase 11.1] 11.1-02: bulk attachment pre-seed (D-11.1-02) pre-seeds the existing _live_row_attachments memo from 2 bulk list_all_attachments calls before the group loop -- _live_row_attachments and both call sites left byte-for-byte unmodified; total_count pre-flight + 25000 ceiling fallback to today's lazy per-row path (D-11.1-05); Phase 11.1 both fixes complete on feat/11.1-runtime-remediation
 
 ### Roadmap Evolution
 
@@ -256,6 +281,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 - Phase 02 added (2026-05-26): v1.0 hotfix. Replaced the per-row
   `lookup_attribution` pre-passes with single bulk RPC.
+- Phase 11.1 inserted after Phase 11: Post-INC-05 Runtime Remediation (URGENT)
 
 ### Blockers/Concerns
 
@@ -371,12 +397,18 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-01T02:00:32.371Z
-**Stopped at:** Completed 11-08-PLAN.md (INC-05 retirement shipped; Phase 11 fully closed)
+**Last session:** 2026-09-01T18:58:13.637Z
+**Stopped at:** PR #374 open (Phase 11.1) — 11.1-VERIFICATION.md human_needed; next Greptile round, Juan merges, then post-merge SC-1 observation + /gsd-verify-work 11.1
 **Resume file:** None
 
 ## Session Continuity
 
-Last session: 2026-08-26T02:50:00.000Z
-Stopped at: Phase 10 MERGED (2026-08-25 23:55 CDT): PR #350 squash-merged as 99dc25d (55 commits incl. the three Greptile fixes 6965f95); local master fast-forwarded to 81d3b46 (docs-changelog + Notion runbook stubs on top); feat/phase-10-run-memory deleted local+remote; post-merge gate 1525 passed / 135 subtests. PR triage resolved 2026-08-26 00:25 CDT: Seer #343/#346/#347/#348 closed, Dependabot #344/#345 merged, Cursor #328/#331/#338 closed; master fb11109; branch feat/phase-11-incremental-read rebased 7982b0f. 44-PR backlog left for a separate triage. Next: /gsd-plan-phase 11.
+Last session: 2026-09-01T19:50:00.000Z
+Stopped at: Phase 11.1 shipped — gsd-verifier 12/12 code-verifiable must-haves,
+  0 gaps, status human_needed (SC-1 wall clock + timing magnitudes are post-merge
+  production observations). Commit 076ea31 pushed; PR #374 open against master
+  (D-11.1-05 flagged for owner veto). Next: Greptile round, Juan merges, first
+  production_frequent run supplies wall clock (<~75 min) + Discovery validation
+  split + per-sheet total_count lines -> 11.1-VALIDATION.md Manual-Only table ->
+  /gsd-verify-work 11.1. HANDOFF.json and .continue-here.md consumed and removed.
 Resume file: None

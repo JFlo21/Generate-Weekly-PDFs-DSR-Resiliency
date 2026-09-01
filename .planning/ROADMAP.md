@@ -644,6 +644,46 @@ Plans:
 
 - [x] 11-08-PLAN.md — INC-05 retirement: local JSON caches, attachment pre-fetch, six workflow cache steps, before/after wall clock, Phase 11 Living Ledger entry (wave 8, autonomous:false)
 
+### Phase 11.1: Post-INC-05 Runtime Remediation (INSERTED)
+
+**Goal:** Restore the frequent-run wall clock to under ~75 minutes by removing
+the two INC-05 retirement runtime regressions measured on run 33512477875
+(169.8 min, budget-stopped, 1216 groups deferred) — (1) skip full discovery
+validation for sheets whose live Smartsheet version matches
+`sheet_registry.last_sheet_version` with a stored column mapping (fail-closed:
+any doubt → full validation), and (2) batch the skip gate's live attachment
+existence confirmation out of the serial group loop — while preserving the
+INC-05 architecture (no local JSON caches, no Actions cache steps) and the live
+confirmation + fail-closed discovery semantics from PR #373's review fixes.
+
+**Success Criteria**:
+
+1. First post-merge frequent run of this phase's PR completes all groups
+   (no time-budget stop) with wall clock < ~75 min.
+2. Discovery phase (Phase 1) drops from ~67 min to low single-digit minutes
+   on a run with no sheet changes; a changed/new sheet still gets full
+   validation, and registry/Supabase unavailability falls back to full
+   validation of every sheet.
+3. Group-processing per-group cost returns to ≲0.5 s/group with the skip gate
+   still confirming existence against live Smartsheet listings (never
+   group_state stubs), and transport failure still resolving to regenerate.
+4. Full suite + 6 gates green; no change-detection-key, grouping, filename,
+   or attachment-cleanup behavior changes.
+
+**Requirements**: none mapped (inserted urgent phase — the Success Criteria
+above plus D-11.1-01..04 in `11.1-CONTEXT.md` are the contract)
+**Depends on:** Phase 11
+**Plans:** 2/2 plans executed
+
+Plans:
+**Wave 1**
+
+- [x] 11.1-01-PLAN.md — Fix 1: skip full discovery validation for sheets whose live Smartsheet version matches `sheet_registry.last_sheet_version` with a stored column mapping (fail-closed: any doubt → full validation)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 11.1-02-PLAN.md — Fix 2: pre-seed the live-attachment memo from two bulk sheet-level listings so the skip gate's existence confirmation leaves the serial group loop
+
 ### Phase 12: Ownership — last known foreman as of the week
 
 **Milestone:** v1.4

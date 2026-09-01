@@ -8008,3 +8008,105 @@ entry's own commit (Task 4).
   `note:` line; no `error:` line added, removed, or changed. Context: fixes for the three
   Greptile review issues on PR #373 (stored-identity skip-gate bypass; partial-discovery
   fail-open; runbook coverage of the cache retirement).
+
+## [2026-09-01 14:05] Phase 11.1 Plan 01 (D-11.1-01) — Gate-4 re-baseline 70 -> 72, zero accepted findings
+
+- **Re-baseline hygiene record (Phase 09 rule): `tests/golden/mypy_baseline.txt` /
+  `mypy_baseline_count.txt` refrozen 70 -> 72 lines. Accepted findings: NONE.** The mypy
+  ERROR set is byte-identical — 28 errors in 7 files (25 source files checked) before and
+  after; the 29 `error:`/summary lines (28 `error:` + the `Found 28 errors...` line) diff
+  byte-for-byte equal. The +2 delta is `[annotation-unchecked]` NOTES only, all in
+  `pipeline/discovery.py`: 3 removed (old lines 82, 91, 540) and 5 added (new lines 83, 84,
+  92, 270, 436, 683), net +2. Cause: `_build_discovery_skip_index` (new module-level,
+  untyped function, D-11.1-01 registry-version skip index for the discovery runtime
+  remediation) plus the registry fast path inserted at the top of `_validate_single_sheet`
+  shifted every downstream line number and added one more untyped-body note site. Proof:
+  regenerated via the gate's own invocation (`python -m mypy generate_weekly_pdfs.py
+  audit_billing_changes.py billing_audit pipeline`, LF bytes, `sys.executable` to avoid a
+  wrong-interpreter PATH resolution), diffed programmatically against the frozen baseline —
+  every changed line matched `: note:`, zero `: error:` lines touched. `bash
+  scripts/check_mypy_delta.sh` -> `PASS: mypy delta neutral or improved (72 -> 72)`, exit 0.
+  **72 is the new ceiling.** Per the executor's own hard_constraints (line-number drift with
+  the error set unchanged -> refreeze, not annotate): adding type hints to
+  `_build_discovery_skip_index` to silence the new note was explicitly rejected — it is not
+  required by the plan, would diverge from this file's existing untyped-nested-closure
+  convention (`_validate_single_sheet`, `_get_sample_rows`, `_extract_col_samples` are all
+  untyped today), and risks surfacing unrelated new type errors mid-plan. `tests/golden/*.txt`
+  confirmed LF-only (`test_golden_txt_baselines_contain_no_crlf` PASS).
+
+## [2026-09-01 13:50] Phase 11.1 (D-11.1-01/D-11.1-02) — post-INC-05 runtime remediation, durable rules
+
+- **Rule 1: retiring a cache does not retire the need for the identity it held.** PR #373
+  (INC-05, `abf905d`) removed the discovery-cache JSON; the very next real run (`33512477875`)
+  discovery cost jumped 1.3s -> 66.8 min because the same identity was already sitting unread
+  in `pipeline_memory.sheet_registry.last_sheet_version`. Plan 11.1-01 (D-11.1-01) added a
+  registry-version skip fast path (exact version match + valid stored `column_mapping` skips
+  `client.Sheets.get_sheet`; any doubt falls back to full validation, INC-05 fail-closed guard
+  untouched). Check whether a retired cache's identity is already written elsewhere before
+  rebuilding it.
+- **Rule 2: a per-item live confirmation belongs outside a serial loop.** The same run's
+  group-processing regressed 0.28 -> ~2.26 s/group because PR #373's live-existence
+  confirmation (`group_state` stub != proof of existence) paid one `list_row_attachments` call
+  per row inside the loop. Plan 11.1-02 (D-11.1-02) pre-seeds the SAME `_live_row_attachments`
+  memo from 2 bulk `Attachments.list_all_attachments(sheet_id, include_all=True)` calls before
+  the loop, via `_preseed_live_attachment_listings`; `_live_row_attachments` and both call
+  sites stay byte-for-byte unmodified — its existing memo-hit fast path is what makes
+  pre-seeding sufficient.
+- **Rule 3: pinned `EnumeratedValue` comparison for `Attachment.parent_type`.** Verified
+  against installed smartsheet-python-sdk 4.3.0 (`types.py::EnumeratedValue.__eq__`): both
+  `att.parent_type == AttachmentParentType.ROW` and `== 'ROW'` compare correctly.
+  `_is_row_attachment` accepts either, defaults False (incl. missing attribute) so an SDK
+  change degrades to no-seeding, never mis-bucketing. Pinned by
+  `AttachmentParentTypeComparisonTests`.
+- **Rule 4: empty-seed direction + size ceiling.** A row absent from a fully-successful bulk
+  listing seeds an EMPTY list (-> regenerate, the safe direction), applied ONLY when that
+  sheet's listing fully succeeded; any probe/listing failure or `total_count` over
+  `BULK_ATTACHMENT_LISTING_MAX_TOTAL` (25000 default) seeds nothing and falls back to today's
+  lazy per-row path, ERROR-logged naming option (b) as the D-11.1-05 remedy if ever hit.
+
+Reference: `.planning/phases/11.1-post-inc-05-runtime-remediation/` (`11.1-CONTEXT.md`,
+`11.1-RESEARCH.md`, `11.1-PATTERNS.md`, plans 11.1-01/11.1-02); branch
+`feat/11.1-runtime-remediation`, shipped as PR #374 (see the `[2026-09-01 14:55]` entry).
+
+## [2026-09-01 14:55] Phase 11.1 verified and shipped as PR #374 — post-merge observation contract
+
+- **Verification outcome:** gsd-verifier wrote `11.1-VERIFICATION.md` with 12/12 code-verifiable
+  must-haves verified, 0 gaps, status `human_needed`. It re-ran the suite (1886 passed / 1 skipped /
+  306 subtests) and `scripts/run_6_gates.sh` (ALL 6 PASSED), diffed `_live_row_attachments` and
+  both `_has_existing_week_attachment` call sites against `origin/master` (byte-identical), and
+  confirmed the discovery skip path never calls `pipeline.fetch.get_last_sheet_versions()`.
+- **`human_needed` is not a gap here.** SC-1 (wall clock < ~75 min, no budget stop) and the SC-2 /
+  SC-3 timing magnitudes are production observations by design (`11.1-VALIDATION.md` Manual-Only
+  table). The phase closes only after the first post-merge `production_frequent` run supplies the
+  wall clock, the `Discovery validation split` counts, and the per-sheet `total_count` INFO lines;
+  record them there and in `docs/run-memory-write-flip-checklist.md`, then `/gsd-verify-work 11.1`.
+- **Rule: PR body for a runtime-remediation phase names the owner veto explicitly.** PR #374's
+  Production Safety Check calls out D-11.1-05 (25000 `total_count` ceiling + ERROR fallback,
+  option (b) not built) as the accepted residual risk so the merge itself is the recorded approval.
+- **Resume hygiene:** `HANDOFF.json` and the phase `.continue-here.md` are one-shot artifacts;
+  both were consumed and removed in the closeout commit (`076ea31`) rather than left to ride the PR.
+
+## [2026-09-01 14:45] PR #374 Greptile round — import-time env parsing rule; skip-index helper annotated; Gate-4 71
+
+- **Rule: a module-import-time env parse must be never-raising.** `pipeline/orchestrate.py`
+  computed `_BULK_ATTACHMENT_LISTING_MAX_TOTAL` with a bare `int(os.getenv(...))` at import, so a
+  malformed operator value (`25k`, `25,000`) would abort the scheduled billing run BEFORE the
+  pre-seed's own containment layers (`_preseed_live_attachment_listings` never-raises + the
+  `main()` outer `try/except`) could ever run — contradicting Wave 2's "a defect in performance-only
+  code can never abort a billing run" contract. Fixed with `_parse_bulk_listing_ceiling(raw) -> int`
+  (mirrors `pipeline.snapshot_drift._int_env`): `None`/blank → default 25000; unparseable → default
+  + WARNING naming the variable; well-formed ints incl. `0` honoured unchanged. Any future
+  import-time knob follows the same shape — the containment boundary must exist at the point the
+  value is read, not only where it is used.
+- **Skip-index helper annotated** (`_build_discovery_skip_index(client: Any, sheet_ids: list[int])
+  -> dict[int, dict[str, Any]]`). The 11.1-01 executor had left it untyped to avoid a Gate-4
+  refreeze; that was a risk-avoidance choice, not a design reason, and the repo standard is full
+  hints. `list[int]` (not `Iterable`) is deliberate: `get_sheet_watermarks` takes `list`, and the
+  body calls `list(sheet_ids)` after that read, so a one-shot iterator would silently empty the
+  candidate list — the annotation pins the re-iterable contract the callers already honour.
+- **Gate 4 re-baselined 72 → 71, zero accepted findings.** The delta is exactly one removed
+  `[annotation-unchecked]` NOTE (the now-typed helper) plus line-number drift; the 28-error set is
+  byte-identical ignoring line numbers (verified with a normalised diff). Golden refrozen LF-only.
+- Tests: `BulkListingCeilingParseTests` (6) + `DiscoverySkipIndexAnnotationTests` (1) in
+  `tests/test_incremental_read.py`, RED confirmed before implementation. Suite 1892 passed /
+  1 skipped / 312 subtests; ALL 6 GATES PASSED.

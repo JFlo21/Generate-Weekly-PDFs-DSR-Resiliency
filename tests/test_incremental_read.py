@@ -228,6 +228,7 @@ class SheetWatermarksReadTests(unittest.TestCase):
                 "last_read_at": "2026-08-26T18:00:00+00:00",
                 "last_full_read_at": "2026-08-20T18:00:00+00:00",
                 "column_mapping": {"Work Request #": 1},
+                "name": "Test Sheet",
             },
         ])
 
@@ -238,6 +239,7 @@ class SheetWatermarksReadTests(unittest.TestCase):
 
         self.assertIn(111222, result)
         self.assertEqual(result[111222]["last_sheet_version"], 8)
+        self.assertEqual(result[111222]["name"], "Test Sheet")
 
     def test_supabase_failure_returns_empty_dict(self):
         from pipeline_memory import reader as mem_reader
@@ -3427,6 +3429,564 @@ class LostIdentityRowTests(unittest.TestCase):
         )
 
 
+class DiscoverySkipIndexTests(unittest.TestCase):
+    """Phase 11.1 Plan 01 (D-11.1-01): unit coverage of
+    ``pipeline.discovery._build_discovery_skip_index`` -- the
+    registry-version skip index that feeds ``_validate_single_sheet``'s
+    fast path. Every doubt branch must yield an empty (or sid-absent)
+    index, never raise, and never touch ``_failed_validation_sids``."""
+
+    @staticmethod
+    def _client(list_sheets_data=None, list_sheets_exc=None):
+        client = mock.MagicMock()
+        if list_sheets_exc is not None:
+            client.Sheets.list_sheets.side_effect = list_sheets_exc
+        else:
+            client.Sheets.list_sheets.return_value = SimpleNamespace(
+                data=list_sheets_data if list_sheets_data is not None else []
+            )
+        return client
+
+    def test_happy_path_returns_index_entry_on_version_match(self):
+        from pipeline import discovery
+
+        client = self._client(
+            list_sheets_data=[SimpleNamespace(id=111222, version=8)]
+        )
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,
+                "column_mapping": {"Weekly Reference Logged Date": 55},
+                "name": "Test Sheet",
+            }
+        }
+
+        with mock.patch(
+            "pipeline.discovery.get_sheet_watermarks",
+            return_value=watermarks,
+        ):
+            index = discovery._build_discovery_skip_index(client, [111222])
+
+        self.assertEqual(
+            index,
+            {
+                111222: {
+                    "id": 111222,
+                    "name": "Test Sheet",
+                    "column_mapping": {"Weekly Reference Logged Date": 55},
+                }
+            },
+        )
+        client.Sheets.list_sheets.assert_called_once_with(
+            include=["sheetVersion"], include_all=True,
+        )
+
+    # ── Phase 11.1 Plan 01 Task 2: doubt-branch matrix (D-11.1-01) ──────
+    # Every doubt input below must fall back to full validation -- proven
+    # here as an EMPTY (or sid-absent) skip index, never a raised
+    # exception, never a touch of _failed_validation_sids.
+
+    def test_no_registry_row_yields_empty_index(self):
+        """Test 1: no registry row for the sid."""
+        from pipeline import discovery
+
+        client = self._client(
+            list_sheets_data=[
+                SimpleNamespace(id=111222, version=8),
+                SimpleNamespace(id=999999, version=3),
+            ]
+        )
+        # Watermark present for a DIFFERENT sid only -- isolates "no row
+        # for THIS sid" from "Supabase entirely unavailable" (Test 7).
+        watermarks = {
+            999999: {
+                "sheet_id": 999999,
+                "last_sheet_version": 3,
+                "column_mapping": {"Weekly Reference Logged Date": 1},
+                "name": "Other Sheet",
+            }
+        }
+
+        with mock.patch(
+            "pipeline.discovery.get_sheet_watermarks",
+            return_value=watermarks,
+        ):
+            index = discovery._build_discovery_skip_index(
+                client, [111222, 999999]
+            )
+
+        self.assertEqual(set(index), {999999})
+
+    def test_version_mismatch_yields_empty_index(self):
+        """Test 2: registry row present, live version present, differs."""
+        from pipeline import discovery
+
+        client = self._client(
+            list_sheets_data=[SimpleNamespace(id=111222, version=9)]
+        )
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,  # stale -- live is 9
+                "column_mapping": {"Weekly Reference Logged Date": 55},
+                "name": "Test Sheet",
+            }
+        }
+
+        with mock.patch(
+            "pipeline.discovery.get_sheet_watermarks",
+            return_value=watermarks,
+        ):
+            index = discovery._build_discovery_skip_index(client, [111222])
+
+        self.assertEqual(index, {})
+
+    def test_empty_column_mapping_yields_empty_index(self):
+        """Test 3: registry row present, stored column_mapping empty."""
+        from pipeline import discovery
+
+        client = self._client(
+            list_sheets_data=[SimpleNamespace(id=111222, version=8)]
+        )
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,
+                "column_mapping": {},
+                "name": "Test Sheet",
+            }
+        }
+
+        with mock.patch(
+            "pipeline.discovery.get_sheet_watermarks",
+            return_value=watermarks,
+        ):
+            index = discovery._build_discovery_skip_index(client, [111222])
+
+        self.assertEqual(index, {})
+
+    def test_mapping_missing_weekly_reference_yields_empty_index(self):
+        """Test 4: stored mapping non-empty but missing the key column."""
+        from pipeline import discovery
+
+        client = self._client(
+            list_sheets_data=[SimpleNamespace(id=111222, version=8)]
+        )
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,
+                "column_mapping": {"Foreman": 2},
+                "name": "Test Sheet",
+            }
+        }
+
+        with mock.patch(
+            "pipeline.discovery.get_sheet_watermarks",
+            return_value=watermarks,
+        ):
+            index = discovery._build_discovery_skip_index(client, [111222])
+
+        self.assertEqual(index, {})
+
+    def test_live_version_none_for_sid_yields_empty_index(self):
+        """Test 5: live version for the sid is None."""
+        from pipeline import discovery
+
+        # A second sid carries a real, usable version so the "no usable
+        # versions at all" guard (Test 8) does not also fire here --
+        # isolates the per-sid None-version doubt path.
+        client = self._client(
+            list_sheets_data=[
+                SimpleNamespace(id=999999, version=3),
+                SimpleNamespace(id=111222, version=None),
+            ]
+        )
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,
+                "column_mapping": {"Weekly Reference Logged Date": 55},
+                "name": "Test Sheet",
+            },
+            999999: {
+                "sheet_id": 999999,
+                "last_sheet_version": 3,
+                "column_mapping": {"Weekly Reference Logged Date": 1},
+                "name": "Other Sheet",
+            },
+        }
+
+        with mock.patch(
+            "pipeline.discovery.get_sheet_watermarks",
+            return_value=watermarks,
+        ):
+            index = discovery._build_discovery_skip_index(
+                client, [111222, 999999]
+            )
+
+        self.assertNotIn(111222, index)
+        self.assertIn(999999, index)
+
+    def test_bulk_probe_exception_yields_empty_index(self):
+        """Test 6: the bulk list_sheets probe raises."""
+        from pipeline import discovery
+
+        client = self._client(list_sheets_exc=RuntimeError("transport down"))
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,
+                "column_mapping": {"Weekly Reference Logged Date": 55},
+                "name": "Test Sheet",
+            }
+        }
+
+        with mock.patch(
+            "pipeline.discovery.get_sheet_watermarks",
+            return_value=watermarks,
+        ):
+            index = discovery._build_discovery_skip_index(client, [111222])
+
+        self.assertEqual(index, {})
+
+    def test_watermarks_unavailable_yields_empty_index(self):
+        """Test 7: get_sheet_watermarks returns {} (Supabase down)."""
+        from pipeline import discovery
+
+        client = self._client(
+            list_sheets_data=[SimpleNamespace(id=111222, version=8)]
+        )
+
+        with mock.patch(
+            "pipeline.discovery.get_sheet_watermarks", return_value={}
+        ):
+            index = discovery._build_discovery_skip_index(client, [111222])
+
+        self.assertEqual(index, {})
+        # Fail-open short circuit: an empty watermark map means the bulk
+        # version probe is never even attempted (Step C.1).
+        client.Sheets.list_sheets.assert_not_called()
+
+    def test_all_versions_none_warns_and_yields_empty_index(self):
+        """Test 8: bulk probe returns rows but every version is None."""
+        from pipeline import discovery
+
+        client = self._client(
+            list_sheets_data=[SimpleNamespace(id=111222, version=None)]
+        )
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,
+                "column_mapping": {"Weekly Reference Logged Date": 55},
+                "name": "Test Sheet",
+            }
+        }
+
+        with mock.patch(
+            "pipeline.discovery.get_sheet_watermarks",
+            return_value=watermarks,
+        ), self.assertLogs(level="WARNING") as cm:
+            index = discovery._build_discovery_skip_index(client, [111222])
+
+        self.assertEqual(index, {})
+        self.assertTrue(any("no usable versions" in msg for msg in cm.output))
+
+
+class DiscoveryRegistrySkipTests(unittest.TestCase):
+    """Phase 11.1 Plan 01 (D-11.1-01): end-to-end coverage of the
+    registry-version skip through ``discover_source_sheets`` -- the
+    tracer proof that a registry-matched candidate sheet is discovered
+    with zero ``client.Sheets.get_sheet`` calls."""
+
+    def setUp(self):
+        import generate_weekly_pdfs as gwp
+        self._gwp = gwp
+        self._saved_sub_folders = gwp.SUBCONTRACTOR_FOLDER_IDS
+        self._saved_orig_folders = gwp.ORIGINAL_CONTRACT_FOLDER_IDS
+        gwp.SUBCONTRACTOR_FOLDER_IDS = []
+        gwp.ORIGINAL_CONTRACT_FOLDER_IDS = []
+        self._saved_limited = os.environ.get('LIMITED_SHEET_IDS')
+
+    def tearDown(self):
+        self._gwp.SUBCONTRACTOR_FOLDER_IDS = self._saved_sub_folders
+        self._gwp.ORIGINAL_CONTRACT_FOLDER_IDS = self._saved_orig_folders
+        if self._saved_limited is None:
+            os.environ.pop('LIMITED_SHEET_IDS', None)
+        else:
+            os.environ['LIMITED_SHEET_IDS'] = self._saved_limited
+
+    def test_registry_matched_sheet_skips_get_sheet_call(self):
+        from pipeline import discovery
+
+        os.environ['LIMITED_SHEET_IDS'] = '111222'
+        client = mock.MagicMock()
+        client.Sheets.list_sheets.return_value = SimpleNamespace(
+            data=[SimpleNamespace(id=111222, version=8)]
+        )
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,
+                "column_mapping": {"Weekly Reference Logged Date": 55},
+                "name": "Test Sheet",
+            }
+        }
+
+        with mock.patch.object(
+            discovery, '_FOLDER_DISCOVERED_SUB_IDS', set()
+        ), mock.patch.object(
+            discovery, '_FOLDER_DISCOVERED_ORIG_IDS', set()
+        ), mock.patch(
+            "pipeline.discovery.get_sheet_watermarks",
+            return_value=watermarks,
+        ):
+            result = discovery.discover_source_sheets(client)
+
+        self.assertEqual(
+            result,
+            [{
+                "id": 111222,
+                "name": "Test Sheet",
+                "column_mapping": {"Weekly Reference Logged Date": 55},
+            }],
+        )
+        client.Sheets.get_sheet.assert_not_called()
+        client.Sheets.list_sheets.assert_called_once_with(
+            include=["sheetVersion"], include_all=True,
+        )
+
+    # ── Phase 11.1 Plan 01 Task 2: doubt-branch matrix, end-to-end ───────
+    # A successful full validation calls client.Sheets.get_sheet TWICE
+    # (columns fetch, then a sample-row fetch for the diagnostic log
+    # line) -- confirmed empirically against the unmodified pre-Phase-11.1
+    # code path. The proof that matters is that the FIRST call has the
+    # full-validation signature (`include='columns'`) -- i.e. the skip
+    # path (which makes ZERO calls, per the tracer test above) was NOT
+    # taken.
+
+    @staticmethod
+    def _full_validation_client(sid, name="Full Sheet",
+                                 list_sheets_data=None, list_sheets_exc=None):
+        col = SimpleNamespace(
+            id=55, title="Weekly Reference Logged Date", type="DATE",
+        )
+        client = mock.MagicMock()
+        client.Sheets.get_sheet.return_value = SimpleNamespace(
+            id=sid, name=name, columns=[col],
+        )
+        if list_sheets_exc is not None:
+            client.Sheets.list_sheets.side_effect = list_sheets_exc
+        else:
+            client.Sheets.list_sheets.return_value = SimpleNamespace(
+                data=list_sheets_data if list_sheets_data is not None else []
+            )
+        return client
+
+    @staticmethod
+    def _run_with_watermarks(client, watermarks):
+        from pipeline import discovery
+        with mock.patch.object(
+            discovery, '_FOLDER_DISCOVERED_SUB_IDS', set()
+        ), mock.patch.object(
+            discovery, '_FOLDER_DISCOVERED_ORIG_IDS', set()
+        ), mock.patch(
+            "pipeline.discovery.get_sheet_watermarks",
+            return_value=watermarks,
+        ):
+            return discovery.discover_source_sheets(client)
+
+    def _assert_full_validation_ran(self, client, sid):
+        self.assertGreaterEqual(client.Sheets.get_sheet.call_count, 1)
+        self.assertEqual(
+            client.Sheets.get_sheet.call_args_list[0],
+            mock.call(sid, include='columns'),
+        )
+
+    def test_no_registry_row_performs_full_validation(self):
+        """Test 1: no registry row for the sid."""
+        os.environ['LIMITED_SHEET_IDS'] = '111222'
+        client = self._full_validation_client(111222)
+
+        result = self._run_with_watermarks(client, {})
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]['id'], 111222)
+        self._assert_full_validation_ran(client, 111222)
+
+    def test_version_mismatch_performs_full_validation(self):
+        """Test 2: registry row present, live version present, differs."""
+        os.environ['LIMITED_SHEET_IDS'] = '111222'
+        client = self._full_validation_client(
+            111222, list_sheets_data=[SimpleNamespace(id=111222, version=9)]
+        )
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,
+                "column_mapping": {"Weekly Reference Logged Date": 55},
+                "name": "Test Sheet",
+            }
+        }
+
+        result = self._run_with_watermarks(client, watermarks)
+
+        self.assertEqual(len(result), 1)
+        self._assert_full_validation_ran(client, 111222)
+
+    def test_empty_column_mapping_performs_full_validation(self):
+        """Test 3: registry row present, stored column_mapping empty."""
+        os.environ['LIMITED_SHEET_IDS'] = '111222'
+        client = self._full_validation_client(
+            111222, list_sheets_data=[SimpleNamespace(id=111222, version=8)]
+        )
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,
+                "column_mapping": {},
+                "name": "Test Sheet",
+            }
+        }
+
+        result = self._run_with_watermarks(client, watermarks)
+
+        self.assertEqual(len(result), 1)
+        self._assert_full_validation_ran(client, 111222)
+
+    def test_mapping_missing_weekly_reference_performs_full_validation(self):
+        """Test 4: stored mapping non-empty but missing the key column."""
+        os.environ['LIMITED_SHEET_IDS'] = '111222'
+        client = self._full_validation_client(
+            111222, list_sheets_data=[SimpleNamespace(id=111222, version=8)]
+        )
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,
+                "column_mapping": {"Foreman": 2},
+                "name": "Test Sheet",
+            }
+        }
+
+        result = self._run_with_watermarks(client, watermarks)
+
+        self.assertEqual(len(result), 1)
+        self._assert_full_validation_ran(client, 111222)
+
+    def test_live_version_none_performs_full_validation(self):
+        """Test 5: live version for the sid is None."""
+        os.environ['LIMITED_SHEET_IDS'] = '111222'
+        client = self._full_validation_client(
+            111222,
+            list_sheets_data=[SimpleNamespace(id=111222, version=None)],
+        )
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,
+                "column_mapping": {"Weekly Reference Logged Date": 55},
+                "name": "Test Sheet",
+            }
+        }
+
+        result = self._run_with_watermarks(client, watermarks)
+
+        self.assertEqual(len(result), 1)
+        self._assert_full_validation_ran(client, 111222)
+
+    def test_bulk_probe_exception_completes_with_full_validation(self):
+        """Test 6: the bulk list_sheets probe raises -- run still
+        completes and returns the fully-validated sheet, no raise."""
+        os.environ['LIMITED_SHEET_IDS'] = '111222'
+        client = self._full_validation_client(
+            111222, list_sheets_exc=RuntimeError("transport down"),
+        )
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,
+                "column_mapping": {"Weekly Reference Logged Date": 55},
+                "name": "Test Sheet",
+            }
+        }
+
+        result = self._run_with_watermarks(client, watermarks)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]['id'], 111222)
+        self._assert_full_validation_ran(client, 111222)
+
+    def test_watermarks_unavailable_performs_full_validation(self):
+        """Test 7: get_sheet_watermarks returns {} (Supabase down).
+        Mechanically identical input to Test 1 at this integration layer
+        (both produce an empty watermark map for the single candidate);
+        DiscoverySkipIndexTests isolates the two scenarios at the unit
+        level. Kept as a separate named test here for direct traceability
+        to the D-11.1-01 doubt matrix."""
+        os.environ['LIMITED_SHEET_IDS'] = '111222'
+        client = self._full_validation_client(111222)
+
+        result = self._run_with_watermarks(client, {})
+
+        self.assertEqual(len(result), 1)
+        self._assert_full_validation_ran(client, 111222)
+
+    def test_validation_exception_raises_runtime_error_naming_sid(self):
+        """Test 9: a full-validation exception still reaches
+        _failed_validation_sids and still raises the post-loop
+        RuntimeError, unchanged -- proves the Task 1 fast path did not
+        weaken the INC-05 fail-closed guard."""
+        os.environ['LIMITED_SHEET_IDS'] = '111222'
+        client = mock.MagicMock()
+        client.Sheets.get_sheet.side_effect = RuntimeError("boom")
+        client.Sheets.list_sheets.return_value = SimpleNamespace(data=[])
+
+        with self.assertRaises(RuntimeError) as cm:
+            self._run_with_watermarks(client, {})
+
+        self.assertIn("111222", str(cm.exception))
+
+    def test_validation_split_log_line_reports_skipped_and_full_counts(self):
+        """Phase 11.1 Plan 01 Task 3: the operator-visible validation
+        split line (D-11.1-01) names candidates/skipped/fully-validated
+        counts for a run mixing one registry-skipped and one
+        fully-validated sheet."""
+        os.environ['LIMITED_SHEET_IDS'] = '111222,999999'
+        # 111222: registry-matched -> skip fast path.
+        # 999999: no registry row -> falls through to full validation.
+        client = self._full_validation_client(
+            999999,
+            list_sheets_data=[
+                SimpleNamespace(id=111222, version=8),
+                SimpleNamespace(id=999999, version=3),
+            ],
+        )
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,
+                "column_mapping": {"Weekly Reference Logged Date": 55},
+                "name": "Skipped Sheet",
+            },
+        }
+
+        with self.assertLogs(level="INFO") as cm:
+            result = self._run_with_watermarks(client, watermarks)
+
+        self.assertEqual(len(result), 2)
+        split_lines = [
+            msg for msg in cm.output if "Discovery validation split" in msg
+        ]
+        self.assertEqual(len(split_lines), 1)
+        self.assertIn("2 candidates", split_lines[0])
+        self.assertIn("1 skipped via sheet_registry", split_lines[0])
+        self.assertIn("1 fully validated", split_lines[0])
+        self.assertIn("D-11.1-01", split_lines[0])
+
+
 class LiveRowAttachmentsTests(unittest.TestCase):
     """PR #373 review (Issue 1): the unchanged-group skip gate confirms
     attachment EXISTENCE against a live, per-row-memoized listing --
@@ -3533,6 +4093,355 @@ class SkipGateLiveConfirmationWiringTests(unittest.TestCase):
             r"if _failed_validation_sids:\n(?:.*\n)+?\s*raise RuntimeError",
         )
         self.assertIn("fail-closed guard", src)
+
+
+class AttachmentParentTypeComparisonTests(unittest.TestCase):
+    """RESEARCH Open Question 3 / Pitfall 4 (Phase 11.1, D-11.1-02): pins
+    the ``EnumeratedValue`` comparison form for ``Attachment.parent_type``
+    against the REAL enum from the installed smartsheet-python-sdk 4.3.0,
+    not a hand-rolled stand-in -- fails loudly if a future SDK bump changes
+    the representation."""
+
+    def test_row_parent_type_accepted(self):
+        from smartsheet.models.enums.attachment_parent_type import (
+            AttachmentParentType,
+        )
+        from pipeline import orchestrate
+
+        att = SimpleNamespace(id=1, parent_id=42, parent_type=AttachmentParentType.ROW)
+        self.assertTrue(orchestrate._is_row_attachment(att))
+
+    def test_sheet_parent_type_rejected(self):
+        from smartsheet.models.enums.attachment_parent_type import (
+            AttachmentParentType,
+        )
+        from pipeline import orchestrate
+
+        att = SimpleNamespace(id=2, parent_id=None, parent_type=AttachmentParentType.SHEET)
+        self.assertFalse(orchestrate._is_row_attachment(att))
+
+    def test_comment_parent_type_rejected(self):
+        from smartsheet.models.enums.attachment_parent_type import (
+            AttachmentParentType,
+        )
+        from pipeline import orchestrate
+
+        att = SimpleNamespace(id=3, parent_id=None, parent_type=AttachmentParentType.COMMENT)
+        self.assertFalse(orchestrate._is_row_attachment(att))
+
+    def test_missing_parent_type_attribute_rejected(self):
+        from pipeline import orchestrate
+
+        att = SimpleNamespace(id=4)
+        self.assertFalse(orchestrate._is_row_attachment(att))
+
+
+class BulkListingCeilingParseTests(unittest.TestCase):
+    """Phase 11.1 Fix 2 (D-11.1-05), PR #374 review: the
+    ``BULK_ATTACHMENT_LISTING_MAX_TOTAL`` override is parsed at module
+    import, BEFORE the pre-seed's own containment layers exist, so a
+    malformed operator value must fall back to the default with a WARNING
+    instead of raising and aborting the scheduled billing run."""
+
+    def test_default_when_unset(self):
+        from pipeline import orchestrate
+
+        self.assertEqual(
+            orchestrate._parse_bulk_listing_ceiling(None),
+            orchestrate._BULK_ATTACHMENT_LISTING_MAX_TOTAL_DEFAULT,
+        )
+
+    def test_default_when_blank(self):
+        from pipeline import orchestrate
+
+        for raw in ("", "   "):
+            with self.subTest(raw=raw):
+                self.assertEqual(
+                    orchestrate._parse_bulk_listing_ceiling(raw),
+                    orchestrate._BULK_ATTACHMENT_LISTING_MAX_TOTAL_DEFAULT,
+                )
+
+    def test_malformed_value_falls_back_with_warning_never_raises(self):
+        from pipeline import orchestrate
+
+        for raw in ("25k", "25,000", "abc", "2.5e4"):
+            with self.subTest(raw=raw):
+                with self.assertLogs(level="WARNING") as captured:
+                    value = orchestrate._parse_bulk_listing_ceiling(raw)
+                self.assertEqual(
+                    value,
+                    orchestrate._BULK_ATTACHMENT_LISTING_MAX_TOTAL_DEFAULT,
+                )
+                self.assertTrue(
+                    any(
+                        "BULK_ATTACHMENT_LISTING_MAX_TOTAL" in line
+                        for line in captured.output
+                    )
+                )
+
+    def test_well_formed_value_is_honoured(self):
+        from pipeline import orchestrate
+
+        self.assertEqual(
+            orchestrate._parse_bulk_listing_ceiling(" 300 "), 300
+        )
+        # ``0`` stays a legal (always-fall-back) ceiling -- no semantic
+        # change to well-formed values.
+        self.assertEqual(orchestrate._parse_bulk_listing_ceiling("0"), 0)
+
+    def test_module_constant_is_an_int(self):
+        from pipeline import orchestrate
+
+        self.assertIsInstance(
+            orchestrate._BULK_ATTACHMENT_LISTING_MAX_TOTAL, int
+        )
+        self.assertNotIsInstance(
+            orchestrate._BULK_ATTACHMENT_LISTING_MAX_TOTAL, bool
+        )
+
+
+class DiscoverySkipIndexAnnotationTests(unittest.TestCase):
+    """PR #374 review: the production helper must carry full parameter
+    and return annotations so static analysis checks the client, the
+    sheet-id list, and the skip-index shape its callers rely on."""
+
+    def test_skip_index_builder_is_fully_annotated(self):
+        import typing
+
+        from pipeline import discovery
+
+        hints = typing.get_type_hints(discovery._build_discovery_skip_index)
+        self.assertEqual(set(hints), {"client", "sheet_ids", "return"})
+        self.assertEqual(hints["sheet_ids"], list[int])
+        self.assertEqual(
+            hints["return"], dict[int, dict[str, typing.Any]]
+        )
+
+
+class AttachmentPrepopulationTests(unittest.TestCase):
+    """Phase 11.1 Fix 2 (D-11.1-02): pre-seed the existing
+    ``_live_row_attachments`` memo from two bulk sheet-level attachment
+    listings instead of paying one serial ``list_row_attachments`` call
+    per skip-candidate row inside the group loop (run 33512477875,
+    ~2.26 s/group)."""
+
+    @staticmethod
+    def _client(probe_total=0, listing=None, probe_exc=None, listing_exc=None):
+        client = mock.MagicMock()
+
+        def _list_all_attachments(sheet_id, page_size=None, include_all=None, **kw):
+            if include_all:
+                if listing_exc is not None:
+                    raise listing_exc
+                return SimpleNamespace(
+                    data=listing if listing is not None else []
+                )
+            # Pre-flight probe: page_size=1, no include_all.
+            if probe_exc is not None:
+                raise probe_exc
+            return SimpleNamespace(total_count=probe_total)
+
+        client.Attachments.list_all_attachments.side_effect = (
+            _list_all_attachments
+        )
+        return client
+
+    def test_buckets_listing_by_parent_id_row_only(self):
+        from smartsheet.models.enums.attachment_parent_type import (
+            AttachmentParentType,
+        )
+        from pipeline import orchestrate
+
+        listing = [
+            SimpleNamespace(id=1, parent_id=42, parent_type=AttachmentParentType.ROW),
+            SimpleNamespace(id=2, parent_id=42, parent_type=AttachmentParentType.SHEET),
+            SimpleNamespace(id=3, parent_id=43, parent_type=AttachmentParentType.COMMENT),
+        ]
+        client = self._client(probe_total=3, listing=listing)
+        memo: dict = {}
+
+        with_count, empty_count = orchestrate._preseed_live_attachment_listings(
+            client, 5723, {42, 43}, memo,
+        )
+
+        self.assertEqual(len(memo[42]), 1)
+        self.assertIs(memo[42][0], listing[0])
+        self.assertEqual(memo[43], [])
+        self.assertEqual(with_count, 1)
+        self.assertEqual(empty_count, 1)
+
+    def test_seeded_row_never_triggers_per_row_call(self):
+        from smartsheet.models.enums.attachment_parent_type import (
+            AttachmentParentType,
+        )
+        from pipeline import orchestrate
+
+        listing = [
+            SimpleNamespace(id=1, parent_id=42, parent_type=AttachmentParentType.ROW),
+        ]
+        client = self._client(probe_total=1, listing=listing)
+        memo: dict = {}
+
+        orchestrate._preseed_live_attachment_listings(client, 5723, {42}, memo)
+        result = orchestrate._live_row_attachments(client, 5723, 42, memo)
+
+        self.assertEqual(result, [listing[0]])
+        client.Attachments.list_row_attachments.assert_not_called()
+
+    def test_row_without_attachment_seeded_empty_no_per_row_call(self):
+        from pipeline import orchestrate
+
+        client = self._client(probe_total=0, listing=[])
+        memo: dict = {}
+
+        orchestrate._preseed_live_attachment_listings(client, 5723, {99}, memo)
+        result = orchestrate._live_row_attachments(client, 5723, 99, memo)
+
+        self.assertEqual(result, [])
+        client.Attachments.list_row_attachments.assert_not_called()
+
+    def test_empty_row_ids_makes_zero_api_calls(self):
+        from pipeline import orchestrate
+
+        client = mock.MagicMock()
+        result = orchestrate._preseed_live_attachment_listings(
+            client, 5723, set(), {},
+        )
+        self.assertEqual(result, (0, 0))
+        client.Attachments.list_all_attachments.assert_not_called()
+
+    def test_probe_exception_seeds_nothing(self):
+        from pipeline import orchestrate
+
+        client = self._client(probe_exc=RuntimeError("probe down"))
+        memo: dict = {}
+        result = orchestrate._preseed_live_attachment_listings(
+            client, 5723, {1, 2}, memo,
+        )
+        self.assertEqual(result, (0, 0))
+        self.assertEqual(memo, {})
+
+    def test_listing_exception_seeds_nothing(self):
+        from pipeline import orchestrate
+
+        client = self._client(
+            probe_total=1, listing_exc=RuntimeError("listing down"),
+        )
+        memo: dict = {}
+        result = orchestrate._preseed_live_attachment_listings(
+            client, 5723, {1}, memo,
+        )
+        self.assertEqual(result, (0, 0))
+        self.assertEqual(memo, {})
+
+    def test_over_ceiling_seeds_nothing_and_skips_bulk_call(self):
+        from pipeline import orchestrate
+
+        client = self._client(
+            probe_total=orchestrate._BULK_ATTACHMENT_LISTING_MAX_TOTAL + 1,
+        )
+        memo: dict = {}
+        result = orchestrate._preseed_live_attachment_listings(
+            client, 5723, {1}, memo,
+        )
+        self.assertEqual(result, (0, 0))
+        self.assertEqual(memo, {})
+        # Only the page_size=1 probe call, never the include_all=True bulk
+        # call — the ceiling guard must short-circuit before it.
+        client.Attachments.list_all_attachments.assert_called_once()
+
+
+class AttachmentPreseedWiringTests(unittest.TestCase):
+    """Phase 11.1 Fix 2 (D-11.1-02) -- main()'s pre-seed block wiring.
+    Invoking the whole of main() to exercise these five behaviors is
+    impractical (it drives the full production billing run); these are
+    source pins over pipeline/orchestrate.py, in the style of
+    SkipGateLiveConfirmationWiringTests, complementing the helper-level
+    tests in AttachmentPrepopulationTests above (which cover the actual
+    seeding behavior via direct calls)."""
+
+    @staticmethod
+    def _src() -> str:
+        return (_REPO_ROOT / "pipeline/orchestrate.py").read_text(
+            encoding="utf-8"
+        )
+
+    @classmethod
+    def _preseed_block(cls) -> str:
+        # Narrow window: from the new guard to the very next line this
+        # phase's insertion sits directly above (the pre-existing
+        # group_state attachment-identity resolution block) -- NOT the
+        # much larger span down to the first existence-check call site,
+        # which would also sweep in the unrelated circuit-breaker guard
+        # (tests/test_skip_no_target_row.py:308, which legitimately
+        # contains "SKIP_UPLOAD").
+        src = cls._src()
+        start = src.index(
+            "if not TEST_MODE and ATTACHMENT_REQUIRED_FOR_SKIP:"
+        )
+        end = src.index(
+            "_group_state_wrs = set(target_map or {})"
+        )
+        return src[start:end]
+
+    def test_preseed_call_site_between_memo_declaration_and_first_existence_check(self):
+        # Behaviors 1-3: the call site sits after the memo is declared
+        # and before the first live-confirmation call site it feeds.
+        src = self._src()
+        memo_decl = src.index("_live_attachment_listings: dict = {}")
+        first_existence_check = src.index("_has_existing_week_attachment(")
+        preseed_call = src.index(
+            "_preseed_live_attachment_listings(", memo_decl,
+        )
+        self.assertGreater(preseed_call, memo_decl)
+        self.assertLess(preseed_call, first_existence_check)
+
+    def test_gated_on_test_mode_first_then_attachment_required(self):
+        # Behavior 4: TEST_MODE on, or ATTACHMENT_REQUIRED_FOR_SKIP off ->
+        # helper not invoked at all. Distinct term order/arity from the
+        # circuit-breaker guard pinned by
+        # tests/test_skip_no_target_row.py:308 (which additionally
+        # requires `and not SKIP_UPLOAD:`), so the two guards can never
+        # collide textually.
+        block = self._preseed_block()
+        self.assertTrue(
+            block.startswith(
+                "if not TEST_MODE and ATTACHMENT_REQUIRED_FOR_SKIP:"
+            )
+        )
+        self.assertNotIn("SKIP_UPLOAD", block)
+
+    def test_target_leg_uses_target_map_and_target_sheet_id(self):
+        # Behavior 1: target sheet leg is keyed off target_map /
+        # TARGET_SHEET_ID and calls the pre-seed helper.
+        block = self._preseed_block()
+        self.assertIn("TARGET_SHEET_ID", block)
+        self.assertIn("target_map", block)
+        self.assertIn("_preseed_live_attachment_listings(", block)
+
+    def test_ppp_leg_uses_target_map_ppp_and_ppp_sheet_id_and_is_skippable(self):
+        # Behavior 2 + 3: PPP leg is keyed off target_map_ppp /
+        # SUBCONTRACTOR_PPP_SHEET_ID, and the loop skips a leg whose
+        # sheet id or row-id set is falsy/empty (so an empty/absent PPP
+        # map never invokes the helper for that sheet, while a populated
+        # one invokes it once, same as the target leg -- one call site
+        # inside the shared per-leg loop covers both legs, never more
+        # than once per leg -- twice total when both are populated).
+        block = self._preseed_block()
+        self.assertIn("target_map_ppp", block)
+        self.assertIn("SUBCONTRACTOR_PPP_SHEET_ID", block)
+        self.assertIn("continue", block)
+        self.assertEqual(
+            block.count("_preseed_live_attachment_listings("), 1,
+        )
+
+    def test_preseed_block_wrapped_in_outer_try_except(self):
+        # Behavior 5: a helper exception cannot escape the block --
+        # main()'s pre-seed section must complete and leave the memo
+        # usable by the existing lazy path.
+        block = self._preseed_block()
+        self.assertIn("try:", block)
+        self.assertIn("except Exception", block)
 
 
 if __name__ == "__main__":
