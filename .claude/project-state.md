@@ -28,14 +28,19 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
   all-sentinel freezes (no RPC, returns False); counters `sentinel_claimers_ignored` /
   `sentinel_freezes_deferred` added to `run_summary` (golden 22→24 keys, three key-count pins
   updated, both orchestrate pre-seeds mirrored). New `tests/test_sentinel_never_a_claimer.py`
-  (RED 14 → GREEN). ALL 6 GATES PASSED (1904 passed / 1 skipped / 335 subtests; mypy 71→71).
-  Ledger `[2026-09-01 18:05]`. Review-fix round (Copilot ×5, Cursor ×1, Greptile ×1) = PR #376:
+  (RED 14 → GREEN). ALL 6 GATES PASSED at #375 ship (1904 passed / 1 skipped / 335 subtests;
+  mypy 71→71); on the #376 branch 1906 passed (14 tests in that file).
+  Ledger `[2026-09-01 18:05]` + `[2026-09-01 18:55]`. Review-fix round (Copilot ×5, Cursor ×1, Greptile ×1) = PR #376:
   the week passed to `resolve_claimer` is coerced to `date` inside the function, which ACTIVATES
   frozen-wins on the subcontractor-helper path (it always missed the date-keyed map before, on
   master too until #376 merges); REMEDIATE_CLAIMERS guidance corrected; identifiers aliased. Stale `_User_Unknown_Foreman`
   attachments are NOT swept by the scheduled run or by isolated `REMEDIATE_CLAIMERS` (only
   `_NO_MATCH`); clear them per WR with `reset_wr_list` or by hand until a sentinel-aware cleanup
-  is approved. OWN-01/03/04 still open.
+  is approved — knowing (Greptile on #376, verified) that ANY non-empty `RESET_WR_LIST` puts the
+  whole run in full mode (Trigger 5 + skip gate off for every group), so every WR regenerates,
+  and that the purge covers `TARGET_SHEET_ID` only (stale reduced-sub PPP identities on the PPP
+  sheet need a manual delete). Scoping the reset to the listed WRs = code change, owner decision.
+  OWN-01/03/04 still open.
 - **Excel "bug" (`<WR-D>` WE 083026):** NOT a generation defect. The pipeline's own attachment
   (uploaded 2026-08-28 00:36Z) is internally consistent (Wed 38 / Thu 26 / Fri 8 rows = 72
   = 10,478.74). The operator's copy was re-saved in Excel by a person on 2026-09-01 21:48Z with the

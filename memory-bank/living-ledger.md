@@ -8203,9 +8203,10 @@ Reference: `.planning/phases/11.1-post-inc-05-runtime-remediation/` (`11.1-CONTE
   (`tests/golden/run_summary_baseline.json`; key-count pins in `tests/test_incremental_read.py` ×2
   and `tests/test_parity_shadow.py`), `CountersTests.test_starts_at_zeros`, and both orchestrate
   run-summary pre-seed dicts mirror the two new counters.
-- **Validation:** `tests/test_sentinel_never_a_claimer.py` (12 tests / 23 subtests; RED 14
-  failures before the change, GREEN after); ALL 6 GATES PASSED (1904 passed / 1 skipped / 335
-  subtests; mypy 71→71 neutral; Gate 6 24 keys).
+- **Validation (as shipped in #375):** `tests/test_sentinel_never_a_claimer.py` (12 tests / 23
+  subtests; RED 14 failures before the change, GREEN after); ALL 6 GATES PASSED (1904 passed /
+  1 skipped / 335 subtests; mypy 71→71 neutral; Gate 6 24 keys). After the #376 review fixes the
+  file holds 14 tests and the gate count is 1906 passed (see `[2026-09-01 18:55]`).
 - **Rules:** (1) Never store or honour a placeholder as a claimer — extend `_SENTINEL_CLAIMERS`
   whenever a new fallback string is introduced anywhere under `pipeline/`. (2) A freeze with
   nothing real to remember is deferred, not written. (3) Any new writer counter must be mirrored
@@ -8228,7 +8229,13 @@ Reference: `.planning/phases/11.1-post-inc-05-runtime-remediation/` (`11.1-CONTE
   `no_history` operator hint in `pipeline/grouping.py` no longer promises "this run freezes it"
   unconditionally, and `attribution_rows_held` is now mirrored in the second orchestrate pre-seed
   (pre-existing Gate-6 gap when the writer is unavailable).
-- **PR #375 review round (Copilot ×5, Cursor ×1, Greptile ×1 — all valid; Greptile's fix is in
+
+## [2026-09-01 18:55] PR #375 review round → PR #376: helper-path week-key miss fixed, REMEDIATE_CLAIMERS guidance corrected, identifiers aliased; `reset_wr_list` is run-wide (Greptile); #375 merged mid-round
+
+- **Why a separate entry:** the learnings below were first folded into `[2026-09-01 18:05]`;
+  Codex review on #376 correctly flagged that the ledger contract is append-only dated entries,
+  so they now live here with their own timestamp. `[18:05]` keeps only what #375 shipped.
+- **Review round (Copilot ×5, Cursor ×1, Greptile ×1 — all valid; Greptile's fix is in
   #375, the rest ship in PR #376):** (a) **Latent miss, now fixed:** the inline subcontractor-helper call in
   `pipeline/grouping.py` passed the raw `datetime.datetime` week to `resolve_claimer`, while
   `prefetch_attribution` keys its map by `datetime.date`; a datetime never equals a date, so that
@@ -8254,3 +8261,22 @@ Reference: `.planning/phases/11.1-post-inc-05-runtime-remediation/` (`11.1-CONTE
 - **Rule (process):** after pushing review fixes, re-read `gh pr view --json state,headRefOid`
   BEFORE resolving threads or editing the body — a squash merge can race the fix round, and
   resolved threads on a merged PR silently imply the fix is live when it is not.
+- **`reset_wr_list` is NOT a scoped regeneration (Greptile P1 on #376, verified in code):** the
+  purge is scoped to the listed WRs (`purge_existing_hashed_outputs(client, TARGET_SHEET_ID,
+  RESET_WR_LIST, …)`, `pipeline/orchestrate.py:2827-2833`), but any non-empty `RESET_WR_LIST` is
+  an operator flag — Trigger 5 of `resolve_run_mode` returns `full` (`pipeline/orchestrate.py:1024`)
+  and `_history_eligible_for_skip` is False for EVERY group (`:3518-3526`), so every WR in scope
+  regenerates and re-uploads. Documented in `website/docs/reference/environment.md`
+  (`REMEDIATE_CLAIMERS` section), `runbook/operations.md`, and `CHANGELOG_CONTEXT.md`. Scoping the
+  skip gate to `wr_num in RESET_WR_LIST` is a small orchestrator change but a production-behaviour
+  change — owner decision, not done here. Related (Codex P2, verified): the purge loads only
+  `TARGET_SHEET_ID`, so a stale reduced-sub PPP identity on `SUBCONTRACTOR_PPP_SHEET_ID` survives a
+  reset and needs a manual delete.
+- **`REMEDIATE_CLAIMERS` Purpose paragraph corrected (Copilot + Codex on #376):** the runbook's own
+  Purpose text still promised `*_Unknown_Foreman*` matching; production always calls
+  `run_claimer_remediation(..., valid_wr_weeks=None)` (`pipeline/orchestrate.py:2309-2314`), which
+  selects `_ALWAYS_GARBAGE_PATTERNS = ('_NO_MATCH',)`. Rule: when correcting a doc claim, grep the
+  same page for the claim's earlier restatements — a section with two contracts is worse than one
+  wrong contract.
+- **Figures:** #375 shipped with 12 tests / 1904 passed; the #376 branch has 14 tests / 1906 passed
+  / 1 skipped / 335 subtests, mypy 71→71, Gate 6 24 keys.

@@ -157,7 +157,10 @@ names still win exactly as before. Two new run-summary counters make it visible:
 `sentinel_claimers_ignored` and `sentinel_freezes_deferred` (golden run_summary refrozen 22→24
 keys). What is still NOT automatic: removing the old `*_Unknown_Foreman*` attachment. Neither
 the scheduled run nor the isolated `REMEDIATE_CLAIMERS` sweep (which only removes `_NO_MATCH`)
-deletes it — dispatch `reset_wr_list:<WR>` in `advanced_options` for that WR or delete it by hand.
+deletes it — dispatch `reset_wr_list:<WR>` in `advanced_options` for that WR or delete it by hand,
+knowing that any non-empty reset list puts the whole run in full mode (every group regenerates,
+not only the listed WRs) and purges only the target sheet (a stale reduced-sub PPP identity on the
+subcontractor PPP sheet needs a manual delete).
 See `memory-bank/living-ledger.md` `[2026-09-01 18:05]`; PR #375 (merged `8325bc8`).
 
 ## 2026-09-01 — Frozen helper claims now honoured on the subcontractor-helper path; #375 review fixes (PR #376)

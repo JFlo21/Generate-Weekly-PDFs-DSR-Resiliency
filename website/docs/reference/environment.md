@@ -616,10 +616,14 @@ The resolved value is printed at startup as
 **Purpose:** Activates the isolated garbage-attachment remediation sweep
 (Phase 2 Plan 03, D-06/D-07/D-08). When `1`, `main()` sweeps
 `TARGET_SHEET_ID` and `SUBCONTRACTOR_PPP_SHEET_ID` for attachments
-matching `*_NO_MATCH*` or `*_Unknown_Foreman*` patterns (the tokens
-`resolve_claimer` emits for unresolved historical rows), then **returns
+matching the `*_NO_MATCH*` pattern **only**, then **returns
 immediately** — no Excel generation occurs in the same session (isolation
-contract per D-06).
+contract per D-06). Production always invokes the sweep in this isolated
+mode (`valid_wr_weeks=None`), and in that mode `_Unknown_Foreman` files
+are deliberately protected: without the run's live identities a current
+unassigned-WR file cannot be told apart from a stale one, so the wider
+pattern set that also matches `*_Unknown_Foreman*` is reserved for a
+caller that supplies the live identity set (none does today).
 
 **Operator workflow:**
 
@@ -646,11 +650,26 @@ its isolated mode deliberately protects `_Unknown_Foreman` (only
 `_NO_MATCH` is swept, because without live identities a current
 unassigned-WR file is indistinguishable from a stale one). To clear the
 superseded file for a WR that now carries a real foreman, dispatch
-`reset_wr_list:<WR>` in `advanced_options` (purges that WR's attachments
-and regenerates all of its weeks) or delete it by hand. The run summary
-reports `sentinel_claimers_ignored` (rows resolved past a frozen sentinel
-this run) and `sentinel_freezes_deferred` (completed rows not frozen yet
-because no role held a real name).
+`reset_wr_list:<WR>` in `advanced_options` or delete it by hand. The run
+summary reports `sentinel_claimers_ignored` (rows resolved past a frozen
+sentinel this run) and `sentinel_freezes_deferred` (completed rows not
+frozen yet because no role held a real name).
+
+**What `reset_wr_list` really does (read before dispatching):** the
+*purge* is scoped to the listed WRs — their `WR_*.xlsx` attachments on
+`TARGET_SHEET_ID` and the matching local outputs — but the *run* is not.
+Any non-empty `RESET_WR_LIST` is an operator flag: the incremental-read
+decision ignores its watermark and runs in full mode (Trigger 5), and the
+unchanged-group skip gate is disabled for **every** group, so every WR in
+scope regenerates and re-uploads in that run, not only the listed ones.
+Expect a long run and attachment churn across unrelated WRs; the same is
+true of `regen_weeks`, `RESET_HASH_HISTORY`, and `FORCE_GENERATION`.
+The purge also touches only the target sheet: a stale reduced-sub PPP
+identity on `SUBCONTRACTOR_PPP_SHEET_ID` (for example a
+`_ReducedSub_User_Unknown_Foreman` file) is left beside the regenerated
+one and must be deleted by hand. Scoping the run-wide effect to the listed
+WRs would be a code change to the orchestrator, not a documented behaviour
+today.
 
 ### `REMEDIATION_DRY_RUN`
 
