@@ -1296,6 +1296,9 @@ class CountersTests(unittest.TestCase):
                 "fingerprint_changes_detected": 0,
                 # Foundation A: pre-seeded for a stable counter schema.
                 "attribution_rows_held": 0,
+                # Phase 12 / OWN-02 (policy A): sentinel counters.
+                "sentinel_claimers_ignored": 0,
+                "sentinel_freezes_deferred": 0,
             },
         )
 

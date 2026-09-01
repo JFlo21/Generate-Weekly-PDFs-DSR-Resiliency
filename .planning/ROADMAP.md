@@ -118,6 +118,8 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
   ladder, sentinel-never-a-name fix in `freeze_row`/`resolve_claimer`, dry-run-first
   backfill (artifacts filenames, attribution_snapshot, 2025 hash_history) and remediation
   of the 93 `Unknown Foreman` WRs; amends Foundation A first-write-wins. (OWN-01..04)
+  **First slice shipped 2026-09-01 (OWN-02, owner policy A):** frozen sentinels read as
+  no-history and are never stored; OWN-01 / OWN-03 / OWN-04 ladder + backfill still open.
 
 - [ ] **Phase 13: Audit Memory** — `audit_finding` lifecycle (open → fixed / resurfaced /
   acknowledged), incremental audits over affected groups + open findings. (AUD-01..03)
@@ -138,7 +140,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 09. Engine Modularization (pipeline package split) | v1.3 | 9/9 | ✅ Complete | 2026-08-25 |
 | 10. Run-Memory Foundation (shadow writes) | v1.4 | 6/6 | ✅ Complete | 2026-08-25 |
 | 11. Incremental Read + Affected-Group Regeneration | v1.4 | 0/8 | In Progress|  |
-| 12. Ownership — last known foreman as of the week | v1.4 | 0/? | Draft |  |
+| 12. Ownership — last known foreman as of the week | v1.4 | OWN-02 slice shipped | In Progress |  |
 | 13. Audit Memory | v1.4 | 0/? | Draft |  |
 
 ---

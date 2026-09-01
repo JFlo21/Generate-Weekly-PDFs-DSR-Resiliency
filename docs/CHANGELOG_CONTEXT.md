@@ -133,3 +133,28 @@ Number** (a same-named property of any other type is logged and skipped) — add
 changes until you do (Notion would otherwise reject the page). The startup banner and
 `pipeline/excel.py` no longer name two historical Work Requests (the per-WR branch was a log line with no
 behaviour). No pipeline behaviour change. See `memory-bank/living-ledger.md` `[2026-08-28 20:15]`; PR #369.
+
+## 2026-09-01 — WR 91390743 "Thursday total ≠ rows" diagnosed as a hand-edited copy; claimer-correction gap re-confirmed (diagnosis only)
+No code change. The workbook the operator inspected was re-saved in Excel by a person after generation:
+the Friday block was folded under Thursday and two Point 29 rows (524.51) were deleted, leaving the literal
+Thursday TOTAL stale. The pipeline's own attachment on the target row is internally consistent (72 rows =
+10,478.74). Operator rule: diff a suspect workbook against the target-row attachment and read its
+`docProps/core.xml` before touching the generator; keep totals as literals (tamper evidence). Separately,
+the "fix the foreman in Smartsheet and the next run should regenerate" expectation is not met because
+`resolve_claimer` honours any non-blank frozen claimer, grouping partitions by that frozen value, and no
+reset lever touches `attribution_snapshot`; the `Unknown Foreman` sentinel is frozen verbatim (5,829 rows /
+94 WRs today, growing). This is Phase 12 (OWN-01..04), still gated on the owner's spec §8 #1 / #5
+decisions. See `memory-bank/living-ledger.md` `[2026-09-01 17:55]`.
+
+## 2026-09-01 — A frozen placeholder claimer is never honoured again (Phase 12 first slice, OWN-02, owner policy A)
+Operators no longer need `RESET_HASH_HISTORY` to get a file regenerated under the right foreman after a
+Work Request that had no assigned foreman at first generation is finally assigned. `resolve_claimer`
+now reads a frozen `Unknown Foreman` / `#NO MATCH` (and the `Unknown` / `Unknown Helper` /
+`Unknown VAC Crew` family) as "no history" and uses the current Smartsheet value, and `freeze_row`
+never stores those placeholders — it nulls them and, when no role holds a real name, skips the
+Supabase call entirely so the first real person can still be frozen first-write-wins. Real frozen
+names still win exactly as before. Two new run-summary counters make it visible:
+`sentinel_claimers_ignored` and `sentinel_freezes_deferred` (golden run_summary refrozen 22→24
+keys). What the scheduled run still does not do: delete the old `*_Unknown_Foreman*` attachment —
+run the `REMEDIATE_CLAIMERS` sweep once after a batch of assignments (dry-run first). See
+`memory-bank/living-ledger.md` `[2026-09-01 18:05]`; PR #375.

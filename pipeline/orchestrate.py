@@ -586,6 +586,8 @@ def _run_synthetic_test_mode(session_start):
             "snapshots_written": 0,
             "snapshots_already_frozen": 0,
             "snapshots_errored": 0,
+            "sentinel_claimers_ignored": 0,
+            "sentinel_freezes_deferred": 0,
         }
         os.makedirs(OUTPUT_FOLDER, exist_ok=True)
         with open(os.path.join(OUTPUT_FOLDER, 'run_summary.json'), 'w') as _rsf:
@@ -5119,6 +5121,14 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             "snapshots_already_frozen": 0,
             "snapshots_errored": 0,
             "fingerprint_changes_detected": 0,
+            # Every billing_audit.writer counter is mirrored here so the
+            # run_summary key set (Gate 6 golden, 24 keys) stays stable
+            # when the writer is unavailable and ``get_counters()`` never
+            # runs. ``attribution_rows_held`` was missing from this
+            # pre-seed before the Phase 12 / OWN-02 counters were added.
+            "attribution_rows_held": 0,
+            "sentinel_claimers_ignored": 0,
+            "sentinel_freezes_deferred": 0,
         }
         if BILLING_AUDIT_AVAILABLE:
             try:

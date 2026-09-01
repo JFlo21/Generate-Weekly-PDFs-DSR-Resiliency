@@ -5,10 +5,10 @@ milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
 current_phase: 11.1
 current_phase_name: post-inc-05-runtime-remediation
 status: executing
-stopped_at: PR #374 open for Phase 11.1 (verification human_needed = post-merge timing); awaiting review + merge
-last_updated: "2026-09-01T19:50:00.000Z"
+stopped_at: PR #374 MERGED (675e3e2); Phase 11.1 awaiting first post-merge frequent run for SC-1 wall clock, then /gsd-verify-work 11.1
+last_updated: "2026-09-01T20:20:00.000Z"
 last_activity: 2026-09-01
-last_activity_desc: Phase 11.1 verified (12/12, 0 gaps) and shipped as PR #374; post-merge SC-1 observation pending
+last_activity_desc: Phase 12 OWN-02 first slice (sentinel never a claimer, owner policy A) implemented on fix/own-02-sentinel-never-a-claimer; Phase 11.1 SC-1 observation still pending on first true post-merge run
 state_head: 5936ad263cf66a1689345714359cae051ddbdf9f
 progress:
   total_phases: 13
@@ -35,11 +35,14 @@ pipeline.
 
 ## Current Position
 
-Phase: 11.1 (post-inc-05-runtime-remediation) — COMPLETE (Plan 2 of 2 done)
+Phase: 11.1 (post-inc-05-runtime-remediation) — MERGED (PR #374, squash
+  `675e3e2`, 2026-09-01 20:14Z); awaiting the post-merge SC-1 observation
 Plan: 11.1-01 (Fix 1 — discovery registry-version skip) and 11.1-02
-  (Fix 2 — bulk attachment pre-seed) both executed and gate-verified on
-  branch `feat/11.1-runtime-remediation`. Both fixes for the post-merge
-  runtime regression are shipped; ready for PR / phase close.
+  (Fix 2 — bulk attachment pre-seed) both executed, gate-verified
+  (11.1-VERIFICATION.md 12/12, 0 gaps, `human_needed`), and merged to
+  master. Greptile round fixed on-branch (never-raising ceiling parse,
+  typed skip index). Merged with 9 bot threads unresolved — see
+  Blockers/Concerns. Post-merge gate on master: ALL 6 PASSED.
 Status: Discovery phase skips full per-sheet validation for any
   candidate whose live Smartsheet version still matches
   `pipeline_memory.sheet_registry.last_sheet_version` and whose stored
@@ -285,6 +288,23 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ### Blockers/Concerns
 
+**From the PR #374 merge (2026-09-01, Phase 11.1 — tracked; verify before relying on the skip path):**
+
+- ⚠️ [Phase 11.1] Codex-connector P1 `pipeline/discovery.py:289` (UNVERIFIED): claims a
+  non-deep run that fully validates a changed mapping then advances
+  `sheet_registry.last_sheet_version` while retaining the OLD stored `column_mapping`, so
+  the NEXT run's registry-version skip serves a stale mapping. Verify what
+  `upsert_sheet_registry` writes on non-deep runs before trusting SC-2 skip counts; if
+  real, the fail-closed remedy is to also compare a stored-mapping fingerprint.
+- ⚠️ [Phase 11.1] Copilot `pipeline/orchestrate.py:1339`: a missing `total_count` on the
+  probe may bypass the 25000 ceiling and proceed to the unbounded `include_all=True` listing.
+- ⚠️ [Phase 11.1] Codex-connector P1 `orchestrate.py:2967`: pre-seed probe + listings run
+  before the first `TIME_BUDGET_MINUTES` check. P2 `discovery.py:284`: registry mapping
+  shape not validated before skip admission. Doc/test nits: STATE.md progress arithmetic
+  (3/13 vs 11/13); `⚡` vs `⏭️` marker in 11.1-01-PLAN:423 / 11.1-VALIDATION:89;
+  SimpleNamespace pin at test_incremental_read 4112; 11.1-VERIFICATION.md:89 describes the
+  pre-review ceiling code.
+
 **From Phase 09 gap closure (2026-08-25, tracked, non-blocking):**
 
 - ⚠️ [Phase 09] Accepted mypy debt: 1 class-A finding `billing_audit/snapshot_store.py:370` (runtime-guarded) — todo `2026-08-25-fix-snapshot-store-int-arg-type.md`.
@@ -398,17 +418,21 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 ## Session
 
 **Last session:** 2026-09-01T18:58:13.637Z
-**Stopped at:** PR #374 open (Phase 11.1) — 11.1-VERIFICATION.md human_needed; next Greptile round, Juan merges, then post-merge SC-1 observation + /gsd-verify-work 11.1
+**Stopped at:** PR #374 MERGED (675e3e2, 20:14Z); post-merge gate on master ALL 6 PASSED; next: first true post-merge frequent run (21:00Z schedule) supplies SC-1 wall clock → 11.1-VALIDATION.md → /gsd-verify-work 11.1
 **Resume file:** None
 
 ## Session Continuity
 
-Last session: 2026-09-01T19:50:00.000Z
-Stopped at: Phase 11.1 shipped — gsd-verifier 12/12 code-verifiable must-haves,
-  0 gaps, status human_needed (SC-1 wall clock + timing magnitudes are post-merge
-  production observations). Commit 076ea31 pushed; PR #374 open against master
-  (D-11.1-05 flagged for owner veto). Next: Greptile round, Juan merges, first
-  production_frequent run supplies wall clock (<~75 min) + Discovery validation
-  split + per-sheet total_count lines -> 11.1-VALIDATION.md Manual-Only table ->
-  /gsd-verify-work 11.1. HANDOFF.json and .continue-here.md consumed and removed.
+Last session: 2026-09-01T20:20:00.000Z
+Stopped at: PR #374 MERGED 2026-09-01T20:14:31Z (squash 675e3e2; master 459556c
+  with the docs-changelog stub on top); feat/11.1-runtime-remediation deleted
+  local+remote; post-merge gate on master ALL 6 PASSED (1892 passed / 1 skipped /
+  312 subtests). Merged with 9 unresolved bot threads (see Blockers/Concerns —
+  the Codex-connector P1 on discovery.py:289 mapping drift is UNVERIFIED).
+  First TRUE post-merge run = the 21:00Z schedule: runs created before the merge
+  (33536584371 in progress since 18:56Z, 33548279785 pending) are pinned to
+  pre-merge 733e76d and drain the per-ref concurrency queue first. Next: read
+  that run's wall clock (<~75 min), Discovery validation split and per-sheet
+  total_count lines -> 11.1-VALIDATION.md Manual-Only table ->
+  /gsd-verify-work 11.1. Ledger edits on master are uncommitted by design.
 Resume file: None

@@ -635,6 +635,17 @@ The Python default (`'0'`) applies when unset, so a normal cron run never
 sweeps. The resolved state is printed at startup alongside
 `REMEDIATION_DRY_RUN` and `REMEDIATION_WINDOW_WEEKS`.
 
+**Since the Phase 12 sentinel fix (2026-09-01, owner policy A):** a frozen
+`Unknown Foreman` / `#NO MATCH` claimer is no longer honoured — the next
+scheduled run resolves such rows from the CURRENT Smartsheet foreman and
+regenerates the file under the real name as soon as the WR is assigned.
+No hash reset is needed for that. What the scheduled run does **not** do
+is delete the stale `*_Unknown_Foreman*` attachment left by earlier runs,
+so after a batch of assignments run this sweep once (dry-run first). The
+run summary reports `sentinel_claimers_ignored` (rows resolved past a
+frozen sentinel this run) and `sentinel_freezes_deferred` (completed rows
+not frozen yet because no role held a real name).
+
 ### `REMEDIATION_DRY_RUN`
 
 **Default:** `1` (dry-run ON — report counts, no deletions)

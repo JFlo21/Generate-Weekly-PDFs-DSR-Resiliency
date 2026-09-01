@@ -1096,8 +1096,12 @@ def group_source_rows(rows):
                                     )
                                 else:  # no_history
                                     _remediation = (
-                                        "No frozen attribution exists yet — "
-                                        "this run freezes it; no action needed "
+                                        "No frozen attribution exists yet (or "
+                                        "the frozen value is a placeholder such "
+                                        "as 'Unknown Foreman', which is never "
+                                        "honored — Phase 12 / OWN-02). This run "
+                                        "freezes the current name if any role "
+                                        "holds a real person; no action needed "
                                         "unless a prior frozen claim was "
                                         "expected for this helper."
                                     )

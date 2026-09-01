@@ -76,6 +76,54 @@ from billing_audit.client import (
 # history survives.
 _WR_SANITIZE = re.compile(r"[^\w\-]")
 
+# ── Sentinel claimers (Phase 12 / OWN-02 first slice, policy A) ──────
+# Placeholder names the pipeline itself invents when Smartsheet has no
+# real person for a role: ``Unknown Foreman`` (pipeline/fetch.py
+# effective-user fallback), ``Unknown`` (pipeline/grouping.py claimer
+# fallback), ``Unknown Helper`` / ``Unknown VAC Crew`` (pipeline/excel.py
+# display fallbacks) and Smartsheet ``#`` error tokens (``#NO MATCH``).
+# Foundation A's first-write-wins freeze stored these verbatim, which
+# pinned a WR with no Resource-Analyst foreman at first generation to
+# ``Unknown Foreman`` forever — a later correction in Smartsheet never
+# reached grouping (living-ledger [2026-08-24 14:35]; 5,829 rows /
+# 94 WRs on 2026-09-01). Owner decision 2026-09-01 (policy A): a
+# sentinel is never a claimer. ``freeze_row`` nulls it (and defers the
+# RPC when no role holds a real name) and ``resolve_claimer`` reads a
+# frozen sentinel as no-history, so the CURRENT Smartsheet value is used
+# until a real name is frozen. A real frozen name still wins.
+# Matched after strip / casefold / ``_``→space so the filename-sanitized
+# spellings (``Unknown_Foreman``, ``_NO_MATCH``) are caught too.
+_SENTINEL_CLAIMERS: frozenset[str] = frozenset({
+    "unknown foreman",
+    "unknown",
+    "unknown helper",
+    "unknown vac crew",
+    "no match",
+})
+
+
+def is_sentinel_claimer(value: Any) -> bool:
+    """True when *value* is blank, a Smartsheet ``#`` error token, or one
+    of the pipeline's placeholder claimer names — i.e. NOT a person.
+    Exact family only: ``Unknown Person`` is a name, not a sentinel."""
+    if value is None:
+        return True
+    text = str(value).strip()
+    if not text or text.startswith("#"):
+        return True
+    normalized = " ".join(text.replace("_", " ").split()).casefold()
+    return normalized in _SENTINEL_CLAIMERS
+
+
+def _null_if_named_sentinel(value: Any) -> Any:
+    """Rewrite a NAMED sentinel (``Unknown Foreman``, ``#NO MATCH``) to
+    ``None`` for the freeze RPC; blank / ``None`` pass through unchanged
+    (the lookup RPC already reads blank as NULL)."""
+    if value is None or not str(value).strip():
+        return value
+    return None if is_sentinel_claimer(value) else value
+
+
 _FLAG_WRITE = "write_attribution_snapshot"
 _FLAG_FINGERPRINT = "emit_assignment_fingerprint"
 
@@ -127,6 +175,12 @@ _counters: dict[str, int] = {
     # Pre-seeded to 0 so get_counters() has a stable schema even on
     # runs with zero holds.
     "attribution_rows_held": 0,
+    # Phase 12 / OWN-02 (policy A): frozen sentinels read as no-history
+    # by resolve_claimer, and freezes deferred by freeze_row because no
+    # role held a real name. Pre-seeded for a stable run_summary schema
+    # (Gate 6 golden + the orchestrate pre-seeds mirror these keys).
+    "sentinel_claimers_ignored": 0,
+    "sentinel_freezes_deferred": 0,
 }
 
 
@@ -547,32 +601,48 @@ def freeze_row(row: dict, release: str | None,
     release = release or ""
     run_id = run_id or ""
 
+    # ``__effective_user`` is the pipeline's RESOLVED primary
+    # foreman: set at row-ingest time via the
+    # ``Foreman Assigned?`` → ``Foreman`` → ``"Unknown Foreman"``
+    # fallback chain, and is variant-agnostic (identical across
+    # primary / helper / vac_crew copies of the row).
+    #
+    # Do NOT use ``__current_foreman`` here — that field is
+    # variant-scoped in ``group_source_rows``: it holds the
+    # helper foreman for helper variants and the VAC crew
+    # member's name for vac_crew variants. Using it would
+    # duplicate ``p_helper`` / ``p_vac_crew`` into
+    # ``p_primary`` and lose the true primary assignment.
+    # Raw ``Foreman`` is the final fallback for edge-case
+    # rows missing ``__effective_user``.
+    #
+    # Phase 12 / OWN-02 (policy A, owner-approved 2026-09-01): a NAMED
+    # sentinel in any role (``Unknown Foreman``, ``#NO MATCH``, ...) is
+    # nulled so first-write-wins never pins the row to a placeholder.
+    # When NO role holds a real name the freeze is deferred (no RPC,
+    # return False, row stays out of the row cache) so the first run
+    # that sees a real person still performs the first write.
+    p_primary = _null_if_named_sentinel(
+        row.get("__effective_user")
+        or row.get("Foreman")
+        or None
+    )
+    p_helper = _null_if_named_sentinel(row.get("__helper_foreman"))
+    p_vac_crew = _null_if_named_sentinel(row.get("__vac_crew_name"))
+    if all(
+        is_sentinel_claimer(v) for v in (p_primary, p_helper, p_vac_crew)
+    ):
+        _bump_counter("sentinel_freezes_deferred")
+        return False
+
     params = {
         "p_wr": wr,
         "p_week_ending": week_ending.isoformat(),
         "p_smartsheet_row_id": row_id,
-        # ``__effective_user`` is the pipeline's RESOLVED primary
-        # foreman: set at row-ingest time via the
-        # ``Foreman Assigned?`` → ``Foreman`` → ``"Unknown Foreman"``
-        # fallback chain, and is variant-agnostic (identical across
-        # primary / helper / vac_crew copies of the row).
-        #
-        # Do NOT use ``__current_foreman`` here — that field is
-        # variant-scoped in ``group_source_rows``: it holds the
-        # helper foreman for helper variants and the VAC crew
-        # member's name for vac_crew variants. Using it would
-        # duplicate ``p_helper`` / ``p_vac_crew`` into
-        # ``p_primary`` and lose the true primary assignment.
-        # Raw ``Foreman`` is the final fallback for edge-case
-        # rows missing ``__effective_user``.
-        "p_primary": (
-            row.get("__effective_user")
-            or row.get("Foreman")
-            or None
-        ),
-        "p_helper": row.get("__helper_foreman"),
+        "p_primary": p_primary,
+        "p_helper": p_helper,
         "p_helper_dept": row.get("__helper_dept"),
-        "p_vac_crew": row.get("__vac_crew_name"),
+        "p_vac_crew": p_vac_crew,
         "p_pole": (
             row.get("Pole #")
             or row.get("Point #")
@@ -1055,6 +1125,14 @@ def resolve_claimer(
     # RPC already normalizes blank/#-token roles to NULL; this is a
     # defense-in-depth guard so the returned name is never empty.
     frozen_str = str(frozen).strip() if frozen is not None else ""
+    # Phase 12 / OWN-02 (policy A): a frozen SENTINEL (``Unknown
+    # Foreman`` & family, stored verbatim by pre-fix runs) is not a
+    # claimer — read it as no-history so the CURRENT Smartsheet value
+    # (the operator's correction) reaches grouping. Counted for the
+    # run summary. A real frozen name is untouched.
+    if frozen_str and is_sentinel_claimer(frozen_str):
+        _bump_counter("sentinel_claimers_ignored")
+        frozen_str = ""
     if frozen_str:
         return ResolveOutcome("use", frozen_str, "frozen", "success")
     return ResolveOutcome("use", current_value, "current", "no_history")

@@ -818,10 +818,12 @@ class WatermarkPersistenceTests(unittest.TestCase):
 
     def test_run_summary_key_count_matches_contract(self):
         """run_summary.json's contract: 21 keys frozen by this plan plus
-        ``groups_skipped_no_target_row`` (PR #365)."""
+        ``groups_skipped_no_target_row`` (PR #365) plus the two Phase 12
+        / OWN-02 sentinel counters (``sentinel_claimers_ignored``,
+        ``sentinel_freezes_deferred``)."""
         golden = _REPO_ROOT / "tests" / "golden" / "run_summary_baseline.json"
         data = json.loads(golden.read_text(encoding="utf-8"))
-        self.assertEqual(len(data), 22)
+        self.assertEqual(len(data), 24)
         self.assertIn("groups_skipped_no_target_row", data)
 
     def test_schema_untouched(self):
@@ -2126,7 +2128,8 @@ class ScopedCounterTests(unittest.TestCase):
     def test_run_summary_key_count_and_unmodified(self):
         golden = _REPO_ROOT / "tests" / "golden" / "run_summary_baseline.json"
         data = json.loads(golden.read_text(encoding="utf-8"))
-        self.assertEqual(len(data), 22)  # 21 + groups_skipped_no_target_row
+        # 21 + groups_skipped_no_target_row + 2 Phase 12 sentinel counters
+        self.assertEqual(len(data), 24)
 
 
 # ── Plan 07 Task 1: pipeline_memory.reader.get_parity_streak (D-09) ─────
