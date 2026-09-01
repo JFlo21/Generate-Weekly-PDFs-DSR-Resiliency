@@ -18,7 +18,27 @@ budget 25), #355 (docs/hook), #359 (hash sort tiebreaker). **Merged 2026-08-28 0
 **3 of 5** since the 03:49Z fail — the pre-marker manual run does not count). Then: checklist item 6 SQL +
 items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-08-31 21:15 CDT) — GATE SATISFIED 5/5; retire-now; 11-08 EXECUTED; PR #373 open (INC-05 retirement)
+## Latest work (2026-08-31 22:00 CDT) — PR #373 review fix round pushed (Greptile 3/3 fixed + resolved)
+
+- **All three Greptile findings on PR #373 judged VALID and fixed** (commits `1c880a4` code,
+  `3bd2250` docs; pushed; all three review threads replied + resolved):
+  1. **Live skip-gate confirmation** — the `group_state` attachment stub proves last upload, not
+     current existence; new `_live_row_attachments()` (memoized per row per run, transport failure
+     → `None`, never memoized → regenerate) now backs both skip-gate call sites (target + PPP).
+     Delete-then-upload path keeps the stub cache (delete-by-stale-id is 404-tolerant).
+  2. **Fail-closed discovery** — a sheet failing validation after SDK retries now aborts the run
+     (`RuntimeError`, `_failed_validation_sids`) instead of silently dropping its billing rows.
+  3. **Runbook coverage** — 5 website pages rewritten for the cache retirement + new blog post
+     `2026-08-31-inc05-cache-retirement.md`; Docusaurus typecheck + build green.
+- Suite 1851 passed / 1 skipped; **6 gates ALL PASS**. Gate-4 baseline refrozen 68→70, zero
+  accepted findings (ledger `[2026-08-31 21:40]`); lesson: refreeze on Windows writes CRLF —
+  `test_golden_txt_baselines_contain_no_crlf` enforces LF, strip `\r` after regenerating.
+- **Six unresolved `chatgpt-codex-connector` review threads remain on #373** (orchestrate.py
+  2767/2796/2838/4363/4442, pipeline_memory/reader.py 557) — not in scope of the Greptile ask;
+  awaiting Juan's triage. Vault project page updated (`[2026-08-31g]`); auto-compact packet applied
+  and cleared.
+
+## Previous (2026-08-31 21:15 CDT) — GATE SATISFIED 5/5; retire-now; 11-08 EXECUTED; PR #373 open (INC-05 retirement)
 
 - **#371 + #372 MERGED 2026-08-31** (#372 squash = `d9bd2b2`; a pre-merge conflict from #371's squash-retarget was resolved on the branch — both files kept the branch's newer D-09-amendment content).
 - **D-09 gate SATISFIED the same day:** `get_parity_streak()` = **5 of 5** on merged master — contributing runs `33449808275.1 / 33429256710.1 / 33418485870.1 / 33407578625.1 / 33396264753.1` (all `production_frequent`, 2026-08-31 13:19Z–23:14Z; the 21:14Z `skipped` excluded, no fail). The two weekend `fail`s (Sun 19:11Z, Mon 01:31Z) were **root-caused to the documented deletion window**: one mid-week row deletion each (`row_state.deleted_at` stamped by the Monday deep run), invisible to the upsert-driven candidate — a real documented gap, not a selector defect. Open D-09 policy question for Juan: should a deletion-window-attributable `fail` reset the gate in future?
