@@ -892,13 +892,18 @@ class TestCrashConsistencyDeferredFlush(unittest.TestCase):
 
     def test_skip_gate_requires_ppp_attachment_for_reduced_sub(self):
         _pre_upload = self.src[: self.src.index("PARALLEL UPLOAD PHASE")]
+        # Final hop widened 600 -> 900 (PR #373 review): the PPP
+        # existence check now routes through the wrapped
+        # _live_row_attachments(...) live-confirmation call, which
+        # lengthens the block between the sheet-id constant and the
+        # `can_skip = False` outcome. The pinned wiring is unchanged.
         self.assertRegex(
             _pre_upload,
             r"can_skip\s*\n\s*and variant in \(\s*\n\s*"
             r"'reduced_sub', 'reduced_sub_helper',"
             r"[\s\S]{0,300}target_map_ppp\.get\("
             r"[\s\S]{0,600}SUBCONTRACTOR_PPP_SHEET_ID"
-            r"[\s\S]{0,600}can_skip = False",
+            r"[\s\S]{0,900}can_skip = False",
         )
 
     # ── Codex P2 (PR #283): repair-path stale-hash invalidation ──────

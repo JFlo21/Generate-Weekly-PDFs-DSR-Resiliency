@@ -519,8 +519,13 @@ def discover_source_sheets(client):
             # the drop is loud WITHOUT exfiltrating sampled row PII held in this
             # frame's locals (_sample_rows_cache etc.) — a raw capture_exception
             # would ship those because the SDK runs include_local_variables=True.
+            # PR #373 review (fail-closed): also record the failure so the
+            # run ABORTS after the loop instead of continuing with an
+            # incomplete set of billing rows — distinct from the strict-mode
+            # column skip above, which is a legitimate disqualification.
             logging.warning(f"⚡ Failed to validate sheet {sid}: {e}")
             sentry_capture_sheet_drop(sid, e)
+            _failed_validation_sids.append(sid)
             return None
 
     # Phase 11 Plan 08 (INC-05, D-12): always validate every candidate sheet
@@ -529,6 +534,10 @@ def discover_source_sheets(client):
     # persists solely in `pipeline_memory.sheet_registry`, written by
     # `pipeline/orchestrate.py`'s `upsert_sheet_registry` call immediately
     # after this function returns.
+    # Validation-exception collector (PR #373 review): appended by
+    # _validate_single_sheet's except branch, list.append is atomic under
+    # the GIL so the parallel workers need no lock.
+    _failed_validation_sids: list = []
     logging.info(f"🚀 Starting parallel discovery with {PARALLEL_WORKERS_DISCOVERY} workers for {len(base_sheet_ids)} sheets...")
     _discovery_start = datetime.datetime.now()
     with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS_DISCOVERY) as executor:
@@ -543,4 +552,21 @@ def discover_source_sheets(client):
                 logging.info(f"   ❌ [{i}/{len(futures)}] Skipped sheet ID {sid}")
     _discovery_elapsed = (datetime.datetime.now() - _discovery_start).total_seconds()
     logging.info(f"⚡ Discovery complete: {len(discovered)} sheets validated in {_discovery_elapsed:.1f}s (parallel w/{PARALLEL_WORKERS_DISCOVERY} workers)")
+    if _failed_validation_sids:
+        # PR #373 review (fail-closed). Before INC-05, the 7-day discovery
+        # cache masked a validation failure on most runs; now every run
+        # validates every sheet, so continuing past a persistent failure
+        # would silently process an incomplete row set and upload REDUCED
+        # billing files for every group the missing sheet feeds. A failed
+        # run is recoverable (next cron, operator alerted via Sentry);
+        # silently short billing output is not. Strict-mode column skips
+        # (the `return None` branch above) are legitimate
+        # disqualifications and do not trip this guard.
+        raise RuntimeError(
+            "Source-sheet validation failed for "
+            f"{len(_failed_validation_sids)} sheet(s) after retries: "
+            f"{sorted(_failed_validation_sids)} — aborting instead of "
+            "continuing with incomplete billing input (INC-05 "
+            "fail-closed guard)."
+        )
     return discovered

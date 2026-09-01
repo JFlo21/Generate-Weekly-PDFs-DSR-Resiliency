@@ -7991,3 +7991,20 @@ entry's own commit (Task 4).
   2026-08-24 (Phase 09 close). Full remediation narrative: `11-08-SUMMARY.md` "Plan-Level Gate
   Remediation". Rule restated: a Gate-4 re-baseline names every accepted finding; when the error set is
   proven unchanged, "none accepted" is that record.
+
+
+## [2026-08-31 21:40] PR #373 Greptile fix round — Gate-4 re-baseline 68 -> 70, zero accepted findings
+
+- **Re-baseline hygiene record (Phase 09 rule): `tests/golden/mypy_baseline.txt` /
+  `mypy_baseline_count.txt` refrozen 68 -> 70 lines. Accepted findings: NONE.** The mypy
+  ERROR set is byte-identical — 28 errors in 7 files (25 source files checked) before and
+  after. The +2 delta is `[annotation-unchecked]` NOTES only: line-number drift from the
+  ~40 lines added to `pipeline/orchestrate.py` for the live-attachment skip-gate
+  confirmation (`_live_row_attachments`), plus two genuinely new notes for annotated
+  locals inside untyped functions — `pipeline/discovery.py:540`
+  (`_failed_validation_sids: list = []`, the INC-05 fail-closed guard) and
+  `pipeline/orchestrate.py` (`_live_attachment_listings: dict = {}`, the live-listing
+  memo). Proof: `diff` of the frozen baseline vs current output shows every hunk is a
+  `note:` line; no `error:` line added, removed, or changed. Context: fixes for the three
+  Greptile review issues on PR #373 (stored-identity skip-gate bypass; partial-discovery
+  fail-open; runbook coverage of the cache retirement).

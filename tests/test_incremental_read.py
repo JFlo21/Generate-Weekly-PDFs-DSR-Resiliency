@@ -3427,5 +3427,113 @@ class LostIdentityRowTests(unittest.TestCase):
         )
 
 
+class LiveRowAttachmentsTests(unittest.TestCase):
+    """PR #373 review (Issue 1): the unchanged-group skip gate confirms
+    attachment EXISTENCE against a live, per-row-memoized listing --
+    a ``group_state`` stub proves only what this pipeline last uploaded,
+    so trusting it would keep a manually deleted billing report missing
+    while the unchanged group skips every run."""
+
+    @staticmethod
+    def _client(listing=None, exc=None):
+        client = mock.MagicMock()
+        if exc is not None:
+            client.Attachments.list_row_attachments.side_effect = exc
+        else:
+            client.Attachments.list_row_attachments.return_value = (
+                SimpleNamespace(
+                    data=listing if listing is not None else []
+                )
+            )
+        return client
+
+    def test_success_memoizes_one_call_per_row(self):
+        from pipeline import orchestrate
+
+        memo: dict = {}
+        listing = [SimpleNamespace(id=1, name="WR_1.xlsx")]
+        client = self._client(listing=listing)
+
+        first = orchestrate._live_row_attachments(client, 5723, 42, memo)
+        second = orchestrate._live_row_attachments(client, 5723, 42, memo)
+
+        self.assertIs(first, listing)
+        self.assertIs(second, listing)
+        client.Attachments.list_row_attachments.assert_called_once_with(
+            5723, 42
+        )
+
+    def test_transport_failure_returns_none_and_is_not_memoized(self):
+        from pipeline import orchestrate
+
+        memo: dict = {}
+        failing = self._client(exc=RuntimeError("transport down"))
+
+        self.assertIsNone(
+            orchestrate._live_row_attachments(failing, 5723, 42, memo)
+        )
+        # NOT memoized: a later poll may succeed and must not be poisoned
+        self.assertEqual(memo, {})
+
+        ok = self._client(listing=[])
+        self.assertEqual(
+            orchestrate._live_row_attachments(ok, 5723, 42, memo), []
+        )
+        self.assertIn(42, memo)
+
+    def test_none_memo_still_fetches_live(self):
+        from pipeline import orchestrate
+
+        client = self._client(listing=[])
+        self.assertEqual(
+            orchestrate._live_row_attachments(client, 1, 2, None), []
+        )
+
+
+class SkipGateLiveConfirmationWiringTests(unittest.TestCase):
+    """Source pins (PR #373 review, Issues 1 + 2) -- the wiring that
+    cannot be exercised without a live Smartsheet session, pinned the
+    same way the suite pins ``main()`` wiring elsewhere."""
+
+    @staticmethod
+    def _src(rel: str) -> str:
+        return (_REPO_ROOT / rel).read_text(encoding="utf-8")
+
+    def test_existence_checks_use_live_listing_never_stubs(self):
+        import re
+
+        src = self._src("pipeline/orchestrate.py")
+        sites = [
+            m.start()
+            for m in re.finditer(r"_has_existing_week_attachment\(", src)
+        ]
+        # exactly the two skip-gate call sites (the import carries no
+        # opening paren; the def lives in pipeline/cleanup.py)
+        self.assertEqual(len(sites), 2)
+        for i in sites:
+            window = src[i:i + 800]
+            self.assertIn("_live_row_attachments(", window)
+            self.assertNotIn("attachment_cache.get", window)
+
+    def test_delete_path_still_reads_group_state_stub_identity(self):
+        src = self._src("pipeline/orchestrate.py")
+        i = src.index("deleted_count, skipped = delete_old_excel_attachments(")
+        self.assertIn("attachment_cache.get", src[i:i + 600])
+
+    def test_discovery_fails_closed_on_validation_exception(self):
+        import re
+
+        src = self._src("pipeline/discovery.py")
+        # the except branch records the failure ...
+        self.assertIn("_failed_validation_sids.append(sid)", src)
+        # ... and the post-loop guard aborts the run rather than
+        # continuing with an incomplete billing row set
+        self.assertRegex(
+            src,
+            r"if _failed_validation_sids:\n(?:.*\n)+?\s*raise RuntimeError",
+        )
+        self.assertIn("fail-closed guard", src)
+
+
 if __name__ == "__main__":
     unittest.main()

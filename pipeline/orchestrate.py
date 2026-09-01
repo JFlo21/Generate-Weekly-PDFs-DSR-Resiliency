@@ -1149,15 +1149,20 @@ class _GroupStateAttachmentStub:
     Plan 08, INC-05 retirement, CONTEXT.md D-12).
 
     ``pipeline.cleanup``'s identity-matching logic
-    (``_has_existing_week_attachment`` / ``delete_old_excel_attachments``)
-    reads exactly two attributes off each cached attachment --
-    ``getattr(a, 'name', '')`` (parsed by ``build_group_identity``) and
-    ``a.id`` (passed to ``Attachments.delete_attachment``). This stub
-    supplies both from a ``group_state`` row's ``attachment_id`` /
-    ``attachment_name`` so those consumers can resolve an already-known
-    identity without a Smartsheet ``list_row_attachments`` call, while
-    remaining indistinguishable, to their unmodified filtering logic, from
-    a real SDK ``Attachment`` object.
+    (``delete_old_excel_attachments``) reads exactly two attributes off
+    each cached attachment -- ``getattr(a, 'name', '')`` (parsed by
+    ``build_group_identity``) and ``a.id`` (passed to
+    ``Attachments.delete_attachment``). This stub supplies both from a
+    ``group_state`` row's ``attachment_id`` / ``attachment_name`` so that
+    consumer can resolve an already-known identity without a Smartsheet
+    ``list_row_attachments`` call, while remaining indistinguishable, to
+    its unmodified filtering logic, from a real SDK ``Attachment`` object.
+
+    NOT proof of existence (PR #373 review): a stub records what this
+    pipeline last uploaded, not what is on the row NOW -- an attachment
+    someone deleted by hand would still have a stub. The unchanged-group
+    skip gate (``_has_existing_week_attachment``) therefore never reads
+    stubs; it confirms against ``_live_row_attachments`` below.
     """
 
     __slots__ = ("id", "name")
@@ -1165,6 +1170,39 @@ class _GroupStateAttachmentStub:
     def __init__(self, attachment_id: Any, attachment_name: Any) -> None:
         self.id = attachment_id
         self.name = attachment_name
+
+
+def _live_row_attachments(
+    client: Any, sheet_id: Any, row_id: Any, memo: dict | None,
+) -> 'list | None':
+    """Fetch and memoize the LIVE attachment listing for one target row.
+
+    INC-05 follow-up (PR #373 review): ``group_state``'s stored
+    attachment identity proves what this pipeline last uploaded, not what
+    exists on the row NOW. Trusting it in the unchanged-group skip gate
+    would leave a manually deleted billing report missing forever (the
+    group skips every run until its data changes). The skip gate
+    therefore confirms existence against a live
+    ``list_row_attachments`` call, memoized per ``row_id`` so each row
+    costs at most one API call per run -- the retired bulk pre-fetch's
+    budgeted phase stays gone.
+
+    Returns the listing (possibly empty) on success; ``None`` on any
+    transport failure WITHOUT memoizing it, so the caller's existing
+    on-demand fallback makes the fail-safe call (a failed lookup reads
+    as "no attachment" and forces a regeneration, never a skip).
+    """
+    if memo is not None and row_id in memo:
+        return memo[row_id]
+    try:
+        listing = client.Attachments.list_row_attachments(
+            sheet_id, row_id
+        ).data
+    except Exception:
+        return None
+    if memo is not None:
+        memo[row_id] = listing
+    return listing
 
 
 def _extract_attachment_id_name(attach_result: Any) -> tuple[Any, Any]:
@@ -2712,21 +2750,30 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # first real upload -- IN-01), so attachment identity is resolved
         # from there instead of a bulk Smartsheet call.
         #
-        # Safety invariant (T-11-41): every consumer below
-        # (pipeline.cleanup._has_existing_week_attachment /
-        # delete_old_excel_attachments) already accepts a missing cache
-        # entry and falls back, unmodified, to a per-row on-demand
-        # `list_row_attachments` lookup -- that existing fallback is what
-        # makes this retirement safe on a cold cache, a Supabase outage, or
-        # a WR group_state has never flushed. group_state's coverage is
-        # necessarily narrower than "every attachment on the row" (it only
-        # knows what THIS pipeline wrote), so
-        # cleanup_untracked_sheet_attachments -- which prunes off-contract
-        # / duplicate / legacy attachments group_state was never told
-        # about -- deliberately never reads this cache; see the
-        # `_cleanup_cache = None` assignment below.
+        # Safety invariant (T-11-41): the consumer below
+        # (pipeline.cleanup.delete_old_excel_attachments) already accepts
+        # a missing cache entry and falls back, unmodified, to a per-row
+        # on-demand `list_row_attachments` lookup -- that existing
+        # fallback is what makes this retirement safe on a cold cache, a
+        # Supabase outage, or a WR group_state has never flushed.
+        # group_state's coverage is necessarily narrower than "every
+        # attachment on the row" (it only knows what THIS pipeline
+        # wrote), so cleanup_untracked_sheet_attachments -- which prunes
+        # off-contract / duplicate / legacy attachments group_state was
+        # never told about -- deliberately never reads this cache; see
+        # the `_cleanup_cache = None` assignment below.
+        #
+        # Existence is different from identity (PR #373 review): the
+        # unchanged-group skip gate (_has_existing_week_attachment) never
+        # reads these stubs -- a stub proves only what was last uploaded,
+        # so a manually deleted attachment would keep the group skipped
+        # with its billing report missing. That gate confirms against
+        # _live_row_attachments (one memoized live listing per row).
         # ──────────────────────────────────────────────────────────
         attachment_cache = {}  # row_id -> list of attachment-like objects
+        # row_id -> LIVE list_row_attachments listing (skip-gate
+        # confirmation; populated lazily by _live_row_attachments)
+        _live_attachment_listings: dict = {}
         if not TEST_MODE:
             _group_state_wrs = set(target_map or {}) | set(target_map_ppp or {})
             if _group_state_wrs:
@@ -3639,11 +3686,19 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                                 # the tuple form would always miss and
                                 # force regeneration of unchanged
                                 # helper groups.
+                                # PR #373 review: confirm existence
+                                # against a LIVE listing (memoized per
+                                # row), never the group_state stubs --
+                                # a stub survives a manual deletion.
                                 has_attachment = _has_existing_week_attachment(
                                     client, TARGET_SHEET_ID, target_row,
                                     str(wr_num), week_raw, variant,
                                     file_identifier,
-                                    cached_attachments=attachment_cache.get(target_row.id),
+                                    cached_attachments=_live_row_attachments(
+                                        client, TARGET_SHEET_ID,
+                                        target_row.id,
+                                        _live_attachment_listings,
+                                    ),
                                 )
                                 if not has_attachment:
                                     can_skip = False
@@ -3682,8 +3737,13 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                                         _ppp_skip_row,
                                         str(wr_num), week_raw, variant,
                                         file_identifier,
-                                        cached_attachments=attachment_cache.get(
-                                            _ppp_skip_row.id
+                                        cached_attachments=(
+                                            _live_row_attachments(
+                                                client,
+                                                SUBCONTRACTOR_PPP_SHEET_ID,
+                                                _ppp_skip_row.id,
+                                                _live_attachment_listings,
+                                            )
                                         ),
                                     )
                                 ):
