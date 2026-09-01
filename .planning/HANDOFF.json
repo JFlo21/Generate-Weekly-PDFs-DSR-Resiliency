@@ -5,32 +5,77 @@
   "phase_name": "Post-INC-05 Runtime Remediation",
   "phase_dir": ".planning/phases/11.1-post-inc-05-runtime-remediation",
   "plan": 2,
-  "task": 3,
+  "task": 6,
   "total_tasks": 6,
   "status": "paused",
   "completed_tasks": [
-    {"id": "diagnosis", "name": "Root-cause 169.8-min run 33512477875 (discovery 1.3s->66.8min; group loop 0.28->2.26 s/group)", "status": "done", "commit": "n/a (analysis; recorded in 11.1-CONTEXT.md)"},
-    {"id": "planning", "name": "Phase 11.1 inserted + researched + pattern-mapped + planned + checker-passed (0 blockers, 4 warnings fixed)", "status": "done", "commit": "05e465b, 02bab6a, 44eed2a, b01d121"},
-    {"id": "11.1-01", "name": "Wave 1: discovery registry-version skip (fail-closed, 9-branch doubt matrix, 25 tests)", "status": "done", "commit": "99ec1a9, 54642d5, 7debaca, 8dc375c, fbe7be8; suite 1870 passed; 6 gates green; Gate-4 refrozen 70->72 zero-accepted"},
-    {"id": "11.1-02 tasks", "name": "Wave 2: bulk attachment pre-seed — all task commits landed incl. phase-gate-green", "status": "done", "commit": "206449c, 77979d5, ed7e8e6, 4a5996e, 554cd74"}
+    {
+      "id": "diagnosis",
+      "name": "Root-cause 169.8-min run 33512477875 (discovery 1.3s->66.8min; group loop 0.28->2.26 s/group)",
+      "status": "done",
+      "commit": "n/a (analysis; recorded in 11.1-CONTEXT.md)"
+    },
+    {
+      "id": "planning",
+      "name": "Phase 11.1 inserted + researched + pattern-mapped + planned + checker-passed (0 blockers, 4 warnings fixed)",
+      "status": "done",
+      "commit": "05e465b, 02bab6a, 44eed2a, b01d121"
+    },
+    {
+      "id": "11.1-01",
+      "name": "Wave 1: discovery registry-version skip (fail-closed, 9-branch doubt matrix, 25 tests)",
+      "status": "done",
+      "commit": "99ec1a9, 54642d5, 7debaca, 8dc375c, fbe7be8; suite 1870 passed; 6 gates green; Gate-4 refrozen 70->72 zero-accepted"
+    },
+    {
+      "id": "11.1-02 tasks",
+      "name": "Wave 2: bulk attachment pre-seed \u2014 all task commits landed incl. phase-gate-green",
+      "status": "done",
+      "commit": "206449c, 77979d5, ed7e8e6, 4a5996e, 554cd74"
+    },
+    {
+      "id": "11.1-02 closeout",
+      "name": "Wave 2 SUMMARY + STATE/ROADMAP (executor finished post-pause; suite 1886 passed, ALL 6 GATES)",
+      "status": "done",
+      "commit": "5936ad2, 1e5d94f"
+    }
   ],
   "remaining_tasks": [
-    {"id": "11.1-02 closeout", "name": "Wave 2 executor's SUMMARY.md + STATE/ROADMAP update commit (executor still running in background at pause time)", "status": "in_progress"},
-    {"id": "phase-verify", "name": "Spawn gsd-verifier (sonnet) for phase 11.1 -> VERIFICATION.md", "status": "not_started"},
-    {"id": "ship", "name": "Push feat/11.1-runtime-remediation, open PR (Objective/Changes/Production Safety Check), Greptile round, Juan merges", "status": "not_started"},
-    {"id": "post-merge", "name": "First post-merge frequent run: read Discovery-validation-split line, per-sheet total_count INFO lines, wall clock (<~75 min target) -> fill 11.1-VALIDATION Manual-Only table + run-memory-write-flip-checklist 'after' figure; then /gsd:verify-work 11.1", "status": "not_started"}
+    {
+      "id": "phase-verify",
+      "name": "Spawn gsd-verifier (sonnet) for phase 11.1 -> VERIFICATION.md",
+      "status": "not_started"
+    },
+    {
+      "id": "ship",
+      "name": "Push feat/11.1-runtime-remediation, open PR (Objective/Changes/Production Safety Check), Greptile round, Juan merges",
+      "status": "not_started"
+    },
+    {
+      "id": "post-merge",
+      "name": "First post-merge frequent run: read Discovery-validation-split line, per-sheet total_count INFO lines, wall clock (<~75 min target) -> fill 11.1-VALIDATION Manual-Only table + run-memory-write-flip-checklist 'after' figure; then /gsd:verify-work 11.1",
+      "status": "not_started"
+    }
   ],
   "blockers": [],
-  "async_jobs": [
-    {"manifest": "none (Claude Code background subagent, not an external job)", "job_id": "gsd-executor plan 11.1-02 (Sonnet, background)", "backend": "claude-code Agent tool", "status": "running at pause; all 5 task commits already on branch, SUMMARY.md not yet on disk", "submitted_at": "2026-09-01T18:19Z approx", "expected_artifacts": [".planning/phases/11.1-post-inc-05-runtime-remediation/11.1-02-SUMMARY.md", "updated .planning/STATE.md + ROADMAP.md progress"], "verification_command": "test -f .planning/phases/11.1-post-inc-05-runtime-remediation/11.1-02-SUMMARY.md && git log --oneline -3", "resume_command": "If SUMMARY.md exists: proceed to phase verification. If missing after the session ends: write SUMMARY.md from the 5 commits above per templates/summary.md, commit, then proceed."}
-  ],
+  "async_jobs": [],
   "human_actions_pending": [
-    {"action": "Review + merge the phase 11.1 PR once opened (owner veto point for D-11.1-05 accepted residual risk)", "context": "Production billing pipeline change", "blocking": true}
+    {
+      "action": "Review + merge the phase 11.1 PR once opened (owner veto point for D-11.1-05 accepted residual risk)",
+      "context": "Production billing pipeline change",
+      "blocking": true
+    }
   ],
   "decisions": [
-    {"decision": "D-11.1-01 fail-closed registry-version discovery skip; D-11.1-02 option (a) bulk pre-seed; D-11.1-03 no cache re-introduction; D-11.1-04 <75-min target; D-11.1-05 option (b) NOT coded — 25000 ceiling + ERROR fallback accepted as residual risk", "rationale": "See 11.1-CONTEXT.md; checker Warning 1 disposition recorded as D-11.1-05", "phase": "11.1"}
+    {
+      "decision": "D-11.1-01 fail-closed registry-version discovery skip; D-11.1-02 option (a) bulk pre-seed; D-11.1-03 no cache re-introduction; D-11.1-04 <75-min target; D-11.1-05 option (b) NOT coded \u2014 25000 ceiling + ERROR fallback accepted as residual risk",
+      "rationale": "See 11.1-CONTEXT.md; checker Warning 1 disposition recorded as D-11.1-05",
+      "phase": "11.1"
+    }
   ],
-  "uncommitted_files": [".claude/project-state.md (merge-of-#373 state note — rides this phase's PR by design; do not commit standalone)"],
-  "next_action": "Check whether 11.1-02-SUMMARY.md exists (background executor closeout). If yes: spawn gsd-verifier for phase 11.1, then push branch + open PR. If no: recover SUMMARY from commits 206449c..554cd74 per async_jobs.resume_command.",
-  "context_notes": "Branch feat/11.1-runtime-remediation (never push master). Both fixes are two-way doors. Gate-4 baseline now 72 lines (refrozen by Wave 1, zero accepted findings, LF-only). Wave 2 guard must never contain the SKIP_UPLOAD literal pinned by tests/test_skip_no_target_row.py:308. Runs 33512477875 (169.8min) and 33449309123/33525432056 aftermath show schedule slippage until this merges — treat as urgent."
+  "uncommitted_files": [
+    ".claude/project-state.md (merge-of-#373 state note \u2014 rides this phase's PR by design; do not commit standalone)"
+  ],
+  "next_action": "Spawn gsd-verifier (sonnet) for phase 11.1 -> 11.1-VERIFICATION.md; then push feat/11.1-runtime-remediation and open the PR (flag D-11.1-05 for owner veto).",
+  "context_notes": "Branch feat/11.1-runtime-remediation (never push master). Both fixes are two-way doors. Gate-4 baseline now 72 lines (refrozen by Wave 1, zero accepted findings, LF-only). Wave 2 guard must never contain the SKIP_UPLOAD literal pinned by tests/test_skip_no_target_row.py:308. Runs 33512477875 (169.8min) and 33449309123/33525432056 aftermath show schedule slippage until this merges \u2014 treat as urgent."
 }
