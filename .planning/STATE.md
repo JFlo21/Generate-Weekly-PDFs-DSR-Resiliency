@@ -5,16 +5,16 @@ milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
 current_phase: 11.1
 current_phase_name: post-inc-05-runtime-remediation
 status: executing
-stopped_at: Completed 11.1-01-PLAN.md (discovery registry-version skip, Fix 1 of Phase 11.1)
-last_updated: "2026-09-01T18:33:35.961Z"
+stopped_at: Completed 11.1-02-PLAN.md (bulk attachment pre-seed, Fix 2 of Phase 11.1 -- phase complete)
+last_updated: "2026-09-01T18:58:14.630Z"
 last_activity: 2026-09-01
-last_activity_desc: Executed 11.1-01 (discovery skip fast path, doubt-branch matrix, Gate-4 re-baseline 70->72)
-state_head: 8dc375c1bdcb3885d61c5fa1694dd5bead92c167
+last_activity_desc: Executed 11.1-02 (bulk attachment pre-seed, main() wiring, phase gate green -- Phase 11.1 complete)
+state_head: 5936ad263cf66a1689345714359cae051ddbdf9f
 progress:
   total_phases: 13
   completed_phases: 3
   total_plans: 48
-  completed_plans: 47
+  completed_plans: 48
   percent: 23
 ---
 
@@ -35,25 +35,33 @@ pipeline.
 
 ## Current Position
 
-Phase: 11.1 (post-inc-05-runtime-remediation) — IN PROGRESS (Plan 1 of 2 complete)
-Plan: 11.1-01 (Fix 1 — discovery registry-version skip) executed and
-  gate-verified on branch `feat/11.1-runtime-remediation`. 11.1-02
-  (Fix 2 — attachment-confirmation batching) is next; not yet started.
-Status: Discovery phase now skips full per-sheet validation for any
+Phase: 11.1 (post-inc-05-runtime-remediation) — COMPLETE (Plan 2 of 2 done)
+Plan: 11.1-01 (Fix 1 — discovery registry-version skip) and 11.1-02
+  (Fix 2 — bulk attachment pre-seed) both executed and gate-verified on
+  branch `feat/11.1-runtime-remediation`. Both fixes for the post-merge
+  runtime regression are shipped; ready for PR / phase close.
+Status: Discovery phase skips full per-sheet validation for any
   candidate whose live Smartsheet version still matches
   `pipeline_memory.sheet_registry.last_sheet_version` and whose stored
-  `column_mapping` is valid, reusing the stored mapping. Every doubt input
-  (9 named behaviors) still falls back to today's full validation; the
-  INC-05 fail-closed `RuntimeError` guard is unchanged (exactly one
-  `_failed_validation_sids.append` site). `bash scripts/run_6_gates.sh` =
-  ALL 6 GATES PASSED (mypy Gate 4 re-baselined 70->72, zero accepted
-  findings — see `memory-bank/living-ledger.md` 2026-09-01 14:05 entry);
-  full suite 1870 passed / 1 skipped / 306 subtests.
-Last activity: 2026-09-01 — 11.1-01 executed (4 commits: RED test, GREEN
-  fast path, doubt-branch matrix, operator-visible split log + gate
-  remediation). SC-1/D-11.1-04 (frequent-run wall clock back under ~75
-  min) remain a POST-MERGE production observation, not verifiable from
-  this plan alone.
+  `column_mapping` is valid (D-11.1-01). Group-processing skip-gate
+  confirmation now pre-seeds the existing `_live_row_attachments` memo
+  from 2 bulk `Attachments.list_all_attachments` calls (target sheet +
+  PPP sheet) run once before the group loop, instead of one serial
+  `list_row_attachments` call per skip-candidate row (D-11.1-02);
+  `_live_row_attachments` and both `_has_existing_week_attachment` call
+  sites are byte-for-byte unmodified. Any probe/listing failure or a
+  `total_count` above the 25000-row `BULK_ATTACHMENT_LISTING_MAX_TOTAL`
+  ceiling seeds nothing and falls back to today's lazy per-row path
+  (D-11.1-05 accepted residual risk — option (b) documented, not
+  built). `bash scripts/run_6_gates.sh` = ALL 6 GATES PASSED (Gate 4
+  mypy delta neutral 72->72, no re-baseline needed this plan); full
+  suite 1886 passed / 1 skipped / 306 subtests.
+Last activity: 2026-09-01 — 11.1-02 executed (5 commits: RED test /
+  GREEN pre-seed helpers, RED test / GREEN main() wiring, phase-gate +
+  Living Ledger entry). SC-1/D-11.1-04 (frequent-run wall clock back
+  under ~75 min) and SC-3's log-content confirmation remain POST-MERGE
+  production observations, not verifiable from these plans alone; see
+  `11.1-VALIDATION.md`.
 
 **Phase 11 history (superseded focus, preserved for context):** Phase 11
   fully shipped 2026-08-31 (8/8 plans). 11-07 re-opened the INC-05
@@ -135,6 +143,7 @@ Progress: [██░░░░░░░░] 23% (v1.3 complete; v1.4 Phase 10 clo
 | Phase 11 P07 | ~15min | 2 tasks | 2 files |
 | Phase 11 P08 | ~2h | 3 tasks | 35 files |
 | Phase 11.1 P01 | ~30 min | 3 tasks | 6 files |
+| Phase 11.1 P02 | ~10min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -253,6 +262,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase ?]: [Phase 11] 11-07 Task 2 GATE: Juan selected DEFER for the INC-05 retirement -- streak reading was 0/5 (no production_frequent parity_verdict rows exist; RUN_MEMORY_WRITE_ENABLED flip PR unmerged). Plan 11-08 does not execute this phase; INC-05 stays open pending flip PR merge + 5 consecutive scheduled pass verdicts.
 - [Phase ?]: [Phase 11] 11-08 INC-05 retirement shipped: group_state.content_hash sole skip gate, always-full sheet discovery via sheet_registry, six workflow cache steps removed; Phase 11 fully closed with dated Living Ledger entry
 - [Phase 11.1]: [Phase 11.1] 11.1-01: discovery registry-version skip fast path (D-11.1-01) ships INC-05-compatible -- registry hit requires exact version equality + valid stored column_mapping, any doubt falls back to full validation; Gate-4 mypy re-baselined 70->72 (zero accepted findings, pure annotation-note line drift)
+- [Phase 11.1]: [Phase 11.1] 11.1-02: bulk attachment pre-seed (D-11.1-02) pre-seeds the existing _live_row_attachments memo from 2 bulk list_all_attachments calls before the group loop -- _live_row_attachments and both call sites left byte-for-byte unmodified; total_count pre-flight + 25000 ceiling fallback to today's lazy per-row path (D-11.1-05); Phase 11.1 both fixes complete on feat/11.1-runtime-remediation
 
 ### Roadmap Evolution
 
@@ -387,8 +397,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-01T18:33:34.873Z
-**Stopped at:** Completed 11.1-01-PLAN.md (discovery registry-version skip, Fix 1 of Phase 11.1)
+**Last session:** 2026-09-01T18:58:13.637Z
+**Stopped at:** Completed 11.1-02-PLAN.md (bulk attachment pre-seed, Fix 2 of Phase 11.1 -- phase complete)
 **Resume file:** None
 
 ## Session Continuity

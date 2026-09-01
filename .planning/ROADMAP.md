@@ -673,7 +673,7 @@ confirmation + fail-closed discovery semantics from PR #373's review fixes.
 **Requirements**: none mapped (inserted urgent phase — the Success Criteria
 above plus D-11.1-01..04 in `11.1-CONTEXT.md` are the contract)
 **Depends on:** Phase 11
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans executed
 
 Plans:
 **Wave 1**
@@ -682,7 +682,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 11.1-02-PLAN.md — Fix 2: pre-seed the live-attachment memo from two bulk sheet-level listings so the skip gate's existence confirmation leaves the serial group loop
+- [x] 11.1-02-PLAN.md — Fix 2: pre-seed the live-attachment memo from two bulk sheet-level listings so the skip gate's existence confirmation leaves the serial group loop
 
 ### Phase 12: Ownership — last known foreman as of the week
 
