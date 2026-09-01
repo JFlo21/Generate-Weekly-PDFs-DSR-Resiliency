@@ -408,11 +408,16 @@ class TestThreeIdentitySitesCarryClaimer(unittest.TestCase):
         )
 
     def test_exactly_three_identity_site_markers(self):
-        # Sites 1/2/3 are in lockstep by construction now: the Subproject
+        # Sites 1/2 are in lockstep by construction now: the Subproject
         # B branch (reduced_sub / aep_billable -> sanitized frozen claimer)
         # lives once in derive_group_identity() and each site calls it
-        # (PR #361 follow-up). Drift between the three was the CR-01 bug
+        # (PR #361 follow-up). Drift between the two was the CR-01 bug
         # shape; it is no longer expressible.
+        #
+        # Phase 11 Plan 08 (INC-05, D-12): the third site (the
+        # hash_history.json stale-key ``current_keys`` prune) is retired
+        # along with hash_history.json itself, so the count drops from 3
+        # to 2 -- test name kept for history-searchability.
         import inspect as _inspect
         import pipeline.orchestrate as _orch
         helper_src = _inspect.getsource(_orch.derive_group_identity)
@@ -422,9 +427,9 @@ class TestThreeIdentitySitesCarryClaimer(unittest.TestCase):
                       helper_src)
         self.assertEqual(
             _inspect.getsource(_orch.main).count("= derive_group_identity("),
-            3,
-            "Exactly three identity sites must call derive_group_identity "
-            "(update this count if you add an identity site)",
+            2,
+            "Exactly two identity sites must call derive_group_identity "
+            "(update this count if you add or retire an identity site)",
         )
 
     def test_site1_branches_on_subcontractor_primary_variants(self):
@@ -674,7 +679,12 @@ class TestSubprojectBHashPrune(unittest.TestCase):
         self.assertRegex(src, r'(?m)^SUBPROJECT_B_HASH_PRUNE_VERSION = 1$')
 
     def test_call_site_present_in_source(self):
-        import pipeline.orchestrate  # W6: prune call site lives in main()
+        # Phase 11 Plan 08 (INC-05, D-12): the hash_history.json call site
+        # is retired along with hash_history.json itself.
+        # _run_subproject_b_hash_prune stays defined in
+        # pipeline/attribution.py (harmless, uncalled) but
+        # pipeline.orchestrate.main() no longer invokes it.
+        import pipeline.orchestrate  # W6: former call site lived in main()
         src = (
             pathlib.Path(
                 inspect.getsourcefile(generate_weekly_pdfs)
@@ -684,7 +694,9 @@ class TestSubprojectBHashPrune(unittest.TestCase):
                 inspect.getsourcefile(pipeline.orchestrate)
             ).read_text(encoding='utf-8')
         )
-        self.assertIn('_run_subproject_b_hash_prune(hash_history, groups)', src)
+        self.assertNotIn(
+            '_run_subproject_b_hash_prune(hash_history, groups)', src,
+        )
 
     def test_returns_true_when_orphans_dropped(self):
         # Codex P2: the prune must report whether it mutated hash_history so
@@ -722,9 +734,10 @@ class TestSubprojectBHashPrune(unittest.TestCase):
         self.assertIs(changed, False)
 
     def test_save_gate_persists_one_time_prune_in_source(self):
-        # Codex P2 wiring: the hash-history save must fire on a no-update
-        # run when a one-time migration prune mutated the history.
-        import pipeline.orchestrate  # W6: save-gate wiring lives in main()
+        # Phase 11 Plan 08 (INC-05, D-12): the hash-history save gate (and
+        # _hash_history_migration_dirty tracking) is retired along with
+        # hash_history.json itself.
+        import pipeline.orchestrate  # W6: former save-gate wiring lived in main()
         src = (
             pathlib.Path(
                 inspect.getsourcefile(generate_weekly_pdfs)
@@ -734,7 +747,7 @@ class TestSubprojectBHashPrune(unittest.TestCase):
                 inspect.getsourcefile(pipeline.orchestrate)
             ).read_text(encoding='utf-8')
         )
-        self.assertIn('_hash_history_migration_dirty', src)
+        self.assertNotIn('_hash_history_migration_dirty', src)
 
 
 class TestNonSubVariantsPreserved(unittest.TestCase):

@@ -235,8 +235,13 @@ class SitesTwoOrderTests(_HashModeMixin, unittest.TestCase):
 
 
 class SitesWiringTests(unittest.TestCase):
-    """The three sites really call the helper (with the run's kill
-    switches) and carry no inline identity chain any more."""
+    """The identity sites really call the helper (with the run's kill
+    switches) and carry no inline identity chain any more.
+
+    Phase 11 Plan 08 (INC-05, D-12): the third site (the hash_history.json
+    stale-key ``current_keys`` prune) is retired along with hash_history.json
+    itself, so only two sites (Site 1 main-loop identifier, Site 2
+    valid_wr_weeks) remain."""
 
     @classmethod
     def setUpClass(cls):
@@ -246,7 +251,7 @@ class SitesWiringTests(unittest.TestCase):
         calls = re.findall(
             r"= derive_group_identity\(\s*\w+, \*\*_identity_switches\)",
             self._main)
-        self.assertEqual(len(calls), 3, calls)
+        self.assertEqual(len(calls), 2, calls)
         # ...and the switches are bound ONCE from the run's facade values.
         self.assertRegex(
             self._main,

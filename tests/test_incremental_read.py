@@ -822,22 +822,55 @@ class WatermarkPersistenceTests(unittest.TestCase):
         self.assertEqual(len(data), 22)
         self.assertIn("groups_skipped_no_target_row", data)
 
-    def test_workflow_and_schema_untouched(self):
-        """git diff --exit-code equivalent for the two protected paths."""
+    def test_schema_untouched(self):
+        """git diff --exit-code equivalent for pipeline_memory/schema.sql.
+
+        Zero schema drift is a hard requirement across the whole phase
+        (CLAUDE.md-adjacent hard rule cited by every plan in this phase),
+        unlike the workflow file below -- which 11-08 Task 3 is explicitly
+        authorised to edit.
+        """
         import subprocess
 
         result = subprocess.run(
             [
                 "git", "diff", "--exit-code", "--",
-                ".github/workflows/", "pipeline_memory/schema.sql",
+                "pipeline_memory/schema.sql",
             ],
             cwd=str(_REPO_ROOT),
             capture_output=True,
         )
         self.assertEqual(
             result.returncode, 0,
-            f"protected paths were modified:\n{result.stdout.decode()}",
+            f"pipeline_memory/schema.sql was modified:\n{result.stdout.decode()}",
         )
+
+    def test_workflow_caches_retired_but_schedule_and_budget_survive(self):
+        """Phase 11 Plan 08 (INC-05, D-12) replaces the earlier blanket
+        "workflow untouched" guard: Task 3 legitimately removes the six
+        ``actions/cache/restore@v4`` / ``actions/cache/save@v4`` steps that
+        carried the three retired local JSON caches. This test pins the
+        post-retirement invariant instead -- zero cache steps, and the
+        schedule / budget / advanced_options parser byte-preserved -- so a
+        future change cannot silently reintroduce a cache step or drift the
+        protected schedule/budget fields.
+        """
+        workflow_path = (
+            _REPO_ROOT / ".github" / "workflows"
+            / "weekly-excel-generation.yml"
+        )
+        text = workflow_path.read_text(encoding="utf-8")
+        self.assertEqual(
+            text.count("actions/cache/"), 0,
+            "actions/cache/restore@v4 or actions/cache/save@v4 step found "
+            "-- the six INC-05 cache steps must stay retired",
+        )
+        for anchor in (
+            "timeout-minutes: 180",
+            "TIME_BUDGET_MINUTES",
+            "advanced_options",
+        ):
+            self.assertIn(anchor, text)
 
 
 # ── 11-03 Task 1 (D-06 attachment preservation): keep_historical
@@ -1045,126 +1078,48 @@ class OrchestrateKeepHistoricalWiringTests(unittest.TestCase):
         self.assertNotIn('os.environ["KEEP_HISTORICAL_WEEKS"]', src)
         self.assertNotIn("os.environ['KEEP_HISTORICAL_WEEKS']", src)
 
-# ── 11-03 Task 2 (D-06 hash-history preservation): gate the stale-key
-# prune on full mode as well as the existing time-budget guard ─────────
+# ── Phase 11 Plan 08 (INC-05, D-12) RETIREMENT of 11-03 Task 2's
+# D-06 hash-history stale-key prune ─────────────────────────────────
 
-class HashHistoryPruneTests(unittest.TestCase):
-    """CONTEXT.md D-06's hash-history half: the stale-key prune's
-    existing time-budget guard in ``pipeline.orchestrate.main`` is
-    WIDENED (not replaced) to also require the resolved run mode be
-    'full'. The prune block is deeply nested inside ``main()`` (not a
-    standalone function), so behavior is pinned the same way
-    ``tests/test_security_audit_followup.py::TestHashHistoryPruneUsesSanitizedWr``
-    already pins this exact code region: replicate the verified-by-
-    source-inspection gate/derivation locally against a small fixture.
+class HashHistoryPruneRetiredTests(unittest.TestCase):
+    """CONTEXT.md D-06's hash-history half -- the stale-key prune's
+    time-budget + full-mode gate in ``pipeline.orchestrate.main`` --
+    is RETIRED along with ``generated_docs/hash_history.json`` itself
+    (Phase 11 Plan 08, INC-05, D-12). group_state.content_hash needs no
+    equivalent stale-key prune: its growth is bounded by actual distinct
+    (wr, week_ending, variant, identifier, target_sheet_id) groups ever
+    generated, not a JSON file needing size management, and nothing ever
+    iterates the whole store the way the retired prune did.
+
+    Replaces (does not silently delete) the previously 7-test
+    ``HashHistoryPruneTests`` class -- 3 of those tests pinned the
+    retired production gate/save-flow source text directly; the other 4
+    exercised a local fixture replica of that gate's logic, which is now
+    dead-code trivia once the gate it modeled is gone.
     """
 
-    @staticmethod
-    def _gate(time_budget_exceeded, mode):
-        return not time_budget_exceeded and mode == 'full'
-
-    @staticmethod
-    def _apply(hash_history, current_keys, time_budget_exceeded, mode):
-        history = dict(hash_history)
-        if HashHistoryPruneTests._gate(time_budget_exceeded, mode):
-            stale_keys = [k for k in history if k not in current_keys]
-            for sk in stale_keys:
-                del history[sk]
-        return history
-
-    def test_gate_condition_matches_source_byte_for_byte(self):
+    def test_stale_key_prune_gate_removed_from_source(self):
         import inspect
         import pipeline.orchestrate as orch
 
         src = inspect.getsource(orch.main)
-        self.assertIn(
+        self.assertNotIn(
             "if not _time_budget_exceeded and _resolved_mode == 'full':",
             src,
         )
+        self.assertNotIn("stale_keys = [k for k in hash_history", src)
+        self.assertNotIn("save_hash_history(HASH_HISTORY_PATH, hash_history)", src)
+        self.assertNotIn("_hash_history_migration_dirty", src)
 
-    def test_full_mode_not_exceeded_prunes_stale_keys_as_today(self):
-        hash_history = {
-            "90001|041926|primary|": {"hash": "a"},
-            "STALE|041926|primary|": {"hash": "b"},
-        }
-        current_keys = {"90001|041926|primary|"}
-        result = self._apply(
-            hash_history, current_keys, time_budget_exceeded=False, mode="full",
-        )
-        self.assertEqual(set(result), {"90001|041926|primary|"})
-
-    def test_full_mode_time_budget_exceeded_skips_as_today(self):
-        hash_history = {
-            "90001|041926|primary|": {"hash": "a"},
-            "STALE|041926|primary|": {"hash": "b"},
-        }
-        current_keys = {"90001|041926|primary|"}
-        result = self._apply(
-            hash_history, current_keys, time_budget_exceeded=True, mode="full",
-        )
-        self.assertEqual(result, hash_history)
-
-    def test_incremental_mode_preserves_every_key_regardless_of_time_budget(self):
-        # The load-bearing case: current_keys (derived from this run's
-        # strict-subset `groups`) holds one key, hash_history holds
-        # several -- an incremental run must not prune ANY of them.
-        hash_history = {
-            "90001|041926|primary|": {"hash": "a"},
-            "90002|041926|primary|": {"hash": "b"},
-            "90003|041926|primary|": {"hash": "c"},
-        }
-        current_keys = {"90001|041926|primary|"}
-        for time_budget_exceeded in (False, True):
-            with self.subTest(time_budget_exceeded=time_budget_exceeded):
-                result = self._apply(
-                    hash_history, current_keys,
-                    time_budget_exceeded=time_budget_exceeded, mode="incremental",
-                )
-                self.assertEqual(result, hash_history)
-
-    def test_zero_keys_removed_for_strict_subset_groups_in_incremental_mode(self):
-        hash_history = {
-            f"9000{i}|041926|primary|": {"hash": str(i)} for i in range(5)
-        }
-        current_keys = {"90000|041926|primary|"}
-        result = self._apply(
-            hash_history, current_keys, time_budget_exceeded=False, mode="incremental",
-        )
-        self.assertEqual(len(result), len(hash_history))
-        self.assertEqual(set(result), set(hash_history))
-
-    def test_history_updates_write_stays_outside_the_gate(self):
+    def test_group_state_flush_has_no_stale_key_prune_equivalent(self):
+        # group_state.content_hash is the sole change-detection skip gate
+        # now (INC-05); it accumulates via upsert and is never bulk-pruned
+        # by discovery/orchestrate logic in this codebase.
         import inspect
         import pipeline.orchestrate as orch
 
         src = inspect.getsource(orch.main)
-        if_idx = src.index("if history_updates:")
-        elif_idx = src.index("elif _hash_history_migration_dirty:", if_idx)
-        block = src[if_idx:elif_idx]
-        # save_hash_history must be called exactly once in this block,
-        # unconditionally at the `if history_updates:` level -- never
-        # only inside the mode/time-budget-gated prune.
-        self.assertEqual(
-            block.count("save_hash_history(HASH_HISTORY_PATH, hash_history)"), 1,
-        )
-
-    def test_incremental_skip_is_logged_with_preserved_key_count(self):
-        import inspect
-        import pipeline.orchestrate as orch
-
-        src = inspect.getsource(orch.main)
-        self.assertIn("elif _resolved_mode != 'full':", src)
-        elif_idx = src.index("elif _resolved_mode != 'full':")
-        gate_idx = src.index(
-            "if not _time_budget_exceeded and _resolved_mode == 'full':"
-        )
-        # The suppressed-path elif must be the sibling of the widened
-        # gate `if` above (same prune block), not some unrelated
-        # elif elsewhere in main().
-        self.assertLess(gate_idx, elif_idx)
-        self.assertLess(elif_idx - gate_idx, 9000)
-        block = src[elif_idx:elif_idx + 500]
-        self.assertIn("len(hash_history)", block)
+        self.assertIn("history_updates += len(_mem_group_records)", src)
 
 
 # ── 11-03 Task 3 (D-06 off-contract gates): pin the already-safe
@@ -3268,6 +3223,107 @@ class LostIdentityRowTests(unittest.TestCase):
         self.assertEqual(calls["n"], 2)
         self.assertIsNone(result)  # partial union is worse than none
 
+    # ── group_state attachment resolution (Phase 11 Plan 08, INC-05) ──
+
+    def test_group_state_attachments_empty_input_zero_calls(self):
+        from pipeline_memory import reader as mem_reader
+
+        with mock.patch.object(mem_reader, "get_client") as mock_client:
+            result = mem_reader.get_group_state_attachments_by_wr(set())
+
+        self.assertEqual(result, {})
+        mock_client.assert_not_called()
+
+        with mock.patch.object(mem_reader, "get_client") as mock_client2:
+            result_none = mem_reader.get_group_state_attachments_by_wr(None)
+
+        self.assertEqual(result_none, {})
+        mock_client2.assert_not_called()
+
+    def test_group_state_attachments_client_unavailable_returns_empty(self):
+        from pipeline_memory import reader as mem_reader
+
+        with mock.patch.object(mem_reader, "get_client", return_value=None):
+            result = mem_reader.get_group_state_attachments_by_wr({"90001"})
+
+        self.assertEqual(result, {})
+
+    def test_group_state_attachments_resolves_and_skips_incomplete_rows(self):
+        from pipeline_memory import reader as mem_reader
+
+        payload = mock.Mock(data=[
+            {
+                "wr": "90001", "target_sheet_id": 111222,
+                "attachment_id": 42, "attachment_name": "WR_90001.xlsx",
+            },
+            # Never uploaded (or its upload was withheld) -- no
+            # attachment_id/name yet, must be skipped, not KeyError.
+            {
+                "wr": "90002", "target_sheet_id": 111222,
+                "attachment_id": None, "attachment_name": None,
+            },
+        ])
+        with mock.patch.object(
+            mem_reader, "get_client", return_value=mock.Mock(),
+        ), mock.patch.object(
+            mem_reader, "with_retry", return_value=payload,
+        ) as mock_retry:
+            result = mem_reader.get_group_state_attachments_by_wr(
+                {"90001", "90002"},
+            )
+
+        self.assertEqual(
+            result,
+            {
+                "90001": [{
+                    "target_sheet_id": 111222, "attachment_id": 42,
+                    "attachment_name": "WR_90001.xlsx",
+                }],
+            },
+        )
+        self.assertEqual(
+            mock_retry.call_args.kwargs.get("op"),
+            "group_state_attachments_by_wr",
+        )
+
+    def test_group_state_attachments_chunk_failure_continues_next_chunk(self):
+        from pipeline_memory import reader as mem_reader
+
+        with mock.patch.object(mem_reader, "_MAPPING_CHUNK_SIZE", 1):
+            calls = {"n": 0}
+
+            def _retry(fn, **_kw):
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    return None  # simulated transport/breaker failure
+                return mock.Mock(data=[{
+                    "wr": "90002", "target_sheet_id": 111222,
+                    "attachment_id": 7, "attachment_name": "WR_90002.xlsx",
+                }])
+
+            with mock.patch.object(
+                mem_reader, "get_client", return_value=mock.Mock(),
+            ), mock.patch.object(mem_reader, "with_retry", side_effect=_retry):
+                result = mem_reader.get_group_state_attachments_by_wr(
+                    {"90001", "90002"},
+                )
+
+        self.assertEqual(calls["n"], 2)
+        self.assertNotIn("90001", result)  # failed chunk simply absent
+        self.assertIn("90002", result)  # a partial result only ADDS hits
+
+    def test_group_state_attachments_none_response_payload_continues(self):
+        from pipeline_memory import reader as mem_reader
+
+        with mock.patch.object(
+            mem_reader, "get_client", return_value=mock.Mock(),
+        ), mock.patch.object(
+            mem_reader, "with_retry", return_value=mock.Mock(data=None),
+        ):
+            result = mem_reader.get_group_state_attachments_by_wr({"90001"})
+
+        self.assertEqual(result, {})
+
     # ── PHASE 2a wiring ──────────────────────────────────────────────
 
     def _phase2_with_delta(self, sheet, lookup_return, mem_affected):
@@ -3369,6 +3425,114 @@ class LostIdentityRowTests(unittest.TestCase):
         self.assertNotIn(
             "sentinel", fetch.get_last_full_read_failed_sheet_ids(),
         )
+
+
+class LiveRowAttachmentsTests(unittest.TestCase):
+    """PR #373 review (Issue 1): the unchanged-group skip gate confirms
+    attachment EXISTENCE against a live, per-row-memoized listing --
+    a ``group_state`` stub proves only what this pipeline last uploaded,
+    so trusting it would keep a manually deleted billing report missing
+    while the unchanged group skips every run."""
+
+    @staticmethod
+    def _client(listing=None, exc=None):
+        client = mock.MagicMock()
+        if exc is not None:
+            client.Attachments.list_row_attachments.side_effect = exc
+        else:
+            client.Attachments.list_row_attachments.return_value = (
+                SimpleNamespace(
+                    data=listing if listing is not None else []
+                )
+            )
+        return client
+
+    def test_success_memoizes_one_call_per_row(self):
+        from pipeline import orchestrate
+
+        memo: dict = {}
+        listing = [SimpleNamespace(id=1, name="WR_1.xlsx")]
+        client = self._client(listing=listing)
+
+        first = orchestrate._live_row_attachments(client, 5723, 42, memo)
+        second = orchestrate._live_row_attachments(client, 5723, 42, memo)
+
+        self.assertIs(first, listing)
+        self.assertIs(second, listing)
+        client.Attachments.list_row_attachments.assert_called_once_with(
+            5723, 42
+        )
+
+    def test_transport_failure_returns_none_and_is_not_memoized(self):
+        from pipeline import orchestrate
+
+        memo: dict = {}
+        failing = self._client(exc=RuntimeError("transport down"))
+
+        self.assertIsNone(
+            orchestrate._live_row_attachments(failing, 5723, 42, memo)
+        )
+        # NOT memoized: a later poll may succeed and must not be poisoned
+        self.assertEqual(memo, {})
+
+        ok = self._client(listing=[])
+        self.assertEqual(
+            orchestrate._live_row_attachments(ok, 5723, 42, memo), []
+        )
+        self.assertIn(42, memo)
+
+    def test_none_memo_still_fetches_live(self):
+        from pipeline import orchestrate
+
+        client = self._client(listing=[])
+        self.assertEqual(
+            orchestrate._live_row_attachments(client, 1, 2, None), []
+        )
+
+
+class SkipGateLiveConfirmationWiringTests(unittest.TestCase):
+    """Source pins (PR #373 review, Issues 1 + 2) -- the wiring that
+    cannot be exercised without a live Smartsheet session, pinned the
+    same way the suite pins ``main()`` wiring elsewhere."""
+
+    @staticmethod
+    def _src(rel: str) -> str:
+        return (_REPO_ROOT / rel).read_text(encoding="utf-8")
+
+    def test_existence_checks_use_live_listing_never_stubs(self):
+        import re
+
+        src = self._src("pipeline/orchestrate.py")
+        sites = [
+            m.start()
+            for m in re.finditer(r"_has_existing_week_attachment\(", src)
+        ]
+        # exactly the two skip-gate call sites (the import carries no
+        # opening paren; the def lives in pipeline/cleanup.py)
+        self.assertEqual(len(sites), 2)
+        for i in sites:
+            window = src[i:i + 800]
+            self.assertIn("_live_row_attachments(", window)
+            self.assertNotIn("attachment_cache.get", window)
+
+    def test_delete_path_still_reads_group_state_stub_identity(self):
+        src = self._src("pipeline/orchestrate.py")
+        i = src.index("deleted_count, skipped = delete_old_excel_attachments(")
+        self.assertIn("attachment_cache.get", src[i:i + 600])
+
+    def test_discovery_fails_closed_on_validation_exception(self):
+        import re
+
+        src = self._src("pipeline/discovery.py")
+        # the except branch records the failure ...
+        self.assertIn("_failed_validation_sids.append(sid)", src)
+        # ... and the post-loop guard aborts the run rather than
+        # continuing with an incomplete billing row set
+        self.assertRegex(
+            src,
+            r"if _failed_validation_sids:\n(?:.*\n)+?\s*raise RuntimeError",
+        )
+        self.assertIn("fail-closed guard", src)
 
 
 if __name__ == "__main__":

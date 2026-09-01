@@ -512,8 +512,12 @@ class TestSiteAMainLoopIdentity(unittest.TestCase):
 
 
 class TestSitesBCIdentity(unittest.TestCase):
-    """Task 6: valid_wr_weeks (Site 2) and current_keys (Site 3) primary
-    branches derive from __current_foreman gated on the kill switch."""
+    """Task 6: valid_wr_weeks (Site 2) primary branch derives from
+    __current_foreman gated on the kill switch.
+
+    Phase 11 Plan 08 (INC-05, D-12): Site 3 (the hash_history.json
+    stale-key ``current_keys`` prune) is retired along with hash_history.json
+    itself -- this test no longer pins it."""
 
     def test_sites_b_and_c_gated_primary_identity(self):
         import pipeline.orchestrate  # W6: main() relocated
@@ -526,12 +530,11 @@ class TestSitesBCIdentity(unittest.TestCase):
             r"_, file_id = derive_group_identity\("
             r"\s*_first, \*\*_identity_switches\)",
         )
-        # Site 3 (current_keys builder): _ident likewise.
-        self.assertRegex(
-            src,
-            r"_ident, _ = derive_group_identity\("
-            r"\s*_first, \*\*_identity_switches\)",
-        )
+        # Site 3 (current_keys builder) is retired -- no equivalent
+        # group_state prune exists (its growth is bounded by actual
+        # distinct groups ever generated, not a JSON file needing size
+        # management).
+        self.assertNotIn("_ident, _ = derive_group_identity(", src)
         # ...the switches carry the kill switch, and the helper's primary
         # branch derives from __current_foreman only when it is on
         # (legacy User path otherwise).
@@ -720,14 +723,18 @@ class TestSubprojectDHashPrune(unittest.TestCase):
         self.assertNotIn('_subproject_d_prune_version', hist)
 
     def test_call_site_wired_into_migration_dirty(self):
-        import pipeline.orchestrate  # W6: prune call site lives in main()
+        # Phase 11 Plan 08 (INC-05, D-12): the hash_history.json call site
+        # (and _hash_history_migration_dirty tracking) is retired along
+        # with hash_history.json itself. _run_subproject_d_hash_prune
+        # stays defined in pipeline/attribution.py (harmless, uncalled)
+        # but pipeline.orchestrate.main() no longer invokes it.
+        import pipeline.orchestrate  # W6: former call site lived in main()
         src = (inspect.getsource(generate_weekly_pdfs)
                + "\n" + inspect.getsource(pipeline.orchestrate))
-        self.assertRegex(
-            src,
-            r"if _run_subproject_d_hash_prune\(hash_history, groups\):"
-            r"\s*\n\s*_hash_history_migration_dirty = True",
+        self.assertNotIn(
+            "_run_subproject_d_hash_prune(hash_history, groups)", src,
         )
+        self.assertNotIn("_hash_history_migration_dirty", src)
 
     def test_non_primary_variant_not_dropped_for_in_scope_wr(self):
         # A helper-variant (6-part) and a vac_crew-variant key for an
@@ -910,7 +917,12 @@ class TestSubprojectDProductionInvariants(unittest.TestCase):
         )
 
     def test_prune_wired_into_call_site(self):
-        self.assertIn("_run_subproject_d_hash_prune(hash_history, groups)", self.src)
+        # Phase 11 Plan 08 (INC-05, D-12): retired along with
+        # hash_history.json -- see TestSubprojectDHashPrune
+        # .test_call_site_wired_into_migration_dirty.
+        self.assertNotIn(
+            "_run_subproject_d_hash_prune(hash_history, groups)", self.src,
+        )
 
     def test_cleanup_has_primary_wr_scope_param(self):
         self.assertIn("primary_wr_scope: set[str] | None = None", self.src)

@@ -30,8 +30,8 @@ python generate_weekly_pdfs.py
 | --- | --- |
 | `test_mode` | Skip uploads, shorten retention to 30 days. |
 | `force_generation` | Bypass the "no eligible data" short-circuit. |
-| `reset_hash_history` | Invalidate `hash_history.json` — regenerates everything. |
-| `force_rediscovery` | Ignore `discovery_cache.json` — slow but correct. |
+| `reset_hash_history` | Force every group to regenerate this run (escalates via Supabase `pipeline_memory.group_state`, D-02 trigger 5) — there is no local `hash_history.json` to invalidate since PR #373. |
+| `force_rediscovery` | No-op. Discovery validates every candidate sheet in full every run since PR #373 retired the local discovery cache; kept for backward compatibility. |
 | `wr_filter` / `exclude_wrs` | Narrow the run to specific work requests. |
 | `advanced_options` | Composite knob parsed by the workflow into env vars. |
 
@@ -43,8 +43,10 @@ python generate_weekly_pdfs.py
    many WRs and weeks were processed before the failure.
 4. If Sentry is configured, open the release matching the run's SHA to
    see exceptions and log breadcrumbs.
-5. When the pipeline cache is suspected (stale discovery), re-run with
-   `force_rediscovery=true`.
+5. Discovery is never stale — every candidate sheet is validated in full
+   every run (the local discovery cache was retired in PR #373). If a
+   sheet still isn't found, check the folder membership and column
+   mapping instead.
 
 ## Restoring from a bad run
 
@@ -175,6 +177,7 @@ than ~26 weeks self-heals on the next natural edit; no action needed.
 | Disable remediation | Leave `REMEDIATE_CLAIMERS: '0'` (workflow default). No garbage attachments are deleted. |
 | Revert bulk-prefetch wiring | Set `BILLING_AUDIT_AVAILABLE=false` to disable all attribution; pipeline falls back to current-foreman for all variants. |
 | Turn off run-memory writes (Phase 11) | Delete the `RUN_MEMORY_WRITE_ENABLED: '1'` line from the `Generate reports` step (or set it to `'0'`). No code change; rows already in `pipeline_memory` are harmless. See the section below. |
+| Revert the local-cache retirement (PR #373, Phase 11 Plan 08 / INC-05) | Revert PR #373. There is no local JSON cache to restore or reset — the retirement removed the cache files and their GitHub Actions restore/save steps outright, so rollback is a code revert, not a cache operation. |
 
 ## Run-memory writes and the incremental-read rollout (Phase 11)
 

@@ -105,25 +105,18 @@ PARALLEL_WORKERS_DISCOVERY = int(os.getenv('PARALLEL_WORKERS_DISCOVERY', '8') or
 # timeout-minutes: 180 on the runner (15min cushion for cache/artifact save steps).
 TIME_BUDGET_MINUTES = int(os.getenv('TIME_BUDGET_MINUTES', '0') or 0)
 
-# Sub-budget for the attachment pre-fetch phase. Prevents a flaky Smartsheet
-# connection from consuming the entire session budget before group processing
-# can start: on 2026-04-22 a run lost 16 minutes to ~14 stuck rows after
-# RemoteDisconnected retries, exhausted the 80min TIME_BUDGET_MINUTES before
-# generating a single file, and finished with 0 Excel files generated.
-# When the pre-fetch exceeds this budget, remaining rows fall back to on-demand
-# per-row fetches (already supported in _has_existing_week_attachment and
-# delete_old_excel_attachments).
-ATTACHMENT_PREFETCH_MAX_MINUTES = int(os.getenv('ATTACHMENT_PREFETCH_MAX_MINUTES', '10') or 10)
-# Per-future wait (seconds) inside the pre-fetch consumer loop. One stuck HTTP
-# call cannot block the consumer beyond this — the future is left behind and
-# its row falls back to the per-row path at generation time.
-ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC = int(os.getenv('ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC', '45') or 45)
-# Minimum "generation headroom" (minutes) the pre-flight guard reserves
-# beyond the pre-fetch budget. Without this, a setup where the session
-# has exactly `ATTACHMENT_PREFETCH_MAX_MINUTES` remaining would still
-# run pre-fetch and leave ~0 minutes for group processing — the same
-# zero-output failure mode this guard is meant to prevent.
-ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN = int(os.getenv('ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN', '2') or 2)
+# RETIRED (Phase 11 Plan 08, INC-05, CONTEXT.md D-12): the bulk
+# attachment pre-fetch phase and its three sub-budget constants
+# (ATTACHMENT_PREFETCH_MAX_MINUTES, _FUTURE_TIMEOUT_SEC,
+# _GENERATION_HEADROOM_MIN) were removed once pipeline_memory.group_state
+# proved it could supply attachment identity in place of a bulk Smartsheet
+# pre-fetch. Setting any of these env vars today has no effect — nothing
+# imports them. Attachment identity now resolves via
+# pipeline_memory.reader.get_group_state_attachments_by_wr(), with every
+# consumer falling back to the existing per-row on-demand
+# `list_row_attachments` lookup in pipeline/cleanup.py
+# (_has_existing_week_attachment / delete_old_excel_attachments) on any
+# miss.
 
 # Snapshot-date drift audit (quick task 260812-jqx) -- defence-in-depth
 # backstop for the Smartsheet "record Snapshot Date" automation firing on
@@ -241,18 +234,14 @@ class _DaemonThreadPoolExecutor(ThreadPoolExecutor):
             _cf_thread._threads_queues[t] = self._work_queue  # type: ignore[index]  # CPython internals expose this as a mutable dict despite Mapping typing
 
 
-USE_DISCOVERY_CACHE = os.getenv('USE_DISCOVERY_CACHE','1').lower() in ('1','true','yes')
-# Discovery cache TTL: sheet IDs and column mappings are essentially static.
-# Default to 7 days (10080 min). Set FORCE_REDISCOVERY=true to bypass the cache on demand.
-DISCOVERY_CACHE_TTL_MIN = int(os.getenv('DISCOVERY_CACHE_TTL_MIN','10080') or 10080)
+# Phase 11 Plan 08 (INC-05, D-12): USE_DISCOVERY_CACHE, DISCOVERY_CACHE_TTL_MIN,
+# DISCOVERY_CACHE_PATH and DISCOVERY_CACHE_VERSION are retired — discover_source_sheets()
+# now validates every candidate sheet unconditionally every run and no longer reads or
+# writes the local discovery-cache JSON file. Cross-run sheet identity now lives solely
+# in pipeline_memory.sheet_registry (see pipeline/discovery.py, pipeline/orchestrate.py).
+# FORCE_REDISCOVERY is kept for operator-runbook / backward-compat reasons but is a
+# no-op — there is no cache left for it to bypass.
 FORCE_REDISCOVERY = os.getenv('FORCE_REDISCOVERY','false').lower() in ('1','true','yes')
-DISCOVERY_CACHE_PATH = os.path.join(OUTPUT_FOLDER, 'discovery_cache.json')
-# Bump this version whenever the column synonym dictionary changes so that stale caches
-# (missing newly-mapped columns like VAC Crew) are automatically invalidated.
-# Also bump when a known bug would leave existing caches with incorrect mappings —
-# invalidating the cache is cheaper than waiting up to DISCOVERY_CACHE_TTL_MIN
-# (7 days by default) for those mappings to refresh on their own.
-DISCOVERY_CACHE_VERSION = 4  # v4: fuzzy VAC Crew column fallback — invalidate caches whose column_mapping missed title variants like trailing whitespace or case drift
 
 # Verbose debug tunables
 DEBUG_SAMPLE_ROWS = int(os.getenv('DEBUG_SAMPLE_ROWS','3') or 3)  # How many initial rows (across all sheets) to show full per-cell mapping
@@ -441,8 +430,8 @@ SUPABASE_HASH_STORE_WRITE_ENABLED = os.getenv(
     'SUPABASE_HASH_STORE_WRITE_ENABLED', '1'
 ).strip().lower() in ('1', 'true', 'yes', 'on')
 # AUTHORITATIVE (default OFF — ship dormant): when ON, (a) the change-
-# detection skip gate reads the Supabase group hash (falling back to the
-# hash_history.json cache, then regenerating on miss/outage — never
+# detection skip gate reads the Supabase group hash (falling back to
+# group_state.content_hash, then regenerating on miss/outage — never
 # skipping unsafely), (b) generated filenames DROP the _<timestamp>/_<hash>
 # tokens (deterministic identity-only names), and (c)
 # delete_old_excel_attachments stops relying on the filename-embedded hash.
@@ -468,10 +457,11 @@ SUPABASE_HASH_STORE_AUTHORITATIVE = os.getenv(
 RUN_MEMORY_WRITE_ENABLED = os.getenv(
     'RUN_MEMORY_WRITE_ENABLED', '0'
 ).strip().lower() in ('1', 'true', 'yes', 'on')
-# Phase-local sub-budget (minutes), the direct analog of
-# ATTACHMENT_PREFETCH_MAX_MINUTES: bounds how long the per-sheet
-# upsert_rows_bulk loop may run so a slow Supabase response can never push
-# the ~94-minute production run past TIME_BUDGET_MINUTES=165.
+# Phase-local sub-budget (minutes), the same sub-budget pattern the
+# retired attachment pre-fetch phase used (Phase 11 Plan 08 / INC-05):
+# bounds how long the per-sheet upsert_rows_bulk loop may run so a slow
+# Supabase response can never push the ~94-minute production run past
+# TIME_BUDGET_MINUTES=165.
 RUN_MEMORY_WRITE_MAX_MINUTES = int(
     os.getenv('RUN_MEMORY_WRITE_MAX_MINUTES', '10') or 10
 )
@@ -480,11 +470,12 @@ RUN_MEMORY_WRITE_MAX_MINUTES = int(
 RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC = int(
     os.getenv('RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC', '45') or 45
 )
-# Pre-flight reserve (minutes), the direct analog of
-# ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN: the memory-write phase is
-# skipped entirely (one WARNING, no partial writes) when the remaining
-# session budget would leave less than this much headroom for the group/
-# Excel-generation phases that still have to run after it.
+# Pre-flight reserve (minutes), the same headroom-reservation pattern the
+# retired attachment pre-fetch phase used (Phase 11 Plan 08 / INC-05): the
+# memory-write phase is skipped entirely (one WARNING, no partial writes)
+# when the remaining session budget would leave less than this much
+# headroom for the group/Excel-generation phases that still have to run
+# after it.
 RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN = int(
     os.getenv('RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN', '2') or 2
 )
@@ -510,8 +501,9 @@ RUN_MEMORY_INCREMENTAL_ENABLED = os.getenv(
 SAFETY_WINDOW_MINUTES = int(os.getenv('SAFETY_WINDOW_MINUTES', '15') or 15)
 
 # Phase 11 Plan 05 (INC-04, CONTEXT.md D-07/D-08): sub-budget for the
-# shadow-incremental parity block (pipeline/parity.py) -- the direct
-# analog of RUN_MEMORY_WRITE_MAX_MINUTES / ATTACHMENT_PREFETCH_MAX_MINUTES.
+# shadow-incremental parity block (pipeline/parity.py) -- mirrors
+# RUN_MEMORY_WRITE_MAX_MINUTES and the sub-budget pattern the retired
+# attachment pre-fetch phase used (Phase 11 Plan 08 / INC-05).
 # Bounds the D-08 per-sheet delta-probe loop so a slow Supabase/Smartsheet
 # response can never push the run past TIME_BUDGET_MINUTES=165. Runs only
 # while RUN_MEMORY_WRITE_ENABLED is on and RUN_MEMORY_INCREMENTAL_ENABLED
@@ -521,7 +513,7 @@ RUN_MEMORY_SHADOW_MAX_MINUTES = int(
 )
 # Per-call ceiling (seconds) so one stuck delta-probe call cannot itself
 # consume the whole RUN_MEMORY_SHADOW_MAX_MINUTES sub-budget -- mirrors
-# RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC / ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC.
+# RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC.
 RUN_MEMORY_SHADOW_RPC_TIMEOUT_SEC = int(
     os.getenv('RUN_MEMORY_SHADOW_RPC_TIMEOUT_SEC', '45') or 45
 )
@@ -529,8 +521,7 @@ RUN_MEMORY_SHADOW_RPC_TIMEOUT_SEC = int(
 # entirely (never a partial start) when the remaining session budget
 # would leave less than this much headroom for the group/Excel-generation
 # phases still to run after it. Mirrors
-# RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN / ATTACHMENT_PREFETCH_
-# GENERATION_HEADROOM_MIN.
+# RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN.
 RUN_MEMORY_SHADOW_GENERATION_HEADROOM_MIN = int(
     os.getenv('RUN_MEMORY_SHADOW_GENERATION_HEADROOM_MIN', '2') or 2
 )
@@ -604,21 +595,13 @@ except (ValueError, TypeError):
 # prevented historical frozen claimers from being resolved, producing
 # 372 garbage _User__NO_MATCH / _User_Unknown_Foreman files.
 
-RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first
+RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first; also escalates the run via D-02 trigger 5 (Phase 11 Plan 08, INC-05)
 RESET_WR_LIST = {w.strip() for w in os.getenv('RESET_WR_LIST','').split(',') if w.strip()}  # When provided, only purge these WR numbers (overrides full reset)
-_env_hist_path = os.getenv('HASH_HISTORY_PATH')
-_default_hist_path = os.path.join(OUTPUT_FOLDER, 'hash_history.json')
-if _env_hist_path:
-    # Only allow the file within OUTPUT_FOLDER (resolve real absolute paths)
-    _norm_path = os.path.normpath(os.path.abspath(os.path.join(OUTPUT_FOLDER, _env_hist_path)))
-    _output_folder_abs = os.path.normpath(os.path.abspath(OUTPUT_FOLDER))
-    if _norm_path.startswith(_output_folder_abs):
-        HASH_HISTORY_PATH = _norm_path
-    else:
-        logging.warning(f"⚠️ HASH_HISTORY_PATH environment variable must resolve within {OUTPUT_FOLDER}. Using default: {_default_hist_path}")
-        HASH_HISTORY_PATH = _default_hist_path
-else:
-    HASH_HISTORY_PATH = _default_hist_path
+# Phase 11 Plan 08 (INC-05, D-12): HASH_HISTORY_PATH and its env-override
+# plumbing (_env_hist_path / _default_hist_path) are retired along with the
+# local hash-history JSON cache file itself. group_state.content_hash
+# (pipeline_memory) is now the sole change-detection skip gate; RESET_HASH_HISTORY
+# above still forces full regeneration, now via D-02 trigger 5 against group_state.
 HISTORY_SKIP_ENABLED = os.getenv('HISTORY_SKIP_ENABLED','1').lower() in ('1','true','yes')  # Allow skip based on identical stored hash ONLY if attachment still present
 ATTACHMENT_REQUIRED_FOR_SKIP = os.getenv('ATTACHMENT_REQUIRED_FOR_SKIP','1').lower() in ('1','true','yes')  # If true, even identical hash regenerates when attachment missing
 # Owner decision 2026-08-28: groups whose WR has no target-sheet row are

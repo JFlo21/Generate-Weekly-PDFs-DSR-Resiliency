@@ -31,9 +31,7 @@ import logging
 from concurrent.futures import (
     ThreadPoolExecutor,
     as_completed,
-    TimeoutError as FuturesTimeoutError,
 )
-import concurrent.futures.thread as _cf_thread
 from typing import Any
 
 from dateutil import parser
@@ -79,9 +77,6 @@ from pipeline import parity as _parity
 
 from pipeline.config import (  # noqa: E402
     API_TOKEN,
-    ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC,
-    ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN,
-    ATTACHMENT_PREFETCH_MAX_MINUTES,
     ATTACHMENT_REQUIRED_FOR_SKIP,
     NO_TARGET_ROW_MAX_MISS_RATIO,
     ATTRIBUTION_BULK_PREFETCH_FALLBACK,
@@ -89,9 +84,6 @@ from pipeline.config import (  # noqa: E402
     DEBUG_ESSENTIAL_ROWS,
     DEBUG_SAMPLE_ROWS,
     DISABLE_AUDIT_FOR_TESTING,
-    DISCOVERY_CACHE_PATH,
-    DISCOVERY_CACHE_TTL_MIN,
-    DISCOVERY_CACHE_VERSION,
     EXCLUDE_WRS,
     EXTENDED_CHANGE_DETECTION,
     FILTER_DIAGNOSTICS,
@@ -99,7 +91,6 @@ from pipeline.config import (  # noqa: E402
     FORCE_REDISCOVERY,
     FOREMAN_DIAGNOSTICS,
     GITHUB_ACTIONS_MODE,
-    HASH_HISTORY_PATH,
     HISTORY_SKIP_ENABLED,
     KEEP_HISTORICAL_WEEKS,
     LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED,
@@ -144,13 +135,11 @@ from pipeline.config import (  # noqa: E402
     TEST_MODE,
     TIME_BUDGET_MINUTES,
     UNMAPPED_COLUMN_SAMPLE_LIMIT,
-    USE_DISCOVERY_CACHE,
     VAC_CREW_CLAIM_ATTRIBUTION_ENABLED,
     VAC_CREW_FOLDER_IDS,
     VAC_CREW_LEGACY_CLEANUP_ENABLED,
     VAC_CREW_SHEET_IDS,
     WR_FILTER,
-    _DaemonThreadPoolExecutor,
     _RE_EXTRACT_NUMBERS,
     _RE_ISO_DATE_PREFIX,
     _RE_SANITIZE_HELPER_NAME,
@@ -158,8 +147,6 @@ from pipeline.config import (  # noqa: E402
     _audit_sheet_id_int,
     _coerce_sheet_id,
     _cutoff_str,
-    _default_hist_path,
-    _env_hist_path,
     _parse_sheet_ids,
     _remediation_window_env,
     _sanitize_csv_path,
@@ -222,7 +209,6 @@ from pipeline.utils import (  # noqa: E402
     _weekly_would_trigger_fallback,
 )
 from pipeline.change_detection import (  # noqa: E402
-    HASH_HISTORY_MAX_ENTRIES,
     _compute_aggregated_content_hash,
     _resolve_unchanged_for_skip,
     build_group_identity,
@@ -230,8 +216,6 @@ from pipeline.change_detection import (  # noqa: E402
     canonical_first_row,
     extract_data_hash_from_filename,
     list_generated_excel_files,
-    load_hash_history,
-    save_hash_history,
 )
 from pipeline.discovery import (  # noqa: E402
     _normalize_column_title_for_vac_crew,
@@ -264,7 +248,6 @@ from pipeline.upload import (  # noqa: E402
 )
 from pipeline.attribution import (  # noqa: E402
     BILLING_AUDIT_ROW_CACHE_MAX_ENTRIES,
-    BILLING_AUDIT_ROW_CACHE_PATH,
     PHASE_1_1_HASH_PRUNE_VERSION,
     SUBPROJECT_B_HASH_PRUNE_VERSION,
     SUBPROJECT_D_HASH_PRUNE_VERSION,
@@ -636,8 +619,10 @@ def _run_memory_write_phase(
     ``_run_phase2_incremental``) reads it to scope regeneration -- and
     it may do so ONLY when ``memory_confirmed`` below is True. The
     per-group skip/regenerate/upload gate itself still lives entirely
-    on the existing local ``hash_history.json`` / durable group hash
-    path (10-CONTEXT.md, plan success criteria).
+    on the local group_state content-hash / durable group hash path
+    (10-CONTEXT.md, plan success criteria; the local hash-history JSON
+    cache this comment used to name is retired -- Phase 11 Plan 08,
+    INC-05).
 
     Returns a dict of counts only (no PII, no per-row values):
     ``sheets_written``, ``sheets_errored``, ``rows_sent``,
@@ -1156,6 +1141,68 @@ def _resolve_mem_sheet_kind(sheet_id: Any) -> str:
     if sheet_id in _discovery._FOLDER_DISCOVERED_ORIG_IDS:
         return "original_contract"
     return "primary"
+
+
+class _GroupStateAttachmentStub:
+    """Minimal Smartsheet-``Attachment``-shaped stand-in for a
+    ``pipeline_memory.group_state``-resolved attachment identity (Phase 11
+    Plan 08, INC-05 retirement, CONTEXT.md D-12).
+
+    ``pipeline.cleanup``'s identity-matching logic
+    (``delete_old_excel_attachments``) reads exactly two attributes off
+    each cached attachment -- ``getattr(a, 'name', '')`` (parsed by
+    ``build_group_identity``) and ``a.id`` (passed to
+    ``Attachments.delete_attachment``). This stub supplies both from a
+    ``group_state`` row's ``attachment_id`` / ``attachment_name`` so that
+    consumer can resolve an already-known identity without a Smartsheet
+    ``list_row_attachments`` call, while remaining indistinguishable, to
+    its unmodified filtering logic, from a real SDK ``Attachment`` object.
+
+    NOT proof of existence (PR #373 review): a stub records what this
+    pipeline last uploaded, not what is on the row NOW -- an attachment
+    someone deleted by hand would still have a stub. The unchanged-group
+    skip gate (``_has_existing_week_attachment``) therefore never reads
+    stubs; it confirms against ``_live_row_attachments`` below.
+    """
+
+    __slots__ = ("id", "name")
+
+    def __init__(self, attachment_id: Any, attachment_name: Any) -> None:
+        self.id = attachment_id
+        self.name = attachment_name
+
+
+def _live_row_attachments(
+    client: Any, sheet_id: Any, row_id: Any, memo: dict | None,
+) -> 'list | None':
+    """Fetch and memoize the LIVE attachment listing for one target row.
+
+    INC-05 follow-up (PR #373 review): ``group_state``'s stored
+    attachment identity proves what this pipeline last uploaded, not what
+    exists on the row NOW. Trusting it in the unchanged-group skip gate
+    would leave a manually deleted billing report missing forever (the
+    group skips every run until its data changes). The skip gate
+    therefore confirms existence against a live
+    ``list_row_attachments`` call, memoized per ``row_id`` so each row
+    costs at most one API call per run -- the retired bulk pre-fetch's
+    budgeted phase stays gone.
+
+    Returns the listing (possibly empty) on success; ``None`` on any
+    transport failure WITHOUT memoizing it, so the caller's existing
+    on-demand fallback makes the fail-safe call (a failed lookup reads
+    as "no attachment" and forces a regeneration, never a skip).
+    """
+    if memo is not None and row_id in memo:
+        return memo[row_id]
+    try:
+        listing = client.Attachments.list_row_attachments(
+            sheet_id, row_id
+        ).data
+    except Exception:
+        return None
+    if memo is not None:
+        memo[row_id] = listing
+    return listing
 
 
 def _extract_attachment_id_name(attach_result: Any) -> tuple[Any, Any]:
@@ -2692,435 +2739,151 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 target_map_ppp = {}
                 _target_sheet_ppp_obj = None
 
-        # PERFORMANCE: Pre-fetch all target row attachments into cache to eliminate
-        # redundant per-row API calls in _has_existing_week_attachment and delete_old_excel_attachments.
-        # Each row's attachments are fetched once here instead of 2-3 times in the group loop.
-        attachment_cache = {}  # row_id -> list of attachment objects
-        target_map_to_prefetch = {}
-        if target_map and not TEST_MODE:
-            target_map_to_prefetch = target_map
-            # Pre-flight session-budget guard: if discovery + row fetch already consumed most
-            # of TIME_BUDGET_MINUTES, skip pre-fetch entirely so we have time for generation.
-            # Reserve ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN beyond the pre-fetch budget
-            # so we don't end up with exactly enough time to pre-fetch and then zero time to
-            # generate — that would recreate the original incident's zero-output failure mode.
-            # Per-row fallback paths handle an empty cache transparently.
-            if TIME_BUDGET_MINUTES and GITHUB_ACTIONS_MODE:
-                _pre_elapsed_min = (datetime.datetime.now() - session_start).total_seconds() / 60.0
-                _remaining_min = TIME_BUDGET_MINUTES - _pre_elapsed_min
-                _required_remaining_min = ATTACHMENT_PREFETCH_MAX_MINUTES + ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN
-                if _remaining_min <= _required_remaining_min:
-                    logging.warning(
-                        f"⏩ Skipping attachment pre-fetch: {_pre_elapsed_min:.1f}min already elapsed, "
-                        f"only {_remaining_min:.1f}min left in session budget "
-                        f"(need > {_required_remaining_min}min = "
-                        f"{ATTACHMENT_PREFETCH_MAX_MINUTES}min pre-fetch budget + "
-                        f"{ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN}min generation headroom). "
-                        f"Attachment lookups will fall back to per-row fetches during generation."
-                    )
-                    sentry_add_breadcrumb(
-                        "prefetch_skipped",
-                        f"Pre-fetch skipped, {_remaining_min:.1f}min remaining",
-                        level="warning",
-                        data={
-                            "elapsed_min": round(_pre_elapsed_min, 1),
-                            "remaining_min": round(_remaining_min, 1),
-                            "prefetch_budget_min": ATTACHMENT_PREFETCH_MAX_MINUTES,
-                            "generation_headroom_min": ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN,
-                            "required_remaining_min": _required_remaining_min,
-                        },
-                    )
-                    target_map_to_prefetch = {}
-
-        if target_map_to_prefetch:
-            with sentry_sdk.start_span(op="smartsheet.attachment_prefetch", name="Pre-fetch row attachments") as span:
-                logging.info(f"🚀 Starting parallel attachment pre-fetch with {PARALLEL_WORKERS} workers for {len(target_map_to_prefetch)} target rows (max {ATTACHMENT_PREFETCH_MAX_MINUTES}min)...")
-                _att_start = datetime.datetime.now()
-
-                def _fetch_row_attachments(row_item):
-                    # row_item is (wr_num, target_row); only target_row is needed.
-                    _, target_row = row_item
-                    # Phase 10: retry transient failures via the shared helper
-                    # (API 4000, server timeout, rate limit, network drop —
-                    # bounded total backoff). Degrade to no-attachments on
-                    # persistent failure, exactly as before (the row then falls
-                    # back to per-row on-demand lookup at generation time).
-                    try:
-                        atts = smartsheet_call_with_retry(
-                            client.Attachments.list_row_attachments,
-                            TARGET_SHEET_ID, target_row.id,
-                            label=f"attachment fetch row {target_row.id}",
-                        ).data
-                        return (target_row.id, atts)
-                    except Exception:
-                        return (target_row.id, [])
-
-                _prefetch_budget_exceeded = False
-                _prefetch_stuck_futures = 0     # future.result timed out after as_completed yielded
-                _prefetch_cancelled = 0         # queued futures we successfully cancelled
-                _prefetch_still_running = 0     # in-flight futures we abandoned to the background
-                # Manual executor lifecycle with daemon workers. Three things can
-                # block process exit for a non-daemon worker and all three matter
-                # here: (1) _python_exit joins _threads_queues, (2) threading.
-                # _shutdown joins _shutdown_locks, (3) executor.shutdown(wait=True)
-                # joins via the `with` block. Using _DaemonThreadPoolExecutor
-                # addresses (2) — daemon threads don't add their tstate lock to
-                # _shutdown_locks. Using explicit shutdown(wait=False,
-                # cancel_futures=True) in finally addresses (3). The detach helper
-                # below addresses (1) — but only on the budget-exceeded path
-                # (Copilot review: don't touch private APIs when everything
-                # completed normally; the workers are already done and there's
-                # nothing to skip). See _DaemonThreadPoolExecutor docstring for
-                # the full three-defense story and the safety invariant.
-                executor = _DaemonThreadPoolExecutor(max_workers=PARALLEL_WORKERS)
-                futures = [executor.submit(_fetch_row_attachments, item) for item in target_map_to_prefetch.items()]
-                total_futures = len(futures)
-                _phase_budget_sec = ATTACHMENT_PREFETCH_MAX_MINUTES * 60
-
-                # Helper: pop workers from concurrent.futures' atexit join
-                # registry so _python_exit doesn't t.join() them at interpreter
-                # shutdown (daemon-ness doesn't help here — join() blocks
-                # unconditionally). Called only when we're abandoning in-flight
-                # work. Uses private APIs; getattr guards keep the main path
-                # working if a future Python rearranges the names.
-                def _detach_from_atexit_registry():
-                    try:
-                        registry = getattr(_cf_thread, '_threads_queues', None)
-                        if registry is None:
-                            return
-                        for _t in list(getattr(executor, '_threads', ()) or ()):
-                            registry.pop(_t, None)
-                    except Exception as _det_e:
-                        logging.debug(f"Could not detach pre-fetch workers from atexit registry: {_det_e}")
-                try:
-                    try:
-                        # timeout= is measured from this call; the iterator itself raises
-                        # FuturesTimeoutError if nothing else completes within that window,
-                        # so a stuck HTTP call can't pin the consumer loop.
-                        for i, future in enumerate(as_completed(futures, timeout=_phase_budget_sec), 1):
-                            try:
-                                row_id, atts = future.result(timeout=ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC)
-                            except FuturesTimeoutError:
-                                # Defensive — as_completed only yields done futures, so in
-                                # practice this branch is unreachable; keep it so a future
-                                # refactor that yields not-yet-done futures still degrades
-                                # gracefully instead of raising.
-                                _prefetch_stuck_futures += 1
-                                continue
-                            attachment_cache[row_id] = atts
-                            if i % 25 == 0 or i == total_futures:
-                                logging.info(f"   📎 [{i}/{total_futures}] Attachment pre-fetch progress...")
-                    except FuturesTimeoutError:
-                        # Phase sub-budget exhausted — stuck HTTP call(s) held the iterator.
-                        # Bail out; remaining rows fall back to the per-row path.
-                        _prefetch_budget_exceeded = True
-                finally:
-                    # Classify remaining work so the log / Sentry span reflects reality:
-                    # cancel() returns True only for queued futures that hadn't started
-                    # (Copilot review: the old code overcounted by calling `not f.done()`
-                    # alone, conflating started-but-running with still-queued).
-                    for f in futures:
-                        if f.done():
-                            continue
-                        if f.cancel():
-                            _prefetch_cancelled += 1
-                        else:
-                            _prefetch_still_running += 1
-                    # wait=False so stuck in-flight threads don't block the critical path
-                    # (the main generation loop). They'll either complete via SDK retry
-                    # backoff or be hard-killed by the workflow's timeout-minutes ceiling.
-                    # Only touch the atexit registry when we're actually abandoning
-                    # work (budget exceeded + still-running threads remain).
-                    # Normal completion leaves the workers done; _python_exit will
-                    # find them complete and return immediately from its join().
-                    if _prefetch_still_running:
-                        _detach_from_atexit_registry()
-                    executor.shutdown(wait=False, cancel_futures=True)
-
-                _att_elapsed = (datetime.datetime.now() - _att_start).total_seconds()
-                span.set_data("rows_cached", len(attachment_cache))
-                span.set_data("rows_cancelled", _prefetch_cancelled)
-                span.set_data("rows_still_running", _prefetch_still_running)
-                span.set_data("rows_stuck", _prefetch_stuck_futures)
-                if _prefetch_budget_exceeded:
-                    logging.warning(
-                        f"⏰ Attachment pre-fetch budget hit ({ATTACHMENT_PREFETCH_MAX_MINUTES}min). "
-                        f"Cached {len(attachment_cache)}/{total_futures} rows in {_att_elapsed:.1f}s; "
-                        f"{_prefetch_cancelled} cancelled, {_prefetch_still_running} still running in background, "
-                        f"{_prefetch_stuck_futures} stuck. Remaining rows will use per-row fallback."
-                    )
-                    sentry_add_breadcrumb(
-                        "prefetch_truncated",
-                        f"Pre-fetch truncated at {ATTACHMENT_PREFETCH_MAX_MINUTES}min",
-                        level="warning",
-                        data={
-                            "cached": len(attachment_cache),
-                            "total": total_futures,
-                            "cancelled": _prefetch_cancelled,
-                            "still_running": _prefetch_still_running,
-                            "stuck": _prefetch_stuck_futures,
-                        },
-                    )
-                else:
-                    logging.info(f"⚡ Pre-fetched attachments for {len(attachment_cache)} target rows in {_att_elapsed:.1f}s (parallel w/{PARALLEL_WORKERS} workers)")
-
         # ──────────────────────────────────────────────────────────
-        # Phase 01 gap closure (REVIEW-WR-05): secondary attachment
-        # prefetch for SUBCONTRACTOR_PPP_SHEET_ID rows. Without it,
-        # every _ReducedSub / _ReducedSub_Helper_* upload to the PPP
-        # sheet pays an extra ``list_row_attachments`` API call (for
-        # delete_old_excel_attachments matching). The PPP sheet has
-        # far fewer rows than TARGET_SHEET_ID — only the subset that
-        # needs _ReducedSub* — so the cost amortizes quickly.
+        # Phase 11 Plan 08 (INC-05 retirement, CONTEXT.md D-12): the bulk
+        # Smartsheet attachment pre-fetch (two phases: TARGET_SHEET_ID rows,
+        # then SUBCONTRACTOR_PPP_SHEET_ID rows, plus their three
+        # ATTACHMENT_PREFETCH_* sub-budget constants) is retired.
+        # pipeline_memory.group_state already carries the attachment_id /
+        # attachment_name this pipeline itself uploaded for every group it
+        # has flushed (shadow-populated Phase 10, proven on the flip PR's
+        # first real upload -- IN-01), so attachment identity is resolved
+        # from there instead of a bulk Smartsheet call.
         #
-        # Defense-in-depth contract (Living Ledger 2026-04-22 16:05):
-        #   - _DaemonThreadPoolExecutor (NOT ThreadPoolExecutor)
-        #   - as_completed(futures, timeout=...) for the wait
-        #   - executor.shutdown(wait=False, cancel_futures=True)
-        #   - _detach_ppp_from_atexit_registry() on budget-exceed path
-        #   - Pre-flight skip if session budget < (PREFETCH_MAX +
-        #     GENERATION_HEADROOM)
-        # Safety invariant: PPP prefetch is OPTIONAL — both
-        # delete_old_excel_attachments and _has_existing_week_attachment
-        # accept cached_attachments=None and fall back to per-row API.
-        # Do NOT add new consumers that assume the PPP cache is
-        # populated.
+        # Safety invariant (T-11-41): the consumer below
+        # (pipeline.cleanup.delete_old_excel_attachments) already accepts
+        # a missing cache entry and falls back, unmodified, to a per-row
+        # on-demand `list_row_attachments` lookup -- that existing
+        # fallback is what makes this retirement safe on a cold cache, a
+        # Supabase outage, or a WR group_state has never flushed.
+        # group_state's coverage is necessarily narrower than "every
+        # attachment on the row" (it only knows what THIS pipeline
+        # wrote), so cleanup_untracked_sheet_attachments -- which prunes
+        # off-contract / duplicate / legacy attachments group_state was
+        # never told about -- deliberately never reads this cache; see
+        # the `_cleanup_cache = None` assignment below.
+        #
+        # Existence is different from identity (PR #373 review): the
+        # unchanged-group skip gate (_has_existing_week_attachment) never
+        # reads these stubs -- a stub proves only what was last uploaded,
+        # so a manually deleted attachment would keep the group skipped
+        # with its billing report missing. That gate confirms against
+        # _live_row_attachments (one memoized live listing per row).
         # ──────────────────────────────────────────────────────────
-        _ppp_prefetch_eligible = (
-            SUBCONTRACTOR_RATE_VARIANTS_ENABLED
-            and SUBCONTRACTOR_PPP_SHEET_ID
-            and SUBCONTRACTOR_PPP_SHEET_ID != TARGET_SHEET_ID
-            and not TEST_MODE
-            and target_map_ppp is not None
-            and len(target_map_ppp) > 0
-        )
-        if _ppp_prefetch_eligible:
-            # Pre-flight budget guard (Living Ledger 2026-04-22 16:05
-            # rule 7): skip entirely if remaining budget < (prefetch
-            # phase budget + generation headroom). Without the
-            # headroom reservation, an edge case where session
-            # budget == prefetch budget would still trigger the
-            # prefetch and leave zero time for the main loop.
-            if TIME_BUDGET_MINUTES > 0:
-                _ppp_elapsed_min = (
-                    datetime.datetime.now() - session_start
-                ).total_seconds() / 60.0
-                _ppp_remaining_min = TIME_BUDGET_MINUTES - _ppp_elapsed_min
-                _ppp_required_min = (
-                    ATTACHMENT_PREFETCH_MAX_MINUTES
-                    + ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN
-                )
-                if _ppp_remaining_min < _ppp_required_min:
-                    logging.info(
-                        f"🛡️ Skipping PPP attachment prefetch: only "
-                        f"{_ppp_remaining_min:.1f}min of session budget "
-                        f"remain (need >= {_ppp_required_min:.0f}min for "
-                        f"prefetch + generation headroom). PPP target "
-                        f"rows will fall back to per-row API calls — "
-                        f"correctness is preserved."
+        attachment_cache = {}  # row_id -> list of attachment-like objects
+        # row_id -> LIVE list_row_attachments listing (skip-gate
+        # confirmation; populated lazily by _live_row_attachments)
+        _live_attachment_listings: dict = {}
+        if not TEST_MODE:
+            _group_state_wrs = set(target_map or {}) | set(target_map_ppp or {})
+            if _group_state_wrs:
+                with sentry_sdk.start_span(
+                    op="pipeline_memory.group_state_attachments",
+                    name="Resolve attachment identity from group_state",
+                ) as gsa_span:
+                    _gsa_start = datetime.datetime.now()
+                    _resolved_by_wr = _mem_reader.get_group_state_attachments_by_wr(
+                        _group_state_wrs
                     )
-                    _ppp_prefetch_eligible = False
-        if _ppp_prefetch_eligible:
-            with sentry_sdk.start_span(
-                op="smartsheet.attachment_prefetch_ppp",
-                name="Pre-fetch PPP row attachments",
-            ) as ppp_span:
-                logging.info(
-                    f"🚀 Starting parallel PPP attachment pre-fetch "
-                    f"with {PARALLEL_WORKERS} workers for "
-                    f"{len(target_map_ppp)} PPP target rows (max "
-                    f"{ATTACHMENT_PREFETCH_MAX_MINUTES}min)..."
-                )
-                _ppp_att_start = datetime.datetime.now()
-
-                def _fetch_ppp_row_attachments(row_item):
-                    # row_item is (wr_num, target_row); only target_row is needed.
-                    _, target_row = row_item
-                    # Phase 10: same shared-helper retry as the target prefetch
-                    # above (bounded backoff; degrade to no-attachments on
-                    # persistent failure → per-row on-demand fallback).
-                    try:
-                        atts = smartsheet_call_with_retry(
-                            client.Attachments.list_row_attachments,
-                            SUBCONTRACTOR_PPP_SHEET_ID, target_row.id,
-                            label=f"PPP attachment fetch row {target_row.id}",
-                        ).data
-                        return (target_row.id, atts)
-                    except Exception:
-                        return (target_row.id, [])
-
-                _ppp_prefetch_budget_exceeded = False
-                _ppp_prefetch_cancelled = 0
-                _ppp_prefetch_still_running = 0
-
-                ppp_executor = _DaemonThreadPoolExecutor(
-                    max_workers=PARALLEL_WORKERS,
-                )
-                ppp_futures = [
-                    ppp_executor.submit(_fetch_ppp_row_attachments, item)
-                    for item in target_map_ppp.items()
-                ]
-                _ppp_phase_budget_sec = ATTACHMENT_PREFETCH_MAX_MINUTES * 60
-
-                def _detach_ppp_from_atexit_registry():
-                    try:
-                        registry = getattr(
-                            _cf_thread, '_threads_queues', None,
-                        )
-                        if registry is None:
-                            return
-                        for _t in list(
-                            getattr(ppp_executor, '_threads', ()) or ()
-                        ):
-                            registry.pop(_t, None)
-                    except Exception as _det_e:
-                        logging.debug(
-                            f"Could not detach PPP pre-fetch workers from "
-                            f"atexit registry: {_det_e}"
-                        )
-
-                try:
-                    for fut in as_completed(
-                        ppp_futures, timeout=_ppp_phase_budget_sec,
-                    ):
-                        try:
-                            row_id, atts = fut.result()
-                            attachment_cache[row_id] = atts
-                        except Exception as e:
-                            # Worker exceptions already logged inside
-                            # the worker — fall through to per-row.
-                            logging.debug(
-                                f"PPP prefetch future raised; row will "
-                                f"fall back to per-row: {type(e).__name__}"
+                    _gsa_cached = 0
+                    for _wr, _entries in _resolved_by_wr.items():
+                        for _entry in _entries:
+                            _stub_row_id = None
+                            if (
+                                target_map
+                                and _entry['target_sheet_id'] == TARGET_SHEET_ID
+                            ):
+                                _stub_row = target_map.get(_wr)
+                                if _stub_row is not None:
+                                    _stub_row_id = _stub_row.id
+                            elif (
+                                target_map_ppp
+                                and _entry['target_sheet_id']
+                                == SUBCONTRACTOR_PPP_SHEET_ID
+                            ):
+                                _stub_row = target_map_ppp.get(_wr)
+                                if _stub_row is not None:
+                                    _stub_row_id = _stub_row.id
+                            if _stub_row_id is None:
+                                continue
+                            attachment_cache.setdefault(_stub_row_id, []).append(
+                                _GroupStateAttachmentStub(
+                                    _entry['attachment_id'],
+                                    _entry['attachment_name'],
+                                )
                             )
-                except FuturesTimeoutError:
-                    _ppp_prefetch_budget_exceeded = True
-                    logging.warning(
-                        f"⚠️ PPP attachment prefetch exceeded "
-                        f"{ATTACHMENT_PREFETCH_MAX_MINUTES}min sub-budget; "
-                        f"abandoning in-flight workers. Affected PPP rows "
-                        f"will fall back to per-row API calls — correctness "
-                        f"is preserved."
+                            _gsa_cached += 1
+                    _gsa_elapsed = (
+                        datetime.datetime.now() - _gsa_start
+                    ).total_seconds()
+                    gsa_span.set_data("wrs_resolved", len(_resolved_by_wr))
+                    gsa_span.set_data("attachments_cached", _gsa_cached)
+                    logging.info(
+                        f"🧾 Resolved {_gsa_cached} attachment identities "
+                        f"from group_state for {len(_resolved_by_wr)} WRs "
+                        f"in {_gsa_elapsed:.1f}s (per-row on-demand "
+                        f"fallback covers every miss)"
                     )
-                finally:
-                    # Three defenses against interpreter-exit hang:
-                    # (1) atexit registry detach (only on budget-exceed,
-                    #     per Copilot review — don't touch private APIs
-                    #     when workers completed normally)
-                    # (2) _DaemonThreadPoolExecutor handles tstate_lock
-                    # (3) explicit shutdown(wait=False, cancel_futures=True)
-                    if _ppp_prefetch_budget_exceeded:
-                        _detach_ppp_from_atexit_registry()
-                    for _fut in ppp_futures:
-                        if _fut.cancel():
-                            _ppp_prefetch_cancelled += 1
-                        elif not _fut.done():
-                            _ppp_prefetch_still_running += 1
-                    ppp_executor.shutdown(wait=False, cancel_futures=True)
 
-                _ppp_elapsed = (
-                    datetime.datetime.now() - _ppp_att_start
-                ).total_seconds()
-                logging.info(
-                    f"🏁 PPP attachment prefetch complete in "
-                    f"{_ppp_elapsed:.1f}s: {len(target_map_ppp)} rows, "
-                    f"{_ppp_prefetch_cancelled} cancelled, "
-                    f"{_ppp_prefetch_still_running} still_running"
+        # ─────────────────────────────────────────────────────────
+        # Phase 11 Plan 08 (INC-05 retirement, CONTEXT.md D-12):
+        # the local hash-history JSON cache file is retired.
+        # pipeline_memory.group_state.content_hash is now the sole local
+        # change-detection skip gate; the four one-time migration prunes
+        # below (Phase 1.1 / Subproject B / Subproject C / Subproject D)
+        # operated on the retired hash_history dict and are removed --
+        # their kill-switch version constants and helper functions stay
+        # defined in pipeline/attribution.py (out of scope, harmless
+        # uncalled) but are no longer invoked here. Batch-fetch this run's
+        # group_state content hashes ONCE, mirroring the group_state
+        # attachment-identity pre-fetch above, so the skip-decision loop
+        # below does zero-I/O in-memory lookups per group.
+        # ─────────────────────────────────────────────────────────
+        _group_state_hashes: dict = {}
+        if not TEST_MODE and _group_state_wrs:
+            with sentry_sdk.start_span(
+                op="pipeline_memory.group_state_hashes",
+                name="Resolve content hashes from group_state",
+            ) as gsh_span:
+                _gsh_start = datetime.datetime.now()
+                _hash_rows_by_wr = _mem_reader.get_group_state_content_hashes_by_wr(
+                    _group_state_wrs
                 )
-                ppp_span.set_data("rows_prefetched", len(target_map_ppp))
-                ppp_span.set_data("budget_exceeded", _ppp_prefetch_budget_exceeded)
-                ppp_span.set_data("cancelled", _ppp_prefetch_cancelled)
-                ppp_span.set_data("still_running", _ppp_prefetch_still_running)
+                for _wr, _entries in _hash_rows_by_wr.items():
+                    for _entry in _entries:
+                        _week_ending = _entry.get('week_ending')
+                        _week_ending_iso = (
+                            _week_ending.isoformat()
+                            if hasattr(_week_ending, 'isoformat')
+                            else (_week_ending or '')
+                        )
+                        _key = (
+                            f"{_wr}|{_week_ending_iso}|"
+                            f"{_entry.get('variant') or ''}|"
+                            f"{_entry.get('identifier') or ''}"
+                        )
+                        _group_state_hashes[_key] = {
+                            'hash': _entry.get('content_hash'),
+                        }
+                _gsh_elapsed = (
+                    datetime.datetime.now() - _gsh_start
+                ).total_seconds()
+                gsh_span.set_data("wrs_resolved", len(_hash_rows_by_wr))
+                gsh_span.set_data("hashes_cached", len(_group_state_hashes))
+                logging.info(
+                    f"🧾 Resolved {len(_group_state_hashes)} content hashes "
+                    f"from group_state for {len(_hash_rows_by_wr)} WRs in "
+                    f"{_gsh_elapsed:.1f}s"
+                )
 
-        # Load hash history AFTER optional purge so we don't rely on stale attachments
-        hash_history = load_hash_history(HASH_HISTORY_PATH)
-
-        # ─────────────────────────────────────────────────────────
-        # Phase 1.1 SUB-12 / D-17..D-19: idempotent hash-history prune.
-        # ─────────────────────────────────────────────────────────
-        # Runs once per migration version. The constant
-        # ``PHASE_1_1_HASH_PRUNE_VERSION`` IS the kill switch (D-19);
-        # the helper handles the version-gate + simplified-D-18 scope
-        # detection + INFO logging. Mutates ``hash_history`` in place
-        # so the sentinel + dropped-orphan side-effects survive the
-        # subsequent ``save_hash_history`` write at end of run.
-        # ``groups`` was built upstream at the ``group_source_rows``
-        # call site; if grouping failed and execution reached here,
-        # the helper degrades gracefully (empty groups → empty
-        # _sub_wr_scope → no orphans dropped → sentinel still written).
-        # Codex P2: track whether either one-time migration prune mutated
-        # hash_history so we can persist it even on a run with no group
-        # updates (the history_updates-gated save below would otherwise skip
-        # it, making the migration re-run every no-update execution).
-        _hash_history_migration_dirty = False
-        try:
-            if _run_phase_1_1_hash_prune(hash_history, groups):
-                _hash_history_migration_dirty = True
-        except Exception as _prune_exc:
-            # Fail-safe per [2026-04-22 16:05] rule 4 — the prune
-            # is an optimization. A failed prune MUST NOT break the
-            # billing pipeline. Log + continue with the unmodified
-            # hash_history (the sentinel will not advance, the prune
-            # retries next run, the orphans remain harmless).
-            logging.warning(
-                f"⚠️ Phase 1.1 hash-history prune failed; continuing "
-                f"with existing history: {_prune_exc!r}"
-            )
-
-        # Subproject B: one-time prune of legacy blank-identifier
-        # reduced_sub/aep_billable orphans (kill switch is the version
-        # constant). Fail-safe — a failed prune must not break the run.
-        try:
-            if _run_subproject_b_hash_prune(hash_history, groups):
-                _hash_history_migration_dirty = True
-        except Exception as _b_prune_exc:
-            logging.warning(
-                f"⚠️ Subproject B hash-history prune failed; continuing "
-                f"with existing history: {_b_prune_exc!r}"
-            )
-
-        # Subproject C: one-time prune of legacy blank-identifier vac_crew
-        # orphans (kill switch is the version constant). Fail-safe — a
-        # failed prune must not break the run.
-        try:
-            if _run_vac_crew_hash_prune(hash_history, groups):
-                _hash_history_migration_dirty = True
-        except Exception as _vc_prune_exc:
-            logging.warning(
-                f"⚠️ Vac crew hash-history prune failed; continuing "
-                f"with existing history: {_vc_prune_exc!r}"
-            )
-
-        # Subproject D: one-time prune of legacy blank-identifier primary
-        # orphans (kill switch is PRIMARY_CLAIM_ATTRIBUTION_ENABLED + the
-        # version constant). Fail-safe — a failed prune must not break the
-        # run.
-        try:
-            if _run_subproject_d_hash_prune(hash_history, groups):
-                _hash_history_migration_dirty = True
-        except Exception as _d_prune_exc:
-            logging.warning(
-                f"⚠️ Subproject D hash-history prune failed; continuing "
-                f"with existing history: {_d_prune_exc!r}"
-            )
-
+        # Phase 11 Plan 08 (INC-05, D-12): generated_docs/billing_audit_
+        # frozen_rows.json is retired. freeze_row / freeze_attribution are
+        # already idempotent ("first-write-wins", billing_audit/schema.sql),
+        # so this run-scoped dedupe set now starts empty every run instead
+        # of being warm-started from a persisted file -- the only cost is a
+        # few redundant (but safe) RPC calls per run.
         billing_audit_row_cache: set[str] = set()
         billing_audit_row_cache_dirty = False
-        if BILLING_AUDIT_AVAILABLE and not TEST_MODE:
-            billing_audit_row_cache = load_billing_audit_row_cache(
-                BILLING_AUDIT_ROW_CACHE_PATH
-            )
-            # Ensure the cache file exists on disk even when no rows have been
-            # frozen yet. The GitHub Actions cache/save step will fail with
-            # "Path does not exist" when the file is absent, which can happen
-            # on the very first run or when all rows were already cached from a
-            # prior run (billing_audit_row_cache_dirty stays False, so the
-            # save at the end of the run is skipped).  Writing an empty list
-            # now is cheap and makes the CI step reliably no-op safe.
-            if not os.path.exists(BILLING_AUDIT_ROW_CACHE_PATH):
-                save_billing_audit_row_cache(
-                    BILLING_AUDIT_ROW_CACHE_PATH, billing_audit_row_cache
-                )
         history_updates = 0
         _groups_skipped = 0
         _groups_skipped_no_target = 0
@@ -3164,16 +2927,6 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # exists" forever (root cause of the WR 11951363 / week 070526
         # incident, failed run 28752355941).
         _deferred_hash_upserts = []
-        # Codex P2 (PR #283): the LOCAL json hash_history entry is
-        # deferred through the SAME gate. The json cache is the
-        # documented fallback the skip gate consults on Supabase
-        # outage (fetch_failure/unavailable) and the sole decider when
-        # authoritative mode is OFF — persisting it at emission would
-        # let a failed/dry-run upload still be skipped as "unchanged"
-        # next run through that fallback, the same staleness one layer
-        # down. TEST_MODE keeps the immediate write (no upload phase
-        # exists there; see the emission-site comment).
-        _deferred_history_updates = []
 
         _phase_group_start = datetime.datetime.now()
         _time_budget_exceeded = False
@@ -3493,9 +3246,6 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 # (Copilot on PR #361; CR-01 documents the bug shape).
                 identifier, file_identifier = derive_group_identity(
                     first_row, **_identity_switches)
-                
-                # History key includes variant dimension to prevent collisions
-                history_key = f"{wr_num}|{week_raw}|{variant}|{identifier}"
 
                 # Sub-project E: ISO week-ending date for the durable
                 # Supabase hash store (group_content_hash.week_ending is a
@@ -3511,10 +3261,20 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     _wed = _wed.date()
                 week_iso = _wed.isoformat() if hasattr(_wed, 'isoformat') else ''
 
+                # Phase 11 Plan 08 (INC-05, D-12): history_key is now keyed
+                # by week_iso (matching group_state.week_ending, a DATE
+                # column) rather than week_raw (MMDDYY) -- the retired
+                # local hash-history JSON cache used week_raw because it
+                # was the only week value computed at this point;
+                # group_state's PK uses the ISO date, so the lookup key
+                # must too.
+                history_key = f"{wr_num}|{week_iso}|{variant}|{identifier}"
+
                 # Pre-compute hash-change state before any optional side-effects.
                 # Billing audit RPCs are the single most expensive per-group operation
                 # in steady state, so we can safely skip them when the group hash is
-                # unchanged versus hash_history (no row-content drift to freeze or emit).
+                # unchanged versus group_state.content_hash (no row-content drift to
+                # freeze or emit).
                 _history_eligible_for_skip = (
                     HISTORY_SKIP_ENABLED
                     and not (
@@ -3526,13 +3286,14 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 )
                 # Sub-project E: the unchanged decision now consults the
                 # durable Supabase hash store when authoritative, falling
-                # back to the local hash_history json cache on outage/miss.
-                # See _resolve_unchanged_for_skip for the full decision
-                # table. Default (authoritative OFF) is json-cache-only —
-                # byte-identical to the pre-E behavior.
+                # back to the group_state-sourced local cache on outage/miss
+                # (Phase 11 Plan 08 / INC-05 -- the local hash-history JSON
+                # cache is retired). See _resolve_unchanged_for_skip for
+                # the full decision table. Default (authoritative OFF) is
+                # group_state-cache-only.
                 _hash_unchanged = (
                     _resolve_unchanged_for_skip(
-                        history_key, data_hash, hash_history,
+                        history_key, data_hash, _group_state_hashes,
                         wr_num, week_iso, variant, identifier,
                         billing_audit_writer=getattr(_gwp, "_billing_audit_writer", None),
                     )
@@ -3925,11 +3686,19 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                                 # the tuple form would always miss and
                                 # force regeneration of unchanged
                                 # helper groups.
+                                # PR #373 review: confirm existence
+                                # against a LIVE listing (memoized per
+                                # row), never the group_state stubs --
+                                # a stub survives a manual deletion.
                                 has_attachment = _has_existing_week_attachment(
                                     client, TARGET_SHEET_ID, target_row,
                                     str(wr_num), week_raw, variant,
                                     file_identifier,
-                                    cached_attachments=attachment_cache.get(target_row.id),
+                                    cached_attachments=_live_row_attachments(
+                                        client, TARGET_SHEET_ID,
+                                        target_row.id,
+                                        _live_attachment_listings,
+                                    ),
                                 )
                                 if not has_attachment:
                                     can_skip = False
@@ -3968,8 +3737,13 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                                         _ppp_skip_row,
                                         str(wr_num), week_raw, variant,
                                         file_identifier,
-                                        cached_attachments=attachment_cache.get(
-                                            _ppp_skip_row.id
+                                        cached_attachments=(
+                                            _live_row_attachments(
+                                                client,
+                                                SUBCONTRACTOR_PPP_SHEET_ID,
+                                                _ppp_skip_row.id,
+                                                _live_attachment_listings,
+                                            )
                                         ),
                                     )
                                 ):
@@ -4076,34 +3850,19 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     )
                     _upload_tasks.extend(_new_upload_tasks)
 
-                # Update hash history with variant-aware key. TEST_MODE
-                # writes immediately (documented intent: "so future
-                # prod runs can leverage"; there is no upload phase to
-                # defer against). Production defers the entry through
-                # the post-upload flush gate — the json cache is the
-                # skip gate's fallback when Supabase is unreachable and
-                # its sole source when authoritative mode is OFF, so it
-                # must obey the same "hash advances only after ALL
-                # upload legs succeed" contract as the durable store
-                # (Codex P2, PR #283).
-                _history_entry = {
-                    'hash': data_hash,
-                    'rows': len(group_rows),
-                    'updated_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                    'foreman': first_row.get('__current_foreman'),
-                    'week': week_raw,
-                    'variant': variant,
-                    'identifier': identifier,
-                }
+                # Phase 11 Plan 08 (INC-05, D-12): the local hash-history
+                # JSON cache is retired. group_state.content_hash (via the existing
+                # _deferred_group_state append below) is now the sole local
+                # change-detection record. TEST_MODE has no upload phase to
+                # defer against (and _deferred_group_state is itself gated
+                # `not TEST_MODE`), so history_updates advances immediately
+                # here for TEST_MODE, exactly mirroring its pre-retirement
+                # immediate-write count; the production count is derived from
+                # the group_state flush outcome below (mirrors the "hash
+                # advances only after ALL upload legs succeed" contract the
+                # retired json cache obeyed).
                 if TEST_MODE:
-                    hash_history[history_key] = _history_entry
                     history_updates += 1
-                else:
-                    _deferred_history_updates.append({
-                        'group_key': group_key,
-                        'history_key': history_key,
-                        'entry': _history_entry,
-                    })
 
                 # Sub-project E: durable per-group content hash for
                 # Supabase (billing_audit.group_content_hash). Gated on
@@ -4633,7 +4392,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             # delete-then-upload next run, never a stale file reported
             # as current. upsert_group_hash is fail-safe/no-op when
             # Supabase is unavailable and never raises past the guard.
-            if _deferred_history_updates or (
+            if (
                 SUPABASE_HASH_STORE_WRITE_ENABLED
                 and _deferred_hash_upserts
             ) or (
@@ -4650,46 +4409,18 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     )
                     if _res == 'error':
                         _group_had_error[_gk] = True
-                # Codex P2 (PR #283, repair-path): withholding the NEW
-                # hash is not enough when a forced/regen run was
-                # repairing a group whose STORED hash already equals
-                # the computed one (exactly the incident-remediation
-                # scenario) — if the re-upload then fails, the stale
-                # stored hash would let the next non-forced run skip
-                # the group and the repair would never retry. For
-                # groups withheld due to a REAL upload 'error' we
-                # therefore actively invalidate both layers: pop the
-                # json entry, and overwrite the durable row with a
-                # 'withheld:'-prefixed sentinel that can never equal a
-                # computed SHA256 (lookup mismatches -> regenerate;
+                # Codex P2 (PR #283, repair-path): a group withheld due to
+                # a REAL upload 'error' has the durable row overwritten
+                # with a 'withheld:'-prefixed sentinel that can never
+                # equal a computed SHA256 (lookup mismatches -> regenerate;
                 # the next successful upload overwrites it).
                 # 'skip_upload' (SKIP_UPLOAD dry-run) does NOT
                 # invalidate — a local dry run must never mutate prod
-                # change-detection state in either direction.
-                # Local json cache first (Codex P2, PR #283): it is the
-                # fallback layer the skip gate consults on Supabase
-                # outage and the sole decider with authoritative OFF,
-                # so it must never advance for a withheld group. Note
-                # this flush is NOT gated on the Supabase write flag —
-                # the json contract holds in every mode.
-                _json_withheld = 0
-                for _rec in _deferred_history_updates:
-                    if not _group_upload_ok.get(_rec['group_key']):
-                        _json_withheld += 1
-                        if _group_had_error.get(_rec['group_key']):
-                            if hash_history.pop(
-                                _rec['history_key'], None,
-                            ) is not None:
-                                history_updates += 1
-                        continue
-                    hash_history[_rec['history_key']] = _rec['entry']
-                    history_updates += 1
-                if _json_withheld:
-                    logging.warning(
-                        f"⚠️ Local hash-history entry withheld for "
-                        f"{_json_withheld} group(s) whose upload did "
-                        f"not complete — they will regenerate next run"
-                    )
+                # change-detection state in either direction. Phase 11
+                # Plan 08 (INC-05, D-12): the local json hash_history
+                # cache this comment used to describe is retired --
+                # group_state.content_hash (flushed below) is now the
+                # sole local record obeying this contract.
                 if (
                     SUPABASE_HASH_STORE_WRITE_ENABLED
                     and _deferred_hash_upserts
@@ -4759,6 +4490,16 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                                 _upload_tasks, _mem_attachment_side_channel,
                             )
                         )
+                        # Phase 11 Plan 08 (INC-05, D-12): history_updates
+                        # (frozen run_summary.json key) previously counted
+                        # local hash-history JSON cache entries actually
+                        # written after upload success; group_state.content_hash
+                        # is now that record, so the count moves here -- one per
+                        # group _build_group_state_flush determined should
+                        # be persisted (mirrors the retired json write,
+                        # which also counted on the decision, not on a
+                        # disk-write success check).
+                        history_updates += len(_mem_group_records)
                         if _mem_group_withheld:
                             _mem_writer.bump_group_state_withheld(
                                 _mem_group_withheld
@@ -4833,8 +4574,18 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     _first, **_identity_switches)
                 valid_wr_weeks.add((wr, week_raw, variant, file_id))
         if not TEST_MODE:
-            # Invalidate stale attachment cache after upload phase — uploads added/deleted attachments
-            _cleanup_cache = attachment_cache if not _upload_tasks else None
+            # Phase 11 Plan 08 (INC-05 retirement): attachment_cache is now
+            # sourced from pipeline_memory.group_state, which only knows
+            # the identities THIS pipeline wrote -- it cannot prove a row
+            # carries no OTHER (off-contract / duplicate / legacy)
+            # attachment, which is exactly what
+            # cleanup_untracked_sheet_attachments exists to find. This
+            # consumer therefore always resolves via its per-row
+            # on-demand `list_row_attachments` fallback (T-11-41) rather
+            # than ever reading the group_state-seeded cache -- strictly
+            # safer than the retired bulk-Smartsheet-prefetch cache it
+            # used to (conditionally) receive.
+            _cleanup_cache = None
             # Phase 1.1 Bug B2 (D-09): TARGET_SHEET_ID cleanup is UNCHANGED —
             # accepts every variant currently routed to it (primary, helper,
             # vac_crew, aep_billable, reduced_sub, aep_billable_helper,
@@ -4936,19 +4687,16 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             # (CR-01) ensured shadow-variant entries are correctly
             # included so live attachments are not pruned.
             #
-            # Cache semantics: ``_cleanup_cache`` is computed ABOVE
-            # both invocations as ``attachment_cache if not _upload_tasks
-            # else None``. In the normal production case (uploads ran
-            # this session, ``_upload_tasks`` truthy), ``_cleanup_cache``
-            # is ``None`` for BOTH passes because uploads invalidate
-            # the prefetch snapshot. When no uploads ran (TEST_MODE
-            # skip path, or no-changes branch), both passes share
-            # WR-05's prefetched dict transparently. WR-05's prefetch
-            # primarily amortizes per-row ``_upload_one`` API calls
-            # (its real value); the cleanup-time benefit is only on
-            # the no-uploads path. Either way, passing the same
-            # ``_cleanup_cache`` keeps cache semantics consistent
-            # across both passes.
+            # Cache semantics (Phase 11 Plan 08, INC-05 retirement):
+            # ``_cleanup_cache`` is set ABOVE, unconditionally, to
+            # ``None`` for BOTH passes -- ``cleanup_untracked_sheet_
+            # attachments`` always resolves via its per-row on-demand
+            # `list_row_attachments` fallback rather than the
+            # group_state-seeded ``attachment_cache`` the identity-check
+            # consumers above use, since group_state cannot prove a row
+            # carries no OTHER (off-contract / legacy) attachment. See
+            # the ``_cleanup_cache = None`` assignment's comment above
+            # for the full rationale.
             #
             # Gates (in order, short-circuit on first False):
             #   1. SUBCONTRACTOR_RATE_VARIANTS_ENABLED (kill switch)
@@ -5023,79 +4771,14 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             logging.info(f"   • Anomalies: {audit_summary.get('total_anomalies', 0)}")
             logging.info(f"   • Data Issues: {audit_summary.get('total_data_issues', 0)}")
         
-        # Persist hash history if updated
-        if history_updates:
-            # Prune stale hash_history entries for groups no longer in source data.
-            # Only prune on FULL runs (not time-budget-truncated runs, and --
-            # Phase 11 Plan 03, CONTEXT.md D-06 -- not incremental runs) to
-            # avoid deleting entries for groups that simply weren't reached
-            # this run. Incremental mode is the same class of "did not reach
-            # every group" as a time-budget-truncated run: `groups` is a
-            # strict subset of the live groups, so `current_keys` below would
-            # be too, and pruning against it would delete hash-history entries
-            # for every untouched WR.
-            if not _time_budget_exceeded and _resolved_mode == 'full':
-                current_keys = set()
-                for key, group_rows in groups.items():
-                    if '_' in key:
-                        # Identity row -- the canonical (hash-order) first
-                        # row, mirroring Site 1; never arrival-order
-                        # group_rows[0].
-                        _first = canonical_first_row(group_rows)
-                        _wr_raw = _first.get('Work Request #')
-                        _wr = str(_wr_raw).split('.')[0] if _wr_raw else ''
-                        # Codex P2: apply the same filesystem-safety
-                        # sanitizer used by the main loop (line ~4493)
-                        # so the current_keys tuple matches the
-                        # history_key actually written for this group.
-                        # Without this, any WR# containing
-                        # sanitization-sensitive characters would have
-                        # its freshly-written entry treated as stale
-                        # and deleted before save, so hash-skip could
-                        # never persist across runs for those WRs.
-                        _wr = _RE_SANITIZE_HELPER_NAME.sub('_', _wr)[:50]
-                        _week = key.split('_',1)[0]
-                        _variant = _first.get('__variant', 'primary')
-                        # CR-01 gap closure (Site 3 — mirror of Site 1): the
-                        # history-key identifier from the ONE shared
-                        # definition, so the prune key matches Site 1's
-                        # history_key byte-for-byte.
-                        _ident, _ = derive_group_identity(
-                            _first, **_identity_switches)
-                        current_keys.add(f"{_wr}|{_week}|{_variant}|{_ident}")
-                stale_keys = [k for k in hash_history if k not in current_keys]
-                if stale_keys:
-                    for sk in stale_keys:
-                        del hash_history[sk]
-                    logging.info(f"🧹 Pruned {len(stale_keys)} stale hash history entries (groups no longer in source data)")
-            elif _resolved_mode != 'full':
-                # Phase 11 Plan 03 (D-06): suppressed because this run was
-                # incremental, not because nothing was stale -- log the
-                # distinction and the count of keys the skip preserved so
-                # an operator reading the run log can tell the two apart.
-                logging.info(
-                    f"⏭️ Hash-history stale-key prune skipped (incremental "
-                    f"run, D-06): preserved {len(hash_history)} key(s) not "
-                    f"processed this run."
-                )
-            save_hash_history(HASH_HISTORY_PATH, hash_history)
-        elif _hash_history_migration_dirty:
-            # Codex P2: no group updates this run, but a one-time migration
-            # prune (Phase 1.1 / Subproject B / Subproject C) mutated hash_history. Persist
-            # it now so the migration is durable and does not re-run every
-            # execution. Do NOT run the stale-prune on this path — groups
-            # were not fully processed, so current_keys would be incomplete
-            # and could delete freshly-skipped live entries.
-            save_hash_history(HASH_HISTORY_PATH, hash_history)
-        if (
-            BILLING_AUDIT_AVAILABLE
-            and not TEST_MODE
-            and billing_audit_row_cache_dirty
-        ):
-            save_billing_audit_row_cache(
-                BILLING_AUDIT_ROW_CACHE_PATH,
-                billing_audit_row_cache,
-            )
+        # Phase 11 Plan 08 (INC-05, D-12): the local hash-history JSON
+        # cache and the local billing_audit frozen-rows JSON cache are
+        # both retired -- no end-of-run prune or save for either.
+        # group_state.content_hash
+        # (flushed above, per group, right after upload) is the sole local
+        # change-detection record now; billing_audit_row_cache stays an
+        # in-run-only dedupe set (freeze_row / freeze_attribution are
+        # already idempotent, so nothing is lost by not persisting it).
 
         # Phase 10 (MEM-01/MEM-03): run_ledger 'finish' row. Same guard
         # shape as the start hook. Reuses already-computed counters --
@@ -5257,7 +4940,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 "source_sheets": len(source_sheets) if 'source_sheets' in dir() else 0,
                 "total_rows_fetched": len(all_rows) if 'all_rows' in dir() else 0,
                 "groups_created": len(groups),
-                "hash_history_entries": len(hash_history) if 'hash_history' in dir() else 0,
+                "group_state_hashes_resolved": len(_group_state_hashes) if '_group_state_hashes' in dir() else 0,
                 "api_calls_upload": _api_calls_count,
             })
             sentry_add_breadcrumb("session", "Session completed successfully", level="info", data={

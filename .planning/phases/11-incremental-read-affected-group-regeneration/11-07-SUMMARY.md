@@ -109,6 +109,8 @@ generate_weekly_pdfs.py` clean.
 ### Task 2 — USER DECISION (2026-08-26)
 
 **Selected option id: `defer`** ("Defer the retirement to a later phase").
+> **SUPERSEDED 2026-08-31** — see "Task 2 — DECISION RE-OPENED (2026-08-31)"
+> below; the current recorded option id is **`retire-now`**.
 
 Per the plan's resume-signal: **plan 11-08 does NOT execute this phase.**
 INC-05 stays open. The rollback path (three local JSON caches, two attachment
@@ -149,6 +151,56 @@ To run 11-08 later, the owner must:
 3. Confirm the `group_state` attachment-id proof (carried forward from Phase 10 UAT) and record the current frequent-run wall clock vs. the 94-minute baseline from run `32743959053`.
 4. Re-open this Task 2 decision — update this SUMMARY's recorded option id to `retire-now` or `retire-code-keep-cache-steps`, with the real `get_parity_streak()` output pasted in place of the empty reading above.
 5. Execute 11-08 as its own PR/branch, never bundled with any other change.
+
+### Task 2 — DECISION RE-OPENED (2026-08-31): `retire-now`
+
+Every step of the re-authorisation path above is satisfied:
+
+1. The `RUN_MEMORY_WRITE_ENABLED` flip merged 2026-08-27 (#353, `673f7b2`);
+   memory writes have been confirmed on every scheduled run since #356.
+2. Five consecutive counted passes with no intervening `fail`, all recorded by
+   scheduled `production_frequent` runs on 2026-08-31 (`status = success`
+   each; the 21:14Z run's `skipped` verdict is excluded, not a reset). Real
+   `get_parity_streak()` output, read 2026-08-31 18:55 CDT (23:55Z) on merged
+   `master` (#372 = `d9bd2b2`):
+
+   ```
+   {'streak': 5, 'rows_examined': 6,
+    'contributing_run_ids': ['33449808275.1', '33429256710.1',
+                             '33418485870.1', '33407578625.1',
+                             '33396264753.1'],
+    'stopped_run_id': None, 'stopped_verdict': None}
+   ```
+
+   | run_id | started (UTC) | execution_type | parity_verdict | streak_eligible |
+   |---|---|---|---|---|
+   | 33449808275.1 | 2026-08-31 23:14 | production_frequent | pass | True |
+   | 33429256710.1 | 2026-08-31 19:12 | production_frequent | pass | True |
+   | 33418485870.1 | 2026-08-31 17:14 | production_frequent | pass | True |
+   | 33407578625.1 | 2026-08-31 15:18 | production_frequent | pass | (absent — pre-#372 scheduled row; counts by construction) |
+   | 33396264753.1 | 2026-08-31 13:19 | production_frequent | pass | (absent — pre-#372 scheduled row; counts by construction) |
+
+   The two weekend `fail` verdicts preceding this window (Sun 19:11Z
+   `33330168730.1`, Mon 01:31Z `33347828997.1`) were root-caused the same day
+   to the documented deletion-detection window (`.planning/WINDOWS.md`): one
+   mid-week row deletion each, invisible to the upsert-driven candidate until
+   the weekly deep run stamped `row_state.deleted_at` at 05:50Z — a real,
+   documented parity gap, not a selector defect.
+3. `group_state` attachment-id proof carried forward (192/192 rows with
+   `attachment_id`, re-confirmed on the 2026-08-29 manual run). Current
+   frequent-run wall clock: **54.9 / 57.6 / 59.5 min** (runs `33429256710` /
+   `33418485870` / `33407578625`, 2026-08-31) vs the 94-minute baseline run
+   `32743959053`.
+4. This block re-opens the decision with the real streak output pasted, as
+   step 4 requires.
+5. 11-08 executes on its own branch `feat/11-08-inc05-retirement`, cut from
+   `origin/master` strictly after #371/#372 merged; no plan 01-07 work rides
+   on it.
+
+**Selected option id: `retire-now`** — owner (Juan) selection, 2026-08-31,
+recorded by the main session before any 11-08 execution. Per the 11-08 plan,
+Task 3's workflow edits are authorised: exactly the six `actions/cache/*`
+steps come out, nothing else.
 
 ## Accomplishments
 

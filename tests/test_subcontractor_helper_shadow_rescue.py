@@ -1074,16 +1074,6 @@ class TestHashPruneIdempotency(unittest.TestCase):
 
     def setUp(self):
         _ensure_smartsheet_mocked()
-        self._tmpdir = tempfile.TemporaryDirectory()
-        self._hist_path = os.path.join(self._tmpdir.name, 'hash_history.json')
-
-    def tearDown(self):
-        self._tmpdir.cleanup()
-
-    def _write_history_via_save(self, payload):
-        """Persist via the production save helper so the on-disk shape
-        matches what the production load would observe."""
-        generate_weekly_pdfs.save_hash_history(self._hist_path, dict(payload))
 
     def _make_groups_with_reducedsub(self, wrs):
         """Build a synthetic groups dict containing _REDUCEDSUB-suffixed
@@ -1102,41 +1092,23 @@ class TestHashPruneIdempotency(unittest.TestCase):
         return groups
 
     # ─── Pitfall 4 sentinel round-trip ───────────────────────────
+    # Phase 11 Plan 08 (INC-05, D-12) REWRITES this section in place of
+    # the retired round-trip tests: load_hash_history / save_hash_history
+    # / HASH_HISTORY_MAX_ENTRIES are removed along with
+    # generated_docs/hash_history.json itself -- there is no longer a
+    # JSON round trip (or int-sentinel retention-sort) to pin.
+    # _run_phase_1_1_hash_prune itself stays defined in
+    # pipeline/attribution.py (harmless, uncalled) and is still exercised
+    # directly against an in-memory fixture dict by the "Prune behavior"
+    # tests below.
 
-    def test_phase_prune_version_survives_round_trip(self):
-        """Pitfall 4 regression guard — sentinel survives load/save."""
-        payload = {
-            '19236776|041926|primary|': {'hash': 'h1', 'timestamp': '2026-01-01'},
-            '_phase_prune_version': 1,
-        }
-        generate_weekly_pdfs.save_hash_history(self._hist_path, dict(payload))
-        loaded = generate_weekly_pdfs.load_hash_history(self._hist_path)
-        self.assertIn(
-            '_phase_prune_version', loaded,
-            f"Sentinel must survive round trip; got: {list(loaded.keys())}"
-        )
-        self.assertEqual(loaded['_phase_prune_version'], 1)
-        self.assertIn('19236776|041926|primary|', loaded)
-
-    def test_save_handles_int_sentinel_in_retention_sort(self):
-        """Save must not AttributeError on int sentinel during retention."""
-        # Cap + 1 real entries + sentinel
-        cap = generate_weekly_pdfs.HASH_HISTORY_MAX_ENTRIES
-        payload = {
-            f'wr_{i:04d}|041926|primary|': {
-                'hash': f'h{i}',
-                # Vary timestamp so retention sort discriminates them
-                'timestamp': f'2026-01-{(i % 28) + 1:02d}',
-            }
-            for i in range(cap + 1)
-        }
-        payload['_phase_prune_version'] = 1
-        generate_weekly_pdfs.save_hash_history(self._hist_path, dict(payload))
-        loaded = generate_weekly_pdfs.load_hash_history(self._hist_path)
-        self.assertIn('_phase_prune_version', loaded)
-        # Real entries capped at HASH_HISTORY_MAX_ENTRIES
-        real_entries = [k for k in loaded if not k.startswith('_')]
-        self.assertEqual(len(real_entries), cap)
+    def test_hash_history_persistence_helpers_removed(self):
+        for name in ('load_hash_history', 'save_hash_history',
+                     'HASH_HISTORY_MAX_ENTRIES'):
+            self.assertFalse(
+                hasattr(generate_weekly_pdfs, name),
+                f"{name} should have been removed (Phase 11 Plan 08 / INC-05)",
+            )
 
     # ─── Prune behavior ──────────────────────────────────────────
 

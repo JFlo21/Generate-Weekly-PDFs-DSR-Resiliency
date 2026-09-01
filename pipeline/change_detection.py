@@ -23,18 +23,22 @@ Supabase hash lookup.
 
 Relocated symbols: calculate_data_hash, _compute_aggregated_content_hash,
 extract_data_hash_from_filename, list_generated_excel_files,
-build_group_identity, _resolve_unchanged_for_skip, load_hash_history,
-save_hash_history, HASH_HISTORY_MAX_ENTRIES.
+build_group_identity, _resolve_unchanged_for_skip.
+
+Phase 11 Plan 08 (INC-05, D-12): ``load_hash_history``, ``save_hash_history``
+and ``HASH_HISTORY_MAX_ENTRIES`` are RETIRED along with the local
+hash-history JSON cache file itself -- ``_resolve_unchanged_for_skip``'s
+local-cache fallback now reads a caller-supplied ``group_state_hashes`` dict
+(sourced from ``pipeline_memory.reader.get_group_state_content_hashes_by_wr``)
+instead of a loaded JSON dict.
 """
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import os
 from typing import Any
 
-from pipeline.config import RESET_HASH_HISTORY
 from pipeline.pricing import parse_price
 from pipeline.utils import is_checked
 
@@ -810,11 +814,12 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
     return (wr, week, variant, identifier)
 
 
-def _resolve_unchanged_for_skip(history_key, data_hash, hash_history,
+def _resolve_unchanged_for_skip(history_key, data_hash, group_state_hashes,
                                 wr_num, week_iso, variant, identifier,
                                 billing_audit_writer: Any = None):
     """Decide whether a group's content hash is UNCHANGED vs the durable
-    store, for the change-detection skip gate (Sub-project E, 2026-05-25).
+    store, for the change-detection skip gate (Sub-project E, 2026-05-25;
+    Phase 11 Plan 08 / INC-05, D-12).
 
     Decision model:
     - ``SUPABASE_HASH_STORE_AUTHORITATIVE`` ON (and billing_audit
@@ -826,17 +831,28 @@ def _resolve_unchanged_for_skip(history_key, data_hash, hash_history,
           safe default that makes the very first authoritative run
           regenerate everything once, populating the store.
         * ``fetch_failure`` / ``unavailable`` -> a Supabase outage (or
-          the table/schema not yet exposed); fall through to the local
-          ``hash_history`` json cache so a transient outage degrades to
+          the table/schema not yet exposed); fall through to
+          ``group_state_hashes`` so a transient outage degrades to
           "use the cache / regenerate", never a silent wrong-skip.
           (``lookup_group_hash`` returns only these four statuses.)
     - A missing/empty ``week_iso`` (no ``__week_ending_date`` on the
-      group) skips the Supabase read entirely and uses the json cache —
-      ``week_ending`` is a DATE column, so passing ``''`` would be a
-      PostgREST type error that could needlessly trip the per-op
-      circuit breaker.
-    - Authoritative OFF (default): the ``hash_history`` json cache alone
-      decides — byte-identical to the pre-E behavior.
+      group) skips the Supabase read entirely and uses
+      ``group_state_hashes`` — ``week_ending`` is a DATE column, so
+      passing ``''`` would be a PostgREST type error that could
+      needlessly trip the per-op circuit breaker.
+    - Authoritative OFF (default): ``group_state_hashes`` alone decides.
+
+    ``group_state_hashes`` is a caller-supplied dict keyed by
+    ``history_key`` (the SAME ``f"{wr_num}|{week_raw}|{variant}|
+    {identifier}"`` string the pre-retirement ``hash_history`` json cache
+    used), pre-built once per run from
+    ``pipeline_memory.reader.get_group_state_content_hashes_by_wr`` —
+    ``pipeline_memory.group_state.content_hash`` is now the sole local
+    change-detection skip gate (INC-05, D-12); the local hash-history
+    JSON cache file is retired. A missing entry (cold cache, a
+    Supabase outage on the prior write, or a WR group_state has never
+    flushed) reads identically to the retired cache's miss case —
+    CHANGED (regenerate), never a silent wrong-skip.
 
     The caller must already have confirmed ``_history_eligible_for_skip``
     (FORCE_GENERATION / REGEN_WEEKS / RESET_* gating) and still applies
@@ -868,87 +884,6 @@ def _resolve_unchanged_for_skip(history_key, data_hash, hash_history,
             return _h == data_hash
         if _status == 'no_row':
             return False  # never durably stored -> regenerate (safe)
-        # fetch_failure / unavailable -> fall back to json cache.
-    _prev = hash_history.get(history_key)
+        # fetch_failure / unavailable -> fall back to group_state_hashes.
+    _prev = group_state_hashes.get(history_key)
     return bool(_prev and _prev.get('hash') == data_hash)
-
-
-def load_hash_history(path: str):
-    if RESET_HASH_HISTORY:
-        logging.info("♻️ Hash history reset requested; ignoring existing history file")
-        return {}
-    try:
-        with open(path,'r') as f:
-            data = json.load(f)
-        if not isinstance(data, dict):
-            logging.warning("⚠️ Hash history is not a dict; resetting")
-            return {}
-        # Validate entries: keep only those with a 'hash' key.
-        # Phase 1.1 Pitfall 4: also preserve ``_``-prefixed sentinel
-        # keys (e.g. ``_phase_prune_version``) so they survive the
-        # load → save → load round-trip and the prune pass at session
-        # startup stays idempotent. Without this, the int-valued
-        # sentinel would be dropped at load time and the prune would
-        # fire on every run (silent non-idempotent trap).
-        valid = {
-            k: v for k, v in data.items()
-            if isinstance(k, str) and (
-                k.startswith('_')
-                or (isinstance(v, dict) and 'hash' in v)
-            )
-        }
-        dropped = len(data) - len(valid)
-        if dropped:
-            logging.warning(f"⚠️ Dropped {dropped} malformed hash history entries")
-        return valid
-    except FileNotFoundError:
-        return {}
-    except Exception as e:
-        logging.warning(f"⚠️ Failed to load hash history: {e}")
-        return {}
-
-
-HASH_HISTORY_MAX_ENTRIES = 1000
-
-
-def save_hash_history(path: str, history: dict):
-    try:
-        # Retention: keep only the most recent entries by timestamp.
-        # Phase 1.1 Pitfall 4: sentinel keys (``_phase_prune_version``,
-        # any future ``_``-prefixed key) are int-valued — calling
-        # ``history[k].get('timestamp', '')`` on an int raises
-        # AttributeError and the whole save aborts. Filter sentinels
-        # OUT of the sort candidates, then re-add them unconditionally
-        # so they survive the save. Sentinels are NOT subject to the
-        # entry cap because there is exactly one per migration version.
-        if len(history) > HASH_HISTORY_MAX_ENTRIES:
-            _sentinel_keys = {
-                k: v for k, v in history.items()
-                if isinstance(k, str) and k.startswith('_')
-            }
-            _real_entries = {
-                k: v for k, v in history.items()
-                if not (isinstance(k, str) and k.startswith('_'))
-            }
-            sorted_keys = sorted(
-                _real_entries.keys(),
-                key=lambda k: _real_entries[k].get('timestamp', ''),
-                reverse=True
-            )
-            _kept = {
-                k: _real_entries[k]
-                for k in sorted_keys[:HASH_HISTORY_MAX_ENTRIES]
-            }
-            _kept.update(_sentinel_keys)
-            history = _kept
-            logging.info(
-                f"🧹 Pruned hash history to {HASH_HISTORY_MAX_ENTRIES} "
-                f"entries (+ {len(_sentinel_keys)} sentinel key(s) preserved)"
-            )
-        tmp_path = path + '.tmp'
-        with open(tmp_path,'w') as f:
-            json.dump(history, f, indent=2, default=str)
-        os.replace(tmp_path, path)
-        logging.info(f"📝 Hash history saved ({len(history)} entries)")
-    except Exception as e:
-        logging.warning(f"⚠️ Failed to save hash history: {e}")

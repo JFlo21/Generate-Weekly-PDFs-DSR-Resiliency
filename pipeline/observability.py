@@ -908,7 +908,8 @@ def init_sentry() -> None:
             sentry_sdk.set_context("configuration", {
                 "max_groups": _cfg.MAX_GROUPS,
                 "extended_change_detection": _cfg.EXTENDED_CHANGE_DETECTION,
-                "use_discovery_cache": _cfg.USE_DISCOVERY_CACHE,
+                # use_discovery_cache retired (Phase 11 Plan 08, INC-05) --
+                # discover_source_sheets() now validates every sheet every run.
                 "force_generation": _cfg.FORCE_GENERATION,
                 # was: "wr_filter": _cfg.WR_FILTER  (raw WR list - row-PII; set_context bypasses
                 # before_send_log so the list would reach Sentry servers on every init)

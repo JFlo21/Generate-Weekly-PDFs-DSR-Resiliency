@@ -397,6 +397,203 @@ def get_row_state_row_ids(sheet_id: Any) -> set:
     return row_ids
 
 
+def get_group_state_attachments_by_wr(
+    wrs: 'set[Any] | list[Any]',
+) -> dict:
+    """Batch-resolve ``group_state``'s stored attachment identity for a
+    set of WR numbers -- Phase 11 Plan 08's (INC-05) replacement for the
+    retired bulk Smartsheet attachment pre-fetch (CONTEXT.md D-12).
+
+    ``group_state`` already carries the ``attachment_id`` / ``attachment_
+    name`` the pipeline itself uploaded for every (wr, week_ending,
+    variant, identifier, target_sheet_id) it has flushed (shadow-populated
+    in Phase 10, proven on the flip PR's first real upload -- IN-01).
+    Rather than issuing a bulk ``Attachments.list_row_attachments`` call
+    per target row up front, this queries that already-written state so
+    ``pipeline.orchestrate`` can seed the SAME ``attachment_cache`` shape
+    ( row_id -> list of attachment-like objects) its callers
+    (``pipeline.cleanup._has_existing_week_attachment`` /
+    ``delete_old_excel_attachments``) already expect.
+
+    Selects ``wr, target_sheet_id, attachment_id, attachment_name`` for
+    every ``group_state`` row whose ``wr`` is in *wrs*, chunked at
+    ``_MAPPING_CHUNK_SIZE`` WR values per query (same discipline as
+    ``map_affected_to_sheets``). Returns a dict keyed by ``wr`` -> a list
+    of ``{'target_sheet_id', 'attachment_id', 'attachment_name'}`` dicts
+    (one entry per (variant, identifier, target_sheet_id) group_state
+    knows for that WR). A row missing ``attachment_id`` or
+    ``attachment_name`` is skipped -- that group has never uploaded (or
+    its upload was withheld), so there is nothing to prefer and the
+    caller's per-row on-demand fallback (T-11-41) resolves it exactly as
+    it would on a cold cache.
+
+    Returns ``{}`` on: empty/falsy input (zero calls, mirrors
+    ``get_sheet_watermarks``'s empty-input convention), a ``None``
+    client, ANY chunk's transport/breaker failure, or a chunk's ``None``
+    response payload -- in every case the affected WRs are simply absent
+    from the returned dict, which the caller reads identically to "no
+    group_state row for this WR yet". Unlike ``map_affected_to_sheets``,
+    a partial result here can only ever ADD safe fast-path hits -- it
+    never narrows regeneration scope or authorises a skip on its own, so
+    a failed chunk safely continues to the next chunk instead of
+    discarding the whole call.
+    """
+    if not wrs:
+        return {}
+
+    wr_list = sorted({w for w in wrs if w}, key=str)
+    if not wr_list:
+        return {}
+
+    client = get_client()
+    if client is None:
+        return {}
+
+    resolved: dict[Any, list[dict[str, Any]]] = {}
+    wr_chunks = [
+        wr_list[i:i + _MAPPING_CHUNK_SIZE]
+        for i in range(0, len(wr_list), _MAPPING_CHUNK_SIZE)
+    ]
+    for chunk_idx, wr_chunk in enumerate(wr_chunks):
+        def _invoke(_wrs=wr_chunk):
+            return (
+                client.schema("pipeline_memory")
+                .table("group_state")
+                .select("wr,target_sheet_id,attachment_id,attachment_name")
+                .in_("wr", list(_wrs))
+                .execute()
+            )
+
+        result = with_retry(_invoke, op="group_state_attachments_by_wr")
+        if result is None:
+            logging.warning(
+                "get_group_state_attachments_by_wr: chunk %d/%d failed "
+                "(transport or circuit-breaker failure) -- those WRs "
+                "resolve via the per-row on-demand fallback instead",
+                chunk_idx + 1, len(wr_chunks),
+            )
+            continue
+
+        rows = getattr(result, "data", None)
+        if rows is None:
+            logging.warning(
+                "get_group_state_attachments_by_wr: chunk %d/%d returned "
+                "a None response payload -- those WRs resolve via the "
+                "per-row on-demand fallback instead",
+                chunk_idx + 1, len(wr_chunks),
+            )
+            continue
+
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            wr = row.get("wr")
+            attachment_id = row.get("attachment_id")
+            attachment_name = row.get("attachment_name")
+            if wr is None or attachment_id is None or not attachment_name:
+                continue
+            resolved.setdefault(wr, []).append({
+                "target_sheet_id": row.get("target_sheet_id"),
+                "attachment_id": attachment_id,
+                "attachment_name": attachment_name,
+            })
+
+    return resolved
+
+
+def get_group_state_content_hashes_by_wr(
+    wrs: 'set[Any] | list[Any]',
+) -> dict:
+    """Batch-resolve ``group_state``'s stored ``content_hash`` for a set
+    of WR numbers -- Phase 11 Plan 08's (INC-05, D-12) replacement for the
+    retired ``generated_docs/hash_history.json`` change-detection cache.
+
+    Selects ``wr, week_ending, variant, identifier, content_hash`` for
+    every ``group_state`` row whose ``wr`` is in *wrs*, chunked at
+    ``_MAPPING_CHUNK_SIZE`` WR values per query (same discipline as
+    ``get_group_state_attachments_by_wr`` / ``map_affected_to_sheets``).
+    Returns a dict keyed by ``wr`` -> a list of ``{'week_ending',
+    'variant', 'identifier', 'content_hash'}`` dicts (one entry per
+    (week_ending, variant, identifier, target_sheet_id) group_state knows
+    for that WR). A row missing ``content_hash`` is skipped -- that group
+    has never durably stored a hash, so the caller's skip decision must
+    treat it as CHANGED (regenerate), never as an unconfirmed match.
+
+    Returns ``{}`` on: empty/falsy input (zero calls), a ``None`` client,
+    ANY chunk's transport/breaker failure, or a chunk's ``None`` response
+    payload -- in every case the affected WRs are simply absent from the
+    returned dict, which the caller (``pipeline.change_detection.
+    _resolve_unchanged_for_skip``) reads identically to "no group_state
+    row for this WR yet" and returns False (regenerate) -- the same
+    fail-safe direction ``load_hash_history`` took on a read failure.
+    Unlike an attachment-identity miss, a content-hash miss can only ever
+    narrow toward regeneration, never toward a wrong skip, so a failed
+    chunk safely continues to the next chunk instead of discarding the
+    whole call.
+    """
+    if not wrs:
+        return {}
+
+    wr_list = sorted({w for w in wrs if w}, key=str)
+    if not wr_list:
+        return {}
+
+    client = get_client()
+    if client is None:
+        return {}
+
+    resolved: dict[Any, list[dict[str, Any]]] = {}
+    wr_chunks = [
+        wr_list[i:i + _MAPPING_CHUNK_SIZE]
+        for i in range(0, len(wr_list), _MAPPING_CHUNK_SIZE)
+    ]
+    for chunk_idx, wr_chunk in enumerate(wr_chunks):
+        def _invoke(_wrs=wr_chunk):
+            return (
+                client.schema("pipeline_memory")
+                .table("group_state")
+                .select("wr,week_ending,variant,identifier,content_hash")
+                .in_("wr", list(_wrs))
+                .execute()
+            )
+
+        result = with_retry(_invoke, op="group_state_content_hashes_by_wr")
+        if result is None:
+            logging.warning(
+                "get_group_state_content_hashes_by_wr: chunk %d/%d failed "
+                "(transport or circuit-breaker failure) -- those WRs "
+                "resolve as CHANGED (regenerate) instead",
+                chunk_idx + 1, len(wr_chunks),
+            )
+            continue
+
+        rows = getattr(result, "data", None)
+        if rows is None:
+            logging.warning(
+                "get_group_state_content_hashes_by_wr: chunk %d/%d "
+                "returned a None response payload -- those WRs resolve "
+                "as CHANGED (regenerate) instead",
+                chunk_idx + 1, len(wr_chunks),
+            )
+            continue
+
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            wr = row.get("wr")
+            content_hash = row.get("content_hash")
+            if wr is None or not content_hash:
+                continue
+            resolved.setdefault(wr, []).append({
+                "week_ending": row.get("week_ending"),
+                "variant": row.get("variant"),
+                "identifier": row.get("identifier"),
+                "content_hash": content_hash,
+            })
+
+    return resolved
+
+
 def get_parity_streak(limit: int = _PARITY_STREAK_DEFAULT_LIMIT) -> dict | None:
     """Derive the D-09 consecutive-pass parity streak from ``run_ledger``.
 

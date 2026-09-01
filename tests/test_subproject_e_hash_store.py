@@ -314,9 +314,11 @@ class TestAuthoritativeSkipGate(unittest.TestCase):
         )
 
     def test_json_fallback_remains_reachable(self):
-        # The helper must still consult the local hash_history cache.
+        # Phase 11 Plan 08 (INC-05, D-12): the helper must still consult a
+        # local cache fallback -- now group_state_hashes (sourced from
+        # pipeline_memory.group_state), not the retired hash_history.json.
         src = inspect.getsource(gwp._resolve_unchanged_for_skip)
-        self.assertIn("hash_history.get(history_key)", src)
+        self.assertIn("group_state_hashes.get(history_key)", src)
 
     def test_attachment_required_preserved(self):
         self.assertIn("ATTACHMENT_REQUIRED_FOR_SKIP", inspect.getsource(gwp))
@@ -328,7 +330,7 @@ class TestAuthoritativeSkipGate(unittest.TestCase):
         # site); mirror that here instead of relying on a module global.
         defaults = dict(
             history_key="90001|041926|primary|",
-            data_hash="h", hash_history={}, wr_num="90001",
+            data_hash="h", group_state_hashes={}, wr_num="90001",
             week_iso="2026-04-19", variant="primary", identifier="",
             billing_audit_writer=gwp._billing_audit_writer,
         )
@@ -366,7 +368,7 @@ class TestAuthoritativeSkipGate(unittest.TestCase):
             # authoritative store means "never durably stored" -> regenerate.
             self.assertFalse(self._resolve(
                 data_hash="h",
-                hash_history={"90001|041926|primary|": {"hash": "h"}},
+                group_state_hashes={"90001|041926|primary|": {"hash": "h"}},
             ))
 
     def test_authoritative_fetch_failure_falls_back_to_json_true(self):
@@ -377,7 +379,7 @@ class TestAuthoritativeSkipGate(unittest.TestCase):
         ):
             self.assertTrue(self._resolve(
                 data_hash="h",
-                hash_history={"90001|041926|primary|": {"hash": "h"}},
+                group_state_hashes={"90001|041926|primary|": {"hash": "h"}},
             ))
 
     def test_authoritative_fetch_failure_falls_back_to_json_false(self):
@@ -388,7 +390,7 @@ class TestAuthoritativeSkipGate(unittest.TestCase):
         ):
             self.assertFalse(self._resolve(
                 data_hash="h",
-                hash_history={"90001|041926|primary|": {"hash": "STALE"}},
+                group_state_hashes={"90001|041926|primary|": {"hash": "STALE"}},
             ))
 
     def test_authoritative_unavailable_falls_back_to_json(self):
@@ -399,7 +401,7 @@ class TestAuthoritativeSkipGate(unittest.TestCase):
         ):
             self.assertTrue(self._resolve(
                 data_hash="h",
-                hash_history={"90001|041926|primary|": {"hash": "h"}},
+                group_state_hashes={"90001|041926|primary|": {"hash": "h"}},
             ))
 
     def test_empty_week_iso_skips_supabase_uses_json(self):
@@ -414,9 +416,9 @@ class TestAuthoritativeSkipGate(unittest.TestCase):
         ):
             self.assertTrue(self._resolve(
                 week_iso="", data_hash="h",
-                hash_history={"90001|041926|primary|": {"hash": "h"}}))
+                group_state_hashes={"90001|041926|primary|": {"hash": "h"}}))
             self.assertFalse(self._resolve(week_iso="", data_hash="h",
-                                           hash_history={}))
+                                           group_state_hashes={}))
 
     def test_not_authoritative_uses_json_only(self):
         gwp.SUPABASE_HASH_STORE_AUTHORITATIVE = False
@@ -429,10 +431,10 @@ class TestAuthoritativeSkipGate(unittest.TestCase):
         ):
             self.assertTrue(self._resolve(
                 data_hash="h",
-                hash_history={"90001|041926|primary|": {"hash": "h"}},
+                group_state_hashes={"90001|041926|primary|": {"hash": "h"}},
             ))
             self.assertFalse(self._resolve(
-                data_hash="h", hash_history={}))
+                data_hash="h", group_state_hashes={}))
 
 
 class _FakeAtt:
@@ -645,8 +647,11 @@ class TestProductionInvariants(unittest.TestCase):
         self.assertIn("ATTACHMENT_REQUIRED_FOR_SKIP", self.src)
 
     def test_resolve_helper_falls_back_to_json(self):
+        # Phase 11 Plan 08 (INC-05, D-12): the local fallback is now
+        # group_state_hashes (sourced from pipeline_memory.group_state),
+        # not the retired hash_history.json.
         helper = inspect.getsource(gwp._resolve_unchanged_for_skip)
-        self.assertIn("hash_history.get(history_key)", helper)
+        self.assertIn("group_state_hashes.get(history_key)", helper)
         # no_row must regenerate (the safe migration default).
         self.assertIn("no_row", helper)
 
@@ -831,52 +836,50 @@ class TestCrashConsistencyDeferredFlush(unittest.TestCase):
             r"_res in \('uploaded', 'skipped'\)",
         )
 
-    # ── Codex P2 follow-up (PR #283): local json parity ──────────────
-    # The json hash_history cache is the skip gate's fallback on a
-    # Supabase outage and its sole source with authoritative OFF, so
-    # it must obey the SAME "advance only after upload success"
-    # contract as the durable store — otherwise a failed/dry-run
-    # upload is still skippable as "unchanged" through the fallback.
+    # ── Phase 11 Plan 08 (INC-05, D-12) REWRITES this section in place ──
+    # of the retired "Codex P2 (PR #283): local json parity" tests. The
+    # json hash_history.json cache (and its emission-time TEST_MODE write
+    # + _deferred_history_updates flush) is gone -- group_state.content_hash
+    # (via the existing _deferred_group_state append + group_state flush,
+    # pinned by test_pipeline_memory_shadow.py) is now the sole local
+    # record obeying the SAME "advance only after upload success" contract.
 
-    def test_json_hash_history_deferred_in_production(self):
-        # The emission loop may write hash_history immediately ONLY on
-        # the TEST_MODE branch (no upload phase exists there); the
-        # production branch must defer the entry instead.
+    def test_history_updates_advances_immediately_only_in_test_mode(self):
+        # TEST_MODE has no upload phase to defer against (and
+        # _deferred_group_state is itself gated `not TEST_MODE`), so
+        # history_updates advances immediately there; production defers
+        # to the group_state flush outcome.
         _pre_upload = self.src[: self.src.index("PARALLEL UPLOAD PHASE")]
         self.assertRegex(
             _pre_upload,
-            r"if TEST_MODE:\s*\n\s*"
-            r"hash_history\[history_key\] = _history_entry",
+            r"if TEST_MODE:\s*\n\s*history_updates \+= 1",
         )
-        self.assertIn(
-            "_deferred_history_updates.append(", _pre_upload,
-        )
-        # No unconditional emission-time write may come back.
-        self.assertNotRegex(
-            _pre_upload,
-            r"hash_history\[history_key\] = \{",
-        )
+        # The retired hash_history.json write pattern must not come back.
+        self.assertNotIn("hash_history[history_key]", _pre_upload)
+        self.assertNotIn("_deferred_history_updates.append(", _pre_upload)
 
-    def test_json_flush_not_gated_on_supabase_flag(self):
-        # The json flush must run in EVERY mode — including
-        # SUPABASE_HASH_STORE_WRITE_ENABLED=false — because the json
-        # contract is independent of the durable store.
+    def test_group_state_flush_not_gated_on_supabase_flag(self):
+        # The group_state flush must run whenever RUN_MEMORY_WRITE_ENABLED
+        # and _deferred_group_state are both true — independent of
+        # SUPABASE_HASH_STORE_WRITE_ENABLED, mirroring the retired json
+        # flush's "runs in every mode" contract.
         self.assertRegex(
             self.src,
-            r"if _deferred_history_updates or \(",
+            r"\(\s*\n\s*RUN_MEMORY_WRITE_ENABLED\s*\n\s*and _deferred_group_state\s*\n\s*\)",
         )
+        self.assertNotIn("_deferred_history_updates or (", self.src)
 
-    def test_json_flush_consults_upload_results(self):
-        # The deferred json entries are applied only after
-        # upload_results exists, gated per group on _group_upload_ok.
+    def test_group_state_flush_consults_upload_results(self):
+        # history_updates is incremented from the group_state flush's
+        # own record count, which is derived (via _build_group_state_flush)
+        # from _group_upload_ok, itself built from upload_results.
         _post_results = self.src[
             self.src.index("upload_results = list("):
         ]
         self.assertRegex(
             _post_results,
-            r"if not _group_upload_ok\.get\(_rec\['group_key'\]\):"
-            r"[\s\S]{0,400}"
-            r"hash_history\[_rec\['history_key'\]\] = _rec\['entry'\]",
+            r"_build_group_state_flush\("
+            r"[\s\S]{0,1000}history_updates \+= len\(_mem_group_records\)",
         )
 
     # ── Codex P2 / Greptile P1 (PR #283): missing PPP upload leg ─────
@@ -889,13 +892,18 @@ class TestCrashConsistencyDeferredFlush(unittest.TestCase):
 
     def test_skip_gate_requires_ppp_attachment_for_reduced_sub(self):
         _pre_upload = self.src[: self.src.index("PARALLEL UPLOAD PHASE")]
+        # Final hop widened 600 -> 900 (PR #373 review): the PPP
+        # existence check now routes through the wrapped
+        # _live_row_attachments(...) live-confirmation call, which
+        # lengthens the block between the sheet-id constant and the
+        # `can_skip = False` outcome. The pinned wiring is unchanged.
         self.assertRegex(
             _pre_upload,
             r"can_skip\s*\n\s*and variant in \(\s*\n\s*"
             r"'reduced_sub', 'reduced_sub_helper',"
             r"[\s\S]{0,300}target_map_ppp\.get\("
             r"[\s\S]{0,600}SUBCONTRACTOR_PPP_SHEET_ID"
-            r"[\s\S]{0,600}can_skip = False",
+            r"[\s\S]{0,900}can_skip = False",
         )
 
     # ── Codex P2 (PR #283): repair-path stale-hash invalidation ──────
@@ -906,7 +914,14 @@ class TestCrashConsistencyDeferredFlush(unittest.TestCase):
     # Groups withheld due to a real 'error' leg must invalidate BOTH
     # layers; SKIP_UPLOAD dry-runs must not mutate anything.
 
-    def test_error_legs_invalidate_both_hash_layers(self):
+    def test_error_legs_invalidate_durable_hash_layer(self):
+        # Phase 11 Plan 08 (INC-05, D-12): the local json layer's
+        # hash_history.pop(...) invalidation is retired along with
+        # hash_history.json itself -- group_state simply never gets a
+        # record for a withheld group (_build_group_state_flush only
+        # emits records for _group_upload_ok groups), so there is no
+        # stale entry to pop. The durable (billing_audit) layer's
+        # 'withheld:' sentinel invalidation is unchanged.
         _post_results = self.src[
             self.src.index("upload_results = list("):
         ]
@@ -916,17 +931,12 @@ class TestCrashConsistencyDeferredFlush(unittest.TestCase):
             _post_results,
             r"if _res == 'error':\s*\n\s*_group_had_error\[_gk\] = True",
         )
-        # json layer: withheld-with-error pops the stale entry.
-        self.assertRegex(
-            _post_results,
-            r"if _group_had_error\.get\(_rec\['group_key'\]\):"
-            r"[\s\S]{0,200}hash_history\.pop\(",
-        )
         # durable layer: withheld-with-error overwrites the row with a
         # sentinel that can never equal a computed SHA256.
         self.assertIn(
             "'withheld:' + _rec['data_hash']", _post_results,
         )
+        self.assertNotIn("hash_history.pop(", _post_results)
 
 
 if __name__ == "__main__":

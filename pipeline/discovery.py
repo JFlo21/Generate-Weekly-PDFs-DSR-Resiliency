@@ -27,7 +27,6 @@ Symbols relocated from ``generate_weekly_pdfs.py`` (W3):
 from __future__ import annotations
 
 import datetime
-import json
 import logging
 import os
 import re
@@ -37,9 +36,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import sentry_sdk
 
 from pipeline.config import (
-    DISCOVERY_CACHE_PATH,
-    DISCOVERY_CACHE_TTL_MIN,
-    DISCOVERY_CACHE_VERSION,
     PARALLEL_WORKERS_DISCOVERY,
     _parse_sheet_ids,
 )
@@ -194,136 +190,35 @@ def discover_source_sheets(client):
     global _FOLDER_DISCOVERED_SUB_IDS, _FOLDER_DISCOVERED_ORIG_IDS, SUBCONTRACTOR_SHEET_IDS
     # Phase 09 W3 (D-01): bind the runtime-mutable discovery inputs from the
     # facade so test-time rebinds on generate_weekly_pdfs.NAME are honoured
-    # (USE_DISCOVERY_CACHE / FORCE_REDISCOVERY / SUBCONTRACTOR_FOLDER_IDS /
-    # ORIGINAL_CONTRACT_FOLDER_IDS are test-poked on the facade). The three set
-    # globals (SUBCONTRACTOR_SHEET_IDS / _FOLDER_DISCOVERED_*) are this module's
-    # own live-proxy globals, rebound above via the `global` statement.
+    # (SUBCONTRACTOR_FOLDER_IDS / ORIGINAL_CONTRACT_FOLDER_IDS are test-poked
+    # on the facade). The three set globals (SUBCONTRACTOR_SHEET_IDS /
+    # _FOLDER_DISCOVERED_*) are this module's own live-proxy globals, rebound
+    # above via the `global` statement.
+    #
+    # Phase 11 Plan 08 (INC-05, D-12): the on-disk discovery cache
+    # (a local JSON file, its TTL and its incremental/fast-path branch)
+    # is retired. Every run now validates
+    # every candidate sheet (the previous "full discovery" branch,
+    # unconditionally) — `FORCE_REDISCOVERY` is kept defined on the facade
+    # for operator-runbook / backward-compat reasons but is a no-op here,
+    # since there is no cache left to bypass. Cross-run sheet identity now
+    # lives solely in `pipeline_memory.sheet_registry` (written via
+    # `upsert_sheet_registry` and read via `get_sheet_watermarks`
+    # immediately after this function returns in `pipeline/orchestrate.py`,
+    # unchanged by this retirement) rather than in a discovery-local file.
     import generate_weekly_pdfs as _gwp  # noqa: PLC0415
-    FORCE_REDISCOVERY = _gwp.FORCE_REDISCOVERY
     ORIGINAL_CONTRACT_FOLDER_IDS = _gwp.ORIGINAL_CONTRACT_FOLDER_IDS
     SUBCONTRACTOR_FOLDER_IDS = _gwp.SUBCONTRACTOR_FOLDER_IDS
-    USE_DISCOVERY_CACHE = _gwp.USE_DISCOVERY_CACHE
 
     # ── ALWAYS run folder discovery FIRST (detects new sheets every run) ──────────
-    # Folder listing is cheap (2-4 API calls + subfolder recursion).  Running it
-    # unconditionally ensures sheets added to configured folders between runs are
-    # detected even when the discovery cache is still within TTL.
+    # Folder listing is cheap (2-4 API calls + subfolder recursion).
     if SUBCONTRACTOR_FOLDER_IDS:
         _FOLDER_DISCOVERED_SUB_IDS = discover_folder_sheets(client, SUBCONTRACTOR_FOLDER_IDS, 'subcontractor')
         SUBCONTRACTOR_SHEET_IDS = SUBCONTRACTOR_SHEET_IDS | _FOLDER_DISCOVERED_SUB_IDS
         logging.info(f"📂 Subcontractor sheet IDs after folder merge: {len(SUBCONTRACTOR_SHEET_IDS)}")
     if ORIGINAL_CONTRACT_FOLDER_IDS:
         _FOLDER_DISCOVERED_ORIG_IDS = discover_folder_sheets(client, ORIGINAL_CONTRACT_FOLDER_IDS, 'original contract')
-    _all_folder_discovered_ids = _FOLDER_DISCOVERED_SUB_IDS | _FOLDER_DISCOVERED_ORIG_IDS
 
-    # ── Attempt cache load (skip when forced rediscovery requested) ──
-    _cached_sheets = []          # previously-validated sheets from cache (used for incremental mode)
-    _cached_sheet_ids = set()    # IDs of sheets already validated in cache
-    _incremental = False         # True when cache expired but sheets can be reused
-    if FORCE_REDISCOVERY:
-        logging.info("🔄 FORCE_REDISCOVERY=true — bypassing discovery cache")
-    elif USE_DISCOVERY_CACHE and os.path.exists(DISCOVERY_CACHE_PATH):
-        try:
-            with open(DISCOVERY_CACHE_PATH,'r') as f:
-                cache = json.load(f)
-            # Check cache schema version — invalidate if column synonyms have changed
-            cached_version = cache.get('schema_version', 1)
-            if cached_version < DISCOVERY_CACHE_VERSION:
-                logging.info(f"🔄 Discovery cache schema outdated (v{cached_version} < v{DISCOVERY_CACHE_VERSION}) — forcing full rediscovery")
-                raise ValueError('cache schema outdated')
-            ts = datetime.datetime.fromisoformat(cache.get('timestamp'))
-            age_min = (datetime.datetime.now() - ts).total_seconds()/60.0
-            # Schema guard: each cached sheet must be a dict with an
-            # integer ``id`` and a dict ``column_mapping`` — anything
-            # else would crash ``_fetch_and_process_sheet`` when it
-            # reads ``source['column_mapping']`` / ``source['id']``.
-            # Drop malformed entries and WARN so operators can see
-            # a corrupted cache immediately rather than debugging a
-            # later AttributeError / KeyError.
-            _raw_cached_sheets = cache.get('sheets', []) or []
-            _valid_cached_sheets = [
-                s for s in _raw_cached_sheets
-                if isinstance(s, dict)
-                and isinstance(s.get('id'), int)
-                and isinstance(s.get('column_mapping'), dict)
-                and isinstance(s.get('name'), str)
-            ]
-            if len(_valid_cached_sheets) != len(_raw_cached_sheets):
-                logging.warning(
-                    f"⚠️ Discovery cache contains "
-                    f"{len(_raw_cached_sheets) - len(_valid_cached_sheets)} "
-                    f"malformed sheet entry(ies); dropping them "
-                    f"(keeping {len(_valid_cached_sheets)} valid). "
-                    f"Delete {DISCOVERY_CACHE_PATH} to force a clean rediscovery."
-                )
-                # If *every* cached entry was malformed, the fresh-cache
-                # return path below would otherwise hand back an empty
-                # source list and the run would silently process zero
-                # sheets. Escalate to the outer cache-load-failed handler
-                # so we fall through to a full rediscovery from
-                # ``base_sheet_ids`` — same behaviour as an outdated
-                # schema or unreadable JSON.
-                if _raw_cached_sheets and not _valid_cached_sheets:
-                    raise ValueError(
-                        f"all {len(_raw_cached_sheets)} cached sheet "
-                        f"entries malformed; forcing full rediscovery"
-                    )
-            _cached_sheet_ids_from_file = {s['id'] for s in _valid_cached_sheets}
-            # Compare folder-discovered sheet IDs against cache to detect new sheets
-            _new_from_folders = _all_folder_discovered_ids - _cached_sheet_ids_from_file
-            # Codex P2 guardrail: if the schema filter dropped ANY
-            # entry, skip the fresh-cache fast path. A dropped entry
-            # may have been a required static base sheet that isn't
-            # in _all_folder_discovered_ids, so _new_from_folders
-            # wouldn't flag it. Falling through to incremental mode
-            # forces base_sheet_ids to be re-validated and the
-            # dropped sheet to be rediscovered on this run instead
-            # of waiting until cache expiry (up to
-            # DISCOVERY_CACHE_TTL_MIN — default 7 days).
-            _partial_cache_corruption = bool(_raw_cached_sheets) and (
-                len(_valid_cached_sheets) != len(_raw_cached_sheets)
-            )
-            if (
-                age_min <= DISCOVERY_CACHE_TTL_MIN
-                and not _new_from_folders
-                and not _partial_cache_corruption
-            ):
-                # Cache is fresh AND no new sheets in folders AND no
-                # malformed entries were dropped → safe to use cache
-                cached_sub_ids = cache.get('subcontractor_sheet_ids', [])
-                if cached_sub_ids:
-                    SUBCONTRACTOR_SHEET_IDS = SUBCONTRACTOR_SHEET_IDS | set(cached_sub_ids)
-                    logging.info(f"📂 Restored {len(cached_sub_ids)} subcontractor sheet IDs from cache (total: {len(SUBCONTRACTOR_SHEET_IDS)})")
-                logging.info(f"⚡ Using cached discovery ({age_min:.1f} min old) with {len(_valid_cached_sheets)} sheets (folders unchanged)")
-                return _valid_cached_sheets
-            else:
-                # Cache expired OR new sheets found in folders → incremental mode
-                _cached_sheets = _valid_cached_sheets
-                _cached_sheet_ids = _cached_sheet_ids_from_file
-                cached_sub_ids = cache.get('subcontractor_sheet_ids', [])
-                if cached_sub_ids:
-                    SUBCONTRACTOR_SHEET_IDS = SUBCONTRACTOR_SHEET_IDS | set(cached_sub_ids)
-                _incremental = True
-                if _partial_cache_corruption:
-                    _dropped_count = (
-                        len(_raw_cached_sheets) - len(_valid_cached_sheets)
-                    )
-                    logging.info(
-                        f"🛡️ {_dropped_count} malformed cached entry(ies) "
-                        f"dropped — forcing incremental revalidation against "
-                        f"base_sheet_ids so any required sheet among the "
-                        f"dropped entries is rediscovered this run instead "
-                        f"of waiting until cache expiry."
-                    )
-                elif _new_from_folders:
-                    logging.info(f"🆕 {len(_new_from_folders)} new sheet(s) detected in folders — "
-                                 f"cache invalidated, using incremental mode "
-                                 f"(keeping {len(_cached_sheets)} cached + validating new sheets)")
-                else:
-                    logging.info(f"ℹ️ Discovery cache expired ({age_min:.1f} min old); using incremental mode — "
-                                 f"keeping {len(_cached_sheets)} cached sheets, scanning for new IDs only")
-        except Exception as e:
-            logging.info(f"Cache load failed, refreshing discovery: {e}")
     base_sheet_ids = [
         3239244454645636, 2230129632694148, 1732945426468740, 4126460034895748,
         7899446718189444, 1964558450118532, 5905527830695812, 820644963897220,
@@ -624,61 +519,54 @@ def discover_source_sheets(client):
             # the drop is loud WITHOUT exfiltrating sampled row PII held in this
             # frame's locals (_sample_rows_cache etc.) — a raw capture_exception
             # would ship those because the SDK runs include_local_variables=True.
+            # PR #373 review (fail-closed): also record the failure so the
+            # run ABORTS after the loop instead of continuing with an
+            # incomplete set of billing rows — distinct from the strict-mode
+            # column skip above, which is a legitimate disqualification.
             logging.warning(f"⚡ Failed to validate sheet {sid}: {e}")
             sentry_capture_sheet_drop(sid, e)
+            _failed_validation_sids.append(sid)
             return None
 
-    # ── Incremental mode: only validate NEW sheet IDs, keep cached ones ──
-    if _incremental:
-        all_base_ids = set(base_sheet_ids)
-        new_ids_to_validate = sorted(all_base_ids - _cached_sheet_ids)
-        if new_ids_to_validate:
-            logging.info(f"🆕 Incremental discovery: {len(new_ids_to_validate)} new sheet ID(s) to validate "
-                         f"(skipping {len(_cached_sheet_ids)} already-cached sheets)")
-            _discovery_start = datetime.datetime.now()
-            with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS_DISCOVERY) as executor:
-                futures = {executor.submit(_validate_single_sheet, sid): sid for sid in new_ids_to_validate}
-                for i, future in enumerate(as_completed(futures), 1):
-                    sid = futures[future]
-                    result = future.result()
-                    if result is not None:
-                        discovered.append(result)
-                        logging.info(f"   ✅ [{i}/{len(futures)}] NEW Discovered: {result['name']} (ID: {sid})")
-                    else:
-                        logging.info(f"   ❌ [{i}/{len(futures)}] Skipped new sheet ID {sid}")
-            _discovery_elapsed = (datetime.datetime.now() - _discovery_start).total_seconds()
-            logging.info(f"⚡ Incremental discovery: {len(discovered)} new sheet(s) validated in {_discovery_elapsed:.1f}s")
-        else:
-            logging.info(f"⚡ Incremental discovery: no new sheet IDs found — all {len(_cached_sheet_ids)} sheets already cached")
-        # Merge: cached sheets + newly discovered sheets
-        discovered = _cached_sheets + discovered
-        logging.info(f"📋 Total sheets after incremental merge: {len(discovered)} ({len(_cached_sheets)} cached + {len(discovered) - len(_cached_sheets)} new)")
-    else:
-        # Full discovery: validate all sheets from scratch
-        logging.info(f"🚀 Starting parallel discovery with {PARALLEL_WORKERS_DISCOVERY} workers for {len(base_sheet_ids)} sheets...")
-        _discovery_start = datetime.datetime.now()
-        with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS_DISCOVERY) as executor:
-            futures = {executor.submit(_validate_single_sheet, sid): sid for sid in base_sheet_ids}
-            for i, future in enumerate(as_completed(futures), 1):
-                sid = futures[future]
-                result = future.result()
-                if result is not None:
-                    discovered.append(result)
-                    logging.info(f"   ✅ [{i}/{len(futures)}] Discovered: {result['name']} (ID: {sid})")
-                else:
-                    logging.info(f"   ❌ [{i}/{len(futures)}] Skipped sheet ID {sid}")
-        _discovery_elapsed = (datetime.datetime.now() - _discovery_start).total_seconds()
-        logging.info(f"⚡ Discovery complete: {len(discovered)} sheets validated in {_discovery_elapsed:.1f}s (parallel w/{PARALLEL_WORKERS_DISCOVERY} workers)")
-    # Save cache
-    if USE_DISCOVERY_CACHE:
-        try:
-            with open(DISCOVERY_CACHE_PATH,'w') as f:
-                json.dump({
-                    'schema_version': DISCOVERY_CACHE_VERSION,
-                    'timestamp': datetime.datetime.now().isoformat(),
-                    'sheets': discovered,
-                    'subcontractor_sheet_ids': sorted(SUBCONTRACTOR_SHEET_IDS),
-                }, f)
-        except Exception as e:
-            logging.warning(f"Failed to write discovery cache: {e}")
+    # Phase 11 Plan 08 (INC-05, D-12): always validate every candidate sheet
+    # from scratch — this was previously the "full discovery" branch, now
+    # the only branch. Cross-run sheet identity (name, column_mapping) now
+    # persists solely in `pipeline_memory.sheet_registry`, written by
+    # `pipeline/orchestrate.py`'s `upsert_sheet_registry` call immediately
+    # after this function returns.
+    # Validation-exception collector (PR #373 review): appended by
+    # _validate_single_sheet's except branch, list.append is atomic under
+    # the GIL so the parallel workers need no lock.
+    _failed_validation_sids: list = []
+    logging.info(f"🚀 Starting parallel discovery with {PARALLEL_WORKERS_DISCOVERY} workers for {len(base_sheet_ids)} sheets...")
+    _discovery_start = datetime.datetime.now()
+    with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS_DISCOVERY) as executor:
+        futures = {executor.submit(_validate_single_sheet, sid): sid for sid in base_sheet_ids}
+        for i, future in enumerate(as_completed(futures), 1):
+            sid = futures[future]
+            result = future.result()
+            if result is not None:
+                discovered.append(result)
+                logging.info(f"   ✅ [{i}/{len(futures)}] Discovered: {result['name']} (ID: {sid})")
+            else:
+                logging.info(f"   ❌ [{i}/{len(futures)}] Skipped sheet ID {sid}")
+    _discovery_elapsed = (datetime.datetime.now() - _discovery_start).total_seconds()
+    logging.info(f"⚡ Discovery complete: {len(discovered)} sheets validated in {_discovery_elapsed:.1f}s (parallel w/{PARALLEL_WORKERS_DISCOVERY} workers)")
+    if _failed_validation_sids:
+        # PR #373 review (fail-closed). Before INC-05, the 7-day discovery
+        # cache masked a validation failure on most runs; now every run
+        # validates every sheet, so continuing past a persistent failure
+        # would silently process an incomplete row set and upload REDUCED
+        # billing files for every group the missing sheet feeds. A failed
+        # run is recoverable (next cron, operator alerted via Sentry);
+        # silently short billing output is not. Strict-mode column skips
+        # (the `return None` branch above) are legitimate
+        # disqualifications and do not trip this guard.
+        raise RuntimeError(
+            "Source-sheet validation failed for "
+            f"{len(_failed_validation_sids)} sheet(s) after retries: "
+            f"{sorted(_failed_validation_sids)} — aborting instead of "
+            "continuing with incomplete billing input (INC-05 "
+            "fail-closed guard)."
+        )
     return discovered

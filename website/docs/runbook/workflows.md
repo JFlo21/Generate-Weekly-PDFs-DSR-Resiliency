@@ -20,9 +20,15 @@ reruns.
 
 Key behaviors:
 
-- Python `3.12`, `pip` cached by `requirements.txt` hash.
-- Restores `hash_history.json` and `discovery_cache.json` via `cache/restore`,
-  and saves them back in an `if: always()` step so caches survive timeouts.
+- Python `3.12`, `pip` cached by `requirements.txt` hash — the only
+  `actions/cache` step left in the job. The `hash_history.json` /
+  `discovery_cache.json` / `billing_audit_frozen_rows.json` restore/save
+  steps (six steps total) were retired in PR #373 (Phase 11 Plan 08,
+  INC-05): change detection now reads Supabase
+  `pipeline_memory.group_state.content_hash`, cross-run sheet identity
+  lives in `pipeline_memory.sheet_registry`, and the billing-audit row
+  cache is purely in-memory per run — none of them need a cross-run local
+  file anymore.
 - Derives an `execution_type` (`production_frequent`, `weekend_maintenance`,
   `weekly_comprehensive`, `manual`, `scheduled`) used in artifact names and
   the Notion sync.

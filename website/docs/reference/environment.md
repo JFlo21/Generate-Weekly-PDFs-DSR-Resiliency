@@ -498,16 +498,13 @@ file are deleted — UNLESS the bare file's identity is live this run
 (`valid_wr_weeks` exemption).
 
 **Scope note:** this flag gates only the destructive **attachment**
-cleanup. The companion one-time hash-history prune
-(`_subproject_d_prune_version` sentinel, which drops the stale
-`{wr}|{week}|primary|` entries) is gated on
-**`PRIMARY_CLAIM_ATTRIBUTION_ENABLED`** instead — not on this flag —
-because when attribution is off the bare `{wr}|{week}|primary|` key is the
-*active* legacy key and must not be pruned. So disabling this cleanup flag
-while leaving attribution on still mutates `hash_history.json` via the
-prune (the prune only drops a hash entry, forcing at most one benign
-regeneration — never a file deletion). This mirrors Sub-project C's
-`_run_vac_crew_hash_prune` gating.
+cleanup. The companion one-time hash-history prune functions
+(`_run_phase_1_1_hash_prune`, `_run_subproject_b_hash_prune`,
+`_run_vac_crew_hash_prune`, and the Subproject D equivalent) targeted the
+local `hash_history.json` cache and are retired along with it (PR #373 /
+Phase 11 Plan 08, INC-05) — they remain defined for their fixture-level
+tests but `pipeline.orchestrate.main()` no longer calls them. This
+cleanup flag's own destructive attachment sweep is unaffected.
 
 **Separate from `PRIMARY_CLAIM_ATTRIBUTION_ENABLED`,** which gates
 attribution resolution, NOT this cleanup. Set to `0` to skip the
@@ -529,8 +526,12 @@ engine's `history_key`: `wr | week_ending | variant | identifier`). Once
 authoritative, generated filenames drop the `_<timestamp>` and
 `_<hash>` tokens, so the canonical name becomes
 `WR_{wr}_WeekEnding_{MMDDYY}{variant_suffix}.xlsx` (identity only).
-`hash_history.json` is retained as a local fast cache + offline fallback;
-a Supabase outage degrades to **regenerate**, never a silent skip.
+When the durable store is unreachable (`fetch_failure` / `unavailable`) or
+has no row yet (`no_row`), the skip gate falls back to Supabase
+`pipeline_memory.group_state.content_hash` — the local `hash_history.json`
+cache this replaced was retired in PR #373 (Phase 11 Plan 08, INC-05). A
+miss there also regenerates, so a Supabase outage always degrades to
+**regenerate**, never a silent skip.
 
 The two flags ship **dormant**: shadow-write is on from day one so the
 durable store fills up under real traffic, while the authoritative read +
@@ -542,17 +543,18 @@ Foundation A's dormant-ship pattern).
 **Default:** `1` (enabled). Truthy values: `1`, `true`, `yes`, `on`.
 
 When enabled, every generated group shadow-writes its content hash to
-`billing_audit.group_content_hash` via `upsert_group_hash` — alongside
-the existing `hash_history.json` write. This is **harmless while the
-store is not yet authoritative**: it only populates the durable store so
-the eventual authoritative flip has data to read. The writer is
-fail-safe (a no-op when Supabase is unavailable / `TEST_MODE`, and never
-raises). The resolved value is printed at startup as
-`📋 SUPABASE_HASH_STORE_WRITE_ENABLED=<bool>`. Pinned to `1` in the
+`billing_audit.group_content_hash` via `upsert_group_hash`. This is
+**harmless while the store is not yet authoritative**: it only populates
+the durable store so the eventual authoritative flip has data to read.
+The writer is fail-safe (a no-op when Supabase is unavailable /
+`TEST_MODE`, and never raises). The resolved value is printed at startup
+as `📋 SUPABASE_HASH_STORE_WRITE_ENABLED=<bool>`. Pinned to `1` in the
 `weekly-excel-generation.yml` `env:` block. Set to `0` to stop shadow
 writes (e.g. to reduce Supabase write volume) — change detection is
-unaffected because `hash_history.json` + the filename hash remain the
-active signals while not authoritative.
+unaffected because `pipeline_memory.group_state.content_hash` and the
+filename hash remain the active signals while not authoritative. (Prior
+to PR #373 this write also went to the local `hash_history.json` cache;
+that cache is retired.)
 
 ### `SUPABASE_HASH_STORE_AUTHORITATIVE`
 
@@ -565,7 +567,9 @@ When enabled, three behaviors flip together:
    (`_resolve_unchanged_for_skip`) calls `lookup_group_hash` first. On a
    `success` it compares hashes; on `no_row` (never durably stored) it
    regenerates; on an outage (`fetch_failure` / `unavailable`) it falls
-   back to the `hash_history.json` cache. A cache miss regenerates.
+   back to `pipeline_memory.group_state.content_hash` — the local
+   `hash_history.json` cache this replaced is retired (PR #373 / Phase 11
+   Plan 08, INC-05). A miss there also regenerates.
 2. **Clean filenames.** `generate_excel` emits
    `WR_{wr}_WeekEnding_{MMDDYY}{variant_suffix}.xlsx` (no
    `_<timestamp>`/`_<hash>` tokens). `build_group_identity` parses both
@@ -591,8 +595,9 @@ credentials are already configured (the attribution writers use them),
 a missing `group_content_hash` table/schema-cache surfaces as
 `fetch_failure` (a PostgREST/SQLSTATE error classified by
 `with_retry`), **not** `unavailable` (which is reserved for missing
-credentials / `TEST_MODE`). Either way the skip gate falls back to the
-`hash_history.json` cache and regenerates on a miss — and a schema-not-
+credentials / `TEST_MODE`). Either way the skip gate falls back to
+`pipeline_memory.group_state.content_hash` (the retired `hash_history.json`
+cache's replacement) and regenerates on a miss — and a schema-not-
 exposed error (`PGRST106`) trips the run-global kill switch so the rest
 of the run skips Supabase at zero network cost.
 
@@ -805,16 +810,29 @@ All sub-budgets sit inside `TIME_BUDGET_MINUTES` (165) under the runner's
 
 ## Performance
 
+:::caution LEGACY — retired 2026-08-31 (PR #373, Phase 11 Plan 08 / INC-05)
+The on-disk discovery cache (`generated_docs/discovery_cache.json`) and the
+bulk Smartsheet attachment pre-fetch phases are retired.
+`discover_source_sheets()` now validates every candidate sheet in full
+every run; cross-run sheet identity lives solely in Supabase
+`pipeline_memory.sheet_registry`. Attachment identity for delete-then-
+upload now resolves from `pipeline_memory.group_state`
+(`get_group_state_attachments_by_wr`), falling back to a per-row
+on-demand Smartsheet listing on a miss. The four variables below are kept
+defined (for operator-runbook / backward-compat reasons) but have no
+effect.
+:::
+
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `USE_DISCOVERY_CACHE` | `true` | Honor `generated_docs/discovery_cache.json`. |
-| `FORCE_REDISCOVERY` | `false` | Ignore the discovery cache. |
-| `DISCOVERY_CACHE_TTL_MIN` | `10080` | Cache age ceiling, minutes. |
-| `PARALLEL_WORKERS` | `8` | Threads for data fetch + attachment pre-fetch. |
+| `USE_DISCOVERY_CACHE` | `true` | **Retired — no-op.** Historically honored `generated_docs/discovery_cache.json`; the cache no longer exists. |
+| `FORCE_REDISCOVERY` | `false` | **No-op.** Historically bypassed the discovery cache; there is no cache left to bypass. |
+| `DISCOVERY_CACHE_TTL_MIN` | `10080` | **Retired — no-op.** Historically the discovery cache's age ceiling, minutes. |
+| `PARALLEL_WORKERS` | `8` | Threads for data fetch. |
 | `PARALLEL_WORKERS_DISCOVERY` | `8` | Threads for sheet discovery. |
 | `TIME_BUDGET_MINUTES` | `0` (code) / `165` (workflow) | Graceful stop budget in minutes. `0` disables the early-exit. The weekly workflow sets `165` (2h45m) with a matching runner `timeout-minutes: 180` (15min cushion for cache/artifact save steps); local runs default to disabled. Raised 2026-05-26 from `95`/`110`; Phase 2 bulk attribution prefetch (one `lookup_attribution_bulk` call instead of ~137k per-row RPCs) keeps normal runtime well under the cron interval. |
-| `ATTACHMENT_PREFETCH_MAX_MINUTES` | `10` | Phase sub-budget for the target-row attachment pre-fetch (introduced 2026-04-22). Passed as `timeout=` to `as_completed(...)` so the iterator itself raises `FuturesTimeoutError` if stuck HTTP calls prevent progress. When it fires, the consumer loop exits, in-flight threads are abandoned via `executor.shutdown(wait=False, cancel_futures=True)`, and the remaining rows fall back to per-row on-demand lookups. Also used by the pre-flight guard: if less than this many minutes remain in the session budget, pre-fetch is skipped entirely. |
-| `ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC` | `45` | Defensive per-future timeout passed to `future.result(timeout=...)` inside the pre-fetch consumer loop. In the current code path this is belt-and-suspenders — `as_completed` only yields already-done futures, so `.result()` returns immediately — but a future refactor that yielded not-yet-done futures would still degrade gracefully instead of raising. |
+| `ATTACHMENT_PREFETCH_MAX_MINUTES` | `10` | **Retired — no-op.** Historically the phase sub-budget for the bulk target-row attachment pre-fetch (introduced 2026-04-22, retired 2026-08-31). Attachment identity now resolves from `pipeline_memory.group_state`. |
+| `ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC` | `45` | **Retired — no-op.** Historically the per-future timeout inside the pre-fetch consumer loop; retired alongside the pre-fetch phase. |
 
 ## Change detection & history
 
@@ -823,7 +841,7 @@ All sub-budgets sit inside `TIME_BUDGET_MINUTES` (165) under the runner's
 | `EXTENDED_CHANGE_DETECTION` | `true` | Include foreman/dept in the diff check. |
 | `HISTORY_SKIP_ENABLED` | `true` | Skip groups with unchanged hash. |
 | `ATTACHMENT_REQUIRED_FOR_SKIP` | `true` | Only skip when the Smartsheet attachment exists. |
-| `RESET_HASH_HISTORY` | `false` | Wipe hash state and regenerate. |
+| `RESET_HASH_HISTORY` | `false` | Force every group to regenerate this run (D-02 trigger 5 against Supabase `pipeline_memory.group_state`). The variable name is a holdover from the retired `hash_history.json` cache it once reset directly. |
 | `KEEP_HISTORICAL_WEEKS` | `false` | Keep older week folders on disk. |
 
 ## Rate contract versioning

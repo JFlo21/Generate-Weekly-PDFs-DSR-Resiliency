@@ -1,14 +1,10 @@
 [
   "ARROWHEAD_DISCOUNT",
-  "ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC",
-  "ATTACHMENT_PREFETCH_MAX_MINUTES",
   "ATTRIBUTION_BULK_PREFETCH_FALLBACK",
   "BILLING_AUDIT_AVAILABLE",
-  "DISCOVERY_CACHE_VERSION",
   "EXCLUDE_WRS",
   "EXTENDED_CHANGE_DETECTION",
   "FORCE_REDISCOVERY",
-  "HASH_HISTORY_MAX_ENTRIES",
   "KEEP_HISTORICAL_WEEKS",
   "LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED",
   "NEW_RATES_CSV",
@@ -34,7 +30,6 @@
   "SUPABASE_HASH_STORE_WRITE_ENABLED",
   "TARGET_SHEET_ID",
   "TEST_MODE",
-  "USE_DISCOVERY_CACHE",
   "VAC_CREW_CLAIM_ATTRIBUTION_ENABLED",
   "VAC_CREW_FOLDER_IDS",
   "VAC_CREW_HASH_PRUNE_VERSION",
@@ -96,7 +91,6 @@
   "is_checked",
   "load_billing_audit_row_cache",
   "load_contract_rates",
-  "load_hash_history",
   "load_new_contract_rates",
   "load_subcontractor_rates",
   "main",
@@ -104,7 +98,6 @@
   "revert_subcontractor_price",
   "run_claimer_remediation",
   "save_billing_audit_row_cache",
-  "save_hash_history",
   "sentry_before_breadcrumb",
   "sentry_before_send_log"
 ]

@@ -1,10 +1,10 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-29 18:30 CDT (23:30Z) · **overwrite-in-place each session** (this is the
+_Last updated: 2026-08-31 21:15 CDT (02:15Z) · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
-_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-29 17:55]` (D-09 amended: streak counts weekend + manual runs; manual run 33277374958 parity pass; no standalone docs PRs). Earlier: `[2026-08-29 16:45]` (#369 + #370 merged; `.planning/` staging rule), `[2026-08-28 20:15]` (parity read back = pass; Notion counter export; real-WR residuals removed), `[2026-08-28 19:30]` (the 137: no findable target row — Smartsheet analysis), `[2026-08-28 19:00]` (first post-merge run verified; saving corrected), `[2026-08-28 18:45]` (#365 + #366 merged), `[2026-08-28 18:20]` (identifier scrub, #366), `[2026-08-28 18:05]` (decisions: no-target-row skip on #365; scrub option A), `[2026-08-28 17:10]` (#363 merged, 154-withheld = source-data shape), `[2026-08-28 16:05]` (sheet_registry fix on #363), `[2026-08-28 15:05]` (root cause + 154-withheld pattern), `[2026-08-28 12:05]` (#362), `[2026-08-27 21:10]` (verified pipeline truths from the
+_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-31 21:05]` (Gate-4 mypy re-baseline 65→68, zero accepted findings) and `[2026-08-31 20:44]` (Phase 11 shipped — the phase's operational rules). Earlier: `[2026-08-29 17:55]` (D-09 amended: streak counts weekend + manual runs; no standalone docs PRs), `[2026-08-29 16:45]` (#369 + #370 merged; `.planning/` staging rule), `[2026-08-28 20:15]` (parity read back = pass; Notion counter export; real-WR residuals removed), `[2026-08-28 19:30]` (the 137: no findable target row — Smartsheet analysis), `[2026-08-28 19:00]` (first post-merge run verified; saving corrected), `[2026-08-28 18:45]` (#365 + #366 merged), `[2026-08-28 18:20]` (identifier scrub, #366), `[2026-08-28 18:05]` (decisions: no-target-row skip on #365; scrub option A), `[2026-08-28 17:10]` (#363 merged, 154-withheld = source-data shape), `[2026-08-28 16:05]` (sheet_registry fix on #363), `[2026-08-28 15:05]` (root cause + 154-withheld pattern), `[2026-08-28 12:05]` (#362), `[2026-08-27 21:10]` (verified pipeline truths from the
 #360 review rounds — acceptance gate, group key, TEST_MODE/Supabase, Snapshot Date, reset purge, stale
 attachment, public-repo identifier rule). Earlier: `[2026-08-27 20:20]` (identity row = canonical row,
 ships with PR #361), `[2026-08-27 16:10]` (hash sort tiebreaker, #359).
@@ -18,7 +18,34 @@ budget 25), #355 (docs/hook), #359 (hash sort tiebreaker). **Merged 2026-08-28 0
 **3 of 5** since the 03:49Z fail — the pre-marker manual run does not count). Then: checklist item 6 SQL +
 items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-08-29 18:30 CDT) — D-09 amended (weekend + eligible manual runs count); manual run parity PASS; 11-08 gate = 3/5; #369 + #370 MERGED
+## Latest work (2026-08-31 22:00 CDT) — PR #373 review fix round pushed (Greptile 3/3 fixed + resolved)
+
+- **All three Greptile findings on PR #373 judged VALID and fixed** (commits `1c880a4` code,
+  `3bd2250` docs; pushed; all three review threads replied + resolved):
+  1. **Live skip-gate confirmation** — the `group_state` attachment stub proves last upload, not
+     current existence; new `_live_row_attachments()` (memoized per row per run, transport failure
+     → `None`, never memoized → regenerate) now backs both skip-gate call sites (target + PPP).
+     Delete-then-upload path keeps the stub cache (delete-by-stale-id is 404-tolerant).
+  2. **Fail-closed discovery** — a sheet failing validation after SDK retries now aborts the run
+     (`RuntimeError`, `_failed_validation_sids`) instead of silently dropping its billing rows.
+  3. **Runbook coverage** — 5 website pages rewritten for the cache retirement + new blog post
+     `2026-08-31-inc05-cache-retirement.md`; Docusaurus typecheck + build green.
+- Suite 1851 passed / 1 skipped; **6 gates ALL PASS**. Gate-4 baseline refrozen 68→70, zero
+  accepted findings (ledger `[2026-08-31 21:40]`); lesson: refreeze on Windows writes CRLF —
+  `test_golden_txt_baselines_contain_no_crlf` enforces LF, strip `\r` after regenerating.
+- **Six unresolved `chatgpt-codex-connector` review threads remain on #373** (orchestrate.py
+  2767/2796/2838/4363/4442, pipeline_memory/reader.py 557) — not in scope of the Greptile ask;
+  awaiting Juan's triage. Vault project page updated (`[2026-08-31g]`); auto-compact packet applied
+  and cleared.
+
+## Previous (2026-08-31 21:15 CDT) — GATE SATISFIED 5/5; retire-now; 11-08 EXECUTED; PR #373 open (INC-05 retirement)
+
+- **#371 + #372 MERGED 2026-08-31** (#372 squash = `d9bd2b2`; a pre-merge conflict from #371's squash-retarget was resolved on the branch — both files kept the branch's newer D-09-amendment content).
+- **D-09 gate SATISFIED the same day:** `get_parity_streak()` = **5 of 5** on merged master — contributing runs `33449808275.1 / 33429256710.1 / 33418485870.1 / 33407578625.1 / 33396264753.1` (all `production_frequent`, 2026-08-31 13:19Z–23:14Z; the 21:14Z `skipped` excluded, no fail). The two weekend `fail`s (Sun 19:11Z, Mon 01:31Z) were **root-caused to the documented deletion window**: one mid-week row deletion each (`row_state.deleted_at` stamped by the Monday deep run), invisible to the upsert-driven candidate — a real documented gap, not a selector defect. Open D-09 policy question for Juan: should a deletion-window-attributable `fail` reset the gate in future?
+- **Owner selected `retire-now` (2026-08-31);** decision re-recorded in `11-07-SUMMARY.md` with the real streak output. 11-08 executed on `feat/11-08-inc05-retirement` (cut from master post-merge, D-12 own-PR): pre-fetch phases + three local JSON caches + six workflow cache steps retired; `group_state.content_hash` sole skip gate; `sheet_registry` sole discovery store; operator flags regression-tested; suite 1845 passed, 6 gates green; Gate-4 mypy baseline refrozen 65→68 with **zero accepted findings** (ledger `[2026-08-31 21:05]`). **PR #373 OPEN** — Phase 11 closes when it merges.
+- **Next:** Juan reviews/merges #373 → first post-merge frequent run supplies the "after" wall-clock figure for `docs/run-memory-write-flip-checklist.md` (manual item, 11-VALIDATION.md) → phase verification/`/gsd:verify-work`. Pending owner items: Notion `Groups No Target Row` property; weekend cron 3→2 decision; deletion-window D-09 policy. `deferred-items.md` holds two doc-staleness findings. claude-mem worker was DOWN this session (ECONNREFUSED) — this file + the ledger are the continuity record.
+
+## Previous (2026-08-29 18:30 CDT) — D-09 amended (weekend + eligible manual runs count); manual run parity PASS; 11-08 gate = 3/5; #369 + #370 MERGED
 
 - **D-09 amended (owner, 2026-08-29): `get_parity_streak()` counts `production_frequent` + `weekend_maintenance` + `manual`**
   (`_PARITY_STREAK_EXECUTION_TYPES`; only the `weekly_comprehensive` deep run stays excluded — its verdicts neither count nor

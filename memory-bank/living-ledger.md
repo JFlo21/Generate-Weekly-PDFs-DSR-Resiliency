@@ -7888,3 +7888,123 @@ follow-up findings closed, same 6 files.
   mandatory but rides with the next substantive PR (phase step, fix, workflow change), held as local commits until
   then; a docs-only PR only when a document genuinely must land alone (an operator-facing runbook correction people
   are following). The Stop-hook write-back is satisfied by a vault page edit, which needs no PR.
+
+## [2026-08-31 20:44] Phase 11 shipped — incremental read + affected-group regeneration; INC-05 retirement
+
+- **The seven D-02 FULL-read escalation triggers, as shipped, and the rule that a safety
+  window alone never self-heals a schedule gap.** Per-sheet full read: (1) no
+  `sheet_registry` row or `last_sheet_version IS NULL` (new sheet); (2) `column_mapping`
+  drift detected during validation (never continue against a stale mapping — misgrouping is
+  a billing-integrity risk); (3) Smartsheet 401/403 on a sheet — isolate it, Sentry, do
+  **not** retry-as-full in a loop, leave its watermark unrefreshed so trigger (1) forces a
+  full read once access returns. Whole-run `mode='full'`: (4) Supabase/memory outage or
+  missing registry (the one place "fail-open toward Supabase" means doing *more* work, not
+  less); (5) any operator flag `RESET_HASH_HISTORY` / `REGEN_WEEKS` / `RESET_WR_LIST` /
+  `FORCE_GENERATION` — ignore the watermark for the flagged scope; (6) previous `run_ledger`
+  row has `status != 'success'` or `finished_at IS NULL` (a crashed run's partial watermark
+  is not a clean baseline); (7) `EXECUTION_TYPE` is not `production_frequent`. Every
+  fallback is recorded in `run_ledger.mode` + `notes.fallback_reason` — never silent, never
+  inferred from wall clock.
+- **Capture-time watermark persistence (D-01).** `last_read_at` is captured **immediately
+  before** the delta read is issued and persisted **as captured** (UTC-aware ISO-8601).
+  `SAFETY_WINDOW_MINUTES` is subtracted **only when building the query filter**
+  (`rows_modified_since = last_read_at − SAFETY_WINDOW_MINUTES`) — it is never subtracted
+  again at persist time. Persist-time subtraction double-subtracts the overlap every run and
+  buys no additional safety; the early design-spec draft that did this is superseded on this
+  point. Any future watermark-touching change must preserve this asymmetry.
+- **Frequent runs never detect deletions.** `rows_modified_since` / `if_version_after`
+  cannot surface an absence — a row that vanished from Smartsheet produces no delta event.
+  Deletion reconciliation, formula-only-change detection, and `sheet_registry.column_mapping`
+  refresh are therefore reserved for the weekly `weekly_comprehensive` deep run (identified
+  by cron identity, `0 5 * * 1` UTC, never by wall clock), which still performs a full
+  reconciliation pass every Monday regardless of the incremental flag.
+- **D-06: incremental mode performs zero deletions or prunes for untouched groups.** Every
+  consumer downstream of the affected-set scope restriction — attachment delete-then-upload,
+  `cleanup_untracked_sheet_attachments`, `KEEP_HISTORICAL_WEEKS` pruning, the change-detection
+  skip gate, summary counters — is either scoped to the affected groups or skipped entirely
+  for the run; nothing outside that scope is touched. Scoped counters are reported under
+  `run_ledger.mode = 'incremental'` so they are never mistaken for a full run's totals.
+- **The shadow-parity comparator (D-07/D-08).** While `RUN_MEMORY_INCREMENTAL_ENABLED` is
+  OFF, every `production_frequent` run still computes what the incremental path *would*
+  have regenerated (the affected-set candidate group keys) and compares it against what the
+  full path *actually* regenerated: group-key set equality plus per-group
+  `calculate_data_hash()` equality (the pipeline's own hash primitive, not a second
+  computation). The verdict — `pass` / `fail` / `skipped` — and its details live in
+  `run_ledger.notes`, never in the frozen `run_summary.json` 21(+1)-key contract. The block
+  is sub-budgeted and per-call-timeout-guarded (mirrors the retired
+  `ATTACHMENT_PREFETCH_MAX_MINUTES` pattern) so it can never threaten
+  `TIME_BUDGET_MINUTES=165`, and any internal failure yields `skipped` with a reason — a
+  comparison that did not run may never report `pass`.
+- **D-09 streak semantics, as amended 2026-08-29.** `get_parity_streak()` derives the streak
+  on demand from `run_ledger` — there is no counter column anywhere. It scans the newest rows
+  backward over `production_frequent`, `weekend_maintenance`, and `manual` (the last only
+  when `notes.streak_eligible` is true, i.e. the dispatch used production-equivalent inputs)
+  and stops at the deep run's different workload. A `pass` counts, a `fail` resets the walk
+  immediately, and `skipped` verdicts plus rows with no verdict at all are excluded from the
+  count without resetting it. A `pass` counts only when the row's `status = 'success'` — a
+  run that passed parity but then failed is excluded, not a reset, because no comparator
+  divergence occurred. A read failure (Supabase outage, missing table) means "cannot
+  confirm", never "satisfied" — the caller must treat `None` exactly like a `fail` for
+  authorisation purposes.
+- **The INC-05 retirement (this plan, 11-08).** Removed: the local
+  `generated_docs/hash_history.json`, `generated_docs/discovery_cache.json`, and
+  `generated_docs/billing_audit_frozen_rows.json` JSON caches; the two attachment pre-fetch
+  phases and their `ATTACHMENT_PREFETCH_MAX_MINUTES` / `ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC`
+  sub-budgets; and the six GitHub Actions `actions/cache/restore@v4` /
+  `actions/cache/save@v4 if: always()` steps that persisted those three files across runs.
+  `pipeline_memory.group_state.content_hash` is now the sole change-detection skip gate;
+  `discover_source_sheets()` validates every candidate sheet in full every run instead of
+  reading a TTL cache, with `pipeline_memory.sheet_registry` as the only place sheet identity
+  persists across runs; attachment identity for cleanup consumers resolves from `group_state`
+  first, falling back to the pre-existing per-row on-demand lookup on any miss. The operator
+  escalation flags (`RESET_HASH_HISTORY`, `REGEN_WEEKS`, `RESET_WR_LIST`, `FORCE_GENERATION`)
+  still force full regeneration, now via D-02 trigger 5 against `group_state` rather than a
+  JSON file on disk. Before/after frequent-run wall clock against the 94-minute baseline from
+  run `32743959053`: before = three consecutive `production_frequent` runs on 2026-08-31
+  (54.9, 57.6, 59.5 min — already well under baseline; a same-day 96.8 min outlier excluded
+  as post-weekend catch-up regeneration, not a pre-fetch slowdown); after = PENDING, recorded
+  once the first scheduled `production_frequent` run executes against the merged retirement
+  (`docs/run-memory-write-flip-checklist.md`).
+- **RULE — rollout ordering: a costly-to-revert removal is cut as its own PR strictly after
+  the evidence that authorises it, never bundled with the work that produced the evidence.**
+  This phase's own proof: plan 11-07 built `get_parity_streak` and recorded the streak
+  reading and the `retire-now` decision in its own PR; the INC-05 removals waited for that
+  decision and were re-verified against a fresh `get_parity_streak` read at this plan's Task
+  1 gate before a single retirement edit landed. A `fail` verdict in the window between the
+  two PRs would have withdrawn the authorisation.
+
+Reference: `.planning/phases/11-incremental-read-affected-group-regeneration/` (plans
+11-01 through 11-08, `11-CONTEXT.md` D-01 through D-12); retirement PR not yet opened as of
+this entry — branch `feat/11-08-inc05-retirement`, commit `3f25082` (Task 3) plus this ledger
+entry's own commit (Task 4).
+
+
+## [2026-08-31 21:05] Phase 11 Gate-4 mypy re-baseline 65 -> 68 — zero accepted findings (error set unchanged)
+
+- **Re-baseline hygiene record (per the Phase 09 rule, `da7d73c`): `tests/golden/mypy_baseline.txt` /
+  `mypy_baseline_count.txt` refrozen 65 -> 68 lines in `7279448`. Accepted findings: NONE.** The distinct
+  mypy ERROR set is unchanged — 28 errors in the same files before and after. The 3-line count delta is
+  untyped-function annotation NOTES whose line numbers shifted with Phase 10/11 growth of
+  `pipeline/orchestrate.py`, plus a file entering the checked set (25 vs the frozen 24). Proof: a
+  disposable `git worktree add --detach` at `a0b0432` (plan 11-08 Task 2, before any Task 3 edit) showed
+  the identical drift already present — it pre-dates the INC-05 retirement edits. The stale baseline dated
+  2026-08-24 (Phase 09 close). Full remediation narrative: `11-08-SUMMARY.md` "Plan-Level Gate
+  Remediation". Rule restated: a Gate-4 re-baseline names every accepted finding; when the error set is
+  proven unchanged, "none accepted" is that record.
+
+
+## [2026-08-31 21:40] PR #373 Greptile fix round — Gate-4 re-baseline 68 -> 70, zero accepted findings
+
+- **Re-baseline hygiene record (Phase 09 rule): `tests/golden/mypy_baseline.txt` /
+  `mypy_baseline_count.txt` refrozen 68 -> 70 lines. Accepted findings: NONE.** The mypy
+  ERROR set is byte-identical — 28 errors in 7 files (25 source files checked) before and
+  after. The +2 delta is `[annotation-unchecked]` NOTES only: line-number drift from the
+  ~40 lines added to `pipeline/orchestrate.py` for the live-attachment skip-gate
+  confirmation (`_live_row_attachments`), plus two genuinely new notes for annotated
+  locals inside untyped functions — `pipeline/discovery.py:540`
+  (`_failed_validation_sids: list = []`, the INC-05 fail-closed guard) and
+  `pipeline/orchestrate.py` (`_live_attachment_listings: dict = {}`, the live-listing
+  memo). Proof: `diff` of the frozen baseline vs current output shows every hunk is a
+  `note:` line; no `error:` line added, removed, or changed. Context: fixes for the three
+  Greptile review issues on PR #373 (stored-identity skip-gate bypass; partial-discovery
+  fail-open; runbook coverage of the cache retirement).

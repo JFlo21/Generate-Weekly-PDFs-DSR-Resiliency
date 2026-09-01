@@ -3847,11 +3847,16 @@ class TestHelperShadowVariantFileIdentifier(unittest.TestCase):
 
     def test_production_valid_wr_weeks_and_current_keys_carry_shadow_variant_gate(self):
         # Source-level guard: the shadow-variant gate lives ONCE in
-        # ``derive_group_identity`` and Sites 1, 2 and 3 must all call
-        # it (no inline gate may remain in ``main()``).
+        # ``derive_group_identity`` and Sites 1 and 2 must both call it
+        # (no inline gate may remain in ``main()``).
+        #
+        # Phase 11 Plan 08 (INC-05, D-12): the former Site 3 (the
+        # hash_history.json stale-key ``current_keys`` prune) is retired
+        # along with hash_history.json itself, so the count drops from 3
+        # to 2 -- test name kept for history-searchability.
         import inspect
-        import pipeline.orchestrate  # W6: Sites 1/2/3 live in main()
-        # Sites 1, 2 and 3 now share ONE definition,
+        import pipeline.orchestrate  # W6: Sites 1/2 live in main()
+        # Sites 1 and 2 now share ONE definition,
         # ``derive_group_identity`` (PR #361 follow-up), so the
         # three-tuple gate lives there once and every site must call
         # it -- drift between the sites is no longer possible.
@@ -3866,9 +3871,9 @@ class TestHelperShadowVariantFileIdentifier(unittest.TestCase):
         )
         main_src = inspect.getsource(pipeline.orchestrate.main)
         self.assertEqual(
-            main_src.count("= derive_group_identity("), 3,
-            "Sites 1, 2 and 3 must each call derive_group_identity "
-            "(update this count if you add an identity site)",
+            main_src.count("= derive_group_identity("), 2,
+            "Sites 1 and 2 must each call derive_group_identity "
+            "(update this count if you add or retire an identity site)",
         )
         self.assertNotIn(
             "_variant in ('helper', 'aep_billable_helper', "

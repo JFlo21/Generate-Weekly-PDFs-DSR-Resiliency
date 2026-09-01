@@ -263,7 +263,7 @@ CU pricing, rate recalculation, and billing formulas do not change.
   proof: incremental output set == full-run output set for ≥5 consecutive scheduled
   runs before the flag defaults ON.
 
-- [ ] **INC-05**: `hash_history.json`, `discovery_cache.json`,
+- [x] **INC-05**: `hash_history.json`, `discovery_cache.json`,
   `billing_audit_frozen_rows.json` and the attachment pre-fetch phases are retired only
   after INC-04; `group_state` holds attachment ids.
 
@@ -390,7 +390,7 @@ Which phases cover which requirements.
 | INC-02 | Phase 11 | Pending |
 | INC-03 | Phase 11 | Complete |
 | INC-04 | Phase 11 | Complete |
-| INC-05 | Phase 11 | Pending |
+| INC-05 | Phase 11 | Complete |
 | OWN-01 | Phase 12 | Pending |
 | OWN-02 | Phase 12 | Pending |
 | OWN-03 | Phase 12 | Pending |

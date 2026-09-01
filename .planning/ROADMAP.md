@@ -109,7 +109,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
   mode only, zero behavior change; fixture proof of `rowsModifiedSince` semantics for
   formula-only changes. (MEM-01..04)
 
-- [ ] **Phase 11: Incremental Read + Affected-Group Regeneration** — `ifVersionAfter` +
+- [x] **Phase 11: Incremental Read + Affected-Group Regeneration** — `ifVersionAfter` +
   `rowsModifiedSince` per sheet, regroup only touched (WR, week) from `row_state`,
   weekly deep run = full reconciliation, `RUN_MEMORY_INCREMENTAL_ENABLED` kill switch,
   parity proof, then retire local JSON caches + attachment pre-fetch. (INC-01..05)
@@ -609,7 +609,7 @@ files, reading group rows from `row_state`; the weekly deep run reconciles fully
 4. Local JSON caches and the two attachment pre-fetch phases are removed only after (2);
    frequent-run wall clock measured before/after (baseline 94 min, run 32743959053).
 
-**Plans:** 7/8 plans executed
+**Plans:** 8/8 plans executed
 
 Plans:
 **Wave 1**
@@ -642,7 +642,7 @@ Plans:
 
 **Wave 8** *(blocked on Wave 7's approved decision; its own PR, never bundled)*
 
-- [ ] 11-08-PLAN.md — INC-05 retirement: local JSON caches, attachment pre-fetch, six workflow cache steps, before/after wall clock, Phase 11 Living Ledger entry (wave 8, autonomous:false)
+- [x] 11-08-PLAN.md — INC-05 retirement: local JSON caches, attachment pre-fetch, six workflow cache steps, before/after wall clock, Phase 11 Living Ledger entry (wave 8, autonomous:false)
 
 ### Phase 12: Ownership — last known foreman as of the week
 

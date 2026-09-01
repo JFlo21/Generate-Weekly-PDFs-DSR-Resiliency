@@ -1,21 +1,21 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.4
-milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
+milestone_name: Supabase Run Memory — incremental billing pipeline
 current_phase: 11
 current_phase_name: Incremental Read + Affected-Group Regeneration
 status: executing
-stopped_at: Completed 11-07-PLAN.md (Task 2 DEFERRED by owner decision; INC-05 open; plan 11-08 not executed)
-last_updated: "2026-08-29T15:47:55.163Z"
+stopped_at: Completed 11-08-PLAN.md (INC-05 retirement shipped; Phase 11 fully closed)
+last_updated: "2026-09-01T02:00:32.400Z"
 last_activity: 2026-08-29
 last_activity_desc: Planning hygiene; 11-08 parity gate re-read (0/5, 3 passes to go)
-state_head: a085cfdf3e920fc86a7fdd9465e35917bc716a67
 progress:
   total_phases: 12
-  completed_phases: 3
+  completed_phases: 10
   total_plans: 46
-  completed_plans: 45
-  percent: 25
+  completed_plans: 46
+  percent: 83
+state_head: a085cfdf3e920fc86a7fdd9465e35917bc716a67
 ---
 
 # Project State
@@ -35,26 +35,26 @@ pipeline.
 
 ## Current Position
 
-Phase: 11 (Incremental Read + Affected-Group Regeneration) — EXECUTING
-Plan: 7 of 8 complete (11-07 DONE; the `state.advance-plan` counter reads
-  8/8 because it advances mechanically past the last-declared plan number,
-  but plan 11-08 (INC-05 retirement) is DEFERRED BY OWNER DECISION, not
-  executed -- see 11-07-SUMMARY.md "Checkpoint / Decisions"). 7 of 8 Phase 11
-  plans have a SUMMARY.md on disk. INC-05 stays open; the re-authorisation
-  path (flip PR merge + 5 consecutive scheduled `pass` verdicts) is recorded
-  in 11-07-SUMMARY.md.
-Status: 11-07 complete; 11-08 deferred (no further Phase 11 execution planned
-  until the owner re-opens the Task 2 decision per 11-07-SUMMARY.md).
-Last activity: 2026-08-29 — planning hygiene (milestone pointer v1.3 → v1.4 so the
-  tooling resolves Phases 10–13; stale v1.2 checkpoint + ingest report archived under
-  milestones/; config keys explicit). 11-08 gate re-read from run_ledger:
-  get_parity_streak() = 0 — the pre-#365 `fail` (2026-08-28 03:49Z) is still inside the
-  newest-first walk, which zeroes on any fail before the target. D-09 AMENDED by the owner
-  2026-08-29: the streak counts `production_frequent` + `weekend_maintenance` + `manual`
-  runs (`manual` only when `notes.streak_eligible` is true; a `pass` only on a `success`
-  row; only the weekly deep run is excluded). Counted passes since that fail: 17:04Z,
-  23:12Z, Sat 19:11Z = 3 of 5 (the 21:58Z manual run predates the marker and does not
-  count); two more counted passes reach the target and 11-07 Task 2 can be re-opened.
+Phase: 11 (Incremental Read + Affected-Group Regeneration) — COMPLETE
+Plan: 8 of 8 complete. All 8 Phase 11 plans have a SUMMARY.md on disk.
+  11-07 re-opened the INC-05 retirement decision on 2026-08-31 with a real
+  5/5 `get_parity_streak()` reading (option id `retire-now`); 11-08 executed
+  that authorisation on its own branch `feat/11-08-inc05-retirement`,
+  strictly after #371/#372 merged. INC-01 through INC-05 are all complete.
+Status: Phase 11 fully shipped. `group_state.content_hash` is the sole
+  change-detection skip gate; `sheet_registry` is the sole cross-run sheet-
+  identity store; the three local JSON caches, the two attachment pre-fetch
+  phases, and the six workflow cache steps are all retired. The "after"
+  frequent-run wall-clock figure remains PENDING until the first scheduled
+  `production_frequent` run executes against the merged retirement
+  (`docs/run-memory-write-flip-checklist.md`) -- a manual item, not a gap.
+Last activity: 2026-08-31 — 11-08 Tasks 2-4 executed (attachment pre-fetch
+  retirement, local-JSON-cache + workflow-cache-step retirement, Living
+  Ledger closing entry), plus a plan-level gate remediation (dropped a
+  retired `USE_DISCOVERY_CACHE` reference in `pipeline/observability.py`;
+  refroze the stale 2026-08-24 mypy Gate 4 baseline). `bash
+  scripts/run_6_gates.sh` = ALL 6 GATES PASSED; full suite 1845 passed / 1
+  skipped / 306 subtests.
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
@@ -65,7 +65,7 @@ Last activity: 2026-08-29 — planning hygiene (milestone pointer v1.3 → v1.4 
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [███░░░░░░░] 25% (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 at 7/8, 11-08 gated)
+Progress: [██████████] 100% (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped)
 ```
 
 ## Performance Metrics
@@ -120,6 +120,7 @@ Progress: [███░░░░░░░] 25% (v1.3 complete; v1.4 Phase 10 clo
 | Phase 11 P05 | 9min | 2 tasks | 5 files |
 | Phase 11 P06 | ~50min | 3 tasks | 7 files |
 | Phase 11 P07 | ~15min | 2 tasks | 2 files |
+| Phase 11 P08 | ~2h | 3 tasks | 35 files |
 
 ## Accumulated Context
 
@@ -236,6 +237,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 11]: [Phase 11] [Phase 11-06] group_state repair for a deletion is observability over the existing post-upload flush, not a second write -- a (wr, week_ending) pair whose last row is deleted produces no repair at all (documented limitation, WINDOWS.md id 2), since group_source_rows never assigns it to a group for the flush to see
 - [Phase ?]: [Phase 11] Task 1 precondition unmet (no real parity_verdict row exists yet); Juan approved code+unit-test work on the same basis already ruled for plans 11-05/11-06 (2026-08-26)
 - [Phase ?]: [Phase 11] 11-07 Task 2 GATE: Juan selected DEFER for the INC-05 retirement -- streak reading was 0/5 (no production_frequent parity_verdict rows exist; RUN_MEMORY_WRITE_ENABLED flip PR unmerged). Plan 11-08 does not execute this phase; INC-05 stays open pending flip PR merge + 5 consecutive scheduled pass verdicts.
+- [Phase ?]: [Phase 11] 11-08 INC-05 retirement shipped: group_state.content_hash sole skip gate, always-full sheet discovery via sheet_registry, six workflow cache steps removed; Phase 11 fully closed with dated Living Ledger entry
 
 ### Roadmap Evolution
 
@@ -369,8 +371,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-08-26T22:40:16.545Z
-**Stopped at:** Completed 11-07-PLAN.md (Task 2 DEFERRED by owner decision; INC-05 open; plan 11-08 not executed)
+**Last session:** 2026-09-01T02:00:32.371Z
+**Stopped at:** Completed 11-08-PLAN.md (INC-05 retirement shipped; Phase 11 fully closed)
 **Resume file:** None
 
 ## Session Continuity
