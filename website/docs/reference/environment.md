@@ -639,12 +639,18 @@ sweeps. The resolved state is printed at startup alongside
 `Unknown Foreman` / `#NO MATCH` claimer is no longer honoured — the next
 scheduled run resolves such rows from the CURRENT Smartsheet foreman and
 regenerates the file under the real name as soon as the WR is assigned.
-No hash reset is needed for that. What the scheduled run does **not** do
-is delete the stale `*_Unknown_Foreman*` attachment left by earlier runs,
-so after a batch of assignments run this sweep once (dry-run first). The
-run summary reports `sentinel_claimers_ignored` (rows resolved past a
-frozen sentinel this run) and `sentinel_freezes_deferred` (completed rows
-not frozen yet because no role held a real name).
+No hash reset is needed for that. What is **not** automatic is removing
+the stale `*_Unknown_Foreman*` attachment left by earlier runs: the
+every-run cleanup prunes only identities it processed, and this sweep in
+its isolated mode deliberately protects `_Unknown_Foreman` (only
+`_NO_MATCH` is swept, because without live identities a current
+unassigned-WR file is indistinguishable from a stale one). To clear the
+superseded file for a WR that now carries a real foreman, dispatch
+`reset_wr_list:<WR>` in `advanced_options` (purges that WR's attachments
+and regenerates all of its weeks) or delete it by hand. The run summary
+reports `sentinel_claimers_ignored` (rows resolved past a frozen sentinel
+this run) and `sentinel_freezes_deferred` (completed rows not frozen yet
+because no role held a real name).
 
 ### `REMEDIATION_DRY_RUN`
 

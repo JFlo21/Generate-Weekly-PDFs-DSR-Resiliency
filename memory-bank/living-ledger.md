@@ -8123,11 +8123,14 @@ Reference: `.planning/phases/11.1-post-inc-05-runtime-remediation/` (`11.1-CONTE
   a wall clock to a fix; the first true post-merge run is the first whose SHA is the merge commit
   or later. For #374 that is the 21:00Z schedule, not the 19:13Z run queued behind the 17:14Z one.
 
-## [2026-09-01 17:55] WR 91390743 "Thursday total ≠ rows" is a hand-edited copy, not a generation defect; claimer-correction gap re-confirmed as the Phase 12 sentinel / frozen-claimer problem (diagnosis only, no code change)
+## [2026-09-01 17:55] `<WR-D>` "Thursday total ≠ rows" is a hand-edited copy, not a generation defect; claimer-correction gap re-confirmed as the Phase 12 sentinel / frozen-claimer problem (diagnosis only, no code change)
 
-- **Symptom reported:** `WR_91390743_WeekEnding_083026_User_Raymond_Perez.xlsx` summary
+- **Aliases (public-repo rule, Round 16/18):** `<WR-D>` = the Work Request whose 2026-09-01
+  workbook the operator inspected; `<FOREMAN-D>` = its foreman. Real values live only in the
+  session scratchpad / Smartsheet, never in tracked files or PR text.
+- **Symptom reported:** `WR_<WR-D>_WeekEnding_083026_User_<FOREMAN-D>.xlsx` summary
   10,478.74, but the Thursday block's rows sum to 4,696.64 while its TOTAL cell says 5,221.15.
-- **Verified against the pipeline's own upload** on the target row (attachment 7258462615408516,
+- **Verified against the pipeline's own upload** on the target row (the attachment
   created 2026-08-28 00:36Z = "Report Generated On 08/27/2026 07:36 PM"): Wed 38 rows 5,257.59 /
   Thu 26 rows 2,887.43 / Fri 8 rows 2,333.72 = 72 rows = 10,478.74, every block TOTAL equals its
   rows. The inspected file is a *copy* last saved in Excel 16 by a person on 2026-09-01 21:48Z
@@ -8158,12 +8161,14 @@ Reference: `.planning/phases/11.1-post-inc-05-runtime-remediation/` (`11.1-CONTE
   (`billing_audit/schema.sql`), so a WR with no RA foreman at first generation stays on the
   sentinel forever; a *real* name frozen wrong is likewise permanent. Read-only count 2026-09-01:
   **5,829 rows / 94 WRs** frozen as `'Unknown Foreman'` (5,824 / 93 on 2026-08-24 — still
-  growing). WR 91390743 itself is clean (463 rows, all `Raymond Perez`, no helper / VAC rows).
+  growing). `<WR-D>` itself is clean (463 rows, all frozen to `<FOREMAN-D>`, no helper / VAC rows).
 - **Decision still owed (unchanged since [2026-08-24 15:30]):** spec §8 #1 (ownership semantics)
   and #5 (backfill sources) gate Phase 12 (OWN-01..04). Recommended first slice = OWN-02
-  (sentinel never frozen / never honored) + Juan-approved remediation SQL + `REMEDIATE_CLAIMERS`
-  sweep; the "real name frozen, later corrected" case needs the §5 ladder with a durable
-  correction record so the first capture survives as the shadow log.
+  (sentinel never frozen / never honored) + Juan-approved remediation SQL + a stale-sentinel
+  attachment cleanup (NOT the isolated `REMEDIATE_CLAIMERS` sweep — it deliberately protects
+  `_Unknown_Foreman` and removes only `_NO_MATCH`, `pipeline/attribution.py` WR-04); the "real
+  name frozen, later corrected" case needs the §5 ladder with a durable correction record so the
+  first capture survives as the shadow log.
 
 ## [2026-09-01 18:05] Phase 12 first slice SHIPPED (OWN-02, owner policy A): a sentinel is never a claimer — `resolve_claimer` reads a frozen sentinel as no-history; `freeze_row` nulls sentinel roles and defers all-sentinel freezes
 
@@ -8187,10 +8192,13 @@ Reference: `.planning/phases/11.1-post-inc-05-runtime-remediation/` (`11.1-CONTE
   NULL; its primary follows the current value until a remediation re-freeze.
 - **Effect on the 5,829 existing sentinel rows / 94 WRs:** read-side only — no data migration.
   Once the WR is assigned, the next scheduled run resolves those rows from the current foreman and
-  regenerates `_User_<name>`; the stale `_User_Unknown_Foreman` attachment still needs the
-  `REMEDIATE_CLAIMERS` sweep (dry-run first; `website/docs/reference/environment.md` updated).
-  Optional later cleanup: Juan-approved SQL to NULL/delete the sentinel rows so a real name can be
-  frozen for them.
+  regenerates `_User_<name>`; the stale `_User_Unknown_Foreman` attachment is NOT removed by the
+  scheduled run (the every-run cleanup prunes only identities it processed) nor by the isolated
+  `REMEDIATE_CLAIMERS` sweep (which deliberately protects `_Unknown_Foreman` and removes only
+  `_NO_MATCH` — Copilot review on #375 caught my wrong claim). Clear it per WR with
+  `reset_wr_list:<WR>` in `advanced_options` or by hand until a sentinel-aware cleanup rule is
+  approved (`website/docs/reference/environment.md` corrected). Optional later cleanup:
+  Juan-approved SQL to NULL/delete the sentinel rows so a real name can be frozen for them.
 - **Contract pins refrozen deliberately:** run_summary golden 22→24 keys
   (`tests/golden/run_summary_baseline.json`; key-count pins in `tests/test_incremental_read.py` ×2
   and `tests/test_parity_shadow.py`), `CountersTests.test_starts_at_zeros`, and both orchestrate
@@ -8213,11 +8221,29 @@ Reference: `.planning/phases/11.1-post-inc-05-runtime-remediation/` (`11.1-CONTE
   rows re-enter `_rows_to_freeze` every run — intended and RPC-free, but it can push a 1-row group
   into the ThreadPool branch; (c) first run after deploy flips the identity of every affected WR
   that now has a real foreman — expect a regeneration burst against `TIME_BUDGET_MINUTES=165` and
-  duplicate attachments (real name + stale `_Unknown_Foreman`) until the `REMEDIATE_CLAIMERS`
-  sweep; (d) a local TEST_MODE canary cannot exercise the frozen-sentinel read path (TEST_MODE
+  duplicate attachments (real name + stale `_Unknown_Foreman`) until a `reset_wr_list` purge or a
+  manual delete; (d) a local TEST_MODE canary cannot exercise the frozen-sentinel read path (TEST_MODE
   disables the Supabase client, so attribution is already "use current") — the first scheduled
   run's `sentinel_claimers_ignored` counter is the real canary; (e) fixed in the same PR: the
   `no_history` operator hint in `pipeline/grouping.py` no longer promises "this run freezes it"
   unconditionally, and `attribution_rows_held` is now mirrored in the second orchestrate pre-seed
   (pre-existing Gate-6 gap when the writer is unavailable).
-- **Shipped as PR #375** (`63d5de7`, branch `fix/own-02-sentinel-never-a-claimer`), open for owner review.
+- **PR #375 review round (Copilot ×5, Cursor ×1, Greptile ×1 — all valid, all fixed on the
+  branch):** (a) **Latent miss, now fixed:** the inline subcontractor-helper call in
+  `pipeline/grouping.py` passed the raw `datetime.datetime` week to `resolve_claimer`, while
+  `prefetch_attribution` keys its map by `datetime.date`; a datetime never equals a date, so that
+  path ALWAYS missed the map and silently used the current value — a real frozen helper was never
+  honoured there and the new sentinel branch was unreachable. The B/C/D pre-passes normalized
+  before calling, which is why only this site was affected, and the helper-shadow tests mock
+  `resolve_claimer`, which is why nothing caught it. Fix = coerce inside `resolve_claimer`
+  (`_coerce_week_ending`) so every caller hits the map; regression tests in
+  `PrefetchedMapWeekKeyTests`. **This activates frozen-wins on the subcontractor-helper path for
+  the first time** — a helper name frozen earlier now beats a later Smartsheet edit there, exactly
+  as it already did for primary / VAC / helper pre-pass rows. (b) My operator guidance that the
+  isolated `REMEDIATE_CLAIMERS` sweep drops stale `_Unknown_Foreman` files was WRONG (see the
+  corrected bullets above) — rule: read `_ALWAYS_GARBAGE_PATTERNS` before promising what a sweep
+  removes. (c) Real WR / foreman / attachment id scrubbed to `<WR-D>` / `<FOREMAN-D>` and the test
+  fixture to `Pat Example` per the Round 16/18 rule. (d) Greptile: the changelog entry now ends
+  with `PR #375` instead of the branch name (`d2dd41d`).
+- **Shipped as PR #375** (`63d5de7` + review-fix commits, branch
+  `fix/own-02-sentinel-never-a-claimer`), open for owner review.
