@@ -94,7 +94,7 @@ class SentinelPredicateTests(unittest.TestCase):
         from billing_audit.writer import is_sentinel_claimer
 
         for value in (
-            "Raymond Perez",
+            "Pat Example",
             "Pat Example",
             "Unknown Person",  # only the exact family, never a fuzzy match
             "Unknowns Crew",
@@ -117,12 +117,12 @@ class ResolveClaimerSentinelTests(unittest.TestCase):
         from billing_audit import writer as ba_writer
 
         out = _outcome(
-            "primary", "Raymond Perez",
+            "primary", "Pat Example",
             {"primary_foreman": "Unknown Foreman", "helper": None,
              "helper_dept": None, "vac_crew": None},
         )
         self.assertEqual(out.action, "use")
-        self.assertEqual(out.name, "Raymond Perez")
+        self.assertEqual(out.name, "Pat Example")
         self.assertEqual(out.source, "current")
         self.assertEqual(out.reason, "no_history")
         self.assertEqual(
@@ -150,11 +150,11 @@ class ResolveClaimerSentinelTests(unittest.TestCase):
             return_value=({"primary_foreman": "Unknown Foreman"}, "success"),
         ):
             out = resolve_claimer(
-                "primary", "Raymond Perez",
+                "primary", "Pat Example",
                 wr=_WR, week_ending=_WEEK, row_id=_ROW_ID, enabled=True,
             )
         self.assertEqual((out.name, out.source, out.reason),
-                         ("Raymond Perez", "current", "no_history"))
+                         ("Pat Example", "current", "no_history"))
 
     def test_real_frozen_name_still_wins(self):
         """Foundation A unchanged: a genuine frozen claim beats the
@@ -273,6 +273,51 @@ class FreezeRowSentinelTests(unittest.TestCase):
         # A blank role stays blank (the RPC already reads blank as NULL);
         # only NAMED sentinels are rewritten.
         self.assertEqual(params["p_vac_crew"], "")
+
+
+class PrefetchedMapWeekKeyTests(unittest.TestCase):
+    """The prefetched map is keyed by ``datetime.date`` while the inline
+    subcontractor-helper caller in ``group_source_rows`` passes the raw
+    ``datetime.datetime`` week (Copilot review, PR #375). Before the
+    coercion inside ``resolve_claimer`` that path always missed the map
+    and silently used the current value — a real frozen helper was never
+    honoured there, and the sentinel branch was unreachable."""
+
+    def setUp(self):
+        _reset_all()
+        for k in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "TEST_MODE"):
+            os.environ.pop(k, None)
+
+    def tearDown(self):
+        _reset_all()
+
+    def _resolve_with_datetime_week(self, frozen_helper, current):
+        from billing_audit.writer import resolve_claimer
+
+        return resolve_claimer(
+            "helper",
+            current,
+            wr=_WR,
+            week_ending=datetime.datetime(2026, 8, 30, 0, 0),
+            row_id=_ROW_ID,
+            enabled=True,
+            prefetched_map={(_WR, _WEEK, _ROW_ID): {"helper": frozen_helper}},
+        )
+
+    def test_datetime_week_hits_date_keyed_map_real_frozen_wins(self):
+        out = self._resolve_with_datetime_week("Sam Sample", "Kim Current")
+        self.assertEqual((out.action, out.name, out.source, out.reason),
+                         ("use", "Sam Sample", "frozen", "success"))
+
+    def test_datetime_week_hits_date_keyed_map_sentinel_uses_current(self):
+        from billing_audit import writer as ba_writer
+
+        out = self._resolve_with_datetime_week("Unknown Helper", "Kim Current")
+        self.assertEqual((out.name, out.source, out.reason),
+                         ("Kim Current", "current", "no_history"))
+        self.assertEqual(
+            ba_writer.get_counters()["sentinel_claimers_ignored"], 1
+        )
 
 
 class CounterSchemaTests(unittest.TestCase):
