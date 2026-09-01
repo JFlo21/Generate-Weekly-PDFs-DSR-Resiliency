@@ -7977,3 +7977,17 @@ Reference: `.planning/phases/11-incremental-read-affected-group-regeneration/` (
 11-01 through 11-08, `11-CONTEXT.md` D-01 through D-12); retirement PR not yet opened as of
 this entry — branch `feat/11-08-inc05-retirement`, commit `3f25082` (Task 3) plus this ledger
 entry's own commit (Task 4).
+
+
+## [2026-08-31 21:05] Phase 11 Gate-4 mypy re-baseline 65 -> 68 — zero accepted findings (error set unchanged)
+
+- **Re-baseline hygiene record (per the Phase 09 rule, `da7d73c`): `tests/golden/mypy_baseline.txt` /
+  `mypy_baseline_count.txt` refrozen 65 -> 68 lines in `7279448`. Accepted findings: NONE.** The distinct
+  mypy ERROR set is unchanged — 28 errors in the same files before and after. The 3-line count delta is
+  untyped-function annotation NOTES whose line numbers shifted with Phase 10/11 growth of
+  `pipeline/orchestrate.py`, plus a file entering the checked set (25 vs the frozen 24). Proof: a
+  disposable `git worktree add --detach` at `a0b0432` (plan 11-08 Task 2, before any Task 3 edit) showed
+  the identical drift already present — it pre-dates the INC-05 retirement edits. The stale baseline dated
+  2026-08-24 (Phase 09 close). Full remediation narrative: `11-08-SUMMARY.md` "Plan-Level Gate
+  Remediation". Rule restated: a Gate-4 re-baseline names every accepted finding; when the error set is
+  proven unchanged, "none accepted" is that record.
