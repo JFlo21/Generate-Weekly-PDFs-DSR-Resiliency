@@ -905,33 +905,36 @@ class TestVacCrewColumnFuzzyFallback(unittest.TestCase):
 
     def _run_discovery(self, mock_client, sheet_id=1413438401105796):
         """Invoke discover_source_sheets via a LIMITED_SHEET_IDS override
-        so only our fake sheet is validated, bypassing the cache."""
+        so only our fake sheet is validated.
+
+        Phase 11 Plan 08 (INC-05, D-12): discover_source_sheets() no
+        longer reads a discovery cache at all (generated_docs/discovery_
+        cache.json is retired) -- every candidate sheet is always fully
+        validated. USE_DISCOVERY_CACHE no longer exists on the facade;
+        FORCE_REDISCOVERY is kept set here for documentation purposes
+        only (it is a no-op now -- there is no cache left to bypass).
+        """
         saved_env = {
             'LIMITED_SHEET_IDS': os.environ.get('LIMITED_SHEET_IDS'),
-            'USE_DISCOVERY_CACHE': os.environ.get('USE_DISCOVERY_CACHE'),
             'FORCE_REDISCOVERY': os.environ.get('FORCE_REDISCOVERY'),
             'SUBCONTRACTOR_FOLDER_IDS': os.environ.get('SUBCONTRACTOR_FOLDER_IDS'),
             'ORIGINAL_CONTRACT_FOLDER_IDS': os.environ.get('ORIGINAL_CONTRACT_FOLDER_IDS'),
         }
         try:
             os.environ['LIMITED_SHEET_IDS'] = str(sheet_id)
-            os.environ['USE_DISCOVERY_CACHE'] = '0'
             os.environ['FORCE_REDISCOVERY'] = '1'
             os.environ['SUBCONTRACTOR_FOLDER_IDS'] = ''
             os.environ['ORIGINAL_CONTRACT_FOLDER_IDS'] = ''
             # Align module-level globals with the env overrides.
-            saved_use_cache = generate_weekly_pdfs.USE_DISCOVERY_CACHE
             saved_force = generate_weekly_pdfs.FORCE_REDISCOVERY
             saved_sub_folders = generate_weekly_pdfs.SUBCONTRACTOR_FOLDER_IDS
             saved_orig_folders = generate_weekly_pdfs.ORIGINAL_CONTRACT_FOLDER_IDS
-            generate_weekly_pdfs.USE_DISCOVERY_CACHE = False
             generate_weekly_pdfs.FORCE_REDISCOVERY = True
             generate_weekly_pdfs.SUBCONTRACTOR_FOLDER_IDS = []
             generate_weekly_pdfs.ORIGINAL_CONTRACT_FOLDER_IDS = []
             try:
                 return generate_weekly_pdfs.discover_source_sheets(mock_client)
             finally:
-                generate_weekly_pdfs.USE_DISCOVERY_CACHE = saved_use_cache
                 generate_weekly_pdfs.FORCE_REDISCOVERY = saved_force
                 generate_weekly_pdfs.SUBCONTRACTOR_FOLDER_IDS = saved_sub_folders
                 generate_weekly_pdfs.ORIGINAL_CONTRACT_FOLDER_IDS = saved_orig_folders
@@ -1035,16 +1038,25 @@ class TestVacCrewColumnFuzzyFallback(unittest.TestCase):
         # require the canonical slot resolves to exactly one of them once.
         self.assertIn(vac_helping_id, {1001, 1002})
 
-    def test_discovery_cache_version_bumped_to_4(self):
-        """The cache version must be bumped past v3 so existing caches
-        written before the fuzzy fallback are invalidated on next run."""
-        self.assertGreaterEqual(
-            generate_weekly_pdfs.DISCOVERY_CACHE_VERSION, 4,
-            "DISCOVERY_CACHE_VERSION must be >=4 so caches created before "
-            "the fuzzy fallback (v3) are invalidated, otherwise sheets like "
-            "1413438401105796 stay stuck with the old mapping for up to "
-            "DISCOVERY_CACHE_TTL_MIN (default 7d)."
-        )
+    def test_discovery_cache_constants_removed(self):
+        """Phase 11 Plan 08 (INC-05, D-12) REWRITES this test in place of
+        the retired ``test_discovery_cache_version_bumped_to_4``: the
+        on-disk discovery cache (and its schema-version invalidation
+        concept) is gone. Every run now fully re-validates every
+        candidate sheet, so a sheet like 1413438401105796 can never get
+        "stuck" with a stale mapping -- there is no cache left to be
+        stuck in.
+        """
+        for name in (
+            'DISCOVERY_CACHE_VERSION',
+            'DISCOVERY_CACHE_TTL_MIN',
+            'DISCOVERY_CACHE_PATH',
+            'USE_DISCOVERY_CACHE',
+        ):
+            self.assertFalse(
+                hasattr(generate_weekly_pdfs, name),
+                f"{name} should have been removed (Phase 11 Plan 08 / INC-05)",
+            )
 
 
 if __name__ == '__main__':

@@ -420,7 +420,11 @@ class TestVacCrewIdentitySitesAndDisplay(unittest.TestCase):
         )
         # Positive guard: the vac_crew branch lives once in the shared
         # derive_group_identity() and is gated on the kill switch there;
-        # Site 2 (like Sites 1 and 3) passes the run's switches into it.
+        # Site 2 (like Site 1) passes the run's switches into it.
+        # Phase 11 Plan 08 (INC-05, D-12): the former Site 3 (the
+        # hash_history.json stale-key ``current_keys`` prune) is retired
+        # along with hash_history.json itself, so the count drops from 3
+        # to 2.
         vc_idx = self._src.find(
             "    if variant == 'vac_crew':\n"
             "        _vc = first_row.get('__current_foreman', '')"
@@ -438,9 +442,9 @@ class TestVacCrewIdentitySitesAndDisplay(unittest.TestCase):
             "_identity_switches must carry VAC_CREW_CLAIM_ATTRIBUTION_ENABLED",
         )
         self.assertEqual(
-            self._src.count("**_identity_switches)"), 3,
-            "Sites 1, 2 and 3 must each pass the bound switches "
-            "(update this count if you add an identity site)",
+            self._src.count("**_identity_switches)"), 2,
+            "Sites 1 and 2 must each pass the bound switches "
+            "(update this count if you add or retire an identity site)",
         )
 
 
@@ -785,11 +789,13 @@ class TestVacCrewHashPrune(unittest.TestCase):
         self.assertIn('Vac crew hash-history prune', generate_weekly_pdfs._PII_LOG_MARKERS)
 
     def test_call_site_present_and_wired_to_migration_dirty(self):
-        # W5: VAC_CREW_HASH_PRUNE_VERSION + _run_vac_crew_hash_prune relocated
-        # to pipeline/attribution.py — grep facade (call site) + relocated
-        # module (constant) so the source guard follows the code.
+        # Phase 11 Plan 08 (INC-05, D-12): the hash_history.json call site
+        # is retired along with hash_history.json itself.
+        # _run_vac_crew_hash_prune stays defined in pipeline/attribution.py
+        # (harmless, uncalled) but pipeline.orchestrate.main() no longer
+        # invokes it. VAC_CREW_HASH_PRUNE_VERSION also stays defined.
         import pipeline.attribution
-        import pipeline.orchestrate  # W6: call site lives in main()
+        import pipeline.orchestrate  # W6: former call site lived in main()
         src = (
             pathlib.Path(inspect.getsourcefile(generate_weekly_pdfs)).read_text(encoding='utf-8')
             + "\n"
@@ -797,7 +803,7 @@ class TestVacCrewHashPrune(unittest.TestCase):
             + "\n"
             + pathlib.Path(inspect.getsourcefile(pipeline.orchestrate)).read_text(encoding='utf-8')
         )
-        self.assertIn('_run_vac_crew_hash_prune(hash_history, groups)', src)
+        self.assertNotIn('_run_vac_crew_hash_prune(hash_history, groups)', src)
         self.assertRegex(src, r'(?m)^VAC_CREW_HASH_PRUNE_VERSION = 1$')
 
 
@@ -862,13 +868,13 @@ class TestVacCrewProductionInvariants(unittest.TestCase):
         self.assertRegex(self._src, r'(?m)^VAC_CREW_HASH_PRUNE_VERSION = 1$')
 
     def test_prune_call_site_wired_to_migration_dirty(self):
-        # Tighter than a bare presence grep: confirm the prune call result
-        # flips _hash_history_migration_dirty (the no-update-run persistence).
-        self.assertRegex(
-            self._src,
-            r"if _run_vac_crew_hash_prune\(hash_history, groups\):\s*\n\s*_hash_history_migration_dirty = True",
-            "vac prune call must wire its True return into _hash_history_migration_dirty",
+        # Phase 11 Plan 08 (INC-05, D-12): the hash_history.json call site
+        # (and _hash_history_migration_dirty tracking) is retired along
+        # with hash_history.json itself.
+        self.assertNotIn(
+            '_run_vac_crew_hash_prune(hash_history, groups)', self._src,
         )
+        self.assertNotIn('_hash_history_migration_dirty', self._src)
 
     def test_four_identity_sites_carry_vac_claimer(self):
         # Belt-and-suspenders: none of the four vac_crew identity surfaces may

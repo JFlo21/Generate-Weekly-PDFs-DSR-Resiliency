@@ -20,9 +20,11 @@ TARGET_SHEET_ID=5723337641643908  # Default upload destination
 
 PERFORMANCE TUNING VARIABLES:
 ```bash
-# Caching & Discovery (Production Optimized)
-USE_DISCOVERY_CACHE=true          # 60min TTL cache for sheet discovery
-DISCOVERY_CACHE_TTL_MIN=60        # Cache lifetime in minutes
+# Discovery (Phase 11 Plan 08 / INC-05: the local discovery-cache JSON
+# file and its TTL are retired — every candidate sheet is validated in
+# full every run; cross-run sheet identity persists in
+# pipeline_memory.sheet_registry instead. USE_DISCOVERY_CACHE and
+# DISCOVERY_CACHE_TTL_MIN no longer exist.)
 EXTENDED_CHANGE_DETECTION=true    # Include foreman/dept/scope in hash
 
 # Processing Limits
@@ -58,11 +60,13 @@ SKIP_FILE_OPERATIONS=false       # Prevent actual file creation during testing
 DRY_RUN_UPLOADS=false           # Simulate upload operations without API calls
 MOCK_SMARTSHEET_UPLOAD=false    # Mock attachment upload for testing
 
-# Hash & History Management  
+# Hash & History Management (Phase 11 Plan 08 / INC-05: the local
+# hash-history JSON cache is retired — skip decisions now read
+# pipeline_memory.group_state.content_hash. HASH_HISTORY_PATH no
+# longer exists.)
 HISTORY_SKIP_ENABLED=true        # Allow skipping based on identical hash
 ATTACHMENT_REQUIRED_FOR_SKIP=true # Require attachment presence for skip
-RESET_HASH_HISTORY=false         # Delete ALL existing WR_*.xlsx files first
-HASH_HISTORY_PATH=generated_docs/hash_history.json # Custom path (security limited)
+RESET_HASH_HISTORY=false         # Force full regen (D-02 trigger 5); no local file to delete anymore
 
 # Selective Regeneration
 REGEN_WEEKS=081725,082425        # Force regenerate specific week endings

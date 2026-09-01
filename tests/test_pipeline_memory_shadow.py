@@ -1932,16 +1932,22 @@ class GroupStateFlushComputationTests(unittest.TestCase):
 
     def test_flush_positioned_after_both_existing_flushes_and_writer_call_guarded(self):
         """The group_state flush computation/call happens strictly AFTER
-        both the local hash-history flush and the durable hash-store
-        flush in source order, and the writer call is wrapped in its
-        own try/except -- so a raising writer cannot prevent (or ever
-        run before) the two earlier, production-critical flushes."""
+        the durable hash-store flush in source order, and the writer
+        call is wrapped in its own try/except -- so a raising writer
+        cannot prevent (or ever run before) the earlier,
+        production-critical flush.
+
+        Phase 11 Plan 08 (INC-05, D-12): the local hash-history (json)
+        flush this test used to also order against is retired along with
+        hash_history.json itself -- only the durable hash-store flush
+        and the group_state flush remain.
+        """
         import inspect
 
         import pipeline.orchestrate as orch
 
         src = inspect.getsource(orch)
-        json_flush_idx = src.index("Local hash-history entry withheld")
+        self.assertNotIn("Local hash-history entry withheld", src)
         durable_hash_idx = src.index("🧾 Durable hash store:")
         group_state_call_idx = src.index("_build_group_state_flush(")
         # The def-site is the FIRST occurrence; find the CALL site (the
@@ -1949,7 +1955,6 @@ class GroupStateFlushComputationTests(unittest.TestCase):
         group_state_call_idx = src.index(
             "_build_group_state_flush(", group_state_call_idx + 1,
         )
-        self.assertLess(json_flush_idx, durable_hash_idx)
         self.assertLess(durable_hash_idx, group_state_call_idx)
 
         writer_call_idx = src.index("_mem_writer.upsert_group_state(")

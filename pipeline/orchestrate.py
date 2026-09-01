@@ -84,9 +84,6 @@ from pipeline.config import (  # noqa: E402
     DEBUG_ESSENTIAL_ROWS,
     DEBUG_SAMPLE_ROWS,
     DISABLE_AUDIT_FOR_TESTING,
-    DISCOVERY_CACHE_PATH,
-    DISCOVERY_CACHE_TTL_MIN,
-    DISCOVERY_CACHE_VERSION,
     EXCLUDE_WRS,
     EXTENDED_CHANGE_DETECTION,
     FILTER_DIAGNOSTICS,
@@ -94,7 +91,6 @@ from pipeline.config import (  # noqa: E402
     FORCE_REDISCOVERY,
     FOREMAN_DIAGNOSTICS,
     GITHUB_ACTIONS_MODE,
-    HASH_HISTORY_PATH,
     HISTORY_SKIP_ENABLED,
     KEEP_HISTORICAL_WEEKS,
     LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED,
@@ -139,7 +135,6 @@ from pipeline.config import (  # noqa: E402
     TEST_MODE,
     TIME_BUDGET_MINUTES,
     UNMAPPED_COLUMN_SAMPLE_LIMIT,
-    USE_DISCOVERY_CACHE,
     VAC_CREW_CLAIM_ATTRIBUTION_ENABLED,
     VAC_CREW_FOLDER_IDS,
     VAC_CREW_LEGACY_CLEANUP_ENABLED,
@@ -152,8 +147,6 @@ from pipeline.config import (  # noqa: E402
     _audit_sheet_id_int,
     _coerce_sheet_id,
     _cutoff_str,
-    _default_hist_path,
-    _env_hist_path,
     _parse_sheet_ids,
     _remediation_window_env,
     _sanitize_csv_path,
@@ -216,7 +209,6 @@ from pipeline.utils import (  # noqa: E402
     _weekly_would_trigger_fallback,
 )
 from pipeline.change_detection import (  # noqa: E402
-    HASH_HISTORY_MAX_ENTRIES,
     _compute_aggregated_content_hash,
     _resolve_unchanged_for_skip,
     build_group_identity,
@@ -224,8 +216,6 @@ from pipeline.change_detection import (  # noqa: E402
     canonical_first_row,
     extract_data_hash_from_filename,
     list_generated_excel_files,
-    load_hash_history,
-    save_hash_history,
 )
 from pipeline.discovery import (  # noqa: E402
     _normalize_column_title_for_vac_crew,
@@ -258,7 +248,6 @@ from pipeline.upload import (  # noqa: E402
 )
 from pipeline.attribution import (  # noqa: E402
     BILLING_AUDIT_ROW_CACHE_MAX_ENTRIES,
-    BILLING_AUDIT_ROW_CACHE_PATH,
     PHASE_1_1_HASH_PRUNE_VERSION,
     SUBPROJECT_B_HASH_PRUNE_VERSION,
     SUBPROJECT_D_HASH_PRUNE_VERSION,
@@ -630,8 +619,10 @@ def _run_memory_write_phase(
     ``_run_phase2_incremental``) reads it to scope regeneration -- and
     it may do so ONLY when ``memory_confirmed`` below is True. The
     per-group skip/regenerate/upload gate itself still lives entirely
-    on the existing local ``hash_history.json`` / durable group hash
-    path (10-CONTEXT.md, plan success criteria).
+    on the local group_state content-hash / durable group hash path
+    (10-CONTEXT.md, plan success criteria; the local hash-history JSON
+    cache this comment used to name is retired -- Phase 11 Plan 08,
+    INC-05).
 
     Returns a dict of counts only (no PII, no per-row values):
     ``sheets_written``, ``sheets_errored``, ``rows_sent``,
@@ -2787,95 +2778,65 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         f"fallback covers every miss)"
                     )
 
-        # Load hash history AFTER optional purge so we don't rely on stale attachments
-        hash_history = load_hash_history(HASH_HISTORY_PATH)
-
         # ─────────────────────────────────────────────────────────
-        # Phase 1.1 SUB-12 / D-17..D-19: idempotent hash-history prune.
+        # Phase 11 Plan 08 (INC-05 retirement, CONTEXT.md D-12):
+        # the local hash-history JSON cache file is retired.
+        # pipeline_memory.group_state.content_hash is now the sole local
+        # change-detection skip gate; the four one-time migration prunes
+        # below (Phase 1.1 / Subproject B / Subproject C / Subproject D)
+        # operated on the retired hash_history dict and are removed --
+        # their kill-switch version constants and helper functions stay
+        # defined in pipeline/attribution.py (out of scope, harmless
+        # uncalled) but are no longer invoked here. Batch-fetch this run's
+        # group_state content hashes ONCE, mirroring the group_state
+        # attachment-identity pre-fetch above, so the skip-decision loop
+        # below does zero-I/O in-memory lookups per group.
         # ─────────────────────────────────────────────────────────
-        # Runs once per migration version. The constant
-        # ``PHASE_1_1_HASH_PRUNE_VERSION`` IS the kill switch (D-19);
-        # the helper handles the version-gate + simplified-D-18 scope
-        # detection + INFO logging. Mutates ``hash_history`` in place
-        # so the sentinel + dropped-orphan side-effects survive the
-        # subsequent ``save_hash_history`` write at end of run.
-        # ``groups`` was built upstream at the ``group_source_rows``
-        # call site; if grouping failed and execution reached here,
-        # the helper degrades gracefully (empty groups → empty
-        # _sub_wr_scope → no orphans dropped → sentinel still written).
-        # Codex P2: track whether either one-time migration prune mutated
-        # hash_history so we can persist it even on a run with no group
-        # updates (the history_updates-gated save below would otherwise skip
-        # it, making the migration re-run every no-update execution).
-        _hash_history_migration_dirty = False
-        try:
-            if _run_phase_1_1_hash_prune(hash_history, groups):
-                _hash_history_migration_dirty = True
-        except Exception as _prune_exc:
-            # Fail-safe per [2026-04-22 16:05] rule 4 — the prune
-            # is an optimization. A failed prune MUST NOT break the
-            # billing pipeline. Log + continue with the unmodified
-            # hash_history (the sentinel will not advance, the prune
-            # retries next run, the orphans remain harmless).
-            logging.warning(
-                f"⚠️ Phase 1.1 hash-history prune failed; continuing "
-                f"with existing history: {_prune_exc!r}"
-            )
+        _group_state_hashes: dict = {}
+        if not TEST_MODE and _group_state_wrs:
+            with sentry_sdk.start_span(
+                op="pipeline_memory.group_state_hashes",
+                name="Resolve content hashes from group_state",
+            ) as gsh_span:
+                _gsh_start = datetime.datetime.now()
+                _hash_rows_by_wr = _mem_reader.get_group_state_content_hashes_by_wr(
+                    _group_state_wrs
+                )
+                for _wr, _entries in _hash_rows_by_wr.items():
+                    for _entry in _entries:
+                        _week_ending = _entry.get('week_ending')
+                        _week_ending_iso = (
+                            _week_ending.isoformat()
+                            if hasattr(_week_ending, 'isoformat')
+                            else (_week_ending or '')
+                        )
+                        _key = (
+                            f"{_wr}|{_week_ending_iso}|"
+                            f"{_entry.get('variant') or ''}|"
+                            f"{_entry.get('identifier') or ''}"
+                        )
+                        _group_state_hashes[_key] = {
+                            'hash': _entry.get('content_hash'),
+                        }
+                _gsh_elapsed = (
+                    datetime.datetime.now() - _gsh_start
+                ).total_seconds()
+                gsh_span.set_data("wrs_resolved", len(_hash_rows_by_wr))
+                gsh_span.set_data("hashes_cached", len(_group_state_hashes))
+                logging.info(
+                    f"🧾 Resolved {len(_group_state_hashes)} content hashes "
+                    f"from group_state for {len(_hash_rows_by_wr)} WRs in "
+                    f"{_gsh_elapsed:.1f}s"
+                )
 
-        # Subproject B: one-time prune of legacy blank-identifier
-        # reduced_sub/aep_billable orphans (kill switch is the version
-        # constant). Fail-safe — a failed prune must not break the run.
-        try:
-            if _run_subproject_b_hash_prune(hash_history, groups):
-                _hash_history_migration_dirty = True
-        except Exception as _b_prune_exc:
-            logging.warning(
-                f"⚠️ Subproject B hash-history prune failed; continuing "
-                f"with existing history: {_b_prune_exc!r}"
-            )
-
-        # Subproject C: one-time prune of legacy blank-identifier vac_crew
-        # orphans (kill switch is the version constant). Fail-safe — a
-        # failed prune must not break the run.
-        try:
-            if _run_vac_crew_hash_prune(hash_history, groups):
-                _hash_history_migration_dirty = True
-        except Exception as _vc_prune_exc:
-            logging.warning(
-                f"⚠️ Vac crew hash-history prune failed; continuing "
-                f"with existing history: {_vc_prune_exc!r}"
-            )
-
-        # Subproject D: one-time prune of legacy blank-identifier primary
-        # orphans (kill switch is PRIMARY_CLAIM_ATTRIBUTION_ENABLED + the
-        # version constant). Fail-safe — a failed prune must not break the
-        # run.
-        try:
-            if _run_subproject_d_hash_prune(hash_history, groups):
-                _hash_history_migration_dirty = True
-        except Exception as _d_prune_exc:
-            logging.warning(
-                f"⚠️ Subproject D hash-history prune failed; continuing "
-                f"with existing history: {_d_prune_exc!r}"
-            )
-
+        # Phase 11 Plan 08 (INC-05, D-12): generated_docs/billing_audit_
+        # frozen_rows.json is retired. freeze_row / freeze_attribution are
+        # already idempotent ("first-write-wins", billing_audit/schema.sql),
+        # so this run-scoped dedupe set now starts empty every run instead
+        # of being warm-started from a persisted file -- the only cost is a
+        # few redundant (but safe) RPC calls per run.
         billing_audit_row_cache: set[str] = set()
         billing_audit_row_cache_dirty = False
-        if BILLING_AUDIT_AVAILABLE and not TEST_MODE:
-            billing_audit_row_cache = load_billing_audit_row_cache(
-                BILLING_AUDIT_ROW_CACHE_PATH
-            )
-            # Ensure the cache file exists on disk even when no rows have been
-            # frozen yet. The GitHub Actions cache/save step will fail with
-            # "Path does not exist" when the file is absent, which can happen
-            # on the very first run or when all rows were already cached from a
-            # prior run (billing_audit_row_cache_dirty stays False, so the
-            # save at the end of the run is skipped).  Writing an empty list
-            # now is cheap and makes the CI step reliably no-op safe.
-            if not os.path.exists(BILLING_AUDIT_ROW_CACHE_PATH):
-                save_billing_audit_row_cache(
-                    BILLING_AUDIT_ROW_CACHE_PATH, billing_audit_row_cache
-                )
         history_updates = 0
         _groups_skipped = 0
         _groups_skipped_no_target = 0
@@ -2919,16 +2880,6 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # exists" forever (root cause of the WR 11951363 / week 070526
         # incident, failed run 28752355941).
         _deferred_hash_upserts = []
-        # Codex P2 (PR #283): the LOCAL json hash_history entry is
-        # deferred through the SAME gate. The json cache is the
-        # documented fallback the skip gate consults on Supabase
-        # outage (fetch_failure/unavailable) and the sole decider when
-        # authoritative mode is OFF — persisting it at emission would
-        # let a failed/dry-run upload still be skipped as "unchanged"
-        # next run through that fallback, the same staleness one layer
-        # down. TEST_MODE keeps the immediate write (no upload phase
-        # exists there; see the emission-site comment).
-        _deferred_history_updates = []
 
         _phase_group_start = datetime.datetime.now()
         _time_budget_exceeded = False
@@ -3248,9 +3199,6 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 # (Copilot on PR #361; CR-01 documents the bug shape).
                 identifier, file_identifier = derive_group_identity(
                     first_row, **_identity_switches)
-                
-                # History key includes variant dimension to prevent collisions
-                history_key = f"{wr_num}|{week_raw}|{variant}|{identifier}"
 
                 # Sub-project E: ISO week-ending date for the durable
                 # Supabase hash store (group_content_hash.week_ending is a
@@ -3266,10 +3214,20 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     _wed = _wed.date()
                 week_iso = _wed.isoformat() if hasattr(_wed, 'isoformat') else ''
 
+                # Phase 11 Plan 08 (INC-05, D-12): history_key is now keyed
+                # by week_iso (matching group_state.week_ending, a DATE
+                # column) rather than week_raw (MMDDYY) -- the retired
+                # local hash-history JSON cache used week_raw because it
+                # was the only week value computed at this point;
+                # group_state's PK uses the ISO date, so the lookup key
+                # must too.
+                history_key = f"{wr_num}|{week_iso}|{variant}|{identifier}"
+
                 # Pre-compute hash-change state before any optional side-effects.
                 # Billing audit RPCs are the single most expensive per-group operation
                 # in steady state, so we can safely skip them when the group hash is
-                # unchanged versus hash_history (no row-content drift to freeze or emit).
+                # unchanged versus group_state.content_hash (no row-content drift to
+                # freeze or emit).
                 _history_eligible_for_skip = (
                     HISTORY_SKIP_ENABLED
                     and not (
@@ -3281,13 +3239,14 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 )
                 # Sub-project E: the unchanged decision now consults the
                 # durable Supabase hash store when authoritative, falling
-                # back to the local hash_history json cache on outage/miss.
-                # See _resolve_unchanged_for_skip for the full decision
-                # table. Default (authoritative OFF) is json-cache-only —
-                # byte-identical to the pre-E behavior.
+                # back to the group_state-sourced local cache on outage/miss
+                # (Phase 11 Plan 08 / INC-05 -- the local hash-history JSON
+                # cache is retired). See _resolve_unchanged_for_skip for
+                # the full decision table. Default (authoritative OFF) is
+                # group_state-cache-only.
                 _hash_unchanged = (
                     _resolve_unchanged_for_skip(
-                        history_key, data_hash, hash_history,
+                        history_key, data_hash, _group_state_hashes,
                         wr_num, week_iso, variant, identifier,
                         billing_audit_writer=getattr(_gwp, "_billing_audit_writer", None),
                     )
@@ -3831,34 +3790,19 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     )
                     _upload_tasks.extend(_new_upload_tasks)
 
-                # Update hash history with variant-aware key. TEST_MODE
-                # writes immediately (documented intent: "so future
-                # prod runs can leverage"; there is no upload phase to
-                # defer against). Production defers the entry through
-                # the post-upload flush gate — the json cache is the
-                # skip gate's fallback when Supabase is unreachable and
-                # its sole source when authoritative mode is OFF, so it
-                # must obey the same "hash advances only after ALL
-                # upload legs succeed" contract as the durable store
-                # (Codex P2, PR #283).
-                _history_entry = {
-                    'hash': data_hash,
-                    'rows': len(group_rows),
-                    'updated_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                    'foreman': first_row.get('__current_foreman'),
-                    'week': week_raw,
-                    'variant': variant,
-                    'identifier': identifier,
-                }
+                # Phase 11 Plan 08 (INC-05, D-12): the local hash-history
+                # JSON cache is retired. group_state.content_hash (via the existing
+                # _deferred_group_state append below) is now the sole local
+                # change-detection record. TEST_MODE has no upload phase to
+                # defer against (and _deferred_group_state is itself gated
+                # `not TEST_MODE`), so history_updates advances immediately
+                # here for TEST_MODE, exactly mirroring its pre-retirement
+                # immediate-write count; the production count is derived from
+                # the group_state flush outcome below (mirrors the "hash
+                # advances only after ALL upload legs succeed" contract the
+                # retired json cache obeyed).
                 if TEST_MODE:
-                    hash_history[history_key] = _history_entry
                     history_updates += 1
-                else:
-                    _deferred_history_updates.append({
-                        'group_key': group_key,
-                        'history_key': history_key,
-                        'entry': _history_entry,
-                    })
 
                 # Sub-project E: durable per-group content hash for
                 # Supabase (billing_audit.group_content_hash). Gated on
@@ -4388,7 +4332,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             # delete-then-upload next run, never a stale file reported
             # as current. upsert_group_hash is fail-safe/no-op when
             # Supabase is unavailable and never raises past the guard.
-            if _deferred_history_updates or (
+            if (
                 SUPABASE_HASH_STORE_WRITE_ENABLED
                 and _deferred_hash_upserts
             ) or (
@@ -4405,46 +4349,18 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     )
                     if _res == 'error':
                         _group_had_error[_gk] = True
-                # Codex P2 (PR #283, repair-path): withholding the NEW
-                # hash is not enough when a forced/regen run was
-                # repairing a group whose STORED hash already equals
-                # the computed one (exactly the incident-remediation
-                # scenario) — if the re-upload then fails, the stale
-                # stored hash would let the next non-forced run skip
-                # the group and the repair would never retry. For
-                # groups withheld due to a REAL upload 'error' we
-                # therefore actively invalidate both layers: pop the
-                # json entry, and overwrite the durable row with a
-                # 'withheld:'-prefixed sentinel that can never equal a
-                # computed SHA256 (lookup mismatches -> regenerate;
+                # Codex P2 (PR #283, repair-path): a group withheld due to
+                # a REAL upload 'error' has the durable row overwritten
+                # with a 'withheld:'-prefixed sentinel that can never
+                # equal a computed SHA256 (lookup mismatches -> regenerate;
                 # the next successful upload overwrites it).
                 # 'skip_upload' (SKIP_UPLOAD dry-run) does NOT
                 # invalidate — a local dry run must never mutate prod
-                # change-detection state in either direction.
-                # Local json cache first (Codex P2, PR #283): it is the
-                # fallback layer the skip gate consults on Supabase
-                # outage and the sole decider with authoritative OFF,
-                # so it must never advance for a withheld group. Note
-                # this flush is NOT gated on the Supabase write flag —
-                # the json contract holds in every mode.
-                _json_withheld = 0
-                for _rec in _deferred_history_updates:
-                    if not _group_upload_ok.get(_rec['group_key']):
-                        _json_withheld += 1
-                        if _group_had_error.get(_rec['group_key']):
-                            if hash_history.pop(
-                                _rec['history_key'], None,
-                            ) is not None:
-                                history_updates += 1
-                        continue
-                    hash_history[_rec['history_key']] = _rec['entry']
-                    history_updates += 1
-                if _json_withheld:
-                    logging.warning(
-                        f"⚠️ Local hash-history entry withheld for "
-                        f"{_json_withheld} group(s) whose upload did "
-                        f"not complete — they will regenerate next run"
-                    )
+                # change-detection state in either direction. Phase 11
+                # Plan 08 (INC-05, D-12): the local json hash_history
+                # cache this comment used to describe is retired --
+                # group_state.content_hash (flushed below) is now the
+                # sole local record obeying this contract.
                 if (
                     SUPABASE_HASH_STORE_WRITE_ENABLED
                     and _deferred_hash_upserts
@@ -4514,6 +4430,16 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                                 _upload_tasks, _mem_attachment_side_channel,
                             )
                         )
+                        # Phase 11 Plan 08 (INC-05, D-12): history_updates
+                        # (frozen run_summary.json key) previously counted
+                        # local hash-history JSON cache entries actually
+                        # written after upload success; group_state.content_hash
+                        # is now that record, so the count moves here -- one per
+                        # group _build_group_state_flush determined should
+                        # be persisted (mirrors the retired json write,
+                        # which also counted on the decision, not on a
+                        # disk-write success check).
+                        history_updates += len(_mem_group_records)
                         if _mem_group_withheld:
                             _mem_writer.bump_group_state_withheld(
                                 _mem_group_withheld
@@ -4785,79 +4711,14 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             logging.info(f"   • Anomalies: {audit_summary.get('total_anomalies', 0)}")
             logging.info(f"   • Data Issues: {audit_summary.get('total_data_issues', 0)}")
         
-        # Persist hash history if updated
-        if history_updates:
-            # Prune stale hash_history entries for groups no longer in source data.
-            # Only prune on FULL runs (not time-budget-truncated runs, and --
-            # Phase 11 Plan 03, CONTEXT.md D-06 -- not incremental runs) to
-            # avoid deleting entries for groups that simply weren't reached
-            # this run. Incremental mode is the same class of "did not reach
-            # every group" as a time-budget-truncated run: `groups` is a
-            # strict subset of the live groups, so `current_keys` below would
-            # be too, and pruning against it would delete hash-history entries
-            # for every untouched WR.
-            if not _time_budget_exceeded and _resolved_mode == 'full':
-                current_keys = set()
-                for key, group_rows in groups.items():
-                    if '_' in key:
-                        # Identity row -- the canonical (hash-order) first
-                        # row, mirroring Site 1; never arrival-order
-                        # group_rows[0].
-                        _first = canonical_first_row(group_rows)
-                        _wr_raw = _first.get('Work Request #')
-                        _wr = str(_wr_raw).split('.')[0] if _wr_raw else ''
-                        # Codex P2: apply the same filesystem-safety
-                        # sanitizer used by the main loop (line ~4493)
-                        # so the current_keys tuple matches the
-                        # history_key actually written for this group.
-                        # Without this, any WR# containing
-                        # sanitization-sensitive characters would have
-                        # its freshly-written entry treated as stale
-                        # and deleted before save, so hash-skip could
-                        # never persist across runs for those WRs.
-                        _wr = _RE_SANITIZE_HELPER_NAME.sub('_', _wr)[:50]
-                        _week = key.split('_',1)[0]
-                        _variant = _first.get('__variant', 'primary')
-                        # CR-01 gap closure (Site 3 — mirror of Site 1): the
-                        # history-key identifier from the ONE shared
-                        # definition, so the prune key matches Site 1's
-                        # history_key byte-for-byte.
-                        _ident, _ = derive_group_identity(
-                            _first, **_identity_switches)
-                        current_keys.add(f"{_wr}|{_week}|{_variant}|{_ident}")
-                stale_keys = [k for k in hash_history if k not in current_keys]
-                if stale_keys:
-                    for sk in stale_keys:
-                        del hash_history[sk]
-                    logging.info(f"🧹 Pruned {len(stale_keys)} stale hash history entries (groups no longer in source data)")
-            elif _resolved_mode != 'full':
-                # Phase 11 Plan 03 (D-06): suppressed because this run was
-                # incremental, not because nothing was stale -- log the
-                # distinction and the count of keys the skip preserved so
-                # an operator reading the run log can tell the two apart.
-                logging.info(
-                    f"⏭️ Hash-history stale-key prune skipped (incremental "
-                    f"run, D-06): preserved {len(hash_history)} key(s) not "
-                    f"processed this run."
-                )
-            save_hash_history(HASH_HISTORY_PATH, hash_history)
-        elif _hash_history_migration_dirty:
-            # Codex P2: no group updates this run, but a one-time migration
-            # prune (Phase 1.1 / Subproject B / Subproject C) mutated hash_history. Persist
-            # it now so the migration is durable and does not re-run every
-            # execution. Do NOT run the stale-prune on this path — groups
-            # were not fully processed, so current_keys would be incomplete
-            # and could delete freshly-skipped live entries.
-            save_hash_history(HASH_HISTORY_PATH, hash_history)
-        if (
-            BILLING_AUDIT_AVAILABLE
-            and not TEST_MODE
-            and billing_audit_row_cache_dirty
-        ):
-            save_billing_audit_row_cache(
-                BILLING_AUDIT_ROW_CACHE_PATH,
-                billing_audit_row_cache,
-            )
+        # Phase 11 Plan 08 (INC-05, D-12): the local hash-history JSON
+        # cache and the local billing_audit frozen-rows JSON cache are
+        # both retired -- no end-of-run prune or save for either.
+        # group_state.content_hash
+        # (flushed above, per group, right after upload) is the sole local
+        # change-detection record now; billing_audit_row_cache stays an
+        # in-run-only dedupe set (freeze_row / freeze_attribution are
+        # already idempotent, so nothing is lost by not persisting it).
 
         # Phase 10 (MEM-01/MEM-03): run_ledger 'finish' row. Same guard
         # shape as the start hook. Reuses already-computed counters --
@@ -5019,7 +4880,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 "source_sheets": len(source_sheets) if 'source_sheets' in dir() else 0,
                 "total_rows_fetched": len(all_rows) if 'all_rows' in dir() else 0,
                 "groups_created": len(groups),
-                "hash_history_entries": len(hash_history) if 'hash_history' in dir() else 0,
+                "group_state_hashes_resolved": len(_group_state_hashes) if '_group_state_hashes' in dir() else 0,
                 "api_calls_upload": _api_calls_count,
             })
             sentry_add_breadcrumb("session", "Session completed successfully", level="info", data={

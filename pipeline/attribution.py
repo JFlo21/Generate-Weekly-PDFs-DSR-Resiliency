@@ -65,12 +65,15 @@ logger = logging.getLogger(__name__)
 # version. The constant IS the kill switch — advance to trigger a
 # one-time prune of subcontractor primary orphan entries (the
 # pre-Bug-B1 partitioning leftovers); leave at the current value to
-# skip the prune. Mirrors the DISCOVERY_CACHE_VERSION pattern above.
-# Persisted into ``hash_history.json`` under the
-# ``_phase_prune_version`` sentinel key (the extended
-# ``load_hash_history`` filter preserves underscore-prefixed sentinels
-# and the hardened ``save_hash_history`` retention sort tolerates the
-# int-valued sentinel — see the helpers below).
+# skip the prune. Historically mirrored the (now also retired)
+# discovery-cache schema-version pattern.
+#
+# Phase 11 Plan 08 (INC-05, D-12): the local hash-history JSON cache
+# this sentinel used to persist into is retired, along with the
+# ``load_hash_history`` / ``save_hash_history`` helpers that carried it
+# across the JSON round trip. ``_run_phase_1_1_hash_prune`` (below)
+# stays defined and its one-time-migration fixture-level tests keep
+# passing, but pipeline.orchestrate.main() no longer calls it.
 PHASE_1_1_HASH_PRUNE_VERSION = 2
 # Subproject B (2026-05-20): one-time hash-history prune version for
 # dropping LEGACY blank-identifier `reduced_sub` / `aep_billable`
@@ -96,9 +99,15 @@ VAC_CREW_HASH_PRUNE_VERSION = 1
 SUBPROJECT_D_HASH_PRUNE_VERSION = 1
 
 
-BILLING_AUDIT_ROW_CACHE_PATH = os.path.join(
-    OUTPUT_FOLDER, "billing_audit_frozen_rows.json"
-)
+# Phase 11 Plan 08 (INC-05, D-12): BILLING_AUDIT_ROW_CACHE_PATH (and the
+# frozen-rows JSON cache file it pointed at) is retired.
+# load_billing_audit_row_cache / save_billing_audit_row_cache
+# stay defined (generic, path-parameterized) but are no longer called by
+# pipeline.orchestrate -- freeze_row / freeze_attribution are already
+# idempotent ("first-write-wins", billing_audit/schema.sql), so the
+# in-run billing_audit_row_cache set now starts empty every run instead
+# of being warm-started from a persisted file; the only cost is a few
+# redundant (but safe) RPC calls per run.
 BILLING_AUDIT_ROW_CACHE_MAX_ENTRIES = 200000
 
 
@@ -298,8 +307,9 @@ def _run_phase_1_1_hash_prune(hash_history: dict, groups: dict) -> bool:
         #   gap closure): ALSO subcontractor legacy helper orphans
         #   (variant=='helper', 6 parts, any foreman/dept/job) left behind
         #   after Task 1 stops emitting the legacy `_HELPER_<name>` key for
-        #   subcontractor rows. Both are pre-fix leftovers in
-        #   hash_history.json on existing deployments.
+        #   subcontractor rows. Both were pre-fix leftovers in the local
+        #   hash-history JSON cache on existing deployments (that cache
+        #   is retired -- Phase 11 Plan 08, INC-05).
         # IN-01 (review follow-up): the ``_hk_variant == 'helper'`` clause
         # intentionally matches a 'helper' key at ANY part count, not just
         # the documented 6-part production shape. Real production helper

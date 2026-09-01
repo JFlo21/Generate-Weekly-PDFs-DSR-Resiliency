@@ -501,6 +501,99 @@ def get_group_state_attachments_by_wr(
     return resolved
 
 
+def get_group_state_content_hashes_by_wr(
+    wrs: 'set[Any] | list[Any]',
+) -> dict:
+    """Batch-resolve ``group_state``'s stored ``content_hash`` for a set
+    of WR numbers -- Phase 11 Plan 08's (INC-05, D-12) replacement for the
+    retired ``generated_docs/hash_history.json`` change-detection cache.
+
+    Selects ``wr, week_ending, variant, identifier, content_hash`` for
+    every ``group_state`` row whose ``wr`` is in *wrs*, chunked at
+    ``_MAPPING_CHUNK_SIZE`` WR values per query (same discipline as
+    ``get_group_state_attachments_by_wr`` / ``map_affected_to_sheets``).
+    Returns a dict keyed by ``wr`` -> a list of ``{'week_ending',
+    'variant', 'identifier', 'content_hash'}`` dicts (one entry per
+    (week_ending, variant, identifier, target_sheet_id) group_state knows
+    for that WR). A row missing ``content_hash`` is skipped -- that group
+    has never durably stored a hash, so the caller's skip decision must
+    treat it as CHANGED (regenerate), never as an unconfirmed match.
+
+    Returns ``{}`` on: empty/falsy input (zero calls), a ``None`` client,
+    ANY chunk's transport/breaker failure, or a chunk's ``None`` response
+    payload -- in every case the affected WRs are simply absent from the
+    returned dict, which the caller (``pipeline.change_detection.
+    _resolve_unchanged_for_skip``) reads identically to "no group_state
+    row for this WR yet" and returns False (regenerate) -- the same
+    fail-safe direction ``load_hash_history`` took on a read failure.
+    Unlike an attachment-identity miss, a content-hash miss can only ever
+    narrow toward regeneration, never toward a wrong skip, so a failed
+    chunk safely continues to the next chunk instead of discarding the
+    whole call.
+    """
+    if not wrs:
+        return {}
+
+    wr_list = sorted({w for w in wrs if w}, key=str)
+    if not wr_list:
+        return {}
+
+    client = get_client()
+    if client is None:
+        return {}
+
+    resolved: dict[Any, list[dict[str, Any]]] = {}
+    wr_chunks = [
+        wr_list[i:i + _MAPPING_CHUNK_SIZE]
+        for i in range(0, len(wr_list), _MAPPING_CHUNK_SIZE)
+    ]
+    for chunk_idx, wr_chunk in enumerate(wr_chunks):
+        def _invoke(_wrs=wr_chunk):
+            return (
+                client.schema("pipeline_memory")
+                .table("group_state")
+                .select("wr,week_ending,variant,identifier,content_hash")
+                .in_("wr", list(_wrs))
+                .execute()
+            )
+
+        result = with_retry(_invoke, op="group_state_content_hashes_by_wr")
+        if result is None:
+            logging.warning(
+                "get_group_state_content_hashes_by_wr: chunk %d/%d failed "
+                "(transport or circuit-breaker failure) -- those WRs "
+                "resolve as CHANGED (regenerate) instead",
+                chunk_idx + 1, len(wr_chunks),
+            )
+            continue
+
+        rows = getattr(result, "data", None)
+        if rows is None:
+            logging.warning(
+                "get_group_state_content_hashes_by_wr: chunk %d/%d "
+                "returned a None response payload -- those WRs resolve "
+                "as CHANGED (regenerate) instead",
+                chunk_idx + 1, len(wr_chunks),
+            )
+            continue
+
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            wr = row.get("wr")
+            content_hash = row.get("content_hash")
+            if wr is None or not content_hash:
+                continue
+            resolved.setdefault(wr, []).append({
+                "week_ending": row.get("week_ending"),
+                "variant": row.get("variant"),
+                "identifier": row.get("identifier"),
+                "content_hash": content_hash,
+            })
+
+    return resolved
+
+
 def get_parity_streak(limit: int = _PARITY_STREAK_DEFAULT_LIMIT) -> dict | None:
     """Derive the D-09 consecutive-pass parity streak from ``run_ledger``.
 

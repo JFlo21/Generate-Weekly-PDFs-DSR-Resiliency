@@ -383,15 +383,20 @@ class SortTiebreakTests(unittest.TestCase):
 
 
 class IdentitySitesUseCanonicalRowTests(unittest.TestCase):
-    """Codex / Copilot on PR #361: the three orchestrate identity sites
-    (Site 1 main-loop identifier / history_key, Site 2 valid_wr_weeks,
-    Site 3 current_keys prune) must read helper dept / job, claimer and
-    User from the canonical row, never from arrival-order group_rows[0]
-    -- or a stable hash is looked up under an unstable history_key, the
-    prior key is pruned, and a mixed-department helper group regenerates
-    and re-uploads every run.
+    """Codex / Copilot on PR #361: the orchestrate identity sites
+    (Site 1 main-loop identifier / history_key, Site 2 valid_wr_weeks)
+    must read helper dept / job, claimer and User from the canonical
+    row, never from arrival-order group_rows[0] -- or a stable hash is
+    looked up under an unstable history_key and a mixed-department
+    helper group regenerates and re-uploads every run.
 
-    The three sites are inline in ``pipeline.orchestrate.main`` (no test
+    Phase 11 Plan 08 (INC-05, D-12): Site 3 (the hash_history.json
+    stale-key ``current_keys`` prune) is RETIRED along with hash_history.json
+    itself -- group_state.content_hash needs no equivalent prune (its
+    growth is bounded by actual distinct groups ever generated, not a
+    JSON file needing size management), so only Sites 1 and 2 remain.
+
+    The two sites are inline in ``pipeline.orchestrate.main`` (no test
     in this suite drives that function -- see
     test_deep_run_reconciliation / test_incremental_read), so the wiring
     is pinned at source level, the repository's existing practice for
@@ -451,11 +456,16 @@ class IdentitySitesUseCanonicalRowTests(unittest.TestCase):
 
     def test_each_identity_site_binds_the_canonical_row(self):
         for marker in ("CR-01 gap closure (Site 1",
-                       "CR-01 gap closure (Site 2",
-                       "CR-01 gap closure (Site 3"):
+                       "CR-01 gap closure (Site 2"):
             at = self._src.index(marker)
             self.assertIn("canonical_first_row(group_rows)",
                           self._src[max(0, at - 5000):at], marker)
+
+    def test_site_3_stale_key_prune_is_retired(self):
+        # Phase 11 Plan 08 (INC-05, D-12): the retired Site 3 marker must
+        # not reappear -- its underlying hash_history.json stale-key
+        # prune is gone, not merely renamed.
+        self.assertNotIn("CR-01 gap closure (Site 3", self._src)
 
 
 if __name__ == "__main__":

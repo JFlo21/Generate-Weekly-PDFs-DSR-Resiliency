@@ -132,17 +132,19 @@ CREATE INDEX IF NOT EXISTS idx_pipeline_run_wr_week_created_at
 -- matching the engine's '{wr}|{week}|{variant}|' json key.
 --
 -- This durable store replaces (when SUPABASE_HASH_STORE_AUTHORITATIVE)
--- the role of (a) the ephemeral local hash_history.json and (b) the
--- 16-char hash token embedded in the attachment filename. Once a row
--- exists here, generated filenames no longer need to carry the hash.
+-- the role of (a) the ephemeral local hash-history JSON cache (Phase 11
+-- Plan 08 / INC-05: that local cache is retired -- pipeline_memory
+-- group_state.content_hash is its replacement) and (b) the 16-char hash
+-- token embedded in the attachment filename. Once a row exists here,
+-- generated filenames no longer need to carry the hash.
 --
 -- OPERATOR: this DDL must be applied to the Supabase project and the
 -- PostgREST schema cache reloaded (NOTIFY pgrst, 'reload schema';)
 -- before the store can be read/written. Until then the lookup surfaces
 -- as 'fetch_failure' (creds are configured but the table/schema cache
 -- isn't ready — a PGRST/SQLSTATE error; PGRST106 also trips the run-
--- global kill), and the pipeline falls back to hash_history.json and
--- behaves exactly as before (fail-safe to regenerate).
+-- global kill), and the pipeline falls back to group_state.content_hash
+-- and behaves exactly as before (fail-safe to regenerate).
 CREATE TABLE IF NOT EXISTS billing_audit.group_content_hash (
     wr            TEXT        NOT NULL,
     week_ending   DATE        NOT NULL,

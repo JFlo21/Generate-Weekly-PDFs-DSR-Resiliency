@@ -100,9 +100,6 @@ from pipeline.config import (  # noqa: E402
     DEBUG_ESSENTIAL_ROWS,
     DEBUG_SAMPLE_ROWS,
     DISABLE_AUDIT_FOR_TESTING,
-    DISCOVERY_CACHE_PATH,
-    DISCOVERY_CACHE_TTL_MIN,
-    DISCOVERY_CACHE_VERSION,
     EXCLUDE_WRS,
     EXTENDED_CHANGE_DETECTION,
     FILTER_DIAGNOSTICS,
@@ -110,7 +107,6 @@ from pipeline.config import (  # noqa: E402
     FORCE_REDISCOVERY,
     FOREMAN_DIAGNOSTICS,
     GITHUB_ACTIONS_MODE,
-    HASH_HISTORY_PATH,
     HISTORY_SKIP_ENABLED,
     KEEP_HISTORICAL_WEEKS,
     LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED,
@@ -146,7 +142,6 @@ from pipeline.config import (  # noqa: E402
     TEST_MODE,
     TIME_BUDGET_MINUTES,
     UNMAPPED_COLUMN_SAMPLE_LIMIT,
-    USE_DISCOVERY_CACHE,
     VAC_CREW_CLAIM_ATTRIBUTION_ENABLED,
     VAC_CREW_FOLDER_IDS,
     VAC_CREW_LEGACY_CLEANUP_ENABLED,
@@ -160,8 +155,6 @@ from pipeline.config import (  # noqa: E402
     _audit_sheet_id_int,
     _coerce_sheet_id,
     _cutoff_str,
-    _default_hist_path,
-    _env_hist_path,
     _parse_sheet_ids,
     _remediation_window_env,
     _sanitize_csv_path,
@@ -523,15 +516,12 @@ from pipeline.utils import (  # noqa: E402
 # _resolve_unchanged_for_skip now takes the billing_audit writer as an explicit
 # kwarg (D-06); main()'s call site below injects _billing_audit_writer.
 from pipeline.change_detection import (  # noqa: E402
-    HASH_HISTORY_MAX_ENTRIES,
     _compute_aggregated_content_hash,
     _resolve_unchanged_for_skip,
     build_group_identity,
     calculate_data_hash,
     extract_data_hash_from_filename,
     list_generated_excel_files,
-    load_hash_history,
-    save_hash_history,
 )
 
 # ── Phase 09 W3: discovery relocated to pipeline/discovery.py (D-02) ──────
@@ -599,7 +589,6 @@ from pipeline.upload import (  # noqa: E402
 )
 from pipeline.attribution import (  # noqa: E402
     BILLING_AUDIT_ROW_CACHE_MAX_ENTRIES,
-    BILLING_AUDIT_ROW_CACHE_PATH,
     PHASE_1_1_HASH_PRUNE_VERSION,
     SUBPROJECT_B_HASH_PRUNE_VERSION,
     SUBPROJECT_D_HASH_PRUNE_VERSION,

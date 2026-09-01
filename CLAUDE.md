@@ -151,9 +151,12 @@ Understanding the flow requires reading across several files — the "big pictur
 ```
 Smartsheet API
    ↓ (folder-based discovery via SUBCONTRACTOR_FOLDER_IDS,
-   ↓  ORIGINAL_CONTRACT_FOLDER_IDS, and VAC_CREW_FOLDER_IDS, cached for
-   ↓  DISCOVERY_CACHE_TTL_MIN minutes — default 10080 = 7 days — in
-   ↓  generated_docs/discovery_cache.json)
+   ↓  ORIGINAL_CONTRACT_FOLDER_IDS, and VAC_CREW_FOLDER_IDS. Every
+   ↓  candidate sheet is validated in full every run — the local
+   ↓  discovery-cache JSON file and its TTL are retired (Phase 11
+   ↓  Plan 08, INC-05); cross-run sheet identity now lives solely in
+   ↓  `pipeline_memory.sheet_registry`. FORCE_REDISCOVERY still exists
+   ↓  on the facade for runbook/back-compat reasons but is a no-op.)
 Auto-discover source sheets → validate column mappings (synonyms for
    "Weekly Reference Logged Date", helper_dept, helper_foreman, Job #)
    ↓
@@ -177,7 +180,9 @@ Resolve attachment identity from `pipeline_memory.group_state`
    attachment it needs to prune.
    ↓
 Change detection: SHA256 hash per group key →
-   skip unchanged (generated_docs/hash_history.json, capped at 1000 entries)
+   skip unchanged (`pipeline_memory.group_state.content_hash`, keyed
+   `wr, week_ending, variant, identifier`; the local hash-history JSON
+   cache this replaced is retired — Phase 11 Plan 08, INC-05)
    ↓
 Excel generation (openpyxl) — logo, headers, formatting, totals
    Use safe_merge_cells() (overlap detection); never write oddFooter.right.text
@@ -206,9 +211,9 @@ All behavior is controlled by `os.getenv()` with defaults. Full reference lives 
 - `SKIP_UPLOAD`, `SKIP_CELL_HISTORY`
 - `RES_GROUPING_MODE` ∈ {`primary`, `helper`, `both`} (default `both`)
 - `TEST_MODE`, `FORCE_GENERATION`, `WR_FILTER` (comma list), `MAX_GROUPS`
-- `RESET_HASH_HISTORY=true` for full CI regeneration (hash history is ephemeral in CI)
+- `RESET_HASH_HISTORY=true` for full CI regeneration (forces `group_state`-backed change detection to treat every group as changed; D-02 trigger 5)
 - `REGEN_WEEKS` (MMDDYY list), `RESET_WR_LIST`, `KEEP_HISTORICAL_WEEKS`
-- `DISCOVERY_CACHE_TTL_MIN` (default `10080` = 7 days), `USE_DISCOVERY_CACHE`, `EXTENDED_CHANGE_DETECTION`
+- `EXTENDED_CHANGE_DETECTION` — `DISCOVERY_CACHE_TTL_MIN` / `USE_DISCOVERY_CACHE` retired (Phase 11 Plan 08, INC-05; discovery now validates every sheet every run)
 - Time-budget family (GitHub Actions only):
   - `TIME_BUDGET_MINUTES` — session graceful-stop budget. Default `0`
     (disabled) for local runs; the weekly workflow sets `165` (2h45m).
@@ -300,7 +305,7 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
 
 ## Critical Pitfalls (Known Footguns)
 
-- **Hash history is ephemeral in CI** — set `RESET_HASH_HISTORY=true` to force full regeneration.
+- **Change detection is `pipeline_memory.group_state`-backed, not a local JSON cache** — the local hash-history/discovery-cache/billing-audit-frozen-rows JSON files and their GitHub Actions cache steps were retired in Phase 11 Plan 08 (INC-05); set `RESET_HASH_HISTORY=true` to force full regeneration regardless.
 - **Excel corruption** — always use `safe_merge_cells()` (overlap-detecting); never write `oddFooter.right.text`.
 - **Job #** — populated by checking multiple column-name variations (`Job #`, `Job#`, `Job Number`, …); do not collapse the synonyms.
 - **GitHub Actions 10-input limit** — keep the `advanced_options` `key:value,key:value` parser intact.

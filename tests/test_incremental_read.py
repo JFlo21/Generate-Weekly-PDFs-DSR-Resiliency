@@ -822,22 +822,55 @@ class WatermarkPersistenceTests(unittest.TestCase):
         self.assertEqual(len(data), 22)
         self.assertIn("groups_skipped_no_target_row", data)
 
-    def test_workflow_and_schema_untouched(self):
-        """git diff --exit-code equivalent for the two protected paths."""
+    def test_schema_untouched(self):
+        """git diff --exit-code equivalent for pipeline_memory/schema.sql.
+
+        Zero schema drift is a hard requirement across the whole phase
+        (CLAUDE.md-adjacent hard rule cited by every plan in this phase),
+        unlike the workflow file below -- which 11-08 Task 3 is explicitly
+        authorised to edit.
+        """
         import subprocess
 
         result = subprocess.run(
             [
                 "git", "diff", "--exit-code", "--",
-                ".github/workflows/", "pipeline_memory/schema.sql",
+                "pipeline_memory/schema.sql",
             ],
             cwd=str(_REPO_ROOT),
             capture_output=True,
         )
         self.assertEqual(
             result.returncode, 0,
-            f"protected paths were modified:\n{result.stdout.decode()}",
+            f"pipeline_memory/schema.sql was modified:\n{result.stdout.decode()}",
         )
+
+    def test_workflow_caches_retired_but_schedule_and_budget_survive(self):
+        """Phase 11 Plan 08 (INC-05, D-12) replaces the earlier blanket
+        "workflow untouched" guard: Task 3 legitimately removes the six
+        ``actions/cache/restore@v4`` / ``actions/cache/save@v4`` steps that
+        carried the three retired local JSON caches. This test pins the
+        post-retirement invariant instead -- zero cache steps, and the
+        schedule / budget / advanced_options parser byte-preserved -- so a
+        future change cannot silently reintroduce a cache step or drift the
+        protected schedule/budget fields.
+        """
+        workflow_path = (
+            _REPO_ROOT / ".github" / "workflows"
+            / "weekly-excel-generation.yml"
+        )
+        text = workflow_path.read_text(encoding="utf-8")
+        self.assertEqual(
+            text.count("actions/cache/"), 0,
+            "actions/cache/restore@v4 or actions/cache/save@v4 step found "
+            "-- the six INC-05 cache steps must stay retired",
+        )
+        for anchor in (
+            "timeout-minutes: 180",
+            "TIME_BUDGET_MINUTES",
+            "advanced_options",
+        ):
+            self.assertIn(anchor, text)
 
 
 # ── 11-03 Task 1 (D-06 attachment preservation): keep_historical
@@ -1045,126 +1078,48 @@ class OrchestrateKeepHistoricalWiringTests(unittest.TestCase):
         self.assertNotIn('os.environ["KEEP_HISTORICAL_WEEKS"]', src)
         self.assertNotIn("os.environ['KEEP_HISTORICAL_WEEKS']", src)
 
-# ── 11-03 Task 2 (D-06 hash-history preservation): gate the stale-key
-# prune on full mode as well as the existing time-budget guard ─────────
+# ── Phase 11 Plan 08 (INC-05, D-12) RETIREMENT of 11-03 Task 2's
+# D-06 hash-history stale-key prune ─────────────────────────────────
 
-class HashHistoryPruneTests(unittest.TestCase):
-    """CONTEXT.md D-06's hash-history half: the stale-key prune's
-    existing time-budget guard in ``pipeline.orchestrate.main`` is
-    WIDENED (not replaced) to also require the resolved run mode be
-    'full'. The prune block is deeply nested inside ``main()`` (not a
-    standalone function), so behavior is pinned the same way
-    ``tests/test_security_audit_followup.py::TestHashHistoryPruneUsesSanitizedWr``
-    already pins this exact code region: replicate the verified-by-
-    source-inspection gate/derivation locally against a small fixture.
+class HashHistoryPruneRetiredTests(unittest.TestCase):
+    """CONTEXT.md D-06's hash-history half -- the stale-key prune's
+    time-budget + full-mode gate in ``pipeline.orchestrate.main`` --
+    is RETIRED along with ``generated_docs/hash_history.json`` itself
+    (Phase 11 Plan 08, INC-05, D-12). group_state.content_hash needs no
+    equivalent stale-key prune: its growth is bounded by actual distinct
+    (wr, week_ending, variant, identifier, target_sheet_id) groups ever
+    generated, not a JSON file needing size management, and nothing ever
+    iterates the whole store the way the retired prune did.
+
+    Replaces (does not silently delete) the previously 7-test
+    ``HashHistoryPruneTests`` class -- 3 of those tests pinned the
+    retired production gate/save-flow source text directly; the other 4
+    exercised a local fixture replica of that gate's logic, which is now
+    dead-code trivia once the gate it modeled is gone.
     """
 
-    @staticmethod
-    def _gate(time_budget_exceeded, mode):
-        return not time_budget_exceeded and mode == 'full'
-
-    @staticmethod
-    def _apply(hash_history, current_keys, time_budget_exceeded, mode):
-        history = dict(hash_history)
-        if HashHistoryPruneTests._gate(time_budget_exceeded, mode):
-            stale_keys = [k for k in history if k not in current_keys]
-            for sk in stale_keys:
-                del history[sk]
-        return history
-
-    def test_gate_condition_matches_source_byte_for_byte(self):
+    def test_stale_key_prune_gate_removed_from_source(self):
         import inspect
         import pipeline.orchestrate as orch
 
         src = inspect.getsource(orch.main)
-        self.assertIn(
+        self.assertNotIn(
             "if not _time_budget_exceeded and _resolved_mode == 'full':",
             src,
         )
+        self.assertNotIn("stale_keys = [k for k in hash_history", src)
+        self.assertNotIn("save_hash_history(HASH_HISTORY_PATH, hash_history)", src)
+        self.assertNotIn("_hash_history_migration_dirty", src)
 
-    def test_full_mode_not_exceeded_prunes_stale_keys_as_today(self):
-        hash_history = {
-            "90001|041926|primary|": {"hash": "a"},
-            "STALE|041926|primary|": {"hash": "b"},
-        }
-        current_keys = {"90001|041926|primary|"}
-        result = self._apply(
-            hash_history, current_keys, time_budget_exceeded=False, mode="full",
-        )
-        self.assertEqual(set(result), {"90001|041926|primary|"})
-
-    def test_full_mode_time_budget_exceeded_skips_as_today(self):
-        hash_history = {
-            "90001|041926|primary|": {"hash": "a"},
-            "STALE|041926|primary|": {"hash": "b"},
-        }
-        current_keys = {"90001|041926|primary|"}
-        result = self._apply(
-            hash_history, current_keys, time_budget_exceeded=True, mode="full",
-        )
-        self.assertEqual(result, hash_history)
-
-    def test_incremental_mode_preserves_every_key_regardless_of_time_budget(self):
-        # The load-bearing case: current_keys (derived from this run's
-        # strict-subset `groups`) holds one key, hash_history holds
-        # several -- an incremental run must not prune ANY of them.
-        hash_history = {
-            "90001|041926|primary|": {"hash": "a"},
-            "90002|041926|primary|": {"hash": "b"},
-            "90003|041926|primary|": {"hash": "c"},
-        }
-        current_keys = {"90001|041926|primary|"}
-        for time_budget_exceeded in (False, True):
-            with self.subTest(time_budget_exceeded=time_budget_exceeded):
-                result = self._apply(
-                    hash_history, current_keys,
-                    time_budget_exceeded=time_budget_exceeded, mode="incremental",
-                )
-                self.assertEqual(result, hash_history)
-
-    def test_zero_keys_removed_for_strict_subset_groups_in_incremental_mode(self):
-        hash_history = {
-            f"9000{i}|041926|primary|": {"hash": str(i)} for i in range(5)
-        }
-        current_keys = {"90000|041926|primary|"}
-        result = self._apply(
-            hash_history, current_keys, time_budget_exceeded=False, mode="incremental",
-        )
-        self.assertEqual(len(result), len(hash_history))
-        self.assertEqual(set(result), set(hash_history))
-
-    def test_history_updates_write_stays_outside_the_gate(self):
+    def test_group_state_flush_has_no_stale_key_prune_equivalent(self):
+        # group_state.content_hash is the sole change-detection skip gate
+        # now (INC-05); it accumulates via upsert and is never bulk-pruned
+        # by discovery/orchestrate logic in this codebase.
         import inspect
         import pipeline.orchestrate as orch
 
         src = inspect.getsource(orch.main)
-        if_idx = src.index("if history_updates:")
-        elif_idx = src.index("elif _hash_history_migration_dirty:", if_idx)
-        block = src[if_idx:elif_idx]
-        # save_hash_history must be called exactly once in this block,
-        # unconditionally at the `if history_updates:` level -- never
-        # only inside the mode/time-budget-gated prune.
-        self.assertEqual(
-            block.count("save_hash_history(HASH_HISTORY_PATH, hash_history)"), 1,
-        )
-
-    def test_incremental_skip_is_logged_with_preserved_key_count(self):
-        import inspect
-        import pipeline.orchestrate as orch
-
-        src = inspect.getsource(orch.main)
-        self.assertIn("elif _resolved_mode != 'full':", src)
-        elif_idx = src.index("elif _resolved_mode != 'full':")
-        gate_idx = src.index(
-            "if not _time_budget_exceeded and _resolved_mode == 'full':"
-        )
-        # The suppressed-path elif must be the sibling of the widened
-        # gate `if` above (same prune block), not some unrelated
-        # elif elsewhere in main().
-        self.assertLess(gate_idx, elif_idx)
-        self.assertLess(elif_idx - gate_idx, 9000)
-        block = src[elif_idx:elif_idx + 500]
-        self.assertIn("len(hash_history)", block)
+        self.assertIn("history_updates += len(_mem_group_records)", src)
 
 
 # ── 11-03 Task 3 (D-06 off-contract gates): pin the already-safe
