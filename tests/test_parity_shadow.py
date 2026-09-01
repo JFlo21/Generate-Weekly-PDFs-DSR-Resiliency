@@ -204,7 +204,8 @@ class GoldenContractTests(unittest.TestCase):
         baseline_path = _REPO_ROOT / "tests" / "golden" / "run_summary_baseline.json"
         with open(baseline_path, encoding="utf-8") as fh:
             baseline = json.load(fh)
-        self.assertEqual(len(baseline), 22)  # 21 + PR #365's counter
+        # 21 + PR #365's counter + 2 Phase 12 / OWN-02 sentinel counters
+        self.assertEqual(len(baseline), 24)
 
 
 # ── Task 3 (D-08): shadow delta reads + the read-side assertion ───────────

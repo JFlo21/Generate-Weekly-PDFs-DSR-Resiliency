@@ -20,5 +20,7 @@
   "snapshots_already_frozen": 0,
   "snapshots_errored": 0,
   "fingerprint_changes_detected": 0,
-  "attribution_rows_held": 0
+  "attribution_rows_held": 0,
+  "sentinel_claimers_ignored": 0,
+  "sentinel_freezes_deferred": 0
 }

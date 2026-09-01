@@ -8110,3 +8110,113 @@ Reference: `.planning/phases/11.1-post-inc-05-runtime-remediation/` (`11.1-CONTE
 - Tests: `BulkListingCeilingParseTests` (6) + `DiscoverySkipIndexAnnotationTests` (1) in
   `tests/test_incremental_read.py`, RED confirmed before implementation. Suite 1892 passed /
   1 skipped / 312 subtests; ALL 6 GATES PASSED.
+
+## [2026-09-01 15:20] PR #374 MERGED (675e3e2) — Phase 11.1 live; post-merge run-identity rule
+
+- Squash-merged by Juan at 20:14Z with 9 bot threads unresolved (carried as tracked concerns in
+  `.planning/STATE.md`; the Codex-connector P1 on `discovery.py:289` mapping drift is UNVERIFIED —
+  check what `upsert_sheet_registry` writes on non-deep runs before trusting SC-2 skip counts).
+  Post-merge gate on master: ALL 6 PASSED, 1892 passed / 1 skipped / 312 subtests.
+- **Rule: a scheduled run is pinned to the default-branch SHA at creation time, and the
+  workflow's per-ref concurrency queue (`cancel-in-progress: false`) means runs created BEFORE a
+  merge still execute the OLD code AFTER it.** Read `headSha` in `gh run list` before attributing
+  a wall clock to a fix; the first true post-merge run is the first whose SHA is the merge commit
+  or later. For #374 that is the 21:00Z schedule, not the 19:13Z run queued behind the 17:14Z one.
+
+## [2026-09-01 17:55] WR 91390743 "Thursday total ≠ rows" is a hand-edited copy, not a generation defect; claimer-correction gap re-confirmed as the Phase 12 sentinel / frozen-claimer problem (diagnosis only, no code change)
+
+- **Symptom reported:** `WR_91390743_WeekEnding_083026_User_Raymond_Perez.xlsx` summary
+  10,478.74, but the Thursday block's rows sum to 4,696.64 while its TOTAL cell says 5,221.15.
+- **Verified against the pipeline's own upload** on the target row (attachment 7258462615408516,
+  created 2026-08-28 00:36Z = "Report Generated On 08/27/2026 07:36 PM"): Wed 38 rows 5,257.59 /
+  Thu 26 rows 2,887.43 / Fri 8 rows 2,333.72 = 72 rows = 10,478.74, every block TOTAL equals its
+  rows. The inspected file is a *copy* last saved in Excel 16 by a person on 2026-09-01 21:48Z
+  (`docProps/core.xml` `cp:lastModifiedBy`; `dc:creator` still openpyxl) in which the Friday block
+  was folded under Thursday (TOTAL literal = 2,887.43 + 2,333.72 = 5,221.15) and two Point 29 rows
+  were deleted (`ARM-8SF-GN-DL` 361.05 + `GYF-38-D-78P-EP` x2 163.46 = 524.51). `write_day_block`
+  writes literal totals (`pipeline/excel.py:719`), so a manual row deletion leaves the TOTAL stale —
+  which is exactly what exposed the edit.
+- **Rule:** when a delivered workbook "doesn't add up", diff it against the attachment on the target
+  row and read `docProps/core.xml` (creator / lastModifiedBy / modified) BEFORE touching
+  `pipeline/excel.py`. Keep block and summary totals as literals — they are the tamper evidence; a
+  `SUM()` formula would have silently re-totalled the edited copy and hidden the deletion.
+- **Latent, unchanged (not the cause here — 72 = 72):** `generate_excel` counts every group row in
+  "Total Billed Amount" / "Total Line Items" but the day blocks silently drop rows whose Snapshot
+  Date is blank / unparseable / outside Mon–Sun (`pipeline/excel.py` `date_to_rows` loop; already
+  called "strictly worse than the drift itself" in `pipeline/snapshot_drift.py:_apply_holds`).
+  Candidate follow-up: a body-vs-summary consistency WARNING + Sentry breadcrumb, output unchanged.
+- **Claimer-correction gap (operator: a VAC crew / foreman fixed in Smartsheet after first
+  generation never regenerates without `RESET_HASH_HISTORY`)** — mechanism confirmed in code:
+  `resolve_claimer` returns the frozen role whenever it is non-blank (`billing_audit/writer.py`,
+  frozen-wins branch); grouping partitions by that resolved claimer
+  (`pipeline/grouping.py:577-584` `_VACCREW_<claimer>`, `:641-648` `_USER_<claimer>`); the hash's
+  only foreman input is the `FOREMAN=` meta token built from the same value
+  (`pipeline/change_detection.py:391-396`); and `RESET_HASH_HISTORY` / `RESET_WR_LIST` /
+  `REGEN_WEEKS` / `REMEDIATE_CLAIMERS` never touch `billing_audit.attribution_snapshot`
+  (`pipeline/orchestrate.py:2825-2835`, `pipeline/attribution.py:602-773`). `freeze_row` freezes the
+  `'Unknown Foreman'` sentinel verbatim and only blank / `#…` normalize to NULL in the lookup RPC
+  (`billing_audit/schema.sql`), so a WR with no RA foreman at first generation stays on the
+  sentinel forever; a *real* name frozen wrong is likewise permanent. Read-only count 2026-09-01:
+  **5,829 rows / 94 WRs** frozen as `'Unknown Foreman'` (5,824 / 93 on 2026-08-24 — still
+  growing). WR 91390743 itself is clean (463 rows, all `Raymond Perez`, no helper / VAC rows).
+- **Decision still owed (unchanged since [2026-08-24 15:30]):** spec §8 #1 (ownership semantics)
+  and #5 (backfill sources) gate Phase 12 (OWN-01..04). Recommended first slice = OWN-02
+  (sentinel never frozen / never honored) + Juan-approved remediation SQL + `REMEDIATE_CLAIMERS`
+  sweep; the "real name frozen, later corrected" case needs the §5 ladder with a durable
+  correction record so the first capture survives as the shadow log.
+
+## [2026-09-01 18:05] Phase 12 first slice SHIPPED (OWN-02, owner policy A): a sentinel is never a claimer — `resolve_claimer` reads a frozen sentinel as no-history; `freeze_row` nulls sentinel roles and defers all-sentinel freezes
+
+- **Owner decision (Juan, 2026-09-01):** of the three drift policies offered — A sentinel-only,
+  B latest human correction wins, C current always wins — A was chosen. Foundation A's frozen
+  first-write-wins contract ([2026-05-20 13:45]) is UNCHANGED for real names; only placeholders
+  lose their claim. Policy B (a human correction over a real frozen name) stays a separate owner
+  decision (spec §8 #1, OWN-01 ladder).
+- **What changed (`billing_audit/writer.py`):** `is_sentinel_claimer()` = blank, `#`-token, or the
+  exact family `Unknown Foreman` / `Unknown` / `Unknown Helper` / `Unknown VAC Crew` / `NO MATCH`,
+  matched after strip + casefold + `_`→space (so `Unknown_Foreman` / `_NO_MATCH` count; `Unknown
+  Person` does not). `resolve_claimer` treats a frozen sentinel exactly like a blank role (`use`
+  current, reason `no_history`, counter `sentinel_claimers_ignored`). `freeze_row` rewrites NAMED
+  sentinels to NULL in the RPC params (blank stays blank) and, when no role holds a real name,
+  returns False WITHOUT calling the RPC (counter `sentinel_freezes_deferred`) so the row stays out
+  of the row cache and the first run that sees a real person still performs the first write.
+- **Why defer instead of writing NULLs:** the `freeze_attribution` RPC body lives in Supabase
+  (not in this repo) and is documented as row-level first-write-wins — an all-NULL first write
+  would likely block a later real name forever. Deferral costs nothing (no RPC) and preserves the
+  shadow capture. Residual: a row with a real helper but a sentinel primary freezes with primary
+  NULL; its primary follows the current value until a remediation re-freeze.
+- **Effect on the 5,829 existing sentinel rows / 94 WRs:** read-side only — no data migration.
+  Once the WR is assigned, the next scheduled run resolves those rows from the current foreman and
+  regenerates `_User_<name>`; the stale `_User_Unknown_Foreman` attachment still needs the
+  `REMEDIATE_CLAIMERS` sweep (dry-run first; `website/docs/reference/environment.md` updated).
+  Optional later cleanup: Juan-approved SQL to NULL/delete the sentinel rows so a real name can be
+  frozen for them.
+- **Contract pins refrozen deliberately:** run_summary golden 22→24 keys
+  (`tests/golden/run_summary_baseline.json`; key-count pins in `tests/test_incremental_read.py` ×2
+  and `tests/test_parity_shadow.py`), `CountersTests.test_starts_at_zeros`, and both orchestrate
+  run-summary pre-seed dicts mirror the two new counters.
+- **Validation:** `tests/test_sentinel_never_a_claimer.py` (12 tests / 23 subtests; RED 14
+  failures before the change, GREEN after); ALL 6 GATES PASSED (1904 passed / 1 skipped / 335
+  subtests; mypy 71→71 neutral; Gate 6 24 keys).
+- **Rules:** (1) Never store or honour a placeholder as a claimer — extend `_SENTINEL_CLAIMERS`
+  whenever a new fallback string is introduced anywhere under `pipeline/`. (2) A freeze with
+  nothing real to remember is deferred, not written. (3) Any new writer counter must be mirrored
+  in both orchestrate pre-seeds + the golden + the three key-count pins (Gate 6 is exact-key-set).
+- **Still open (Phase 12):** OWN-01 ownership ladder, OWN-03 backfill / remediation of the 94 WRs,
+  OWN-04 runbook contract text.
+- **Independent review (Opus production-risk reviewer, PASS-WITH-NOTES; Haiku rubric 6/6):**
+  (a) the `freeze_attribution` RPC is first-write-wins at ROW granularity (PK `wr, week_ending,
+  smartsheet_row_id`), so on a MIXED row (one real role, one sentinel role) the nulled role is
+  pinned NULL for that row forever — under policy A that role simply follows the current value
+  every run (same as a blank role today), but a role-level upgrade would need an RPC-side change,
+  not a Python one; (b) deferred rows never enter `billing_audit_row_cache`, so the ~5.8k sentinel
+  rows re-enter `_rows_to_freeze` every run — intended and RPC-free, but it can push a 1-row group
+  into the ThreadPool branch; (c) first run after deploy flips the identity of every affected WR
+  that now has a real foreman — expect a regeneration burst against `TIME_BUDGET_MINUTES=165` and
+  duplicate attachments (real name + stale `_Unknown_Foreman`) until the `REMEDIATE_CLAIMERS`
+  sweep; (d) a local TEST_MODE canary cannot exercise the frozen-sentinel read path (TEST_MODE
+  disables the Supabase client, so attribution is already "use current") — the first scheduled
+  run's `sentinel_claimers_ignored` counter is the real canary; (e) fixed in the same PR: the
+  `no_history` operator hint in `pipeline/grouping.py` no longer promises "this run freezes it"
+  unconditionally, and `attribution_rows_held` is now mirrored in the second orchestrate pre-seed
+  (pre-existing Gate-6 gap when the writer is unavailable).
