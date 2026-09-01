@@ -657,6 +657,7 @@ INC-05 architecture (no local JSON caches, no Actions cache steps) and the live
 confirmation + fail-closed discovery semantics from PR #373's review fixes.
 
 **Success Criteria**:
+
 1. First post-merge frequent run of this phase's PR completes all groups
    (no time-budget stop) with wall clock < ~75 min.
 2. Discovery phase (Phase 1) drops from ~67 min to low single-digit minutes
@@ -675,8 +676,12 @@ above plus D-11.1-01..04 in `11.1-CONTEXT.md` are the contract)
 **Plans:** 2 plans
 
 Plans:
+**Wave 1**
 
 - [ ] 11.1-01-PLAN.md — Fix 1: skip full discovery validation for sheets whose live Smartsheet version matches `sheet_registry.last_sheet_version` with a stored column mapping (fail-closed: any doubt → full validation)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 11.1-02-PLAN.md — Fix 2: pre-seed the live-attachment memo from two bulk sheet-level listings so the skip gate's existence confirmation leaves the serial group loop
 
 ### Phase 12: Ownership — last known foreman as of the week

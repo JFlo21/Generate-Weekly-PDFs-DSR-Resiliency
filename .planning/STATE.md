@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
 current_phase: 11.1
-current_phase_name: INSERTED, not planned yet
+current_phase_name: post-inc-05-runtime-remediation
 status: executing
 stopped_at: Completed 11-08-PLAN.md (INC-05 retirement shipped; Phase 11 fully closed)
-last_updated: "2026-09-01T17:12:49.133Z"
+last_updated: "2026-09-01T18:03:15.617Z"
 last_activity: 2026-08-31
 last_activity_desc: Planning hygiene; 11-08 parity gate re-read (0/5, 3 passes to go)
-state_head: 733e76d9efad848dac1f080d8e751d4f8c8c2f8d
+state_head: 44eed2a237aaa73f9816e085a3eb582b6aa39d21
 progress:
   total_phases: 13
   completed_phases: 3
-  total_plans: 46
+  total_plans: 48
   completed_plans: 46
   percent: 23
 ---
@@ -35,7 +35,7 @@ pipeline.
 
 ## Current Position
 
-Phase: 11.1 (Post-INC-05 Runtime Remediation) — INSERTED, not planned yet
+Phase: 11.1 (post-inc-05-runtime-remediation) — READY TO EXECUTE
 Plan: 8 of 8 complete. All 8 Phase 11 plans have a SUMMARY.md on disk.
   11-07 re-opened the INC-05 retirement decision on 2026-08-31 with a real
   5/5 `get_parity_streak()` reading (option id `retire-now`); 11-08 executed
