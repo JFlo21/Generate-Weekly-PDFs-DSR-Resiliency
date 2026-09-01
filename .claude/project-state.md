@@ -41,11 +41,16 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
   `BULK_ATTACHMENT_LISTING_MAX_TOTAL` parse (a malformed value could have aborted the run before any
   containment layer), and full annotations on `_build_discovery_skip_index`; Gate 4 refrozen 72→71
   (zero accepted findings, LF-only); suite 1892 passed / 1 skipped / 312 subtests; ALL 6 GATES.
-  Still open on #374: 5 Copilot threads (incl. STATE.md progress arithmetic, `⚡` vs `⏭️` marker
-  wording in 11.1-01-PLAN/VALIDATION, a SimpleNamespace pin critique at test 4112) and 3
-  `chatgpt-codex-connector` threads (two P1: discovery.py:286, orchestrate.py:2938; one P2:
-  discovery.py:281) — not yet triaged. Next: Juan reviews remaining threads → merges → post-merge
-  observation below.
+  Copilot's duplicate of the import-time parse finding (orchestrate.py:1225) closed with the same
+  fix. Still open on #374, NOT yet triaged: 4 Copilot threads (STATE.md progress arithmetic 3/13 vs
+  11/13; `⚡` vs `⏭️` marker wording in 11.1-01-PLAN:423 + 11.1-VALIDATION:89; SimpleNamespace vs
+  real SDK `Attachment` pin at test 4112) and 3 `chatgpt-codex-connector` threads — **P1
+  discovery.py:289 "mapping drift after version advance" (claims a non-deep run advances
+  `last_sheet_version` while retaining the OLD stored mapping, so the NEXT run's skip path serves a
+  stale column_mapping — needs verification against `upsert_sheet_registry` before merge)**, P1
+  orchestrate.py:2967 (pre-seed runs before the first TIME_BUDGET check), P2 discovery.py:284
+  (registry mapping shape not validated before admission). Next: Juan triages those → merges →
+  post-merge observation below.
 - **Post-merge (SC-1, not code-verifiable):** first `production_frequent` run supplies wall clock
   (target < ~75 min), the `Discovery validation split` counts, and per-sheet `total_count` INFO
   lines → fill `11.1-VALIDATION.md` Manual-Only table + `docs/run-memory-write-flip-checklist.md`
