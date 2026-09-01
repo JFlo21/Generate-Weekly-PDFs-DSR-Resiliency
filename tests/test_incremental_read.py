@@ -4269,5 +4269,89 @@ class AttachmentPrepopulationTests(unittest.TestCase):
         client.Attachments.list_all_attachments.assert_called_once()
 
 
+class AttachmentPreseedWiringTests(unittest.TestCase):
+    """Phase 11.1 Fix 2 (D-11.1-02) -- main()'s pre-seed block wiring.
+    Invoking the whole of main() to exercise these five behaviors is
+    impractical (it drives the full production billing run); these are
+    source pins over pipeline/orchestrate.py, in the style of
+    SkipGateLiveConfirmationWiringTests, complementing the helper-level
+    tests in AttachmentPrepopulationTests above (which cover the actual
+    seeding behavior via direct calls)."""
+
+    @staticmethod
+    def _src() -> str:
+        return (_REPO_ROOT / "pipeline/orchestrate.py").read_text(
+            encoding="utf-8"
+        )
+
+    @classmethod
+    def _preseed_block(cls) -> str:
+        src = cls._src()
+        start = src.index(
+            "if not TEST_MODE and ATTACHMENT_REQUIRED_FOR_SKIP:"
+        )
+        end = src.index("_has_existing_week_attachment(")
+        return src[start:end]
+
+    def test_preseed_call_site_between_memo_declaration_and_first_existence_check(self):
+        # Behaviors 1-3: the call site sits after the memo is declared
+        # and before the first live-confirmation call site it feeds.
+        src = self._src()
+        memo_decl = src.index("_live_attachment_listings: dict = {}")
+        first_existence_check = src.index("_has_existing_week_attachment(")
+        preseed_call = src.index(
+            "_preseed_live_attachment_listings(", memo_decl,
+        )
+        self.assertGreater(preseed_call, memo_decl)
+        self.assertLess(preseed_call, first_existence_check)
+
+    def test_gated_on_test_mode_first_then_attachment_required(self):
+        # Behavior 4: TEST_MODE on, or ATTACHMENT_REQUIRED_FOR_SKIP off ->
+        # helper not invoked at all. Distinct term order/arity from the
+        # circuit-breaker guard pinned by
+        # tests/test_skip_no_target_row.py:308 (which additionally
+        # requires `and not SKIP_UPLOAD:`), so the two guards can never
+        # collide textually.
+        block = self._preseed_block()
+        self.assertTrue(
+            block.startswith(
+                "if not TEST_MODE and ATTACHMENT_REQUIRED_FOR_SKIP:"
+            )
+        )
+        self.assertNotIn("SKIP_UPLOAD", block)
+
+    def test_target_leg_uses_target_map_and_target_sheet_id(self):
+        # Behavior 1: target sheet leg is keyed off target_map /
+        # TARGET_SHEET_ID and calls the pre-seed helper.
+        block = self._preseed_block()
+        self.assertIn("TARGET_SHEET_ID", block)
+        self.assertIn("target_map", block)
+        self.assertIn("_preseed_live_attachment_listings(", block)
+
+    def test_ppp_leg_uses_target_map_ppp_and_ppp_sheet_id_and_is_skippable(self):
+        # Behavior 2 + 3: PPP leg is keyed off target_map_ppp /
+        # SUBCONTRACTOR_PPP_SHEET_ID, and the loop skips a leg whose
+        # sheet id or row-id set is falsy/empty (so an empty/absent PPP
+        # map never invokes the helper for that sheet, while a populated
+        # one invokes it once, same as the target leg -- one call site
+        # inside the shared per-leg loop covers both legs, never more
+        # than once per leg -- twice total when both are populated).
+        block = self._preseed_block()
+        self.assertIn("target_map_ppp", block)
+        self.assertIn("SUBCONTRACTOR_PPP_SHEET_ID", block)
+        self.assertIn("continue", block)
+        self.assertEqual(
+            block.count("_preseed_live_attachment_listings("), 1,
+        )
+
+    def test_preseed_block_wrapped_in_outer_try_except(self):
+        # Behavior 5: a helper exception cannot escape the block --
+        # main()'s pre-seed section must complete and leave the memo
+        # usable by the existing lazy path.
+        block = self._preseed_block()
+        self.assertIn("try:", block)
+        self.assertIn("except Exception", block)
+
+
 if __name__ == "__main__":
     unittest.main()
