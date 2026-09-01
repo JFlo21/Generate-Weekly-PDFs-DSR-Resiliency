@@ -8066,4 +8066,22 @@ entry's own commit (Task 4).
 
 Reference: `.planning/phases/11.1-post-inc-05-runtime-remediation/` (`11.1-CONTEXT.md`,
 `11.1-RESEARCH.md`, `11.1-PATTERNS.md`, plans 11.1-01/11.1-02); branch
-`feat/11.1-runtime-remediation`, PR not yet opened as of this entry.
+`feat/11.1-runtime-remediation`, shipped as PR #374 (see the `[2026-09-01 14:55]` entry).
+
+## [2026-09-01 14:55] Phase 11.1 verified and shipped as PR #374 — post-merge observation contract
+
+- **Verification outcome:** gsd-verifier wrote `11.1-VERIFICATION.md` with 12/12 code-verifiable
+  must-haves verified, 0 gaps, status `human_needed`. It re-ran the suite (1886 passed / 1 skipped /
+  306 subtests) and `scripts/run_6_gates.sh` (ALL 6 PASSED), diffed `_live_row_attachments` and
+  both `_has_existing_week_attachment` call sites against `origin/master` (byte-identical), and
+  confirmed the discovery skip path never calls `pipeline.fetch.get_last_sheet_versions()`.
+- **`human_needed` is not a gap here.** SC-1 (wall clock < ~75 min, no budget stop) and the SC-2 /
+  SC-3 timing magnitudes are production observations by design (`11.1-VALIDATION.md` Manual-Only
+  table). The phase closes only after the first post-merge `production_frequent` run supplies the
+  wall clock, the `Discovery validation split` counts, and the per-sheet `total_count` INFO lines;
+  record them there and in `docs/run-memory-write-flip-checklist.md`, then `/gsd-verify-work 11.1`.
+- **Rule: PR body for a runtime-remediation phase names the owner veto explicitly.** PR #374's
+  Production Safety Check calls out D-11.1-05 (25000 `total_count` ceiling + ERROR fallback,
+  option (b) not built) as the accepted residual risk so the merge itself is the recorded approval.
+- **Resume hygiene:** `HANDOFF.json` and the phase `.continue-here.md` are one-shot artifacts;
+  both were consumed and removed in the closeout commit (`076ea31`) rather than left to ride the PR.
