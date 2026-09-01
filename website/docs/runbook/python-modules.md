@@ -15,10 +15,17 @@ The primary script. Responsibilities:
 
 - Loads config via `python-dotenv`.
 - Calls Smartsheet via `smartsheet-python-sdk`, using `ThreadPoolExecutor`
-  for parallel sheet discovery and attachment pre-fetch.
+  for parallel sheet discovery. Discovery validates every candidate sheet
+  in full every run — the local discovery cache and the bulk attachment
+  pre-fetch phases were both retired in PR #373 (Phase 11 Plan 08,
+  INC-05); attachment identity now resolves from Supabase
+  `pipeline_memory.group_state`, falling back to a per-row on-demand
+  lookup on a miss.
 - Groups rows by `(work_request, week_ending)` and computes a content hash
-  per group. Groups whose hash matches `generated_docs/hash_history.json`
-  are skipped (the `HISTORY_SKIP_ENABLED` gate).
+  per group. Groups whose hash matches the stored hash in Supabase
+  `pipeline_memory.group_state.content_hash` are skipped (the
+  `HISTORY_SKIP_ENABLED` gate) — the local `hash_history.json` cache this
+  replaced is retired.
 - Writes each group to `generated_docs/WR_{wr}_WeekEnding_{date}_*.xlsx`
   via `openpyxl`, styling headers, totals, and embedding the
   `LinetecServices_Logo.png`.

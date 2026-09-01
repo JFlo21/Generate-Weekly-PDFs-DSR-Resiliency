@@ -21,7 +21,7 @@ lives in the `pipeline/` package, plus two Supabase packages.
 | Module | Lines | What it owns | Touch it when… |
 | --- | --- | --- | --- |
 | `pipeline/orchestrate.py` | ~5,300 | `main()` — the run, phase by phase; run-memory write/incremental/reconciliation helpers; the group loop (skip / regenerate / upload decisions) | you change *when* something happens in a run |
-| `pipeline/discovery.py` | ~680 | Finds source sheets in the Smartsheet folders, validates column mappings, caches to `generated_docs/discovery_cache.json` | a sheet isn't being found, or a column is renamed |
+| `pipeline/discovery.py` | ~680 | Finds source sheets in the Smartsheet folders, validates column mappings — every candidate sheet, in full, every run (the local discovery cache was retired in PR #373; cross-run sheet identity now lives in `pipeline_memory.sheet_registry`) | a sheet isn't being found, or a column is renamed |
 | `pipeline/fetch.py` | ~1,300 | Parallel `get_sheet` reads (≤8 workers), row normalisation, delta reads, and the **row acceptance gate** (WR + weekly date + *Units Completed?* + price > 0; a `NO MATCH` CU is dropped) | rows are missing at the source, rate limits, retries |
 | `pipeline/grouping.py` | ~1,360 | Grouping into `(WR, week, variant, claimer)` groups — one workbook each; helper / VAC-crew / subcontractor variant assignment | a unit lands in the wrong file, or a variant rule changes |
 | `pipeline/pricing.py` | ~900 | Rate recalculation, subcontractor rate variants (`_AEPBillable`, `_ReducedSub`) | a price is wrong |
@@ -66,7 +66,9 @@ Two facts explain most "why did it do that" questions:
   billed fields of every row plus foreman / variant / dept / totals. When the
   Supabase durable store is authoritative
   (`SUPABASE_HASH_STORE_AUTHORITATIVE=1`, the production setting) it is the
-  previous hash; `hash_history.json` is the fallback. The operator overrides
+  previous hash; `pipeline_memory.group_state.content_hash` is the fallback
+  (the local `hash_history.json` cache this replaced was retired in
+  PR #373 / Phase 11 Plan 08, INC-05). The operator overrides
   — `FORCE_GENERATION`, `REGEN_WEEKS`, `RESET_HASH_HISTORY`, `RESET_WR_LIST`
   — bypass that decision (and `RESET_WR_LIST` disables the unchanged-skip for
   *every* group, not just the listed WRs). Groups whose upload is
