@@ -4095,5 +4095,179 @@ class SkipGateLiveConfirmationWiringTests(unittest.TestCase):
         self.assertIn("fail-closed guard", src)
 
 
+class AttachmentParentTypeComparisonTests(unittest.TestCase):
+    """RESEARCH Open Question 3 / Pitfall 4 (Phase 11.1, D-11.1-02): pins
+    the ``EnumeratedValue`` comparison form for ``Attachment.parent_type``
+    against the REAL enum from the installed smartsheet-python-sdk 4.3.0,
+    not a hand-rolled stand-in -- fails loudly if a future SDK bump changes
+    the representation."""
+
+    def test_row_parent_type_accepted(self):
+        from smartsheet.models.enums.attachment_parent_type import (
+            AttachmentParentType,
+        )
+        from pipeline import orchestrate
+
+        att = SimpleNamespace(id=1, parent_id=42, parent_type=AttachmentParentType.ROW)
+        self.assertTrue(orchestrate._is_row_attachment(att))
+
+    def test_sheet_parent_type_rejected(self):
+        from smartsheet.models.enums.attachment_parent_type import (
+            AttachmentParentType,
+        )
+        from pipeline import orchestrate
+
+        att = SimpleNamespace(id=2, parent_id=None, parent_type=AttachmentParentType.SHEET)
+        self.assertFalse(orchestrate._is_row_attachment(att))
+
+    def test_comment_parent_type_rejected(self):
+        from smartsheet.models.enums.attachment_parent_type import (
+            AttachmentParentType,
+        )
+        from pipeline import orchestrate
+
+        att = SimpleNamespace(id=3, parent_id=None, parent_type=AttachmentParentType.COMMENT)
+        self.assertFalse(orchestrate._is_row_attachment(att))
+
+    def test_missing_parent_type_attribute_rejected(self):
+        from pipeline import orchestrate
+
+        att = SimpleNamespace(id=4)
+        self.assertFalse(orchestrate._is_row_attachment(att))
+
+
+class AttachmentPrepopulationTests(unittest.TestCase):
+    """Phase 11.1 Fix 2 (D-11.1-02): pre-seed the existing
+    ``_live_row_attachments`` memo from two bulk sheet-level attachment
+    listings instead of paying one serial ``list_row_attachments`` call
+    per skip-candidate row inside the group loop (run 33512477875,
+    ~2.26 s/group)."""
+
+    @staticmethod
+    def _client(probe_total=0, listing=None, probe_exc=None, listing_exc=None):
+        client = mock.MagicMock()
+
+        def _list_all_attachments(sheet_id, page_size=None, include_all=None, **kw):
+            if include_all:
+                if listing_exc is not None:
+                    raise listing_exc
+                return SimpleNamespace(
+                    data=listing if listing is not None else []
+                )
+            # Pre-flight probe: page_size=1, no include_all.
+            if probe_exc is not None:
+                raise probe_exc
+            return SimpleNamespace(total_count=probe_total)
+
+        client.Attachments.list_all_attachments.side_effect = (
+            _list_all_attachments
+        )
+        return client
+
+    def test_buckets_listing_by_parent_id_row_only(self):
+        from smartsheet.models.enums.attachment_parent_type import (
+            AttachmentParentType,
+        )
+        from pipeline import orchestrate
+
+        listing = [
+            SimpleNamespace(id=1, parent_id=42, parent_type=AttachmentParentType.ROW),
+            SimpleNamespace(id=2, parent_id=42, parent_type=AttachmentParentType.SHEET),
+            SimpleNamespace(id=3, parent_id=43, parent_type=AttachmentParentType.COMMENT),
+        ]
+        client = self._client(probe_total=3, listing=listing)
+        memo: dict = {}
+
+        with_count, empty_count = orchestrate._preseed_live_attachment_listings(
+            client, 5723, {42, 43}, memo,
+        )
+
+        self.assertEqual(len(memo[42]), 1)
+        self.assertIs(memo[42][0], listing[0])
+        self.assertEqual(memo[43], [])
+        self.assertEqual(with_count, 1)
+        self.assertEqual(empty_count, 1)
+
+    def test_seeded_row_never_triggers_per_row_call(self):
+        from smartsheet.models.enums.attachment_parent_type import (
+            AttachmentParentType,
+        )
+        from pipeline import orchestrate
+
+        listing = [
+            SimpleNamespace(id=1, parent_id=42, parent_type=AttachmentParentType.ROW),
+        ]
+        client = self._client(probe_total=1, listing=listing)
+        memo: dict = {}
+
+        orchestrate._preseed_live_attachment_listings(client, 5723, {42}, memo)
+        result = orchestrate._live_row_attachments(client, 5723, 42, memo)
+
+        self.assertEqual(result, [listing[0]])
+        client.Attachments.list_row_attachments.assert_not_called()
+
+    def test_row_without_attachment_seeded_empty_no_per_row_call(self):
+        from pipeline import orchestrate
+
+        client = self._client(probe_total=0, listing=[])
+        memo: dict = {}
+
+        orchestrate._preseed_live_attachment_listings(client, 5723, {99}, memo)
+        result = orchestrate._live_row_attachments(client, 5723, 99, memo)
+
+        self.assertEqual(result, [])
+        client.Attachments.list_row_attachments.assert_not_called()
+
+    def test_empty_row_ids_makes_zero_api_calls(self):
+        from pipeline import orchestrate
+
+        client = mock.MagicMock()
+        result = orchestrate._preseed_live_attachment_listings(
+            client, 5723, set(), {},
+        )
+        self.assertEqual(result, (0, 0))
+        client.Attachments.list_all_attachments.assert_not_called()
+
+    def test_probe_exception_seeds_nothing(self):
+        from pipeline import orchestrate
+
+        client = self._client(probe_exc=RuntimeError("probe down"))
+        memo: dict = {}
+        result = orchestrate._preseed_live_attachment_listings(
+            client, 5723, {1, 2}, memo,
+        )
+        self.assertEqual(result, (0, 0))
+        self.assertEqual(memo, {})
+
+    def test_listing_exception_seeds_nothing(self):
+        from pipeline import orchestrate
+
+        client = self._client(
+            probe_total=1, listing_exc=RuntimeError("listing down"),
+        )
+        memo: dict = {}
+        result = orchestrate._preseed_live_attachment_listings(
+            client, 5723, {1}, memo,
+        )
+        self.assertEqual(result, (0, 0))
+        self.assertEqual(memo, {})
+
+    def test_over_ceiling_seeds_nothing_and_skips_bulk_call(self):
+        from pipeline import orchestrate
+
+        client = self._client(
+            probe_total=orchestrate._BULK_ATTACHMENT_LISTING_MAX_TOTAL + 1,
+        )
+        memo: dict = {}
+        result = orchestrate._preseed_live_attachment_listings(
+            client, 5723, {1}, memo,
+        )
+        self.assertEqual(result, (0, 0))
+        self.assertEqual(memo, {})
+        # Only the page_size=1 probe call, never the include_all=True bulk
+        # call — the ceiling guard must short-circuit before it.
+        client.Attachments.list_all_attachments.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()
