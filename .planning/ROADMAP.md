@@ -669,13 +669,15 @@ confirmation + fail-closed discovery semantics from PR #373's review fixes.
 4. Full suite + 6 gates green; no change-detection-key, grouping, filename,
    or attachment-cleanup behavior changes.
 
-**Requirements**: TBD
+**Requirements**: none mapped (inserted urgent phase — the Success Criteria
+above plus D-11.1-01..04 in `11.1-CONTEXT.md` are the contract)
 **Depends on:** Phase 11
-**Plans:** 0 plans
+**Plans:** 2 plans
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 11.1 to break down)
+- [ ] 11.1-01-PLAN.md — Fix 1: skip full discovery validation for sheets whose live Smartsheet version matches `sheet_registry.last_sheet_version` with a stored column mapping (fail-closed: any doubt → full validation)
+- [ ] 11.1-02-PLAN.md — Fix 2: pre-seed the live-attachment memo from two bulk sheet-level listings so the skip gate's existence confirmation leaves the serial group loop
 
 ### Phase 12: Ownership — last known foreman as of the week
 
