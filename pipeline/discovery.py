@@ -44,6 +44,7 @@ from pipeline.observability import (
     sentry_capture_sheet_drop,
 )
 from pipeline.retry import smartsheet_call_with_retry
+from pipeline_memory.reader import get_sheet_watermarks
 
 logger = logging.getLogger(__name__)
 
@@ -185,6 +186,123 @@ def _normalize_column_title_for_vac_crew(t):
     return s
 
 
+def _build_discovery_skip_index(client, sheet_ids):
+    """Return a registry-version skip index for *sheet_ids* (D-11.1-01).
+
+    Module-level (not a nested closure) so it is directly unit-testable,
+    mirroring the Phase 10-03 ``sheet_registry`` resolvers. NEVER raises:
+    the whole body is wrapped in an outer ``try``/``except Exception`` that
+    degrades to an empty dict on ANY failure. This function must NEVER
+    touch ``_failed_validation_sids`` -- a registry-read or version-probe
+    failure is doubt, not a validation failure (Phase 11.1, D-11.1-01,
+    RESEARCH Pitfall 3); doubt always falls through to
+    ``_validate_single_sheet``'s existing, unchanged full-validation path.
+
+    A sid is admitted to the returned index only when ALL of:
+      - a ``sheet_registry`` watermark row exists for it;
+      - the live Smartsheet version (from the ONE bulk probe below) is
+        not None;
+      - the watermark's ``last_sheet_version`` equals that live version;
+      - the watermark's ``column_mapping`` is non-empty and contains
+        ``Weekly Reference Logged Date`` (strict-mode parity with the
+        full-validation path's own gate, see the return below);
+      - the watermark's ``name`` is non-empty.
+    Any other case is left OUT of the index -- "any doubt -> full
+    validation" (D-11.1-01).
+
+    Returns:
+        dict[int, dict]: ``{sheet_id: {'id', 'name', 'column_mapping'}}``
+        for every sid safe to skip full validation for this run.
+    """
+    try:
+        watermarks = get_sheet_watermarks(sheet_ids)
+        if not watermarks:
+            # get_sheet_watermarks' own fail-open contract: empty means
+            # "cannot confirm" (Supabase unavailable, or genuinely no
+            # registry rows yet). Every sid falls through to full
+            # validation below -- Phase 11.1, D-11.1-01.
+            logging.info(
+                "⏭️ Discovery skip index: no sheet_registry watermarks "
+                "available -- all candidates will be fully validated "
+                "(D-11.1-01)."
+            )
+            return {}
+
+        # One-time bulk live-version probe, issued ONCE per
+        # discover_source_sheets() call (not once per sheet). Kept in its
+        # OWN try/except, deliberately separate from
+        # _validate_single_sheet's existing except block below -- a probe
+        # failure is doubt, never a validation failure (RESEARCH Pitfall 3).
+        try:
+            _list_result = smartsheet_call_with_retry(
+                client.Sheets.list_sheets,
+                include=['sheetVersion'],
+                include_all=True,
+                label="bulk sheet-version probe",
+            )
+        except Exception as e:
+            logging.warning(
+                f"⚠️ Bulk sheet-version probe failed (non-fatal, "
+                f"D-11.1-01): {e} -- all candidates will be fully "
+                f"validated."
+            )
+            return {}
+
+        live_versions = {
+            s.id: getattr(s, 'version', None)
+            for s in (getattr(_list_result, 'data', None) or [])
+        }
+
+        candidate_ids = list(sheet_ids)
+        if not any(
+            live_versions.get(sid) is not None for sid in candidate_ids
+        ):
+            # RESEARCH Open Question 2 guard: the bulk probe returned no
+            # usable version for ANY candidate -- degrade explicitly
+            # rather than leaving operators to infer it sheet-by-sheet.
+            logging.warning(
+                "⚠️ Discovery skip index: bulk sheet-version probe "
+                "returned no usable versions for any candidate sheet -- "
+                "every sheet falls back to full validation (D-11.1-01)."
+            )
+            return {}
+
+        index: dict = {}
+        for sid in candidate_ids:
+            watermark = watermarks.get(sid)
+            if watermark is None:
+                continue
+            live_version = live_versions.get(sid)
+            if live_version is None:
+                continue
+            if watermark.get('last_sheet_version') != live_version:
+                continue
+            mapping = watermark.get('column_mapping')
+            if not mapping or 'Weekly Reference Logged Date' not in mapping:
+                continue
+            name = watermark.get('name')
+            if not name:
+                continue
+            index[sid] = {'id': sid, 'name': name, 'column_mapping': mapping}
+
+        _sample = [(sid, live_versions.get(sid)) for sid in list(index)[:3]]
+        logging.info(
+            f"⏭️ Discovery skip index (D-11.1-01): {len(candidate_ids)} "
+            f"candidate(s), {len(index)} eligible for registry-version "
+            f"skip. Sample sid/version: {_sample}"
+        )
+        return index
+    except Exception as e:
+        # Outer safety net: this function must NEVER raise into
+        # discover_source_sheets -- any unexpected failure degrades every
+        # candidate to full validation (Phase 11.1, D-11.1-01).
+        logging.warning(
+            f"⚠️ Discovery skip index build failed unexpectedly "
+            f"(non-fatal, D-11.1-01): {e}"
+        )
+        return {}
+
+
 def discover_source_sheets(client):
     """Strict deterministic discovery: anchored keywords + type filtered. Skips sheets missing Weekly Reference Logged Date."""
     global _FOLDER_DISCOVERED_SUB_IDS, _FOLDER_DISCOVERED_ORIG_IDS, SUBCONTRACTOR_SHEET_IDS
@@ -309,10 +427,35 @@ def discover_source_sheets(client):
         else:
             logging.info(f"📂 All {len(_folder_ids)} folder-discovered sheet(s) already in base list")
 
+    # Phase 11.1 (D-11.1-01): registry-version skip index, computed ONCE
+    # before the executor loop starts (not per sheet). Read by
+    # _validate_single_sheet's fast path below via closure -- same
+    # capture pattern the closure already uses for `client` and
+    # `_failed_validation_sids`.
+    _discovery_skip_index = _build_discovery_skip_index(client, base_sheet_ids)
+    _discovery_skip_sids: list = []
+
     discovered = []
 
     def _validate_single_sheet(sid):
         """Validate a single sheet and return its discovery dict (or None if invalid)."""
+        # Phase 11.1 (D-11.1-01): registry-version skip fast path. Pure,
+        # side-effect-free short-circuit -- placed ABOVE the try: below so
+        # a skip-index miss can never land inside the except Exception
+        # block that feeds _failed_validation_sids. A hit returns the
+        # identical {'id','name','column_mapping'} contract the full path
+        # returns at the bottom of this function, from already-verified
+        # registry data; a miss falls straight through, untouched.
+        _skip_hit = _discovery_skip_index.get(sid)
+        if _skip_hit is not None:
+            _discovery_skip_sids.append(sid)
+            return {
+                'id': _skip_hit['id'],
+                'name': _skip_hit['name'],
+                # Copy the nested mapping so a downstream mutation of the
+                # returned dict cannot corrupt the shared skip index.
+                'column_mapping': dict(_skip_hit['column_mapping']),
+            }
         try:
             # PERFORMANCE FIX: Fetch only column metadata initially (no row data needed yet)
             # This prevents Error 4000 for large sheets during discovery phase

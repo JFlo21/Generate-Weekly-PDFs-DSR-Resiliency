@@ -84,7 +84,7 @@ def get_sheet_watermarks(sheet_ids: list) -> dict:
     """Return ``sheet_registry`` rows for *sheet_ids*, keyed by sheet id.
 
     Selects ``sheet_id, last_sheet_version, last_read_at,
-    last_full_read_at, column_mapping`` filtered with the client's
+    last_full_read_at, column_mapping, name`` filtered with the client's
     ``.in_()`` builder over the sheet-id list -- NEVER a string-
     interpolated ``IN`` clause. Uses its own ``op="sheet_registry_
     watermarks"`` string so a dead endpoint here cannot mask (or be
@@ -114,7 +114,7 @@ def get_sheet_watermarks(sheet_ids: list) -> dict:
             .table("sheet_registry")
             .select(
                 "sheet_id,last_sheet_version,last_read_at,"
-                "last_full_read_at,column_mapping"
+                "last_full_read_at,column_mapping,name"
             )
             .in_("sheet_id", list(sheet_ids))
             .execute()
