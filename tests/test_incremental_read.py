@@ -228,6 +228,7 @@ class SheetWatermarksReadTests(unittest.TestCase):
                 "last_read_at": "2026-08-26T18:00:00+00:00",
                 "last_full_read_at": "2026-08-20T18:00:00+00:00",
                 "column_mapping": {"Work Request #": 1},
+                "name": "Test Sheet",
             },
         ])
 
@@ -238,6 +239,7 @@ class SheetWatermarksReadTests(unittest.TestCase):
 
         self.assertIn(111222, result)
         self.assertEqual(result[111222]["last_sheet_version"], 8)
+        self.assertEqual(result[111222]["name"], "Test Sheet")
 
     def test_supabase_failure_returns_empty_dict(self):
         from pipeline_memory import reader as mem_reader
@@ -3480,6 +3482,218 @@ class DiscoverySkipIndexTests(unittest.TestCase):
             include=["sheetVersion"], include_all=True,
         )
 
+    # ── Phase 11.1 Plan 01 Task 2: doubt-branch matrix (D-11.1-01) ──────
+    # Every doubt input below must fall back to full validation -- proven
+    # here as an EMPTY (or sid-absent) skip index, never a raised
+    # exception, never a touch of _failed_validation_sids.
+
+    def test_no_registry_row_yields_empty_index(self):
+        """Test 1: no registry row for the sid."""
+        from pipeline import discovery
+
+        client = self._client(
+            list_sheets_data=[
+                SimpleNamespace(id=111222, version=8),
+                SimpleNamespace(id=999999, version=3),
+            ]
+        )
+        # Watermark present for a DIFFERENT sid only -- isolates "no row
+        # for THIS sid" from "Supabase entirely unavailable" (Test 7).
+        watermarks = {
+            999999: {
+                "sheet_id": 999999,
+                "last_sheet_version": 3,
+                "column_mapping": {"Weekly Reference Logged Date": 1},
+                "name": "Other Sheet",
+            }
+        }
+
+        with mock.patch(
+            "pipeline.discovery.get_sheet_watermarks",
+            return_value=watermarks,
+        ):
+            index = discovery._build_discovery_skip_index(
+                client, [111222, 999999]
+            )
+
+        self.assertEqual(set(index), {999999})
+
+    def test_version_mismatch_yields_empty_index(self):
+        """Test 2: registry row present, live version present, differs."""
+        from pipeline import discovery
+
+        client = self._client(
+            list_sheets_data=[SimpleNamespace(id=111222, version=9)]
+        )
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,  # stale -- live is 9
+                "column_mapping": {"Weekly Reference Logged Date": 55},
+                "name": "Test Sheet",
+            }
+        }
+
+        with mock.patch(
+            "pipeline.discovery.get_sheet_watermarks",
+            return_value=watermarks,
+        ):
+            index = discovery._build_discovery_skip_index(client, [111222])
+
+        self.assertEqual(index, {})
+
+    def test_empty_column_mapping_yields_empty_index(self):
+        """Test 3: registry row present, stored column_mapping empty."""
+        from pipeline import discovery
+
+        client = self._client(
+            list_sheets_data=[SimpleNamespace(id=111222, version=8)]
+        )
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,
+                "column_mapping": {},
+                "name": "Test Sheet",
+            }
+        }
+
+        with mock.patch(
+            "pipeline.discovery.get_sheet_watermarks",
+            return_value=watermarks,
+        ):
+            index = discovery._build_discovery_skip_index(client, [111222])
+
+        self.assertEqual(index, {})
+
+    def test_mapping_missing_weekly_reference_yields_empty_index(self):
+        """Test 4: stored mapping non-empty but missing the key column."""
+        from pipeline import discovery
+
+        client = self._client(
+            list_sheets_data=[SimpleNamespace(id=111222, version=8)]
+        )
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,
+                "column_mapping": {"Foreman": 2},
+                "name": "Test Sheet",
+            }
+        }
+
+        with mock.patch(
+            "pipeline.discovery.get_sheet_watermarks",
+            return_value=watermarks,
+        ):
+            index = discovery._build_discovery_skip_index(client, [111222])
+
+        self.assertEqual(index, {})
+
+    def test_live_version_none_for_sid_yields_empty_index(self):
+        """Test 5: live version for the sid is None."""
+        from pipeline import discovery
+
+        # A second sid carries a real, usable version so the "no usable
+        # versions at all" guard (Test 8) does not also fire here --
+        # isolates the per-sid None-version doubt path.
+        client = self._client(
+            list_sheets_data=[
+                SimpleNamespace(id=999999, version=3),
+                SimpleNamespace(id=111222, version=None),
+            ]
+        )
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,
+                "column_mapping": {"Weekly Reference Logged Date": 55},
+                "name": "Test Sheet",
+            },
+            999999: {
+                "sheet_id": 999999,
+                "last_sheet_version": 3,
+                "column_mapping": {"Weekly Reference Logged Date": 1},
+                "name": "Other Sheet",
+            },
+        }
+
+        with mock.patch(
+            "pipeline.discovery.get_sheet_watermarks",
+            return_value=watermarks,
+        ):
+            index = discovery._build_discovery_skip_index(
+                client, [111222, 999999]
+            )
+
+        self.assertNotIn(111222, index)
+        self.assertIn(999999, index)
+
+    def test_bulk_probe_exception_yields_empty_index(self):
+        """Test 6: the bulk list_sheets probe raises."""
+        from pipeline import discovery
+
+        client = self._client(list_sheets_exc=RuntimeError("transport down"))
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,
+                "column_mapping": {"Weekly Reference Logged Date": 55},
+                "name": "Test Sheet",
+            }
+        }
+
+        with mock.patch(
+            "pipeline.discovery.get_sheet_watermarks",
+            return_value=watermarks,
+        ):
+            index = discovery._build_discovery_skip_index(client, [111222])
+
+        self.assertEqual(index, {})
+
+    def test_watermarks_unavailable_yields_empty_index(self):
+        """Test 7: get_sheet_watermarks returns {} (Supabase down)."""
+        from pipeline import discovery
+
+        client = self._client(
+            list_sheets_data=[SimpleNamespace(id=111222, version=8)]
+        )
+
+        with mock.patch(
+            "pipeline.discovery.get_sheet_watermarks", return_value={}
+        ):
+            index = discovery._build_discovery_skip_index(client, [111222])
+
+        self.assertEqual(index, {})
+        # Fail-open short circuit: an empty watermark map means the bulk
+        # version probe is never even attempted (Step C.1).
+        client.Sheets.list_sheets.assert_not_called()
+
+    def test_all_versions_none_warns_and_yields_empty_index(self):
+        """Test 8: bulk probe returns rows but every version is None."""
+        from pipeline import discovery
+
+        client = self._client(
+            list_sheets_data=[SimpleNamespace(id=111222, version=None)]
+        )
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,
+                "column_mapping": {"Weekly Reference Logged Date": 55},
+                "name": "Test Sheet",
+            }
+        }
+
+        with mock.patch(
+            "pipeline.discovery.get_sheet_watermarks",
+            return_value=watermarks,
+        ), self.assertLogs(level="WARNING") as cm:
+            index = discovery._build_discovery_skip_index(client, [111222])
+
+        self.assertEqual(index, {})
+        self.assertTrue(any("no usable versions" in msg for msg in cm.output))
+
 
 class DiscoveryRegistrySkipTests(unittest.TestCase):
     """Phase 11.1 Plan 01 (D-11.1-01): end-to-end coverage of the
@@ -3543,6 +3757,197 @@ class DiscoveryRegistrySkipTests(unittest.TestCase):
         client.Sheets.list_sheets.assert_called_once_with(
             include=["sheetVersion"], include_all=True,
         )
+
+    # ── Phase 11.1 Plan 01 Task 2: doubt-branch matrix, end-to-end ───────
+    # A successful full validation calls client.Sheets.get_sheet TWICE
+    # (columns fetch, then a sample-row fetch for the diagnostic log
+    # line) -- confirmed empirically against the unmodified pre-Phase-11.1
+    # code path. The proof that matters is that the FIRST call has the
+    # full-validation signature (`include='columns'`) -- i.e. the skip
+    # path (which makes ZERO calls, per the tracer test above) was NOT
+    # taken.
+
+    @staticmethod
+    def _full_validation_client(sid, name="Full Sheet",
+                                 list_sheets_data=None, list_sheets_exc=None):
+        col = SimpleNamespace(
+            id=55, title="Weekly Reference Logged Date", type="DATE",
+        )
+        client = mock.MagicMock()
+        client.Sheets.get_sheet.return_value = SimpleNamespace(
+            id=sid, name=name, columns=[col],
+        )
+        if list_sheets_exc is not None:
+            client.Sheets.list_sheets.side_effect = list_sheets_exc
+        else:
+            client.Sheets.list_sheets.return_value = SimpleNamespace(
+                data=list_sheets_data if list_sheets_data is not None else []
+            )
+        return client
+
+    @staticmethod
+    def _run_with_watermarks(client, watermarks):
+        from pipeline import discovery
+        with mock.patch.object(
+            discovery, '_FOLDER_DISCOVERED_SUB_IDS', set()
+        ), mock.patch.object(
+            discovery, '_FOLDER_DISCOVERED_ORIG_IDS', set()
+        ), mock.patch(
+            "pipeline.discovery.get_sheet_watermarks",
+            return_value=watermarks,
+        ):
+            return discovery.discover_source_sheets(client)
+
+    def _assert_full_validation_ran(self, client, sid):
+        self.assertGreaterEqual(client.Sheets.get_sheet.call_count, 1)
+        self.assertEqual(
+            client.Sheets.get_sheet.call_args_list[0],
+            mock.call(sid, include='columns'),
+        )
+
+    def test_no_registry_row_performs_full_validation(self):
+        """Test 1: no registry row for the sid."""
+        os.environ['LIMITED_SHEET_IDS'] = '111222'
+        client = self._full_validation_client(111222)
+
+        result = self._run_with_watermarks(client, {})
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]['id'], 111222)
+        self._assert_full_validation_ran(client, 111222)
+
+    def test_version_mismatch_performs_full_validation(self):
+        """Test 2: registry row present, live version present, differs."""
+        os.environ['LIMITED_SHEET_IDS'] = '111222'
+        client = self._full_validation_client(
+            111222, list_sheets_data=[SimpleNamespace(id=111222, version=9)]
+        )
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,
+                "column_mapping": {"Weekly Reference Logged Date": 55},
+                "name": "Test Sheet",
+            }
+        }
+
+        result = self._run_with_watermarks(client, watermarks)
+
+        self.assertEqual(len(result), 1)
+        self._assert_full_validation_ran(client, 111222)
+
+    def test_empty_column_mapping_performs_full_validation(self):
+        """Test 3: registry row present, stored column_mapping empty."""
+        os.environ['LIMITED_SHEET_IDS'] = '111222'
+        client = self._full_validation_client(
+            111222, list_sheets_data=[SimpleNamespace(id=111222, version=8)]
+        )
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,
+                "column_mapping": {},
+                "name": "Test Sheet",
+            }
+        }
+
+        result = self._run_with_watermarks(client, watermarks)
+
+        self.assertEqual(len(result), 1)
+        self._assert_full_validation_ran(client, 111222)
+
+    def test_mapping_missing_weekly_reference_performs_full_validation(self):
+        """Test 4: stored mapping non-empty but missing the key column."""
+        os.environ['LIMITED_SHEET_IDS'] = '111222'
+        client = self._full_validation_client(
+            111222, list_sheets_data=[SimpleNamespace(id=111222, version=8)]
+        )
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,
+                "column_mapping": {"Foreman": 2},
+                "name": "Test Sheet",
+            }
+        }
+
+        result = self._run_with_watermarks(client, watermarks)
+
+        self.assertEqual(len(result), 1)
+        self._assert_full_validation_ran(client, 111222)
+
+    def test_live_version_none_performs_full_validation(self):
+        """Test 5: live version for the sid is None."""
+        os.environ['LIMITED_SHEET_IDS'] = '111222'
+        client = self._full_validation_client(
+            111222,
+            list_sheets_data=[SimpleNamespace(id=111222, version=None)],
+        )
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,
+                "column_mapping": {"Weekly Reference Logged Date": 55},
+                "name": "Test Sheet",
+            }
+        }
+
+        result = self._run_with_watermarks(client, watermarks)
+
+        self.assertEqual(len(result), 1)
+        self._assert_full_validation_ran(client, 111222)
+
+    def test_bulk_probe_exception_completes_with_full_validation(self):
+        """Test 6: the bulk list_sheets probe raises -- run still
+        completes and returns the fully-validated sheet, no raise."""
+        os.environ['LIMITED_SHEET_IDS'] = '111222'
+        client = self._full_validation_client(
+            111222, list_sheets_exc=RuntimeError("transport down"),
+        )
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,
+                "column_mapping": {"Weekly Reference Logged Date": 55},
+                "name": "Test Sheet",
+            }
+        }
+
+        result = self._run_with_watermarks(client, watermarks)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]['id'], 111222)
+        self._assert_full_validation_ran(client, 111222)
+
+    def test_watermarks_unavailable_performs_full_validation(self):
+        """Test 7: get_sheet_watermarks returns {} (Supabase down).
+        Mechanically identical input to Test 1 at this integration layer
+        (both produce an empty watermark map for the single candidate);
+        DiscoverySkipIndexTests isolates the two scenarios at the unit
+        level. Kept as a separate named test here for direct traceability
+        to the D-11.1-01 doubt matrix."""
+        os.environ['LIMITED_SHEET_IDS'] = '111222'
+        client = self._full_validation_client(111222)
+
+        result = self._run_with_watermarks(client, {})
+
+        self.assertEqual(len(result), 1)
+        self._assert_full_validation_ran(client, 111222)
+
+    def test_validation_exception_raises_runtime_error_naming_sid(self):
+        """Test 9: a full-validation exception still reaches
+        _failed_validation_sids and still raises the post-loop
+        RuntimeError, unchanged -- proves the Task 1 fast path did not
+        weaken the INC-05 fail-closed guard."""
+        os.environ['LIMITED_SHEET_IDS'] = '111222'
+        client = mock.MagicMock()
+        client.Sheets.get_sheet.side_effect = RuntimeError("boom")
+        client.Sheets.list_sheets.return_value = SimpleNamespace(data=[])
+
+        with self.assertRaises(RuntimeError) as cm:
+            self._run_with_watermarks(client, {})
+
+        self.assertIn("111222", str(cm.exception))
 
 
 class LiveRowAttachmentsTests(unittest.TestCase):
