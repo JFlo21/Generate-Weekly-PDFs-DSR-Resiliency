@@ -5,16 +5,16 @@ milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
 current_phase: 11.1
 current_phase_name: post-inc-05-runtime-remediation
 status: executing
-stopped_at: Completed 11-08-PLAN.md (INC-05 retirement shipped; Phase 11 fully closed)
-last_updated: "2026-09-01T18:03:15.617Z"
-last_activity: 2026-08-31
-last_activity_desc: Planning hygiene; 11-08 parity gate re-read (0/5, 3 passes to go)
-state_head: 44eed2a237aaa73f9816e085a3eb582b6aa39d21
+stopped_at: Completed 11.1-01-PLAN.md (discovery registry-version skip, Fix 1 of Phase 11.1)
+last_updated: "2026-09-01T18:33:35.961Z"
+last_activity: 2026-09-01
+last_activity_desc: Executed 11.1-01 (discovery skip fast path, doubt-branch matrix, Gate-4 re-baseline 70->72)
+state_head: 8dc375c1bdcb3885d61c5fa1694dd5bead92c167
 progress:
   total_phases: 13
   completed_phases: 3
   total_plans: 48
-  completed_plans: 46
+  completed_plans: 47
   percent: 23
 ---
 
@@ -35,26 +35,39 @@ pipeline.
 
 ## Current Position
 
-Phase: 11.1 (post-inc-05-runtime-remediation) — READY TO EXECUTE
-Plan: 8 of 8 complete. All 8 Phase 11 plans have a SUMMARY.md on disk.
-  11-07 re-opened the INC-05 retirement decision on 2026-08-31 with a real
-  5/5 `get_parity_streak()` reading (option id `retire-now`); 11-08 executed
-  that authorisation on its own branch `feat/11-08-inc05-retirement`,
-  strictly after #371/#372 merged. INC-01 through INC-05 are all complete.
-Status: Phase 11 fully shipped. `group_state.content_hash` is the sole
-  change-detection skip gate; `sheet_registry` is the sole cross-run sheet-
-  identity store; the three local JSON caches, the two attachment pre-fetch
-  phases, and the six workflow cache steps are all retired. The "after"
-  frequent-run wall-clock figure remains PENDING until the first scheduled
-  `production_frequent` run executes against the merged retirement
-  (`docs/run-memory-write-flip-checklist.md`) -- a manual item, not a gap.
-Last activity: 2026-08-31 — 11-08 Tasks 2-4 executed (attachment pre-fetch
-  retirement, local-JSON-cache + workflow-cache-step retirement, Living
-  Ledger closing entry), plus a plan-level gate remediation (dropped a
-  retired `USE_DISCOVERY_CACHE` reference in `pipeline/observability.py`;
-  refroze the stale 2026-08-24 mypy Gate 4 baseline). `bash
-  scripts/run_6_gates.sh` = ALL 6 GATES PASSED; full suite 1845 passed / 1
-  skipped / 306 subtests.
+Phase: 11.1 (post-inc-05-runtime-remediation) — IN PROGRESS (Plan 1 of 2 complete)
+Plan: 11.1-01 (Fix 1 — discovery registry-version skip) executed and
+  gate-verified on branch `feat/11.1-runtime-remediation`. 11.1-02
+  (Fix 2 — attachment-confirmation batching) is next; not yet started.
+Status: Discovery phase now skips full per-sheet validation for any
+  candidate whose live Smartsheet version still matches
+  `pipeline_memory.sheet_registry.last_sheet_version` and whose stored
+  `column_mapping` is valid, reusing the stored mapping. Every doubt input
+  (9 named behaviors) still falls back to today's full validation; the
+  INC-05 fail-closed `RuntimeError` guard is unchanged (exactly one
+  `_failed_validation_sids.append` site). `bash scripts/run_6_gates.sh` =
+  ALL 6 GATES PASSED (mypy Gate 4 re-baselined 70->72, zero accepted
+  findings — see `memory-bank/living-ledger.md` 2026-09-01 14:05 entry);
+  full suite 1870 passed / 1 skipped / 306 subtests.
+Last activity: 2026-09-01 — 11.1-01 executed (4 commits: RED test, GREEN
+  fast path, doubt-branch matrix, operator-visible split log + gate
+  remediation). SC-1/D-11.1-04 (frequent-run wall clock back under ~75
+  min) remain a POST-MERGE production observation, not verifiable from
+  this plan alone.
+
+**Phase 11 history (superseded focus, preserved for context):** Phase 11
+  fully shipped 2026-08-31 (8/8 plans). 11-07 re-opened the INC-05
+  retirement decision with a real 5/5 `get_parity_streak()` reading
+  (option id `retire-now`); 11-08 executed that authorisation on its own
+  branch `feat/11-08-inc05-retirement`, strictly after #371/#372 merged.
+  INC-01 through INC-05 are all complete. `group_state.content_hash` is
+  the sole change-detection skip gate; `sheet_registry` is the sole
+  cross-run sheet-identity store; the three local JSON caches, the two
+  attachment pre-fetch phases, and the six workflow cache steps are all
+  retired. Post-merge, the first `production_frequent` run (33512477875)
+  took 169.8 min instead of the 50-77 min norm and hit the time budget —
+  this measured regression is exactly what Phase 11.1 (this phase) exists
+  to remediate; see `11.1-CONTEXT.md`.
 
 ### Infrastructure Topology (discovered 2026-06-01 via Supabase MCP) — READ BEFORE PHASE 05
 
@@ -65,7 +78,7 @@ Last activity: 2026-08-31 — 11-08 Tasks 2-4 executed (attachment pre-fetch
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [██████████] 100% (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped)
+Progress: [██░░░░░░░░] 23% (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped)
 ```
 
 ## Performance Metrics
@@ -121,6 +134,7 @@ Progress: [██████████] 100% (v1.3 complete; v1.4 Phase 10 cl
 | Phase 11 P06 | ~50min | 3 tasks | 7 files |
 | Phase 11 P07 | ~15min | 2 tasks | 2 files |
 | Phase 11 P08 | ~2h | 3 tasks | 35 files |
+| Phase 11.1 P01 | ~30 min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -238,6 +252,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase ?]: [Phase 11] Task 1 precondition unmet (no real parity_verdict row exists yet); Juan approved code+unit-test work on the same basis already ruled for plans 11-05/11-06 (2026-08-26)
 - [Phase ?]: [Phase 11] 11-07 Task 2 GATE: Juan selected DEFER for the INC-05 retirement -- streak reading was 0/5 (no production_frequent parity_verdict rows exist; RUN_MEMORY_WRITE_ENABLED flip PR unmerged). Plan 11-08 does not execute this phase; INC-05 stays open pending flip PR merge + 5 consecutive scheduled pass verdicts.
 - [Phase ?]: [Phase 11] 11-08 INC-05 retirement shipped: group_state.content_hash sole skip gate, always-full sheet discovery via sheet_registry, six workflow cache steps removed; Phase 11 fully closed with dated Living Ledger entry
+- [Phase 11.1]: [Phase 11.1] 11.1-01: discovery registry-version skip fast path (D-11.1-01) ships INC-05-compatible -- registry hit requires exact version equality + valid stored column_mapping, any doubt falls back to full validation; Gate-4 mypy re-baselined 70->72 (zero accepted findings, pure annotation-note line drift)
 
 ### Roadmap Evolution
 
@@ -372,8 +387,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-01T02:00:32.371Z
-**Stopped at:** Completed 11-08-PLAN.md (INC-05 retirement shipped; Phase 11 fully closed)
+**Last session:** 2026-09-01T18:33:34.873Z
+**Stopped at:** Completed 11.1-01-PLAN.md (discovery registry-version skip, Fix 1 of Phase 11.1)
 **Resume file:** None
 
 ## Session Continuity

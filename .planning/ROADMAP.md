@@ -673,12 +673,12 @@ confirmation + fail-closed discovery semantics from PR #373's review fixes.
 **Requirements**: none mapped (inserted urgent phase — the Success Criteria
 above plus D-11.1-01..04 in `11.1-CONTEXT.md` are the contract)
 **Depends on:** Phase 11
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 11.1-01-PLAN.md — Fix 1: skip full discovery validation for sheets whose live Smartsheet version matches `sheet_registry.last_sheet_version` with a stored column mapping (fail-closed: any doubt → full validation)
+- [x] 11.1-01-PLAN.md — Fix 1: skip full discovery validation for sheets whose live Smartsheet version matches `sheet_registry.last_sheet_version` with a stored column mapping (fail-closed: any doubt → full validation)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
