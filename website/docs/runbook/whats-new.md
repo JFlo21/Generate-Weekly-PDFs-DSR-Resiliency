@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: August 31, 2026 (updated automatically)_
+_Last updated: September 1, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -14,8 +14,9 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — August 31, 2026
+### 📋 Changelog — September 1, 2026
 
+- ✨ New capability: retire local JSON caches and attachment pre-fetch (INC-05)
 - ✨ New capability: parity streak counts weekend + manual runs
 - 📄 Help guides updated: + merged; streak is weekday-only
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
@@ -23,7 +24,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - 📄 Help guides updated: first post-merge run verified; saving corrected
 - 📄 Help guides updated: scrub entry + / merged state
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- ✨ New capability: groups whose WR has no target-sheet row are not generated, listed as an error
 
 <!-- /runbook-repo -->
 
@@ -480,4 +480,3 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
-
