@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-09-01 14:30 CDT (19:30Z) · **overwrite-in-place each session** (this is the
+_Last updated: 2026-09-01 14:50 CDT (19:50Z) · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
@@ -18,7 +18,7 @@ budget 25), #355 (docs/hook), #359 (hash sort tiebreaker). **Merged 2026-08-28 0
 **3 of 5** since the 03:49Z fail — the pre-marker manual run does not count). Then: checklist item 6 SQL +
 items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-09-01 14:30 CDT) — **Phase 11.1 both plans complete** on `feat/11.1-runtime-remediation`; verifier + PR in flight
+## Latest work (2026-09-01 14:50 CDT) — **PR #374 OPEN** (Phase 11.1 runtime remediation) — awaiting Greptile round + Juan's merge
 
 - **Post-#373 regression measured:** run 33512477875 = 169.8 min (budget-stopped, 1216 groups
   deferred). Root cause: discovery 1.3 s → 66.8 min (full per-sheet validation every run) and group
@@ -31,11 +31,12 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
   regeneration; `_live_row_attachments` + both call sites byte-for-byte unmodified. 25000
   `total_count` ceiling + ERROR fallback = **D-11.1-05 accepted residual, owner veto at PR review**.
   Suite 1886 passed / 1 skipped / 306 subtests; ALL 6 GATES; Gate 4 refrozen 70→72 (zero findings).
-- **Branch state:** 18 commits ahead of `origin/master`, **not pushed, no PR yet**.
-  `/gsd-resume-work` (this session) consumed + removed `HANDOFF.json`, refreshed STATE.md session
-  continuity, dispatched gsd-verifier (Sonnet) → `11.1-VERIFICATION.md`. Next in order: commit the
-  untracked `11.1-PATTERNS.md` + `.gitkeep`, drop `.continue-here.md`, push, open PR (Objective /
-  Changes Made / Production Safety Check, D-11.1-05 flagged), Greptile round, Juan merges.
+- **Shipped this session:** `/gsd-resume-work` consumed + removed `HANDOFF.json` and the 11.1
+  `.continue-here.md`; gsd-verifier (Sonnet) wrote `11.1-VERIFICATION.md` = **12/12 code-verifiable
+  must-haves, 0 gaps, status `human_needed`** (4 post-merge timing observations). Commit `076ea31`
+  (verification + untracked `11.1-PATTERNS.md`/`.gitkeep` + ledgers); branch pushed with upstream;
+  **PR #374** opened against master (+4461/−47; Objective / Changes Made / Production Safety Check;
+  D-11.1-05 flagged for owner veto). Next: Greptile round → Juan merges → post-merge observation below.
 - **Post-merge (SC-1, not code-verifiable):** first `production_frequent` run supplies wall clock
   (target < ~75 min), the `Discovery validation split` counts, and per-sheet `total_count` INFO
   lines → fill `11.1-VALIDATION.md` Manual-Only table + `docs/run-memory-write-flip-checklist.md`

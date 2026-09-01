@@ -5,10 +5,10 @@ milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
 current_phase: 11.1
 current_phase_name: post-inc-05-runtime-remediation
 status: executing
-stopped_at: Completed 11.1-02-PLAN.md (bulk attachment pre-seed, Fix 2 of Phase 11.1 -- phase complete)
-last_updated: "2026-09-01T18:58:14.630Z"
+stopped_at: PR #374 open for Phase 11.1 (verification human_needed = post-merge timing); awaiting review + merge
+last_updated: "2026-09-01T19:50:00.000Z"
 last_activity: 2026-09-01
-last_activity_desc: Executed 11.1-02 (bulk attachment pre-seed, main() wiring, phase gate green -- Phase 11.1 complete)
+last_activity_desc: Phase 11.1 verified (12/12, 0 gaps) and shipped as PR #374; post-merge SC-1 observation pending
 state_head: 5936ad263cf66a1689345714359cae051ddbdf9f
 progress:
   total_phases: 13
@@ -398,16 +398,17 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 ## Session
 
 **Last session:** 2026-09-01T18:58:13.637Z
-**Stopped at:** Completed 11.1-02-PLAN.md (bulk attachment pre-seed, Fix 2 of Phase 11.1 -- phase complete)
+**Stopped at:** PR #374 open (Phase 11.1) — 11.1-VERIFICATION.md human_needed; next Greptile round, Juan merges, then post-merge SC-1 observation + /gsd-verify-work 11.1
 **Resume file:** None
 
 ## Session Continuity
 
-Last session: 2026-09-01T19:20:00.000Z
-Stopped at: Session resumed via /gsd-resume-work. Phase 11.1 both plans
-  complete on branch `feat/11.1-runtime-remediation` (18 commits ahead of
-  origin/master, NOT pushed, no PR yet). Remaining: gsd-verifier ->
-  11.1-VERIFICATION.md, then push + open PR (flag D-11.1-05 for owner veto),
-  then post-merge wall-clock observation (<~75 min, SC-1). HANDOFF.json
-  and the 11.1 `.continue-here.md` checkpoint both consumed and removed on resume.
+Last session: 2026-09-01T19:50:00.000Z
+Stopped at: Phase 11.1 shipped — gsd-verifier 12/12 code-verifiable must-haves,
+  0 gaps, status human_needed (SC-1 wall clock + timing magnitudes are post-merge
+  production observations). Commit 076ea31 pushed; PR #374 open against master
+  (D-11.1-05 flagged for owner veto). Next: Greptile round, Juan merges, first
+  production_frequent run supplies wall clock (<~75 min) + Discovery validation
+  split + per-sheet total_count lines -> 11.1-VALIDATION.md Manual-Only table ->
+  /gsd-verify-work 11.1. HANDOFF.json and .continue-here.md consumed and removed.
 Resume file: None
