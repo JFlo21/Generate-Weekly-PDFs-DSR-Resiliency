@@ -32,6 +32,7 @@ import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any
 
 import sentry_sdk
 
@@ -186,7 +187,9 @@ def _normalize_column_title_for_vac_crew(t):
     return s
 
 
-def _build_discovery_skip_index(client, sheet_ids):
+def _build_discovery_skip_index(
+    client: Any, sheet_ids: list[int]
+) -> dict[int, dict[str, Any]]:
     """Return a registry-version skip index for *sheet_ids* (D-11.1-01).
 
     Module-level (not a nested closure) so it is directly unit-testable,
@@ -267,7 +270,7 @@ def _build_discovery_skip_index(client, sheet_ids):
             )
             return {}
 
-        index: dict = {}
+        index: dict[int, dict[str, Any]] = {}
         for sid in candidate_ids:
             watermark = watermarks.get(sid)
             if watermark is None:

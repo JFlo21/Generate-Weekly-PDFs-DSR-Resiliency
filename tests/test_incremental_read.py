@@ -4136,6 +4136,88 @@ class AttachmentParentTypeComparisonTests(unittest.TestCase):
         self.assertFalse(orchestrate._is_row_attachment(att))
 
 
+class BulkListingCeilingParseTests(unittest.TestCase):
+    """Phase 11.1 Fix 2 (D-11.1-05), PR #374 review: the
+    ``BULK_ATTACHMENT_LISTING_MAX_TOTAL`` override is parsed at module
+    import, BEFORE the pre-seed's own containment layers exist, so a
+    malformed operator value must fall back to the default with a WARNING
+    instead of raising and aborting the scheduled billing run."""
+
+    def test_default_when_unset(self):
+        from pipeline import orchestrate
+
+        self.assertEqual(
+            orchestrate._parse_bulk_listing_ceiling(None),
+            orchestrate._BULK_ATTACHMENT_LISTING_MAX_TOTAL_DEFAULT,
+        )
+
+    def test_default_when_blank(self):
+        from pipeline import orchestrate
+
+        for raw in ("", "   "):
+            with self.subTest(raw=raw):
+                self.assertEqual(
+                    orchestrate._parse_bulk_listing_ceiling(raw),
+                    orchestrate._BULK_ATTACHMENT_LISTING_MAX_TOTAL_DEFAULT,
+                )
+
+    def test_malformed_value_falls_back_with_warning_never_raises(self):
+        from pipeline import orchestrate
+
+        for raw in ("25k", "25,000", "abc", "2.5e4"):
+            with self.subTest(raw=raw):
+                with self.assertLogs(level="WARNING") as captured:
+                    value = orchestrate._parse_bulk_listing_ceiling(raw)
+                self.assertEqual(
+                    value,
+                    orchestrate._BULK_ATTACHMENT_LISTING_MAX_TOTAL_DEFAULT,
+                )
+                self.assertTrue(
+                    any(
+                        "BULK_ATTACHMENT_LISTING_MAX_TOTAL" in line
+                        for line in captured.output
+                    )
+                )
+
+    def test_well_formed_value_is_honoured(self):
+        from pipeline import orchestrate
+
+        self.assertEqual(
+            orchestrate._parse_bulk_listing_ceiling(" 300 "), 300
+        )
+        # ``0`` stays a legal (always-fall-back) ceiling -- no semantic
+        # change to well-formed values.
+        self.assertEqual(orchestrate._parse_bulk_listing_ceiling("0"), 0)
+
+    def test_module_constant_is_an_int(self):
+        from pipeline import orchestrate
+
+        self.assertIsInstance(
+            orchestrate._BULK_ATTACHMENT_LISTING_MAX_TOTAL, int
+        )
+        self.assertNotIsInstance(
+            orchestrate._BULK_ATTACHMENT_LISTING_MAX_TOTAL, bool
+        )
+
+
+class DiscoverySkipIndexAnnotationTests(unittest.TestCase):
+    """PR #374 review: the production helper must carry full parameter
+    and return annotations so static analysis checks the client, the
+    sheet-id list, and the skip-index shape its callers rely on."""
+
+    def test_skip_index_builder_is_fully_annotated(self):
+        import typing
+
+        from pipeline import discovery
+
+        hints = typing.get_type_hints(discovery._build_discovery_skip_index)
+        self.assertEqual(set(hints), {"client", "sheet_ids", "return"})
+        self.assertEqual(hints["sheet_ids"], list[int])
+        self.assertEqual(
+            hints["return"], dict[int, dict[str, typing.Any]]
+        )
+
+
 class AttachmentPrepopulationTests(unittest.TestCase):
     """Phase 11.1 Fix 2 (D-11.1-02): pre-seed the existing
     ``_live_row_attachments`` memo from two bulk sheet-level attachment

@@ -36,7 +36,16 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
   must-haves, 0 gaps, status `human_needed`** (4 post-merge timing observations). Commits `076ea31` + `44982c5`
   (verification + untracked `11.1-PATTERNS.md`/`.gitkeep` + ledgers); branch pushed with upstream;
   **PR #374** opened against master (+4461/−47; Objective / Changes Made / Production Safety Check;
-  D-11.1-05 flagged for owner veto). Next: Greptile round → Juan merges → post-merge observation below.
+  D-11.1-05 flagged for owner veto). **Greptile round (14:45 CDT):** both P2 findings valid and
+  fixed on the branch — never-raising `_parse_bulk_listing_ceiling` for the import-time
+  `BULK_ATTACHMENT_LISTING_MAX_TOTAL` parse (a malformed value could have aborted the run before any
+  containment layer), and full annotations on `_build_discovery_skip_index`; Gate 4 refrozen 72→71
+  (zero accepted findings, LF-only); suite 1892 passed / 1 skipped / 312 subtests; ALL 6 GATES.
+  Still open on #374: 5 Copilot threads (incl. STATE.md progress arithmetic, `⚡` vs `⏭️` marker
+  wording in 11.1-01-PLAN/VALIDATION, a SimpleNamespace pin critique at test 4112) and 3
+  `chatgpt-codex-connector` threads (two P1: discovery.py:286, orchestrate.py:2938; one P2:
+  discovery.py:281) — not yet triaged. Next: Juan reviews remaining threads → merges → post-merge
+  observation below.
 - **Post-merge (SC-1, not code-verifiable):** first `production_frequent` run supplies wall clock
   (target < ~75 min), the `Discovery validation split` counts, and per-sheet `total_count` INFO
   lines → fill `11.1-VALIDATION.md` Manual-Only table + `docs/run-memory-write-flip-checklist.md`

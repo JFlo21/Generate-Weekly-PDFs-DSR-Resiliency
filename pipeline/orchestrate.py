@@ -1220,8 +1220,37 @@ def _live_row_attachments(
 # above this probed total a sheet's bulk listing is skipped and today's
 # shipped lazy per-row _live_row_attachments path is used instead
 # (D-11.1-05 accepted residual risk).
-_BULK_ATTACHMENT_LISTING_MAX_TOTAL = int(
-    os.getenv('BULK_ATTACHMENT_LISTING_MAX_TOTAL', '25000') or 25000
+_BULK_ATTACHMENT_LISTING_MAX_TOTAL_DEFAULT = 25000
+
+
+def _parse_bulk_listing_ceiling(raw: Any) -> int:
+    """Never-raising parse of ``BULK_ATTACHMENT_LISTING_MAX_TOTAL``.
+
+    Evaluated at module import (directly below), i.e. BEFORE the pre-seed's
+    own containment layers exist -- so a malformed operator value such as
+    ``25k`` or ``25,000`` must degrade to the default with a WARNING, never
+    raise and abort the scheduled billing run (PR #374 review; mirrors
+    ``pipeline.snapshot_drift._int_env``). Well-formed integers, including
+    ``0``, are honoured unchanged.
+    """
+    if raw is None:
+        return _BULK_ATTACHMENT_LISTING_MAX_TOTAL_DEFAULT
+    text = str(raw).strip()
+    if not text:
+        return _BULK_ATTACHMENT_LISTING_MAX_TOTAL_DEFAULT
+    try:
+        return int(text)
+    except (TypeError, ValueError):
+        logging.warning(
+            f"⚠️ BULK_ATTACHMENT_LISTING_MAX_TOTAL={raw!r} is not an "
+            f"integer -- using the default "
+            f"{_BULK_ATTACHMENT_LISTING_MAX_TOTAL_DEFAULT} (D-11.1-05)."
+        )
+        return _BULK_ATTACHMENT_LISTING_MAX_TOTAL_DEFAULT
+
+
+_BULK_ATTACHMENT_LISTING_MAX_TOTAL = _parse_bulk_listing_ceiling(
+    os.getenv('BULK_ATTACHMENT_LISTING_MAX_TOTAL')
 )
 
 

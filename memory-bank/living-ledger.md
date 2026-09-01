@@ -8085,3 +8085,28 @@ Reference: `.planning/phases/11.1-post-inc-05-runtime-remediation/` (`11.1-CONTE
   option (b) not built) as the accepted residual risk so the merge itself is the recorded approval.
 - **Resume hygiene:** `HANDOFF.json` and the phase `.continue-here.md` are one-shot artifacts;
   both were consumed and removed in the closeout commit (`076ea31`) rather than left to ride the PR.
+
+## [2026-09-01 14:45] PR #374 Greptile round — import-time env parsing rule; skip-index helper annotated; Gate-4 71
+
+- **Rule: a module-import-time env parse must be never-raising.** `pipeline/orchestrate.py`
+  computed `_BULK_ATTACHMENT_LISTING_MAX_TOTAL` with a bare `int(os.getenv(...))` at import, so a
+  malformed operator value (`25k`, `25,000`) would abort the scheduled billing run BEFORE the
+  pre-seed's own containment layers (`_preseed_live_attachment_listings` never-raises + the
+  `main()` outer `try/except`) could ever run — contradicting Wave 2's "a defect in performance-only
+  code can never abort a billing run" contract. Fixed with `_parse_bulk_listing_ceiling(raw) -> int`
+  (mirrors `pipeline.snapshot_drift._int_env`): `None`/blank → default 25000; unparseable → default
+  + WARNING naming the variable; well-formed ints incl. `0` honoured unchanged. Any future
+  import-time knob follows the same shape — the containment boundary must exist at the point the
+  value is read, not only where it is used.
+- **Skip-index helper annotated** (`_build_discovery_skip_index(client: Any, sheet_ids: list[int])
+  -> dict[int, dict[str, Any]]`). The 11.1-01 executor had left it untyped to avoid a Gate-4
+  refreeze; that was a risk-avoidance choice, not a design reason, and the repo standard is full
+  hints. `list[int]` (not `Iterable`) is deliberate: `get_sheet_watermarks` takes `list`, and the
+  body calls `list(sheet_ids)` after that read, so a one-shot iterator would silently empty the
+  candidate list — the annotation pins the re-iterable contract the callers already honour.
+- **Gate 4 re-baselined 72 → 71, zero accepted findings.** The delta is exactly one removed
+  `[annotation-unchecked]` NOTE (the now-typed helper) plus line-number drift; the 28-error set is
+  byte-identical ignoring line numbers (verified with a normalised diff). Golden refrozen LF-only.
+- Tests: `BulkListingCeilingParseTests` (6) + `DiscoverySkipIndexAnnotationTests` (1) in
+  `tests/test_incremental_read.py`, RED confirmed before implementation. Suite 1892 passed /
+  1 skipped / 312 subtests; ALL 6 GATES PASSED.
