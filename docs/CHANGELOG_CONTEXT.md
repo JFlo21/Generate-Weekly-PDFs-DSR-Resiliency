@@ -134,7 +134,7 @@ changes until you do (Notion would otherwise reject the page). The startup banne
 `pipeline/excel.py` no longer name two historical Work Requests (the per-WR branch was a log line with no
 behaviour). No pipeline behaviour change. See `memory-bank/living-ledger.md` `[2026-08-28 20:15]`; PR #369.
 
-## 2026-09-01 — WR 91390743 "Thursday total ≠ rows" diagnosed as a hand-edited copy; claimer-correction gap re-confirmed (diagnosis only)
+## 2026-09-01 — `<WR-D>` "Thursday total ≠ rows" diagnosed as a hand-edited copy; claimer-correction gap re-confirmed (diagnosis only)
 No code change. The workbook the operator inspected was re-saved in Excel by a person after generation:
 the Friday block was folded under Thursday and two Point 29 rows (524.51) were deleted, leaving the literal
 Thursday TOTAL stale. The pipeline's own attachment on the target row is internally consistent (72 rows =
@@ -155,6 +155,10 @@ never stores those placeholders — it nulls them and, when no role holds a real
 Supabase call entirely so the first real person can still be frozen first-write-wins. Real frozen
 names still win exactly as before. Two new run-summary counters make it visible:
 `sentinel_claimers_ignored` and `sentinel_freezes_deferred` (golden run_summary refrozen 22→24
-keys). What the scheduled run still does not do: delete the old `*_Unknown_Foreman*` attachment —
-run the `REMEDIATE_CLAIMERS` sweep once after a batch of assignments (dry-run first). See
+keys). The review round also fixed a latent miss: the subcontractor-helper path passed a
+`datetime` week to `resolve_claimer` while the prefetched map is keyed by `date`, so frozen helper
+claims were never honoured there; the week is now coerced inside `resolve_claimer`. What is still
+NOT automatic: removing the old `*_Unknown_Foreman*` attachment. Neither the scheduled run nor the
+isolated `REMEDIATE_CLAIMERS` sweep (which only removes `_NO_MATCH`) deletes it — dispatch
+`reset_wr_list:<WR>` in `advanced_options` for that WR or delete it by hand. See
 `memory-bank/living-ledger.md` `[2026-09-01 18:05]`; PR #375.
