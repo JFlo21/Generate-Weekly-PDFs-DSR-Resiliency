@@ -8033,3 +8033,37 @@ entry's own commit (Task 4).
   convention (`_validate_single_sheet`, `_get_sample_rows`, `_extract_col_samples` are all
   untyped today), and risks surfacing unrelated new type errors mid-plan. `tests/golden/*.txt`
   confirmed LF-only (`test_golden_txt_baselines_contain_no_crlf` PASS).
+
+## [2026-09-01 13:50] Phase 11.1 (D-11.1-01/D-11.1-02) — post-INC-05 runtime remediation, durable rules
+
+- **Rule 1: retiring a cache does not retire the need for the identity it held.** PR #373
+  (INC-05, `abf905d`) removed the discovery-cache JSON; the very next real run (`33512477875`)
+  discovery cost jumped 1.3s -> 66.8 min because the same identity was already sitting unread
+  in `pipeline_memory.sheet_registry.last_sheet_version`. Plan 11.1-01 (D-11.1-01) added a
+  registry-version skip fast path (exact version match + valid stored `column_mapping` skips
+  `client.Sheets.get_sheet`; any doubt falls back to full validation, INC-05 fail-closed guard
+  untouched). Check whether a retired cache's identity is already written elsewhere before
+  rebuilding it.
+- **Rule 2: a per-item live confirmation belongs outside a serial loop.** The same run's
+  group-processing regressed 0.28 -> ~2.26 s/group because PR #373's live-existence
+  confirmation (`group_state` stub != proof of existence) paid one `list_row_attachments` call
+  per row inside the loop. Plan 11.1-02 (D-11.1-02) pre-seeds the SAME `_live_row_attachments`
+  memo from 2 bulk `Attachments.list_all_attachments(sheet_id, include_all=True)` calls before
+  the loop, via `_preseed_live_attachment_listings`; `_live_row_attachments` and both call
+  sites stay byte-for-byte unmodified — its existing memo-hit fast path is what makes
+  pre-seeding sufficient.
+- **Rule 3: pinned `EnumeratedValue` comparison for `Attachment.parent_type`.** Verified
+  against installed smartsheet-python-sdk 4.3.0 (`types.py::EnumeratedValue.__eq__`): both
+  `att.parent_type == AttachmentParentType.ROW` and `== 'ROW'` compare correctly.
+  `_is_row_attachment` accepts either, defaults False (incl. missing attribute) so an SDK
+  change degrades to no-seeding, never mis-bucketing. Pinned by
+  `AttachmentParentTypeComparisonTests`.
+- **Rule 4: empty-seed direction + size ceiling.** A row absent from a fully-successful bulk
+  listing seeds an EMPTY list (-> regenerate, the safe direction), applied ONLY when that
+  sheet's listing fully succeeded; any probe/listing failure or `total_count` over
+  `BULK_ATTACHMENT_LISTING_MAX_TOTAL` (25000 default) seeds nothing and falls back to today's
+  lazy per-row path, ERROR-logged naming option (b) as the D-11.1-05 remedy if ever hit.
+
+Reference: `.planning/phases/11.1-post-inc-05-runtime-remediation/` (`11.1-CONTEXT.md`,
+`11.1-RESEARCH.md`, `11.1-PATTERNS.md`, plans 11.1-01/11.1-02); branch
+`feat/11.1-runtime-remediation`, PR not yet opened as of this entry.
