@@ -36,6 +36,13 @@ from typing import Any
 
 from dateutil import parser
 import smartsheet
+# Phase 11.1 (D-11.1-02): the attachment parent-type enum, needed to
+# bucket a bulk attachment listing to ROW-parent entries only (see
+# _is_row_attachment below). Not previously imported anywhere in this
+# module.
+from smartsheet.models.enums.attachment_parent_type import (
+    AttachmentParentType,
+)
 import sentry_sdk
 from sentry_sdk.crons import capture_checkin
 from sentry_sdk.crons.consts import MonitorStatus
@@ -1203,6 +1210,142 @@ def _live_row_attachments(
     if memo is not None:
         memo[row_id] = listing
     return listing
+
+
+# Phase 11.1 (D-11.1-02): private ceiling for the bulk attachment-listing
+# pre-seed below -- NOT a time budget, and deliberately unlike the retired
+# ATTACHMENT_PREFETCH_MAX_MINUTES / ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC
+# sub-budgets (D-11.1-03). Order of magnitude above the ~1,900-row
+# skip-candidate scope (11.1-RESEARCH.md "Unresolved sizing risk"); at or
+# above this probed total a sheet's bulk listing is skipped and today's
+# shipped lazy per-row _live_row_attachments path is used instead
+# (D-11.1-05 accepted residual risk).
+_BULK_ATTACHMENT_LISTING_MAX_TOTAL = int(
+    os.getenv('BULK_ATTACHMENT_LISTING_MAX_TOTAL', '25000') or 25000
+)
+
+
+def _is_row_attachment(att: Any) -> bool:
+    """Return True only for a ROW-parent attachment (Phase 11.1, D-11.1-02).
+
+    ``Attachment.parent_type`` is wrapped in the SDK's ``EnumeratedValue``
+    (11.1-RESEARCH.md Pitfall 4), not a bare Python ``Enum`` -- comparing it
+    against the real ``AttachmentParentType.ROW`` member is the
+    verified-correct form against the installed smartsheet-python-sdk
+    4.3.0. Also accepts the plain string spelling, so a future SDK
+    representation change degrades to "not a row attachment" (fail-safe:
+    no seeding) rather than risk mis-bucketing a SHEET- or COMMENT-parent
+    attachment onto a row id. Pure, no I/O, never raises.
+    """
+    parent_type = getattr(att, 'parent_type', None)
+    if parent_type is None:
+        return False
+    return parent_type == AttachmentParentType.ROW or parent_type == 'ROW'
+
+
+def _preseed_live_attachment_listings(
+    client: Any, sheet_id: Any, row_ids: 'set[Any] | frozenset[Any]',
+    memo: dict,
+) -> tuple[int, int]:
+    """Pre-seed the ``_live_row_attachments`` ``memo`` for every id in
+    ``row_ids`` from two bulk sheet-level attachment listings, instead of
+    paying one serial ``list_row_attachments`` call per skip-candidate row
+    inside the group loop (Phase 11.1, D-11.1-02 -- run 33512477875 spent
+    4425.8s at ~2.26 s/group after PR #373's per-row live existence
+    confirmation added a serial call to the loop; the existence semantics
+    stay correct here, only the call pattern changes).
+
+    NEVER raises. NEVER seeds a partial or unverified result for a sheet:
+    on any probe failure, listing failure, or a probed total above
+    ``_BULK_ATTACHMENT_LISTING_MAX_TOTAL``, nothing is seeded and every row
+    on that sheet falls through to today's shipped lazy per-row
+    ``_live_row_attachments`` path -- the fail-open-to-regenerate posture
+    is unchanged (D-11.1-05).
+
+    Returns ``(seeded_with_attachments, seeded_empty)`` -- the number of
+    ids in ``row_ids`` freshly seeded with at least one attachment and the
+    number freshly seeded with an empty list (for the per-sheet log line).
+    """
+    if not row_ids:
+        return 0, 0
+
+    with sentry_sdk.start_span(
+        op="smartsheet.bulk_attachment_listing",
+        name=f"Pre-seed live attachment listings: sheet {sheet_id}",
+    ) as _span:
+        try:
+            _probe = smartsheet_call_with_retry(
+                client.Attachments.list_all_attachments,
+                sheet_id, page_size=1,
+                label=f"attachment total_count probe sheet {sheet_id}",
+            )
+            _total = getattr(_probe, 'total_count', None)
+        except Exception as e:
+            logging.warning(
+                f"⚠️ Attachment total_count probe failed for sheet "
+                f"{sheet_id} (Phase 11.1, non-fatal, seeding nothing): {e}"
+            )
+            _span.set_data("preseed_outcome", "probe_failed")
+            return 0, 0
+
+        logging.info(
+            f"📎 Attachment total_count probe: sheet {sheet_id} = {_total}"
+        )
+        _span.set_data("total_count", _total)
+
+        if (
+            _total is not None
+            and _total > _BULK_ATTACHMENT_LISTING_MAX_TOTAL
+        ):
+            logging.error(
+                f"⚠️ Bulk attachment listing skipped for sheet {sheet_id}: "
+                f"total_count {_total} exceeds the "
+                f"{_BULK_ATTACHMENT_LISTING_MAX_TOTAL} ceiling (Phase "
+                f"11.1, D-11.1-05). Remedy: the bounded per-skip-candidate "
+                f"prefetch (option (b)) documented in 11.1-RESEARCH.md. "
+                f"Falling back to today's lazy per-row path for this "
+                f"sheet."
+            )
+            _span.set_data("preseed_outcome", "over_ceiling")
+            return 0, 0
+
+        try:
+            _listing_result = smartsheet_call_with_retry(
+                client.Attachments.list_all_attachments,
+                sheet_id, include_all=True,
+                label=f"bulk attachment listing sheet {sheet_id}",
+            )
+        except Exception as e:
+            logging.warning(
+                f"⚠️ Bulk attachment listing failed for sheet {sheet_id} "
+                f"(Phase 11.1, non-fatal, seeding nothing): {e}"
+            )
+            _span.set_data("preseed_outcome", "listing_failed")
+            return 0, 0
+
+        _by_row: dict = {}
+        for _att in (getattr(_listing_result, 'data', None) or []):
+            if _is_row_attachment(_att) and _att.parent_id in row_ids:
+                _by_row.setdefault(_att.parent_id, []).append(_att)
+
+        seeded_with = 0
+        seeded_empty = 0
+        for _row_id in row_ids:
+            _bucket = _by_row.get(_row_id, [])
+            # setdefault is deliberate: an entry a live lookup already
+            # placed in the memo must win over a bulk-derived one.
+            _existing = memo.setdefault(_row_id, _bucket)
+            if _existing is _bucket:
+                if _bucket:
+                    seeded_with += 1
+                else:
+                    seeded_empty += 1
+
+        _span.set_data("seeded_with_attachments", seeded_with)
+        _span.set_data("seeded_empty", seeded_empty)
+        _span.set_data("preseed_outcome", "seeded")
+
+    return seeded_with, seeded_empty
 
 
 def _extract_attachment_id_name(attach_result: Any) -> tuple[Any, Any]:
