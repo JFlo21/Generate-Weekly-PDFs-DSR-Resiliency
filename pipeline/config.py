@@ -105,25 +105,18 @@ PARALLEL_WORKERS_DISCOVERY = int(os.getenv('PARALLEL_WORKERS_DISCOVERY', '8') or
 # timeout-minutes: 180 on the runner (15min cushion for cache/artifact save steps).
 TIME_BUDGET_MINUTES = int(os.getenv('TIME_BUDGET_MINUTES', '0') or 0)
 
-# Sub-budget for the attachment pre-fetch phase. Prevents a flaky Smartsheet
-# connection from consuming the entire session budget before group processing
-# can start: on 2026-04-22 a run lost 16 minutes to ~14 stuck rows after
-# RemoteDisconnected retries, exhausted the 80min TIME_BUDGET_MINUTES before
-# generating a single file, and finished with 0 Excel files generated.
-# When the pre-fetch exceeds this budget, remaining rows fall back to on-demand
-# per-row fetches (already supported in _has_existing_week_attachment and
-# delete_old_excel_attachments).
-ATTACHMENT_PREFETCH_MAX_MINUTES = int(os.getenv('ATTACHMENT_PREFETCH_MAX_MINUTES', '10') or 10)
-# Per-future wait (seconds) inside the pre-fetch consumer loop. One stuck HTTP
-# call cannot block the consumer beyond this — the future is left behind and
-# its row falls back to the per-row path at generation time.
-ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC = int(os.getenv('ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC', '45') or 45)
-# Minimum "generation headroom" (minutes) the pre-flight guard reserves
-# beyond the pre-fetch budget. Without this, a setup where the session
-# has exactly `ATTACHMENT_PREFETCH_MAX_MINUTES` remaining would still
-# run pre-fetch and leave ~0 minutes for group processing — the same
-# zero-output failure mode this guard is meant to prevent.
-ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN = int(os.getenv('ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN', '2') or 2)
+# RETIRED (Phase 11 Plan 08, INC-05, CONTEXT.md D-12): the bulk
+# attachment pre-fetch phase and its three sub-budget constants
+# (ATTACHMENT_PREFETCH_MAX_MINUTES, _FUTURE_TIMEOUT_SEC,
+# _GENERATION_HEADROOM_MIN) were removed once pipeline_memory.group_state
+# proved it could supply attachment identity in place of a bulk Smartsheet
+# pre-fetch. Setting any of these env vars today has no effect — nothing
+# imports them. Attachment identity now resolves via
+# pipeline_memory.reader.get_group_state_attachments_by_wr(), with every
+# consumer falling back to the existing per-row on-demand
+# `list_row_attachments` lookup in pipeline/cleanup.py
+# (_has_existing_week_attachment / delete_old_excel_attachments) on any
+# miss.
 
 # Snapshot-date drift audit (quick task 260812-jqx) -- defence-in-depth
 # backstop for the Smartsheet "record Snapshot Date" automation firing on
@@ -468,10 +461,11 @@ SUPABASE_HASH_STORE_AUTHORITATIVE = os.getenv(
 RUN_MEMORY_WRITE_ENABLED = os.getenv(
     'RUN_MEMORY_WRITE_ENABLED', '0'
 ).strip().lower() in ('1', 'true', 'yes', 'on')
-# Phase-local sub-budget (minutes), the direct analog of
-# ATTACHMENT_PREFETCH_MAX_MINUTES: bounds how long the per-sheet
-# upsert_rows_bulk loop may run so a slow Supabase response can never push
-# the ~94-minute production run past TIME_BUDGET_MINUTES=165.
+# Phase-local sub-budget (minutes), the same sub-budget pattern the
+# retired attachment pre-fetch phase used (Phase 11 Plan 08 / INC-05):
+# bounds how long the per-sheet upsert_rows_bulk loop may run so a slow
+# Supabase response can never push the ~94-minute production run past
+# TIME_BUDGET_MINUTES=165.
 RUN_MEMORY_WRITE_MAX_MINUTES = int(
     os.getenv('RUN_MEMORY_WRITE_MAX_MINUTES', '10') or 10
 )
@@ -480,11 +474,12 @@ RUN_MEMORY_WRITE_MAX_MINUTES = int(
 RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC = int(
     os.getenv('RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC', '45') or 45
 )
-# Pre-flight reserve (minutes), the direct analog of
-# ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN: the memory-write phase is
-# skipped entirely (one WARNING, no partial writes) when the remaining
-# session budget would leave less than this much headroom for the group/
-# Excel-generation phases that still have to run after it.
+# Pre-flight reserve (minutes), the same headroom-reservation pattern the
+# retired attachment pre-fetch phase used (Phase 11 Plan 08 / INC-05): the
+# memory-write phase is skipped entirely (one WARNING, no partial writes)
+# when the remaining session budget would leave less than this much
+# headroom for the group/Excel-generation phases that still have to run
+# after it.
 RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN = int(
     os.getenv('RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN', '2') or 2
 )
@@ -510,8 +505,9 @@ RUN_MEMORY_INCREMENTAL_ENABLED = os.getenv(
 SAFETY_WINDOW_MINUTES = int(os.getenv('SAFETY_WINDOW_MINUTES', '15') or 15)
 
 # Phase 11 Plan 05 (INC-04, CONTEXT.md D-07/D-08): sub-budget for the
-# shadow-incremental parity block (pipeline/parity.py) -- the direct
-# analog of RUN_MEMORY_WRITE_MAX_MINUTES / ATTACHMENT_PREFETCH_MAX_MINUTES.
+# shadow-incremental parity block (pipeline/parity.py) -- mirrors
+# RUN_MEMORY_WRITE_MAX_MINUTES and the sub-budget pattern the retired
+# attachment pre-fetch phase used (Phase 11 Plan 08 / INC-05).
 # Bounds the D-08 per-sheet delta-probe loop so a slow Supabase/Smartsheet
 # response can never push the run past TIME_BUDGET_MINUTES=165. Runs only
 # while RUN_MEMORY_WRITE_ENABLED is on and RUN_MEMORY_INCREMENTAL_ENABLED
@@ -521,7 +517,7 @@ RUN_MEMORY_SHADOW_MAX_MINUTES = int(
 )
 # Per-call ceiling (seconds) so one stuck delta-probe call cannot itself
 # consume the whole RUN_MEMORY_SHADOW_MAX_MINUTES sub-budget -- mirrors
-# RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC / ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC.
+# RUN_MEMORY_WRITE_RPC_TIMEOUT_SEC.
 RUN_MEMORY_SHADOW_RPC_TIMEOUT_SEC = int(
     os.getenv('RUN_MEMORY_SHADOW_RPC_TIMEOUT_SEC', '45') or 45
 )
@@ -529,8 +525,7 @@ RUN_MEMORY_SHADOW_RPC_TIMEOUT_SEC = int(
 # entirely (never a partial start) when the remaining session budget
 # would leave less than this much headroom for the group/Excel-generation
 # phases still to run after it. Mirrors
-# RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN / ATTACHMENT_PREFETCH_
-# GENERATION_HEADROOM_MIN.
+# RUN_MEMORY_WRITE_GENERATION_HEADROOM_MIN.
 RUN_MEMORY_SHADOW_GENERATION_HEADROOM_MIN = int(
     os.getenv('RUN_MEMORY_SHADOW_GENERATION_HEADROOM_MIN', '2') or 2
 )

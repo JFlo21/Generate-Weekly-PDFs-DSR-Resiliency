@@ -31,9 +31,7 @@ import logging
 from concurrent.futures import (
     ThreadPoolExecutor,
     as_completed,
-    TimeoutError as FuturesTimeoutError,
 )
-import concurrent.futures.thread as _cf_thread
 from typing import Any
 
 from dateutil import parser
@@ -79,9 +77,6 @@ from pipeline import parity as _parity
 
 from pipeline.config import (  # noqa: E402
     API_TOKEN,
-    ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC,
-    ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN,
-    ATTACHMENT_PREFETCH_MAX_MINUTES,
     ATTACHMENT_REQUIRED_FOR_SKIP,
     NO_TARGET_ROW_MAX_MISS_RATIO,
     ATTRIBUTION_BULK_PREFETCH_FALLBACK,
@@ -150,7 +145,6 @@ from pipeline.config import (  # noqa: E402
     VAC_CREW_LEGACY_CLEANUP_ENABLED,
     VAC_CREW_SHEET_IDS,
     WR_FILTER,
-    _DaemonThreadPoolExecutor,
     _RE_EXTRACT_NUMBERS,
     _RE_ISO_DATE_PREFIX,
     _RE_SANITIZE_HELPER_NAME,
@@ -1156,6 +1150,30 @@ def _resolve_mem_sheet_kind(sheet_id: Any) -> str:
     if sheet_id in _discovery._FOLDER_DISCOVERED_ORIG_IDS:
         return "original_contract"
     return "primary"
+
+
+class _GroupStateAttachmentStub:
+    """Minimal Smartsheet-``Attachment``-shaped stand-in for a
+    ``pipeline_memory.group_state``-resolved attachment identity (Phase 11
+    Plan 08, INC-05 retirement, CONTEXT.md D-12).
+
+    ``pipeline.cleanup``'s identity-matching logic
+    (``_has_existing_week_attachment`` / ``delete_old_excel_attachments``)
+    reads exactly two attributes off each cached attachment --
+    ``getattr(a, 'name', '')`` (parsed by ``build_group_identity``) and
+    ``a.id`` (passed to ``Attachments.delete_attachment``). This stub
+    supplies both from a ``group_state`` row's ``attachment_id`` /
+    ``attachment_name`` so those consumers can resolve an already-known
+    identity without a Smartsheet ``list_row_attachments`` call, while
+    remaining indistinguishable, to their unmodified filtering logic, from
+    a real SDK ``Attachment`` object.
+    """
+
+    __slots__ = ("id", "name")
+
+    def __init__(self, attachment_id: Any, attachment_name: Any) -> None:
+        self.id = attachment_id
+        self.name = attachment_name
 
 
 def _extract_attachment_id_name(attach_result: Any) -> tuple[Any, Any]:
@@ -2692,345 +2710,82 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 target_map_ppp = {}
                 _target_sheet_ppp_obj = None
 
-        # PERFORMANCE: Pre-fetch all target row attachments into cache to eliminate
-        # redundant per-row API calls in _has_existing_week_attachment and delete_old_excel_attachments.
-        # Each row's attachments are fetched once here instead of 2-3 times in the group loop.
-        attachment_cache = {}  # row_id -> list of attachment objects
-        target_map_to_prefetch = {}
-        if target_map and not TEST_MODE:
-            target_map_to_prefetch = target_map
-            # Pre-flight session-budget guard: if discovery + row fetch already consumed most
-            # of TIME_BUDGET_MINUTES, skip pre-fetch entirely so we have time for generation.
-            # Reserve ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN beyond the pre-fetch budget
-            # so we don't end up with exactly enough time to pre-fetch and then zero time to
-            # generate — that would recreate the original incident's zero-output failure mode.
-            # Per-row fallback paths handle an empty cache transparently.
-            if TIME_BUDGET_MINUTES and GITHUB_ACTIONS_MODE:
-                _pre_elapsed_min = (datetime.datetime.now() - session_start).total_seconds() / 60.0
-                _remaining_min = TIME_BUDGET_MINUTES - _pre_elapsed_min
-                _required_remaining_min = ATTACHMENT_PREFETCH_MAX_MINUTES + ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN
-                if _remaining_min <= _required_remaining_min:
-                    logging.warning(
-                        f"⏩ Skipping attachment pre-fetch: {_pre_elapsed_min:.1f}min already elapsed, "
-                        f"only {_remaining_min:.1f}min left in session budget "
-                        f"(need > {_required_remaining_min}min = "
-                        f"{ATTACHMENT_PREFETCH_MAX_MINUTES}min pre-fetch budget + "
-                        f"{ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN}min generation headroom). "
-                        f"Attachment lookups will fall back to per-row fetches during generation."
-                    )
-                    sentry_add_breadcrumb(
-                        "prefetch_skipped",
-                        f"Pre-fetch skipped, {_remaining_min:.1f}min remaining",
-                        level="warning",
-                        data={
-                            "elapsed_min": round(_pre_elapsed_min, 1),
-                            "remaining_min": round(_remaining_min, 1),
-                            "prefetch_budget_min": ATTACHMENT_PREFETCH_MAX_MINUTES,
-                            "generation_headroom_min": ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN,
-                            "required_remaining_min": _required_remaining_min,
-                        },
-                    )
-                    target_map_to_prefetch = {}
-
-        if target_map_to_prefetch:
-            with sentry_sdk.start_span(op="smartsheet.attachment_prefetch", name="Pre-fetch row attachments") as span:
-                logging.info(f"🚀 Starting parallel attachment pre-fetch with {PARALLEL_WORKERS} workers for {len(target_map_to_prefetch)} target rows (max {ATTACHMENT_PREFETCH_MAX_MINUTES}min)...")
-                _att_start = datetime.datetime.now()
-
-                def _fetch_row_attachments(row_item):
-                    # row_item is (wr_num, target_row); only target_row is needed.
-                    _, target_row = row_item
-                    # Phase 10: retry transient failures via the shared helper
-                    # (API 4000, server timeout, rate limit, network drop —
-                    # bounded total backoff). Degrade to no-attachments on
-                    # persistent failure, exactly as before (the row then falls
-                    # back to per-row on-demand lookup at generation time).
-                    try:
-                        atts = smartsheet_call_with_retry(
-                            client.Attachments.list_row_attachments,
-                            TARGET_SHEET_ID, target_row.id,
-                            label=f"attachment fetch row {target_row.id}",
-                        ).data
-                        return (target_row.id, atts)
-                    except Exception:
-                        return (target_row.id, [])
-
-                _prefetch_budget_exceeded = False
-                _prefetch_stuck_futures = 0     # future.result timed out after as_completed yielded
-                _prefetch_cancelled = 0         # queued futures we successfully cancelled
-                _prefetch_still_running = 0     # in-flight futures we abandoned to the background
-                # Manual executor lifecycle with daemon workers. Three things can
-                # block process exit for a non-daemon worker and all three matter
-                # here: (1) _python_exit joins _threads_queues, (2) threading.
-                # _shutdown joins _shutdown_locks, (3) executor.shutdown(wait=True)
-                # joins via the `with` block. Using _DaemonThreadPoolExecutor
-                # addresses (2) — daemon threads don't add their tstate lock to
-                # _shutdown_locks. Using explicit shutdown(wait=False,
-                # cancel_futures=True) in finally addresses (3). The detach helper
-                # below addresses (1) — but only on the budget-exceeded path
-                # (Copilot review: don't touch private APIs when everything
-                # completed normally; the workers are already done and there's
-                # nothing to skip). See _DaemonThreadPoolExecutor docstring for
-                # the full three-defense story and the safety invariant.
-                executor = _DaemonThreadPoolExecutor(max_workers=PARALLEL_WORKERS)
-                futures = [executor.submit(_fetch_row_attachments, item) for item in target_map_to_prefetch.items()]
-                total_futures = len(futures)
-                _phase_budget_sec = ATTACHMENT_PREFETCH_MAX_MINUTES * 60
-
-                # Helper: pop workers from concurrent.futures' atexit join
-                # registry so _python_exit doesn't t.join() them at interpreter
-                # shutdown (daemon-ness doesn't help here — join() blocks
-                # unconditionally). Called only when we're abandoning in-flight
-                # work. Uses private APIs; getattr guards keep the main path
-                # working if a future Python rearranges the names.
-                def _detach_from_atexit_registry():
-                    try:
-                        registry = getattr(_cf_thread, '_threads_queues', None)
-                        if registry is None:
-                            return
-                        for _t in list(getattr(executor, '_threads', ()) or ()):
-                            registry.pop(_t, None)
-                    except Exception as _det_e:
-                        logging.debug(f"Could not detach pre-fetch workers from atexit registry: {_det_e}")
-                try:
-                    try:
-                        # timeout= is measured from this call; the iterator itself raises
-                        # FuturesTimeoutError if nothing else completes within that window,
-                        # so a stuck HTTP call can't pin the consumer loop.
-                        for i, future in enumerate(as_completed(futures, timeout=_phase_budget_sec), 1):
-                            try:
-                                row_id, atts = future.result(timeout=ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC)
-                            except FuturesTimeoutError:
-                                # Defensive — as_completed only yields done futures, so in
-                                # practice this branch is unreachable; keep it so a future
-                                # refactor that yields not-yet-done futures still degrades
-                                # gracefully instead of raising.
-                                _prefetch_stuck_futures += 1
-                                continue
-                            attachment_cache[row_id] = atts
-                            if i % 25 == 0 or i == total_futures:
-                                logging.info(f"   📎 [{i}/{total_futures}] Attachment pre-fetch progress...")
-                    except FuturesTimeoutError:
-                        # Phase sub-budget exhausted — stuck HTTP call(s) held the iterator.
-                        # Bail out; remaining rows fall back to the per-row path.
-                        _prefetch_budget_exceeded = True
-                finally:
-                    # Classify remaining work so the log / Sentry span reflects reality:
-                    # cancel() returns True only for queued futures that hadn't started
-                    # (Copilot review: the old code overcounted by calling `not f.done()`
-                    # alone, conflating started-but-running with still-queued).
-                    for f in futures:
-                        if f.done():
-                            continue
-                        if f.cancel():
-                            _prefetch_cancelled += 1
-                        else:
-                            _prefetch_still_running += 1
-                    # wait=False so stuck in-flight threads don't block the critical path
-                    # (the main generation loop). They'll either complete via SDK retry
-                    # backoff or be hard-killed by the workflow's timeout-minutes ceiling.
-                    # Only touch the atexit registry when we're actually abandoning
-                    # work (budget exceeded + still-running threads remain).
-                    # Normal completion leaves the workers done; _python_exit will
-                    # find them complete and return immediately from its join().
-                    if _prefetch_still_running:
-                        _detach_from_atexit_registry()
-                    executor.shutdown(wait=False, cancel_futures=True)
-
-                _att_elapsed = (datetime.datetime.now() - _att_start).total_seconds()
-                span.set_data("rows_cached", len(attachment_cache))
-                span.set_data("rows_cancelled", _prefetch_cancelled)
-                span.set_data("rows_still_running", _prefetch_still_running)
-                span.set_data("rows_stuck", _prefetch_stuck_futures)
-                if _prefetch_budget_exceeded:
-                    logging.warning(
-                        f"⏰ Attachment pre-fetch budget hit ({ATTACHMENT_PREFETCH_MAX_MINUTES}min). "
-                        f"Cached {len(attachment_cache)}/{total_futures} rows in {_att_elapsed:.1f}s; "
-                        f"{_prefetch_cancelled} cancelled, {_prefetch_still_running} still running in background, "
-                        f"{_prefetch_stuck_futures} stuck. Remaining rows will use per-row fallback."
-                    )
-                    sentry_add_breadcrumb(
-                        "prefetch_truncated",
-                        f"Pre-fetch truncated at {ATTACHMENT_PREFETCH_MAX_MINUTES}min",
-                        level="warning",
-                        data={
-                            "cached": len(attachment_cache),
-                            "total": total_futures,
-                            "cancelled": _prefetch_cancelled,
-                            "still_running": _prefetch_still_running,
-                            "stuck": _prefetch_stuck_futures,
-                        },
-                    )
-                else:
-                    logging.info(f"⚡ Pre-fetched attachments for {len(attachment_cache)} target rows in {_att_elapsed:.1f}s (parallel w/{PARALLEL_WORKERS} workers)")
-
         # ──────────────────────────────────────────────────────────
-        # Phase 01 gap closure (REVIEW-WR-05): secondary attachment
-        # prefetch for SUBCONTRACTOR_PPP_SHEET_ID rows. Without it,
-        # every _ReducedSub / _ReducedSub_Helper_* upload to the PPP
-        # sheet pays an extra ``list_row_attachments`` API call (for
-        # delete_old_excel_attachments matching). The PPP sheet has
-        # far fewer rows than TARGET_SHEET_ID — only the subset that
-        # needs _ReducedSub* — so the cost amortizes quickly.
+        # Phase 11 Plan 08 (INC-05 retirement, CONTEXT.md D-12): the bulk
+        # Smartsheet attachment pre-fetch (two phases: TARGET_SHEET_ID rows,
+        # then SUBCONTRACTOR_PPP_SHEET_ID rows, plus their three
+        # ATTACHMENT_PREFETCH_* sub-budget constants) is retired.
+        # pipeline_memory.group_state already carries the attachment_id /
+        # attachment_name this pipeline itself uploaded for every group it
+        # has flushed (shadow-populated Phase 10, proven on the flip PR's
+        # first real upload -- IN-01), so attachment identity is resolved
+        # from there instead of a bulk Smartsheet call.
         #
-        # Defense-in-depth contract (Living Ledger 2026-04-22 16:05):
-        #   - _DaemonThreadPoolExecutor (NOT ThreadPoolExecutor)
-        #   - as_completed(futures, timeout=...) for the wait
-        #   - executor.shutdown(wait=False, cancel_futures=True)
-        #   - _detach_ppp_from_atexit_registry() on budget-exceed path
-        #   - Pre-flight skip if session budget < (PREFETCH_MAX +
-        #     GENERATION_HEADROOM)
-        # Safety invariant: PPP prefetch is OPTIONAL — both
-        # delete_old_excel_attachments and _has_existing_week_attachment
-        # accept cached_attachments=None and fall back to per-row API.
-        # Do NOT add new consumers that assume the PPP cache is
-        # populated.
+        # Safety invariant (T-11-41): every consumer below
+        # (pipeline.cleanup._has_existing_week_attachment /
+        # delete_old_excel_attachments) already accepts a missing cache
+        # entry and falls back, unmodified, to a per-row on-demand
+        # `list_row_attachments` lookup -- that existing fallback is what
+        # makes this retirement safe on a cold cache, a Supabase outage, or
+        # a WR group_state has never flushed. group_state's coverage is
+        # necessarily narrower than "every attachment on the row" (it only
+        # knows what THIS pipeline wrote), so
+        # cleanup_untracked_sheet_attachments -- which prunes off-contract
+        # / duplicate / legacy attachments group_state was never told
+        # about -- deliberately never reads this cache; see the
+        # `_cleanup_cache = None` assignment below.
         # ──────────────────────────────────────────────────────────
-        _ppp_prefetch_eligible = (
-            SUBCONTRACTOR_RATE_VARIANTS_ENABLED
-            and SUBCONTRACTOR_PPP_SHEET_ID
-            and SUBCONTRACTOR_PPP_SHEET_ID != TARGET_SHEET_ID
-            and not TEST_MODE
-            and target_map_ppp is not None
-            and len(target_map_ppp) > 0
-        )
-        if _ppp_prefetch_eligible:
-            # Pre-flight budget guard (Living Ledger 2026-04-22 16:05
-            # rule 7): skip entirely if remaining budget < (prefetch
-            # phase budget + generation headroom). Without the
-            # headroom reservation, an edge case where session
-            # budget == prefetch budget would still trigger the
-            # prefetch and leave zero time for the main loop.
-            if TIME_BUDGET_MINUTES > 0:
-                _ppp_elapsed_min = (
-                    datetime.datetime.now() - session_start
-                ).total_seconds() / 60.0
-                _ppp_remaining_min = TIME_BUDGET_MINUTES - _ppp_elapsed_min
-                _ppp_required_min = (
-                    ATTACHMENT_PREFETCH_MAX_MINUTES
-                    + ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN
-                )
-                if _ppp_remaining_min < _ppp_required_min:
-                    logging.info(
-                        f"🛡️ Skipping PPP attachment prefetch: only "
-                        f"{_ppp_remaining_min:.1f}min of session budget "
-                        f"remain (need >= {_ppp_required_min:.0f}min for "
-                        f"prefetch + generation headroom). PPP target "
-                        f"rows will fall back to per-row API calls — "
-                        f"correctness is preserved."
+        attachment_cache = {}  # row_id -> list of attachment-like objects
+        if not TEST_MODE:
+            _group_state_wrs = set(target_map or {}) | set(target_map_ppp or {})
+            if _group_state_wrs:
+                with sentry_sdk.start_span(
+                    op="pipeline_memory.group_state_attachments",
+                    name="Resolve attachment identity from group_state",
+                ) as gsa_span:
+                    _gsa_start = datetime.datetime.now()
+                    _resolved_by_wr = _mem_reader.get_group_state_attachments_by_wr(
+                        _group_state_wrs
                     )
-                    _ppp_prefetch_eligible = False
-        if _ppp_prefetch_eligible:
-            with sentry_sdk.start_span(
-                op="smartsheet.attachment_prefetch_ppp",
-                name="Pre-fetch PPP row attachments",
-            ) as ppp_span:
-                logging.info(
-                    f"🚀 Starting parallel PPP attachment pre-fetch "
-                    f"with {PARALLEL_WORKERS} workers for "
-                    f"{len(target_map_ppp)} PPP target rows (max "
-                    f"{ATTACHMENT_PREFETCH_MAX_MINUTES}min)..."
-                )
-                _ppp_att_start = datetime.datetime.now()
-
-                def _fetch_ppp_row_attachments(row_item):
-                    # row_item is (wr_num, target_row); only target_row is needed.
-                    _, target_row = row_item
-                    # Phase 10: same shared-helper retry as the target prefetch
-                    # above (bounded backoff; degrade to no-attachments on
-                    # persistent failure → per-row on-demand fallback).
-                    try:
-                        atts = smartsheet_call_with_retry(
-                            client.Attachments.list_row_attachments,
-                            SUBCONTRACTOR_PPP_SHEET_ID, target_row.id,
-                            label=f"PPP attachment fetch row {target_row.id}",
-                        ).data
-                        return (target_row.id, atts)
-                    except Exception:
-                        return (target_row.id, [])
-
-                _ppp_prefetch_budget_exceeded = False
-                _ppp_prefetch_cancelled = 0
-                _ppp_prefetch_still_running = 0
-
-                ppp_executor = _DaemonThreadPoolExecutor(
-                    max_workers=PARALLEL_WORKERS,
-                )
-                ppp_futures = [
-                    ppp_executor.submit(_fetch_ppp_row_attachments, item)
-                    for item in target_map_ppp.items()
-                ]
-                _ppp_phase_budget_sec = ATTACHMENT_PREFETCH_MAX_MINUTES * 60
-
-                def _detach_ppp_from_atexit_registry():
-                    try:
-                        registry = getattr(
-                            _cf_thread, '_threads_queues', None,
-                        )
-                        if registry is None:
-                            return
-                        for _t in list(
-                            getattr(ppp_executor, '_threads', ()) or ()
-                        ):
-                            registry.pop(_t, None)
-                    except Exception as _det_e:
-                        logging.debug(
-                            f"Could not detach PPP pre-fetch workers from "
-                            f"atexit registry: {_det_e}"
-                        )
-
-                try:
-                    for fut in as_completed(
-                        ppp_futures, timeout=_ppp_phase_budget_sec,
-                    ):
-                        try:
-                            row_id, atts = fut.result()
-                            attachment_cache[row_id] = atts
-                        except Exception as e:
-                            # Worker exceptions already logged inside
-                            # the worker — fall through to per-row.
-                            logging.debug(
-                                f"PPP prefetch future raised; row will "
-                                f"fall back to per-row: {type(e).__name__}"
+                    _gsa_cached = 0
+                    for _wr, _entries in _resolved_by_wr.items():
+                        for _entry in _entries:
+                            _stub_row_id = None
+                            if (
+                                target_map
+                                and _entry['target_sheet_id'] == TARGET_SHEET_ID
+                            ):
+                                _stub_row = target_map.get(_wr)
+                                if _stub_row is not None:
+                                    _stub_row_id = _stub_row.id
+                            elif (
+                                target_map_ppp
+                                and _entry['target_sheet_id']
+                                == SUBCONTRACTOR_PPP_SHEET_ID
+                            ):
+                                _stub_row = target_map_ppp.get(_wr)
+                                if _stub_row is not None:
+                                    _stub_row_id = _stub_row.id
+                            if _stub_row_id is None:
+                                continue
+                            attachment_cache.setdefault(_stub_row_id, []).append(
+                                _GroupStateAttachmentStub(
+                                    _entry['attachment_id'],
+                                    _entry['attachment_name'],
+                                )
                             )
-                except FuturesTimeoutError:
-                    _ppp_prefetch_budget_exceeded = True
-                    logging.warning(
-                        f"⚠️ PPP attachment prefetch exceeded "
-                        f"{ATTACHMENT_PREFETCH_MAX_MINUTES}min sub-budget; "
-                        f"abandoning in-flight workers. Affected PPP rows "
-                        f"will fall back to per-row API calls — correctness "
-                        f"is preserved."
+                            _gsa_cached += 1
+                    _gsa_elapsed = (
+                        datetime.datetime.now() - _gsa_start
+                    ).total_seconds()
+                    gsa_span.set_data("wrs_resolved", len(_resolved_by_wr))
+                    gsa_span.set_data("attachments_cached", _gsa_cached)
+                    logging.info(
+                        f"🧾 Resolved {_gsa_cached} attachment identities "
+                        f"from group_state for {len(_resolved_by_wr)} WRs "
+                        f"in {_gsa_elapsed:.1f}s (per-row on-demand "
+                        f"fallback covers every miss)"
                     )
-                finally:
-                    # Three defenses against interpreter-exit hang:
-                    # (1) atexit registry detach (only on budget-exceed,
-                    #     per Copilot review — don't touch private APIs
-                    #     when workers completed normally)
-                    # (2) _DaemonThreadPoolExecutor handles tstate_lock
-                    # (3) explicit shutdown(wait=False, cancel_futures=True)
-                    if _ppp_prefetch_budget_exceeded:
-                        _detach_ppp_from_atexit_registry()
-                    for _fut in ppp_futures:
-                        if _fut.cancel():
-                            _ppp_prefetch_cancelled += 1
-                        elif not _fut.done():
-                            _ppp_prefetch_still_running += 1
-                    ppp_executor.shutdown(wait=False, cancel_futures=True)
-
-                _ppp_elapsed = (
-                    datetime.datetime.now() - _ppp_att_start
-                ).total_seconds()
-                logging.info(
-                    f"🏁 PPP attachment prefetch complete in "
-                    f"{_ppp_elapsed:.1f}s: {len(target_map_ppp)} rows, "
-                    f"{_ppp_prefetch_cancelled} cancelled, "
-                    f"{_ppp_prefetch_still_running} still_running"
-                )
-                ppp_span.set_data("rows_prefetched", len(target_map_ppp))
-                ppp_span.set_data("budget_exceeded", _ppp_prefetch_budget_exceeded)
-                ppp_span.set_data("cancelled", _ppp_prefetch_cancelled)
-                ppp_span.set_data("still_running", _ppp_prefetch_still_running)
 
         # Load hash history AFTER optional purge so we don't rely on stale attachments
         hash_history = load_hash_history(HASH_HISTORY_PATH)
@@ -4833,8 +4588,18 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     _first, **_identity_switches)
                 valid_wr_weeks.add((wr, week_raw, variant, file_id))
         if not TEST_MODE:
-            # Invalidate stale attachment cache after upload phase — uploads added/deleted attachments
-            _cleanup_cache = attachment_cache if not _upload_tasks else None
+            # Phase 11 Plan 08 (INC-05 retirement): attachment_cache is now
+            # sourced from pipeline_memory.group_state, which only knows
+            # the identities THIS pipeline wrote -- it cannot prove a row
+            # carries no OTHER (off-contract / duplicate / legacy)
+            # attachment, which is exactly what
+            # cleanup_untracked_sheet_attachments exists to find. This
+            # consumer therefore always resolves via its per-row
+            # on-demand `list_row_attachments` fallback (T-11-41) rather
+            # than ever reading the group_state-seeded cache -- strictly
+            # safer than the retired bulk-Smartsheet-prefetch cache it
+            # used to (conditionally) receive.
+            _cleanup_cache = None
             # Phase 1.1 Bug B2 (D-09): TARGET_SHEET_ID cleanup is UNCHANGED —
             # accepts every variant currently routed to it (primary, helper,
             # vac_crew, aep_billable, reduced_sub, aep_billable_helper,
@@ -4936,19 +4701,16 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             # (CR-01) ensured shadow-variant entries are correctly
             # included so live attachments are not pruned.
             #
-            # Cache semantics: ``_cleanup_cache`` is computed ABOVE
-            # both invocations as ``attachment_cache if not _upload_tasks
-            # else None``. In the normal production case (uploads ran
-            # this session, ``_upload_tasks`` truthy), ``_cleanup_cache``
-            # is ``None`` for BOTH passes because uploads invalidate
-            # the prefetch snapshot. When no uploads ran (TEST_MODE
-            # skip path, or no-changes branch), both passes share
-            # WR-05's prefetched dict transparently. WR-05's prefetch
-            # primarily amortizes per-row ``_upload_one`` API calls
-            # (its real value); the cleanup-time benefit is only on
-            # the no-uploads path. Either way, passing the same
-            # ``_cleanup_cache`` keeps cache semantics consistent
-            # across both passes.
+            # Cache semantics (Phase 11 Plan 08, INC-05 retirement):
+            # ``_cleanup_cache`` is set ABOVE, unconditionally, to
+            # ``None`` for BOTH passes -- ``cleanup_untracked_sheet_
+            # attachments`` always resolves via its per-row on-demand
+            # `list_row_attachments` fallback rather than the
+            # group_state-seeded ``attachment_cache`` the identity-check
+            # consumers above use, since group_state cannot prove a row
+            # carries no OTHER (off-contract / legacy) attachment. See
+            # the ``_cleanup_cache = None`` assignment's comment above
+            # for the full rationale.
             #
             # Gates (in order, short-circuit on first False):
             #   1. SUBCONTRACTOR_RATE_VARIANTS_ENABLED (kill switch)

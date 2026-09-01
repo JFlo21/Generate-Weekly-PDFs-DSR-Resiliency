@@ -130,310 +130,129 @@ class TestPerformanceOptimizations(unittest.TestCase):
         self.assertTrue(len(groups) > 0)
 
 
-class TestAttachmentPrefetchBudget(unittest.TestCase):
-    """Lock in the pre-fetch sub-budget guardrails added after the 2026-04-22
-    production incident where a flaky Smartsheet connection stalled the
-    attachment pre-fetch for ~17 minutes and consumed the entire
-    TIME_BUDGET_MINUTES before a single Excel file could be generated.
+class TestAttachmentPrefetchRetirement(unittest.TestCase):
+    """Phase 11 Plan 08 (INC-05 retirement, CONTEXT.md D-12) REWRITES this
+    class (does not silently delete it — plan action) in place of the
+    retired ``TestAttachmentPrefetchBudget``: the bulk attachment
+    pre-fetch and its three ``ATTACHMENT_PREFETCH_*`` sub-budget
+    constants (added after the 2026-04-22 production incident) are gone.
+    Attachment identity now resolves from ``pipeline_memory.group_state``
+    (``get_group_state_attachments_by_wr``), with every consumer falling
+    back to the pre-existing per-row on-demand ``list_row_attachments``
+    lookup on a miss (T-11-41) — unit coverage for that fallback lives
+    below; unit coverage for the reader function itself lives in
+    ``tests/test_incremental_read.py``.
     """
 
-    def test_prefetch_budget_constants_exist(self):
-        # Must exist so the pre-fetch can time-box itself.
-        self.assertTrue(hasattr(generate_weekly_pdfs, 'ATTACHMENT_PREFETCH_MAX_MINUTES'))
-        self.assertTrue(hasattr(generate_weekly_pdfs, 'ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC'))
-
-    def test_prefetch_budget_defaults_with_isolated_env(self):
-        # The constants are read at import time via os.getenv(). If the dev
-        # shell / CI has ATTACHMENT_PREFETCH_* set, testing the raw module
-        # values leaks the environment into the assertion. Clear both vars
-        # and reload the module so the defaults are what we actually check.
-        env_overrides = {
-            "ATTACHMENT_PREFETCH_MAX_MINUTES": "",
-            "ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC": "",
-        }
-        try:
-            # clear=False preserves unrelated test env (SMARTSHEET_API_TOKEN etc.).
-            with patch.dict(os.environ, env_overrides, clear=False):
-                for _k in list(env_overrides):
-                    os.environ.pop(_k, None)
-                _safe_reload_gwp()
-                self.assertEqual(generate_weekly_pdfs.ATTACHMENT_PREFETCH_MAX_MINUTES, 10)
-                self.assertEqual(generate_weekly_pdfs.ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC, 45)
-
-                # Upper-bound invariants — prevent a future tweak from
-                # accidentally setting a pre-fetch budget that could burn
-                # the whole session. Weekly workflow runs at
-                # TIME_BUDGET_MINUTES=180; the pre-fetch budget must stay
-                # well below that.
-                self.assertGreater(generate_weekly_pdfs.ATTACHMENT_PREFETCH_MAX_MINUTES, 0)
-                self.assertLess(generate_weekly_pdfs.ATTACHMENT_PREFETCH_MAX_MINUTES, 60)
-                self.assertGreater(generate_weekly_pdfs.ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC, 0)
-                self.assertLessEqual(generate_weekly_pdfs.ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC, 120)
-        finally:
-            # Reload AFTER the `with patch.dict(...)` block exits, so
-            # os.environ has already been restored to whatever the outer
-            # shell said. Reloading inside the `with` (as an earlier
-            # revision did) picks up the popped env instead — the module
-            # would stay pinned at defaults even when the outer env has
-            # ATTACHMENT_PREFETCH_* set. Thanks @cursor[bot] for catching.
-            _safe_reload_gwp()
-
-    def test_futures_timeout_error_imported(self):
-        # The consumer loop catches FuturesTimeoutError from the as_completed
-        # wait (phase sub-budget) and from future.result (per-future guard).
-        # If this import is removed the pre-fetch will crash on a stall
-        # instead of falling back to the per-row path.
-        # Phase 09 W6: the consumer loop (main()) relocated to
-        # pipeline/orchestrate.py, which owns this import now.
-        import pipeline.orchestrate
-        self.assertTrue(hasattr(pipeline.orchestrate, 'FuturesTimeoutError'))
-
-
-class TestPppAttachmentPrefetchBudget(unittest.TestCase):
-    """Phase 01 gap closure (REVIEW-WR-05): the PPP secondary
-    attachment-prefetch pass MUST mirror the primary prefetch's
-    defense-in-depth pattern in full per Living Ledger
-    2026-04-22 16:05.
-
-    These tests are predominantly SOURCE-LEVEL invariant guards
-    — the actual prefetch behavior is exercised end-to-end by
-    the workflow run, not by unit tests (would require mocking
-    the entire Smartsheet SDK + threading machinery, which the
-    primary prefetch suite intentionally does not do). The
-    source-level guards catch regressions like "PPP prefetch
-    landed but with ``with _DaemonThreadPoolExecutor(...)``
-    instead of explicit shutdown" before they ship.
-
-    Mirrors TestAttachmentPrefetchBudget's structure exactly.
-    """
-
-    @staticmethod
-    def _read_source() -> str:
-        # Phase 09 W6: the PPP attachment-prefetch block lives in main(),
-        # relocated to pipeline/orchestrate.py — concatenate facade +
-        # orchestrate (follow-the-code superset).
-        import inspect
-        import pathlib
-        import pipeline.orchestrate
-        return (
-            pathlib.Path(
-                inspect.getsourcefile(generate_weekly_pdfs)
-            ).read_text(encoding='utf-8')
-            + "\n"
-            + pathlib.Path(
-                inspect.getsourcefile(pipeline.orchestrate)
-            ).read_text(encoding='utf-8')
-        )
-
-    def test_constants_present(self):
-        # The pre-flight guard depends on three constants — verify
-        # they exist with reasonable defaults.
-        self.assertTrue(
-            hasattr(generate_weekly_pdfs, 'SUBCONTRACTOR_PPP_SHEET_ID'),
-        )
-        self.assertTrue(
-            hasattr(generate_weekly_pdfs, 'ATTACHMENT_PREFETCH_MAX_MINUTES'),
-        )
-        self.assertTrue(
-            hasattr(generate_weekly_pdfs, 'ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC'),
-        )
-        self.assertTrue(
-            hasattr(generate_weekly_pdfs, 'ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN'),
-        )
-
-    def test_ppp_worker_function_exists(self):
-        src = self._read_source()
-        self.assertIn('def _fetch_ppp_row_attachments', src)
-
-    def test_ppp_prefetch_targets_ppp_sheet(self):
-        src = self._read_source()
-        # The PPP worker fetches attachments from the PPP sheet (not
-        # TARGET_SHEET_ID). Post-Phase-10 the list_row_attachments call is
-        # routed through the shared retry helper (smartsheet_call_with_retry),
-        # so the sheet id is a positional arg rather than inside the
-        # method-call parens — assert on the worker body, not a single line.
-        import re
-        m = re.search(
-            r'def _fetch_ppp_row_attachments\b.*?\n(?= {16}\w)',
-            src,
-            re.DOTALL,
-        )
-        self.assertIsNotNone(m, 'PPP worker function body not found')
-        body = m.group(0)
-        self.assertIn('smartsheet_call_with_retry', body)
-        self.assertIn('list_row_attachments', body)
-        self.assertIn('SUBCONTRACTOR_PPP_SHEET_ID', body)
-        self.assertNotIn('TARGET_SHEET_ID', body)
-
-    def test_upload_worker_retry_is_behavior_preserving(self):
-        # Codex P2 thread (PR #281): the Excel upload worker's delete+upload is
-        # wrapped in the shared retry helper but is BEHAVIOR-PRESERVING vs the
-        # original inline loop — it passes the prefetched attachment_cache on
-        # every attempt. Strict retry idempotency is NOT achievable by
-        # attachment inspection in SUPABASE_HASH_STORE_AUTHORITATIVE
-        # clean-filename mode (ON in production), where a freshly committed file
-        # is indistinguishable from a stale same-identity one. Two unsafe
-        # approaches were tried and reverted: "live-delete-then-reupload" (data
-        # loss if the re-upload fails) and "preserve any same-identity file"
-        # (reports a stale Excel as success). This test guards against
-        # re-introducing either without the deferred upload-then-delete-by-age
-        # ordering change.
-        import re
-        src = self._read_source()
-        m = re.search(
-            r'def _do_upload_attempt\(\):.*?'
-            r'return smartsheet_call_with_retry\(',
-            src,
-            re.DOTALL,
-        )
-        self.assertIsNotNone(
-            m, '_do_upload_attempt body / retry wrapper not found'
-        )
-        body = m.group(0)
-        # Behavior-preserving: delete uses the prefetched cache on every attempt.
-        self.assertIn(
-            'cached_attachments=attachment_cache.get(target_row.id)', body
-        )
-        # Guard against re-introducing the unsafe retry special-cases.
-        self.assertNotIn('_has_existing_week_attachment(', body)
-        self.assertNotIn('_is_retry', body)
-        self.assertNotIn('list_row_attachments', body)
-        # The whole op is still wrapped in the shared retry helper.
-        self.assertIn('smartsheet_call_with_retry', src)
-
-    def test_ppp_prefetch_uses_daemon_executor_explicit_lifecycle(self):
-        src = self._read_source()
-        # Extract the PPP prefetch block so the executor-lifecycle
-        # invariants are scoped to the new code path. The legitimate
-        # ``with ThreadPoolExecutor(...) as executor`` callers
-        # elsewhere in the file (folder discovery, parallel row
-        # fetch, freeze_row parallelization) produce
-        # non-discardable results — the ``with`` form is correct
-        # for those because they need the implicit
-        # ``shutdown(wait=True)`` to flush side effects. The PPP
-        # prefetch is different: its work IS discardable (cache-
-        # warming optimization with per-row fallback) so it must
-        # use the daemon-executor + explicit shutdown(wait=False)
-        # pattern established by the 2026-04-22 16:05 incident.
-        ppp_start = src.find('def _fetch_ppp_row_attachments')
-        self.assertGreater(
-            ppp_start, -1,
-            "PPP prefetch block not located — _fetch_ppp_row_attachments "
-            "is the canonical anchor for the new block.",
-        )
-        # The PPP block ends at the next outer 'Load hash history'
-        # comment marker (insertion-point comment) or at the
-        # function attribution span set_data line.
-        ppp_end_candidates = [
-            src.find('# Load hash history', ppp_start),
-            src.find('hash_history = load_hash_history', ppp_start),
-        ]
-        valid_ends = [c for c in ppp_end_candidates if c > -1]
-        if not valid_ends:
-            self.fail(
-                "PPP prefetch block end marker not located — neither "
-                "'# Load hash history' nor 'hash_history = load_hash_history' "
-                "found after ppp_start."
+    def test_prefetch_budget_constants_removed(self):
+        for name in (
+            'ATTACHMENT_PREFETCH_MAX_MINUTES',
+            'ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC',
+            'ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN',
+        ):
+            self.assertFalse(
+                hasattr(generate_weekly_pdfs, name),
+                f"{name} should have been removed (Phase 11 Plan 08 / INC-05)",
             )
-        ppp_end = min(valid_ends)
-        self.assertGreater(
-            ppp_end, ppp_start,
-            "PPP prefetch block end marker not located.",
-        )
-        ppp_block = src[ppp_start:ppp_end]
-        # Within the PPP block, MUST NOT use the ``with`` form for
-        # _DaemonThreadPoolExecutor — the implicit
-        # shutdown(wait=True) would re-introduce the 2026-04-22
-        # 16:05 incident's block-on-stuck-worker bug.
-        self.assertNotIn('with _DaemonThreadPoolExecutor', ppp_block)
-        self.assertNotIn('with ThreadPoolExecutor', ppp_block)
-        # The PPP block MUST construct the daemon executor by
-        # direct call (no ``with``).
-        self.assertIn('_DaemonThreadPoolExecutor(', ppp_block)
-        self.assertIn('ppp_executor.shutdown(wait=False, cancel_futures=True)', ppp_block)
-        # Whole-file invariant: there are now at least two
-        # explicit shutdown(wait=False, cancel_futures=True) sites
-        # — one in the primary prefetch and one in the PPP
-        # prefetch — and both contribute to the count.
-        self.assertGreaterEqual(
-            src.count('shutdown(wait=False, cancel_futures=True)'),
-            2,
-            "Both primary and PPP prefetch blocks must use explicit "
-            "shutdown(wait=False, cancel_futures=True). Expected >= 2 "
-            "occurrences.",
-        )
+        import pipeline.config
+        for name in (
+            'ATTACHMENT_PREFETCH_MAX_MINUTES',
+            'ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC',
+            'ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN',
+        ):
+            self.assertFalse(hasattr(pipeline.config, name))
 
-    def test_ppp_prefetch_skip_log_with_headroom(self):
-        src = self._read_source()
-        # Pre-flight guard logs an operator-visible reason.
-        self.assertIn('Skipping PPP attachment prefetch', src)
-        # The skip threshold is (PREFETCH_MAX + GENERATION_HEADROOM)
-        # — verify both constants participate in the calculation.
+    def test_prefetch_machinery_fully_removed_from_source(self):
+        import inspect
+        import pipeline.orchestrate
+        src = inspect.getsource(pipeline.orchestrate)
+        for gone in (
+            'def _fetch_row_attachments',
+            'def _fetch_ppp_row_attachments',
+            'smartsheet.attachment_prefetch',
+            '_DaemonThreadPoolExecutor',
+            'FuturesTimeoutError',
+            '_prefetch_budget_exceeded',
+            '_ppp_prefetch_eligible',
+        ):
+            self.assertNotIn(
+                gone, src,
+                f"{gone!r} should be fully removed from "
+                "pipeline/orchestrate.py",
+            )
+
+    def test_group_state_attachment_resolution_wired(self):
+        import inspect
+        import pipeline.orchestrate
+        src = inspect.getsource(pipeline.orchestrate)
+        self.assertIn('get_group_state_attachments_by_wr', src)
+        self.assertIn('_GroupStateAttachmentStub', src)
+        # Both identity-check consumers still key the shared cache by
+        # target_row.id, unchanged since before the retirement.
         self.assertIn(
-            'ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN', src,
-        )
-        # The PPP block must reference the headroom constant in
-        # addition to PREFETCH_MAX. (Primary prefetch also
-        # references both — this test relies on count.)
-        self.assertGreaterEqual(
-            src.count('ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN'),
-            2,
-            "Both primary and PPP prefetch pre-flight guards must "
-            "reserve generation headroom. Expected >= 2 occurrences "
-            "of the headroom constant.",
+            'cached_attachments=attachment_cache.get(target_row.id)', src,
         )
 
-    def test_ppp_prefetch_counters_separate(self):
-        src = self._read_source()
-        # Per 2026-04-22 16:05 rule (5), counters report cancelled
-        # (queued futures we cancelled) and still_running (in-flight
-        # we abandoned) SEPARATELY — don't conflate them via
-        # ``not f.done()`` alone.
-        self.assertIn('_ppp_prefetch_cancelled', src)
-        self.assertIn('_ppp_prefetch_still_running', src)
+    def test_cleanup_untracked_never_reads_group_state_cache(self):
+        # cleanup_untracked_sheet_attachments must always resolve via its
+        # own per-row on-demand fallback — group_state only knows what
+        # THIS pipeline wrote, never an off-contract / legacy attachment
+        # it needs to prune.
+        import inspect
+        import pipeline.orchestrate
+        src = inspect.getsource(pipeline.orchestrate)
+        self.assertIn('_cleanup_cache = None', src)
 
-    def test_ppp_atexit_detach_on_budget_exceed_only(self):
-        src = self._read_source()
-        # Per Copilot review noted in primary prefetch comments:
-        # the atexit detach is on the budget-exceeded path only —
-        # don't touch private APIs when workers completed normally.
-        self.assertIn('_detach_ppp_from_atexit_registry', src)
-        # Verify the detach is INSIDE the budget-exceed branch.
-        # A naive `_detach_ppp_from_atexit_registry()` outside any
-        # condition would touch private APIs on every run; the
-        # explicit ``if _ppp_prefetch_budget_exceeded:`` gates it.
-        self.assertRegex(
-            src,
-            r"if _ppp_prefetch_budget_exceeded:\s*\n\s*_detach_ppp_from_atexit_registry\(\)",
+    def test_has_existing_week_attachment_falls_back_on_no_cache(self):
+        # Acceptance criterion: the cleanup consumers still resolve
+        # attachment identity when no cache entry exists (cold cache,
+        # group_state miss, or a Supabase outage) — they call
+        # list_row_attachments exactly as they would with no pre-fetch
+        # (and no group_state resolution) ever having run.
+        client = MagicMock()
+        att = MagicMock()
+        att.name = "WR_90001_WeekEnding_041926_120000_deadbeefcafe0001.xlsx"
+        att.id = 1
+        client.Attachments.list_row_attachments.return_value.data = [att]
+        row = MagicMock()
+        row.id = 555
+
+        found = generate_weekly_pdfs._has_existing_week_attachment(
+            client, 123, row, "90001", "041926", "primary", None,
+            cached_attachments=None,
         )
 
-    def test_ppp_prefetch_gated_on_kill_switch_and_distinct_sheet(self):
-        src = self._read_source()
-        # Eligibility gate must check the kill switch AND that PPP
-        # is a different sheet from TARGET (skip the redundant pass
-        # if operators have configured them to the same id).
-        # AND not TEST_MODE AND target_map_ppp is populated.
-        self.assertIn('SUBCONTRACTOR_RATE_VARIANTS_ENABLED', src)
-        self.assertIn('SUBCONTRACTOR_PPP_SHEET_ID != TARGET_SHEET_ID', src)
-        self.assertIn('not TEST_MODE', src)
-        self.assertIn('target_map_ppp', src)
-
-    def test_ppp_populates_shared_attachment_cache(self):
-        src = self._read_source()
-        # Per WR-05 contract: PPP prefetch populates the SAME
-        # ``attachment_cache`` dict the primary prefetch uses —
-        # downstream ``_upload_one`` reads from that dict by
-        # ``target_row.id`` without knowing which sheet the row
-        # came from. The cache is dual-sheet-shared, not split.
-        # Verify the PPP prefetch's `attachment_cache[row_id] = atts`
-        # assignment is present in the PPP block (search for a
-        # broader pattern since the same line exists in the
-        # primary block too).
-        self.assertGreaterEqual(
-            src.count('attachment_cache['), 2,
-            "Both primary and PPP prefetch blocks must write to the "
-            "shared attachment_cache dict.",
+        self.assertTrue(found)
+        client.Attachments.list_row_attachments.assert_called_once_with(
+            123, row.id,
         )
+
+    def test_delete_old_excel_attachments_falls_back_on_no_cache(self):
+        client = MagicMock()
+        att = MagicMock()
+        att.name = "WR_90001_WeekEnding_041926_120000_deadbeefcafe0001.xlsx"
+        att.id = 1
+        client.Attachments.list_row_attachments.return_value.data = [att]
+        client.Attachments.delete_attachment.return_value = None
+        row = MagicMock()
+        row.id = 555
+
+        original = generate_weekly_pdfs.SUPABASE_HASH_STORE_AUTHORITATIVE
+        generate_weekly_pdfs.SUPABASE_HASH_STORE_AUTHORITATIVE = True
+        try:
+            deleted, skipped = generate_weekly_pdfs.delete_old_excel_attachments(
+                client, 123, row, "90001", "041926", "newhash0000000000",
+                variant="primary", identifier=None,
+                cached_attachments=None,
+            )
+        finally:
+            generate_weekly_pdfs.SUPABASE_HASH_STORE_AUTHORITATIVE = original
+
+        self.assertEqual((deleted, skipped), (1, False))
+        client.Attachments.list_row_attachments.assert_called_once_with(
+            123, row.id,
+        )
+        client.Attachments.delete_attachment.assert_called_once_with(123, 1)
 
 
 if __name__ == '__main__':

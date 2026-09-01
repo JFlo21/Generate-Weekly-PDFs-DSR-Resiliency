@@ -94,9 +94,6 @@ logging.getLogger('smartsheet.smartsheet').setLevel(logging.CRITICAL)
 from pipeline import config  # noqa: E402,F401  (import-time env-parse side effects)
 from pipeline.config import (  # noqa: E402
     API_TOKEN,
-    ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC,
-    ATTACHMENT_PREFETCH_GENERATION_HEADROOM_MIN,
-    ATTACHMENT_PREFETCH_MAX_MINUTES,
     ATTACHMENT_REQUIRED_FOR_SKIP,
     ATTRIBUTION_BULK_PREFETCH_FALLBACK,
     AUDIT_SHEET_ID,

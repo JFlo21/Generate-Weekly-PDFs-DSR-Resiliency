@@ -162,15 +162,19 @@ Fetch rows in parallel (ThreadPoolExecutor, PARALLEL_WORKERS≤8; SDK handles
    ↓
 Filter + group by (WR, week_ending, variant, foreman, dept, job)
    ↓
-Pre-fetch target-row attachments (ThreadPoolExecutor, PARALLEL_WORKERS≤8)
-   into an in-memory cache to avoid 2-3 per-row API calls per group later.
-   **Sub-budget** ATTACHMENT_PREFETCH_MAX_MINUTES (default 10) + **per-future
-   timeout** ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC (default 45s) ensure a
-   stuck HTTP call cannot consume the session budget. Pre-flight guard
-   skips the phase entirely if less than the pre-fetch budget is left of
-   TIME_BUDGET_MINUTES. Consumers (_has_existing_week_attachment,
-   delete_old_excel_attachments, cleanup_untracked_sheet_attachments) all
-   accept a missing cache entry and fall back to per-row on-demand lookup.
+Resolve attachment identity from `pipeline_memory.group_state`
+   (`get_group_state_attachments_by_wr` — the `attachment_id` /
+   `attachment_name` this pipeline itself uploaded for each group it
+   previously flushed). Replaces the retired bulk Smartsheet attachment
+   pre-fetch (Phase 11 Plan 08, INC-05 — `ATTACHMENT_PREFETCH_MAX_MINUTES`
+   / `ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC` no longer exist).
+   `_has_existing_week_attachment` / `delete_old_excel_attachments` prefer
+   the group_state-resolved identity and fall back to a per-row on-demand
+   `list_row_attachments` lookup on any miss (cold cache, Supabase outage,
+   or a WR group_state has never flushed). `cleanup_untracked_sheet_
+   attachments` always uses the per-row on-demand lookup — group_state
+   only knows what this pipeline wrote, never an off-contract or legacy
+   attachment it needs to prune.
    ↓
 Change detection: SHA256 hash per group key →
    skip unchanged (generated_docs/hash_history.json, capped at 1000 entries)
@@ -212,14 +216,11 @@ All behavior is controlled by `os.getenv()` with defaults. Full reference lives 
     `timeout-minutes` `110` → `180`); an earlier `80`→ raise on 2026-04-22
     followed a pre-fetch stall that consumed the whole session with zero
     output. Must stay strictly less than the workflow's `timeout-minutes`
-    (currently `180`).
-  - `ATTACHMENT_PREFETCH_MAX_MINUTES` (default `10`) — phase sub-budget
-    for the target-row attachment pre-fetch. Also the threshold for the
-    pre-flight guard that skips pre-fetch entirely when the session
-    budget is already mostly consumed.
-  - `ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC` (default `45`) — per-future
-    wait inside the pre-fetch consumer loop. A stuck HTTP call cannot
-    block the consumer beyond this; its row falls back to per-row lookup.
+    (currently `180`). The bulk attachment pre-fetch this budget once
+    protected (`ATTACHMENT_PREFETCH_MAX_MINUTES` /
+    `ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC`) was retired in Phase 11
+    Plan 08 (INC-05) — attachment identity now resolves from
+    `pipeline_memory.group_state`, and neither env var has any effect.
 - Debug flags: `DEBUG_MODE`, `QUIET_LOGGING`, `PER_CELL_DEBUG_ENABLED`, `FILTER_DIAGNOSTICS`, `FOREMAN_DIAGNOSTICS`, `LOG_UNKNOWN_COLUMNS`, `DEBUG_SAMPLE_ROWS`
 - Sentry Logs gate: `SENTRY_ENABLE_LOGS` (default `false`). Keep off by
   default because INFO-path logs can embed row PII; the `before_send_log`

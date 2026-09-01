@@ -3268,6 +3268,107 @@ class LostIdentityRowTests(unittest.TestCase):
         self.assertEqual(calls["n"], 2)
         self.assertIsNone(result)  # partial union is worse than none
 
+    # ── group_state attachment resolution (Phase 11 Plan 08, INC-05) ──
+
+    def test_group_state_attachments_empty_input_zero_calls(self):
+        from pipeline_memory import reader as mem_reader
+
+        with mock.patch.object(mem_reader, "get_client") as mock_client:
+            result = mem_reader.get_group_state_attachments_by_wr(set())
+
+        self.assertEqual(result, {})
+        mock_client.assert_not_called()
+
+        with mock.patch.object(mem_reader, "get_client") as mock_client2:
+            result_none = mem_reader.get_group_state_attachments_by_wr(None)
+
+        self.assertEqual(result_none, {})
+        mock_client2.assert_not_called()
+
+    def test_group_state_attachments_client_unavailable_returns_empty(self):
+        from pipeline_memory import reader as mem_reader
+
+        with mock.patch.object(mem_reader, "get_client", return_value=None):
+            result = mem_reader.get_group_state_attachments_by_wr({"90001"})
+
+        self.assertEqual(result, {})
+
+    def test_group_state_attachments_resolves_and_skips_incomplete_rows(self):
+        from pipeline_memory import reader as mem_reader
+
+        payload = mock.Mock(data=[
+            {
+                "wr": "90001", "target_sheet_id": 111222,
+                "attachment_id": 42, "attachment_name": "WR_90001.xlsx",
+            },
+            # Never uploaded (or its upload was withheld) -- no
+            # attachment_id/name yet, must be skipped, not KeyError.
+            {
+                "wr": "90002", "target_sheet_id": 111222,
+                "attachment_id": None, "attachment_name": None,
+            },
+        ])
+        with mock.patch.object(
+            mem_reader, "get_client", return_value=mock.Mock(),
+        ), mock.patch.object(
+            mem_reader, "with_retry", return_value=payload,
+        ) as mock_retry:
+            result = mem_reader.get_group_state_attachments_by_wr(
+                {"90001", "90002"},
+            )
+
+        self.assertEqual(
+            result,
+            {
+                "90001": [{
+                    "target_sheet_id": 111222, "attachment_id": 42,
+                    "attachment_name": "WR_90001.xlsx",
+                }],
+            },
+        )
+        self.assertEqual(
+            mock_retry.call_args.kwargs.get("op"),
+            "group_state_attachments_by_wr",
+        )
+
+    def test_group_state_attachments_chunk_failure_continues_next_chunk(self):
+        from pipeline_memory import reader as mem_reader
+
+        with mock.patch.object(mem_reader, "_MAPPING_CHUNK_SIZE", 1):
+            calls = {"n": 0}
+
+            def _retry(fn, **_kw):
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    return None  # simulated transport/breaker failure
+                return mock.Mock(data=[{
+                    "wr": "90002", "target_sheet_id": 111222,
+                    "attachment_id": 7, "attachment_name": "WR_90002.xlsx",
+                }])
+
+            with mock.patch.object(
+                mem_reader, "get_client", return_value=mock.Mock(),
+            ), mock.patch.object(mem_reader, "with_retry", side_effect=_retry):
+                result = mem_reader.get_group_state_attachments_by_wr(
+                    {"90001", "90002"},
+                )
+
+        self.assertEqual(calls["n"], 2)
+        self.assertNotIn("90001", result)  # failed chunk simply absent
+        self.assertIn("90002", result)  # a partial result only ADDS hits
+
+    def test_group_state_attachments_none_response_payload_continues(self):
+        from pipeline_memory import reader as mem_reader
+
+        with mock.patch.object(
+            mem_reader, "get_client", return_value=mock.Mock(),
+        ), mock.patch.object(
+            mem_reader, "with_retry", return_value=mock.Mock(data=None),
+        ):
+            result = mem_reader.get_group_state_attachments_by_wr({"90001"})
+
+        self.assertEqual(result, {})
+
     # ── PHASE 2a wiring ──────────────────────────────────────────────
 
     def _phase2_with_delta(self, sheet, lookup_return, mem_affected):

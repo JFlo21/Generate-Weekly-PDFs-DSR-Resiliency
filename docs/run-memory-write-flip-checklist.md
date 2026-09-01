@@ -186,6 +186,41 @@ MEM-04 sandbox rig, never production Work Requests.
   and both `updated_at` timestamps in this PR's description so the phase
   SUMMARY can cite them as the success-criterion-3 evidence.
 
+## INC-05 retirement — frequent-run wall-clock record (Phase 11 Plan 08)
+
+ROADMAP.md success criterion 4 requires the frequent-run wall clock
+recorded before and after the INC-05 retirement (the two attachment
+pre-fetch phases + the three local JSON caches + their six workflow cache
+steps), compared against the 94-minute baseline from run `32743959053`.
+
+**Baseline:** `32743959053` — 94 minutes (pre-Phase-11, the pre-fetch +
+JSON-cache path this retirement replaces).
+
+**Before** (read at plan 11-08's Task 1 gate, re-confirmed against live
+`run_ledger` 2026-08-31 18:55 CDT / 23:55Z, on `master` #372 = `d9bd2b2`
+— strictly BEFORE this plan's removals land): three consecutive
+`production_frequent` runs, all 2026-08-31:
+
+| run_id | started (UTC) | wall clock |
+|---|---|---|
+| 33429256710.1 | 19:12 | 54.9 min |
+| 33418485870.1 | 17:14 | 57.6 min |
+| 33407578625.1 | 15:18 | 59.5 min |
+
+These three are already well under the 94-minute baseline — the
+pre-fetch-and-JSON-cache path this plan retires was not the run's
+bottleneck by 2026-08-31. (Outlier, not part of the before figure: the
+same-day 13:18Z run took 96.8 min, but that run performed post-weekend
+catch-up regeneration — a genuinely larger workload, not a pre-fetch
+slowdown — so it is excluded from the "before" set rather than averaged
+in.)
+
+**After:** PENDING. The after figure cannot exist until the first
+scheduled `production_frequent` run executes against the merged
+retirement — recorded here as a manual item in
+`.planning/phases/11-incremental-read-affected-group-regeneration/11-VALIDATION.md`,
+not fabricated ahead of a real run.
+
 ## References
 
 - CONTEXT.md D-10 (`.planning/phases/11-incremental-read-affected-group-regeneration/11-CONTEXT.md`)
