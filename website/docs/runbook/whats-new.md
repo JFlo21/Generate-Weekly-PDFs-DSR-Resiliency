@@ -9,24 +9,6 @@ _Last updated: September 1, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
-<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
-## linetec-inspector-manifest-generator
-
-> ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
-
-### 📋 Changelog — September 1, 2026
-
-- • Phase 32: GF Workbook v2 — plans 32-01..32-19 + bug fixes (pre-UI-gap cut)
-- 📄 Help guides updated: Task 5 live observation recorded, OPS-05 complete, verifier passed 9/9, transition to Phase 32
-- ✅ Problem fixed: skip already-routed intake rows before regen (BUG-019, D-11c) — read-only provenance pre-check
-- ✅ Problem fixed: per-regen start reserve + derived run budget (OPS-05, plan 31.1-09) + WR-02 ConnectionError isolation
-- ✅ Problem fixed: GF Decision Register writes a numeric WR # (synced WRs now match Requests/Billers/Inspector)
-- 📄 Help guides updated: verify-work artifacts — COVERAGE, UAT 29/29, SECURITY 50/50, code review, VERIFICATION + OPS-05 gap plan; workflow&#95;run field fence test; ledger batch 2026-08-28d
-- ✅ Problem fixed: a row's second Coverage Exception in the same sweep no longer aborts the hourly reconcile (repair-lock same-sweep memo) + C2 executed
-- ✅ Problem fixed: schedule lane never mapped MANIFEST&#95;WORKFLOW&#95;EVENT&#95;LIVE&#95;WRITE — Workflow Events were silently dry-run (+ ledger batch 2026-08-28b)
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
 ## Weekly Billing Reports (DSR Resiliency)
 
@@ -42,6 +24,24 @@ This page explains what each of our tools does and its recent updates, in everyd
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - 📄 Help guides updated: first post-merge run verified; saving corrected
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
+## linetec-inspector-manifest-generator
+
+> ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
+
+### 📋 Changelog — September 1, 2026
+
+- • Phase 32: GF Workbook v2 — plans 32-01..32-19 + bug fixes (pre-UI-gap cut)
+- 📄 Help guides updated: Task 5 live observation recorded, OPS-05 complete, verifier passed 9/9, transition to Phase 32
+- ✅ Problem fixed: skip already-routed intake rows before regen (BUG-019, D-11c) — read-only provenance pre-check
+- ✅ Problem fixed: per-regen start reserve + derived run budget (OPS-05, plan 31.1-09) + WR-02 ConnectionError isolation
+- ✅ Problem fixed: GF Decision Register writes a numeric WR # (synced WRs now match Requests/Billers/Inspector)
+- 📄 Help guides updated: verify-work artifacts — COVERAGE, UAT 29/29, SECURITY 50/50, code review, VERIFICATION + OPS-05 gap plan; workflow&#95;run field fence test; ledger batch 2026-08-28d
+- ✅ Problem fixed: a row's second Coverage Exception in the same sweep no longer aborts the hourly reconcile (repair-lock same-sweep memo) + C2 executed
+- ✅ Problem fixed: schedule lane never mapped MANIFEST&#95;WORKFLOW&#95;EVENT&#95;LIVE&#95;WRITE — Workflow Events were silently dry-run (+ ledger batch 2026-08-28b)
 
 <!-- /runbook-repo -->
 
