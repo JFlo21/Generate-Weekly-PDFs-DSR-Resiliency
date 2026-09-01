@@ -34,7 +34,11 @@ import os
 import sys
 import unittest
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest import mock
+
+if TYPE_CHECKING:
+    from billing_audit.writer import ResolveOutcome
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
@@ -283,15 +287,17 @@ class PrefetchedMapWeekKeyTests(unittest.TestCase):
     and silently used the current value — a real frozen helper was never
     honoured there, and the sentinel branch was unreachable."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         _reset_all()
         for k in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "TEST_MODE"):
             os.environ.pop(k, None)
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         _reset_all()
 
-    def _resolve_with_datetime_week(self, frozen_helper, current):
+    def _resolve_with_datetime_week(
+        self, frozen_helper: str, current: str
+    ) -> "ResolveOutcome":
         from billing_audit.writer import resolve_claimer
 
         return resolve_claimer(
@@ -304,12 +310,12 @@ class PrefetchedMapWeekKeyTests(unittest.TestCase):
             prefetched_map={(_WR, _WEEK, _ROW_ID): {"helper": frozen_helper}},
         )
 
-    def test_datetime_week_hits_date_keyed_map_real_frozen_wins(self):
+    def test_datetime_week_hits_date_keyed_map_real_frozen_wins(self) -> None:
         out = self._resolve_with_datetime_week("Sam Sample", "Kim Current")
         self.assertEqual((out.action, out.name, out.source, out.reason),
                          ("use", "Sam Sample", "frozen", "success"))
 
-    def test_datetime_week_hits_date_keyed_map_sentinel_uses_current(self):
+    def test_datetime_week_hits_date_keyed_map_sentinel_uses_current(self) -> None:
         from billing_audit import writer as ba_writer
 
         out = self._resolve_with_datetime_week("Unknown Helper", "Kim Current")
