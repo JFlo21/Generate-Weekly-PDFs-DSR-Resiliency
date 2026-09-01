@@ -8220,3 +8220,4 @@ Reference: `.planning/phases/11.1-post-inc-05-runtime-remediation/` (`11.1-CONTE
   `no_history` operator hint in `pipeline/grouping.py` no longer promises "this run freezes it"
   unconditionally, and `attribution_rows_held` is now mirrored in the second orchestrate pre-seed
   (pre-existing Gate-6 gap when the writer is unavailable).
+- **Shipped as PR #375** (`63d5de7`, branch `fix/own-02-sentinel-never-a-claimer`), open for owner review.

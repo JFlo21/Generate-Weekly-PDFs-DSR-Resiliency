@@ -20,7 +20,7 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
 
 ## Latest work (2026-09-01 18:05 CDT) — Phase 12 OWN-02 sentinel slice implemented (owner policy A) on `fix/own-02-sentinel-never-a-claimer`; WR 91390743 workbook = hand-edited copy
 
-- **OWN-02 shipped to branch (PR pending owner review):** `is_sentinel_claimer()`; `resolve_claimer`
+- **OWN-02 shipped as PR #375 (`63d5de7`, open for owner review/merge):** `is_sentinel_claimer()`; `resolve_claimer`
   reads a frozen sentinel as no-history (use current); `freeze_row` nulls named sentinels and defers
   all-sentinel freezes (no RPC, returns False); counters `sentinel_claimers_ignored` /
   `sentinel_freezes_deferred` added to `run_summary` (golden 22→24 keys, three key-count pins

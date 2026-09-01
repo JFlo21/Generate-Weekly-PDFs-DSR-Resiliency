@@ -157,4 +157,4 @@ names still win exactly as before. Two new run-summary counters make it visible:
 `sentinel_claimers_ignored` and `sentinel_freezes_deferred` (golden run_summary refrozen 22→24
 keys). What the scheduled run still does not do: delete the old `*_Unknown_Foreman*` attachment —
 run the `REMEDIATE_CLAIMERS` sweep once after a batch of assignments (dry-run first). See
-`memory-bank/living-ledger.md` `[2026-09-01 18:05]`; branch `fix/own-02-sentinel-never-a-claimer`.
+`memory-bank/living-ledger.md` `[2026-09-01 18:05]`; PR #375.
