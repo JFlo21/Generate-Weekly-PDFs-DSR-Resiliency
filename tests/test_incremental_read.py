@@ -3949,6 +3949,43 @@ class DiscoveryRegistrySkipTests(unittest.TestCase):
 
         self.assertIn("111222", str(cm.exception))
 
+    def test_validation_split_log_line_reports_skipped_and_full_counts(self):
+        """Phase 11.1 Plan 01 Task 3: the operator-visible validation
+        split line (D-11.1-01) names candidates/skipped/fully-validated
+        counts for a run mixing one registry-skipped and one
+        fully-validated sheet."""
+        os.environ['LIMITED_SHEET_IDS'] = '111222,999999'
+        # 111222: registry-matched -> skip fast path.
+        # 999999: no registry row -> falls through to full validation.
+        client = self._full_validation_client(
+            999999,
+            list_sheets_data=[
+                SimpleNamespace(id=111222, version=8),
+                SimpleNamespace(id=999999, version=3),
+            ],
+        )
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,
+                "column_mapping": {"Weekly Reference Logged Date": 55},
+                "name": "Skipped Sheet",
+            },
+        }
+
+        with self.assertLogs(level="INFO") as cm:
+            result = self._run_with_watermarks(client, watermarks)
+
+        self.assertEqual(len(result), 2)
+        split_lines = [
+            msg for msg in cm.output if "Discovery validation split" in msg
+        ]
+        self.assertEqual(len(split_lines), 1)
+        self.assertIn("2 candidates", split_lines[0])
+        self.assertIn("1 skipped via sheet_registry", split_lines[0])
+        self.assertIn("1 fully validated", split_lines[0])
+        self.assertIn("D-11.1-01", split_lines[0])
+
 
 class LiveRowAttachmentsTests(unittest.TestCase):
     """PR #373 review (Issue 1): the unchanged-group skip gate confirms

@@ -8008,3 +8008,28 @@ entry's own commit (Task 4).
   `note:` line; no `error:` line added, removed, or changed. Context: fixes for the three
   Greptile review issues on PR #373 (stored-identity skip-gate bypass; partial-discovery
   fail-open; runbook coverage of the cache retirement).
+
+## [2026-09-01 14:05] Phase 11.1 Plan 01 (D-11.1-01) — Gate-4 re-baseline 70 -> 72, zero accepted findings
+
+- **Re-baseline hygiene record (Phase 09 rule): `tests/golden/mypy_baseline.txt` /
+  `mypy_baseline_count.txt` refrozen 70 -> 72 lines. Accepted findings: NONE.** The mypy
+  ERROR set is byte-identical — 28 errors in 7 files (25 source files checked) before and
+  after; the 29 `error:`/summary lines (28 `error:` + the `Found 28 errors...` line) diff
+  byte-for-byte equal. The +2 delta is `[annotation-unchecked]` NOTES only, all in
+  `pipeline/discovery.py`: 3 removed (old lines 82, 91, 540) and 5 added (new lines 83, 84,
+  92, 270, 436, 683), net +2. Cause: `_build_discovery_skip_index` (new module-level,
+  untyped function, D-11.1-01 registry-version skip index for the discovery runtime
+  remediation) plus the registry fast path inserted at the top of `_validate_single_sheet`
+  shifted every downstream line number and added one more untyped-body note site. Proof:
+  regenerated via the gate's own invocation (`python -m mypy generate_weekly_pdfs.py
+  audit_billing_changes.py billing_audit pipeline`, LF bytes, `sys.executable` to avoid a
+  wrong-interpreter PATH resolution), diffed programmatically against the frozen baseline —
+  every changed line matched `: note:`, zero `: error:` lines touched. `bash
+  scripts/check_mypy_delta.sh` -> `PASS: mypy delta neutral or improved (72 -> 72)`, exit 0.
+  **72 is the new ceiling.** Per the executor's own hard_constraints (line-number drift with
+  the error set unchanged -> refreeze, not annotate): adding type hints to
+  `_build_discovery_skip_index` to silence the new note was explicitly rejected — it is not
+  required by the plan, would diverge from this file's existing untyped-nested-closure
+  convention (`_validate_single_sheet`, `_get_sample_rows`, `_extract_col_samples` are all
+  untyped today), and risks surfacing unrelated new type errors mid-plan. `tests/golden/*.txt`
+  confirmed LF-only (`test_golden_txt_baselines_contain_no_crlf` PASS).

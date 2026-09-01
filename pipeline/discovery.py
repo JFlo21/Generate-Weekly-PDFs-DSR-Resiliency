@@ -695,6 +695,17 @@ def discover_source_sheets(client):
                 logging.info(f"   ❌ [{i}/{len(futures)}] Skipped sheet ID {sid}")
     _discovery_elapsed = (datetime.datetime.now() - _discovery_start).total_seconds()
     logging.info(f"⚡ Discovery complete: {len(discovered)} sheets validated in {_discovery_elapsed:.1f}s (parallel w/{PARALLEL_WORKERS_DISCOVERY} workers)")
+    # Phase 11.1 (D-11.1-01): operator-visible validation split. Additive
+    # — the line above is unchanged so any source-pin over its text stays
+    # intact. Identifiers and counts only, no row/column values.
+    _candidate_count = len(base_sheet_ids)
+    _skipped_count = len(_discovery_skip_sids)
+    _full_count = _candidate_count - _skipped_count
+    logging.info(
+        f"⏭️ Discovery validation split: {_candidate_count} candidates, "
+        f"{_skipped_count} skipped via sheet_registry, {_full_count} "
+        f"fully validated (D-11.1-01)"
+    )
     if _failed_validation_sids:
         # PR #373 review (fail-closed). Before INC-05, the 7-day discovery
         # cache masked a validation failure on most runs; now every run
