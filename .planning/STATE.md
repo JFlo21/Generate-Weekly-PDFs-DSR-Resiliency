@@ -403,6 +403,11 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session Continuity
 
-Last session: 2026-08-26T02:50:00.000Z
-Stopped at: Phase 10 MERGED (2026-08-25 23:55 CDT): PR #350 squash-merged as 99dc25d (55 commits incl. the three Greptile fixes 6965f95); local master fast-forwarded to 81d3b46 (docs-changelog + Notion runbook stubs on top); feat/phase-10-run-memory deleted local+remote; post-merge gate 1525 passed / 135 subtests. PR triage resolved 2026-08-26 00:25 CDT: Seer #343/#346/#347/#348 closed, Dependabot #344/#345 merged, Cursor #328/#331/#338 closed; master fb11109; branch feat/phase-11-incremental-read rebased 7982b0f. 44-PR backlog left for a separate triage. Next: /gsd-plan-phase 11.
+Last session: 2026-09-01T19:20:00.000Z
+Stopped at: Session resumed via /gsd-resume-work. Phase 11.1 both plans
+  complete on branch `feat/11.1-runtime-remediation` (18 commits ahead of
+  origin/master, NOT pushed, no PR yet). Remaining: gsd-verifier ->
+  11.1-VERIFICATION.md, then push + open PR (flag D-11.1-05 for owner veto),
+  then post-merge wall-clock observation (<~75 min, SC-1). HANDOFF.json
+  and the 11.1 `.continue-here.md` checkpoint both consumed and removed on resume.
 Resume file: None

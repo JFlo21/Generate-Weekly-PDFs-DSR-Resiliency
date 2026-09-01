@@ -1,10 +1,10 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-08-31 21:15 CDT (02:15Z) · **overwrite-in-place each session** (this is the
+_Last updated: 2026-09-01 14:30 CDT (19:30Z) · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
-_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-08-31 21:05]` (Gate-4 mypy re-baseline 65→68, zero accepted findings) and `[2026-08-31 20:44]` (Phase 11 shipped — the phase's operational rules). Earlier: `[2026-08-29 17:55]` (D-09 amended: streak counts weekend + manual runs; no standalone docs PRs), `[2026-08-29 16:45]` (#369 + #370 merged; `.planning/` staging rule), `[2026-08-28 20:15]` (parity read back = pass; Notion counter export; real-WR residuals removed), `[2026-08-28 19:30]` (the 137: no findable target row — Smartsheet analysis), `[2026-08-28 19:00]` (first post-merge run verified; saving corrected), `[2026-08-28 18:45]` (#365 + #366 merged), `[2026-08-28 18:20]` (identifier scrub, #366), `[2026-08-28 18:05]` (decisions: no-target-row skip on #365; scrub option A), `[2026-08-28 17:10]` (#363 merged, 154-withheld = source-data shape), `[2026-08-28 16:05]` (sheet_registry fix on #363), `[2026-08-28 15:05]` (root cause + 154-withheld pattern), `[2026-08-28 12:05]` (#362), `[2026-08-27 21:10]` (verified pipeline truths from the
+_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-09-01 14:05]` (Phase 11.1 Plan 01 Gate-4 re-baseline 70→72, zero accepted findings) and `[2026-09-01 13:50]` (Phase 11.1 durable rules: registry-skip admission gate, pre-seed containment layers). Earlier: `[2026-08-31 21:05]` (Gate-4 mypy re-baseline 65→68, zero accepted findings) and `[2026-08-31 20:44]` (Phase 11 shipped — the phase's operational rules). Earlier: `[2026-08-29 17:55]` (D-09 amended: streak counts weekend + manual runs; no standalone docs PRs), `[2026-08-29 16:45]` (#369 + #370 merged; `.planning/` staging rule), `[2026-08-28 20:15]` (parity read back = pass; Notion counter export; real-WR residuals removed), `[2026-08-28 19:30]` (the 137: no findable target row — Smartsheet analysis), `[2026-08-28 19:00]` (first post-merge run verified; saving corrected), `[2026-08-28 18:45]` (#365 + #366 merged), `[2026-08-28 18:20]` (identifier scrub, #366), `[2026-08-28 18:05]` (decisions: no-target-row skip on #365; scrub option A), `[2026-08-28 17:10]` (#363 merged, 154-withheld = source-data shape), `[2026-08-28 16:05]` (sheet_registry fix on #363), `[2026-08-28 15:05]` (root cause + 154-withheld pattern), `[2026-08-28 12:05]` (#362), `[2026-08-27 21:10]` (verified pipeline truths from the
 #360 review rounds — acceptance gate, group key, TEST_MODE/Supabase, Snapshot Date, reset purge, stale
 attachment, public-repo identifier rule). Earlier: `[2026-08-27 20:20]` (identity row = canonical row,
 ships with PR #361), `[2026-08-27 16:10]` (hash sort tiebreaker, #359).
@@ -18,7 +18,46 @@ budget 25), #355 (docs/hook), #359 (hash sort tiebreaker). **Merged 2026-08-28 0
 **3 of 5** since the 03:49Z fail — the pre-marker manual run does not count). Then: checklist item 6 SQL +
 items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-08-31 22:00 CDT) — PR #373 review fix round pushed (Greptile 3/3 fixed + resolved)
+## Latest work (2026-09-01 14:30 CDT) — **Phase 11.1 both plans complete** on `feat/11.1-runtime-remediation`; verifier + PR in flight
+
+- **Post-#373 regression measured:** run 33512477875 = 169.8 min (budget-stopped, 1216 groups
+  deferred). Root cause: discovery 1.3 s → 66.8 min (full per-sheet validation every run) and group
+  loop 0.28 → 2.26 s/group (one serial `list_row_attachments` per skip-candidate row). Phase 11.1
+  inserted to remediate — decisions D-11.1-01..05 in
+  `.planning/phases/11.1-post-inc-05-runtime-remediation/11.1-CONTEXT.md`.
+- **Fix 1 (11.1-01)** discovery registry-version skip, fail-closed (any doubt → full validation;
+  never touches `_failed_validation_sids`). **Fix 2 (11.1-02)** bulk `list_all_attachments`
+  pre-seed of the existing `_live_attachment_listings` memo (target + PPP sheets), fails open to
+  regeneration; `_live_row_attachments` + both call sites byte-for-byte unmodified. 25000
+  `total_count` ceiling + ERROR fallback = **D-11.1-05 accepted residual, owner veto at PR review**.
+  Suite 1886 passed / 1 skipped / 306 subtests; ALL 6 GATES; Gate 4 refrozen 70→72 (zero findings).
+- **Branch state:** 18 commits ahead of `origin/master`, **not pushed, no PR yet**.
+  `/gsd-resume-work` (this session) consumed + removed `HANDOFF.json`, refreshed STATE.md session
+  continuity, dispatched gsd-verifier (Sonnet) → `11.1-VERIFICATION.md`. Next in order: commit the
+  untracked `11.1-PATTERNS.md` + `.gitkeep`, drop `.continue-here.md`, push, open PR (Objective /
+  Changes Made / Production Safety Check, D-11.1-05 flagged), Greptile round, Juan merges.
+- **Post-merge (SC-1, not code-verifiable):** first `production_frequent` run supplies wall clock
+  (target < ~75 min), the `Discovery validation split` counts, and per-sheet `total_count` INFO
+  lines → fill `11.1-VALIDATION.md` Manual-Only table + `docs/run-memory-write-flip-checklist.md`
+  "after" figure → `/gsd:verify-work 11.1`. Schedule stays degraded (~2.8 h runs vs 2 h cron) until merge.
+
+## Previous (2026-08-31 22:10 CDT) — **PR #373 MERGED** (`abf905d`, 02:54Z) — Phase 11 code complete on master
+
+- **INC-05 retirement is live on master.** First post-merge run = the Monday 05:00 UTC
+  `weekly_comprehensive` deep run (~2h after merge) — first production exercise of: no workflow
+  cache steps, `group_state.content_hash` sole skip gate, live attachment confirmation
+  (`_live_row_attachments`), and **fail-closed discovery** (a sheet failing validation after
+  retries now aborts the run loudly — watch Sentry/Actions for that new failure mode).
+- **"After" wall-clock** for `docs/run-memory-write-flip-checklist.md` comes from the first
+  post-merge *frequent* run (Mon 13:00Z ≈ 8:00 AM CDT), then `/gsd:verify-work 11` closes the
+  phase formally. Six unresolved `chatgpt-codex-connector` threads were left open at merge —
+  still available on the PR for later triage.
+- Docs-changelog automation appended stubs (`1bff5e2`, `733e76d`); the synthesized entry
+  already exists (`website/blog/2026-08-31-inc05-cache-retirement.md`), so no expansion owed.
+- This state update is uncommitted by design (no standalone docs PRs) — it rides the next
+  substantive PR.
+
+## Previous (2026-08-31 22:00 CDT) — PR #373 review fix round pushed (Greptile 3/3 fixed + resolved)
 
 - **All three Greptile findings on PR #373 judged VALID and fixed** (commits `1c880a4` code,
   `3bd2250` docs; pushed; all three review threads replied + resolved):
