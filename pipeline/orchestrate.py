@@ -2917,6 +2917,72 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # row_id -> LIVE list_row_attachments listing (skip-gate
         # confirmation; populated lazily by _live_row_attachments)
         _live_attachment_listings: dict = {}
+        # ──────────────────────────────────────────────────────────
+        # Phase 11.1 (D-11.1-02): pre-seed the memo just declared above
+        # from two bulk sheet-level attachment listings, instead of
+        # paying one serial list_row_attachments call per skip-
+        # candidate row inside the group loop below -- run 33512477875
+        # spent 4425.8s at ~2.26 s/group after PR #373's per-row live
+        # existence confirmation added a serial call to that loop. The
+        # existence semantics stay correct and unchanged (a group_state
+        # stub is still never trusted as proof of existence); only the
+        # call pattern changes. _live_row_attachments and both of its
+        # call sites below are left UNMODIFIED -- its own memo-hit fast
+        # path is what makes pre-seeding sufficient.
+        #
+        # Same two-condition guard as the group-loop skip gate
+        # (ATTACHMENT_REQUIRED_FOR_SKIP, TEST_MODE), TEST_MODE first.
+        # Deliberately never includes SKIP_UPLOAD, so this guard cannot
+        # collide with the circuit-breaker guard's pinned literal
+        # (tests/test_skip_no_target_row.py:308).
+        if not TEST_MODE and ATTACHMENT_REQUIRED_FOR_SKIP:
+            try:
+                with sentry_sdk.start_span(
+                    op="smartsheet.bulk_attachment_listing",
+                    name="Pre-seed live attachment listings",
+                ) as _preseed_span:
+                    for _preseed_sheet_id, _preseed_map in (
+                        (TARGET_SHEET_ID, target_map),
+                        (SUBCONTRACTOR_PPP_SHEET_ID, target_map_ppp),
+                    ):
+                        _preseed_row_ids = {
+                            _preseed_row.id
+                            for _preseed_row in (_preseed_map or {}).values()
+                            if _preseed_row is not None
+                        }
+                        if not _preseed_sheet_id or not _preseed_row_ids:
+                            continue
+                        _preseed_with, _preseed_empty = (
+                            _preseed_live_attachment_listings(
+                                client, _preseed_sheet_id,
+                                _preseed_row_ids,
+                                _live_attachment_listings,
+                            )
+                        )
+                        logging.info(
+                            f"📎 Pre-seeded live attachment listings for "
+                            f"sheet {_preseed_sheet_id}: {_preseed_with} "
+                            f"row(s) with attachments, {_preseed_empty} "
+                            f"row(s) empty (Phase 11.1, D-11.1-02)."
+                        )
+                        _preseed_span.set_data(
+                            f"sheet_{_preseed_sheet_id}_seeded_with",
+                            _preseed_with,
+                        )
+                        _preseed_span.set_data(
+                            f"sheet_{_preseed_sheet_id}_seeded_empty",
+                            _preseed_empty,
+                        )
+            except Exception as _preseed_exc:
+                # Defense-in-depth (Phase 10-03 group_state flush
+                # precedent): a defect in this performance-only block
+                # must never abort a billing run -- the memo simply
+                # stays usable by the existing lazy per-row path.
+                logging.warning(
+                    f"⚠️ Attachment pre-seed block failed for this run "
+                    f"(non-fatal, Phase 11.1): {_preseed_exc}"
+                )
+        # ──────────────────────────────────────────────────────────
         if not TEST_MODE:
             _group_state_wrs = set(target_map or {}) | set(target_map_ppp or {})
             if _group_state_wrs:

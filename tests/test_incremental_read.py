@@ -4286,11 +4286,20 @@ class AttachmentPreseedWiringTests(unittest.TestCase):
 
     @classmethod
     def _preseed_block(cls) -> str:
+        # Narrow window: from the new guard to the very next line this
+        # phase's insertion sits directly above (the pre-existing
+        # group_state attachment-identity resolution block) -- NOT the
+        # much larger span down to the first existence-check call site,
+        # which would also sweep in the unrelated circuit-breaker guard
+        # (tests/test_skip_no_target_row.py:308, which legitimately
+        # contains "SKIP_UPLOAD").
         src = cls._src()
         start = src.index(
             "if not TEST_MODE and ATTACHMENT_REQUIRED_FOR_SKIP:"
         )
-        end = src.index("_has_existing_week_attachment(")
+        end = src.index(
+            "_group_state_wrs = set(target_map or {})"
+        )
         return src[start:end]
 
     def test_preseed_call_site_between_memo_declaration_and_first_existence_check(self):
