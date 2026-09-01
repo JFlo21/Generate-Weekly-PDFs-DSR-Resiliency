@@ -155,10 +155,18 @@ never stores those placeholders — it nulls them and, when no role holds a real
 Supabase call entirely so the first real person can still be frozen first-write-wins. Real frozen
 names still win exactly as before. Two new run-summary counters make it visible:
 `sentinel_claimers_ignored` and `sentinel_freezes_deferred` (golden run_summary refrozen 22→24
-keys). The review round also fixed a latent miss: the subcontractor-helper path passed a
-`datetime` week to `resolve_claimer` while the prefetched map is keyed by `date`, so frozen helper
-claims were never honoured there; the week is now coerced inside `resolve_claimer`. What is still
-NOT automatic: removing the old `*_Unknown_Foreman*` attachment. Neither the scheduled run nor the
-isolated `REMEDIATE_CLAIMERS` sweep (which only removes `_NO_MATCH`) deletes it — dispatch
-`reset_wr_list:<WR>` in `advanced_options` for that WR or delete it by hand. See
-`memory-bank/living-ledger.md` `[2026-09-01 18:05]`; PR #375.
+keys). What is still NOT automatic: removing the old `*_Unknown_Foreman*` attachment. Neither
+the scheduled run nor the isolated `REMEDIATE_CLAIMERS` sweep (which only removes `_NO_MATCH`)
+deletes it — dispatch `reset_wr_list:<WR>` in `advanced_options` for that WR or delete it by hand.
+See `memory-bank/living-ledger.md` `[2026-09-01 18:05]`; PR #375 (merged `8325bc8`).
+
+## 2026-09-01 — Frozen helper claims now honoured on the subcontractor-helper path; #375 review fixes (PR #376)
+The subcontractor-helper path in `pipeline/grouping.py` passed a `datetime` week to `resolve_claimer`
+while the prefetched attribution map is keyed by `date`, so that lookup always missed and the row
+silently took the current Smartsheet helper — a frozen helper name was never honoured there, and
+the #375 sentinel rule could not fire on that path. `resolve_claimer` now coerces the week itself,
+so a helper frozen earlier beats a later Smartsheet edit exactly as it already does for primary,
+VAC, and pre-pass helper rows. Operators: expect helper files for such WRs to regenerate once under
+the frozen name after the first run. The same PR corrects the `REMEDIATE_CLAIMERS` guidance above
+and replaces real identifiers in the ledgers with the `<WR-D>` / `<FOREMAN-D>` aliases. See
+`memory-bank/living-ledger.md` `[2026-09-01 18:05]` (review-round bullet); PR #376.

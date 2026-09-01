@@ -18,18 +18,21 @@ budget 25), #355 (docs/hook), #359 (hash sort tiebreaker). **Merged 2026-08-28 0
 **3 of 5** since the 03:49Z fail — the pre-marker manual run does not count). Then: checklist item 6 SQL +
 items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-09-01 18:05 CDT) — Phase 12 OWN-02 sentinel slice implemented (owner policy A) on `fix/own-02-sentinel-never-a-claimer`; `<WR-D>` workbook = hand-edited copy
+## Latest work (2026-09-01 18:45 CDT) — **PR #375 MERGED** (`8325bc8`, 23:34Z) — Phase 12 OWN-02 sentinel slice live on master; review fixes in **PR #376** (open); `<WR-D>` workbook = hand-edited copy
 
-- **OWN-02 shipped as PR #375 (`63d5de7` + review-fix commits, open for owner review/merge):** `is_sentinel_claimer()`; `resolve_claimer`
+- **OWN-02 merged as PR #375 (`8325bc8`, squash of `d2dd41d`). The review-fix round raced the merge:
+  Juan merged while the gates were running, so the two fix commits landed on the feature branch
+  AFTER the squash and are carried by PR #376 (`fix/own-02-review-fixes`, cherry-picked onto
+  master, ALL 6 GATES PASSED on that branch, open for owner review).** What #375 shipped: `is_sentinel_claimer()`; `resolve_claimer`
   reads a frozen sentinel as no-history (use current); `freeze_row` nulls named sentinels and defers
   all-sentinel freezes (no RPC, returns False); counters `sentinel_claimers_ignored` /
   `sentinel_freezes_deferred` added to `run_summary` (golden 22→24 keys, three key-count pins
   updated, both orchestrate pre-seeds mirrored). New `tests/test_sentinel_never_a_claimer.py`
   (RED 14 → GREEN). ALL 6 GATES PASSED (1904 passed / 1 skipped / 335 subtests; mypy 71→71).
-  Ledger `[2026-09-01 18:05]`. Review-fix round (Copilot ×5, Cursor ×1, Greptile ×1): the week
-  passed to `resolve_claimer` is now coerced to `date` inside the function, which ACTIVATES
-  frozen-wins on the subcontractor-helper path (it always missed the date-keyed map before);
-  REMEDIATE_CLAIMERS guidance corrected; identifiers aliased. Stale `_User_Unknown_Foreman`
+  Ledger `[2026-09-01 18:05]`. Review-fix round (Copilot ×5, Cursor ×1, Greptile ×1) = PR #376:
+  the week passed to `resolve_claimer` is coerced to `date` inside the function, which ACTIVATES
+  frozen-wins on the subcontractor-helper path (it always missed the date-keyed map before, on
+  master too until #376 merges); REMEDIATE_CLAIMERS guidance corrected; identifiers aliased. Stale `_User_Unknown_Foreman`
   attachments are NOT swept by the scheduled run or by isolated `REMEDIATE_CLAIMERS` (only
   `_NO_MATCH`); clear them per WR with `reset_wr_list` or by hand until a sentinel-aware cleanup
   is approved. OWN-01/03/04 still open.

@@ -8228,8 +8228,8 @@ Reference: `.planning/phases/11.1-post-inc-05-runtime-remediation/` (`11.1-CONTE
   `no_history` operator hint in `pipeline/grouping.py` no longer promises "this run freezes it"
   unconditionally, and `attribution_rows_held` is now mirrored in the second orchestrate pre-seed
   (pre-existing Gate-6 gap when the writer is unavailable).
-- **PR #375 review round (Copilot ×5, Cursor ×1, Greptile ×1 — all valid, all fixed on the
-  branch):** (a) **Latent miss, now fixed:** the inline subcontractor-helper call in
+- **PR #375 review round (Copilot ×5, Cursor ×1, Greptile ×1 — all valid; Greptile's fix is in
+  #375, the rest ship in PR #376):** (a) **Latent miss, now fixed:** the inline subcontractor-helper call in
   `pipeline/grouping.py` passed the raw `datetime.datetime` week to `resolve_claimer`, while
   `prefetch_attribution` keys its map by `datetime.date`; a datetime never equals a date, so that
   path ALWAYS missed the map and silently used the current value — a real frozen helper was never
@@ -8245,5 +8245,12 @@ Reference: `.planning/phases/11.1-post-inc-05-runtime-remediation/` (`11.1-CONTE
   removes. (c) Real WR / foreman / attachment id scrubbed to `<WR-D>` / `<FOREMAN-D>` and the test
   fixture to `Pat Example` per the Round 16/18 rule. (d) Greptile: the changelog entry now ends
   with `PR #375` instead of the branch name (`d2dd41d`).
-- **Shipped as PR #375** (`63d5de7` + review-fix commits, branch
-  `fix/own-02-sentinel-never-a-claimer`), open for owner review.
+- **PR #375 MERGED** by Juan (`8325bc8`, 2026-09-01 23:34Z, squash of `d2dd41d`) — WHILE the
+  review-fix gates were running, so the two fix commits landed on the feature branch after the
+  squash and never reached master. They are carried by **PR #376** (`fix/own-02-review-fixes`,
+  cherry-picked onto `origin/master`, ALL 6 GATES PASSED there: 1906 / 1 skipped / 335 subtests,
+  mypy 71→71, Gate 6 24 keys). The six #375 threads were replied to and resolved citing the
+  branch SHAs; a PR-level comment on #375 redirects to #376.
+- **Rule (process):** after pushing review fixes, re-read `gh pr view --json state,headRefOid`
+  BEFORE resolving threads or editing the body — a squash merge can race the fix round, and
+  resolved threads on a merged PR silently imply the fix is live when it is not.
