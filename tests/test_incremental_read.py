@@ -3427,6 +3427,124 @@ class LostIdentityRowTests(unittest.TestCase):
         )
 
 
+class DiscoverySkipIndexTests(unittest.TestCase):
+    """Phase 11.1 Plan 01 (D-11.1-01): unit coverage of
+    ``pipeline.discovery._build_discovery_skip_index`` -- the
+    registry-version skip index that feeds ``_validate_single_sheet``'s
+    fast path. Every doubt branch must yield an empty (or sid-absent)
+    index, never raise, and never touch ``_failed_validation_sids``."""
+
+    @staticmethod
+    def _client(list_sheets_data=None, list_sheets_exc=None):
+        client = mock.MagicMock()
+        if list_sheets_exc is not None:
+            client.Sheets.list_sheets.side_effect = list_sheets_exc
+        else:
+            client.Sheets.list_sheets.return_value = SimpleNamespace(
+                data=list_sheets_data if list_sheets_data is not None else []
+            )
+        return client
+
+    def test_happy_path_returns_index_entry_on_version_match(self):
+        from pipeline import discovery
+
+        client = self._client(
+            list_sheets_data=[SimpleNamespace(id=111222, version=8)]
+        )
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,
+                "column_mapping": {"Weekly Reference Logged Date": 55},
+                "name": "Test Sheet",
+            }
+        }
+
+        with mock.patch(
+            "pipeline.discovery.get_sheet_watermarks",
+            return_value=watermarks,
+        ):
+            index = discovery._build_discovery_skip_index(client, [111222])
+
+        self.assertEqual(
+            index,
+            {
+                111222: {
+                    "id": 111222,
+                    "name": "Test Sheet",
+                    "column_mapping": {"Weekly Reference Logged Date": 55},
+                }
+            },
+        )
+        client.Sheets.list_sheets.assert_called_once_with(
+            include=["sheetVersion"], include_all=True,
+        )
+
+
+class DiscoveryRegistrySkipTests(unittest.TestCase):
+    """Phase 11.1 Plan 01 (D-11.1-01): end-to-end coverage of the
+    registry-version skip through ``discover_source_sheets`` -- the
+    tracer proof that a registry-matched candidate sheet is discovered
+    with zero ``client.Sheets.get_sheet`` calls."""
+
+    def setUp(self):
+        import generate_weekly_pdfs as gwp
+        self._gwp = gwp
+        self._saved_sub_folders = gwp.SUBCONTRACTOR_FOLDER_IDS
+        self._saved_orig_folders = gwp.ORIGINAL_CONTRACT_FOLDER_IDS
+        gwp.SUBCONTRACTOR_FOLDER_IDS = []
+        gwp.ORIGINAL_CONTRACT_FOLDER_IDS = []
+        self._saved_limited = os.environ.get('LIMITED_SHEET_IDS')
+
+    def tearDown(self):
+        self._gwp.SUBCONTRACTOR_FOLDER_IDS = self._saved_sub_folders
+        self._gwp.ORIGINAL_CONTRACT_FOLDER_IDS = self._saved_orig_folders
+        if self._saved_limited is None:
+            os.environ.pop('LIMITED_SHEET_IDS', None)
+        else:
+            os.environ['LIMITED_SHEET_IDS'] = self._saved_limited
+
+    def test_registry_matched_sheet_skips_get_sheet_call(self):
+        from pipeline import discovery
+
+        os.environ['LIMITED_SHEET_IDS'] = '111222'
+        client = mock.MagicMock()
+        client.Sheets.list_sheets.return_value = SimpleNamespace(
+            data=[SimpleNamespace(id=111222, version=8)]
+        )
+        watermarks = {
+            111222: {
+                "sheet_id": 111222,
+                "last_sheet_version": 8,
+                "column_mapping": {"Weekly Reference Logged Date": 55},
+                "name": "Test Sheet",
+            }
+        }
+
+        with mock.patch.object(
+            discovery, '_FOLDER_DISCOVERED_SUB_IDS', set()
+        ), mock.patch.object(
+            discovery, '_FOLDER_DISCOVERED_ORIG_IDS', set()
+        ), mock.patch(
+            "pipeline.discovery.get_sheet_watermarks",
+            return_value=watermarks,
+        ):
+            result = discovery.discover_source_sheets(client)
+
+        self.assertEqual(
+            result,
+            [{
+                "id": 111222,
+                "name": "Test Sheet",
+                "column_mapping": {"Weekly Reference Logged Date": 55},
+            }],
+        )
+        client.Sheets.get_sheet.assert_not_called()
+        client.Sheets.list_sheets.assert_called_once_with(
+            include=["sheetVersion"], include_all=True,
+        )
+
+
 class LiveRowAttachmentsTests(unittest.TestCase):
     """PR #373 review (Issue 1): the unchanged-group skip gate confirms
     attachment EXISTENCE against a live, per-row-memoized listing --
