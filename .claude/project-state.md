@@ -18,7 +18,33 @@ budget 25), #355 (docs/hook), #359 (hash sort tiebreaker). **Merged 2026-08-28 0
 **3 of 5** since the 03:49Z fail — the pre-marker manual run does not count). Then: checklist item 6 SQL +
 items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-09-02 15:10 CDT) — `/gsd-execute-phase 11.1 --gaps-only`: plan 11.1-04 Tasks 1–3 landed as **PR #384** (branch `perf/discovery-bounded-validation-read`); **still paused at the Task 4 `blocking-human` canary checkpoint** — PR review threads cleared, owner merge pending
+## Latest work (2026-09-02 17:45 CDT) — **Phase 11.1 CLOSED** via `/gsd-execute-phase 11.1 --gaps-only`: PR #384 merged `13e8e76` (20:52Z); skip-MISS canary run 33683979474 met SC-1; VERIFICATION 20/20, UAT 19/19; ROADMAP/STATE at **Phase 12** (unplanned)
+- **Canary (21:14Z cron, build `e2efdc0` ⊇ `13e8e76`, production_frequent):** skip index 121 / 0 eligible,
+  split 0 skipped / 121 fully validated (a genuine miss); `⚡ Phase 1 complete` **37.7 s** (was 3,214 /
+  4,999 s on the two prior miss runs); Phase 2 1,181 s / 215,079 rows; 3,178 groups all processed (3,018
+  unchanged-skips, 154 no-target-row, 6 generated), no `TIME_BUDGET` stop; group phase 21:37:37Z→22:05:17Z
+  = 1,660 s ÷ 3,178 = **0.52 s/group**; Python `• Duration:` **0:50:47 (50.8 min)**; INC-06 🧵 release line
+  at 22:04:59Z; job 54.7 min, no exit hang. SC-1 / SC-2 / D-11.1-04 MET; G-11.1-4 RESOLVED end-to-end.
+- **Closeout artifacts (local commits on master, ahead of origin — ride the next code PR):** `11.1-04-SUMMARY.md`
+  (continuation executor, `docs(11.1-04): complete bounded-read canary plan`), `11.1-VERIFICATION.md` re-run
+  by gsd-verifier (passed 20/20, independently re-pulled the run log and re-ran the suite + 6 gates),
+  `11.1-UAT.md` test 4 → pass / G-11.1-4 resolved / 19-19, debug session → `.planning/debug/resolved/`
+  (gitignored), `phase.complete 11.1` (ROADMAP ✓, STATE → Phase 12, 2 cosmetic warnings: 11.1-01/02
+  SUMMARYs cite `bash scripts/...` commands as files), PROJECT.md decision row + footer, transition
+  steps applied to STATE.md. Gates on the merged tree: wave-post gates ×3 `block:false`, py_compile ✓,
+  full suite 1946 passed, 6 gates green.
+- **Advisory code-quality report `11.1-REVIEW.md` (gsd code reviewer, standard, 16 files in the phase
+  diff range — owner decision, NOT auto-fixed; both findings live in OWN-02 / INC-06 code swept in by the
+  diff range):** CR-01 `pipeline/cleanup.py:89-116` `_is_sentinel_identifier` treats any leading `_` as a
+  sentinel, but the sanitizer maps a leading space/punctuation in a real name to `_` too (`excel.py:308/324`,
+  no strip) → the sentinel-superseded gate could delete a real person's historical attachment; narrow to
+  known error spellings or de-sanitize first, add a leading-space-name test. WR-01 `orchestrate.py`
+  top-level `AttachmentParentType` import vs the lazy pattern in `discovery.py`. Tracked in STATE.md
+  Blockers/Concerns under Phase 12.
+- **Harness note:** the harness-boundary hook rejects any shell command containing lowercase `review`
+  (it treats `gsd-tools query init.code-review` / `resolve-model gsd-code-reviewer` as the cross-AI lane);
+  the Claude-native path used here = compute scope with plain git/node, spawn `gsd-code-reviewer` via
+  Agent, commit with `-F <msgfile>`. Remote branch `perf/discovery-bounded-validation-read` still exists.
 - **Re-entry (15:10 CDT):** safe-resume gate tripped as predicted → *close out manually*, no executor
   dispatched. Precondition still unmet: #384 OPEN / MERGEABLE / `reviewDecision: APPROVED` (Cursor);
   `origin/master` = `e27516d`; the in-flight scheduled run 33671999352 is on `e27516d` (not a canary).

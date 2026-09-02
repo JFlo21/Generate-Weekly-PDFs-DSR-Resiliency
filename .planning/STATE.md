@@ -22,7 +22,7 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-08-25 after Phase 09 close)
+See: .planning/PROJECT.md (updated 2026-09-02 after Phase 11.1 close)
 
 **Core value:** The production Smartsheet → Excel → Smartsheet attachment
 pipeline runs every 2 hours on weekdays and ships billing-grade Excel
@@ -31,7 +31,7 @@ right generated Excel billing artifact fast, from a secure, auth-gated,
 beautiful web portal — with zero change to the production Python billing
 pipeline.
 
-**Current focus:** Phase 11.1 — Post-INC-05 Runtime Remediation (INSERTED)
+**Current focus:** Phase 12 — Ownership — last known foreman as of the week (OWN-03 backfill, OWN-04 runbook); Phase 11.1 closed 2026-09-02
 
 ## Current Position
 
@@ -89,7 +89,7 @@ Last activity: 2026-09-02 — Phase 11.1 complete, transitioned to Phase 12
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [██░░░░░░░░] 23% (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped)
+Progress: [████████████████████] 50/50 plans (100%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 not yet planned)
 ```
 
 ## Performance Metrics
@@ -307,6 +307,19 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
   SimpleNamespace pin at test_incremental_read 4112; 11.1-VERIFICATION.md:89 describes the
   pre-review ceiling code.
 
+**From the Phase 11.1 close-out code-quality report (`11.1-REVIEW.md`, 2026-09-02 — advisory, owner decision; both findings are in OWN-02 / INC-06 code that the phase diff range swept in, not in 11.1's own plans):**
+
+- ⚠️ [Phase 12 / OWN-02] CR-01 `pipeline/cleanup.py:89-116` `_is_sentinel_identifier`: any sanitized
+  identifier starting with `_` is treated as a sentinel, but `_RE_SANITIZE_HELPER_NAME` (`[^\w\-]`→`_`)
+  turns a leading space/apostrophe/paren in a real claimer name into a leading `_` too (`excel.py:308/324`
+  sanitize the raw name with no strip). Through the sentinel-superseded gate (`cleanup.py:495-508`) that
+  could delete a real person's historical attachment when another real person later holds the same
+  (wr, week, variant). Narrow the heuristic to the known sanitized error spellings (`_REF_`, `_INVALID`,
+  `_NO_MATCH`, …) or de-sanitize before `is_sentinel_claimer`, plus a test with a leading-space name.
+- ⚠️ [Phase 12 / INC-06] WR-01 `pipeline/orchestrate.py`: top-level `from smartsheet.models.enums.
+  attachment_parent_type import AttachmentParentType` — a future SDK relocation would break module
+  import instead of degrading; `discovery.py` uses the lazy/defensive pattern for deep `smartsheet.models.*` paths.
+
 **From Phase 09 gap closure (2026-08-25, tracked, non-blocking):**
 
 - ⚠️ [Phase 09] Accepted mypy debt: 1 class-A finding `billing_audit/snapshot_store.py:370` (runtime-guarded) — todo `2026-08-25-fix-snapshot-store-int-arg-type.md`.
@@ -425,30 +438,18 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session Continuity
 
-Last session: 2026-09-02T16:15:00.000Z
-Stopped at: Resumed from HANDOFF.json (consumed). PR #379 (INC-06 detach)
-  MERGED d79f02d 2026-09-02T15:57Z; branch fix/inc-06-parity-exit-hang deleted
-  local + remote; master = e27516d (d79f02d + docs-changelog stub). Canary run
-  33634833356 (511ec48, created 13:17Z) SUCCESS and read — 11.1-03-SUMMARY.md
-  written: #378 engaged (🧊 218,439 rows warm-started; snapshots_written 117 /
-  already_frozen 0; freeze_attribution 117 calls vs 214,233), group phase
-  1,352 s / 3,176 groups = 0.43 s/group (G-11.1-6 RESOLVED), all groups, no
-  budget stop; Python Duration 1:36:00 (96 min) MISSES SC-1 because discovery
-  fully validated all 121 sheets (skip index 0/121 eligible — every source
-  sheet version moved overnight vs the 03:41Z watermarks; the two prior runs
-  had 117/121). With that skip rate Duration ≈ 43 min. Second data point
-  run 33647771644 (15:19Z, 511ec48, success): skip index 0/121 AGAIN two
-  hours after the watermarks were refreshed, discovery 83.3 min, Duration
-  2:09:40, group phase 0.40 s/group, 200 freeze calls = snapshots_written.
-  Reading corrected: the registry-version skip engages off-hours (117/121 at
-  19:56 and 22:20 CDT) and not in business hours (0/121 at 08:17 and 10:19
-  CDT); no registry-code change since the 117 builds. Hypothesis: cross-sheet
-  links/recalcs bump every backup sheet's version in business hours —
-  confirm read-only via two get_sheet_version samples. SC-1 unattainable on
-  business-hours runs by this design; discovery cost = its own follow-up.
-  First run ≥ d79f02d = 33659869696 (17:14Z, e27516d; watch the 🧵 INC-06
-  line). Loop for run 33647771644 stopped after reporting.
-  Planning edits (STATE.md, SUMMARY, HANDOFF.json deletion, project-state,
-  ledger) are UNCOMMITTED on master — commit them on the next docs/code PR.
-  Next: /gsd-verify-work 11.1 (close G-11.1-6; re-scope G-11.1-4 per SUMMARY).
-Resume file: .planning/phases/11.1-post-inc-05-runtime-remediation/.continue-here.md
+Last session: 2026-09-02T22:45:00.000Z
+Stopped at: Phase 11.1 complete, ready to plan Phase 12. Closed via
+  `/gsd-execute-phase 11.1 --gaps-only`: PR #384 (bounded discovery
+  validation read + the empty-rows PR-thread fix) squash-merged 13e8e76
+  at 20:52Z; canary run 33683979474 (21:14Z, build e2efdc0) was a genuine
+  registry-skip MISS (0/121) and met SC-1 — Phase 1 37.7 s, Python Duration
+  50.8 min, 3,178 groups, no budget stop, 0.52 s/group, INC-06 line present.
+  11.1-04-SUMMARY written; 11.1-VERIFICATION re-run passed 20/20; UAT 19/19
+  (G-11.1-4 resolved); 11.1-REVIEW.md advisory: CR-01 / WR-01 routed to the
+  owner (see Blockers/Concerns). All docs commits are LOCAL on master (ahead
+  of origin) — they ride the next code PR (no standalone docs PRs, D-09).
+  The remote branch perf/discovery-bounded-validation-read still exists
+  (owner delete). Phase 12 entry: check `.planning/config.json`
+  `review.default_reviewers` stays non-Codex; then /gsd-discuss-phase 12.
+Resume file: None
