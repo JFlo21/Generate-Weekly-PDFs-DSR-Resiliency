@@ -8655,3 +8655,142 @@ Reference: `.planning/phases/11.1-post-inc-05-runtime-remediation/` (`11.1-CONTE
   documented steps — daemon flag (constructor), `shutdown(wait=False, cancel_futures=True)`,
   then `detach()` — and may only do so for discardable work (the D-07 shadow qualifies; uploads,
   Supabase writes and run-summary flushes never do).
+
+## [2026-09-02 11:10] Phase 11.1 gap canary (run 33634833356, `511ec48`): #378 warm start engaged — 117 `freeze_attribution` calls (was 214,233), 0.43 s/group — but `Duration` 96 min because discovery fell back to full validation (skip index 0/121); PR #379 (INC-06) merged `d79f02d`
+
+**Context.** Plan `11.1-03` bound both UAT gaps (G-11.1-4 wall clock, G-11.1-6 per-group cost) to
+PR #378 (`2008fd9`). The first scheduled `production_frequent` run on master ≥ `2008fd9` was
+33634833356 (created 13:17:26Z, `511ec48` = `2008fd9` + two docs commits), job `success`.
+
+**#378 did exactly what it was built to do.** `🧊 Frozen-row cache warm-started from the
+attribution prefetch: 218,439 row(s) already frozen`; `run_summary.json` → `snapshots_written` 117,
+`snapshots_already_frozen` 0, `snapshots_errored` 0; `freeze_attribution` POSTs in the log = 117
+(one per newly completed row; 214,233 on run 33570018457; pre-INC-05 baseline 18,257); zero
+`pipeline_run` RPCs (20 table requests). Group loop → `group_state: 10 flushed` = 14:31:19Z →
+14:53:51Z = 1,352 s ÷ 3,176 groups = **0.43 s/group** (G-11.1-6 RESOLVED). 3,012 skipped
+unchanged, 154 no-target-row (the standing data-entry set), 10 generated + uploaded, 0 errored, no
+budget stop. Job 99.2 min vs Python 96.0 min — 2.9 min of post-steps, no exit hang on this build.
+
+**Why `Duration` was still 1:36:00.** Phase 1 discovery ran 13:17:51Z → 14:11:25Z = **53.6 min**:
+`⏭️ Discovery skip index (D-11.1-01): 121 candidate(s), 0 eligible for registry-version skip.
+Sample sid/version: []` → `121 fully validated`. The two runs before it on the same code had
+`117 eligible … 117 skipped, 4 fully validated` (33570018457, Python start 00:56Z, discovery
+34 s; 33579406295, 03:20Z, same). A sid is admitted only when the live `sheetVersion` from the one
+bulk `list_sheets` probe equals the registry watermark's `last_sheet_version`; each run refreshes
+every watermark after its fetch (`orchestrate.py` `upsert_sheet_registry`). So 0/121 at 13:17Z means
+**every one of the 121 Promax backup sheets carried a new Smartsheet version relative to the
+~03:41Z watermarks** while only 13 row contents changed (`Run-memory row writes … 13 changed`) —
+an overnight source-side refresh across all sheets (22:41–08:17 CDT). D-11.1-01 behaved as
+designed ("any doubt → full validation"); what surfaced is the unchanged cost of full validation
+itself (~26.6 s/sheet × 121 = the INC-05 every-run discovery cost) whenever the version match
+fails. With the 117/121 rate the same run would have been ≈ 96.0 − 53.6 + 0.6 ≈ **43 min**.
+
+**Verdict recorded in `11.1-03-SUMMARY.md`:** G-11.1-6 resolved; G-11.1-4 partial — the UAT root
+cause (group phase) is fixed, the residual is a second, independent contributor (discovery
+skip hit-rate). `/gsd-verify-work 11.1` should close G-11.1-6 and re-scope G-11.1-4 into the
+resolved group-phase component and a new discovery-hit-rate observation (candidate follow-up:
+measure the skip rate across a full day of scheduled runs; if the first run after the overnight
+refresh always full-validates, either accept a ~95-min first run of the day or make full
+validation cheaper — a separate plan, not a D-11.1-01 defect).
+
+**Rule.** When reading a run's `Duration` against SC-1, decompose it by the phase boundary lines
+first (`📊 PHASE 1` → `Discovery validation split` → `Data fetch complete` → `Run-memory row
+writes` → `🧊`/`📎` → `group_state: N flushed`) and quote the `Discovery skip index` line. A
+"slow run" on the 11.1 code has two independent causes with two different fixes; conflating them
+would have mis-attributed this miss to #378.
+
+**PR #379 (INC-06) merged** `d79f02d` 15:57Z (squash), branch `fix/inc-06-parity-exit-hang`
+deleted local + remote. Before merge: the Greptile P2 (changelog entry must end with the PR ref)
+was already fixed in `3fe67be` and resolved; the Codex-connector P1 on the new test's import
+path was left unacted (harness boundary — Codex is foreign; the head's "Compile and test" and
+coverage checks passed, which is evidence against the claim). Run 33647771644 (created 15:19Z)
+is still pinned to `511ec48`; the first run ≥ `d79f02d` is the 17:00Z schedule — watch for the
+`🧵 Shadow parity:` INC-06 line at INFO and job time ≈ `Duration` + post-job reserve.
+
+## [2026-09-02 12:50] Second data point (run 33647771644, `511ec48`, 10:19 CDT): skip index 0/121 AGAIN two hours after all watermarks were refreshed — the registry-version skip is an off-hours optimisation; business-hours runs pay 54–83 min of full validation
+
+**Numbers.** Job 15:19:17Z → 17:41:59Z (142.7 min, success). `⏭️ Discovery skip index (D-11.1-01):
+121 candidate(s), 0 eligible … Sample sid/version: []` → `121 fully validated`; discovery
+15:19:43Z → 16:43:02Z = **4,999 s (83.3 min, 41.3 s/sheet)**. Fetch 1,299.9 s (214,941 rows, +200
+since 13:17Z; 16 changed / 8 groups). `🧊 … 218,556 row(s) already frozen`; `snapshots_written` 200 =
+`freeze_attribution` POSTs 200; `already_frozen` 0. Group phase 17:08:18Z → 17:29:23Z = 1,265 s ÷
+3,177 = **0.40 s/group**. 8 generated + uploaded, 0 errored, no budget stop. Python `Duration`
+**2:09:40**; last INFO 17:33:46Z, ~8 min of post-steps; no INC-06 line (pre-#379 build). Without the
+discovery excess ≈ 47 min.
+
+**What it corrects.** The `[2026-09-02 11:10]` entry read the 13:17Z run's 0/121 as an overnight
+source refresh. It was not a one-off: the 13:17Z run refreshed all 121 watermarks by ~14:28Z and at
+15:19Z every live `sheetVersion` had moved again. Four observations line up on the clock, not on
+code — 117/121 at 19:56 and 22:20 CDT, 0/121 at 08:17 and 10:19 CDT — and the registry
+write/compare path is unchanged since the 117/121 builds (`git log 3f81d94..511ec48` touches
+`orchestrate.py` only at ~231/270/408/3119/3521, nowhere near the `upsert_sheet_registry` passes at
+2513/2664; `discovery.py`, `fetch.py`, `pipeline_memory/` untouched). Working hypothesis
+(unverified): during business hours something bumps every Promax backup sheet's version within
+the two-hour cadence — most plausibly inbound cross-sheet cell links / formulas recalculating when
+the live master sheets change (13–16 row contents change per run, yet all 121 versions move).
+Confirm read-only with two `get_sheet_version` samples on an old backup sheet during business
+hours (Smartsheet MCP).
+
+**Consequence for Phase 11.1 / SC-1.** #378 fully closes the group-phase gap (0.43 and 0.40
+s/group). SC-1 (< 75 min) is met off-hours by the existing design and cannot be met on
+business-hours runs by it, because full validation costs 26–41 s/sheet × 121 whenever the version
+match fails. Recorded in `11.1-03-SUMMARY.md`; `/gsd-verify-work 11.1` should close G-11.1-6 and
+carry G-11.1-4's discovery component as its own planned item (candidates: make full validation
+cheap — column mappings from `get_columns` / a row-less `get_sheet` — or key the skip on a
+column-set hash instead of `sheetVersion`). Not a D-11.1-01 defect.
+
+**Rule.** A registry-version skip rate must be read against the clock (business hours vs
+off-hours) before any code is suspected; and when a "fixed" wall clock reappears, diff the
+suspected path between the last good build and the current one before diagnosing from the log alone.
+
+**Also:** run 33659869696 (created 17:14Z on `e27516d`) is the first build with #379 — watch it for
+the `🧵 Shadow parity:` INC-06 line at INFO and job ≈ `Duration` + post-job reserve.
+
+## [2026-09-02 13:40] `/gsd-verify-work 11.1` resume: G-11.1-6 RESOLVED, G-11.1-4 re-diagnosed — the residual is the full-sheet download inside `_validate_single_sheet`, not continuous business-hours churn; run 33659869696 (12:42 CDT, `e27516d`) met SC-1 at `Duration` 30.8 min with 118/121 registry skips
+
+**What it corrects.** The `[2026-09-02 12:50]` reading ("the registry-version skip is an
+off-hours optimisation; every business-hours run pays 54–83 min") is too strong. The third
+post-#378 run, 33659869696 (created 17:14Z, Python 17:42Z = 12:42 CDT, first build with #379),
+logged `⏭️ Discovery skip index (D-11.1-01): 121 candidate(s), 118 eligible`,
+`⚡ Phase 1 complete: 121 sheets discovered in 44.4s`, warm start `218,756 row(s) already
+frozen`, group phase 355 s / 3,178 groups = 0.11 s/group (3 generated, 19 `freeze_attribution`
+calls, `snapshots_already_frozen` 0), `✅ Session complete!` with `Duration: 0:30:46`, and the
+INC-06 line `🧵 Shadow parity: no probe still running; released 8 worker(s) from the
+interpreter-exit join` — the job ended 24 s after the last Python line (no exit hang). Read-only
+`get_sheet_version` on that run's three sample sheets at 13:28 and 13:33 CDT returned exactly
+the 12:42 values (127649 / 142074 / 127077): 51 business-hours minutes with no movement. Churn
+across all 121 sheets is therefore episodic (22:44→08:17 CDT and 09:29→10:19 CDT moved every
+sheet; 12:06→13:33 moved 3), so the skip is hit-or-miss on any run, not "off-hours only".
+
+**Ruled out from the four job logs (33579406295, 33634833356, 33647771644, 33659869696).**
+Every `sheet_registry` GET/POST is `HTTP/2 200 OK`; the upsert `columns=` set is identical in
+all four (dict order only); run C's Phase 1 window (1,004 lines) has zero 429/retry/backoff
+lines; neither the "no watermarks" nor the "probe failed" branch logged. The registry code did
+exactly what D-11.1-01 promises.
+
+**Residual root cause (G-11.1-4 component b).** A skip miss is expensive because
+`_validate_single_sheet` (`pipeline/discovery.py:468`) calls
+`client.Sheets.get_sheet(sid, include='columns')` — `include` selects optional elements and
+does not restrict the row payload — so each miss is a full-row download of every source sheet
+(26–41 s wall per sheet at 8 workers; 3,214–4,999 s for 121), although the function reads only
+`sheet.columns`. Its own sample fallback (line 496) already issues a bounded
+`get_sheet(sid, row_numbers=[1, 2, 3])` that returns columns, name and rows, and
+`last_sheet_version` comes from `_fetch.get_last_sheet_versions()` (orchestrate 2515/2666), not
+from this call. Pre-INC-05 the download was paid once per discovery-cache TTL; INC-05 made it
+every run; D-11.1-01 avoids it only on a version match.
+
+**UAT / GSD state.** `11.1-UAT.md` → `status: diagnosed`, 18 pass / 1 issue: test 6 pass
+(0.43 / 0.40 / 0.11 s per group), G-11.1-6 `resolved` by `11.1-03-PLAN.md`; test 4 stays
+`issue`, G-11.1-4 carries `partial_resolution` (component a, #378) plus the residual diagnosis
+(`.planning/debug/11.1-discovery-full-validation-cost.md`). Gap-closure plan `11.1-04` requested
+from the GSD planner: a bounded validation read (reuse the `row_numbers=[1,2,3]` call, or
+`get_columns` + the bulk `list_sheets` name), identical `{'id','name','column_mapping'}` contract
+and title/type matching, fixtures in the same change, no cache / TTL / Actions cache step
+(D-11.1-03). Not executed — owner reviews the plan, then a PR; canary = the first scheduled run
+whose skip index misses, judged on the Python `Duration` line.
+
+**Rule.** (1) Judge a "wall clock < N" criterion on at least one run where the fast path missed
+AND one where it hit before attributing the miss to the clock; a two-point read-only
+`get_sheet_version` sample settles "continuous vs episodic" churn in minutes. (2) Before tuning a
+skip rate, price the miss: a discovery/validation call that needs only column metadata must never
+fetch rows — `include=` is not a row filter on `get_sheet`.

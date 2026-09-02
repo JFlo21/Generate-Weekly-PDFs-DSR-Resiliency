@@ -5,10 +5,10 @@ milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
 current_phase: 11.1
 current_phase_name: post-inc-05-runtime-remediation
 status: executing
-stopped_at: PR #374 MERGED (675e3e2); Phase 11.1 awaiting first post-merge frequent run for SC-1 wall clock, then /gsd-verify-work 11.1
-last_updated: "2026-09-01T20:20:00.000Z"
-last_activity: 2026-09-01
-last_activity_desc: Phase 12 OWN-02 first slice (sentinel never a claimer, owner policy A) implemented on fix/own-02-sentinel-never-a-claimer; Phase 11.1 SC-1 observation still pending on first true post-merge run
+stopped_at: verify-work 11.1 done — UAT diagnosed (18 pass / 1 issue): G-11.1-6 resolved by 11.1-03; G-11.1-4 residual (full-sheet download in _validate_single_sheet on a skip miss) planned as 11.1-04, plan-checker 0 blockers / 1 warning fixed inline; plan committed 9fa03cf locally on master (not pushed). Next: owner review → /gsd-execute-phase 11.1 --gaps-only on a branch
+last_updated: "2026-09-02T19:05:00.000Z"
+last_activity: 2026-09-02
+last_activity_desc: verify-work 11.1 closeout — 11.1-04 plan written (Opus planner) and checked (Sonnet, 0 blockers / 1 warning fixed inline); ledgers + vault updated; session cleared for execute-phase
 state_head: 5936ad263cf66a1689345714359cae051ddbdf9f
 progress:
   total_phases: 13
@@ -423,16 +423,30 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session Continuity
 
-Last session: 2026-09-01T20:20:00.000Z
-Stopped at: PR #374 MERGED 2026-09-01T20:14:31Z (squash 675e3e2; master 459556c
-  with the docs-changelog stub on top); feat/11.1-runtime-remediation deleted
-  local+remote; post-merge gate on master ALL 6 PASSED (1892 passed / 1 skipped /
-  312 subtests). Merged with 9 unresolved bot threads (see Blockers/Concerns —
-  the Codex-connector P1 on discovery.py:289 mapping drift is UNVERIFIED).
-  First TRUE post-merge run = the 21:00Z schedule: runs created before the merge
-  (33536584371 in progress since 18:56Z, 33548279785 pending) are pinned to
-  pre-merge 733e76d and drain the per-ref concurrency queue first. Next: read
-  that run's wall clock (<~75 min), Discovery validation split and per-sheet
-  total_count lines -> 11.1-VALIDATION.md Manual-Only table ->
-  /gsd-verify-work 11.1. Ledger edits on master are uncommitted by design.
-Resume file: None
+Last session: 2026-09-02T16:15:00.000Z
+Stopped at: Resumed from HANDOFF.json (consumed). PR #379 (INC-06 detach)
+  MERGED d79f02d 2026-09-02T15:57Z; branch fix/inc-06-parity-exit-hang deleted
+  local + remote; master = e27516d (d79f02d + docs-changelog stub). Canary run
+  33634833356 (511ec48, created 13:17Z) SUCCESS and read — 11.1-03-SUMMARY.md
+  written: #378 engaged (🧊 218,439 rows warm-started; snapshots_written 117 /
+  already_frozen 0; freeze_attribution 117 calls vs 214,233), group phase
+  1,352 s / 3,176 groups = 0.43 s/group (G-11.1-6 RESOLVED), all groups, no
+  budget stop; Python Duration 1:36:00 (96 min) MISSES SC-1 because discovery
+  fully validated all 121 sheets (skip index 0/121 eligible — every source
+  sheet version moved overnight vs the 03:41Z watermarks; the two prior runs
+  had 117/121). With that skip rate Duration ≈ 43 min. Second data point
+  run 33647771644 (15:19Z, 511ec48, success): skip index 0/121 AGAIN two
+  hours after the watermarks were refreshed, discovery 83.3 min, Duration
+  2:09:40, group phase 0.40 s/group, 200 freeze calls = snapshots_written.
+  Reading corrected: the registry-version skip engages off-hours (117/121 at
+  19:56 and 22:20 CDT) and not in business hours (0/121 at 08:17 and 10:19
+  CDT); no registry-code change since the 117 builds. Hypothesis: cross-sheet
+  links/recalcs bump every backup sheet's version in business hours —
+  confirm read-only via two get_sheet_version samples. SC-1 unattainable on
+  business-hours runs by this design; discovery cost = its own follow-up.
+  First run ≥ d79f02d = 33659869696 (17:14Z, e27516d; watch the 🧵 INC-06
+  line). Loop for run 33647771644 stopped after reporting.
+  Planning edits (STATE.md, SUMMARY, HANDOFF.json deletion, project-state,
+  ledger) are UNCOMMITTED on master — commit them on the next docs/code PR.
+  Next: /gsd-verify-work 11.1 (close G-11.1-6; re-scope G-11.1-4 per SUMMARY).
+Resume file: .planning/phases/11.1-post-inc-05-runtime-remediation/.continue-here.md

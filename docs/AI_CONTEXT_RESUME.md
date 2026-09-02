@@ -9,7 +9,23 @@
 > Codex mirror [`/AGENTS.md`](../AGENTS.md)). This file is the *status / resume*
 > layer, not the rulebook.
 
-_Last updated: 2026-06-30._
+_Last updated: 2026-09-02 (pointer only; body below is the 2026-06-30 snapshot)._
+
+> **Live status moved.** Since Phase 10 the current picture is kept in
+> `.claude/project-state.md` (repo status, watch lists, owner decisions) and
+> `.planning/STATE.md` (GSD position, session continuity), with dated evidence in
+> `memory-bank/living-ledger.md`. Read those first; the sections below describe
+> the v1.3 / Phase 09 state and are kept for history.
+>
+> **Snapshot 2026-09-02 (13:40 CDT):** v1.4 Phase 11.1 (post-INC-05 runtime remediation) is
+> code-complete and merged (#374, #377, #378, #379). `/gsd-verify-work 11.1` reconciled the
+> gaps: G-11.1-6 resolved (group phase 0.40–0.43 s/group, 0.11 on run 33659869696); G-11.1-4
+> partially resolved — SC-1 met on run 33659869696 (`Duration` 30.8 min, 118/121 registry
+> skips) and missed on the two runs whose skip index was 0/121 (96 / 130 min) because
+> `_validate_single_sheet` downloads the full sheet (`get_sheet(sid, include='columns')`) to
+> read only its columns. Gap-closure plan `11.1-04` (bounded validation read) is being planned;
+> `.planning/debug/11.1-discovery-full-validation-cost.md` holds the evidence. Next: owner
+> review of 11.1-04 → PR → canary on a skip-miss run → seal 11.1 → Phase 12 via GSD.
 
 > **Live status now lives in [`.claude/project-state.md`](../.claude/project-state.md)**
 > (overwritten each session) and [`.planning/STATE.md`](../.planning/STATE.md). This
