@@ -16,6 +16,7 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — September 2, 2026
 
+- ✨ New capability: sentinel-superseded cleanup + RESET&#95;WR&#95;LIST scoped to listed WRs
 - ✅ Problem fixed: resolve&#95;claimer week-key coercion + review fixes
 - ✅ Problem fixed: sentinel is never a claimer (Phase 12 / OWN-02, policy A)
 - ⚡ The system now runs faster (fix post-INC-05 runtime regressions (discovery skip + attachment pre-seed))
@@ -23,7 +24,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - 📄 Help guides updated: fix run&#95;ledger column name in flip confirmation SQL; record flip live
 - ✨ New capability: retire local JSON caches and attachment pre-fetch (INC-05)
 - 📄 Help guides updated: + merged; streak is weekday-only
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
 <!-- /runbook-repo -->
 
