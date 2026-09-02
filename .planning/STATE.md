@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
 current_phase: 11.1
-current_phase_name: post-inc-05-runtime-remediation
+current_phase_name: Post-INC-05 Runtime Remediation (INSERTED)
 status: executing
-stopped_at: verify-work 11.1 done — UAT diagnosed (18 pass / 1 issue): G-11.1-6 resolved by 11.1-03; G-11.1-4 residual (full-sheet download in _validate_single_sheet on a skip miss) planned as 11.1-04, plan-checker 0 blockers / 1 warning fixed inline; plan committed 9fa03cf locally on master (not pushed). Next: owner review → /gsd-execute-phase 11.1 --gaps-only on a branch
-last_updated: "2026-09-02T19:05:00.000Z"
+stopped_at: "execute-phase 11.1 --gaps-only: plan 11.1-04 Tasks 1-3 committed (5bb45b3) on branch perf/discovery-bounded-validation-read, PR #384 OPEN vs master; paused at Task 4 blocking-human checkpoint (owner merge + post-merge skip-MISS canary). SUMMARY/ROADMAP deferred to the continuation agent after the canary reply."
+last_updated: "2026-09-02T19:27:44.093Z"
 last_activity: 2026-09-02
-last_activity_desc: verify-work 11.1 closeout — 11.1-04 plan written (Opus planner) and checked (Sonnet, 0 blockers / 1 warning fixed inline); ledgers + vault updated; session cleared for execute-phase
-state_head: 5936ad263cf66a1689345714359cae051ddbdf9f
+last_activity_desc: Phase 11.1 execution started
+state_head: 5bb45b3e37cf569c8db768e075254e3f0b591716
 progress:
   total_phases: 13
   completed_phases: 3
-  total_plans: 48
-  completed_plans: 48
+  total_plans: 50
+  completed_plans: 49
   percent: 23
 ---
 
@@ -31,19 +31,19 @@ right generated Excel billing artifact fast, from a secure, auth-gated,
 beautiful web portal — with zero change to the production Python billing
 pipeline.
 
-**Current focus:** Phase 11 — Incremental Read + Affected-Group Regeneration
+**Current focus:** Phase 11.1 — Post-INC-05 Runtime Remediation (INSERTED)
 
 ## Current Position
 
-Phase: 11.1 (post-inc-05-runtime-remediation) — MERGED (PR #374, squash
+Phase: 11.1 (Post-INC-05 Runtime Remediation (INSERTED)) — EXECUTING
   `675e3e2`, 2026-09-01 20:14Z); awaiting the post-merge SC-1 observation
-Plan: 11.1-01 (Fix 1 — discovery registry-version skip) and 11.1-02
+Plan: 1 of 4
   (Fix 2 — bulk attachment pre-seed) both executed, gate-verified
   (11.1-VERIFICATION.md 12/12, 0 gaps, `human_needed`), and merged to
   master. Greptile round fixed on-branch (never-raising ceiling parse,
   typed skip index). Merged with 9 bot threads unresolved — see
   Blockers/Concerns. Post-merge gate on master: ALL 6 PASSED.
-Status: Discovery phase skips full per-sheet validation for any
+Status: Executing Phase 11.1
   candidate whose live Smartsheet version still matches
   `pipeline_memory.sheet_registry.last_sheet_version` and whose stored
   `column_mapping` is valid (D-11.1-01). Group-processing skip-gate
@@ -59,7 +59,7 @@ Status: Discovery phase skips full per-sheet validation for any
   built). `bash scripts/run_6_gates.sh` = ALL 6 GATES PASSED (Gate 4
   mypy delta neutral 72->72, no re-baseline needed this plan); full
   suite 1886 passed / 1 skipped / 306 subtests.
-Last activity: 2026-09-01 — 11.1-02 executed (5 commits: RED test /
+Last activity: 2026-09-02 — Phase 11.1 execution started
   GREEN pre-seed helpers, RED test / GREEN main() wiring, phase-gate +
   Living Ledger entry). SC-1/D-11.1-04 (frequent-run wall clock back
   under ~75 min) and SC-3's log-content confirmation remain POST-MERGE
@@ -417,9 +417,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-01T18:58:13.637Z
-**Stopped at:** PR #374 MERGED (675e3e2, 20:14Z); post-merge gate on master ALL 6 PASSED; next: first true post-merge frequent run (21:00Z schedule) supplies SC-1 wall clock → 11.1-VALIDATION.md → /gsd-verify-work 11.1
-**Resume file:** None
+**Last session:** 2026-09-02T19:27:43.048Z
+**Stopped at:** execute-phase 11.1 --gaps-only: plan 11.1-04 Tasks 1-3 committed (5bb45b3) on branch perf/discovery-bounded-validation-read, PR #384 OPEN vs master; paused at Task 4 blocking-human checkpoint (owner merge + post-merge skip-MISS canary). SUMMARY/ROADMAP deferred to the continuation agent after the canary reply.
+**Resume file:** .planning/phases/11.1-post-inc-05-runtime-remediation/11.1-04-PLAN.md
 
 ## Session Continuity
 
