@@ -652,7 +652,7 @@ jobs:
       - name: Upload comprehensive artifact bundle
         id: upload_bundle
         if: always() && steps.exec.outputs.should_run == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Excel-Reports-Complete-${{ steps.exec.outputs.execution_type }}-Run${{ github.run_number }}
           path: |
@@ -669,7 +669,7 @@ jobs:
       - name: Upload manifest artifact
         id: upload_manifest
         if: always() && steps.exec.outputs.should_run == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Manifest-${{ steps.exec.outputs.execution_type }}-Run${{ github.run_number }}
           path: artifact_staging/manifest/
@@ -680,7 +680,7 @@ jobs:
       - name: Upload artifacts by Work Request
         id: upload_by_wr
         if: always() && steps.exec.outputs.should_run == 'true' && steps.organize.outputs.organized_wr_count > 0
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: By-WorkRequest-${{ steps.exec.outputs.execution_type }}-Run${{ github.run_number }}
           path: artifact_staging/by_wr/
@@ -691,7 +691,7 @@ jobs:
       - name: Upload artifacts by Week Ending
         id: upload_by_week
         if: always() && steps.exec.outputs.should_run == 'true' && steps.organize.outputs.organized_week_count > 0
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: By-WeekEnding-${{ steps.exec.outputs.execution_type }}-Run${{ github.run_number }}
           path: artifact_staging/by_week/
