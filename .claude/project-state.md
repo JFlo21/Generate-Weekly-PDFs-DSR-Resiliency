@@ -1,10 +1,10 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-09-01 22:45 CDT (2026-09-02 03:45Z) · **overwrite-in-place each session** (this is the
+_Last updated: 2026-09-02 15:10 CDT (2026-09-02 20:10Z) · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
-_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-09-02 02:50]` (INC-06 fix built: `detach()` + parity call, PR #379; read-timeout half = scoped follow-up). Earlier: `[2026-09-02 01:35]` (INC-06 diagnosis: 42-min interpreter-exit hang on abandoned shadow-parity probe workers, run 33579406295 cancelled at the 180-min ceiling with all work done), `[2026-09-02 00:35]` (owner decisions 1–4), `[2026-09-01 22:40]` (SC-1 evidence for Phase 11.1: discovery 40.5 s, six new VAC files landed, group phase still ~9× baseline because INC-05 D-12 retired the frozen-row cache → 214k `freeze_attribution` RPCs/run; warm-start fix proposed, owner approval pending). Earlier: `[2026-09-01 20:35]` (`<WR-E>` VAC interim root cause), `[2026-09-01 20:20]` (churn PR #377), `[2026-09-01 19:45]` (owner decisions), `[2026-09-01 17:55]` (`<WR-D>` workbook = hand-edited copy, not a generation defect; claimer-correction gap re-confirmed as Phase 12 sentinel/frozen-claimer problem, 5,829 rows / 94 WRs), `[2026-09-01 14:55]` (Phase 11.1 verified 12/12 + shipped as PR #374; post-merge observation contract), `[2026-09-01 14:05]` (Phase 11.1 Plan 01 Gate-4 re-baseline 70→72, zero accepted findings) and `[2026-09-01 13:50]` (Phase 11.1 durable rules: registry-skip admission gate, pre-seed containment layers). Earlier: `[2026-08-31 21:05]` (Gate-4 mypy re-baseline 65→68, zero accepted findings) and `[2026-08-31 20:44]` (Phase 11 shipped — the phase's operational rules). Earlier: `[2026-08-29 17:55]` (D-09 amended: streak counts weekend + manual runs; no standalone docs PRs), `[2026-08-29 16:45]` (#369 + #370 merged; `.planning/` staging rule), `[2026-08-28 20:15]` (parity read back = pass; Notion counter export; real-WR residuals removed), `[2026-08-28 19:30]` (the 137: no findable target row — Smartsheet analysis), `[2026-08-28 19:00]` (first post-merge run verified; saving corrected), `[2026-08-28 18:45]` (#365 + #366 merged), `[2026-08-28 18:20]` (identifier scrub, #366), `[2026-08-28 18:05]` (decisions: no-target-row skip on #365; scrub option A), `[2026-08-28 17:10]` (#363 merged, 154-withheld = source-data shape), `[2026-08-28 16:05]` (sheet_registry fix on #363), `[2026-08-28 15:05]` (root cause + 154-withheld pattern), `[2026-08-28 12:05]` (#362), `[2026-08-27 21:10]` (verified pipeline truths from the
+_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-09-02 15:05]` (PR #384 review correction: an empty `rows=[]` bounded response is a seeded sample set — `None` only for a missing attribute; Greptile P2 + Copilot finding, TDD fix on the PR). Earlier: `[2026-09-02 14:35]` (G-11.1-4 residual b implemented on PR #384, canary pending: discovery validation read bounded to `row_numbers=[1, 2, 3]` and reused as the sample set; `include=` never bounded rows, `column_ids=` forbidden; fix candidate (b) deferred). Earlier: `[2026-09-02 13:40]` (verify-work 11.1 resume: G-11.1-6 resolved, G-11.1-4 residual = full-sheet download in validation, run 33659869696 met SC-1), `[2026-09-02 02:50]` (INC-06 fix built: `detach()` + parity call, PR #379; read-timeout half = scoped follow-up). Earlier: `[2026-09-02 01:35]` (INC-06 diagnosis: 42-min interpreter-exit hang on abandoned shadow-parity probe workers, run 33579406295 cancelled at the 180-min ceiling with all work done), `[2026-09-02 00:35]` (owner decisions 1–4), `[2026-09-01 22:40]` (SC-1 evidence for Phase 11.1: discovery 40.5 s, six new VAC files landed, group phase still ~9× baseline because INC-05 D-12 retired the frozen-row cache → 214k `freeze_attribution` RPCs/run; warm-start fix proposed, owner approval pending). Earlier: `[2026-09-01 20:35]` (`<WR-E>` VAC interim root cause), `[2026-09-01 20:20]` (churn PR #377), `[2026-09-01 19:45]` (owner decisions), `[2026-09-01 17:55]` (`<WR-D>` workbook = hand-edited copy, not a generation defect; claimer-correction gap re-confirmed as Phase 12 sentinel/frozen-claimer problem, 5,829 rows / 94 WRs), `[2026-09-01 14:55]` (Phase 11.1 verified 12/12 + shipped as PR #374; post-merge observation contract), `[2026-09-01 14:05]` (Phase 11.1 Plan 01 Gate-4 re-baseline 70→72, zero accepted findings) and `[2026-09-01 13:50]` (Phase 11.1 durable rules: registry-skip admission gate, pre-seed containment layers). Earlier: `[2026-08-31 21:05]` (Gate-4 mypy re-baseline 65→68, zero accepted findings) and `[2026-08-31 20:44]` (Phase 11 shipped — the phase's operational rules). Earlier: `[2026-08-29 17:55]` (D-09 amended: streak counts weekend + manual runs; no standalone docs PRs), `[2026-08-29 16:45]` (#369 + #370 merged; `.planning/` staging rule), `[2026-08-28 20:15]` (parity read back = pass; Notion counter export; real-WR residuals removed), `[2026-08-28 19:30]` (the 137: no findable target row — Smartsheet analysis), `[2026-08-28 19:00]` (first post-merge run verified; saving corrected), `[2026-08-28 18:45]` (#365 + #366 merged), `[2026-08-28 18:20]` (identifier scrub, #366), `[2026-08-28 18:05]` (decisions: no-target-row skip on #365; scrub option A), `[2026-08-28 17:10]` (#363 merged, 154-withheld = source-data shape), `[2026-08-28 16:05]` (sheet_registry fix on #363), `[2026-08-28 15:05]` (root cause + 154-withheld pattern), `[2026-08-28 12:05]` (#362), `[2026-08-27 21:10]` (verified pipeline truths from the
 #360 review rounds — acceptance gate, group key, TEST_MODE/Supabase, Snapshot Date, reset purge, stale
 attachment, public-repo identifier rule). Earlier: `[2026-08-27 20:20]` (identity row = canonical row,
 ships with PR #361), `[2026-08-27 16:10]` (hash sort tiebreaker, #359).
@@ -17,6 +17,88 @@ budget 25), #355 (docs/hook), #359 (hash sort tiebreaker). **Merged 2026-08-28 0
 `weekend_maintenance`, and `manual` only when `notes.streak_eligible` is true, passes only on `success` rows; reading:
 **3 of 5** since the 03:49Z fail — the pre-marker manual run does not count). Then: checklist item 6 SQL +
 items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
+
+## Latest work (2026-09-02 15:10 CDT) — `/gsd-execute-phase 11.1 --gaps-only`: plan 11.1-04 Tasks 1–3 landed as **PR #384** (branch `perf/discovery-bounded-validation-read`); **still paused at the Task 4 `blocking-human` canary checkpoint** — PR review threads cleared, owner merge pending
+- **Re-entry (15:10 CDT):** safe-resume gate tripped as predicted → *close out manually*, no executor
+  dispatched. Precondition still unmet: #384 OPEN / MERGEABLE / `reviewDecision: APPROVED` (Cursor);
+  `origin/master` = `e27516d`; the in-flight scheduled run 33671999352 is on `e27516d` (not a canary).
+  Triaged the 8 bot threads (2 Greptile P2, 6 Copilot, all 19:26–19:30Z): the `discovery.py:509`
+  finding was VALID (a valid empty `rows=[]` collapsed into the `None` sentinel → the line-667
+  diagnostics repeated the bounded fetch on every empty sheet — the earlier production-risk LOW note);
+  fixed TDD-style (`_rows_attr is not None`, new test RED 2≠1 → GREEN, ledger `[15:05]`). The five doc
+  threads were stale-state drift: STATE.md / project-state / `.continue-here` frontmatter were already
+  fixed by local `586cabb` + `fc76fe1` (now pushed); `HANDOFF.json` pointer replaced; 11.1-03 SUMMARY
+  business-hours hypothesis marked SUPERSEDED; ledger `[14:35]` heading → "implemented — canary pending".
+- **Code (one commit, 3 files):** `_validate_single_sheet` now fetches
+  `get_sheet(sid, row_numbers=list(range(1, 4)))` through the same `smartsheet_call_with_retry`
+  wrapper/label (was `include='columns'` = a full-row download used only for `sheet.columns`), and
+  seeds `_sample_rows_cache` from that response (`[]` for an empty sheet is SEEDED; `None` only when
+  the response has no `rows` attribute at all, so the lazy 3-row fallback stays live for that case). `git diff` confined to `pipeline/discovery.py` old lines 463–491
+  (hunks at 463–464, 469, 491). D-11.1-01 skip fast path, every title/type matching pass, the
+  `{'id','name','column_mapping'}` return, the single `_failed_validation_sids` append and the
+  post-loop `RuntimeError` are byte-identical.
+- **Tests:** new `DiscoveryBoundedValidationReadTests` (single-call proof, no-`include` proof,
+  comment-stripped non-vacuous source pin) + the one expected-call literal in
+  `DiscoveryRegistrySkipTests._assert_full_validation_ran`. Full suite **1945 passed / 1 skipped /
+  363 subtests**; `bash scripts/run_6_gates.sh` **ALL 6 GATES PASSED** (mypy 71→71);
+  `tests/test_vac_crew.py` 55 passed (mapping untouched). Ledger `[2026-09-02 14:35]`.
+- **PR #384** `perf(discovery): bound validation read to 3 rows (G-11.1-4)` vs `master`, MERGEABLE;
+  core CI green (compile/test, coverage, lint ×2, CodeQL, Vercel). `code/snyk` ERROR and the
+  Azure-mirror check FAILURE are the same pre-existing failures seen on #379; Greptile, Cursor
+  Security and semgrep were still running at 14:29 CDT.
+- **Independent review (read-only, this session):** `production-risk-reviewer` **PASS** — the only
+  production delta is a strictly narrower read on the same retried call; LOW notes: a zero-row sheet
+  still costs 2 calls (`getattr(sheet,'rows',None)` is falsy on an empty `TypedList`, identical to
+  pre-change) and the source pin catches only the `'columns'` single-quote spelling (the behavioral
+  `assertNotIn('include', kwargs)` tests still catch any form). `haiku-verifier` **PASS 7/7** vs the
+  plan must_haves. Verified SDK 4.3.0 maps `row_numbers`→`rowNumbers` (rows only); `include`'s valid
+  values never contained `columns`.
+- **Executor deviation (recorded, not a defect):** Task 1's RED/GREEN commits (`dd5be60`, `ee17a2e`)
+  and Task 2's pin commit (`a919960`) were squashed via `git reset --soft` into `5bb45b3` because
+  Task 3 Step B mandates ONE Conventional Commit; nothing had been pushed; `tdd_mode` is off.
+- **Branch state:** `9fa03cf` (plan docs) → `8ab3099` (prior-session planning/ledger checkpoint incl.
+  the 11.1-03 SUMMARY) → `5bb45b3` (code, **PUSHED**, = PR head) → `586cabb` (STATE.md pause,
+  **local only**) → this write-back (**local only**). Sequential execution on the main tree (worktree
+  auto-degrade: HEAD ≠ origin/HEAD). Local `master` is still 1 ahead of origin (`9fa03cf`) —
+  reconcile after the squash-merge. `.lattice/` is absent (overlay MUST-USE) — `/lattice-init` is a
+  pending owner-approved setup, deliberately not run mid-phase.
+- **Checkpoint (Task 4, `blocking-human`, precondition unmet):** owner merges #384 (squash, delete
+  branch) → first scheduled run whose build contains it → read `⏭️ Discovery skip index`,
+  `⏭️ Discovery validation split`, `⚡ Phase 1 complete`, and the Python `• Duration:` line (never the
+  Actions job clock). PASS only on a **skip-MISS** run (`M eligible` 0 or `F fully validated` ≥ 100)
+  with Phase 1 < ~4 min, `Duration` < ~75 min, all groups, no budget stop, ≲ 0.5 s/group. No skip-miss
+  run within two business days → record hit-rates, leave G-11.1-4 open.
+- **Resume:** reply with the canary run id, build SHA, skip-index + split counts, Phase 1 seconds and
+  `Duration` (or "no skip-miss run yet" + hit-rates). In a fresh session `/gsd-execute-phase 11.1
+  --gaps-only` hits the safe-resume gate (`5bb45b3` without a SUMMARY) — choose *close out manually*
+  or hand the reply to a continuation executor. The continuation writes `11.1-04-SUMMARY.md`,
+  STATE/ROADMAP, marks requirements; then `/gsd-verify-work 11.1` reconciles G-11.1-4 → seal 11.1 →
+  Phase 12.
+
+## Latest work (2026-09-02 13:40 CDT) — `/gsd-verify-work 11.1` resumed: **G-11.1-6 RESOLVED, G-11.1-4 re-diagnosed (residual = full-sheet download in `_validate_single_sheet`), gap-closure plan 11.1-04 requested**
+- **Third post-#378 run 33659869696** (`e27516d`, first build with #379, Python 12:42 CDT): skip
+  index **118/121**, Phase 1 44.4 s, group phase 0.11 s/group (355 s / 3,178), **`Duration`
+  30.8 min → SC-1 MET**, all groups processed, no budget stop; INC-06 line `🧵 Shadow parity: no
+  probe still running; released 8 worker(s)` present and the job ended 24 s after the last Python
+  line (no exit hang). Runs 33634833356 / 33647771644 (08:17 / 10:19 CDT) stay 96 / 129.7 min on
+  0/121 skips.
+- **Diagnosis** (`.planning/debug/11.1-discovery-full-validation-cost.md`, ledger
+  `[2026-09-02 13:40]`): churn is episodic, not continuous (read-only `get_sheet_version` at
+  13:28 and 13:33 CDT = run E's 12:42 values); registry read/write, writer drift and 429s ruled
+  out from all four logs; a miss is expensive only because `_validate_single_sheet` does
+  `get_sheet(sid, include='columns')` = a full-row download, then uses only `sheet.columns`.
+- **UAT** `11.1-UAT.md` → `status: diagnosed`, 18 pass / 1 issue: test 6 pass, G-11.1-6
+  `resolved` by 11.1-03; test 4 open, G-11.1-4 `partial_resolution` (component a, #378) +
+  residual (component b). `phase uat-passed` blockers: test 4, frontmatter `diagnosed`,
+  VERIFICATION `human_needed` + stale.
+- **Plan 11.1-04 WRITTEN + CHECKED (18:50Z):** gsd-planner (Opus) produced `11.1-04-PLAN.md` (4 tasks; one bounded `get_sheet(sid, row_numbers=[1,2,3])` reused for the sample cache; contract, fast path, fail-closed guard and title/type matching frozen; non-vacuous source-pin test; canary on the Python `Duration` line; blocking human checkpoint for merge) and committed it with the ROADMAP plan list as `9fa03cf` **locally on master, not pushed** (planner `commit_docs` default; repo convention is PR-based — relocate to a branch). gsd-plan-checker (Sonnet): **0 blockers, 1 warning** (no `<fails_when>` siblings) — fixed inline (3/3 paired) plus a line-pointer correction; structurally verified, not re-run through the checker. Stop-hook finding: `require_context_update_on_stop.js` counts out-of-repo scratchpad paths (`../../AppData/...`) as project files and cannot see ledger edits applied via Bash scripts — proposed one-line `startsWith('../')` exclusion, awaiting owner approval (global hook).
+- **Next:** owner reviews `11.1-04-PLAN.md` (bounded validation read; contract and
+  title/type matching unchanged; tests in the same change; no cache/TTL/Actions cache) →
+  plan-checker → owner review → PR → canary on the first skip-miss run (`Phase 1` low
+  single-digit minutes, `Duration` < ~75 min) → `/gsd-verify-work 11.1` reconciles G-11.1-4 →
+  seal 11.1 → Phase 12 via GSD. **Uncommitted on master:** `.planning/` (UAT, debug note,
+  11.1-03 SUMMARY, STATE, `.continue-here.md`), ledger, this file — bundle into the 11.1-04 PR
+  or a docs PR (never a direct commit to master).
 
 ## Latest work (2026-09-01 19:25 CDT) — **PR #375 MERGED** (`8325bc8`, 23:34Z) and **PR #376 MERGED** (`7153153`, 2026-09-02 00:14Z) — Phase 12 OWN-02 sentinel slice + helper-path week-key fix live on master; awaiting the first post-merge scheduled run (the 01:00Z cron; runs created earlier are pinned to `42ab0e5`, pre-#375); `<WR-D>` workbook = hand-edited copy
 - **SC-1 EVIDENCE (run 33570018457, `42ab0e5` = master ⊇ #374, first run with the 11.1 fix; `core`
@@ -44,11 +126,38 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
   with its implementation PR) — write path (RPC vs SQL) and optional cell-history source 5 await
   owner approval.
 
-- **PAUSED 2026-09-02 07:28Z (`/gsd-pause-work`):** handoff in `.planning/HANDOFF.json` +
-  `.planning/phases/11.1-post-inc-05-runtime-remediation/.continue-here.md`; resume with
-  `/gsd-resume-work`. First action on resume: PR #379 checks/bot threads, then the 11.1 canary.
-- **INC-06 fix = PR #379 (`fix/inc-06-parity-exit-hang` off `2008fd9`, which already
-  includes #378). PR #378 MERGED `2008fd9`; PR #377 MERGED `0fffb22`.** Run 33579406295
+- **RESUMED 2026-09-02 13:40Z (`/gsd-resume-work`); canary read 16:15Z.** `HANDOFF.json`
+  consumed; the phase `.continue-here.md` stays as the resume file until `/gsd-verify-work 11.1`
+  seals. **Canary = run 33634833356** (`schedule`, `511ec48` ≥ `2008fd9`, SUCCESS, Python
+  13:17:50Z → 14:53:51Z): #378 engaged — `🧊 … 218,439 row(s) already frozen`,
+  `snapshots_written` 117 / `snapshots_already_frozen` 0, `freeze_attribution` **117** calls
+  (was 214,233), group phase 1,352 s ÷ 3,176 groups = **0.43 s/group** (G-11.1-6 RESOLVED),
+  3,012 skipped / 154 no-target-row / 10 generated+uploaded / 0 errored, no budget stop. But
+  Python `Duration` **1:36:00** misses SC-1: discovery took 53.6 min because the skip index
+  reported `121 candidate(s), 0 eligible for registry-version skip` (the two prior runs had
+  117/121) — every source sheet's Smartsheet version moved between the ~03:41Z watermark
+  refresh and 13:17Z (overnight source refresh; only 13 row contents changed). D-11.1-01
+  behaved as designed (doubt → full validation); the exposed cost is full validation itself
+  (~26.6 s/sheet). With the prior skip rate the run would have been ≈ 43 min. Written up in
+  `11.1-03-SUMMARY.md` (G-11.1-4 = partial: group-phase component fixed, discovery hit-rate
+  component new). **Second data point, run 33647771644 (15:19Z, `511ec48`, success):** skip
+  index 0/121 AGAIN two hours after all watermarks were refreshed — discovery 83.3 min
+  (41 s/sheet), Duration 2:09:40, group phase 0.40 s/group, 200 freeze calls =
+  `snapshots_written`. Corrected reading (ledger `[2026-09-02 12:50]`): the registry-version
+  skip engages off-hours (117/121 at 19:56 / 22:20 CDT) and not in business hours (0/121 at
+  08:17 / 10:19 CDT); the registry write/compare path is unchanged since the 117 builds.
+  Hypothesis: cross-sheet links/recalcs bump every backup sheet's `sheetVersion` during
+  business hours — confirm read-only (two `get_sheet_version` samples on an old backup sheet).
+  SC-1 (< 75 min) is unattainable on business-hours runs by this design; the discovery cost
+  becomes its own planned item (cheap full validation via `get_columns`, or a column-set-hash
+  skip key). First run ≥ `d79f02d` = 33659869696 (created 17:14Z on `e27516d`) → watch the
+  `🧵 Shadow parity:` INC-06 line. Planning/ledger edits from this session are UNCOMMITTED on
+  master.
+- **INC-06 fix = PR #379 — MERGED `d79f02d` 2026-09-02 15:57Z (squash; branch deleted local +
+  remote; master `e27516d` with the docs-changelog stub). PR #378 MERGED `2008fd9`; PR #377
+  MERGED `0fffb22`.** The one Greptile P2 (changelog entry must end with the PR ref) was fixed
+  in `3fe67be` and resolved before merge; the Codex-connector P1 on the new test's import path
+  was left unacted (harness boundary; CI test + coverage checks passed on the head). Run 33579406295
   (`3f81d94`) completed all billing work (17 files, cleanup correct, 5,815 sentinel claimers
   ignored) and was then cancelled by the 180-min runner ceiling after a 42-min
   interpreter-exit hang on abandoned shadow-parity probe workers (`_threads_queues` never

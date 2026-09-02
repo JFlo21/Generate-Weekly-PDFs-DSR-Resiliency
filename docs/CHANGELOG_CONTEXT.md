@@ -239,3 +239,35 @@ workflow or env behaviour is touched. The bounded read timeout for the probe pat
 follow-up because the Smartsheet SDK exposes no per-request timeout and a session-wide one would
 touch the production fetch path. See `memory-bank/living-ledger.md` `[2026-09-02 01:35]`
 (diagnosis) and `[2026-09-02 02:50]` (fix); PR #379.
+
+## 2026-09-02 — Discovery validation reads three rows instead of the whole sheet (PR #384, G-11.1-4 residual b)
+
+**What.** `_validate_single_sheet` in `pipeline/discovery.py` now asks Smartsheet for a
+sheet with `row_numbers=[1, 2, 3]` (the same bounded read the sample-value fallback already
+used) instead of `include='columns'`, and reuses that response's rows as the date-column
+sample set. The `include=` keyword selects optional response elements and never limited the
+row payload, so the old call downloaded every row of every source sheet to read only
+`sheet.columns` and `sheet.name`. `column_ids=` is deliberately not used: the column mapping
+needs every column title. Three tests pin the new shape (`DiscoveryBoundedValidationReadTests`:
+one call per sheet, `row_numbers` present and `include` absent, and a comment-stripped source
+pin that builds the forbidden literal at runtime); the one expected-call literal in
+`DiscoveryRegistrySkipTests` was updated and nothing else in that class changed.
+
+**Why.** When the D-11.1-01 registry-version skip misses (skip index 0/121 on runs
+33634833356 and 33647771644), discovery spent 3,214–4,999 s downloading 121 sheets at
+26–41 s each, pushing the Python `Duration` to 96 and 129.7 min against the ~75-min SC-1
+target. A skip hit (run 33659869696, 118/121) already met SC-1 at 30.8 min. Bounding the read
+makes a miss cost seconds, so SC-1 no longer depends on whether upstream recalcs moved every
+sheet version since the last registry write. Fix candidate (b), a column-set-hash skip key, is
+deferred: a cheap miss removes its motivation.
+
+**How it affects operators.** No new env var, cache file, TTL, Actions cache step, or
+`*_MAX_MINUTES` / `*_TIMEOUT_SEC` constant (D-11.1-03). The request count per sheet drops
+from two to one when the sheet has rows; a sheet with zero rows still takes the lazy fallback
+read exactly as before. The D-11.1-01 skip fast path, every column title/type matching rule,
+the `{'id','name','column_mapping'}` contract, the fail-closed `RuntimeError` on a validation
+exception, `PARALLEL_WORKERS_DISCOVERY = 8`, and the retry wrapper are unchanged. Judge the
+fix on the first post-merge scheduled **skip-MISS** run: `⚡ Phase 1 complete` should be low
+single-digit minutes and the Python `• Duration:` line under ~75 min (never the Actions job
+clock). See `memory-bank/living-ledger.md` `[2026-09-02 14:35]` and
+`.planning/debug/11.1-discovery-full-validation-cost.md`.

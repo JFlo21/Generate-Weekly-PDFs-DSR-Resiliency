@@ -9,7 +9,26 @@
 > Codex mirror [`/AGENTS.md`](../AGENTS.md)). This file is the *status / resume*
 > layer, not the rulebook.
 
-_Last updated: 2026-06-30._
+_Last updated: 2026-09-02 (pointer only; body below is the 2026-06-30 snapshot)._
+
+> **Live status moved.** Since Phase 10 the current picture is kept in
+> `.claude/project-state.md` (repo status, watch lists, owner decisions) and
+> `.planning/STATE.md` (GSD position, session continuity), with dated evidence in
+> `memory-bank/living-ledger.md`. Read those first; the sections below describe
+> the v1.3 / Phase 09 state and are kept for history.
+>
+> **Snapshot 2026-09-02 (14:30 CDT):** v1.4 Phase 11.1 (post-INC-05 runtime remediation) is
+> merged (#374, #377, #378, #379) and its last gap-closure plan `11.1-04` is built: PR #384
+> (`5bb45b3`, branch `perf/discovery-bounded-validation-read`) bounds the discovery validation
+> read to `row_numbers=[1, 2, 3]` and reuses that response as the date-column sample set, so a
+> registry-skip miss no longer downloads every row of 121 sheets (26–41 s/sheet → ~1–2 s).
+> Full suite 1945 passed, ALL 6 GATES PASSED, two independent read-only reviews PASS. GSD is
+> paused at the plan's `blocking-human` checkpoint: owner squash-merges #384, then the first
+> post-merge scheduled **skip-MISS** run is judged on `⚡ Phase 1 complete` (< ~4 min) and the
+> Python `• Duration:` line (< ~75 min) — never the Actions job clock. Evidence:
+> `.planning/debug/11.1-discovery-full-validation-cost.md`, ledger `[2026-09-02 14:35]`. Next:
+> canary reply → continuation executor writes `11.1-04-SUMMARY.md` → `/gsd-verify-work 11.1`
+> reconciles G-11.1-4 → seal 11.1 → Phase 12 via GSD.
 
 > **Live status now lives in [`.claude/project-state.md`](../.claude/project-state.md)**
 > (overwritten each session) and [`.planning/STATE.md`](../.planning/STATE.md). This
