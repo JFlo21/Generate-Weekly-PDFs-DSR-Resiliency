@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: September 1, 2026 (updated automatically)_
+_Last updated: September 2, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -14,15 +14,15 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — September 1, 2026
+### 📋 Changelog — September 2, 2026
 
+- ✅ Problem fixed: resolve&#95;claimer week-key coercion + review fixes
 - ✅ Problem fixed: sentinel is never a claimer (Phase 12 / OWN-02, policy A)
 - ⚡ The system now runs faster (fix post-INC-05 runtime regressions (discovery skip + attachment pre-seed))
 - ✨ New capability: parity streak counts weekend + manual runs
 - 📄 Help guides updated: fix run&#95;ledger column name in flip confirmation SQL; record flip live
 - ✨ New capability: retire local JSON caches and attachment pre-fetch (INC-05)
 - 📄 Help guides updated: + merged; streak is weekday-only
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
 <!-- /runbook-repo -->
