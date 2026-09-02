@@ -1103,7 +1103,15 @@ def resolve_claimer(
         # [2026-04-23 18:25]: every downstream consumer of the identifier MUST
         # consume the sanitized value.
         _wr_key = _WR_SANITIZE.sub("_", str(wr).split(".")[0])[:50]
-        _key = (_wr_key, week_ending, row_id) if (week_ending and row_id) else None
+        # The map is keyed by ``datetime.date`` (prefetch_attribution
+        # parses the RPC's ISO week_ending). Callers pass whatever
+        # ``__week_ending_date`` holds — the B/C/D pre-passes normalize to
+        # a date, but the inline subcontractor-helper call passed the raw
+        # ``datetime.datetime``, so that path ALWAYS missed (a datetime
+        # never equals a date) and silently resolved to the current value
+        # (Copilot, PR #375). Coerce here so every caller hits the map.
+        _wk = _coerce_week_ending(week_ending)
+        _key = (_wr_key, _wk, row_id) if (_wk and row_id) else None
         if _key is not None and _key in prefetched_map:
             row, status = prefetched_map[_key], "success"
         else:

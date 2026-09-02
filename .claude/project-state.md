@@ -4,7 +4,7 @@ _Last updated: 2026-09-01 17:55 CDT (22:55Z) · **overwrite-in-place each sessio
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
-_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-09-01 17:55]` (WR 91390743 workbook = hand-edited copy, not a generation defect; claimer-correction gap re-confirmed as Phase 12 sentinel/frozen-claimer problem, 5,829 rows / 94 WRs), `[2026-09-01 14:55]` (Phase 11.1 verified 12/12 + shipped as PR #374; post-merge observation contract), `[2026-09-01 14:05]` (Phase 11.1 Plan 01 Gate-4 re-baseline 70→72, zero accepted findings) and `[2026-09-01 13:50]` (Phase 11.1 durable rules: registry-skip admission gate, pre-seed containment layers). Earlier: `[2026-08-31 21:05]` (Gate-4 mypy re-baseline 65→68, zero accepted findings) and `[2026-08-31 20:44]` (Phase 11 shipped — the phase's operational rules). Earlier: `[2026-08-29 17:55]` (D-09 amended: streak counts weekend + manual runs; no standalone docs PRs), `[2026-08-29 16:45]` (#369 + #370 merged; `.planning/` staging rule), `[2026-08-28 20:15]` (parity read back = pass; Notion counter export; real-WR residuals removed), `[2026-08-28 19:30]` (the 137: no findable target row — Smartsheet analysis), `[2026-08-28 19:00]` (first post-merge run verified; saving corrected), `[2026-08-28 18:45]` (#365 + #366 merged), `[2026-08-28 18:20]` (identifier scrub, #366), `[2026-08-28 18:05]` (decisions: no-target-row skip on #365; scrub option A), `[2026-08-28 17:10]` (#363 merged, 154-withheld = source-data shape), `[2026-08-28 16:05]` (sheet_registry fix on #363), `[2026-08-28 15:05]` (root cause + 154-withheld pattern), `[2026-08-28 12:05]` (#362), `[2026-08-27 21:10]` (verified pipeline truths from the
+_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-09-01 17:55]` (`<WR-D>` workbook = hand-edited copy, not a generation defect; claimer-correction gap re-confirmed as Phase 12 sentinel/frozen-claimer problem, 5,829 rows / 94 WRs), `[2026-09-01 14:55]` (Phase 11.1 verified 12/12 + shipped as PR #374; post-merge observation contract), `[2026-09-01 14:05]` (Phase 11.1 Plan 01 Gate-4 re-baseline 70→72, zero accepted findings) and `[2026-09-01 13:50]` (Phase 11.1 durable rules: registry-skip admission gate, pre-seed containment layers). Earlier: `[2026-08-31 21:05]` (Gate-4 mypy re-baseline 65→68, zero accepted findings) and `[2026-08-31 20:44]` (Phase 11 shipped — the phase's operational rules). Earlier: `[2026-08-29 17:55]` (D-09 amended: streak counts weekend + manual runs; no standalone docs PRs), `[2026-08-29 16:45]` (#369 + #370 merged; `.planning/` staging rule), `[2026-08-28 20:15]` (parity read back = pass; Notion counter export; real-WR residuals removed), `[2026-08-28 19:30]` (the 137: no findable target row — Smartsheet analysis), `[2026-08-28 19:00]` (first post-merge run verified; saving corrected), `[2026-08-28 18:45]` (#365 + #366 merged), `[2026-08-28 18:20]` (identifier scrub, #366), `[2026-08-28 18:05]` (decisions: no-target-row skip on #365; scrub option A), `[2026-08-28 17:10]` (#363 merged, 154-withheld = source-data shape), `[2026-08-28 16:05]` (sheet_registry fix on #363), `[2026-08-28 15:05]` (root cause + 154-withheld pattern), `[2026-08-28 12:05]` (#362), `[2026-08-27 21:10]` (verified pipeline truths from the
 #360 review rounds — acceptance gate, group key, TEST_MODE/Supabase, Snapshot Date, reset purge, stale
 attachment, public-repo identifier rule). Earlier: `[2026-08-27 20:20]` (identity row = canonical row,
 ships with PR #361), `[2026-08-27 16:10]` (hash sort tiebreaker, #359).
@@ -18,18 +18,31 @@ budget 25), #355 (docs/hook), #359 (hash sort tiebreaker). **Merged 2026-08-28 0
 **3 of 5** since the 03:49Z fail — the pre-marker manual run does not count). Then: checklist item 6 SQL +
 items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-09-01 18:05 CDT) — Phase 12 OWN-02 sentinel slice implemented (owner policy A) on `fix/own-02-sentinel-never-a-claimer`; WR 91390743 workbook = hand-edited copy
+## Latest work (2026-09-01 18:45 CDT) — **PR #375 MERGED** (`8325bc8`, 23:34Z) — Phase 12 OWN-02 sentinel slice live on master; review fixes in **PR #376** (open); `<WR-D>` workbook = hand-edited copy
 
-- **OWN-02 shipped as PR #375 (`63d5de7`, open for owner review/merge):** `is_sentinel_claimer()`; `resolve_claimer`
+- **OWN-02 merged as PR #375 (`8325bc8`, squash of `d2dd41d`). The review-fix round raced the merge:
+  Juan merged while the gates were running, so the two fix commits landed on the feature branch
+  AFTER the squash and are carried by PR #376 (`fix/own-02-review-fixes`, cherry-picked onto
+  master, ALL 6 GATES PASSED on that branch, open for owner review).** What #375 shipped: `is_sentinel_claimer()`; `resolve_claimer`
   reads a frozen sentinel as no-history (use current); `freeze_row` nulls named sentinels and defers
   all-sentinel freezes (no RPC, returns False); counters `sentinel_claimers_ignored` /
   `sentinel_freezes_deferred` added to `run_summary` (golden 22→24 keys, three key-count pins
   updated, both orchestrate pre-seeds mirrored). New `tests/test_sentinel_never_a_claimer.py`
-  (RED 14 → GREEN). ALL 6 GATES PASSED (1904 passed / 1 skipped / 335 subtests; mypy 71→71).
-  Ledger `[2026-09-01 18:05]`. Operator follow-up after merge: one `REMEDIATE_CLAIMERS` sweep
-  (dry-run first) to drop stale `_User_Unknown_Foreman` attachments; OWN-01/03/04 still open.
-- **Excel "bug" (WR 91390743 WE 083026):** NOT a generation defect. The pipeline's own attachment
-  (7258462615408516, 2026-08-28 00:36Z) is internally consistent (Wed 38 / Thu 26 / Fri 8 rows = 72
+  (RED 14 → GREEN). ALL 6 GATES PASSED at #375 ship (1904 passed / 1 skipped / 335 subtests;
+  mypy 71→71); on the #376 branch 1906 passed (14 tests in that file).
+  Ledger `[2026-09-01 18:05]` + `[2026-09-01 18:55]`. Review-fix round (Copilot ×5, Cursor ×1, Greptile ×1) = PR #376:
+  the week passed to `resolve_claimer` is coerced to `date` inside the function, which ACTIVATES
+  frozen-wins on the subcontractor-helper path (it always missed the date-keyed map before, on
+  master too until #376 merges); REMEDIATE_CLAIMERS guidance corrected; identifiers aliased. Stale `_User_Unknown_Foreman`
+  attachments are NOT swept by the scheduled run or by isolated `REMEDIATE_CLAIMERS` (only
+  `_NO_MATCH`); clear them per WR with `reset_wr_list` or by hand until a sentinel-aware cleanup
+  is approved — knowing (Greptile on #376, verified) that ANY non-empty `RESET_WR_LIST` puts the
+  whole run in full mode (Trigger 5 + skip gate off for every group), so every WR regenerates,
+  and that the purge covers `TARGET_SHEET_ID` only (stale reduced-sub PPP identities on the PPP
+  sheet need a manual delete). Scoping the reset to the listed WRs = code change, owner decision.
+  OWN-01/03/04 still open.
+- **Excel "bug" (`<WR-D>` WE 083026):** NOT a generation defect. The pipeline's own attachment
+  (uploaded 2026-08-28 00:36Z) is internally consistent (Wed 38 / Thu 26 / Fri 8 rows = 72
   = 10,478.74). The operator's copy was re-saved in Excel by a person on 2026-09-01 21:48Z with the
   Friday block folded under Thursday and two Point 29 rows deleted (524.51). Ledger
   `[2026-09-01 17:55]` has the verification recipe. Latent silent-drop of blank-Snapshot-Date rows
@@ -38,9 +51,11 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
   `resolve_claimer`; group key + `FOREMAN=` hash token derive from the frozen value; no reset lever
   touches `attribution_snapshot`). Read-only count today: 5,829 rows / 94 WRs frozen as
   `'Unknown Foreman'` (growing). Owner decisions §8 #1 / #5 still gate Phase 12; recommended first
-  slice OWN-02 + remediation SQL + `REMEDIATE_CLAIMERS`.
+  slice OWN-02 + remediation SQL + a stale-sentinel attachment cleanup (isolated
+  `REMEDIATE_CLAIMERS` only sweeps `_NO_MATCH`).
 - Scratch evidence (not committed): downloaded originals + inspect/query scripts in the session
-  scratchpad; `Copy of WR_91390743_…xlsx` sits untracked at repo root (gitignored `*.xlsx`).
+  scratchpad; the operator's `Copy of WR_<WR-D>_…xlsx` sits untracked at repo root (gitignored
+  `*.xlsx`). Aliases `<WR-D>` / `<FOREMAN-D>` are defined in ledger `[2026-09-01 17:55]`.
 
 ## Previous (2026-09-01 15:20 CDT) — **PR #374 MERGED** (`675e3e2`, 20:14Z) — Phase 11.1 runtime remediation live on master
 
