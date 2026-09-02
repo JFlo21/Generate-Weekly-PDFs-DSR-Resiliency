@@ -1,10 +1,10 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-09-01 17:55 CDT (22:55Z) · **overwrite-in-place each session** (this is the
+_Last updated: 2026-09-01 22:45 CDT (2026-09-02 03:45Z) · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
-_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-09-01 17:55]` (`<WR-D>` workbook = hand-edited copy, not a generation defect; claimer-correction gap re-confirmed as Phase 12 sentinel/frozen-claimer problem, 5,829 rows / 94 WRs), `[2026-09-01 14:55]` (Phase 11.1 verified 12/12 + shipped as PR #374; post-merge observation contract), `[2026-09-01 14:05]` (Phase 11.1 Plan 01 Gate-4 re-baseline 70→72, zero accepted findings) and `[2026-09-01 13:50]` (Phase 11.1 durable rules: registry-skip admission gate, pre-seed containment layers). Earlier: `[2026-08-31 21:05]` (Gate-4 mypy re-baseline 65→68, zero accepted findings) and `[2026-08-31 20:44]` (Phase 11 shipped — the phase's operational rules). Earlier: `[2026-08-29 17:55]` (D-09 amended: streak counts weekend + manual runs; no standalone docs PRs), `[2026-08-29 16:45]` (#369 + #370 merged; `.planning/` staging rule), `[2026-08-28 20:15]` (parity read back = pass; Notion counter export; real-WR residuals removed), `[2026-08-28 19:30]` (the 137: no findable target row — Smartsheet analysis), `[2026-08-28 19:00]` (first post-merge run verified; saving corrected), `[2026-08-28 18:45]` (#365 + #366 merged), `[2026-08-28 18:20]` (identifier scrub, #366), `[2026-08-28 18:05]` (decisions: no-target-row skip on #365; scrub option A), `[2026-08-28 17:10]` (#363 merged, 154-withheld = source-data shape), `[2026-08-28 16:05]` (sheet_registry fix on #363), `[2026-08-28 15:05]` (root cause + 154-withheld pattern), `[2026-08-28 12:05]` (#362), `[2026-08-27 21:10]` (verified pipeline truths from the
+_Latest ledger entry: `memory-bank/living-ledger.md` `[2026-09-01 22:40]` (SC-1 evidence for Phase 11.1: discovery 40.5 s, six new VAC files landed, group phase still ~9× baseline because INC-05 D-12 retired the frozen-row cache → 214k `freeze_attribution` RPCs/run; warm-start fix proposed, owner approval pending). Earlier: `[2026-09-01 20:35]` (`<WR-E>` VAC interim root cause), `[2026-09-01 20:20]` (churn PR #377), `[2026-09-01 19:45]` (owner decisions), `[2026-09-01 17:55]` (`<WR-D>` workbook = hand-edited copy, not a generation defect; claimer-correction gap re-confirmed as Phase 12 sentinel/frozen-claimer problem, 5,829 rows / 94 WRs), `[2026-09-01 14:55]` (Phase 11.1 verified 12/12 + shipped as PR #374; post-merge observation contract), `[2026-09-01 14:05]` (Phase 11.1 Plan 01 Gate-4 re-baseline 70→72, zero accepted findings) and `[2026-09-01 13:50]` (Phase 11.1 durable rules: registry-skip admission gate, pre-seed containment layers). Earlier: `[2026-08-31 21:05]` (Gate-4 mypy re-baseline 65→68, zero accepted findings) and `[2026-08-31 20:44]` (Phase 11 shipped — the phase's operational rules). Earlier: `[2026-08-29 17:55]` (D-09 amended: streak counts weekend + manual runs; no standalone docs PRs), `[2026-08-29 16:45]` (#369 + #370 merged; `.planning/` staging rule), `[2026-08-28 20:15]` (parity read back = pass; Notion counter export; real-WR residuals removed), `[2026-08-28 19:30]` (the 137: no findable target row — Smartsheet analysis), `[2026-08-28 19:00]` (first post-merge run verified; saving corrected), `[2026-08-28 18:45]` (#365 + #366 merged), `[2026-08-28 18:20]` (identifier scrub, #366), `[2026-08-28 18:05]` (decisions: no-target-row skip on #365; scrub option A), `[2026-08-28 17:10]` (#363 merged, 154-withheld = source-data shape), `[2026-08-28 16:05]` (sheet_registry fix on #363), `[2026-08-28 15:05]` (root cause + 154-withheld pattern), `[2026-08-28 12:05]` (#362), `[2026-08-27 21:10]` (verified pipeline truths from the
 #360 review rounds — acceptance gate, group key, TEST_MODE/Supabase, Snapshot Date, reset purge, stale
 attachment, public-repo identifier rule). Earlier: `[2026-08-27 20:20]` (identity row = canonical row,
 ships with PR #361), `[2026-08-27 16:10]` (hash sort tiebreaker, #359).
@@ -19,6 +19,30 @@ budget 25), #355 (docs/hook), #359 (hash sort tiebreaker). **Merged 2026-08-28 0
 items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
 ## Latest work (2026-09-01 19:25 CDT) — **PR #375 MERGED** (`8325bc8`, 23:34Z) and **PR #376 MERGED** (`7153153`, 2026-09-02 00:14Z) — Phase 12 OWN-02 sentinel slice + helper-path week-key fix live on master; awaiting the first post-merge scheduled run (the 01:00Z cron; runs created earlier are pinned to `42ab0e5`, pre-#375); `<WR-D>` workbook = hand-edited copy
+- **SC-1 EVIDENCE (run 33570018457, `42ab0e5` = master ⊇ #374, first run with the 11.1 fix; `core`
+  00:56Z → 03:19Z, Python 2:15:50, finished inside the budget, no graceful stop):** discovery
+  **40.5 s** (was 4162.5 s on `733e76d`), fetch 1189 s, group phase 6384.5 s — 611 generated /
+  2413 skipped / 154 no-target-row, median skip 1.73 s (pre-INC-05 0.24 s). **All six new
+  `_VacCrew_` files now exist on their target rows** (five WRs WE 08-30 incl. `<WR-E>`/`<VAC-E>`,
+  plus `<WR-E>` WE 09-06); the two reset-emptied WRs were rebuilt. **Remaining regression, measured
+  from the run's httpx lines:** `freeze_attribution` 84.6 min (214,215 calls @ 24 ms) +
+  `pipeline_run` 13.0 min (5,446 calls) + `group_content_hash` 9.5 min (pre-existing). Cause:
+  INC-05 D-12 retired the frozen-row cache warm start (`billing_audit_row_cache` starts empty →
+  every completed row re-sent to the first-write-wins RPC; `_has_uncached_freeze_candidates`
+  true for every group → fingerprint select+upsert per WR-week). Fast pre-INC-05 run: 18,257
+  freezes / 366 fingerprint pairs. **Proposed (needs Juan's approval, attribution path): seed
+  `billing_audit_row_cache` from the `lookup_attribution_bulk` map grouping already fetches
+  (same eligibility, zero extra requests)** — ledger `[2026-09-01 22:40]`. APPROVED 00:3x CDT; built on
+  `perf/freeze-row-cache-warm-start` (tests `tests/test_freeze_row_cache_warm_start.py` 9/9, ALL 6 GATES
+  PASSED 1930/1 skipped/355 subtests, mypy 71→71, website build clean, haiku rubric 6/6 PASS) = PR #378. Run 33579406295
+  (01:26Z, `3f81d94` = first with #375 + #376) in progress; its counters are the next report.
+  **PR #377 MERGED `0fffb22` (2026-09-02 01:51Z)**; canary = first scheduled run on master ≥ `0fffb22`
+  (13:00Z Sep 2). Owner closed the `<WR-E>` data-entry question: the helper claimed the 7
+  unchecked rows, helper file correct. Held ledger/project-state edits now sit uncommitted on
+  `perf/freeze-row-cache-warm-start` (off `0fffb22`) to ride with the next code PR. OWN-03 design doc written
+  (`docs/superpowers/specs/2026-09-01-own-03-claim-time-backfill-design.md`, uncommitted; rides
+  with its implementation PR) — write path (RPC vs SQL) and optional cell-history source 5 await
+  owner approval.
 
 - **OWN-02 merged as PR #375 (`8325bc8`, squash of `d2dd41d`). The review-fix round raced the merge:
   Juan merged while the gates were running, so the two fix commits landed on the feature branch
@@ -33,9 +57,9 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
   corrections only via audited override); §8 #5 = backfill sources 1–4 allowed; sentinel-aware
   cleanup + `RESET_WR_LIST` skip-gate scoping APPROVED (next PR); event-driven change capture
   assessed as a future Phase 14 (gate: SC-1 wall clock + timing breakdown). §5 step 2 cross-week
-  inheritance DECIDED OFF (19:55). Still open: PPP purge on reset; cell-history backfill.
-- **Churn PR #377 (sentinel-superseded cleanup + `RESET_WR_LIST` scoped to listed WRs), `a882434`
-  on `fix/sentinel-superseded-cleanup-reset-scope`, open for owner review:** `pipeline/cleanup.py` gate (same wr + week +
+  inheritance DECIDED OFF (19:55). 2026-09-02 00:35: warm-start fix APPROVED (PR #378); OWN-03 write path = owner-deployed RPC; cell history INCLUDED as a separate capped weekend job; PPP never purged on reset (closed, won't-do) — ledger `[2026-09-02 00:35]`.
+- **Churn PR #377 (sentinel-superseded cleanup + `RESET_WR_LIST` scoped to listed WRs) — MERGED
+  `0fffb22` 2026-09-02 01:51Z (final head `8a87b08`, 9/9 review threads resolved):** `pipeline/cleanup.py` gate (same wr + week +
   variant real-name sibling required; AND attached on the row; Sentry breadcrumb `sentinel_superseded`; 9 review threads — attached-sibling, sanitized `#`-error tokens, breadcrumb, canonicalized reset tokens — fixed on-branch),
   `pipeline/orchestrate.py` `_reset_list_forces_regeneration` in the skip gate (Trigger 5 full
   read kept on purpose), `pipeline/config.py` `_normalize_reset_wr`. Tests

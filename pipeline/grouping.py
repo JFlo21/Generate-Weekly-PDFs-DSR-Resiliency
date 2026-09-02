@@ -46,6 +46,23 @@ logger = logging.getLogger(__name__)
 
 
 
+# INC-05 D-12 follow-up: keys of every attribution_snapshot row the last
+# group_source_rows() bulk prefetch returned -- (sanitized_wr, week_ending
+# date, smartsheet_row_id). Non-empty only when that prefetch reported
+# 'success'; pipeline.orchestrate seeds billing_audit_row_cache from it so
+# rows that are already frozen never reach the freeze_attribution RPC.
+_PREFETCHED_FROZEN_ROW_KEYS: frozenset[tuple[str, datetime.date, int]] = (
+    frozenset()
+)
+
+
+def get_prefetched_frozen_row_keys() -> frozenset[
+    tuple[str, datetime.date, int]
+]:
+    """Return the frozen-row keys published by the last prefetch."""
+    return _PREFETCHED_FROZEN_ROW_KEYS
+
+
 def group_source_rows(rows):
     """
     VARIANT-AWARE GROUPING: Groups rows by Work Request #, Week Ending Date, and Variant (primary/helper/vac_crew).
@@ -97,6 +114,11 @@ def group_source_rows(rows):
     - No mixing of work requests or variants in a single file
     - Clear, predictable file naming with variant identification
     """
+    # INC-05 D-12 follow-up: publish the bulk-prefetch key set for the
+    # orchestrator's freeze-row cache warm start. Reset first so a call
+    # whose prefetch is disabled or fails never leaks a stale set.
+    global _PREFETCHED_FROZEN_ROW_KEYS
+    _PREFETCHED_FROZEN_ROW_KEYS = frozenset()
     # Phase 09 W4 (behaviour-preserving relocation): bind the
     # test-mutable / facade-resident constants from the
     # generate_weekly_pdfs facade so test-time rebinds on
@@ -182,6 +204,8 @@ def group_source_rows(rows):
             )
             _prefetch_pairs_filtered = {(wr, we) for wr, we, _ in _prefetch_pairs}
             _attr_map, _attr_status = _prefetch_attribution(_prefetch_pairs_filtered)
+            if _attr_status == 'success':
+                _PREFETCHED_FROZEN_ROW_KEYS = frozenset(_attr_map)
             if _attr_status == 'fetch_failure':
                 logging.warning(
                     "⚠️ Attribution bulk prefetch failed "

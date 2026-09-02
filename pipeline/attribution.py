@@ -46,6 +46,7 @@ import datetime
 import json
 import logging
 import os
+from typing import Iterable
 
 from pipeline.change_detection import build_group_identity
 from pipeline.config import (
@@ -105,9 +106,12 @@ SUBPROJECT_D_HASH_PRUNE_VERSION = 1
 # stay defined (generic, path-parameterized) but are no longer called by
 # pipeline.orchestrate -- freeze_row / freeze_attribution are already
 # idempotent ("first-write-wins", billing_audit/schema.sql), so the
-# in-run billing_audit_row_cache set now starts empty every run instead
-# of being warm-started from a persisted file; the only cost is a few
-# redundant (but safe) RPC calls per run.
+# in-run billing_audit_row_cache set is safe to start empty. The cost
+# was NOT "a few redundant RPC calls": with no warm start every completed
+# row was re-sent to the RPC each run (214,215 calls / 84.6 min on run
+# 33570018457 vs 18,257 before INC-05). The set is now warm-started from
+# the lookup_attribution_bulk map grouping already fetches
+# (warm_billing_audit_row_cache below) -- zero extra requests.
 BILLING_AUDIT_ROW_CACHE_MAX_ENTRIES = 200000
 
 
@@ -797,6 +801,34 @@ def load_billing_audit_row_cache(path: str) -> set[str]:
     except Exception as e:
         logging.warning(f"⚠️ Failed to load billing-audit row cache: {e}")
         return set()
+
+
+def warm_billing_audit_row_cache(
+    cache: set[str],
+    frozen_keys: "Iterable[tuple[str, datetime.date, int]]",
+) -> int:
+    """Seed the in-run freeze dedupe set from rows already frozen.
+
+    ``frozen_keys`` are the ``(sanitized_wr, week_ending, row_id)`` keys
+    of the ``lookup_attribution_bulk`` map that ``group_source_rows``
+    fetches for every completed row (see
+    ``pipeline.grouping.get_prefetched_frozen_row_keys``). Every one of
+    them is a row ``attribution_snapshot`` already holds, so the freeze
+    loop's first-write-wins RPC would be a no-op for it. The key format
+    MUST stay identical to the loop's ``f"{wr_num}|{week_raw}|{_row_id}"``
+    (``week_raw`` is the group key's ``%m%d%y`` week, ``wr_num`` the
+    sanitized WR -- the same sanitizer ``freeze_row`` wrote and the RPC
+    echoes back). Returns the number of keys added. An empty iterable
+    (prefetch disabled / failed) seeds nothing, which is the pre-warm
+    behaviour.
+    """
+    added = 0
+    for wr, week_ending, row_id in frozen_keys:
+        key = f"{wr}|{week_ending.strftime('%m%d%y')}|{row_id}"
+        if key not in cache:
+            cache.add(key)
+            added += 1
+    return added
 
 
 def save_billing_audit_row_cache(path: str, rows: set[str]) -> None:
