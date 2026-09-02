@@ -5,11 +5,11 @@ milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
 current_phase: 11.1
 current_phase_name: Post-INC-05 Runtime Remediation (INSERTED)
 status: executing
-stopped_at: "execute-phase 11.1 --gaps-only: plan 11.1-04 Tasks 1-3 committed (5bb45b3) on branch perf/discovery-bounded-validation-read, PR #384 OPEN vs master; paused at Task 4 blocking-human checkpoint (owner merge + post-merge skip-MISS canary). SUMMARY/ROADMAP deferred to the continuation agent after the canary reply."
-last_updated: "2026-09-02T19:27:44.093Z"
+stopped_at: "execute-phase 11.1 --gaps-only: plan 11.1-04 Tasks 1-3 MERGED to master as 13e8e76 (PR #384, 20:52Z; includes the Greptile-thread fix adc6639). Task 4 canary pending: waiting for the first scheduled weekly-excel-generation run whose build contains 13e8e76 (21:00Z cron), then read skip index / validation split / Phase 1 / Python Duration; PASS only on a skip-MISS run. SUMMARY/ROADMAP deferred to the continuation agent."
+last_updated: "2026-09-02T20:55:16.711Z"
 last_activity: 2026-09-02
-last_activity_desc: Phase 11.1 execution started
-state_head: 5bb45b3e37cf569c8db768e075254e3f0b591716
+last_activity_desc: "PR #384 merged (13e8e76); awaiting Task 4 skip-MISS canary run"
+state_head: e2efdc00d045c2248ff6eaaf3fa90acce563cb08
 progress:
   total_phases: 13
   completed_phases: 3
@@ -418,7 +418,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 ## Session
 
 **Last session:** 2026-09-02T19:27:43.048Z
-**Stopped at:** execute-phase 11.1 --gaps-only: plan 11.1-04 Tasks 1-3 committed (5bb45b3) on branch perf/discovery-bounded-validation-read, PR #384 OPEN vs master; paused at Task 4 blocking-human checkpoint (owner merge + post-merge skip-MISS canary). SUMMARY/ROADMAP deferred to the continuation agent after the canary reply.
+**Stopped at:** execute-phase 11.1 --gaps-only: plan 11.1-04 Tasks 1-3 MERGED to master as 13e8e76 (PR #384, 20:52Z; includes the Greptile-thread fix adc6639). Task 4 canary pending: waiting for the first scheduled weekly-excel-generation run whose build contains 13e8e76 (21:00Z cron), then read skip index / validation split / Phase 1 / Python Duration; PASS only on a skip-MISS run. SUMMARY/ROADMAP deferred to the continuation agent.
 **Resume file:** .planning/phases/11.1-post-inc-05-runtime-remediation/11.1-04-PLAN.md
 
 ## Session Continuity
