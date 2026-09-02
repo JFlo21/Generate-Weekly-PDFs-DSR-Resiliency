@@ -38,10 +38,12 @@ Key behaviors:
 - The Phase 11 shadow-parity block (`RUN_MEMORY_SHADOW_MAX_MINUTES`,
   `RUN_MEMORY_SHADOW_RPC_TIMEOUT_SEC`) abandons any delta probe that
   overruns its timeout and, since PR #379 (INC-06), also detaches the
-  abandoned worker threads from the interpreter-exit join. Look for
-  `🧵 Shadow parity: detached N probe worker(s) from the interpreter-exit
-  join; M probe(s) still running` at the end of the parity block — INFO
-  when M is 0, WARNING when a probe was still stuck in a Smartsheet read.
+  abandoned worker threads from the interpreter-exit join. The parity
+  block now ends with one `🧵 Shadow parity:` line — INFO `no probe still
+  running; released N worker(s) from the interpreter-exit join` on a
+  healthy run, or WARNING `M probe(s) still stuck in Smartsheet reads; N
+  worker(s) detached from the interpreter-exit join so exit will not
+  wait` when a probe overran its timeout.
   Before that fix a stuck probe kept the `Generate reports` step alive
   after every phase had finished (42 minutes on run 33579406295, ~16
   minutes per socket until Smartsheet closed it, then a retry), so the

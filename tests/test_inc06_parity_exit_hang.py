@@ -11,13 +11,17 @@ runner ceiling during its last upload steps.
 
 These tests pin that all three documented exit blockers are handled:
 
-1. ``detach()`` removes this executor's workers from the atexit registry and
-   is idempotent / safe on an executor that never started a worker.
+1. ``detach()`` removes this executor's daemon workers from the atexit
+   registry, is idempotent / safe on an executor that never started a
+   worker, and never touches a non-daemon thread (popping one would hide
+   the join that ``threading._shutdown`` still enforces).
 2. A real child interpreter with a worker blocked forever exits promptly
    after ``shutdown + detach``; the control case without ``detach`` hangs
    (the failure mode the fix addresses).
 3. ``run_shadow_delta_reads`` calls ``detach()`` after its abandon
-   ``shutdown()``.
+   ``shutdown()`` and reports an honest still-running count: INFO when
+   every probe finished, WARNING naming the stuck count otherwise, even
+   when ``submit`` itself failed part-way through the sheet list.
 """
 import datetime
 import pathlib
@@ -83,6 +87,26 @@ class DetachTests(unittest.TestCase):
         finally:
             gate.set()
 
+    def test_detach_leaves_non_daemon_threads_registered(self):
+        # If a future CPython renames the private helpers, the executor
+        # falls back to non-daemon workers; popping those from the atexit
+        # registry would report "detached" while threading._shutdown's
+        # lock join still reinstates the hang. detach() must skip them.
+        gate = threading.Event()
+        ex = _DaemonThreadPoolExecutor(max_workers=2)
+        stray = threading.Thread(target=lambda: None)  # daemon=False
+        try:
+            ex.submit(gate.wait)
+            ex._threads.add(stray)
+            _cf_thread._threads_queues[stray] = ex._work_queue
+            ex.shutdown(wait=False, cancel_futures=True)
+            self.assertEqual(ex.detach(), 1)
+            self.assertIn(stray, _cf_thread._threads_queues)
+        finally:
+            _cf_thread._threads_queues.pop(stray, None)
+            ex._threads.discard(stray)
+            gate.set()
+
 
 class InterpreterExitTests(unittest.TestCase):
     """Real child interpreters: the only honest test of an atexit join."""
@@ -112,16 +136,44 @@ class InterpreterExitTests(unittest.TestCase):
         proc = self._spawn("pass")
         try:
             with self.assertRaises(subprocess.TimeoutExpired):
-                proc.communicate(timeout=5)
+                proc.communicate(timeout=3)
         finally:
             proc.kill()
             proc.communicate()
 
 
+def _run_parity(fake_fetch, sheet_ids=(1,), rpc_timeout_sec=45,
+                executor_cls=_DaemonThreadPoolExecutor):
+    from pipeline import parity
+    with mock.patch("pipeline.parity._DaemonThreadPoolExecutor",
+                    executor_cls):
+        return parity.run_shadow_delta_reads(
+            client=object(),
+            source_sheets=[
+                {"id": i, "name": f"sheet-{i}", "column_mapping": {}}
+                for i in sheet_ids],
+            watermarks={}, changed_row_ids_by_sheet={},
+            session_start=datetime.datetime.now(),
+            fetch_sheet_delta_fn=fake_fetch,
+            compute_rows_modified_since_fn=lambda *a, **k: None,
+            safety_window_minutes=15, max_minutes=10,
+            rpc_timeout_sec=rpc_timeout_sec, generation_headroom_min=2,
+            time_budget_minutes=0, github_actions_mode=False,
+            parallel_workers=2,
+        )
+
+
+def _ok(client, source, last_version, rows_modified_since):
+    return {"escalate": False, "sheet": None, "version": 1, "calls": 1}
+
+
+def _inc06_lines(records):
+    return [line for line in records if "INC-06" in line]
+
+
 class ParityDetachTests(unittest.TestCase):
 
     def test_run_shadow_delta_reads_detaches_after_abandon_shutdown(self):
-        from pipeline import parity
         calls: list[str] = []
 
         class _Spy(_DaemonThreadPoolExecutor):
@@ -134,28 +186,67 @@ class ParityDetachTests(unittest.TestCase):
                 calls.append("detach")
                 return super().detach()
 
-        def fake_fetch(client, source, last_version, rows_modified_since):
-            return {"escalate": False, "sheet": None, "version": 1,
-                    "calls": 1}
-
-        with mock.patch("pipeline.parity._DaemonThreadPoolExecutor", _Spy):
-            parity.run_shadow_delta_reads(
-                client=object(),
-                source_sheets=[
-                    {"id": 1, "name": "sheet-1", "column_mapping": {}}],
-                watermarks={}, changed_row_ids_by_sheet={},
-                session_start=datetime.datetime.now(),
-                fetch_sheet_delta_fn=fake_fetch,
-                compute_rows_modified_since_fn=lambda *a, **k: None,
-                safety_window_minutes=15, max_minutes=10,
-                rpc_timeout_sec=45, generation_headroom_min=2,
-                time_budget_minutes=0, github_actions_mode=False,
-                parallel_workers=2,
-            )
+        _run_parity(_ok, executor_cls=_Spy)
         self.assertEqual(
             calls, ["shutdown(wait=False,cancel=True)", "detach"],
             "detach must follow the abandon shutdown, exactly once",
         )
+
+    def test_healthy_run_logs_release_at_info(self):
+        with self.assertLogs("pipeline.parity", level="INFO") as cm:
+            _run_parity(_ok, sheet_ids=(1, 2))
+        lines = _inc06_lines(cm.output)
+        self.assertEqual(len(lines), 1, cm.output)
+        self.assertTrue(lines[0].startswith("INFO:"), lines[0])
+        self.assertIn("no probe still running", lines[0])
+
+    def test_stuck_probe_logs_warning_with_still_running_count(self):
+        gate = threading.Event()
+
+        def stuck_on_sheet_1(client, source, last_version, rows_since):
+            if source["id"] == 1:
+                gate.wait()
+            return _ok(client, source, last_version, rows_since)
+
+        try:
+            with self.assertLogs("pipeline.parity", level="WARNING") as cm:
+                _run_parity(stuck_on_sheet_1, sheet_ids=(1, 2),
+                            rpc_timeout_sec=0.2)
+            lines = _inc06_lines(cm.output)
+            self.assertEqual(len(lines), 1, cm.output)
+            self.assertTrue(lines[0].startswith("WARNING:"), lines[0])
+            self.assertIn("1 probe(s) still stuck", lines[0])
+        finally:
+            gate.set()
+
+    def test_submit_failure_still_counts_started_probes(self):
+        # If submit() raises part-way through the sheet list, the probes
+        # already started must still be counted as running (the partial
+        # future map must not be discarded by the failed comprehension).
+        gate = threading.Event()
+
+        def stuck(client, source, last_version, rows_since):
+            gate.wait()
+            return _ok(client, source, last_version, rows_since)
+
+        class _FailSecondSubmit(_DaemonThreadPoolExecutor):
+            def submit(self, fn, /, *args, **kwargs):
+                if self._threads:
+                    raise RuntimeError("submit exploded")
+                return super().submit(fn, *args, **kwargs)
+
+        try:
+            with self.assertLogs("pipeline.parity", level="WARNING") as cm:
+                try:
+                    _run_parity(stuck, sheet_ids=(1, 2),
+                                executor_cls=_FailSecondSubmit)
+                except RuntimeError:
+                    pass  # propagation is the caller's contract, not ours
+            lines = _inc06_lines(cm.output)
+            self.assertEqual(len(lines), 1, cm.output)
+            self.assertIn("1 probe(s) still stuck", lines[0])
+        finally:
+            gate.set()
 
 
 if __name__ == "__main__":

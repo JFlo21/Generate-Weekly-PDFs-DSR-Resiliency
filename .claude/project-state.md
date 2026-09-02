@@ -50,9 +50,10 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
   ignored) and was then cancelled by the 180-min runner ceiling after a 42-min
   interpreter-exit hang on abandoned shadow-parity probe workers (`_threads_queues` never
   popped). Fix: `_DaemonThreadPoolExecutor.detach()` + call in the parity `finally:`;
-  5 tests incl. a real child-interpreter exit proof (control hangs, fixed exits); ALL 6
-  GATES PASSED; independent haiku rubric + production-risk review recorded in the PR. Watch
-  on the first run ≥ #379: the `🧵 Shadow parity: detached …` line, job time ≈ Python
+  9 tests incl. a real child-interpreter exit proof (control hangs, fixed exits); ALL 6
+  GATES PASSED; haiku rubric 4/4; production-risk review SAFE-WITH-NOTES, notes fixed in the
+  same PR (incremental future map, two-message log, daemon-only detach). Watch on the first
+  run ≥ #379: the `🧵 Shadow parity:` INC-06 line (INFO healthy / WARNING stuck), job time ≈ Python
   `Duration` + post-job reserve. Phase 11.1 gap canary (#378) still pending on the first
   scheduled run after `2008fd9`: `🧊` line non-zero, `snapshots_already_frozen` ≈ 0,
   `freeze_attribution` ~18k calls, `Duration` < ~75 min, ≲0.5 s/group → write

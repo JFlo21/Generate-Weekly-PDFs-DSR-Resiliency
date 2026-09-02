@@ -229,9 +229,10 @@ for Smartsheet to close their sockets (~16 minutes each, then a retry). The job 
 billing output was lost. `TIME_BUDGET_MINUTES` cannot see this: it governs the group loop, not
 interpreter shutdown.
 
-**How it affects operators.** A new line closes the parity block: `🧵 Shadow parity: detached N
-probe worker(s) from the interpreter-exit join; M probe(s) still running (INC-06)` — INFO when
-M is 0, WARNING when a probe was still stuck. Nothing else changes: probe results were always
+**How it affects operators.** One new line closes the parity block: INFO `🧵 Shadow parity: no
+probe still running; released N worker(s) from the interpreter-exit join (INC-06)` on a healthy
+run, or WARNING `🧵 Shadow parity: M probe(s) still stuck in Smartsheet reads; N worker(s)
+detached from the interpreter-exit join so exit will not wait (INC-06)`. Nothing else changes: probe results were always
 discardable (D-07: the shadow compares and reports, never acts), escalation counts and the
 parity verdict are computed exactly as before, and no billing, grouping, hashing, attachment,
 workflow or env behaviour is touched. The bounded read timeout for the probe path is a separate

@@ -197,9 +197,10 @@ class _DaemonThreadPoolExecutor(ThreadPoolExecutor):
     run 33579406295 and the job crossed the 180-min runner ceiling).
 
     **Safety invariant — use this ONLY when the worker's work is
-    discardable.** The pre-fetch cache has a per-row fallback path,
-    so abandoning a mid-flight HTTP worker is safe; the OS reclaims
-    the socket. Do NOT use this executor for workers that produce
+    discardable.** The shadow-parity delta probes (Phase 11 D-07)
+    only compare and report, so abandoning a mid-flight HTTP worker
+    is safe; the OS reclaims the socket. Do NOT use this executor
+    for workers that produce
     results the main flow depends on (generation, upload,
     ``hash_history.save``) — the atexit join is what guarantees
     those side effects are flushed before exit.
@@ -246,13 +247,18 @@ class _DaemonThreadPoolExecutor(ThreadPoolExecutor):
         ``shutdown()``; the daemon flag then lets the interpreter exit
         without waiting for the stuck I/O. Idempotent and safe before
         any worker has started. Returns the number of workers removed.
+
+        Only daemon threads are removed: if the fallback path above
+        ever produced non-daemon workers, popping them would report a
+        detach while ``threading._shutdown``'s lock join still waited
+        for them — the exact hang this exists to prevent.
         """
         queues = getattr(_cf_thread, '_threads_queues', None)
         if queues is None:
             return 0
         detached = 0
         for t in list(self._threads):
-            if queues.pop(t, None) is not None:
+            if t.daemon and queues.pop(t, None) is not None:
                 detached += 1
         return detached
 
