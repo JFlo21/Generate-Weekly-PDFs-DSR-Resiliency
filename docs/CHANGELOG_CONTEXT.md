@@ -187,3 +187,28 @@ every sheet is kept on purpose so the purged WR can always be rebuilt. `WR`-pref
 accepted. Operators: watch for `🔄 Sentinel-superseded attachment detected` log lines in the first
 run after merge, and expect per-WR resets to be short. See `memory-bank/living-ledger.md`
 `[2026-09-01 20:20]`; PR #377.
+
+## 2026-09-02 — Group phase no longer re-freezes every row: the frozen-row cache is warm-started from the attribution prefetch
+
+**What.** INC-05 (PR #373) retired the persisted frozen-row cache, and with it the warm start
+of the in-run dedupe set that decides whether a completed row is sent to the
+`billing_audit.freeze_attribution` RPC. The set started empty every run, so every completed row
+(~214k) was re-sent to the first-write-wins RPC on every run, and because every group then had
+"uncached" rows, the per-WR-week `pipeline_run` fingerprint select+upsert fired for every group
+too. The grouping phase already fetches every frozen row for every WR-week through
+`lookup_attribution_bulk` under the same eligibility rule, so the set is now seeded from that
+map before the group loop starts (`pipeline/attribution.py` `warm_billing_audit_row_cache`,
+`pipeline/grouping.py` `get_prefetched_frozen_row_keys`). Zero extra requests; nothing about
+grouping, hashing, filenames, attribution values, or Supabase writes changes.
+
+**Why.** The first run with the Phase 11.1 fix (33570018457) spent 84.6 of its 106 group-phase
+minutes inside `freeze_attribution` (214,215 calls) and 13 more in `pipeline_run` (5,446 calls);
+the fast pre-INC-05 profile was 18,257 and 732. Discovery is fixed; this closes the rest.
+
+**How it affects operators.** Expect the `🧊 Frozen-row cache warm-started from the attribution
+prefetch: N row(s) already frozen` INFO line before the group loop and a group phase back near
+the pre-INC-05 duration (about 12 minutes at steady state on top of the ~20-minute fetch). If
+the line is absent the bulk prefetch failed or the attribution flags are off, and the run
+behaves exactly as before this change (every completed row frozen, slower but correct).
+`snapshots_already_frozen` in the run summary drops toward zero for warm-started rows because
+they never reach the RPC. See `memory-bank/living-ledger.md` `[2026-09-01 22:40]`; PR #378.

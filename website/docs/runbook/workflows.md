@@ -28,7 +28,13 @@ Key behaviors:
   `pipeline_memory.group_state.content_hash`, cross-run sheet identity
   lives in `pipeline_memory.sheet_registry`, and the billing-audit row
   cache is purely in-memory per run — none of them need a cross-run local
-  file anymore.
+  file anymore. That in-memory row cache is warm-started from the
+  attribution bulk prefetch the grouping phase already performs (PR #378),
+  so rows `billing_audit.attribution_snapshot` already holds never reach
+  the `freeze_attribution` RPC again; look for the
+  `🧊 Frozen-row cache warm-started` log line near the start of the group
+  phase. Without it (prefetch failed or attribution flags off) the run
+  simply freezes every completed row as INC-05 did.
 - Derives an `execution_type` (`production_frequent`, `weekend_maintenance`,
   `weekly_comprehensive`, `manual`, `scheduled`) used in artifact names and
   the Notion sync.

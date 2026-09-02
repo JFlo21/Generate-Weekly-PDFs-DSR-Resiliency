@@ -8399,3 +8399,157 @@ Reference: `.planning/phases/11.1-post-inc-05-runtime-remediation/` (`11.1-CONTE
   spelling must be added to `_SENTINEL_CLAIMERS` in `billing_audit/writer.py`, which this gate
   reuses, and sanitized `#`-errors are recognized by their leading `_`; (4) a Sentry tag inside a
   `new_scope()` that captures nothing is a no-op — use a breadcrumb or tag the active span.
+
+## [2026-09-01 20:35] `<WR-E>` "no file for the VAC crew for WE 08-30" — interim root cause: three zero-file scheduled runs (INC-05 skip-path regression) + only 5 of 12 rows carry the VAC completed checkbox; VAC groups never appear in `group_state`
+
+- **Aliases:** `<WR-E>` = the WR reported 2026-09-01 ~20:00; `<VAC-E>` = the VAC crew named
+  on it; `<FOREMAN-E>` / `<HELPER-E>` = its primary and helping foreman. Real values only in the
+  session scratchpad.
+- **Data (read-only probes, Smartsheet + `pipeline_memory.row_state`):** 48 rows for WE
+  2026-08-30 across two source sheets. 36 rows (backup sheet, no VAC columns) = primary
+  `<FOREMAN-E>` + helper `<HELPER-E>` (helper completed). 12 rows (intake sheet) name `<VAC-E>` in
+  `VAC Crew Helping?`: **5 rows (snapshot 08-28/08-29) have `Vac Crew Completed Unit?` checked and
+  helper NOT completed → VAC rows; 7 rows (snapshot 08-30) have the VAC box UNCHECKED and
+  `Helping Foreman Completed Unit?` checked → helper rows for `<HELPER-E>` by the contract.** The
+  7 are a data-entry question for the crew, not a pipeline defect: the pipeline only gives a row
+  to the VAC crew when the VAC completed box is checked (fetch.py `is_vac_crew_row`). Frozen
+  attribution is NOT the blocker: `attribution_snapshot` has `frozen_vac_crew = NULL` for all 48
+  rows (frozen 08-28..08-31, before the VAC assignment on 09-01 15:51Z), and a NULL role resolves
+  to the current value.
+- **Why no VAC file even for the 5:** the last successful run (17:14Z, code `733e76d` = INC-05
+  without the 11.1 fix) DID create `VAC CREW GROUP CREATED: WR=<WR-E>, Week=083026` at grouping,
+  then hit the 165-min budget with 1,340 groups unprocessed and **generated 0 files**. Same for
+  the 13:17Z and 15:23Z runs (0 files, 1,216 / 1,312 remaining). Yesterday's runs on pre-INC-05
+  code generated normally (11 and 4 files, group phase 873 s / 731 s for ~3,000 skips ≈ 0.28 s
+  each); today's group phases took 3,510–4,426 s for 1,700–1,800 skips ≈ 2.4 s each — the
+  per-group on-demand attachment lookup INC-05 introduced. Processing order is `groups` dict
+  insertion order (sheet order, then row order), not changed-first, so groups late in the order
+  — including this WR — never get reached when the budget cuts. Every later run today was
+  cancelled (four `completed/cancelled`, incl. both reset dispatches, which purge attachments
+  BEFORE regenerating — a cancelled reset leaves rows without files until a later run rebuilds
+  them; the 23:13Z run re-uploaded this WR's helper/primary files at 00:52Z for that reason).
+- **First run with the 11.1 fix (`42ab0e5` ⊇ #374):** the 23:13Z schedule, in progress at
+  20:35 CDT; it is the SC-1 evidence and the canary for this WR's VAC file. The 01:00Z cron is
+  the first run with #375 + #376.
+- **VERIFIED (owner asked "are VAC files being missed?"): no for existing claims, yes for
+  today's new ones, and only because of the zero-file runs.** The last normal run (Aug 31
+  23:14Z) created 65 VAC groups and skipped all 65 as "unchanged + attachment exists";
+  `_has_existing_week_attachment` matches the exact `(wr, week, 'vac_crew', identifier)` identity,
+  and a direct Smartsheet check of three of those groups (WE 04-05, 04-12, 04-19) found the
+  `_VacCrew_<name>` file attached on each target row — the skip is truthful. `group_state` has
+  0 `vac_crew` rows (223 rows total: 210 primary / 13 helper) because it only records groups
+  generated since Phase 10 shadow writes began and no VAC group has needed regeneration since;
+  the durable hash store `billing_audit.group_content_hash` holds 70 `vac_crew` hashes, which is
+  what the skip decision reads. The 6 VAC groups first claimed on 2026-09-01 (five WRs for WE
+  08-30 incl. `<WR-E>`, one for WE 09-06; 455 VAC-claimed rows / 68 groups in `row_state`) have
+  NO `_VacCrew_` file because no run has generated any file since 01:35Z — two of those WRs have
+  zero attachments of any kind (purged by a cancelled reset dispatch and never rebuilt). Rule:
+  a VAC group with no `group_state` row is normal until it regenerates; the correctness check
+  is "attachment with the exact vac_crew identity exists on the target row", and the design
+  gap to close is processing order — new / changed groups must be generated BEFORE unchanged
+  groups are skip-checked, or a budget stop starves the newest claims first.
+- **Rule:** before diagnosing "my file did not generate", read the last three run summaries
+  (`Files generated`, `Time budget exhausted`, `remaining`) — a zero-file run explains every
+  missing file at once, and a cancelled reset dispatch explains missing attachments.
+
+## [2026-09-01 22:40] SC-1 evidence for Phase 11.1 (run 33570018457, `42ab0e5`): discovery fixed, six new VAC files landed, but the group phase is still ~9× the pre-INC-05 baseline because INC-05 D-12 retired the frozen-row cache (214k `freeze_attribution` RPCs per run)
+
+- **What the first fixed run did** (`core` job 00:56Z → 03:19Z, Python duration 2:15:50,
+  finished naturally, no time-budget stop): discovery **40.5 s** (117 of 121 sheets skipped
+  via `sheet_registry`, 4 fully validated) vs 4162.5 s on `733e76d` and 0.8 s pre-INC-05;
+  fetch 1189 s (214,566 rows, the unchanged floor); group phase **6384.5 s** — 611 generated
+  / 2413 skipped / 154 no-target-row; median skip 1.73 s (p90 3.96 s) vs 0.24 s pre-INC-05 and
+  2.4 s on `733e76d`. All six `_VacCrew_` groups first claimed on 2026-09-01 now have their
+  file on the target row (five WRs for WE 08-30 incl. `<WR-E>` / `<VAC-E>`, plus `<WR-E>` WE
+  09-06); the two WRs a cancelled reset had emptied were rebuilt (3 and 7 files). Cleanup:
+  0 stale files removed; 6 "older variant" replacements on WE 09-06 primaries (normal
+  delete-then-upload). The 611 generated files are the backlog from the owner's
+  `RESET_HASH_HISTORY` plus three zero-file runs, not steady state.
+- **Where the 106-minute group phase actually goes** (measured from the run's own httpx
+  lines, gap-to-next-request, `<5 s` cap): `freeze_attribution` **84.6 min** (214,215 calls,
+  24 ms each); `pipeline_run` select+upsert 13.0 min (5,446 calls, 143 ms); `group_content_hash`
+  9.5 min (3,787 calls, 151 ms — pre-existing, same count as the fast run). The fast pre-INC-05
+  run (33459309123) made 18,257 freeze calls and 366 `pipeline_run` pairs; `733e76d` made
+  114,854 before its budget stop.
+- **Root cause (verified in code):** Phase 11 Plan 08 (INC-05, D-12) retired
+  `BILLING_AUDIT_ROW_CACHE_PATH` and its warm start, so `billing_audit_row_cache`
+  (`pipeline/orchestrate.py`, key `f"{wr}|{week_mmddyy}|{row_id}"`) starts empty every run.
+  The D-12 comment in `pipeline/attribution.py` estimated "a few redundant (but safe) RPC
+  calls per run"; the real number is every completed row (~214k) because `freeze_row` is
+  called per row for every group whose rows are not in the cache, and
+  `_has_uncached_freeze_candidates` (now true for every group) also gates the per-(wr, week)
+  `emit_run_fingerprint` select+upsert. Data is unaffected (the RPC is first-write-wins), so
+  this is purely runtime.
+- **Proposed fix (owner approval required — attribution path):** warm the in-run cache from
+  data the run already has. `pipeline/grouping.py` builds `_attr_map` via
+  `lookup_attribution_bulk` from the SAME eligibility (`Units Completed?` checked, int row id)
+  for every WR-week, and the RPC returns every frozen row for those pairs keyed
+  `(sanitized_wr, date, row_id)`. Seeding `billing_audit_row_cache` with
+  `f"{wr}|{date:%m%d%y}|{row_id}"` for each map key costs zero extra requests and restores the
+  pre-INC-05 profile (~18k freezes, fingerprints only for groups with newly frozen rows).
+  Needs the map's key set surfaced from grouping to orchestrate (return value or module-level
+  set), a `fetch_failure` guard (empty seed → today's behavior), and a test that a seeded key
+  skips the RPC. Expected steady state: ~20 min fetch + ~12 min group phase.
+- **Owner confirmations (2026-09-01 22:55 CDT):** the 7 `<WR-E>` WE 08-30 rows that name the VAC
+  crew but carry no `Vac Crew Completed Unit?` checkbox were claimed by the helper — the helper
+  file is correct as generated, no data-entry change, checkbox contract stands. **PR #377 MERGED**
+  `0fffb22` (2026-09-02 01:51Z); its canary is the first scheduled run on master ≥ `0fffb22`
+  (13:00Z Sep 2 — run 33579406295 was pinned to `3f81d94` before the merge). The freeze-cache
+  warm-start fix above and the OWN-03 write-path / cell-history questions are queued for the
+  owner's answer "once we clear" the in-flight run watch.
+- **Rules:** (1) when a cache is retired, size the replacement cost from a real run's request
+  counts, not from an estimate in a comment; (2) per-run Supabase request totals by endpoint
+  (`grep "HTTP Request" | uniq -c`) are the first thing to compare between a fast and a slow
+  run — they localized this in one command.
+
+## [2026-09-02 00:35] Owner decisions (Juan): freeze-row cache warm start APPROVED (condition: change detection unchanged — it is); OWN-03 write path = owner-deployed RPC; cell history INCLUDED as a separate capped weekend job; PPP attachments are NEVER purged by a reset
+
+- **(1) Warm start approved** "if this will confidently catch changes". It does not touch change
+  detection: file regeneration is driven by the group content hash, and the extended hash
+  (`EXTENDED_CHANGE_DETECTION`, default on; `pipeline/change_detection.py`
+  `calculate_data_hash`) already includes the current foreman name, dept set, scope, totals and
+  row count, so any edit that matters still regenerates the file and re-enters the freeze block.
+  The warm start only stops re-sending rows `attribution_snapshot` already holds to a
+  first-write-wins RPC that would not have changed them anyway (claim-time ownership, ledger
+  `[2026-09-01 19:45]`). Built on `perf/freeze-row-cache-warm-start` as PR #378 (this entry
+  rides with it). Independent read-only risk review (Opus): SAFE — key alignment proven
+  (both sanitizers `[^\w\-]`, same `split('.')[0]` + `[:50]`, week = the same
+  `week_ending_date` object, `lookup_attribution_bulk` is an inner join on stored rows so a
+  seeded key always exists in `attribution_snapshot`; rows that failed or deferred a freeze are
+  absent from the map and still retried). Two things to know: (a) the warm start relies on the
+  Supabase-resident `freeze_attribution` staying strictly first-write-wins (its body is not in
+  this repo; a future "backfill NULL roles" change there would be silently suppressed for
+  seeded rows — same reliance the retired JSON warm start had); (b) `snapshots_already_frozen`
+  collapses from ~196k toward 0 and fingerprint pairs from ~5.4k to ~366 per run — the healthy
+  signature is `snapshots_already_frozen ≈ 0` with `snapshots_written > 0` on a run that has
+  new completed rows, plus the `🧊 Frozen-row cache warm-started` line with a non-zero count;
+  `snapshots_written == 0` on such a run is the failure signature. Reviewer's optional memory
+  release of the published key set (~40 MB on a 7 GB runner) deliberately not taken.
+- **(2) OWN-03 write path = §4 option 1:** owner-deployed `billing_audit.backfill_attribution`
+  RPC that updates a role only where the current value is a sentinel or NULL, returns per-row
+  `updated | skipped_real_name | skipped_no_row`, preceded by a
+  `attribution_snapshot_backup_<date>` copy. The SQL ships in the OWN-03 PR for Juan to deploy
+  (Supabase RPC/schema stays owner-only); the script is dry-run by default.
+- **(3) Cell history (source 5) INCLUDED — as its own job, never inside the production run.**
+  Recommendation accepted: it is the only source that can name rows from weeks before run
+  memory whose artifact filename is a sentinel or missing, and it is the most faithful claim-time
+  record of all (the name in the Foreman / `Foreman Assigned?` cell at the timestamp the
+  `Units Completed?` box was checked), so it also adjudicates the two-names-in-one-week
+  conflicts that sources 3–4 must leave unresolved. Shape: a separate workflow
+  (`workflow_dispatch` plus a Saturday-midnight-Central / Sunday 05:00Z cron only while a
+  backlog exists — no collision with the weekend 15/19/23Z production runs or the Monday 05:00Z
+  deep run), reads only rows sources 1–4 left unresolved, 2–3 history calls per row, capped per
+  run (default 3,000 requests ≈ 10 min at the shared 300 req/min budget; the 5,829-row primary
+  backlog ≈ 4–6 capped runs or a few manual dispatches), dry-run by default. Runtime impact on
+  `generate_weekly_pdfs.py`: none — it never executes there; the only shared resource is the
+  API token's rate limit, which the off-hours slot avoids. Reuses the selective cell-history
+  pattern already in `audit_billing_changes.py` (`BillingAudit`, `SKIP_CELL_HISTORY`).
+- **(4) PPP attachments are never purged by a reset** ("not a good auditing method"). `reset_wr_list`
+  stays target-sheet-only (`purge_existing_hashed_outputs(client, TARGET_SHEET_ID, …)`); the
+  "PPP purge on reset" open item is CLOSED as won't-do and the environment.md note stays as the
+  documented contract. Boundary to confirm: PR #377's sentinel-superseded gate also runs on
+  the PPP cleanups (it deletes a stale `_Unknown_Foreman` file only when the real-name file for
+  the same WR/week/variant is attached on that same row); left as merged unless Juan wants PPP
+  exempt from that gate too.
+- **Rule:** an approval given "if X still holds" is recorded WITH the evidence that X holds
+  (file + mechanism), not as a bare approval.

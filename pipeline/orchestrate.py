@@ -231,6 +231,7 @@ from pipeline.discovery import (  # noqa: E402
 )
 from pipeline.fetch import get_all_source_rows  # noqa: E402
 from pipeline.grouping import (  # noqa: E402
+    get_prefetched_frozen_row_keys,
     group_source_rows,
     validate_group_totals,
 )
@@ -270,6 +271,7 @@ from pipeline.attribution import (  # noqa: E402
     load_billing_audit_row_cache,
     run_claimer_remediation,
     save_billing_audit_row_cache,
+    warm_billing_audit_row_cache,
 )
 from pipeline.snapshot_drift import apply_snapshot_drift_holds  # noqa: E402
 
@@ -3140,10 +3142,21 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # Phase 11 Plan 08 (INC-05, D-12): generated_docs/billing_audit_
         # frozen_rows.json is retired. freeze_row / freeze_attribution are
         # already idempotent ("first-write-wins", billing_audit/schema.sql),
-        # so this run-scoped dedupe set now starts empty every run instead
-        # of being warm-started from a persisted file -- the only cost is a
-        # few redundant (but safe) RPC calls per run.
+        # so this run-scoped dedupe set is safe to start empty -- but empty
+        # meant every completed row hit the RPC (214k calls / 84.6 min on
+        # run 33570018457). Warm-start it from the lookup_attribution_bulk
+        # map group_source_rows() already fetched: same eligibility, zero
+        # extra requests. Empty on prefetch failure = pre-warm behaviour.
         billing_audit_row_cache: set[str] = set()
+        _warm_started = warm_billing_audit_row_cache(
+            billing_audit_row_cache, get_prefetched_frozen_row_keys(),
+        )
+        if _warm_started:
+            logging.info(
+                "🧊 Frozen-row cache warm-started from the attribution "
+                f"prefetch: {_warm_started:,} row(s) already frozen; "
+                "freeze_attribution is skipped for them"
+            )
         billing_audit_row_cache_dirty = False
         history_updates = 0
         _groups_skipped = 0
