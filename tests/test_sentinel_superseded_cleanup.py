@@ -107,6 +107,8 @@ class SentinelIdentifierPredicateTests(unittest.TestCase):
             ('Unknown_Helper', True),
             ('Unknown_VAC_Crew', True),
             ('_NO_MATCH', True),
+            ('_REF_', True),        # sanitized '#REF!' (Codex, PR #377)
+            ('_INVALID', True),     # sanitized '#INVALID'
             ('Pat_Example', False),
             ('Sam_Sample', False),
             (None, False),
@@ -174,6 +176,17 @@ class SentinelSupersededCleanupTests(unittest.TestCase):
         )
         self.assertNotIn(10, deleted)
 
+    def test_live_sanitized_error_sibling_is_not_a_real_name(self) -> None:
+        # A live '#REF!' claimer sanitizes to '_REF_' in the filename;
+        # it must not count as the real-name replacement (Codex, PR #377).
+        stale = _STALE_UNKNOWN_PRIMARY
+        error_sib = 'WR_90001_WeekEnding_041926_120001_User__REF__ddeeff.xlsx'
+        deleted = _run_cleanup(
+            [_att(stale, 10), _att(error_sib, 20)],
+            {(_WR, _WEEK, 'primary', '_REF_')},
+        )
+        self.assertNotIn(10, deleted)
+
     def test_live_bare_primary_is_not_a_real_name(self) -> None:
         deleted = _run_cleanup(
             [_att(_STALE_UNKNOWN_PRIMARY, 10), _att(_LIVE_BARE_PRIMARY, 20)],
@@ -189,6 +202,16 @@ class SentinelSupersededCleanupTests(unittest.TestCase):
         )
         self.assertNotIn(10, deleted)
 
+    def test_real_name_generated_but_not_attached_keeps_sentinel(self) -> None:
+        # Greptile (PR #377): the replacement was generated (so it is in
+        # valid_wr_weeks) but its upload failed — it is NOT on the row.
+        # The placeholder is still the only current report: keep it.
+        deleted = _run_cleanup(
+            [_att(_STALE_UNKNOWN_PRIMARY, 10)],
+            {(_WR, _WEEK, 'primary', 'Pat_Example')},
+        )
+        self.assertNotIn(10, deleted)
+
 
 class ResetListScopeTests(unittest.TestCase):
     def test_normalize_strips_optional_wr_prefix(self) -> None:
@@ -200,6 +223,8 @@ class ResetListScopeTests(unittest.TestCase):
             ('WR91390001', '91390001'),
             ('wr91390001', '91390001'),
             ('WRX', 'WRX'),          # not a WR-number prefix -> untouched
+            ('12/34', '12_34'),      # same sanitizer as wr_num / filenames
+            ('WR_12 34', '12_34'),   # (Codex, PR #377)
             ('', ''),
         ):
             with self.subTest(token=token):

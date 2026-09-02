@@ -8379,7 +8379,23 @@ Reference: `.planning/phases/11.1-post-inc-05-runtime-remediation/` (`11.1-CONTE
   after merge is the canary — expect `🔄 Sentinel-superseded` log lines only for WRs whose
   real-name file was regenerated in the same run, and `reset_wr_list` dispatches to regenerate
   only the listed WRs.
+- **Review round on PR #377 (Greptile ×3, Copilot ×2, Codex ×4 — all valid, all fixed):** (a)
+  `valid_wr_weeks` is built from GENERATED filenames (`orchestrate.py` ~4813-4838 adds every
+  group, including ones never reached after a time-budget stop and ones whose upload errored),
+  so "in valid_wr_weeks" is not "published" — the gate now also requires the real-name sibling
+  to be in the row's CURRENT attachment listing (`_row_attached_idents`); (b) a Smartsheet error
+  token other than `#NO MATCH` (`#REF!`, `#INVALID`) sanitizes to `_REF_` / `_INVALID`, which
+  `is_sentinel_claimer` did not recognize — `_is_sentinel_identifier` treats a leading `_` (the
+  sanitized `#`) as a placeholder; (c) tags set inside a throwaway `sentry_sdk.new_scope()` are
+  discarded — replaced by an `add_breadcrumb` (`cleanup` / `sentinel_superseded`); the same
+  no-op pattern exists in the older variant-migration orphan gate and is left as-is for a
+  separate cleanup; (d) `RESET_WR_LIST` tokens are canonicalized with the same
+  `split('.')[0]` + `_RE_SANITIZE_HELPER_NAME` + 50-char cap as `wr_num` and filename identities,
+  otherwise `12/34` would force a full read but neither purge nor regenerate; (e) 79-char line
+  and the changelog PR reference.
 - **Rules:** (1) never scope the READ side of a reset lever — only generation/upload; (2) a
-  cleanup gate must require a live same-week, same-variant real-name sibling before deleting a
-  placeholder; (3) any new placeholder spelling must be added to `_SENTINEL_CLAIMERS` in
-  `billing_audit/writer.py`, which this gate reuses.
+  cleanup gate must require a live same-week, same-variant real-name sibling that is ATTACHED
+  on the row (generated ≠ published) before deleting a placeholder; (3) any new placeholder
+  spelling must be added to `_SENTINEL_CLAIMERS` in `billing_audit/writer.py`, which this gate
+  reuses, and sanitized `#`-errors are recognized by their leading `_`; (4) a Sentry tag inside a
+  `new_scope()` that captures nothing is a no-op — use a breadcrumb or tag the active span.

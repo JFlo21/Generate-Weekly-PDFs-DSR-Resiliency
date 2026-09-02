@@ -186,4 +186,4 @@ the listed WRs instead of disabling the unchanged-group skip for the whole run; 
 every sheet is kept on purpose so the purged WR can always be rebuilt. `WR`-prefixed tokens are
 accepted. Operators: watch for `🔄 Sentinel-superseded attachment detected` log lines in the first
 run after merge, and expect per-WR resets to be short. See `memory-bank/living-ledger.md`
-`[2026-09-01 20:20]`.
+`[2026-09-01 20:20]`; PR #377.

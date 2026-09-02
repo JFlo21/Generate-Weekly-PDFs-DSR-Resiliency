@@ -100,6 +100,15 @@ def _is_sentinel_identifier(identifier: str | None) -> bool:
     """
     if not identifier:
         return False
+    # Filename identifiers are SANITIZED (``_RE_SANITIZE_HELPER_NAME``:
+    # every non-word char -> ``_``), so a Smartsheet error token such as
+    # ``#REF!`` / ``#INVALID`` / ``#NO MATCH`` arrives as ``_REF_`` /
+    # ``_INVALID`` / ``_NO_MATCH``. ``is_sentinel_claimer`` recognizes the
+    # raw ``#`` prefix and the named family, but not every sanitized error
+    # spelling (Codex on PR #377). A real person's sanitized name never
+    # starts with ``_``, so a leading underscore IS the sanitized ``#``.
+    if identifier.startswith('_'):
+        return True
     try:
         from billing_audit.writer import is_sentinel_claimer  # noqa: PLC0415
     except Exception:  # pragma: no cover - defensive: writer unavailable
@@ -259,6 +268,20 @@ def cleanup_untracked_sheet_attachments(
             continue
         identity_groups = collections.defaultdict(list)
         off_contract_attachments = []  # Phase 1.1 Bug B2 / D-07: per-sheet whitelist
+        # Identities physically attached to THIS row right now. The
+        # sentinel-superseded gate below requires its real-name sibling
+        # to be in here as well as in ``valid_wr_weeks``: ``valid_wr_weeks``
+        # is built from GENERATED filenames, so a replacement whose upload
+        # failed would otherwise count as live and the placeholder — the
+        # only current report for that (wr, week, variant) — would be
+        # deleted (Greptile on PR #377).
+        _row_attached_idents = set()
+        for _a in attachments:
+            _n = getattr(_a, 'name', '') or ''
+            if _n.startswith('WR_') and _n.endswith('.xlsx'):
+                _i = build_group_identity(_n)
+                if _i:
+                    _row_attached_idents.add(_i)
         for att in attachments:
             name = getattr(att,'name','') or ''
             if name.startswith('WR_') and name.endswith('.xlsx'):
@@ -465,7 +488,10 @@ def cleanup_untracked_sheet_attachments(
                     # gates above, it fires only for identities this run did
                     # not emit, so KEEP_HISTORICAL_WEEKS / WR_FILTER scoping
                     # cannot make an in-scope sentinel look stale without a
-                    # live real-name sibling.
+                    # live real-name sibling; (5) the sibling must ALSO be
+                    # attached to this row right now
+                    # (``_row_attached_idents``) — generated but not
+                    # uploaded is not a replacement (Greptile, PR #377).
                     if (
                         _identifier
                         and ident not in valid_wr_weeks
@@ -476,19 +502,28 @@ def cleanup_untracked_sheet_attachments(
                             and _vw[2] == variant
                             and _vw[3]
                             and not _is_sentinel_identifier(_vw[3])
+                            and _vw in _row_attached_idents
                             for _vw in valid_wr_weeks
                         )
                     ):
                         try:
+                            # Breadcrumb, not a throwaway scope: tags set
+                            # inside a ``new_scope()`` that captures nothing
+                            # are discarded (Copilot / Codex on PR #377). A
+                            # breadcrumb rides along on any later event in
+                            # this run and is visible in the cleanup span.
                             import sentry_sdk as _sentry_sdk
-                            with _sentry_sdk.new_scope() as _scope:
-                                _scope.set_tag(
-                                    'cleanup.reason',
-                                    'sentinel_superseded',
-                                )
-                                _scope.set_tag('wr', wr)
-                                _scope.set_tag('week', week)
-                                _scope.set_tag('variant', variant)
+                            _sentry_sdk.add_breadcrumb(
+                                category='cleanup',
+                                message='sentinel_superseded',
+                                level='info',
+                                data={
+                                    'wr': wr,
+                                    'week': week,
+                                    'variant': variant,
+                                    'attachment': name,
+                                },
+                            )
                         except Exception:
                             pass
                         off_contract_attachments.append(att)

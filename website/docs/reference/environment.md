@@ -648,12 +648,15 @@ No hash reset is needed for that. Since the owner-approved follow-up
 file itself: a `*_Unknown_Foreman*` / `*_Unknown_Helper*` /
 `*_Unknown_VAC_Crew*` / `*__NO_MATCH*` attachment that this run did not
 produce is deleted once a **real-name identity for the same WR, same
-week-ending, and same variant** is live in that run (log line
-`🔄 Sentinel-superseded attachment detected`, Sentry tag
-`cleanup.reason=sentinel_superseded`). It never fires across weeks or
+week-ending, and same variant** is live in that run **and physically
+attached to the row** (a replacement that was generated but failed to
+upload does not count). Log line `🔄 Sentinel-superseded attachment
+detected`; Sentry breadcrumb `cleanup` / `sentinel_superseded` with the
+WR, week, variant, and attachment name. It never fires across weeks or
 across roles, never on a placeholder that is still produced (the WR is
-still unassigned), and a bare primary with no name does not count as a
-real name. This isolated sweep keeps protecting `_Unknown_Foreman` for
+still unassigned), and neither a bare primary with no name nor a
+sanitized Smartsheet error token (`_REF_`, `_INVALID`, `_NO_MATCH`)
+counts as a real name. This isolated sweep keeps protecting `_Unknown_Foreman` for
 the reason above (only `_NO_MATCH` is swept here). The run summary
 reports `sentinel_claimers_ignored` (rows resolved past a frozen sentinel
 this run) and `sentinel_freezes_deferred` (completed rows not frozen yet

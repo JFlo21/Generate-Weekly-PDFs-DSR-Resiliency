@@ -34,9 +34,9 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
   cleanup + `RESET_WR_LIST` skip-gate scoping APPROVED (next PR); event-driven change capture
   assessed as a future Phase 14 (gate: SC-1 wall clock + timing breakdown). §5 step 2 cross-week
   inheritance DECIDED OFF (19:55). Still open: PPP purge on reset; cell-history backfill.
-- **Churn PR (sentinel-superseded cleanup + `RESET_WR_LIST` scoped to listed WRs) built 20:20 on
-  `fix/sentinel-superseded-cleanup-reset-scope`:** `pipeline/cleanup.py` gate (same wr + week +
-  variant real-name sibling required; Sentry `cleanup.reason=sentinel_superseded`),
+- **Churn PR #377 (sentinel-superseded cleanup + `RESET_WR_LIST` scoped to listed WRs), `a882434`
+  on `fix/sentinel-superseded-cleanup-reset-scope`, open for owner review:** `pipeline/cleanup.py` gate (same wr + week +
+  variant real-name sibling required; AND attached on the row; Sentry breadcrumb `sentinel_superseded`; 9 review threads — attached-sibling, sanitized `#`-error tokens, breadcrumb, canonicalized reset tokens — fixed on-branch),
   `pipeline/orchestrate.py` `_reset_list_forces_regeneration` in the skip gate (Trigger 5 full
   read kept on purpose), `pipeline/config.py` `_normalize_reset_wr`. Tests
   `tests/test_sentinel_superseded_cleanup.py` (13 / 16 subtests, RED→GREEN). Ledger
