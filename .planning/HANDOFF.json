@@ -1,0 +1,44 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-09-02T07:28:38.879Z",
+  "phase": "11.1",
+  "phase_name": "post-inc-05-runtime-remediation",
+  "phase_dir": ".planning/phases/11.1-post-inc-05-runtime-remediation",
+  "plan": 3,
+  "task": 2,
+  "total_tasks": 4,
+  "status": "paused",
+  "completed_tasks": [
+    {"id": 1, "name": "Merge PR #378 (frozen-row cache warm start)", "status": "done", "commit": "2008fd9"},
+    {"id": 2, "name": "Canary on the first scheduled run after 2008fd9", "status": "in_progress", "progress": "waiting for the 13:00Z Sep 2 production_frequent run; nothing to do until it finishes"}
+  ],
+  "remaining_tasks": [
+    {"id": 3, "name": "Re-measure SC-1 / SC-3 on the canary run (Duration < ~75 min, <= 0.5 s/group)", "status": "not_started"},
+    {"id": 4, "name": "Write 11.1-03-SUMMARY.md, re-run /gsd-verify-work 11.1 to seal the phase", "status": "not_started"}
+  ],
+  "blockers": [
+    {"description": "Canary numbers exist only after the next scheduled run on master >= 2008fd9 (13:00Z Sep 2 or later)", "type": "external", "workaround": "none; read the run log + run_summary.json when it lands"},
+    {"description": "PR #379 (INC-06) is open; if it is not merged before the canary, the run may still overrun the 180-min ceiling after finishing its work, so read the Python Duration, not the job time", "type": "human_action", "workaround": "SC-1 is judged on Python Duration per 11.1-03-PLAN.md notes"}
+  ],
+  "async_jobs": [],
+  "human_actions_pending": [
+    {"action": "Review and merge PR #379 fix(INC-06): detach abandoned shadow-parity probe workers at interpreter exit", "context": "branch fix/inc-06-parity-exit-hang off 2008fd9; ALL 6 GATES PASSED, haiku 4/4, production-risk SAFE-WITH-NOTES with notes fixed in-PR; checks settled: the one Greptile P2 thread (changelog PR reference) fixed and resolved; the Azure-mirror and code/snyk check failures are pre-existing on #377/#378 too", "blocking": false},
+    {"action": "Approve or decline a session-wide Smartsheet request timeout (the deferred INC-06 read-timeout half)", "context": "SDK 4.3.0 has no per-request timeout; a session-wide one touches the production fetch path", "blocking": false},
+    {"action": "Rule whether PPP sheets are exempt from PR #377's sentinel-superseded cleanup gate", "context": "left as merged (no exemption)", "blocking": false},
+    {"action": "Phase 12 owner-side items when reached: deploy the OWN-03 RPC + backup SQL; run the cell-history job by dispatch first", "context": "docs/superpowers/specs/2026-09-01-own-03-claim-time-backfill-design.md (untracked, rides with the OWN-03 PR)", "blocking": false}
+  ],
+  "decisions": [
+    {"decision": "Warm-start the in-run frozen-row cache from the lookup_attribution_bulk map (PR #378)", "rationale": "INC-05 D-12 retired the warm start; ~214k freeze_attribution RPCs/run; zero extra requests; change detection unaffected (extended hash carries the foreman)", "phase": "11.1"},
+    {"decision": "INC-06 fix = detach() only; read-timeout half deferred", "rationale": "detach removes the exit hang entirely; the timeout would touch the production fetch path and needs its own approval", "phase": "11.1"},
+    {"decision": "detach() pops daemon threads only", "rationale": "a fallback-path executor with non-daemon workers would otherwise report a detach that threading._shutdown's lock join silently undoes", "phase": "11.1"},
+    {"decision": "OWN-03 write path = owner-deployed RPC; cell history included as a separate capped weekend job (dispatch-only first); PPP attachments never purged by a reset; no cross-week inheritance; claim-time ownership per row and role", "rationale": "owner decisions 2026-09-01 19:45 / 19:55 and 2026-09-02 00:35 (ledger)", "phase": "12"},
+    {"decision": "Phase 12 is implemented through GSD (discuss -> plan -> execute -> verify) after 11.1 seals", "rationale": "multi-plan, production-sensitive work; 11.1 closes first so the roadmap stays linear", "phase": "12"}
+  ],
+  "uncommitted_files": [
+    ".planning/state.json (untracked GSD runtime file, leave)",
+    "docs/superpowers/specs/2026-09-01-own-03-claim-time-backfill-design.md (untracked by design; rides with the OWN-03 PR)",
+    "docs/superpowers/specs/2026-08-24-supabase-run-memory-design.md (untracked, pre-existing)"
+  ],
+  "next_action": "Check PR #379 status and bot review threads (gh pr view 379; gh api graphql reviewThreads), then read the first scheduled run on master >= 2008fd9: the 🧊 warm-start line, snapshots_already_frozen, freeze_attribution call count, Python Duration, group phase s/group, and the 🧵 Shadow parity INC-06 line if #379 was merged; record the numbers in 11.1-03-SUMMARY.md",
+  "context_notes": "Everything code-side is shipped or in an open PR. Branch at pause: fix/inc-06-parity-exit-hang (650432a + this WIP), tracked as PR #379. master = 2008fd9 (includes #374 #375 #376 #377 #378). The 11.1 UAT is complete (17 pass / 2 issues) with both gaps bound to #378 via 11.1-03-PLAN.md; the phase seals only after the canary SUMMARY. Second-brain write-back for the whole 09-01 -> 09-02 stretch is applied (project page section, dashboard row, log line); the three pre-compaction packets were consolidated and cleared. gsd-tools lives at ~/.claude/gsd-core/bin/gsd-tools.cjs; never resolve it through .codex paths (harness boundary)."
+}

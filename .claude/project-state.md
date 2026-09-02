@@ -44,6 +44,9 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
   with its implementation PR) — write path (RPC vs SQL) and optional cell-history source 5 await
   owner approval.
 
+- **PAUSED 2026-09-02 07:28Z (`/gsd-pause-work`):** handoff in `.planning/HANDOFF.json` +
+  `.planning/phases/11.1-post-inc-05-runtime-remediation/.continue-here.md`; resume with
+  `/gsd-resume-work`. First action on resume: PR #379 checks/bot threads, then the 11.1 canary.
 - **INC-06 fix = PR #379 (`fix/inc-06-parity-exit-hang` off `2008fd9`, which already
   includes #378). PR #378 MERGED `2008fd9`; PR #377 MERGED `0fffb22`.** Run 33579406295
   (`3f81d94`) completed all billing work (17 files, cleanup correct, 5,815 sentinel claimers
