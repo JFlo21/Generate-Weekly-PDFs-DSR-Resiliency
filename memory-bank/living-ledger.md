@@ -8606,3 +8606,52 @@ Reference: `.planning/phases/11.1-post-inc-05-runtime-remediation/` (`11.1-CONTE
   steps (daemon flag, `shutdown(wait=False, cancel_futures=True)`, `_threads_queues` pop) or the
   atexit join still waits; (3) `sentinel_claimers_ignored` ≈ the sentinel-row count is the healthy
   signature of the OWN-02 rule, not an error.
+
+## [2026-09-02 02:50] INC-06 fix built — `_DaemonThreadPoolExecutor.detach()` + the parity abandon-path call (PR #379, `fix/inc-06-parity-exit-hang` off `2008fd9`); the probe read-timeout half is a scoped follow-up
+
+- **What changed.** `pipeline/config.py`: new `detach() -> int` on `_DaemonThreadPoolExecutor` pops
+  every thread in `self._threads` from `concurrent.futures.thread._threads_queues` (the atexit
+  join registry), returns the count, is idempotent, is safe before any worker started, and returns
+  0 if a future CPython removes the private registry; the class docstring now names `detach()` as
+  the required third abandon step. `pipeline/parity.py` `run_shadow_delta_reads`: the `finally:`
+  now calls `executor.detach()` right after `executor.shutdown(wait=False, cancel_futures=True)`
+  and ends the block with one line: INFO `🧵 Shadow parity: no probe still running; released N
+  worker(s) from the interpreter-exit join (INC-06)` on a healthy run, WARNING `🧵 Shadow parity:
+  M probe(s) still stuck in Smartsheet reads; N worker(s) detached from the interpreter-exit
+  join so exit will not wait (INC-06)` otherwise. M counts futures not `done()` after
+  `cancel_futures`, so idle-worker teardown timing cannot make it noisy, and the future map is
+  built incrementally so a `submit()` failure part-way through still counts the started probes.
+  `detach()` skips non-daemon threads, so a fallback-path executor can never report a detach
+  that `threading._shutdown`'s lock join would silently undo. Probe logic, escalation counters,
+  verdict and the returned dict are unchanged.
+- **Proof.** `tests/test_inc06_parity_exit_hang.py` (9 tests): registry pop with a worker blocked
+  on an Event; idempotence / zero before any worker; a non-daemon stray thread is left
+  registered; the healthy INFO line, the stuck WARNING line with its count, and the count
+  surviving a `submit()` failure; a real child interpreter with a blocked
+  worker exits in under 15 s after `shutdown + detach`; the control child WITHOUT `detach` hangs
+  (asserted via `TimeoutExpired`, then killed) — the same shape that hung this session's first
+  RED run for the full 120 s tool timeout on Windows, so the failure mode reproduces on both
+  platforms; and a spy proving parity calls `detach()` exactly once, after the abandon
+  `shutdown()`. TDD order: RED (4 failures: `AttributeError: detach`, parity call list missing
+  `detach`) → GREEN 47/47 with `tests/test_parity_shadow.py`; review round RED 4 → GREEN 51/51.
+- **Independent review.** haiku rubric 4/4 PASS. `production-risk-reviewer`: SAFE-WITH-NOTES —
+  probe results confirmed discardable (`fetch_sheet_delta` is read-only; its only side effect,
+  `_LAST_SHEET_VERSIONS`, is consumed before the parity block runs), no other executor user,
+  WeakKeyDictionary pop of a live thread is safe. Notes fixed in the same PR: still-running count
+  wrong when `submit()` raised part-way (future map now built incrementally), healthy-run
+  wording implied stragglers every run (two distinct messages), daemon-only guard so a fallback
+  executor cannot mask the hang, stale pre-fetch justification in the docstring. Accepted
+  residual: a daemon worker whose socket unblocks during finalization is terminated by CPython
+  (`PyThread_exit_thread`); pure-Python/`_socket` frames unwind cleanly, but a nonzero exit after
+  all work is done is possible in theory — still strictly better than the 180-min ceiling.
+- **Deliberately NOT in this PR — the read-timeout half.** smartsheet-python-sdk 4.3.0 sends
+  every request as `self._session.send(prepped_request, stream=stream)` with no timeout and no
+  configuration knob, so a bounded probe read needs either a session-wide `requests` timeout
+  (touches the production fetch path — needs owner approval and its own failure-mode review) or
+  a per-call adapter wrapper. With `detach()` the hang is gone regardless: a stuck probe now
+  costs the parity block at most `RUN_MEMORY_SHADOW_RPC_TIMEOUT_SEC` per sheet and nothing at
+  exit. Recorded as a scoped follow-up, not a blocker.
+- **Rule.** Any new `_DaemonThreadPoolExecutor` user that abandons workers must call all three
+  documented steps — daemon flag (constructor), `shutdown(wait=False, cancel_futures=True)`,
+  then `detach()` — and may only do so for discardable work (the D-07 shadow qualifies; uploads,
+  Supabase writes and run-summary flushes never do).

@@ -360,9 +360,11 @@ def run_shadow_delta_reads(
         executor = _DaemonThreadPoolExecutor(max_workers=parallel_workers)
         future_to_source: dict[Any, Any] = {}
         try:
-            future_to_source = {
-                executor.submit(_probe, s): s for s in source_sheets
-            }
+            # Built incrementally so a submit() failure part-way
+            # through still leaves the started probes visible to the
+            # INC-06 accounting in the finally: block below.
+            for s in source_sheets:
+                future_to_source[executor.submit(_probe, s)] = s
             for future, source in future_to_source.items():
                 sid = source.get("id") if isinstance(source, dict) else None
 
@@ -400,6 +402,31 @@ def run_shadow_delta_reads(
                 rows_seen += len(ids)
         finally:
             executor.shutdown(wait=False, cancel_futures=True)
+            # INC-06 (run 33579406295): shutdown() abandons stragglers
+            # but leaves them in concurrent.futures' atexit join
+            # registry, so one probe stuck in a socket read held
+            # interpreter exit for 42 min and pushed the job past the
+            # 180-min runner ceiling. Detach them — probe results are
+            # discardable by design (D-07: shadow compares, never acts).
+            detached = executor.detach()
+            still_running = sum(
+                1 for f in future_to_source if not f.done()
+            )
+            if still_running:
+                logger.warning(
+                    "🧵 Shadow parity: %d probe(s) still stuck in "
+                    "Smartsheet reads; %d worker(s) detached from the "
+                    "interpreter-exit join so exit will not wait "
+                    "(INC-06)",
+                    still_running, detached,
+                )
+            elif detached:
+                logger.info(
+                    "🧵 Shadow parity: no probe still running; released "
+                    "%d worker(s) from the interpreter-exit join "
+                    "(INC-06)",
+                    detached,
+                )
 
         # Evidence accounting (Greptile P1, PR #353): count what was
         # actually asserted, and which changed sheets the probes never

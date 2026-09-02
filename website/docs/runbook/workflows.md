@@ -35,6 +35,22 @@ Key behaviors:
   `🧊 Frozen-row cache warm-started` log line near the start of the group
   phase. Without it (prefetch failed or attribution flags off) the run
   simply freezes every completed row as INC-05 did.
+- The Phase 11 shadow-parity block (`RUN_MEMORY_SHADOW_MAX_MINUTES`,
+  `RUN_MEMORY_SHADOW_RPC_TIMEOUT_SEC`) abandons any delta probe that
+  overruns its timeout and, since PR #379 (INC-06), also detaches the
+  abandoned worker threads from the interpreter-exit join. The parity
+  block now ends with one `🧵 Shadow parity:` line — INFO `no probe still
+  running; released N worker(s) from the interpreter-exit join` on a
+  healthy run, or WARNING `M probe(s) still stuck in Smartsheet reads; N
+  worker(s) detached from the interpreter-exit join so exit will not
+  wait` when a probe overran its timeout.
+  Before that fix a stuck probe kept the `Generate reports` step alive
+  after every phase had finished (42 minutes on run 33579406295, ~16
+  minutes per socket until Smartsheet closed it, then a retry), so the
+  job could cross `timeout-minutes: 180` with all its work done. If a
+  run's job time exceeds the Python `Duration` by more than the
+  post-job reserve, compare the step's end time with its last INFO line
+  before reading anything else.
 - Derives an `execution_type` (`production_frequent`, `weekend_maintenance`,
   `weekly_comprehensive`, `manual`, `scheduled`) used in artifact names and
   the Notion sync.
