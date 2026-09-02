@@ -2,20 +2,20 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
-current_phase: 11.1
-current_phase_name: Post-INC-05 Runtime Remediation (INSERTED)
-status: executing
-stopped_at: "Phase 11.1 complete: plan 11.1-04 Task 4 canary PASS (run 33683979474, Phase 1 37.7s, Duration 50.8min). G-11.1-4 RESOLVED (components a+b). 11.1-04-SUMMARY.md written. Next: /gsd:verify-work 11.1."
-last_updated: "2026-09-02T22:16:10.981Z"
+current_phase: 12
+current_phase_name: Ownership — last known foreman as of the week
+status: planning
+stopped_at: Phase 11.1 complete, ready to plan Phase 12
+last_updated: "2026-09-02T22:32:52.148Z"
 last_activity: 2026-09-02
-last_activity_desc: "Phase 11.1 complete (4/4 plans); G-11.1-4 RESOLVED via canary PASS on run 33683979474"
-state_head: 1ca1b36e7d0a148c2578b09498fa37d226b90d69
+last_activity_desc: Phase 11.1 complete, transitioned to Phase 12
+state_head: 5717855fa11dd4dd4abb4f2d7781eace9cb05f23
 progress:
   total_phases: 13
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 50
   completed_plans: 50
-  percent: 23
+  percent: 31
 ---
 
 # Project State
@@ -35,15 +35,15 @@ pipeline.
 
 ## Current Position
 
-Phase: 11.1 (Post-INC-05 Runtime Remediation (INSERTED)) — EXECUTING
+Phase: 12 — Ownership — last known foreman as of the week
   `675e3e2`, 2026-09-01 20:14Z); awaiting the post-merge SC-1 observation
-Plan: 4 of 4 — 11.1-04 (G-11.1-4 residual (b) gap closure) complete, PR #384 merged `13e8e76`, canary PASS on run 33683979474 (Phase 1 37.7s, Duration 50.8min). Phase 11.1 has no further open plans.
+Plan: Not started
   (Fix 2 — bulk attachment pre-seed) both executed, gate-verified
   (11.1-VERIFICATION.md 12/12, 0 gaps, `human_needed`), and merged to
   master. Greptile round fixed on-branch (never-raising ceiling parse,
   typed skip index). Merged with 9 bot threads unresolved — see
   Blockers/Concerns. Post-merge gate on master: ALL 6 PASSED.
-Status: Phase 11.1 plans complete (4/4); next action is /gsd:verify-work 11.1 to reconcile G-11.1-4 RESOLVED
+Status: Ready to plan
   candidate whose live Smartsheet version still matches
   `pipeline_memory.sheet_registry.last_sheet_version` and whose stored
   `column_mapping` is valid (D-11.1-01). Group-processing skip-gate
@@ -59,7 +59,7 @@ Status: Phase 11.1 plans complete (4/4); next action is /gsd:verify-work 11.1 to
   built). `bash scripts/run_6_gates.sh` = ALL 6 GATES PASSED (Gate 4
   mypy delta neutral 72->72, no re-baseline needed this plan); full
   suite 1886 passed / 1 skipped / 306 subtests.
-Last activity: 2026-09-02 — Phase 11.1 execution started
+Last activity: 2026-09-02 — Phase 11.1 complete, transitioned to Phase 12
   GREEN pre-seed helpers, RED test / GREEN main() wiring, phase-gate +
   Living Ledger entry). SC-1/D-11.1-04 (frequent-run wall clock back
   under ~75 min) and SC-3's log-content confirmation remain POST-MERGE
@@ -420,7 +420,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 ## Session
 
 **Last session:** 2026-09-02T22:16:09.857Z
-**Stopped at:** Phase 11.1 complete: plan 11.1-04 Task 4 canary PASS (run 33683979474, Phase 1 37.7s, Duration 50.8min). G-11.1-4 RESOLVED (components a+b). 11.1-04-SUMMARY.md written. Next: /gsd:verify-work 11.1.
+**Stopped at:** Phase 11.1 complete, ready to plan Phase 12
 **Resume file:** None
 
 ## Session Continuity

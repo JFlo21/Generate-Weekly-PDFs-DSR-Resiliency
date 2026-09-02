@@ -675,7 +675,7 @@ confirmation + fail-closed discovery semantics from PR #373's review fixes.
 **Requirements**: none mapped (inserted urgent phase — the Success Criteria
 above plus D-11.1-01..04 in `11.1-CONTEXT.md` are the contract)
 **Depends on:** Phase 11
-**Plans:** 4/4 plans executed (includes 2 gap-closure plans for G-11.1-4)
+**Plans:** 4/4 plans complete
 
 Plans:
 **Wave 1**
