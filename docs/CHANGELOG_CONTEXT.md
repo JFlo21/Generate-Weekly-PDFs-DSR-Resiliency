@@ -238,4 +238,4 @@ parity verdict are computed exactly as before, and no billing, grouping, hashing
 workflow or env behaviour is touched. The bounded read timeout for the probe path is a separate
 follow-up because the Smartsheet SDK exposes no per-request timeout and a session-wide one would
 touch the production fetch path. See `memory-bank/living-ledger.md` `[2026-09-02 01:35]`
-(diagnosis) and `[2026-09-02 02:50]` (fix).
+(diagnosis) and `[2026-09-02 02:50]` (fix); PR #379.
