@@ -8553,3 +8553,56 @@ Reference: `.planning/phases/11.1-post-inc-05-runtime-remediation/` (`11.1-CONTE
   exempt from that gate too.
 - **Rule:** an approval given "if X still holds" is recorded WITH the evidence that X holds
   (file + mechanism), not as a bare approval.
+
+## [2026-09-02 01:35] INC-06 — run 33579406295 (`3f81d94`, first run with #375 + #376) hit the 180-min runner ceiling AFTER finishing all its work: a 42-minute interpreter-exit hang on stuck shadow-parity delta-probe workers; counters for the sentinel rule; six stale placeholders correctly pruned
+
+- **What happened.** Core job 03:19:35Z → cancelled 06:19:54Z. The Python session itself completed
+  normally: discovery 61.6 s (117/121 skipped), fetch 1234.6 s, group phase 6223.1 s (17 generated /
+  3006 skipped / 154 no-target-row), `Session complete` at 05:33Z (2:13:09), cleanup and audit
+  summary by 05:36:53Z. The `Generate reports` step then stayed alive until **06:19:26Z with no
+  INFO output** — only urllib3 `Retrying … RemoteDisconnected` lines at 05:46, 06:02 and 06:19 for
+  `/2.0/sheets/<id>?columnIds=` (the shadow-parity `delta-probe sheet …` reads, `Retry(total=0)`)
+  and `Connection pool is full … size: 8`. The step ended `success`; steps 10–19 (Sentry release,
+  manifest, Supabase publish `published=17 failed=0`, artifact uploads) all completed by 06:19:51Z;
+  the job then crossed `timeout-minutes: 180` and the run is recorded **cancelled** (Notion sync
+  skipped). Nothing billing-visible was lost; the run does not count for the 11-08 parity streak.
+- **Root cause (code-verified).** `pipeline/parity.py` `run_shadow_delta_reads` runs the per-sheet
+  delta probes on `_DaemonThreadPoolExecutor`, gives each `future.result(timeout=rpc_timeout_sec)`
+  (45 s), then abandons stragglers with `executor.shutdown(wait=False, cancel_futures=True)`
+  (parity.py:402). That is only 2 of the 3 exit blockers the executor's own docstring lists
+  (`pipeline/config.py:180-195`): the subclass still registers every worker in
+  `concurrent.futures.thread._threads_queues` (config.py:234), and **nothing pops them**, so
+  `_python_exit` (registered via `threading._register_atexit`) joined the stuck workers at
+  interpreter shutdown. Each stuck `get_sheet(if_version_after=…, column_ids=…)` read sat ~16 min
+  before Smartsheet closed it (`RemoteDisconnected`), then `smartsheet_call_with_retry` retried
+  (`attempt 1/4 … retrying in 1.5s` at 06:02:46) — the exit waited for the whole chain. The
+  parity block itself had already reported `🚨 Shadow parity FAIL … groups_compared=4` at
+  05:32:45Z because the timed-out probes count as escalations. `TIME_BUDGET_MINUTES` cannot see
+  any of this: it governs the group loop, not interpreter shutdown.
+- **Proposed fix (owner approval — production orchestration):** after the abandon `shutdown()`
+  in `run_shadow_delta_reads`, detach the executor's workers from `_threads_queues` (the pop the
+  docstring prescribes; expose it as a `_DaemonThreadPoolExecutor.detach()` helper so the pattern
+  is reusable and unit-testable with a blocked worker), and add a bounded read timeout on the
+  probe path so a hung socket dies in seconds instead of ~16 min. Both are abandon-path only; the
+  probe results are discardable by design (D-07 shadow computes and compares, never acts).
+  Until merged, a run whose shadow probes hang can still overrun the ceiling even when its own
+  work finished on time.
+- **Sentinel rule, first production numbers** (`run_summary.json`): `sentinel_claimers_ignored`
+  5,815; `sentinel_freezes_deferred` 7,468; `snapshots_written` 58; `snapshots_already_frozen`
+  206,765 (the D-12 warm-start regression again, PR #378); `files_generated` 17;
+  `groups_skipped` 3,006. The regeneration burst was small (17 files): most sentinel rows still
+  have no real foreman in Smartsheet today, so their files stay placeholders until OWN-03.
+- **Cleanup: correct.** `Variant pruning done: removed_variants=4, removed_off_contract=6` — the six
+  off-contract removals were `<WR-F>`'s `_User_Unknown_Foreman` files for WE 05-10 … 06-14; a
+  direct Smartsheet check afterwards shows the row still holds a real-name primary
+  (`_User_<FOREMAN-F>`) for every one of those weeks plus its sub variants (12 files). That is
+  the pre-#377 off-contract gate doing what #377's sentinel-superseded gate formalizes: the
+  placeholder went only where the real file already sat beside it.
+- **Per-group cost (SC-3):** 6223.1 s / 3177 groups ≈ 1.96 s/group on this run, 2.0 s/group on
+  33570018457 — both fail the ≲0.5 s criterion for the D-12 reason fixed by PR #378.
+- **Rules:** (1) when a run's job time exceeds the Python `Duration` by more than the post-job
+  reserve, look at the step's end time vs the last INFO line — an exit hang leaves only urllib3
+  retry warnings; (2) abandoning a `_DaemonThreadPoolExecutor` needs all three of its documented
+  steps (daemon flag, `shutdown(wait=False, cancel_futures=True)`, `_threads_queues` pop) or the
+  atexit join still waits; (3) `sentinel_claimers_ignored` ≈ the sentinel-row count is the healthy
+  signature of the OWN-02 rule, not an error.
