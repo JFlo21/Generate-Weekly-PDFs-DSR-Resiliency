@@ -4025,7 +4025,7 @@ class DiscoveryBoundedValidationReadTests(unittest.TestCase):
             os.environ['LIMITED_SHEET_IDS'] = self._saved_limited
 
     @staticmethod
-    def _bounded_client(sid, name="Bounded Read Sheet"):
+    def _bounded_client(sid, name="Bounded Read Sheet", rows=None):
         col = SimpleNamespace(
             id=77, title="Weekly Reference Logged Date", type="DATE",
         )
@@ -4036,7 +4036,8 @@ class DiscoveryBoundedValidationReadTests(unittest.TestCase):
         ])
         client = mock.MagicMock()
         client.Sheets.get_sheet.return_value = SimpleNamespace(
-            id=sid, name=name, columns=[col], rows=[row],
+            id=sid, name=name, columns=[col],
+            rows=[row] if rows is None else rows,
         )
         client.Sheets.list_sheets.return_value = SimpleNamespace(data=[])
         return client
@@ -4100,6 +4101,28 @@ class DiscoveryBoundedValidationReadTests(unittest.TestCase):
                 "G-11.1-4: the retired include= kwarg must not reappear on "
                 "the validation fetch",
             )
+
+    def test_bounded_empty_rows_response_is_seeded_without_second_call(self):
+        """PR #384 review (Greptile P2 / Copilot): a bounded response
+        carrying a valid EMPTY rows list is still a seeded sample set --
+        the same SDK shape ``tests/test_vac_crew.py`` already uses -- so
+        the date-column diagnostics must not repeat the bounded fetch.
+        Only a response with no ``rows`` attribute at all may fall
+        through to the lazy fetch."""
+        os.environ['LIMITED_SHEET_IDS'] = '555666'
+        client = self._bounded_client(555666, rows=[])
+
+        result = self._run(client)
+
+        self.assertEqual(
+            result[0]['column_mapping'], {'Weekly Reference Logged Date': 77},
+            "G-11.1-4: an empty sheet must still map its exact-title column",
+        )
+        self.assertEqual(
+            client.Sheets.get_sheet.call_count, 1,
+            "G-11.1-4: an empty rows=[] response is a seeded (empty) sample "
+            "set and must not trigger a second get_sheet round trip",
+        )
 
     @staticmethod
     def _src() -> str:

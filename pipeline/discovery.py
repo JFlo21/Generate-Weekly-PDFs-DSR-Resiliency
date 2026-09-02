@@ -500,12 +500,16 @@ def discover_source_sheets(client):
             # Phase 11.1 (G-11.1-4): seed the cache from the row-bounded
             # validation fetch above instead of leaving it unset -- that
             # response already carries up to three rows, so this reuses
-            # them instead of paying a second get_sheet round trip. `None`
-            # stays the "not seeded" sentinel: the rare response that
-            # carries no rows attribute at all still falls through to the
+            # them instead of paying a second get_sheet round trip. A valid
+            # EMPTY rows list (an empty source sheet) is still a seeded
+            # sample set -- keep it as [] so the diagnostics below do not
+            # repeat the bounded fetch (PR #384 review). `None` stays the
+            # "not seeded" sentinel ONLY for the rare response that carries
+            # no rows attribute at all, which still falls through to the
             # lazy fetch below unchanged.
+            _rows_attr = getattr(sheet, 'rows', None)
             _sample_rows_cache = (
-                list(sheet.rows) if getattr(sheet, 'rows', None) else None
+                list(_rows_attr) if _rows_attr is not None else None
             )
             def _get_sample_rows():
                 nonlocal _sample_rows_cache

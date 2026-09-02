@@ -8795,7 +8795,7 @@ AND one where it hit before attributing the miss to the clock; a two-point read-
 skip rate, price the miss: a discovery/validation call that needs only column metadata must never
 fetch rows — `include=` is not a row filter on `get_sheet`.
 
-## [2026-09-02 14:35] G-11.1-4 residual (component b) closed: discovery validation read bounded to `row_numbers=[1, 2, 3]`, reusing the same response as the date-column sample set
+## [2026-09-02 14:35] G-11.1-4 residual (component b) implemented — production canary pending: discovery validation read bounded to `row_numbers=[1, 2, 3]`, reusing the same response as the date-column sample set
 
 **Rule.** When a Smartsheet discovery/validation call needs only column metadata
 (`sheet.columns`, `sheet.name`), fetch it via a ROW-BOUNDED `Sheets.get_sheet(sid,
@@ -8834,3 +8834,21 @@ production canary shows the bounded read is still not cheap enough on a real mis
 scheduled run whose build contains the merge and whose skip index shows a genuine miss
 (`M eligible` low or `F fully validated` >= 100); a skip-hit run proves nothing new. See
 `11.1-04-SUMMARY.md` for the canary reading once the owner supplies it.
+
+## [2026-09-02 15:05] PR #384 review correction: an EMPTY `rows` list from the bounded validation read is a seeded sample set, never the `None` "not seeded" sentinel
+
+**Rule.** In `pipeline/discovery.py::_validate_single_sheet`, the sample-row cache seeded from the
+row-bounded validation response must treat a valid empty list (`sheet.rows == []`, the real SDK
+shape an empty source sheet returns and the shape `tests/test_vac_crew.py` already mocks) as
+SEEDED. Only a response with no `rows` attribute at all may leave the cache `None` and fall through
+to the lazy bounded fetch. A truthiness check (`if getattr(sheet, "rows", None)`) silently
+collapsed `[]` into `None`, so the date-column diagnostics (`discovery.py:667`) repeated the bounded
+`get_sheet` call for every empty sheet — the "zero-row sheet still costs 2 calls" LOW note from the
+production-risk review, independently raised as Greptile P2 and Copilot findings on PR #384.
+
+**What changed.** `_rows_attr = getattr(sheet, "rows", None)`; seed `list(_rows_attr)` when
+`_rows_attr is not None`. New test
+`DiscoveryBoundedValidationReadTests.test_bounded_empty_rows_response_is_seeded_without_second_call`
+(RED: 2 calls ≠ 1 → GREEN). Mapping logic, the D-11.1-01 fast path, the fail-closed guard and the
+return contract are untouched; the source pin still holds. Same PR (#384); the Task 4 production
+canary contract is unchanged.
