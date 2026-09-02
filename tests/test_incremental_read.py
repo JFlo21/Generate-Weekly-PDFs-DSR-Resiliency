@@ -3762,11 +3762,15 @@ class DiscoveryRegistrySkipTests(unittest.TestCase):
         )
 
     # ── Phase 11.1 Plan 01 Task 2: doubt-branch matrix, end-to-end ───────
-    # A successful full validation calls client.Sheets.get_sheet TWICE
-    # (columns fetch, then a sample-row fetch for the diagnostic log
-    # line) -- confirmed empirically against the unmodified pre-Phase-11.1
-    # code path. The proof that matters is that the FIRST call has the
-    # full-validation signature (`include='columns'`) -- i.e. the skip
+    # Phase 11.1 Plan 04 (G-11.1-4) bounded the validation fetch to the
+    # first three rows and seeded the sample-row cache from that same
+    # response, so a successful full validation against
+    # `_full_validation_client` (whose response carries no `rows`
+    # attribute) still records TWO client.Sheets.get_sheet calls: the
+    # row-bounded validation fetch, then the lazy sample-row fallback
+    # firing because there was nothing to seed the cache from. The proof
+    # that matters is that the FIRST call has the row-bounded
+    # full-validation signature (`row_numbers=[1, 2, 3]`) -- i.e. the skip
     # path (which makes ZERO calls, per the tracer test above) was NOT
     # taken.
 
@@ -3805,7 +3809,7 @@ class DiscoveryRegistrySkipTests(unittest.TestCase):
         self.assertGreaterEqual(client.Sheets.get_sheet.call_count, 1)
         self.assertEqual(
             client.Sheets.get_sheet.call_args_list[0],
-            mock.call(sid, include='columns'),
+            mock.call(sid, row_numbers=[1, 2, 3]),
         )
 
     def test_no_registry_row_performs_full_validation(self):
@@ -3988,6 +3992,161 @@ class DiscoveryRegistrySkipTests(unittest.TestCase):
         self.assertIn("1 skipped via sheet_registry", split_lines[0])
         self.assertIn("1 fully validated", split_lines[0])
         self.assertIn("D-11.1-01", split_lines[0])
+
+
+class DiscoveryBoundedValidationReadTests(unittest.TestCase):
+    """Phase 11.1 Plan 04 (G-11.1-4 residual b): a full validation issues
+    exactly ONE row-bounded ``client.Sheets.get_sheet`` call -- the same
+    response supplies ``columns``, ``name`` AND the sample rows the
+    date-column diagnostics read, deleting the second full-sheet round
+    trip that cost 26-41 s/sheet (3,214-4,999 s for 121 sheets on runs
+    33634833356 / 33647771644, per
+    .planning/debug/11.1-discovery-full-validation-cost.md). The two
+    behavioral tests above are the primary proof; the source pin below
+    (in the style of ``SkipGateLiveConfirmationWiringTests`` /
+    ``AttachmentPreseedWiringTests``) is the defense against a future
+    edit silently restoring the unbounded read."""
+
+    def setUp(self):
+        import generate_weekly_pdfs as gwp
+        self._gwp = gwp
+        self._saved_sub_folders = gwp.SUBCONTRACTOR_FOLDER_IDS
+        self._saved_orig_folders = gwp.ORIGINAL_CONTRACT_FOLDER_IDS
+        gwp.SUBCONTRACTOR_FOLDER_IDS = []
+        gwp.ORIGINAL_CONTRACT_FOLDER_IDS = []
+        self._saved_limited = os.environ.get('LIMITED_SHEET_IDS')
+
+    def tearDown(self):
+        self._gwp.SUBCONTRACTOR_FOLDER_IDS = self._saved_sub_folders
+        self._gwp.ORIGINAL_CONTRACT_FOLDER_IDS = self._saved_orig_folders
+        if self._saved_limited is None:
+            os.environ.pop('LIMITED_SHEET_IDS', None)
+        else:
+            os.environ['LIMITED_SHEET_IDS'] = self._saved_limited
+
+    @staticmethod
+    def _bounded_client(sid, name="Bounded Read Sheet"):
+        col = SimpleNamespace(
+            id=77, title="Weekly Reference Logged Date", type="DATE",
+        )
+        row = SimpleNamespace(cells=[
+            SimpleNamespace(
+                column_id=77, value='2026-08-24', display_value='2026-08-24',
+            )
+        ])
+        client = mock.MagicMock()
+        client.Sheets.get_sheet.return_value = SimpleNamespace(
+            id=sid, name=name, columns=[col], rows=[row],
+        )
+        client.Sheets.list_sheets.return_value = SimpleNamespace(data=[])
+        return client
+
+    @staticmethod
+    def _run(client):
+        from pipeline import discovery
+        with mock.patch.object(
+            discovery, '_FOLDER_DISCOVERED_SUB_IDS', set()
+        ), mock.patch.object(
+            discovery, '_FOLDER_DISCOVERED_ORIG_IDS', set()
+        ), mock.patch(
+            "pipeline.discovery.get_sheet_watermarks",
+            return_value={},
+        ):
+            return discovery.discover_source_sheets(client)
+
+    def test_bounded_full_validation_issues_one_call_and_returns_contract(self):
+        """G-11.1-4: a full validation whose response carries rows issues
+        exactly ONE client.Sheets.get_sheet call, deleting the second
+        round trip for sample rows."""
+        os.environ['LIMITED_SHEET_IDS'] = '555666'
+        client = self._bounded_client(555666)
+
+        result = self._run(client)
+
+        self.assertEqual(
+            result,
+            [{
+                'id': 555666,
+                'name': 'Bounded Read Sheet',
+                'column_mapping': {'Weekly Reference Logged Date': 77},
+            }],
+            "G-11.1-4: bounded validation must still return the identical "
+            "{'id','name','column_mapping'} contract",
+        )
+        self.assertEqual(
+            client.Sheets.get_sheet.call_count, 1,
+            "G-11.1-4: a response carrying rows must not trigger a second "
+            "get_sheet round trip for sample rows",
+        )
+
+    def test_bounded_call_uses_row_numbers_and_never_include(self):
+        """G-11.1-4: every get_sheet call in a full validation carries
+        row_numbers=[1, 2, 3] and never the retired include= kwarg."""
+        os.environ['LIMITED_SHEET_IDS'] = '555666'
+        client = self._bounded_client(555666)
+
+        self._run(client)
+
+        self.assertGreaterEqual(client.Sheets.get_sheet.call_count, 1)
+        for call in client.Sheets.get_sheet.call_args_list:
+            _, kwargs = call
+            self.assertEqual(
+                kwargs.get('row_numbers'), [1, 2, 3],
+                "G-11.1-4: validation fetch must be bounded to "
+                "row_numbers=[1, 2, 3]",
+            )
+            self.assertNotIn(
+                'include', kwargs,
+                "G-11.1-4: the retired include= kwarg must not reappear on "
+                "the validation fetch",
+            )
+
+    @staticmethod
+    def _src() -> str:
+        return (_REPO_ROOT / "pipeline/discovery.py").read_text(
+            encoding="utf-8"
+        )
+
+    @classmethod
+    def _validate_single_sheet_region(cls) -> str:
+        # Narrow window: from the function definition to the collector
+        # declaration that follows the whole closure -- brackets exactly
+        # the region this plan is allowed to touch, mirroring the
+        # AttachmentPreseedWiringTests._preseed_block narrow-window idiom.
+        src = cls._src()
+        start = src.index("def _validate_single_sheet(sid):")
+        end = src.index("_failed_validation_sids: list = []")
+        return src[start:end]
+
+    def test_source_has_no_unbounded_validation_read(self):
+        """G-11.1-4: the _validate_single_sheet region must use the
+        row-bounded read at least twice (validation fetch + lazy sample
+        fallback) and must never contain the retired unbounded keyword
+        form, guarding against a future edit silently restoring the
+        26-41 s/sheet full-row download
+        (.planning/debug/11.1-discovery-full-validation-cost.md)."""
+        region_lines = self._validate_single_sheet_region().splitlines()
+        code_only = "\n".join(
+            line for line in region_lines if not line.lstrip().startswith("#")
+        )
+
+        bounded_read = "row_numbers=list(range(1, 4))"
+        self.assertGreaterEqual(
+            code_only.count(bounded_read), 2,
+            "G-11.1-4: the row-bounded read must appear at least twice "
+            "(validation fetch + lazy sample fallback) -- see "
+            ".planning/debug/11.1-discovery-full-validation-cost.md",
+        )
+
+        # Built at runtime by concatenation so this test module never
+        # itself contains the forbidden literal verbatim.
+        retired_unbounded_form = "include" + "=" + "'columns'"
+        self.assertNotIn(
+            retired_unbounded_form, code_only,
+            "G-11.1-4: the retired unbounded include='columns' form must "
+            "not reappear in _validate_single_sheet -- see "
+            ".planning/debug/11.1-discovery-full-validation-cost.md",
+        )
 
 
 class LiveRowAttachmentsTests(unittest.TestCase):

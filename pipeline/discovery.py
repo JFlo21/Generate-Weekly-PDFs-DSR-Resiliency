@@ -460,13 +460,22 @@ def discover_source_sheets(client):
                 'column_mapping': dict(_skip_hit['column_mapping']),
             }
         try:
-            # PERFORMANCE FIX: Fetch only column metadata initially (no row data needed yet)
-            # This prevents Error 4000 for large sheets during discovery phase
+            # PERFORMANCE FIX (Phase 11.1, G-11.1-4): bound the validation
+            # read to the first three rows -- only sheet.columns and
+            # sheet.name are consumed below, and those same three rows
+            # double as the date-column sample set (see the cache seed a
+            # few lines down). The previous optional-elements keyword this
+            # call carried never bounded rows at all, so every miss of the
+            # D-11.1-01 registry skip paid a full-row download of every
+            # source sheet: 26-41 s/sheet at 8 workers, 3,214-4,999 s for
+            # 121 sheets on runs 33634833356 / 33647771644. Bounding the
+            # read also lowers the Error 4000 exposure on large sheets
+            # during discovery rather than re-introducing it.
             # RESILIENCE FIX: retry transient API errors (residual 4000, server
             # timeout, network drop) so a single blip does not silently drop a
             # whole source sheet (and its billing rows). Bounded backoff.
             sheet = smartsheet_call_with_retry(
-                client.Sheets.get_sheet, sid, include='columns',
+                client.Sheets.get_sheet, sid, row_numbers=list(range(1, 4)),
                 label=f"validate sheet {sid}",
             )
             cols = sheet.columns
@@ -488,7 +497,16 @@ def discover_source_sheets(client):
                 if keyed:
                     mapping['Snapshot Date'] = keyed[0].id
             # Sample fallback — fetch sample rows ONCE for all column checks
-            _sample_rows_cache = None
+            # Phase 11.1 (G-11.1-4): seed the cache from the row-bounded
+            # validation fetch above instead of leaving it unset -- that
+            # response already carries up to three rows, so this reuses
+            # them instead of paying a second get_sheet round trip. `None`
+            # stays the "not seeded" sentinel: the rare response that
+            # carries no rows attribute at all still falls through to the
+            # lazy fetch below unchanged.
+            _sample_rows_cache = (
+                list(sheet.rows) if getattr(sheet, 'rows', None) else None
+            )
             def _get_sample_rows():
                 nonlocal _sample_rows_cache
                 if _sample_rows_cache is None:

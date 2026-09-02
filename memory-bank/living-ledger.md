@@ -8794,3 +8794,43 @@ AND one where it hit before attributing the miss to the clock; a two-point read-
 `get_sheet_version` sample settles "continuous vs episodic" churn in minutes. (2) Before tuning a
 skip rate, price the miss: a discovery/validation call that needs only column metadata must never
 fetch rows — `include=` is not a row filter on `get_sheet`.
+
+## [2026-09-02 14:35] G-11.1-4 residual (component b) closed: discovery validation read bounded to `row_numbers=[1, 2, 3]`, reusing the same response as the date-column sample set
+
+**Rule.** When a Smartsheet discovery/validation call needs only column metadata
+(`sheet.columns`, `sheet.name`), fetch it via a ROW-BOUNDED `Sheets.get_sheet(sid,
+row_numbers=[1, 2, 3])` and reuse that same response's `.rows` as the date-column sample set —
+never rely on the `include=` keyword to bound rows. `include` selects OPTIONAL response
+elements (attachments, columnType, format, etc.); it does not restrict the row payload, so
+`get_sheet(sid, include='columns')` is a full-row download regardless of the keyword's name
+suggesting otherwise. Also: `column_ids=` MUST NOT be used to narrow the returned columns for
+this purpose — the column mapping needs every column title on the sheet, and narrowing the
+response would silently narrow the billing mapping too (protected logic).
+
+**What changed.** `pipeline/discovery.py::_validate_single_sheet` (`pipeline/discovery.py:479`)
+now issues `client.Sheets.get_sheet(sid, row_numbers=list(range(1, 4)))` instead of
+`include='columns'`, and seeds `_sample_rows_cache` from that same response's `rows` instead of
+leaving it `None` — deleting the second `get_sheet` round trip the sample-value fallback used to
+pay on every full validation. Same title/type matching, same `{'id','name','column_mapping'}`
+contract, same D-11.1-01 skip fast path, same `_failed_validation_sids` fail-closed guard — all
+byte-for-byte unchanged (`git diff` confined to `pipeline/discovery.py:463-491`).
+
+**Cost removed (G-11.1-4).** A D-11.1-01 registry-version skip MISS previously downloaded every
+row of every source sheet: 26–41 s wall per sheet at 8 workers. Runs 33634833356 (0/121 skip
+index eligible, Phase 1 3,214 s, `Duration` 96.0 min) and 33647771644 (0/121, Phase 1 4,999 s,
+`Duration` 129.7 min) both missed SC-1 on this cost alone. A skip HIT already met SC-1 before
+this change (run 33659869696, 118/121 eligible, Phase 1 44.4 s, `Duration` 30.8 min) — the fix
+targets the miss case specifically, expected to fall to roughly 1–2 s/sheet. Full diagnosis:
+`.planning/debug/11.1-discovery-full-validation-cost.md`. D-11.1-03 (no local cache, TTL, env
+var, or Actions cache step) is unaffected — this plan introduces none of those.
+
+**Deferred.** Fix candidate (b) — keying the D-11.1-01 skip on a column-set hash instead of
+`sheetVersion`, so cross-sheet recalcs that bump every backup sheet's version stop causing a
+miss — remains DEFERRED. Its motivation was a cheap fix for an expensive miss; once a miss is
+cheap (this entry), the motivation for a more complex skip key disappears. Revisit only if a
+production canary shows the bounded read is still not cheap enough on a real miss.
+
+**Production canary (Phase 11.1 Plan 04, Task 4).** SC-1/SC-2/D-11.1-04 require a post-merge
+scheduled run whose build contains the merge and whose skip index shows a genuine miss
+(`M eligible` low or `F fully validated` >= 100); a skip-hit run proves nothing new. See
+`11.1-04-SUMMARY.md` for the canary reading once the owner supplies it.
