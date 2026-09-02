@@ -271,3 +271,10 @@ fix on the first post-merge scheduled **skip-MISS** run: `⚡ Phase 1 complete` 
 single-digit minutes and the Python `• Duration:` line under ~75 min (never the Actions job
 clock). See `memory-bank/living-ledger.md` `[2026-09-02 14:35]` and
 `.planning/debug/11.1-discovery-full-validation-cost.md`.
+
+**Outcome (2026-09-02, 17:45 CDT).** #384 merged as `13e8e76`; the first scheduled run on a
+build containing it (33683979474, a genuine skip-MISS: 0/121 registry skips, 121 fully
+validated) finished discovery in 37.7 s instead of 3,214–4,999 s, processed all 3,178 groups
+at ~0.52 s/group with no `TIME_BUDGET` stop, and reported `• Duration: 0:50:47`. SC-1 is met
+on the worst-case path and G-11.1-4 is closed; Phase 11.1 is sealed and GSD is at Phase 12.
+Ledger `[2026-09-02 17:45]`.

@@ -8852,3 +8852,55 @@ production-risk review, independently raised as Greptile P2 and Copilot findings
 (RED: 2 calls ≠ 1 → GREEN). Mapping logic, the D-11.1-01 fast path, the fail-closed guard and the
 return contract are untouched; the source pin still holds. Same PR (#384); the Task 4 production
 canary contract is unchanged.
+
+## [2026-09-02 17:45] Phase 11.1 CLOSED — skip-MISS canary (run 33683979474, build `e2efdc0` ⊇ #384 `13e8e76`) met SC-1: `⚡ Phase 1 complete` 37.7 s, Python `Duration` 0:50:47, 3,178 groups at 0.52 s/group; G-11.1-4 resolved end-to-end; two advisory findings routed to the owner
+
+**Canary.** PR #384 was squash-merged at 20:52Z as `13e8e76`. The first scheduled run on a
+build containing it was 33683979474 (21:14:05Z cron, `production_frequent`, build `e2efdc0`).
+It was a genuine registry-skip MISS — skip index 121 / 0 eligible, validation split 0 skipped /
+121 fully validated — i.e. the exact path that cost 96 and 129.7 min on runs 33634833356 and
+33647771644. With the bounded read the same path measured:
+
+| Signal (Python log, never the Actions clock) | Before (`511ec48`) | Canary (`e2efdc0`) |
+|---|---|---|
+| `⚡ Phase 1 complete` (discovery incl. 121 full validations) | 3,214 s / 4,999 s | **37.7 s** |
+| Phase 2 fetch (215,079 rows) | ~1,200 s | 1,181 s |
+| Group phase (`🧊 warm-started` → `🧾 group_state: N flushed`) | 0.43 s/group | 1,660 s ÷ 3,178 = **0.52 s/group** |
+| Groups processed | budget-stopped | 3,178 (3,018 unchanged, 154 no-target-row, 6 generated), no `TIME_BUDGET` stop |
+| `• Duration:` | 96.0 / 129.7 min | **0:50:47 (50.8 min)** |
+| INC-06 🧵 release line / exit | — | 22:04:59Z, job 54.7 min, no hang |
+
+SC-1 (< ~75 min on the worst-case miss path), SC-2 (every group processed, no graceful stop)
+and D-11.1-04 (no exit hang) are MET. G-11.1-4 is resolved on both components: (a) the
+frozen-row warm start (#378) and (b) the bounded validation read (#384).
+
+**Seal.** Continuation executor wrote `11.1-04-SUMMARY.md`; gsd-verifier re-ran
+`11.1-VERIFICATION.md` to `passed` 20/20 (it re-pulled the run log and re-ran the suite + 6
+gates itself); `11.1-UAT.md` test 4 → pass, 19/19, G-11.1-4 `resolved`; `phase.complete 11.1`
+marked ROADMAP 4/4 and moved STATE to Phase 12 (Ownership — last known foreman as of the
+week). All of that is docs-only and sits on local `master` ahead of origin; it rides the next
+code PR (D-09 — never push docs straight to master).
+
+**Advisory code-quality report (`11.1-REVIEW.md`, gsd code reviewer, 16 files in the phase
+diff range) — owner decision, deliberately NOT auto-fixed because both touch OWN-02 / INC-06
+code the range swept in, and CR-01 sits inside the protected attachment-cleanup path:**
+- **CR-01** `pipeline/cleanup.py:89-116` `_is_sentinel_identifier` returns True for any
+  identifier that starts with `_`. `_RE_SANITIZE_HELPER_NAME = re.compile(r'[^\w\-]')`
+  (`config.py:28`) is applied without a strip in `excel.py:308/324`, so a real foreman name
+  with a leading space or punctuation also sanitizes to a leading `_`. The heuristic feeds the
+  sentinel-superseded gate (`cleanup.py:495-508`), which could delete a real person's
+  historical attachment. Fix shape: match the known error spellings (`_Unknown_Foreman`,
+  `_No_Foreman`, …) or de-sanitize before testing, plus a leading-space-name regression test.
+- **WR-01** `orchestrate.py` imports `AttachmentParentType` from
+  `smartsheet.models.enums.attachment_parent_type` at module top level; `discovery.py` uses a
+  lazy, guarded import for the same SDK-internal path. Align to the lazy pattern.
+
+**Rules retained.** (1) A discovery canary is judged only on a skip-MISS run and only on the
+Python `⚡ Phase 1 complete` / `• Duration:` lines — a skip-HIT run proves nothing about the
+fix, and the Actions job clock includes post-job steps. (2) When reading a ~29k-line run log,
+grep the `Session complete` block and the phase markers directly; `head -N` truncates inside
+the thousands of `Skip (unchanged` lines and hides the Duration line. (3) The
+harness-boundary hook rejects any shell command containing lowercase `review` in a GSD
+context (`init.code-review`, `gsd-code-reviewer`, commit text) as the cross-AI lane; the
+Claude-native path is plain git/node for scoping, the reviewer spawned via the Agent tool,
+and `git commit -F <msgfile>`.
