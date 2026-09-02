@@ -86,6 +86,27 @@ def cleanup_stale_excels(output_folder: str, kept_filenames: set):
         # Non-conforming files left untouched
     return removed
 
+def _is_sentinel_identifier(identifier: str | None) -> bool:
+    """True when a filename identifier token is a placeholder claimer.
+
+    ``build_group_identity`` yields the token after ``_User_`` /
+    ``_Helper_`` / ``_VacCrew_`` verbatim (``Unknown_Foreman``,
+    ``Unknown_Helper``, ``Unknown_VAC_Crew``, ``_NO_MATCH``, …). The
+    single source of truth for "is this a placeholder" is
+    ``billing_audit.writer.is_sentinel_claimer`` (Phase 12 / OWN-02),
+    imported lazily so this module keeps its import graph. A missing or
+    empty identifier (a bare primary) is NOT a sentinel — it is simply
+    unattributed and must never count as a real name either.
+    """
+    if not identifier:
+        return False
+    try:
+        from billing_audit.writer import is_sentinel_claimer  # noqa: PLC0415
+    except Exception:  # pragma: no cover - defensive: writer unavailable
+        return False
+    return bool(is_sentinel_claimer(identifier))
+
+
 def cleanup_untracked_sheet_attachments(
     client,
     target_sheet_id: int,
@@ -421,6 +442,60 @@ def cleanup_untracked_sheet_attachments(
                               f"🔄 Variant-migration orphan detected: "
                             f"primary attachment {att.name!r} superseded "
                             f"by live helper for WR {wr} week {week}. "
+                            f"Queued for deletion."
+                        )
+                        continue
+                    # Sentinel-superseded gate (Phase 12 / OWN-02 follow-up,
+                    # owner-approved 2026-09-01, ledger [2026-09-01 19:45]):
+                    # a placeholder identity (``_User_Unknown_Foreman``,
+                    # ``_Helper_Unknown_Helper``, ``_VacCrew_Unknown_VAC_Crew``,
+                    # ``_User__NO_MATCH`` …) that is NOT produced this run is
+                    # stale once a REAL-name identity for the SAME (wr, week,
+                    # variant) is live this run — the WR was assigned after
+                    # the placeholder file was uploaded and the sentinel-never-
+                    # a-claimer rule regenerated it under the real name.
+                    #
+                    # Safety: (1) same week AND same variant only — a real
+                    # name on another week or another role never triggers it
+                    # (ownership is never inherited across weeks — owner
+                    # decision); (2) a sentinel file still produced this run
+                    # (WR still unassigned) is in ``valid_wr_weeks`` and never
+                    # touched; (3) a live bare primary (no identifier) is not
+                    # a real name and does not trigger it; (4) like the two
+                    # gates above, it fires only for identities this run did
+                    # not emit, so KEEP_HISTORICAL_WEEKS / WR_FILTER scoping
+                    # cannot make an in-scope sentinel look stale without a
+                    # live real-name sibling.
+                    if (
+                        _identifier
+                        and ident not in valid_wr_weeks
+                        and _is_sentinel_identifier(_identifier)
+                        and any(
+                            _vw[0] == wr
+                            and _vw[1] == week
+                            and _vw[2] == variant
+                            and _vw[3]
+                            and not _is_sentinel_identifier(_vw[3])
+                            for _vw in valid_wr_weeks
+                        )
+                    ):
+                        try:
+                            import sentry_sdk as _sentry_sdk
+                            with _sentry_sdk.new_scope() as _scope:
+                                _scope.set_tag(
+                                    'cleanup.reason',
+                                    'sentinel_superseded',
+                                )
+                                _scope.set_tag('wr', wr)
+                                _scope.set_tag('week', week)
+                                _scope.set_tag('variant', variant)
+                        except Exception:
+                            pass
+                        off_contract_attachments.append(att)
+                        logging.info(
+                            f"🔄 Sentinel-superseded attachment detected: "
+                            f"{att.name!r} ({variant}) for WR {wr} week "
+                            f"{week} now has a live real-name identity. "
                             f"Queued for deletion."
                         )
                         continue

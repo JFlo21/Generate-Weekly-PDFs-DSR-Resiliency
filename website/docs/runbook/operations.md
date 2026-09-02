@@ -51,11 +51,12 @@ python generate_weekly_pdfs.py
 ## Restoring from a bad run
 
 - Use `reset_hash_history=true` to regenerate all files.
-- If only some WRs are bad, pass `advanced_options=reset_wr_list:WR1;WR2`.
-  The purge is scoped to those WRs, but any non-empty reset list still puts
-  the whole run in full mode (every group regenerates, not just the listed
-  ones) and purges only the target sheet — see `RESET_WR_LIST` notes under
-  `REMEDIATE_CLAIMERS` in the environment reference.
+- If only some WRs are bad, pass `advanced_options=reset_wr_list:WR1;WR2`
+  (bare numbers or a `WR` prefix, either works). The purge and the
+  regeneration are scoped to those WRs; the run still reads every sheet
+  in full (so the purged WR can be rebuilt) and the purge covers only the
+  target sheet — see `RESET_WR_LIST` notes under `REMEDIATE_CLAIMERS` in
+  the environment reference.
 - The `By-WorkRequest-…` artifact from the previous good run can be
   downloaded and re-attached manually via Smartsheet if a rollback is
   required.

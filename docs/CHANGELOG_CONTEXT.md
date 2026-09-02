@@ -173,3 +173,17 @@ VAC, and pre-pass helper rows. Operators: expect helper files for such WRs to re
 the frozen name after the first run. The same PR corrects the `REMEDIATE_CLAIMERS` guidance above
 and replaces real identifiers in the ledgers with the `<WR-D>` / `<FOREMAN-D>` aliases. See
 `memory-bank/living-ledger.md` `[2026-09-01 18:05]` (review-round bullet); PR #376.
+
+## 2026-09-01 — Stale placeholder attachments clean themselves up; `reset_wr_list` regenerates only the listed WRs
+Two owner-approved changes to the every-run cleanup and the reset lever. First, a
+`_User_Unknown_Foreman` / `_Helper_Unknown_Helper` / `_VacCrew_Unknown_VAC_Crew` / `__NO_MATCH`
+attachment that a run did not produce is now deleted once a real-name file for the same Work
+Request, same week-ending, and same variant is live in that run — the case that arises when a WR
+is assigned after its placeholder file was uploaded and the sentinel rule regenerates it under the
+real name. It never fires across weeks or roles, never on a placeholder still being produced, and
+a nameless bare primary does not count as a real name. Second, `reset_wr_list` now regenerates only
+the listed WRs instead of disabling the unchanged-group skip for the whole run; the full read of
+every sheet is kept on purpose so the purged WR can always be rebuilt. `WR`-prefixed tokens are
+accepted. Operators: watch for `🔄 Sentinel-superseded attachment detected` log lines in the first
+run after merge, and expect per-WR resets to be short. See `memory-bank/living-ledger.md`
+`[2026-09-01 20:20]`.

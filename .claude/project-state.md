@@ -18,12 +18,31 @@ budget 25), #355 (docs/hook), #359 (hash sort tiebreaker). **Merged 2026-08-28 0
 **3 of 5** since the 03:49Z fail — the pre-marker manual run does not count). Then: checklist item 6 SQL +
 items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes at 11-08 as its own PR._
 
-## Latest work (2026-09-01 18:45 CDT) — **PR #375 MERGED** (`8325bc8`, 23:34Z) — Phase 12 OWN-02 sentinel slice live on master; review fixes in **PR #376** (open); `<WR-D>` workbook = hand-edited copy
+## Latest work (2026-09-01 19:25 CDT) — **PR #375 MERGED** (`8325bc8`, 23:34Z) and **PR #376 MERGED** (`7153153`, 2026-09-02 00:14Z) — Phase 12 OWN-02 sentinel slice + helper-path week-key fix live on master; awaiting the first post-merge scheduled run (the 01:00Z cron; runs created earlier are pinned to `42ab0e5`, pre-#375); `<WR-D>` workbook = hand-edited copy
 
 - **OWN-02 merged as PR #375 (`8325bc8`, squash of `d2dd41d`). The review-fix round raced the merge:
   Juan merged while the gates were running, so the two fix commits landed on the feature branch
-  AFTER the squash and are carried by PR #376 (`fix/own-02-review-fixes`, cherry-picked onto
-  master, ALL 6 GATES PASSED on that branch, open for owner review).** What #375 shipped: `is_sentinel_claimer()`; `resolve_claimer`
+  AFTER the squash and were carried by PR #376 (`fix/own-02-review-fixes`, cherry-picked onto
+  master, ALL 6 GATES PASSED, 12 bot threads resolved, MERGED `7153153` 2026-09-02 00:14Z).**
+  Post-merge watch list for the first run on master ≥ `7153153`: `sentinel_claimers_ignored`,
+  `sentinel_freezes_deferred`, `attribution_frozen_hits` (helper path now honours frozen names),
+  wall clock vs `TIME_BUDGET_MINUTES=165` (regeneration burst expected for sentinel WRs that now
+  have a real foreman), duplicate attachments (real name + stale `_Unknown_Foreman`). Owner
+  decisions 2026-09-01 19:45 (ledger `[2026-09-01 19:45]`): spec §8 #1 = claim-time /
+  as-of-the-week ownership per row and per role (spec §5 adopted; live value never overrides;
+  corrections only via audited override); §8 #5 = backfill sources 1–4 allowed; sentinel-aware
+  cleanup + `RESET_WR_LIST` skip-gate scoping APPROVED (next PR); event-driven change capture
+  assessed as a future Phase 14 (gate: SC-1 wall clock + timing breakdown). §5 step 2 cross-week
+  inheritance DECIDED OFF (19:55). Still open: PPP purge on reset; cell-history backfill.
+- **Churn PR (sentinel-superseded cleanup + `RESET_WR_LIST` scoped to listed WRs) built 20:20 on
+  `fix/sentinel-superseded-cleanup-reset-scope`:** `pipeline/cleanup.py` gate (same wr + week +
+  variant real-name sibling required; Sentry `cleanup.reason=sentinel_superseded`),
+  `pipeline/orchestrate.py` `_reset_list_forces_regeneration` in the skip gate (Trigger 5 full
+  read kept on purpose), `pipeline/config.py` `_normalize_reset_wr`. Tests
+  `tests/test_sentinel_superseded_cleanup.py` (13 / 16 subtests, RED→GREEN). Ledger
+  `[2026-09-01 20:20]`. Canary = first scheduled run after merge (`🔄 Sentinel-superseded` lines
+  only where a real-name file regenerated in the same run).
+  What #375 shipped: `is_sentinel_claimer()`; `resolve_claimer`
   reads a frozen sentinel as no-history (use current); `freeze_row` nulls named sentinels and defers
   all-sentinel freezes (no RPC, returns False); counters `sentinel_claimers_ignored` /
   `sentinel_freezes_deferred` added to `run_summary` (golden 22→24 keys, three key-count pins

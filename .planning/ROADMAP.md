@@ -698,7 +698,11 @@ Repairs the 2026-08-24 `_User_Unknown_Foreman` defect and the 93 affected WRs.
 
 **Depends on:** Phase 10 (row_event history); Juan's approval of the semantics change
 (spec §8 **#1**, protected billing/attribution logic) and of the allowed backfill sources
-(spec §8 **#5**); a known-good validation sample.
+(spec §8 **#5**); a known-good validation sample. **#1 and #5 DECIDED 2026-09-01** (ledger
+`[2026-09-01 19:45]`): spec §5 claim-time / as-of-the-week ownership per row and per role
+adopted; backfill sources 1–4 allowed (cell history optional, pending); §5 step 2 cross-week
+inheritance DECIDED OFF (2026-09-01 19:55). Sentinel-aware cleanup + `RESET_WR_LIST` scoping
+approved as the next small PR.
 
 **Success criteria:**
 
